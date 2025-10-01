@@ -108,6 +108,7 @@ use crate::{
             QuiltPatchByPatchId,
             QuiltPatchByTag,
             QuiltPatchSelector,
+            args::TraceExporter,
             get_contract_client,
             get_read_client,
             get_sui_read_client_from_rpc_node_or_wallet,
@@ -141,6 +142,7 @@ use crate::{
             WalletOutput,
         },
     },
+    common::telemetry::TracingSubscriberBuilder,
     utils::{self, MetricsAndLoggingRuntime, generate_sui_wallet},
 };
 
@@ -202,7 +204,34 @@ impl ClientCommandRunner {
     ///
     /// Consumes `self`.
     #[tokio::main]
-    pub async fn run_cli_app(self, command: CliCommands) -> Result<()> {
+    pub async fn run_cli_app(
+        self,
+        command: CliCommands,
+        trace_cli: Option<TraceExporter>,
+    ) -> Result<()> {
+        let result = {
+            let mut subscriber_builder = TracingSubscriberBuilder::default();
+            match trace_cli {
+                Some(TraceExporter::Otlp) => {
+                    subscriber_builder.with_otlp_trace_exporter();
+                }
+                Some(TraceExporter::File(path)) => {
+                    subscriber_builder.with_file_trace_exporter(path);
+                }
+                None => (),
+            }
+            // Since we may export OTLP, this needs to be initialised in an async context.
+            let _guard = subscriber_builder.init()?;
+
+            self.run_cli_app_inner(command).await
+        };
+
+        opentelemetry::global::shutdown_tracer_provider();
+        result
+    }
+
+    #[tracing::instrument(name="run", skip_all, fields(command = command.as_str()))]
+    async fn run_cli_app_inner(self, command: CliCommands) -> Result<()> {
         match command {
             CliCommands::Read {
                 blob_id,
@@ -709,10 +738,13 @@ impl ClientCommandRunner {
 
         tracing::info!("storing {} files as blobs on Walrus", files.len());
         let start_timer = std::time::Instant::now();
-        let blobs = files
-            .into_iter()
-            .map(|file| read_blob_from_file(&file).map(|blob| (file, blob)))
-            .collect::<Result<Vec<(PathBuf, Vec<u8>)>>>()?;
+
+        let blobs = tracing::info_span!("read_blobs").in_scope(|| {
+            files
+                .into_iter()
+                .map(|file| read_blob_from_file(&file).map(|blob| (file, blob)))
+                .collect::<Result<Vec<(PathBuf, Vec<u8>)>>>()
+        })?;
 
         let mut store_args = StoreArgs::new(
             encoding_type,
@@ -774,6 +806,7 @@ impl ClientCommandRunner {
         results.print_output(self.json)
     }
 
+    #[tracing::instrument(skip_all)]
     async fn store_dry_run(
         client: WalrusNodeClient<SuiContractClient>,
         files: Vec<PathBuf>,
@@ -1700,6 +1733,7 @@ async fn delete_blob(
     result
 }
 
+#[tracing::instrument(skip_all)]
 async fn get_epochs_ahead(
     epoch_arg: EpochArg,
     max_epochs_ahead: EpochCount,

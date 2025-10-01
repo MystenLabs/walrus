@@ -7,7 +7,7 @@ use std::{
     collections::BTreeMap,
     net::SocketAddr,
     num::{NonZeroU16, NonZeroU32},
-    path::PathBuf,
+    path::{Path, PathBuf},
     str::FromStr,
     time::{Duration, SystemTime},
 };
@@ -96,6 +96,21 @@ pub struct App {
     #[arg(long, global = true)]
     #[serde(default)]
     pub json: bool,
+
+    /// Enable tracing output for the CLI, possible options are 'otlp' and 'file=path'.
+    ///
+    /// The value 'otlp' sends the traces to an OTLP trace collector. The destination can be
+    /// configured using standard OTLP environment variables.
+    ///
+    /// The value 'file=path' writes JSON-encoded gzipped traces to the file at the specified
+    /// path. These traces can later be replayed to an OTLP/HTTP collector.
+    ///
+    /// See <https://opentelemetry.io/docs/languages/sdk-configuration/otlp-exporter> for more
+    /// information on OTLP environment variables.
+    #[arg(long, global = true)]
+    #[serde(default)]
+    pub trace_cli: Option<TraceExporter>,
+
     /// The command to run.
     #[command(subcommand)]
     pub command: Commands,
@@ -638,6 +653,40 @@ pub enum CliCommands {
         /// The nodes to backfill with slivers and blob metadata.
         node_ids: Vec<ObjectID>,
     },
+}
+
+impl CliCommands {
+    /// Returns a string representation of the command's name.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            CliCommands::Store { .. } => "store",
+            CliCommands::StoreQuilt { .. } => "store-quilt",
+            CliCommands::Read { .. } => "read",
+            CliCommands::ReadQuilt { .. } => "read-quilt",
+            CliCommands::ListPatchesInQuilt { .. } => "list-patches-in-quilt",
+            CliCommands::BlobStatus { .. } => "blob-status",
+            CliCommands::Info { .. } => "info",
+            CliCommands::Health { .. } => "health",
+            CliCommands::BlobId { .. } => "blob-id",
+            CliCommands::ConvertBlobId { .. } => "convert-blob-id",
+            CliCommands::ListBlobs { .. } => "list-blobs",
+            CliCommands::Delete { .. } => "delete",
+            CliCommands::Stake { .. } => "stake",
+            CliCommands::GenerateSuiWallet { .. } => "generate-sui-wallet",
+            CliCommands::GetWal { .. } => "get-wal",
+            CliCommands::BurnBlobs { .. } => "burn-blobs",
+            CliCommands::FundSharedBlob { .. } => "fund-shared-blob",
+            CliCommands::Extend { .. } => "extend",
+            CliCommands::Share { .. } => "share",
+            CliCommands::GetBlobAttribute { .. } => "get-blob-attribute",
+            CliCommands::SetBlobAttribute { .. } => "set-blob-attribute",
+            CliCommands::RemoveBlobAttributeFields { .. } => "remove-blob-attribute-fields",
+            CliCommands::RemoveBlobAttribute { .. } => "remove-blob-attribute",
+            CliCommands::NodeAdmin { .. } => "node-admin",
+            CliCommands::PullArchiveBlobs { .. } => "pull-archive-blobs",
+            CliCommands::BlobBackfill { .. } => "blob-backfill",
+        }
+    }
 }
 
 /// Subcommands for the `info` command.
@@ -1610,6 +1659,29 @@ impl NodeSelection {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub enum TraceExporter {
+    #[serde(rename = "otlp")]
+    Otlp,
+    #[serde(rename = "file")]
+    File(PathBuf),
+}
+
+impl FromStr for TraceExporter {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        if s == "otlp" {
+            Ok(TraceExporter::Otlp)
+        } else if s.starts_with("file=") {
+            let (_, path) = s.split_once('=').expect("checked for equal sign above");
+            Ok(TraceExporter::File(Path::new(path).into()))
+        } else {
+            Err(anyhow::anyhow!("unrecognised trace exporter '{}'", s))
+        }
+    }
+}
+
 /// The number of epochs to store the blob for.
 ///
 /// Can be either a non-zero number of epochs or the special value `max`, which will store the blob
@@ -1905,6 +1977,7 @@ mod tests {
             wallet: None,
             gas_budget: None,
             json: false,
+            trace_cli: None,
             command: Commands::Json {
                 command_string: Some(json.to_string()),
             },

@@ -74,10 +74,7 @@ fn client() -> Result<()> {
     drop(subscriber_guard);
 
     match app.command {
-        Commands::Cli(command) => {
-            utils::init_tracing_subscriber()?;
-            runner.run_cli_app(command)
-        }
+        Commands::Cli(command) => runner.run_cli_app(command, app.trace_cli),
         Commands::Daemon(command) => {
             let metrics_address = command.get_metrics_address();
 
