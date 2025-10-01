@@ -869,7 +869,8 @@ pub fn encoded_slivers_length_for_n_shards(
 /// Returns the number of chunks needed to split the blob into chunks of the specified size.
 /// The chunk_size parameter allows per-blob configuration of chunk size.
 pub fn compute_num_chunks(blob_size: u64, chunk_size: u64) -> u32 {
-    blob_size.div_ceil(chunk_size)
+    blob_size
+        .div_ceil(chunk_size)
         .try_into()
         .expect("number of chunks fits in u32")
 }

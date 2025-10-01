@@ -48,7 +48,7 @@ impl EncodingAxis for Primary {
 
         // Create a dummy secondary sliver (it won't be used by decode_chunk)
         let dummy_secondary = SliverData::<Secondary>::new_empty(
-            0,  // length
+            0, // length
             symbol_size,
             SliverIndex(0),
         );
@@ -77,7 +77,7 @@ impl EncodingAxis for Secondary {
 
         // Create a dummy primary sliver (it won't be used by decode_chunk)
         let dummy_primary = SliverData::<Primary>::new_empty(
-            0,  // length
+            0, // length
             symbol_size,
             SliverIndex(0),
         );

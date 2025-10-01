@@ -3909,13 +3909,23 @@ mod tests {
 
             if store_at_shard(&shard, SliverType::Primary) {
                 node.client()
-                    .store_sliver(blob.blob_id(), sliver_pair.index(), &sliver_pair.primary)
+                    .store_sliver(
+                        blob.blob_id(),
+                        sliver_pair.index(),
+                        &sliver_pair.primary,
+                        None,
+                    )
                     .await?;
             }
 
             if store_at_shard(&shard, SliverType::Secondary) {
                 node.client()
-                    .store_sliver(blob.blob_id(), sliver_pair.index(), &sliver_pair.secondary)
+                    .store_sliver(
+                        blob.blob_id(),
+                        sliver_pair.index(),
+                        &sliver_pair.secondary,
+                        None,
+                    )
                     .await?;
             }
         }
@@ -4683,7 +4693,7 @@ mod tests {
                     .shard_storage(ShardIndex(0))
                     .await
                     .unwrap()
-                    .get_primary_sliver(&blob_id)
+                    .get_primary_sliver(&blob_id, None)
                     .unwrap()
                     .unwrap()
             )
@@ -5024,13 +5034,13 @@ mod tests {
                 if skip_blob_indices.contains(&i) {
                     assert!(
                         shard_storage_dst
-                            .get_sliver(&blob_id, SliverType::Primary)
+                            .get_sliver(&blob_id, None, SliverType::Primary)
                             .unwrap()
                             .is_none()
                     );
                     assert!(
                         shard_storage_dst
-                            .get_sliver(&blob_id, SliverType::Secondary)
+                            .get_sliver(&blob_id, None, SliverType::Secondary)
                             .unwrap()
                             .is_none()
                     );
@@ -5038,14 +5048,14 @@ mod tests {
                 }
 
                 let Sliver::Primary(dst_primary) = shard_storage_dst
-                    .get_sliver(&blob_id, SliverType::Primary)
+                    .get_sliver(&blob_id, None, SliverType::Primary)
                     .unwrap()
                     .unwrap()
                 else {
                     panic!("Must get primary sliver");
                 };
                 let Sliver::Secondary(dst_secondary) = shard_storage_dst
-                    .get_sliver(&blob_id, SliverType::Secondary)
+                    .get_sliver(&blob_id, None, SliverType::Secondary)
                     .unwrap()
                     .unwrap()
                 else {

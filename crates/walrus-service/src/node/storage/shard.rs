@@ -407,12 +407,18 @@ impl ShardStorage {
             rw_options
         );
         let chunked_primary_slivers = reopen_cf!(
-            (&cf_names.chunked_primary_slivers, db_table_opts_factory.shard(),),
+            (
+                &cf_names.chunked_primary_slivers,
+                db_table_opts_factory.shard(),
+            ),
             database,
             rw_options
         );
         let chunked_secondary_slivers = reopen_cf!(
-            (&cf_names.chunked_secondary_slivers, db_table_opts_factory.shard(),),
+            (
+                &cf_names.chunked_secondary_slivers,
+                db_table_opts_factory.shard(),
+            ),
             database,
             rw_options
         );
@@ -579,7 +585,11 @@ impl ShardStorage {
 
     /// Returns true iff the sliver-pair for the given blob ID is stored by the shard.
     #[tracing::instrument(skip_all, fields(walrus.shard_index = %self.id), err)]
-    pub(crate) fn is_sliver_pair_stored(&self, blob_id: &BlobId, chunk_index: Option<u32>) -> Result<bool, TypedStoreError> {
+    pub(crate) fn is_sliver_pair_stored(
+        &self,
+        blob_id: &BlobId,
+        chunk_index: Option<u32>,
+    ) -> Result<bool, TypedStoreError> {
         Ok(self.is_sliver_stored::<Primary>(blob_id, chunk_index)?
             && self.is_sliver_stored::<Secondary>(blob_id, chunk_index)?)
     }
@@ -611,8 +621,12 @@ impl ShardStorage {
         let response = match (chunk_index, type_) {
             (None, SliverType::Primary) => self.primary_slivers.contains_key(blob_id),
             (None, SliverType::Secondary) => self.secondary_slivers.contains_key(blob_id),
-            (Some(idx), SliverType::Primary) => self.chunked_primary_slivers.contains_key(&(*blob_id, idx)),
-            (Some(idx), SliverType::Secondary) => self.chunked_secondary_slivers.contains_key(&(*blob_id, idx)),
+            (Some(idx), SliverType::Primary) => {
+                self.chunked_primary_slivers.contains_key(&(*blob_id, idx))
+            }
+            (Some(idx), SliverType::Secondary) => self
+                .chunked_secondary_slivers
+                .contains_key(&(*blob_id, idx)),
         };
 
         self.metrics
@@ -635,8 +649,14 @@ impl ShardStorage {
                 batch.delete_batch(&self.secondary_slivers, std::iter::once(blob_id))?;
             }
             Some(idx) => {
-                batch.delete_batch(&self.chunked_primary_slivers, std::iter::once((*blob_id, idx)))?;
-                batch.delete_batch(&self.chunked_secondary_slivers, std::iter::once((*blob_id, idx)))?;
+                batch.delete_batch(
+                    &self.chunked_primary_slivers,
+                    std::iter::once((*blob_id, idx)),
+                )?;
+                batch.delete_batch(
+                    &self.chunked_secondary_slivers,
+                    std::iter::once((*blob_id, idx)),
+                )?;
             }
         }
         Ok(())
@@ -1827,8 +1847,8 @@ mod tests {
             .expect("shard should exist");
         let sliver = get_sliver(sliver_type, 1);
 
-        shard.put_sliver(BLOB_ID, sliver.clone()).await?;
-        let retrieved = shard.get_sliver(&BLOB_ID, sliver_type)?;
+        shard.put_sliver(BLOB_ID, None, sliver.clone()).await?;
+        let retrieved = shard.get_sliver(&BLOB_ID, None, sliver_type)?;
 
         assert_eq!(retrieved, Some(sliver));
 
@@ -1847,11 +1867,11 @@ mod tests {
         let primary = get_sliver(SliverType::Primary, 1);
         let secondary = get_sliver(SliverType::Secondary, 2);
 
-        shard.put_sliver(BLOB_ID, primary.clone()).await?;
-        shard.put_sliver(BLOB_ID, secondary.clone()).await?;
+        shard.put_sliver(BLOB_ID, None, primary.clone()).await?;
+        shard.put_sliver(BLOB_ID, None, secondary.clone()).await?;
 
-        let retrieved_primary = shard.get_sliver(&BLOB_ID, SliverType::Primary)?;
-        let retrieved_secondary = shard.get_sliver(&BLOB_ID, SliverType::Secondary)?;
+        let retrieved_primary = shard.get_sliver(&BLOB_ID, None, SliverType::Primary)?;
+        let retrieved_secondary = shard.get_sliver(&BLOB_ID, None, SliverType::Secondary)?;
 
         assert_eq!(retrieved_primary, Some(primary), "invalid primary sliver");
         assert_eq!(
@@ -1875,17 +1895,17 @@ mod tests {
         let primary = get_sliver(SliverType::Primary, 1);
         let secondary = get_sliver(SliverType::Secondary, 2);
 
-        shard.put_sliver(BLOB_ID, primary.clone()).await?;
-        shard.put_sliver(BLOB_ID, secondary.clone()).await?;
+        shard.put_sliver(BLOB_ID, None, primary.clone()).await?;
+        shard.put_sliver(BLOB_ID, None, secondary.clone()).await?;
 
-        assert!(shard.is_sliver_pair_stored(&BLOB_ID)?);
+        assert!(shard.is_sliver_pair_stored(&BLOB_ID, None)?);
 
         let mut batch = storage.inner.metadata.batch();
-        shard.delete_sliver_pair(&mut batch, &BLOB_ID)?;
+        shard.delete_sliver_pair(&mut batch, &BLOB_ID, None)?;
         batch.write()?;
 
-        assert!(!shard.is_sliver_stored::<Primary>(&BLOB_ID)?);
-        assert!(!shard.is_sliver_stored::<Secondary>(&BLOB_ID)?);
+        assert!(!shard.is_sliver_stored::<Primary>(&BLOB_ID, None)?);
+        assert!(!shard.is_sliver_stored::<Secondary>(&BLOB_ID, None)?);
 
         Ok(())
     }
@@ -1899,12 +1919,12 @@ mod tests {
             .await
             .expect("shard should exist");
 
-        assert!(!shard.is_sliver_stored::<Primary>(&BLOB_ID)?);
-        assert!(!shard.is_sliver_stored::<Secondary>(&BLOB_ID)?);
+        assert!(!shard.is_sliver_stored::<Primary>(&BLOB_ID, None)?);
+        assert!(!shard.is_sliver_stored::<Secondary>(&BLOB_ID, None)?);
 
         let mut batch = storage.inner.metadata.batch();
         shard
-            .delete_sliver_pair(&mut batch, &BLOB_ID)
+            .delete_sliver_pair(&mut batch, &BLOB_ID, None)
             .expect("delete should not error");
         batch.write()?;
         Ok(())
@@ -1938,14 +1958,14 @@ mod tests {
         let second_sliver = get_sliver(type_second, 2);
 
         first_shard
-            .put_sliver(BLOB_ID, first_sliver.clone())
+            .put_sliver(BLOB_ID, None, first_sliver.clone())
             .await?;
         second_shard
-            .put_sliver(BLOB_ID, second_sliver.clone())
+            .put_sliver(BLOB_ID, None, second_sliver.clone())
             .await?;
 
-        let first_retrieved = first_shard.get_sliver(&BLOB_ID, type_first)?;
-        let second_retrieved = second_shard.get_sliver(&BLOB_ID, type_second)?;
+        let first_retrieved = first_shard.get_sliver(&BLOB_ID, None, type_first)?;
+        let second_retrieved = second_shard.get_sliver(&BLOB_ID, None, type_second)?;
 
         assert_eq!(
             first_retrieved,
@@ -1984,16 +2004,16 @@ mod tests {
 
         if store_primary {
             shard
-                .put_sliver(BLOB_ID, get_sliver(SliverType::Primary, 3))
+                .put_sliver(BLOB_ID, None, get_sliver(SliverType::Primary, 3))
                 .await?;
         }
         if store_secondary {
             shard
-                .put_sliver(BLOB_ID, get_sliver(SliverType::Secondary, 4))
+                .put_sliver(BLOB_ID, None, get_sliver(SliverType::Secondary, 4))
                 .await?;
         }
 
-        assert_eq!(shard.is_sliver_pair_stored(&BLOB_ID)?, is_pair_stored);
+        assert_eq!(shard.is_sliver_pair_stored(&BLOB_ID, None)?, is_pair_stored);
 
         Ok(())
     }
@@ -2068,7 +2088,7 @@ mod tests {
         // Populates the shard with the generated data.
         for blob_data in data.iter() {
             for (_sliver_type, sliver) in blob_data.1.iter() {
-                shard.put_sliver(*blob_data.0, sliver.clone()).await?;
+                shard.put_sliver(*blob_data.0, None, sliver.clone()).await?;
             }
         }
 

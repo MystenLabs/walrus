@@ -9,8 +9,7 @@ use thiserror::Error;
 use crate::{SliverIndex, merkle::MerkleProofError};
 
 /// Error indicating that the data is too large to be encoded/decoded.
-#[derive(Debug, Error, PartialEq, Eq, Clone)]
-#[derive(Default)]
+#[derive(Debug, Error, PartialEq, Eq, Clone, Default)]
 pub struct DataTooLargeError {
     message: Option<String>,
 }
@@ -28,7 +27,6 @@ impl DataTooLargeError {
         }
     }
 }
-
 
 impl core::fmt::Display for DataTooLargeError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {

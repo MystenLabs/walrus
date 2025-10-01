@@ -1101,7 +1101,11 @@ impl WalrusNodeClient<SuiContractClient> {
         encoding_type: EncodingType,
         multi_pb: &MultiProgress,
     ) -> ClientResult<(Vec<SliverPair>, VerifiedBlobMetadataWithId)> {
-        use walrus_core::encoding::{compute_chunk_parameters, max_blob_size_for_n_shards, ChunkedBlobEncoder};
+        use walrus_core::encoding::{
+            ChunkedBlobEncoder,
+            compute_chunk_parameters,
+            max_blob_size_for_n_shards,
+        };
 
         let spinner = multi_pb.add(styled_spinner());
         spinner.set_message("encoding the blob");
@@ -1114,7 +1118,8 @@ impl WalrusNodeClient<SuiContractClient> {
 
         let (pairs, metadata) = if blob_size > max_single_chunk_size {
             // Use chunked encoding for large blobs
-            let (num_chunks, chunk_size) = compute_chunk_parameters(blob_size, n_shards, encoding_type);
+            let (num_chunks, chunk_size) =
+                compute_chunk_parameters(blob_size, n_shards, encoding_type);
 
             spinner.set_message(format!("encoding large blob ({} chunks)", num_chunks));
             tracing::info!(
@@ -1128,12 +1133,19 @@ impl WalrusNodeClient<SuiContractClient> {
             match encoding_type {
                 EncodingType::RS2Chunked => {
                     // Get the Reed-Solomon config
-                    let walrus_core::encoding::EncodingConfigEnum::ReedSolomon(rs_config) = self.encoding_config.get_for_type(encoding_type);
+                    let walrus_core::encoding::EncodingConfigEnum::ReedSolomon(rs_config) =
+                        self.encoding_config.get_for_type(encoding_type);
 
                     let chunked_encoder = ChunkedBlobEncoder::new(rs_config, blob, chunk_size)
                         .map_err(ClientError::other)?;
-                    chunked_encoder.encode_with_metadata()
-                        .map_err(ClientError::other)?
+                    let (chunked_pairs, metadata) = chunked_encoder
+                        .encode_with_metadata()
+                        .map_err(ClientError::other)?;
+
+                    // Flatten Vec<Vec<SliverPair>> to Vec<SliverPair> for compatibility with existing code
+                    // The chunk structure is preserved in metadata and will be used during storage
+                    let flat_pairs: Vec<SliverPair> = chunked_pairs.into_iter().flatten().collect();
+                    (flat_pairs, metadata)
                 }
                 _ => {
                     return Err(ClientError::store_blob_internal(format!(
@@ -2058,7 +2070,7 @@ impl<T> WalrusNodeClient<T> {
         // Result buffer to accumulate decoded chunks
         let mut result = Vec::with_capacity(
             usize::try_from(metadata_v2.unencoded_length)
-                .expect("unencoded length must fit in usize to decode in memory")
+                .expect("unencoded length must fit in usize to decode in memory"),
         );
 
         // Download and decode each chunk
@@ -2066,9 +2078,8 @@ impl<T> WalrusNodeClient<T> {
             tracing::debug!(chunk_index, "requesting chunk");
 
             // Create a progress bar for this chunk
-            let progress_bar: indicatif::ProgressBar = styled_progress_bar(
-                encoding_config.n_source_symbols::<U>().get().into(),
-            );
+            let progress_bar: indicatif::ProgressBar =
+                styled_progress_bar(encoding_config.n_source_symbols::<U>().get().into());
             progress_bar.set_message(format!("chunk {}/{}", chunk_index + 1, num_chunks));
 
             let comms = self
@@ -2127,9 +2138,7 @@ impl<T> WalrusNodeClient<T> {
 
                     let sliver_pairs: Vec<SliverPair> = slivers
                         .into_iter()
-                        .map(|sliver_data| {
-                            U::make_sliver_pair_with_dummy(sliver_data, symbol_size)
-                        })
+                        .map(|sliver_data| U::make_sliver_pair_with_dummy(sliver_data, symbol_size))
                         .collect();
 
                     // Decode the chunk

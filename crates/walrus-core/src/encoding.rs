@@ -15,7 +15,7 @@ pub use basic_encoding::{
 };
 
 mod blob_encoding;
-pub use blob_encoding::{BlobDecoder, BlobEncoder, ChunkedBlobEncoder, ChunkedBlobDecoder};
+pub use blob_encoding::{BlobDecoder, BlobEncoder, ChunkedBlobDecoder, ChunkedBlobEncoder};
 
 pub mod quilt_encoding;
 

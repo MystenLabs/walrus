@@ -271,7 +271,9 @@ pub async fn get_chunk_sliver<S: SyncServiceState>(
     let blob_id = blob_id.0;
 
     // Retrieve metadata to validate chunk_index
-    let metadata = state.service.retrieve_metadata(&blob_id)
+    let metadata = state
+        .service
+        .retrieve_metadata(&blob_id)
         .map_err(|_| RetrieveSliverError::Unavailable)?;
 
     // Validate chunk_index for chunked blobs
