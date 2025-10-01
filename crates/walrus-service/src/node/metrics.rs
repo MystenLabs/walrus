@@ -307,7 +307,11 @@ impl TelemetryLabel for EventStreamElement {
 
 impl TelemetryLabel for BlobCertified {
     fn label(&self) -> &'static str {
-        "certified"
+        if self.is_extension {
+            "extended"
+        } else {
+            "certified"
+        }
     }
 }
 
