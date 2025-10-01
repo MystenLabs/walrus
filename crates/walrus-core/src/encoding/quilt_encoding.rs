@@ -2569,4 +2569,132 @@ mod tests {
         let config = ReedSolomonEncodingConfig::new(NonZeroU16::new(7).unwrap());
         let _ = QuiltV1::new_from_quilt_blob(Vec::new(), &EncodingConfigEnum::ReedSolomon(&config));
     }
+
+    #[test]
+    fn test_column_size_mismatch_errors() {
+        use core::num::NonZeroU16;
+
+        use crate::encoding::errors::QuiltError;
+
+        // Create slivers with different sizes.
+        let symbol_size = NonZeroU16::new(10).unwrap();
+        let sliver1 =
+            SliverData::<Secondary>::new(vec![0u8; 100], symbol_size, SliverIndex::new(0));
+
+        let sliver2 =
+            SliverData::<Secondary>::new(vec![0u8; 200], symbol_size, SliverIndex::new(1));
+
+        // Creating a new decoder with inconsistent slivers should fail.
+        let result = QuiltDecoderV1::new(vec![&sliver1, &sliver2]);
+        assert!(
+            matches!(
+                result,
+                Err(QuiltError::ColumnSizeMismatch {
+                    expected: 100,
+                    actual: 200
+                })
+            ),
+            "should fail when creating decoder with inconsistent sliver sizes"
+        );
+
+        // Adding a sliver with different size to existing decoder should fail.
+        let mut decoder =
+            QuiltDecoderV1::new(vec![&sliver1]).expect("should create decoder with single sliver");
+
+        let result = decoder.add_slivers(vec![&sliver2]);
+        assert!(
+            matches!(
+                result,
+                Err(QuiltError::ColumnSizeMismatch {
+                    expected: 100,
+                    actual: 200
+                })
+            ),
+            "should fail when adding sliver with different size"
+        );
+
+        // Using add_owned_slivers with different size should fail.
+        let mut decoder = QuiltDecoderV1::new(vec![&sliver1]).expect("Should create decoder");
+
+        let owned_sliver_wrong_size =
+            SliverData::<Secondary>::new(vec![0u8; 150], symbol_size, SliverIndex::new(3));
+
+        let result = decoder.add_owned_slivers(vec![owned_sliver_wrong_size]);
+        assert!(
+            matches!(
+                result,
+                Err(QuiltError::ColumnSizeMismatch {
+                    expected: 100,
+                    actual: 150
+                })
+            ),
+            "should fail when adding owned sliver with different size"
+        );
+
+        // new_with_quilt_index should also validate sizes.
+        let quilt_index = QuiltIndexV1 {
+            quilt_patches: vec![],
+        };
+        let result =
+            QuiltDecoderV1::new_with_quilt_index(vec![&sliver1, &sliver2], quilt_index.clone());
+        assert!(
+            matches!(
+                result,
+                Err(QuiltError::ColumnSizeMismatch {
+                    expected: 100,
+                    actual: 200
+                })
+            ),
+            "should fail when creating decoder with index and inconsistent sliver sizes"
+        );
+
+        // new_with_owned should also validate sizes.
+        let owned_sliver1 =
+            SliverData::<Secondary>::new(vec![0u8; 100], symbol_size, SliverIndex::new(0));
+        let owned_sliver2 =
+            SliverData::<Secondary>::new(vec![0u8; 200], symbol_size, SliverIndex::new(1));
+
+        let result = QuiltDecoderV1::new_with_owned(vec![owned_sliver1, owned_sliver2]);
+        assert!(
+            matches!(
+                result,
+                Err(QuiltError::ColumnSizeMismatch {
+                    expected: 100,
+                    actual: 200
+                })
+            ),
+            "should fail when creating owned decoder with inconsistent sliver sizes"
+        );
+
+        // Verify the trait methods also properly handle errors.
+        let result = QuiltConfigV1::get_decoder(vec![&sliver1, &sliver2]);
+        assert!(
+            matches!(
+                result,
+                Err(QuiltError::ColumnSizeMismatch {
+                    expected: 100,
+                    actual: 200
+                })
+            ),
+            "trait get_decoder should propagate column size mismatch error"
+        );
+
+        let quilt_index_enum = QuiltIndex::V1(QuiltIndexV1 {
+            quilt_patches: vec![],
+        });
+        let result = QuiltConfigV1::get_decoder_with_quilt_index(
+            vec![&sliver1, &sliver2],
+            &quilt_index_enum,
+        );
+        assert!(
+            matches!(
+                result,
+                Err(QuiltError::ColumnSizeMismatch {
+                    expected: 100,
+                    actual: 200
+                })
+            ),
+            "trait get_decoder_with_quilt_index should propagate column size mismatch error"
+        );
+    }
 }
