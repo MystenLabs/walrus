@@ -1168,6 +1168,10 @@ impl StorageNode {
             };
 
             TaskMonitor::instrument(&monitor, task).await?;
+
+            self.inner
+                .metrics
+                .set_last_processed_event_position(stream_element.checkpoint_event_position);
         }
 
         bail!("event stream for blob events stopped")

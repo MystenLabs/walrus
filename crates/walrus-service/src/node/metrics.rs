@@ -24,7 +24,7 @@ use walrus_sui::types::{
 
 use crate::{
     common::telemetry::{CurrentEpochMetric, CurrentEpochStateMetric},
-    event::events::EventStreamElement,
+    event::events::{CheckpointEventPosition, EventStreamElement},
 };
 
 pub(crate) const STATUS_FAILURE: &str = "failure";
@@ -177,6 +177,21 @@ walrus_utils::metrics::define_metric_set! {
 
         #[help = "The number of blob events pending processing in the BlobEventProcessor."]
         pending_processing_blob_event_in_background_processors: IntGaugeVec["worker_index"],
+
+        #[help = "The Sui checkpoint of the last Walrus event processed."]
+        last_processed_event_position_sui_checkpoint: U64Gauge[],
+
+        #[help = "The index within Sui checkpoint of the last Walrus event processed."]
+        last_processed_event_position_sui_checkpoint_index: U64Gauge[],
+    }
+}
+
+impl NodeMetricSet {
+    pub fn set_last_processed_event_position(&self, position: CheckpointEventPosition) {
+        self.last_processed_event_position_sui_checkpoint
+            .set(position.checkpoint_sequence_number);
+        self.last_processed_event_position_sui_checkpoint_index
+            .set(position.counter);
     }
 }
 
