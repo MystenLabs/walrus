@@ -363,17 +363,9 @@ impl BlobPersistence {
         permanent: bool,
     ) -> Result<Self, InvalidBlobPersistenceError> {
         match (deletable, permanent) {
-            (true, false) => Ok(Self::Deletable),
+            (_, false) => Ok(Self::Deletable),
             (false, true) => Ok(Self::Permanent),
             (true, true) => Err(InvalidBlobPersistenceError),
-            (false, false) => {
-                tracing::warn!(
-                    "blob is marked as neither deletable nor permanent; blobs are now deletable \
-                    by default (since v1.33); it is recommended to use `--deletable` or \
-                    `--permanent` to explicitly specify the desired behavior"
-                );
-                Ok(Self::Deletable)
-            }
         }
     }
 }

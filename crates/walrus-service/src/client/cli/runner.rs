@@ -108,7 +108,7 @@ use crate::{
             QuiltPatchByPatchId,
             QuiltPatchByTag,
             QuiltPatchSelector,
-            args::TraceExporter,
+            args::{CommonStoreOptions, TraceExporter},
             get_contract_client,
             get_read_client,
             get_sui_read_client_from_rpc_node_or_wallet,
@@ -256,53 +256,15 @@ impl ClientCommandRunner {
             CliCommands::Store {
                 files,
                 common_options,
-            } => {
-                self.store(
-                    files,
-                    common_options.epoch_arg,
-                    common_options.dry_run,
-                    StoreOptimizations::from_force_and_ignore_resources_flags(
-                        common_options.force,
-                        common_options.ignore_resources,
-                    ),
-                    BlobPersistence::from_deletable_and_permanent(
-                        common_options.deletable,
-                        common_options.permanent,
-                    )?,
-                    PostStoreAction::from_share(common_options.share),
-                    common_options.encoding_type,
-                    common_options.upload_relay,
-                    common_options.skip_tip_confirmation.into(),
-                    common_options.upload_mode.map(Into::into),
-                )
-                .await
-            }
+            } => self.store(files, common_options.try_into()?).await,
 
             CliCommands::StoreQuilt {
                 paths,
                 blobs,
                 common_options,
             } => {
-                self.store_quilt(
-                    paths,
-                    blobs,
-                    common_options.epoch_arg,
-                    common_options.dry_run,
-                    StoreOptimizations::from_force_and_ignore_resources_flags(
-                        common_options.force,
-                        common_options.ignore_resources,
-                    ),
-                    BlobPersistence::from_deletable_and_permanent(
-                        common_options.deletable,
-                        common_options.permanent,
-                    )?,
-                    PostStoreAction::from_share(common_options.share),
-                    common_options.encoding_type,
-                    common_options.upload_relay,
-                    common_options.skip_tip_confirmation.into(),
-                    common_options.upload_mode.map(Into::into),
-                )
-                .await
+                self.store_quilt(paths, blobs, common_options.try_into()?)
+                    .await
             }
 
             CliCommands::BlobStatus {
@@ -699,15 +661,17 @@ impl ClientCommandRunner {
     pub(crate) async fn store(
         self,
         files: Vec<PathBuf>,
-        epoch_arg: EpochArg,
-        dry_run: bool,
-        store_optimizations: StoreOptimizations,
-        persistence: BlobPersistence,
-        post_store: PostStoreAction,
-        encoding_type: Option<EncodingType>,
-        upload_relay: Option<Url>,
-        confirmation: UserConfirmation,
-        upload_mode: Option<UploadMode>,
+        StoreOptions {
+            epoch_arg,
+            dry_run,
+            store_optimizations,
+            persistence,
+            post_store,
+            encoding_type,
+            upload_relay,
+            confirmation,
+            upload_mode,
+        }: StoreOptions,
     ) -> Result<()> {
         epoch_arg.exactly_one_is_some()?;
         if encoding_type.is_some_and(|encoding| !encoding.is_supported()) {
@@ -853,15 +817,17 @@ impl ClientCommandRunner {
         self,
         paths: Vec<PathBuf>,
         blobs: Vec<QuiltBlobInput>,
-        epoch_arg: EpochArg,
-        dry_run: bool,
-        store_optimizations: StoreOptimizations,
-        persistence: BlobPersistence,
-        post_store: PostStoreAction,
-        encoding_type: Option<EncodingType>,
-        upload_relay: Option<Url>,
-        confirmation: UserConfirmation,
-        upload_mode: Option<UploadMode>,
+        StoreOptions {
+            epoch_arg,
+            dry_run,
+            store_optimizations,
+            persistence,
+            post_store,
+            encoding_type,
+            upload_relay,
+            confirmation,
+            upload_mode,
+        }: StoreOptions,
     ) -> Result<()> {
         epoch_arg.exactly_one_is_some()?;
         if encoding_type.is_some_and(|encoding| !encoding.is_supported()) {
@@ -1629,6 +1595,53 @@ impl ClientCommandRunner {
         }
 
         Ok(())
+    }
+}
+
+pub struct StoreOptions {
+    pub epoch_arg: EpochArg,
+    pub dry_run: bool,
+    pub store_optimizations: StoreOptimizations,
+    pub persistence: BlobPersistence,
+    pub post_store: PostStoreAction,
+    pub encoding_type: Option<EncodingType>,
+    pub upload_relay: Option<Url>,
+    pub confirmation: UserConfirmation,
+    pub upload_mode: Option<UploadMode>,
+}
+
+impl TryFrom<CommonStoreOptions> for StoreOptions {
+    type Error = anyhow::Error;
+
+    fn try_from(
+        CommonStoreOptions {
+            epoch_arg,
+            dry_run,
+            force,
+            ignore_resources,
+            deletable,
+            permanent,
+            share,
+            encoding_type,
+            upload_relay,
+            skip_tip_confirmation,
+            upload_mode,
+        }: CommonStoreOptions,
+    ) -> Result<Self, Self::Error> {
+        Ok(Self {
+            epoch_arg,
+            dry_run,
+            store_optimizations: StoreOptimizations::from_force_and_ignore_resources_flags(
+                force,
+                ignore_resources,
+            ),
+            persistence: BlobPersistence::from_deletable_and_permanent(deletable, permanent)?,
+            post_store: PostStoreAction::from_share(share),
+            encoding_type,
+            upload_relay,
+            confirmation: skip_tip_confirmation.into(),
+            upload_mode: upload_mode.map(Into::into),
+        })
     }
 }
 
