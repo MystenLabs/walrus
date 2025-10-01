@@ -344,17 +344,19 @@ pub trait QuiltConfigApi<'a, V: QuiltVersion> {
     ) -> V::QuiltEncoder<'a>;
 
     /// Returns a new decoder.
+    /// Returns an error if the slivers have inconsistent column sizes.
     fn get_decoder(
         slivers: impl IntoIterator<Item = &'a SliverData<V::SliverAxis>>,
-    ) -> V::QuiltDecoder<'a>
+    ) -> Result<V::QuiltDecoder<'a>, QuiltError>
     where
         V::SliverAxis: 'a;
 
     /// Returns a new decoder for the given slivers and quilt index.
+    /// Returns an error if the slivers have inconsistent column sizes.
     fn get_decoder_with_quilt_index(
         slivers: impl IntoIterator<Item = &'a SliverData<V::SliverAxis>>,
         quilt_index: &'a QuiltIndex,
-    ) -> V::QuiltDecoder<'a>
+    ) -> Result<V::QuiltDecoder<'a>, QuiltError>
     where
         V::SliverAxis: 'a;
 }
@@ -1233,7 +1235,7 @@ impl<'a> QuiltConfigApi<'a, QuiltVersionV1> for QuiltConfigV1 {
 
     fn get_decoder(
         slivers: impl IntoIterator<Item = &'a SliverData<Secondary>>,
-    ) -> QuiltDecoderV1<'a>
+    ) -> Result<QuiltDecoderV1<'a>, QuiltError>
     where
         Secondary: 'a,
     {
@@ -1243,7 +1245,7 @@ impl<'a> QuiltConfigApi<'a, QuiltVersionV1> for QuiltConfigV1 {
     fn get_decoder_with_quilt_index(
         slivers: impl IntoIterator<Item = &'a SliverData<Secondary>>,
         quilt_index: &QuiltIndex,
-    ) -> QuiltDecoderV1<'a>
+    ) -> Result<QuiltDecoderV1<'a>, QuiltError>
     where
         Secondary: 'a,
     {
@@ -1660,20 +1662,7 @@ impl<'a> QuiltDecoderApi<'a, QuiltVersionV1> for QuiltDecoderV1<'a> {
     {
         for sliver in slivers {
             let sliver_data_len = sliver.symbols.data().len();
-
-            match self.column_size {
-                None => {
-                    self.column_size = Some(sliver_data_len);
-                }
-                Some(expected) => {
-                    if expected != sliver_data_len {
-                        return Err(QuiltError::ColumnSizeMismatch {
-                            expected,
-                            actual: sliver_data_len,
-                        });
-                    }
-                }
-            }
+            Self::validate_and_update_column_size(&mut self.column_size, sliver_data_len)?;
 
             self.slivers.insert(sliver.index, Cow::Borrowed(sliver));
         }
@@ -1734,55 +1723,77 @@ impl QuiltColumnRangeReader for QuiltDecoderV1<'_> {
 }
 
 impl<'a> QuiltDecoderV1<'a> {
+    /// Validates that a sliver's column size matches the expected size.
+    /// Updates the expected size if it was None.
+    fn validate_and_update_column_size(
+        column_size: &mut Option<usize>,
+        sliver_data_len: usize,
+    ) -> Result<(), QuiltError> {
+        match column_size {
+            None => {
+                *column_size = Some(sliver_data_len);
+                Ok(())
+            }
+            Some(expected) => {
+                if *expected == sliver_data_len {
+                    Ok(())
+                } else {
+                    Err(QuiltError::ColumnSizeMismatch {
+                        expected: *expected,
+                        actual: sliver_data_len,
+                    })
+                }
+            }
+        }
+    }
+
     /// Creates a new QuiltDecoderV1 without slivers.
-    pub fn new(slivers: impl IntoIterator<Item = &'a SliverData<Secondary>>) -> Self
+    /// Returns an error if the slivers have inconsistent column sizes.
+    pub fn new(
+        slivers: impl IntoIterator<Item = &'a SliverData<Secondary>>,
+    ) -> Result<Self, QuiltError>
     where
         Secondary: 'a,
     {
-        let slivers = slivers
-            .into_iter()
-            .map(|s| (s.index, Cow::Borrowed(s)))
-            .collect::<HashMap<_, _>>();
-        let column_size = slivers.values().next().map(|s| s.symbols.data().len());
-        Self {
-            slivers,
+        let mut decoder = Self {
+            slivers: HashMap::new(),
             quilt_index: None,
-            column_size,
-        }
+            column_size: None,
+        };
+        decoder.add_slivers(slivers)?;
+        Ok(decoder)
     }
 
     /// Creates a new QuiltDecoderV1 with the given slivers, and a quilt index.
+    /// Returns an error if the slivers have inconsistent column sizes.
     pub fn new_with_quilt_index(
         slivers: impl IntoIterator<Item = &'a SliverData<Secondary>>,
         quilt_index: QuiltIndexV1,
-    ) -> Self
+    ) -> Result<Self, QuiltError>
     where
         Secondary: 'a,
     {
-        let slivers = slivers
-            .into_iter()
-            .map(|s| (s.index, Cow::Borrowed(s)))
-            .collect::<HashMap<_, _>>();
-        let column_size = slivers.values().next().map(|s| s.symbols.data().len());
-        Self {
-            slivers,
+        let mut decoder = Self {
+            slivers: HashMap::new(),
             quilt_index: Some(quilt_index),
-            column_size,
-        }
+            column_size: None,
+        };
+        decoder.add_slivers(slivers)?;
+        Ok(decoder)
     }
 
     /// Creates a new QuiltDecoderV1 with owned slivers.
-    pub fn new_with_owned(slivers: impl IntoIterator<Item = SliverData<Secondary>>) -> Self {
-        let slivers: HashMap<SliverIndex, Cow<'a, SliverData<Secondary>>> = slivers
-            .into_iter()
-            .map(|s| (s.index, Cow::Owned(s)))
-            .collect();
-        let column_size = slivers.values().next().map(|s| s.symbols.data().len());
-        Self {
-            slivers,
+    /// Returns an error if the slivers have inconsistent column sizes.
+    pub fn new_with_owned(
+        slivers: impl IntoIterator<Item = SliverData<Secondary>>,
+    ) -> Result<Self, QuiltError> {
+        let mut decoder = Self {
+            slivers: HashMap::new(),
             quilt_index: None,
-            column_size,
-        }
+            column_size: None,
+        };
+        decoder.add_owned_slivers(slivers)?;
+        Ok(decoder)
     }
 
     /// Adds owned slivers to the decoder.
@@ -1792,20 +1803,7 @@ impl<'a> QuiltDecoderV1<'a> {
     ) -> Result<(), QuiltError> {
         for sliver in slivers {
             let sliver_data_len = sliver.symbols.data().len();
-
-            match self.column_size {
-                None => {
-                    self.column_size = Some(sliver_data_len);
-                }
-                Some(expected) => {
-                    if expected != sliver_data_len {
-                        return Err(QuiltError::ColumnSizeMismatch {
-                            expected,
-                            actual: sliver_data_len,
-                        });
-                    }
-                }
-            }
+            Self::validate_and_update_column_size(&mut self.column_size, sliver_data_len)?;
 
             let index = sliver.index;
             self.slivers.insert(index, Cow::Owned(sliver));
@@ -2317,7 +2315,8 @@ mod tests {
             get_quilt_version_enum(first_sliver.symbols.data()).expect("Should get quilt version");
         assert!(matches!(quilt_version, QuiltVersionEnum::V1));
 
-        let mut quilt_decoder = QuiltConfigV1::get_decoder(core::iter::empty());
+        let mut quilt_decoder =
+            QuiltConfigV1::get_decoder(core::iter::empty()).expect("Should create empty decoder");
         let decode_index_result = quilt_decoder.get_or_decode_quilt_index();
         assert!(matches!(
             decode_index_result,
