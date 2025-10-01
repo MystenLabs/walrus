@@ -19,6 +19,9 @@ pub use rocksdb;
 /// The rocksdb database
 pub mod rocks;
 
+/// Raw key database map with custom key serialization
+pub mod raw_key_db_map;
+
 /// The traits for the typed store
 pub mod traits;
 
