@@ -127,3 +127,5 @@ fi
 
 # Setting the PR to auto merge
 gh pr merge --auto --squash --delete-branch "$BRANCH"
+
+return "$PR_URL"
