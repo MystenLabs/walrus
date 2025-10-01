@@ -711,7 +711,7 @@ impl<T: ReadClient> QuiltClient<'_, T> {
             .encoding_config()
             .get_for_type(metadata.metadata().encoding_type());
 
-        QuiltEnum::new(quilt, &encoding_config_enum).map_err(ClientError::from)
+        QuiltEnum::new(quilt, encoding_config_enum).map_err(ClientError::from)
     }
 }
 

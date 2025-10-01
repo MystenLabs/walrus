@@ -184,7 +184,7 @@ pub trait QuiltApi<V: QuiltVersion> {
     /// Returns a new quilt from a quilt blob.
     fn new_from_quilt_blob(
         quilt_blob: Vec<u8>,
-        encoding_config: &EncodingConfigEnum<'_>,
+        encoding_config: EncodingConfigEnum,
     ) -> Result<V::Quilt, QuiltError>;
 
     /// Gets blobs by their identifiers from the quilt.
@@ -339,7 +339,7 @@ pub trait QuiltPatchInternalIdApi: Clone {
 pub trait QuiltConfigApi<'a, V: QuiltVersion> {
     /// Returns a new encoder for the given configuration and blobs.
     fn get_encoder(
-        encoding_config: EncodingConfigEnum<'a>,
+        encoding_config: EncodingConfigEnum,
         blobs: &'a [QuiltStoreBlob<'a>],
     ) -> V::QuiltEncoder<'a>;
 
@@ -487,7 +487,7 @@ impl QuiltEnum {
     /// Construct a new `QuiltEnum`.
     pub fn new(
         quilt_blob: Vec<u8>,
-        encoding_config: &EncodingConfigEnum<'_>,
+        encoding_config: EncodingConfigEnum,
     ) -> Result<QuiltEnum, QuiltError> {
         let quilt_version = QuiltVersionEnum::new_from_sliver(&quilt_blob)?;
         match quilt_version {
@@ -933,7 +933,7 @@ pub struct QuiltV1 {
 impl QuiltApi<QuiltVersionV1> for QuiltV1 {
     fn new_from_quilt_blob(
         quilt_blob: Vec<u8>,
-        encoding_config: &EncodingConfigEnum<'_>,
+        encoding_config: EncodingConfigEnum,
     ) -> Result<QuiltV1, QuiltError> {
         if quilt_blob.is_empty() {
             return Err(QuiltError::EmptyInput("quilt_blob".to_string()));
@@ -1222,7 +1222,7 @@ pub struct QuiltConfigV1;
 
 impl<'a> QuiltConfigApi<'a, QuiltVersionV1> for QuiltConfigV1 {
     fn get_encoder(
-        encoding_config: EncodingConfigEnum<'a>,
+        encoding_config: EncodingConfigEnum,
         blobs: &'a [QuiltStoreBlob<'a>],
     ) -> QuiltEncoderV1<'a> {
         QuiltEncoderV1::new(encoding_config, blobs)
@@ -1255,14 +1255,14 @@ pub struct QuiltEncoderV1<'a> {
     /// The blobs to encode.
     blobs: &'a [QuiltStoreBlob<'a>],
     /// The encoding configuration.
-    config: EncodingConfigEnum<'a>,
+    config: EncodingConfigEnum,
     /// A tracing span associated with this quilt encoder.
     span: Span,
 }
 
 impl<'a> QuiltEncoderV1<'a> {
     /// Creates a new [`QuiltEncoderV1`] from a encoding config and a set of blobs.
-    pub fn new(config: EncodingConfigEnum<'a>, blobs: &'a [QuiltStoreBlob<'a>]) -> Self {
+    pub fn new(config: EncodingConfigEnum, blobs: &'a [QuiltStoreBlob<'a>]) -> Self {
         Self {
             blobs,
             config,
@@ -1553,7 +1553,7 @@ impl QuiltEncoderApi<QuiltVersionV1> for QuiltEncoderV1<'_> {
         tracing::debug!("starting to encode quilt");
 
         let quilt = self.construct_quilt()?;
-        let encoder = BlobEncoder::new(self.config.clone(), quilt.data()).map_err(|_| {
+        let encoder = BlobEncoder::new(self.config, quilt.data()).map_err(|_| {
             QuiltError::QuiltOversize(format!("quilt is too large: {}", quilt.data().len()))
         })?;
         assert_eq!(encoder.symbol_usize(), quilt.symbol_size());
@@ -1566,7 +1566,7 @@ impl QuiltEncoderApi<QuiltVersionV1> for QuiltEncoderV1<'_> {
         tracing::debug!("starting to encode quilt with metadata");
 
         let quilt = self.construct_quilt()?;
-        let encoder = BlobEncoder::new(self.config.clone(), quilt.data()).map_err(|_| {
+        let encoder = BlobEncoder::new(self.config, quilt.data()).map_err(|_| {
             QuiltError::QuiltOversize(format!("quilt is too large: {}", quilt.data.len()))
         })?;
 
@@ -2108,14 +2108,14 @@ mod tests {
 
         construct_quilt(
             quilt_store_blobs,
-            EncodingConfigEnum::ReedSolomon(&reed_solomon_config),
+            EncodingConfigEnum::ReedSolomon(reed_solomon_config),
         );
     }
 
     fn construct_quilt(quilt_store_blobs: &[QuiltStoreBlob<'_>], config: EncodingConfigEnum) {
         walrus_test_utils::init_tracing();
 
-        let encoder = QuiltConfigV1::get_encoder(config.clone(), quilt_store_blobs);
+        let encoder = QuiltConfigV1::get_encoder(config, quilt_store_blobs);
 
         let quilt = encoder.construct_quilt().expect("Should construct quilt");
 
@@ -2217,7 +2217,7 @@ mod tests {
 
         encode_decode_quilt(
             test_data,
-            EncodingConfigEnum::ReedSolomon(&reed_solomon_config),
+            EncodingConfigEnum::ReedSolomon(reed_solomon_config),
         );
     }
 
@@ -2226,7 +2226,7 @@ mod tests {
 
         let quilt_store_blobs = test_data.take_blobs();
 
-        let encoder = QuiltConfigV1::get_encoder(config.clone(), quilt_store_blobs.as_slice());
+        let encoder = QuiltConfigV1::get_encoder(config, quilt_store_blobs.as_slice());
 
         let (sliver_pairs, quilt_metadata) = encoder
             .encode_with_metadata()
@@ -2381,7 +2381,7 @@ mod tests {
 
         assert_eq!(metadata_with_id.metadata(), &quilt_metadata_v1.metadata);
 
-        let quilt = QuiltV1::new_from_quilt_blob(quilt_blob, &config).expect("Should create quilt");
+        let quilt = QuiltV1::new_from_quilt_blob(quilt_blob, config).expect("Should create quilt");
         assert_eq!(
             quilt.data(),
             encoder
@@ -2495,6 +2495,6 @@ mod tests {
     fn test_new_from_quilt_blob_panics_on_empty_input() {
         use core::num::NonZeroU16;
         let config = ReedSolomonEncodingConfig::new(NonZeroU16::new(7).unwrap());
-        let _ = QuiltV1::new_from_quilt_blob(Vec::new(), &EncodingConfigEnum::ReedSolomon(&config));
+        let _ = QuiltV1::new_from_quilt_blob(Vec::new(), EncodingConfigEnum::ReedSolomon(config));
     }
 }
