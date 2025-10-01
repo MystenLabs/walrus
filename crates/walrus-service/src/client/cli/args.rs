@@ -96,15 +96,15 @@ pub struct App {
     #[serde(default)]
     pub json: bool,
 
-    /// Enable tracing output for the CLI, possible options are 'otlp' and 'file=<path>'.
+    /// Enable tracing output for the CLI, possible options are 'otlp' and 'file=path'.
     ///
     /// The value 'otlp' sends the traces to an OTLP trace collector. The destination can be
     /// configured using standard OTLP environment variables.
     ///
-    /// The value 'file=<path>' writes JSON-encoded gzipped traces to the file at the specified
+    /// The value 'file=path' writes JSON-encoded gzipped traces to the file at the specified
     /// path. These traces can later be replayed to an OTLP/HTTP collector.
     ///
-    /// See https://opentelemetry.io/docs/languages/sdk-configuration/otlp-exporter/ for more
+    /// See <https://opentelemetry.io/docs/languages/sdk-configuration/otlp-exporter> for more
     /// information on OTLP environment variables.
     #[arg(long, global = true)]
     #[serde(default)]

@@ -68,7 +68,6 @@ enum FileState {
 struct FileSpanExporter {
     file: Arc<Mutex<FileState>>,
     resource: Resource,
-    span_list: Vec<SpanData>,
 }
 
 impl FileSpanExporter {
@@ -76,7 +75,6 @@ impl FileSpanExporter {
         Self {
             file: Arc::new(Mutex::new(FileState::Init(path))),
             resource: Resource::default(),
-            span_list: vec![],
         }
     }
 
@@ -85,6 +83,15 @@ impl FileSpanExporter {
         batch: Vec<SpanData>,
         file: Arc<Mutex<FileState>>,
     ) -> Result<()> {
+        // Serialize the data, but don't close the file in case of an error,
+        // since this has nothing to do with the file.
+        //
+        // Furthermore, since the file's state is checked before this method is called,
+        // it's unlikely that the work done building the data is wasted, as it should be possible to
+        // then write the data.
+        let data = build_export_data(&resource, batch)
+            .with_context(|| "failed to serialize trace data for export")?;
+
         let Ok(mut file_guard) = file.lock() else {
             anyhow::bail!("mutex guarding trace output file is poisoned");
         };
@@ -110,11 +117,6 @@ impl FileSpanExporter {
                 }
             }
         };
-
-        // Serialize the data, but don't close the file in case of an error,
-        // since this has nothing to do with the file.
-        let data = build_export_data(&resource, batch)
-            .with_context(|| "failed to serialize trace data for export")?;
 
         if let Err(err) = file.write_all(&data) {
             // Close the file since it's unclear what state the file will be in for subsequent
@@ -173,10 +175,10 @@ impl SpanExporter for FileSpanExporter {
         let mut file_guard = self.file.lock().expect("mutex not poisoned");
         let file_state = file_guard.deref_mut();
 
-        if let FileState::Open(file) = file_state {
-            if let Err(err) = file.flush() {
-                tracing::error!("failed to flush trace-export file: {:?}", err);
-            };
+        if let FileState::Open(file) = file_state
+            && let Err(err) = file.flush()
+        {
+            tracing::error!("failed to flush trace-export file: {:?}", err);
         };
 
         *file_state = FileState::ClosedDueToShutdown;
