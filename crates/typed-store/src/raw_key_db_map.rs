@@ -139,17 +139,33 @@ where
     ) -> Result<impl Iterator<Item = Result<(K, V), TypedStoreError>> + 'a, TypedStoreError> {
         let cf = self.inner.cf()?;
 
+        let prefix_clone1 = prefix_bytes.clone();
+        let prefix_clone2 = prefix_bytes.clone();
         let iter = txn.prefix_iterator_cf(&cf, prefix_bytes);
 
-        Ok(iter.map(|item| match item {
-            Ok((key_bytes, value_bytes)) => {
-                let key = K::deserialize(&key_bytes)?;
-                let value = bcs::from_bytes(&value_bytes)
-                    .map_err(|e| TypedStoreError::SerializationError(e.to_string()))?;
-                Ok((key, value))
-            }
-            Err(e) => Err(TypedStoreError::RocksDBError(e.to_string())),
-        }))
+        Ok(iter
+            .take_while(move |item| {
+                // Check that the key still starts with our prefix
+                match item {
+                    Ok((key_bytes, _)) => key_bytes.starts_with(&prefix_clone1),
+                    Err(_) => true, // Let errors through to be handled by map
+                }
+            })
+            .map(move |item| match item {
+                Ok((key_bytes, value_bytes)) => {
+                    // Additional safety check
+                    if !key_bytes.starts_with(&prefix_clone2) {
+                        return Err(TypedStoreError::RocksDBError(
+                            "Unexpected key outside prefix range".to_string(),
+                        ));
+                    }
+                    let key = K::deserialize(&key_bytes)?;
+                    let value = bcs::from_bytes(&value_bytes)
+                        .map_err(|e| TypedStoreError::SerializationError(e.to_string()))?;
+                    Ok((key, value))
+                }
+                Err(e) => Err(TypedStoreError::RocksDBError(e.to_string())),
+            }))
     }
 
     /// Checks if the map contains a key.
@@ -439,6 +455,139 @@ mod tests {
                 .get_cf_with_txn(&txn, &key)
                 .expect("Failed to get in transaction");
             assert_eq!(retrieved, Some(value.clone()));
+            txn.commit().expect("Failed to commit transaction");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_transaction_range_operations() {
+        crate::metrics::DBMetrics::init(&Registry::default());
+        let (_temp_dir, db, maps) = create_test_db();
+
+        let map = &maps[0];
+        let handle = db.as_optimistic().expect("Should be optimistic DB");
+
+        // Insert multiple keys with same prefix
+        {
+            let txn = handle.transaction();
+
+            for i in 1..=5 {
+                let key = TestKey {
+                    prefix: "range_test".to_string(),
+                    id: i,
+                };
+                let value = TestValue {
+                    data: format!("value_{}", i),
+                    count: i as u32 * 10,
+                };
+                map.put_cf_with_txn(&txn, &key, &value)
+                    .expect("Failed to put in transaction");
+            }
+
+            // Also insert some keys with different prefix
+            for i in 1..=3 {
+                let key = TestKey {
+                    prefix: "other_prefix".to_string(),
+                    id: i,
+                };
+                let value = TestValue {
+                    data: format!("other_{}", i),
+                    count: i as u32 * 100,
+                };
+                map.put_cf_with_txn(&txn, &key, &value)
+                    .expect("Failed to put in transaction");
+            }
+
+            txn.commit().expect("Failed to commit transaction");
+        }
+
+        // Read range with prefix
+        {
+            let txn = handle.transaction();
+
+            // Create prefix bytes for "range_test/" to match our key serialization format
+            let mut prefix_bytes = "range_test".as_bytes().to_vec();
+            prefix_bytes.push(b'/');
+
+            let mut results: Vec<(TestKey, TestValue)> = map
+                .read_range_prefix_bytes(&txn, prefix_bytes)
+                .expect("Failed to read range")
+                .collect::<Result<Vec<_>, _>>()
+                .expect("Failed to collect results");
+
+            // Should get exactly 5 results
+            assert_eq!(results.len(), 5);
+
+            // Sort by id to check order
+            results.sort_by_key(|(k, _)| k.id);
+
+            // Verify all keys are present and correct
+            for (i, (key, value)) in results.iter().enumerate() {
+                let expected_id = (i + 1) as u64;
+                assert_eq!(key.prefix, "range_test");
+                assert_eq!(key.id, expected_id);
+                assert_eq!(value.data, format!("value_{}", expected_id));
+                assert_eq!(value.count, expected_id as u32 * 10);
+            }
+
+            txn.commit().expect("Failed to commit transaction");
+        }
+
+        // Delete some keys
+        {
+            let txn = handle.transaction();
+
+            // Delete keys with id 2 and 4
+            for id in [2, 4] {
+                let key = TestKey {
+                    prefix: "range_test".to_string(),
+                    id,
+                };
+                map.delete_cf_with_txn(&txn, &key)
+                    .expect("Failed to delete in transaction");
+            }
+
+            txn.commit().expect("Failed to commit transaction");
+        }
+
+        // Read range again to verify deletions
+        {
+            let txn = handle.transaction();
+
+            let mut prefix_bytes = "range_test".as_bytes().to_vec();
+            prefix_bytes.push(b'/');
+
+            let results: Vec<(TestKey, TestValue)> = map
+                .read_range_prefix_bytes(&txn, prefix_bytes)
+                .expect("Failed to read range")
+                .collect::<Result<Vec<_>, _>>()
+                .expect("Failed to collect results");
+
+            // Should now have only 3 results (1, 3, 5)
+            assert_eq!(results.len(), 3);
+
+            let ids: Vec<u64> = results.iter().map(|(k, _)| k.id).collect();
+            assert_eq!(ids, vec![1, 3, 5]);
+
+            txn.commit().expect("Failed to commit transaction");
+        }
+
+        // Verify the other prefix is untouched
+        {
+            let txn = handle.transaction();
+
+            let mut prefix_bytes = "other_prefix".as_bytes().to_vec();
+            prefix_bytes.push(b'/');
+
+            let results: Vec<(TestKey, TestValue)> = map
+                .read_range_prefix_bytes(&txn, prefix_bytes)
+                .expect("Failed to read range")
+                .collect::<Result<Vec<_>, _>>()
+                .expect("Failed to collect results");
+
+            // Should still have all 3 results
+            assert_eq!(results.len(), 3);
+
             txn.commit().expect("Failed to commit transaction");
         }
     }
