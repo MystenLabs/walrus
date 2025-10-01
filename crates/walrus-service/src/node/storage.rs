@@ -695,7 +695,7 @@ impl Storage {
         blob_id: &BlobId,
     ) -> Result<(), TypedStoreError> {
         for shard in self.existing_shard_storages().await {
-            shard.delete_sliver_pair(batch, blob_id)?;
+            shard.delete_sliver_pair(batch, blob_id, None)?;
         }
         Ok(())
     }
@@ -711,7 +711,7 @@ impl Storage {
             .shard_storage(shard)
             .await
             .ok_or(anyhow::anyhow!("shard {shard} does not exist"))?
-            .is_sliver_pair_stored(blob_id)?)
+            .is_sliver_pair_stored(blob_id, None)?)
     }
 
     /// Returns a list of identifiers of the shards that store their
@@ -724,7 +724,7 @@ impl Storage {
         let mut shards_with_sliver_pairs = Vec::with_capacity(shard_map.len());
 
         for shard in shard_map.values() {
-            if shard.is_sliver_pair_stored(blob_id)? {
+            if shard.is_sliver_pair_stored(blob_id, None)? {
                 shards_with_sliver_pairs.push(shard.id());
             }
         }

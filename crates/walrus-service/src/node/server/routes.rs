@@ -334,7 +334,9 @@ pub async fn get_chunk_sliver<S: SyncServiceState>(
         _ => {}
     }
 
-    // Retrieve the sliver (currently returns the complete blob's sliver)
+    // Retrieve the sliver (currently returns the complete blob's sliver for non-chunked)
+    // TODO: When SDK properly stores chunked blobs with chunk_index, this will retrieve
+    // the specific chunk's sliver from chunk-aware storage
     let sliver = state
         .service
         .retrieve_sliver(&blob_id, sliver_pair_index, sliver_type)

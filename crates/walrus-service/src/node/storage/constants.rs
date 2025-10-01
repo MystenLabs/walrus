@@ -16,6 +16,8 @@ const EVENT_CURSOR_KEY: [u8; 6] = *b"cursor";
 const SHARD_BASE_COLUMN_FAMILY_NAME: &str = "shard";
 const SHARD_PRIMARY_SLIVERS_COLUMN_FAMILY_NAME: &str = "primary-slivers";
 const SHARD_SECONDARY_SLIVERS_COLUMN_FAMILY_NAME: &str = "secondary-slivers";
+const SHARD_CHUNKED_PRIMARY_SLIVERS_COLUMN_FAMILY_NAME: &str = "chunked-primary-slivers";
+const SHARD_CHUNKED_SECONDARY_SLIVERS_COLUMN_FAMILY_NAME: &str = "chunked-secondary-slivers";
 const SHARD_STATUS_COLUMN_FAMILY_NAME: &str = "status";
 const SHARD_SYNC_PROGRESS_COLUMN_FAMILY_NAME: &str = "sync-progress";
 const SHARD_PENDING_RECOVER_SLIVERS_COLUMN_FAMILY_NAME: &str = "pending-recover-slivers";
@@ -101,6 +103,24 @@ pub fn pending_recover_slivers_column_family_name(id: ShardIndex) -> String {
         "{}/{}",
         base_column_family_name(id),
         SHARD_PENDING_RECOVER_SLIVERS_COLUMN_FAMILY_NAME
+    )
+}
+
+/// Returns the column family name for chunked primary slivers of a shard.
+pub fn chunked_primary_slivers_column_family_name(id: ShardIndex) -> String {
+    format!(
+        "{}/{}",
+        base_column_family_name(id),
+        SHARD_CHUNKED_PRIMARY_SLIVERS_COLUMN_FAMILY_NAME
+    )
+}
+
+/// Returns the column family name for chunked secondary slivers of a shard.
+pub fn chunked_secondary_slivers_column_family_name(id: ShardIndex) -> String {
+    format!(
+        "{}/{}",
+        base_column_family_name(id),
+        SHARD_CHUNKED_SECONDARY_SLIVERS_COLUMN_FAMILY_NAME
     )
 }
 
