@@ -599,7 +599,7 @@ mod tests {
             recovery_symbols,
             SliverIndex(0),
             symbol_size.try_into().unwrap(),
-            EncodingConfigEnum::ReedSolomon(config),
+            config.into(),
         );
         assert!(recovered.is_err());
     }
