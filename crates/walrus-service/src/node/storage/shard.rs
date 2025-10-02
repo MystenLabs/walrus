@@ -288,14 +288,14 @@ pub struct ShardStorage {
 
 macro_rules! reopen_cf {
     ($cf_options:expr, $db:expr, $rw_options:expr) => {{
-        let (cf_name, cf_db_option) = $cf_options;
+        let (cf_name, cf_class, cf_db_option) = $cf_options;
         if $db.cf_handle(&cf_name).is_none() {
             #[cfg(msim)]
             sui_macros::fail_point!("create-cf-before");
             $db.create_cf(&cf_name, &cf_db_option)
                 .map_err(typed_store_err_from_rocks_err)?;
         }
-        DBMap::reopen($db, Some(&cf_name), &$rw_options, false)?
+        DBMap::reopen_with_class($db, Some(&cf_name), Some(&cf_class), &$rw_options, false)?
     }};
 }
 
@@ -350,6 +350,7 @@ impl ShardStorage {
         let status_cf: DBMap<(), ShardStatus> = reopen_cf!(
             (
                 &cf_names.shard_status,
+                "shard_status",
                 shard_status_column_family_options(db_config),
             ),
             database,
@@ -368,6 +369,7 @@ impl ShardStorage {
         let shard_sync_progress = reopen_cf!(
             (
                 &cf_names.shard_sync_progress,
+                "shard_sync_progress",
                 shard_sync_progress_column_family_options(db_config),
             ),
             database,
@@ -376,6 +378,7 @@ impl ShardStorage {
         let pending_recover_slivers = reopen_cf!(
             (
                 &cf_names.pending_recover_slivers,
+                "pending_recover_slivers",
                 pending_recover_slivers_column_family_options(db_config),
             ),
             database,
@@ -387,6 +390,7 @@ impl ShardStorage {
         let primary_slivers = reopen_cf!(
             (
                 &cf_names.primary_slivers,
+                "primary_slivers",
                 primary_slivers_column_family_options(db_config)
             ),
             database,
@@ -395,6 +399,7 @@ impl ShardStorage {
         let secondary_slivers = reopen_cf!(
             (
                 &cf_names.secondary_slivers,
+                "secondary_slivers",
                 secondary_slivers_column_family_options(db_config)
             ),
             database,

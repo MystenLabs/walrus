@@ -431,7 +431,7 @@ impl OperationMetrics {
             rocksdb_iter_latency_seconds: register_histogram_vec_with_registry!(
                 "rocksdb_iter_latency_seconds",
                 "Rocksdb iter latency in seconds",
-                &["cf_name"],
+                &["cf_class"],
                 LATENCY_SEC_BUCKETS.to_vec(),
                 registry,
             )
@@ -439,7 +439,7 @@ impl OperationMetrics {
             rocksdb_iter_key_bytes: register_histogram_vec_with_registry!(
                 "rocksdb_iter_key_bytes",
                 "Rocksdb iter key size in bytes",
-                &["cf_name"],
+                &["cf_class"],
                 bucket_vec.clone(),
                 registry,
             )
@@ -447,7 +447,7 @@ impl OperationMetrics {
             rocksdb_iter_bytes: register_histogram_vec_with_registry!(
                 "rocksdb_iter_bytes",
                 "Rocksdb iter size in bytes",
-                &["cf_name"],
+                &["cf_class"],
                 bucket_vec.clone(),
                 registry,
             )
@@ -455,7 +455,7 @@ impl OperationMetrics {
             rocksdb_iter_value_bytes: register_histogram_vec_with_registry!(
                 "rocksdb_iter_value_bytes",
                 "Rocksdb iter value size in bytes",
-                &["cf_name"],
+                &["cf_class"],
                 bucket_vec.clone(),
                 registry,
             )
@@ -470,7 +470,7 @@ impl OperationMetrics {
             rocksdb_get_latency_seconds: register_histogram_vec_with_registry!(
                 "rocksdb_get_latency_seconds",
                 "Rocksdb get latency in seconds. `found` label is true if key was found",
-                &["cf_name", "found"],
+                &["cf_class", "found"],
                 LATENCY_SEC_BUCKETS.to_vec(),
                 registry,
             )
@@ -478,7 +478,7 @@ impl OperationMetrics {
             rocksdb_get_bytes: register_histogram_vec_with_registry!(
                 "rocksdb_get_bytes",
                 "Rocksdb get call returned data size in bytes",
-                &["cf_name"],
+                &["cf_class"],
                 bucket_vec.clone(),
                 registry,
             )
@@ -486,7 +486,7 @@ impl OperationMetrics {
             rocksdb_get_key_bytes: register_histogram_vec_with_registry!(
                 "rocksdb_get_key_bytes",
                 "Rocksdb get call key size in bytes",
-                &["cf_name"],
+                &["cf_class"],
                 bucket_vec.clone(),
                 registry
             )
@@ -494,7 +494,7 @@ impl OperationMetrics {
             rocksdb_get_value_bytes: register_histogram_vec_with_registry!(
                 "rocksdb_get_value_bytes",
                 "Rocksdb get call returned value size in bytes",
-                &["cf_name"],
+                &["cf_class"],
                 bucket_vec.clone(),
                 registry
             )
@@ -502,7 +502,7 @@ impl OperationMetrics {
             rocksdb_contains_key_latency_seconds: register_histogram_vec_with_registry!(
                 "rocksdb_contains_key_latency_seconds",
                 "Rocksdb contains_key latency in seconds. `found` label is true if key was found",
-                &["cf_name", "found"],
+                &["cf_class", "found"],
                 LATENCY_SEC_BUCKETS.to_vec(),
                 registry
             )
@@ -510,7 +510,7 @@ impl OperationMetrics {
             rocksdb_bloom_filter_may_exist_true_total: register_int_counter_vec_with_registry!(
                 "rocksdb_bloom_filter_may_exist_true_total",
                 "Number of times key_may_exist_cf returned true (potential positives)",
-                &["cf_name"],
+                &["cf_class"],
                 registry
             )
             .unwrap(),
@@ -518,14 +518,14 @@ impl OperationMetrics {
                 "rocksdb_bloom_filter_false_positive_total",
                 "Number of false positives where key_may_exist_cf \
                 returned true but get found nothing",
-                &["cf_name"],
+                &["cf_class"],
                 registry
             )
             .unwrap(),
             rocksdb_multiget_latency_seconds: register_histogram_vec_with_registry!(
                 "rocksdb_multiget_latency_seconds",
                 "Rocksdb multiget latency in seconds",
-                &["cf_name"],
+                &["cf_class"],
                 LATENCY_SEC_BUCKETS.to_vec(),
                 registry,
             )
@@ -533,7 +533,7 @@ impl OperationMetrics {
             rocksdb_multiget_bytes: register_histogram_vec_with_registry!(
                 "rocksdb_multiget_bytes",
                 "Rocksdb multiget call returned data size in bytes",
-                &["cf_name"],
+                &["cf_class"],
                 bucket_vec.clone(),
                 registry,
             )
@@ -541,7 +541,7 @@ impl OperationMetrics {
             rocksdb_put_latency_seconds: register_histogram_vec_with_registry!(
                 "rocksdb_put_latency_seconds",
                 "Rocksdb put latency in seconds",
-                &["cf_name"],
+                &["cf_class"],
                 LATENCY_SEC_BUCKETS.to_vec(),
                 registry,
             )
@@ -549,7 +549,7 @@ impl OperationMetrics {
             rocksdb_put_bytes: register_histogram_vec_with_registry!(
                 "rocksdb_put_bytes",
                 "Rocksdb put call returned data size in bytes",
-                &["cf_name"],
+                &["cf_class"],
                 bucket_vec.clone(),
                 registry,
             )
@@ -557,7 +557,7 @@ impl OperationMetrics {
             rocksdb_put_key_bytes: register_histogram_vec_with_registry!(
                 "rocksdb_put_key_bytes",
                 "Rocksdb put call key size in bytes",
-                &["cf_name"],
+                &["cf_class"],
                 bucket_vec.clone(),
                 registry,
             )
@@ -565,7 +565,7 @@ impl OperationMetrics {
             rocksdb_put_value_bytes: register_histogram_vec_with_registry!(
                 "rocksdb_put_value_bytes",
                 "Rocksdb put call value size in bytes",
-                &["cf_name"],
+                &["cf_class"],
                 bucket_vec.clone(),
                 registry,
             )
@@ -573,7 +573,7 @@ impl OperationMetrics {
             rocksdb_batch_put_bytes: register_histogram_vec_with_registry!(
                 "rocksdb_batch_put_bytes",
                 "Rocksdb batch put call puts data size in bytes",
-                &["cf_name"],
+                &["cf_class"],
                 bucket_vec.clone(),
                 registry,
             )
@@ -581,7 +581,7 @@ impl OperationMetrics {
             rocksdb_batch_put_key_bytes: register_histogram_vec_with_registry!(
                 "rocksdb_batch_put_key_bytes",
                 "Rocksdb batch put call puts key data size in bytes",
-                &["cf_name"],
+                &["cf_class"],
                 bucket_vec.clone(),
                 registry,
             )
@@ -589,7 +589,7 @@ impl OperationMetrics {
             rocksdb_batch_put_value_bytes: register_histogram_vec_with_registry!(
                 "rocksdb_batch_put_value_bytes",
                 "Rocksdb batch put call puts value data size in bytes",
-                &["cf_name"],
+                &["cf_class"],
                 bucket_vec.clone(),
                 registry,
             )
@@ -597,7 +597,7 @@ impl OperationMetrics {
             rocksdb_delete_latency_seconds: register_histogram_vec_with_registry!(
                 "rocksdb_delete_latency_seconds",
                 "Rocksdb delete latency in seconds",
-                &["cf_name"],
+                &["cf_class"],
                 LATENCY_SEC_BUCKETS.to_vec(),
                 registry,
             )
@@ -605,7 +605,7 @@ impl OperationMetrics {
             rocksdb_deletes: register_int_counter_vec_with_registry!(
                 "rocksdb_deletes",
                 "Rocksdb delete calls",
-                &["cf_name"],
+                &["cf_class"],
                 registry
             )
             .unwrap(),
@@ -649,14 +649,14 @@ impl OperationMetrics {
             rocksdb_very_slow_puts_count: register_int_counter_vec_with_registry!(
                 "rocksdb_num_very_slow_puts",
                 "Number of puts that took more than 1 second",
-                &["cf_name"],
+                &["cf_class"],
                 registry,
             )
             .unwrap(),
             rocksdb_very_slow_puts_duration_ms: register_int_counter_vec_with_registry!(
                 "rocksdb_very_slow_puts_duration",
                 "Total duration of puts that took more than 1 second",
-                &["cf_name"],
+                &["cf_class"],
                 registry,
             )
             .unwrap(),

@@ -125,13 +125,13 @@ where
 
 #[tokio::test]
 async fn test_open() {
-    let _db = open_map::<_, u32, String>(temp_dir(), None);
+    let _db = open_map::<_, u32, String>(temp_dir(), None, None);
 }
 
 #[tokio::test]
 async fn test_reopen() {
     let arc = {
-        let db = open_map::<_, u32, String>(temp_dir(), None);
+        let db = open_map::<_, u32, String>(temp_dir(), None, None);
         db.insert(&123456789, &"123456789".to_string())
             .expect("Failed to insert");
         db
@@ -153,7 +153,7 @@ async fn test_wrong_reopen() {
 
 #[tokio::test]
 async fn test_contains_key() {
-    let db = open_map(temp_dir(), None);
+    let db = open_map(temp_dir(), None, None);
 
     db.insert(&123456789, &"123456789".to_string())
         .expect("Failed to insert");
@@ -169,7 +169,7 @@ async fn test_contains_key() {
 
 #[tokio::test]
 async fn test_multi_contain() {
-    let db = open_map(temp_dir(), None);
+    let db = open_map(temp_dir(), None, None);
 
     db.insert(&123, &"123".to_string())
         .expect("Failed to insert");
@@ -198,7 +198,7 @@ async fn test_multi_contain() {
 
 #[tokio::test]
 async fn test_get() {
-    let db = open_map(temp_dir(), None);
+    let db = open_map(temp_dir(), None, None);
 
     db.insert(&123456789, &"123456789".to_string())
         .expect("Failed to insert");
@@ -211,7 +211,7 @@ async fn test_get() {
 
 #[tokio::test]
 async fn test_multi_get() {
-    let db = open_map(temp_dir(), None);
+    let db = open_map(temp_dir(), None, None);
 
     db.insert(&123, &"123".to_string())
         .expect("Failed to insert");
@@ -228,7 +228,7 @@ async fn test_multi_get() {
 
 #[tokio::test]
 async fn test_skip() {
-    let db = open_map(temp_dir(), None);
+    let db = open_map(temp_dir(), None, None);
 
     db.insert(&123, &"123".to_string())
         .expect("Failed to insert");
@@ -259,7 +259,7 @@ async fn test_skip() {
 
 #[tokio::test]
 async fn test_reverse_iter_with_bounds() {
-    let db = open_map(temp_dir(), None);
+    let db = open_map(temp_dir(), None, None);
     db.insert(&123, &"123".to_string())
         .expect("Failed to insert");
     db.insert(&456, &"456".to_string())
@@ -281,7 +281,7 @@ async fn test_reverse_iter_with_bounds() {
 
 #[tokio::test]
 async fn test_remove() {
-    let db = open_map(temp_dir(), None);
+    let db = open_map(temp_dir(), None, None);
 
     db.insert(&123456789, &"123456789".to_string())
         .expect("Failed to insert");
@@ -293,7 +293,7 @@ async fn test_remove() {
 
 #[tokio::test]
 async fn test_iter() {
-    let db = open_map(temp_dir(), None);
+    let db = open_map(temp_dir(), None, None);
     db.insert(&123456789, &"123456789".to_string())
         .expect("Failed to insert");
     db.insert(&987654321, &"987654321".to_string())
@@ -308,7 +308,7 @@ async fn test_iter() {
 
 #[tokio::test]
 async fn test_iter_reverse() {
-    let db = open_map(temp_dir(), None);
+    let db = open_map(temp_dir(), None, None);
 
     db.insert(&1, &"1".to_string()).expect("Failed to insert");
     db.insert(&2, &"2".to_string()).expect("Failed to insert");
@@ -327,7 +327,7 @@ async fn test_iter_reverse() {
 
 #[tokio::test]
 async fn test_insert_batch() {
-    let db = open_map(temp_dir(), None);
+    let db = open_map(temp_dir(), None, None);
     let keys_vals = (1..100).map(|i| (i, i.to_string()));
     let mut insert_batch = db.batch();
     insert_batch
@@ -423,6 +423,7 @@ async fn test_delete_batch() {
             MetricConf::default(),
             None,
             None,
+            None,
             &ReadWriteOptions::default(),
         )
         .expect("Failed to open storage")
@@ -454,6 +455,7 @@ async fn test_delete_range() {
         DBMap::open(
             temp_dir(),
             MetricConf::default(),
+            None,
             None,
             None,
             &ReadWriteOptions::default().set_ignore_range_deletions(false),
@@ -498,6 +500,7 @@ async fn test_clear() {
             MetricConf::default(),
             None,
             Some("table"),
+            None,
             &ReadWriteOptions::default(),
         )
         .expect("Failed to open storage")
@@ -529,7 +532,7 @@ async fn test_clear() {
 
 #[tokio::test]
 async fn test_iter_with_bounds() {
-    let db = open_map(temp_dir(), None);
+    let db = open_map(temp_dir(), None, None);
 
     // Add [1, 50) and (50, 100) in the db
     for i in 1..100 {
@@ -595,7 +598,7 @@ async fn test_iter_with_bounds() {
 #[rstest]
 #[tokio::test]
 async fn test_range_iter() {
-    let db = open_map(temp_dir(), None);
+    let db = open_map(temp_dir(), None, None);
 
     // Add [1, 50) and (50, 100) in the db
     for i in 1..100 {
@@ -642,6 +645,7 @@ async fn test_is_empty() {
             MetricConf::default(),
             None,
             Some("table"),
+            None,
             &ReadWriteOptions::default(),
         )
         .expect("Failed to open storage")
@@ -673,7 +677,7 @@ async fn test_is_empty() {
 #[tokio::test]
 async fn test_multi_insert() {
     // Init a DB
-    let db: DBMap<i32, String> = open_map(temp_dir(), Some("table"));
+    let db: DBMap<i32, String> = open_map(temp_dir(), Some("table"), None);
     // Create kv pairs
     let keys_vals = (0..101).map(|i| (i, i.to_string()));
 
@@ -690,7 +694,7 @@ async fn test_multi_insert() {
 async fn test_checkpoint() {
     let path_prefix = temp_dir();
     let db_path = path_prefix.join("db");
-    let db: DBMap<i32, String> = open_map(db_path, Some("table"));
+    let db: DBMap<i32, String> = open_map(db_path, Some("table"), None);
     // Create kv pairs
     let keys_vals = (0..101).map(|i| (i, i.to_string()));
 
@@ -705,7 +709,7 @@ async fn test_checkpoint() {
     db.multi_insert(new_keys_vals.clone())
         .expect("Failed to multi-insert");
     // Verify checkpoint
-    let checkpointed_db: DBMap<i32, String> = open_map(checkpointed_path, Some("table"));
+    let checkpointed_db: DBMap<i32, String> = open_map(checkpointed_path, Some("table"), None);
     // Ensure keys inserted before checkpoint are present in original and checkpointed db
     for (k, v) in keys_vals {
         let val = db.get(&k).expect("Failed to get inserted key");
@@ -726,7 +730,7 @@ async fn test_checkpoint() {
 #[tokio::test]
 async fn test_multi_remove() {
     // Init a DB
-    let db: DBMap<i32, String> = open_map(temp_dir(), Some("table"));
+    let db: DBMap<i32, String> = open_map(temp_dir(), Some("table"), None);
 
     // Create kv pairs
     let keys_vals = (0..101).map(|i| (i, i.to_string()));
@@ -755,7 +759,11 @@ async fn test_multi_remove() {
     }
 }
 
-fn open_map<P: AsRef<Path>, K, V>(path: P, opt_cf: Option<&str>) -> DBMap<K, V> {
+fn open_map<P: AsRef<Path>, K, V>(
+    path: P,
+    opt_cf: Option<&str>,
+    opt_cf_class: Option<&str>,
+) -> DBMap<K, V> {
     let _lock = global_test_lock();
 
     DBMap::<K, V>::open(
@@ -763,6 +771,7 @@ fn open_map<P: AsRef<Path>, K, V>(path: P, opt_cf: Option<&str>) -> DBMap<K, V> 
         MetricConf::default(),
         None,
         opt_cf,
+        opt_cf_class,
         &ReadWriteOptions::default(),
     )
     .expect("failed to open rocksdb")
@@ -806,7 +815,7 @@ async fn test_sampling_time() {
 
 #[tokio::test]
 async fn test_iterator_seek() {
-    let db: DBMap<u32, String> = open_map(temp_dir(), None);
+    let db: DBMap<u32, String> = open_map(temp_dir(), None, None);
 
     db.insert(&123, &"123".to_string())
         .expect("Failed to insert");
@@ -1021,15 +1030,21 @@ fn open_optimistic_rocksdb<P: AsRef<Path>>(path: P, opt_cfs: &[&str]) -> Arc<Roc
         .expect("failed to open optimistic rocksdb")
 }
 
-fn open_optimistic_map<P: AsRef<Path>, K, V>(path: P, cf: &str) -> DBMap<K, V> {
+fn open_optimistic_map<P: AsRef<Path>, K, V>(path: P, cf: &str, cf_class: &str) -> DBMap<K, V> {
     let rocks = open_optimistic_rocksdb(path, &[cf]);
-    DBMap::<K, V>::reopen(&rocks, Some(cf), &ReadWriteOptions::default(), false)
-        .expect("failed to reopen optimistic cf")
+    DBMap::<K, V>::reopen_with_class(
+        &rocks,
+        Some(cf),
+        Some(cf_class),
+        &ReadWriteOptions::default(),
+        false,
+    )
+    .expect("failed to reopen optimistic cf")
 }
 
 #[tokio::test]
 async fn test_optimistic_transaction_commit() {
-    let db: DBMap<i32, String> = open_optimistic_map(temp_dir(), "cf");
+    let db: DBMap<i32, String> = open_optimistic_map(temp_dir(), "cf", "cf");
 
     // Seed initial value
     db.insert(&1, &"v1".to_string()).expect("insert");
@@ -1059,7 +1074,7 @@ async fn test_optimistic_transaction_commit() {
 
 #[tokio::test]
 async fn test_optimistic_transaction_rollback() {
-    let db: DBMap<i32, String> = open_optimistic_map(temp_dir(), "cf");
+    let db: DBMap<i32, String> = open_optimistic_map(temp_dir(), "cf", "cf");
 
     let tx = db
         .rocksdb
@@ -1079,7 +1094,7 @@ async fn test_optimistic_transaction_rollback() {
 
 #[tokio::test]
 async fn test_optimistic_transaction_conflict_and_retry() {
-    let db: DBMap<i32, String> = open_optimistic_map(temp_dir(), "cf");
+    let db: DBMap<i32, String> = open_optimistic_map(temp_dir(), "cf", "cf");
 
     // Seed initial value
     db.insert(&1, &"base".to_string()).expect("insert");
