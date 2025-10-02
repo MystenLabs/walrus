@@ -74,7 +74,7 @@ jobs:
           GITHUB_ACTOR: ${{ github.actor }}
         shell: bash
         run: |
-          export PR_URL=$(./scripts/bump_sui_testnet_version.sh "${{ env.NEW_TAG }}")
+          export PR_URL=$(./scripts/bump_sui_testnet_version.sh "${{ env.NEW_TAG }}" | tail -1)
           echo "PR_URL=${PR_URL}" >> "$GITHUB_OUTPUT"
 
   notify:
