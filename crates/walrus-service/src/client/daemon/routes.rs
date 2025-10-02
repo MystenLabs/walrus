@@ -799,6 +799,11 @@ pub struct PublisherQuery {
     /// New blobs are created as deletable by default since v1.33, and this flag is no longer
     /// required.
     #[serde(default)]
+    #[deprecated(
+        since = "1.35.0",
+        note = "blobs are now deletable by default; this flag has no effect and may be removed in \
+        the future"
+    )]
     pub deletable: bool,
     /// If true, the publisher creates a permanent blob instead of a deletable one.
     ///
@@ -831,6 +836,7 @@ impl Default for PublisherQuery {
         PublisherQuery {
             encoding_type: None,
             epochs: default_epochs(),
+            #[allow(deprecated)]
             deletable: false,
             permanent: false,
             force: false,
@@ -850,6 +856,7 @@ impl PublisherQuery {
 
     /// Returns the [`BlobPersistence`] value based on the query parameters.
     fn blob_persistence(&self) -> Result<BlobPersistence, StoreBlobError> {
+        #[allow(deprecated)]
         BlobPersistence::from_deletable_and_permanent(self.deletable, self.permanent)
             .map_err(StoreBlobError::from)
     }

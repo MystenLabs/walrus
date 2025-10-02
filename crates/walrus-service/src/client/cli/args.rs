@@ -221,7 +221,7 @@ pub enum CliCommands {
     /// thousands of resources or blobs owned by the wallet.
     #[command(alias("write"))]
     Store {
-        /// The files containing the blob to be published to Walrus.
+        /// The files containing the blobs to be published to Walrus.
         #[arg(required = true, value_name = "FILES")]
         #[serde(deserialize_with = "walrus_utils::config::resolve_home_dir_vec")]
         files: Vec<PathBuf>,
@@ -1118,10 +1118,10 @@ pub struct CommonStoreOptions {
     ///
     /// New blobs are created as deletable by default since v1.33, and this flag is no longer
     /// required.
-    #[arg(long, conflicts_with = "permanent")]
+    #[arg(long, conflicts_with = "permanent", hide = true)]
     #[serde(default)]
     pub deletable: bool,
-    /// Mark the blob/quilt as permanent. Conflicts with `--deletable`.
+    /// Mark the blob/quilt as permanent.
     ///
     /// Permanent blobs/quilts *cannot* be removed from Walrus before their expiration time. This is
     /// beneficial if strong availability guarantees are required.
@@ -1146,7 +1146,7 @@ pub struct CommonStoreOptions {
     ///
     /// If specified, the client will not ask for a tip confirmation and proceed with the upload
     /// relay store operation.
-    #[arg(long)]
+    #[arg(long, requires = "upload_relay")]
     #[serde(default)]
     pub skip_tip_confirmation: bool,
     /// Preset upload mode to tune network concurrency and bytes-in-flight.
@@ -1749,6 +1749,8 @@ pub struct EpochArg {
     pub(crate) earliest_expiry_time: Option<SystemTime>,
 
     /// The end epoch for the blob.
+    ///
+    /// The end epoch must be greater than the current epoch.
     #[arg(long)]
     pub(crate) end_epoch: Option<Epoch>,
 }
