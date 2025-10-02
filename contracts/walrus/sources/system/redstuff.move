@@ -9,18 +9,20 @@ const DIGEST_LEN: u64 = 32;
 // The length of a blob id in the stored metadata
 const BLOB_ID_LEN: u64 = 32;
 
-// The default chunk size for chunked encoding (10 MB)
-// This must match DEFAULT_CHUNK_SIZE in crates/walrus-core/src/encoding/config.rs
-const DEFAULT_CHUNK_SIZE: u64 = 10 * 1024 * 1024;
-
 /// Computes the encoded length of a blob for the Red Stuff encoding using
 /// Reed-Solomon, given its unencoded size, number of shards, and encoding type.
 /// The output length includes the size of the metadata hashes and the blob ID.
 /// For RS2_CHUNKED, `chunk_size` specifies the size of each chunk. For RS2, it's ignored.
 /// This computation is the same as done by the function of the same name in
 /// `crates/walrus_core/encoding/config.rs` and should be kept in sync.
-public(package) fun encoded_blob_length(unencoded_length: u64, n_shards: u16, encoding_type: u8, chunk_size: u64): u64 {
-    if (encoding_type == 2) { // RS2_CHUNKED
+public(package) fun encoded_blob_length(
+    unencoded_length: u64,
+    n_shards: u16,
+    encoding_type: u8,
+    chunk_size: u64,
+): u64 {
+    if (encoding_type == 2) {
+        // RS2_CHUNKED
         encoded_blob_length_chunked(unencoded_length, n_shards, chunk_size)
     } else {
         encoded_blob_length_single(unencoded_length, n_shards, encoding_type, chunk_size)
@@ -29,7 +31,12 @@ public(package) fun encoded_blob_length(unencoded_length: u64, n_shards: u16, en
 
 /// Computes the encoded length for a single-chunk blob (RS2) or one chunk of a chunked blob.
 /// The `chunk_size` parameter is only used for RS2_CHUNKED metadata calculation.
-fun encoded_blob_length_single(unencoded_length: u64, n_shards: u16, encoding_type: u8, chunk_size: u64): u64 {
+fun encoded_blob_length_single(
+    unencoded_length: u64,
+    n_shards: u16,
+    encoding_type: u8,
+    chunk_size: u64,
+): u64 {
     // prettier-ignore
     let slivers_size = (
         source_symbols_primary(n_shards) as u64
@@ -55,7 +62,12 @@ fun encoded_blob_length_chunked(unencoded_length: u64, n_shards: u16, chunk_size
         let chunk_encoded_size = encoded_blob_length_single(chunk_size, n_shards, 2, chunk_size);
 
         // Encoded size for the last chunk (may be smaller)
-        let last_chunk_encoded_size = encoded_blob_length_single(last_chunk_size, n_shards, 2, chunk_size);
+        let last_chunk_encoded_size = encoded_blob_length_single(
+            last_chunk_size,
+            n_shards,
+            2,
+            chunk_size,
+        );
 
         // Total: (num_full_chunks * full_chunk_size) + last_chunk_size
         (full_chunks as u64) * chunk_encoded_size + last_chunk_encoded_size
@@ -114,14 +126,6 @@ fun metadata_size(n_shards: u16, unencoded_length: u64, encoding_type: u8, chunk
     }
 }
 
-/// Computes the maximum blob size that can be encoded with the given number of shards.
-/// This matches max_blob_size_for_n_shards in Rust.
-fun max_blob_size_for_n_shards(n_shards: u16): u64 {
-    // max_symbol_size for RS2 is u16::MAX - 1 = 65534
-    let max_symbol_size: u64 = 65534;
-    n_source_symbols(n_shards) * max_symbol_size
-}
-
 /// Computes the number of chunks needed for a blob of the given size and chunk size.
 /// This matches compute_chunk_parameters in Rust.
 fun compute_num_chunks(blob_size: u64, chunk_size: u64): u32 {
@@ -140,8 +144,17 @@ fun max_byzantine(n_shards: u16): u16 {
 use walrus::test_utils::assert_eq;
 
 #[test_only]
-fun assert_encoded_size(unencoded_length: u64, n_shards: u16, encoding_type: u8, chunk_size: u64, encoded_size: u64) {
-    assert_eq!(encoded_blob_length(unencoded_length, n_shards, encoding_type, chunk_size), encoded_size);
+fun assert_encoded_size(
+    unencoded_length: u64,
+    n_shards: u16,
+    encoding_type: u8,
+    chunk_size: u64,
+    encoded_size: u64,
+) {
+    assert_eq!(
+        encoded_blob_length(unencoded_length, n_shards, encoding_type, chunk_size),
+        encoded_size,
+    );
 }
 
 #[test]
@@ -150,7 +163,13 @@ fun test_encoded_size_reed_solomon() {
     let dummy_chunk_size = 0;
     assert_encoded_size(1, 10, 1, dummy_chunk_size, 10 * (2*(4 + 7) + 10 * 2 * 32 + 32));
     assert_encoded_size(1, 1000, 1, dummy_chunk_size, 1000 * (2*(334 + 667) + 1000 * 2 * 32 + 32));
-    assert_encoded_size((4 * 7) * 100, 10, 1, dummy_chunk_size, 10 * ((4 + 7) * 100 + 10 * 2 * 32 + 32));
+    assert_encoded_size(
+        (4 * 7) * 100,
+        10,
+        1,
+        dummy_chunk_size,
+        10 * ((4 + 7) * 100 + 10 * 2 * 32 + 32),
+    );
     assert_encoded_size(
         (334 * 667) * 100,
         1000,
