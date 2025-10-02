@@ -3,6 +3,7 @@
 
 use std::{
     borrow::Cow,
+    env,
     future::Future,
     pin::Pin,
     task::{self, Context, Poll},
@@ -27,7 +28,6 @@ use tower::Service;
 use tracing::{Instrument as _, Span, field, instrument::Instrumented};
 use tracing_opentelemetry::OpenTelemetrySpanExt as _;
 use walrus_utils::{
-    backoff::SuccessOrFailure,
     http::{BodyVisitor, VisitBody, http_body},
     metrics::{self as metric_utils, OwnedGaugeGuard},
 };
@@ -88,6 +88,7 @@ impl HttpClientMetrics {
         duration: Duration,
         labels: &HttpLabels,
         http_response_part: &str,
+        export_config: &ExportServerAddressConfig,
     ) {
         let mut label_array = labels
             .to_extended_array::<{ HttpLabels::LENGTH + 1 }>()
@@ -95,15 +96,7 @@ impl HttpClientMetrics {
 
         let request_duration = &self.request_duration_seconds;
 
-        // Conditionally report the server address in a subset of cases.
-        //
-        // As a result, there are series with and without server_address originating from each
-        // host. By performing a sum ignoring the server_address label, we get a series which is the
-        // same as never attaching server_address.
-        let observe_server_address = !labels.http_response_status_code.is_success()
-            || duration > HTTP_SERVER_ADDRESS_DURATION_THRESHOLD;
-
-        if !observe_server_address {
+        if !export_config.should_export_server_address(labels, Some(duration)) {
             label_array.clear_server_address();
         }
 
@@ -113,29 +106,62 @@ impl HttpClientMetrics {
             .observe(duration.as_secs_f64());
     }
 
-    fn observe_request_body_size(&self, body_size: u64, labels: &HttpLabels) {
+    fn observe_request_body_size(
+        &self,
+        body_size: u64,
+        labels: &HttpLabels,
+        export_config: &ExportServerAddressConfig,
+    ) {
+        let mut label_array = labels.to_array();
+
+        if !export_config.should_export_server_address(labels, None) {
+            label_array.clear_server_address();
+        }
+
         self.request_body_size_bytes
-            .get_metric_with_label_values(&labels.to_array())
+            .get_metric_with_label_values(label_array.as_ref())
             .expect("label count is the same as definition")
             .observe(body_size as f64);
     }
 
-    fn observe_response_body_size(&self, body_size: usize, labels: &HttpLabels) {
+    fn observe_response_body_size(
+        &self,
+        body_size: usize,
+        labels: &HttpLabels,
+        export_config: &ExportServerAddressConfig,
+    ) {
+        let mut label_array = labels.to_array();
+
+        if !export_config.should_export_server_address(labels, None) {
+            label_array.clear_server_address();
+        }
+
         self.response_body_size_bytes
-            .get_metric_with_label_values(&labels.to_array())
+            .get_metric_with_label_values(label_array.as_ref())
             .expect("label count is the same as definition")
             .observe(body_size as f64);
     }
 
-    fn active_requests(&self, labels: &HttpLabels) -> IntGauge {
+    fn active_requests(
+        &self,
+        labels: &HttpLabels,
+        export_config: &ExportServerAddressConfig,
+    ) -> IntGauge {
+        let label_array = &mut [
+            labels.http_request_method.as_str(),
+            labels.server_address.as_str(),
+            labels.server_port.as_str(),
+            labels.url_scheme.as_ref(),
+            labels.url_template,
+        ];
+
+        if !export_config.should_export_server_address(labels, None) {
+            label_array[1] = "";
+            label_array[2] = "";
+        }
+
         self.active_requests
-            .get_metric_with_label_values(&[
-                labels.http_request_method.as_str(),
-                labels.server_address.as_str(),
-                labels.server_port.as_str(),
-                labels.url_scheme.as_ref(),
-                labels.url_template,
-            ])
+            .get_metric_with_label_values(label_array)
             .expect("label count is the same as definition")
     }
 }
@@ -197,6 +223,49 @@ impl<'a, const N: usize> From<HttpLabelArray<'a, N>> for [&'a str; N] {
 impl<'a, const N: usize> AsRef<[&'a str]> for HttpLabelArray<'a, N> {
     fn as_ref(&self) -> &[&'a str] {
         &self.0
+    }
+}
+
+#[derive(Debug, Default, Clone, Copy)]
+enum ExportServerAddressConfig {
+    #[default]
+    None,
+    Partial,
+    Full,
+}
+
+impl ExportServerAddressConfig {
+    fn should_export_server_address(
+        &self,
+        labels: &HttpLabels,
+        request_duration: Option<Duration>,
+    ) -> bool {
+        match self {
+            ExportServerAddressConfig::None => false,
+            ExportServerAddressConfig::Full => true,
+            ExportServerAddressConfig::Partial => {
+                !labels
+                    .http_response_status_code
+                    .is_some_and(|code| code.is_success())
+                    || request_duration
+                        .is_some_and(|duration| duration > HTTP_SERVER_ADDRESS_DURATION_THRESHOLD)
+            }
+        }
+    }
+
+    fn get_from_env() -> ExportServerAddressConfig {
+        match env::var("HTTP_CLIENT_SERVER_ADDRESS_EXPORT")
+            .ok()
+            .as_deref()
+        {
+            None => Self::None,
+            Some("partial") => Self::Partial,
+            Some("full") => Self::Full,
+            Some(unknown) => {
+                tracing::warn!("unrecognized HTTP_CLIENT_SERVER_ADDRESS_EXPORT value: {unknown}");
+                Self::None
+            }
+        }
     }
 }
 
@@ -277,8 +346,8 @@ impl HttpLabels {
     }
 
     /// Returns the labels values as an array of `&str` which can be used to get metrics.
-    fn to_array(&self) -> [&str; Self::LENGTH] {
-        self.to_extended_array().0
+    fn to_array(&self) -> HttpLabelArray<'_, { Self::LENGTH }> {
+        self.to_extended_array()
     }
 
     /// Similar to [`Self::to_array`], but the length of the returned array can be specified to be
@@ -429,6 +498,8 @@ struct MonitorInner {
     labels: HttpLabels,
     /// Decrements the in flight counter on drop
     _active_request_guard: OwnedGaugeGuard,
+    /// Config that determines when to export the server_address label.
+    export_server_address: ExportServerAddressConfig,
 }
 
 /// Monitors metrics about the request up until the point the response is returned.
@@ -444,6 +515,8 @@ struct RequestMonitor {
 
 impl RequestMonitor {
     pub fn new(request: &Request, url_template: &'static str, metrics: HttpClientMetrics) -> Self {
+        let export_server_address = ExportServerAddressConfig::get_from_env();
+
         let labels = HttpLabels::new(request, url_template);
         let request_body_size = request
             .body()
@@ -455,7 +528,8 @@ impl RequestMonitor {
                 exact_size
             })
             .unwrap_or(0);
-        let active_request_guard = OwnedGaugeGuard::acquire(metrics.active_requests(&labels));
+        let active_request_guard =
+            OwnedGaugeGuard::acquire(metrics.active_requests(&labels, &export_server_address));
 
         Self {
             inner: Some(MonitorInner {
@@ -464,6 +538,7 @@ impl RequestMonitor {
                 start: Instant::now(),
                 labels,
                 _active_request_guard: active_request_guard,
+                export_server_address,
             }),
             request_body_size,
         }
@@ -489,9 +564,11 @@ impl RequestMonitor {
 
         self.populate_fields_from_response(maybe_output.and_then(|res| res.err()));
         self.observe_request_duration(response_available_at);
-        self.inner()
-            .metrics
-            .observe_request_body_size(self.request_body_size, &self.inner().labels);
+        self.inner().metrics.observe_request_body_size(
+            self.request_body_size,
+            &self.inner().labels,
+            &self.inner().export_server_address,
+        );
 
         maybe_output.is_some().then(|| {
             ResponseMonitor::new(MonitorInner {
@@ -567,6 +644,7 @@ impl RequestMonitor {
             end.duration_since(inner.start),
             &inner.labels,
             HTTP_RESPONSE_PART_HEADERS,
+            &inner.export_server_address,
         );
     }
 }
@@ -599,13 +677,19 @@ impl ResponseMonitor {
             metrics,
             start,
             labels,
+            export_server_address,
             ..
         } = &self.inner;
 
         // The duration of the request from the body headers being received to the body being
         // dropped.
-        metrics.observe_request_duration(start.elapsed(), labels, HTTP_RESPONSE_PART_PAYLOAD);
-        metrics.observe_response_body_size(response_body_size, labels);
+        metrics.observe_request_duration(
+            start.elapsed(),
+            labels,
+            HTTP_RESPONSE_PART_PAYLOAD,
+            export_server_address,
+        );
+        metrics.observe_response_body_size(response_body_size, labels, export_server_address);
     }
 }
 
