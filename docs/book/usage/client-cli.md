@@ -208,9 +208,19 @@ Reading blobs from Walrus can be achieved through the following command:
 walrus read <some blob ID>
 ```
 
-By default the blob data is written to the standard output. The `--out <OUT>` CLI option
-can be used to specify an output file name. The `--rpc-url <URL>` may be used to specify
-a Sui RPC node to use instead of the one set in the wallet configuration or the default one.
+By default the blob data is written to the standard output. The `--out <OUT>` CLI option can be used
+to specify an output file name. The `--rpc-url <URL>` may be used to specify a Sui RPC node to use
+instead of the one set in the wallet configuration or the configuration file.
+
+### Integrity checks
+
+Walrus performs integrity checks to ensure that any data read from Walrus is what the writer
+intended, see the [section about data
+integrity](../design/encoding.md#data-integrity-and-consistency) for further details. Before `v1.37`
+the Walrus CLI and aggregator always perform the [strict integrity check](../design/encoding.md#strict-integrity-check).
+Starting with `v1.37`, the default is a [more performant integrity check](../design/encoding.md#data-integrity-check),
+which is sufficient for the majority of cases. The strict integrity check can be enabled through the
+flag `--strict-integrity-check` (added in `v1.35`).
 
 ## Extending the lifetime of a blob
 
