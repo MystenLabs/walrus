@@ -258,7 +258,7 @@ impl ExportServerAddressConfig {
             .ok()
             .as_deref()
         {
-            None => Self::None,
+            None | Some("none") => Self::None,
             Some("partial") => Self::Partial,
             Some("full") => Self::Full,
             Some(unknown) => {
