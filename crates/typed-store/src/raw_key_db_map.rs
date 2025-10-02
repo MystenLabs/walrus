@@ -7,15 +7,12 @@
 //! for custom key serialization/deserialization strategies, enabling
 //! optimized key encoding for specific use cases, like to preserve alphanumeric order.
 
-use std::{marker::PhantomData, path::Path, sync::Arc};
+use std::marker::PhantomData;
 
 use rocksdb::OptimisticTransactionDB;
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    TypedStoreError,
-    rocks::{DBMap, MetricConf, ReadWriteOptions, RocksDB, open_cf_opts_optimistic},
-};
+use crate::{TypedStoreError, rocks::DBMap};
 
 /// Trait for key serialization and deserialization.
 pub trait KeyCodec: Sized {
@@ -211,87 +208,90 @@ where
     }
 }
 
-/// Result type for opening a database with raw key maps.
-/// Returns `(Arc<RocksDB>, Vec<RawKeyDBMap<K, V>>)` on success.
-pub type OpenRawKeyDBResult<K, V> = Result<(Arc<RocksDB>, Vec<RawKeyDBMap<K, V>>), TypedStoreError>;
-
-/// Opens an optimistic transaction database with raw key serialization.
-///
-/// This function initializes a RocksDB optimistic transaction database and returns
-/// RawKeyDBMaps for the specified column families with raw key serialization.
-///
-/// # Arguments
-/// * `path` - The path where the database will be created or opened
-/// * `db_options` - Optional RocksDB options for the database
-/// * `metric_conf` - Metrics configuration for the database
-/// * `cf_options` - Column family names with their specific options
-///
-/// # Returns
-/// A tuple of `(Arc<RocksDB>, Vec<RawKeyDBMap>)` where each map corresponds to a column family.
-pub fn open_cf_raw_key_opts_optimistic<P, K, V>(
-    path: P,
-    db_options: Option<rocksdb::Options>,
-    metric_conf: MetricConf,
-    cf_options: &[(&str, rocksdb::Options)],
-) -> OpenRawKeyDBResult<K, V>
-where
-    P: AsRef<Path>,
-    K: KeyCodec,
-    V: Serialize + for<'de> Deserialize<'de> + Clone,
-{
-    // Open the optimistic transaction database using typed_store.
-    let rocksdb = open_cf_opts_optimistic(path, db_options, metric_conf, cf_options)?;
-
-    // Extract column family names.
-    let cf_names: Vec<&str> = cf_options.iter().map(|(name, _)| *name).collect();
-
-    // Create RawKeyDBMaps for each column family.
-    let maps = create_raw_key_db_maps(&rocksdb, &cf_names, &ReadWriteOptions::default())?;
-
-    Ok((rocksdb, maps))
-}
-
-/// Helper function to create RawKeyDBMaps from an existing optimistic transaction database.
-///
-/// This function takes an already opened RocksDB (from typed_store) and creates
-/// RawKeyDBMaps for the specified column families with raw key serialization.
-///
-/// # Arguments
-/// * `rocksdb` - The `Arc<RocksDB>` from typed_store (must be OptimisticTransactionDB variant)
-/// * `cf_names` - Names of column families to wrap with `RawKeyDBMap`
-/// * `opts` - Read/write options for the DBMaps
-///
-/// # Returns
-/// A vector of `RawKeyDBMap` instances, one for each column family.
-pub fn create_raw_key_db_maps<K, V>(
-    rocksdb: &Arc<RocksDB>,
-    cf_names: &[&str],
-    opts: &ReadWriteOptions,
-) -> Result<Vec<RawKeyDBMap<K, V>>, TypedStoreError>
-where
-    K: KeyCodec,
-    V: Serialize + for<'de> Deserialize<'de> + Clone,
-{
-    let mut maps = Vec::with_capacity(cf_names.len());
-
-    for cf_name in cf_names {
-        // Create a DBMap for this column family using the existing RocksDB
-        let inner_map = DBMap::<Vec<u8>, V>::reopen(rocksdb, Some(cf_name), opts, false)?;
-
-        // Wrap it in RawKeyDBMap
-        let custom_map = RawKeyDBMap::new(inner_map)?;
-        maps.push(custom_map);
-    }
-
-    Ok(maps)
-}
-
 #[cfg(test)]
 mod tests {
+    use std::{path::Path, sync::Arc};
+
     use prometheus::Registry;
     use tempfile::TempDir;
 
     use super::*;
+    use crate::rocks::{MetricConf, ReadWriteOptions, RocksDB, open_cf_opts_optimistic};
+
+    /// Result type for opening a database with raw key maps.
+    /// Returns `(Arc<RocksDB>, Vec<RawKeyDBMap<K, V>>)` on success.
+    type OpenRawKeyDBResult<K, V> = Result<(Arc<RocksDB>, Vec<RawKeyDBMap<K, V>>), TypedStoreError>;
+
+    /// Opens an optimistic transaction database with raw key serialization.
+    ///
+    /// This function initializes a RocksDB optimistic transaction database and returns
+    /// RawKeyDBMaps for the specified column families with raw key serialization.
+    ///
+    /// # Arguments
+    /// * `path` - The path where the database will be created or opened
+    /// * `db_options` - Optional RocksDB options for the database
+    /// * `metric_conf` - Metrics configuration for the database
+    /// * `cf_options` - Column family names with their specific options
+    ///
+    /// # Returns
+    /// A tuple of `(Arc<RocksDB>, Vec<RawKeyDBMap>)` where each map corresponds to a column family.
+    fn open_cf_raw_key_opts_optimistic<P, K, V>(
+        path: P,
+        db_options: Option<rocksdb::Options>,
+        metric_conf: MetricConf,
+        cf_options: &[(&str, rocksdb::Options)],
+    ) -> OpenRawKeyDBResult<K, V>
+    where
+        P: AsRef<Path>,
+        K: KeyCodec,
+        V: Serialize + for<'de> Deserialize<'de> + Clone,
+    {
+        // Open the optimistic transaction database using typed_store.
+        let rocksdb = open_cf_opts_optimistic(path, db_options, metric_conf, cf_options)?;
+
+        // Extract column family names.
+        let cf_names: Vec<&str> = cf_options.iter().map(|(name, _)| *name).collect();
+
+        // Create RawKeyDBMaps for each column family.
+        let maps = create_raw_key_db_maps(&rocksdb, &cf_names, &ReadWriteOptions::default())?;
+
+        Ok((rocksdb, maps))
+    }
+
+    /// Helper function to create RawKeyDBMaps from an existing optimistic transaction database.
+    ///
+    /// This function takes an already opened RocksDB (from typed_store) and creates
+    /// RawKeyDBMaps for the specified column families with raw key serialization.
+    ///
+    /// # Arguments
+    /// * `rocksdb` - The `Arc<RocksDB>` from typed_store (must be OptimisticTransactionDB variant)
+    /// * `cf_names` - Names of column families to wrap with `RawKeyDBMap`
+    /// * `opts` - Read/write options for the DBMaps
+    ///
+    /// # Returns
+    /// A vector of `RawKeyDBMap` instances, one for each column family.
+    fn create_raw_key_db_maps<K, V>(
+        rocksdb: &Arc<RocksDB>,
+        cf_names: &[&str],
+        opts: &ReadWriteOptions,
+    ) -> Result<Vec<RawKeyDBMap<K, V>>, TypedStoreError>
+    where
+        K: KeyCodec,
+        V: Serialize + for<'de> Deserialize<'de> + Clone,
+    {
+        let mut maps = Vec::with_capacity(cf_names.len());
+
+        for cf_name in cf_names {
+            // Create a DBMap for this column family using the existing RocksDB
+            let inner_map = DBMap::<Vec<u8>, V>::reopen(rocksdb, Some(cf_name), opts, false)?;
+
+            // Wrap it in RawKeyDBMap
+            let custom_map = RawKeyDBMap::new(inner_map)?;
+            maps.push(custom_map);
+        }
+
+        Ok(maps)
+    }
 
     // Test key type that implements KeyCodec
     #[derive(Debug, Clone, PartialEq, Eq)]
