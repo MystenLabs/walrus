@@ -73,11 +73,11 @@ struct ShardColumnFamilyNames {
 }
 
 impl ShardColumnFamilyNames {
-    fn slivers(&self, axis: SliverType) -> &str {
+    fn generic_slivers(&self, axis: SliverType) -> &str {
         if axis.is_primary() {
-            &self.primary_slivers
+            "shard/primary-slivers"
         } else {
-            &self.secondary_slivers
+            "shard/secondary-slivers"
         }
     }
 }
@@ -320,7 +320,7 @@ impl ShardStorage {
     ) -> Result<Self, TypedStoreError> {
         let start = Instant::now();
 
-        let collection_name = constants::base_column_family_name(id);
+        let collection_name = String::from("shard_cf");
         let labels = Labels {
             collection_name: &collection_name,
             operation_name: OperationType::Create,
@@ -438,7 +438,7 @@ impl ShardStorage {
     ) -> Result<(), TypedStoreError> {
         let start = Instant::now();
         let labels = Labels {
-            collection_name: self.cf_names.slivers(sliver.r#type()),
+            collection_name: self.cf_names.generic_slivers(sliver.r#type()),
             operation_name: OperationType::Insert,
             query_summary: "INSERT (blob_id, sliver)",
             ..Default::default()
@@ -499,7 +499,7 @@ impl ShardStorage {
     ) -> Result<Option<PrimarySliver>, TypedStoreError> {
         let start = Instant::now();
         let labels = Labels {
-            collection_name: &self.cf_names.primary_slivers,
+            collection_name: self.cf_names.generic_slivers(SliverType::Primary),
             operation_name: OperationType::Get,
             query_summary: "GET primary_sliver BY blob_id",
             ..Labels::default()
@@ -524,7 +524,7 @@ impl ShardStorage {
     ) -> Result<Option<SecondarySliver>, TypedStoreError> {
         let start = Instant::now();
         let labels = Labels {
-            collection_name: &self.cf_names.secondary_slivers,
+            collection_name: self.cf_names.generic_slivers(SliverType::Secondary),
             operation_name: OperationType::Get,
             query_summary: "GET secondary_sliver BY blob_id",
             ..Labels::default()
@@ -564,7 +564,7 @@ impl ShardStorage {
     ) -> Result<bool, TypedStoreError> {
         let start = Instant::now();
         let labels = Labels {
-            collection_name: self.cf_names.slivers(type_),
+            collection_name: self.cf_names.generic_slivers(type_),
             operation_name: OperationType::ContainsKey,
             query_summary: "CONTAINS_KEY blob_id",
             ..Labels::default()
@@ -708,7 +708,7 @@ impl ShardStorage {
     ) -> Result<Vec<(BlobId, Sliver)>, TypedStoreError> {
         let start = Instant::now();
         let labels = Labels {
-            collection_name: self.cf_names.slivers(sliver_type),
+            collection_name: self.cf_names.generic_slivers(sliver_type),
             operation_name: OperationType::MultiGet,
             query_summary: "MULTI_GET sliver BY blob_id_list",
             ..Labels::default()
