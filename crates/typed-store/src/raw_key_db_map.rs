@@ -1,11 +1,11 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-//! Custom DBMap wrapper with configurable key serialization.
+//! Custom DBMap wrapper with configurable key serialization/deserialization.
 //!
 //! This module provides a wrapper around typed_store's DBMap that allows
 //! for custom key serialization/deserialization strategies, enabling
-//! optimized key encoding for specific use cases like the indexer.
+//! optimized key encoding for specific use cases, like to preserve alphanumeric order.
 
 use std::{marker::PhantomData, path::Path, sync::Arc};
 
@@ -15,7 +15,6 @@ use serde::{Deserialize, Serialize};
 use crate::{
     TypedStoreError,
     rocks::{DBMap, MetricConf, ReadWriteOptions, RocksDB, open_cf_opts_optimistic},
-    traits::Map,
 };
 
 /// Trait for key serialization and deserialization.
@@ -82,7 +81,8 @@ where
             .map_err(|e| TypedStoreError::RocksDBError(e.to_string()))
     }
 
-    /// Gets a value for update within a transaction (acquires lock).
+    /// Gets a value for update within a transaction, the commit will fail if the value is updated
+    /// outside the transaction.
     pub fn get_for_update_cf(
         &self,
         txn: &rocksdb::Transaction<'_, OptimisticTransactionDB>,
@@ -105,7 +105,7 @@ where
         }
     }
 
-    /// Gets a value within a transaction (without lock).
+    /// Gets a value within a transaction.
     pub fn get_cf_with_txn(
         &self,
         txn: &rocksdb::Transaction<'_, OptimisticTransactionDB>,
@@ -128,86 +128,61 @@ where
         }
     }
 
-    /// Reads a range of key-value pairs with a given prefix within a transaction.
-    /// Returns an iterator over the key-value pairs that match the prefix.
+    /// Reads a range of key-value pairs within a transaction using efficient range bounds.
+    /// Returns key-value pairs in the range [begin, end).
     ///
-    /// Note: The prefix parameter should serialize to the actual prefix bytes you want to match.
-    pub fn read_range_prefix_bytes<'a>(
+    /// This is more efficient than prefix-based iteration for range queries.
+    pub fn read_range(
         &self,
-        txn: &'a rocksdb::Transaction<'_, OptimisticTransactionDB>,
-        prefix_bytes: Vec<u8>,
-    ) -> Result<impl Iterator<Item = Result<(K, V), TypedStoreError>> + 'a, TypedStoreError> {
+        txn: &rocksdb::Transaction<'_, OptimisticTransactionDB>,
+        begin: Vec<u8>,
+        end: Vec<u8>,
+        row_limit: usize,
+    ) -> Result<Vec<(K, V)>, TypedStoreError> {
         let cf = self.inner.cf()?;
 
-        let prefix_clone1 = prefix_bytes.clone();
-        let prefix_clone2 = prefix_bytes.clone();
-        let iter = txn.prefix_iterator_cf(&cf, prefix_bytes);
+        let mut read_opts = rocksdb::ReadOptions::default();
+        read_opts.set_iterate_lower_bound(begin);
+        read_opts.set_iterate_upper_bound(end);
 
-        Ok(iter
-            .take_while(move |item| {
-                // Check that the key still starts with our prefix
-                match item {
-                    Ok((key_bytes, _)) => key_bytes.starts_with(&prefix_clone1),
-                    Err(_) => true, // Let errors through to be handled by map
-                }
-            })
-            .map(move |item| match item {
+        let iter = txn.iterator_cf_opt(&cf, read_opts, rocksdb::IteratorMode::Start);
+
+        let mut results = Vec::new();
+
+        for item in iter.take(row_limit) {
+            match item {
                 Ok((key_bytes, value_bytes)) => {
-                    // Additional safety check
-                    if !key_bytes.starts_with(&prefix_clone2) {
-                        return Err(TypedStoreError::RocksDBError(
-                            "Unexpected key outside prefix range".to_string(),
-                        ));
+                    match (|| -> Result<(K, V), TypedStoreError> {
+                        let key = K::deserialize(&key_bytes)?;
+                        let value = bcs::from_bytes(&value_bytes)
+                            .map_err(|e| TypedStoreError::SerializationError(e.to_string()))?;
+                        Ok((key, value))
+                    })() {
+                        Ok(kv_pair) => results.push(kv_pair),
+                        Err(e) => {
+                            if results.is_empty() {
+                                return Err(e);
+                            } else {
+                                break; // Return partial results
+                            }
+                        }
                     }
-                    let key = K::deserialize(&key_bytes)?;
-                    let value = bcs::from_bytes(&value_bytes)
-                        .map_err(|e| TypedStoreError::SerializationError(e.to_string()))?;
-                    Ok((key, value))
                 }
-                Err(e) => Err(TypedStoreError::RocksDBError(e.to_string())),
-            }))
-    }
+                Err(e) => {
+                    if results.is_empty() {
+                        return Err(TypedStoreError::RocksDBError(e.to_string()));
+                    } else {
+                        break; // Return partial results
+                    }
+                }
+            }
 
-    /// Checks if the map contains a key.
-    pub fn contains_key(&self, key: &K) -> Result<bool, TypedStoreError> {
-        let key_bytes = key.serialize()?;
-        self.inner.contains_key(&key_bytes)
-    }
+            if results.len() >= row_limit {
+                break;
+            }
+        }
 
-    /// Gets a value by key.
-    pub fn get(&self, key: &K) -> Result<Option<V>, TypedStoreError> {
-        let key_bytes = key.serialize()?;
-        self.inner.get(&key_bytes)
-    }
-
-    /// Inserts a key-value pair.
-    pub fn insert(&self, key: &K, value: &V) -> Result<(), TypedStoreError> {
-        let key_bytes = key.serialize()?;
-        self.inner.insert(&key_bytes, value)
-    }
-
-    /// Removes a key-value pair.
-    pub fn remove(&self, key: &K) -> Result<(), TypedStoreError> {
-        let key_bytes = key.serialize()?;
-        self.inner.remove(&key_bytes)
-    }
-
-    /// Returns an iterator over all key-value pairs.
-    /// Note: This uses safe_iter internally which may have different performance characteristics.
-    pub fn safe_iter(
-        &self,
-    ) -> Result<impl Iterator<Item = Result<(K, V), TypedStoreError>> + '_, TypedStoreError> {
-        Ok(self.inner.safe_iter()?.map(|result| {
-            result.and_then(|(key_bytes, value)| {
-                let key = K::deserialize(&key_bytes)?;
-                Ok((key, value))
-            })
-        }))
-    }
-
-    /// Flushes the map to disk.
-    pub fn flush(&self) -> Result<(), TypedStoreError> {
-        self.inner.flush()
+        Ok(results)
     }
 }
 
@@ -359,11 +334,23 @@ mod tests {
         }
     }
 
+    impl TestKey {
+        fn new(prefix: String, id: u64) -> Self {
+            Self { prefix, id }
+        }
+    }
+
     // Test value type
     #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
     struct TestValue {
         data: String,
         count: u32,
+    }
+
+    impl TestValue {
+        fn new(data: String, count: u32) -> Self {
+            Self { data, count }
+        }
     }
 
     fn create_test_db() -> (TempDir, Arc<RocksDB>, Vec<RawKeyDBMap<TestKey, TestValue>>) {
@@ -379,44 +366,6 @@ mod tests {
         .expect("Failed to create test database");
 
         (temp_dir, db, maps)
-    }
-
-    #[tokio::test]
-    async fn test_basic_operations() {
-        crate::metrics::DBMetrics::init(&Registry::default());
-        let (_temp_dir, _db, maps) = create_test_db();
-
-        let map = &maps[0];
-
-        // Test insert and get
-        let key1 = TestKey {
-            prefix: "user".to_string(),
-            id: 100,
-        };
-        let value1 = TestValue {
-            data: "test data".to_string(),
-            count: 42,
-        };
-
-        map.insert(&key1, &value1).expect("Failed to insert");
-
-        let retrieved = map.get(&key1).expect("Failed to get");
-        assert_eq!(retrieved, Some(value1.clone()));
-
-        // Test contains_key
-        assert!(map.contains_key(&key1).expect("Failed to check key"));
-
-        // Test non-existent key
-        let key2 = TestKey {
-            prefix: "user".to_string(),
-            id: 200,
-        };
-        assert!(!map.contains_key(&key2).expect("Failed to check key"));
-        assert_eq!(map.get(&key2).expect("Failed to get"), None);
-
-        // Test remove
-        map.remove(&key1).expect("Failed to remove");
-        assert!(!map.contains_key(&key1).expect("Failed to check key"));
     }
 
     #[tokio::test]
@@ -467,33 +416,34 @@ mod tests {
         let map = &maps[0];
         let handle = db.as_optimistic().expect("Should be optimistic DB");
 
-        // Insert multiple keys with same prefix
+        let prefix = "range_test";
+        let mut kvs = Vec::new();
+        for i in 1..=5 {
+            let key = TestKey::new(prefix.to_string(), i);
+            let value = TestValue::new(format!("value_{}", i), i as u32 * 10);
+            kvs.push((key, value));
+        }
+
         {
             let txn = handle.transaction();
 
-            for i in 1..=5 {
-                let key = TestKey {
-                    prefix: "range_test".to_string(),
-                    id: i,
-                };
-                let value = TestValue {
-                    data: format!("value_{}", i),
-                    count: i as u32 * 10,
-                };
-                map.put_cf_with_txn(&txn, &key, &value)
+            for (key, value) in kvs.iter() {
+                map.put_cf_with_txn(&txn, key, value)
                     .expect("Failed to put in transaction");
             }
 
-            // Also insert some keys with different prefix
+            let prefix2 = "range_tesu";
             for i in 1..=3 {
-                let key = TestKey {
-                    prefix: "other_prefix".to_string(),
-                    id: i,
-                };
-                let value = TestValue {
-                    data: format!("other_{}", i),
-                    count: i as u32 * 100,
-                };
+                let key = TestKey::new(prefix2.to_string(), i);
+                let value = TestValue::new(format!("other_{}", i), i as u32 * 100);
+                map.put_cf_with_txn(&txn, &key, &value)
+                    .expect("Failed to put in transaction");
+            }
+
+            let prefix3 = "range_tess";
+            for i in 1..=3 {
+                let key = TestKey::new(prefix3.to_string(), i);
+                let value = TestValue::new(format!("other_{}", i), i as u32 * 100);
                 map.put_cf_with_txn(&txn, &key, &value)
                     .expect("Failed to put in transaction");
             }
@@ -501,94 +451,48 @@ mod tests {
             txn.commit().expect("Failed to commit transaction");
         }
 
-        // Read range with prefix
+        // Create prefix bytes for "range_test/" to match our key serialization format
+        let mut begin = prefix.as_bytes().to_vec();
+        begin.push(b'/');
+        let mut end = prefix.as_bytes().to_vec();
+        end.push(b'0');
+
         {
             let txn = handle.transaction();
 
-            // Create prefix bytes for "range_test/" to match our key serialization format
-            let mut prefix_bytes = "range_test".as_bytes().to_vec();
-            prefix_bytes.push(b'/');
+            let results_with_limit: Vec<(TestKey, TestValue)> = map
+                .read_range(&txn, begin.clone(), end.clone(), 3)
+                .expect("Failed to read range");
 
-            let mut results: Vec<(TestKey, TestValue)> = map
-                .read_range_prefix_bytes(&txn, prefix_bytes)
-                .expect("Failed to read range")
-                .collect::<Result<Vec<_>, _>>()
-                .expect("Failed to collect results");
+            assert_eq!(results_with_limit.len(), 3);
 
-            // Should get exactly 5 results
-            assert_eq!(results.len(), 5);
+            let results_without_limit: Vec<(TestKey, TestValue)> = map
+                .read_range(&txn, begin.clone(), end.clone(), 100)
+                .expect("Failed to read range");
 
-            // Sort by id to check order
-            results.sort_by_key(|(k, _)| k.id);
-
-            // Verify all keys are present and correct
-            for (i, (key, value)) in results.iter().enumerate() {
-                let expected_id = (i + 1) as u64;
-                assert_eq!(key.prefix, "range_test");
-                assert_eq!(key.id, expected_id);
-                assert_eq!(value.data, format!("value_{}", expected_id));
-                assert_eq!(value.count, expected_id as u32 * 10);
+            assert_eq!(results_without_limit.len(), kvs.len());
+            for (i, (key, value)) in results_without_limit.iter().enumerate() {
+                assert_eq!(key, &kvs[i].0);
+                assert_eq!(value, &kvs[i].1);
             }
-
-            txn.commit().expect("Failed to commit transaction");
         }
 
-        // Delete some keys
         {
             let txn = handle.transaction();
+            assert!(map.delete_cf_with_txn(&txn, &kvs[2].0).is_ok());
+            txn.commit().expect("Failed to commit transaction");
 
-            // Delete keys with id 2 and 4
-            for id in [2, 4] {
-                let key = TestKey {
-                    prefix: "range_test".to_string(),
-                    id,
-                };
-                map.delete_cf_with_txn(&txn, &key)
-                    .expect("Failed to delete in transaction");
+            let txn = handle.transaction();
+            let results_without_limit: Vec<(TestKey, TestValue)> = map
+                .read_range(&txn, begin, end, 100)
+                .expect("Failed to read range");
+
+            kvs.remove(2);
+            assert_eq!(results_without_limit.len(), kvs.len());
+            for (i, (key, value)) in results_without_limit.iter().enumerate() {
+                assert_eq!(key, &kvs[i].0);
+                assert_eq!(value, &kvs[i].1);
             }
-
-            txn.commit().expect("Failed to commit transaction");
-        }
-
-        // Read range again to verify deletions
-        {
-            let txn = handle.transaction();
-
-            let mut prefix_bytes = "range_test".as_bytes().to_vec();
-            prefix_bytes.push(b'/');
-
-            let results: Vec<(TestKey, TestValue)> = map
-                .read_range_prefix_bytes(&txn, prefix_bytes)
-                .expect("Failed to read range")
-                .collect::<Result<Vec<_>, _>>()
-                .expect("Failed to collect results");
-
-            // Should now have only 3 results (1, 3, 5)
-            assert_eq!(results.len(), 3);
-
-            let ids: Vec<u64> = results.iter().map(|(k, _)| k.id).collect();
-            assert_eq!(ids, vec![1, 3, 5]);
-
-            txn.commit().expect("Failed to commit transaction");
-        }
-
-        // Verify the other prefix is untouched
-        {
-            let txn = handle.transaction();
-
-            let mut prefix_bytes = "other_prefix".as_bytes().to_vec();
-            prefix_bytes.push(b'/');
-
-            let results: Vec<(TestKey, TestValue)> = map
-                .read_range_prefix_bytes(&txn, prefix_bytes)
-                .expect("Failed to read range")
-                .collect::<Result<Vec<_>, _>>()
-                .expect("Failed to collect results");
-
-            // Should still have all 3 results
-            assert_eq!(results.len(), 3);
-
-            txn.commit().expect("Failed to commit transaction");
         }
     }
 }
