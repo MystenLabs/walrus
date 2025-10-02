@@ -219,6 +219,84 @@ impl StorageShardLock {
 }
 
 impl Storage {
+    /// Open storage in read-only mode for debugging and inspection.
+    pub fn open_readonly(
+        path: &Path,
+        db_config: DatabaseConfig,
+    ) -> Result<rocksdb::DB, anyhow::Error> {
+        use rocksdb::{ColumnFamilyDescriptor, DB};
+
+        let mut db_opts = Options::from(&db_config.global);
+        // For read-only mode, don't create missing column families or database.
+        db_opts.create_missing_column_families(false);
+        db_opts.create_if_missing(false);
+
+        let existing_shards_ids = ShardStorage::existing_cf_shards_ids(path, &db_opts);
+        tracing::info!(
+            "open storage (read-only) for existing shards IDs: {}",
+            existing_shards_ids
+                .iter()
+                .map(ToString::to_string)
+                .join(", ")
+        );
+
+        // Build column families with the same options as normal open.
+        let mut shard_column_families = existing_shards_ids
+            .iter()
+            .copied()
+            .flat_map(|id| {
+                vec![
+                    ColumnFamilyDescriptor::new(
+                        primary_slivers_column_family_name(id),
+                        primary_slivers_column_family_options(&db_config),
+                    ),
+                    ColumnFamilyDescriptor::new(
+                        secondary_slivers_column_family_name(id),
+                        secondary_slivers_column_family_options(&db_config),
+                    ),
+                    ColumnFamilyDescriptor::new(
+                        shard_status_column_family_name(id),
+                        shard_status_column_family_options(&db_config),
+                    ),
+                    ColumnFamilyDescriptor::new(
+                        shard_sync_progress_column_family_name(id),
+                        shard_sync_progress_column_family_options(&db_config),
+                    ),
+                    ColumnFamilyDescriptor::new(
+                        pending_recover_slivers_column_family_name(id),
+                        pending_recover_slivers_column_family_options(&db_config),
+                    ),
+                ]
+            })
+            .collect::<Vec<_>>();
+
+        // Add non-shard column families.
+        shard_column_families.push(ColumnFamilyDescriptor::new(
+            node_status_cf_name(),
+            node_status_options(&db_config),
+        ));
+        shard_column_families.push(ColumnFamilyDescriptor::new(
+            metadata_cf_name(),
+            metadata_options(&db_config),
+        ));
+
+        // Add blob info column families.
+        for (cf_name, cf_opts) in BlobInfoTable::options(&db_config) {
+            shard_column_families.push(ColumnFamilyDescriptor::new(cf_name, cf_opts));
+        }
+
+        // Add event cursor column family.
+        let (event_cursor_cf_name, event_cursor_options) = event_cursor_table_options(&db_config);
+        shard_column_families.push(ColumnFamilyDescriptor::new(
+            event_cursor_cf_name,
+            event_cursor_options,
+        ));
+
+        // Open database in read-only mode.
+        DB::open_cf_descriptors_read_only(&db_opts, path, shard_column_families, false)
+            .map_err(|e| anyhow::anyhow!("failed to open storage database read-only: {}", e))
+    }
+
     /// Opens the storage database located at the specified path, creating the database if absent.
     pub fn open(
         path: &Path,

@@ -675,8 +675,8 @@ fn read_blob_metadata(
         ));
     }
 
-    // Only open the metadata column family
-    let db = open_db_cf_readonly(db_path, &[metadata_cf_name()], db_config)?;
+    // Use Storage's read-only open to ensure proper column family options.
+    let db = crate::node::storage::Storage::open_readonly(db_path, db_config.clone())?;
     let cf = db
         .cf_handle(metadata_cf_name())
         .ok_or_else(|| anyhow::anyhow!("Column family {} not found", metadata_cf_name()))?;
@@ -824,16 +824,9 @@ fn event_blob_writer(
         ));
     }
 
-    // Determine which column family we need based on the command
-    let cf_name = match &command {
-        EventBlobWriterCommands::ReadCertified => certified_cf_name(),
-        EventBlobWriterCommands::ReadAttested => attested_cf_name(),
-        EventBlobWriterCommands::ReadPending { .. } => pending_cf_name(),
-        EventBlobWriterCommands::ReadFailedToAttest => failed_to_attest_cf_name(),
-    };
-
-    // Only open the specific column family we need
-    let db = open_db_cf_readonly(db_path, &[cf_name], db_config)?;
+    // Use EventBlobWriterFactory's read-only open to ensure proper column family options.
+    let db =
+        crate::node::event_blob_writer::EventBlobWriterFactory::open_readonly(db_path, db_config)?;
 
     match command {
         EventBlobWriterCommands::ReadCertified => {
@@ -952,13 +945,9 @@ fn event_processor(
         ));
     }
 
-    // Determine which column family we need based on the command
-    let cf_name = match &command {
-        EventProcessorCommands::ReadInitState => event_processor_constants::INIT_STATE,
-    };
-
-    // Only open the specific column family we need
-    let db = open_db_cf_readonly(db_path, &[cf_name], db_config)?;
+    // Use EventProcessorStores's read-only open to ensure proper column family options.
+    let db =
+        crate::event::event_processor::db::EventProcessorStores::open_readonly(db_config, db_path)?;
 
     match command {
         EventProcessorCommands::ReadInitState => {

@@ -279,6 +279,33 @@ impl EventBlobWriterFactory {
         root_dir_path.join("event_blob_writer").join("blobs")
     }
 
+    /// Open event blob writer database in read-only mode for debugging and inspection.
+    pub fn open_readonly(root_dir_path: &Path, db_config: &DatabaseConfig) -> Result<rocksdb::DB> {
+        use rocksdb::{ColumnFamilyDescriptor, DB, Options};
+
+        let db_path = Self::db_path(root_dir_path);
+        let mut db_opts = Options::from(&db_config.global());
+        // For read-only mode, don't create missing column families or database.
+        db_opts.create_missing_column_families(false);
+        db_opts.create_if_missing(false);
+
+        // Build column families with the same options as normal open.
+        let column_families = vec![
+            ColumnFamilyDescriptor::new(PENDING, db_config.pending().to_options()),
+            ColumnFamilyDescriptor::new(ATTESTED, db_config.attested().to_options()),
+            ColumnFamilyDescriptor::new(CERTIFIED, db_config.certified().to_options()),
+            ColumnFamilyDescriptor::new(
+                FAILED_TO_ATTEST,
+                db_config.failed_to_attest().to_options(),
+            ),
+        ];
+
+        // Open database in read-only mode.
+        DB::open_cf_descriptors_read_only(&db_opts, &db_path, column_families, false).map_err(|e| {
+            anyhow::anyhow!("failed to open event blob writer database read-only: {}", e)
+        })
+    }
+
     /// Cleans up orphaned blob files from the filesystem that don't exist in any database.
     fn cleanup_orphaned_blobs(&self, blobs_path: &Path) -> Result<()> {
         if !blobs_path.exists() {

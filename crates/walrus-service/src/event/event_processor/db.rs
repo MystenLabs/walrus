@@ -65,6 +65,42 @@ impl EventProcessorStores {
         Ok(stores)
     }
 
+    /// Open event processor database in read-only mode for debugging and inspection.
+    pub fn open_readonly(db_config: &DatabaseConfig, db_path: &Path) -> Result<rocksdb::DB> {
+        use rocksdb::{ColumnFamilyDescriptor, DB, Options};
+
+        let mut db_opts = Options::from(&db_config.global());
+        // For read-only mode, don't create missing column families or database.
+        db_opts.create_missing_column_families(false);
+        db_opts.create_if_missing(false);
+
+        // Build column families with the same options as normal open.
+        let column_families = vec![
+            ColumnFamilyDescriptor::new(
+                constants::CHECKPOINT_STORE,
+                db_config.checkpoint_store().to_options(),
+            ),
+            ColumnFamilyDescriptor::new(
+                constants::WALRUS_PACKAGE_STORE,
+                db_config.walrus_package_store().to_options(),
+            ),
+            ColumnFamilyDescriptor::new(
+                constants::COMMITTEE_STORE,
+                db_config.committee_store().to_options(),
+            ),
+            ColumnFamilyDescriptor::new(
+                constants::EVENT_STORE,
+                db_config.event_store().to_options(),
+            ),
+            ColumnFamilyDescriptor::new(constants::INIT_STATE, db_config.init_state().to_options()),
+        ];
+
+        // Open database in read-only mode.
+        DB::open_cf_descriptors_read_only(&db_opts, db_path, column_families, false).map_err(|e| {
+            anyhow::anyhow!("failed to open event processor database read-only: {}", e)
+        })
+    }
+
     /// Initializes the database for event processing.
     pub fn initialize_database(
         storage_path: &Path,
