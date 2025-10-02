@@ -222,4 +222,12 @@ pub enum QuiltError {
     /// Other error.
     #[error("other error: {0}")]
     Other(String),
+    /// Column size mismatch.
+    #[error("column size mismatch: expected {expected}, got {actual}")]
+    ColumnSizeMismatch {
+        /// Expected column size.
+        expected: usize,
+        /// Actual column size.
+        actual: usize,
+    },
 }

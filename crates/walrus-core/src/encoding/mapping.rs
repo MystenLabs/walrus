@@ -148,7 +148,7 @@ mod tests {
         (0..num)
             .map(|n| {
                 SliverPair::new_empty(
-                    &(&encoding_config).into(),
+                    encoding_config.into(),
                     1.try_into().unwrap(),
                     SliverPairIndex(n),
                 )

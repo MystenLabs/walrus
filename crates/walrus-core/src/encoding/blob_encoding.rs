@@ -48,7 +48,7 @@ pub struct BlobEncoder<'a> {
     /// Stored as a `usize` for convenience, but guaranteed to be non-zero.
     n_columns: usize,
     /// Reference to the encoding configuration of this encoder.
-    config: EncodingConfigEnum<'a>,
+    config: EncodingConfigEnum,
     /// A tracing span associated with this blob encoder.
     span: Span,
 }
@@ -68,7 +68,7 @@ impl<'a> BlobEncoder<'a> {
     ///    [`EncodingConfigEnum::max_blob_size`] method.
     /// 2. On 32-bit architectures, the maximally supported blob size can actually be smaller than
     ///    that due to limitations of the address space.
-    pub fn new(config: EncodingConfigEnum<'a>, blob: &'a [u8]) -> Result<Self, DataTooLargeError> {
+    pub fn new(config: EncodingConfigEnum, blob: &'a [u8]) -> Result<Self, DataTooLargeError> {
         tracing::debug!("creating new blob encoder");
         let symbol_size = utils::compute_symbol_size_from_usize(
             blob.len(),
@@ -235,16 +235,18 @@ impl<'a> BlobEncoder<'a> {
 
     /// Returns a vector of empty [`SliverPair`] of length `n_shards`. Primary and secondary slivers
     /// are initialized with the appropriate `symbol_size` and `length`.
+    #[tracing::instrument(level = "debug", skip_all)]
     fn empty_sliver_pairs(&self) -> Vec<SliverPair> {
         (0..self.config.n_shards().get())
-            .map(|i| SliverPair::new_empty(&self.config, self.symbol_size, SliverPairIndex(i)))
+            .map(|i| SliverPair::new_empty(self.config, self.symbol_size, SliverPairIndex(i)))
             .collect()
     }
 
     /// Computes the fully expanded message matrix by encoding rows and columns.
+    #[tracing::instrument(level = "debug", skip_all)]
     fn get_expanded_matrix(&self) -> ExpandedMessageMatrix<'_> {
         self.span
-            .in_scope(|| ExpandedMessageMatrix::new(&self.config, self.symbol_size, self.blob))
+            .in_scope(|| ExpandedMessageMatrix::new(self.config, self.symbol_size, self.blob))
     }
 }
 
@@ -257,7 +259,7 @@ struct ExpandedMessageMatrix<'a> {
     matrix: Vec<Symbols>,
     // INV: `blob.len() > 0`
     blob: &'a [u8],
-    config: &'a EncodingConfigEnum<'a>,
+    config: EncodingConfigEnum,
     /// The number of rows in the non-expanded message matrix.
     n_rows: usize,
     /// The number of columns in the non-expanded message matrix.
@@ -266,7 +268,7 @@ struct ExpandedMessageMatrix<'a> {
 }
 
 impl<'a> ExpandedMessageMatrix<'a> {
-    fn new(config: &'a EncodingConfigEnum<'a>, symbol_size: NonZeroU16, blob: &'a [u8]) -> Self {
+    fn new(config: EncodingConfigEnum, symbol_size: NonZeroU16, blob: &'a [u8]) -> Self {
         tracing::debug!("computing expanded message matrix");
         let matrix = vec![
             Symbols::zeros(config.n_shards_as_usize(), symbol_size);
@@ -275,9 +277,9 @@ impl<'a> ExpandedMessageMatrix<'a> {
         let mut expanded_matrix = Self {
             matrix,
             blob,
-            config,
             n_rows: config.n_source_symbols::<Primary>().get().into(),
             n_columns: config.n_source_symbols::<Secondary>().get().into(),
+            config,
             symbol_size,
         };
         expanded_matrix.fill_systematic_with_rows();
@@ -350,6 +352,7 @@ impl<'a> ExpandedMessageMatrix<'a> {
     }
 
     /// Computes the sliver pair metadata from the expanded message matrix.
+    #[tracing::instrument(level = "debug", skip_all)]
     fn get_metadata(&self) -> VerifiedBlobMetadataWithId {
         tracing::debug!("computing blob metadata and ID");
 
@@ -402,6 +405,7 @@ impl<'a> ExpandedMessageMatrix<'a> {
     }
 
     /// Writes the secondary slivers to the provided mutable slice.
+    #[tracing::instrument(level = "debug", skip_all)]
     fn write_secondary_slivers(&self, sliver_pairs: &mut [SliverPair]) {
         sliver_pairs
             .iter_mut()
@@ -423,6 +427,7 @@ impl<'a> ExpandedMessageMatrix<'a> {
     /// [`write_secondary_metadata`][Self::write_secondary_metadata], and
     /// [`write_primary_metadata`][Self::write_primary_metadata] no longer produce meaningful
     /// results.
+    #[tracing::instrument(level = "debug", skip_all)]
     fn drop_recovery_symbols(&mut self) {
         self.matrix
             .iter_mut()
@@ -444,6 +449,7 @@ impl<'a> ExpandedMessageMatrix<'a> {
     ///
     /// Consumes the original matrix, as it creates the primary slivers by truncating the rows of
     /// the matrix.
+    #[tracing::instrument(level = "debug", skip_all)]
     fn write_primary_slivers(self, sliver_pairs: &mut [SliverPair]) {
         for (sliver_pair, mut row) in sliver_pairs.iter_mut().zip(self.matrix.into_iter()) {
             row.truncate(self.config.n_source_symbols::<Secondary>().get().into());

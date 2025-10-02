@@ -5,7 +5,6 @@
 
 use std::{
     collections::{HashMap, HashSet},
-    env,
     fmt::Debug,
     future::Future,
     mem,
@@ -18,7 +17,7 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-use anyhow::{Context as _, Result, anyhow};
+use anyhow::{Context as _, Result};
 use fastcrypto::{
     encoding::Base64,
     secp256r1::Secp256r1KeyPair,
@@ -38,14 +37,6 @@ use tokio::{
     time::Instant,
 };
 use tokio_util::sync::CancellationToken;
-use tracing::subscriber::DefaultGuard;
-use tracing_subscriber::{
-    EnvFilter,
-    Layer,
-    filter::Filtered,
-    layer::{Layered, SubscriberExt as _},
-    util::SubscriberInitExt,
-};
 use typed_store::DBMetrics;
 use uuid::Uuid;
 use walrus_core::{PublicKey, ShardIndex};
@@ -56,7 +47,10 @@ use walrus_sui::{
 };
 use walrus_utils::metrics::{Registry, monitored_scope};
 
-use crate::node::config::MetricsPushConfig;
+use crate::{
+    common::telemetry::{SubscriberGuard, TracingSubscriberBuilder},
+    node::config::MetricsPushConfig,
+};
 
 /// The maximum length of the storage node name. Keep in sync with `MAX_NODE_NAME_LENGTH` in
 /// `contracts/walrus/sources/staking/staking_pool.move`.
@@ -622,64 +616,15 @@ pub fn export_contract_info(
         .set(1);
 }
 
-type TracingSubscriberConfiguration = Layered<
-    Filtered<
-        Box<dyn Layer<tracing_subscriber::Registry> + Send + Sync>,
-        EnvFilter,
-        tracing_subscriber::Registry,
-    >,
-    tracing_subscriber::Registry,
->;
-
-/// Prepare the tracing subscriber based on the environment variables.
-fn prepare_subscriber(default_log_format: Option<&str>) -> Result<TracingSubscriberConfiguration> {
-    // Use INFO level by default.
-    let directive = format!(
-        "info,{}",
-        env::var(EnvFilter::DEFAULT_ENV).unwrap_or_default()
-    );
-    let layer = tracing_subscriber::fmt::layer().with_writer(std::io::stderr);
-
-    // Control output format based on `LOG_FORMAT` env variable.
-    let format = env::var("LOG_FORMAT")
-        .ok()
-        .or_else(|| default_log_format.map(|fmt| fmt.to_string()));
-    let layer = if let Some(format) = &format {
-        match format.to_lowercase().as_str() {
-            "default" => layer.boxed(),
-            "compact" => layer.compact().boxed(),
-            "pretty" => layer.pretty().boxed(),
-            "json" => layer.json().boxed(),
-            s => Err(anyhow!("LOG_FORMAT '{}' is not supported", s))?,
-        }
-    } else {
-        layer.boxed()
-    };
-
-    Ok(tracing_subscriber::registry().with(layer.with_filter(EnvFilter::new(directive.clone()))))
-}
-
-/// Initializes the logger and tracing subscriber as the global subscriber, requiring a preference
-/// for the log format.
-pub fn init_tracing_subscriber_with(default_log_format: &str) -> Result<()> {
-    prepare_subscriber(Some(default_log_format))?.init();
-    tracing::debug!("initialized global tracing subscriber");
-    Ok(())
-}
-
-/// Initializes the logger and tracing subscriber as the global subscriber. This routine expresses
+/// Initializes the logger as the global subscriber. This routine expresses
 /// no preference for the log format.
-pub fn init_tracing_subscriber() -> Result<()> {
-    prepare_subscriber(None)?.init();
-    tracing::debug!("initialized global tracing subscriber");
-    Ok(())
+pub fn init_tracing_subscriber() -> Result<SubscriberGuard> {
+    TracingSubscriberBuilder::default().init()
 }
 
 /// Initializes the logger and tracing subscriber as the subscriber for the current scope.
-pub fn init_scoped_tracing_subscriber() -> Result<DefaultGuard> {
-    let guard = prepare_subscriber(None)?.set_default();
-    tracing::debug!("initialized scoped tracing subscriber");
-    Ok(guard)
+pub fn init_scoped_tracing_subscriber() -> Result<SubscriberGuard> {
+    TracingSubscriberBuilder::default().init_scoped()
 }
 
 /// Wait for SIGINT and SIGTERM (unix only).

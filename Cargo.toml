@@ -76,18 +76,23 @@ jsonwebtoken = "9.3.1"
 md5 = "0.7.0"
 mime = "0.3.17"
 mockall = "0.12.1"
-move-core-types = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.57.0" }
-move-package = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.57.0" }
-mysten-metrics = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.57.0" }
+move-core-types = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.57.2" }
+move-package = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.57.2" }
+mysten-metrics = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.57.2" }
 num-bigint = { version = "0.4.5", default-features = false }
 object_store = { version = "0.11.2", features = ["gcp"] }
 once_cell = { version = "1.21.3" }
-opentelemetry = { version = "=0.27.1", default-features = false, features = ["trace"] }
+opentelemetry = { version = "=0.27", default-features = false, features = ["trace"] }
+opentelemetry-otlp = { version = "=0.27" }
+opentelemetry-proto = { version = "=0.27", default-features = false }
+opentelemetry-semantic-conventions = "=0.27"
+opentelemetry_sdk = "=0.27"
 p256 = { version = "0.13.2", default-features = false }
 pin-project = "1.1.10"
 prettytable = "0.10.0"
 proc-macro2 = "1.0.101"
 prometheus = "0.13.4"
+prost = { version = "0.13", default-features = false }
 quote = "1.0"
 rand = "0.8.5"
 rand_distr = "0.4"
@@ -109,25 +114,25 @@ serde_with = { version = "3.14", features = ["base64"] }
 serde_yaml = "0.9"
 sha2 = "0.10.9"
 snap = "1.1.0"
-sui-config = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.57.0" }
-sui-json-rpc-api = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.57.0" }
-sui-json-rpc-types = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.57.0" }
-sui-keys = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.57.0" }
-sui-macros = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.57.0" }
-sui-move-build = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.57.0" }
-sui-package-management = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.57.0" }
-sui-package-resolver = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.57.0" }
-sui-protocol-config = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.57.0" }
-sui-rpc-api = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.57.0" }
-sui-sdk = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.57.0" }
-sui-simulator = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.57.0" }
-sui-storage = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.57.0" }
-sui-types = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.57.0" }
+sui-config = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.57.2" }
+sui-json-rpc-api = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.57.2" }
+sui-json-rpc-types = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.57.2" }
+sui-keys = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.57.2" }
+sui-macros = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.57.2" }
+sui-move-build = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.57.2" }
+sui-package-management = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.57.2" }
+sui-package-resolver = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.57.2" }
+sui-protocol-config = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.57.2" }
+sui-rpc-api = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.57.2" }
+sui-sdk = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.57.2" }
+sui-simulator = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.57.2" }
+sui-storage = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.57.2" }
+sui-types = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.57.2" }
 syn = "2.0"
 tap = "1.0.1"
-telemetry-subscribers = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.57.0" }
+telemetry-subscribers = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.57.2" }
 tempfile = "3.22.0"
-test-cluster = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.57.0" }
+test-cluster = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.57.2" }
 thiserror = "2.0.16"
 tokio = { version = "=1.47.1", features = ["macros", "rt-multi-thread", "signal"] }
 tokio-metrics = { version = "0.4.5", default-features = false }

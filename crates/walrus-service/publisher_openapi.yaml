@@ -45,6 +45,7 @@ paths:
           New blobs are created as deletable by default since v1.33, and this flag is no longer
           required.
         required: false
+        deprecated: true
         schema:
           type: boolean
         style: form
@@ -204,6 +205,7 @@ paths:
           New blobs are created as deletable by default since v1.33, and this flag is no longer
           required.
         required: false
+        deprecated: true
         schema:
           type: boolean
         style: form

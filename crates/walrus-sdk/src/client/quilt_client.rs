@@ -142,7 +142,7 @@ impl<V: QuiltVersion> DecoderBasedCacheReader<V> {
         }
     }
 
-    fn get_decoder(&self) -> V::QuiltDecoder<'_> {
+    fn get_decoder(&self) -> Result<V::QuiltDecoder<'_>, QuiltError> {
         match &self.quilt_index {
             Some(quilt_index) => {
                 V::QuiltConfig::get_decoder_with_quilt_index(&self.slivers, quilt_index)
@@ -155,7 +155,7 @@ impl<V: QuiltVersion> DecoderBasedCacheReader<V> {
         &self,
         identifiers: &[&str],
     ) -> Result<Vec<QuiltStoreBlob<'static>>, QuiltError> {
-        let decoder = self.get_decoder();
+        let decoder = self.get_decoder()?;
         decoder.get_blobs_by_identifiers(identifiers)
     }
 
@@ -164,7 +164,7 @@ impl<V: QuiltVersion> DecoderBasedCacheReader<V> {
         target_tag: &str,
         target_value: &str,
     ) -> Result<Vec<QuiltStoreBlob<'static>>, QuiltError> {
-        let decoder = self.get_decoder();
+        let decoder = self.get_decoder()?;
         decoder.get_blobs_by_tag(target_tag, target_value)
     }
 
@@ -172,7 +172,7 @@ impl<V: QuiltVersion> DecoderBasedCacheReader<V> {
         &self,
         patch_internal_ids: &[&[u8]],
     ) -> Result<Vec<QuiltStoreBlob<'static>>, QuiltError> {
-        let decoder = V::QuiltConfig::get_decoder(&self.slivers);
+        let decoder = V::QuiltConfig::get_decoder(&self.slivers)?;
         patch_internal_ids
             .iter()
             .map(|patch_internal_id| decoder.get_blob_by_patch_internal_id(patch_internal_id))
@@ -488,7 +488,7 @@ impl<T: ReadClient> QuiltClient<'_, T> {
         SliverData<V::SliverAxis>: TryFrom<Sliver>,
     {
         let mut all_slivers = Vec::new();
-        let mut decoder = V::QuiltConfig::get_decoder(std::iter::once(first_sliver));
+        let mut decoder = V::QuiltConfig::get_decoder(std::iter::once(first_sliver))?;
 
         let quilt_index = match decoder.get_or_decode_quilt_index() {
             Ok(quilt_index) => quilt_index,
@@ -504,7 +504,7 @@ impl<T: ReadClient> QuiltClient<'_, T> {
                         )
                         .await?,
                 );
-                decoder.add_slivers(&all_slivers);
+                decoder.add_slivers(&all_slivers)?;
                 decoder.get_or_decode_quilt_index()?
             }
             Err(e) => return Err(e.into()),
@@ -711,7 +711,7 @@ impl<T: ReadClient> QuiltClient<'_, T> {
             .encoding_config()
             .get_for_type(metadata.metadata().encoding_type());
 
-        QuiltEnum::new(quilt, &encoding_config_enum).map_err(ClientError::from)
+        QuiltEnum::new(quilt, encoding_config_enum).map_err(ClientError::from)
     }
 }
 

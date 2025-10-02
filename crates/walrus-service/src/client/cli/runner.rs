@@ -108,6 +108,7 @@ use crate::{
             QuiltPatchByPatchId,
             QuiltPatchByTag,
             QuiltPatchSelector,
+            args::{CommonStoreOptions, TraceExporter},
             get_contract_client,
             get_read_client,
             get_sui_read_client_from_rpc_node_or_wallet,
@@ -141,6 +142,7 @@ use crate::{
             WalletOutput,
         },
     },
+    common::telemetry::TracingSubscriberBuilder,
     utils::{self, MetricsAndLoggingRuntime, generate_sui_wallet},
 };
 
@@ -202,7 +204,34 @@ impl ClientCommandRunner {
     ///
     /// Consumes `self`.
     #[tokio::main]
-    pub async fn run_cli_app(self, command: CliCommands) -> Result<()> {
+    pub async fn run_cli_app(
+        self,
+        command: CliCommands,
+        trace_cli: Option<TraceExporter>,
+    ) -> Result<()> {
+        let result = {
+            let mut subscriber_builder = TracingSubscriberBuilder::default();
+            match trace_cli {
+                Some(TraceExporter::Otlp) => {
+                    subscriber_builder.with_otlp_trace_exporter();
+                }
+                Some(TraceExporter::File(path)) => {
+                    subscriber_builder.with_file_trace_exporter(path);
+                }
+                None => (),
+            }
+            // Since we may export OTLP, this needs to be initialised in an async context.
+            let _guard = subscriber_builder.init()?;
+
+            self.run_cli_app_inner(command).await
+        };
+
+        opentelemetry::global::shutdown_tracer_provider();
+        result
+    }
+
+    #[tracing::instrument(name="run", skip_all, fields(command = command.as_str()))]
+    async fn run_cli_app_inner(self, command: CliCommands) -> Result<()> {
         match command {
             CliCommands::Read {
                 blob_id,
@@ -227,53 +256,15 @@ impl ClientCommandRunner {
             CliCommands::Store {
                 files,
                 common_options,
-            } => {
-                self.store(
-                    files,
-                    common_options.epoch_arg,
-                    common_options.dry_run,
-                    StoreOptimizations::from_force_and_ignore_resources_flags(
-                        common_options.force,
-                        common_options.ignore_resources,
-                    ),
-                    BlobPersistence::from_deletable_and_permanent(
-                        common_options.deletable,
-                        common_options.permanent,
-                    )?,
-                    PostStoreAction::from_share(common_options.share),
-                    common_options.encoding_type,
-                    common_options.upload_relay,
-                    common_options.skip_tip_confirmation.into(),
-                    common_options.upload_mode.map(Into::into),
-                )
-                .await
-            }
+            } => self.store(files, common_options.try_into()?).await,
 
             CliCommands::StoreQuilt {
                 paths,
                 blobs,
                 common_options,
             } => {
-                self.store_quilt(
-                    paths,
-                    blobs,
-                    common_options.epoch_arg,
-                    common_options.dry_run,
-                    StoreOptimizations::from_force_and_ignore_resources_flags(
-                        common_options.force,
-                        common_options.ignore_resources,
-                    ),
-                    BlobPersistence::from_deletable_and_permanent(
-                        common_options.deletable,
-                        common_options.permanent,
-                    )?,
-                    PostStoreAction::from_share(common_options.share),
-                    common_options.encoding_type,
-                    common_options.upload_relay,
-                    common_options.skip_tip_confirmation.into(),
-                    common_options.upload_mode.map(Into::into),
-                )
-                .await
+                self.store_quilt(paths, blobs, common_options.try_into()?)
+                    .await
             }
 
             CliCommands::BlobStatus {
@@ -666,19 +657,20 @@ impl ClientCommandRunner {
         Ok(())
     }
 
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) async fn store(
+    async fn store(
         self,
         files: Vec<PathBuf>,
-        epoch_arg: EpochArg,
-        dry_run: bool,
-        store_optimizations: StoreOptimizations,
-        persistence: BlobPersistence,
-        post_store: PostStoreAction,
-        encoding_type: Option<EncodingType>,
-        upload_relay: Option<Url>,
-        confirmation: UserConfirmation,
-        upload_mode: Option<UploadMode>,
+        StoreOptions {
+            epoch_arg,
+            dry_run,
+            store_optimizations,
+            persistence,
+            post_store,
+            encoding_type,
+            upload_relay,
+            confirmation,
+            upload_mode,
+        }: StoreOptions,
     ) -> Result<()> {
         epoch_arg.exactly_one_is_some()?;
         if encoding_type.is_some_and(|encoding| !encoding.is_supported()) {
@@ -709,10 +701,13 @@ impl ClientCommandRunner {
 
         tracing::info!("storing {} files as blobs on Walrus", files.len());
         let start_timer = std::time::Instant::now();
-        let blobs = files
-            .into_iter()
-            .map(|file| read_blob_from_file(&file).map(|blob| (file, blob)))
-            .collect::<Result<Vec<(PathBuf, Vec<u8>)>>>()?;
+
+        let blobs = tracing::info_span!("read_blobs").in_scope(|| {
+            files
+                .into_iter()
+                .map(|file| read_blob_from_file(&file).map(|blob| (file, blob)))
+                .collect::<Result<Vec<(PathBuf, Vec<u8>)>>>()
+        })?;
 
         let mut store_args = StoreArgs::new(
             encoding_type,
@@ -774,6 +769,7 @@ impl ClientCommandRunner {
         results.print_output(self.json)
     }
 
+    #[tracing::instrument(skip_all)]
     async fn store_dry_run(
         client: WalrusNodeClient<SuiContractClient>,
         files: Vec<PathBuf>,
@@ -815,20 +811,21 @@ impl ClientCommandRunner {
         outputs.print_output(json)
     }
 
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) async fn store_quilt(
+    async fn store_quilt(
         self,
         paths: Vec<PathBuf>,
         blobs: Vec<QuiltBlobInput>,
-        epoch_arg: EpochArg,
-        dry_run: bool,
-        store_optimizations: StoreOptimizations,
-        persistence: BlobPersistence,
-        post_store: PostStoreAction,
-        encoding_type: Option<EncodingType>,
-        upload_relay: Option<Url>,
-        confirmation: UserConfirmation,
-        upload_mode: Option<UploadMode>,
+        StoreOptions {
+            epoch_arg,
+            dry_run,
+            store_optimizations,
+            persistence,
+            post_store,
+            encoding_type,
+            upload_relay,
+            confirmation,
+            upload_mode,
+        }: StoreOptions,
     ) -> Result<()> {
         epoch_arg.exactly_one_is_some()?;
         if encoding_type.is_some_and(|encoding| !encoding.is_supported()) {
@@ -1599,6 +1596,53 @@ impl ClientCommandRunner {
     }
 }
 
+struct StoreOptions {
+    epoch_arg: EpochArg,
+    dry_run: bool,
+    store_optimizations: StoreOptimizations,
+    persistence: BlobPersistence,
+    post_store: PostStoreAction,
+    encoding_type: Option<EncodingType>,
+    upload_relay: Option<Url>,
+    confirmation: UserConfirmation,
+    upload_mode: Option<UploadMode>,
+}
+
+impl TryFrom<CommonStoreOptions> for StoreOptions {
+    type Error = anyhow::Error;
+
+    fn try_from(
+        CommonStoreOptions {
+            epoch_arg,
+            dry_run,
+            force,
+            ignore_resources,
+            deletable,
+            permanent,
+            share,
+            encoding_type,
+            upload_relay,
+            skip_tip_confirmation,
+            upload_mode,
+        }: CommonStoreOptions,
+    ) -> Result<Self, Self::Error> {
+        Ok(Self {
+            epoch_arg,
+            dry_run,
+            store_optimizations: StoreOptimizations::from_force_and_ignore_resources_flags(
+                force,
+                ignore_resources,
+            ),
+            persistence: BlobPersistence::from_deletable_and_permanent(deletable, permanent)?,
+            post_store: PostStoreAction::from_share(share),
+            encoding_type,
+            upload_relay,
+            confirmation: skip_tip_confirmation.into(),
+            upload_mode: upload_mode.map(Into::into),
+        })
+    }
+}
+
 async fn delete_blob(
     client: &WalrusNodeClient<SuiContractClient>,
     target: BlobIdentity,
@@ -1700,6 +1744,7 @@ async fn delete_blob(
     result
 }
 
+#[tracing::instrument(skip_all)]
 async fn get_epochs_ahead(
     epoch_arg: EpochArg,
     max_epochs_ahead: EpochCount,

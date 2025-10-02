@@ -298,6 +298,64 @@ CARGO_PROFILE_BENCH_DEBUG=true cargo flamegraph --root --bench blob_encoding --o
 
 See [the documentation](https://github.com/flamegraph-rs/flamegraph) for further details and options.
 
+## Tracing
+
+When making changes that are expected to influence performance, it may be beneficial to
+record and review traces of the execution. The storage-node, aggregator, publisher,
+and CLI client all support exporting traces.
+
+### Collecting and viewing traces
+
+To view traces, you need to be running a trace collector and viewer. One such
+tool is [`jaeger`][jaeger] and can be run in a container with the following
+command:
+
+```bash
+podman run --rm --name jaeger \
+  -p 5778:5778 \
+  -p 16686:16686 \
+  -p 4317:4317 \
+  -p 4318:4318 \
+  -p 14250:14250 \
+  -p 14268:14268 \
+  -p 9411:9411 \
+  jaegertracing/jaeger:2.0.0 \
+  --set receivers.otlp.protocols.http.endpoint=0.0.0.0:4318 \
+  --set receivers.otlp.protocols.grpc.endpoint=0.0.0.0:4317
+```
+
+Traces can then be viewed at <http://localhost:16686/search>.
+
+[jaeger]: https://www.jaegertracing.io/
+
+### Exporting service traces
+
+Setting the environment variable `TRACE_FILTER=<filter>` when running one of
+the services will cause the service to export spans and traces matching the
+filter. The filter format is the same as `RUST_LOG` environment variable.
+
+The default OTLP endpoint to which traces are exported is `localhost:4317`,
+but can be changed by setting the [`OTLP_ENDPOINT`][otlp-exporter] environment
+variable. Additionally, the `SAMPLE_RATE` environment variable can be set to a
+floating point value in the interval `[0.0, 1.0]` to sample a subset of the
+traces.
+
+[otlp-exporter]: https://opentelemetry.io/docs/languages/sdk-configuration/otlp-exporter/
+
+### Exporting and ingesting CLI traces
+
+To export traces from the client, use the `--trace-cli` command line argument.
+
+If set to `--trace-cli otlp`, then traces are exported directly to any OTLP collector
+listening at `localhost:4317`. The collector's address can be changed with the
+`OTLP_ENDPOINT` environment variable.
+
+If set to `--trace-cli file=<path>` the traces are written GZIPed in the specified
+file path. These can later be ingested into an OTLP collector using
+`scripts/ingest-traces.sh <path>`. The collector should be listening at
+`localhost:4318`. The above jaeger command opens both ports 4317 and 4318 for
+this reason.
+
 ## Signed commits
 
 We appreciate it if you configure Git to [sign your
