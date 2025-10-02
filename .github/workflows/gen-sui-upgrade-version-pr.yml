@@ -61,7 +61,7 @@ jobs:
     name: Notify PR URL
     runs-on: ubuntu-latest
     if: success() && needs.bump.outputs.pr_url != ''
-    
+
     steps:
     - name: Get link to logs
       env:
@@ -69,7 +69,7 @@ jobs:
       run: |
         gh_job_link=$(gh api -X GET 'repos/MystenLabs/walrus/actions/runs/${{ github.run_id }}/jobs' --jq '.jobs.[0].html_url')
         echo "gh_job_link=${gh_job_link}" >> $GITHUB_ENV
-    
+
     - name: Get current Walrus oncall
       run: |
         export current_oncall=$(curl -s --request GET \
@@ -97,7 +97,10 @@ jobs:
 
     - name: Get slack id for the oncall
       run: |
-        export slack_id=$(aws s3 cp s3://mysten-employees-dir/employees.json - | jq --arg ONCALL "${{ env.current_oncall }}" '.[] | if .name == $ONCALL then .slack_id else empty end')
+        export slack_id=$(aws s3 cp \
+          s3://mysten-employees-dir/employees.json - \
+          | jq --arg ONCALL "${{ env.current_oncall }}" \
+            '.[] | if .name == $ONCALL then .slack_id else empty end')
         echo "slack_id=$(echo ${slack_id} | tr -d '"')" >> $GITHUB_ENV
 
     - name: Post to slack
@@ -113,6 +116,7 @@ jobs:
         slack-message: |
           <!here> :walrus_face::rocket: New Sui version ${{ env.NEW_TAG }} upgrade PR created: ${{ needs.bump.outputs.pr_url }}
           <@${{ env.SLACK_ID }}>, current `${{ env.ONCALL_NAME }}` oncall, please do the following:
-          1. Trigger the CI to run on the PR by checking out the PR branch and running `git commit --allow-empty -m "Empty commit to trigger CI" && git push`
+          1. Trigger the CI to run on the PR by checking out the PR branch and running: 
+            `git commit --allow-empty -m "Empty commit to trigger CI" && git push`
           2. Approve and merge the PR if CI passes.
           Run: <${{ env.GH_JOB_LINK }}|${{ github.run_id }}>
