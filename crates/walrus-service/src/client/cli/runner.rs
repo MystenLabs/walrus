@@ -236,6 +236,7 @@ impl ClientCommandRunner {
                     common_options.encoding_type,
                     common_options.upload_relay,
                     common_options.skip_tip_confirmation.into(),
+                    common_options.chunk_size,
                 )
                 .await
             }
@@ -262,6 +263,7 @@ impl ClientCommandRunner {
                     common_options.encoding_type,
                     common_options.upload_relay,
                     common_options.skip_tip_confirmation.into(),
+                    common_options.chunk_size,
                 )
                 .await
             }
@@ -668,6 +670,7 @@ impl ClientCommandRunner {
         encoding_type: Option<EncodingType>,
         upload_relay: Option<Url>,
         confirmation: UserConfirmation,
+        chunk_size: Option<u64>,
     ) -> Result<()> {
         epoch_arg.exactly_one_is_some()?;
         if encoding_type.is_some_and(|encoding| !encoding.is_supported()) {
@@ -686,7 +689,17 @@ impl ClientCommandRunner {
             anyhow::bail!("deletable blobs cannot be shared");
         }
 
-        let encoding_type = encoding_type.unwrap_or(DEFAULT_ENCODING);
+        // If chunk_size is specified, force chunked encoding
+        let encoding_type = if chunk_size.is_some() {
+            if encoding_type.is_some() && encoding_type != Some(EncodingType::RS2Chunked) {
+                anyhow::bail!(
+                    "chunk-size can only be used with RS2Chunked encoding; remove --encoding-type or set it to rs2-chunked"
+                );
+            }
+            EncodingType::RS2Chunked
+        } else {
+            encoding_type.unwrap_or(DEFAULT_ENCODING)
+        };
 
         if dry_run {
             return Self::store_dry_run(client, files, encoding_type, epochs_ahead, self.json)
@@ -706,7 +719,8 @@ impl ClientCommandRunner {
             store_optimizations,
             persistence,
             post_store,
-        );
+        )
+        .with_chunk_size(chunk_size);
 
         if let Some(upload_relay) = upload_relay {
             let upload_relay_client = UploadRelayClient::new(
@@ -814,6 +828,7 @@ impl ClientCommandRunner {
         encoding_type: Option<EncodingType>,
         upload_relay: Option<Url>,
         confirmation: UserConfirmation,
+        chunk_size: Option<u64>,
     ) -> Result<()> {
         epoch_arg.exactly_one_is_some()?;
         if encoding_type.is_some_and(|encoding| !encoding.is_supported()) {
@@ -825,7 +840,17 @@ impl ClientCommandRunner {
             anyhow::bail!("deletable blobs cannot be shared");
         }
 
-        let encoding_type = encoding_type.unwrap_or(DEFAULT_ENCODING);
+        // If chunk_size is specified, force chunked encoding
+        let encoding_type = if chunk_size.is_some() {
+            if encoding_type.is_some() && encoding_type != Some(EncodingType::RS2Chunked) {
+                anyhow::bail!(
+                    "chunk-size can only be used with RS2Chunked encoding; remove --encoding-type or set it to rs2-chunked"
+                );
+            }
+            EncodingType::RS2Chunked
+        } else {
+            encoding_type.unwrap_or(DEFAULT_ENCODING)
+        };
         let client = get_contract_client(self.config?, self.wallet, self.gas_budget, &None).await?;
 
         let system_object = client.sui_client().read_client.get_system_object().await?;
@@ -856,7 +881,8 @@ impl ClientCommandRunner {
             store_optimizations,
             persistence,
             post_store,
-        );
+        )
+        .with_chunk_size(chunk_size);
 
         if let Some(upload_relay) = upload_relay {
             let upload_relay_client = UploadRelayClient::new(

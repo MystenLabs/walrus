@@ -919,7 +919,11 @@ impl WalrusNodeClient<SuiContractClient> {
         let walrus_store_blobs =
             WalrusStoreBlob::<String>::default_unencoded_blobs_from_slice(blobs, attributes);
         let start = Instant::now();
-        let encoded_blobs = self.encode_blobs(walrus_store_blobs, store_args.encoding_type)?;
+        let encoded_blobs = self.encode_blobs_with_chunk_size(
+            walrus_store_blobs,
+            store_args.encoding_type,
+            store_args.chunk_size,
+        )?;
         store_args.maybe_observe_encoding_latency(start.elapsed());
 
         let (failed_blobs, encoded_blobs): (Vec<_>, Vec<_>) =
@@ -965,7 +969,11 @@ impl WalrusNodeClient<SuiContractClient> {
         let walrus_store_blobs =
             WalrusStoreBlob::<String>::default_unencoded_blobs_from_slice(&blobs, &[]);
 
-        let encoded_blobs = self.encode_blobs(walrus_store_blobs, store_args.encoding_type)?;
+        let encoded_blobs = self.encode_blobs_with_chunk_size(
+            walrus_store_blobs,
+            store_args.encoding_type,
+            store_args.chunk_size,
+        )?;
         let (failed_blobs, encoded_blobs): (Vec<_>, Vec<_>) =
             encoded_blobs.into_iter().partition(|blob| blob.is_failed());
 
@@ -1011,7 +1019,11 @@ impl WalrusNodeClient<SuiContractClient> {
         let walrus_store_blobs =
             WalrusStoreBlob::<String>::default_unencoded_blobs_from_slice(blobs, &[]);
 
-        let encoded_blobs = self.encode_blobs(walrus_store_blobs, store_args.encoding_type)?;
+        let encoded_blobs = self.encode_blobs_with_chunk_size(
+            walrus_store_blobs,
+            store_args.encoding_type,
+            store_args.chunk_size,
+        )?;
         let (failed_blobs, encoded_blobs): (Vec<_>, Vec<_>) =
             encoded_blobs.into_iter().partition(|blob| blob.is_failed());
 
@@ -1041,6 +1053,17 @@ impl WalrusNodeClient<SuiContractClient> {
         &self,
         walrus_store_blobs: Vec<WalrusStoreBlob<'a, T>>,
         encoding_type: EncodingType,
+    ) -> ClientResult<Vec<WalrusStoreBlob<'a, T>>> {
+        self.encode_blobs_with_chunk_size(walrus_store_blobs, encoding_type, None)
+    }
+
+    /// Encodes multiple blobs with optional chunk size override.
+    #[tracing::instrument(skip_all, fields(count = walrus_store_blobs.len()))]
+    pub fn encode_blobs_with_chunk_size<'a, T: Debug + Clone + Send + Sync>(
+        &self,
+        walrus_store_blobs: Vec<WalrusStoreBlob<'a, T>>,
+        encoding_type: EncodingType,
+        chunk_size: Option<u64>,
     ) -> ClientResult<Vec<WalrusStoreBlob<'a, T>>> {
         if walrus_store_blobs.is_empty() {
             return Ok(Vec::new());
@@ -1075,10 +1098,11 @@ impl WalrusNodeClient<SuiContractClient> {
 
                 let multi_pb_clone = multi_pb.clone();
                 let unencoded_blob = blob.get_blob();
-                let encode_result = self.encode_pairs_and_metadata(
+                let encode_result = self.encode_pairs_and_metadata_with_chunk_size(
                     unencoded_blob,
                     encoding_type,
                     multi_pb_clone.as_ref(),
+                    chunk_size,
                 );
                 blob.with_encode_result(encode_result)
             })
@@ -1101,6 +1125,18 @@ impl WalrusNodeClient<SuiContractClient> {
         encoding_type: EncodingType,
         multi_pb: &MultiProgress,
     ) -> ClientResult<(Vec<SliverPair>, VerifiedBlobMetadataWithId)> {
+        self.encode_pairs_and_metadata_with_chunk_size(blob, encoding_type, multi_pb, None)
+    }
+
+    /// Encodes a blob into sliver pairs and metadata with optional chunk size override.
+    #[tracing::instrument(skip_all)]
+    pub fn encode_pairs_and_metadata_with_chunk_size(
+        &self,
+        blob: &[u8],
+        encoding_type: EncodingType,
+        multi_pb: &MultiProgress,
+        chunk_size_override: Option<u64>,
+    ) -> ClientResult<(Vec<SliverPair>, VerifiedBlobMetadataWithId)> {
         use walrus_core::encoding::{
             ChunkedBlobEncoder,
             compute_chunk_parameters,
@@ -1116,10 +1152,23 @@ impl WalrusNodeClient<SuiContractClient> {
         let n_shards = self.encoding_config.n_shards();
         let max_single_chunk_size = max_blob_size_for_n_shards(n_shards, encoding_type);
 
-        let (pairs, metadata) = if blob_size > max_single_chunk_size {
-            // Use chunked encoding for large blobs
-            let (num_chunks, chunk_size) =
-                compute_chunk_parameters(blob_size, n_shards, encoding_type);
+        // If chunk_size_override is provided or blob is too large, use chunked encoding
+        let use_chunked = chunk_size_override.is_some() || blob_size > max_single_chunk_size;
+
+        let (pairs, metadata) = if use_chunked {
+            // Use chunked encoding for large blobs or when explicitly requested
+            let (num_chunks, chunk_size) = if let Some(override_size) = chunk_size_override {
+                // Validate that the override chunk size is reasonable
+                if override_size == 0 {
+                    return Err(ClientError::store_blob_internal(
+                        "chunk size must be greater than 0".to_string()
+                    ));
+                }
+                let num_chunks = (blob_size + override_size - 1) / override_size;
+                (num_chunks as u32, override_size)
+            } else {
+                compute_chunk_parameters(blob_size, n_shards, encoding_type)
+            };
 
             spinner.set_message(format!("encoding large blob ({} chunks)", num_chunks));
             tracing::info!(

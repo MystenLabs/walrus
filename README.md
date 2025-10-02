@@ -192,4 +192,74 @@ graph TD
     style BlobMerkle fill:#ffe1e1
     style SPM0Root fill:#fff4e1
     style Storage fill:#e1ffe1
+```
 
+### Smart Defaults - Automatic Chunk Size Selection
+
+The automatic chunk size selection behavior is based on these key parameters:
+
+1. When Chunking Kicks In
+
+Chunking is automatically used when:
+blob_size > max_blob_size_for_n_shards(n_shards, encoding_type)
+
+Where:
+- max_blob_size_for_n_shards = source_symbols_per_blob × max_symbol_size
+- max_symbol_size = 65,534 bytes (u16::MAX - 1) for RS2 encoding
+- source_symbols_per_blob = n_primary × n_secondary (depends on shard count)
+
+Example for 1000 shards:
+- Primary source symbols: 334
+- Secondary source symbols: 667
+- Total source symbols: 334 × 667 = 222,778
+- Max single-chunk size: 222,778 × 65,534 = ~13.9 GB
+
+So for a typical network with 1000 shards, chunking automatically kicks in for blobs larger than
+~13.9 GB.
+
+2. Default Chunk Size
+
+When chunking is needed, the system uses:
+pub const DEFAULT_CHUNK_SIZE: u64 = 10 * 1024 * 1024; // 10 MB
+
+This was chosen based on several factors documented in the code:
+- Memory efficiency: 10 MB chunks keep memory usage reasonable during encoding/decoding
+- Metadata overhead: At 10 MB per chunk with 1000 shards, metadata is only 0.64% overhead (64 KB
+  metadata per 10 MB chunk)
+- Streaming performance: Smaller chunks enable faster initial data delivery
+- Storage granularity: Reasonable balance between network round-trips and overhead
+
+3. Constraints
+
+The system enforces:
+- Minimum chunk size: 10 MB (prevents excessive metadata overhead)
+- Maximum chunks per blob: 1000 (bounds total metadata size to ~64 MB)
+
+4. Practical Examples
+
+Small blob (< 13.9 GB with 1000 shards):
+walrus store --epochs 5 small_file.bin  # 1 GB file
+  → Uses standard RS2 encoding (single chunk)
+  → No chunking needed
+
+Large blob (> 13.9 GB with 1000 shards):
+walrus store --epochs 5 large_file.bin  # 50 GB file
+  → Automatically uses RS2Chunked encoding
+  → Chunk size: 10 MB (DEFAULT_CHUNK_SIZE)
+  → Number of chunks: 5120 (50 GB / 10 MB)
+
+Manual override:
+walrus store --epochs 5 --chunk-size 20971520 large_file.bin  # 50 GB with 20 MB chunks
+  → Forces RS2Chunked encoding
+  → Chunk size: 20 MB (user specified)
+  → Number of chunks: 2560 (50 GB / 20 MB)
+  → Useful for systems with more memory available
+
+5. Why Manual Override is Useful
+
+- Memory-constrained environments: Use smaller chunks (e.g., 5 MB) to reduce peak memory usage
+- Performance tuning: Larger chunks (e.g., 20-50 MB) may improve throughput when memory is abundant
+- Testing: Validate chunking behavior with smaller test files by forcing chunked mode
+
+The smart defaults ensure that most users never need to think about chunking—it "just works" when
+blobs exceed single-chunk limits, while still giving advanced users control when needed.
