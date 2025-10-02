@@ -116,7 +116,7 @@ jobs:
         slack-message: |
           <!here> :walrus_face::rocket: New Sui version ${{ env.NEW_TAG }} upgrade PR created: ${{ needs.bump.outputs.pr_url }}
           <@${{ env.SLACK_ID }}>, current `${{ env.ONCALL_NAME }}` oncall, please do the following:
-          1. Trigger the CI to run on the PR by checking out the PR branch and running: 
+          1. Trigger the CI to run on the PR by checking out the PR branch and running:
             `git commit --allow-empty -m "Empty commit to trigger CI" && git push`
           2. Approve and merge the PR if CI passes.
           Run: <${{ env.GH_JOB_LINK }}|${{ github.run_id }}>
