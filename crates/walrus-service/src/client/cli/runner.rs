@@ -657,8 +657,7 @@ impl ClientCommandRunner {
         Ok(())
     }
 
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) async fn store(
+    async fn store(
         self,
         files: Vec<PathBuf>,
         StoreOptions {
@@ -812,8 +811,7 @@ impl ClientCommandRunner {
         outputs.print_output(json)
     }
 
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) async fn store_quilt(
+    async fn store_quilt(
         self,
         paths: Vec<PathBuf>,
         blobs: Vec<QuiltBlobInput>,
@@ -1598,16 +1596,16 @@ impl ClientCommandRunner {
     }
 }
 
-pub struct StoreOptions {
-    pub epoch_arg: EpochArg,
-    pub dry_run: bool,
-    pub store_optimizations: StoreOptimizations,
-    pub persistence: BlobPersistence,
-    pub post_store: PostStoreAction,
-    pub encoding_type: Option<EncodingType>,
-    pub upload_relay: Option<Url>,
-    pub confirmation: UserConfirmation,
-    pub upload_mode: Option<UploadMode>,
+struct StoreOptions {
+    epoch_arg: EpochArg,
+    dry_run: bool,
+    store_optimizations: StoreOptimizations,
+    persistence: BlobPersistence,
+    post_store: PostStoreAction,
+    encoding_type: Option<EncodingType>,
+    upload_relay: Option<Url>,
+    confirmation: UserConfirmation,
+    upload_mode: Option<UploadMode>,
 }
 
 impl TryFrom<CommonStoreOptions> for StoreOptions {
