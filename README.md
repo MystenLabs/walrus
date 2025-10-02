@@ -144,3 +144,52 @@ yourself with our [contributing workflow](./CONTRIBUTING.md).
 
 This project is licensed under the Apache License, Version 2.0 ([LICENSE](LICENSE) or
 <https://www.apache.org/licenses/LICENSE-2.0>).
+
+## RS2Chunked Blob Structure
+
+For large blobs that exceed memory limits, Walrus uses a chunked encoding scheme (RS2Chunked) with a two-level Merkle tree structure:
+
+```mermaid
+graph TD
+    subgraph "Blob Level"
+        BlobID["Blob ID<br/>(Root of blob-level Merkle tree)"]
+        BlobMerkle["Blob-level Merkle Tree"]
+        BlobID --> BlobMerkle
+    end
+
+    subgraph "Sliver Pair Level (Blob)"
+        BlobMerkle --> SPM0["Sliver Pair 0<br/>Metadata"]
+        BlobMerkle --> SPM1["Sliver Pair 1<br/>Metadata"]
+        BlobMerkle --> SPMDots["..."]
+        BlobMerkle --> SPMN["Sliver Pair N<br/>Metadata"]
+    end
+
+    subgraph "Each Sliver Pair Metadata"
+        SPM0 --> SPM0Root["Merkle Root over<br/>Chunk Hashes"]
+    end
+
+    subgraph "Chunk Level (for Sliver Pair 0)"
+        SPM0Root --> C0H["Chunk 0 Hash"]
+        SPM0Root --> C1H["Chunk 1 Hash"]
+        SPM0Root --> CDots["..."]
+        SPM0Root --> CMH["Chunk M Hash"]
+    end
+
+    subgraph "Chunk 0 Structure"
+        C0H --> C0Primary["Primary Sliver<br/>(Merkle Root)"]
+        C0H --> C0Secondary["Secondary Sliver<br/>(Merkle Root)"]
+    end
+
+    subgraph "Storage Indexing"
+        Storage["Storage Node Indexing"]
+        Storage --> Key1["(blob_id, chunk_0, sliver_pair_0)"]
+        Storage --> Key2["(blob_id, chunk_0, sliver_pair_1)"]
+        Storage --> Key3["(blob_id, chunk_1, sliver_pair_0)"]
+        Storage --> KeyDots["..."]
+    end
+
+    style BlobID fill:#e1f5ff
+    style BlobMerkle fill:#ffe1e1
+    style SPM0Root fill:#fff4e1
+    style Storage fill:#e1ffe1
+
