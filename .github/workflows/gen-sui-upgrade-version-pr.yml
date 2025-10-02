@@ -58,7 +58,7 @@ jobs:
 
   notify:
     needs: bump
-    name: Notify PR URL
+    name: Notify oncall via Slack
     runs-on: ubuntu-latest
     if: success() && needs.bump.outputs.pr_url != ''
 
