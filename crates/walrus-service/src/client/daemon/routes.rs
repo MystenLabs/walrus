@@ -86,6 +86,21 @@ const X_QUILT_PATCH_IDENTIFIER: &str = "X-Quilt-Patch-Identifier";
 
 const WALRUS_NATIVE_METADATA_FIELD_NAME: &str = "_metadata";
 
+/// The query parameters for a read operation.
+#[derive(Debug, Deserialize, Serialize, IntoParams, utoipa::ToSchema, PartialEq, Eq)]
+#[into_params(parameter_in = Query, style = Form)]
+#[serde(deny_unknown_fields)]
+pub struct ReadOptions {
+    /// Whether to perform a strict integrity check.
+    ///
+    /// This is the current default behavior and has no effect. However, the default integrity
+    /// check is changing in `v1.37` to a more performant one, which is sufficient for the
+    /// majority of cases. This flag can be used to enable the current strict integrity check.
+    // TODO(WAL-1055): Adjust docstring when changing the default behavior.
+    #[serde(default)]
+    pub strict_integrity_check: bool,
+}
+
 /// Retrieve a Walrus blob.
 ///
 /// Reconstructs the blob identified by the provided blob ID from Walrus and returns its raw data.
@@ -93,7 +108,7 @@ const WALRUS_NATIVE_METADATA_FIELD_NAME: &str = "_metadata";
 #[utoipa::path(
     get,
     path = BLOB_GET_ENDPOINT,
-    params(("blob_id" = BlobId,)),
+    params(("blob_id" = BlobId,), ReadOptions),
     responses(
         (status = 200, description = "The blob was reconstructed successfully", body = [u8]),
         GetBlobError,
@@ -103,6 +118,7 @@ pub(super) async fn get_blob<T: WalrusReadClient>(
     request_headers: HeaderMap,
     State(client): State<Arc<T>>,
     Path(BlobIdString(blob_id)): Path<BlobIdString>,
+    Query(_read_options): Query<ReadOptions>,
 ) -> Response {
     tracing::debug!("starting to read blob");
     match client.read_blob(&blob_id).await {
@@ -201,6 +217,7 @@ pub(super) async fn get_blob_by_object_id<T: WalrusReadClient>(
     State((client, response_header_config)): State<(Arc<T>, Arc<AggregatorResponseHeaderConfig>)>,
     request_headers: HeaderMap,
     Path(blob_object_id): Path<ObjectID>,
+    read_options: Query<ReadOptions>,
 ) -> Response {
     tracing::debug!("starting to read blob with attribute");
     match client.get_blob_by_object_id(&blob_object_id).await {
@@ -210,6 +227,7 @@ pub(super) async fn get_blob_by_object_id<T: WalrusReadClient>(
                 request_headers.clone(),
                 State(client),
                 Path(BlobIdString(blob.blob_id)),
+                read_options,
             )
             .await;
 
