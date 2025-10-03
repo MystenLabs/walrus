@@ -6301,30 +6301,41 @@ the writer or return an error.</p>
 </div>
 <h3 id="strict-integrity-check"><a class="header" href="#strict-integrity-check">Strict integrity check</a></h3>
 <p>If the blob was encoded correctly, any set of 334 primary slivers decode to the same data. However,
-if the writer of a blob encoded the data incorrectly, different sets of slivers may decode to different data.
-Even in that case, there is only one correct value that can be read by an honest client (guarantee
-stated above), but some read attempts may result in a failure while others succeed. Furthermore, the blob may be detected
-as inconsistent by storage nodes at a later point, after which all read attempts would fail.</p>
+if the writer of a blob encoded the data incorrectly, different sets of slivers may decode to
+different data. Even in that case, there is only one correct value that can be read by an honest
+client (guarantee stated above), but some read attempts may result in a failure while others
+succeed. Furthermore, the blob may be detected as inconsistent by storage nodes at a later point,
+after which all read attempts would fail.</p>
 <p>For this reason, Walrus optionally offers a <em>strict integrity check</em>: After decoding the blob, the
 client fully <em>re-encodes</em> it and recomputes all hashes and the blob ID. Only if that computation
 results in the blob ID they are trying to read is the read considered successful.</p>
-<p>This process <em>ensures that the original writer encoded the blob correctly</em>. This implies the
-following guarantee:</p>
-<div id="admonition-strict-integrity-property" class="admonition admonish-tip" role="note" aria-labelledby="admonition-strict-integrity-property-title">
+<p>This process <em>ensures that the original writer encoded the blob correctly</em>. Therefore, after a blob
+was read successfully with the strict integrity check enabled, the following property holds:</p>
+<div id="admonition-guarantee-after-strict-integrity-succeeded" class="admonition admonish-tip" role="note" aria-labelledby="admonition-guarantee-after-strict-integrity-succeeded-title">
 <div class="admonition-title">
-<div id="admonition-strict-integrity-property-title">
-<p>Strict integrity property</p>
+<div id="admonition-guarantee-after-strict-integrity-succeeded-title">
+<p>Guarantee after strict integrity succeeded</p>
 </div>
-<a class="admonition-anchor-link" href="design/encoding.html#admonition-strict-integrity-property"></a>
+<a class="admonition-anchor-link" href="design/encoding.html#admonition-guarantee-after-strict-integrity-succeeded"></a>
 </div>
 <div>
 <p>Any correct client attempting to read a blob during its lifetime will always succeed and read the
-same data.</p>
+same data intended by the writer.</p>
 </div>
 </div>
+<div id="admonition-select-the-appropriate-integrity-check" class="admonition admonish-info" role="note" aria-labelledby="admonition-select-the-appropriate-integrity-check-title">
+<div class="admonition-title">
+<div id="admonition-select-the-appropriate-integrity-check-title">
+<p>Select the appropriate integrity check</p>
+</div>
+<a class="admonition-anchor-link" href="design/encoding.html#admonition-select-the-appropriate-integrity-check"></a>
+</div>
+<div>
 <p>In the majority of cases, the "basic" integrity check above is sufficient, in particular if the
 writer of the blob is trusted. The strict integrity check is only needed if specific availability
 guarantees are required.</p>
+</div>
+</div>
 <div style="break-before: page; page-break-before: always;"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.4/dist/katex.min.css">
 <h1 id="operations-1"><a class="header" href="#operations-1">Operations</a></h1>
 <p>Walrus operations can be separated in <a href="design/./operations-sui.html">interactions with the Sui chain</a>, which
