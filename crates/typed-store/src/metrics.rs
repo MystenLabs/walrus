@@ -3,6 +3,7 @@
 
 use std::{
     cell::RefCell,
+    ffi::CStr,
     sync::{
         Arc,
         atomic::{AtomicU64, Ordering},
@@ -20,8 +21,17 @@ use prometheus::{
     register_int_counter_vec_with_registry,
     register_int_gauge_vec_with_registry,
 };
-use rocksdb::{PerfContext, PerfMetric, PerfStatsLevel, perf::set_perf_stats};
+use rocksdb::{
+    PerfContext,
+    PerfMetric,
+    PerfStatsLevel,
+    perf::set_perf_stats,
+    properties::{self, num_files_at_level},
+    statistics::Ticker,
+};
 use tap::TapFallible;
+
+use crate::rocks::RocksDB;
 
 thread_local! {
     static PER_THREAD_ROCKS_PERF_CONTEXT: std::cell::RefCell<rocksdb::PerfContext> =
@@ -34,6 +44,10 @@ const LATENCY_SEC_BUCKETS: &[f64] = &[
     0.001, 0.002, 0.003, 0.004, 0.005, // 1..5ms
     0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1., 2.5, 5., 10.,
 ];
+
+// TODO: remove this after Rust rocksdb has the TOTAL_BLOB_FILES_SIZE property built-in.
+const ROCKSDB_PROPERTY_TOTAL_BLOB_FILES_SIZE: &CStr =
+    unsafe { CStr::from_bytes_with_nul_unchecked("rocksdb.total-blob-file-size\0".as_bytes()) };
 
 #[derive(Debug, Clone)]
 /// A struct for sampling based on number of operations or duration.
@@ -1395,8 +1409,7 @@ pub fn spawn_cf_metrics_reporter(
 /// Reports RocksDB metrics for all specified column families.
 ///
 /// This function collects various RocksDB properties for the specified column families
-/// and reports them as Prometheus metrics. This is more efficient than calling
-/// `report_cf_metrics` for each column family individually since it's done in a single task.
+/// and reports them as Prometheus metrics.
 ///
 /// # Arguments
 /// * `rocksdb` - The RocksDB instance
@@ -1412,19 +1425,7 @@ pub fn report_db_metrics(
     }
 }
 
-/// Reports RocksDB column family metrics.
-///
-/// This function collects various RocksDB properties and reports them as Prometheus metrics.
-///
-/// # Arguments
-/// * `rocksdb` - The RocksDB instance
-/// * `cf_name` - The column family name
-/// * `db_metrics` - The metrics collector
-pub fn report_cf_metrics(
-    rocksdb: &Arc<crate::rocks::RocksDB>,
-    cf_name: &str,
-    db_metrics: &Arc<DBMetrics>,
-) {
+fn report_cf_metrics(rocksdb: &Arc<RocksDB>, cf_name: &str, db_metrics: &Arc<DBMetrics>) {
     let Some(cf) = rocksdb.cf_handle(cf_name) else {
         tracing::warn!(
             "unable to report metrics for cf {cf_name:?} in db {:?}",
@@ -1438,157 +1439,264 @@ pub fn report_cf_metrics(
         .rocksdb_total_sst_files_size
         .with_label_values(&[cf_name])
         .set(
-            get_int_property(rocksdb, &cf, rocksdb::properties::TOTAL_SST_FILES_SIZE)
+            get_int_property(rocksdb, &cf, properties::TOTAL_SST_FILES_SIZE)
                 .unwrap_or(METRICS_ERROR),
         );
-
     db_metrics
         .cf_metrics
-        .rocksdb_size_all_mem_tables
+        .rocksdb_total_blob_files_size
         .with_label_values(&[cf_name])
         .set(
-            get_int_property(rocksdb, &cf, rocksdb::properties::SIZE_ALL_MEM_TABLES)
+            get_int_property(rocksdb, &cf, ROCKSDB_PROPERTY_TOTAL_BLOB_FILES_SIZE)
                 .unwrap_or(METRICS_ERROR),
         );
-
+    // 7 is the default number of levels in RocksDB. If we ever change the number.
+    // of levels using `set_num_levels`, we need to update here as well. Note that.
+    // there isn't an API to query the DB to get the number of levels (yet).
+    let total_num_files: i64 = (0..=6)
+        .map(|level| {
+            get_int_property(rocksdb, &cf, &num_files_at_level(level)).unwrap_or(METRICS_ERROR)
+        })
+        .sum();
     db_metrics
         .cf_metrics
-        .rocksdb_num_snapshots
+        .rocksdb_total_num_files
         .with_label_values(&[cf_name])
-        .set(
-            get_int_property(rocksdb, &cf, rocksdb::properties::NUM_SNAPSHOTS)
-                .unwrap_or(METRICS_ERROR),
-        );
-
+        .set(total_num_files);
     db_metrics
         .cf_metrics
-        .rocksdb_oldest_snapshot_time
+        .rocksdb_num_level0_files
         .with_label_values(&[cf_name])
-        .set(
-            get_int_property(rocksdb, &cf, rocksdb::properties::OLDEST_SNAPSHOT_TIME)
-                .unwrap_or(METRICS_ERROR),
-        );
-
-    db_metrics
-        .cf_metrics
-        .rocksdb_actual_delayed_write_rate
-        .with_label_values(&[cf_name])
-        .set(
-            get_int_property(rocksdb, &cf, rocksdb::properties::ACTUAL_DELAYED_WRITE_RATE)
-                .unwrap_or(METRICS_ERROR),
-        );
-
-    db_metrics
-        .cf_metrics
-        .rocksdb_is_write_stopped
-        .with_label_values(&[cf_name])
-        .set(
-            get_int_property(rocksdb, &cf, rocksdb::properties::IS_WRITE_STOPPED)
-                .unwrap_or(METRICS_ERROR),
-        );
-
-    db_metrics
-        .cf_metrics
-        .rocksdb_block_cache_capacity
-        .with_label_values(&[cf_name])
-        .set(
-            get_int_property(rocksdb, &cf, rocksdb::properties::BLOCK_CACHE_CAPACITY)
-                .unwrap_or(METRICS_ERROR),
-        );
-
-    db_metrics
-        .cf_metrics
-        .rocksdb_block_cache_usage
-        .with_label_values(&[cf_name])
-        .set(
-            get_int_property(rocksdb, &cf, rocksdb::properties::BLOCK_CACHE_USAGE)
-                .unwrap_or(METRICS_ERROR),
-        );
-
-    db_metrics
-        .cf_metrics
-        .rocksdb_block_cache_pinned_usage
-        .with_label_values(&[cf_name])
-        .set(
-            get_int_property(rocksdb, &cf, rocksdb::properties::BLOCK_CACHE_PINNED_USAGE)
-                .unwrap_or(METRICS_ERROR),
-        );
-
-    db_metrics
-        .cf_metrics
-        .rocksdb_estimate_table_readers_mem
-        .with_label_values(&[cf_name])
-        .set(
-            get_int_property(
-                rocksdb,
-                &cf,
-                rocksdb::properties::ESTIMATE_TABLE_READERS_MEM,
-            )
-            .unwrap_or(METRICS_ERROR),
-        );
-
+        .set(get_int_property(rocksdb, &cf, &num_files_at_level(0)).unwrap_or(METRICS_ERROR));
     db_metrics
         .cf_metrics
         .rocksdb_current_size_active_mem_tables
         .with_label_values(&[cf_name])
         .set(
-            get_int_property(rocksdb, &cf, rocksdb::properties::CUR_SIZE_ACTIVE_MEM_TABLE)
+            get_int_property(rocksdb, &cf, properties::CUR_SIZE_ACTIVE_MEM_TABLE)
                 .unwrap_or(METRICS_ERROR),
         );
-
+    db_metrics
+        .cf_metrics
+        .rocksdb_size_all_mem_tables
+        .with_label_values(&[cf_name])
+        .set(
+            get_int_property(rocksdb, &cf, properties::SIZE_ALL_MEM_TABLES)
+                .unwrap_or(METRICS_ERROR),
+        );
+    db_metrics
+        .cf_metrics
+        .rocksdb_num_snapshots
+        .with_label_values(&[cf_name])
+        .set(get_int_property(rocksdb, &cf, properties::NUM_SNAPSHOTS).unwrap_or(METRICS_ERROR));
+    db_metrics
+        .cf_metrics
+        .rocksdb_oldest_snapshot_time
+        .with_label_values(&[cf_name])
+        .set(
+            get_int_property(rocksdb, &cf, properties::OLDEST_SNAPSHOT_TIME)
+                .unwrap_or(METRICS_ERROR),
+        );
+    db_metrics
+        .cf_metrics
+        .rocksdb_actual_delayed_write_rate
+        .with_label_values(&[cf_name])
+        .set(
+            get_int_property(rocksdb, &cf, properties::ACTUAL_DELAYED_WRITE_RATE)
+                .unwrap_or(METRICS_ERROR),
+        );
+    db_metrics
+        .cf_metrics
+        .rocksdb_is_write_stopped
+        .with_label_values(&[cf_name])
+        .set(get_int_property(rocksdb, &cf, properties::IS_WRITE_STOPPED).unwrap_or(METRICS_ERROR));
+    db_metrics
+        .cf_metrics
+        .rocksdb_block_cache_capacity
+        .with_label_values(&[cf_name])
+        .set(
+            get_int_property(rocksdb, &cf, properties::BLOCK_CACHE_CAPACITY)
+                .unwrap_or(METRICS_ERROR),
+        );
+    db_metrics
+        .cf_metrics
+        .rocksdb_block_cache_usage
+        .with_label_values(&[cf_name])
+        .set(
+            get_int_property(rocksdb, &cf, properties::BLOCK_CACHE_USAGE).unwrap_or(METRICS_ERROR),
+        );
+    db_metrics
+        .cf_metrics
+        .rocksdb_block_cache_pinned_usage
+        .with_label_values(&[cf_name])
+        .set(
+            get_int_property(rocksdb, &cf, properties::BLOCK_CACHE_PINNED_USAGE)
+                .unwrap_or(METRICS_ERROR),
+        );
+    db_metrics
+        .cf_metrics
+        .rocksdb_estimate_table_readers_mem
+        .with_label_values(&[cf_name])
+        .set(
+            get_int_property(rocksdb, &cf, properties::ESTIMATE_TABLE_READERS_MEM)
+                .unwrap_or(METRICS_ERROR),
+        );
+    db_metrics
+        .cf_metrics
+        .rocksdb_estimated_num_keys
+        .with_label_values(&[cf_name])
+        .set(
+            get_int_property(rocksdb, &cf, properties::ESTIMATE_NUM_KEYS).unwrap_or(METRICS_ERROR),
+        );
     db_metrics
         .cf_metrics
         .rocksdb_num_immutable_mem_tables
         .with_label_values(&[cf_name])
         .set(
-            get_int_property(rocksdb, &cf, rocksdb::properties::NUM_IMMUTABLE_MEM_TABLE)
+            get_int_property(rocksdb, &cf, properties::NUM_IMMUTABLE_MEM_TABLE)
                 .unwrap_or(METRICS_ERROR),
         );
-
     db_metrics
         .cf_metrics
         .rocksdb_mem_table_flush_pending
         .with_label_values(&[cf_name])
         .set(
-            get_int_property(rocksdb, &cf, rocksdb::properties::MEM_TABLE_FLUSH_PENDING)
+            get_int_property(rocksdb, &cf, properties::MEM_TABLE_FLUSH_PENDING)
                 .unwrap_or(METRICS_ERROR),
         );
-
     db_metrics
         .cf_metrics
         .rocksdb_compaction_pending
         .with_label_values(&[cf_name])
         .set(
-            get_int_property(rocksdb, &cf, rocksdb::properties::COMPACTION_PENDING)
+            get_int_property(rocksdb, &cf, properties::COMPACTION_PENDING).unwrap_or(METRICS_ERROR),
+        );
+    db_metrics
+        .cf_metrics
+        .rocksdb_estimate_pending_compaction_bytes
+        .with_label_values(&[cf_name])
+        .set(
+            get_int_property(rocksdb, &cf, properties::ESTIMATE_PENDING_COMPACTION_BYTES)
                 .unwrap_or(METRICS_ERROR),
         );
-
     db_metrics
         .cf_metrics
         .rocksdb_num_running_compactions
         .with_label_values(&[cf_name])
         .set(
-            get_int_property(rocksdb, &cf, rocksdb::properties::NUM_RUNNING_COMPACTIONS)
+            get_int_property(rocksdb, &cf, properties::NUM_RUNNING_COMPACTIONS)
                 .unwrap_or(METRICS_ERROR),
         );
-
     db_metrics
         .cf_metrics
         .rocksdb_num_running_flushes
         .with_label_values(&[cf_name])
         .set(
-            get_int_property(rocksdb, &cf, rocksdb::properties::NUM_RUNNING_FLUSHES)
+            get_int_property(rocksdb, &cf, properties::NUM_RUNNING_FLUSHES)
                 .unwrap_or(METRICS_ERROR),
         );
-
     db_metrics
         .cf_metrics
         .rocksdb_estimate_oldest_key_time
         .with_label_values(&[cf_name])
         .set(
-            get_int_property(rocksdb, &cf, rocksdb::properties::ESTIMATE_OLDEST_KEY_TIME)
+            get_int_property(rocksdb, &cf, properties::ESTIMATE_OLDEST_KEY_TIME)
                 .unwrap_or(METRICS_ERROR),
         );
+    db_metrics
+        .cf_metrics
+        .rocksdb_background_errors
+        .with_label_values(&[cf_name])
+        .set(
+            get_int_property(rocksdb, &cf, properties::BACKGROUND_ERRORS).unwrap_or(METRICS_ERROR),
+        );
+    db_metrics
+        .cf_metrics
+        .rocksdb_base_level
+        .with_label_values(&[cf_name])
+        .set(get_int_property(rocksdb, &cf, properties::BASE_LEVEL).unwrap_or(METRICS_ERROR));
+    db_metrics
+        .op_metrics
+        .rocksdb_bloom_filter_useful_total
+        .with_label_values(&[&rocksdb.db_name()])
+        .set(
+            rocksdb
+                .db_options()
+                .get_ticker_count(Ticker::BloomFilterUseful) as i64,
+        );
+    db_metrics
+        .op_metrics
+        .rocksdb_bloom_filter_full_positive_total
+        .with_label_values(&[&rocksdb.db_name()])
+        .set(
+            rocksdb
+                .db_options()
+                .get_ticker_count(Ticker::BloomFilterFullPositive) as i64,
+        );
+    db_metrics
+        .op_metrics
+        .rocksdb_bloom_filter_full_true_positive_total
+        .with_label_values(&[&rocksdb.db_name()])
+        .set(
+            rocksdb
+                .db_options()
+                .get_ticker_count(Ticker::BloomFilterFullTruePositive) as i64,
+        );
+    db_metrics
+        .op_metrics
+        .rocksdb_bloom_filter_prefix_checked_total
+        .with_label_values(&[&rocksdb.db_name()])
+        .set(
+            rocksdb
+                .db_options()
+                .get_ticker_count(Ticker::BloomFilterPrefixChecked) as i64,
+        );
+    db_metrics
+        .op_metrics
+        .rocksdb_bloom_filter_prefix_useful_total
+        .with_label_values(&[&rocksdb.db_name()])
+        .set(
+            rocksdb
+                .db_options()
+                .get_ticker_count(Ticker::BloomFilterPrefixUseful) as i64,
+        );
+    db_metrics
+        .op_metrics
+        .rocksdb_bloom_filter_prefix_true_positive_total
+        .with_label_values(&[&rocksdb.db_name()])
+        .set(
+            rocksdb
+                .db_options()
+                .get_ticker_count(Ticker::BloomFilterPrefixTruePositive) as i64,
+        );
+    db_metrics
+        .op_metrics
+        .rocksdb_compaction_num_bytes_written
+        .with_label_values(&[&rocksdb.db_name()])
+        .set(
+            rocksdb
+                .db_options()
+                .get_ticker_count(Ticker::CompactWriteBytes) as i64,
+        );
+    db_metrics
+        .op_metrics
+        .rocksdb_compaction_num_bytes_read
+        .with_label_values(&[&rocksdb.db_name()])
+        .set(
+            rocksdb
+                .db_options()
+                .get_ticker_count(Ticker::CompactReadBytes) as i64,
+        );
+    db_metrics
+        .op_metrics
+        .rocksdb_num_bytes_read
+        .with_label_values(&[&rocksdb.db_name()])
+        .set(rocksdb.db_options().get_ticker_count(Ticker::BytesRead) as i64);
+    db_metrics
+        .op_metrics
+        .rocksdb_num_bytes_written
+        .with_label_values(&[&rocksdb.db_name()])
+        .set(rocksdb.db_options().get_ticker_count(Ticker::BytesWritten) as i64);
 }
 
 /// Helper function to get integer property from RocksDB.
