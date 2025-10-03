@@ -72,10 +72,17 @@ Walrus has several mechanisms to detect each of these:
   as in the case above, but it is not guaranteed to be triggered immediately after certification.
 
   As a result, such inconsistencies may persist within the network for longer periods of time,
-  requiring additional client-side checks. These integrity checks performed by clients are described
-  in the following sections.
+  requiring additional client-side checks.
 
-### Data integrity check
+The following sections describe the different types of integrity checks performed by clients.
+
+```admonish info title="Select the appropriate integrity check"
+In the majority of cases, the default integrity check is sufficient, in particular if the writer of
+the blob is trusted. The strict integrity check is only needed if specific availability guarantees
+are required.
+```
+
+### Default integrity check
 
 When reading a blob from Walrus, a client first checks the authenticity of the metadata and then
 requests a subset of primary slivers checking their authenticity using the metadata. Using 334
@@ -114,8 +121,5 @@ Any correct client attempting to read a blob during its lifetime will always suc
 same data intended by the writer.
 ```
 
-```admonish info title="Select the appropriate integrity check"
-In the majority of cases, the "basic" integrity check above is sufficient, in particular if the
-writer of the blob is trusted. The strict integrity check is only needed if specific availability
-guarantees are required.
-```
+Note that for quilt patches, only the default integrity check is available, as only part of the
+quilt is read.
