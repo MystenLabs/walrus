@@ -6262,8 +6262,8 @@ purpose. Concretely, the client can make one or more of the following mistakes:<
 client attempts to upload metadata to storage nodes. Such blobs are never even certified.</p>
 </li>
 <li>
-<p>Inconsistencies of the second type (incorrect sliver-hash computation) are detected either before
-or immediately after certification.</p>
+<p>Inconsistencies of the second type (incorrect sliver-hash computation) are generally detected
+either before or shortly after certification.</p>
 <p>In the latter case, storage nodes can extract one symbol per sliver to form an <em>inconsistency
 proof</em>, which is then used to mark the blob as <em>invalid</em>. After this, storage nodes can delete
 slivers belonging to inconsistently encoded blobs, and upon request return either the
@@ -6295,15 +6295,15 @@ otherwise an error is returned. This check provides the following guarantee:</p>
 <a class="admonition-anchor-link" href="design/encoding.html#admonition-data-integrity-property"></a>
 </div>
 <div>
-<p>Any correct client attempting to read a blob will either read one specific value authenticated by
-the writer or nothing.</p>
+<p>Any correct client attempting to read a blob will either read the specific value authenticated by
+the writer or return an error.</p>
 </div>
 </div>
 <h3 id="strict-integrity-check"><a class="header" href="#strict-integrity-check">Strict integrity check</a></h3>
 <p>If the blob was encoded correctly, any set of 334 primary slivers decode to the same data. However,
-if the writer of a blob encoded the data incorrectly, sets of slivers may decode to different data.
+if the writer of a blob encoded the data incorrectly, different sets of slivers may decode to different data.
 Even in that case, there is only one correct value that can be read by an honest client (guarantee
-stated above), but some read attempts may result in a failure. Furthermore, the blob may be detected
+stated above), but some read attempts may result in a failure while others succeed. Furthermore, the blob may be detected
 as inconsistent by storage nodes at a later point, after which all read attempts would fail.</p>
 <p>For this reason, Walrus optionally offers a <em>strict integrity check</em>: After decoding the blob, the
 client fully <em>re-encodes</em> it and recomputes all hashes and the blob ID. Only if that computation
