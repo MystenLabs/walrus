@@ -60,8 +60,8 @@ Walrus has several mechanisms to detect each of these:
 - Inconsistencies of the last type (incorrect blob-ID computation) are detected immediately when the
   client attempts to upload metadata to storage nodes. Such blobs are never even certified.
 
-- Inconsistencies of the second type (incorrect sliver-hash computation) are detected either before
-  or immediately after certification.
+- Inconsistencies of the second type (incorrect sliver-hash computation) are generally detected
+  either before or shortly after certification.
 
   In the latter case, storage nodes can extract one symbol per sliver to form an *inconsistency
   proof*, which is then used to mark the blob as *invalid*. After this, storage nodes can delete
@@ -89,16 +89,16 @@ verify that the decoded data is correct. If this check succeeds, the data is pro
 otherwise an error is returned. This check provides the following guarantee:
 
 ```admonish tip title="Data integrity property"
-Any correct client attempting to read a blob will either read one specific value authenticated by
-the writer or nothing.
+Any correct client attempting to read a blob will either read the specific value authenticated by
+the writer or return an error.
 ```
 
 ### Strict integrity check
 
 If the blob was encoded correctly, any set of 334 primary slivers decode to the same data. However,
-if the writer of a blob encoded the data incorrectly, sets of slivers may decode to different data.
+if the writer of a blob encoded the data incorrectly, different sets of slivers may decode to different data.
 Even in that case, there is only one correct value that can be read by an honest client (guarantee
-stated above), but some read attempts may result in a failure. Furthermore, the blob may be detected
+stated above), but some read attempts may result in a failure while others succeed. Furthermore, the blob may be detected
 as inconsistent by storage nodes at a later point, after which all read attempts would fail.
 
 For this reason, Walrus optionally offers a *strict integrity check*: After decoding the blob, the
