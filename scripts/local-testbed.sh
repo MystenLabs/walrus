@@ -38,6 +38,7 @@ usage() {
   echo "  -e                    Use existing config"
   echo "  -f                    Tail the logs of the nodes (default: false)"
   echo "  -h                    Print this usage message"
+  echo "  -l <rust_log>         Set RUST_LOG environment variable for all nodes (default: info)"
   echo "  -n <network>          Sui network to generate configs for (default: devnet)"
   echo "  -s <n_shards>         Number of shards (default: 10)"
   echo "  -t                    Use testnet contracts"
@@ -45,7 +46,7 @@ usage() {
 }
 
 run_node() {
-  cmd="./target/release/walrus-node run --config-path $working_dir/$1.yaml ${2:-} \
+  cmd="RUST_LOG=$rust_log ./target/release/walrus-node run --config-path $working_dir/$1.yaml ${2:-} \
     |& tee $working_dir/$1.log"
   echo "Running within tmux: '$cmd'..."
   tmux new -d -s "$1" "$cmd"
@@ -56,13 +57,14 @@ backup_database_url=
 committee_size=4 # Default value of 4 if no argument is provided
 epoch_duration=1h
 network=devnet
+rust_log=info # Default RUST_LOG level
 shards=10 # Default value of 4 if no argument is provided
 tail_logs=false
 use_existing_config=false
 contract_dir="./contracts"
 host_address="127.0.0.1"
 
-while getopts "b:c:d:efhn:s:ta:" arg; do
+while getopts "b:c:d:efhl:n:s:ta:" arg; do
   case "${arg}" in
     f)
       tail_logs=true
@@ -95,6 +97,9 @@ while getopts "b:c:d:efhn:s:ta:" arg; do
       usage
       exit 0
       ;;
+    l)
+      rust_log=${OPTARG}
+      ;;
     *)
       usage
       exit 1
@@ -117,6 +122,7 @@ echo "$0: Using network: $network"
 echo "$0: Using committee_size: $committee_size"
 echo "$0: Using shards: $shards"
 echo "$0: Using epoch_duration: $epoch_duration"
+echo "$0: Using RUST_LOG: $rust_log"
 echo "$0: Using backup_database_url: $backup_database_url"
 
 
