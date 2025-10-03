@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     TypedStoreError,
-    metrics::{DBMetrics, spawn_cf_metrics_reporter},
+    metrics::{DBMetrics, spawn_db_metrics_reporter},
     rocks::RocksDB,
 };
 
@@ -71,9 +71,9 @@ where
         // Start metrics reporting task
         let (sender, receiver) = tokio::sync::oneshot::channel();
         if !is_deprecated {
-            spawn_cf_metrics_reporter(
+            spawn_db_metrics_reporter(
                 db.clone(),
-                cf_name.to_string(),
+                vec![cf_name.to_string()],
                 db_metrics.clone(),
                 receiver,
             );
@@ -236,9 +236,9 @@ where
     fn clone(&self) -> Self {
         // Start metrics reporting for the cloned instance
         let (sender, receiver) = tokio::sync::oneshot::channel();
-        spawn_cf_metrics_reporter(
+        spawn_db_metrics_reporter(
             self.db.clone(),
-            self.cf_name.clone(),
+            vec![self.cf_name.clone()],
             self.db_metrics.clone(),
             receiver,
         );

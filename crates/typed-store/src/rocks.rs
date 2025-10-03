@@ -777,6 +777,8 @@ pub struct DBMap<K, V> {
     _phantom: PhantomData<fn(K) -> V>,
     /// The rocksDB ColumnFamily under which the map is stored.
     cf: String,
+    // The class of the column family.
+    cf_class: String,
     /// The read-write options.
     pub opts: ReadWriteOptions,
     /// The metrics for the database.
@@ -800,19 +802,26 @@ impl<K, V> DBMap<K, V> {
         db: Arc<RocksDB>,
         opts: &ReadWriteOptions,
         opt_cf: &str,
+        opt_cf_class: &str,
         is_deprecated: bool,
     ) -> Self {
         let db_metrics = DBMetrics::get();
         let cf = opt_cf.to_string();
         let (sender, receiver) = tokio::sync::oneshot::channel();
         if !is_deprecated {
-            crate::metrics::spawn_cf_metrics_reporter(db.clone(), cf, db_metrics.clone(), receiver);
+            crate::metrics::spawn_db_metrics_reporter(
+                db.clone(),
+                vec![cf.clone()],
+                db_metrics.clone(),
+                receiver,
+            );
         }
         DBMap {
             rocksdb: db.clone(),
             opts: opts.clone(),
             _phantom: PhantomData,
             cf: opt_cf.to_string(),
+            cf_class: opt_cf_class.to_string(),
             db_metrics: db_metrics.clone(),
             _metrics_task_cancel_handle: Arc::new(sender),
             get_sample_interval: db.get_sampling_interval(),
@@ -838,12 +847,14 @@ impl<K, V> DBMap<K, V> {
         metric_conf: MetricConf,
         db_options: Option<rocksdb::Options>,
         opt_cf: Option<&str>,
+        opt_cf_class: Option<&str>,
         rw_options: &ReadWriteOptions,
     ) -> Result<Self, TypedStoreError> {
         let cf_key = opt_cf.unwrap_or(rocksdb::DEFAULT_COLUMN_FAMILY_NAME);
+        let cf_class = opt_cf_class.unwrap_or(cf_key);
         let cfs = vec![cf_key];
         let rocksdb = open_cf(path, db_options, metric_conf, &cfs)?;
-        Ok(DBMap::new(rocksdb, rw_options, cf_key, false))
+        Ok(DBMap::new(rocksdb, rw_options, cf_key, cf_class, false))
     }
 
     /// Reopens an open database as a typed map operating under a specific column family.
@@ -888,14 +899,71 @@ impl<K, V> DBMap<K, V> {
         rw_options: &ReadWriteOptions,
         is_deprecated: bool,
     ) -> Result<Self, TypedStoreError> {
+        Self::reopen_with_class(db, opt_cf, None, rw_options, is_deprecated)
+    }
+
+    /// Reopens an open database as a typed map operating under a specific column family.
+    /// if no column family is passed, the default column family is used.
+    /// Allows specifying a separate column family class for metrics reporting.
+    ///
+    /// ```
+    ///    use typed_store::rocks::*;
+    ///    use typed_store::metrics::DBMetrics;
+    ///    use tempfile::tempdir;
+    ///    use prometheus::Registry;
+    ///    use std::sync::Arc;
+    ///    use core::fmt::Error;
+    ///    #[tokio::main]
+    ///    async fn main() -> Result<(), Error> {
+    ///    /// Open the DB with all needed column families first.
+    ///    let rocks = open_cf(
+    ///     tempdir().unwrap(),
+    ///     None,
+    ///     MetricConf::default(),
+    ///     &["First_CF", "Second_CF"],
+    /// ).unwrap();
+    ///    /// Attach the column families to specific maps.
+    ///    let db_cf_1 = DBMap::<u32,u32>::reopen_with_class(
+    ///     &rocks,
+    ///     Some("First_CF"),
+    ///     Some("FirstClass"),
+    ///     &ReadWriteOptions::default(),
+    ///     false,
+    /// ).expect("Failed to open storage");
+    ///    let db_cf_2 = DBMap::<u32,u32>::reopen_with_class(
+    ///     &rocks,
+    ///     Some("Second_CF"),
+    ///     Some("SecondClass"),
+    ///     &ReadWriteOptions::default(),
+    ///     false,
+    /// ).expect("Failed to open storage");
+    ///    Ok(())
+    ///    }
+    /// ```
+    #[tracing::instrument(level = "debug", skip(db), err)]
+    pub fn reopen_with_class(
+        db: &Arc<RocksDB>,
+        opt_cf: Option<&str>,
+        opt_cf_class: Option<&str>,
+        rw_options: &ReadWriteOptions,
+        is_deprecated: bool,
+    ) -> Result<Self, TypedStoreError> {
         let cf_key = opt_cf
             .unwrap_or(rocksdb::DEFAULT_COLUMN_FAMILY_NAME)
             .to_owned();
 
+        let cf_class = opt_cf_class.unwrap_or(&cf_key).to_owned();
+
         db.cf_handle(&cf_key)
             .ok_or_else(|| TypedStoreError::UnregisteredColumn(cf_key.clone()))?;
 
-        Ok(DBMap::new(db.clone(), rw_options, &cf_key, is_deprecated))
+        Ok(DBMap::new(
+            db.clone(),
+            rw_options,
+            &cf_key,
+            &cf_class,
+            is_deprecated,
+        ))
     }
 
     /// Get the column family name.
@@ -986,7 +1054,7 @@ impl<K, V> DBMap<K, V> {
             .db_metrics
             .op_metrics
             .rocksdb_multiget_latency_seconds
-            .with_label_values(&[&self.cf])
+            .with_label_values(&[&self.cf_class])
             .start_timer();
         let perf_ctx = if self.multiget_sample_interval.sample() {
             Some(RocksDBPerfContext)
@@ -1019,7 +1087,7 @@ impl<K, V> DBMap<K, V> {
         self.db_metrics
             .op_metrics
             .rocksdb_multiget_bytes
-            .with_label_values(&[&self.cf])
+            .with_label_values(&[&self.cf_class])
             .observe(entry_size as f64);
         if perf_ctx.is_some() {
             self.db_metrics
@@ -1072,28 +1140,28 @@ impl<K, V> DBMap<K, V> {
             .db_metrics
             .op_metrics
             .rocksdb_iter_latency_seconds
-            .with_label_values(&[&self.cf])
+            .with_label_values(&[&self.cf_class])
             .start_timer();
         let bytes_scanned = self
             .db_metrics
             .op_metrics
             .rocksdb_iter_bytes
-            .with_label_values(&[&self.cf]);
+            .with_label_values(&[&self.cf_class]);
         let key_bytes_scanned = self
             .db_metrics
             .op_metrics
             .rocksdb_iter_key_bytes
-            .with_label_values(&[&self.cf]);
+            .with_label_values(&[&self.cf_class]);
         let value_bytes_scanned = self
             .db_metrics
             .op_metrics
             .rocksdb_iter_value_bytes
-            .with_label_values(&[&self.cf]);
+            .with_label_values(&[&self.cf_class]);
         let keys_scanned = self
             .db_metrics
             .op_metrics
             .rocksdb_iter_keys
-            .with_label_values(&[&self.cf]);
+            .with_label_values(&[&self.cf_class]);
         let perf_ctx = if self.iter_sample_interval.sample() {
             Some(RocksDBPerfContext)
         } else {
@@ -1441,12 +1509,12 @@ impl DBBatch {
         self.db_metrics
             .op_metrics
             .rocksdb_batch_put_key_bytes
-            .with_label_values(&[&db.cf])
+            .with_label_values(&[&db.cf_class])
             .observe(key_total as f64);
         self.db_metrics
             .op_metrics
             .rocksdb_batch_put_value_bytes
-            .with_label_values(&[&db.cf])
+            .with_label_values(&[&db.cf_class])
             .observe(value_total as f64);
         Ok(self)
     }
@@ -1566,7 +1634,7 @@ where
             self.db_metrics
                 .op_metrics
                 .rocksdb_bloom_filter_may_exist_true_total
-                .with_label_values(&[&self.cf])
+                .with_label_values(&[&self.cf_class])
                 .inc();
         }
         let found = if may_exist {
@@ -1578,7 +1646,7 @@ where
                 self.db_metrics
                     .op_metrics
                     .rocksdb_bloom_filter_false_positive_total
-                    .with_label_values(&[&self.cf])
+                    .with_label_values(&[&self.cf_class])
                     .inc();
             }
             pinned.is_some()
@@ -1588,7 +1656,7 @@ where
         self.db_metrics
             .op_metrics
             .rocksdb_contains_key_latency_seconds
-            .with_label_values(&[&self.cf, &found.to_string()])
+            .with_label_values(&[&self.cf_class, &found.to_string()])
             .observe(start.elapsed().as_secs_f64());
         Ok(found)
     }
@@ -1622,22 +1690,22 @@ where
         self.db_metrics
             .op_metrics
             .rocksdb_get_latency_seconds
-            .with_label_values(&[&self.cf, &found.to_string()])
+            .with_label_values(&[&self.cf_class, &found.to_string()])
             .observe(start.elapsed().as_secs_f64());
         self.db_metrics
             .op_metrics
             .rocksdb_get_key_bytes
-            .with_label_values(&[&self.cf])
+            .with_label_values(&[&self.cf_class])
             .observe(key_buf.len() as f64);
         self.db_metrics
             .op_metrics
             .rocksdb_get_bytes
-            .with_label_values(&[&self.cf])
+            .with_label_values(&[&self.cf_class])
             .observe(key_buf.len() as f64 + res.as_ref().map_or(0.0, |v| v.len() as f64));
         self.db_metrics
             .op_metrics
             .rocksdb_get_value_bytes
-            .with_label_values(&[&self.cf])
+            .with_label_values(&[&self.cf_class])
             .observe(res.as_ref().map_or(0.0, |v| v.len() as f64));
         if perf_ctx.is_some() {
             self.db_metrics
@@ -1658,7 +1726,7 @@ where
             .db_metrics
             .op_metrics
             .rocksdb_put_latency_seconds
-            .with_label_values(&[&self.cf])
+            .with_label_values(&[&self.cf_class])
             .start_timer();
         let perf_ctx = if self.write_sample_interval.sample() {
             Some(RocksDBPerfContext)
@@ -1670,17 +1738,17 @@ where
         self.db_metrics
             .op_metrics
             .rocksdb_put_key_bytes
-            .with_label_values(&[&self.cf])
+            .with_label_values(&[&self.cf_class])
             .observe(key_buf.len() as f64);
         self.db_metrics
             .op_metrics
             .rocksdb_put_value_bytes
-            .with_label_values(&[&self.cf])
+            .with_label_values(&[&self.cf_class])
             .observe(value_buf.len() as f64);
         self.db_metrics
             .op_metrics
             .rocksdb_put_bytes
-            .with_label_values(&[&self.cf])
+            .with_label_values(&[&self.cf_class])
             .observe(key_buf.len() as f64 + value_buf.len() as f64);
         if perf_ctx.is_some() {
             self.db_metrics
@@ -1697,12 +1765,12 @@ where
             self.db_metrics
                 .op_metrics
                 .rocksdb_very_slow_puts_count
-                .with_label_values(&[&self.cf])
+                .with_label_values(&[&self.cf_class])
                 .inc();
             self.db_metrics
                 .op_metrics
                 .rocksdb_very_slow_puts_duration_ms
-                .with_label_values(&[&self.cf])
+                .with_label_values(&[&self.cf_class])
                 .inc_by((elapsed * 1000.0) as u64);
         }
 
@@ -1715,7 +1783,7 @@ where
             .db_metrics
             .op_metrics
             .rocksdb_delete_latency_seconds
-            .with_label_values(&[&self.cf])
+            .with_label_values(&[&self.cf_class])
             .start_timer();
         let perf_ctx = if self.write_sample_interval.sample() {
             Some(RocksDBPerfContext)
@@ -1729,7 +1797,7 @@ where
         self.db_metrics
             .op_metrics
             .rocksdb_deletes
-            .with_label_values(&[&self.cf])
+            .with_label_values(&[&self.cf_class])
             .inc();
         if perf_ctx.is_some() {
             self.db_metrics
