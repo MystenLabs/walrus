@@ -11,7 +11,7 @@ use std::{
 };
 
 use enum_dispatch::enum_dispatch;
-use rocksdb::{MergeOperands, Options};
+use rocksdb::{MergeOperands, Options, Transaction};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use sui_types::{base_types::ObjectID, event::EventID};
 use tracing::Level;
@@ -304,6 +304,45 @@ impl BlobInfoTable {
         )
     }
 
+    /// Returns an iterator over all entries in the aggregate blob info table.
+    pub fn aggregate_blob_info_iter(
+        &self,
+    ) -> Result<impl Iterator<Item = Result<(BlobId, BlobInfo), TypedStoreError>>, TypedStoreError>
+    {
+        self.aggregate_blob_info.safe_iter()
+    }
+
+    /// Returns the column family handle for the aggregate blob info table.
+    pub fn aggregate_cf(&self) -> Arc<rocksdb::BoundColumnFamily<'_>> {
+        self.aggregate_blob_info
+            .cf()
+            .expect("we know that this CF exists")
+    }
+
+    pub fn get_for_update_in_transaction(
+        &self,
+        transaction: &Transaction<'_, rocksdb::OptimisticTransactionDB>,
+        blob_id: &BlobId,
+    ) -> Result<Option<BlobInfo>, rocksdb::Error> {
+        // Question(mlegner): Should `exclusive` parameter be true or false?
+        Ok(transaction
+            .get_for_update_cf_opt(
+                &self.aggregate_cf(),
+                blob_id,
+                false,
+                &self.aggregate_blob_info.opts.readopts(),
+            )?
+            .and_then(|data| deserialize_from_db(&data)))
+    }
+
+    pub fn delete_in_transaction(
+        &self,
+        transaction: &Transaction<'_, rocksdb::OptimisticTransactionDB>,
+        blob_id: &BlobId,
+    ) -> Result<(), rocksdb::Error> {
+        transaction.delete_cf(&self.aggregate_cf(), blob_id)
+    }
+
     /// Returns an iterator over all blobs that were certified before the specified epoch in the
     /// blob info table starting with the `starting_blob_id` bound.
     #[tracing::instrument(skip_all)]
@@ -399,6 +438,8 @@ impl BlobInfoTable {
             let mut batch = self.per_object_blob_info.batch();
             // Clean up all expired objects.
             batch.delete_batch(&self.per_object_blob_info, [object_id])?;
+
+            // TODO(mlegner): Record the number of deleted objects in a metric.
 
             // Only update the aggregate blob info if the blob is deletable and not already deleted
             // (in which case it was already updated).

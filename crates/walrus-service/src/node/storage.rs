@@ -11,9 +11,10 @@ use std::{
     time::Instant,
 };
 
+use anyhow::Context;
 use futures::FutureExt as _;
 use itertools::Itertools;
-use rocksdb::Options;
+use rocksdb::{Options, Transaction};
 use serde::{Deserialize, Serialize};
 use sui_sdk::types::event::EventID;
 use sui_types::base_types::ObjectID;
@@ -21,7 +22,7 @@ use tokio::sync::{OwnedRwLockWriteGuard, RwLock};
 use typed_store::{
     Map,
     TypedStoreError,
-    rocks::{self, DBBatch, DBMap, MetricConf, ReadWriteOptions, RocksDB},
+    rocks::{self, DBBatch, DBMap, MetricConf, OptimisticHandle, ReadWriteOptions, RocksDB},
 };
 use walrus_core::{
     BlobId,
@@ -604,6 +605,123 @@ impl Storage {
         Ok(())
     }
 
+    /// Deletes the metadata and slivers for blobs that are expired in the given epoch.
+    pub(crate) async fn delete_expired_blob_data(
+        &self,
+        current_epoch: Epoch,
+    ) -> anyhow::Result<()> {
+        let Some(optimistic_handle) = self.database.as_optimistic() else {
+            tracing::warn!("data deletion is only possible when the DB supports transactions");
+            return Ok(());
+        };
+
+        tracing::info!(epoch = %current_epoch, "deleting expired blob data");
+        let shards = futures::future::try_join_all(self.shards.read().await.values().map(
+            |shard| async move {
+                match shard.status().await {
+                    Ok(status) => Ok(status.is_owned_by_node().then_some(shard.clone())),
+                    Err(error) => Err(error),
+                }
+            },
+        ))
+        .await
+        .context("error while collecting shards for data deletion")?
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>();
+
+        for entry in self
+            .blob_info
+            .aggregate_blob_info_iter()
+            .context("DB error while attempting to iterate over aggregate blob info")?
+        {
+            let (blob_id, blob_info) = match entry {
+                Ok(entry) => entry,
+                Err(error) => {
+                    tracing::warn!(
+                        ?error,
+                        "a DB error occurred while iterating over aggregate blob info"
+                    );
+                    continue;
+                }
+            };
+
+            if blob_info.is_registered(current_epoch) {
+                tracing::trace!(
+                    %blob_id,
+                    "skipping blob that is still registered",
+                );
+                continue;
+            }
+
+            // At this point we know that the blob is no longer registered, and we can attempt to
+            // delete the related data.
+            self.attempt_to_delete_blob_data(&optimistic_handle, &blob_id, current_epoch, &shards)
+                .await?;
+        }
+
+        Ok(())
+    }
+
+    async fn attempt_to_delete_blob_data(
+        &self,
+        optimistic_handle: &OptimisticHandle<'_>,
+        blob_id: &BlobId,
+        current_epoch: Epoch,
+        shards: &[Arc<ShardStorage>],
+    ) -> Result<(), rocksdb::Error> {
+        let transaction = optimistic_handle.transaction();
+        // Question(mlegner): Should `conclusive` be true or false?
+        // Question(mlegner): Does this even work in conjunction with merge operators?
+        let Some(blob_info) = self
+            .blob_info
+            .get_for_update_in_transaction(&transaction, blob_id)?
+        else {
+            tracing::warn!(
+                %blob_id,
+                "blob info not found when attempting to delete expired blob data"
+            );
+            return Ok(());
+        };
+        if blob_info.is_registered(current_epoch) {
+            tracing::debug!(
+                %blob_id,
+                "blob was reregistered before attempting to delete expired blob data",
+            );
+            return Ok(());
+        }
+
+        // At this point we are sure that the blob is no longer registered and can actually delete
+        // the blob info and data. If the blob is reregistered outside this transaction, the
+        // transaction will fail.
+        self.blob_info
+            .delete_in_transaction(&transaction, blob_id)?;
+        self.delete_blob_data_in_transaction(&transaction, blob_id, shards)?;
+
+        if let Err(error) = transaction.commit() {
+            if matches!(
+                error.kind(),
+                rocksdb::ErrorKind::Busy | rocksdb::ErrorKind::TryAgain
+            ) {
+                tracing::debug!(
+                    %error,
+                    "deleting blob data failed due to a conflict, skipping deletion"
+                );
+            } else {
+                tracing::warn!(?error, "an error encountered while committing transaction");
+            }
+
+            // TODO(mlegner): Record failed deletion in metrics.
+
+            // Returning successfully here because it doesn't matter if the deletion failed.
+            // The data will simply be deleted in the garbage collection process.
+            return Ok(());
+        }
+
+        // TODO(mlegner): Record successful deletion in metrics.
+        Ok(())
+    }
+
     /// Repositions the event cursor to the specified event index.
     pub(crate) fn reposition_event_cursor(
         &self,
@@ -674,6 +792,9 @@ impl Storage {
     /// Deletes the metadata and slivers for the provided [`BlobId`] from the storage.
     ///
     /// This *does not* update the blob-info table in any way.
+    ///
+    /// **Important**: This does not prevent the blob info from being updated concurrently and thus
+    /// must only be used if the blob cannot be reregistered, for example for invalid blobs.
     #[tracing::instrument(skip_all)]
     pub async fn delete_blob_data(&self, blob_id: &BlobId) -> Result<(), TypedStoreError> {
         let mut batch = self.metadata.batch();
@@ -705,6 +826,26 @@ impl Storage {
     ) -> Result<(), TypedStoreError> {
         for shard in self.existing_shard_storages().await {
             shard.delete_sliver_pair(batch, blob_id)?;
+        }
+        Ok(())
+    }
+
+    /// Deletes the metadata and slivers for the provided [`BlobId`] from the storage within a DB
+    /// transaction.
+    ///
+    /// This *does not* update the blob-info table in any way.
+    fn delete_blob_data_in_transaction(
+        &self,
+        transaction: &Transaction<'_, rocksdb::OptimisticTransactionDB>,
+        blob_id: &BlobId,
+        shards: &[Arc<ShardStorage>],
+    ) -> Result<(), rocksdb::Error> {
+        transaction.delete_cf(
+            &self.metadata.cf().expect("metadata CF must always exist"),
+            blob_id,
+        )?;
+        for shard in shards {
+            shard.delete_sliver_pair_in_transaction(transaction, blob_id)?;
         }
         Ok(())
     }

@@ -1600,17 +1600,9 @@ impl StorageNode {
         // shards are created.
         let shard_map_lock = self.inner.storage.lock_shards().await;
 
+        // Perform database cleanup operations.
         // TODO(WAL-1040): Move this to a background task.
-        if self
-            .inner
-            .garbage_collection_config
-            .enable_blob_info_cleanup
-        {
-            self.inner
-                .storage
-                .process_expired_blob_objects(event.epoch)
-                .await?;
-        }
+        self.perform_db_cleanup(event.epoch).await?;
 
         // Now the general tasks around epoch change are done. Next, entering epoch change logic
         // to bring the node state to the next epoch.
@@ -1622,6 +1614,31 @@ impl StorageNode {
         self.inner
             .latest_event_epoch_sender
             .send(Some(event.epoch))?;
+
+        Ok(())
+    }
+
+    /// Performs database cleanup operations including blob info cleanup and data deletion.
+    #[tracing::instrument(skip_all)]
+    async fn perform_db_cleanup(&self, epoch: Epoch) -> anyhow::Result<()> {
+        // TODO(mlegner): Disable DB compactions during cleanup.
+
+        if self
+            .inner
+            .garbage_collection_config
+            .enable_blob_info_cleanup
+        {
+            self.inner
+                .storage
+                .process_expired_blob_objects(epoch)
+                .await?;
+        }
+
+        if self.inner.garbage_collection_config.enable_data_deletion {
+            self.inner.storage.delete_expired_blob_data(epoch).await?;
+        }
+
+        // TODO(mlegner): Re-enable DB compactions after cleanup.
 
         Ok(())
     }

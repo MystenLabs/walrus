@@ -215,3 +215,4 @@ blob_event_processor_config:
   num_workers: 10
 garbage_collection:
   enable_blob_info_cleanup: false
+  enable_data_deletion: false
