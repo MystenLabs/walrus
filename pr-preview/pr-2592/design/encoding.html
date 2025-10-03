@@ -308,11 +308,24 @@ inconsistency proof or an inconsistency certificate posted on chain.</p>
 <p>Inconsistencies of the first type can also be detected by storage nodes. The process is the same
 as in the case above, but it is not guaranteed to be triggered immediately after certification.</p>
 <p>As a result, such inconsistencies may persist within the network for longer periods of time,
-requiring additional client-side checks. These integrity checks performed by clients are described
-in the following sections.</p>
+requiring additional client-side checks.</p>
 </li>
 </ul>
-<h3 id="data-integrity-check"><a class="header" href="#data-integrity-check">Data integrity check</a></h3>
+<p>The following sections describe the different types of integrity checks performed by clients.</p>
+<div id="admonition-select-the-appropriate-integrity-check" class="admonition admonish-info" role="note" aria-labelledby="admonition-select-the-appropriate-integrity-check-title">
+<div class="admonition-title">
+<div id="admonition-select-the-appropriate-integrity-check-title">
+<p>Select the appropriate integrity check</p>
+</div>
+<a class="admonition-anchor-link" href="#admonition-select-the-appropriate-integrity-check"></a>
+</div>
+<div>
+<p>In the majority of cases, the default integrity check is sufficient, in particular if the writer of
+the blob is trusted. The strict integrity check is only needed if specific availability guarantees
+are required.</p>
+</div>
+</div>
+<h3 id="default-integrity-check"><a class="header" href="#default-integrity-check">Default integrity check</a></h3>
 <p>When reading a blob from Walrus, a client first checks the authenticity of the metadata and then
 requests a subset of primary slivers checking their authenticity using the metadata. Using 334
 authentic primary slivers, the original blob data can be decoded.</p>
@@ -358,19 +371,8 @@ was read successfully with the strict integrity check enabled, the following pro
 same data intended by the writer.</p>
 </div>
 </div>
-<div id="admonition-select-the-appropriate-integrity-check" class="admonition admonish-info" role="note" aria-labelledby="admonition-select-the-appropriate-integrity-check-title">
-<div class="admonition-title">
-<div id="admonition-select-the-appropriate-integrity-check-title">
-<p>Select the appropriate integrity check</p>
-</div>
-<a class="admonition-anchor-link" href="#admonition-select-the-appropriate-integrity-check"></a>
-</div>
-<div>
-<p>In the majority of cases, the "basic" integrity check above is sufficient, in particular if the
-writer of the blob is trusted. The strict integrity check is only needed if specific availability
-guarantees are required.</p>
-</div>
-</div>
+<p>Note that for quilt patches, only the default integrity check is available, as only part of the
+quilt is read.</p>
 
                     </main>
 

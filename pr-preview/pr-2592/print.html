@@ -1922,7 +1922,7 @@ the values in the corresponding HTTP headers.</p>
 <h4 id="integrity-checks-1"><a class="header" href="#integrity-checks-1">Integrity checks</a></h4>
 <p>The integrity checks performed by the aggregator are the same as the ones <a href="usage/./client-cli.html#integrity-checks">performed by the CLI</a>.
 For special use cases, the <a href="usage/../design/encoding.html#strict-integrity-check">strict integrity check</a>
-can be enabled by adding a query parameter <code>strict-consistency-check=true</code> (starting with <code>v1.35</code>).</p>
+can be enabled by adding a query parameter <code>strict_integrity_check=true</code> (starting with <code>v1.35</code>).</p>
 <h3 id="quilt-http-apis"><a class="header" href="#quilt-http-apis">Quilt HTTP APIs</a></h3>
 <p>Walrus supports storing and retrieving multiple blobs as a single unit called a <a href="usage/./quilt.html">quilt</a>.
 The publishers and aggregators support <em>quilt</em> related operations.</p>
@@ -6273,11 +6273,24 @@ inconsistency proof or an inconsistency certificate posted on chain.</p>
 <p>Inconsistencies of the first type can also be detected by storage nodes. The process is the same
 as in the case above, but it is not guaranteed to be triggered immediately after certification.</p>
 <p>As a result, such inconsistencies may persist within the network for longer periods of time,
-requiring additional client-side checks. These integrity checks performed by clients are described
-in the following sections.</p>
+requiring additional client-side checks.</p>
 </li>
 </ul>
-<h3 id="data-integrity-check"><a class="header" href="#data-integrity-check">Data integrity check</a></h3>
+<p>The following sections describe the different types of integrity checks performed by clients.</p>
+<div id="admonition-select-the-appropriate-integrity-check" class="admonition admonish-info" role="note" aria-labelledby="admonition-select-the-appropriate-integrity-check-title">
+<div class="admonition-title">
+<div id="admonition-select-the-appropriate-integrity-check-title">
+<p>Select the appropriate integrity check</p>
+</div>
+<a class="admonition-anchor-link" href="design/encoding.html#admonition-select-the-appropriate-integrity-check"></a>
+</div>
+<div>
+<p>In the majority of cases, the default integrity check is sufficient, in particular if the writer of
+the blob is trusted. The strict integrity check is only needed if specific availability guarantees
+are required.</p>
+</div>
+</div>
+<h3 id="default-integrity-check"><a class="header" href="#default-integrity-check">Default integrity check</a></h3>
 <p>When reading a blob from Walrus, a client first checks the authenticity of the metadata and then
 requests a subset of primary slivers checking their authenticity using the metadata. Using 334
 authentic primary slivers, the original blob data can be decoded.</p>
@@ -6323,19 +6336,8 @@ was read successfully with the strict integrity check enabled, the following pro
 same data intended by the writer.</p>
 </div>
 </div>
-<div id="admonition-select-the-appropriate-integrity-check" class="admonition admonish-info" role="note" aria-labelledby="admonition-select-the-appropriate-integrity-check-title">
-<div class="admonition-title">
-<div id="admonition-select-the-appropriate-integrity-check-title">
-<p>Select the appropriate integrity check</p>
-</div>
-<a class="admonition-anchor-link" href="design/encoding.html#admonition-select-the-appropriate-integrity-check"></a>
-</div>
-<div>
-<p>In the majority of cases, the "basic" integrity check above is sufficient, in particular if the
-writer of the blob is trusted. The strict integrity check is only needed if specific availability
-guarantees are required.</p>
-</div>
-</div>
+<p>Note that for quilt patches, only the default integrity check is available, as only part of the
+quilt is read.</p>
 <div style="break-before: page; page-break-before: always;"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.4/dist/katex.min.css">
 <h1 id="operations-1"><a class="header" href="#operations-1">Operations</a></h1>
 <p>Walrus operations can be separated in <a href="design/./operations-sui.html">interactions with the Sui chain</a>, which
