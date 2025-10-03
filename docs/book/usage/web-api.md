@@ -170,7 +170,7 @@ the values in the corresponding HTTP headers.
 
 The integrity checks performed by the aggregator are the same as the ones [performed by the CLI](./client-cli.md#integrity-checks).
 For special use cases, the [strict integrity check](../design/encoding.md#strict-integrity-check)
-can be enabled by adding a query parameter `strict-consistency-check=true` (starting with `v1.35`).
+can be enabled by adding a query parameter `strict_integrity_check=true` (starting with `v1.35`).
 
 ### Quilt HTTP APIs
 
