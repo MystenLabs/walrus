@@ -96,23 +96,26 @@ the writer or return an error.
 ### Strict integrity check
 
 If the blob was encoded correctly, any set of 334 primary slivers decode to the same data. However,
-if the writer of a blob encoded the data incorrectly, different sets of slivers may decode to different data.
-Even in that case, there is only one correct value that can be read by an honest client (guarantee
-stated above), but some read attempts may result in a failure while others succeed. Furthermore, the blob may be detected
-as inconsistent by storage nodes at a later point, after which all read attempts would fail.
+if the writer of a blob encoded the data incorrectly, different sets of slivers may decode to
+different data. Even in that case, there is only one correct value that can be read by an honest
+client (guarantee stated above), but some read attempts may result in a failure while others
+succeed. Furthermore, the blob may be detected as inconsistent by storage nodes at a later point,
+after which all read attempts would fail.
 
 For this reason, Walrus optionally offers a *strict integrity check*: After decoding the blob, the
 client fully *re-encodes* it and recomputes all hashes and the blob ID. Only if that computation
 results in the blob ID they are trying to read is the read considered successful.
 
-This process *ensures that the original writer encoded the blob correctly*. This implies the
-following guarantee:
+This process *ensures that the original writer encoded the blob correctly*. Therefore, after a blob
+was read successfully with the strict integrity check enabled, the following property holds:
 
-```admonish tip title="Strict integrity property"
+```admonish tip title="Guarantee after strict integrity succeeded"
 Any correct client attempting to read a blob during its lifetime will always succeed and read the
-same data.
+same data intended by the writer.
 ```
 
+```admonish info title="Select the appropriate integrity check"
 In the majority of cases, the "basic" integrity check above is sufficient, in particular if the
 writer of the blob is trusted. The strict integrity check is only needed if specific availability
 guarantees are required.
+```
