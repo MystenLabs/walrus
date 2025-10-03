@@ -1309,3 +1309,281 @@ impl DBMetrics {
             .unwrap_or_else(|| DBMetrics::init(prometheus::default_registry()))
     }
 }
+
+/// Constant for metrics reporting period.
+const CF_METRICS_REPORT_PERIOD_SECS: u64 = 30;
+
+/// Spawns a background task that periodically reports RocksDB metrics for all column families.
+///
+/// This function creates a background tokio task that wakes up every
+/// `CF_METRICS_REPORT_PERIOD_SECS` seconds to collect and report various RocksDB properties
+/// for all specified column families in the database. This is more efficient than spawning one task
+/// per column family.
+///
+/// # Arguments
+/// * `db` - The RocksDB instance
+/// * `cf_names` - The column family names to report metrics for
+/// * `db_metrics` - The metrics collector
+/// * `receiver` - A oneshot receiver to stop the metrics task
+pub fn spawn_db_metrics_reporter(
+    db: Arc<crate::rocks::RocksDB>,
+    cf_names: Vec<String>,
+    db_metrics: Arc<DBMetrics>,
+    mut receiver: tokio::sync::oneshot::Receiver<()>,
+) {
+    tokio::task::spawn(async move {
+        let mut interval =
+            tokio::time::interval(Duration::from_secs(CF_METRICS_REPORT_PERIOD_SECS));
+        loop {
+            tokio::select! {
+                _ = interval.tick() => {
+                    let db = db.clone();
+                    let cf_names = cf_names.clone();
+                    let db_metrics = db_metrics.clone();
+                    if let Err(error) = tokio::task::spawn_blocking(move || {
+                        report_db_metrics(&db, &cf_names, &db_metrics);
+                    }).await {
+                        tracing::error!(?error, "failed to log metrics");
+                    }
+                }
+                _ = &mut receiver => break,
+            }
+        }
+        tracing::debug!("returning the DB metric logging task");
+    });
+}
+
+/// Spawns a background task to periodically report column family metrics.
+///
+/// This function creates a tokio task that reports RocksDB column family metrics
+/// at regular intervals. The task will stop when the provided receiver is triggered.
+///
+/// # Arguments
+/// * `db` - The RocksDB instance
+/// * `cf_name` - The column family name
+/// * `db_metrics` - The metrics collector
+/// * `receiver` - A oneshot receiver to stop the metrics task
+pub fn spawn_cf_metrics_reporter(
+    db: Arc<crate::rocks::RocksDB>,
+    cf_name: String,
+    db_metrics: Arc<DBMetrics>,
+    mut receiver: tokio::sync::oneshot::Receiver<()>,
+) {
+    tokio::task::spawn(async move {
+        let mut interval =
+            tokio::time::interval(Duration::from_secs(CF_METRICS_REPORT_PERIOD_SECS));
+        loop {
+            tokio::select! {
+                _ = interval.tick() => {
+                    let db = db.clone();
+                    let cf = cf_name.clone();
+                    let db_metrics = db_metrics.clone();
+                    if let Err(error) = tokio::task::spawn_blocking(move || {
+                        report_cf_metrics(&db, &cf, &db_metrics);
+                    }).await {
+                        tracing::error!(?error, "failed to log metrics");
+                    }
+                }
+                _ = &mut receiver => break,
+            }
+        }
+        tracing::debug!(cf = cf_name, "returning the CF metric logging task");
+    });
+}
+
+/// Reports RocksDB metrics for all specified column families.
+///
+/// This function collects various RocksDB properties for the specified column families
+/// and reports them as Prometheus metrics. This is more efficient than calling
+/// `report_cf_metrics` for each column family individually since it's done in a single task.
+///
+/// # Arguments
+/// * `rocksdb` - The RocksDB instance
+/// * `cf_names` - The column family names to report metrics for
+/// * `db_metrics` - The metrics collector
+pub fn report_db_metrics(
+    rocksdb: &Arc<crate::rocks::RocksDB>,
+    cf_names: &[String],
+    db_metrics: &Arc<DBMetrics>,
+) {
+    for cf_name in cf_names {
+        report_cf_metrics(rocksdb, cf_name, db_metrics);
+    }
+}
+
+/// Reports RocksDB column family metrics.
+///
+/// This function collects various RocksDB properties and reports them as Prometheus metrics.
+///
+/// # Arguments
+/// * `rocksdb` - The RocksDB instance
+/// * `cf_name` - The column family name
+/// * `db_metrics` - The metrics collector
+pub fn report_cf_metrics(
+    rocksdb: &Arc<crate::rocks::RocksDB>,
+    cf_name: &str,
+    db_metrics: &Arc<DBMetrics>,
+) {
+    let Some(cf) = rocksdb.cf_handle(cf_name) else {
+        tracing::warn!(
+            "unable to report metrics for cf {cf_name:?} in db {:?}",
+            rocksdb.db_name()
+        );
+        return;
+    };
+
+    db_metrics
+        .cf_metrics
+        .rocksdb_total_sst_files_size
+        .with_label_values(&[cf_name])
+        .set(
+            get_int_property(rocksdb, &cf, rocksdb::properties::TOTAL_SST_FILES_SIZE).unwrap_or(-1),
+        );
+
+    db_metrics
+        .cf_metrics
+        .rocksdb_size_all_mem_tables
+        .with_label_values(&[cf_name])
+        .set(
+            get_int_property(rocksdb, &cf, rocksdb::properties::SIZE_ALL_MEM_TABLES).unwrap_or(-1),
+        );
+
+    db_metrics
+        .cf_metrics
+        .rocksdb_num_snapshots
+        .with_label_values(&[cf_name])
+        .set(get_int_property(rocksdb, &cf, rocksdb::properties::NUM_SNAPSHOTS).unwrap_or(-1));
+
+    db_metrics
+        .cf_metrics
+        .rocksdb_oldest_snapshot_time
+        .with_label_values(&[cf_name])
+        .set(
+            get_int_property(rocksdb, &cf, rocksdb::properties::OLDEST_SNAPSHOT_TIME).unwrap_or(-1),
+        );
+
+    db_metrics
+        .cf_metrics
+        .rocksdb_actual_delayed_write_rate
+        .with_label_values(&[cf_name])
+        .set(
+            get_int_property(rocksdb, &cf, rocksdb::properties::ACTUAL_DELAYED_WRITE_RATE)
+                .unwrap_or(-1),
+        );
+
+    db_metrics
+        .cf_metrics
+        .rocksdb_is_write_stopped
+        .with_label_values(&[cf_name])
+        .set(get_int_property(rocksdb, &cf, rocksdb::properties::IS_WRITE_STOPPED).unwrap_or(-1));
+
+    db_metrics
+        .cf_metrics
+        .rocksdb_block_cache_capacity
+        .with_label_values(&[cf_name])
+        .set(
+            get_int_property(rocksdb, &cf, rocksdb::properties::BLOCK_CACHE_CAPACITY).unwrap_or(-1),
+        );
+
+    db_metrics
+        .cf_metrics
+        .rocksdb_block_cache_usage
+        .with_label_values(&[cf_name])
+        .set(get_int_property(rocksdb, &cf, rocksdb::properties::BLOCK_CACHE_USAGE).unwrap_or(-1));
+
+    db_metrics
+        .cf_metrics
+        .rocksdb_block_cache_pinned_usage
+        .with_label_values(&[cf_name])
+        .set(
+            get_int_property(rocksdb, &cf, rocksdb::properties::BLOCK_CACHE_PINNED_USAGE)
+                .unwrap_or(-1),
+        );
+
+    db_metrics
+        .cf_metrics
+        .rocksdb_estimate_table_readers_mem
+        .with_label_values(&[cf_name])
+        .set(
+            get_int_property(
+                rocksdb,
+                &cf,
+                rocksdb::properties::ESTIMATE_TABLE_READERS_MEM,
+            )
+            .unwrap_or(-1),
+        );
+
+    db_metrics
+        .cf_metrics
+        .rocksdb_current_size_active_mem_tables
+        .with_label_values(&[cf_name])
+        .set(
+            get_int_property(rocksdb, &cf, rocksdb::properties::CUR_SIZE_ACTIVE_MEM_TABLE)
+                .unwrap_or(-1),
+        );
+
+    db_metrics
+        .cf_metrics
+        .rocksdb_num_immutable_mem_tables
+        .with_label_values(&[cf_name])
+        .set(
+            get_int_property(rocksdb, &cf, rocksdb::properties::NUM_IMMUTABLE_MEM_TABLE)
+                .unwrap_or(-1),
+        );
+
+    db_metrics
+        .cf_metrics
+        .rocksdb_mem_table_flush_pending
+        .with_label_values(&[cf_name])
+        .set(
+            get_int_property(rocksdb, &cf, rocksdb::properties::MEM_TABLE_FLUSH_PENDING)
+                .unwrap_or(-1),
+        );
+
+    db_metrics
+        .cf_metrics
+        .rocksdb_compaction_pending
+        .with_label_values(&[cf_name])
+        .set(get_int_property(rocksdb, &cf, rocksdb::properties::COMPACTION_PENDING).unwrap_or(-1));
+
+    db_metrics
+        .cf_metrics
+        .rocksdb_num_running_compactions
+        .with_label_values(&[cf_name])
+        .set(
+            get_int_property(rocksdb, &cf, rocksdb::properties::NUM_RUNNING_COMPACTIONS)
+                .unwrap_or(-1),
+        );
+
+    db_metrics
+        .cf_metrics
+        .rocksdb_num_running_flushes
+        .with_label_values(&[cf_name])
+        .set(
+            get_int_property(rocksdb, &cf, rocksdb::properties::NUM_RUNNING_FLUSHES).unwrap_or(-1),
+        );
+
+    db_metrics
+        .cf_metrics
+        .rocksdb_estimate_oldest_key_time
+        .with_label_values(&[cf_name])
+        .set(
+            get_int_property(rocksdb, &cf, rocksdb::properties::ESTIMATE_OLDEST_KEY_TIME)
+                .unwrap_or(-1),
+        );
+}
+
+/// Helper function to get integer property from RocksDB.
+fn get_int_property(
+    rocksdb: &crate::rocks::RocksDB,
+    cf: &impl rocksdb::AsColumnFamilyRef,
+    property_name: &std::ffi::CStr,
+) -> Result<i64, crate::TypedStoreError> {
+    const METRICS_ERROR: i64 = -1;
+
+    let property_value = rocksdb
+        .property_int_value_cf(cf, property_name)
+        .map_err(|e| crate::TypedStoreError::RocksDBError(e.into_string()))?;
+
+    Ok(property_value.unwrap_or(METRICS_ERROR as u64) as i64)
+}
