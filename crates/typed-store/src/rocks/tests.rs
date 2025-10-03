@@ -1,7 +1,10 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-use std::sync::{Mutex, MutexGuard, OnceLock};
+use std::{
+    sync::{Mutex, MutexGuard, OnceLock},
+    time::Duration,
+};
 
 use rstest::rstest;
 
