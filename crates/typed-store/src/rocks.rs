@@ -809,7 +809,12 @@ impl<K, V> DBMap<K, V> {
         let cf = opt_cf.to_string();
         let (sender, receiver) = tokio::sync::oneshot::channel();
         if !is_deprecated {
-            crate::metrics::spawn_cf_metrics_reporter(db.clone(), cf, db_metrics.clone(), receiver);
+            crate::metrics::spawn_db_metrics_reporter(
+                db.clone(),
+                vec![cf.clone()],
+                db_metrics.clone(),
+                receiver,
+            );
         }
         DBMap {
             rocksdb: db.clone(),

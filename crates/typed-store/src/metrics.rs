@@ -1368,44 +1368,6 @@ pub fn spawn_db_metrics_reporter(
     });
 }
 
-/// Spawns a background task to periodically report column family metrics.
-///
-/// This function creates a tokio task that reports RocksDB column family metrics
-/// at regular intervals. The task will stop when the provided receiver is triggered.
-///
-/// # Arguments
-/// * `db` - The RocksDB instance
-/// * `cf_name` - The column family name
-/// * `db_metrics` - The metrics collector
-/// * `receiver` - A oneshot receiver to stop the metrics task
-pub fn spawn_cf_metrics_reporter(
-    db: Arc<crate::rocks::RocksDB>,
-    cf_name: String,
-    db_metrics: Arc<DBMetrics>,
-    mut receiver: tokio::sync::oneshot::Receiver<()>,
-) {
-    tokio::task::spawn(async move {
-        let mut interval =
-            tokio::time::interval(Duration::from_secs(CF_METRICS_REPORT_PERIOD_SECS));
-        loop {
-            tokio::select! {
-                _ = interval.tick() => {
-                    let db = db.clone();
-                    let cf = cf_name.clone();
-                    let db_metrics = db_metrics.clone();
-                    if let Err(error) = tokio::task::spawn_blocking(move || {
-                        report_cf_metrics(&db, &cf, &db_metrics);
-                    }).await {
-                        tracing::error!(?error, "failed to log metrics");
-                    }
-                }
-                _ = &mut receiver => break,
-            }
-        }
-        tracing::debug!(cf = cf_name, "returning the CF metric logging task");
-    });
-}
-
 /// Reports RocksDB metrics for all specified column families.
 ///
 /// This function collects various RocksDB properties for the specified column families
