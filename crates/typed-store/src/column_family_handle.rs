@@ -9,7 +9,7 @@
 
 use std::{marker::PhantomData, sync::Arc};
 
-use rocksdb::OptimisticTransactionDB;
+use rocksdb::{Direction, OptimisticTransactionDB};
 use serde::{Deserialize, Serialize};
 
 use crate::{TypedStoreError, rocks::RocksDB};
@@ -153,13 +153,19 @@ where
         begin: Vec<u8>,
         end: Vec<u8>,
         row_limit: usize,
+        reverse: bool,
     ) -> Result<Vec<(K, V)>, TypedStoreError> {
         let mut read_opts = rocksdb::ReadOptions::default();
-        read_opts.set_iterate_lower_bound(begin);
-        read_opts.set_iterate_upper_bound(end);
+        read_opts.set_iterate_lower_bound(begin.clone());
+        read_opts.set_iterate_upper_bound(end.clone());
 
+        let mode = if reverse {
+            rocksdb::IteratorMode::From(&end, Direction::Reverse)
+        } else {
+            rocksdb::IteratorMode::From(&begin, Direction::Forward)
+        };
         let cf = self.cf()?;
-        let iter = txn.iterator_cf_opt(&cf, read_opts, rocksdb::IteratorMode::Start);
+        let iter = txn.iterator_cf_opt(&cf, read_opts, mode);
 
         let mut results = Vec::new();
 
@@ -474,19 +480,41 @@ mod tests {
             let txn = handle.transaction();
 
             let results_with_limit: Vec<(TestKey, TestValue)> = map
-                .read_range_with_txn(&txn, begin.clone(), end.clone(), 3)
+                .read_range_with_txn(&txn, begin.clone(), end.clone(), 3, false)
                 .expect("failed to read range");
 
             assert_eq!(results_with_limit.len(), 3);
 
+            let results_with_limit_reverse: Vec<(TestKey, TestValue)> = map
+                .read_range_with_txn(&txn, begin.clone(), end.clone(), 3, true)
+                .expect("failed to read range");
+
+            assert_eq!(results_with_limit_reverse.len(), 3);
+
+            for (i, (key, value)) in results_with_limit_reverse.iter().enumerate() {
+                assert_eq!(key, &kvs[kvs.len() - i - 1].0);
+                assert_eq!(value, &kvs[kvs.len() - i - 1].1);
+            }
+
             let results_without_limit: Vec<(TestKey, TestValue)> = map
-                .read_range_with_txn(&txn, begin.clone(), end.clone(), 100)
+                .read_range_with_txn(&txn, begin.clone(), end.clone(), 100, false)
                 .expect("failed to read range");
 
             assert_eq!(results_without_limit.len(), kvs.len());
             for (i, (key, value)) in results_without_limit.iter().enumerate() {
                 assert_eq!(key, &kvs[i].0);
                 assert_eq!(value, &kvs[i].1);
+            }
+
+            let results_without_limit_reverse: Vec<(TestKey, TestValue)> = map
+                .read_range_with_txn(&txn, begin.clone(), end.clone(), 100, true)
+                .expect("failed to read range");
+
+            assert_eq!(results_without_limit_reverse.len(), kvs.len());
+
+            for (i, (key, value)) in results_without_limit_reverse.iter().enumerate() {
+                assert_eq!(key, &kvs[kvs.len() - i - 1].0);
+                assert_eq!(value, &kvs[kvs.len() - i - 1].1);
             }
         }
 
@@ -497,7 +525,7 @@ mod tests {
 
             let txn = handle.transaction();
             let results_without_limit: Vec<(TestKey, TestValue)> = map
-                .read_range_with_txn(&txn, begin, end, 100)
+                .read_range_with_txn(&txn, begin, end, 100, false)
                 .expect("failed to read range");
 
             kvs.remove(2);

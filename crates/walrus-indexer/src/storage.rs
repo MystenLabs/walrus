@@ -428,11 +428,10 @@ impl WalrusIndexStore {
 
         let quilt_patch_index = ColumnFamilyHandle::new(db.clone(), CF_NAME_QUILT_PATCH_INDEX)?;
 
-        // Spawn metrics reporter for all column families
+        // Spawn metrics reporter for all the column families storing index data.
         let cf_names = vec![
             CF_NAME_PRIMARY_INDEX.to_string(),
             CF_NAME_OBJECT_INDEX.to_string(),
-            CF_NAME_SEQUENCE_STORE.to_string(),
             CF_NAME_QUILT_PATCH_INDEX.to_string(),
         ];
         let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
@@ -485,10 +484,11 @@ impl WalrusIndexStore {
         blob_manager: &ObjectID,
         identifier: &str,
         txn: &Transaction<'_, OptimisticTransactionDB>,
+        limit: usize,
     ) -> Result<Vec<(PrimaryIndexKey, IndexTarget)>, TypedStoreError> {
         let (begin, end) = get_primary_index_bounds(blob_manager, identifier);
         self.primary_index
-            .read_range_with_txn(txn, begin, end, usize::MAX)
+            .read_range_with_txn(txn, begin, end, limit, true)
     }
 
     /// Get the blob by object ID.
@@ -512,8 +512,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_keycodec_serialization() {
-        // Test PrimaryIndexKey serialization/deserialization
-        let object_id = ObjectID::from_single_byte(1);
+        // Test PrimaryIndexKey serialization/deserialization.
+        let object_id = ObjectID::random();
         let key = PrimaryIndexKey::new(object_id, "test-identifier".to_string(), 42);
 
         let serialized = key.serialize().expect("Serialization should work");
@@ -525,7 +525,7 @@ mod tests {
         assert_eq!(key.identifier, "test-identifier");
         assert_eq!(key.sequence_number, 42);
 
-        // Test ObjectIndexKey serialization/deserialization
+        // Test ObjectIndexKey serialization/deserialization.
         let obj_key = ObjectIndexKey::new(object_id);
         let obj_serialized = obj_key
             .serialize()
@@ -536,7 +536,7 @@ mod tests {
         assert_eq!(obj_key, obj_deserialized);
         assert_eq!(obj_key.object_id, object_id);
 
-        // Test QuiltPatchIndexKey serialization/deserialization
+        // Test QuiltPatchIndexKey serialization/deserialization.
         let blob_id = BlobId([1u8; 32]);
         let quilt_key = QuiltPatchIndexKey::new(blob_id, object_id);
         let quilt_serialized = quilt_key
@@ -549,7 +549,7 @@ mod tests {
         assert_eq!(quilt_key.patch_blob_id, blob_id);
         assert_eq!(quilt_key.object_id, object_id);
 
-        // Test StringKey serialization/deserialization
+        // Test EmptyKey serialization/deserialization.
         let string_key = EmptyKey;
         let string_serialized = string_key
             .serialize()
@@ -583,7 +583,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_column_family_handle_operations() {
+    async fn test_index_store_basic() {
         let temp_dir = TempDir::new().expect("Failed to create temp dir");
         let store = WalrusIndexStore::open(temp_dir.path())
             .await
@@ -624,13 +624,14 @@ mod tests {
             .transaction();
 
         let read_walrus = store
-            .get_blob_by_identifier(&bucket_id, "test-walrus", &txn)
+            .get_blob_by_identifier(&bucket_id, "test-walrus", &txn, usize::MAX)
             .expect("Get should work");
         assert_eq!(read_walrus.len(), 3);
+        // Results should be in reverse order of sequence numbers
         for (i, (primary_key, index_target)) in read_walrus.iter().enumerate() {
-            assert_eq!(primary_key, &walrus_batch[i].0);
-            assert_eq!(index_target, &walrus_batch[i].1);
-            if let IndexTarget::Blob(blob_identity) = &walrus_batch[i].1 {
+            assert_eq!(primary_key, &walrus_batch[walrus_batch.len() - i - 1].0);
+            assert_eq!(index_target, &walrus_batch[walrus_batch.len() - i - 1].1);
+            if let IndexTarget::Blob(blob_identity) = &walrus_batch[walrus_batch.len() - i - 1].1 {
                 let object_value = store
                     .get_blob_by_object_id(&blob_identity.object_id, &txn)
                     .expect("Get should work")
@@ -642,13 +643,33 @@ mod tests {
         }
 
         let read_fish = store
-            .get_blob_by_identifier(&bucket_id, "test-fish", &txn)
+            .get_blob_by_identifier(&bucket_id, "test-fish", &txn, usize::MAX)
             .expect("Get should work");
         assert_eq!(read_fish.len(), 4);
+        // Results should be in reverse order of sequence numbers
         for (i, (primary_key, index_target)) in read_fish.iter().enumerate() {
-            assert_eq!(primary_key, &fish_batch[i].0);
-            assert_eq!(index_target, &fish_batch[i].1);
-            if let IndexTarget::Blob(blob_identity) = &fish_batch[i].1 {
+            assert_eq!(primary_key, &fish_batch[fish_batch.len() - i - 1].0);
+            assert_eq!(index_target, &fish_batch[fish_batch.len() - i - 1].1);
+            if let IndexTarget::Blob(blob_identity) = &fish_batch[fish_batch.len() - i - 1].1 {
+                let object_value = store
+                    .get_blob_by_object_id(&blob_identity.object_id, &txn)
+                    .expect("Get should work")
+                    .expect("Object value should exist");
+                assert_eq!(object_value.blob_manager, bucket_id);
+                assert_eq!(object_value.identifier, primary_key.identifier);
+                assert_eq!(object_value.sequence_number, primary_key.sequence_number);
+            }
+        }
+
+        let read_fish_limited = store
+            .get_blob_by_identifier(&bucket_id, "test-fish", &txn, 2)
+            .expect("Get should work");
+        assert_eq!(read_fish_limited.len(), 2);
+        // Should get the last 2 entries from fish_batch in reverse order
+        for (i, (primary_key, index_target)) in read_fish_limited.iter().enumerate() {
+            assert_eq!(primary_key, &fish_batch[fish_batch.len() - i - 1].0);
+            assert_eq!(index_target, &fish_batch[fish_batch.len() - i - 1].1);
+            if let IndexTarget::Blob(blob_identity) = &fish_batch[fish_batch.len() - i - 1].1 {
                 let object_value = store
                     .get_blob_by_object_id(&blob_identity.object_id, &txn)
                     .expect("Get should work")
