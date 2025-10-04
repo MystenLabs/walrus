@@ -12,13 +12,13 @@
 use std::{path::Path, sync::Arc};
 
 use anyhow::Result;
-use bcs;
 use rocksdb::{OptimisticTransactionDB, Options as RocksDbOptions, Transaction};
 use serde::{Deserialize, Serialize};
 use sui_types::base_types::ObjectID;
 use typed_store::{
     TypedStoreError,
-    rocks::{DBMap, MetricConf},
+    column_family_handle::{ColumnFamilyHandle, KeyCodec},
+    rocks::MetricConf,
 };
 use walrus_core::{
     BlobId,
@@ -38,9 +38,32 @@ const CF_NAME_QUILT_PATCH_INDEX: &str = "walrus_quilt_patch";
 /// Sequence store, sequence_number.
 const SEQUENCE_KEY: &[u8] = b"sequence";
 
+/// Key wrapper for String to implement KeyCodec (needed for sequence store).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EmptyKey;
+
+impl EmptyKey {
+    /// A const instance that can be used anywhere.
+    pub const INSTANCE: Self = EmptyKey;
+}
+
+impl KeyCodec for EmptyKey {
+    fn serialize(&self) -> Result<Vec<u8>, TypedStoreError> {
+        Ok(Vec::new())
+    }
+
+    fn deserialize(bytes: &[u8]) -> Result<Self, TypedStoreError> {
+        if !bytes.is_empty() {
+            return Err(TypedStoreError::SerializationError(
+                "Invalid empty key length: expected 0 bytes".to_string(),
+            ));
+        }
+        Ok(EmptyKey)
+    }
+}
 /// Key structure for primary index: blob_manager/identifier/sequence_number.
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct PrimaryIndexKey {
+pub struct PrimaryIndexKey {
     /// The blob manager ID.
     blob_manager: ObjectID,
     /// The identifier.
@@ -59,10 +82,10 @@ impl PrimaryIndexKey {
             sequence_number,
         }
     }
+}
 
-    /// Custom serialization to preserve alphanumeric order.
-    /// Format: [blob_manager_bytes(32 bytes)] / [identifier_utf8] / [sequence_be_bytes(8 bytes)].
-    fn to_key(&self) -> Vec<u8> {
+impl KeyCodec for PrimaryIndexKey {
+    fn serialize(&self) -> Result<Vec<u8>, TypedStoreError> {
         let mut bytes = Vec::new();
 
         // Add raw ObjectID bytes.
@@ -80,44 +103,48 @@ impl PrimaryIndexKey {
         // Add sequence number as big-endian bytes (8 bytes) to preserve u64 order.
         bytes.extend_from_slice(&self.sequence_number.to_be_bytes());
 
-        bytes
+        Ok(bytes)
     }
 
-    /// Parse from byte representation.
-    /// Optimized parsing: first 32 bytes = blob_manager, last 8 bytes = sequence,
-    /// middle = /<identifier>/.
-    fn from_key(bytes: &[u8]) -> Result<Self> {
+    fn deserialize(bytes: &[u8]) -> Result<Self, TypedStoreError> {
         // Minimum size: 32 (blob_manager) + 1 (/) + 0 (empty identifier) + 1 (/) + 8 (sequence).
         if bytes.len() < 42 {
-            return Err(anyhow::anyhow!("Key too short: minimum 42 bytes required"));
+            return Err(TypedStoreError::SerializationError(
+                "Key too short: minimum 42 bytes required".to_string(),
+            ));
         }
 
         // Extract blob_manager (first 32 bytes).
-        let blob_manager = ObjectID::from_bytes(&bytes[0..32])?;
+        let blob_manager = ObjectID::from_bytes(&bytes[0..32])
+            .map_err(|e| TypedStoreError::SerializationError(e.to_string()))?;
 
         // Check for first separator.
         if bytes[32] != b'/' {
-            return Err(anyhow::anyhow!(
-                "Missing first '/' separator after blob_manager"
+            return Err(TypedStoreError::SerializationError(
+                "Missing first '/' separator after blob_manager".to_string(),
             ));
         }
 
         // Extract sequence number (last 8 bytes).
-        let seq_bytes: [u8; Self::SEQUENCE_LEN] =
-            bytes[bytes.len() - Self::SEQUENCE_LEN..].try_into()?;
+        let seq_bytes: [u8; Self::SEQUENCE_LEN] = bytes[bytes.len() - Self::SEQUENCE_LEN..]
+            .try_into()
+            .map_err(|_| {
+                TypedStoreError::SerializationError("Invalid sequence bytes".to_string())
+            })?;
         let sequence_number = u64::from_be_bytes(seq_bytes);
 
         // Check for second separator before sequence.
         if bytes[bytes.len() - Self::SEQUENCE_LEN - 1] != b'/' {
-            return Err(anyhow::anyhow!(
-                "Missing second '/' separator before sequence"
+            return Err(TypedStoreError::SerializationError(
+                "Missing second '/' separator before sequence".to_string(),
             ));
         }
 
         // Extract identifier (everything between the two separators).
         // From position 33 to (length - 9).
         let identifier =
-            String::from_utf8(bytes[33..bytes.len() - Self::SEQUENCE_LEN - 1].to_vec())?;
+            String::from_utf8(bytes[33..bytes.len() - Self::SEQUENCE_LEN - 1].to_vec())
+                .map_err(|e| TypedStoreError::SerializationError(e.to_string()))?;
 
         Ok(Self {
             blob_manager,
@@ -139,7 +166,7 @@ impl std::fmt::Display for PrimaryIndexKey {
 
 /// Key structure for object index.
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct ObjectIndexKey {
+pub struct ObjectIndexKey {
     object_id: ObjectID,
 }
 
@@ -147,24 +174,23 @@ impl ObjectIndexKey {
     fn new(object_id: ObjectID) -> Self {
         Self { object_id }
     }
+}
 
-    /// Convert to optimized byte representation for RocksDB key.
-    /// Format: [object_id_bytes(32 bytes)].
-    fn to_key(&self) -> Vec<u8> {
+impl KeyCodec for ObjectIndexKey {
+    fn serialize(&self) -> Result<Vec<u8>, TypedStoreError> {
         // Simply use the raw ObjectID bytes (32 bytes).
-        self.object_id.as_ref().to_vec()
+        Ok(self.object_id.as_ref().to_vec())
     }
 
-    /// Parse from byte representation.
-    #[allow(unused)]
-    fn from_key(bytes: &[u8]) -> Result<Self> {
+    fn deserialize(bytes: &[u8]) -> Result<Self, TypedStoreError> {
         if bytes.len() != 32 {
-            return Err(anyhow::anyhow!(
-                "Invalid object_id length: expected 32 bytes"
+            return Err(TypedStoreError::SerializationError(
+                "Invalid object_id length: expected 32 bytes".to_string(),
             ));
         }
         Ok(Self {
-            object_id: ObjectID::from_bytes(bytes)?,
+            object_id: ObjectID::from_bytes(bytes)
+                .map_err(|e| TypedStoreError::SerializationError(e.to_string()))?,
         })
     }
 }
@@ -177,7 +203,7 @@ impl std::fmt::Display for ObjectIndexKey {
 
 /// Key structure for quilt patch index.
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct QuiltPatchIndexKey {
+pub struct QuiltPatchIndexKey {
     /// The blob ID of the quilt patch.
     patch_blob_id: BlobId,
     /// The object ID of the containing quilt.
@@ -197,12 +223,10 @@ impl QuiltPatchIndexKey {
             object_id,
         }
     }
+}
 
-    /// Convert to optimized byte representation for RocksDB key.
-    /// Format: [patch_blob_id_bytes(32 bytes)] \x00 [object_id_bytes(32 bytes)].
-    /// \x00 is added here for future validation marker, e.g., if a quilt patch blob id is invalid,
-    /// we set the \x00 to \x01 to avoid reading it.
-    fn to_key(&self) -> Vec<u8> {
+impl KeyCodec for QuiltPatchIndexKey {
+    fn serialize(&self) -> Result<Vec<u8>, TypedStoreError> {
         let mut bytes = Vec::new();
 
         // Add BlobId bytes (32 bytes).
@@ -214,28 +238,32 @@ impl QuiltPatchIndexKey {
         // Add ObjectID bytes (32 bytes).
         bytes.extend_from_slice(self.object_id.as_ref());
 
-        bytes
+        Ok(bytes)
     }
 
-    /// Parse from byte representation.
-    fn from_key(bytes: &[u8]) -> Result<Self> {
+    fn deserialize(bytes: &[u8]) -> Result<Self, TypedStoreError> {
         if bytes.len() != 65 {
-            return Err(anyhow::anyhow!(
-                "invalid key length: expected 65 bytes (32 + 1 + 32)"
+            return Err(TypedStoreError::SerializationError(
+                "invalid key length: expected 65 bytes (32 + 1 + 32)".to_string(),
             ));
         }
 
         // Check for separator at position 32.
         if bytes[32] != 0x00 {
-            return Err(anyhow::anyhow!("invalid quilt patch blob id"));
+            return Err(TypedStoreError::SerializationError(
+                "invalid quilt patch blob id".to_string(),
+            ));
         }
 
         // Extract BlobId (first 32 bytes).
-        let blob_id_bytes: [u8; 32] = bytes[0..32].try_into()?;
+        let blob_id_bytes: [u8; 32] = bytes[0..32].try_into().map_err(|_| {
+            TypedStoreError::SerializationError("Invalid blob id bytes".to_string())
+        })?;
         let patch_blob_id = BlobId(blob_id_bytes);
 
         // Extract ObjectID (last 32 bytes).
-        let object_id = ObjectID::from_bytes(&bytes[33..65])?;
+        let object_id = ObjectID::from_bytes(&bytes[33..65])
+            .map_err(|e| TypedStoreError::SerializationError(e.to_string()))?;
 
         Ok(Self {
             patch_blob_id,
@@ -300,12 +328,6 @@ fn get_quilt_patch_index_bounds(patch_blob_id: &BlobId) -> (Vec<u8>, Vec<u8>) {
     (lower_bound, upper_bound)
 }
 
-// Parse the quilt patch index key.
-fn parse_quilt_patch_index_key(key: &[u8]) -> Result<(BlobId, ObjectID), anyhow::Error> {
-    let key_struct = QuiltPatchIndexKey::from_key(key)?;
-    Ok((key_struct.patch_blob_id, key_struct.object_id))
-}
-
 // A concise representation of a quilt patch.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Patch {
@@ -363,19 +385,21 @@ pub struct ObjectIndexValue {
 }
 
 /// Storage interface for the Walrus Index (Dual Index System).
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct WalrusIndexStore {
     // Reference to the underlying RocksDB instance for transaction support.
     db: Arc<typed_store::rocks::RocksDB>,
-    // Primary index: blob_manager/identifier -> IndexTarget.
-    primary_index: DBMap<String, IndexTarget>,
+    // Primary index: blob_manager/identifier/sequence -> IndexTarget.
+    primary_index: ColumnFamilyHandle<PrimaryIndexKey, IndexTarget>,
     // Object index: object_id -> blob_manager/identifier.
-    object_index: DBMap<String, ObjectIndexValue>,
+    object_index: ColumnFamilyHandle<ObjectIndexKey, ObjectIndexValue>,
     // Sequence store: stores the last processed sequence number for resumption.
-    sequence_store: DBMap<String, u64>,
+    sequence_store: ColumnFamilyHandle<EmptyKey, u64>,
     // Index for quilt patches, so that we can look up quilt patches by the corresponding
     // files' blob IDs.
-    quilt_patch_index: DBMap<String, QuiltPatchId>,
+    quilt_patch_index: ColumnFamilyHandle<QuiltPatchIndexKey, QuiltPatchId>,
+    // Shutdown signal for metrics reporter.
+    _metrics_shutdown: tokio::sync::oneshot::Sender<()>,
 }
 
 impl WalrusIndexStore {
@@ -395,33 +419,28 @@ impl WalrusIndexStore {
             ],
         )?;
 
-        let primary_index: DBMap<String, IndexTarget> = DBMap::reopen(
-            &db,
-            Some(CF_NAME_PRIMARY_INDEX),
-            &typed_store::rocks::ReadWriteOptions::default(),
-            false,
-        )?;
+        // Create ColumnFamilyHandles for each column family.
+        let primary_index = ColumnFamilyHandle::new(db.clone(), CF_NAME_PRIMARY_INDEX)?;
 
-        let object_index: DBMap<String, ObjectIndexValue> = DBMap::reopen(
-            &db,
-            Some(CF_NAME_OBJECT_INDEX),
-            &typed_store::rocks::ReadWriteOptions::default(),
-            false,
-        )?;
+        let object_index = ColumnFamilyHandle::new(db.clone(), CF_NAME_OBJECT_INDEX)?;
 
-        let sequence_store: DBMap<String, u64> = DBMap::reopen(
-            &db,
-            Some(CF_NAME_SEQUENCE_STORE),
-            &typed_store::rocks::ReadWriteOptions::default(),
-            false,
-        )?;
+        let sequence_store = ColumnFamilyHandle::new(db.clone(), CF_NAME_SEQUENCE_STORE)?;
 
-        let quilt_patch_index: DBMap<String, QuiltPatchId> = DBMap::reopen(
-            &db,
-            Some(CF_NAME_QUILT_PATCH_INDEX),
-            &typed_store::rocks::ReadWriteOptions::default(),
-            false,
-        )?;
+        let quilt_patch_index = ColumnFamilyHandle::new(db.clone(), CF_NAME_QUILT_PATCH_INDEX)?;
+
+        // Spawn metrics reporter for all the column families storing index data.
+        let cf_names = vec![
+            CF_NAME_PRIMARY_INDEX.to_string(),
+            CF_NAME_OBJECT_INDEX.to_string(),
+            CF_NAME_QUILT_PATCH_INDEX.to_string(),
+        ];
+        let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
+        typed_store::metrics::spawn_db_metrics_reporter(
+            db.clone(),
+            cf_names,
+            typed_store::metrics::DBMetrics::get().clone(),
+            shutdown_rx,
+        );
 
         Ok(Self {
             db,
@@ -429,43 +448,254 @@ impl WalrusIndexStore {
             object_index,
             sequence_store,
             quilt_patch_index,
+            _metrics_shutdown: shutdown_tx,
         })
     }
 
     /// Apply an insert operation to both indices.
     fn insert_primary_index(
         &self,
-        primary_key: PrimaryIndexKey,
-        primary_value: BlobIdentity,
+        primary_key: &PrimaryIndexKey,
+        primary_value: &IndexTarget,
         txn: &Transaction<'_, OptimisticTransactionDB>,
     ) -> Result<(), TypedStoreError> {
+        if let IndexTarget::Blob(blob_identity) = primary_value {
+            let object_key = ObjectIndexKey::new(blob_identity.object_id);
+            let object_value = ObjectIndexValue {
+                blob_manager: primary_key.blob_manager,
+                identifier: primary_key.identifier.clone(),
+                sequence_number: primary_key.sequence_number,
+            };
+            self.object_index
+                .put_cf_with_txn(txn, &object_key, &object_value)?;
+        }
+
         // Primary index: blob_manager/identifier/sequence_number -> IndexTarget.
-        let object_key = ObjectIndexKey::new(primary_value.object_id);
-        let object_value = ObjectIndexValue {
-            blob_manager: primary_key.blob_manager,
-            identifier: primary_key.identifier.clone(),
-            sequence_number: primary_key.sequence_number,
-        };
-
-        let index_target = IndexTarget::Blob(primary_value);
-        let primary_value_bytes = bcs::to_bytes(&index_target)
-            .map_err(|e| TypedStoreError::SerializationError(e.to_string()))?;
-        txn.put_cf(
-            &self.primary_index.cf()?,
-            primary_key.to_key(),
-            &primary_value_bytes,
-        )
-        .map_err(|e| TypedStoreError::RocksDBError(e.to_string()))?;
-
-        let object_value_bytes = bcs::to_bytes(&object_value)
-            .map_err(|e| TypedStoreError::SerializationError(e.to_string()))?;
-        txn.put_cf(
-            &self.object_index.cf()?,
-            object_key.to_key(),
-            &object_value_bytes,
-        )
-        .map_err(|e| TypedStoreError::RocksDBError(e.to_string()))?;
+        self.primary_index
+            .put_cf_with_txn(txn, primary_key, primary_value)?;
 
         Ok(())
+    }
+
+    /// Get the blob(s) by blob_manager/identifier, note that there could be multiple
+    /// blobs with the same identifier in the same blob manager.
+    pub fn get_blob_by_identifier(
+        &self,
+        blob_manager: &ObjectID,
+        identifier: &str,
+        txn: &Transaction<'_, OptimisticTransactionDB>,
+        limit: usize,
+    ) -> Result<Vec<(PrimaryIndexKey, IndexTarget)>, TypedStoreError> {
+        let (begin, end) = get_primary_index_bounds(blob_manager, identifier);
+        self.primary_index
+            .read_range_with_txn(txn, begin, end, limit, true)
+    }
+
+    /// Get the blob by object ID.
+    pub fn get_blob_by_object_id(
+        &self,
+        object_id: &ObjectID,
+        txn: &Transaction<'_, OptimisticTransactionDB>,
+    ) -> Result<Option<ObjectIndexValue>, TypedStoreError> {
+        let object_key = ObjectIndexKey::new(*object_id);
+        self.object_index.get_cf_with_txn(txn, &object_key)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use sui_types::base_types::ObjectID;
+    use tempfile::TempDir;
+    use walrus_core::BlobId;
+
+    use super::*;
+
+    #[tokio::test]
+    async fn test_keycodec_serialization() {
+        // Test PrimaryIndexKey serialization/deserialization.
+        let object_id = ObjectID::random();
+        let key = PrimaryIndexKey::new(object_id, "test-identifier".to_string(), 42);
+
+        let serialized = key.serialize().expect("Serialization should work");
+        let deserialized =
+            PrimaryIndexKey::deserialize(&serialized).expect("Deserialization should work");
+
+        assert_eq!(key, deserialized);
+        assert_eq!(key.blob_manager, object_id);
+        assert_eq!(key.identifier, "test-identifier");
+        assert_eq!(key.sequence_number, 42);
+
+        // Test ObjectIndexKey serialization/deserialization.
+        let obj_key = ObjectIndexKey::new(object_id);
+        let obj_serialized = obj_key
+            .serialize()
+            .expect("Object key serialization should work");
+        let obj_deserialized = ObjectIndexKey::deserialize(&obj_serialized)
+            .expect("Object key deserialization should work");
+
+        assert_eq!(obj_key, obj_deserialized);
+        assert_eq!(obj_key.object_id, object_id);
+
+        // Test QuiltPatchIndexKey serialization/deserialization.
+        let blob_id = BlobId([1u8; 32]);
+        let quilt_key = QuiltPatchIndexKey::new(blob_id, object_id);
+        let quilt_serialized = quilt_key
+            .serialize()
+            .expect("Quilt key serialization should work");
+        let quilt_deserialized = QuiltPatchIndexKey::deserialize(&quilt_serialized)
+            .expect("Quilt key deserialization should work");
+
+        assert_eq!(quilt_key, quilt_deserialized);
+        assert_eq!(quilt_key.patch_blob_id, blob_id);
+        assert_eq!(quilt_key.object_id, object_id);
+
+        // Test EmptyKey serialization/deserialization.
+        let string_key = EmptyKey;
+        let string_serialized = string_key
+            .serialize()
+            .expect("String key serialization should work");
+        let string_deserialized = EmptyKey::deserialize(&string_serialized)
+            .expect("String key deserialization should work");
+
+        assert_eq!(string_key, string_deserialized);
+    }
+
+    fn generate_random_primary_index_entries(
+        bucket_id: &ObjectID,
+        identifier: &str,
+        start_sequence: u64,
+        num: usize,
+    ) -> Vec<(PrimaryIndexKey, IndexTarget)> {
+        (0..num)
+            .map(|i| {
+                let primary_key = PrimaryIndexKey::new(
+                    *bucket_id,
+                    identifier.to_string(),
+                    start_sequence + i as u64,
+                );
+                let blob_identity = BlobIdentity {
+                    blob_id: BlobId([(start_sequence + i as u64) as u8; 32]),
+                    object_id: ObjectID::random(),
+                };
+                (primary_key, IndexTarget::Blob(blob_identity))
+            })
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn test_index_store_basic() {
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let store = WalrusIndexStore::open(temp_dir.path())
+            .await
+            .expect("Failed to open store");
+        let bucket_id = ObjectID::random();
+
+        let txn = store
+            .db
+            .as_optimistic()
+            .expect("Should be optimistic DB")
+            .transaction();
+
+        let walrus_batch = generate_random_primary_index_entries(&bucket_id, "test-walrus", 1, 3);
+        for (primary_key, index_target) in &walrus_batch {
+            store
+                .insert_primary_index(primary_key, index_target, &txn)
+                .expect("Insert should work");
+        }
+        txn.commit().expect("Transaction commit should work");
+
+        let fish_batch = generate_random_primary_index_entries(&bucket_id, "test-fish", 5, 4);
+        let txn = store
+            .db
+            .as_optimistic()
+            .expect("Should be optimistic DB")
+            .transaction();
+        for (primary_key, index_target) in &fish_batch {
+            store
+                .insert_primary_index(primary_key, index_target, &txn)
+                .expect("Insert should work");
+        }
+        txn.commit().expect("Transaction commit should work");
+
+        let txn = store
+            .db
+            .as_optimistic()
+            .expect("Should be optimistic DB")
+            .transaction();
+
+        let read_walrus = store
+            .get_blob_by_identifier(&bucket_id, "test-walrus", &txn, usize::MAX)
+            .expect("Get should work");
+        assert_eq!(read_walrus.len(), 3);
+        // Results should be in reverse order of sequence numbers
+        for (i, (primary_key, index_target)) in read_walrus.iter().enumerate() {
+            assert_eq!(primary_key, &walrus_batch[walrus_batch.len() - i - 1].0);
+            assert_eq!(index_target, &walrus_batch[walrus_batch.len() - i - 1].1);
+            if let IndexTarget::Blob(blob_identity) = &walrus_batch[walrus_batch.len() - i - 1].1 {
+                let object_value = store
+                    .get_blob_by_object_id(&blob_identity.object_id, &txn)
+                    .expect("Get should work")
+                    .expect("Object value should exist");
+                assert_eq!(object_value.blob_manager, bucket_id);
+                assert_eq!(object_value.identifier, primary_key.identifier);
+                assert_eq!(object_value.sequence_number, primary_key.sequence_number);
+            }
+        }
+
+        let read_fish = store
+            .get_blob_by_identifier(&bucket_id, "test-fish", &txn, usize::MAX)
+            .expect("Get should work");
+        assert_eq!(read_fish.len(), 4);
+        // Results should be in reverse order of sequence numbers
+        for (i, (primary_key, index_target)) in read_fish.iter().enumerate() {
+            assert_eq!(primary_key, &fish_batch[fish_batch.len() - i - 1].0);
+            assert_eq!(index_target, &fish_batch[fish_batch.len() - i - 1].1);
+            if let IndexTarget::Blob(blob_identity) = &fish_batch[fish_batch.len() - i - 1].1 {
+                let object_value = store
+                    .get_blob_by_object_id(&blob_identity.object_id, &txn)
+                    .expect("Get should work")
+                    .expect("Object value should exist");
+                assert_eq!(object_value.blob_manager, bucket_id);
+                assert_eq!(object_value.identifier, primary_key.identifier);
+                assert_eq!(object_value.sequence_number, primary_key.sequence_number);
+            }
+        }
+
+        let read_fish_limited = store
+            .get_blob_by_identifier(&bucket_id, "test-fish", &txn, 2)
+            .expect("Get should work");
+        assert_eq!(read_fish_limited.len(), 2);
+        // Should get the last 2 entries from fish_batch in reverse order
+        for (i, (primary_key, index_target)) in read_fish_limited.iter().enumerate() {
+            assert_eq!(primary_key, &fish_batch[fish_batch.len() - i - 1].0);
+            assert_eq!(index_target, &fish_batch[fish_batch.len() - i - 1].1);
+            if let IndexTarget::Blob(blob_identity) = &fish_batch[fish_batch.len() - i - 1].1 {
+                let object_value = store
+                    .get_blob_by_object_id(&blob_identity.object_id, &txn)
+                    .expect("Get should work")
+                    .expect("Object value should exist");
+                assert_eq!(object_value.blob_manager, bucket_id);
+                assert_eq!(object_value.identifier, primary_key.identifier);
+                assert_eq!(object_value.sequence_number, primary_key.sequence_number);
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_key_ordering() {
+        // Test that primary keys maintain proper ordering for sequence numbers.
+        let object_id = ObjectID::from_single_byte(1);
+        let key1 = PrimaryIndexKey::new(object_id, "test".to_string(), 1);
+        let key2 = PrimaryIndexKey::new(object_id, "test".to_string(), 2);
+        let key3 = PrimaryIndexKey::new(object_id, "test".to_string(), 10);
+
+        let serialized1 = key1.serialize().unwrap();
+        let serialized2 = key2.serialize().unwrap();
+        let serialized3 = key3.serialize().unwrap();
+
+        // Verify byte ordering matches numeric ordering.
+        assert!(serialized1 < serialized2);
+        assert!(serialized2 < serialized3);
+        assert!(serialized1 < serialized3);
     }
 }
