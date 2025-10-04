@@ -447,7 +447,7 @@ pub async fn get_recovery_symbol<S: SyncServiceState>(
             )
         }
         SliverType::Secondary => {
-            // The target_pair_index is the secodary sliver.
+            // The target_pair_index is the secondary sliver.
             (
                 sliver_pair_index.to_sliver_index::<PrimaryEncoding>(n_shards),
                 target_pair_index.to_sliver_index::<SecondaryEncoding>(n_shards),
