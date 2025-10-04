@@ -219,6 +219,18 @@ paths:
         required: true
         schema:
           $ref: '#/components/schemas/BlobId'
+      - name: strict_integrity_check
+        in: query
+        description: |-
+          Whether to perform a strict integrity check.
+
+          This is the current default behavior and has no effect. However, the default integrity
+          check is changing in `v1.37` to a more performant one, which is sufficient for the
+          majority of cases. This flag can be used to enable the current strict integrity check.
+        required: false
+        schema:
+          type: boolean
+        style: form
       responses:
         '200':
           description: The blob was reconstructed successfully

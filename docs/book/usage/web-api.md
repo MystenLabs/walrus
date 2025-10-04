@@ -151,6 +151,8 @@ good job of inferring content types for media. However, the aggregator on purpos
 sniffing from inferring dangerous executable types such as JavaScript or style sheet types.
 ```
 
+#### Reading by object ID
+
 Blobs may also be read by using the object ID of a Sui blob object or a shared blob.
 For example the following
 cURL command downloads the blob corresponding to a Sui blob with a specific object ID:
@@ -163,6 +165,12 @@ Downloading blobs by object ID allows the use of attributes to set some HTTP hea
 The aggregator recognizes the attribute keys `content-disposition`, `content-encoding`,
 `content-language`, `content-location`, `content-type`, and `link`, and when present returns
 the values in the corresponding HTTP headers.
+
+#### Integrity checks
+
+The integrity checks performed by the aggregator are the same as the ones [performed by the CLI](./client-cli.md#integrity-checks).
+For special use cases, the [strict integrity check](../design/encoding.md#strict-integrity-check)
+can be enabled by adding a query parameter `strict_integrity_check=true` (starting with `v1.35`).
 
 ### Quilt HTTP APIs
 
