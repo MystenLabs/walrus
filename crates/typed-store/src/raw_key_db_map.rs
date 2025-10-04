@@ -171,11 +171,10 @@ where
         }
     }
 
-    /// Reads a range of key-value pairs within a transaction using efficient range bounds.
+    /// Reads a range of key-value pairs within a transaction using range bounds.
     /// Returns key-value pairs in the range [begin, end).
     ///
-    /// This is more efficient than prefix-based iteration for range queries.
-    pub fn read_range(
+    pub fn read_range_with_txn(
         &self,
         txn: &rocksdb::Transaction<'_, OptimisticTransactionDB>,
         begin: Vec<u8>,
@@ -527,13 +526,13 @@ mod tests {
             let txn = handle.transaction();
 
             let results_with_limit: Vec<(TestKey, TestValue)> = map
-                .read_range(&txn, begin.clone(), end.clone(), 3)
+                .read_range_with_txn(&txn, begin.clone(), end.clone(), 3)
                 .expect("failed to read range");
 
             assert_eq!(results_with_limit.len(), 3);
 
             let results_without_limit: Vec<(TestKey, TestValue)> = map
-                .read_range(&txn, begin.clone(), end.clone(), 100)
+                .read_range_with_txn(&txn, begin.clone(), end.clone(), 100)
                 .expect("failed to read range");
 
             assert_eq!(results_without_limit.len(), kvs.len());
@@ -550,7 +549,7 @@ mod tests {
 
             let txn = handle.transaction();
             let results_without_limit: Vec<(TestKey, TestValue)> = map
-                .read_range(&txn, begin, end, 100)
+                .read_range_with_txn(&txn, begin, end, 100)
                 .expect("failed to read range");
 
             kvs.remove(2);
