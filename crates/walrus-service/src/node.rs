@@ -1134,6 +1134,10 @@ impl StorageNode {
             })
             .await
         {
+            self.inner
+                .metrics
+                .started_processing_event(stream_element.checkpoint_event_position);
+
             let event_label: &'static str = stream_element.element.label();
             let monitor = task_monitors.get_or_insert_with_task_name(&event_label, || {
                 format!("process_event {event_label}")
@@ -1168,6 +1172,10 @@ impl StorageNode {
             };
 
             TaskMonitor::instrument(&monitor, task).await?;
+
+            self.inner
+                .metrics
+                .completed_processing_event(stream_element.checkpoint_event_position);
         }
 
         bail!("event stream for blob events stopped")
