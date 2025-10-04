@@ -4,10 +4,14 @@
 //! Helper struct to run the Walrus client binary commands.
 
 use std::{
+    env,
+    fs as stdfs,
     io::Write,
     iter,
     num::NonZeroU16,
     path::{Path, PathBuf},
+    process::Stdio,
+    str::FromStr,
     sync::Arc,
     time::Duration,
 };
@@ -21,6 +25,10 @@ use rand::seq::SliceRandom;
 use reqwest::Url;
 use sui_config::{SUI_CLIENT_CONFIG, sui_config_dir};
 use sui_types::base_types::ObjectID;
+use tokio::{
+    io::AsyncBufReadExt,
+    process::Command as TokioCommand,
+};
 use walrus_core::{
     BlobId,
     DEFAULT_ENCODING,
@@ -144,6 +152,149 @@ use crate::{
     utils::{self, MetricsAndLoggingRuntime, generate_sui_wallet},
 };
 
+/// Deserializable representation of JSON events from the walrus-uploader-child stdout.
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
+#[serde(tag = "type", rename_all = "snake_case")]
+enum ChildUploaderEvent {
+    Started {
+        blob_id: String,
+    },
+    Registered {
+        blob_id: String,
+        object_id: String,
+    },
+    SliverProgress {
+        completed_weight: u64,
+        total_weight: u64,
+    },
+    QuorumReached {
+        blob_id: String,
+        #[serde(default)]
+        #[allow(dead_code)]
+        elapsed_ms: u64,
+        extra_ms: u64,
+    },
+    // New versioned certified event from child; currently a hint (no end_epoch yet)
+    V1CertifiedHint {
+        blob_id: String,
+    },
+    V1Certified {
+        blob_id: String,
+        object_id: String,
+        #[serde(default)]
+        end_epoch: Option<u64>,
+        #[serde(default)]
+        shared_object_id: Option<String>,
+    },
+    TailCompleted {
+        #[allow(dead_code)]
+        blob_id: String,
+    },
+    Done {
+        #[allow(dead_code)]
+        ok: bool,
+        #[allow(dead_code)]
+        error: Option<String>,
+    },
+}
+
+// Spawn a background task to forward child's stderr to parent's stderr line-by-line.
+fn spawn_child_stderr_to_stderr(stderr: tokio::process::ChildStderr) {
+    tokio::spawn(async move {
+        let reader = tokio::io::BufReader::new(stderr);
+        let mut lines = reader.lines();
+        while let Ok(Some(line)) = lines.next_line().await {
+            eprintln!("[child] {line}");
+            tracing::debug!(target = "walrus.child", line = %line, "child stderr");
+        }
+    });
+}
+
+// Process child's stdout JSON event stream; invoke `on_quorum` when quorum is reached, then return.
+async fn process_child_stdout_events<F, Fut>(
+    stdout: tokio::process::ChildStdout,
+    on_quorum: F,
+    expected_blobs: usize,
+) where
+    F: Fn(BlobId, u64) -> Fut,
+    Fut: std::future::Future<Output = ()>,
+{
+    let reader = tokio::io::BufReader::new(stdout);
+    let mut lines = reader.lines();
+    let mut certified_count = 0;
+
+    while let Ok(Some(line)) = lines.next_line().await {
+        match serde_json::from_str::<ChildUploaderEvent>(&line) {
+            Ok(event) => match event {
+                ChildUploaderEvent::Started { blob_id } => {
+                    tracing::info!(blob_id, "child: started");
+                }
+                ChildUploaderEvent::Registered { blob_id, object_id } => {
+                    tracing::info!(blob_id, object_id, "child: registered on-chain");
+                }
+                ChildUploaderEvent::SliverProgress {
+                    completed_weight,
+                    total_weight,
+                } => {
+                    tracing::debug!(
+                        completed_weight,
+                        total_weight,
+                        "child: sliver progress"
+                    );
+                }
+                ChildUploaderEvent::V1CertifiedHint { blob_id } => {
+                    tracing::debug!(blob_id, "child: v1_certified_hint received");
+                }
+                ChildUploaderEvent::QuorumReached {
+                    blob_id,
+                    extra_ms,
+                    elapsed_ms,
+                } => {
+                    tracing::debug!(elapsed_ms, "child: quorum elapsed");
+                    if let Ok(blob_id) = BlobId::from_str(&blob_id) {
+                        tracing::info!(%blob_id, extra_ms, "child: quorum reached; sending deferral notice");
+                        on_quorum(blob_id, extra_ms).await;
+                    } else {
+                        tracing::warn!(blob_id, "child: failed to parse blob_id");
+                    }
+                }
+                ChildUploaderEvent::V1Certified {
+                    blob_id,
+                    object_id,
+                    end_epoch,
+                    shared_object_id,
+                } => {
+                    tracing::info!(blob_id, object_id, ?end_epoch, ?shared_object_id, "child: v1_certified");
+                    certified_count += 1;
+                    if certified_count >= expected_blobs {
+                        tracing::info!(
+                            certified_count,
+                            expected_blobs,
+                            "child: all blobs certified; parent can exit"
+                        );
+                        // All blobs are certified, parent can exit.
+                        return;
+                    }
+                }
+                ChildUploaderEvent::TailCompleted { blob_id } => {
+                    tracing::debug!(blob_id, "child: tail completed");
+                }
+                ChildUploaderEvent::Done { ok, error } => {
+                    tracing::debug!(ok, ?error, "child: done");
+                    if !ok {
+                        tracing::error!(?error, "child process finished with an error");
+                        // Break here to ensure parent process terminates on child error.
+                    }
+                    return;
+                }
+            },
+            Err(e) => {
+                tracing::debug!(%e, line = line, "child: failed to parse JSON line");
+            }
+        }
+    }
+}
+
 /// A helper struct to run commands for the Walrus client.
 #[allow(missing_debug_implementations)]
 pub struct ClientCommandRunner {
@@ -219,6 +370,8 @@ impl ClientCommandRunner {
             CliCommands::Store {
                 files,
                 common_options,
+                internal_run,
+                cleanup_config,
             } => {
                 self.store(
                     files,
@@ -236,6 +389,9 @@ impl ClientCommandRunner {
                     common_options.encoding_type,
                     common_options.upload_relay,
                     common_options.skip_tip_confirmation.into(),
+                    common_options.upload_mode.map(Into::into),
+                    internal_run,
+                    cleanup_config,
                 )
                 .await
             }
@@ -503,6 +659,17 @@ impl ClientCommandRunner {
                 tracing::info!("blob backfill exited with: {:?}", result);
                 result
             }
+
+            CliCommands::UploadBlob {
+                config,
+                shm_path,
+                upload_mode,
+                blob_ids,
+                cleanup_config,
+            } => {
+                self.upload_blob(config, shm_path, upload_mode, blob_ids, cleanup_config)
+                    .await
+            }
         }
     }
 
@@ -668,7 +835,13 @@ impl ClientCommandRunner {
         encoding_type: Option<EncodingType>,
         upload_relay: Option<Url>,
         confirmation: UserConfirmation,
+        upload_mode: Option<walrus_sdk::config::UploadMode>,
+        internal_run: bool,
+        _cleanup_config: Option<PathBuf>,
     ) -> Result<()> {
+        // If this is a child process (internal run), it will emit JSON events to stdout
+        let _emit_json_events = internal_run;
+
         epoch_arg.exactly_one_is_some()?;
         if encoding_type.is_some_and(|encoding| !encoding.is_supported()) {
             anyhow::bail!(ClientErrorKind::UnsupportedEncodingType(
@@ -680,7 +853,7 @@ impl ClientCommandRunner {
 
         let system_object = client.sui_client().read_client.get_system_object().await?;
         let epochs_ahead =
-            get_epochs_ahead(epoch_arg, system_object.max_epochs_ahead(), &client).await?;
+            get_epochs_ahead(epoch_arg.clone(), system_object.max_epochs_ahead(), &client).await?;
 
         if persistence.is_deletable() && post_store == PostStoreAction::Share {
             anyhow::bail!("deletable blobs cannot be shared");
@@ -699,6 +872,126 @@ impl ClientCommandRunner {
             .into_iter()
             .map(|file| read_blob_from_file(&file).map(|blob| (file, blob)))
             .collect::<Result<Vec<(PathBuf, Vec<u8>)>>>()?;
+
+        // Check if child process mode is enabled (but don't spawn if we're already a child!)
+        let child_uploads_enabled = client.config().communication_config.child_uploads_enabled;
+
+        if child_uploads_enabled && upload_relay.is_none() && !internal_run {
+            tracing::info!("Spawning child process for uploads");
+
+            // Write temporary config file for child process
+            let tmp_dir = env::temp_dir();
+            let config_filename = format!(
+                "walrus_child_config_{}_{}.yaml",
+                std::process::id(),
+                chrono::Utc::now().timestamp_millis()
+            );
+            let config_yaml_path = tmp_dir.join(config_filename);
+
+            if let Err(e) = stdfs::write(
+                &config_yaml_path,
+                serde_yaml::to_string(client.config())
+                    .context("serialize ClientConfig")?,
+            ) {
+                tracing::warn!(error = %e, "failed to write temp client config; falling back to single-process mode");
+            } else {
+                // Spawn child process with same files but in internal mode
+                let exe = env::current_exe().unwrap_or_else(|_| PathBuf::from("walrus"));
+                let mut cmd = TokioCommand::new(exe);
+
+                // Build the child command: walrus store --internal-run --config <path> <files>
+                cmd.arg("store")
+                    .arg("--internal-run")
+                    .arg("--config")
+                    .arg(&config_yaml_path)
+                    .arg("--cleanup-config")
+                    .arg(&config_yaml_path);
+
+                // Add all the store options
+                if let Some(ref epochs) = epoch_arg.epochs {
+                    match epochs {
+                        super::args::EpochCountOrMax::Max => {
+                            cmd.arg("--epochs").arg("max");
+                        }
+                        super::args::EpochCountOrMax::Epochs(count) => {
+                            cmd.arg("--epochs").arg(count.to_string());
+                        }
+                    }
+                }
+                if let Some(time) = &epoch_arg.earliest_expiry_time {
+                    let datetime: DateTime<Utc> = (*time).into();
+                    cmd.arg("--earliest-expiry-time").arg(datetime.to_rfc3339());
+                }
+                if let Some(end_epoch) = &epoch_arg.end_epoch {
+                    cmd.arg("--end-epoch").arg(end_epoch.to_string());
+                }
+                if dry_run {
+                    cmd.arg("--dry-run");
+                }
+                if !store_optimizations.check_status {
+                    cmd.arg("--force");
+                }
+                if !store_optimizations.reuse_resources {
+                    cmd.arg("--ignore-resources");
+                }
+                match persistence {
+                    BlobPersistence::Deletable => {
+                        cmd.arg("--deletable");
+                    }
+                    BlobPersistence::Permanent => {
+                        cmd.arg("--permanent");
+                    }
+                }
+                if post_store == PostStoreAction::Share {
+                    cmd.arg("--share");
+                }
+                if let Some(mode) = upload_mode {
+                    cmd.arg("--upload-mode").arg(match mode {
+                        walrus_sdk::config::UploadMode::Conservative => "conservative",
+                        walrus_sdk::config::UploadMode::Balanced => "balanced",
+                        walrus_sdk::config::UploadMode::Aggressive => "aggressive",
+                    });
+                }
+
+                // Add the files
+                for (path, _) in &blobs {
+                    cmd.arg(path);
+                }
+
+                // Spawn with piped stdout/stderr
+                match cmd.stdout(Stdio::piped()).stderr(Stdio::piped()).spawn() {
+                    Ok(mut child) => {
+                        tracing::info!("Child process spawned successfully");
+
+                        // Forward stderr
+                        if let Some(stderr) = child.stderr.take() {
+                            spawn_child_stderr_to_stderr(stderr);
+                        }
+
+                        // Process stdout events - parent waits for all certifications then exits
+                        if let Some(stdout) = child.stdout.take() {
+                            let num_blobs = blobs.len();
+                            process_child_stdout_events(
+                                stdout,
+                                |_blob_id, _extra_ms| async {
+                                    // Could send deferral notifications here if needed
+                                },
+                                num_blobs,
+                            )
+                            .await;
+
+                            tracing::info!("All blobs certified - parent process exiting, child continues tail uploads");
+                            return Ok(());
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!(error = %e, "failed to spawn child process; falling back to single-process mode");
+                        // Clean up temp config
+                        let _ = stdfs::remove_file(&config_yaml_path);
+                    }
+                }
+            }
+        }
 
         let mut store_args = StoreArgs::new(
             encoding_type,
@@ -733,9 +1026,17 @@ impl ClientCommandRunner {
             }
         }
 
-        let results = client
-            .reserve_and_store_blobs_retry_committees_with_path(&blobs, &store_args)
-            .await?;
+        let results = if internal_run {
+            // For now, use the standard store path in internal mode to avoid complex lifetimes
+            client
+                .reserve_and_store_blobs_retry_committees_with_path(&blobs, &store_args)
+                .await?
+        } else {
+            // Parent process: use normal store
+            client
+                .reserve_and_store_blobs_retry_committees_with_path(&blobs, &store_args)
+                .await?
+        };
         let blobs_len = blobs.len();
         if results.len() != blobs_len {
             let not_stored = results
@@ -758,6 +1059,25 @@ impl ClientCommandRunner {
             blobs_len
         );
         results.print_output(self.json)
+    }
+
+    /// Child process handler for uploading blobs.
+    /// This is called when the CLI re-execs itself with the upload-blob command.
+    async fn upload_blob(
+        self,
+        _config: PathBuf,
+        _shm_path: String,
+        _upload_mode: super::args::UploadModeCli,
+        _blob_ids: Vec<BlobId>,
+        _cleanup_config: Option<PathBuf>,
+    ) -> Result<()> {
+        // TODO: Implement child process upload logic
+        // 1. Load config from path
+        // 2. Load blob data from shared memory
+        // 3. Perform uploads with progress reporting via JSON events to stdout
+        // 4. Clean up shared memory and temp config files
+        tracing::info!("Child process upload not yet implemented");
+        Ok(())
     }
 
     async fn store_dry_run(

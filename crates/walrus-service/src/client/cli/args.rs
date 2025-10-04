@@ -38,6 +38,25 @@ use walrus_utils::read_blob_from_file;
 use super::{BlobIdDecimal, HumanReadableBytes, parse_blob_id, parse_quilt_patch_id};
 use crate::client::{config::AuthConfig, daemon::CacheConfig};
 
+/// CLI-friendly version of UploadMode that can be used with clap's value_enum.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UploadModeCli {
+    Conservative,
+    Balanced,
+    Aggressive,
+}
+
+impl From<UploadModeCli> for walrus_sdk::config::UploadMode {
+    fn from(mode: UploadModeCli) -> Self {
+        match mode {
+            UploadModeCli::Conservative => walrus_sdk::config::UploadMode::Conservative,
+            UploadModeCli::Balanced => walrus_sdk::config::UploadMode::Balanced,
+            UploadModeCli::Aggressive => walrus_sdk::config::UploadMode::Aggressive,
+        }
+    }
+}
+
 /// The command-line arguments for the Walrus client.
 #[derive(Parser, Debug, Clone, Deserialize)]
 #[command(rename_all = "kebab-case")]
@@ -213,6 +232,14 @@ pub enum CliCommands {
         #[command(flatten)]
         #[serde(flatten)]
         common_options: CommonStoreOptions,
+        /// Hidden flag to indicate internal run (child process mode)
+        #[arg(long, hide = true)]
+        #[serde(default)]
+        internal_run: bool,
+        /// Optional path to delete after child completes
+        #[arg(long, hide = true)]
+        #[serde(default)]
+        cleanup_config: Option<PathBuf>,
     },
     /// Store files as a quilt.
     #[command(alias("write-quilt"))]
@@ -636,6 +663,26 @@ pub enum CliCommands {
         pushed_state: PathBuf,
         /// The nodes to backfill with slivers and blob metadata.
         node_ids: Vec<ObjectID>,
+    },
+    /// Hidden: internal child uploader mode used when the CLI re-execs itself.
+    #[command(hide = true, name = "upload-blob")]
+    UploadBlob {
+        /// Path to temp client config YAML to load.
+        #[arg(long, value_name = "PATH")]
+        config: PathBuf,
+        /// Shared memory path for blob data.
+        #[arg(long, value_name = "SHM_PATH")]
+        shm_path: String,
+        /// Upload mode.
+        #[arg(long, value_enum)]
+        upload_mode: UploadModeCli,
+        /// The blob IDs of the blobs being uploaded.
+        #[serde_as(as = "Vec<DisplayFromStr>")]
+        #[arg(long, allow_hyphen_values = true, value_parser = parse_blob_id, num_args = 1..)]
+        blob_ids: Vec<BlobId>,
+        /// Optional path to delete after child completes.
+        #[arg(long, value_name = "PATH")]
+        cleanup_config: Option<PathBuf>,
     },
 }
 
@@ -1095,6 +1142,10 @@ pub struct CommonStoreOptions {
     #[arg(long)]
     #[serde(default)]
     pub skip_tip_confirmation: bool,
+    /// Upload mode for controlling concurrency (conservative, balanced, aggressive).
+    #[arg(long, value_enum, hide = true)]
+    #[serde(default)]
+    pub upload_mode: Option<UploadModeCli>,
 }
 
 #[serde_as]

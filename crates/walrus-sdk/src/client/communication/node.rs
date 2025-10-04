@@ -91,7 +91,8 @@ impl<T, E> WeightedResult for NodeResult<T, E> {
     }
 }
 
-pub(crate) struct NodeCommunication<'a, W = ()> {
+#[derive(Debug)]
+pub struct NodeCommunication<'a, W = ()> {
     pub node_index: NodeIndex,
     pub committee_epoch: Epoch,
     pub node: &'a StorageNode,

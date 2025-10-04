@@ -19,6 +19,24 @@ use crate::config::{
     sliver_write_extra_time::SliverWriteExtraTime,
 };
 
+/// Upload mode for controlling concurrency and aggressiveness of uploads.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UploadMode {
+    /// Conservative mode: lower concurrency, slower but more reliable
+    Conservative,
+    /// Balanced mode: moderate concurrency (default)
+    Balanced,
+    /// Aggressive mode: higher concurrency, faster but more resource-intensive
+    Aggressive,
+}
+
+impl Default for UploadMode {
+    fn default() -> Self {
+        Self::Balanced
+    }
+}
+
 /// Configuration for the communication parameters of the client
 #[serde_as]
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
@@ -50,6 +68,8 @@ pub struct ClientCommunicationConfig {
     pub disable_native_certs: bool,
     /// The extra time allowed for sliver writes.
     pub sliver_write_extra_time: SliverWriteExtraTime,
+    /// Enable uploading slivers via a detached child process that continues tail writes.
+    pub child_uploads_enabled: bool,
     /// The delay for which the client waits before storing data to ensure that storage nodes have
     /// seen the registration event.
     #[serde(rename = "registration_delay_millis")]
@@ -80,6 +100,7 @@ impl Default for ClientCommunicationConfig {
             request_rate_config: Default::default(),
             disable_proxy: Default::default(),
             sliver_write_extra_time: Default::default(),
+            child_uploads_enabled: false,
             registration_delay: Duration::from_millis(200),
             max_total_blob_size: 1024 * 1024 * 1024, // 1GiB
             committee_change_backoff: ExponentialBackoffConfig::new(

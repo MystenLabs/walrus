@@ -90,12 +90,15 @@ pub use crate::{
 pub mod client_types;
 pub mod communication;
 pub mod metrics;
+pub mod orchestrator;
 pub mod quilt_client;
 pub mod refresh;
 pub mod resource;
 pub mod responses;
 pub mod store_args;
 pub mod upload_relay_client;
+
+// uploader used via absolute path `crate::uploader` where needed
 
 /// The delay between retries when retrieving slivers.
 #[allow(unused)]
@@ -359,6 +362,7 @@ impl<T: ReadClient> WalrusNodeClient<T> {
         known_status: Option<BlobStatus>,
     ) -> ClientResult<(Epoch, Option<BlobStatus>)> {
         let committees = self.get_committees().await?;
+        let _committees_arc = committees.clone();
         let (epoch_to_be_read, blob_status) = if committees.is_change_in_progress() {
             Self::continue_on_no_valid_status_received(
                 self.try_get_blob_status(blob_id, known_status).await,
@@ -854,6 +858,8 @@ impl WalrusNodeClient<SuiContractClient> {
             .await)
     }
 
+    // uploader handled by caller when needed
+
     /// Stores a list of blobs to Walrus, retrying if it fails because of epoch change.
     #[tracing::instrument(skip_all, fields(blob_id))]
     pub async fn reserve_and_store_blobs_retry_committees(
@@ -945,6 +951,40 @@ impl WalrusNodeClient<SuiContractClient> {
                 path: path.clone(),
                 blob_store_result: store_result.clone(),
             });
+        }
+
+        Ok(results)
+    }
+
+    /// Stores blobs with a callback for quorum reached events.
+    /// This wraps the existing store method and provides event notifications.
+    ///
+    /// TODO: Integrate with DistributedUploader for real-time quorum events
+    #[tracing::instrument(skip_all, fields(blob_id))]
+    pub async fn store_blobs_with_quorum_callback<F>(
+        &self,
+        blobs_with_paths: &[(PathBuf, Vec<u8>)],
+        store_args: &StoreArgs,
+        quorum_callback: F,
+    ) -> ClientResult<Vec<BlobStoreResultWithPath>>
+    where
+        F: Fn(BlobId) + Send + Sync + 'static,
+    {
+        // For now, use the existing store method
+        // TODO: Integrate DistributedUploader to get real quorum events
+        let results = self.reserve_and_store_blobs_retry_committees_with_path(blobs_with_paths, store_args).await?;
+
+        // Call the callback for each successfully stored blob
+        for result in &results {
+            match &result.blob_store_result {
+                responses::BlobStoreResult::NewlyCreated { blob_object, .. } => {
+                    quorum_callback(blob_object.blob_id);
+                }
+                responses::BlobStoreResult::AlreadyCertified { blob_id, .. } => {
+                    quorum_callback(*blob_id);
+                }
+                _ => {}
+            }
         }
 
         Ok(results)

@@ -73,7 +73,7 @@ impl NodeCommunicationFactory {
     }
 
     /// Returns a vector of [`NodeWriteCommunication`] objects representing nodes in random order.
-    pub(crate) fn node_write_communications<'a>(
+    pub fn node_write_communications<'a>(
         &'a self,
         committees: &'a ActiveCommittees,
         sliver_write_limit: Arc<Semaphore>,

@@ -33,9 +33,11 @@ mod communication_config;
 mod reqwest_config;
 mod sliver_write_extra_time;
 
+pub use sliver_write_extra_time::SliverWriteExtraTime;
+
 pub use self::{
     committees_refresh_config::CommitteesRefreshConfig,
-    communication_config::{ClientCommunicationConfig, CommunicationLimits},
+    communication_config::{ClientCommunicationConfig, CommunicationLimits, UploadMode},
     reqwest_config::RequestRateConfig,
 };
 
