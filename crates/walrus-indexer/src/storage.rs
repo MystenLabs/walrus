@@ -17,8 +17,8 @@ use serde::{Deserialize, Serialize};
 use sui_types::base_types::ObjectID;
 use typed_store::{
     TypedStoreError,
-    raw_key_db_map::{KeyCodec, RawKeyDBMap},
-    rocks::{DBMap, MetricConf},
+    column_family_handle::{ColumnFamilyHandle, KeyCodec},
+    rocks::MetricConf,
 };
 use walrus_core::{
     BlobId,
@@ -53,7 +53,7 @@ impl KeyCodec for EmptyKey {
     }
 
     fn deserialize(bytes: &[u8]) -> Result<Self, TypedStoreError> {
-        if bytes.len() != 0 {
+        if !bytes.is_empty() {
             return Err(TypedStoreError::SerializationError(
                 "Invalid empty key length: expected 0 bytes".to_string(),
             ));
@@ -385,19 +385,21 @@ pub struct ObjectIndexValue {
 }
 
 /// Storage interface for the Walrus Index (Dual Index System).
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct WalrusIndexStore {
     // Reference to the underlying RocksDB instance for transaction support.
     db: Arc<typed_store::rocks::RocksDB>,
     // Primary index: blob_manager/identifier/sequence -> IndexTarget.
-    primary_index: RawKeyDBMap<PrimaryIndexKey, IndexTarget>,
+    primary_index: ColumnFamilyHandle<PrimaryIndexKey, IndexTarget>,
     // Object index: object_id -> blob_manager/identifier.
-    object_index: RawKeyDBMap<ObjectIndexKey, ObjectIndexValue>,
+    object_index: ColumnFamilyHandle<ObjectIndexKey, ObjectIndexValue>,
     // Sequence store: stores the last processed sequence number for resumption.
-    sequence_store: RawKeyDBMap<EmptyKey, u64>,
+    sequence_store: ColumnFamilyHandle<EmptyKey, u64>,
     // Index for quilt patches, so that we can look up quilt patches by the corresponding
     // files' blob IDs.
-    quilt_patch_index: RawKeyDBMap<QuiltPatchIndexKey, QuiltPatchId>,
+    quilt_patch_index: ColumnFamilyHandle<QuiltPatchIndexKey, QuiltPatchId>,
+    // Shutdown signal for metrics reporter.
+    _metrics_shutdown: tokio::sync::oneshot::Sender<()>,
 }
 
 impl WalrusIndexStore {
@@ -417,41 +419,37 @@ impl WalrusIndexStore {
             ],
         )?;
 
-        // Create RawKeyDBMaps for each column family
-        let primary_index = RawKeyDBMap::new(DBMap::reopen(
-            &db,
-            Some(CF_NAME_PRIMARY_INDEX),
-            &typed_store::rocks::ReadWriteOptions::default(),
-            false,
-        )?);
+        // Create ColumnFamilyHandles for each column family.
+        let primary_index = ColumnFamilyHandle::new(db.clone(), CF_NAME_PRIMARY_INDEX)?;
 
-        let object_index = RawKeyDBMap::new(DBMap::reopen(
-            &db,
-            Some(CF_NAME_OBJECT_INDEX),
-            &typed_store::rocks::ReadWriteOptions::default(),
-            false,
-        )?);
+        let object_index = ColumnFamilyHandle::new(db.clone(), CF_NAME_OBJECT_INDEX)?;
 
-        let sequence_store = RawKeyDBMap::new(DBMap::reopen(
-            &db,
-            Some(CF_NAME_SEQUENCE_STORE),
-            &typed_store::rocks::ReadWriteOptions::default(),
-            false,
-        )?);
+        let sequence_store = ColumnFamilyHandle::new(db.clone(), CF_NAME_SEQUENCE_STORE)?;
 
-        let quilt_patch_index = RawKeyDBMap::new(DBMap::reopen(
-            &db,
-            Some(CF_NAME_QUILT_PATCH_INDEX),
-            &typed_store::rocks::ReadWriteOptions::default(),
-            false,
-        )?);
+        let quilt_patch_index = ColumnFamilyHandle::new(db.clone(), CF_NAME_QUILT_PATCH_INDEX)?;
+
+        // Spawn metrics reporter for all column families
+        let cf_names = vec![
+            CF_NAME_PRIMARY_INDEX.to_string(),
+            CF_NAME_OBJECT_INDEX.to_string(),
+            CF_NAME_SEQUENCE_STORE.to_string(),
+            CF_NAME_QUILT_PATCH_INDEX.to_string(),
+        ];
+        let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
+        typed_store::metrics::spawn_db_metrics_reporter(
+            db.clone(),
+            cf_names,
+            typed_store::metrics::DBMetrics::get().clone(),
+            shutdown_rx,
+        );
 
         Ok(Self {
             db,
-            primary_index: primary_index?,
-            object_index: object_index?,
-            sequence_store: sequence_store?,
-            quilt_patch_index: quilt_patch_index?,
+            primary_index,
+            object_index,
+            sequence_store,
+            quilt_patch_index,
+            _metrics_shutdown: shutdown_tx,
         })
     }
 
@@ -462,7 +460,7 @@ impl WalrusIndexStore {
         primary_value: &IndexTarget,
         txn: &Transaction<'_, OptimisticTransactionDB>,
     ) -> Result<(), TypedStoreError> {
-        if let IndexTarget::Blob(blob_identity) = &primary_value {
+        if let IndexTarget::Blob(blob_identity) = primary_value {
             let object_key = ObjectIndexKey::new(blob_identity.object_id);
             let object_value = ObjectIndexValue {
                 blob_manager: primary_key.blob_manager,
@@ -475,7 +473,7 @@ impl WalrusIndexStore {
 
         // Primary index: blob_manager/identifier/sequence_number -> IndexTarget.
         self.primary_index
-            .put_cf_with_txn(txn, &primary_key, &primary_value)?;
+            .put_cf_with_txn(txn, primary_key, primary_value)?;
 
         Ok(())
     }
@@ -489,7 +487,8 @@ impl WalrusIndexStore {
         txn: &Transaction<'_, OptimisticTransactionDB>,
     ) -> Result<Vec<(PrimaryIndexKey, IndexTarget)>, TypedStoreError> {
         let (begin, end) = get_primary_index_bounds(blob_manager, identifier);
-        self.primary_index.read_range(txn, begin, end, usize::MAX)
+        self.primary_index
+            .read_range_with_txn(txn, begin, end, usize::MAX)
     }
 
     /// Get the blob by object ID.
@@ -584,7 +583,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_raw_key_db_map_operations() {
+    async fn test_column_family_handle_operations() {
         let temp_dir = TempDir::new().expect("Failed to create temp dir");
         let store = WalrusIndexStore::open(temp_dir.path())
             .await
@@ -600,7 +599,7 @@ mod tests {
         let walrus_batch = generate_random_primary_index_entries(&bucket_id, "test-walrus", 1, 3);
         for (primary_key, index_target) in &walrus_batch {
             store
-                .insert_primary_index(&primary_key, &index_target, &txn)
+                .insert_primary_index(primary_key, index_target, &txn)
                 .expect("Insert should work");
         }
         txn.commit().expect("Transaction commit should work");
@@ -613,7 +612,7 @@ mod tests {
             .transaction();
         for (primary_key, index_target) in &fish_batch {
             store
-                .insert_primary_index(&primary_key, &index_target, &txn)
+                .insert_primary_index(primary_key, index_target, &txn)
                 .expect("Insert should work");
         }
         txn.commit().expect("Transaction commit should work");
