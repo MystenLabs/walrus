@@ -16,7 +16,7 @@ For simplicity, we will start by publishing the most frugal of the sites, the `w
 
 First, clone the repository of the examples:
 
-``` sh
+```sh
 git clone https://github.com/MystenLabs/example-walrus-sites.git && cd example-walrus-sites
 ```
 
@@ -25,18 +25,27 @@ git clone https://github.com/MystenLabs/example-walrus-sites.git && cd example-w
 Since we have placed the `walrus` and `site-builder` binaries and configuration in their default
 locations, publishing the `./walrus-snake` site is as simple as calling the publishing command:
 
-``` sh
+```sh
 site-builder deploy ./walrus-snake --epochs 1
 ```
 
-``` admonish tip
+```admonish tip
 Depending on the network, the duration of an epoch may vary. Currently on Walrus Testnet, the
 duration of an epoch is one day. On Mainnet, the duration of an epoch is two weeks.
 ```
 
+```admonish warning title="Important: Testnet vs Mainnet Access"
+**After publishing, how you access your site depends on which network you used:**
+
+- **Mainnet sites**: Can be accessed through any mainnet portal.
+<https://wal.app> serves Walrus Sites on mainnet by resolving SuiNS names that point to them.
+- **Testnet sites**: Can be accessed through any testnet portal.
+Walrus Foundation does not operate a testnet portal. You can [self-host or run one locally](./portal.md)
+```
+
 The end of the output should look like the following:
 
-``` txt
+```txt
 Execution completed
 Resource operations performed:
   - created resource /.DS_Store with blob ID PwNzE9_a9anYb8AZysafQZGqd4h0scsTGhzF2GPsWmQ
@@ -56,8 +65,9 @@ To browse the site, you have the following options:
            Finally, browse it with: https://example-domain.wal.app
 ```
 
-``` admonish note
+```admonish note
 Keep in mind that option 2 is only available on `mainnet`.
+For testnet sites, use option 1 - see the [portal setup guide](./portal.md) for instructions.
 ```
 
 This output tells you that, for each file in the folder, a new Walrus blob was created, and the
@@ -85,13 +95,13 @@ Then, you can update the existing site by running the `deploy` command again. Th
 use the Site Object ID stored in ws-resources.json (from the initial deployment) to identify which site
 to update. You do not need to specify the object ID manually:
 
-``` sh
+```sh
 site-builder deploy --epochs 1 ./walrus-snake
 ```
 
 The output this time should be:
 
-``` txt
+```txt
 Execution completed
 Resource operations performed:
   - deleted resource /index.html with blob ID LVLk9VSnBrEgQ2HJHAgU3p8IarKypQpfn38aSeUZzzE
