@@ -1,18 +1,22 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-//! Custom DBMap wrapper with configurable key serialization/deserialization.
+//! Column family handle with configurable key serialization/deserialization.
 //!
-//! This module provides a wrapper around typed_store's DBMap that allows
+//! This module provides a handle to a RocksDB ColumnFamily that allows
 //! for custom key serialization/deserialization strategies, enabling
 //! optimized key encoding for specific use cases, like to preserve alphanumeric order.
 
-use std::marker::PhantomData;
+use std::{marker::PhantomData, sync::Arc};
 
 use rocksdb::OptimisticTransactionDB;
 use serde::{Deserialize, Serialize};
 
-use crate::{TypedStoreError, rocks::DBMap};
+use crate::{
+    TypedStoreError,
+    metrics::{DBMetrics, spawn_db_metrics_reporter},
+    rocks::RocksDB,
+};
 
 /// Trait for key serialization and deserialization.
 pub trait KeyCodec: Sized {
@@ -23,29 +27,71 @@ pub trait KeyCodec: Sized {
     fn deserialize(bytes: &[u8]) -> Result<Self, TypedStoreError>;
 }
 
-/// A wrapper around DBMap that allows raw key serialization/deserialization.
+/// A handle to a RocksDB ColumnFamily with custom key serialization/deserialization.
 ///
-/// This struct provides a minimal interface for using DBMap with raw
+/// This struct provides a transactional interface for a specific RocksDB column family with custom
 /// key serialization/deserialization while keeping the default BCS serialization for values.
-pub struct RawKeyDBMap<K, V>
+/// All operations are transaction-based for consistency.
+pub struct ColumnFamilyHandle<K, V>
 where
     K: KeyCodec,
     V: Serialize + for<'de> Deserialize<'de> + Clone,
 {
-    inner: DBMap<Vec<u8>, V>,
-    _phantom: PhantomData<K>,
+    /// The RocksDB instance.
+    db: Arc<RocksDB>,
+    /// Column family name.
+    cf_name: String,
+    /// Database metrics.
+    db_metrics: Arc<DBMetrics>,
+    /// Phantom data to enforce type constraints.
+    _phantom: PhantomData<(K, V)>,
+    /// Shutdown signal for metrics task.
+    _metrics_shutdown: tokio::sync::oneshot::Sender<()>,
 }
 
-impl<K, V> RawKeyDBMap<K, V>
+impl<K, V> ColumnFamilyHandle<K, V>
 where
     K: KeyCodec,
     V: Serialize + for<'de> Deserialize<'de> + Clone,
 {
-    /// Creates a new RawKeyDBMap wrapping an existing DBMap.
-    pub fn new(inner: DBMap<Vec<u8>, V>) -> Result<Self, TypedStoreError> {
-        Ok(RawKeyDBMap {
-            inner,
+    /// Creates a new ColumnFamilyHandle with direct RocksDB and ColumnFamily access.
+    pub fn new(
+        db: Arc<RocksDB>,
+        cf_name: &str,
+        is_deprecated: bool,
+    ) -> Result<Self, TypedStoreError> {
+        // Verify the column family exists
+        db.cf_handle(cf_name).ok_or_else(|| {
+            TypedStoreError::RocksDBError(format!("column family '{}' not found", cf_name))
+        })?;
+
+        // Get metrics instance
+        let db_metrics = DBMetrics::get().clone();
+
+        // Start metrics reporting task
+        let (sender, receiver) = tokio::sync::oneshot::channel();
+        if !is_deprecated {
+            spawn_db_metrics_reporter(
+                db.clone(),
+                vec![cf_name.to_string()],
+                db_metrics.clone(),
+                receiver,
+            );
+        }
+
+        Ok(ColumnFamilyHandle {
+            db,
+            cf_name: cf_name.to_string(),
+            db_metrics,
             _phantom: PhantomData,
+            _metrics_shutdown: sender,
+        })
+    }
+
+    /// Get the column family handle.
+    fn cf(&self) -> Result<Arc<rocksdb::BoundColumnFamily<'_>>, TypedStoreError> {
+        self.db.cf_handle(&self.cf_name).ok_or_else(|| {
+            TypedStoreError::RocksDBError(format!("column family '{}' not found", self.cf_name))
         })
     }
 
@@ -59,7 +105,7 @@ where
         let key_bytes = key.serialize()?;
         let value_bytes =
             bcs::to_bytes(value).map_err(|e| TypedStoreError::SerializationError(e.to_string()))?;
-        let cf = self.inner.cf()?;
+        let cf = self.cf()?;
 
         txn.put_cf(&cf, key_bytes, value_bytes)
             .map_err(|e| TypedStoreError::RocksDBError(e.to_string()))
@@ -72,7 +118,7 @@ where
         key: &K,
     ) -> Result<(), TypedStoreError> {
         let key_bytes = key.serialize()?;
-        let cf = self.inner.cf()?;
+        let cf = self.cf()?;
 
         txn.delete_cf(&cf, key_bytes)
             .map_err(|e| TypedStoreError::RocksDBError(e.to_string()))
@@ -86,7 +132,7 @@ where
         key: &K,
     ) -> Result<Option<V>, TypedStoreError> {
         let key_bytes = key.serialize()?;
-        let cf = self.inner.cf()?;
+        let cf = self.cf()?;
 
         let value_bytes = txn
             .get_for_update_cf(&cf, &key_bytes, true)
@@ -109,7 +155,7 @@ where
         key: &K,
     ) -> Result<Option<V>, TypedStoreError> {
         let key_bytes = key.serialize()?;
-        let cf = self.inner.cf()?;
+        let cf = self.cf()?;
 
         let value_bytes = txn
             .get_cf(&cf, &key_bytes)
@@ -125,23 +171,21 @@ where
         }
     }
 
-    /// Reads a range of key-value pairs within a transaction using efficient range bounds.
+    /// Reads a range of key-value pairs within a transaction using range bounds.
     /// Returns key-value pairs in the range [begin, end).
     ///
-    /// This is more efficient than prefix-based iteration for range queries.
-    pub fn read_range(
+    pub fn read_range_with_txn(
         &self,
         txn: &rocksdb::Transaction<'_, OptimisticTransactionDB>,
         begin: Vec<u8>,
         end: Vec<u8>,
         row_limit: usize,
     ) -> Result<Vec<(K, V)>, TypedStoreError> {
-        let cf = self.inner.cf()?;
-
         let mut read_opts = rocksdb::ReadOptions::default();
         read_opts.set_iterate_lower_bound(begin);
         read_opts.set_iterate_upper_bound(end);
 
+        let cf = self.cf()?;
         let iter = txn.iterator_cf_opt(&cf, read_opts, rocksdb::IteratorMode::Start);
 
         let mut results = Vec::new();
@@ -183,27 +227,40 @@ where
     }
 }
 
-impl<K, V> Clone for RawKeyDBMap<K, V>
+impl<K, V> Clone for ColumnFamilyHandle<K, V>
 where
     K: KeyCodec,
     V: Serialize + for<'de> Deserialize<'de> + Clone,
 {
     fn clone(&self) -> Self {
-        RawKeyDBMap {
-            inner: self.inner.clone(),
+        // Start metrics reporting for the cloned instance
+        let (sender, receiver) = tokio::sync::oneshot::channel();
+        spawn_db_metrics_reporter(
+            self.db.clone(),
+            vec![self.cf_name.clone()],
+            self.db_metrics.clone(),
+            receiver,
+        );
+
+        ColumnFamilyHandle {
+            db: self.db.clone(),
+            cf_name: self.cf_name.clone(),
+            db_metrics: self.db_metrics.clone(),
             _phantom: PhantomData,
+            _metrics_shutdown: sender,
         }
     }
 }
 
-impl<K, V> std::fmt::Debug for RawKeyDBMap<K, V>
+impl<K, V> std::fmt::Debug for ColumnFamilyHandle<K, V>
 where
     K: KeyCodec,
     V: Serialize + for<'de> Deserialize<'de> + Clone + std::fmt::Debug,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("RawKeyDBMap")
-            .field("inner", &self.inner)
+        f.debug_struct("ColumnFamilyHandle")
+            .field("db", &self.db)
+            .field("cf_name", &self.cf_name)
             .finish()
     }
 }
@@ -218,14 +275,16 @@ mod tests {
     use super::*;
     use crate::rocks::{MetricConf, ReadWriteOptions, RocksDB, open_cf_opts_optimistic};
 
-    /// Result type for opening a database with raw key maps.
-    /// Returns `(Arc<RocksDB>, Vec<RawKeyDBMap<K, V>>)` on success.
-    type OpenRawKeyDBResult<K, V> = Result<(Arc<RocksDB>, Vec<RawKeyDBMap<K, V>>), TypedStoreError>;
+    /// Result type for opening a database with column family handles.
+    /// Returns `(Arc<RocksDB>, Vec<ColumnFamilyHandle<K, V>>)` on success.
+    type OpenCFHandleResult<K, V> =
+        Result<(Arc<RocksDB>, Vec<ColumnFamilyHandle<K, V>>), TypedStoreError>;
 
-    /// Opens an optimistic transaction database with raw key serialization.
+    /// Opens an optimistic transaction database with column family handles.
     ///
     /// This function initializes a RocksDB optimistic transaction database and returns
-    /// RawKeyDBMaps for the specified column families with raw key serialization.
+    /// ColumnFamilyHandles for the specified column families with custom key
+    /// serialization.
     ///
     /// # Arguments
     /// * `path` - The path where the database will be created or opened
@@ -234,13 +293,14 @@ mod tests {
     /// * `cf_options` - Column family names with their specific options
     ///
     /// # Returns
-    /// A tuple of `(Arc<RocksDB>, Vec<RawKeyDBMap>)` where each map corresponds to a column family.
-    fn open_cf_raw_key_opts_optimistic<P, K, V>(
+    /// A tuple of `(Arc<RocksDB>, Vec<ColumnFamilyHandle>)` where each handle
+    /// corresponds to a column family.
+    fn open_cf_handle_opts_optimistic<P, K, V>(
         path: P,
         db_options: Option<rocksdb::Options>,
         metric_conf: MetricConf,
         cf_options: &[(&str, rocksdb::Options)],
-    ) -> OpenRawKeyDBResult<K, V>
+    ) -> OpenCFHandleResult<K, V>
     where
         P: AsRef<Path>,
         K: KeyCodec,
@@ -252,29 +312,33 @@ mod tests {
         // Extract column family names.
         let cf_names: Vec<&str> = cf_options.iter().map(|(name, _)| *name).collect();
 
-        // Create RawKeyDBMaps for each column family.
-        let maps = create_raw_key_db_maps(&rocksdb, &cf_names, &ReadWriteOptions::default())?;
+        // Create ColumnFamilyHandles for each column family.
+        let handles = create_cf_handles(&rocksdb, &cf_names, &ReadWriteOptions::default())?;
 
-        Ok((rocksdb, maps))
+        Ok((rocksdb, handles))
     }
 
-    /// Helper function to create RawKeyDBMaps from an existing optimistic transaction database.
+    /// Helper function to create ColumnFamilyHandles from an existing optimistic
+    /// transaction database.
     ///
     /// This function takes an already opened RocksDB (from typed_store) and creates
-    /// RawKeyDBMaps for the specified column families with raw key serialization.
+    /// ColumnFamilyHandles for the specified column families with custom key
+    /// serialization.
     ///
     /// # Arguments
-    /// * `rocksdb` - The `Arc<RocksDB>` from typed_store (must be OptimisticTransactionDB variant)
-    /// * `cf_names` - Names of column families to wrap with `RawKeyDBMap`
-    /// * `opts` - Read/write options for the DBMaps
+    /// * `rocksdb` - The `Arc<RocksDB>` from typed_store (must be
+    ///   OptimisticTransactionDB variant)
+    /// * `cf_names` - Names of column families to wrap with
+    ///   `ColumnFamilyHandle`
+    /// * `_opts` - Read/write options (unused for transactional operations)
     ///
     /// # Returns
-    /// A vector of `RawKeyDBMap` instances, one for each column family.
-    fn create_raw_key_db_maps<K, V>(
+    /// A vector of `ColumnFamilyHandle` instances, one for each column family.
+    fn create_cf_handles<K, V>(
         rocksdb: &Arc<RocksDB>,
         cf_names: &[&str],
-        opts: &ReadWriteOptions,
-    ) -> Result<Vec<RawKeyDBMap<K, V>>, TypedStoreError>
+        _opts: &ReadWriteOptions,
+    ) -> Result<Vec<ColumnFamilyHandle<K, V>>, TypedStoreError>
     where
         K: KeyCodec,
         V: Serialize + for<'de> Deserialize<'de> + Clone,
@@ -282,11 +346,8 @@ mod tests {
         let mut maps = Vec::with_capacity(cf_names.len());
 
         for cf_name in cf_names {
-            // Create a DBMap for this column family using the existing RocksDB
-            let inner_map = DBMap::<Vec<u8>, V>::reopen(rocksdb, Some(cf_name), opts, false)?;
-
-            // Wrap it in RawKeyDBMap
-            let custom_map = RawKeyDBMap::new(inner_map)?;
+            // Create ColumnFamilyHandle directly with the RocksDB and column family name
+            let custom_map = ColumnFamilyHandle::new(rocksdb.clone(), cf_name, false)?;
             maps.push(custom_map);
         }
 
@@ -353,17 +414,21 @@ mod tests {
         }
     }
 
-    fn create_test_db() -> (TempDir, Arc<RocksDB>, Vec<RawKeyDBMap<TestKey, TestValue>>) {
+    fn create_test_db() -> (
+        TempDir,
+        Arc<RocksDB>,
+        Vec<ColumnFamilyHandle<TestKey, TestValue>>,
+    ) {
         let temp_dir = TempDir::new().unwrap();
         let db_path = temp_dir.path().join("test_db");
 
-        let (db, maps) = open_cf_raw_key_opts_optimistic::<_, TestKey, TestValue>(
+        let (db, maps) = open_cf_handle_opts_optimistic::<_, TestKey, TestValue>(
             db_path,
             None,
             MetricConf::default(),
             &[("test_cf", rocksdb::Options::default())],
         )
-        .expect("Failed to create test database");
+        .expect("failed to create test database");
 
         (temp_dir, db, maps)
     }
@@ -376,7 +441,7 @@ mod tests {
         let map = &maps[0];
 
         // Get transaction handle
-        let handle = db.as_optimistic().expect("Should be optimistic DB");
+        let handle = db.as_optimistic().expect("should be optimistic DB");
 
         // Test transaction insert and get
         let key = TestKey {
@@ -393,8 +458,8 @@ mod tests {
             let txn = handle.transaction();
 
             map.put_cf_with_txn(&txn, &key, &value)
-                .expect("Failed to put in transaction");
-            txn.commit().expect("Failed to commit transaction");
+                .expect("failed to put in transaction");
+            txn.commit().expect("failed to commit transaction");
         }
 
         {
@@ -402,9 +467,9 @@ mod tests {
 
             let retrieved = map
                 .get_cf_with_txn(&txn, &key)
-                .expect("Failed to get in transaction");
+                .expect("failed to get in transaction");
             assert_eq!(retrieved, Some(value.clone()));
-            txn.commit().expect("Failed to commit transaction");
+            txn.commit().expect("failed to commit transaction");
         }
     }
 
@@ -414,7 +479,7 @@ mod tests {
         let (_temp_dir, db, maps) = create_test_db();
 
         let map = &maps[0];
-        let handle = db.as_optimistic().expect("Should be optimistic DB");
+        let handle = db.as_optimistic().expect("should be optimistic DB");
 
         let prefix = "range_test";
         let mut kvs = Vec::new();
@@ -429,7 +494,7 @@ mod tests {
 
             for (key, value) in kvs.iter() {
                 map.put_cf_with_txn(&txn, key, value)
-                    .expect("Failed to put in transaction");
+                    .expect("failed to put in transaction");
             }
 
             let prefix2 = "range_tesu";
@@ -437,7 +502,7 @@ mod tests {
                 let key = TestKey::new(prefix2.to_string(), i);
                 let value = TestValue::new(format!("other_{}", i), i as u32 * 100);
                 map.put_cf_with_txn(&txn, &key, &value)
-                    .expect("Failed to put in transaction");
+                    .expect("failed to put in transaction");
             }
 
             let prefix3 = "range_tess";
@@ -445,10 +510,10 @@ mod tests {
                 let key = TestKey::new(prefix3.to_string(), i);
                 let value = TestValue::new(format!("other_{}", i), i as u32 * 100);
                 map.put_cf_with_txn(&txn, &key, &value)
-                    .expect("Failed to put in transaction");
+                    .expect("failed to put in transaction");
             }
 
-            txn.commit().expect("Failed to commit transaction");
+            txn.commit().expect("failed to commit transaction");
         }
 
         // Create prefix bytes for "range_test/" to match our key serialization format
@@ -461,14 +526,14 @@ mod tests {
             let txn = handle.transaction();
 
             let results_with_limit: Vec<(TestKey, TestValue)> = map
-                .read_range(&txn, begin.clone(), end.clone(), 3)
-                .expect("Failed to read range");
+                .read_range_with_txn(&txn, begin.clone(), end.clone(), 3)
+                .expect("failed to read range");
 
             assert_eq!(results_with_limit.len(), 3);
 
             let results_without_limit: Vec<(TestKey, TestValue)> = map
-                .read_range(&txn, begin.clone(), end.clone(), 100)
-                .expect("Failed to read range");
+                .read_range_with_txn(&txn, begin.clone(), end.clone(), 100)
+                .expect("failed to read range");
 
             assert_eq!(results_without_limit.len(), kvs.len());
             for (i, (key, value)) in results_without_limit.iter().enumerate() {
@@ -480,12 +545,12 @@ mod tests {
         {
             let txn = handle.transaction();
             assert!(map.delete_cf_with_txn(&txn, &kvs[2].0).is_ok());
-            txn.commit().expect("Failed to commit transaction");
+            txn.commit().expect("failed to commit transaction");
 
             let txn = handle.transaction();
             let results_without_limit: Vec<(TestKey, TestValue)> = map
-                .read_range(&txn, begin, end, 100)
-                .expect("Failed to read range");
+                .read_range_with_txn(&txn, begin, end, 100)
+                .expect("failed to read range");
 
             kvs.remove(2);
             assert_eq!(results_without_limit.len(), kvs.len());
