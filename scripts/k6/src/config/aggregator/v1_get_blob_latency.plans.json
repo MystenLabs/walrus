@@ -24,5 +24,32 @@
     "payloadSize": "100Mi",
     "timeout": "5m",
     "environment": "walrus-testnet-ci"
+  },
+
+  "performance-main-baseline:download:latency:1Ki": {
+    "payloadSize": "1Ki",
+    "environment": "walrus-performance-network",
+    "vus": 3
+  },
+  "performance-main-baseline:download:latency:100Ki": {
+    "payloadSize": "100Ki",
+    "environment": "walrus-performance-network",
+    "vus": 3
+  },
+  "performance-main-baseline:download:latency:1Mi": {
+    "payloadSize": "1Mi",
+    "environment": "walrus-performance-network",
+    "vus": 3
+  },
+  "performance-main-baseline:download:latency:10Mi": {
+    "payloadSize": "10Mi",
+    "environment": "walrus-performance-network",
+    "vus": 3
+  },
+  "performance-main-baseline:download:latency:100Mi": {
+    "blobsToRead": 5,
+    "payloadSize": "100Mi",
+    "timeout": "5m",
+    "environment": "walrus-performance-network"
   }
 }
