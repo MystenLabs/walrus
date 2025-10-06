@@ -9,14 +9,10 @@
 
 use std::{marker::PhantomData, sync::Arc};
 
-use rocksdb::OptimisticTransactionDB;
+use rocksdb::{Direction, OptimisticTransactionDB};
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    TypedStoreError,
-    metrics::{DBMetrics, spawn_db_metrics_reporter},
-    rocks::RocksDB,
-};
+use crate::{TypedStoreError, rocks::RocksDB};
 
 /// Trait for key serialization and deserialization.
 pub trait KeyCodec: Sized {
@@ -32,6 +28,7 @@ pub trait KeyCodec: Sized {
 /// This struct provides a transactional interface for a specific RocksDB column family with custom
 /// key serialization/deserialization while keeping the default BCS serialization for values.
 /// All operations are transaction-based for consistency.
+#[derive(Clone)]
 pub struct ColumnFamilyHandle<K, V>
 where
     K: KeyCodec,
@@ -41,12 +38,8 @@ where
     db: Arc<RocksDB>,
     /// Column family name.
     cf_name: String,
-    /// Database metrics.
-    db_metrics: Arc<DBMetrics>,
     /// Phantom data to enforce type constraints.
     _phantom: PhantomData<(K, V)>,
-    /// Shutdown signal for metrics task.
-    _metrics_shutdown: tokio::sync::oneshot::Sender<()>,
 }
 
 impl<K, V> ColumnFamilyHandle<K, V>
@@ -55,36 +48,16 @@ where
     V: Serialize + for<'de> Deserialize<'de> + Clone,
 {
     /// Creates a new ColumnFamilyHandle with direct RocksDB and ColumnFamily access.
-    pub fn new(
-        db: Arc<RocksDB>,
-        cf_name: &str,
-        is_deprecated: bool,
-    ) -> Result<Self, TypedStoreError> {
+    pub fn new(db: Arc<RocksDB>, cf_name: &str) -> Result<Self, TypedStoreError> {
         // Verify the column family exists
         db.cf_handle(cf_name).ok_or_else(|| {
             TypedStoreError::RocksDBError(format!("column family '{}' not found", cf_name))
         })?;
 
-        // Get metrics instance
-        let db_metrics = DBMetrics::get().clone();
-
-        // Start metrics reporting task
-        let (sender, receiver) = tokio::sync::oneshot::channel();
-        if !is_deprecated {
-            spawn_db_metrics_reporter(
-                db.clone(),
-                vec![cf_name.to_string()],
-                db_metrics.clone(),
-                receiver,
-            );
-        }
-
         Ok(ColumnFamilyHandle {
             db,
             cf_name: cf_name.to_string(),
-            db_metrics,
             _phantom: PhantomData,
-            _metrics_shutdown: sender,
         })
     }
 
@@ -180,13 +153,19 @@ where
         begin: Vec<u8>,
         end: Vec<u8>,
         row_limit: usize,
+        reverse: bool,
     ) -> Result<Vec<(K, V)>, TypedStoreError> {
         let mut read_opts = rocksdb::ReadOptions::default();
-        read_opts.set_iterate_lower_bound(begin);
-        read_opts.set_iterate_upper_bound(end);
+        read_opts.set_iterate_lower_bound(begin.clone());
+        read_opts.set_iterate_upper_bound(end.clone());
 
+        let mode = if reverse {
+            rocksdb::IteratorMode::From(&end, Direction::Reverse)
+        } else {
+            rocksdb::IteratorMode::From(&begin, Direction::Forward)
+        };
         let cf = self.cf()?;
-        let iter = txn.iterator_cf_opt(&cf, read_opts, rocksdb::IteratorMode::Start);
+        let iter = txn.iterator_cf_opt(&cf, read_opts, mode);
 
         let mut results = Vec::new();
 
@@ -224,31 +203,6 @@ where
         }
 
         Ok(results)
-    }
-}
-
-impl<K, V> Clone for ColumnFamilyHandle<K, V>
-where
-    K: KeyCodec,
-    V: Serialize + for<'de> Deserialize<'de> + Clone,
-{
-    fn clone(&self) -> Self {
-        // Start metrics reporting for the cloned instance
-        let (sender, receiver) = tokio::sync::oneshot::channel();
-        spawn_db_metrics_reporter(
-            self.db.clone(),
-            vec![self.cf_name.clone()],
-            self.db_metrics.clone(),
-            receiver,
-        );
-
-        ColumnFamilyHandle {
-            db: self.db.clone(),
-            cf_name: self.cf_name.clone(),
-            db_metrics: self.db_metrics.clone(),
-            _phantom: PhantomData,
-            _metrics_shutdown: sender,
-        }
     }
 }
 
@@ -347,7 +301,7 @@ mod tests {
 
         for cf_name in cf_names {
             // Create ColumnFamilyHandle directly with the RocksDB and column family name
-            let custom_map = ColumnFamilyHandle::new(rocksdb.clone(), cf_name, false)?;
+            let custom_map = ColumnFamilyHandle::new(rocksdb.clone(), cf_name)?;
             maps.push(custom_map);
         }
 
@@ -526,19 +480,41 @@ mod tests {
             let txn = handle.transaction();
 
             let results_with_limit: Vec<(TestKey, TestValue)> = map
-                .read_range_with_txn(&txn, begin.clone(), end.clone(), 3)
+                .read_range_with_txn(&txn, begin.clone(), end.clone(), 3, false)
                 .expect("failed to read range");
 
             assert_eq!(results_with_limit.len(), 3);
 
+            let results_with_limit_reverse: Vec<(TestKey, TestValue)> = map
+                .read_range_with_txn(&txn, begin.clone(), end.clone(), 3, true)
+                .expect("failed to read range");
+
+            assert_eq!(results_with_limit_reverse.len(), 3);
+
+            for (i, (key, value)) in results_with_limit_reverse.iter().enumerate() {
+                assert_eq!(key, &kvs[kvs.len() - i - 1].0);
+                assert_eq!(value, &kvs[kvs.len() - i - 1].1);
+            }
+
             let results_without_limit: Vec<(TestKey, TestValue)> = map
-                .read_range_with_txn(&txn, begin.clone(), end.clone(), 100)
+                .read_range_with_txn(&txn, begin.clone(), end.clone(), 100, false)
                 .expect("failed to read range");
 
             assert_eq!(results_without_limit.len(), kvs.len());
             for (i, (key, value)) in results_without_limit.iter().enumerate() {
                 assert_eq!(key, &kvs[i].0);
                 assert_eq!(value, &kvs[i].1);
+            }
+
+            let results_without_limit_reverse: Vec<(TestKey, TestValue)> = map
+                .read_range_with_txn(&txn, begin.clone(), end.clone(), 100, true)
+                .expect("failed to read range");
+
+            assert_eq!(results_without_limit_reverse.len(), kvs.len());
+
+            for (i, (key, value)) in results_without_limit_reverse.iter().enumerate() {
+                assert_eq!(key, &kvs[kvs.len() - i - 1].0);
+                assert_eq!(value, &kvs[kvs.len() - i - 1].1);
             }
         }
 
@@ -549,7 +525,7 @@ mod tests {
 
             let txn = handle.transaction();
             let results_without_limit: Vec<(TestKey, TestValue)> = map
-                .read_range_with_txn(&txn, begin, end, 100)
+                .read_range_with_txn(&txn, begin, end, 100, false)
                 .expect("failed to read range");
 
             kvs.remove(2);
