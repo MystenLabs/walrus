@@ -22,7 +22,7 @@
     "payloadSize": "100Mi",
     "timeout": "5m",
     "environment": "walrus-performance-network",
-    "targetRate": "40",
+    "targetRate": "30",
     "duration": "5m"
   }
 }
