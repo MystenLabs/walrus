@@ -57,16 +57,19 @@ purpose. Concretely, the client can make one or more of the following mistakes:
 
 Walrus has several mechanisms to detect each of these:
 
-- Inconsistencies of the last type (incorrect blob-ID computation) are detected immediately when the
-  client attempts to upload metadata to storage nodes. Such blobs are never even certified.
+- Inconsistencies of the last type (incorrect blob-ID computation) are detected immediately by
+  storage nodes when the client attempts to upload metadata. Storage nodes will never issue storage
+  certificates for such blobs, and they are therefore never even certified.
 
 - Inconsistencies of the second type (incorrect sliver-hash computation) are generally detected
-  either before or shortly after certification.
+  either before or shortly after certification, unless the slivers with incorrect hashes are handled
+  by malicious storage nodes.
 
-  In the latter case, storage nodes can extract one symbol per sliver to form an *inconsistency
-  proof*, which is then used to mark the blob as *invalid*. After this, storage nodes can delete
-  slivers belonging to inconsistently encoded blobs, and upon request return either the
-  inconsistency proof or an inconsistency certificate posted on chain.
+  Honest storage nodes that are assigned a sliver with an incorrect hash attempt to recover it from
+  other storage nodes and then notice the inconsistency. They can then extract one symbol per sliver
+  to form an *inconsistency proof*, which is then used to mark the blob as *invalid*. After this,
+  storage nodes can delete slivers belonging to inconsistently encoded blobs, and upon request
+  return either the inconsistency proof or an inconsistency certificate posted on chain.
 
 - Inconsistencies of the first type can also be detected by storage nodes. The process is the same
   as in the case above, but it is not guaranteed to be triggered immediately after certification.
