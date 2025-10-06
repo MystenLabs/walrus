@@ -237,6 +237,7 @@ impl ClientCommandRunner {
                 blob_id,
                 out,
                 rpc_arg: RpcArg { rpc_url },
+                strict_integrity_check: _,
             } => self.read(blob_id, out, rpc_url).await,
 
             CliCommands::ReadQuilt {
