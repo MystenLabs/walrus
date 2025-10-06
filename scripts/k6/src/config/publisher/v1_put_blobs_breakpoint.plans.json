@@ -11,5 +11,18 @@
     "environment": "walrus-testnet-ci",
     "targetRate": "20",
     "duration": "5m"
+  },
+  "performance-main-baseline:upload:throughput:requests": {
+    "payloadSize": "1Ki",
+    "environment": "walrus-performance-network",
+    "targetRate": "100",
+    "duration": "5m"
+  },
+  "performance-main-baseline:upload:throughput:data": {
+    "payloadSize": "100Mi",
+    "timeout": "5m",
+    "environment": "walrus-performance-network",
+    "targetRate": "20",
+    "duration": "5m"
   }
 }
