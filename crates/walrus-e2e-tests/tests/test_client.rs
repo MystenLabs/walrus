@@ -161,6 +161,8 @@ where
                 .with_tail_handle_collector(tail_handle_collector.clone())
         } else {
             store_args
+                .with_tail_handling(TailHandling::Detached)
+                .with_tail_handle_collector(tail_handle_collector.clone())
         }
     };
 

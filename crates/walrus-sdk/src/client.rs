@@ -1857,7 +1857,7 @@ impl<T> WalrusNodeClient<T> {
                                 &item.metadata,
                                 item.pair_indices.iter().map(|&i| &item.pairs[i]),
                             )
-                            .await;
+                            .await?;
 
                         match response.result {
                             Ok(()) => stored.push(*item.blob_id()),
