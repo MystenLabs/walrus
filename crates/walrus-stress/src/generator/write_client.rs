@@ -27,6 +27,7 @@ use walrus_sdk::{
     },
     error::ClientError,
     store_optimizations::StoreOptimizations,
+    uploader::TailHandling,
 };
 use walrus_service::client::{ClientConfig, Refiller};
 use walrus_sui::{
@@ -225,6 +226,9 @@ impl WriteClient {
                 &pairs,
                 &blob_sui_object.blob_persistence_type(),
                 Some(&MultiProgress::new()),
+                TailHandling::Blocking,
+                None,
+                None,
             )
             .await?;
 

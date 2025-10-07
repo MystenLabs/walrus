@@ -14,6 +14,7 @@ use std::{
     num::NonZeroU16,
     path::PathBuf,
     str::FromStr,
+    sync::Arc,
     time::Duration,
 };
 
@@ -22,6 +23,7 @@ use reqwest::Url;
 #[cfg(msim)]
 use sui_macros::{clear_fail_point, register_fail_point_if};
 use sui_types::base_types::{SUI_ADDRESS_LENGTH, SuiAddress};
+use tokio::sync::Mutex;
 use tokio_stream::StreamExt;
 use walrus_core::{
     BlobId,
@@ -68,6 +70,7 @@ use walrus_sdk::{
     },
     store_optimizations::StoreOptimizations,
     upload_relay::tip_config::{TipConfig, TipKind},
+    uploader::TailHandling,
 };
 use walrus_service::test_utils::{
     StorageNodeHandleTrait,
@@ -147,10 +150,15 @@ where
         blobs_with_paths.push((path, data.to_vec()));
     }
 
+    let tail_handle_collector = Arc::new(Mutex::new(vec![]));
     let store_args = {
         let store_args = StoreArgs::default_with_epochs(1).no_store_optimizations();
         if let Some(upload_relay_client) = upload_relay_client {
             store_args.with_upload_relay_client(upload_relay_client)
+        } else if rand::thread_rng().gen_bool(0.5) {
+            store_args
+                .with_tail_handling(TailHandling::Detached)
+                .with_tail_handle_collector(tail_handle_collector.clone())
         } else {
             store_args
         }
@@ -160,6 +168,14 @@ where
         .as_ref()
         .reserve_and_store_blobs_retry_committees_with_path(&blobs_with_paths, &store_args)
         .await?;
+
+    // Wait for the tail uploads to complete.
+    // This is going to ensure that we wait for tail uploads to complete before reading the blobs.
+    // This is similar to blocking on tail uploads but happens after forming the certificate.
+    let mut handles = tail_handle_collector.lock().await;
+    while let Some(handle) = handles.pop() {
+        handle.await.unwrap();
+    }
 
     for result in store_result {
         match result.blob_store_result {
@@ -359,6 +375,9 @@ async fn test_inconsistency(failed_nodes: &[usize]) -> TestResult {
             &metadata,
             &pairs,
             &BlobPersistenceType::Permanent,
+            None,
+            TailHandling::Blocking,
+            None,
             None,
         )
         .await?;

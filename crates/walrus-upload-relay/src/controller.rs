@@ -55,6 +55,7 @@ use walrus_sdk::{
         params::{DigestSchema, NONCE_LEN, Params, TransactionDigestSchema},
         tip_config::{TipConfig, TipKind},
     },
+    uploader::TailHandling,
 };
 
 use crate::{
@@ -211,7 +212,15 @@ impl Controller {
         };
         let confirmation_certificate: ConfirmationCertificate = self
             .client
-            .send_blob_data_and_get_certificate(&metadata, &sliver_pairs, &blob_persistence, None)
+            .send_blob_data_and_get_certificate(
+                &metadata,
+                &sliver_pairs,
+                &blob_persistence,
+                None,
+                TailHandling::Blocking,
+                None,
+                None,
+            )
             .await?;
 
         self.metric_set.blobs_uploaded.inc();
