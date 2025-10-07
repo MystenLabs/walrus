@@ -362,7 +362,7 @@ impl RetriableRpcClient {
     ) -> Result<CheckpointData, RetriableClientError> {
         let _scope = monitored_scope::monitored_scope("RetriableRpcClient::get_full_checkpoint");
 
-        match self.download_handler.initial_download_decision() {
+        let result = match self.download_handler.initial_download_decision() {
             CheckpointDownloadDecision::AttemptPrimary => {
                 self.handle_primary_attempt(sequence_number).await
             }
@@ -380,6 +380,29 @@ impl RetriableRpcClient {
             CheckpointDownloadDecision::UsePrimaryError(_err) => {
                 unreachable!("Invalid initial decision to use primary error")
             }
+        };
+
+        if let Some(metrics) = self.metrics.as_ref()
+            && Self::is_checkpoint_parsing_error(&result)
+        {
+            metrics.num_checkpoint_parsing_errors.inc();
+        }
+
+        result
+    }
+
+    /// Checks if the result is a checkpoint parsing error.
+    fn is_checkpoint_parsing_error(result: &Result<CheckpointData, RetriableClientError>) -> bool {
+        match result {
+            Err(RetriableClientError::RpcError(rpc_error)) => rpc_error
+                .status
+                .message()
+                .to_ascii_lowercase()
+                .contains("error converting from protobuf"),
+            Err(RetriableClientError::FallbackError(FallbackError::DeserializationError(_))) => {
+                true
+            }
+            _ => false,
         }
     }
 
