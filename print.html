@@ -4394,6 +4394,23 @@ locations, publishing the <code>./walrus-snake</code> site is as simple as calli
 duration of an epoch is one day. On Mainnet, the duration of an epoch is two weeks.</p>
 </div>
 </div>
+<div id="admonition-important-testnet-vs-mainnet-access" class="admonition admonish-warning" role="note" aria-labelledby="admonition-important-testnet-vs-mainnet-access-title">
+<div class="admonition-title">
+<div id="admonition-important-testnet-vs-mainnet-access-title">
+<p>Important: Testnet vs Mainnet Access</p>
+</div>
+<a class="admonition-anchor-link" href="walrus-sites/tutorial-publish.html#admonition-important-testnet-vs-mainnet-access"></a>
+</div>
+<div>
+<p><strong>After publishing, how you access your site depends on which network you used:</strong></p>
+<ul>
+<li><strong>Mainnet sites</strong>: Can be accessed through any mainnet portal.
+<a href="https://wal.app">https://wal.app</a> serves Walrus Sites on mainnet by resolving SuiNS names that point to them.</li>
+<li><strong>Testnet sites</strong>: Can be accessed through any testnet portal.
+Walrus Foundation does not operate a testnet portal. You can <a href="walrus-sites/./portal.html">self-host or run one locally</a></li>
+</ul>
+</div>
+</div>
 <p>The end of the output should look like the following:</p>
 <pre><code class="language-txt">Execution completed
 Resource operations performed:
@@ -4421,7 +4438,8 @@ To browse the site, you have the following options:
 <a class="admonition-anchor-link" href="walrus-sites/tutorial-publish.html#admonition-note"></a>
 </div>
 <div>
-<p>Keep in mind that option 2 is only available on <code>mainnet</code>.</p>
+<p>Keep in mind that option 2 is only available on <code>mainnet</code>.
+For testnet sites, use option 1 - see the <a href="walrus-sites/./portal.html">portal setup guide</a> for instructions.</p>
 </div>
 </div>
 <p>This output tells you that, for each file in the folder, a new Walrus blob was created, and the
@@ -5589,6 +5607,21 @@ portals:</p>
 <li>service-worker based portals running in the browser.</li>
 </ol>
 <p>Currently, only a server-side portal is served at <a href="https://wal.app">https://wal.app</a>.</p>
+<div id="admonition-important-testnet-portal-access" class="admonition admonish-warning" role="note" aria-labelledby="admonition-important-testnet-portal-access-title">
+<div class="admonition-title">
+<div id="admonition-important-testnet-portal-access-title">
+<p>Important: Testnet Portal Access</p>
+</div>
+<a class="admonition-anchor-link" href="walrus-sites/portal.html#admonition-important-testnet-portal-access"></a>
+</div>
+<div>
+<p><a href="https://wal.app">https://wal.app</a> only serves sites deployed on mainnet, linked with SuiNS names.
+You can run a portal to access mainnet sites as well.
+Walrus Foundation does not maintain a Portal that serves testnet Walrus Sites.
+To access Sites deployed on testnet you can either use a thirdparty testnet portal,
+self-host one or run one locally.</p>
+</div>
+</div>
 <p>We maintain a list of known portals. New portals can self-identify by opening a PR to add themselves
 to the list.</p>
 <h2 id="known-portals"><a class="header" href="#known-portals">Known portals</a></h2>
@@ -5596,18 +5629,6 @@ to the list.</p>
 <ul>
 <li><code>https://wal.app (Mysten Labs)</code></li>
 </ul>
-<div id="admonition-warning" class="admonition admonish-warning" role="note" aria-labelledby="admonition-warning-title">
-<div class="admonition-title">
-<div id="admonition-warning-title">
-<p>Warning</p>
-</div>
-<a class="admonition-anchor-link" href="walrus-sites/portal.html#admonition-warning"></a>
-</div>
-<div>
-<p>We are sunsetting the testnet portal! From now on, you can only access the mainnet portal
-at <a href="https://wal.app">https://wal.app</a>.</p>
-</div>
-</div>
 <div id="admonition-hosting-of-the-service-worker" class="admonition admonish-note" role="note" aria-labelledby="admonition-hosting-of-the-service-worker-title">
 <div class="admonition-title">
 <div id="admonition-hosting-of-the-service-worker-title">
