@@ -10,6 +10,13 @@ portals:
 
 Currently, only a server-side portal is served at <https://wal.app>.
 
+```admonish warning title="Important: Testnet Portal Access"
+There is **no public testnet portal** available. From now on, you can only access the mainnet portal at https://wal.app.
+For testnet sites, you must either:
+- Run a portal locally (see instructions below)
+- Self-host your own portal with a custom domain
+```
+
 We maintain a list of known portals. New portals can self-identify by opening a PR to add themselves
 to the list.
 
@@ -25,11 +32,6 @@ Portals can self-identify by opening a PR that adds an entry to `docs/book/porta
   {{else}}
 - `https://wal.app (operated by Mysten Labs)`
   {{/if}}
-
-```admonish warning
-We are sunsetting the testnet portal! From now on, you can only access the mainnet portal
-at <https://wal.app>.
-```
 
 ```admonish note title="Hosting of the service worker"
 The service-worker portal is no longer hosted, but you can still run it locally. Its code is
