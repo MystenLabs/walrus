@@ -73,11 +73,11 @@ impl NodeCommunicationFactory {
     }
 
     /// Returns a vector of [`NodeWriteCommunication`] objects representing nodes in random order.
-    pub(crate) fn node_write_communications<'a>(
-        &'a self,
-        committees: &'a ActiveCommittees,
+    pub(crate) fn node_write_communications(
+        &self,
+        committees: &ActiveCommittees,
         sliver_write_limit: Arc<Semaphore>,
-    ) -> ClientResult<Vec<NodeWriteCommunication<'a>>> {
+    ) -> ClientResult<Vec<NodeWriteCommunication>> {
         self.remove_old_cached_clients(
             committees,
             &mut self
@@ -101,11 +101,11 @@ impl NodeCommunicationFactory {
     ///
     /// Returns a [`ClientError`] with [`ClientErrorKind::BehindCurrentEpoch`] if the certified
     /// epoch is greater than the current committee epoch.
-    pub(crate) fn node_read_communications<'a>(
-        &'a self,
-        committees: &'a ActiveCommittees,
+    pub(crate) fn node_read_communications(
+        &self,
+        committees: &ActiveCommittees,
         certified_epoch: Epoch,
-    ) -> ClientResult<Vec<NodeReadCommunication<'a>>> {
+    ) -> ClientResult<Vec<NodeReadCommunication>> {
         self.remove_old_cached_clients(
             committees,
             &mut self
@@ -128,23 +128,23 @@ impl NodeCommunicationFactory {
 
     /// Returns a vector of [`NodeReadCommunication`] objects, the weight of which is at least a
     /// quorum.
-    pub(crate) fn node_read_communications_quorum<'a>(
-        &'a self,
-        committees: &'a ActiveCommittees,
+    pub(crate) fn node_read_communications_quorum(
+        &self,
+        committees: &ActiveCommittees,
         certified_epoch: Epoch,
-    ) -> ClientResult<Vec<NodeReadCommunication<'a>>> {
+    ) -> ClientResult<Vec<NodeReadCommunication>> {
         self.node_read_communications_threshold(committees, certified_epoch, |weight| {
             committees.is_quorum(weight)
         })
     }
 
     /// Returns a vector of [`NodeWriteCommunication`] objects, matching the specified node IDs.
-    pub(crate) fn node_write_communications_by_id<'a>(
-        &'a self,
-        committees: &'a ActiveCommittees,
+    pub(crate) fn node_write_communications_by_id(
+        &self,
+        committees: &ActiveCommittees,
         sliver_write_limit: Arc<Semaphore>,
         node_ids: impl IntoIterator<Item = ObjectID>,
-    ) -> ClientResult<Vec<NodeWriteCommunication<'a>>> {
+    ) -> ClientResult<Vec<NodeWriteCommunication>> {
         self.remove_old_cached_clients(
             committees,
             &mut self
@@ -190,20 +190,20 @@ impl NodeCommunicationFactory {
     /// # Panics
     ///
     /// Panics if the index is out of range of the committee members.
-    fn create_node_communication<'a>(
-        &'a self,
-        committee: &'a Committee,
+    fn create_node_communication(
+        &self,
+        committee: &Committee,
         index: usize,
-    ) -> Result<Option<NodeCommunication<'a>>, ClientBuildError> {
-        let node = &committee.members()[index];
-        let client = self.create_client(node)?;
+    ) -> Result<Option<NodeCommunication>, ClientBuildError> {
+        let node = committee.members()[index].clone();
+        let client = self.create_client(&node)?;
 
         Ok(NodeCommunication::new(
             index,
             committee.epoch,
             client,
             node,
-            &self.encoding_config,
+            Arc::clone(&self.encoding_config),
             self.config.request_rate_config.clone(),
         ))
     }
@@ -216,23 +216,23 @@ impl NodeCommunicationFactory {
     /// # Panics
     ///
     /// Panics if the index is out of range of the committee members.
-    fn create_read_communication<'a>(
-        &'a self,
-        read_committee: &'a Committee,
+    fn create_read_communication(
+        &self,
+        read_committee: &Committee,
         index: usize,
-    ) -> Result<Option<NodeReadCommunication<'a>>, ClientBuildError> {
+    ) -> Result<Option<NodeReadCommunication>, ClientBuildError> {
         self.create_node_communication(read_committee, index)
     }
 
     /// Builds a [`NodeWriteCommunication`] object for the given storage node.
     ///
     /// Returns `None` if the node has no shards.
-    fn create_write_communication<'a>(
-        &'a self,
-        write_committee: &'a Committee,
+    fn create_write_communication(
+        &self,
+        write_committee: &Committee,
         index: usize,
         sliver_write_limit: Arc<Semaphore>,
-    ) -> Result<Option<NodeWriteCommunication<'a>>, ClientBuildError> {
+    ) -> Result<Option<NodeWriteCommunication>, ClientBuildError> {
         let maybe_node_communication = self
             .create_node_communication(write_committee, index)?
             .map(|nc| nc.with_write_limits(sliver_write_limit));
@@ -295,12 +295,12 @@ impl NodeCommunicationFactory {
     /// fulfilled after considering all storage nodes. Returns a [`ClientError`] with
     /// [`ClientErrorKind::BehindCurrentEpoch`] if the certified epoch is greater than the current
     /// committee epoch.
-    fn node_read_communications_threshold<'a>(
-        &'a self,
-        committees: &'a ActiveCommittees,
+    fn node_read_communications_threshold(
+        &self,
+        committees: &ActiveCommittees,
         certified_epoch: Epoch,
         threshold_fn: impl Fn(usize) -> bool,
-    ) -> ClientResult<Vec<NodeReadCommunication<'a>>> {
+    ) -> ClientResult<Vec<NodeReadCommunication>> {
         let read_committee = committees.read_committee(certified_epoch).ok_or_else(|| {
             ClientErrorKind::BehindCurrentEpoch {
                 client_epoch: committees.epoch(),
@@ -338,10 +338,10 @@ impl NodeCommunicationFactory {
 }
 
 /// Create a vector of node communication objects from the given committee and constructor.
-fn node_communications<'a, W>(
+fn node_communications<W>(
     committee: &Committee,
-    constructor: impl Fn(usize) -> Result<Option<NodeCommunication<'a, W>>, ClientBuildError>,
-) -> ClientResult<Vec<NodeCommunication<'a, W>>> {
+    constructor: impl Fn(usize) -> Result<Option<NodeCommunication<W>>, ClientBuildError>,
+) -> ClientResult<Vec<NodeCommunication<W>>> {
     if committee.n_members() == 0 {
         return Err(ClientError::from(ClientErrorKind::EmptyCommittee));
     }
