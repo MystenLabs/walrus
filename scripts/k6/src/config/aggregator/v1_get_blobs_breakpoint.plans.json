@@ -15,14 +15,14 @@
   "performance-main-baseline:download:throughput:requests": {
     "payloadSize": "1Ki",
     "environment": "walrus-performance-network",
-    "targetRate": "300",
+    "targetRate": "400",
     "duration": "5m"
   },
   "performance-main-baseline:download:throughput:data": {
     "payloadSize": "100Mi",
     "timeout": "5m",
     "environment": "walrus-performance-network",
-    "targetRate": "100",
+    "targetRate": "200",
     "duration": "5m"
   }
 }
