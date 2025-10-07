@@ -38,6 +38,7 @@ pub use self::{
     committees_refresh_config::CommitteesRefreshConfig,
     communication_config::{ClientCommunicationConfig, CommunicationLimits},
     reqwest_config::RequestRateConfig,
+    sliver_write_extra_time::SliverWriteExtraTime,
     upload_mode::UploadMode,
 };
 

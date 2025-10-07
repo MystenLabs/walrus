@@ -12,6 +12,7 @@ pub mod config;
 pub mod error;
 pub mod store_optimizations;
 pub mod upload_relay;
+pub mod uploader;
 pub mod utils;
 
 pub use sui_types::{base_types::ObjectID, event::EventID};
