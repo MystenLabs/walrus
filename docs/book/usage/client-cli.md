@@ -89,36 +89,88 @@ to a different wallet. Note, it is possible to store multiple blobs with a singl
 command.
 ```
 
-Storing one or multiple blobs on Walrus can be achieved through the following command:
+### Basic storage command
+
+Store one or multiple blobs on Walrus with:
 
 ```sh
 walrus store <FILES> --epochs <EPOCHS>
 ```
 
-A mandatory CLI argument must be set to specify the lifetime for the blob. There are currently three
-ways for this:
+**Example: Store a single file**
 
-1. The `--epochs <EPOCHS>` option indicates the number of epochs the blob should be stored for.
-   There is an upper limit on the number of epochs a blob can be stored for, which is 53, corresponding
-   to two years. In addition to a positive integer, you can also use `--epochs max` to store the blob
-   for the maximum number of epochs. Note that the end epoch is defined as the current epoch plus the
-   specified number of epochs.
-1. The `--earliest-expiry-time <EARLIEST_EXPIRY_TIME>` option takes a date in RFC3339 format
-   (e.g., "2024-03-20T15:00:00Z") or a more relaxed format (e.g., "2024-03-20 15:00:00") and ensures
-   the blob expires after that date if possible.
-1. The `--end-epoch <END_EPOCH>` option takes a specific end epoch for the blob.
-
-```admonish warning title="End epoch"
-A blob expires *at the beginning of its end epoch*. For example, a blob with end epoch `314` will
-become unavailable at the beginning of epoch `314`. One consequence of this is that when storing a
-blob with `--epochs 1` immediately before an epoch change, it will expire and become unavailable
-almost immediately. Note that blobs can be [extended](#extending-the-lifetime-of-a-blob) only if
-they have not expired.
+```sh
+walrus store hello.txt --epochs 5
 ```
 
-You can store a single file or multiple files, separated by spaces. Notably, this is compatible
-with glob patterns; for example, `walrus store *.png --epochs <EPOCHS>` will store all PNG files
-in the current directory.
+**What you'll see:**
+
+```terminal
+$ walrus store hello.txt --epochs 5
+Storing file: hello.txt
+File size: 14 bytes
+Cost: 0.0005 WAL
+
+Uploading blob...
+Successfully stored blob!
+
+Blob ID: BFkH3kXJF6K1yZ8...
+Object ID: 0x1234abcd...
+End epoch: 47
+```
+
+**Save the Blob ID** - you'll need this to retrieve or reference your file later.
+
+**Example: Store multiple files**
+
+```sh
+walrus store file1.txt file2.txt file3.txt --epochs 5
+```
+
+Or use glob patterns:
+
+```sh
+walrus store *.png --epochs 5  # Store all PNG files in current directory
+```
+
+### Specifying storage duration
+
+You must specify how long to store your blob. There are three ways:
+
+**1. By number of epochs (most common):**
+
+```sh
+walrus store myfile.txt --epochs 5        # Store for 5 epochs
+walrus store myfile.txt --epochs max      # Store for maximum duration (53 epochs)
+```
+
+```admonish tip title="What's an epoch?"
+An **epoch** is Walrus's unit of time:
+- **Testnet:** 1 epoch = 1 day
+- **Mainnet:** 1 epoch = 2 weeks
+
+The end epoch = current epoch + number of epochs you specify.
+```
+
+**2. By date:**
+
+```sh
+walrus store myfile.txt --earliest-expiry-time "2025-12-31 23:59:59"
+```
+
+This ensures your blob stays available until at least that date.
+
+**3. By specific end epoch:**
+
+```sh
+walrus store myfile.txt --end-epoch 100
+```
+
+```admonish warning title="When blobs expire"
+A blob expires *at the beginning of its end epoch*. For example, a blob with end epoch `314` becomes unavailable when epoch `314` starts.
+
+**Important:** Storing with `--epochs 1` right before an epoch change means your blob expires almost immediately! Blobs can only be [extended](#extending-the-lifetime-of-a-blob) before they expire.
+```
 
 You can specify whether a newly stored blob is *deletable* or *permanent* through the `--deletable`
 and `--permanent` option, respectively:
@@ -202,15 +254,42 @@ The existence of this event certifies the availability of the blob.
 
 ## Reading blobs
 
-Reading blobs from Walrus can be achieved through the following command:
+Retrieve blobs from Walrus using their Blob ID:
 
 ```sh
-walrus read <some blob ID>
+walrus read <BLOB_ID>
 ```
 
-By default the blob data is written to the standard output. The `--out <OUT>` CLI option
-can be used to specify an output file name. The `--rpc-url <URL>` may be used to specify
-a Sui RPC node to use instead of the one set in the wallet configuration or the default one.
+**Example: Read to stdout**
+
+```sh
+walrus read BFkH3kXJF6K1yZ8...
+```
+
+The blob contents will be printed to your terminal.
+
+**Example: Save to a file**
+
+```sh
+walrus read BFkH3kXJF6K1yZ8... --out myfile.txt
+```
+
+**What you'll see:**
+
+```terminal
+$ walrus read BFkH3kXJF6K1yZ8... --out downloaded.txt
+Reading blob BFkH3kXJF6K1yZ8...
+Blob size: 14 bytes
+Downloaded to: downloaded.txt
+```
+
+```admonish tip title="Advanced: Custom RPC"
+By default, Walrus uses the RPC node from your wallet config. To use a different one:
+
+\`\`\`sh
+walrus read <BLOB_ID> --rpc-url https://fullnode.testnet.sui.io:443
+\`\`\`
+```
 
 ## Extending the lifetime of a blob
 

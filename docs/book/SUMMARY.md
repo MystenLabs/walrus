@@ -6,21 +6,10 @@
 
 ---
 
-# Dev Blog
-
-- [Blog Preface](./blog/00_intro.md)
-  - [Announcing Walrus](./blog/01_announcing_walrus.md)
-  - [Devnet Update](./blog/02_devnet_update.md)
-  - [Announcing the Walrus Whitepaper](./blog/03_whitepaper.md)
-  - [Announcing Testnet](./blog/04_testnet_update.md)
-  - [Announcing Testnet v2](./blog/05_testnet_redeployment.md)
-  - [Announcing Mainnet](./blog/06_mainnet.md)
-
----
-
 # Usage
 
-- [Getting started](./usage/started.md)
+- [Getting Started](./usage/started.md)
+- [Quick Start Guide](./usage/quickstart.md)
 - [Setup](./usage/setup.md)
   - [Available networks](./usage/networks.md)
 - [Interacting with Walrus](./usage/interacting.md)
@@ -45,6 +34,8 @@
 - [Staking and unstaking](./usage/stake.md)
 - [Examples](./usage/examples.md)
 - [Troubleshooting](./usage/troubleshooting.md)
+
+---
 
 # Sites
 
@@ -82,6 +73,18 @@
   - [Off-chain operations](./design/operations-off-chain.md)
 - [Properties](./design/properties.md)
 - [Future discussion](./design/future.md)
+
+---
+
+# Dev Blog
+
+- [Blog Preface](./blog/00_intro.md)
+  - [Announcing Walrus](./blog/01_announcing_walrus.md)
+  - [Devnet Update](./blog/02_devnet_update.md)
+  - [Announcing the Walrus Whitepaper](./blog/03_whitepaper.md)
+  - [Announcing Testnet](./blog/04_testnet_update.md)
+  - [Announcing Testnet v2](./blog/05_testnet_redeployment.md)
+  - [Announcing Mainnet](./blog/06_mainnet.md)
 
 ---
 

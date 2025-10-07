@@ -1,122 +1,74 @@
 # Setup
 
-We provide a pre-compiled `walrus` client binary for macOS (Intel and Apple CPUs) and Ubuntu, which
-supports different usage patterns (see [the next chapter](./interacting.md)). This chapter describes
-the [prerequisites](#prerequisites), [installation](#installation), and
-[configuration](#configuration) of the Walrus client.
+This page covers the full setup for both Walrus Mainnet and Testnet. For a faster, beginner-friendly introduction, see the [Quick Start Guide](./quickstart.md).
 
-Walrus is open-source under an Apache 2 license, and can also be built and installed from the Rust
-source code via cargo.
+```admonish tip title="New to Walrus? Start with Testnet"
+**We strongly recommend starting with Testnet.** It's free, requires no real tokens, and is perfect for learning and testing. Once you're comfortable, you can move to Mainnet for production use.
 
-```admonish info title="Walrus networks"
-This page describes how to connect to Walrus **Mainnet**. See [Available networks](./networks.md)
-for an overview over all Walrus networks.
+- **Testnet:** Free tokens, 1-day epochs, perfect for testing
+- **Mainnet:** Production network, requires purchasing WAL tokens, 2-week epochs
+
+Follow the [Quick Start Guide](./quickstart.md) for the fastest path to storing your first blob on Testnet.
 ```
 
-## Prerequisites: Sui wallet, SUI and WAL {#prerequisites}
+This chapter describes the [installation](#installation), [prerequisites](#prerequisites), and
+[configuration](#configuration) of the Walrus client. We provide pre-compiled binaries for macOS (Intel and Apple CPUs), Ubuntu, and Windows.
 
-```admonish tip title="Quick wallet setup"
-If you just want to set up a new Sui wallet for Walrus, you can generate one using the
-`walrus generate-sui-wallet --sui-network mainnet` command after [installing Walrus](#installation).
-You still need to obtain some SUI and WAL tokens, but you do not have to install the Sui CLI.
-```
+Walrus is open-source under an Apache 2 license and can also be built from source via Cargo.
 
-Interacting with Walrus requires a valid Sui wallet with some amount of SUI and WAL tokens. The
-normal way to set this up is via the Sui CLI; see the [installation
-instructions](https://docs.sui.io/guides/developer/getting-started/sui-install) in the Sui
-documentation.
+## Step 1: Installation {#installation}
 
-After installing the Sui CLI, you need to set up a wallet by running `sui client`, which
-prompts you to set up a new configuration. Make sure to point it to Sui Mainnet, you can use the
-full node at `https://fullnode.mainnet.sui.io:443` for this. See [the Sui
-documentation](https://docs.sui.io/guides/developer/getting-started/connect) for further details.
+Install the Walrus CLI first, then set up your wallet and configuration.
 
-After this, you should get something like this (everything besides the `mainnet` line is optional):
+We provide the `walrus` client binary for macOS, Ubuntu (works on most Linux distributions), and Windows.
 
-```terminal
-$ sui client envs
-╭──────────┬─────────────────────────────────────┬────────╮
-│ alias    │ url                                 │ active │
-├──────────┼─────────────────────────────────────┼────────┤
-│ devnet   │ https://fullnode.devnet.sui.io:443  │        │
-│ localnet │ http://127.0.0.1:9000               │        │
-│ testnet  │ https://fullnode.testnet.sui.io:443 │        │
-│ mainnet  │ https://fullnode.mainnet.sui.io:443 │ *      │
-╰──────────┴─────────────────────────────────────┴────────╯
-```
+### Choose your network
 
-Make sure you have at least one gas coin with at least 1 SUI.
-
-```terminal
-$ sui client gas
-╭─────────────────┬────────────────────┬──────────────────╮
-│ gasCoinId       │ mistBalance (MIST) │ suiBalance (SUI) │
-├─────────────────┼────────────────────┼──────────────────┤
-│ 0x65dca966dc... │ 1000000000         │ 1.00             │
-╰─────────────────┴────────────────────┴──────────────────╯
-```
-
-Finally, to publish blobs on Walrus you will need some Mainnet WAL to pay for storage and upload
-costs. You can buy WAL through a variety of centralized or decentralized exchanges.
-
-The system-wide wallet will be used by Walrus if no other path is specified. If you want to use a
-different Sui wallet, you can specify this in the [Walrus configuration file](#configuration) or
-when [running the CLI](./interacting.md).
-
-## Installation
-
-We currently provide the `walrus` client binary for macOS (Intel and Apple CPUs), Ubuntu, and
-Windows. The Ubuntu version most likely works on other Linux distributions as well.
-
-| OS      | CPU                   | Architecture                                                                                                                 |
-| ------- | --------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| Ubuntu  | Intel 64bit           | [`ubuntu-x86_64`](https://storage.googleapis.com/mysten-walrus-binaries/walrus-mainnet-latest-ubuntu-x86_64)                 |
-| Ubuntu  | Intel 64bit (generic) | [`ubuntu-x86_64-generic`](https://storage.googleapis.com/mysten-walrus-binaries/walrus-mainnet-latest-ubuntu-x86_64-generic) |
-| Ubuntu  | ARM 64bit             | [`ubuntu-aarch64`](https://storage.googleapis.com/mysten-walrus-binaries/walrus-mainnet-latest-ubuntu-aarch64)               |
-| MacOS   | Apple Silicon         | [`macos-arm64`](https://storage.googleapis.com/mysten-walrus-binaries/walrus-mainnet-latest-macos-arm64)                     |
-| MacOS   | Intel 64bit           | [`macos-x86_64`](https://storage.googleapis.com/mysten-walrus-binaries/walrus-mainnet-latest-macos-x86_64)                   |
-| Windows | Intel 64bit           | [`windows-x86_64.exe`](https://storage.googleapis.com/mysten-walrus-binaries/walrus-mainnet-latest-windows-x86_64.exe)       |
-
-### Install via script {#nix-install}
-
-To download and install `walrus` to your `"$HOME"/.local/bin` directory, run one of the following
-commands in your terminal then follow on-screen instructions. If you are on Windows, see the
-[Windows-specific instructions](#windows-install) or the [`suiup` installation](#suiup-install) (experimental)
+**For Testnet (recommended for beginners):**
 
 ```sh
-# Run a first-time install using the latest Mainnet version.
-curl -sSf https://install.wal.app | sh
-
-# Install the latest Testnet version instead.
 curl -sSf https://install.wal.app | sh -s -- -n testnet
-
-# Update an existing installation (overwrites prior version of walrus).
-curl -sSf https://install.wal.app | sh -s -- -f
 ```
 
-Make sure that the `"$HOME"/.local/bin` directory is in your `$PATH`.
+**For Mainnet (production use):**
 
-Once this is done, you should be able to run Walrus by using the `walrus` command in your terminal.
+```sh
+curl -sSf https://install.wal.app | sh
+```
 
-You can see usage instructions as follows (see [the next chapter](./interacting.md) for further
-details):
+**For Windows:** See the [Windows installation instructions](#windows-install) below.
+
+```admonish tip title="What does this do?"
+This script downloads the `walrus` binary and places it in `~/.local/bin`. Make sure this directory is in your PATH.
+
+To update an existing installation, add the `-f` flag: `curl -sSf https://install.wal.app | sh -s -- -f`
+```
+
+**Verify the installation:**
+
+```sh
+walrus --version
+```
+
+You should see output like:
 
 ```terminal
-$ walrus --help
-Walrus client
-
-Usage: walrus [OPTIONS] <COMMAND>
-
-Commands:
-⋮
+$ walrus --version
+walrus v1.x.x
 ```
 
-```admonish tip
-Our latest Walrus binaries are also available on Walrus itself, namely on
-<https://bin.wal.app>, for example, <https://bin.wal.app/walrus-mainnet-latest-ubuntu-x86_64>.
-Note that due to DoS protection, it may not be possible to download the binaries with `curl` or
-`wget`.
+You can also run:
+
+```sh
+walrus --help
 ```
+
+To see all available commands. See [Interacting with Walrus](./interacting.md) for details on using the CLI.
+
+### Alternative installation methods
+
+<details>
+<summary>Windows installation</summary>
 
 ### Install on Windows {#windows-install}
 
@@ -136,6 +88,11 @@ Note that most of the remaining instructions assume a UNIX-based system for the 
 commands, etc. If you use Windows, you may need to adapt most of those.
 ```
 
+</details>
+
+<details>
+<summary>Install via suiup (experimental)</summary>
+
 ### Install via suiup (experimental) {#suiup-install}
 
 `suiup` is a tool to install and manage different versions of CLI tools for working in the Sui
@@ -148,6 +105,11 @@ suiup install walrus@testnet # install the latest testnet release
 suiup install walrus@mainnet # install the latest mainnet release
 suiup install walrus@testnet-v1.27.1 # install a specific release
 ```
+
+</details>
+
+<details>
+<summary>Build from source or use Cargo</summary>
 
 ### GitHub releases
 
@@ -174,31 +136,176 @@ The latest version of Mainnet and Testnet are available under the branches `main
 respectively, and the latest version under the `main` branch. We welcome reports of issues and bug
 fixes. Follow the instructions in the `README.md` file to build and use Walrus from source.
 
-## Configuration
+</details>
 
-The Walrus client needs to know about the Sui objects that store the Walrus system and staking
-information, see the [developer guide](../dev-guide/sui-struct.md#system-and-staking-information).
-These need to be configured in a file `~/.config/walrus/client_config.yaml`.
+## Step 2: Set Up Your Wallet {#prerequisites}
 
-You can access Testnet and Mainnet via the following configuration. Note that this example Walrus
-CLI configuration refers to the standard location for Sui configuration
-(`"~/.sui/sui_config/client.yaml"`).
+```admonish info title="Why do I need a Sui wallet?"
+Walrus uses the Sui blockchain for coordination and payments:
+- **SUI tokens** pay for blockchain transaction fees (gas)
+- **WAL tokens** pay for storage on Walrus
+- Your wallet securely stores your tokens and identity
+
+Think of your Sui wallet as your account for Walrus.
+```
+
+You have two options:
+
+### Option A: Quick wallet generation (easiest)
+
+Generate a new Sui wallet specifically for Walrus:
+
+**For Testnet:**
+```sh
+walrus generate-sui-wallet --sui-network testnet
+```
+
+**For Mainnet:**
+```sh
+walrus generate-sui-wallet --sui-network mainnet
+```
+
+```admonish warning title="Save your recovery phrase!"
+The command will display a recovery phrase. Write this down and store it safely! Without it, you cannot recover your wallet if you lose access.
+```
+
+### Option B: Use the Sui CLI (for advanced users)
+
+If you want more control or already use Sui, install the [Sui CLI](https://docs.sui.io/guides/developer/getting-started/sui-install).
+
+After installation, set up your wallet:
+
+**For Testnet:**
+```sh
+sui client new-env --alias testnet --rpc https://fullnode.testnet.sui.io:443
+sui client switch --env testnet
+```
+
+**For Mainnet:**
+```sh
+sui client new-env --alias mainnet --rpc https://fullnode.mainnet.sui.io:443
+sui client switch --env mainnet
+```
+
+Verify your environment is active:
+
+```sh
+sui client envs
+```
+
+You should see a `*` next to your chosen network (testnet or mainnet).
+
+### Get tokens
+
+Now you need tokens to use Walrus.
+
+#### For Testnet (free):
+
+1. **Get SUI tokens from the faucet:**
+
+   Find your address:
+   ```sh
+   sui client active-address
+   ```
+
+   Visit the [Sui Testnet Faucet](https://faucet.sui.io/?network=testnet) and enter your address.
+
+2. **Verify you received SUI:**
+   ```sh
+   sui client balance
+   ```
+
+   You should see at least 1 SUI.
+
+3. **Exchange SUI for WAL:**
+   ```sh
+   walrus get-wal
+   ```
+
+   This exchanges 0.5 SUI for 0.5 WAL (both are free test tokens).
+
+4. **Verify you have both tokens:**
+   ```sh
+   sui client balance
+   ```
+
+   You should now see both SUI and WAL in your balance.
+
+#### For Mainnet (requires purchase):
+
+1. **Get SUI tokens:** Purchase SUI from a cryptocurrency exchange.
+
+2. **Transfer SUI to your wallet:** Use the address from `sui client active-address`.
+
+3. **Get WAL tokens:** Purchase WAL from a centralized or decentralized exchange.
+
+4. **Verify your balance:**
+   ```sh
+   sui client balance
+   ```
+
+   You should see both SUI and WAL tokens.
+
+```admonish tip title="How much do I need?"
+- **For Testnet:** The faucet provides enough to get started
+- **For Mainnet:** Start with at least 1 SUI for gas and enough WAL for your storage needs. Check current prices with `walrus info`.
+```
+
+## Step 3: Configuration {#configuration}
+
+Walrus needs a configuration file that tells it which network to connect to (Testnet or Mainnet) and where your Sui wallet is located.
+
+### Create the configuration
+
+```sh
+# Create the directory (this command is safe to run even if it exists)
+mkdir -p ~/.config/walrus
+
+# Download the configuration file
+curl https://docs.wal.app/setup/client_config.yaml -o ~/.config/walrus/client_config.yaml
+```
+
+```admonish success title="That's it!"
+The downloaded configuration file includes settings for both Testnet and Mainnet. Walrus will automatically use the correct network based on which Sui environment is active in your wallet.
+```
+
+### Verify your configuration
+
+Check that Walrus can connect to the network:
+
+```sh
+walrus info
+```
+
+You should see information about the Walrus network, including:
+
+```terminal
+$ walrus info
+
+Walrus system information
+
+Epochs and storage duration
+Current epoch: 42
+...
+```
+
+If you see this, you're ready to use Walrus!
+
+### Understanding the configuration file
+
+The configuration file contains network information for both Testnet and Mainnet:
 
 ```yaml
 {{ #include ../setup/client_config.yaml }}
 ```
 
-<!-- markdownlint-disable code-fence-style -->
+```admonish tip title="Multiple networks"
+The config file has two contexts: `mainnet` and `testnet`. Walrus automatically uses the one matching your active Sui environment. To switch networks, just change your Sui environment:
 
-````admonish tip
-The easiest way to obtain the latest configuration is by downloading it directly from Walrus:
-
-```sh
-curl https://docs.wal.app/setup/client_config.yaml -o ~/.config/walrus/client_config.yaml
+\`\`\`sh
+sui client switch --env testnet  # or mainnet
+\`\`\`
 ```
-````
-
-<!-- markdownlint-enable code-fence-style -->
 
 ### Custom path (optional) {#config-custom-path}
 

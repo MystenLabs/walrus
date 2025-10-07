@@ -35,7 +35,7 @@ struct Args {
     #[arg(
         long,
         short,
-        help = "Override the metrics address to use (ie: 127.0.0.1:9184)"
+        help = "Override the metrics address to use (ie: 0.0.0.0:9184)"
     )]
     metrics_address: Option<std::net::SocketAddr>,
     #[command(subcommand)]
