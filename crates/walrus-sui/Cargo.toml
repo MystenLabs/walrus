@@ -33,6 +33,7 @@ jsonrpsee.workspace = true
 move-core-types.workspace = true
 move-package.workspace = true
 mysten-metrics.workspace = true
+prost-types = "0.13.1"
 prometheus.workspace = true
 rand.workspace = true
 regex.workspace = true

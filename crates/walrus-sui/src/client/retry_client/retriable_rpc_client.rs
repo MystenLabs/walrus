@@ -563,6 +563,121 @@ impl RetriableRpcClient {
         )
         .await;
     }
+
+    /// Experimental: Gets checkpoint data with field masking for event processing.
+    ///
+    /// This method uses gRPC field masking to request only:
+    /// - checkpoint summary (for verification)
+    /// - checkpoint contents (for transaction digests)
+    /// - transaction events
+    /// - output objects (for package store updates)
+    ///
+    /// Transaction and TransactionEffects are NOT requested, making this resilient
+    /// to BCS deserialization failures when those types change.
+    ///
+    /// **Note**: This is experimental and may not work with all Sui RPC implementations.
+    pub async fn get_checkpoint_for_events_experimental(
+        &self,
+        sequence_number: u64,
+    ) -> Result<
+        crate::client::retry_client::experimental_field_masking::CheckpointForEvents,
+        RetriableClientError,
+    > {
+        use prost_types::FieldMask;
+
+        use crate::client::retry_client::experimental_field_masking::{
+            CheckpointForEvents, deserialize_checkpoint_for_events,
+        };
+
+        let start_time = Instant::now();
+
+        async fn make_request(
+            client: Arc<FallibleRpcClient>,
+            sequence_number: u64,
+            request_timeout: Duration,
+        ) -> Result<CheckpointForEvents, RetriableClientError> {
+            client
+                .call(
+                    |rpc_client| {
+                        async move {
+                            use sui_rpc_api::proto::sui::rpc::v2beta2 as proto;
+
+                            // Build request with field mask.
+                            let mut request = proto::GetCheckpointRequest::default();
+                            request.checkpoint_id = Some(
+                                proto::get_checkpoint_request::CheckpointId::SequenceNumber(
+                                    sequence_number,
+                                ),
+                            );
+                            request.read_mask = Some(FieldMask {
+                                paths: vec![
+                                    "summary.bcs".to_string(),
+                                    "signature".to_string(),
+                                    "contents.bcs".to_string(),
+                                    "transactions.events.bcs".to_string(),
+                                    "transactions.output_objects.bcs".to_string(),
+                                ],
+                            });
+
+                            let response = rpc_client
+                                .raw_client()
+                                .max_decoding_message_size(128 * 1024 * 1024)
+                                .get_checkpoint(request)
+                                .await?
+                                .into_inner();
+
+                            let checkpoint = response
+                                .checkpoint
+                                .ok_or_else(|| tonic::Status::not_found("no checkpoint returned"))?;
+
+                            // Deserialize only the requested fields.
+                            deserialize_checkpoint_for_events(&checkpoint).map_err(|e| {
+                                tonic::Status::invalid_argument(format!(
+                                    "failed to deserialize checkpoint for events: {}",
+                                    e
+                                ))
+                            })
+                        }
+                    },
+                    request_timeout,
+                )
+                .await
+                .map_err(|status| CheckpointRpcError::from((status, sequence_number)).into())
+        }
+
+        let request = |client: Arc<FallibleRpcClient>, method| {
+            retry_rpc_errors(
+                self.get_strategy(),
+                move || make_request(client.clone(), sequence_number, self.request_timeout),
+                self.metrics.clone(),
+                method,
+            )
+        };
+
+        let result = self
+            .client
+            .with_failover(request, self.metrics.clone(), "get_checkpoint_for_events")
+            .await;
+
+        if let Some(metrics) = self.metrics.as_ref() {
+            let status = match result {
+                Ok(_) => "success",
+                Err(_) => "failure",
+            };
+            metrics.record_rpc_latency(
+                "get_checkpoint_for_events",
+                &self
+                    .client
+                    .get_current_rpc_url()
+                    .await
+                    .unwrap_or_else(|_| "unknown_url".to_string()),
+                status,
+                start_time.elapsed(),
+            );
+        }
+
+        result
+    }
 }
 
 /// Custom error type for RetriableRpcClient operations

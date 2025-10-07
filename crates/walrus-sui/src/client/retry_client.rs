@@ -11,6 +11,7 @@ use retriable_rpc_client::FallbackError;
 use walrus_utils::backoff::BackoffStrategy;
 
 pub use self::{
+    experimental_field_masking::{CheckpointForEvents, TransactionForEvents},
     failover::FailoverWrapper,
     fallible::FallibleRpcClient,
     retriable_rpc_client::{CheckpointRpcError, RetriableClientError, RetriableRpcClient},
@@ -21,6 +22,7 @@ use super::{SuiClientError, SuiClientResult};
 use crate::client::SuiClientMetricSet;
 
 pub mod download_handler;
+pub mod experimental_field_masking;
 pub mod failover;
 pub mod fallible;
 pub mod retriable_rpc_client;

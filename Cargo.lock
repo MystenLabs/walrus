@@ -13105,6 +13105,7 @@ dependencies = [
  "move-package",
  "mysten-metrics",
  "prometheus",
+ "prost-types",
  "rand 0.8.5",
  "regex",
  "reqwest",
