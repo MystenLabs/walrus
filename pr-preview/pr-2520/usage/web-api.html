@@ -377,6 +377,7 @@ good job of inferring content types for media. However, the aggregator on purpos
 sniffing from inferring dangerous executable types such as JavaScript or style sheet types.</p>
 </div>
 </div>
+<h4 id="reading-by-object-id"><a class="header" href="#reading-by-object-id">Reading by object ID</a></h4>
 <p>Blobs may also be read by using the object ID of a Sui blob object or a shared blob.
 For example the following
 cURL command downloads the blob corresponding to a Sui blob with a specific object ID:</p>
@@ -386,6 +387,10 @@ cURL command downloads the blob corresponding to a Sui blob with a specific obje
 The aggregator recognizes the attribute keys <code>content-disposition</code>, <code>content-encoding</code>,
 <code>content-language</code>, <code>content-location</code>, <code>content-type</code>, and <code>link</code>, and when present returns
 the values in the corresponding HTTP headers.</p>
+<h4 id="integrity-checks"><a class="header" href="#integrity-checks">Integrity checks</a></h4>
+<p>The integrity checks performed by the aggregator are the same as the ones <a href="./client-cli.html#integrity-checks">performed by the CLI</a>.
+For special use cases, the <a href="../design/encoding.html#strict-integrity-check">strict integrity check</a>
+can be enabled by adding a query parameter <code>strict_integrity_check=true</code> (starting with <code>v1.35</code>).</p>
 <h3 id="quilt-http-apis"><a class="header" href="#quilt-http-apis">Quilt HTTP APIs</a></h3>
 <p>Walrus supports storing and retrieving multiple blobs as a single unit called a <a href="./quilt.html">quilt</a>.
 The publishers and aggregators support <em>quilt</em> related operations.</p>
