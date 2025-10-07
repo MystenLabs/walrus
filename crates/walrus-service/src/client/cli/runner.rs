@@ -4,10 +4,15 @@
 //! Helper struct to run the Walrus client binary commands.
 
 use std::{
+    collections::HashMap,
+    env,
+    fs as stdfs,
     io::Write,
     iter,
     num::NonZeroU16,
     path::{Path, PathBuf},
+    process::Stdio,
+    str::FromStr,
     sync::Arc,
     time::Duration,
 };
@@ -15,12 +20,13 @@ use std::{
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use fastcrypto::encoding::Encoding;
-use indicatif::MultiProgress;
+use indicatif::{MultiProgress, ProgressBar};
 use itertools::Itertools as _;
 use rand::seq::SliceRandom;
 use reqwest::Url;
 use sui_config::{SUI_CLIENT_CONFIG, sui_config_dir};
 use sui_types::base_types::ObjectID;
+use tokio::{io::AsyncBufReadExt, process::Command as TokioCommand};
 use walrus_core::{
     BlobId,
     DEFAULT_ENCODING,
@@ -49,9 +55,10 @@ use walrus_sdk::{
             read_blobs_from_paths,
         },
         resource::RegisterBlobOp,
+        responses as sdk_responses,
         upload_relay_client::UploadRelayClient,
     },
-    config::{UploadMode, load_configuration},
+    config::{UploadMode, UploadPreset, load_configuration},
     error::ClientErrorKind,
     store_optimizations::StoreOptimizations,
     sui::{
@@ -66,7 +73,8 @@ use walrus_sdk::{
         types::move_structs::{Authorized, BlobAttribute, EpochState},
         utils::SuiNetwork,
     },
-    utils::styled_spinner,
+    uploader::{TailHandling, UploaderEvent},
+    utils::{styled_progress_bar_with_disabled_steady_tick, styled_spinner},
 };
 use walrus_storage_node_client::api::BlobStatus;
 use walrus_sui::{client::rpc_client, wallet::Wallet};
@@ -101,6 +109,7 @@ use crate::{
         cli::{
             BlobIdDecimal,
             CliOutput,
+            HumanReadableBytes,
             HumanReadableFrost,
             HumanReadableMist,
             QuiltBlobInput,
@@ -108,6 +117,7 @@ use crate::{
             QuiltPatchByPatchId,
             QuiltPatchByTag,
             QuiltPatchSelector,
+            WalrusColors,
             args::{CommonStoreOptions, TraceExporter},
             get_contract_client,
             get_read_client,
@@ -145,13 +155,438 @@ use crate::{
     common::telemetry::TracingSubscriberBuilder,
     utils::{self, MetricsAndLoggingRuntime, generate_sui_wallet},
 };
+// Colorize is imported locally where needed to avoid unused warning.
 
 fn apply_upload_mode_to_config(
     mut config: walrus_sdk::config::ClientConfig,
     upload_mode: UploadMode,
 ) -> walrus_sdk::config::ClientConfig {
-    config.communication_config = upload_mode.apply_to(config.communication_config.clone());
+    // Use UploadPreset to apply tuning to the communication config
+    let preset = match upload_mode {
+        UploadMode::Conservative => UploadPreset::Conservative,
+        UploadMode::Balanced => UploadPreset::Balanced,
+        UploadMode::Aggressive => UploadPreset::Aggressive,
+    };
+    config.communication_config = preset.apply_to(config.communication_config.clone());
     config
+}
+
+/// Deserializable representation of JSON events from the walrus-uploader-child stdout.
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
+#[serde(tag = "type", rename_all = "snake_case")]
+enum ChildUploaderEvent {
+    SliverProgress {
+        blob_id: String,
+        completed_weight: u64,
+        total_weight: u64,
+    },
+    QuorumReached {
+        blob_id: String,
+        #[serde(default)]
+        #[allow(dead_code)]
+        elapsed_ms: u64,
+        extra_ms: u64,
+    },
+    V1Certified {
+        blob_id: String,
+        object_id: String,
+        #[serde(default)]
+        end_epoch: Option<u64>,
+        #[serde(default)]
+        shared_object_id: Option<String>,
+    },
+    StoreDetailNewlyCreated {
+        path: String,
+        blob_id: String,
+        object_id: String,
+        deletable: bool,
+        unencoded_size: u64,
+        encoded_size: u64,
+        cost: u64,
+        end_epoch: u64,
+        #[serde(default)]
+        shared_blob_object_id: Option<String>,
+        encoding_type: String,
+        operation_note: String,
+    },
+    StoreDetailAlreadyCertified {
+        path: String,
+        blob_id: String,
+        end_epoch: u64,
+        event_or_object: String,
+    },
+    Done {
+        #[allow(dead_code)]
+        ok: bool,
+        #[allow(dead_code)]
+        error: Option<String>,
+        #[serde(default)]
+        newly_certified: u64,
+        #[serde(default)]
+        reuse_and_extend_count: u64,
+        #[serde(default)]
+        total_encoded_size: u64,
+        #[serde(default)]
+        total_cost: u64,
+    },
+}
+
+// Spawn a background task to forward child's stderr to parent's stderr line-by-line.
+fn spawn_child_stderr_to_stderr(stderr: tokio::process::ChildStderr) {
+    tokio::spawn(async move {
+        let reader = tokio::io::BufReader::new(stderr);
+        let mut lines = reader.lines();
+        while let Ok(Some(line)) = lines.next_line().await {
+            eprintln!("[child] {line}");
+            tracing::debug!(target = "walrus.child", line = %line, "child stderr");
+        }
+    });
+}
+
+// Process child's stdout JSON event stream; invoke `on_quorum` when quorum is reached, then return.
+async fn process_child_stdout_events<F, Fut>(
+    stdout: tokio::process::ChildStdout,
+    on_quorum: F,
+    expected_blobs: usize,
+    progress_bar: Option<ProgressBar>,
+) where
+    F: Fn(BlobId, std::time::Duration) -> Fut,
+    Fut: std::future::Future<Output = ()>,
+{
+    process_child_stdout_reader(
+        tokio::io::BufReader::new(stdout),
+        on_quorum,
+        expected_blobs,
+        progress_bar,
+    )
+    .await;
+}
+
+async fn process_child_stdout_reader<R, F, Fut>(
+    reader: R,
+    on_quorum: F,
+    expected_blobs: usize,
+    mut progress_bar: Option<ProgressBar>,
+) where
+    R: tokio::io::AsyncBufRead + Unpin,
+    F: Fn(BlobId, std::time::Duration) -> Fut,
+    Fut: std::future::Future<Output = ()>,
+{
+    let mut lines = reader.lines();
+    let mut certified_count = 0;
+    let multi = MultiProgress::new();
+    let mut per_blob_bars: HashMap<String, ProgressBar> = HashMap::new();
+
+    while let Ok(Some(line)) = lines.next_line().await {
+        match serde_json::from_str::<ChildUploaderEvent>(&line) {
+            Ok(event) => match event {
+                ChildUploaderEvent::SliverProgress {
+                    blob_id,
+                    completed_weight,
+                    total_weight,
+                } => {
+                    tracing::debug!(
+                        completed_weight,
+                        total_weight,
+                        blob_id,
+                        "child: sliver progress"
+                    );
+                    let bar = per_blob_bars.entry(blob_id.clone()).or_insert_with(|| {
+                        let pb = styled_progress_bar_with_disabled_steady_tick(total_weight);
+                        pb.disable_steady_tick();
+                        multi.add(pb)
+                    });
+                    bar.set_length(total_weight);
+                    bar.set_position(std::cmp::min(completed_weight, total_weight));
+                }
+                ChildUploaderEvent::QuorumReached {
+                    blob_id,
+                    extra_ms,
+                    elapsed_ms,
+                } => {
+                    tracing::debug!(elapsed_ms, "child: quorum elapsed");
+                    if let Some(pb) = per_blob_bars.get(&blob_id) {
+                        pb.finish_with_message(format!("slivers sent blob ({})", blob_id));
+                    }
+                    if let Ok(blob_id) = BlobId::from_str(&blob_id) {
+                        tracing::info!(
+                            %blob_id, extra_ms, "child: quorum reached; sending deferral notice");
+                        on_quorum(blob_id, std::time::Duration::from_millis(extra_ms)).await;
+                    } else {
+                        tracing::warn!(blob_id, "child: failed to parse blob_id");
+                    }
+                }
+                ChildUploaderEvent::V1Certified {
+                    blob_id,
+                    object_id,
+                    end_epoch,
+                    shared_object_id,
+                } => {
+                    tracing::info!(
+                        blob_id,
+                        object_id,
+                        ?end_epoch,
+                        ?shared_object_id,
+                        "certified blob on Sui"
+                    );
+                    certified_count += 1;
+                    if certified_count >= expected_blobs {
+                        tracing::info!(
+                            certified_count,
+                            expected_blobs,
+                            "child: all blobs certified; parent can exit"
+                        );
+                    }
+                }
+                ChildUploaderEvent::StoreDetailNewlyCreated {
+                    path,
+                    blob_id,
+                    object_id,
+                    deletable,
+                    unencoded_size,
+                    encoded_size,
+                    cost,
+                    end_epoch,
+                    shared_blob_object_id,
+                    encoding_type,
+                    operation_note,
+                } => {
+                    println!(
+                        "{} {} blob stored successfully.
+                        \nPath: {}
+                        \nBlob ID: {}
+                        \nSui object ID: {}
+                        \nUnencoded size: {}
+                        \nEncoded size (including replicated metadata): {}
+                        \nCost (excluding gas): {} {}
+                        \nExpiry epoch (exclusive): {}{}
+                        \nEncoding type: {}",
+                        crate::client::cli::success(),
+                        if deletable { "Deletable" } else { "Permanent" },
+                        path,
+                        blob_id,
+                        object_id,
+                        HumanReadableBytes(unencoded_size),
+                        HumanReadableBytes(encoded_size),
+                        HumanReadableFrost::from(cost),
+                        operation_note,
+                        end_epoch,
+                        shared_blob_object_id.map_or_else(String::new, |id| format!(
+                            "\nShared blob object ID: {id}"
+                        )),
+                        encoding_type,
+                    );
+                }
+                ChildUploaderEvent::StoreDetailAlreadyCertified {
+                    path,
+                    blob_id,
+                    end_epoch,
+                    event_or_object,
+                } => {
+                    println!(
+                        "{} Blob was already available and certified within Walrus,
+                        for a sufficient number of epochs.
+                        \nPath: {}
+                        \nBlob ID: {}
+                        \n{}
+                        \nExpiry epoch (exclusive): {}
+                        \n",
+                        crate::client::cli::success(),
+                        path,
+                        blob_id,
+                        event_or_object,
+                        end_epoch,
+                    );
+                }
+                ChildUploaderEvent::Done {
+                    ok,
+                    error,
+                    newly_certified,
+                    reuse_and_extend_count,
+                    total_encoded_size,
+                    total_cost,
+                } => {
+                    tracing::debug!(ok, ?error, "child: done");
+                    if !ok {
+                        tracing::error!(?error, "child process finished with an error");
+                        if let Some(pb) = progress_bar.take() {
+                            pb.finish_with_message("Child upload encountered an error");
+                        }
+                        break;
+                    }
+                    // Child reported successful completion; clear progress bar
+                    // and print summary similar to CLI output.
+                    if let Some(pb) = progress_bar.take() {
+                        pb.finish_and_clear();
+                    }
+
+                    if newly_certified > 0 || reuse_and_extend_count > 0 {
+                        let mut parts = Vec::new();
+                        if newly_certified > 0 {
+                            parts.push(format!("{} newly certified", newly_certified));
+                        }
+                        if reuse_and_extend_count > 0 {
+                            parts.push(format!("{} extended", reuse_and_extend_count));
+                        }
+
+                        use colored::Colorize as _;
+                        println!(
+                            "{} ({})",
+                            "Summary for Modified or Created Blobs"
+                                .bold()
+                                .walrus_purple(),
+                            parts.join(", ")
+                        );
+                        println!(
+                            "Total encoded size: {}",
+                            HumanReadableBytes(total_encoded_size)
+                        );
+                        println!("Total cost: {}", HumanReadableFrost::from(total_cost));
+                    } else {
+                        use colored::Colorize as _;
+                        println!(
+                            "{}",
+                            "No blobs were modified or created".bold().walrus_purple()
+                        );
+                    }
+
+                    return;
+                }
+            },
+            Err(e) => {
+                tracing::debug!(%e, line = line, "child: failed to parse JSON line");
+            }
+        }
+    }
+
+    for (_, pb) in per_blob_bars.into_iter() {
+        pb.finish_and_clear();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{
+        collections::VecDeque,
+        io::Cursor,
+        str::FromStr,
+        sync::{Arc, Mutex},
+    };
+
+    use tokio::io::BufReader;
+
+    use super::*;
+
+    #[tokio::test]
+    async fn process_child_events_handles_progress_quorum_and_done() -> Result<()> {
+        let blob_id = "4BKcDC0Ih5RJ8R0tFMz3MZVNZV8b2goT6_JiEEwNHQo";
+        let started = serde_json::json!({
+            "type": "started",
+            "blob_id": blob_id,
+        });
+        let progress = serde_json::json!({
+            "type": "sliver_progress",
+            "blob_id": blob_id,
+            "completed_weight": 2,
+            "total_weight": 6,
+        });
+        let quorum = serde_json::json!({
+            "type": "quorum_reached",
+            "blob_id": blob_id,
+            "elapsed_ms": 5,
+            "extra_ms": 10,
+        });
+        let cert = serde_json::json!({
+            "type": "v1_certified",
+            "blob_id": blob_id,
+            "object_id": "0x1234",
+            "end_epoch": 123,
+            "shared_object_id": null,
+        });
+        let done = serde_json::json!({
+            "type": "done",
+            "ok": true,
+            "error": null,
+        });
+        let json = vec![started, progress, quorum, cert, done]
+            .into_iter()
+            .map(|v| v.to_string())
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        let seen: Arc<Mutex<VecDeque<(BlobId, u64)>>> = Arc::new(Mutex::new(VecDeque::new()));
+        let reader = BufReader::new(Cursor::new(json));
+
+        process_child_stdout_reader(
+            reader,
+            {
+                let seen = seen.clone();
+                move |blob, extra| {
+                    let seen = seen.clone();
+                    async move {
+                        seen.lock()
+                            .unwrap()
+                            .push_back((blob, extra.as_millis() as u64));
+                    }
+                }
+            },
+            1,
+            None,
+        )
+        .await;
+
+        let guard = seen.lock().unwrap();
+        assert_eq!(guard.len(), 1);
+        let (observed_blob, extra_ms) = guard.front().unwrap();
+        assert_eq!(observed_blob, &BlobId::from_str(blob_id)?);
+        assert_eq!(*extra_ms, 10);
+
+        Ok(())
+    }
+}
+
+fn emit_child_event(event: &ChildUploaderEvent) -> Result<()> {
+    tracing::debug!(?event, "child: emitting event to stdout");
+    println!("{}", serde_json::to_string(event)?);
+    Ok(())
+}
+
+fn emit_v1_certified_event(result: &sdk_responses::BlobStoreResultWithPath) -> Result<()> {
+    match &result.blob_store_result {
+        sdk_responses::BlobStoreResult::NewlyCreated {
+            blob_object,
+            shared_blob_object,
+            ..
+        } => {
+            tracing::debug!(blob_id = %blob_object.blob_id, "child: emitting V1Certified (new)");
+            let event = ChildUploaderEvent::V1Certified {
+                blob_id: blob_object.blob_id.to_string(),
+                object_id: blob_object.id.to_string(),
+                end_epoch: Some(u64::from(blob_object.storage.end_epoch)),
+                shared_object_id: shared_blob_object.as_ref().map(|id| id.to_string()),
+            };
+            emit_child_event(&event)
+        }
+        sdk_responses::BlobStoreResult::AlreadyCertified {
+            blob_id,
+            event_or_object,
+            end_epoch,
+        } => {
+            let object_id = match event_or_object {
+                sdk_responses::EventOrObjectId::Object(id) => id.to_string(),
+                other => other.to_string(),
+            };
+            tracing::debug!(blob_id = %blob_id, "child: emitting V1Certified (already)");
+            let event = ChildUploaderEvent::V1Certified {
+                blob_id: blob_id.to_string(),
+                object_id,
+                end_epoch: Some(u64::from(*end_epoch)),
+                shared_object_id: None,
+            };
+            emit_child_event(&event)
+        }
+        _ => Ok(()),
+    }
 }
 
 /// A helper struct to run commands for the Walrus client.
@@ -671,6 +1106,7 @@ impl ClientCommandRunner {
             upload_relay,
             confirmation,
             upload_mode,
+            internal_run,
         }: StoreOptions,
     ) -> Result<()> {
         epoch_arg.exactly_one_is_some()?;
@@ -687,7 +1123,7 @@ impl ClientCommandRunner {
 
         let system_object = client.sui_client().read_client.get_system_object().await?;
         let epochs_ahead =
-            get_epochs_ahead(epoch_arg, system_object.max_epochs_ahead(), &client).await?;
+            get_epochs_ahead(epoch_arg.clone(), system_object.max_epochs_ahead(), &client).await?;
 
         if persistence.is_deletable() && post_store == PostStoreAction::Share {
             anyhow::bail!("deletable blobs cannot be shared");
@@ -710,6 +1146,135 @@ impl ClientCommandRunner {
                 .collect::<Result<Vec<(PathBuf, Vec<u8>)>>>()
         })?;
 
+        let child_uploads_enabled = client.config().communication_config.child_uploads_enabled;
+
+        if child_uploads_enabled && upload_relay.is_none() && !internal_run {
+            tracing::info!("Spawning child process for uploads");
+
+            let tmp_dir = env::temp_dir();
+            let config_filename = format!(
+                "walrus_child_config_{}_{}.yaml",
+                std::process::id(),
+                chrono::Utc::now().timestamp_millis()
+            );
+            let config_yaml_path = tmp_dir.join(config_filename);
+
+            if let Err(e) = stdfs::write(
+                &config_yaml_path,
+                serde_yaml::to_string(client.config()).context("serialize ClientConfig")?,
+            ) {
+                tracing::warn!(
+                    error = %e, "failed to write temp client config;
+                    falling back to single-process mode");
+            } else {
+                let exe = env::current_exe().unwrap_or_else(|_| PathBuf::from("walrus"));
+                let mut cmd = TokioCommand::new(exe);
+                // Mark child process execution via environment for downstream consumers
+                cmd.env("INTERNAL_RUN", "true");
+
+                cmd.arg("store")
+                    .arg("--internal-run")
+                    .arg("--config")
+                    .arg(&config_yaml_path);
+
+                if let Some(ref epochs) = epoch_arg.epochs {
+                    match epochs {
+                        super::args::EpochCountOrMax::Max => {
+                            cmd.arg("--epochs").arg("max");
+                        }
+                        super::args::EpochCountOrMax::Epochs(count) => {
+                            cmd.arg("--epochs").arg(count.to_string());
+                        }
+                    }
+                }
+                if let Some(time) = &epoch_arg.earliest_expiry_time {
+                    let datetime: DateTime<Utc> = (*time).into();
+                    cmd.arg("--earliest-expiry-time").arg(datetime.to_rfc3339());
+                }
+                if let Some(end_epoch) = &epoch_arg.end_epoch {
+                    cmd.arg("--end-epoch").arg(end_epoch.to_string());
+                }
+                if dry_run {
+                    cmd.arg("--dry-run");
+                }
+                if !store_optimizations.check_status {
+                    cmd.arg("--force");
+                }
+                if !store_optimizations.reuse_resources {
+                    cmd.arg("--ignore-resources");
+                }
+                match persistence {
+                    BlobPersistence::Deletable => {
+                        cmd.arg("--deletable");
+                    }
+                    BlobPersistence::Permanent => {
+                        cmd.arg("--permanent");
+                    }
+                }
+                if post_store == PostStoreAction::Share {
+                    cmd.arg("--share");
+                }
+                if let Some(mode) = upload_mode {
+                    cmd.arg("--upload-mode").arg(match mode {
+                        walrus_sdk::config::UploadMode::Conservative => "conservative",
+                        walrus_sdk::config::UploadMode::Balanced => "balanced",
+                        walrus_sdk::config::UploadMode::Aggressive => "aggressive",
+                    });
+                }
+
+                for (path, _) in &blobs {
+                    cmd.arg(path);
+                }
+
+                cmd.kill_on_drop(false);
+
+                match cmd.stdout(Stdio::piped()).stderr(Stdio::piped()).spawn() {
+                    Ok(mut child) => {
+                        tracing::info!("Child process spawned successfully");
+
+                        if let Some(stderr) = child.stderr.take() {
+                            spawn_child_stderr_to_stderr(stderr);
+                        }
+
+                        if let Some(stdout) = child.stdout.take() {
+                            let num_blobs = blobs.len();
+                            let progress_bar = styled_progress_bar_with_disabled_steady_tick(
+                                walrus_core::bft::min_n_correct(
+                                    client.encoding_config().n_shards(),
+                                )
+                                .get()
+                                .into(),
+                            );
+                            process_child_stdout_events(
+                                stdout,
+                                |blob_id, extra| async move {
+                                    tracing::info!(%blob_id, extra_ms = extra.as_millis(),
+                                    "child quorum reached; tail uploads continuing");
+                                },
+                                num_blobs,
+                                Some(progress_bar.clone()),
+                            )
+                            .await;
+
+                            tracing::info!(
+                                "All blobs are now certified and the
+                                parent process is exiting, the child continues tail uploads"
+                            );
+                            return Ok(());
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            error = %e,
+                            "failed to spawn child process; falling back to single-process mode");
+                        if let Err(e) = stdfs::remove_file(&config_yaml_path) {
+                            tracing::warn!(error = %e, "failed to remove temp client config");
+                        }
+                    }
+                }
+            }
+        }
+
         let mut store_args = StoreArgs::new(
             encoding_type,
             epochs_ahead,
@@ -717,6 +1282,71 @@ impl ClientCommandRunner {
             persistence,
             post_store,
         );
+
+        let mut tail_handle_collector: Option<
+            Arc<tokio::sync::Mutex<Vec<tokio::task::JoinHandle<()>>>>,
+        > = None;
+        let mut uploader_event_tx: Option<tokio::sync::mpsc::Sender<UploaderEvent>> = None;
+        let mut event_task: Option<tokio::task::JoinHandle<()>> = None;
+
+        if internal_run {
+            use tokio::sync::{Mutex as TokioMutex, mpsc::channel as mpsc_channel};
+
+            let collector = Arc::new(TokioMutex::new(Vec::new()));
+            let (tx, rx) = mpsc_channel(blobs.len().max(1));
+
+            let communication_config = client.config().communication_config.clone();
+            event_task = Some(tokio::spawn(async move {
+                let mut rx = rx;
+                while let Some(event) = rx.recv().await {
+                    match event {
+                        UploaderEvent::BlobProgress {
+                            blob_id,
+                            completed_weight,
+                            required_weight,
+                        } => {
+                            tracing::debug!(%blob_id, completed_weight, required_weight,
+                                "child: forwarding progress event to parent");
+                            if let Err(err) =
+                                emit_child_event(&ChildUploaderEvent::SliverProgress {
+                                    blob_id: blob_id.to_string(),
+                                    completed_weight: completed_weight as u64,
+                                    total_weight: required_weight as u64,
+                                })
+                            {
+                                tracing::warn!(%err, "failed to emit progress event");
+                            }
+                        }
+                        UploaderEvent::BlobQuorumReached { blob_id, elapsed } => {
+                            let extra_duration = communication_config
+                                .sliver_write_extra_time
+                                .extra_time(elapsed);
+                            let elapsed_ms = u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX);
+                            let extra_ms =
+                                u64::try_from(extra_duration.as_millis()).unwrap_or(u64::MAX);
+                            tracing::debug!(%blob_id, elapsed_ms, extra_ms,
+                                "child: forwarding quorum event to parent");
+                            if let Err(err) = emit_child_event(&ChildUploaderEvent::QuorumReached {
+                                blob_id: blob_id.to_string(),
+                                elapsed_ms,
+                                extra_ms,
+                            }) {
+                                tracing::warn!(%err, "failed to emit quorum event");
+                            }
+                        }
+                    }
+                }
+                tracing::debug!("child: quorum forwarding task completed");
+            }));
+
+            uploader_event_tx = Some(tx.clone());
+            tail_handle_collector = Some(collector.clone());
+
+            store_args = store_args
+                .with_tail_handle_collector(collector)
+                .with_tail_handling(TailHandling::Detached)
+                .with_quorum_event_tx(tx);
+        }
 
         if let Some(upload_relay) = upload_relay {
             let upload_relay_client = UploadRelayClient::new(
@@ -727,7 +1357,6 @@ impl ClientCommandRunner {
                 client.config().backoff_config().clone(),
             )
             .await?;
-            // Store operations will use the upload relay.
             store_args = store_args.with_upload_relay_client(upload_relay_client);
 
             let total_tip = store_args.compute_total_tip_amount(
@@ -746,6 +1375,20 @@ impl ClientCommandRunner {
         let results = client
             .reserve_and_store_blobs_retry_committees_with_path(&blobs, &store_args)
             .await?;
+
+        if let Some(tx) = uploader_event_tx.take() {
+            tracing::debug!("child: closing uploader event channel");
+            drop(tx);
+        }
+
+        store_args.quorum_event_tx = None;
+        if let Some(task) = event_task.take() {
+            tracing::debug!("child: awaiting quorum forwarding task");
+            if let Err(err) = task.await {
+                tracing::warn!(?err, "uploader event task terminated with error");
+            }
+        }
+
         let blobs_len = blobs.len();
         if results.len() != blobs_len {
             let not_stored = results
@@ -761,12 +1404,135 @@ impl ClientCommandRunner {
                     .join(", ")
             );
         }
-        tracing::info!(
-            duration = ?start_timer.elapsed(),
-            "{} out of {} blobs stored",
-            results.len(),
-            blobs_len
-        );
+
+        if !internal_run {
+            tracing::info!(
+                duration = ?start_timer.elapsed(),
+                "{} out of {} blobs stored",
+                results.len(),
+                blobs_len
+            );
+        }
+
+        if internal_run {
+            for result in &results {
+                if let Err(err) = emit_v1_certified_event(result) {
+                    tracing::warn!(%err, "failed to emit certification event");
+                }
+
+                match &result.blob_store_result {
+                    sdk_responses::BlobStoreResult::NewlyCreated {
+                        blob_object,
+                        resource_operation,
+                        cost,
+                        shared_blob_object,
+                    } => {
+                        let operation_note = match resource_operation {
+                            RegisterBlobOp::RegisterFromScratch { .. } => "(storage was purchased,
+                                and a new blob object was registered)"
+                                .to_string(),
+                            RegisterBlobOp::ReuseStorage { .. } => {
+                                "(already-owned storage was reused,
+                                and a new blob object was registered)"
+                                    .to_string()
+                            }
+                            RegisterBlobOp::ReuseRegistration { .. } => {
+                                "(an existing registration was reused)".to_string()
+                            }
+                            RegisterBlobOp::ReuseAndExtend { .. } => {
+                                "(the blob was extended in lifetime)".to_string()
+                            }
+                            RegisterBlobOp::ReuseAndExtendNonCertified { .. } => {
+                                "(an existing registration was reused and extended)".to_string()
+                            }
+                        };
+
+                        let event = ChildUploaderEvent::StoreDetailNewlyCreated {
+                            path: result.path.display().to_string(),
+                            blob_id: blob_object.blob_id.to_string(),
+                            object_id: blob_object.id.to_string(),
+                            deletable: blob_object.deletable,
+                            unencoded_size: blob_object.size,
+                            encoded_size: resource_operation.encoded_length(),
+                            cost: *cost,
+                            end_epoch: u64::from(blob_object.storage.end_epoch),
+                            shared_blob_object_id: shared_blob_object
+                                .as_ref()
+                                .map(|id| id.to_string()),
+                            encoding_type: blob_object.encoding_type.to_string(),
+                            operation_note,
+                        };
+                        if let Err(err) = emit_child_event(&event) {
+                            tracing::warn!(%err, "failed to emit store detail (new)");
+                        }
+                    }
+                    sdk_responses::BlobStoreResult::AlreadyCertified {
+                        blob_id,
+                        event_or_object,
+                        end_epoch,
+                    } => {
+                        let event = ChildUploaderEvent::StoreDetailAlreadyCertified {
+                            path: result.path.display().to_string(),
+                            blob_id: blob_id.to_string(),
+                            end_epoch: u64::from(*end_epoch),
+                            event_or_object: event_or_object.to_string(),
+                        };
+                        if let Err(err) = emit_child_event(&event) {
+                            tracing::warn!(%err, "failed to emit store detail (already)");
+                        }
+                    }
+                    _ => {}
+                }
+            }
+
+            let mut total_encoded_size: u64 = 0;
+            let mut total_cost: u64 = 0;
+            let mut reuse_and_extend_count: u64 = 0;
+            let mut newly_certified: u64 = 0;
+            for res in &results {
+                if let sdk_responses::BlobStoreResult::NewlyCreated {
+                    resource_operation,
+                    cost,
+                    ..
+                } = &res.blob_store_result
+                {
+                    total_encoded_size += resource_operation.encoded_length();
+                    total_cost += *cost;
+                    match resource_operation {
+                        RegisterBlobOp::ReuseAndExtend { .. } => {
+                            reuse_and_extend_count += 1;
+                        }
+                        RegisterBlobOp::RegisterFromScratch { .. }
+                        | RegisterBlobOp::ReuseAndExtendNonCertified { .. }
+                        | RegisterBlobOp::ReuseStorage { .. }
+                        | RegisterBlobOp::ReuseRegistration { .. } => {
+                            newly_certified += 1;
+                        }
+                    }
+                }
+            }
+
+            if let Err(err) = emit_child_event(&ChildUploaderEvent::Done {
+                ok: true,
+                error: None,
+                newly_certified,
+                reuse_and_extend_count,
+                total_encoded_size,
+                total_cost,
+            }) {
+                tracing::warn!(%err, "failed to emit completion event");
+            }
+
+            if let Some(collector) = tail_handle_collector.as_ref() {
+                let mut handles = collector.lock().await;
+                while let Some(handle) = handles.pop() {
+                    tracing::debug!("child: awaiting detached tail handle");
+                    if let Err(err) = handle.await {
+                        tracing::warn!(?err, "tail upload task failed");
+                    }
+                }
+            }
+        }
         results.print_output(self.json)
     }
 
@@ -826,6 +1592,7 @@ impl ClientCommandRunner {
             upload_relay,
             confirmation,
             upload_mode,
+            internal_run: _,
         }: StoreOptions,
     ) -> Result<()> {
         epoch_arg.exactly_one_is_some()?;
@@ -1607,6 +2374,7 @@ struct StoreOptions {
     upload_relay: Option<Url>,
     confirmation: UserConfirmation,
     upload_mode: Option<UploadMode>,
+    internal_run: bool,
 }
 
 impl TryFrom<CommonStoreOptions> for StoreOptions {
@@ -1625,6 +2393,7 @@ impl TryFrom<CommonStoreOptions> for StoreOptions {
             upload_relay,
             skip_tip_confirmation,
             upload_mode,
+            internal_run,
         }: CommonStoreOptions,
     ) -> Result<Self, Self::Error> {
         Ok(Self {
@@ -1640,6 +2409,7 @@ impl TryFrom<CommonStoreOptions> for StoreOptions {
             upload_relay,
             confirmation: skip_tip_confirmation.into(),
             upload_mode: upload_mode.map(Into::into),
+            internal_run,
         })
     }
 }

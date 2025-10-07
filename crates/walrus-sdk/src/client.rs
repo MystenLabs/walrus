@@ -23,7 +23,7 @@ use futures::{
     FutureExt,
     future::{Either, select},
 };
-use indicatif::{HumanDuration, MultiProgress};
+use indicatif::MultiProgress;
 use rand::{RngCore as _, rngs::ThreadRng};
 use rayon::{iter::IntoParallelIterator, prelude::*};
 pub use store_args::StoreArgs;
@@ -32,6 +32,7 @@ use tokio::{sync::Semaphore, time::Duration};
 use tracing::{Instrument as _, Level};
 use walrus_core::{
     BlobId,
+    DEFAULT_ENCODING,
     EncodingType,
     Epoch,
     ShardIndex,
@@ -80,6 +81,7 @@ use crate::{
     client::quilt_client::QuiltClient,
     config::CommunicationLimits,
     error::{ClientError, ClientErrorKind, ClientResult, StoreError},
+    uploader::{DistributedUploader, RunOutput, TailHandling, UploaderEvent},
     utils::{WeightedResult, styled_progress_bar, styled_spinner},
 };
 pub use crate::{
@@ -1406,11 +1408,16 @@ impl WalrusNodeClient<SuiContractClient> {
             blobs.push(blob?);
         }
 
-        tracing::info!(
-            duration = ?get_cert_timer.elapsed(),
-            "get {} blobs certificates",
-            blobs.iter().filter(|blob| blob.is_with_certificate()).count()
-        );
+        if !std::env::var("INTERNAL_RUN")
+            .map(|v| v == "true")
+            .unwrap_or(false)
+        {
+            tracing::info!(
+                duration = ?get_cert_timer.elapsed(),
+                "get {} blobs certificates",
+                blobs.iter().filter(|blob| blob.is_with_certificate()).count()
+            );
+        }
 
         Ok(blobs)
     }
@@ -1481,18 +1488,26 @@ impl WalrusNodeClient<SuiContractClient> {
                             pairs,
                             &blob_object.blob_persistence_type(),
                             Some(multi_pb),
+                            store_args.tail_handling,
+                            store_args.quorum_event_tx.clone(),
+                            store_args.tail_handle_collector.clone(),
                         )
                         .await
                     };
                 let duration = certify_start_timer.elapsed();
 
                 let blob_size = blob_object.size;
-                tracing::info!(
+                if !std::env::var("INTERNAL_RUN")
+                    .map(|v| v == "true")
+                    .unwrap_or(false)
+                {
+                    tracing::info!(
                     blob_id = %metadata.blob_id(),
                     ?duration,
-                    blob_size,
-                    "finished sending blob data and collecting certificate"
-                );
+                        blob_size,
+                        "finished sending blob data and collecting certificate"
+                    );
+                }
                 result
             }
         }
@@ -1610,18 +1625,19 @@ impl<T> WalrusNodeClient<T> {
     ///
     /// Assumes the blob ID has already been registered, with an appropriate blob size.
     #[tracing::instrument(skip_all)]
+    #[allow(clippy::too_many_arguments)]
     pub async fn send_blob_data_and_get_certificate(
         &self,
         metadata: &VerifiedBlobMetadataWithId,
         pairs: &[SliverPair],
         blob_persistence_type: &BlobPersistenceType,
         multi_pb: Option<&MultiProgress>,
+        tail_handling: TailHandling,
+        quorum_forwarder: Option<tokio::sync::mpsc::Sender<UploaderEvent>>,
+        tail_handle_collector: Option<Arc<tokio::sync::Mutex<Vec<tokio::task::JoinHandle<()>>>>>,
     ) -> ClientResult<ConfirmationCertificate> {
         tracing::info!(blob_id = %metadata.blob_id(), "starting to send data to storage nodes");
         let committees = self.get_committees().await?;
-        let mut pairs_per_node = self
-            .pairs_per_node(metadata.blob_id(), pairs, &committees)
-            .await;
         let sliver_write_limit = self
             .communication_limits
             .max_concurrent_sliver_writes_for_blob_size(
@@ -1635,122 +1651,211 @@ impl<T> WalrusNodeClient<T> {
             "establishing node communications"
         );
 
-        let comms = self
-            .communication_factory
-            .node_write_communications(&committees, Arc::new(Semaphore::new(sliver_write_limit)))?;
-
         let progress_bar = multi_pb.map(|multi_pb| {
             let pb = styled_progress_bar(bft::min_n_correct(committees.n_shards()).get().into());
             pb.set_message(format!("sending slivers ({})", metadata.blob_id()));
             multi_pb.add(pb)
         });
 
-        let mut requests = WeightedFutures::new(comms.iter().map({
-            let progress_bar = progress_bar.clone();
+        let blobs = vec![(metadata.clone(), pairs.to_vec())];
+        let (event_tx, mut event_rx) = tokio::sync::mpsc::channel(blobs.len().max(1));
 
-            move |n| {
-                let fut = n.store_metadata_and_pairs(
-                    metadata,
-                    pairs_per_node
-                        .remove(&n.node_index)
-                        .expect("there are shards for each node"),
-                    blob_persistence_type,
-                );
+        let mut upload_fut = Box::pin(self.distributed_upload_without_confirmation(
+            blobs.as_slice(),
+            event_tx.clone(),
+            tail_handling,
+        ));
 
-                let progress_bar = progress_bar.clone();
-                async move {
-                    let result = fut.await;
-                    if result.is_ok()
-                        && let Some(value) = progress_bar
-                        && !value.is_finished()
-                    {
-                        value.inc(result.weight.try_into().expect("the weight fits a usize"))
+        let mut upload_results: Option<RunOutput<Vec<BlobId>, StoreError>> = None;
+
+        while upload_results.is_none() {
+            tokio::select! {
+                biased;
+                maybe_event = event_rx.recv() => {
+                    if let Some(event) = maybe_event {
+                        tracing::debug!(
+                            blob_id = %metadata.blob_id(), ?event, "received uploader event");
+                        if let Some(tx) = quorum_forwarder.as_ref() {
+                            if let Err(err) = tx.send(event.clone()).await {
+                                tracing::error!(
+                                    blob_id = %metadata.blob_id(), ?event, ?err,
+                                    "failed to forward uploader event");
+                            }
+                            tracing::debug!(
+                                blob_id = %metadata.blob_id(), ?event, "forwarded uploader event");
+                        }
+
+                        match event {
+                            UploaderEvent::BlobProgress {
+                                completed_weight,
+                                required_weight,
+                                ..
+                            } => {
+                                if let Some(pb) = &progress_bar {
+                                    pb.set_length(required_weight as u64);
+                                    pb.set_position(
+                                        std::cmp::min(completed_weight, required_weight) as u64);
+                                }
+                            }
+                            UploaderEvent::BlobQuorumReached { .. } => {
+                                tracing::debug!(
+                                    blob_id = %metadata.blob_id(),
+                                    "received blob quorum reached event");
+                                if let Some(pb) = &progress_bar && !pb.is_finished() {
+                                    pb.finish_with_message(
+                                        format!("slivers sent ({})", metadata.blob_id()));
+                                }
+                            }
+                        }
+                    } else {
+                        tracing::debug!(
+                            blob_id = %metadata.blob_id(), "uploader event channel closed");
                     }
-                    result
+                }
+                result = &mut upload_fut => {
+                    let run_output = result?;
+                    tracing::debug!(
+                        blob_id = %metadata.blob_id(), results = run_output.results.len(),
+                        "uploader run completed"
+                    );
+                    upload_results = Some(run_output);
+                }
+
+            }
+        }
+
+        if let Some(pb) = &progress_bar
+            && !pb.is_finished()
+        {
+            pb.finish_with_message(format!("slivers sent ({})", metadata.blob_id()));
+        }
+        tracing::debug!(blob_id = %metadata.blob_id(), "all uploader events consumed");
+
+        let upload_results = upload_results.expect("distributed upload must return results");
+
+        tracing::debug!(blob_id = %metadata.blob_id(),
+        tail_handle = upload_results.tail_handle.is_some(), "uploader run completed");
+        if let Some(handle) = upload_results.tail_handle {
+            tracing::debug!(blob_id = %metadata.blob_id(), "received tail handle from uploader");
+            if let Some(collector) = tail_handle_collector {
+                collector.lock().await.push(handle);
+                tracing::debug!(blob_id = %metadata.blob_id(), "queued tail handle for collector");
+            } else if matches!(tail_handling, TailHandling::Detached) {
+                tracing::debug!(blob_id = %metadata.blob_id(), "spawned detached tail handler");
+                tokio::spawn(async move {
+                    if let Err(err) = handle.await {
+                        tracing::warn!(?err, "tail upload task failed");
+                    }
+                });
+            } else {
+                tracing::debug!(blob_id = %metadata.blob_id(), "awaiting tail handle inline");
+                if let Err(err) = handle.await {
+                    tracing::warn!(?err, "tail upload task failed");
                 }
             }
-        }));
-
-        let start = Instant::now();
-
-        // We do not limit the number of concurrent futures awaited here, because the number of
-        // connections is limited through a semaphore depending on the [`max_data_in_flight`][]
-        if let CompletedReasonWeight::FuturesConsumed(weight) = requests
-            .execute_weight(
-                &|weight| {
-                    committees
-                        .write_committee()
-                        .is_at_least_min_n_correct(weight)
-                },
-                committees.n_shards().get().into(),
-            )
-            .await
-        {
-            tracing::debug!(
-                elapsed_time = ?start.elapsed(),
-                executed_weight = weight,
-                responses = ?requests.into_results(),
-                blob_id = %metadata.blob_id(),
-                "all futures consumed before reaching a threshold of successful responses"
-            );
-            return Err(self
-                .not_enough_confirmations_error(weight, &committees)
-                .await);
         }
-        tracing::debug!(
-            elapsed_time = ?start.elapsed(),
-            blob_id = %metadata.blob_id(),
-            "stored metadata and slivers onto a quorum of nodes"
-        );
 
-        progress_bar.inspect(|progress_bar| {
-            progress_bar.finish_with_message(format!("slivers sent ({})", metadata.blob_id()))
-        });
+        self.get_certificate_standalone(
+            metadata.blob_id(),
+            committees.write_committee().epoch,
+            blob_persistence_type,
+        )
+        .await
+    }
 
-        let extra_time = self
+    /// Uploads metadata and sliver pairs to the storage nodes without requesting confirmations.
+    ///
+    /// Returns the node-level results of the upload action and emits progress via the provided
+    /// `event_sender`.
+    pub async fn distributed_upload_without_confirmation(
+        &self,
+        blobs: &[(VerifiedBlobMetadataWithId, Vec<SliverPair>)],
+        event_sender: tokio::sync::mpsc::Sender<UploaderEvent>,
+        tail_handling: TailHandling,
+    ) -> ClientResult<RunOutput<Vec<BlobId>, StoreError>> {
+        if blobs.is_empty() {
+            return Ok(RunOutput {
+                results: Vec::new(),
+                tail_handle: None,
+            });
+        }
+
+        let committees = self.get_committees().await?;
+
+        let max_unencoded = blobs
+            .iter()
+            .map(|(metadata, _)| metadata.metadata().unencoded_length())
+            .max()
+            .unwrap_or(0);
+        let encoding_type = blobs
+            .first()
+            .map(|(metadata, _)| metadata.metadata().encoding_type())
+            .unwrap_or(DEFAULT_ENCODING);
+
+        let sliver_write_limit = self
+            .communication_limits
+            .max_concurrent_sliver_writes_for_blob_size(
+                max_unencoded,
+                &self.encoding_config,
+                encoding_type,
+            );
+
+        let comms = self
+            .communication_factory
+            .node_write_communications(&committees, Arc::new(Semaphore::new(sliver_write_limit)))?;
+
+        let sliver_write_extra_time = self
             .config
             .communication_config
             .sliver_write_extra_time
-            .extra_time(start.elapsed());
+            .clone();
 
-        let spinner = multi_pb.map(|multi_pb| {
-            let pb = styled_spinner();
-            pb.set_message(format!(
-                "waiting at most {} more, to store on additional nodes ({})",
-                HumanDuration(extra_time),
-                metadata.blob_id()
-            ));
-            multi_pb.add(pb)
-        });
-
-        // Allow extra time for the client to store the slivers.
-        let completed_reason = requests
-            .execute_time(
-                self.config
-                    .communication_config
-                    .sliver_write_extra_time
-                    .extra_time(start.elapsed()),
-                committees.n_shards().get().into(),
-            )
-            .await;
-        tracing::debug!(
-            elapsed_time = ?start.elapsed(),
-            blob_id = %metadata.blob_id(),
-            %completed_reason,
-            "stored metadata and slivers onto additional nodes"
+        let mut uploader = DistributedUploader::new(
+            blobs,
+            committees.clone(),
+            comms,
+            sliver_write_limit,
+            sliver_write_extra_time,
         );
 
-        spinner.inspect(|s| {
-            s.finish_with_message(format!(
-                "additional slivers stored ({})",
-                metadata.blob_id()
-            ))
-        });
+        let run_output = uploader
+            .run(
+                |node, work| async move {
+                    let mut stored = Vec::with_capacity(work.len());
+                    for item in &work {
+                        let response = node
+                            .store_metadata_and_pairs_without_confirmation(
+                                &item.metadata,
+                                item.pairs.iter(),
+                            )
+                            .await;
 
-        let results = requests.into_results();
+                        match response.result {
+                            Ok(()) => stored.push(*item.blob_id()),
+                            Err(err) => {
+                                return NodeResult::new(
+                                    response.committee_epoch,
+                                    response.weight,
+                                    response.node,
+                                    Err(err),
+                                );
+                            }
+                        }
+                    }
 
-        self.confirmations_to_certificate(results, &committees)
-            .await
+                    NodeResult::new(
+                        node.committee_epoch,
+                        node.n_owned_shards().get().into(),
+                        node.node_index,
+                        Ok(stored),
+                    )
+                },
+                event_sender,
+                tail_handling,
+            )
+            .await?;
+
+        Ok(run_output)
     }
 
     /// Fetches confirmations for a blob from a quorum of nodes and returns the certificate.

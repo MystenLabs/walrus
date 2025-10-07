@@ -5,6 +5,10 @@
 
 use std::{num::NonZeroU16, sync::Arc, time::Duration};
 
+use tokio::{
+    sync::{Mutex, mpsc::Sender as MpscSender},
+    task::JoinHandle,
+};
 use walrus_core::{DEFAULT_ENCODING, EncodingType, EpochCount};
 use walrus_sui::client::{BlobPersistence, PostStoreAction};
 
@@ -13,6 +17,7 @@ use crate::{
     client::upload_relay_client::UploadRelayClientError,
     store_optimizations::StoreOptimizations,
     upload_relay::tip_config::TipConfig,
+    uploader::{TailHandling, UploaderEvent},
 };
 
 /// Arguments for store operations that are frequently passed together.
@@ -33,6 +38,12 @@ pub struct StoreArgs {
     pub metrics: Option<Arc<ClientMetrics>>,
     /// The optional upload relay client, that allows to store the blob via the relay.
     pub upload_relay_client: Option<UploadRelayClient>,
+    /// Tail handling preference for sliver uploads.
+    pub tail_handling: TailHandling,
+    /// Optional channel to forward uploader events to.
+    pub quorum_event_tx: Option<MpscSender<UploaderEvent>>,
+    /// Optional collector that receives detached tail handles for later awaiting.
+    pub tail_handle_collector: Option<Arc<Mutex<Vec<JoinHandle<()>>>>>,
 }
 
 impl StoreArgs {
@@ -52,6 +63,9 @@ impl StoreArgs {
             post_store,
             metrics: None,
             upload_relay_client: None,
+            tail_handling: TailHandling::Blocking,
+            quorum_event_tx: None,
+            tail_handle_collector: None,
         }
     }
 
@@ -69,12 +83,36 @@ impl StoreArgs {
             post_store: PostStoreAction::Keep,
             metrics: None,
             upload_relay_client: None,
+            tail_handling: TailHandling::Blocking,
+            quorum_event_tx: None,
+            tail_handle_collector: None,
         }
     }
 
     /// Sets the upload relay client.
     pub fn with_upload_relay_client(mut self, upload_relay_client: UploadRelayClient) -> Self {
         self.upload_relay_client = Some(upload_relay_client);
+        self
+    }
+
+    /// Sets the tail handling strategy.
+    pub fn with_tail_handling(mut self, tail_handling: TailHandling) -> Self {
+        self.tail_handling = tail_handling;
+        self
+    }
+
+    /// Sets the uploader event channel used to forward quorum notifications.
+    pub fn with_quorum_event_tx(mut self, tx: MpscSender<UploaderEvent>) -> Self {
+        self.quorum_event_tx = Some(tx);
+        self
+    }
+
+    /// Sets the collector for detached tail handles.
+    pub fn with_tail_handle_collector(
+        mut self,
+        collector: Arc<Mutex<Vec<JoinHandle<()>>>>,
+    ) -> Self {
+        self.tail_handle_collector = Some(collector);
         self
     }
 

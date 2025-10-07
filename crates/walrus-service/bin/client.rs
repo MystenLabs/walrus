@@ -61,7 +61,13 @@ fn client() -> Result<()> {
     let mut app = ClientArgs::parse().inner;
     app.extract_json_command()?;
 
-    tracing::info!("client version: {VERSION}");
+    if !std::env::var("INTERNAL_RUN")
+        .map(|v| v == "true")
+        .unwrap_or(false)
+    {
+        tracing::info!("client version: {VERSION}");
+    }
+
     let runner = ClientCommandRunner::new(
         &app.config,
         app.context.as_deref(),

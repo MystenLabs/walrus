@@ -68,6 +68,7 @@ use walrus_sdk::{
     },
     store_optimizations::StoreOptimizations,
     upload_relay::tip_config::{TipConfig, TipKind},
+    uploader::TailHandling,
 };
 use walrus_service::test_utils::{
     StorageNodeHandleTrait,
@@ -359,6 +360,9 @@ async fn test_inconsistency(failed_nodes: &[usize]) -> TestResult {
             &metadata,
             &pairs,
             &BlobPersistenceType::Permanent,
+            None,
+            TailHandling::Blocking,
+            None,
             None,
         )
         .await?;

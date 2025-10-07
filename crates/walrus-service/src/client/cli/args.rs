@@ -28,7 +28,7 @@ use walrus_core::{
     encoding::{EncodingConfig, EncodingFactory},
     ensure,
 };
-use walrus_sdk::config::UploadMode;
+// use walrus_sdk::config::UploadMode;
 use walrus_sui::{
     client::{ExpirySelectionPolicy, ReadClient, SuiContractClient},
     types::{StorageNode, move_structs::Authorized},
@@ -38,6 +38,25 @@ use walrus_utils::read_blob_from_file;
 
 use super::{BlobIdDecimal, HumanReadableBytes, parse_blob_id, parse_quilt_patch_id};
 use crate::client::{config::AuthConfig, daemon::CacheConfig};
+
+/// CLI-friendly version of UploadMode that can be used with clap's value_enum.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UploadModeCli {
+    Conservative,
+    Balanced,
+    Aggressive,
+}
+
+impl From<UploadModeCli> for walrus_sdk::config::UploadMode {
+    fn from(mode: UploadModeCli) -> Self {
+        match mode {
+            UploadModeCli::Conservative => walrus_sdk::config::UploadMode::Conservative,
+            UploadModeCli::Balanced => walrus_sdk::config::UploadMode::Balanced,
+            UploadModeCli::Aggressive => walrus_sdk::config::UploadMode::Aggressive,
+        }
+    }
+}
 
 /// The command-line arguments for the Walrus client.
 #[derive(Parser, Debug, Clone, Deserialize)]
@@ -1163,6 +1182,10 @@ pub struct CommonStoreOptions {
     #[arg(long, value_enum)]
     #[serde(default)]
     pub upload_mode: Option<UploadModeCli>,
+    /// Internal run flag for child process mode.
+    #[arg(long, hide = true)]
+    #[serde(default)]
+    pub internal_run: bool,
 }
 
 #[serde_as]
@@ -1179,31 +1202,6 @@ pub struct FileOrBlobId {
     #[serde_as(as = "Option<DisplayFromStr>")]
     #[serde(default)]
     pub(crate) blob_id: Option<BlobId>,
-}
-
-/// CLI enum for selecting upload presets. Converted to SDK UploadMode at runtime.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, clap::ValueEnum)]
-#[serde(rename_all = "camelCase")]
-pub enum UploadModeCli {
-    Conservative,
-    Balanced,
-    Aggressive,
-}
-
-impl Default for UploadModeCli {
-    fn default() -> Self {
-        Self::Balanced
-    }
-}
-
-impl From<UploadModeCli> for UploadMode {
-    fn from(value: UploadModeCli) -> Self {
-        match value {
-            UploadModeCli::Conservative => UploadMode::Conservative,
-            UploadModeCli::Balanced => UploadMode::Balanced,
-            UploadModeCli::Aggressive => UploadMode::Aggressive,
-        }
-    }
 }
 
 impl FileOrBlobId {
@@ -1922,6 +1920,7 @@ mod tests {
                 upload_relay: None,
                 skip_tip_confirmation: false,
                 upload_mode: None,
+                internal_run: false,
             },
         })
     }

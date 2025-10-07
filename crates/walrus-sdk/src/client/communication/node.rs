@@ -54,14 +54,19 @@ pub type NodeIndex = usize;
 
 #[derive(Debug, Clone)]
 pub struct NodeResult<T, E> {
+    /// Committee epoch used for this request.
     #[allow(dead_code)]
     pub committee_epoch: Epoch,
+    /// Weight contributed by this node (e.g., number of owned shards).
     pub weight: usize,
+    /// Index of the node in the committee member list.
     pub node: NodeIndex,
+    /// Result returned by the node.
     pub result: Result<T, E>,
 }
 
 impl<T, E> NodeResult<T, E> {
+    /// Creates a new `NodeResult` from request metadata and the node result.
     pub fn new(
         committee_epoch: Epoch,
         weight: usize,
@@ -91,22 +96,35 @@ impl<T, E> WeightedResult for NodeResult<T, E> {
     }
 }
 
-pub(crate) struct NodeCommunication<'a, W = ()> {
+/// Communication handle for interacting with a specific storage node.
+#[derive(Debug)]
+pub struct NodeCommunication<W = ()> {
+    /// Index of the node within the committee member list.
     pub node_index: NodeIndex,
+    /// Committee epoch used for requests.
     pub committee_epoch: Epoch,
-    pub node: &'a StorageNode,
-    pub encoding_config: &'a EncodingConfig,
+    /// Storage node descriptor (address, shards, public key).
+    pub node: Arc<StorageNode>,
+    /// Encoding configuration in use by the client.
+    pub encoding_config: Arc<EncodingConfig>,
+    /// Tracing span that parents operations against this node.
     pub span: Span,
+    /// Low-level client bound to this storage node.
     pub client: StorageNodeClient,
+    /// Per-node request-rate configuration.
     pub config: RequestRateConfig,
+    /// Limits concurrent per-node operations.
     pub node_write_limit: W,
+    /// Limits concurrent in-flight sliver transfers.
     pub sliver_write_limit: W,
 }
 
-pub type NodeReadCommunication<'a> = NodeCommunication<'a, ()>;
-pub type NodeWriteCommunication<'a> = NodeCommunication<'a, Arc<Semaphore>>;
+/// Read-only communication handle; concurrency limit fields are unused.
+pub type NodeReadCommunication = NodeCommunication;
+/// Write communication handle; includes semaphores for concurrency limiting.
+pub type NodeWriteCommunication = NodeCommunication<Arc<Semaphore>>;
 
-impl<'a> NodeReadCommunication<'a> {
+impl NodeReadCommunication {
     /// Creates a new [`NodeCommunication`].
     ///
     /// Returns `None` if the `node` has no shards.
@@ -114,8 +132,8 @@ impl<'a> NodeReadCommunication<'a> {
         node_index: NodeIndex,
         committee_epoch: Epoch,
         client: StorageNodeClient,
-        node: &'a StorageNode,
-        encoding_config: &'a EncodingConfig,
+        node: Arc<StorageNode>,
+        encoding_config: Arc<EncodingConfig>,
         config: RequestRateConfig,
     ) -> Option<Self> {
         if node.shard_ids.is_empty() {
@@ -128,6 +146,7 @@ impl<'a> NodeReadCommunication<'a> {
             %config.max_node_connections,
             "initializing communication with node"
         );
+        let pk_prefix = string_prefix(&node.public_key);
         Some(Self {
             node_index,
             committee_epoch,
@@ -138,7 +157,7 @@ impl<'a> NodeReadCommunication<'a> {
                 "node",
                 index = node_index,
                 committee_epoch,
-                pk_prefix = string_prefix(&node.public_key)
+                pk_prefix = pk_prefix
             ),
             client,
             config,
@@ -147,10 +166,8 @@ impl<'a> NodeReadCommunication<'a> {
         })
     }
 
-    pub fn with_write_limits(
-        self,
-        sliver_write_limit: Arc<Semaphore>,
-    ) -> NodeWriteCommunication<'a> {
+    /// Converts this read handle into a write handle with concurrency limits.
+    pub fn with_write_limits(self, sliver_write_limit: Arc<Semaphore>) -> NodeWriteCommunication {
         let node_write_limit = Arc::new(Semaphore::new(self.config.max_node_connections));
         let Self {
             node_index,
@@ -176,7 +193,7 @@ impl<'a> NodeReadCommunication<'a> {
     }
 }
 
-impl<W> NodeCommunication<'_, W> {
+impl<W> NodeCommunication<W> {
     /// Returns the number of shards.
     pub fn n_shards(&self) -> NonZeroU16 {
         self.encoding_config.n_shards()
@@ -213,7 +230,7 @@ impl<W> NodeCommunication<'_, W> {
         tracing::debug!(%blob_id, "retrieving metadata");
         let result = self
             .client
-            .get_and_verify_metadata(blob_id, self.encoding_config)
+            .get_and_verify_metadata(blob_id, self.encoding_config.as_ref())
             .await;
         self.to_node_result_with_n_shards(result)
     }
@@ -237,7 +254,7 @@ impl<W> NodeCommunication<'_, W> {
         let sliver_pair_index = shard_index.to_pair_index(self.n_shards(), metadata.blob_id());
         let sliver = self
             .client
-            .get_and_verify_sliver(sliver_pair_index, metadata, self.encoding_config)
+            .get_and_verify_sliver(sliver_pair_index, metadata, self.encoding_config.as_ref())
             .await;
 
         // Each sliver is in this case requested individually, so the weight is 1.
@@ -274,6 +291,7 @@ impl<W> NodeCommunication<'_, W> {
         Ok(confirmation)
     }
 
+    /// Retrieves a storage confirmation with retries and wraps it in a `NodeResult`.
     #[tracing::instrument(level = Level::TRACE, parent = &self.span, skip_all)]
     pub async fn get_confirmation_with_retries(
         &self,
@@ -304,7 +322,7 @@ impl<W> NodeCommunication<'_, W> {
     }
 }
 
-impl NodeWriteCommunication<'_> {
+impl NodeWriteCommunication {
     /// Stores metadata and sliver pairs on a node, and requests a storage confirmation.
     ///
     /// Returns a [`NodeResult`], where the weight is the number of shards for which the storage
@@ -463,12 +481,7 @@ impl NodeWriteCommunication<'_> {
         Ok(n_slivers)
     }
 
-    /// Stores a sliver on a node, first checking that the sliver is not already stored.
-    ///
-    /// If the sliver is already stored, the function returns.
-    ///
-    /// If the metadata was not previously stored on the node, it means that likely the slivers
-    /// weren't either. Therefore, in this case, the checks are skipped.
+    /// Checks whether a sliver is already present on the node, and stores it if needed.
     async fn check_and_store_sliver<A: EncodingAxis>(
         &self,
         blob_id: &BlobId,
@@ -526,7 +539,7 @@ impl NodeWriteCommunication<'_> {
             })
     }
 
-    /// Requests the status for sliver after retrying.
+    /// Retrieves the status for a sliver with retry logic applied.
     async fn get_sliver_status<A: EncodingAxis>(
         &self,
         blob_id: &BlobId,
@@ -543,6 +556,7 @@ impl NodeWriteCommunication<'_> {
         })
     }
 
+    /// Runs `f` with the node and sliver semaphores acquired.
     async fn retry_with_limits_and_backoff<F, Fut, T, E>(&self, f: F) -> Result<T, E>
     where
         F: FnMut() -> Fut,
