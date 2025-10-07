@@ -239,6 +239,132 @@ impl CheckpointProcessor {
         Ok(next_event_index)
     }
 
+    /// Experimental: Processes checkpoint data from field-masked fetch.
+    ///
+    /// This method is similar to `process_checkpoint_data` but works with
+    /// `CheckpointForEvents` which contains only events and output_objects,
+    /// avoiding deserialization of Transaction and TransactionEffects.
+    #[allow(dead_code)]
+    pub async fn process_checkpoint_for_events_experimental(
+        &self,
+        checkpoint: walrus_sui::client::retry_client::CheckpointForEvents,
+        verified_checkpoint: VerifiedCheckpoint,
+        next_event_index: u64,
+    ) -> Result<u64> {
+        let mut next_event_index = next_event_index;
+        let mut write_batch = self.stores.event_store.batch();
+        let mut counter = 0;
+
+        // Process each transaction in the checkpoint.
+        // Use checkpoint_contents for transaction digests (no Transaction deserialization needed).
+        for (tx_digest_info, tx) in checkpoint
+            .checkpoint_contents
+            .iter()
+            .zip(checkpoint.transactions.into_iter())
+        {
+            self.package_store.update_batch(&tx.output_objects)?;
+            let tx_events = tx.events.unwrap_or_default();
+            let original_package_ids: Vec<ObjectID> =
+                try_join_all(tx_events.data.iter().map(|event| {
+                    let pkg_address = event.type_.address;
+                    self.package_store.get_original_package_id(pkg_address)
+                }))
+                .await?;
+            for (seq, tx_event) in tx_events
+                .data
+                .into_iter()
+                .zip(original_package_ids)
+                // Filter out events that are not from the Walrus system package.
+                .filter(|(_, original_id)| *original_id == self.original_system_pkg_id)
+                .map(|(event, _)| event)
+                .enumerate()
+            {
+                tracing::trace!(?tx_event, "event received (experimental field masking)");
+                let move_type_layout = self
+                    .package_resolver
+                    .type_layout(move_core_types::language_storage::TypeTag::Struct(
+                        Box::new(tx_event.type_.clone()),
+                    ))
+                    .await?;
+                let move_datatype_layout = match move_type_layout {
+                    MoveTypeLayout::Struct(s) => Some(MoveDatatypeLayout::Struct(s)),
+                    MoveTypeLayout::Enum(e) => Some(MoveDatatypeLayout::Enum(e)),
+                    _ => None,
+                }
+                .ok_or(anyhow!("failed to get move datatype layout"))?;
+                // Use transaction digest from checkpoint_contents.
+                // No Transaction deserialization needed!
+                let sui_event = SuiEvent::try_from(
+                    tx_event,
+                    tx_digest_info.transaction,
+                    seq as u64,
+                    None,
+                    move_datatype_layout,
+                )?;
+                let contract_event: ContractEvent = sui_event.try_into()?;
+                let event_sequence_number = CheckpointEventPosition::new(
+                    *checkpoint.checkpoint_summary.sequence_number(),
+                    counter,
+                );
+                let walrus_event =
+                    PositionedStreamEvent::new(contract_event, event_sequence_number);
+                write_batch
+                    .insert_batch(
+                        &self.stores.event_store,
+                        std::iter::once((next_event_index, walrus_event)),
+                    )
+                    .map_err(|e| anyhow!("failed to insert event into event store: {}", e))?;
+                counter += 1;
+                next_event_index += 1;
+            }
+        }
+
+        // Add checkpoint boundary event.
+        let end_of_checkpoint = PositionedStreamEvent::new_checkpoint_boundary(
+            checkpoint.checkpoint_summary.sequence_number,
+            counter,
+        );
+        write_batch.insert_batch(
+            &self.stores.event_store,
+            std::iter::once((next_event_index, end_of_checkpoint)),
+        )?;
+
+        next_event_index += 1;
+
+        // Update committee if this is an end of epoch checkpoint.
+        if let Some(end_of_epoch_data) = &checkpoint.checkpoint_summary.end_of_epoch_data {
+            let next_committee = end_of_epoch_data
+                .next_epoch_committee
+                .iter()
+                .cloned()
+                .collect();
+            let committee = Committee::new(
+                checkpoint.checkpoint_summary.epoch().saturating_add(1),
+                next_committee,
+            );
+            write_batch.insert_batch(
+                &self.stores.committee_store,
+                std::iter::once(((), committee)),
+            )?;
+            self.package_resolver
+                .package_store()
+                .evict(SYSTEM_PACKAGE_ADDRESSES.iter().copied());
+        }
+
+        // Update checkpoint store.
+        write_batch.insert_batch(
+            &self.stores.checkpoint_store,
+            std::iter::once(((), verified_checkpoint.serializable_ref())),
+        )?;
+
+        // Write all changes.
+        write_batch.write()?;
+
+        self.update_cached_latest_checkpoint_seq_number(*verified_checkpoint.sequence_number());
+
+        Ok(next_event_index)
+    }
+
     /// Updates the cached checkpoint sequence number.
     pub fn update_cached_latest_checkpoint_seq_number(&self, sequence_number: u64) {
         self.latest_checkpoint_seq_number
