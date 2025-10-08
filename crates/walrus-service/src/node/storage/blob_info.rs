@@ -325,7 +325,7 @@ impl BlobInfoTable {
         transaction: &Transaction<'_, rocksdb::OptimisticTransactionDB>,
         blob_id: &BlobId,
     ) -> Result<Option<BlobInfo>, rocksdb::Error> {
-        // Question(mlegner): Should `exclusive` parameter be true or false?
+        // The value of the `exclusive` parameter does not matter for optimistic transactions.
         Ok(transaction
             .get_for_update_cf_opt(
                 &self.aggregate_cf(),
