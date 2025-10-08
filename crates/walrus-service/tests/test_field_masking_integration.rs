@@ -20,12 +20,13 @@ use tempfile::TempDir;
 use typed_store::Map;
 use walrus_service::{
     event::event_processor::{
-        checkpoint::CheckpointProcessor, db::EventProcessorStores,
+        checkpoint::CheckpointProcessor,
+        db::EventProcessorStores,
         package_store::LocalDBPackageStore,
     },
     node::DatabaseConfig,
+    test_utils::{TestNodesConfig, test_cluster},
 };
-use walrus_service::test_utils::{TestNodesConfig, test_cluster};
 use walrus_sui::client::retry_client::RetriableRpcClient;
 use walrus_utils::backoff::ExponentialBackoffConfig;
 
@@ -40,15 +41,14 @@ async fn test_field_masking_checkpoint_processing() -> anyhow::Result<()> {
     tracing::info!("Starting field masking integration test");
 
     // Step 1: Setup test cluster to have a real Sui network with checkpoints.
-    let (sui_cluster, _cluster, client, _system_context) =
-        test_cluster::E2eTestSetupBuilder::new()
-            .with_test_nodes_config(TestNodesConfig {
-                node_weights: vec![2, 2],
-                use_legacy_event_processor: false,
-                ..Default::default()
-            })
-            .build()
-            .await?;
+    let (sui_cluster, _cluster, client, _system_context) = test_cluster::E2eTestSetupBuilder::new()
+        .with_test_nodes_config(TestNodesConfig {
+            node_weights: vec![2, 2],
+            use_legacy_event_processor: false,
+            ..Default::default()
+        })
+        .build()
+        .await?;
 
     tracing::info!("Test cluster started");
 
@@ -67,8 +67,8 @@ async fn test_field_masking_checkpoint_processing() -> anyhow::Result<()> {
             vec![rpc_url.clone()],
             request_timeout,
             backoff_config.clone(),
-            None,  // No fallback
-            None,  // No metrics
+            None, // No fallback
+            None, // No metrics
             sampled_tracing_interval,
         )
         .await
@@ -87,18 +87,12 @@ async fn test_field_masking_checkpoint_processing() -> anyhow::Result<()> {
         .context("failed to get latest checkpoint")?;
 
     let checkpoint_seq = *latest_checkpoint_summary.sequence_number();
-    tracing::info!(
-        checkpoint = checkpoint_seq,
-        "Latest checkpoint found"
-    );
+    tracing::info!(checkpoint = checkpoint_seq, "Latest checkpoint found");
 
     // Use an earlier checkpoint to ensure it's fully processed.
     let test_checkpoint_seq = checkpoint_seq.saturating_sub(2).max(1);
 
-    tracing::info!(
-        checkpoint = test_checkpoint_seq,
-        "Testing with checkpoint"
-    );
+    tracing::info!(checkpoint = test_checkpoint_seq, "Testing with checkpoint");
 
     // Step 5: Fetch checkpoint with BOTH methods for comparison.
     tracing::info!("Fetching checkpoint with standard method...");
@@ -205,24 +199,17 @@ async fn test_field_masking_checkpoint_processing() -> anyhow::Result<()> {
 
     // Step 10: Create package store and checkpoint processor.
     let sui_read_client = client.inner.sui_client().read_client.clone();
-    let package_store = LocalDBPackageStore::new(
-        stores.walrus_package_store.clone(),
-        sui_read_client,
-    );
+    let package_store =
+        LocalDBPackageStore::new(stores.walrus_package_store.clone(), sui_read_client);
 
-    let checkpoint_processor = CheckpointProcessor::new(
-        stores.clone(),
-        package_store.clone(),
-        system_pkg_id,
-    );
+    let checkpoint_processor =
+        CheckpointProcessor::new(stores.clone(), package_store.clone(), system_pkg_id);
 
     tracing::info!("Created checkpoint processor");
 
     // Step 11: Initialize checkpoint store with a verified checkpoint.
     // We need to verify the checkpoint first.
-    let verified = VerifiedCheckpoint::new_unchecked(
-        masked_checkpoint.checkpoint_summary.clone(),
-    );
+    let verified = VerifiedCheckpoint::new_unchecked(masked_checkpoint.checkpoint_summary.clone());
 
     // Store it as the "previous" checkpoint for processing the next one.
     stores
@@ -286,9 +273,8 @@ async fn test_field_masking_checkpoint_processing() -> anyhow::Result<()> {
     // Calculate approximate size savings.
     let full_size_estimate = full_checkpoint.transactions.len() * 20_000; // ~20KB per tx
     let masked_size_estimate = masked_checkpoint.transactions.len() * 5_000; // ~5KB per tx
-    let savings_pct = ((full_size_estimate - masked_size_estimate) as f64
-        / full_size_estimate as f64)
-        * 100.0;
+    let savings_pct =
+        ((full_size_estimate - masked_size_estimate) as f64 / full_size_estimate as f64) * 100.0;
 
     tracing::info!(
         full_size_kb = full_size_estimate / 1024,

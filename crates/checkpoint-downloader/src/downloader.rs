@@ -115,6 +115,7 @@ impl ParallelCheckpointDownloaderInner {
                 cloned_message_receiver,
                 cloned_checkpoint_sender,
                 config.base_config,
+                config.use_field_masking,
                 sampled_tracing_interval,
             );
         }
@@ -167,6 +168,7 @@ impl ParallelCheckpointDownloaderInner {
         message_receiver: async_channel::Receiver<WorkerMessage>,
         checkpoint_sender: mpsc::Sender<CheckpointEntry>,
         config: ParallelDownloaderConfig,
+        use_field_masking: bool,
         sampled_tracing_interval: Duration,
     ) {
         tokio::spawn(async move {
@@ -176,6 +178,7 @@ impl ParallelCheckpointDownloaderInner {
                 message_receiver,
                 checkpoint_sender,
                 config,
+                use_field_masking,
                 sampled_tracing_interval,
             )
             .await?;
@@ -222,6 +225,7 @@ impl ParallelCheckpointDownloaderInner {
         message_receiver: async_channel::Receiver<WorkerMessage>,
         checkpoint_sender: mpsc::Sender<CheckpointEntry>,
         config: ParallelDownloaderConfig,
+        use_field_masking: bool,
         sampled_tracing_interval: Duration,
     ) -> Result<()> {
         let _scope = monitored_scope::monitored_scope("WorkerLoop");
@@ -229,8 +233,14 @@ impl ParallelCheckpointDownloaderInner {
         tracing::info!(worker_id, "starting checkpoint download worker");
         let mut rng = StdRng::from_entropy();
         while let Ok(WorkerMessage::Download(sequence_number)) = message_receiver.recv().await {
-            let entry =
-                Self::download_with_retry(&client, sequence_number, &config, &mut rng).await;
+            let entry = Self::download_with_retry(
+                &client,
+                sequence_number,
+                &config,
+                &mut rng,
+                use_field_masking,
+            )
+            .await;
             tracing_sampled::info!(
                 sampled_tracing_interval,
                 sequence_number,
@@ -280,6 +290,7 @@ impl ParallelCheckpointDownloaderInner {
                         cloned_receiver,
                         cloned_checkpoint_sender,
                         cloned_config,
+                        config.downloader_config.use_field_masking,
                         sampled_tracing_interval,
                     );
                     *next_worker_id += 1;
@@ -507,6 +518,7 @@ impl ParallelCheckpointDownloaderInner {
         sequence_number: CheckpointSequenceNumber,
         config: &ParallelDownloaderConfig,
         rng: &mut StdRng,
+        use_field_masking: bool,
     ) -> CheckpointEntry {
         let mut backoff = if cfg!(test) {
             // Note that we only return error in test mode.
@@ -528,18 +540,42 @@ impl ParallelCheckpointDownloaderInner {
         };
 
         loop {
-            match client.get_full_checkpoint(sequence_number).await {
-                Ok(checkpoint) => return CheckpointEntry::new(sequence_number, Ok(checkpoint)),
-                Err(err) => {
-                    handle_checkpoint_error(&err, sequence_number);
-                    if let Some(delay) = backoff.next() {
-                        tokio::time::sleep(delay).await;
-                        continue;
+            if use_field_masking {
+                match client
+                    .get_checkpoint_for_events_experimental(sequence_number)
+                    .await
+                {
+                    Ok(checkpoint) => {
+                        return CheckpointEntry::new_for_events(sequence_number, Ok(checkpoint));
                     }
+                    Err(err) => {
+                        handle_checkpoint_error(&err, sequence_number);
+                        if let Some(delay) = backoff.next() {
+                            tokio::time::sleep(delay).await;
+                            continue;
+                        }
 
-                    // Note that we only return error in test mode.
-                    assert!(cfg!(test));
-                    return CheckpointEntry::new(sequence_number, Err(err.into()));
+                        // Note that we only return error in test mode.
+                        assert!(cfg!(test));
+                        return CheckpointEntry::new_for_events(sequence_number, Err(err.into()));
+                    }
+                }
+            } else {
+                match client.get_full_checkpoint(sequence_number).await {
+                    Ok(checkpoint) => {
+                        return CheckpointEntry::new_full(sequence_number, Ok(checkpoint));
+                    }
+                    Err(err) => {
+                        handle_checkpoint_error(&err, sequence_number);
+                        if let Some(delay) = backoff.next() {
+                            tokio::time::sleep(delay).await;
+                            continue;
+                        }
+
+                        // Note that we only return error in test mode.
+                        assert!(cfg!(test));
+                        return CheckpointEntry::new_full(sequence_number, Err(err.into()));
+                    }
                 }
             }
         }

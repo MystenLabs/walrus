@@ -239,12 +239,43 @@ impl CheckpointProcessor {
         Ok(next_event_index)
     }
 
+    /// Verifies a checkpoint fetched with field masking.
+    ///
+    /// This is similar to `verify_checkpoint` but works with `CheckpointForEvents`.
+    pub fn verify_checkpoint_for_events(
+        &self,
+        checkpoint: &walrus_sui::client::retry_client::CheckpointForEvents,
+        prev_checkpoint: VerifiedCheckpoint,
+    ) -> Result<VerifiedCheckpoint> {
+        let Some(committee) = self.stores.committee_store.get(&())? else {
+            anyhow::bail!("No committee found in the committee store");
+        };
+
+        let verified_checkpoint = sui_storage::verify_checkpoint_with_committee(
+            Arc::new(committee.clone()),
+            &prev_checkpoint,
+            checkpoint.checkpoint_summary.clone(),
+        )
+        .map_err(|checkpoint| {
+            anyhow::anyhow!(
+                "failed to verify sui checkpoint: {}",
+                checkpoint.sequence_number
+            )
+        })?;
+
+        // Verify that checkpoint summary matches the content.
+        if verified_checkpoint.content_digest != *checkpoint.checkpoint_contents.digest() {
+            anyhow::bail!("checkpoint summary does not match the content");
+        }
+
+        Ok(verified_checkpoint)
+    }
+
     /// Experimental: Processes checkpoint data from field-masked fetch.
     ///
     /// This method is similar to `process_checkpoint_data` but works with
     /// `CheckpointForEvents` which contains only events and output_objects,
     /// avoiding deserialization of Transaction and TransactionEffects.
-    #[allow(dead_code)]
     pub async fn process_checkpoint_for_events_experimental(
         &self,
         checkpoint: walrus_sui::client::retry_client::CheckpointForEvents,

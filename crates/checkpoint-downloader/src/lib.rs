@@ -13,4 +13,4 @@ mod types;
 
 pub use config::{AdaptiveDownloaderConfig, ChannelConfig, ParallelDownloaderConfig};
 pub use downloader::ParallelCheckpointDownloader;
-pub use types::CheckpointEntry;
+pub use types::{CheckpointEntry, CheckpointVariant};

@@ -47,12 +47,10 @@ impl CheckpointForEvents {
     }
 }
 
-
 /// Deserializes CheckpointForEvents from protobuf response.
 pub(super) fn deserialize_checkpoint_for_events(
     checkpoint: &sui_rpc_api::proto::sui::rpc::v2beta2::Checkpoint,
 ) -> anyhow::Result<CheckpointForEvents> {
-
     // Deserialize checkpoint summary.
     let summary_bcs = checkpoint
         .summary
@@ -72,11 +70,11 @@ pub(super) fn deserialize_checkpoint_for_events(
     // Convert signature using bcs serialization.
     let signature_bcs = bcs::to_bytes(signature_proto)
         .map_err(|e| anyhow::anyhow!("failed to serialize signature: {}", e))?;
-    let signature: sui_types::crypto::AuthorityStrongQuorumSignInfo = bcs::from_bytes(&signature_bcs)
-        .map_err(|e| anyhow::anyhow!("failed to deserialize signature: {}", e))?;
+    let signature: sui_types::crypto::AuthorityStrongQuorumSignInfo =
+        bcs::from_bytes(&signature_bcs)
+            .map_err(|e| anyhow::anyhow!("failed to deserialize signature: {}", e))?;
 
-    let checkpoint_summary =
-        CertifiedCheckpointSummary::new_from_data_and_sig(summary, signature);
+    let checkpoint_summary = CertifiedCheckpointSummary::new_from_data_and_sig(summary, signature);
 
     // Deserialize checkpoint contents.
     let contents_bcs = checkpoint

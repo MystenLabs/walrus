@@ -586,7 +586,8 @@ impl RetriableRpcClient {
         use prost_types::FieldMask;
 
         use crate::client::retry_client::experimental_field_masking::{
-            CheckpointForEvents, deserialize_checkpoint_for_events,
+            CheckpointForEvents,
+            deserialize_checkpoint_for_events,
         };
 
         let start_time = Instant::now();
@@ -604,11 +605,10 @@ impl RetriableRpcClient {
 
                             // Build request with field mask.
                             let mut request = proto::GetCheckpointRequest::default();
-                            request.checkpoint_id = Some(
-                                proto::get_checkpoint_request::CheckpointId::SequenceNumber(
+                            request.checkpoint_id =
+                                Some(proto::get_checkpoint_request::CheckpointId::SequenceNumber(
                                     sequence_number,
-                                ),
-                            );
+                                ));
                             request.read_mask = Some(FieldMask {
                                 paths: vec![
                                     "summary.bcs".to_string(),
@@ -626,9 +626,9 @@ impl RetriableRpcClient {
                                 .await?
                                 .into_inner();
 
-                            let checkpoint = response
-                                .checkpoint
-                                .ok_or_else(|| tonic::Status::not_found("no checkpoint returned"))?;
+                            let checkpoint = response.checkpoint.ok_or_else(|| {
+                                tonic::Status::not_found("no checkpoint returned")
+                            })?;
 
                             // Deserialize only the requested fields.
                             deserialize_checkpoint_for_events(&checkpoint).map_err(|e| {

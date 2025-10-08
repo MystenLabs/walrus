@@ -291,7 +291,7 @@ impl EventProcessor {
         );
 
         while let Some(entry) = rx.recv().await {
-            let Ok(checkpoint) = entry.result else {
+            let Ok(checkpoint_variant) = entry.result else {
                 let error = entry.result.err().unwrap_or(anyhow!("unknown error"));
                 tracing::error!(
                     ?error,
@@ -300,12 +300,23 @@ impl EventProcessor {
                 );
                 bail!("failed to download checkpoint: {}", entry.sequence_number);
             };
+
+            // Verify sequence number based on checkpoint type.
+            let checkpoint_seq = match &checkpoint_variant {
+                checkpoint_downloader::CheckpointVariant::Full(checkpoint) => {
+                    *checkpoint.checkpoint_summary.sequence_number()
+                }
+                checkpoint_downloader::CheckpointVariant::ForEvents(checkpoint) => {
+                    *checkpoint.checkpoint_summary.sequence_number()
+                }
+            };
             ensure!(
-                *checkpoint.checkpoint_summary.sequence_number() == next_checkpoint,
+                checkpoint_seq == next_checkpoint,
                 "received out-of-order checkpoint: expected {}, got {}",
                 next_checkpoint,
-                checkpoint.checkpoint_summary.sequence_number()
+                checkpoint_seq
             );
+
             tracing_sampled::info!(
                 self.sampled_tracing_interval,
                 sequence_number = next_checkpoint,
@@ -319,9 +330,27 @@ impl EventProcessor {
                 .event_processor_total_downloaded_checkpoints
                 .inc();
 
-            (next_event_index, prev_verified_checkpoint) = self
-                .process_checkpoint(checkpoint, prev_verified_checkpoint, next_event_index)
-                .await?;
+            // Process checkpoint based on its type.
+            (next_event_index, prev_verified_checkpoint) = match checkpoint_variant {
+                checkpoint_downloader::CheckpointVariant::Full(checkpoint) => {
+                    self.process_checkpoint(checkpoint, prev_verified_checkpoint, next_event_index)
+                        .await?
+                }
+                checkpoint_downloader::CheckpointVariant::ForEvents(checkpoint) => {
+                    let verified_checkpoint = self
+                        .checkpoint_processor
+                        .verify_checkpoint_for_events(&checkpoint, prev_verified_checkpoint)?;
+                    let next_event_index = self
+                        .checkpoint_processor
+                        .process_checkpoint_for_events_experimental(
+                            checkpoint,
+                            verified_checkpoint.clone(),
+                            next_event_index,
+                        )
+                        .await?;
+                    (next_event_index, verified_checkpoint)
+                }
+            };
             next_checkpoint += 1;
         }
         Ok(())

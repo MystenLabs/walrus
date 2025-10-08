@@ -114,6 +114,9 @@ pub struct AdaptiveDownloaderConfig {
     /// Maximum number of consecutive pool monitor failures until the downloader uses a fixed number
     /// of workers.
     pub max_consecutive_pool_monitor_failures: usize,
+    /// Use experimental field masking for checkpoint fetching.
+    #[serde(rename = "use_field_masking")]
+    pub use_field_masking: bool,
 }
 
 impl Default for AdaptiveDownloaderConfig {
@@ -128,6 +131,7 @@ impl Default for AdaptiveDownloaderConfig {
             base_config: ParallelDownloaderConfig::default(),
             channel_config: ChannelConfig::default(),
             max_consecutive_pool_monitor_failures: 10,
+            use_field_masking: false,
         }
     }
 }

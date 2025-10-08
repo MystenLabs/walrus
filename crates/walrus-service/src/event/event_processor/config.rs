@@ -106,6 +106,15 @@ pub struct EventProcessorConfig {
     #[serde_as(as = "DurationSeconds")]
     #[serde(rename = "sampled_tracing_interval_secs")]
     pub sampled_tracing_interval: Duration,
+    /// Enable experimental field masking for checkpoint fetching.
+    ///
+    /// When enabled, uses gRPC field masking to fetch only the fields needed
+    /// for event processing (events, output_objects) instead of full checkpoint
+    /// data. This reduces network bandwidth and protects against BCS
+    /// deserialization failures when Sui adds new fields to Transaction or
+    /// TransactionEffects types.
+    #[serde(rename = "use_field_masking")]
+    pub use_field_masking: bool,
 }
 
 impl Default for EventProcessorConfig {
@@ -116,6 +125,7 @@ impl Default for EventProcessorConfig {
             adaptive_downloader_config: Default::default(),
             event_stream_catchup_min_checkpoint_lag: 20_000,
             sampled_tracing_interval: Duration::from_secs(3600),
+            use_field_masking: false,
         }
     }
 }

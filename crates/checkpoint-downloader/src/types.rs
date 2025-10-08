@@ -9,6 +9,7 @@ use sui_types::{
     messages_checkpoint::CheckpointSequenceNumber,
 };
 use tokio::sync::mpsc;
+use walrus_sui::client::retry_client::CheckpointForEvents;
 
 /// Worker message types.
 pub(crate) enum WorkerMessage {
@@ -18,21 +19,38 @@ pub(crate) enum WorkerMessage {
     Shutdown,
 }
 
+/// Checkpoint data variant - either full data or minimal data for events.
+#[derive(Debug)]
+pub enum CheckpointVariant {
+    /// Full checkpoint data (standard method).
+    Full(CheckpointData),
+    /// Minimal checkpoint data for events (experimental field masking).
+    ForEvents(CheckpointForEvents),
+}
+
 /// Entry in the checkpoint fetcher queue.
 #[derive(Debug)]
 pub struct CheckpointEntry {
     /// The sequence number of the checkpoint.
     pub sequence_number: u64,
     /// The result of the checkpoint download.
-    pub result: Result<CheckpointData>,
+    pub result: Result<CheckpointVariant>,
 }
 
 impl CheckpointEntry {
-    /// Creates a new checkpoint entry.
-    pub fn new(sequence_number: u64, result: Result<CheckpointData>) -> Self {
+    /// Creates a new checkpoint entry with full checkpoint data.
+    pub fn new_full(sequence_number: u64, result: Result<CheckpointData>) -> Self {
         Self {
             sequence_number,
-            result,
+            result: result.map(CheckpointVariant::Full),
+        }
+    }
+
+    /// Creates a new checkpoint entry with minimal checkpoint data for events.
+    pub fn new_for_events(sequence_number: u64, result: Result<CheckpointForEvents>) -> Self {
+        Self {
+            sequence_number,
+            result: result.map(CheckpointVariant::ForEvents),
         }
     }
 }
