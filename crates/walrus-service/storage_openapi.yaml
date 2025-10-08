@@ -314,7 +314,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Status'
         '503':
-          description: ''
+          description: Generic "service unavailable" error propagated to REST callers when a node-level limiter trips.
           content:
             application/json:
               schema:
