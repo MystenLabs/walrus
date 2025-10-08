@@ -94,17 +94,17 @@ jobs:
     - name: Get current Walrus oncall
       run: |
         export current_oncall=$(curl -s --request GET \
-          --url 'https://api.pagerduty.com/oncalls?schedule_ids[]=${{ inputs.oncall }}' \
+          --url 'https://api.pagerduty.com/oncalls?schedule_ids[]=P9LNVEM' \
           --header 'Accept: application/json' \
-          --header 'Authorization: Token token=${{ inputs.pagerduty_token }}' \
+          --header 'Authorization: Token token=${{ secrets.PAGERDUTY_ACCESS_KEY }}' \
           --header 'Content-Type: application/json' \
           | jq '.oncalls[].user.summary' | tr -d '"' | head -n 1)
         echo "current_oncall=$(echo ${current_oncall})" >> $GITHUB_ENV
 
         export oncall_name=$(curl -s --request GET \
-          --url 'https://api.pagerduty.com/oncalls?schedule_ids[]=${{ inputs.oncall }}' \
+          --url 'https://api.pagerduty.com/oncalls?schedule_ids[]=P9LNVEM' \
           --header 'Accept: application/json' \
-          --header 'Authorization: Token token=${{ inputs.pagerduty_token }}' \
+          --header 'Authorization: Token token=${{ secrets.PAGERDUTY_ACCESS_KEY }}' \
           --header 'Content-Type: application/json' \
           | jq '.oncalls[].escalation_policy.summary' | tr -d '"' | head -n 1)
         echo "oncall_name=$(echo ${oncall_name})" >> $GITHUB_ENV
@@ -117,6 +117,8 @@ jobs:
         aws-region: us-west-2
 
     - name: Get slack id for the oncall
+      env:
+        current_oncall: ${{ env.current_oncall }}
       run: |
         export slack_id=$(aws s3 cp \
           s3://mysten-employees-dir/employees.json - \
