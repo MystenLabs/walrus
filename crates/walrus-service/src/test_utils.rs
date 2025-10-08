@@ -220,6 +220,8 @@ pub struct TestNodesConfig {
     pub enable_node_config_synchronizer: bool,
     /// The node recovery config for the nodes.
     pub node_recovery_config: Option<NodeRecoveryConfig>,
+    /// Whether to use experimental field masking for checkpoint fetching.
+    pub use_field_masking: bool,
 }
 
 impl Default for TestNodesConfig {
@@ -232,6 +234,7 @@ impl Default for TestNodesConfig {
             blocklist_dir: None,
             enable_node_config_synchronizer: false,
             node_recovery_config: None,
+            use_field_masking: false,
         }
     }
 }
@@ -1149,6 +1152,11 @@ impl StorageNodeHandleBuilder {
                     // Use low checkpoint lag so that we can exercise using event blobs to catch up
                     // in simtest.
                     200
+                },
+                use_field_masking: test_nodes_config.use_field_masking,
+                adaptive_downloader_config: checkpoint_downloader::AdaptiveDownloaderConfig {
+                    use_field_masking: test_nodes_config.use_field_masking,
+                    ..Default::default()
                 },
                 ..Default::default()
             },
