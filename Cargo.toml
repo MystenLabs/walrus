@@ -55,7 +55,6 @@ diesel_migrations = { version = "2.2.0", features = ["postgres"] }
 enum_dispatch = "0.3"
 eyre = "0.6.12"
 fastcrypto = { git = "https://github.com/MystenLabs/fastcrypto", rev = "d1fcb853196c3de7888ed8fad74f419b8c8fbe3b" }
-
 fdlimit = "0.3.0"
 futures = { version = "0.3.31", default-features = false, features = ["async-await", "std"] }
 futures-timer = "=3.0.3" # required for MSIM
