@@ -3081,6 +3081,8 @@ pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
             // Uses smaller number of workers in tests to avoid overwhelming the tests.
             blob_event_processor_config: BlobEventProcessorConfig { num_workers: 3 },
             garbage_collection: GarbageCollectionConfig::default_for_test(),
+            precertify_notice: Default::default(),
+            live_upload_deferral: Default::default(),
         },
         temp_dir,
     }

@@ -88,6 +88,15 @@ db_config:
   event_store: null
   init_state: null
   shared_shard_storage_block_cache_config: null
+precertify_notice:
+  enabled: false
+  defer_min_secs: 0
+  defer_max_secs: 30
+  jitter_pct: 15
+live_upload_deferral:
+  enabled: false
+  table: []
+  max_total_defer_secs: 30
 protocol_key_pair:
   path: /opt/walrus/config/protocol.key
 next_protocol_key_pair: null

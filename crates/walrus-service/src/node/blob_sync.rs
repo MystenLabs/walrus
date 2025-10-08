@@ -537,6 +537,37 @@ impl BlobSynchronizer {
         let this = Arc::new(self);
         let histograms = &this.metrics().recover_blob_part_duration_seconds;
 
+        match this
+            .node
+            .wait_until_recovery_deferral_expires(&this.blob_id)
+            .await
+        {
+            Ok(token) => {
+                token.cancelled().await;
+                this.node.clear_recovery_deferral(&this.blob_id).await;
+            }
+            Err(err) => tracing::warn!(?err, "failed to schedule recovery deferral wait"),
+        }
+
+        // After deferral elapses, re-check existence at shards
+        // owned by this node in the current epoch.
+        let current_epoch = this
+            .node
+            .current_event_epoch()
+            .await
+            .expect("current event epoch should be set");
+        if this
+            .node
+            .is_stored_at_all_shards_at_epoch(&this.blob_id, current_epoch)
+            .await
+            .unwrap_or(false)
+        {
+            tracing::debug!(
+                "blob already stored at all owned shards for current epoch, skipping recovery"
+            );
+            return;
+        }
+
         let shared_metadata = this
             .clone()
             .recover_metadata()
@@ -564,6 +595,8 @@ impl BlobSynchronizer {
             );
             tokio::time::sleep(backoff_duration).await;
         }
+
+        this.node.clear_recovery_deferral(&this.blob_id).await;
     }
 
     /// Starts the task that syncs all the missing slivers for a blob.
