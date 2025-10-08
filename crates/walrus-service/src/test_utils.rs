@@ -85,6 +85,8 @@ use crate::common::config::SuiConfig;
 use crate::event::event_processor::config::{EventProcessorRuntimeConfig, SystemConfig};
 #[cfg(msim)]
 use crate::node::ConfigLoader;
+#[cfg(msim)]
+use crate::node::config::{LiveUploadDeferralConfig, SizeDeferralEntry, SstIngestionConfig};
 use crate::{
     event::{
         event_processor::{config::EventProcessorConfig, processor::EventProcessor},
@@ -108,8 +110,10 @@ use crate::{
             BlobRecoveryConfig,
             ConfigSynchronizerConfig,
             GarbageCollectionConfig,
+            LiveUploadDeferralConfig,
             NodeRecoveryConfig,
             ShardSyncConfig,
+            SizeDeferralEntry,
             StorageNodeConfig,
         },
         consistency_check::StorageNodeConsistencyCheckConfig,
@@ -410,6 +414,25 @@ impl SimStorageNodeHandle {
         num_checkpoints_per_blob: Option<u32>,
         cancel_token: CancellationToken,
     ) -> sui_simulator::runtime::NodeHandle {
+        {
+            let mut cfg = config.write().await;
+            if !cfg.live_upload_deferral.enabled {
+                cfg.live_upload_deferral.enabled = true;
+            }
+            if cfg.live_upload_deferral.table.is_empty() {
+                cfg.live_upload_deferral.table.push(SizeDeferralEntry {
+                    max_unencoded_bytes: u64::MAX,
+                    defer: Duration::from_millis(100),
+                });
+            }
+            if cfg.live_upload_deferral.max_total_defer.is_zero() {
+                cfg.live_upload_deferral.max_total_defer = Duration::from_millis(100);
+            }
+            if cfg.live_upload_deferral.max_checkpoint_lag == 0 {
+                cfg.live_upload_deferral.max_checkpoint_lag = 1;
+            }
+        }
+
         let (startup_sender, mut startup_receiver) = tokio::sync::watch::channel(false);
 
         // Extract the IP address from the configuration.
@@ -3079,6 +3102,15 @@ pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
             // Uses smaller number of workers in tests to avoid overwhelming the tests.
             blob_event_processor_config: BlobEventProcessorConfig { num_workers: 3 },
             garbage_collection: GarbageCollectionConfig::default_for_test(),
+            live_upload_deferral: LiveUploadDeferralConfig {
+                enabled: true,
+                table: vec![SizeDeferralEntry {
+                    max_unencoded_bytes: u64::MAX,
+                    defer: Duration::from_millis(100),
+                }],
+                max_total_defer: Duration::from_millis(100),
+                max_checkpoint_lag: 1,
+            },
         },
         temp_dir,
     }

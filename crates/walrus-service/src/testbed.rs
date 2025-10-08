@@ -55,7 +55,9 @@ use crate::{
     common::config::{SuiConfig, SuiReaderConfig},
     node::{
         config::{
+            LiveUploadDeferralConfig,
             PathOrInPlace,
+            SizeDeferralEntry,
             StorageNodeConfig,
             defaults::{self, REST_API_PORT},
         },
@@ -748,6 +750,15 @@ pub async fn create_storage_node_configs(
                 sliver_data_existence_check_sample_rate_percentage: 100,
             },
             checkpoint_config: Default::default(),
+            live_upload_deferral: LiveUploadDeferralConfig {
+                enabled: true,
+                table: vec![SizeDeferralEntry {
+                    max_unencoded_bytes: u64::MAX,
+                    defer: Duration::from_millis(100),
+                }],
+                max_total_defer: Duration::from_millis(100),
+                max_checkpoint_lag: 1,
+            },
             admin_socket_path: Some(working_dir.join(format!("admin-{node_index}.sock"))),
             node_recovery_config: Default::default(),
             blob_event_processor_config: Default::default(),
