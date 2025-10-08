@@ -27,6 +27,7 @@ use walrus_sui::types::{BlobCertified, BlobDeleted, BlobEvent, BlobRegistered, I
 use self::per_object_blob_info::PerObjectBlobInfoMergeOperand;
 pub(crate) use self::per_object_blob_info::{PerObjectBlobInfo, PerObjectBlobInfoApi};
 use super::{DatabaseTableOptionsFactory, constants};
+use crate::node::metrics::NodeMetricSet;
 
 pub type BlobInfoIterator<'a> = BlobInfoIter<
     BlobId,
@@ -411,6 +412,7 @@ impl BlobInfoTable {
     pub(crate) async fn process_expired_blob_objects(
         &self,
         current_epoch: Epoch,
+        node_metrics: &NodeMetricSet,
     ) -> anyhow::Result<()> {
         for entry in self.per_object_blob_info.safe_iter()? {
             let (object_id, per_object_blob_info) = match entry {
@@ -439,7 +441,8 @@ impl BlobInfoTable {
             // Clean up all expired objects.
             batch.delete_batch(&self.per_object_blob_info, [object_id])?;
 
-            // TODO(mlegner): Record the number of deleted objects in a metric.
+            // Record the number of deleted objects in a metric.
+            node_metrics.expired_blob_objects_deleted_total.inc();
 
             // Only update the aggregate blob info if the blob is deletable and not already deleted
             // (in which case it was already updated).
