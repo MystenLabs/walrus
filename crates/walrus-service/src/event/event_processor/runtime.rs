@@ -81,6 +81,13 @@ impl EventProcessorRuntime {
         cancel_token: CancellationToken,
         db_config: &DatabaseConfig,
     ) -> anyhow::Result<(Box<dyn EventManager>, Self)> {
+        tracing::info!(
+            use_legacy_event_provider = use_legacy_event_provider,
+            use_field_masking = event_processor_config.use_field_masking,
+            adaptive_use_field_masking = event_processor_config.adaptive_downloader_config.use_field_masking,
+            "event_processor runtime: starting with config"
+        );
+
         let runtime = runtime::Builder::new_multi_thread()
             .thread_name("event-manager-runtime")
             .worker_threads(2)

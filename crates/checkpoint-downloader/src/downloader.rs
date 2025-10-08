@@ -50,6 +50,10 @@ impl ParallelCheckpointDownloader {
         config: AdaptiveDownloaderConfig,
         registry: &Registry,
     ) -> Result<Self> {
+        tracing::info!(
+            use_field_masking = config.use_field_masking,
+            "checkpoint downloader: created with config"
+        );
         let metrics = AdaptiveDownloaderMetrics::new(registry);
         Ok(Self {
             full_node_client,
@@ -539,6 +543,12 @@ impl ParallelCheckpointDownloaderInner {
             )
         };
 
+        tracing::info!(
+            checkpoint = sequence_number,
+            use_field_masking = use_field_masking,
+            "downloading checkpoint"
+        );
+
         loop {
             if use_field_masking {
                 match client
@@ -546,6 +556,10 @@ impl ParallelCheckpointDownloaderInner {
                     .await
                 {
                     Ok(checkpoint) => {
+                        tracing::info!(
+                            checkpoint = sequence_number,
+                            "successfully fetched checkpoint with field masking"
+                        );
                         return CheckpointEntry::new_for_events(sequence_number, Ok(checkpoint));
                     }
                     Err(err) => {
@@ -563,6 +577,10 @@ impl ParallelCheckpointDownloaderInner {
             } else {
                 match client.get_full_checkpoint(sequence_number).await {
                     Ok(checkpoint) => {
+                        tracing::info!(
+                            checkpoint = sequence_number,
+                            "successfully fetched checkpoint with standard method"
+                        );
                         return CheckpointEntry::new_full(sequence_number, Ok(checkpoint));
                     }
                     Err(err) => {

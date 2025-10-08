@@ -164,10 +164,10 @@ event_processor_config:
       work_queue_buffer_factor: 3
       result_queue_buffer_factor: 3
     max_consecutive_pool_monitor_failures: 10
-    # use_field_masking: false  # Enable experimental gRPC field masking for reduced bandwidth
+    use_field_masking: false
   event_stream_catchup_min_checkpoint_lag: 20000
   sampled_tracing_interval_secs: 3600
-  # use_field_masking: false  # Enable experimental gRPC field masking for reduced bandwidth
+  use_field_masking: false
 use_legacy_event_provider: false
 disable_event_blob_writer: false
 commission_rate: 6000

@@ -1795,6 +1795,15 @@ impl<T> WalrusNodeClient<T> {
         let mut aggregate_weight = 0;
         let mut signers = Vec::with_capacity(confirmations.len());
         let mut signed_messages = Vec::with_capacity(confirmations.len());
+        let total_confirmations = confirmations.len();
+        let mut success_count = 0;
+        let mut failure_count = 0;
+
+        tracing::debug!(
+            total_confirmations,
+            min_n_correct = committees.min_n_correct(),
+            "collecting confirmations"
+        );
 
         for NodeResult {
             weight,
@@ -1805,16 +1814,29 @@ impl<T> WalrusNodeClient<T> {
         {
             match result {
                 Ok(confirmation) => {
+                    success_count += 1;
                     aggregate_weight += weight;
                     signed_messages.push(confirmation);
                     signers.push(
                         u16::try_from(node)
                             .expect("the node index is computed from the vector of members"),
                     );
+                    tracing::debug!(node, weight, aggregate_weight, "received confirmation");
                 }
-                Err(error) => tracing::info!(node, %error, "storing metadata and pairs failed"),
+                Err(error) => {
+                    failure_count += 1;
+                    tracing::warn!(node, %error, weight, "storing metadata and pairs failed");
+                }
             }
         }
+
+        tracing::info!(
+            success_count,
+            failure_count,
+            aggregate_weight,
+            min_n_correct = committees.min_n_correct(),
+            "collected confirmations"
+        );
 
         ensure!(
             committees

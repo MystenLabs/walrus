@@ -15,7 +15,7 @@ use std::{sync::Arc, time::Duration};
 
 use anyhow::Context;
 use walrus_proc_macros::walrus_simtest;
-use walrus_service::test_utils::{test_cluster, TestNodesConfig};
+use walrus_service::test_utils::{TestNodesConfig, test_cluster};
 use walrus_sui::client::retry_client::{
     RetriableRpcClient,
     retriable_rpc_client::LazyFallibleRpcClientBuilder,
@@ -25,7 +25,6 @@ use walrus_utils::backoff::ExponentialBackoffConfig;
 
 #[walrus_simtest]
 async fn test_field_masking_checkpoint_fetching() -> TestResult {
-    // Initialize tracing for debugging.
     let _ = tracing_subscriber::fmt()
         .with_env_filter("info,walrus=debug")
         .try_init();
@@ -89,10 +88,7 @@ async fn test_field_masking_checkpoint_fetching() -> TestResult {
     // Use an earlier checkpoint to ensure it's fully processed.
     let test_checkpoint_seq = checkpoint_seq.saturating_sub(2).max(1);
 
-    tracing::info!(
-        checkpoint = test_checkpoint_seq,
-        "Testing with checkpoint"
-    );
+    tracing::info!(checkpoint = test_checkpoint_seq, "Testing with checkpoint");
 
     // Step 5: Fetch checkpoint with BOTH methods for comparison.
     tracing::info!("Fetching checkpoint with standard method...");
@@ -177,22 +173,6 @@ async fn test_field_masking_checkpoint_fetching() -> TestResult {
             i
         );
     }
-
-    tracing::info!("All transaction data verified");
-    tracing::info!("✅ Field masking integration test PASSED");
-
-    // Calculate approximate size savings.
-    let full_size_estimate = full_checkpoint.transactions.len() * 20_000; // ~20KB per tx
-    let masked_size_estimate = masked_checkpoint.transactions.len() * 5_000; // ~5KB per tx
-    let savings_pct =
-        ((full_size_estimate - masked_size_estimate) as f64 / full_size_estimate as f64) * 100.0;
-
-    tracing::info!(
-        full_size_kb = full_size_estimate / 1024,
-        masked_size_kb = masked_size_estimate / 1024,
-        savings_percent = format!("{:.1}%", savings_pct),
-        "Estimated size savings"
-    );
 
     Ok(())
 }

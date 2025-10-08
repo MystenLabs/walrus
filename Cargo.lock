@@ -13121,6 +13121,7 @@ dependencies = [
  "sui-package-management",
  "sui-rpc-api",
  "sui-sdk",
+ "sui-sdk-types",
  "sui-simulator",
  "sui-storage",
  "sui-types",

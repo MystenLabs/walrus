@@ -33,8 +33,8 @@ jsonrpsee.workspace = true
 move-core-types.workspace = true
 move-package.workspace = true
 mysten-metrics.workspace = true
-prost-types = "0.13.1"
 prometheus.workspace = true
+prost-types = "0.13.1"
 rand.workspace = true
 regex.workspace = true
 reqwest.workspace = true
@@ -49,6 +49,7 @@ sui-move-build.workspace = true
 sui-package-management.workspace = true
 sui-rpc-api.workspace = true
 sui-sdk.workspace = true
+sui-sdk-types.workspace = true
 sui-storage.workspace = true
 sui-types.workspace = true
 tempfile = { workspace = true, optional = true }

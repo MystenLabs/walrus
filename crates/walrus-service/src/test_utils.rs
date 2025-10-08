@@ -228,8 +228,8 @@ impl Default for TestNodesConfig {
     fn default() -> Self {
         Self {
             node_weights: vec![1, 2, 3, 3, 4],
-            // TODO(WAL-405): change default to checkpoint-based event processor
-            use_legacy_event_processor: true,
+            // Use checkpoint-based event processor (supports field masking).
+            use_legacy_event_processor: false,
             disable_event_blob_writer: false,
             blocklist_dir: None,
             enable_node_config_synchronizer: false,
@@ -745,6 +745,8 @@ pub struct StorageNodeHandleBuilder {
     node_recovery_config: Option<NodeRecoveryConfig>,
     event_stream_catchup_min_checkpoint_lag: Option<u64>,
     max_epochs_ahead: Option<u32>,
+    use_field_masking: Option<bool>,
+    use_legacy_event_processor: Option<bool>,
 }
 
 impl StorageNodeHandleBuilder {
@@ -915,6 +917,18 @@ impl StorageNodeHandleBuilder {
         self
     }
 
+    /// Specify whether to use field masking for checkpoint downloads.
+    pub fn with_use_field_masking(mut self, use_field_masking: bool) -> Self {
+        self.use_field_masking = Some(use_field_masking);
+        self
+    }
+
+    /// Specify whether to use the legacy event processor.
+    pub fn with_use_legacy_event_processor(mut self, use_legacy: bool) -> Self {
+        self.use_legacy_event_processor = Some(use_legacy);
+        self
+    }
+
     /// Creates the configured [`StorageNodeHandle`].
     pub async fn build(self) -> anyhow::Result<StorageNodeHandle> {
         // Identify the storage being used, as it allows us to extract the shards
@@ -987,15 +1001,23 @@ impl StorageNodeHandleBuilder {
             },
             storage_node_cap: self.storage_node_capability.clone().map(|cap| cap.id),
             node_recovery_config: self.node_recovery_config.clone().unwrap_or_default(),
-            event_processor_config: if let Some(event_stream_catchup_min_checkpoint_lag) =
-                self.event_stream_catchup_min_checkpoint_lag
-            {
+            event_processor_config: {
+                let use_field_masking = self.use_field_masking.unwrap_or(false);
+                eprintln!(
+                    "SPAWN: Creating EventProcessorConfig with use_field_masking={}",
+                    use_field_masking
+                );
                 EventProcessorConfig {
-                    event_stream_catchup_min_checkpoint_lag,
+                    event_stream_catchup_min_checkpoint_lag: self
+                        .event_stream_catchup_min_checkpoint_lag
+                        .unwrap_or(20_000),
+                    use_field_masking,
+                    adaptive_downloader_config: checkpoint_downloader::AdaptiveDownloaderConfig {
+                        use_field_masking,
+                        ..Default::default()
+                    },
                     ..Default::default()
                 }
-            } else {
-                Default::default()
             },
             blob_recovery: BlobRecoveryConfig::default_for_test(),
             garbage_collection: GarbageCollectionConfig::default_for_test(),
@@ -1153,7 +1175,12 @@ impl StorageNodeHandleBuilder {
                     // in simtest.
                     200
                 },
-                use_field_masking: test_nodes_config.use_field_masking,
+                use_field_masking: {
+                    eprintln!("TEST_UTILS: use_field_masking={}, use_legacy={}",
+                              test_nodes_config.use_field_masking,
+                              test_nodes_config.use_legacy_event_processor);
+                    test_nodes_config.use_field_masking
+                },
                 adaptive_downloader_config: checkpoint_downloader::AdaptiveDownloaderConfig {
                     use_field_masking: test_nodes_config.use_field_masking,
                     ..Default::default()
@@ -1269,6 +1296,8 @@ impl Default for StorageNodeHandleBuilder {
             node_recovery_config: None,
             event_stream_catchup_min_checkpoint_lag: None,
             max_epochs_ahead: None,
+            use_field_masking: None,
+            use_legacy_event_processor: None,
         }
     }
 }
@@ -1899,6 +1928,8 @@ pub struct TestClusterBuilder {
     event_stream_catchup_min_checkpoint_lag: Option<u64>,
     max_epochs_ahead: Option<EpochCount>,
     n_shards: u16,
+    use_field_masking: Option<bool>,
+    use_legacy_event_processor: Option<bool>,
 }
 
 impl TestClusterBuilder {
@@ -2103,6 +2134,18 @@ impl TestClusterBuilder {
         self
     }
 
+    /// Sets whether to use field masking for checkpoint downloads.
+    pub fn with_use_field_masking(mut self, use_field_masking: bool) -> Self {
+        self.use_field_masking = Some(use_field_masking);
+        self
+    }
+
+    /// Sets whether to use the legacy event processor.
+    pub fn with_use_legacy_event_processor(mut self, use_legacy: bool) -> Self {
+        self.use_legacy_event_processor = Some(use_legacy);
+        self
+    }
+
     /// Creates the configured `TestCluster`.
     pub async fn build<T: StorageNodeHandleTrait>(self) -> anyhow::Result<TestCluster<T>> {
         assert!(!self.storage_node_configs.is_empty());
@@ -2224,6 +2267,14 @@ impl TestClusterBuilder {
 
             if let Some(max_epochs_ahead) = self.max_epochs_ahead {
                 builder = builder.with_max_epochs_ahead(max_epochs_ahead);
+            }
+
+            if let Some(use_field_masking) = self.use_field_masking {
+                builder = builder.with_use_field_masking(use_field_masking);
+            }
+
+            if let Some(use_legacy) = self.use_legacy_event_processor {
+                builder = builder.with_use_legacy_event_processor(use_legacy);
             }
 
             // Build and run the storage nodes in parallel.
@@ -2403,6 +2454,8 @@ impl Default for TestClusterBuilder {
             event_stream_catchup_min_checkpoint_lag: None,
             max_epochs_ahead: None,
             n_shards,
+            use_field_masking: None,
+            use_legacy_event_processor: None,
         }
     }
 }
@@ -2807,7 +2860,14 @@ pub mod test_cluster {
                 .with_committee_services(&committee_services)
                 .with_system_contract_services(node_contract_services);
 
-            let event_processor_config = Default::default();
+            let event_processor_config = EventProcessorConfig {
+                use_field_masking: test_nodes_config.use_field_masking,
+                adaptive_downloader_config: checkpoint_downloader::AdaptiveDownloaderConfig {
+                    use_field_masking: test_nodes_config.use_field_masking,
+                    ..Default::default()
+                },
+                ..Default::default()
+            };
             let mut cluster_builder = if test_nodes_config.use_legacy_event_processor {
                 setup_legacy_event_processors(sui_read_client.clone(), cluster_builder).await?
             } else {
@@ -2832,6 +2892,8 @@ pub mod test_cluster {
             }
 
             cluster_builder = cluster_builder
+                .with_use_field_masking(test_nodes_config.use_field_masking)
+                .with_use_legacy_event_processor(test_nodes_config.use_legacy_event_processor)
                 .with_system_context(system_ctx.clone())
                 .with_sui_rpc_urls(sui_rpc_urls)
                 .with_storage_capabilities(storage_capabilities)

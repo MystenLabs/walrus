@@ -167,14 +167,26 @@ pub async fn put_metadata<S: SyncServiceState>(
     Path(BlobIdString(blob_id)): Path<BlobIdString>,
     Bcs(metadata): Bcs<BlobMetadata>,
 ) -> Result<ApiSuccess<&'static str>, StoreMetadataError> {
-    let (code, message) = if state
+    tracing::debug!(blob_id = %blob_id, "storing metadata");
+
+    let result = state
         .service
         .store_metadata(UnverifiedBlobMetadataWithId::new(blob_id, metadata))
-        .await?
-    {
-        (StatusCode::CREATED, "metadata successfully stored")
-    } else {
-        (StatusCode::OK, "metadata already stored")
+        .await;
+
+    let (code, message) = match result {
+        Ok(true) => {
+            tracing::info!(blob_id = %blob_id, "metadata successfully stored (new)");
+            (StatusCode::CREATED, "metadata successfully stored")
+        }
+        Ok(false) => {
+            tracing::info!(blob_id = %blob_id, "metadata already stored");
+            (StatusCode::OK, "metadata already stored")
+        }
+        Err(e) => {
+            tracing::warn!(blob_id = %blob_id, error = ?e, "failed to store metadata");
+            return Err(e);
+        }
     };
 
     Ok(ApiSuccess::new(code, message))
@@ -263,10 +275,40 @@ pub async fn put_sliver<S: SyncServiceState>(
         SliverType::Secondary => Sliver::Secondary(Bcs::from_bytes(&body)?.0),
     };
 
-    state
+    tracing::debug!(
+        blob_id = %blob_id,
+        sliver_pair_index = sliver_pair_index.0,
+        sliver_type = ?sliver_type,
+        body_len = body.len(),
+        "storing sliver"
+    );
+
+    let result = state
         .service
         .store_sliver(blob_id, sliver_pair_index, sliver)
-        .await?;
+        .await;
+
+    match &result {
+        Ok(_) => {
+            tracing::info!(
+                blob_id = %blob_id,
+                sliver_pair_index = sliver_pair_index.0,
+                sliver_type = ?sliver_type,
+                "sliver stored successfully"
+            );
+        }
+        Err(e) => {
+            tracing::warn!(
+                blob_id = %blob_id,
+                sliver_pair_index = sliver_pair_index.0,
+                sliver_type = ?sliver_type,
+                error = ?e,
+                "failed to store sliver"
+            );
+        }
+    }
+
+    result?;
 
     // TODO(WAL-253): Change to CREATED.
     Ok(ApiSuccess::ok("sliver stored successfully"))

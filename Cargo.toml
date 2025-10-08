@@ -126,6 +126,7 @@ sui-package-resolver = { git = "https://github.com/MystenLabs/sui", tag = "testn
 sui-protocol-config = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.57.2" }
 sui-rpc-api = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.57.2" }
 sui-sdk = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.57.2" }
+sui-sdk-types = { git = "https://github.com/MystenLabs/sui-rust-sdk.git", rev = "8eee97380cac1a1899d3cca427bde7ac906abdb9" }
 sui-simulator = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.57.2" }
 sui-storage = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.57.2" }
 sui-types = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.57.2" }

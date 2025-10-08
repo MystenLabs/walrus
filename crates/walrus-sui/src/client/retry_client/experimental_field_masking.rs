@@ -8,8 +8,9 @@
 
 use sui_types::{
     base_types::TransactionDigest,
+    crypto::AuthorityStrongQuorumSignInfo,
     effects::TransactionEvents,
-    messages_checkpoint::{CertifiedCheckpointSummary, CheckpointContents},
+    messages_checkpoint::{CertifiedCheckpointSummary, CheckpointContents, CheckpointSummary},
     object::Object,
 };
 
@@ -63,21 +64,19 @@ pub(super) fn deserialize_checkpoint_for_events(
         .and_then(|s| s.bcs.as_ref())
         .and_then(|bcs| bcs.value.as_ref())
         .ok_or_else(|| anyhow::anyhow!("missing summary.bcs"))?;
-    let summary = bcs::from_bytes(summary_bcs)
+    let summary: CheckpointSummary = bcs::from_bytes(summary_bcs)
         .map_err(|e| anyhow::anyhow!("failed to deserialize summary: {}", e))?;
 
-    // Deserialize signature.
+    // Deserialize signature using sui_sdk_types conversion.
     let signature_proto = checkpoint
         .signature
         .as_ref()
         .ok_or_else(|| anyhow::anyhow!("missing signature"))?;
 
-    // Convert signature using bcs serialization.
-    let signature_bcs = bcs::to_bytes(signature_proto)
-        .map_err(|e| anyhow::anyhow!("failed to serialize signature: {}", e))?;
-    let signature: sui_types::crypto::AuthorityStrongQuorumSignInfo =
-        bcs::from_bytes(&signature_bcs)
-            .map_err(|e| anyhow::anyhow!("failed to deserialize signature: {}", e))?;
+    let signature = AuthorityStrongQuorumSignInfo::from(
+        sui_sdk_types::ValidatorAggregatedSignature::try_from(signature_proto)
+            .map_err(|e| anyhow::anyhow!("failed to convert signature: {}", e))?,
+    );
 
     let checkpoint_summary = CertifiedCheckpointSummary::new_from_data_and_sig(summary, signature);
 

@@ -333,10 +333,18 @@ impl EventProcessor {
             // Process checkpoint based on its type.
             (next_event_index, prev_verified_checkpoint) = match checkpoint_variant {
                 checkpoint_downloader::CheckpointVariant::Full(checkpoint) => {
+                    tracing::info!(
+                        checkpoint = next_checkpoint,
+                        "processing checkpoint with standard method (full CheckpointData)"
+                    );
                     self.process_checkpoint(checkpoint, prev_verified_checkpoint, next_event_index)
                         .await?
                 }
                 checkpoint_downloader::CheckpointVariant::ForEvents(checkpoint) => {
+                    tracing::info!(
+                        checkpoint = next_checkpoint,
+                        "processing checkpoint with field masking (CheckpointForEvents)"
+                    );
                     let verified_checkpoint = self
                         .checkpoint_processor
                         .verify_checkpoint_for_events(&checkpoint, prev_verified_checkpoint)?;

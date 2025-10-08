@@ -626,6 +626,7 @@ pub async fn test_store_and_read_duplicate_blobs() -> TestResult {
 
     let (_sui_cluster_handle, _cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
         .with_test_nodes_config(TestNodesConfig {
+            use_legacy_event_processor: false,
             use_field_masking: true,
             ..Default::default()
         })
