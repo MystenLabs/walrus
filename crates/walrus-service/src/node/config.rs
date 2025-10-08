@@ -756,12 +756,12 @@ impl Default for BlobEventProcessorConfig {
 }
 
 /// Configuration for garbage collection and related tasks.
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq)]
 #[serde(default)]
 pub struct GarbageCollectionConfig {
     /// Whether to enable the blob info cleanup at the beginning of each epoch.
     pub enable_blob_info_cleanup: bool,
-    /// Whether to delete metadata and slivers of expired blobs.
+    /// Whether to delete metadata and slivers of expired or deleted blobs.
     pub enable_data_deletion: bool,
 }
 
