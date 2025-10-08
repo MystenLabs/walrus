@@ -94,19 +94,19 @@ jobs:
     - name: Get current Walrus oncall
       run: |
         export current_oncall=$(curl -s --request GET \
-          --url 'https://api.pagerduty.com/oncalls?schedule_ids[]=P9LNVEM' \
+          --url 'https://api.pagerduty.com/oncalls?schedule_ids[]=${{ inputs.oncall }}' \
           --header 'Accept: application/json' \
-          --header 'Authorization: Token token=${{ secrets.PAGERDUTY_ACCESS_KEY }}' \
+          --header 'Authorization: Token token=${{ inputs.pagerduty_token }}' \
           --header 'Content-Type: application/json' \
-          | jq '.oncalls[].user.summary' | tr -d '"')
+          | jq '.oncalls[].user.summary' | tr -d '"' | head -n 1)
         echo "current_oncall=$(echo ${current_oncall})" >> $GITHUB_ENV
 
         export oncall_name=$(curl -s --request GET \
-          --url 'https://api.pagerduty.com/oncalls?schedule_ids[]=P9LNVEM' \
+          --url 'https://api.pagerduty.com/oncalls?schedule_ids[]=${{ inputs.oncall }}' \
           --header 'Accept: application/json' \
-          --header 'Authorization: Token token=${{ secrets.PAGERDUTY_ACCESS_KEY }}' \
+          --header 'Authorization: Token token=${{ inputs.pagerduty_token }}' \
           --header 'Content-Type: application/json' \
-          | jq '.oncalls[].escalation_policy.summary' | tr -d '"')
+          | jq '.oncalls[].escalation_policy.summary' | tr -d '"' | head -n 1)
         echo "oncall_name=$(echo ${oncall_name})" >> $GITHUB_ENV
 
     - name: Configure AWS credentials
@@ -135,7 +135,7 @@ jobs:
       with:
         channel-id: 'test-notifications'
         slack-message: |
-          <!here> :walrus_face::rocket: New Sui version ${{ env.NEW_TAG }} upgrade PR created: ${{ needs.bump.outputs.pr_url }}
+          <!here> :walrus_face::rocket: New Sui version `${{ env.NEW_TAG }}` bump PR created: ${{ needs.bump.outputs.pr_url }} for walrus
           <@${{ env.SLACK_ID }}>, current `${{ env.ONCALL_NAME }}` oncall, please do the following:
           1. Trigger the CI to run on the PR by checking out the PR branch and running:
             `git commit --allow-empty -m "Empty commit to trigger CI" && git push`
