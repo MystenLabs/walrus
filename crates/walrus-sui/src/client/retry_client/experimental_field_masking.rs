@@ -20,15 +20,20 @@ use sui_types::{
 /// - Events and output objects per transaction
 #[derive(Debug, Clone)]
 pub struct CheckpointForEvents {
+    /// The checkpoint summary.
     pub checkpoint_summary: CertifiedCheckpointSummary,
+    /// The checkpoint contents.
     pub checkpoint_contents: CheckpointContents,
+    /// The transactions.
     pub transactions: Vec<TransactionForEvents>,
 }
 
 /// Transaction data needed for event processing.
 #[derive(Debug, Clone)]
 pub struct TransactionForEvents {
+    /// The events.
     pub events: Option<TransactionEvents>,
+    /// The output objects.
     pub output_objects: Vec<Object>,
 }
 

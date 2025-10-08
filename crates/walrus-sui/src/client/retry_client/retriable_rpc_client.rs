@@ -574,8 +574,6 @@ impl RetriableRpcClient {
     ///
     /// Transaction and TransactionEffects are NOT requested, making this resilient
     /// to BCS deserialization failures when those types change.
-    ///
-    /// **Note**: This is experimental and may not work with all Sui RPC implementations.
     pub async fn get_checkpoint_for_events_experimental(
         &self,
         sequence_number: u64,

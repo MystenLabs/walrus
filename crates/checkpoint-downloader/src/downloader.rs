@@ -668,6 +668,7 @@ mod tests {
             base_config: parallel_config,
             channel_config,
             max_consecutive_pool_monitor_failures: 10,
+            use_field_masking: false,
         };
         let metric_conf = MetricConf::default();
         let mut db_opts = Options::default();

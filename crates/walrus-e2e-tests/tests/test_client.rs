@@ -254,8 +254,8 @@ async fn run_store_and_read_with_crash_failures(
 ) -> TestResult {
     walrus_test_utils::init_tracing();
 
-    let (_sui_cluster_handle, mut cluster, client, _) =
-        test_cluster::E2eTestSetupBuilder::new().with_test_nodes_config(TestNodesConfig {
+    let (_sui_cluster_handle, mut cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
+        .with_test_nodes_config(TestNodesConfig {
             use_field_masking: true,
             ..Default::default()
         })
@@ -296,12 +296,13 @@ async fn test_inconsistency(failed_nodes: &[usize]) -> TestResult {
     walrus_test_utils::init_tracing();
 
     let (_sui_cluster_handle, mut cluster, mut client, _) =
-        test_cluster::E2eTestSetupBuilder::new().with_test_nodes_config(TestNodesConfig {
-            use_field_masking: true,
-            ..Default::default()
-        })
-        .build()
-        .await?;
+        test_cluster::E2eTestSetupBuilder::new()
+            .with_test_nodes_config(TestNodesConfig {
+                use_field_masking: true,
+                ..Default::default()
+            })
+            .build()
+            .await?;
 
     // Store a blob and get confirmations from each node.
     let blob = walrus_test_utils::random_data(31415);
@@ -477,8 +478,8 @@ async fn test_store_with_existing_blob_resource(
 ) -> TestResult {
     walrus_test_utils::init_tracing();
 
-    let (_sui_cluster_handle, _cluster, client, _) =
-        test_cluster::E2eTestSetupBuilder::new().with_test_nodes_config(TestNodesConfig {
+    let (_sui_cluster_handle, _cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
+        .with_test_nodes_config(TestNodesConfig {
             use_field_masking: true,
             ..Default::default()
         })
@@ -623,8 +624,8 @@ async fn store_blob(
 pub async fn test_store_and_read_duplicate_blobs() -> TestResult {
     walrus_test_utils::init_tracing();
 
-    let (_sui_cluster_handle, _cluster, client, _) =
-        test_cluster::E2eTestSetupBuilder::new().with_test_nodes_config(TestNodesConfig {
+    let (_sui_cluster_handle, _cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
+        .with_test_nodes_config(TestNodesConfig {
             use_field_masking: true,
             ..Default::default()
         })
@@ -691,8 +692,8 @@ async_param_test! {
 async fn test_store_with_existing_blobs(persistence: BlobPersistence) -> TestResult {
     walrus_test_utils::init_tracing();
 
-    let (_sui_cluster_handle, _cluster, client, _) =
-        test_cluster::E2eTestSetupBuilder::new().with_test_nodes_config(TestNodesConfig {
+    let (_sui_cluster_handle, _cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
+        .with_test_nodes_config(TestNodesConfig {
             use_field_masking: true,
             ..Default::default()
         })
@@ -791,8 +792,8 @@ async fn test_store_with_existing_storage_resource(
 ) -> TestResult {
     walrus_test_utils::init_tracing();
 
-    let (_sui_cluster_handle, _cluster, client, _) =
-        test_cluster::E2eTestSetupBuilder::new().with_test_nodes_config(TestNodesConfig {
+    let (_sui_cluster_handle, _cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
+        .with_test_nodes_config(TestNodesConfig {
             use_field_masking: true,
             ..Default::default()
         })
@@ -867,8 +868,8 @@ async_param_test! {
 /// Tests blob object deletion.
 async fn test_delete_blob(blobs_to_create: u32) -> TestResult {
     walrus_test_utils::init_tracing();
-    let (_sui_cluster_handle, _cluster, client, _) =
-        test_cluster::E2eTestSetupBuilder::new().with_test_nodes_config(TestNodesConfig {
+    let (_sui_cluster_handle, _cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
+        .with_test_nodes_config(TestNodesConfig {
             use_field_masking: true,
             ..Default::default()
         })
@@ -931,8 +932,8 @@ async fn test_delete_blob(blobs_to_create: u32) -> TestResult {
 #[walrus_simtest]
 async fn test_storage_nodes_do_not_serve_data_for_deleted_blobs() -> TestResult {
     walrus_test_utils::init_tracing();
-    let (_sui_cluster_handle, _cluster, client, _) =
-        test_cluster::E2eTestSetupBuilder::new().with_test_nodes_config(TestNodesConfig {
+    let (_sui_cluster_handle, _cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
+        .with_test_nodes_config(TestNodesConfig {
             use_field_masking: true,
             ..Default::default()
         })
