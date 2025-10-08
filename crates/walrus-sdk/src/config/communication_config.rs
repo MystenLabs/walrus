@@ -19,6 +19,20 @@ use crate::config::{
     sliver_write_extra_time::SliverWriteExtraTime,
 };
 
+/// Below this threshold, the `NodeCommunication` client will not check if the sliver is present on
+/// the node, but directly try to store it.
+///
+/// The threshold is chosen in a somewhat arbitrary way, but with the guiding principle that the
+/// direct sliver store should only take 1 RTT, therefore having similar latency to the sliver
+/// status check. To ensure this is the case, we take compute the threshold as follows: take the TCP
+/// payload size (1440 B); multiply it for an initial congestion window of 4 packets (although in
+/// modern systems this is usually 10, there may be other data being sent in this window); and
+/// conservatively subtract 200 B to account for HTTP headers and other overheads.
+pub const DEFAULT_SLIVER_STATUS_CHECK_THRESHOLD: usize = 5_560;
+fn default_sliver_status_check_threshold() -> usize {
+    DEFAULT_SLIVER_STATUS_CHECK_THRESHOLD
+}
+
 /// Configuration for the communication parameters of the client
 #[serde_as]
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
@@ -50,6 +64,11 @@ pub struct ClientCommunicationConfig {
     pub disable_native_certs: bool,
     /// The extra time allowed for sliver writes.
     pub sliver_write_extra_time: SliverWriteExtraTime,
+    /// Limit under which the client skips the sliver status check before uploads.
+    ///
+    /// Defaults to 5_560 bytes.
+    #[serde(default = "default_sliver_status_check_threshold")]
+    pub sliver_status_check_threshold: usize,
     /// The delay for which the client waits before storing data to ensure that storage nodes have
     /// seen the registration event.
     #[serde(rename = "registration_delay_millis")]
@@ -82,6 +101,7 @@ impl Default for ClientCommunicationConfig {
             sliver_write_extra_time: Default::default(),
             registration_delay: Duration::from_millis(200),
             max_total_blob_size: 1024 * 1024 * 1024, // 1GiB
+            sliver_status_check_threshold: DEFAULT_SLIVER_STATUS_CHECK_THRESHOLD,
             committee_change_backoff: ExponentialBackoffConfig::new(
                 Duration::from_secs(1),
                 Duration::from_secs(5),

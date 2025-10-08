@@ -33,17 +33,6 @@ use crate::{
     utils::{WeightedResult, string_prefix},
 };
 
-/// Below this threshold, the `NodeCommunication` client will not check if the sliver is present on
-/// the node, but directly try to store it.
-///
-/// The threshold is chosend in a somewhat arbitrary way, but with the guiding principle that the
-/// direct sliver store should only take 1 RTT, therefore having similar latency to the sliver
-/// status check. To ensure this is the case, we take compute the threshold as follows: take the TCP
-/// payload size (1440 B); multiply it for an initial congestion window of 4 packets (although in
-/// modern systems this is usually 10, there may be other data being sent in this window); and
-/// conservatively subtract 200 B to account for HTTP headers and other overheads.
-const SLIVER_CHECK_THRESHOLD: usize = 5560;
-
 /// Represents the index of the node in the vector of members of the committee.
 pub type NodeIndex = usize;
 
@@ -99,6 +88,7 @@ pub(crate) struct NodeCommunication<'a, W = ()> {
     pub span: Span,
     pub client: StorageNodeClient,
     pub config: RequestRateConfig,
+    pub sliver_status_check_threshold: usize,
     pub node_write_limit: W,
     pub sliver_write_limit: W,
 }
@@ -117,6 +107,7 @@ impl<'a> NodeReadCommunication<'a> {
         node: &'a StorageNode,
         encoding_config: &'a EncodingConfig,
         config: RequestRateConfig,
+        sliver_status_check_threshold: usize,
     ) -> Option<Self> {
         if node.shard_ids.is_empty() {
             tracing::debug!("do not create NodeCommunication for node without shards");
@@ -142,6 +133,7 @@ impl<'a> NodeReadCommunication<'a> {
             ),
             client,
             config,
+            sliver_status_check_threshold,
             node_write_limit: (),
             sliver_write_limit: (),
         })
@@ -160,6 +152,7 @@ impl<'a> NodeReadCommunication<'a> {
             span,
             client,
             config,
+            sliver_status_check_threshold,
             ..
         } = self;
         NodeWriteCommunication {
@@ -170,6 +163,7 @@ impl<'a> NodeReadCommunication<'a> {
             span,
             client,
             config,
+            sliver_status_check_threshold,
             node_write_limit,
             sliver_write_limit,
         }
@@ -488,7 +482,7 @@ impl NodeWriteCommunication<'_> {
             print_debug(
                 "the metadata has just been stored on the node; storing the sliver directly",
             );
-        } else if sliver.len() < SLIVER_CHECK_THRESHOLD {
+        } else if self.should_skip_sliver_status_check(sliver.len()) {
             print_debug(
                 "the sliver is sufficiently small not to require a status check; \
                 storing the sliver",
@@ -508,6 +502,10 @@ impl NodeWriteCommunication<'_> {
         }
 
         self.store_sliver(blob_id, sliver, pair_index).await
+    }
+
+    fn should_skip_sliver_status_check(&self, sliver_len: usize) -> bool {
+        sliver_len < self.sliver_status_check_threshold
     }
 
     /// Stores a sliver on a node.
