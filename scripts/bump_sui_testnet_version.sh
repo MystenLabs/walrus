@@ -108,7 +108,7 @@ if PR_OUTPUT=$(gh pr create \
   --base main \
   --head "$BRANCH" \
   --title "ci: bump Sui testnet version to ${NEW_TAG}" \
-  --reviewer "ebmifa" \
+  --reviewer "wbbradley,halfprice,liquid-helium,ebmifa" \
   --body "$BODY" 2>&1); then
 
   # Extract PR URL from output

@@ -135,7 +135,7 @@ jobs:
         SLACK_ID: ${{ env.slack_id }}
         ONCALL_NAME: ${{ env.oncall_name }}
       with:
-        channel-id: 'test-notifications'
+        channel-id: 'walrus-ci'
         slack-message: |
           <!here> :walrus_face::rocket: New Sui version `${{ env.NEW_TAG }}` bump PR created: ${{ needs.bump.outputs.pr_url }} for walrus
           <@${{ env.SLACK_ID }}>, current `${{ env.ONCALL_NAME }}` oncall, please do the following:
