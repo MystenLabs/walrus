@@ -234,7 +234,7 @@ impl Default for TestNodesConfig {
             blocklist_dir: None,
             enable_node_config_synchronizer: false,
             node_recovery_config: None,
-            use_field_masking: false,
+            use_field_masking: true,
         }
     }
 }

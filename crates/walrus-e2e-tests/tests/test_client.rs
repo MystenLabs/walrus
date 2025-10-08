@@ -255,7 +255,12 @@ async fn run_store_and_read_with_crash_failures(
     walrus_test_utils::init_tracing();
 
     let (_sui_cluster_handle, mut cluster, client, _) =
-        test_cluster::E2eTestSetupBuilder::new().build().await?;
+        test_cluster::E2eTestSetupBuilder::new().with_test_nodes_config(TestNodesConfig {
+            use_field_masking: true,
+            ..Default::default()
+        })
+        .build()
+        .await?;
     // Stop the nodes in the write failure set.
     failed_shards_write
         .iter()
@@ -291,7 +296,12 @@ async fn test_inconsistency(failed_nodes: &[usize]) -> TestResult {
     walrus_test_utils::init_tracing();
 
     let (_sui_cluster_handle, mut cluster, mut client, _) =
-        test_cluster::E2eTestSetupBuilder::new().build().await?;
+        test_cluster::E2eTestSetupBuilder::new().with_test_nodes_config(TestNodesConfig {
+            use_field_masking: true,
+            ..Default::default()
+        })
+        .build()
+        .await?;
 
     // Store a blob and get confirmations from each node.
     let blob = walrus_test_utils::random_data(31415);
@@ -468,7 +478,12 @@ async fn test_store_with_existing_blob_resource(
     walrus_test_utils::init_tracing();
 
     let (_sui_cluster_handle, _cluster, client, _) =
-        test_cluster::E2eTestSetupBuilder::new().build().await?;
+        test_cluster::E2eTestSetupBuilder::new().with_test_nodes_config(TestNodesConfig {
+            use_field_masking: true,
+            ..Default::default()
+        })
+        .build()
+        .await?;
 
     let blob_data = walrus_test_utils::random_data_list(31415, 4);
     let blobs: Vec<&[u8]> = blob_data.iter().map(AsRef::as_ref).collect();
@@ -609,7 +624,12 @@ pub async fn test_store_and_read_duplicate_blobs() -> TestResult {
     walrus_test_utils::init_tracing();
 
     let (_sui_cluster_handle, _cluster, client, _) =
-        test_cluster::E2eTestSetupBuilder::new().build().await?;
+        test_cluster::E2eTestSetupBuilder::new().with_test_nodes_config(TestNodesConfig {
+            use_field_masking: true,
+            ..Default::default()
+        })
+        .build()
+        .await?;
     let client = client.as_ref();
 
     // Generate random blobs.
@@ -672,7 +692,12 @@ async fn test_store_with_existing_blobs(persistence: BlobPersistence) -> TestRes
     walrus_test_utils::init_tracing();
 
     let (_sui_cluster_handle, _cluster, client, _) =
-        test_cluster::E2eTestSetupBuilder::new().build().await?;
+        test_cluster::E2eTestSetupBuilder::new().with_test_nodes_config(TestNodesConfig {
+            use_field_masking: true,
+            ..Default::default()
+        })
+        .build()
+        .await?;
 
     let blob_data = walrus_test_utils::random_data_list(31415, 5);
     let blobs: Vec<&[u8]> = blob_data.iter().map(AsRef::as_ref).collect();
@@ -767,7 +792,12 @@ async fn test_store_with_existing_storage_resource(
     walrus_test_utils::init_tracing();
 
     let (_sui_cluster_handle, _cluster, client, _) =
-        test_cluster::E2eTestSetupBuilder::new().build().await?;
+        test_cluster::E2eTestSetupBuilder::new().with_test_nodes_config(TestNodesConfig {
+            use_field_masking: true,
+            ..Default::default()
+        })
+        .build()
+        .await?;
 
     let blob_data = walrus_test_utils::random_data_list(31415, 4);
     let unencoded_blobs = blob_data
@@ -838,7 +868,12 @@ async_param_test! {
 async fn test_delete_blob(blobs_to_create: u32) -> TestResult {
     walrus_test_utils::init_tracing();
     let (_sui_cluster_handle, _cluster, client, _) =
-        test_cluster::E2eTestSetupBuilder::new().build().await?;
+        test_cluster::E2eTestSetupBuilder::new().with_test_nodes_config(TestNodesConfig {
+            use_field_masking: true,
+            ..Default::default()
+        })
+        .build()
+        .await?;
     let blob = walrus_test_utils::random_data(314);
     let blobs = vec![blob.as_slice()];
     // Store the blob multiple times, using separate end times to obtain multiple blob objects
@@ -897,7 +932,12 @@ async fn test_delete_blob(blobs_to_create: u32) -> TestResult {
 async fn test_storage_nodes_do_not_serve_data_for_deleted_blobs() -> TestResult {
     walrus_test_utils::init_tracing();
     let (_sui_cluster_handle, _cluster, client, _) =
-        test_cluster::E2eTestSetupBuilder::new().build().await?;
+        test_cluster::E2eTestSetupBuilder::new().with_test_nodes_config(TestNodesConfig {
+            use_field_masking: true,
+            ..Default::default()
+        })
+        .build()
+        .await?;
     let client = client.as_ref();
     let blob = walrus_test_utils::random_data(314);
     let blobs = vec![blob.as_slice()];
@@ -930,6 +970,10 @@ async fn test_storage_nodes_do_not_serve_data_for_expired_deletable_blobs() -> T
     let epoch_duration = Duration::from_secs(15);
     let (_sui_cluster_handle, cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
         .with_epoch_duration(epoch_duration)
+        .with_test_nodes_config(TestNodesConfig {
+            use_field_masking: true,
+            ..Default::default()
+        })
         .build()
         .await?;
     let client = client.as_ref();
@@ -1052,6 +1096,7 @@ async fn test_store_quilt(blobs_to_create: u32) -> TestResult {
 
     let test_nodes_config = TestNodesConfig {
         node_weights: vec![7, 7, 7, 7, 7],
+        use_field_masking: true,
         ..Default::default()
     };
     let test_cluster_builder =
@@ -1186,6 +1231,7 @@ async fn test_blocklist() -> TestResult {
     let (_sui_cluster_handle, _cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
         .with_test_nodes_config(TestNodesConfig {
             blocklist_dir: Some(blocklist_dir.path().to_path_buf()),
+            use_field_masking: true,
             ..Default::default()
         })
         .build()
@@ -1528,6 +1574,7 @@ async fn test_repeated_shard_move() -> TestResult {
         .with_epoch_duration(Duration::from_secs(20))
         .with_test_nodes_config(TestNodesConfig {
             node_weights: vec![1, 1],
+            use_field_masking: true,
             ..Default::default()
         })
         .build()
@@ -2274,6 +2321,7 @@ async fn test_shard_move_out_and_back_in_immediately() -> TestResult {
         .with_epoch_duration(Duration::from_secs(20))
         .with_test_nodes_config(TestNodesConfig {
             node_weights: vec![1, 1],
+            use_field_masking: true,
             ..Default::default()
         })
         .build()
