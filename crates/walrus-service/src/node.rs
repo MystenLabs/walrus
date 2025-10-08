@@ -690,7 +690,7 @@ impl StorageNode {
             latest_event_epoch_watcher,
             consistency_check_config: config.consistency_check.clone(),
             checkpoint_manager,
-            garbage_collection_config: config.garbage_collection.clone(),
+            garbage_collection_config: config.garbage_collection,
         });
 
         blocklist.start_refresh_task();
@@ -1600,10 +1600,6 @@ impl StorageNode {
         // shards are created.
         let shard_map_lock = self.inner.storage.lock_shards().await;
 
-        // Perform database cleanup operations.
-        // TODO(WAL-1040): Move this to a background task.
-        self.perform_db_cleanup(event.epoch).await?;
-
         // Now the general tasks around epoch change are done. Next, entering epoch change logic
         // to bring the node state to the next epoch.
         self.execute_epoch_change(event_handle, event, shard_map_lock)
@@ -1615,20 +1611,34 @@ impl StorageNode {
             .latest_event_epoch_sender
             .send(Some(event.epoch))?;
 
+        // Perform database cleanup operations.
+        // TODO(WAL-1040): Move this to a background task.
+        self.perform_db_cleanup(event.epoch).await?;
+
         Ok(())
     }
 
     /// Performs database cleanup operations including blob info cleanup and data deletion.
     #[tracing::instrument(skip_all)]
     async fn perform_db_cleanup(&self, epoch: Epoch) -> anyhow::Result<()> {
+        let garbage_collection_config = self.inner.garbage_collection_config;
+
+        if !garbage_collection_config.enable_blob_info_cleanup {
+            if garbage_collection_config.enable_data_deletion {
+                tracing::warn!(
+                    "data deletion is enabled, but requires blob info cleanup to be enabled"
+                );
+            } else {
+                tracing::info!("garbage collection is disabled, skipping cleanup");
+            }
+            return Ok(());
+        }
+
         // Disable DB compactions during cleanup to improve performance.
         self.inner.storage.enable_auto_compactions(false)?;
 
-        if self
-            .inner
-            .garbage_collection_config
-            .enable_blob_info_cleanup
-        {
+        // The if condition is redundant, but it's kept in case we change the if condition above.
+        if garbage_collection_config.enable_blob_info_cleanup {
             self.inner
                 .storage
                 .process_expired_blob_objects(epoch, &self.inner.metrics)

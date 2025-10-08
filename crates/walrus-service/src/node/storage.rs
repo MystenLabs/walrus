@@ -620,6 +620,17 @@ impl Storage {
             return Ok(());
         };
 
+        match self.node_status()? {
+            NodeStatus::Active => (),
+            status => {
+                tracing::info!(
+                    %status,
+                    "data deletion is only performed when the node is active, skipping"
+                );
+                return Ok(());
+            }
+        };
+
         tracing::info!(epoch = %current_epoch, "deleting expired blob data");
         let shards = futures::future::try_join_all(self.shards.read().await.values().map(
             |shard| async move {
