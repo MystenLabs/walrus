@@ -55,7 +55,10 @@ use self::{
     event_cursor_table::{EventCursorTable, EventIdWithProgress},
     metrics::{CommonDatabaseMetrics, Labels, OperationType},
 };
-use super::errors::{ShardNotAssigned, SyncShardServiceError};
+use super::{
+    errors::{ShardNotAssigned, SyncShardServiceError},
+    metrics::{NodeMetricSet, STATUS_FAILURE, STATUS_SUCCESS},
+};
 use crate::utils;
 
 pub(crate) mod blob_info;
@@ -593,11 +596,12 @@ impl Storage {
     pub(crate) async fn process_expired_blob_objects(
         &self,
         current_epoch: Epoch,
+        node_metrics: &NodeMetricSet,
     ) -> anyhow::Result<()> {
         tracing::info!(epoch = %current_epoch, "processing expired blob objects");
 
         self.blob_info
-            .process_expired_blob_objects(current_epoch)
+            .process_expired_blob_objects(current_epoch, node_metrics)
             .await?;
 
         tracing::info!(epoch = %current_epoch, "finished processing expired blob objects");
@@ -609,6 +613,7 @@ impl Storage {
     pub(crate) async fn delete_expired_blob_data(
         &self,
         current_epoch: Epoch,
+        node_metrics: &NodeMetricSet,
     ) -> anyhow::Result<()> {
         let Some(optimistic_handle) = self.database.as_optimistic() else {
             tracing::warn!("data deletion is only possible when the DB supports transactions");
@@ -656,8 +661,14 @@ impl Storage {
 
             // At this point we know that the blob is no longer registered, and we can attempt to
             // delete the related data.
-            self.attempt_to_delete_blob_data(&optimistic_handle, &blob_id, current_epoch, &shards)
-                .await?;
+            self.attempt_to_delete_blob_data(
+                &optimistic_handle,
+                &blob_id,
+                current_epoch,
+                &shards,
+                node_metrics,
+            )
+            .await?;
         }
 
         Ok(())
@@ -669,6 +680,7 @@ impl Storage {
         blob_id: &BlobId,
         current_epoch: Epoch,
         shards: &[Arc<ShardStorage>],
+        node_metrics: &NodeMetricSet,
     ) -> Result<(), rocksdb::Error> {
         let transaction = optimistic_handle.transaction();
         // Question(mlegner): Should `conclusive` be true or false?
@@ -708,17 +720,27 @@ impl Storage {
                     "deleting blob data failed due to a conflict, skipping deletion"
                 );
             } else {
-                tracing::warn!(?error, "an error encountered while committing transaction");
+                tracing::warn!(?error, "encountered an error while committing transaction");
             }
 
-            // TODO(mlegner): Record failed deletion in metrics.
+            // Record failed deletion in metrics.
+            walrus_utils::with_label!(
+                node_metrics.blob_data_deletion_attempts_total,
+                STATUS_FAILURE
+            )
+            .inc();
 
             // Returning successfully here because it doesn't matter if the deletion failed.
-            // The data will simply be deleted in the garbage collection process.
+            // The data will simply be deleted in a future garbage-collection process.
             return Ok(());
         }
 
-        // TODO(mlegner): Record successful deletion in metrics.
+        // Record successful deletion in metrics.
+        walrus_utils::with_label!(
+            node_metrics.blob_data_deletion_attempts_total,
+            STATUS_SUCCESS
+        )
+        .inc();
         Ok(())
     }
 

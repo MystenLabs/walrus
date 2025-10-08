@@ -1630,12 +1630,15 @@ impl StorageNode {
         {
             self.inner
                 .storage
-                .process_expired_blob_objects(epoch)
+                .process_expired_blob_objects(epoch, &self.inner.metrics)
                 .await?;
         }
 
         if self.inner.garbage_collection_config.enable_data_deletion {
-            self.inner.storage.delete_expired_blob_data(epoch).await?;
+            self.inner
+                .storage
+                .delete_expired_blob_data(epoch, &self.inner.metrics)
+                .await?;
         }
 
         // TODO(mlegner): Re-enable DB compactions after cleanup.
