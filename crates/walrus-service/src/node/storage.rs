@@ -692,7 +692,7 @@ impl Storage {
         current_epoch: Epoch,
         shards: &[Arc<ShardStorage>],
         node_metrics: &NodeMetricSet,
-    ) -> Result<(), rocksdb::Error> {
+    ) -> anyhow::Result<()> {
         let transaction = optimistic_handle.transaction();
         let Some(blob_info) = self
             .blob_info
@@ -870,7 +870,7 @@ impl Storage {
         transaction: &Transaction<'_, rocksdb::OptimisticTransactionDB>,
         blob_id: &BlobId,
         shards: &[Arc<ShardStorage>],
-    ) -> Result<(), rocksdb::Error> {
+    ) -> anyhow::Result<()> {
         transaction.delete_cf(
             &self.metadata.cf().expect("metadata CF must always exist"),
             blob_id,
