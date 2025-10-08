@@ -20,11 +20,33 @@ permissions:
 
 env:
   NEW_TAG: ${{ github.event.client_payload.new_tag || inputs.new_tag || '' }}
+  CARGO_TERM_COLOR: always
+  # Disable incremental compilation.
+  #
+  # Incremental compilation is useful as part of an edit-build-test-edit cycle,
+  # as it lets the compiler avoid recompiling code that hasn't changed. However,
+  # on CI, we're not making small edits; we're almost always building the entire
+  # project from scratch. Thus, incremental compilation on CI actually
+  # introduces *additional* overhead to support making future builds
+  # faster...but no future builds will ever occur in any given CI environment.
+  #
+  # See https://matklad.github.io/2021/09/04/fast-rust-builds.html#ci-workflow
+  # for details.
+  CARGO_INCREMENTAL: 0
+  # Allow more retries for network requests in cargo (downloading crates) and
+  # rustup (installing toolchains). This should help to reduce flaky CI failures
+  # from transient network timeouts or other issues.
+  CARGO_NET_RETRY: 10
+  RUSTUP_MAX_RETRIES: 10
+  # Don't emit giant backtraces in the CI logs.
+  RUST_BACKTRACE: short
 
 jobs:
   bump:
     name: Bump Sui Testnet Version
     runs-on: ubuntu-ghcloud
+    outputs:
+      pr_url: ${{ steps.generate_pr.outputs.pr_url || '' }}
 
     steps:
       - name: Checkout
@@ -46,9 +68,78 @@ jobs:
           suiup install sui@${{ env.NEW_TAG }} -y
 
       - name: Generate PR for ${{ env.NEW_TAG }}
+        id: generate_pr
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_ACTOR: ${{ github.actor }}
         shell: bash
         run: |
-          ./scripts/bump_sui_testnet_version.sh "${{ env.NEW_TAG }}"
+          export PR_URL=$(./scripts/bump_sui_testnet_version.sh "${{ env.NEW_TAG }}" | tail -1)
+          echo "PR_URL=${PR_URL}" >> "$GITHUB_OUTPUT"
+
+  notify:
+    needs: bump
+    name: Notify oncall via Slack
+    runs-on: ubuntu-latest
+    if: success() && needs.bump.outputs.pr_url != ''
+
+    steps:
+    - name: Get link to logs
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        gh_job_link=$(gh api -X GET 'repos/MystenLabs/walrus/actions/runs/${{ github.run_id }}/jobs' --jq '.jobs.[0].html_url')
+        echo "gh_job_link=${gh_job_link}" >> $GITHUB_ENV
+
+    - name: Get current Walrus oncall
+      run: |
+        export current_oncall=$(curl -s --request GET \
+          --url 'https://api.pagerduty.com/oncalls?schedule_ids[]=P9LNVEM' \
+          --header 'Accept: application/json' \
+          --header 'Authorization: Token token=${{ secrets.PAGERDUTY_ACCESS_KEY }}' \
+          --header 'Content-Type: application/json' \
+          | jq '.oncalls[].user.summary' | tr -d '"' | head -n 1)
+        echo "current_oncall=$(echo ${current_oncall})" >> $GITHUB_ENV
+
+        export oncall_name=$(curl -s --request GET \
+          --url 'https://api.pagerduty.com/oncalls?schedule_ids[]=P9LNVEM' \
+          --header 'Accept: application/json' \
+          --header 'Authorization: Token token=${{ secrets.PAGERDUTY_ACCESS_KEY }}' \
+          --header 'Content-Type: application/json' \
+          | jq '.oncalls[].escalation_policy.summary' | tr -d '"' | head -n 1)
+        echo "oncall_name=$(echo ${oncall_name})" >> $GITHUB_ENV
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502 # pin v4.0.2
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: us-west-2
+
+    - name: Get slack id for the oncall
+      env:
+        current_oncall: ${{ env.current_oncall }}
+      run: |
+        export slack_id=$(aws s3 cp \
+          s3://mysten-employees-dir/employees.json - \
+          | jq --arg ONCALL "${{ env.current_oncall }}" \
+            '.[] | if .name == $ONCALL then .slack_id else empty end')
+        echo "slack_id=$(echo ${slack_id} | tr -d '"')" >> $GITHUB_ENV
+
+    - name: Post to slack
+      uses: slackapi/slack-github-action@34c3fd73326693ef04728f8611669d918a2d781d # pin@v1.19.0
+      env:
+        SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+        SUI_SHA: ${{ env.sui_sha }}
+        GH_JOB_LINK: ${{ env.gh_job_link }}
+        SLACK_ID: ${{ env.slack_id }}
+        ONCALL_NAME: ${{ env.oncall_name }}
+      with:
+        channel-id: 'walrus-ci'
+        slack-message: |
+          <!here> :walrus_face::rocket: New Sui version `${{ env.NEW_TAG }}` bump PR created: ${{ needs.bump.outputs.pr_url }} for walrus
+          <@${{ env.SLACK_ID }}>, current `${{ env.ONCALL_NAME }}` oncall, please do the following:
+          1. Trigger the CI to run on the PR by checking out the PR branch and running:
+            `git commit --allow-empty -m "Empty commit to trigger CI" && git push`
+          2. Approve and merge the PR if CI passes.
+          Run: <${{ env.GH_JOB_LINK }}|${{ github.run_id }}>
