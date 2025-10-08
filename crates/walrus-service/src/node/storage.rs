@@ -683,8 +683,6 @@ impl Storage {
         node_metrics: &NodeMetricSet,
     ) -> Result<(), rocksdb::Error> {
         let transaction = optimistic_handle.transaction();
-        // Question(mlegner): Should `conclusive` be true or false?
-        // Question(mlegner): Does this even work in conjunction with merge operators?
         let Some(blob_info) = self
             .blob_info
             .get_for_update_in_transaction(&transaction, blob_id)?
