@@ -13012,7 +13012,7 @@ dependencies = [
 
 [[package]]
 name = "walrus-performance-tests"
-version = "1.37.0"
+version = "1.38.0"
 dependencies = [
  "walrus-test-utils",
 ]
