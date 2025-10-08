@@ -19,6 +19,7 @@ use indicatif::MultiProgress;
 use itertools::Itertools as _;
 use rand::seq::SliceRandom;
 use reqwest::Url;
+use serde_json;
 use sui_config::{SUI_CLIENT_CONFIG, sui_config_dir};
 use sui_types::base_types::ObjectID;
 use walrus_core::{
@@ -49,9 +50,10 @@ use walrus_sdk::{
             read_blobs_from_paths,
         },
         resource::RegisterBlobOp,
+        responses as sdk_responses,
         upload_relay_client::UploadRelayClient,
     },
-    config::{UploadMode, load_configuration},
+    config::{UploadMode, UploadPreset, load_configuration},
     error::ClientErrorKind,
     store_optimizations::StoreOptimizations,
     sui::{
@@ -112,6 +114,14 @@ use crate::{
             get_contract_client,
             get_read_client,
             get_sui_read_client_from_rpc_node_or_wallet,
+            internal_run::{
+                ChildUploaderEvent,
+                InternalRunContext,
+                emit_child_event,
+                emit_v1_certified_event,
+                maybe_spawn_child_upload_process,
+                quilt_blob_input_to_cli_arg,
+            },
             success,
             warning,
         },
@@ -150,7 +160,13 @@ fn apply_upload_mode_to_config(
     mut config: walrus_sdk::config::ClientConfig,
     upload_mode: UploadMode,
 ) -> walrus_sdk::config::ClientConfig {
-    config.communication_config = upload_mode.apply_to(config.communication_config.clone());
+    // Use UploadPreset to apply tuning to the communication config
+    let preset = match upload_mode {
+        UploadMode::Conservative => UploadPreset::Conservative,
+        UploadMode::Balanced => UploadPreset::Balanced,
+        UploadMode::Aggressive => UploadPreset::Aggressive,
+    };
+    config.communication_config = preset.apply_to(config.communication_config.clone());
     config
 }
 
@@ -671,6 +687,7 @@ impl ClientCommandRunner {
             upload_relay,
             confirmation,
             upload_mode,
+            internal_run,
         }: StoreOptions,
     ) -> Result<()> {
         epoch_arg.exactly_one_is_some()?;
@@ -687,7 +704,7 @@ impl ClientCommandRunner {
 
         let system_object = client.sui_client().read_client.get_system_object().await?;
         let epochs_ahead =
-            get_epochs_ahead(epoch_arg, system_object.max_epochs_ahead(), &client).await?;
+            get_epochs_ahead(&epoch_arg, system_object.max_epochs_ahead(), &client).await?;
 
         if persistence.is_deletable() && post_store == PostStoreAction::Share {
             anyhow::bail!("deletable blobs cannot be shared");
@@ -710,13 +727,39 @@ impl ClientCommandRunner {
                 .collect::<Result<Vec<(PathBuf, Vec<u8>)>>>()
         })?;
 
-        let mut store_args = StoreArgs::new(
+        if let Some(()) = maybe_spawn_child_upload_process(
+            &client,
+            &epoch_arg,
+            dry_run,
+            &store_optimizations,
+            persistence,
+            post_store,
+            upload_mode,
+            upload_relay.as_ref(),
+            internal_run,
+            "store",
+            |cmd| {
+                for (path, _) in &blobs {
+                    cmd.arg(path);
+                }
+            },
+            blobs.len(),
+        )
+        .await?
+        {
+            return Ok(());
+        }
+
+        let base_store_args = StoreArgs::new(
             encoding_type,
             epochs_ahead,
             store_optimizations,
             persistence,
             post_store,
         );
+
+        let mut internal_run_ctx = InternalRunContext::new(internal_run, &client, blobs.len());
+        let mut store_args = internal_run_ctx.configure_store_args(internal_run, base_store_args);
 
         if let Some(upload_relay) = upload_relay {
             let upload_relay_client = UploadRelayClient::new(
@@ -746,6 +789,9 @@ impl ClientCommandRunner {
         let results = client
             .reserve_and_store_blobs_retry_committees_with_path(&blobs, &store_args)
             .await?;
+
+        internal_run_ctx.finalize_after_store(&mut store_args).await;
+
         let blobs_len = blobs.len();
         if results.len() != blobs_len {
             let not_stored = results
@@ -761,12 +807,124 @@ impl ClientCommandRunner {
                     .join(", ")
             );
         }
-        tracing::info!(
-            duration = ?start_timer.elapsed(),
-            "{} out of {} blobs stored",
-            results.len(),
-            blobs_len
-        );
+
+        if !internal_run {
+            tracing::info!(
+                duration = ?start_timer.elapsed(),
+                "{} out of {} blobs stored",
+                results.len(),
+                blobs_len
+            );
+        }
+
+        if internal_run {
+            for result in &results {
+                if let Err(err) = emit_v1_certified_event(&result.blob_store_result) {
+                    tracing::warn!(%err, "failed to emit certification event");
+                }
+
+                match &result.blob_store_result {
+                    sdk_responses::BlobStoreResult::NewlyCreated {
+                        blob_object,
+                        resource_operation,
+                        cost,
+                        shared_blob_object,
+                    } => {
+                        let operation_note = match resource_operation {
+                            RegisterBlobOp::RegisterFromScratch { .. } => "(
+                                storage was purchased,
+                                and a new blob object was registered)"
+                                .to_string(),
+                            RegisterBlobOp::ReuseStorage { .. } => {
+                                "(already-owned storage was reused,
+                                and a new blob object was registered)"
+                                    .to_string()
+                            }
+                            RegisterBlobOp::ReuseAndExtend { .. } => {
+                                "(previous storage was extended)".to_string()
+                            }
+                            RegisterBlobOp::ReuseAndExtendNonCertified { .. } => {
+                                "(non-certified storage was extended)".to_string()
+                            }
+                            RegisterBlobOp::ReuseRegistration { .. } => {
+                                "(existing registration reused)".to_string()
+                            }
+                        };
+
+                        let event = ChildUploaderEvent::StoreDetailNewlyCreated {
+                            path: result.path.display().to_string(),
+                            blob_id: blob_object.blob_id.to_string(),
+                            object_id: blob_object.id.to_string(),
+                            deletable: blob_object.deletable,
+                            unencoded_size: blob_object.size,
+                            encoded_size: resource_operation.encoded_length(),
+                            cost: *cost,
+                            end_epoch: u64::from(blob_object.storage.end_epoch),
+                            shared_blob_object_id: shared_blob_object
+                                .as_ref()
+                                .map(|id| id.to_string()),
+                            encoding_type: blob_object.encoding_type.to_string(),
+                            operation_note,
+                        };
+                        if let Err(err) = emit_child_event(&event) {
+                            tracing::warn!(%err, "failed to emit store detail (new)");
+                        }
+                    }
+                    sdk_responses::BlobStoreResult::AlreadyCertified {
+                        blob_id,
+                        event_or_object,
+                        end_epoch,
+                    } => {
+                        let event = ChildUploaderEvent::StoreDetailAlreadyCertified {
+                            path: result.path.display().to_string(),
+                            blob_id: blob_id.to_string(),
+                            end_epoch: u64::from(*end_epoch),
+                            event_or_object: event_or_object.to_string(),
+                        };
+                        if let Err(err) = emit_child_event(&event) {
+                            tracing::warn!(%err, "failed to emit store detail (already)");
+                        }
+                    }
+                    _ => {}
+                }
+            }
+
+            let mut total_encoded_size: u64 = 0;
+            let mut total_cost: u64 = 0;
+            let mut reuse_and_extend_count: u64 = 0;
+            let mut newly_certified: u64 = 0;
+            for res in &results {
+                if let sdk_responses::BlobStoreResult::NewlyCreated {
+                    resource_operation,
+                    cost,
+                    ..
+                } = &res.blob_store_result
+                {
+                    total_encoded_size += resource_operation.encoded_length();
+                    total_cost += *cost;
+                    match resource_operation {
+                        RegisterBlobOp::ReuseAndExtend { .. } => reuse_and_extend_count += 1,
+                        RegisterBlobOp::RegisterFromScratch { .. }
+                        | RegisterBlobOp::ReuseAndExtendNonCertified { .. }
+                        | RegisterBlobOp::ReuseStorage { .. }
+                        | RegisterBlobOp::ReuseRegistration { .. } => newly_certified += 1,
+                    }
+                }
+            }
+
+            if let Err(err) = emit_child_event(&ChildUploaderEvent::Done {
+                ok: true,
+                error: None,
+                newly_certified,
+                reuse_and_extend_count,
+                total_encoded_size,
+                total_cost,
+            }) {
+                tracing::warn!(%err, "failed to emit completion event");
+            }
+            internal_run_ctx.await_tail_handles().await;
+        }
+
         results.print_output(self.json)
     }
 
@@ -826,6 +984,7 @@ impl ClientCommandRunner {
             upload_relay,
             confirmation,
             upload_mode,
+            internal_run,
         }: StoreOptions,
     ) -> Result<()> {
         epoch_arg.exactly_one_is_some()?;
@@ -846,7 +1005,23 @@ impl ClientCommandRunner {
 
         let system_object = client.sui_client().read_client.get_system_object().await?;
         let epochs_ahead =
-            get_epochs_ahead(epoch_arg, system_object.max_epochs_ahead(), &client).await?;
+            get_epochs_ahead(&epoch_arg, system_object.max_epochs_ahead(), &client).await?;
+
+        let path_args_for_child = if paths.is_empty() {
+            None
+        } else {
+            Some(paths.clone())
+        };
+        let blob_cli_args = if blobs.is_empty() {
+            None
+        } else {
+            Some(
+                blobs
+                    .iter()
+                    .map(quilt_blob_input_to_cli_arg)
+                    .collect::<Result<Vec<_>>>()?,
+            )
+        };
 
         let quilt_store_blobs = Self::load_blobs_for_quilt(&paths, blobs).await?;
 
@@ -861,18 +1036,52 @@ impl ClientCommandRunner {
             .await;
         }
 
+        if let Some(()) = maybe_spawn_child_upload_process(
+            &client,
+            &epoch_arg,
+            dry_run,
+            &store_optimizations,
+            persistence,
+            post_store,
+            upload_mode,
+            upload_relay.as_ref(),
+            internal_run,
+            "store-quilt",
+            move |cmd| {
+                if let Some(path_args) = path_args_for_child.as_ref() {
+                    cmd.arg("--paths");
+                    for path in path_args {
+                        cmd.arg(path);
+                    }
+                } else if let Some(blob_args) = blob_cli_args.as_ref() {
+                    cmd.arg("--blobs");
+                    for arg in blob_args {
+                        cmd.arg(arg);
+                    }
+                }
+            },
+            1,
+        )
+        .await?
+        {
+            return Ok(());
+        }
+
         let start_timer = std::time::Instant::now();
         let quilt_write_client = client.quilt_client();
         let quilt = quilt_write_client
             .construct_quilt::<QuiltVersionV1>(&quilt_store_blobs, encoding_type)
             .await?;
-        let mut store_args = StoreArgs::new(
+        let base_store_args = StoreArgs::new(
             encoding_type,
             epochs_ahead,
             store_optimizations,
             persistence,
             post_store,
         );
+
+        let mut internal_run_ctx = InternalRunContext::new(internal_run, &client, 1);
+        let mut store_args = internal_run_ctx.configure_store_args(internal_run, base_store_args);
 
         if let Some(upload_relay) = upload_relay {
             let upload_relay_client = UploadRelayClient::new(
@@ -903,11 +1112,115 @@ impl ClientCommandRunner {
             .reserve_and_store_quilt::<QuiltVersionV1>(&quilt, &store_args)
             .await?;
 
-        tracing::info!(
-            duration = ?start_timer.elapsed(),
-            "{} blobs stored in quilt",
-            result.stored_quilt_blobs.len(),
-        );
+        internal_run_ctx.finalize_after_store(&mut store_args).await;
+
+        if !internal_run {
+            tracing::info!(
+                duration = ?start_timer.elapsed(),
+                "{} blobs stored in quilt",
+                result.stored_quilt_blobs.len(),
+            );
+        }
+
+        if internal_run {
+            if let Err(err) = emit_v1_certified_event(&result.blob_store_result) {
+                tracing::warn!(%err, "failed to emit certification event");
+            }
+
+            match &result.blob_store_result {
+                sdk_responses::BlobStoreResult::NewlyCreated {
+                    blob_object,
+                    resource_operation,
+                    cost,
+                    shared_blob_object,
+                } => {
+                    let operation_note = match resource_operation {
+                        RegisterBlobOp::RegisterFromScratch { .. } => "(storage was purchased,
+                            and a new blob object was registered)"
+                            .to_string(),
+                        RegisterBlobOp::ReuseStorage { .. } => "(already-owned storage was reused,
+                        and a new blob object was registered)"
+                            .to_string(),
+                        RegisterBlobOp::ReuseAndExtend { .. } => {
+                            "(previous storage was extended)".to_string()
+                        }
+                        RegisterBlobOp::ReuseAndExtendNonCertified { .. } => {
+                            "(non-certified storage was extended)".to_string()
+                        }
+                        RegisterBlobOp::ReuseRegistration { .. } => {
+                            "(existing registration reused)".to_string()
+                        }
+                    };
+
+                    let event = ChildUploaderEvent::StoreDetailNewlyCreated {
+                        path: "<quilt>".to_string(),
+                        blob_id: blob_object.blob_id.to_string(),
+                        object_id: blob_object.id.to_string(),
+                        deletable: blob_object.deletable,
+                        unencoded_size: blob_object.size,
+                        encoded_size: resource_operation.encoded_length(),
+                        cost: *cost,
+                        end_epoch: u64::from(blob_object.storage.end_epoch),
+                        shared_blob_object_id: shared_blob_object.as_ref().map(|id| id.to_string()),
+                        encoding_type: blob_object.encoding_type.to_string(),
+                        operation_note,
+                    };
+                    if let Err(err) = emit_child_event(&event) {
+                        tracing::warn!(%err, "failed to emit store detail (new)");
+                    }
+                }
+                sdk_responses::BlobStoreResult::AlreadyCertified {
+                    blob_id,
+                    event_or_object,
+                    end_epoch,
+                } => {
+                    let event = ChildUploaderEvent::StoreDetailAlreadyCertified {
+                        path: "<quilt>".to_string(),
+                        blob_id: blob_id.to_string(),
+                        end_epoch: u64::from(*end_epoch),
+                        event_or_object: event_or_object.to_string(),
+                    };
+                    if let Err(err) = emit_child_event(&event) {
+                        tracing::warn!(%err, "failed to emit store detail (already)");
+                    }
+                }
+                _ => {}
+            }
+
+            let (total_encoded_size, total_cost, newly_certified, reuse_and_extend_count) =
+                match &result.blob_store_result {
+                    sdk_responses::BlobStoreResult::NewlyCreated {
+                        resource_operation,
+                        cost,
+                        ..
+                    } => {
+                        let encoded = resource_operation.encoded_length();
+                        let cost = *cost;
+                        let (newly_certified, reuse_and_extend_count) = match resource_operation {
+                            RegisterBlobOp::ReuseAndExtend { .. } => (0, 1),
+                            RegisterBlobOp::RegisterFromScratch { .. }
+                            | RegisterBlobOp::ReuseAndExtendNonCertified { .. }
+                            | RegisterBlobOp::ReuseStorage { .. }
+                            | RegisterBlobOp::ReuseRegistration { .. } => (1, 0),
+                        };
+                        (encoded, cost, newly_certified, reuse_and_extend_count)
+                    }
+                    _ => (0, 0, 0, 0),
+                };
+
+            if let Err(err) = emit_child_event(&ChildUploaderEvent::Done {
+                ok: true,
+                error: None,
+                newly_certified,
+                reuse_and_extend_count,
+                total_encoded_size,
+                total_cost,
+            }) {
+                tracing::warn!(%err, "failed to emit completion event");
+            }
+
+            internal_run_ctx.await_tail_handles().await;
+        }
 
         result.print_output(self.json)
     }
@@ -1607,6 +1920,7 @@ struct StoreOptions {
     upload_relay: Option<Url>,
     confirmation: UserConfirmation,
     upload_mode: Option<UploadMode>,
+    internal_run: bool,
 }
 
 impl TryFrom<CommonStoreOptions> for StoreOptions {
@@ -1625,6 +1939,7 @@ impl TryFrom<CommonStoreOptions> for StoreOptions {
             upload_relay,
             skip_tip_confirmation,
             upload_mode,
+            internal_run,
         }: CommonStoreOptions,
     ) -> Result<Self, Self::Error> {
         Ok(Self {
@@ -1640,6 +1955,7 @@ impl TryFrom<CommonStoreOptions> for StoreOptions {
             upload_relay,
             confirmation: skip_tip_confirmation.into(),
             upload_mode: upload_mode.map(Into::into),
+            internal_run,
         })
     }
 }
@@ -1747,7 +2063,7 @@ async fn delete_blob(
 
 #[tracing::instrument(skip_all)]
 async fn get_epochs_ahead(
-    epoch_arg: EpochArg,
+    epoch_arg: &EpochArg,
     max_epochs_ahead: EpochCount,
     client: &WalrusNodeClient<SuiContractClient>,
 ) -> Result<u32, anyhow::Error> {
@@ -1755,7 +2071,7 @@ async fn get_epochs_ahead(
         EpochArg {
             epochs: Some(epochs),
             ..
-        } => epochs.try_into_epoch_count(max_epochs_ahead)?,
+        } => epochs.clone().try_into_epoch_count(max_epochs_ahead)?,
         EpochArg {
             earliest_expiry_time: Some(earliest_expiry_time),
             ..
@@ -1767,7 +2083,7 @@ async fn get_epochs_ahead(
                 | EpochState::NextParamsSelected(epoch_start) => *epoch_start,
                 EpochState::EpochChangeSync(_) => Utc::now(),
             };
-            let earliest_expiry_ts = DateTime::from(earliest_expiry_time);
+            let earliest_expiry_ts: DateTime<Utc> = (*earliest_expiry_time).into();
             ensure!(
                 earliest_expiry_ts > estimated_start_of_current_epoch
                     && earliest_expiry_ts > Utc::now(),
@@ -1786,10 +2102,10 @@ async fn get_epochs_ahead(
         } => {
             let current_epoch = client.sui_client().current_epoch().await?;
             ensure!(
-                end_epoch > current_epoch,
+                *end_epoch > current_epoch,
                 "end_epoch must be greater than the current epoch"
             );
-            end_epoch - current_epoch
+            *end_epoch - current_epoch
         }
         _ => {
             anyhow::bail!("either epochs or earliest_expiry_time or end_epoch must be provided")

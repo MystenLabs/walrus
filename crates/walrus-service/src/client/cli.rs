@@ -25,6 +25,7 @@ use walrus_sui::wallet::Wallet;
 mod args;
 mod backfill;
 mod cli_output;
+mod internal_run;
 mod runner;
 
 pub use args::{
