@@ -598,15 +598,8 @@ impl ShardStorage {
         &self,
         transaction: &Transaction<'_, rocksdb::OptimisticTransactionDB>,
         blob_id: &BlobId,
-    ) -> Result<(), rocksdb::Error> {
-        let column_families = [
-            self.primary_slivers
-                .cf()
-                .expect("primary slivers CF must always exist"),
-            self.secondary_slivers
-                .cf()
-                .expect("secondary slivers CF must always exist"),
-        ];
+    ) -> anyhow::Result<()> {
+        let column_families = [self.primary_slivers.cf()?, self.secondary_slivers.cf()?];
         for cf in column_families {
             transaction.delete_cf(&cf, blob_id)?;
         }
