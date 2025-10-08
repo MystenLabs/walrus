@@ -1163,6 +1163,10 @@ pub struct CommonStoreOptions {
     #[arg(long, value_enum)]
     #[serde(default)]
     pub upload_mode: Option<UploadModeCli>,
+    /// Internal flag to signal the process is running as a child for background uploads.
+    #[arg(long, hide = true)]
+    #[serde(default)]
+    pub internal_run: bool,
 }
 
 #[serde_as]
@@ -1922,6 +1926,7 @@ mod tests {
                 upload_relay: None,
                 skip_tip_confirmation: false,
                 upload_mode: None,
+                internal_run: false,
             },
         })
     }

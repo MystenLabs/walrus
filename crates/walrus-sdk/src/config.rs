@@ -4,6 +4,7 @@
 //! Walrus Client Configuration.
 use std::{
     collections::HashMap,
+    env,
     iter::once,
     path::{Path, PathBuf},
 };
@@ -36,10 +37,10 @@ mod upload_mode;
 
 pub use self::{
     committees_refresh_config::CommitteesRefreshConfig,
-    communication_config::{ClientCommunicationConfig, CommunicationLimits},
+    communication_config::{ClientCommunicationConfig, CommunicationLimits, UploadMode},
     reqwest_config::RequestRateConfig,
     sliver_write_extra_time::SliverWriteExtraTime,
-    upload_mode::UploadMode,
+    upload_mode::UploadMode as UploadPreset,
 };
 
 /// Returns the default paths for the Walrus configuration file.
@@ -74,11 +75,16 @@ pub fn load_configuration(
     let path = path_or_defaults_if_exist(path, &default_configuration_paths())
         .ok_or(anyhow!("could not find a valid Walrus configuration file"))?;
     let (config, context) = ClientConfig::load_from_multi_config(&path, context)?;
-    tracing::info!(
-        "using Walrus configuration from '{}' with {} context",
-        path.display(),
-        context.map_or("default".to_string(), |c| format!("'{c}'"))
-    );
+    if !env::var("INTERNAL_RUN")
+        .map(|v| v == "true")
+        .unwrap_or(false)
+    {
+        tracing::info!(
+            "using Walrus configuration from '{}' with {} context",
+            path.display(),
+            context.map_or("default".to_string(), |c| format!("'{c}'"))
+        );
+    }
     Ok(config)
 }
 

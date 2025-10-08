@@ -5,6 +5,7 @@
 
 use std::{
     collections::HashMap,
+    env,
     fmt::{Debug, Display},
     marker::PhantomData,
     num::NonZeroU16,
@@ -98,6 +99,13 @@ pub mod resource;
 pub mod responses;
 pub mod store_args;
 pub mod upload_relay_client;
+
+#[inline]
+fn is_internal_run() -> bool {
+    env::var("INTERNAL_RUN")
+        .map(|v| v == "true")
+        .unwrap_or(false)
+}
 
 /// The delay between retries when retrieving slivers.
 #[allow(unused)]
@@ -1408,11 +1416,13 @@ impl WalrusNodeClient<SuiContractClient> {
             blobs.push(blob?);
         }
 
-        tracing::info!(
-            duration = ?get_cert_timer.elapsed(),
-            "get {} blobs certificates",
-            blobs.iter().filter(|blob| blob.is_with_certificate()).count()
-        );
+        if !is_internal_run() {
+            tracing::info!(
+                duration = ?get_cert_timer.elapsed(),
+                "get {} blobs certificates",
+                blobs.iter().filter(|blob| blob.is_with_certificate()).count()
+            );
+        }
 
         Ok(blobs)
     }
@@ -1492,12 +1502,14 @@ impl WalrusNodeClient<SuiContractClient> {
                 let duration = certify_start_timer.elapsed();
 
                 let blob_size = blob_object.size;
-                tracing::info!(
-                    blob_id = %metadata.blob_id(),
-                    ?duration,
-                    blob_size,
-                    "finished sending blob data and collecting certificate"
-                );
+                if !is_internal_run() {
+                    tracing::info!(
+                        blob_id = %metadata.blob_id(),
+                        ?duration,
+                        blob_size,
+                        "finished sending blob data and collecting certificate"
+                    );
+                }
                 result
             }
         }
