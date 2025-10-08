@@ -1621,7 +1621,8 @@ impl StorageNode {
     /// Performs database cleanup operations including blob info cleanup and data deletion.
     #[tracing::instrument(skip_all)]
     async fn perform_db_cleanup(&self, epoch: Epoch) -> anyhow::Result<()> {
-        // TODO(mlegner): Disable DB compactions during cleanup.
+        // Disable DB compactions during cleanup to improve performance.
+        self.inner.storage.enable_auto_compactions(false)?;
 
         if self
             .inner
@@ -1641,7 +1642,8 @@ impl StorageNode {
                 .await?;
         }
 
-        // TODO(mlegner): Re-enable DB compactions after cleanup.
+        // Re-enable DB compactions after cleanup.
+        self.inner.storage.enable_auto_compactions(true)?;
 
         Ok(())
     }

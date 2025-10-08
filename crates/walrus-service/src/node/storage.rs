@@ -1020,6 +1020,22 @@ impl Storage {
         .flatten()
         .collect()
     }
+
+    /// Enables or disables automatic compactions for all column families.
+    ///
+    /// This is useful during bulk operations to improve performance by disabling compactions,
+    /// then re-enabling them afterward.
+    pub fn enable_auto_compactions(&self, enable: bool) -> Result<(), anyhow::Error> {
+        tracing::info!(
+            "{} auto compactions for all column families",
+            if enable { "enabling" } else { "disabling" },
+        );
+        let disable_value = if enable { "false" } else { "true" };
+        self.database
+            .set_options(&[("disable_auto_compactions", disable_value)])
+            .context("failed to set auto compactions (enable: {enable})")?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
