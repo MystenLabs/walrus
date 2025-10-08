@@ -33,6 +33,24 @@ fn default_sliver_status_check_threshold() -> usize {
     DEFAULT_SLIVER_STATUS_CHECK_THRESHOLD
 }
 
+/// Upload mode for controlling concurrency and aggressiveness of uploads.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UploadMode {
+    /// Conservative mode: lower concurrency, slower but more reliable.
+    Conservative,
+    /// Balanced mode: moderate concurrency (default).
+    Balanced,
+    /// Aggressive mode: higher concurrency, faster but more resource-intensive.
+    Aggressive,
+}
+
+impl Default for UploadMode {
+    fn default() -> Self {
+        Self::Balanced
+    }
+}
+
 /// Configuration for the communication parameters of the client
 #[serde_as]
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
@@ -65,10 +83,11 @@ pub struct ClientCommunicationConfig {
     /// The extra time allowed for sliver writes.
     pub sliver_write_extra_time: SliverWriteExtraTime,
     /// Limit under which the client skips the sliver status check before uploads.
-    ///
     /// Defaults to 5_560 bytes.
     #[serde(default = "default_sliver_status_check_threshold")]
     pub sliver_status_check_threshold: usize,
+    /// Enable uploading slivers via a detached child process that continues tail writes.
+    pub child_process_uploads_enabled: bool,
     /// The delay for which the client waits before storing data to ensure that storage nodes have
     /// seen the registration event.
     #[serde(rename = "registration_delay_millis")]
@@ -99,6 +118,7 @@ impl Default for ClientCommunicationConfig {
             request_rate_config: Default::default(),
             disable_proxy: Default::default(),
             sliver_write_extra_time: Default::default(),
+            child_process_uploads_enabled: false,
             registration_delay: Duration::from_millis(200),
             max_total_blob_size: 1024 * 1024 * 1024, // 1GiB
             sliver_status_check_threshold: DEFAULT_SLIVER_STATUS_CHECK_THRESHOLD,

@@ -1445,11 +1445,13 @@ impl WalrusNodeClient<SuiContractClient> {
             blobs.push(blob?);
         }
 
-        tracing::info!(
-            duration = ?get_cert_timer.elapsed(),
-            "get {} blobs certificates",
-            blobs.iter().filter(|blob| blob.is_with_certificate()).count()
-        );
+        if !walrus_utils::is_internal_run() {
+            tracing::info!(
+                duration = ?get_cert_timer.elapsed(),
+                "get {} blobs certificates",
+                blobs.iter().filter(|blob| blob.is_with_certificate()).count()
+            );
+        }
 
         Ok(blobs)
     }
@@ -1529,12 +1531,14 @@ impl WalrusNodeClient<SuiContractClient> {
                 let duration = certify_start_timer.elapsed();
 
                 let blob_size = blob_object.size;
-                tracing::info!(
-                    blob_id = %metadata.blob_id(),
-                    ?duration,
-                    blob_size,
-                    "finished sending blob data and collecting certificate"
-                );
+                if !walrus_utils::is_internal_run() {
+                    tracing::info!(
+                        blob_id = %metadata.blob_id(),
+                        ?duration,
+                        blob_size,
+                        "finished sending blob data and collecting certificate"
+                    );
+                }
                 result
             }
         }
@@ -1839,13 +1843,8 @@ impl<T> WalrusNodeClient<T> {
             .sliver_write_extra_time
             .clone();
 
-        let mut uploader = DistributedUploader::new(
-            blobs,
-            committees.clone(),
-            comms,
-            sliver_write_limit,
-            sliver_write_extra_time,
-        );
+        let mut uploader =
+            DistributedUploader::new(blobs, committees.clone(), comms, sliver_write_extra_time);
 
         let run_output = uploader
             .run_distributed_upload(
@@ -1857,7 +1856,7 @@ impl<T> WalrusNodeClient<T> {
                                 &item.metadata,
                                 item.pair_indices.iter().map(|&i| &item.pairs[i]),
                             )
-                            .await?;
+                            .await;
 
                         match response.result {
                             Ok(()) => stored.push(*item.blob_id()),

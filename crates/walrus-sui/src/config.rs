@@ -13,7 +13,10 @@ use serde::{Deserialize, Serialize};
 use sui_keys::keystore::AccountKeystore;
 use sui_sdk::wallet_context::WalletContext;
 use sui_types::base_types::SuiAddress;
-use walrus_utils::config::{path_or_defaults_if_exist, resolve_home_dir, resolve_home_dir_option};
+use walrus_utils::{
+    config::{path_or_defaults_if_exist, resolve_home_dir, resolve_home_dir_option},
+    is_internal_run,
+};
 
 use crate::wallet::Wallet;
 
@@ -109,7 +112,9 @@ impl WalletConfig {
 
         let path = path_or_defaults_if_exist(wallet_config.and_then(|c| c.path()), &default_paths)
             .ok_or(anyhow!("could not find a valid wallet config file"))?;
-        tracing::info!("using Sui wallet configuration from '{}'", path.display());
+        if !is_internal_run() {
+            tracing::info!("using Sui wallet configuration from '{}'", path.display());
+        }
         let mut wallet_context: WalletContext = WalletContext::new(&path)?;
         if let Some(request_timeout) = request_timeout {
             wallet_context = wallet_context.with_request_timeout(request_timeout);
