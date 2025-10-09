@@ -1534,14 +1534,14 @@ The existence of this event certifies the availability of the blob.</p>
 <p>By default the blob data is written to the standard output. The <code>--out &lt;OUT&gt;</code> CLI option can be used
 to specify an output file name. The <code>--rpc-url &lt;URL&gt;</code> may be used to specify a Sui RPC node to use
 instead of the one set in the wallet configuration or the configuration file.</p>
-<h3 id="integrity-checks"><a class="header" href="#integrity-checks">Integrity checks</a></h3>
-<p>Walrus performs integrity checks to ensure that any data read from Walrus is what the writer
+<h3 id="consistency-checks"><a class="header" href="#consistency-checks">Consistency checks</a></h3>
+<p>Walrus performs consistency checks to ensure that any data read from Walrus is what the writer
 intended, see the <a href="usage/../design/encoding.html#data-integrity-and-consistency">section about data
-integrity</a> for further details. Before <code>v1.37</code>
-the Walrus CLI and aggregator always perform the <a href="usage/../design/encoding.html#strict-integrity-check">strict integrity check</a>.
-Starting with <code>v1.37</code>, the default is a <a href="usage/../design/encoding.html#data-integrity-check">more performant integrity check</a>,
-which is sufficient for the majority of cases. The strict integrity check can be enabled through the
-flag <code>--strict-integrity-check</code> (added in <code>v1.35</code>).</p>
+consistency</a> for further details. Before <code>v1.37</code>
+the Walrus CLI and aggregator always perform the <a href="usage/../design/encoding.html#strict-integrity-check">strict consistency check</a>.
+Starting with <code>v1.37</code>, the default is a <a href="usage/../design/encoding.html#data-integrity-check">more performant consistency check</a>,
+which is sufficient for the majority of cases. The strict consistency check can be enabled through
+the flag <code>--strict-consistency-check</code> (added in <code>v1.35</code>).</p>
 <h2 id="extending-the-lifetime-of-a-blob"><a class="header" href="#extending-the-lifetime-of-a-blob">Extending the lifetime of a blob</a></h2>
 <p>Recall that when you stored your blob, it was necessary to specify its <a href="usage/client-cli.html#storing-blobs">end epoch</a>.
 By specifying the end epoch you ensured that the blob would be available via <code>walrus read</code> (or other
@@ -1919,10 +1919,10 @@ cURL command downloads the blob corresponding to a Sui blob with a specific obje
 The aggregator recognizes the attribute keys <code>content-disposition</code>, <code>content-encoding</code>,
 <code>content-language</code>, <code>content-location</code>, <code>content-type</code>, and <code>link</code>, and when present returns
 the values in the corresponding HTTP headers.</p>
-<h4 id="integrity-checks-1"><a class="header" href="#integrity-checks-1">Integrity checks</a></h4>
-<p>The integrity checks performed by the aggregator are the same as the ones <a href="usage/./client-cli.html#integrity-checks">performed by the CLI</a>.
-For special use cases, the <a href="usage/../design/encoding.html#strict-integrity-check">strict integrity check</a>
-can be enabled by adding a query parameter <code>strict_integrity_check=true</code> (starting with <code>v1.35</code>).</p>
+<h4 id="consistency-checks-1"><a class="header" href="#consistency-checks-1">Consistency checks</a></h4>
+<p>The consistency checks performed by the aggregator are the same as the ones <a href="usage/./client-cli.html#consistency-checks">performed by the CLI</a>.
+For special use cases, the <a href="usage/../design/encoding.html#strict-consistency-check">strict consistency check</a>
+can be enabled by adding a query parameter <code>strict_consistency_check=true</code> (starting with <code>v1.35</code>).</p>
 <h3 id="quilt-http-apis"><a class="header" href="#quilt-http-apis">Quilt HTTP APIs</a></h3>
 <p>Walrus supports storing and retrieving multiple blobs as a single unit called a <a href="usage/./quilt.html">quilt</a>.
 The publishers and aggregators support <em>quilt</em> related operations.</p>
@@ -6300,21 +6300,21 @@ as in the case above, but it is not guaranteed to be triggered immediately after
 requiring additional client-side checks.</p>
 </li>
 </ul>
-<p>The following sections describe the different types of integrity checks performed by clients.</p>
-<div id="admonition-select-the-appropriate-integrity-check" class="admonition admonish-info" role="note" aria-labelledby="admonition-select-the-appropriate-integrity-check-title">
+<p>The following sections describe the different types of consistency checks performed by clients.</p>
+<div id="admonition-select-the-appropriate-consistency-check" class="admonition admonish-info" role="note" aria-labelledby="admonition-select-the-appropriate-consistency-check-title">
 <div class="admonition-title">
-<div id="admonition-select-the-appropriate-integrity-check-title">
-<p>Select the appropriate integrity check</p>
+<div id="admonition-select-the-appropriate-consistency-check-title">
+<p>Select the appropriate consistency check</p>
 </div>
-<a class="admonition-anchor-link" href="design/encoding.html#admonition-select-the-appropriate-integrity-check"></a>
+<a class="admonition-anchor-link" href="design/encoding.html#admonition-select-the-appropriate-consistency-check"></a>
 </div>
 <div>
-<p>In the majority of cases, the default integrity check is sufficient, in particular if the writer of
-the blob is trusted. The strict integrity check is only needed if specific availability guarantees
-are required.</p>
+<p>In the majority of cases, the default consistency check is sufficient, in particular if the writer
+of the blob is trusted. The strict consistency check is only needed if specific availability
+guarantees are required.</p>
 </div>
 </div>
-<h3 id="default-integrity-check"><a class="header" href="#default-integrity-check">Default integrity check</a></h3>
+<h3 id="default-consistency-check"><a class="header" href="#default-consistency-check">Default consistency check</a></h3>
 <p>When reading a blob from Walrus, a client first checks the authenticity of the metadata and then
 requests a subset of primary slivers checking their authenticity using the metadata. Using 334
 authentic primary slivers, the original blob data can be decoded.</p>
@@ -6324,44 +6324,44 @@ together with the blob length uniquely determine the content of the blob. Theref
 the sliver hashes of the first 334 slivers and checking them against the metadata, the client can
 verify that the decoded data is correct. If this check succeeds, the data is provided to the user,
 otherwise an error is returned. This check provides the following guarantee:</p>
-<div id="admonition-data-integrity-property" class="admonition admonish-tip" role="note" aria-labelledby="admonition-data-integrity-property-title">
+<div id="admonition-data-consistency-property" class="admonition admonish-tip" role="note" aria-labelledby="admonition-data-consistency-property-title">
 <div class="admonition-title">
-<div id="admonition-data-integrity-property-title">
-<p>Data integrity property</p>
+<div id="admonition-data-consistency-property-title">
+<p>Data consistency property</p>
 </div>
-<a class="admonition-anchor-link" href="design/encoding.html#admonition-data-integrity-property"></a>
+<a class="admonition-anchor-link" href="design/encoding.html#admonition-data-consistency-property"></a>
 </div>
 <div>
 <p>Any correct client attempting to read a blob will either read the specific value authenticated by
 the writer or return an error.</p>
 </div>
 </div>
-<h3 id="strict-integrity-check"><a class="header" href="#strict-integrity-check">Strict integrity check</a></h3>
+<h3 id="strict-consistency-check"><a class="header" href="#strict-consistency-check">Strict consistency check</a></h3>
 <p>If the blob was encoded correctly, any set of 334 primary slivers decode to the same data. However,
 if the writer of a blob encoded the data incorrectly, different sets of slivers may decode to
 different data. Even in that case, there is only one correct value that can be read by an honest
 client (guarantee stated above), but some read attempts may result in a failure while others
 succeed. Furthermore, the blob may be detected as inconsistent by storage nodes at a later point,
 after which all read attempts would fail.</p>
-<p>For this reason, Walrus optionally offers a <em>strict integrity check</em>: After decoding the blob, the
+<p>For this reason, Walrus optionally offers a <em>strict consistency check</em>: After decoding the blob, the
 client fully <em>re-encodes</em> it and recomputes all hashes and the blob ID. Only if that computation
 results in the blob ID they are trying to read is the read considered successful.</p>
 <p>This process <em>ensures that the original writer encoded the blob correctly</em>. Therefore, after a blob
-was read successfully with the strict integrity check enabled, the following property holds:</p>
-<div id="admonition-guarantee-after-strict-integrity-succeeded" class="admonition admonish-tip" role="note" aria-labelledby="admonition-guarantee-after-strict-integrity-succeeded-title">
+was read successfully with the strict consistency check enabled, the following property holds:</p>
+<div id="admonition-guarantee-after-strict-consistency-check-succeeded" class="admonition admonish-tip" role="note" aria-labelledby="admonition-guarantee-after-strict-consistency-check-succeeded-title">
 <div class="admonition-title">
-<div id="admonition-guarantee-after-strict-integrity-succeeded-title">
-<p>Guarantee after strict integrity succeeded</p>
+<div id="admonition-guarantee-after-strict-consistency-check-succeeded-title">
+<p>Guarantee after strict consistency check succeeded</p>
 </div>
-<a class="admonition-anchor-link" href="design/encoding.html#admonition-guarantee-after-strict-integrity-succeeded"></a>
+<a class="admonition-anchor-link" href="design/encoding.html#admonition-guarantee-after-strict-consistency-check-succeeded"></a>
 </div>
 <div>
 <p>Any correct client attempting to read a blob during its lifetime will always succeed and read the
 same data intended by the writer.</p>
 </div>
 </div>
-<p>Note that for quilt patches, only the default integrity check is available, as only part of the
-quilt is read.</p>
+<p>Note that for quilt patches, only a variant of the default consistency check is available, as only
+part of the quilt is read.</p>
 <div style="break-before: page; page-break-before: always;"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.4/dist/katex.min.css">
 <h1 id="operations-1"><a class="header" href="#operations-1">Operations</a></h1>
 <p>Walrus operations can be separated in <a href="design/./operations-sui.html">interactions with the Sui chain</a>, which

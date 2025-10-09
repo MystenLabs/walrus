@@ -471,14 +471,14 @@ The existence of this event certifies the availability of the blob.</p>
 <p>By default the blob data is written to the standard output. The <code>--out &lt;OUT&gt;</code> CLI option can be used
 to specify an output file name. The <code>--rpc-url &lt;URL&gt;</code> may be used to specify a Sui RPC node to use
 instead of the one set in the wallet configuration or the configuration file.</p>
-<h3 id="integrity-checks"><a class="header" href="#integrity-checks">Integrity checks</a></h3>
-<p>Walrus performs integrity checks to ensure that any data read from Walrus is what the writer
+<h3 id="consistency-checks"><a class="header" href="#consistency-checks">Consistency checks</a></h3>
+<p>Walrus performs consistency checks to ensure that any data read from Walrus is what the writer
 intended, see the <a href="../design/encoding.html#data-integrity-and-consistency">section about data
-integrity</a> for further details. Before <code>v1.37</code>
-the Walrus CLI and aggregator always perform the <a href="../design/encoding.html#strict-integrity-check">strict integrity check</a>.
-Starting with <code>v1.37</code>, the default is a <a href="../design/encoding.html#data-integrity-check">more performant integrity check</a>,
-which is sufficient for the majority of cases. The strict integrity check can be enabled through the
-flag <code>--strict-integrity-check</code> (added in <code>v1.35</code>).</p>
+consistency</a> for further details. Before <code>v1.37</code>
+the Walrus CLI and aggregator always perform the <a href="../design/encoding.html#strict-integrity-check">strict consistency check</a>.
+Starting with <code>v1.37</code>, the default is a <a href="../design/encoding.html#data-integrity-check">more performant consistency check</a>,
+which is sufficient for the majority of cases. The strict consistency check can be enabled through
+the flag <code>--strict-consistency-check</code> (added in <code>v1.35</code>).</p>
 <h2 id="extending-the-lifetime-of-a-blob"><a class="header" href="#extending-the-lifetime-of-a-blob">Extending the lifetime of a blob</a></h2>
 <p>Recall that when you stored your blob, it was necessary to specify its <a href="#storing-blobs">end epoch</a>.
 By specifying the end epoch you ensured that the blob would be available via <code>walrus read</code> (or other
