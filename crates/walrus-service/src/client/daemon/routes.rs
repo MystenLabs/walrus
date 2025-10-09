@@ -91,14 +91,14 @@ const WALRUS_NATIVE_METADATA_FIELD_NAME: &str = "_metadata";
 #[into_params(parameter_in = Query, style = Form)]
 #[serde(deny_unknown_fields)]
 pub struct ReadOptions {
-    /// Whether to perform a strict integrity check.
+    /// Whether to perform a strict consistency check.
     ///
-    /// This is the current default behavior and has no effect. However, the default integrity
+    /// This is the current default behavior and has no effect. However, the default consistency
     /// check is changing in `v1.37` to a more performant one, which is sufficient for the
-    /// majority of cases. This flag can be used to enable the current strict integrity check.
+    /// majority of cases. This flag can be used to enable the current strict consistency check.
     // TODO(WAL-1055): Adjust docstring when changing the default behavior.
     #[serde(default)]
-    pub strict_integrity_check: bool,
+    pub strict_consistency_check: bool,
 }
 
 /// Retrieve a Walrus blob.
