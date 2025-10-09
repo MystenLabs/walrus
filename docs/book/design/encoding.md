@@ -77,15 +77,15 @@ Walrus has several mechanisms to detect each of these:
   As a result, such inconsistencies may persist within the network for longer periods of time,
   requiring additional client-side checks.
 
-The following sections describe the different types of integrity checks performed by clients.
+The following sections describe the different types of consistency checks performed by clients.
 
-```admonish info title="Select the appropriate integrity check"
-In the majority of cases, the default integrity check is sufficient, in particular if the writer of
-the blob is trusted. The strict integrity check is only needed if specific availability guarantees
-are required.
+```admonish info title="Select the appropriate consistency check"
+In the majority of cases, the default consistency check is sufficient, in particular if the writer
+of the blob is trusted. The strict consistency check is only needed if specific availability
+guarantees are required.
 ```
 
-### Default integrity check
+### Default consistency check
 
 When reading a blob from Walrus, a client first checks the authenticity of the metadata and then
 requests a subset of primary slivers checking their authenticity using the metadata. Using 334
@@ -98,12 +98,12 @@ the sliver hashes of the first 334 slivers and checking them against the metadat
 verify that the decoded data is correct. If this check succeeds, the data is provided to the user,
 otherwise an error is returned. This check provides the following guarantee:
 
-```admonish tip title="Data integrity property"
+```admonish tip title="Data consistency property"
 Any correct client attempting to read a blob will either read the specific value authenticated by
 the writer or return an error.
 ```
 
-### Strict integrity check
+### Strict consistency check
 
 If the blob was encoded correctly, any set of 334 primary slivers decode to the same data. However,
 if the writer of a blob encoded the data incorrectly, different sets of slivers may decode to
@@ -112,17 +112,17 @@ client (guarantee stated above), but some read attempts may result in a failure 
 succeed. Furthermore, the blob may be detected as inconsistent by storage nodes at a later point,
 after which all read attempts would fail.
 
-For this reason, Walrus optionally offers a *strict integrity check*: After decoding the blob, the
+For this reason, Walrus optionally offers a *strict consistency check*: After decoding the blob, the
 client fully *re-encodes* it and recomputes all hashes and the blob ID. Only if that computation
 results in the blob ID they are trying to read is the read considered successful.
 
 This process *ensures that the original writer encoded the blob correctly*. Therefore, after a blob
-was read successfully with the strict integrity check enabled, the following property holds:
+was read successfully with the strict consistency check enabled, the following property holds:
 
-```admonish tip title="Guarantee after strict integrity succeeded"
+```admonish tip title="Guarantee after strict consistency check succeeded"
 Any correct client attempting to read a blob during its lifetime will always succeed and read the
 same data intended by the writer.
 ```
 
-Note that for quilt patches, only the default integrity check is available, as only part of the
-quilt is read.
+Note that for quilt patches, only a variant of the default consistency check is available, as only
+part of the quilt is read.

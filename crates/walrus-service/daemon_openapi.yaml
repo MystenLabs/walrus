@@ -351,14 +351,14 @@ paths:
         required: true
         schema:
           $ref: '#/components/schemas/BlobId'
-      - name: strict_integrity_check
+      - name: strict_consistency_check
         in: query
         description: |-
-          Whether to perform a strict integrity check.
+          Whether to perform a strict consistency check.
 
-          This is the current default behavior and has no effect. However, the default integrity
+          This is the current default behavior and has no effect. However, the default consistency
           check is changing in `v1.37` to a more performant one, which is sufficient for the
-          majority of cases. This flag can be used to enable the current strict integrity check.
+          majority of cases. This flag can be used to enable the current strict consistency check.
         required: false
         schema:
           type: boolean

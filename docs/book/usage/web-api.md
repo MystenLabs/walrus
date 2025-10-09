@@ -166,11 +166,11 @@ The aggregator recognizes the attribute keys `content-disposition`, `content-enc
 `content-language`, `content-location`, `content-type`, and `link`, and when present returns
 the values in the corresponding HTTP headers.
 
-#### Integrity checks
+#### Consistency checks
 
-The integrity checks performed by the aggregator are the same as the ones [performed by the CLI](./client-cli.md#integrity-checks).
-For special use cases, the [strict integrity check](../design/encoding.md#strict-integrity-check)
-can be enabled by adding a query parameter `strict_integrity_check=true` (starting with `v1.35`).
+The consistency checks performed by the aggregator are the same as the ones [performed by the CLI](./client-cli.md#consistency-checks).
+For special use cases, the [strict consistency check](../design/encoding.md#strict-consistency-check)
+can be enabled by adding a query parameter `strict_consistency_check=true` (starting with `v1.35`).
 
 ### Quilt HTTP APIs
 
