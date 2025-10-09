@@ -121,6 +121,11 @@ impl SingleClientWorkload {
             self.execute_client_op(&write_op, &mut blob_pool).await?;
         }
 
+        tracing::info!(
+            "blob pool initialized with {} blobs",
+            self.initial_blobs_in_pool
+        );
+
         let mut current_epoch = 0;
 
         loop {
