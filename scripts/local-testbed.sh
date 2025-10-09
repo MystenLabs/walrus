@@ -170,6 +170,7 @@ cleanup=
 
 if ! $use_existing_config; then
   # Cleanup
+  find contracts -name 'build' -type d -exec rm -rf {} +
   rm -f $working_dir/dryrun-node-*.yaml
   cleanup="--cleanup-storage"
 
