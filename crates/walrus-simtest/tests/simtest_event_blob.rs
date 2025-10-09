@@ -335,7 +335,7 @@ mod tests {
         tracing::info!("All nodes have non zero latest checkpoint sequence number");
 
         // Get latest certified event blob
-        let mut latest_certified_blob = None;
+        let mut latest_certified_blob;
         loop {
             latest_certified_blob =
                 simtest_utils::get_last_certified_event_blob(&client_arc, Duration::from_secs(30))
