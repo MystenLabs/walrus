@@ -351,6 +351,7 @@ impl WalrusPtbBuilder {
             self.pt_builder.pure(blob_metadata.unencoded_size)?,
             self.pt_builder
                 .pure(u8::from(blob_metadata.encoding_type))?,
+            self.pt_builder.pure(blob_metadata.chunk_size)?,
             self.pt_builder.pure(persistence.is_deletable())?,
             self.wal_coin_arg()?,
         ];
@@ -389,6 +390,7 @@ impl WalrusPtbBuilder {
             self.pt_builder.pure(blob_metadata.unencoded_size)?,
             self.pt_builder
                 .pure(u8::from(blob_metadata.encoding_type))?,
+            self.pt_builder.pure(blob_metadata.chunk_size)?,
             self.pt_builder.pure(persistence.is_deletable())?,
             self.wal_coin_arg()?,
         ];

@@ -286,6 +286,8 @@ pub struct BlobObjectMetadata {
     pub encoded_size: u64,
     /// The encoding type of the blob.
     pub encoding_type: EncodingType,
+    /// The chunk size for chunked blobs (0 for non-chunked blobs).
+    pub chunk_size: u64,
 }
 
 impl<const V: bool> TryFrom<&BlobMetadataWithId<V>> for BlobObjectMetadata {
@@ -296,12 +298,20 @@ impl<const V: bool> TryFrom<&BlobMetadataWithId<V>> for BlobObjectMetadata {
             .metadata()
             .encoded_size()
             .context("cannot compute encoded size")?;
+
+        // Extract chunk_size from metadata (0 for non-chunked blobs)
+        let chunk_size = match metadata.metadata() {
+            walrus_core::metadata::BlobMetadata::V2(v2) => v2.chunk_size,
+            _ => 0, // RS2 blobs don't have chunk_size
+        };
+
         Ok(Self {
             blob_id: *metadata.blob_id(),
             root_hash: metadata.metadata().compute_root_hash(),
             unencoded_size: metadata.metadata().unencoded_length(),
             encoded_size,
             encoding_type: metadata.metadata().encoding_type(),
+            chunk_size,
         })
     }
 }

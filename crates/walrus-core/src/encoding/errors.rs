@@ -9,9 +9,34 @@ use thiserror::Error;
 use crate::{SliverIndex, merkle::MerkleProofError};
 
 /// Error indicating that the data is too large to be encoded/decoded.
-#[derive(Debug, Error, PartialEq, Eq, Clone)]
-#[error("the data is too large to be encoded/decoded")]
-pub struct DataTooLargeError;
+#[derive(Debug, Error, PartialEq, Eq, Clone, Default)]
+pub struct DataTooLargeError {
+    message: Option<String>,
+}
+
+impl DataTooLargeError {
+    /// Creates a new `DataTooLargeError` without a custom message.
+    pub const fn new() -> Self {
+        Self { message: None }
+    }
+
+    /// Creates a new `DataTooLargeError` with a custom message.
+    pub fn with_message(message: String) -> Self {
+        Self {
+            message: Some(message),
+        }
+    }
+}
+
+impl core::fmt::Display for DataTooLargeError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        if let Some(ref msg) = self.message {
+            write!(f, "the data is too large to be encoded/decoded: {}", msg)
+        } else {
+            write!(f, "the data is too large to be encoded/decoded")
+        }
+    }
+}
 
 /// Error returned when encoding/decoding is impossible due to the given data size.
 #[derive(Debug, Error, PartialEq, Eq, Clone)]

@@ -165,6 +165,7 @@ async fn test_register_certify_blob() -> anyhow::Result<()> {
         unencoded_size: size,
         encoded_size: resource_size,
         encoding_type,
+        chunk_size: 0, // RS2 blobs don't use chunks
     };
 
     let blob_obj = walrus_client
@@ -256,6 +257,7 @@ async fn test_register_certify_blob() -> anyhow::Result<()> {
         unencoded_size: size,
         encoded_size: resource_size,
         encoding_type,
+        chunk_size: 0, // RS2 blobs don't use chunks
     };
 
     let blob_obj = walrus_client

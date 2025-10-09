@@ -19,7 +19,7 @@ pub fn compute_symbol_size(
         .next_multiple_of(required_alignment.into());
 
     Ok(
-        NonZeroU16::new(u16::try_from(symbol_size).map_err(|_| DataTooLargeError)?)
+        NonZeroU16::new(u16::try_from(symbol_size).map_err(|_| DataTooLargeError::new())?)
             .expect("we start with something positive and always round up"),
     )
 }
@@ -32,7 +32,9 @@ pub fn compute_symbol_size_from_usize(
     required_alignment: u16,
 ) -> Result<NonZeroU16, DataTooLargeError> {
     compute_symbol_size(
-        data_length.try_into().map_err(|_| DataTooLargeError)?,
+        data_length
+            .try_into()
+            .map_err(|_| DataTooLargeError::new())?,
         n_symbols,
         required_alignment,
     )
