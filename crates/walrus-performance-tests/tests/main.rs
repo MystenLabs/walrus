@@ -67,6 +67,7 @@ mod publisher {
             "publisher/publisher_v1_put_blobs.ts",
             &format!("upload:latency:{payload_size}"),
         )
+        .env("WALRUS_K6_PAYLOAD_SIZE", payload_size)
         .status()
     }
 
@@ -81,6 +82,7 @@ mod publisher {
             "publisher/publisher_v1_put_blobs_breakpoint.ts",
             &format!("upload:throughput:{kind}"),
         )
+        .allow_failed_thresholds()
         .status()
     }
 }
@@ -102,6 +104,7 @@ mod aggregator {
             "aggregator/aggregator_v1_get_blob_latency.ts",
             &format!("download:latency:{payload_size}"),
         )
+        .env("WALRUS_K6_PAYLOAD_SIZE", payload_size)
         .status()
     }
 
@@ -116,6 +119,7 @@ mod aggregator {
             "aggregator/aggregator_v1_get_blobs_breakpoint.ts",
             &format!("download:throughput:{kind}"),
         )
+        .allow_failed_thresholds()
         .status()
     }
 }

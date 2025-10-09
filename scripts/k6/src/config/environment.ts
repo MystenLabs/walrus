@@ -39,7 +39,8 @@ const ENVIRONMENT_DEFAULTS: { [index: string]: EnvironmentConfig } = {
     "localhost": {
         "publisherUrl": "http://localhost:31415",
         "aggregatorUrl": "http://localhost:31415", // Run as daemon
-        "payloadSourceFile": "../../../data.bin" // Within the k6 folder
+        "payloadSourceFile": "../../../data.bin", // Within the k6 folder
+        "redisUrl": undefined // Set to undefined as the key is used to fetch the ENV variable.
     },
     "walrus-performance-network": {
         "publisherUrl": "http://walrus-publisher-0.walrus-publisher:31415",
@@ -51,6 +52,7 @@ const ENVIRONMENT_DEFAULTS: { [index: string]: EnvironmentConfig } = {
         "publisherUrl": testnetPublisherUrl,
         "aggregatorUrl": "https://aggregator.walrus-testnet.walrus.space",
         "payloadSourceFile": "../../../data.bin", // Within the k6 folder
+        "redisUrl": undefined // Set to undefined as the key is used to fetch the ENV variable.
     },
     "walrus-testnet-ci": {
         "publisherUrl": testnetPublisherUrl,

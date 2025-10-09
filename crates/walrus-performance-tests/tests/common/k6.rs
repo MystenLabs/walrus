@@ -11,8 +11,11 @@ use std::{
     process::Command,
 };
 
+const THRESHOLDS_HAVE_FAILED_EXIT_CODE: i32 = 99;
+
 #[derive(Debug)]
 pub struct K6Command {
+    is_threshold_failure_a_success: bool,
     args: Vec<Cow<'static, str>>,
     script: PathBuf,
 }
@@ -35,21 +38,28 @@ impl K6Command {
     where
         P: Into<PathBuf>,
     {
-        let mut command = Self {
-            args: vec!["run".into()],
-            script: script.into(),
-        };
+        let mut args = vec!["run".into()];
 
-        if env::var("WALRUS_K6_QUIET")
-            .map(|value| value == "true")
-            .unwrap_or(false)
-        {
-            command.quiet();
+        if let Ok("true") = env::var("WALRUS_K6_QUIET").as_deref() {
+            args.push("--quiet".into());
         }
-        if let Some(out) = env::var("WALRUS_K6_OUT").ok() {
-            command.out(out);
+        if let Ok(target) = env::var("WALRUS_K6_OUT") {
+            args.extend(["--out".into(), target.into()]);
         }
-        command
+        if let Ok("true") = env::var("WALRUS_K6_NO_COLOR").as_deref() {
+            args.push("--no-color".into());
+        }
+
+        Self {
+            args,
+            script: script.into(),
+            is_threshold_failure_a_success: false,
+        }
+    }
+
+    pub fn allow_failed_thresholds(&mut self) -> &mut Self {
+        self.is_threshold_failure_a_success = true;
+        self
     }
 
     pub fn maybe_env<S>(&mut self, key: &str, value: Option<S>) -> &mut Self
@@ -69,19 +79,6 @@ impl K6Command {
     {
         self.args
             .extend(["--env".into(), format!("{key}={0}", value.as_ref()).into()]);
-        self
-    }
-
-    pub fn quiet(&mut self) -> &mut Self {
-        self.args.push("--quiet".into());
-        self
-    }
-
-    pub fn out<S>(&mut self, target: S) -> &mut Self
-    where
-        S: Into<Cow<'static, str>>,
-    {
-        self.args.extend(["--out".into(), target.into()]);
         self
     }
 
@@ -109,6 +106,10 @@ impl K6Command {
         let status = Command::new("k6").args(args).status()?;
 
         if status.success() {
+            Ok(())
+        } else if self.is_threshold_failure_a_success
+            && status.code() == Some(THRESHOLDS_HAVE_FAILED_EXIT_CODE)
+        {
             Ok(())
         } else {
             Err(status.to_string().into())

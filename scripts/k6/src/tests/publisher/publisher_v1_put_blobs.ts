@@ -17,7 +17,8 @@ import { PutBlobOptions, putBlob } from '../../flows/publisher.ts'
 import * as fs from 'k6/experimental/fs';
 import { parseHumanFileSize, loadParameters, getTestIdTags } from "../../lib/utils.ts"
 import { BlobHistory } from "../../lib/blob_history.ts"
-import { check } from 'k6';
+// @ts-ignore
+import { expect } from 'https://jslib.k6.io/k6-testing/0.5.0/index.js';
 
 
 interface TestParameters {
@@ -38,7 +39,7 @@ const params = loadParameters<TestParameters>(
         blobsToStore: 20,
         vus: 1,
         payloadSize: "1Ki",
-        timeout: "1m",
+        timeout: "5m",
         environment: DEFAULT_ENVIRONMENT,
     },
     "publisher/v1_put_blobs.plans.json"
@@ -92,9 +93,8 @@ export default async function () {
         dataFile, env.publisherUrl, new PutBlobOptions(payloadSize, payloadSize, params.timeout)
     );
 
-    check(response, {
-        'is status 200': (r) => r.status === 200,
-    });
+    expect(response.status).toBe(200);
+    expect(response.json()).toHaveProperty('newlyCreated');
 
     await blobHistory.maybeRecordFromResponse(params.payloadSize, response);
 }

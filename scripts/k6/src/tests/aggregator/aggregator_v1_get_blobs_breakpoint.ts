@@ -119,7 +119,7 @@ export async function setup(): Promise<{ blobIdCount: number, baseDurationMillis
     console.log(`Blob read timeout: ${params.timeout}`);
 
     if (!env.redisUrl) {
-        exec.test.abort("REDIS_URL must be defined");
+        exec.test.abort("WALRUS_K6_REDIS_URL must be defined");
     }
     const count = await blobHistory.len(params.payloadSize);
     console.log(`Blob IDs: source="${env.redisUrl}", key="${params.payloadSize}", count=${count}`);
