@@ -37,11 +37,12 @@ echo "starting stress client"
 ## -----------------------------------------------------------------------------
 ## Start the node
 ## -----------------------------------------------------------------------------
-RUST_BACKTRACE=full RUST_LOG=walrus=debug,info /opt/walrus/bin/walrus-stress \
+RUST_BACKTRACE=full RUST_LOG=info /opt/walrus/bin/walrus-stress \
     --config-path /opt/walrus/outputs/client_config_stress.yaml \
     --sui-network "http://10.0.0.20:9000;http://10.0.0.20:9123/gas" \
-    stress \
-    --write-load 10 \
-    --read-load 10 \
-    --n-clients 2 \
-    --gas-refill-period-millis 60000
+    single-client \
+    --target-requests-per-minute 10 \
+    --check-read-result true \
+    --max-blobs-in-pool 100 \
+    poisson-size --lambda 1024 --size-multiplier 10 \
+    poisson-store-length --store-lambda 3

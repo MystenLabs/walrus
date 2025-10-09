@@ -145,7 +145,7 @@ impl WorkloadConfig {
 #[derive(clap::Subcommand, Debug, Clone)]
 pub enum RequestStoreLengthDistributionArgs {
     /// Use uniform store length distribution with min and max epoch bounds
-    Uniform {
+    UniformStoreLength {
         /// Minimum store length in epochs
         #[arg(long, default_value_t = 1)]
         min_store_epochs: u32,
@@ -154,7 +154,7 @@ pub enum RequestStoreLengthDistributionArgs {
         max_store_epochs: u32,
     },
     /// Use Poisson distribution for store lengths
-    Poisson {
+    PoissonStoreLength {
         /// Lambda parameter for Poisson distribution of store lengths
         #[arg(long, default_value_t = 5.0)]
         store_lambda: f64,
@@ -168,14 +168,14 @@ impl RequestStoreLengthDistributionArgs {
     /// Get the configuration for this store length distribution
     pub fn get_store_length_config(&self) -> StoreLengthDistributionConfig {
         match self {
-            RequestStoreLengthDistributionArgs::Uniform {
+            RequestStoreLengthDistributionArgs::UniformStoreLength {
                 min_store_epochs,
                 max_store_epochs,
             } => StoreLengthDistributionConfig::Uniform {
                 min_epochs: *min_store_epochs,
                 max_epochs: *max_store_epochs,
             },
-            RequestStoreLengthDistributionArgs::Poisson {
+            RequestStoreLengthDistributionArgs::PoissonStoreLength {
                 store_lambda,
                 store_base_epochs,
             } => StoreLengthDistributionConfig::Poisson {
