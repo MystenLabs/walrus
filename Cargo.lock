@@ -12785,6 +12785,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "walrus-performance-tests"
+version = "1.35.0"
+dependencies = [
+ "walrus-test-utils",
+]
+
+[[package]]
 name = "walrus-proc-macros"
 version = "1.35.0"
 dependencies = [
