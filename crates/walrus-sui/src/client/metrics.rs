@@ -36,7 +36,7 @@ walrus_utils::metrics::define_metric_set! {
 
         #[help = "Number of checkpoint parsing errors. This error indicates incompatibility of \
         the checkpoint data received"]
-        num_checkpoint_parsing_errors: IntCounter[],
+        checkpoint_parsing_errors_count: IntCounter[],
     }
 }
 

@@ -385,7 +385,7 @@ impl RetriableRpcClient {
         if let Some(metrics) = self.metrics.as_ref()
             && Self::is_checkpoint_parsing_error(&result)
         {
-            metrics.num_checkpoint_parsing_errors.inc();
+            metrics.checkpoint_parsing_errors_count.inc();
         }
 
         result
