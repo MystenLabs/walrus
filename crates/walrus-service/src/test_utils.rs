@@ -85,8 +85,6 @@ use crate::common::config::SuiConfig;
 use crate::event::event_processor::config::{EventProcessorRuntimeConfig, SystemConfig};
 #[cfg(msim)]
 use crate::node::ConfigLoader;
-#[cfg(msim)]
-use crate::node::config::SstIngestionConfig;
 use crate::{
     event::{
         event_processor::{config::EventProcessorConfig, processor::EventProcessor},
