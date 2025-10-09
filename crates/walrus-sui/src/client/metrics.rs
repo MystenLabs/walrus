@@ -3,7 +3,7 @@
 
 use std::time::Duration;
 
-use prometheus::{HistogramVec, IntCounterVec};
+use prometheus::{HistogramVec, IntCounter, IntCounterVec};
 
 fn default_buckets_for_slow_operations() -> Vec<f64> {
     prometheus::exponential_buckets(0.001, 2.0, 14).expect("count, start, and factor are valid")
@@ -33,6 +33,10 @@ walrus_utils::metrics::define_metric_set! {
 
         #[help = "The source of a successful checkpoint download"]
         checkpoint_download_success_source: IntCounterVec["download_source"],
+
+        #[help = "Number of checkpoint parsing errors. This error indicates incompatibility of \
+        the checkpoint data received"]
+        checkpoint_parsing_errors_count: IntCounter[],
     }
 }
 
