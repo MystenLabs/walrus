@@ -42,7 +42,7 @@ RUST_BACKTRACE=full RUST_LOG=info /opt/walrus/bin/walrus-stress \
     --sui-network "http://10.0.0.20:9000;http://10.0.0.20:9123/gas" \
     single-client \
     --target-requests-per-minute 10 \
-    --check-read-result true \
+    --check-read-result \
     --max-blobs-in-pool 100 \
     poisson-size --lambda 1024 --size-multiplier 10 \
     poisson-store-length --store-lambda 3
