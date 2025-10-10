@@ -1974,8 +1974,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        encoding::ReedSolomonEncodingConfig,
-        metadata::BlobMetadataApi as _,
+        encoding::{ReedSolomonEncodingConfig, common::ConsistencyCheckType},
         test_utils::QuiltTestData,
     };
 
@@ -2301,6 +2300,7 @@ mod tests {
         );
 
         let QuiltMetadata::V1(quilt_metadata_v1) = quilt_metadata;
+        let verified_metadata = quilt_metadata_v1.get_verified_metadata();
 
         let slivers: Vec<&SliverData<Secondary>> = sliver_pairs
             .iter()
@@ -2440,18 +2440,16 @@ mod tests {
             }
         }
 
-        let (quilt_blob, metadata_with_id) = config
+        let quilt_blob = config
             .decode_and_verify(
-                &quilt_metadata_v1.quilt_id,
-                quilt_metadata_v1.metadata.unencoded_length(),
+                &verified_metadata,
                 sliver_pairs
                     .iter()
                     .map(|s| s.secondary.clone())
                     .collect::<Vec<_>>(),
+                ConsistencyCheckType::Strict,
             )
             .expect("should decode and verify quilt");
-
-        assert_eq!(metadata_with_id.metadata(), &quilt_metadata_v1.metadata);
 
         let quilt = QuiltV1::new_from_quilt_blob(quilt_blob, config).expect("Should create quilt");
         assert_eq!(

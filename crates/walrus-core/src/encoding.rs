@@ -20,7 +20,7 @@ pub use blob_encoding::{BlobDecoder, BlobEncoder};
 pub mod quilt_encoding;
 
 mod common;
-pub use common::{EncodingAxis, Primary, Secondary};
+pub use common::{ConsistencyCheckType, EncodingAxis, Primary, Secondary};
 
 mod config;
 pub use config::{

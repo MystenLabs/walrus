@@ -24,7 +24,10 @@ use prometheus::core::{AtomicU64, GenericCounter};
 use sha2::Digest;
 use sui_types::event::EventID;
 use tokio_util::sync::CancellationToken;
-use walrus_core::{BlobId, encoding::Primary};
+use walrus_core::{
+    BlobId,
+    encoding::{ConsistencyCheckType, Primary},
+};
 use walrus_sdk::{
     client::WalrusNodeClient,
     config::{ClientConfig, combine_rpc_urls},
@@ -669,7 +672,10 @@ async fn backup_fetch_inner_core(
 
     // Fetch the blob from Walrus network.
     let timer_guard = backup_metric_set.blob_fetch_duration.start_timer();
-    let blob: Vec<u8> = match read_client.read_blob::<Primary>(&blob_id).await {
+    let blob: Vec<u8> = match read_client
+        .read_blob_with_consistency_check_type::<Primary>(&blob_id, ConsistencyCheckType::Strict)
+        .await
+    {
         Ok(blob) => {
             let fetch_time = Duration::from_secs_f64(timer_guard.stop_and_record());
             backup_metric_set.blobs_fetched.inc();

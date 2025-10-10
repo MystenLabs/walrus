@@ -82,7 +82,8 @@ The following sections describe the different types of consistency checks perfor
 ```admonish info title="Select the appropriate consistency check"
 In the majority of cases, the default consistency check is sufficient, in particular if the writer
 of the blob is trusted. The strict consistency check is only needed if specific availability
-guarantees are required.
+guarantees are required. If the writer of a blob is known and trusted, it is also possible to
+completely disable the consistency check.
 ```
 
 ### Default consistency check
@@ -99,8 +100,8 @@ verify that the decoded data is correct. If this check succeeds, the data is pro
 otherwise an error is returned. This check provides the following guarantee:
 
 ```admonish tip title="Data consistency property"
-Any correct client attempting to read a blob will either read the specific value authenticated by
-the writer or return an error.
+Any correct client attempting to read a blob, performing the default consistency check, will either
+read the specific value authenticated by the writer or return an error.
 ```
 
 ### Strict consistency check

@@ -346,6 +346,7 @@ impl TelemetryLabel for ClientErrorKind {
             ClientErrorKind::NotEnoughConfirmations(_, _) => "not-enough-confirmations",
             ClientErrorKind::NotEnoughSlivers => "not-enough-slivers",
             ClientErrorKind::BlobIdDoesNotExist => "blob-id-does-not-exist",
+            ClientErrorKind::InvalidBlob => "invalid-blob",
             ClientErrorKind::NoMetadataReceived => "no-metadata-received",
             ClientErrorKind::NoValidStatusReceived => "no-valid-status-received",
             ClientErrorKind::InvalidConfig => "invalid-config",

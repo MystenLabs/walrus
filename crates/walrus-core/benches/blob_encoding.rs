@@ -9,19 +9,22 @@
 use core::{num::NonZeroU16, time::Duration};
 
 use criterion::{AxisScale, BatchSize, BenchmarkId, Criterion, PlotConfiguration};
-use walrus_core::encoding::{EncodingFactory as _, ReedSolomonEncodingConfig};
+use walrus_core::encoding::{
+    ConsistencyCheckType,
+    EncodingFactory as _,
+    ReedSolomonEncodingConfig,
+};
 use walrus_test_utils::{random_data, random_subset};
 
 const N_SHARDS: u16 = 1000;
 
 // The maximum symbol size is `u16::MAX`, which means a maximum blob size of ~13 GiB.
 // The blob size does not have to be a multiple of the number of symbols as we pad with 0s.
-const BLOB_SIZES: [(u64, &str); 6] = [
+const BLOB_SIZES: [(u64, &str); 5] = [
     (1, "1B"),
     (1 << 10, "1KiB"),
     (1 << 20, "1MiB"),
-    (1 << 24, "16MiB"),
-    (1 << 28, "256MiB"),
+    (1 << 25, "32MiB"),
     (1 << 30, "1GiB"),
 ];
 
@@ -68,48 +71,36 @@ fn blob_decoding(c: &mut Criterion) {
     for (blob_size, size_str) in BLOB_SIZES {
         let blob = random_data(blob_size.try_into().unwrap());
         group.throughput(criterion::Throughput::Bytes(blob_size));
-        let encoder = config.get_blob_encoder(&blob).unwrap();
-        let (sliver_pairs, metadata) = encoder.encode_with_metadata();
+        let (sliver_pairs, metadata) = config.encode_with_metadata(&blob).unwrap();
         let primary_slivers_for_decoding: Vec<_> = random_subset(
             sliver_pairs.into_iter().map(|p| p.primary),
             config.n_primary_source_symbols().get().into(),
         )
         .collect();
-        let blob_id = metadata.blob_id();
 
-        group.bench_with_input(
-            BenchmarkId::new("decode", size_str),
-            &(blob_size, primary_slivers_for_decoding.clone()),
-            |b, (blob_size, slivers)| {
-                b.iter_batched(
-                    || slivers.clone(),
-                    |slivers| {
-                        let decoded_blob = config.decode(*blob_size, slivers).unwrap();
-                        assert_eq!(blob.len(), decoded_blob.len());
-                        assert_eq!(blob, decoded_blob);
-                    },
-                    BatchSize::SmallInput,
-                );
-            },
-        );
-
-        group.bench_with_input(
-            BenchmarkId::new("decode_and_verify", size_str),
-            &(blob_size, *blob_id, primary_slivers_for_decoding),
-            |b, (blob_size, blob_id, slivers)| {
-                b.iter_batched(
-                    || slivers.clone(),
-                    |slivers| {
-                        let (decoded_blob, _metadata) = config
-                            .decode_and_verify(blob_id, *blob_size, slivers)
-                            .unwrap();
-                        assert_eq!(blob.len(), decoded_blob.len());
-                        assert_eq!(blob, decoded_blob);
-                    },
-                    BatchSize::SmallInput,
-                );
-            },
-        );
+        for consistency_check in [
+            ConsistencyCheckType::Skip,
+            ConsistencyCheckType::Default,
+            ConsistencyCheckType::Strict,
+        ] {
+            group.bench_with_input(
+                BenchmarkId::new(format!("decode_and_verify_{consistency_check}"), size_str),
+                &(&metadata, primary_slivers_for_decoding.clone()),
+                |b, (metadata, slivers)| {
+                    b.iter_batched(
+                        || slivers.clone(),
+                        |slivers| {
+                            let decoded_blob = config
+                                .decode_and_verify(metadata, slivers, consistency_check)
+                                .unwrap();
+                            assert_eq!(blob.len(), decoded_blob.len());
+                            assert_eq!(blob, decoded_blob);
+                        },
+                        BatchSize::SmallInput,
+                    );
+                },
+            );
+        }
     }
 
     group.finish();
