@@ -25,6 +25,10 @@ pub struct SingleClientWorkloadArgs {
     /// that the pool will hold blob data in memory.
     #[arg(long, default_value_t = 10000)]
     pub max_blobs_in_pool: usize,
+    /// The initial number of blobs to pre-create in the blob pool. This is useful for read-heavy
+    /// workloads to ensure there are enough blobs to read from at the start.
+    #[arg(long, default_value_t = 0)]
+    pub initial_blobs_in_pool: usize,
     /// Define the distribution of request types: read, write, delete, extend
     #[command(flatten)]
     pub request_type_distribution: RequestTypeDistributionArgs,

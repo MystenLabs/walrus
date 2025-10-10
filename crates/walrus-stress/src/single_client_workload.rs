@@ -58,6 +58,8 @@ pub struct SingleClientWorkload {
     check_read_result: bool,
     /// The maximum number of blobs to keep in the blob pool.
     max_blobs_in_pool: usize,
+    /// The initial number of blobs to pre-create in the blob pool.
+    initial_blobs_in_pool: usize,
     /// The size distribution of uploaded blobs.
     size_distribution_config: SizeDistributionConfig,
     /// The store length distribution of store and extend operations.
@@ -76,6 +78,7 @@ impl SingleClientWorkload {
         target_requests_per_minute: u64,
         check_read_result: bool,
         max_blobs_in_pool: usize,
+        initial_blobs_in_pool: usize,
         size_distribution_config: SizeDistributionConfig,
         store_length_distribution_config: StoreLengthDistributionConfig,
         request_type_distribution: RequestTypeDistributionConfig,
@@ -86,6 +89,7 @@ impl SingleClientWorkload {
             target_requests_per_minute,
             check_read_result,
             max_blobs_in_pool,
+            initial_blobs_in_pool,
             size_distribution_config,
             store_length_distribution_config,
             request_type_distribution,
@@ -110,8 +114,17 @@ impl SingleClientWorkload {
         ));
         request_interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
-        // TODO(WAL-936): for read heavy workloads, we should pre-create a pool of blobs so that
-        // there are enough blobs to read from.
+        // Pre-populate the blob pool for read-heavy workloads.
+        for _ in 0..self.initial_blobs_in_pool {
+            // Getting the current epoch in case epoch changed during the loop.
+            let write_op = client_op_generator.generate_write_op_for_pool_initialization(&mut rng);
+            self.execute_client_op(&write_op, &mut blob_pool).await?;
+        }
+
+        tracing::info!(
+            "blob pool initialized with {} blobs",
+            self.initial_blobs_in_pool
+        );
 
         let mut current_epoch = 0;
 

@@ -123,6 +123,25 @@ impl ClientOpGenerator {
         }
     }
 
+    /// Generates a write operation for pool initialization. The blob lifetime follows the same
+    /// distribution as the input parameters.
+    ///
+    /// This creates permanent blobs that will persist for read-heavy workloads.
+    pub(crate) fn generate_write_op_for_pool_initialization<R: Rng>(
+        &self,
+        rng: &mut R,
+    ) -> WalrusNodeClientOp {
+        let blob = self.blob_generator.generate_blob(rng);
+        let store_epoch_ahead = self.epoch_length_generator.generate_epoch_length(rng);
+
+        // Generate write operation with half chance of being deletable.
+        WalrusNodeClientOp::Write {
+            blob,
+            deletable: rng.gen_bool(0.5),
+            store_epoch_ahead,
+        }
+    }
+
     fn generate_delete_op<R: Rng>(&self, blob_pool: &BlobPool, rng: &mut R) -> WalrusNodeClientOp {
         let blob_id = blob_pool.select_random_deletable_blob_id(rng);
         if let Some(blob_id) = blob_id {

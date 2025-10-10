@@ -376,6 +376,7 @@ async fn run_single_client_workload(
         args.target_requests_per_minute,
         args.check_read_result,
         args.max_blobs_in_pool,
+        args.initial_blobs_in_pool,
         data_size_config,
         store_length_config,
         request_type_distribution,
