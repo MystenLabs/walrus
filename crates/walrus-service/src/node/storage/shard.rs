@@ -15,7 +15,7 @@ use std::{
 use fastcrypto::traits::KeyPair;
 use futures::{StreamExt, stream::FuturesUnordered};
 use regex::Regex;
-use rocksdb::{DB, Options};
+use rocksdb::{DB, Options, Transaction};
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 use typed_store::{
@@ -590,6 +590,19 @@ impl ShardStorage {
     ) -> Result<(), TypedStoreError> {
         batch.delete_batch(&self.primary_slivers, std::iter::once(blob_id))?;
         batch.delete_batch(&self.secondary_slivers, std::iter::once(blob_id))?;
+        Ok(())
+    }
+
+    /// Deletes the sliver pair for the given [`BlobId`] within a DB transaction.
+    pub(crate) fn delete_sliver_pair_in_transaction(
+        &self,
+        transaction: &Transaction<'_, rocksdb::OptimisticTransactionDB>,
+        blob_id: &BlobId,
+    ) -> anyhow::Result<()> {
+        let column_families = [self.primary_slivers.cf()?, self.secondary_slivers.cf()?];
+        for cf in column_families {
+            transaction.delete_cf(&cf, blob_id)?;
+        }
         Ok(())
     }
 
