@@ -44,5 +44,6 @@ RUST_BACKTRACE=full RUST_LOG=info /opt/walrus/bin/walrus-stress \
     --target-requests-per-minute 10 \
     --check-read-result \
     --max-blobs-in-pool 100 \
+    --initial-blobs-in-pool 10 \
     poisson-size --lambda 1024 --size-multiplier 10 \
     poisson-store-length --store-lambda 3
