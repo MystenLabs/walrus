@@ -135,7 +135,7 @@ public fun ring_lookup(
 
 /// Accessor for epoch, read-only.
 public fun epoch(accounting: &FutureAccounting): u32 {
-    *&accounting.epoch
+    accounting.epoch
 }
 
 /// Accessor for used_capacity, read-only.

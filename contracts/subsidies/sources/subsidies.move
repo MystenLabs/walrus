@@ -45,7 +45,7 @@ fun package_id_for_current_version(): ID {
 
 /// Returns the package ID for the given type.
 fun package_id_for_type<T>(): ID {
-    let address_str = type_name::get<T>().get_address().to_lowercase();
+    let address_str = type_name::with_defining_ids<T>().address_string().to_lowercase();
     let address_bytes = hex::decode(address_str.into_bytes());
     object::id_from_bytes(address_bytes)
 }
@@ -330,13 +330,40 @@ public fun register_blob(
     root_hash: u256,
     size: u64,
     encoding_type: u8,
+    deletable: bool,
+    write_payment: &mut Coin<WAL>,
+    ctx: &mut TxContext,
+): Blob {
+    self.register_blob_v2(
+        system,
+        storage,
+        blob_id,
+        root_hash,
+        size,
+        encoding_type,
+        0,
+        deletable,
+        write_payment,
+        ctx,
+    )
+}
+
+/// Proxy Register blob by calling the system contract
+public fun register_blob_v2(
+    self: &mut Subsidies,
+    system: &mut System,
+    storage: Storage,
+    blob_id: u256,
+    root_hash: u256,
+    size: u64,
+    encoding_type: u8,
     chunk_size: u64,
     deletable: bool,
     write_payment: &mut Coin<WAL>,
     ctx: &mut TxContext,
 ): Blob {
     assert!(self.version == VERSION, EWrongVersion);
-    let blob = system.register_blob(
+    let blob = system.register_blob_v2(
         storage,
         blob_id,
         root_hash,

@@ -19,9 +19,18 @@ const EInvalidEncodingType: u64 = 0;
 /// Computes the encoded length of a blob given its unencoded length, encoding type
 /// and number of shards `n_shards`.
 /// For RS2_CHUNKED, `chunk_size` specifies the size of each chunk. For RS2, it's ignored.
-public fun encoded_blob_length(
-    unencoded_length: u64,
-    encoding_type: u8,
+public fun encoded_blob_length(unencoded_length: u64, encoding_type: u8, n_shards: u16): u64 {
+    // Both RS2 and RS2_CHUNKED use RedStuff Reed-Solomon encoding.
+    // RS2_CHUNKED adds additional metadata for chunk-level hashes.
+    assert!(encoding_type == RS2);
+    redstuff::encoded_blob_length(unencoded_length, n_shards, encoding_type, 0)
+}
+
+/// Computes the encoded length of a blob given its unencoded length, encoding type
+/// and number of shards `n_shards`.
+/// For RS2_CHUNKED, `chunk_size` specifies the size of each chunk. For RS2, it's ignored.
+public fun encoded_blob_length_v2(
+    unencoded_length: u64, encoding_type: u8,
     n_shards: u16,
     chunk_size: u64,
 ): u64 {

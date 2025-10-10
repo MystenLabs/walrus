@@ -569,12 +569,10 @@ fun get_storage_resource(
     ctx: &mut TxContext,
 ): Storage {
     let mut fake_coin = test_utils::mint_frost(N_COINS, ctx);
-    let chunk_size = 0; // RS2 doesn't use chunking
     let storage_size = encoding::encoded_blob_length(
         unencoded_size,
         RS2,
         system.n_shards(),
-        chunk_size,
     );
     let storage = system.reserve_space(
         storage_size,
@@ -593,7 +591,6 @@ fun register_default_blob(
     ctx: &mut TxContext,
 ): Blob {
     let mut fake_coin = test_utils::mint_frost(N_COINS, ctx);
-    let chunk_size = 0; // RS2 doesn't use chunking
     // Register a Blob
     let blob_id = blob::derive_blob_id(ROOT_HASH, RS2, SIZE);
     let blob = system.register_blob(
@@ -602,7 +599,6 @@ fun register_default_blob(
         ROOT_HASH,
         SIZE,
         RS2,
-        chunk_size,
         deletable,
         &mut fake_coin,
         ctx,

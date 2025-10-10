@@ -98,7 +98,7 @@ public fun chunk_size(self: &Blob): u64 {
 }
 
 public fun encoded_size(self: &Blob, n_shards: u16): u64 {
-    encoding::encoded_blob_length(
+    encoding::encoded_blob_length_v2(
         self.size,
         self.encoding_type,
         n_shards,
@@ -167,7 +167,7 @@ public(package) fun new(
     assert!(registered_epoch < storage.end_epoch(), EResourceBounds);
 
     // check that the encoded size is less than the storage size
-    let encoded_size = encoding::encoded_blob_length(
+    let encoded_size = encoding::encoded_blob_length_v2(
         size,
         encoding_type,
         n_shards,

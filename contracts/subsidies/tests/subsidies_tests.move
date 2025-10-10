@@ -629,7 +629,7 @@ fun register_default_blob(
     let mut fake_coin = mint_frost(N_COINS, ctx);
     // Register a Blob
     let blob_id = blob::derive_blob_id(ROOT_HASH, RS2, UNENCODED_SIZE);
-    let blob = subsidies.register_blob(
+    let blob = subsidies.register_blob_v2(
         system,
         storage,
         blob_id,

@@ -131,8 +131,38 @@ public fun reserve_space_for_epochs(
 /// Registers a new blob in the system.
 /// `size` is the size of the unencoded blob. The reserved space in `storage` must be at
 /// least the size of the encoded blob.
-/// For RS2_CHUNKED encoding, `chunk_size` specifies the chunk size. For RS2, pass 0.
+/// For RS2_CHUNKED encoding, use `register_blob_v2` to specify the chunk size.
 public fun register_blob(
+    self: &mut System,
+    storage: Storage,
+    blob_id: u256,
+    root_hash: u256,
+    size: u64,
+    encoding_type: u8,
+    deletable: bool,
+    write_payment: &mut Coin<WAL>,
+    ctx: &mut TxContext,
+): Blob {
+    self
+        .inner_mut()
+        .register_blob(
+            storage,
+            blob_id,
+            root_hash,
+            size,
+            encoding_type,
+            0, // chunk_size
+            deletable,
+            write_payment,
+            ctx,
+        )
+}
+
+/// Registers a new blob in the system.
+/// `size` is the size of the unencoded blob. The reserved space in `storage` must be at
+/// least the size of the encoded blob.
+/// For RS2_CHUNKED encoding, `chunk_size` specifies the chunk size. For RS2, pass 0.
+public fun register_blob_v2(
     self: &mut System,
     storage: Storage,
     blob_id: u256,

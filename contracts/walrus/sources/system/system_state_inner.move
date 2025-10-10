@@ -9,7 +9,7 @@ use wal::wal::WAL;
 use walrus::{
     blob::{Self, Blob},
     bls_aggregate::{Self, BlsCommittee},
-    encoding::encoded_blob_length,
+    encoding::encoded_blob_length_v2,
     epoch_parameters::EpochParams,
     event_blob::{Self, EventBlobCertificationState, new_attestation},
     events,
@@ -518,7 +518,7 @@ public(package) fun certify_event_blob(
     let num_shards = self.n_shards();
     let epochs_ahead = self.future_accounting.max_epochs_ahead();
     let storage = self.reserve_space_without_payment(
-        encoded_blob_length(size, encoding_type, num_shards, chunk_size),
+        encoded_blob_length_v2(size, encoding_type, num_shards, chunk_size),
         0,
         epochs_ahead,
         false, // Do not check total capacity, event blobs are certified already at this point.
