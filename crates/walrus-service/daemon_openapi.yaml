@@ -170,6 +170,12 @@ paths:
                   type: integer
                   format: int32
                   minimum: 0
+        '400':
+          description: The consistency check options are invalid.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         '403':
           description: The blob size exceeds the maximum allowed size that was configured for this service. The blob is still stored on Walrus and may be accessible through a different aggregator or the CLI.
           content:
@@ -363,6 +369,18 @@ paths:
         schema:
           type: boolean
         style: form
+      - name: skip_consistency_check
+        in: query
+        description: |-
+          Whether to skip consistency checks entirely.
+
+          When enabled, this flag bypasses all consistency verification during blob reading. This
+          should be used only when the writer of the blob is trusted. Does *not* affect any
+          authentication checks for data received from storage nodes, which are always performed.
+        required: false
+        schema:
+          type: boolean
+        style: form
       responses:
         '200':
           description: The blob was reconstructed successfully
@@ -374,6 +392,12 @@ paths:
                   type: integer
                   format: int32
                   minimum: 0
+        '400':
+          description: The consistency check options are invalid.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         '403':
           description: The blob size exceeds the maximum allowed size that was configured for this service. The blob is still stored on Walrus and may be accessible through a different aggregator or the CLI.
           content:

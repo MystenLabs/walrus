@@ -214,13 +214,17 @@ instead of the one set in the wallet configuration or the configuration file.
 
 ### Consistency checks
 
-Walrus performs consistency checks to ensure that any data read from Walrus is what the writer
-intended, see the [section about data
-consistency](../design/encoding.md#data-integrity-and-consistency) for further details. Before `v1.37`
-the Walrus CLI and aggregator always perform the [strict consistency check](../design/encoding.md#strict-integrity-check).
-Starting with `v1.37`, the default is a [more performant consistency check](../design/encoding.md#data-integrity-check),
-which is sufficient for the majority of cases. The strict consistency check can be enabled through
-the flag `--strict-consistency-check` (added in `v1.35`).
+Walrus performs integrity and consistency checks to ensure that any data read from Walrus is what
+the writer intended, and that the writer encoded the blob correctly, see the [section about data
+consistency](../design/encoding.md#data-integrity-and-consistency) for further details. Before
+`v1.37` the Walrus CLI and aggregator always perform the [strict consistency
+check](../design/encoding.md#strict-consistency-check). Starting with `v1.37`, the default is a [more
+performant consistency check](../design/encoding.md#default-consistency-check), which is sufficient for
+the majority of cases. The strict consistency check can be enabled through the flag
+`--strict-consistency-check` (added in `v1.35`).
+
+Consistency checks can be disabled completely through the flag `--skip-consistency-check` (added in
+`v1.36`). This should only be used if the writer of the blob is known and trusted.
 
 ## Extending the lifetime of a blob
 

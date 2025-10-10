@@ -179,6 +179,9 @@ pub enum ClientErrorKind {
     ///   - the client could not obtain the certification epoch of the blob by reading the events.
     #[error("the blob ID does not exist")]
     BlobIdDoesNotExist,
+    /// The blob ID corresponds to an invalid blob.
+    #[error("the blob ID corresponds to an invalid blob")]
+    InvalidBlob,
     /// The client could not retrieve the metadata from the storage nodes.
     ///
     /// This error differs from the [`ClientErrorKind::BlobIdDoesNotExist`] version in the fact that

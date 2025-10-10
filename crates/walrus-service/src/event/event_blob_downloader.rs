@@ -9,7 +9,7 @@ use std::{
 };
 
 use anyhow::Result;
-use walrus_core::{BlobId, Epoch};
+use walrus_core::{BlobId, Epoch, encoding::ConsistencyCheckType};
 use walrus_sdk::{client::WalrusNodeClient, error::ClientResult};
 use walrus_sui::{
     client::{ReadClient, SuiReadClient},
@@ -86,7 +86,10 @@ impl EventBlobDownloader {
         let blob_id = blob.blob_id;
         let result = self
             .walrus_client
-            .read_blob::<walrus_core::encoding::Primary>(&blob_id)
+            .read_blob_with_consistency_check_type::<walrus_core::encoding::Primary>(
+                &blob_id,
+                ConsistencyCheckType::Strict,
+            )
             .await?;
         let blob = LocalEventBlob::new(&result)?;
         let blob_epoch = blob.ending_epoch()?;
@@ -242,7 +245,10 @@ impl EventBlobDownloader {
         let blob = loop {
             match self
                 .walrus_client
-                .read_blob::<walrus_core::encoding::Primary>(&event_blob_id)
+                .read_blob_with_consistency_check_type::<walrus_core::encoding::Primary>(
+                    &event_blob_id,
+                    ConsistencyCheckType::Strict,
+                )
                 .await
             {
                 Ok(blob) => break blob,

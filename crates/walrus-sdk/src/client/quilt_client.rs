@@ -21,6 +21,7 @@ use walrus_core::{
     SliverIndex,
     encoding::{
         BLOB_TYPE_ATTRIBUTE_KEY,
+        ConsistencyCheckType,
         Primary,
         QUILT_TYPE_VALUE,
         QuiltError,
@@ -702,9 +703,16 @@ impl<T: ReadClient> QuiltClient<'_, T> {
         metadata: &VerifiedBlobMetadataWithId,
         certified_epoch: Epoch,
     ) -> ClientResult<QuiltEnum> {
+        // Important: We always use the strict consistency check when retrieving the quilt. This is
+        // because when reading individual quilt patches, we only verify *secondary* slivers. The
+        // default consistency check only verifies the primary sliver hashes, such that we could
+        // potentially read different data for the same quilt patch depending on whether we get them
+        // from the full quilt or from individual secondary slivers.
+        const CONSISTENCY_CHECK: ConsistencyCheckType = ConsistencyCheckType::Strict;
+
         let quilt = self
             .client
-            .request_slivers_and_decode::<Primary>(certified_epoch, metadata)
+            .request_slivers_and_decode::<Primary>(certified_epoch, metadata, CONSISTENCY_CHECK)
             .await?;
         let encoding_config_enum = self
             .client
