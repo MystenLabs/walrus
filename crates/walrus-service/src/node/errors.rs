@@ -107,17 +107,43 @@ pub struct Unavailable;
 
 #[derive(Debug, thiserror::Error, RestApiError)]
 #[rest_api_error(domain = ERROR_DOMAIN)]
+pub enum SetRecoveryDeferralError {
+    #[error("blob is not registered at this node")]
+    #[rest_api_error(reason = "BLOB_NOT_REGISTERED",
+    status = ApiStatusCode::FailedPrecondition)]
+    NotRegistered,
+    #[error("recovery deferral already exists for this blob")]
+    #[rest_api_error(reason = "DEFERRAL_ALREADY_EXISTS",
+    status = ApiStatusCode::FailedPrecondition)]
+    AlreadyExists,
+    #[error("blob is already fully stored on this node")]
+    #[rest_api_error(reason = "BLOB_ALREADY_STORED",
+    status = ApiStatusCode::FailedPrecondition)]
+    AlreadyStored,
+    #[error("recovery deferral is not supported by this service")]
+    #[rest_api_error(reason = "DEFERRAL_NOT_SUPPORTED",
+    status = ApiStatusCode::FailedPrecondition)]
+    Unsupported,
+    #[error(transparent)]
+    #[rest_api_error(delegate)]
+    Internal(#[from] InternalError),
+}
+
+#[derive(Debug, thiserror::Error, RestApiError)]
+#[rest_api_error(domain = ERROR_DOMAIN)]
 pub enum RetrieveMetadataError {
     /// The requested metadata could not be found at this storage node. It has either not been
     /// uploaded, does not exist, or has already been deleted.
     #[error("the requested metadata is unavailable")]
-    #[rest_api_error(reason = "METADATA_NOT_FOUND", status = ApiStatusCode::NotFound)]
+    #[rest_api_error(reason = "METADATA_NOT_FOUND",
+    status = ApiStatusCode::NotFound)]
     Unavailable,
 
     /// The metadata cannot be returned, as the associated blob has been
     /// blocked on this storage node.
     #[error("the requested metadata is blocked")]
-    #[rest_api_error(reason = "FORBIDDEN_BLOB", status = ApiStatusCode::UnavailableForLegalReasons)]
+    #[rest_api_error(reason = "FORBIDDEN_BLOB",
+    status = ApiStatusCode::UnavailableForLegalReasons)]
     Forbidden,
 
     #[error(transparent)]

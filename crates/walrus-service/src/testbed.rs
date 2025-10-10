@@ -748,6 +748,8 @@ pub async fn create_storage_node_configs(
                 sliver_data_existence_check_sample_rate_percentage: 100,
             },
             checkpoint_config: Default::default(),
+            precertify_notice: Default::default(),
+            live_upload_deferral: Default::default(),
             admin_socket_path: Some(working_dir.join(format!("admin-{node_index}.sock"))),
             node_recovery_config: Default::default(),
             blob_event_processor_config: Default::default(),

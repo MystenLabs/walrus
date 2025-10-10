@@ -74,6 +74,12 @@ pub struct RestApiConfig {
 
     /// Limit on the number of active recovery symbol requests.
     pub max_active_recovery_symbols_requests: Option<usize>,
+
+    /// Configuration for pre-certify notice handling and recovery deferral.
+    pub precertify_notice: crate::node::config::PrecertifyNoticeConfig,
+
+    /// Live-upload based deferral policy.
+    pub live_upload_deferral: crate::node::config::LiveUploadDeferralConfig,
 }
 
 impl From<&StorageNodeConfig> for RestApiConfig {
@@ -115,6 +121,8 @@ impl From<&StorageNodeConfig> for RestApiConfig {
             max_active_recovery_symbols_requests: config
                 .rest_server
                 .experimental_max_active_recovery_symbols_requests,
+            precertify_notice: config.precertify_notice.clone(),
+            live_upload_deferral: config.live_upload_deferral.clone(),
         }
     }
 }
@@ -413,6 +421,10 @@ where
             .route(routes::BLOB_STATUS_ENDPOINT, get(routes::get_blob_status))
             .route(routes::HEALTH_ENDPOINT, get(routes::health_info))
             .route(routes::SYNC_SHARD_ENDPOINT, post(routes::sync_shard))
+            .route(
+                routes::SET_DEFERRAL_ENDPOINT,
+                post(routes::post_set_deferral),
+            )
     }
 
     /// Returns the CORS leayer for the server.
