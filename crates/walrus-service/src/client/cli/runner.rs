@@ -28,6 +28,7 @@ use walrus_core::{
     EpochCount,
     SUPPORTED_ENCODING_TYPES,
     encoding::{
+        ConsistencyCheckType,
         EncodingConfig,
         EncodingFactory as _,
         Primary,
@@ -237,8 +238,15 @@ impl ClientCommandRunner {
                 blob_id,
                 out,
                 rpc_arg: RpcArg { rpc_url },
-                strict_consistency_check: _,
-            } => self.read(blob_id, out, rpc_url).await,
+                strict_consistency_check,
+                skip_consistency_check,
+            } => {
+                let consistency_check = crate::client::utils::consistency_check_type_from_flags(
+                    strict_consistency_check,
+                    skip_consistency_check,
+                )?;
+                self.read(blob_id, out, rpc_url, consistency_check).await
+            }
 
             CliCommands::ReadQuilt {
                 quilt_patch_query,
@@ -570,11 +578,14 @@ impl ClientCommandRunner {
         blob_id: BlobId,
         out: Option<PathBuf>,
         rpc_url: Option<String>,
+        consistency_check: ConsistencyCheckType,
     ) -> Result<()> {
         let client = get_read_client(self.config?, rpc_url, self.wallet, &None, None).await?;
 
         let start_timer = std::time::Instant::now();
-        let blob = client.read_blob::<Primary>(&blob_id).await?;
+        let blob = client
+            .read_blob_with_consistency_check_type::<Primary>(&blob_id, consistency_check)
+            .await?;
         let blob_size = blob.len();
         let elapsed = start_timer.elapsed();
 

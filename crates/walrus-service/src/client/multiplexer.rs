@@ -17,7 +17,10 @@ use walrus_core::{
     BlobId,
     EncodingType,
     EpochCount,
-    encoding::quilt_encoding::{QuiltStoreBlob, QuiltVersion},
+    encoding::{
+        ConsistencyCheckType,
+        quilt_encoding::{QuiltStoreBlob, QuiltVersion},
+    },
 };
 use walrus_sdk::{
     client::{
@@ -163,8 +166,12 @@ impl ClientMultiplexer {
 }
 
 impl WalrusReadClient for ClientMultiplexer {
-    async fn read_blob(&self, blob_id: &BlobId) -> ClientResult<Vec<u8>> {
-        WalrusReadClient::read_blob(&self.read_client, blob_id).await
+    async fn read_blob(
+        &self,
+        blob_id: &BlobId,
+        consistency_check: ConsistencyCheckType,
+    ) -> ClientResult<Vec<u8>> {
+        WalrusReadClient::read_blob(&self.read_client, blob_id, consistency_check).await
     }
 
     async fn get_blob_by_object_id(

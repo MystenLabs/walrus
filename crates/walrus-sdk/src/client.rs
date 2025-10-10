@@ -39,6 +39,8 @@ use walrus_core::{
     SliverIndex,
     bft,
     encoding::{
+        ConsistencyCheckType,
+        DecodeError,
         EncodingAxis,
         EncodingConfig,
         EncodingFactory as _,
@@ -283,7 +285,7 @@ impl<T: ReadClient> WalrusNodeClient<T> {
         )
     }
 
-    /// Creates a new read client, and starts a committes refresher process in the background.
+    /// Creates a new read client, and starts a committees refresher process in the background.
     ///
     /// This is useful when only one client is needed, and the refresher handle is not useful.
     pub async fn new_read_client_with_refresher(
@@ -307,23 +309,47 @@ impl<T: ReadClient> WalrusNodeClient<T> {
     /// Reconstructs the blob by reading slivers from Walrus shards.
     ///
     /// The operation is retried if epoch it fails due to epoch change.
-    pub async fn read_blob_retry_committees<U>(&self, blob_id: &BlobId) -> ClientResult<Vec<u8>>
+    pub async fn read_blob_retry_committees<U>(
+        &self,
+        blob_id: &BlobId,
+        consistency_check: ConsistencyCheckType,
+    ) -> ClientResult<Vec<u8>>
     where
         U: EncodingAxis,
         SliverData<U>: TryFrom<Sliver>,
     {
-        self.retry_if_notified_epoch_change(|| self.read_blob::<U>(blob_id))
-            .await
+        self.retry_if_notified_epoch_change(|| {
+            self.read_blob_with_consistency_check_type::<U>(blob_id, consistency_check)
+        })
+        .await
     }
 
-    /// Reconstructs the blob by reading slivers from Walrus shards.
+    /// Reconstructs the blob by reading slivers from Walrus shards, performing the default
+    /// consistency check.
     #[tracing::instrument(level = Level::ERROR, skip_all, fields(%blob_id))]
     pub async fn read_blob<U>(&self, blob_id: &BlobId) -> ClientResult<Vec<u8>>
     where
         U: EncodingAxis,
         SliverData<U>: TryFrom<Sliver>,
     {
-        self.read_blob_internal(blob_id, None).await
+        self.read_blob_internal::<U>(blob_id, None, ConsistencyCheckType::Default)
+            .await
+    }
+
+    /// Reconstructs the blob by reading slivers from Walrus shards, performing the provided type of
+    /// consistency check.
+    #[tracing::instrument(level = Level::ERROR, skip_all, fields(%blob_id))]
+    pub async fn read_blob_with_consistency_check_type<U>(
+        &self,
+        blob_id: &BlobId,
+        consistency_check: ConsistencyCheckType,
+    ) -> ClientResult<Vec<u8>>
+    where
+        U: EncodingAxis,
+        SliverData<U>: TryFrom<Sliver>,
+    {
+        self.read_blob_internal(blob_id, None, consistency_check)
+            .await
     }
 
     /// Reconstructs the blob by reading slivers from Walrus shards with the given status.
@@ -332,12 +358,14 @@ impl<T: ReadClient> WalrusNodeClient<T> {
         &self,
         blob_id: &BlobId,
         blob_status: BlobStatus,
+        consistency_check: ConsistencyCheckType,
     ) -> ClientResult<Vec<u8>>
     where
         U: EncodingAxis,
         SliverData<U>: TryFrom<Sliver>,
     {
-        self.read_blob_internal(blob_id, Some(blob_status)).await
+        self.read_blob_internal(blob_id, Some(blob_status), consistency_check)
+            .await
     }
 
     /// Tries to get the blob status if not provided.
@@ -436,6 +464,7 @@ impl<T: ReadClient> WalrusNodeClient<T> {
         &self,
         blob_id: &BlobId,
         blob_status: Option<BlobStatus>,
+        consistency_check: ConsistencyCheckType,
     ) -> ClientResult<Vec<u8>>
     where
         U: EncodingAxis,
@@ -459,7 +488,11 @@ impl<T: ReadClient> WalrusNodeClient<T> {
         // metadata/slivers, the status request will be dropped.
         match select(
             pin!(self.try_get_blob_status(blob_id, blob_status)),
-            pin!(self.read_metadata_and_slivers::<U>(certified_epoch, blob_id)),
+            pin!(self.read_metadata_and_slivers_and_reconstruct_blob::<U>(
+                certified_epoch,
+                blob_id,
+                consistency_check
+            )),
         )
         .await
         {
@@ -476,10 +509,11 @@ impl<T: ReadClient> WalrusNodeClient<T> {
         }
     }
 
-    async fn read_metadata_and_slivers<U>(
+    async fn read_metadata_and_slivers_and_reconstruct_blob<U>(
         &self,
         certified_epoch: Epoch,
         blob_id: &BlobId,
+        consistency_check: ConsistencyCheckType,
     ) -> ClientResult<Vec<u8>>
     where
         U: EncodingAxis,
@@ -493,8 +527,11 @@ impl<T: ReadClient> WalrusNodeClient<T> {
                 max_blob_size,
             )));
         };
-        self.request_slivers_and_decode::<U>(certified_epoch, &metadata)
-            .await
+        let blob = self
+            .request_slivers_and_decode::<U>(certified_epoch, &metadata, consistency_check)
+            .await?;
+
+        Ok(blob)
     }
 
     /// Retries the given function if the client gets notified that the committees have changed.
@@ -1847,6 +1884,7 @@ impl<T> WalrusNodeClient<T> {
         &self,
         certified_epoch: Epoch,
         metadata: &VerifiedBlobMetadataWithId,
+        consistency_check: ConsistencyCheckType,
     ) -> ClientResult<Vec<u8>>
     where
         A: EncodingAxis,
@@ -1913,21 +1951,21 @@ impl<T> WalrusNodeClient<T> {
                     slivers.len() >= required_slivers,
                     "we must have sufficient slivers if the threshold was reached"
                 );
-                let Ok((blob, _meta)) = self
+                match self
                     .encoding_config
                     .get_for_type(metadata.metadata().encoding_type())
-                    .decode_and_verify(
-                        metadata.blob_id(),
-                        metadata.metadata().unencoded_length(),
-                        slivers,
-                    )
-                else {
-                    panic!(
-                        "unable to decode blob from a sufficient number of slivers;\n\
-                        this should never happen; please report this as a bug"
-                    );
-                };
-                Ok(blob)
+                    .decode_and_verify(metadata, slivers, consistency_check)
+                {
+                    Ok(blob) => Ok(blob),
+                    Err(DecodeError::VerificationError) => Err(ClientErrorKind::InvalidBlob.into()),
+                    Err(error) => {
+                        panic!(
+                            "unable to decode blob from a sufficient number of slivers;\n\
+                            this should never happen; please report this as a bug;\n\
+                            error: {error:?}"
+                        );
+                    }
+                }
             }
             CompletedReasonWeight::FuturesConsumed(weight) => {
                 assert!(

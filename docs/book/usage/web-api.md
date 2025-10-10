@@ -171,6 +171,8 @@ the values in the corresponding HTTP headers.
 The consistency checks performed by the aggregator are the same as the ones [performed by the CLI](./client-cli.md#consistency-checks).
 For special use cases, the [strict consistency check](../design/encoding.md#strict-consistency-check)
 can be enabled by adding a query parameter `strict_consistency_check=true` (starting with `v1.35`).
+If the writer of the blob is known and trusted, the consistency check can be disabled by adding a
+query parameter `skip_consistency_check=true` (starting with `v1.36`).
 
 ### Quilt HTTP APIs
 
