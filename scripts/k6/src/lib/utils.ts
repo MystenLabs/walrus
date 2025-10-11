@@ -106,14 +106,15 @@ function loadPlan(path: string, plan?: string): Record<string, any> {
 type Parameters = Record<string, string | number>;
 
 /**
- * For each camelCase property in `example`, load the corresponding UPPER_SNAKE_CASE
- * value from __ENV and return it.
+ * For each camelCase property in `example`, load the corresponding WALRUS_K6_<UPPER_SNAKE_CASE>
+ * key from __ENV and return it.
  */
 function loadEnv(keysAndTypes: Record<string, string>): Parameters {
     const output: Parameters = {}
 
     for (const [key, keyType] of Object.entries(keysAndTypes)) {
-        const value = __ENV[key.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toUpperCase()];
+        const upperKey = "WALRUS_K6_" + key.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toUpperCase();
+        const value = __ENV[upperKey];
         if (value !== undefined) {
             if (keyType == "number") {
                 output[key] = parseFloat(value)
@@ -132,10 +133,10 @@ function loadEnv(keysAndTypes: Record<string, string>): Parameters {
  * Variables set in __ENV take precedence over those in the plan.
  *
  * @param defaults - The default parameters. The keys in the `defaults` are converted from camelCase
- * to UPPER_SNAKE_CASE and used as keys to fetch any set values in __ENV.
+ * to UPPER_SNAKE_CASE, prepended with `WALRUS_K6_`, and fetched from the environment variables.
  * @param planFilePath - A path within the config/ directory that contains the plans. If specified,
- * then the environment variable __ENV.PLAN is checked for a plan name and the defaults are updated
- * with the named plan.
+ * then the environment variable __ENV.WALRUS_K6_PLAN is checked for a plan name and the defaults
+ * are updated with the named plan.
  * @returns The loaded parameters.
  */
 export function loadParameters<T extends object>(defaults: T, planFilePath?: string): T {
@@ -144,7 +145,7 @@ export function loadParameters<T extends object>(defaults: T, planFilePath?: str
     if (planFilePath != undefined) {
         output = Object.assign(
             output,
-            loadPlan(import.meta.resolve("../config/" + planFilePath), __ENV.PLAN),
+            loadPlan(import.meta.resolve("../config/" + planFilePath), __ENV.WALRUS_K6_PLAN),
         );
     }
 
@@ -155,13 +156,13 @@ export function loadParameters<T extends object>(defaults: T, planFilePath?: str
 }
 
 /**
- * Gets the TEST_ID  and TEST_RUN_ID tags from the environment, if present, and returns them
- * as testid and test_run_id
+ * Gets the WALRUS_K6_TEST_ID and WALRUS_K6_TEST_RUN_ID tags from the environment, if present,
+ * and returns them as testid and test_run_id
  */
 export function getTestIdTags(): { testid?: string, test_run_id?: string } {
     return {
-        testid: __ENV["TEST_ID"],
-        test_run_id: __ENV["TEST_RUN_ID"],
+        testid: __ENV["WALRUS_K6_TEST_ID"],
+        test_run_id: __ENV["WALRUS_K6_TEST_RUN_ID"],
     }
 }
 

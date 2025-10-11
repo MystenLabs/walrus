@@ -45,7 +45,11 @@ export class BlobHistory {
             const blobId = response.json('newlyCreated.blobObject.blobId')?.toString();
             if (blobId) {
                 return await this.record(groupKey, blobId);
+            } else {
+                console.log(response.json())
             }
+        } else {
+            console.log(`response was not 200 ${response.status}`)
         }
         return null
     }
