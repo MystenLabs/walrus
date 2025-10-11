@@ -9,10 +9,11 @@ use std::{
 
 use anyhow::{Context, Result, anyhow};
 use async_trait::async_trait;
+use prometheus::core::{AtomicU64, GenericGauge};
 use sui_types::base_types::ObjectID;
 use tokio::fs;
 use tracing;
-use walrus_utils::load_from_yaml;
+use walrus_utils::{load_from_yaml, metrics::Registry};
 use x509_cert::certificate::Certificate;
 
 use super::{
@@ -31,6 +32,8 @@ const CERT_EXPIRATION_WARNING_THRESHOLD: Duration = Duration::from_secs(60 * 60 
 /// Setting this to a value above 1 guarantees that the node will be restarted before the
 /// certificate expires.
 const CERT_EXPIRATION_REBOOT_CHECK_INTERVAL_MULTIPLIER: u32 = 3;
+
+type U64Gauge = GenericGauge<AtomicU64>;
 
 /// Trait for loading config from some source.
 #[async_trait]
@@ -61,6 +64,15 @@ impl ConfigLoader for StorageNodeConfigLoader {
     }
 }
 
+walrus_utils::metrics::define_metric_set! {
+    #[namespace = "walrus"]
+    /// Metrics exported by the [`ConfigSynchronizer`].
+    struct ConfigSynchronizerMetrics {
+        #[help = "The last value for node capacity that was synced to the state on chain"]
+        last_synced_node_capacity: U64Gauge[],
+    }
+}
+
 /// Monitors and syncs node configuration with on-chain parameters.
 /// Syncs committee member information with on-chain committee information.
 pub struct ConfigSynchronizer {
@@ -69,6 +81,7 @@ pub struct ConfigSynchronizer {
     check_interval: Duration,
     node_capability_object_id: ObjectID,
     config_loader: Option<Arc<dyn ConfigLoader>>,
+    metrics: ConfigSynchronizerMetrics,
 }
 
 impl ConfigSynchronizer {
@@ -79,6 +92,7 @@ impl ConfigSynchronizer {
         check_interval: Duration,
         node_capability_object_id: ObjectID,
         config_loader: Option<Arc<dyn ConfigLoader>>,
+        registry: &Registry,
     ) -> Self {
         Self {
             contract_service,
@@ -86,6 +100,7 @@ impl ConfigSynchronizer {
             check_interval,
             node_capability_object_id,
             config_loader,
+            metrics: ConfigSynchronizerMetrics::new(registry),
         }
     }
 
@@ -232,6 +247,10 @@ impl ConfigSynchronizer {
                     return Err(error);
                 }
                 tracing::warn!(%error, "failed to sync node params");
+            } else {
+                self.metrics
+                    .last_synced_node_capacity
+                    .set(config.voting_params.node_capacity);
             }
 
             self.check_tls_cert(&cert, &self.load_tls_cert(&config.tls).await?)?;
@@ -494,6 +513,7 @@ mod tests {
             Duration::from_secs(1),
             ObjectID::random(),
             Some(config_loader.clone()),
+            &Registry::new(prometheus::Registry::new()),
         );
 
         // Get initial certificate.
