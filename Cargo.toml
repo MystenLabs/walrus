@@ -107,11 +107,11 @@ rstest = "0.25.0"
 rustls = { version = "0.23.32", default-features = false, features = ["logging", "ring", "tls12"] }
 rustls-native-certs = "0.8.1"
 scoped-futures = "0.1.4"
-serde = { version = "1.0.226", features = ["derive"] }
+serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.145"
 serde_test = "1.0.177"
 serde_urlencoded = { version = "0.7.1" }
-serde_with = { version = "3.14", features = ["base64"] }
+serde_with = { version = "3.15", features = ["base64"] }
 serde_yaml = "0.9"
 sha2 = "0.10.9"
 snap = "1.1.0"
@@ -132,9 +132,9 @@ sui-types = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.58.1"
 syn = "2.0"
 tap = "1.0.1"
 telemetry-subscribers = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.58.1" }
-tempfile = "3.22.0"
+tempfile = "3.23.0"
 test-cluster = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.58.1" }
-thiserror = "2.0.16"
+thiserror = "2.0.17"
 tokio = { version = "=1.47.1", features = ["macros", "rt-multi-thread", "signal"] }
 tokio-metrics = { version = "0.4.5", default-features = false }
 tokio-stream = "0.1.17"
