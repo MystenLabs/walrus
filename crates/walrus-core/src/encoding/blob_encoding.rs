@@ -568,15 +568,18 @@ impl<D: Decoder, E: EncodingAxis> BlobDecoder<D, E> {
 
         let sliver_length = config.n_source_symbols::<E::OrthogonalAxis>().get().into();
         let sliver_count = usize::from(n_source_symbols.get());
-        let workspace_size = sliver_length * sliver_count;
+        let n_symbols_in_workspace = sliver_length * sliver_count;
 
         let (n_columns, workspace) = if E::IS_PRIMARY {
             (
                 sliver_length,
-                Symbols::with_capacity(workspace_size, symbol_size),
+                Symbols::with_capacity(n_symbols_in_workspace, symbol_size),
             )
         } else {
-            (sliver_count, Symbols::zeros(workspace_size, symbol_size))
+            (
+                sliver_count,
+                Symbols::zeros(n_symbols_in_workspace, symbol_size),
+            )
         };
 
         Ok(Self {
