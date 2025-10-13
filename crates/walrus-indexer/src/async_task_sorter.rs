@@ -48,15 +48,6 @@ enum QueueState {
     UpToDate,
 }
 
-/// Wait state for async pull operation.
-#[derive(Debug, PartialEq)]
-enum WaitState {
-    /// Wait for new tasks to be enqueued.
-    WaitForEnqueue,
-    /// Wait for background fetch to complete.
-    WaitForFetch,
-}
-
 /// Internal state for the task buffer.
 struct TaskBufferInner<T: AsyncTask> {
     /// Queue for oldest tasks, loaded from disk during catch-up.
@@ -64,7 +55,7 @@ struct TaskBufferInner<T: AsyncTask> {
     /// Queue for latest tasks, where the oldest tasks are purged when at capacity.
     latest_queue: VecDeque<T>,
     /// Highest task_id seen in catchup queue (for tracking fetch progress).
-    catch_up_low_watermark: Option<T::TaskId>,
+    catchup_low_watermark: Option<T::TaskId>,
     /// State of the queue.
     state: QueueState,
     /// Background task handle for loading tasks from storage.
@@ -80,17 +71,12 @@ impl<T: AsyncTask> TaskBufferInner<T> {
         Self {
             catchup_queue: VecDeque::new(),
             latest_queue: VecDeque::new(),
-            catch_up_low_watermark: None,
+            catchup_low_watermark: None,
             state: QueueState::CatchingUp,
             background_task_handle: None,
             fetch_completed: Arc::new(Notify::new()),
             item_enqueued: Arc::new(Notify::new()),
         }
-    }
-
-    fn transition_to_up_to_date(&mut self) {
-        self.state = QueueState::UpToDate;
-        tracing::debug!("transitioning to UpToDate");
     }
 
     /// Get item_enqueued notification.
@@ -103,6 +89,10 @@ impl<T: AsyncTask> TaskBufferInner<T> {
         Arc::clone(&self.fetch_completed)
     }
 
+    /// Drop tasks from the latest queue.
+    /// In CatchingUp state, drop tasks directly.
+    /// In UpToDate state, try to move tasks to catchup queue if it has space, otherwise drop tasks,
+    /// and transition to CatchingUp state.
     fn drop_tasks(&mut self, drop_batch_size: usize, catchup_queue_max: usize) {
         let mut drop_batch_size = drop_batch_size;
         while !self.latest_queue.is_empty() && drop_batch_size > 0 {
@@ -116,6 +106,7 @@ impl<T: AsyncTask> TaskBufferInner<T> {
                 self.state = QueueState::CatchingUp;
             } else {
                 tracing::debug!(?task, "moving task to catchup queue");
+                self.catchup_low_watermark = Some(task.task_id().clone());
                 self.catchup_queue.push_back(task);
             }
             drop_batch_size -= 1;
@@ -126,8 +117,9 @@ impl<T: AsyncTask> TaskBufferInner<T> {
     /// Tasks should be pre-sorted by task_id from storage.
     fn add_loaded_tasks(&mut self, tasks: Vec<T>) {
         if tasks.is_empty() {
-            // Empty fetch means we've caught up to the end of storage.
-            self.transition_to_up_to_date();
+            // Empty fetch means we've caught up.
+            self.state = QueueState::UpToDate;
+            tracing::debug!("empty fetch means we've caught up");
             return;
         }
 
@@ -147,9 +139,8 @@ impl<T: AsyncTask> TaskBufferInner<T> {
             if let Some(first_latest) = self.latest_queue.front() {
                 let first_latest_id = first_latest.task_id();
                 if task.task_id() >= first_latest_id {
-                    // Caught up! Transition to UpToDate.
                     let task_id = task.task_id();
-                    self.transition_to_up_to_date();
+                    self.state = QueueState::UpToDate;
                     tracing::debug!(
                         ?task_id,
                         ?first_latest_id,
@@ -160,16 +151,10 @@ impl<T: AsyncTask> TaskBufferInner<T> {
             }
 
             // Add to catchup queue and update watermark.
-            let task_id = task.task_id().clone();
+            self.catchup_low_watermark = Some(task.task_id().clone());
+            tracing::debug!(task_id = ?task.task_id(), "added task to catchup queue");
             self.catchup_queue.push_back(task);
-            tracing::debug!(?task_id, "added task to catchup queue");
-            self.catch_up_low_watermark = Some(task_id);
         }
-
-        tracing::debug!(
-            catchup_queue_len = self.catchup_queue.len(),
-            "added tasks to catchup queue"
-        );
     }
 }
 
@@ -178,7 +163,8 @@ impl<T: AsyncTask> TaskBufferInner<T> {
 /// - catchup_queue: for oldest tasks, loaded from disk during catch-up.
 /// - latest_queue: for latest tasks, where the oldest tasks are purged when at capacity.
 ///
-/// This buffer is self-contained and manages its own background fetching and notifications.
+/// This buffer automatically prefetches tasks from storage to catchup queue when it is lagging
+/// behind.
 struct TaskBuffer<T, S>
 where
     T: AsyncTask,
@@ -237,108 +223,58 @@ where
     async fn pull(&self) -> Option<T> {
         loop {
             // Try to get a task from queues and determine if we need to wait.
-            let wait_state = {
+            let notify = {
                 let mut inner = self.inner.lock().expect("failed to lock buffer");
 
                 if inner.state == QueueState::UpToDate {
-                    // UpToDate: prioritize catchup queue, then latest queue.
                     if let Some(task) = inner.catchup_queue.pop_front() {
-                        inner.catch_up_low_watermark = Some(task.task_id().clone());
                         tracing::debug!(?task, "popped task from catchup queue");
                         return Some(task);
                     }
                     if let Some(task) = inner.latest_queue.pop_front() {
-                        inner.catch_up_low_watermark = Some(task.task_id().clone());
+                        inner.catchup_low_watermark = Some(task.task_id().clone());
                         tracing::debug!(?task, "popped task from latest queue");
                         return Some(task);
                     }
                     // No tasks available, wait for new tasks.
-                    WaitState::WaitForEnqueue
-                } else {
-                    // CatchingUp: only pull from catchup queue.
-                    if let Some(task) = inner.catchup_queue.pop_front() {
-                        // Check if we should trigger fetch.
-                        let should_fetch =
-                            inner.catchup_queue.len() < self.config.fetch_threshold();
-                        inner.catch_up_low_watermark = Some(task.task_id().clone());
-                        tracing::debug!(?task, should_fetch, "popped task from catchup queue");
-                        drop(inner);
-                        if should_fetch {
-                            self.spawn_fetch_if_needed();
-                        }
-                        return Some(task);
-                    } else {
-                        // No tasks in catchup queue, need to wait for fetch.
-                        WaitState::WaitForFetch
+                    inner.get_item_enqueued()
+                } else if let Some(task) = inner.catchup_queue.pop_front() {
+                    if inner.catchup_queue.len() <= self.config.fetch_threshold() {
+                        let from_task_id = inner.catchup_low_watermark.clone();
+                        let to_task_id =
+                            inner.latest_queue.front().map(|t| t.task_id().clone());
+                        self.trigger_fetch(&mut inner, from_task_id, to_task_id);
                     }
+
+                    tracing::debug!(?task, "popped task from catchup queue");
+                    return Some(task);
+                } else {
+                    tracing::debug!("no tasks in catchup queue, waiting for fetch");
+                    let from_task_id = inner.catchup_low_watermark.clone();
+                    let to_task_id = inner.latest_queue.front().map(|t| t.task_id().clone());
+                    self.trigger_fetch(&mut inner, from_task_id, to_task_id);
+                    inner.get_fetch_completed()
                 }
             };
-
-            // Trigger fetch if needed.
-            if wait_state == WaitState::WaitForFetch {
-                self.spawn_fetch_if_needed();
-            }
 
             // Wait for notification.
-            let notify = {
-                let inner = self.inner.lock().expect("failed to lock buffer");
-                match wait_state {
-                    WaitState::WaitForEnqueue => inner.get_item_enqueued(),
-                    WaitState::WaitForFetch => inner.get_fetch_completed(),
-                }
-            };
-
-            tracing::debug!(?wait_state, "waiting for notification");
             notify.notified().await;
         }
     }
 
     /// Spawn a background fetch task if needed and not already running.
-    fn spawn_fetch_if_needed(&self) {
-        let (from_id, to_id, should_spawn) = {
-            let inner = self.inner.lock().expect("failed to lock buffer");
-
-            // Don't fetch if already UpToDate.
-            if inner.state == QueueState::UpToDate {
-                return;
-            }
-
-            // Calculate fetch range.
-            let from_id = inner
-                .catchup_queue
-                .back()
-                .map(|t| t.task_id())
-                .or(inner.catch_up_low_watermark.as_ref().cloned());
-
-            let to_id = inner.latest_queue.front().map(|t| t.task_id());
-
-            // Check if range is valid.
-            let should_spawn = match (&from_id, &to_id) {
-                (Some(from), Some(to)) if from >= to => {
-                    // Already caught up!
-                    tracing::debug!(?from, ?to, "already caught up, no fetch needed");
-                    false
-                }
-                _ => true,
-            };
-
-            (from_id, to_id, should_spawn)
-        };
-
-        if !should_spawn {
-            return;
-        }
-
-        self.spawn_background_load_task(from_id, to_id);
-    }
-
-    /// Spawn a background task to load tasks from storage.
-    fn spawn_background_load_task(
+    fn trigger_fetch(
         &self,
+        inner: &mut std::sync::MutexGuard<TaskBufferInner<T>>,
         from_task_id: Option<T::TaskId>,
         to_task_id: Option<T::TaskId>,
     ) {
-        let mut inner = self.inner.lock().expect("failed to lock buffer");
+        if let (Some(from_task_id), Some(to_task_id)) = (from_task_id.as_ref(), to_task_id.as_ref())
+            && from_task_id >= to_task_id
+        {
+            tracing::debug!("from_task_id >= to_task_id, skipping fetch");
+            return;
+        }
 
         // Clean up finished task or skip if already running.
         if let Some(handle) = &inner.background_task_handle
@@ -349,7 +285,14 @@ where
         }
 
         // Calculate fetch size based on available space in catchup queue.
-        let fetch_size = self.config.catchup_queue_max - inner.catchup_queue.len();
+        let fetch_size = self
+            .config
+            .catchup_queue_max
+            .saturating_sub(inner.catchup_queue.len());
+        if fetch_size == 0 {
+            tracing::debug!("catchup queue is full, skipping fetch");
+            return;
+        }
 
         let store = Arc::clone(&self.store);
         let inner_arc = Arc::clone(&self.inner);
@@ -428,7 +371,8 @@ where
 
     /// Initialize the sorter by triggering initial catchup fetch.
     pub fn init(&self) {
-        self.buffer.spawn_fetch_if_needed();
+        let mut inner = self.buffer.inner.lock().expect("failed to lock buffer");
+        self.buffer.trigger_fetch(&mut inner, None, None);
     }
 
     /// Enqueue a task to the queue, the task will be persisted to storage.
