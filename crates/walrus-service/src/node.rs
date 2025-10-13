@@ -609,6 +609,7 @@ impl StorageNode {
                     config.config_synchronizer.interval,
                     node_capability.id,
                     config_loader,
+                    registry,
                 )));
 
         contract_service
