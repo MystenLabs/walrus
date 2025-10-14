@@ -1,0 +1,151 @@
+// Copyright (c) Walrus Foundation
+// SPDX-License-Identifier: Apache-2.0
+
+use super::{ByteSize, TestResult, k6::K6};
+use crate::k6_tests::get_test_run_id;
+
+walrus_test_utils::param_test! {
+    blob_upload_latency -> TestResult: [
+        payload_1ki: (ByteSize::kibibyte(1), 20, 3),
+        payload_100ki: (ByteSize::kibibyte(100), 20, 3),
+        payload_1mi: (ByteSize::mebibyte(1), 20, 3),
+        payload_10mi: (ByteSize::mebibyte(10), 20, 3),
+        payload_100mi: (ByteSize::mebibyte(100), 5, 1),
+        payload_500mi: (ByteSize::mebibyte(500), 3, 1),
+        payload_1gi: (ByteSize::gibibyte(1), 3, 1),
+        payload_2gi: (ByteSize::gibibyte(2), 3, 1),
+    ]
+}
+fn blob_upload_latency(
+    payload_size: ByteSize,
+    files_to_store: usize,
+    max_concurrency: usize,
+) -> TestResult {
+    let environment = super::get_environment();
+    let script = super::script_path("publisher/publisher_v1_put_blob_latency.ts");
+    let testid = format!("{environment}:upload:latency:{payload_size}");
+
+    K6::new(script)
+        .env("WALRUS_K6_PAYLOAD_SIZE", payload_size)
+        .env("WALRUS_K6_BLOBS_TO_STORE", files_to_store)
+        .env("WALRUS_K6_MAX_CONCURRENCY", max_concurrency)
+        .tag("payload_size", payload_size)
+        .tag("payload_size_bytes", payload_size.byte_value())
+        .tag("testid", &testid)
+        .maybe_tag("test_run_id", get_test_run_id(&testid))
+        .status()
+}
+
+#[test]
+fn blob_upload_request_throughput() -> TestResult {
+    let environment = super::get_environment();
+    let script = super::script_path("publisher/publisher_v1_put_blob_throughput.ts");
+    let testid = format!("{environment}:upload:throughput:requests");
+
+    let payload_size = ByteSize::kibibyte(1);
+    let (start_rate, increment, stage_duration) = match environment.as_str() {
+        "performance-main-baseline" => (150, 10, "15s"),
+        "localhost" | _ => (40, 5, "30s"),
+    };
+
+    K6::new(script)
+        .env("WALRUS_K6_PAYLOAD_SIZE", payload_size)
+        .env("WALRUS_K6_START_RATE_PER_MINUTE", start_rate.to_string())
+        .env("WALRUS_K6_RATE_INCREMENT", increment.to_string())
+        .env("WALRUS_K6_HELD_STAGE_DURATION", stage_duration)
+        .tag("payload_size", payload_size)
+        .tag("payload_size_bytes", payload_size.byte_value())
+        .tag("testid", &testid)
+        .maybe_tag("test_run_id", get_test_run_id(&testid))
+        .allow_failed_thresholds()
+        .status()
+}
+
+#[test]
+fn blob_upload_data_throughput() -> TestResult {
+    let environment = super::get_environment();
+    let script = super::script_path("publisher/publisher_v1_put_blob_throughput.ts");
+    let testid = format!("{environment}:upload:throughput:data");
+
+    let payload_size = ByteSize::mebibyte(100);
+    let (start_rate, increment, stage_duration) = match environment.as_str() {
+        "performance-main-baseline" => (20, 2, "90s"),
+        "localhost" | _ => (40, 1, "25s"),
+    };
+
+    K6::new(script)
+        .env("WALRUS_K6_PAYLOAD_SIZE", payload_size)
+        .env("WALRUS_K6_START_RATE_PER_MINUTE", start_rate.to_string())
+        .env("WALRUS_K6_RATE_INCREMENT", increment.to_string())
+        .env("WALRUS_K6_HELD_STAGE_DURATION", stage_duration)
+        .tag("payload_size", payload_size)
+        .tag("payload_size_bytes", payload_size.byte_value())
+        .tag("testid", &testid)
+        .maybe_tag("test_run_id", get_test_run_id(&testid))
+        .allow_failed_thresholds()
+        .status()
+}
+
+walrus_test_utils::param_test! {
+    quilt_uniform_upload_latency -> TestResult: [
+        total_file_size_1mi: (ByteSize::mebibyte(1), 20, 3),
+        total_file_size_10mi: (ByteSize::mebibyte(10), 20, 3),
+        total_file_size_100mi: (ByteSize::mebibyte(100), 5, 1),
+        total_file_size_500mi: (ByteSize::mebibyte(500), 3, 1),
+        total_file_size_1gi: (ByteSize::gibibyte(1), 3, 1),
+    ]
+}
+fn quilt_uniform_upload_latency(
+    total_file_size: ByteSize,
+    quilts_to_store: usize,
+    max_concurrency: usize,
+) -> TestResult {
+    let environment = super::get_environment();
+    let script = super::script_path("publisher/publisher_v1_put_quilt_latency.ts");
+    let testid = format!("{environment}:quilt-uniform-upload:latency:{total_file_size}");
+    let max_quilt_file_size = total_file_size / 10;
+
+    K6::new(script)
+        .env("WALRUS_K6_TOTAL_FILE_SIZE", total_file_size)
+        .env("WALRUS_K6_QUILTS_TO_STORE", quilts_to_store)
+        .env("WALRUS_K6_QUILT_FILE_COUNT", -1)
+        .env("WALRUS_K6_QUILT_FILE_SIZE_ASSIGNMENT", "uniform")
+        .env("WALRUS_K6_MAX_QUILT_FILE_SIZE", max_quilt_file_size)
+        .env("WALRUS_K6_MAX_CONCURRENCY", max_concurrency)
+        .tag("total_quilt_file_size", total_file_size)
+        .tag("testid", &testid)
+        .maybe_tag("test_run_id", get_test_run_id(&testid))
+        .status()
+}
+
+walrus_test_utils::param_test! {
+    quilt_random_upload_latency -> TestResult: [
+        total_file_size_1mi: (ByteSize::mebibyte(1), 20, 3),
+        total_file_size_10mi: (ByteSize::mebibyte(10), 20, 3),
+        total_file_size_100mi: (ByteSize::mebibyte(100), 5, 1),
+        total_file_size_500mi: (ByteSize::mebibyte(500), 3, 1),
+        total_file_size_1gi: (ByteSize::gibibyte(1), 3, 1),
+    ]
+}
+fn quilt_random_upload_latency(
+    total_file_size: ByteSize,
+    quilts_to_store: usize,
+    max_concurrency: usize,
+) -> TestResult {
+    let environment = super::get_environment();
+    let script = super::script_path("publisher/publisher_v1_put_quilt_latency.ts");
+    let testid = format!("{environment}:quilt-uniform-upload:latency:{total_file_size}");
+    let max_quilt_file_size = total_file_size / 10;
+
+    K6::new(script)
+        .env("WALRUS_K6_TOTAL_FILE_SIZE", total_file_size)
+        .env("WALRUS_K6_QUILTS_TO_STORE", quilts_to_store)
+        .env("WALRUS_K6_QUILT_FILE_COUNT", -1)
+        .env("WALRUS_K6_QUILT_FILE_SIZE_ASSIGNMENT", "random")
+        .env("WALRUS_K6_MAX_QUILT_FILE_SIZE", max_quilt_file_size)
+        .env("WALRUS_K6_MAX_CONCURRENCY", max_concurrency)
+        .tag("total_quilt_file_size", total_file_size)
+        .tag("testid", &testid)
+        .maybe_tag("test_run_id", get_test_run_id(&testid))
+        .status()
+}

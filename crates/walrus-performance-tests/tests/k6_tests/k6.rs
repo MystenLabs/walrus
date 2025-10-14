@@ -13,14 +13,15 @@ use std::{
 
 const THRESHOLDS_HAVE_FAILED_EXIT_CODE: i32 = 99;
 
+/// Executes a load test using the Grafana k6 load testing utility.
 #[derive(Debug)]
-pub struct K6Command {
+pub struct K6 {
     is_threshold_failure_a_success: bool,
     args: Vec<Cow<'static, str>>,
     script: PathBuf,
 }
 
-impl Display for K6Command {
+impl Display for K6 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("k6")?;
         for arg in self.args.iter() {
@@ -33,7 +34,7 @@ impl Display for K6Command {
     }
 }
 
-impl K6Command {
+impl K6 {
     pub fn new<P>(script: P) -> Self
     where
         P: Into<PathBuf>,
@@ -57,6 +58,25 @@ impl K6Command {
         }
     }
 
+    pub fn tag<V>(&mut self, key: &str, value: V) -> &mut Self
+    where
+        V: Display,
+    {
+        self.args
+            .extend(["--tag".into(), format!("{key}={0}", value).into()]);
+        self
+    }
+
+    pub fn maybe_tag<V>(&mut self, key: &str, value: Option<V>) -> &mut Self
+    where
+        V: Display,
+    {
+        let Some(value) = value else {
+            return self;
+        };
+        self.tag(key, value)
+    }
+
     pub fn allow_failed_thresholds(&mut self) -> &mut Self {
         self.is_threshold_failure_a_success = true;
         self
@@ -64,27 +84,26 @@ impl K6Command {
 
     pub fn maybe_env<S>(&mut self, key: &str, value: Option<S>) -> &mut Self
     where
-        S: AsRef<str>,
+        S: Display,
     {
-        if let Some(value) = value {
-            self.env(key, value)
-        } else {
-            self
-        }
+        let Some(value) = value else {
+            return self;
+        };
+        self.env(key, value)
     }
 
     pub fn env<S>(&mut self, key: &str, value: S) -> &mut Self
     where
-        S: AsRef<str>,
+        S: Display,
     {
         self.args
-            .extend(["--env".into(), format!("{key}={0}", value.as_ref()).into()]);
+            .extend(["--env".into(), format!("{key}={0}", value).into()]);
         self
     }
 
     pub fn web_dashboard_export<S>(&mut self, path: Option<S>) -> &mut Self
     where
-        S: AsRef<str>,
+        S: Display,
     {
         if let Some(path) = path {
             self.env("K6_WEB_DASHBOARD", "true");

@@ -157,12 +157,20 @@ export function loadParameters<T extends object>(defaults: T, planFilePath?: str
 
 /**
  * Gets the WALRUS_K6_TEST_ID and WALRUS_K6_TEST_RUN_ID tags from the environment, if present,
- * and returns them as testid and test_run_id
+ * and returns them as testid and test_run_id.
+ *
+ * @param defaultTestId - Default test ID to use if none is provided via ENV.
  */
-export function getTestIdTags(): { testid?: string, test_run_id?: string } {
+export function getTestIdTags(defaultTestId?: string): { testid?: string, test_run_id?: string } {
+    const testid = __ENV["WALRUS_K6_TEST_ID"] || defaultTestId;
+    const test_run_id_suffix = __ENV["WALRUS_K6_TEST_RUN_ID_SUFFIX"];
+    const test_run_id = __ENV["WALRUS_K6_TEST_RUN_ID"] || (
+        (testid && test_run_id_suffix) ? `${testid}:${test_run_id_suffix}` : undefined
+    )
+
     return {
-        testid: __ENV["WALRUS_K6_TEST_ID"],
-        test_run_id: __ENV["WALRUS_K6_TEST_RUN_ID"],
+        testid: testid,
+        test_run_id: test_run_id
     }
 }
 
@@ -179,4 +187,25 @@ export function perturbData(array: Uint8Array): Uint8Array {
     }
 
     return array;
+}
+
+/**
+ * Loads a random range of data from the file of length between the specified
+ * minimum and maximum.
+ */
+export async function loadRandomData(
+    dataFile: File, minLength: number, maxLength: number = minLength
+): Promise<Uint8Array> {
+    const dataFileLength = (await dataFile.stat()).size;
+    const [dataStart, dataLength] = randomRange(minLength, maxLength, dataFileLength);
+    return perturbData(await readFileRange(dataFile, dataStart, dataLength));
+}
+
+/**
+ * Throws an error with the specified message if the condition is not true.
+ */
+export function ensure(condition: boolean, message: string) {
+    if (!condition) {
+        throw new Error(message);
+    }
 }

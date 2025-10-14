@@ -13,6 +13,10 @@ type RedisUrl = `redis://${string}`
  */
 export interface EnvironmentConfig {
     /**
+     * The name of the environment.
+     */
+    name: string,
+    /**
      * The default URL of the publisher for the environment.
      */
     publisherUrl: string
@@ -35,7 +39,7 @@ const testnetPublisherUrl = "https://publisher.walrus-testnet.walrus.space";
 /**
  * Default configurations for various running environments.
  */
-const ENVIRONMENT_DEFAULTS: { [index: string]: EnvironmentConfig } = {
+const ENVIRONMENT_DEFAULTS: { [index: string]: Omit<EnvironmentConfig, "name"> } = {
     "localhost": {
         "publisherUrl": "http://localhost:31415",
         "aggregatorUrl": "http://localhost:31415", // Run as daemon
@@ -73,6 +77,13 @@ export const DEFAULT_ENVIRONMENT: string = "walrus-testnet";
  * Load the defaults for the environment specified by `environment` and update
  * the defaults with any arguments set on the command line.
  */
-export function loadEnvironment(environment: string): EnvironmentConfig {
-    return loadParameters<EnvironmentConfig>(ENVIRONMENT_DEFAULTS[environment])
+export function loadEnvironment(): EnvironmentConfig {
+    const environmentName = __ENV["WALRUS_K6_ENVIRONMENT"] || DEFAULT_ENVIRONMENT;
+    const environment = loadParameters<Omit<EnvironmentConfig, "name">>({
+        ...ENVIRONMENT_DEFAULTS[environmentName]
+    });
+    return {
+        name: environmentName,
+        ...environment
+    }
 }
