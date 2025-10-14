@@ -36,15 +36,15 @@ impl UploadMode {
     fn to_communication_parameters(self) -> CommunicationParameters {
         match self {
             UploadMode::Conservative => CommunicationParameters {
-                max_concurrent_writes: 1000,
+                max_concurrent_writes: 500,
                 max_data_in_flight: 12_500_000, // 12.5 MB
             },
             UploadMode::Balanced => CommunicationParameters {
                 max_concurrent_writes: 1000,
-                max_data_in_flight: 125_000_000, // 125 MB
+                max_data_in_flight: 512_000_000, // 512 MB
             },
             UploadMode::Aggressive => CommunicationParameters {
-                max_concurrent_writes: 1280,
+                max_concurrent_writes: 2000,
                 max_data_in_flight: 1_250_000_000, // 1.25 GB
             },
         }

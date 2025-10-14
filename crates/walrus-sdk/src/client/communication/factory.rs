@@ -23,6 +23,7 @@ use walrus_utils::metrics::Registry;
 use super::{NodeCommunication, NodeReadCommunication, NodeWriteCommunication};
 use crate::{
     active_committees::ActiveCommittees,
+    client::auto_tune::AutoTuneHandle,
     config::ClientCommunicationConfig,
     error::{ClientError, ClientErrorKind, ClientResult},
 };
@@ -77,6 +78,7 @@ impl NodeCommunicationFactory {
         &self,
         committees: &ActiveCommittees,
         sliver_write_limit: Arc<Semaphore>,
+        auto_tune_handle: Option<AutoTuneHandle>,
     ) -> ClientResult<Vec<NodeWriteCommunication>> {
         self.remove_old_cached_clients(
             committees,
@@ -89,7 +91,12 @@ impl NodeCommunicationFactory {
         let write_committee = committees.write_committee();
 
         node_communications(write_committee, |index| {
-            self.create_write_communication(write_committee, index, sliver_write_limit.clone())
+            self.create_write_communication(
+                write_committee,
+                index,
+                sliver_write_limit.clone(),
+                auto_tune_handle.clone(),
+            )
         })
     }
 
@@ -143,6 +150,7 @@ impl NodeCommunicationFactory {
         &self,
         committees: &ActiveCommittees,
         sliver_write_limit: Arc<Semaphore>,
+        auto_tune_handle: Option<AutoTuneHandle>,
         node_ids: impl IntoIterator<Item = ObjectID>,
     ) -> ClientResult<Vec<NodeWriteCommunication>> {
         self.remove_old_cached_clients(
@@ -166,6 +174,7 @@ impl NodeCommunicationFactory {
                         write_committee,
                         idx,
                         sliver_write_limit.clone(),
+                        auto_tune_handle.clone(),
                     )
                     .transpose()
                 } else {
@@ -233,10 +242,11 @@ impl NodeCommunicationFactory {
         write_committee: &Committee,
         index: usize,
         sliver_write_limit: Arc<Semaphore>,
+        auto_tune_handle: Option<AutoTuneHandle>,
     ) -> Result<Option<NodeWriteCommunication>, ClientBuildError> {
         let maybe_node_communication = self
             .create_node_communication(write_committee, index)?
-            .map(|nc| nc.with_write_limits(sliver_write_limit));
+            .map(|nc| nc.with_write_limits(sliver_write_limit, auto_tune_handle));
         Ok(maybe_node_communication)
     }
 

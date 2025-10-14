@@ -71,7 +71,10 @@ use walrus_sui::{
 };
 use walrus_utils::{backoff::BackoffStrategy, metrics::Registry};
 
+mod auto_tune;
+
 use self::{
+    auto_tune::AutoTuneHandle,
     communication::NodeResult,
     refresh::{CommitteesRefresherHandle, RequestKind, are_current_previous_different},
     resource::{PriceComputation, RegisterBlobOp, ResourceManager, StoreOp},
@@ -865,16 +868,14 @@ impl<T: ReadClient> WalrusNodeClient<T> {
             .pairs_per_node(metadata.blob_id(), &pairs, &committees)
             .await;
 
-        let sliver_write_limit = self
-            .communication_limits
-            .max_concurrent_sliver_writes_for_blob_size(
-                metadata.metadata().unencoded_length(),
-                &self.encoding_config,
-                metadata.metadata().encoding_type(),
-            );
+        let (sliver_write_semaphore, auto_tune_handle) = self.build_sliver_write_throttle(
+            metadata.metadata().unencoded_length(),
+            metadata.metadata().encoding_type(),
+        );
         let comms = self.communication_factory.node_write_communications_by_id(
             &committees,
-            Arc::new(Semaphore::new(sliver_write_limit)),
+            sliver_write_semaphore,
+            auto_tune_handle,
             node_ids,
         )?;
 
@@ -1651,6 +1652,27 @@ impl<T> WalrusNodeClient<T> {
         QuiltClient::new(self, self.config.quilt_client_config.clone())
     }
 
+    fn build_sliver_write_throttle(
+        &self,
+        blob_size: u64,
+        encoding_type: EncodingType,
+    ) -> (Arc<Semaphore>, Option<AutoTuneHandle>) {
+        let initial_permits = self
+            .communication_limits
+            .max_concurrent_sliver_writes_for_blob_size(
+                blob_size,
+                &self.encoding_config,
+                encoding_type,
+            );
+        let auto_tune_handle =
+            AutoTuneHandle::new(&self.communication_limits.auto_tune, initial_permits);
+        if let Some(handle) = &auto_tune_handle {
+            (handle.semaphore(), auto_tune_handle)
+        } else {
+            (Arc::new(Semaphore::new(initial_permits)), None)
+        }
+    }
+
     /// Stores the already-encoded metadata and sliver pairs for a blob into Walrus, by sending
     /// sliver pairs to at least 2f+1 shards.
     ///
@@ -1669,18 +1691,6 @@ impl<T> WalrusNodeClient<T> {
     ) -> ClientResult<ConfirmationCertificate> {
         tracing::info!(blob_id = %metadata.blob_id(), "starting to send data to storage nodes");
         let committees = self.get_committees().await?;
-        let sliver_write_limit = self
-            .communication_limits
-            .max_concurrent_sliver_writes_for_blob_size(
-                metadata.metadata().unencoded_length(),
-                &self.encoding_config,
-                metadata.metadata().encoding_type(),
-            );
-        tracing::debug!(
-            blob_id = %metadata.blob_id(),
-            communication_limits = sliver_write_limit,
-            "establishing node communications"
-        );
 
         let progress_bar = multi_pb.map(|multi_pb| {
             let pb = styled_progress_bar(bft::min_n_correct(committees.n_shards()).get().into());
@@ -1820,22 +1830,26 @@ impl<T> WalrusNodeClient<T> {
             .map(|(metadata, _)| metadata.metadata().unencoded_length())
             .max()
             .unwrap_or(0);
+
         let encoding_type = blobs
             .first()
             .map(|(metadata, _)| metadata.metadata().encoding_type())
             .unwrap_or(DEFAULT_ENCODING);
 
-        let sliver_write_limit = self
-            .communication_limits
-            .max_concurrent_sliver_writes_for_blob_size(
-                max_unencoded,
-                &self.encoding_config,
-                encoding_type,
-            );
+        let (sliver_write_semaphore, auto_tune_handle) =
+            self.build_sliver_write_throttle(max_unencoded, encoding_type);
 
-        let comms = self
-            .communication_factory
-            .node_write_communications(&committees, Arc::new(Semaphore::new(sliver_write_limit)))?;
+        if auto_tune_handle.is_some() {
+            tracing::info!("auto tune is enabled");
+        } else {
+            tracing::info!("auto tune is disabled");
+        }
+
+        let comms = self.communication_factory.node_write_communications(
+            &committees,
+            sliver_write_semaphore,
+            auto_tune_handle,
+        )?;
 
         let sliver_write_extra_time = self
             .config
