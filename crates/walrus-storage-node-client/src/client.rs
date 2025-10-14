@@ -763,8 +763,11 @@ impl StorageNodeClient {
         let (url, template) = self.endpoints.sliver::<A>(blob_id, pair_index);
         let request = self.create_request_with_payload(Method::PUT, url, &sliver);
         self.send_and_parse_service_response::<String>(request, template)
-            .await?;
-
+            .await
+            .map_err(|error| {
+                tracing::debug!("error storing sliver: {:?}", error);
+                error
+            })?;
         Ok(())
     }
 
