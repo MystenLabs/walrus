@@ -390,7 +390,9 @@ the values in the corresponding HTTP headers.</p>
 <h4 id="consistency-checks"><a class="header" href="#consistency-checks">Consistency checks</a></h4>
 <p>The consistency checks performed by the aggregator are the same as the ones <a href="./client-cli.html#consistency-checks">performed by the CLI</a>.
 For special use cases, the <a href="../design/encoding.html#strict-consistency-check">strict consistency check</a>
-can be enabled by adding a query parameter <code>strict_consistency_check=true</code> (starting with <code>v1.35</code>).</p>
+can be enabled by adding a query parameter <code>strict_consistency_check=true</code> (starting with <code>v1.35</code>).
+If the writer of the blob is known and trusted, the consistency check can be disabled by adding a
+query parameter <code>skip_consistency_check=true</code> (starting with <code>v1.36</code>).</p>
 <h3 id="quilt-http-apis"><a class="header" href="#quilt-http-apis">Quilt HTTP APIs</a></h3>
 <p>Walrus supports storing and retrieving multiple blobs as a single unit called a <a href="./quilt.html">quilt</a>.
 The publishers and aggregators support <em>quilt</em> related operations.</p>

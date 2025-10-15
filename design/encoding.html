@@ -325,7 +325,8 @@ requiring additional client-side checks.</p>
 <div>
 <p>In the majority of cases, the default consistency check is sufficient, in particular if the writer
 of the blob is trusted. The strict consistency check is only needed if specific availability
-guarantees are required.</p>
+guarantees are required. If the writer of a blob is known and trusted, it is also possible to
+completely disable the consistency check.</p>
 </div>
 </div>
 <h3 id="default-consistency-check"><a class="header" href="#default-consistency-check">Default consistency check</a></h3>
@@ -346,8 +347,8 @@ otherwise an error is returned. This check provides the following guarantee:</p>
 <a class="admonition-anchor-link" href="#admonition-data-consistency-property"></a>
 </div>
 <div>
-<p>Any correct client attempting to read a blob will either read the specific value authenticated by
-the writer or return an error.</p>
+<p>Any correct client attempting to read a blob, performing the default consistency check, will either
+read the specific value authenticated by the writer or return an error.</p>
 </div>
 </div>
 <h3 id="strict-consistency-check"><a class="header" href="#strict-consistency-check">Strict consistency check</a></h3>
