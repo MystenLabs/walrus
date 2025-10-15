@@ -571,6 +571,7 @@ mod tests {
             StoreMetadataError,
             StoreSliverError,
             SyncShardServiceError,
+            UploadIntent,
             config::StorageNodeConfig,
             errors::ListSymbolsError,
         },
@@ -600,6 +601,7 @@ mod tests {
         async fn store_metadata(
             &self,
             _metadata: UnverifiedBlobMetadataWithId,
+            _intent: UploadIntent,
         ) -> Result<bool, StoreMetadataError> {
             Ok(true)
         }
@@ -679,6 +681,7 @@ mod tests {
             _blob_id: BlobId,
             sliver_pair_index: SliverPairIndex,
             _sliver: Sliver,
+            _intent: UploadIntent,
         ) -> Result<bool, StoreSliverError> {
             if sliver_pair_index.as_usize() == 0 {
                 Ok(true)
