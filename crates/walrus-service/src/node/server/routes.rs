@@ -58,6 +58,7 @@ use crate::{
         StoreMetadataError,
         StoreSliverError,
         SyncShardServiceError,
+        UploadIntent,
         errors::{IndexOutOfRange, ListSymbolsError, Unavailable},
     },
 };
@@ -93,6 +94,18 @@ pub const BLOB_STATUS_ENDPOINT: &str = "/v1/blobs/{blob_id}/status";
 pub const HEALTH_ENDPOINT: &str = "/v1/health";
 pub const SYNC_SHARD_ENDPOINT: &str = "/v1/migrate/sync_shard";
 
+#[derive(Debug, Default, Deserialize)]
+pub(crate) struct UploadIntentQuery {
+    #[serde(default)]
+    pending: Option<bool>,
+}
+
+impl UploadIntentQuery {
+    fn intent(&self) -> UploadIntent {
+        UploadIntent::from_pending_flag(self.pending.unwrap_or(false))
+    }
+}
+
 /// Convenience trait to apply bounds on the ServiceState.
 pub(crate) trait SyncServiceState: ServiceState + Send + Sync + 'static {}
 impl<T: ServiceState + Send + Sync + 'static> SyncServiceState for T {}
@@ -104,7 +117,14 @@ impl<T: ServiceState + Send + Sync + 'static> SyncServiceState for T {}
 #[utoipa::path(
     get,
     path = METADATA_ENDPOINT,
-    params(("blob_id" = BlobId,)),
+    params(
+        ("blob_id" = BlobId, ),
+        (
+            "pending" = bool,
+            Query,
+            description = "Set to true to cache the metadata until the blob is registered",
+        ),
+    ),
     responses(
         (status = 200, description = "BCS encoded blob metadata", body = [u8]),
         RetrieveMetadataError
@@ -165,14 +185,24 @@ pub async fn get_metadata_status<S: SyncServiceState>(
 pub async fn put_metadata<S: SyncServiceState>(
     State(state): State<RestApiState<S>>,
     Path(BlobIdString(blob_id)): Path<BlobIdString>,
+    Query(intent): Query<UploadIntentQuery>,
     Bcs(metadata): Bcs<BlobMetadata>,
 ) -> Result<ApiSuccess<&'static str>, StoreMetadataError> {
-    let (code, message) = if state
+    let intent = intent.intent();
+    let newly_stored = state
         .service
-        .store_metadata(UnverifiedBlobMetadataWithId::new(blob_id, metadata))
-        .await?
-    {
-        (StatusCode::CREATED, "metadata successfully stored")
+        .store_metadata(UnverifiedBlobMetadataWithId::new(blob_id, metadata), intent)
+        .await?;
+
+    let (code, message) = if newly_stored {
+        if intent.is_pending() {
+            (
+                StatusCode::ACCEPTED,
+                "metadata buffered pending registration",
+            )
+        } else {
+            (StatusCode::CREATED, "metadata successfully stored")
+        }
     } else {
         (StatusCode::OK, "metadata already stored")
     };
@@ -197,6 +227,11 @@ pub async fn put_metadata<S: SyncServiceState>(
         ("blob_id" = BlobId, ),
         ("sliver_pair_index" = SliverPairIndex, ),
         ("sliver_type" = SliverType, ),
+        (
+            "pending" = bool,
+            Query,
+            description = "Set to true to cache the sliver until the blob is registered",
+        ),
     ),
     responses(
         (status = 200, description = "BCS encoded primary or secondary sliver", body = [u8]),
@@ -255,6 +290,7 @@ pub async fn put_sliver<S: SyncServiceState>(
         SliverPairIndex,
         SliverType,
     )>,
+    Query(intent): Query<UploadIntentQuery>,
     body: axum::body::Bytes,
 ) -> Result<ApiSuccess<&'static str>, OrRejection<StoreSliverError>> {
     let blob_id = blob_id.0;
@@ -263,13 +299,23 @@ pub async fn put_sliver<S: SyncServiceState>(
         SliverType::Secondary => Sliver::Secondary(Bcs::from_bytes(&body)?.0),
     };
 
-    state
+    let intent = intent.intent();
+    let stored = state
         .service
-        .store_sliver(blob_id, sliver_pair_index, sliver)
+        .store_sliver(blob_id, sliver_pair_index, sliver, intent)
         .await?;
 
-    // TODO(WAL-253): Change to CREATED.
-    Ok(ApiSuccess::ok("sliver stored successfully"))
+    let (code, message) = if stored {
+        if intent.is_pending() {
+            (StatusCode::ACCEPTED, "sliver buffered pending registration")
+        } else {
+            (StatusCode::OK, "sliver stored successfully")
+        }
+    } else {
+        (StatusCode::OK, "sliver already stored")
+    };
+
+    Ok(ApiSuccess::new(code, message))
 }
 
 /// Check if the blob slivers are present.

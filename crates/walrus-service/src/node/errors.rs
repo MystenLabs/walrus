@@ -161,6 +161,11 @@ pub enum ComputeStorageConfirmationError {
     #[rest_api_error(reason = "NOT_REGISTERED", status = ApiStatusCode::FailedPrecondition)]
     NotCurrentlyRegistered,
 
+    /// The pending upload cache is full and cannot accept additional metadata.
+    #[error("pending upload cache is saturated; retry once the node catches up")]
+    #[rest_api_error(reason = "CACHE_SATURATED", status = ApiStatusCode::FailedPrecondition)]
+    CacheSaturated,
+
     /// The storage node cannot produce a certificate, as it does not have the slivers for all of
     /// its shards. Complete the uploading of the slivers and then try again.
     #[error("the required slivers are not all stored")]
@@ -179,6 +184,11 @@ pub enum StoreMetadataError {
     #[error("the blob has not been registered or has already expired")]
     #[rest_api_error(reason = "NOT_REGISTERED", status = ApiStatusCode::FailedPrecondition)]
     NotCurrentlyRegistered,
+
+    /// The node refused the metadata upload because the pending cache is full.
+    #[error("pending upload cache is saturated; retry once the node catches up")]
+    #[rest_api_error(reason = "CACHE_SATURATED", status = ApiStatusCode::FailedPrecondition)]
+    CacheSaturated,
 
     /// The provided metadata is not valid for the blob.
     #[error("the provided metadata failed to verify: {0}")]
@@ -277,6 +287,11 @@ pub enum StoreSliverError {
     #[error("unsupported encoding type {0}, supported types are: {SUPPORTED_ENCODING_TYPES:?}")]
     #[rest_api_error(reason = "UNSUPPORTED_ENCODING_TYPE", status = ApiStatusCode::InvalidArgument)]
     UnsupportedEncodingType(EncodingType),
+
+    /// The node refused the sliver because the pending upload cache is full.
+    #[error("pending upload cache is saturated; retry once the node catches up")]
+    #[rest_api_error(reason = "CACHE_SATURATED", status = ApiStatusCode::FailedPrecondition)]
+    CacheSaturated,
 
     #[error(transparent)]
     #[rest_api_error(delegate)]
