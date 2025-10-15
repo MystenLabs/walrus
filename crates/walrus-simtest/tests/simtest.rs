@@ -1167,10 +1167,11 @@ mod tests {
         let handle = tokio::spawn(async move {
             let single_client_workload = SingleClientWorkload::new(
                 client.inner,
-                60,
-                true,
-                1000,
-                10, // initial_blobs_in_pool
+                60,   // target_requests_per_minute
+                true, // check_read_result
+                10,   // write_same_data_percentage
+                1000, // max_blobs_in_pool
+                10,   // initial_blobs_in_pool
                 SizeDistributionConfig::Poisson {
                     lambda: 10.0,
                     size_multiplier: 1024,
