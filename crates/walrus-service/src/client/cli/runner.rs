@@ -1245,8 +1245,7 @@ impl ClientCommandRunner {
             client,
             daemon_args.bind_address,
             registry,
-            aggregator_args.allowed_headers,
-            aggregator_args.allow_quilt_patch_tags_in_response,
+            &aggregator_args,
         ))
     }
 
