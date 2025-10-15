@@ -14,6 +14,7 @@ use tokio::{
     sync::mpsc::{self, UnboundedReceiver, UnboundedSender},
     task::JoinHandle,
 };
+use walrus_core::BlobId;
 use walrus_sui::types::{BlobCertified, BlobDeleted, BlobEvent, InvalidBlobId};
 use walrus_utils::metrics::monitored_scope;
 
@@ -350,6 +351,9 @@ pub struct BlobEventProcessor {
     // We use per background processor count to avoid high contention on the Atomic variable when
     // tracking the total number of pending events to be processed.
     background_per_processor_pending_event_count: Vec<PendingEventCounter>,
+
+    flush_senders: Vec<UnboundedSender<BlobId>>,
+    _flush_workers: Vec<Arc<JoinHandle<()>>>,
 }
 
 impl BlobEventProcessor {
@@ -357,6 +361,7 @@ impl BlobEventProcessor {
         node: Arc<StorageNodeInner>,
         blob_sync_handler: Arc<BlobSyncHandler>,
         num_workers: usize,
+        num_flush_workers: Option<usize>,
     ) -> Self {
         let mut senders = Vec::with_capacity(num_workers);
         let mut workers = Vec::with_capacity(num_workers);
@@ -393,12 +398,28 @@ impl BlobEventProcessor {
             None
         };
 
+        let flush_worker_count = num_flush_workers.unwrap_or_else(|| num_workers.max(1));
+        let mut flush_senders = Vec::with_capacity(flush_worker_count);
+        let mut flush_workers = Vec::with_capacity(flush_worker_count);
+        for _ in 0..flush_worker_count {
+            let (tx, mut rx) = mpsc::unbounded_channel();
+            flush_senders.push(tx);
+            let node_clone = node.clone();
+            flush_workers.push(Arc::new(tokio::spawn(async move {
+                while let Some(blob_id) = rx.recv().await {
+                    node_clone.flush_pending_caches_with_logging(blob_id).await;
+                }
+            })));
+        }
+
         Self {
             node,
             background_processor_senders: senders,
             _background_processors: workers,
             sequential_processor,
             background_per_processor_pending_event_count,
+            flush_senders,
+            _flush_workers: flush_workers,
         }
     }
 
@@ -415,7 +436,7 @@ impl BlobEventProcessor {
             .storage
             .update_blob_info(event_handle.index(), &blob_event)?;
 
-        if let BlobEvent::Registered(_) = &blob_event {
+        if let BlobEvent::Registered(event) = &blob_event {
             // Registered event is marked as complete immediately. We need to process registered
             // events as fast as possible to catch up to the latest event in order to not miss
             // blob sliver uploads.
@@ -424,6 +445,27 @@ impl BlobEventProcessor {
             // certified event processing, as certified events take longer and can block following
             // registered events.
             let _scope = monitored_scope::monitored_scope("ProcessEvent::BlobEvent::Registered");
+
+            if self.flush_senders.is_empty() {
+                self.node
+                    .flush_pending_caches_with_logging(event.blob_id)
+                    .await;
+            } else {
+                let worker_index =
+                    event.blob_id.first_two_bytes() as usize % self.flush_senders.len();
+                if self.flush_senders[worker_index]
+                    .send(event.blob_id)
+                    .is_err()
+                {
+                    tracing::error!(
+                        blob_id = %event.blob_id,
+                        "failed to enqueue cache flush after registration, flushing inline",
+                    );
+                    self.node
+                        .flush_pending_caches_with_logging(event.blob_id)
+                        .await;
+                }
+            }
             event_handle.mark_as_complete();
             return Ok(());
         }
