@@ -50,6 +50,7 @@ use walrus_core::{
     EpochCount,
     QuiltPatchId,
     encoding::{
+        ConsistencyCheckType,
         Primary,
         quilt_encoding::{QuiltStoreBlob, QuiltVersion},
     },
@@ -89,6 +90,7 @@ pub trait WalrusReadClient {
     fn read_blob(
         &self,
         blob_id: &BlobId,
+        consistency_check: ConsistencyCheckType,
     ) -> impl std::future::Future<Output = ClientResult<Vec<u8>>> + Send;
 
     /// Returns the blob object and its associated attributes given the object ID of either
@@ -177,8 +179,13 @@ pub trait WalrusWriteClient: WalrusReadClient {
 }
 
 impl<T: ReadClient> WalrusReadClient for WalrusNodeClient<T> {
-    async fn read_blob(&self, blob_id: &BlobId) -> ClientResult<Vec<u8>> {
-        self.read_blob_retry_committees::<Primary>(blob_id).await
+    async fn read_blob(
+        &self,
+        blob_id: &BlobId,
+        consistency_check: ConsistencyCheckType,
+    ) -> ClientResult<Vec<u8>> {
+        self.read_blob_retry_committees::<Primary>(blob_id, consistency_check)
+            .await
     }
 
     async fn get_blob_by_object_id(

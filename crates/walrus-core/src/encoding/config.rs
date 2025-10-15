@@ -23,9 +23,9 @@ use crate::{
     BlobId,
     EncodingType,
     bft,
-    encoding::{DecodeError, SliverData},
+    encoding::{DecodeError, SliverData, common::ConsistencyCheckType},
     merkle::DIGEST_LEN,
-    metadata::VerifiedBlobMetadataWithId,
+    metadata::{BlobMetadataApi as _, VerifiedBlobMetadataWithId},
 };
 
 /// The maximum number of source symbols that can be encoded with our encoding (currently
@@ -117,34 +117,48 @@ pub trait EncodingFactory {
         S: IntoIterator<Item = SliverData<E>>,
         E: EncodingAxis;
 
-    /// Attempts to decode the source blob from the provided slivers, and to verify that the decoded
-    /// blob matches the blob ID.
+    /// Attempts to decode the source blob from the provided slivers, and then performs the
+    /// specified consistency check.
     ///
-    /// If the decoding and the checks are successful, the function returns a tuple of two values:
-    /// * the reconstructed source blob as a byte vector; and
-    /// * the [`VerifiedBlobMetadataWithId`] corresponding to the source blob.
+    /// If the decoding and the checks are successful, the function returns the reconstructed source
+    /// blob as a byte vector.
     ///
     /// # Errors
     ///
     /// Returns a [`DecodeError::DecodingUnsuccessful`] if the decoding fails.
     ///
-    /// If, upon successful decoding, the recomputed blob ID does not match the input blob ID,
-    /// returns a [`DecodeError::VerificationError`].
+    /// If, upon successful decoding, the specified consistency check fails, returns a
+    /// [`DecodeError::VerificationError`].
     ///
     /// # Panics
     ///
     /// This function can panic if there is insufficient virtual memory for the encoded data,
-    /// notably on 32-bit architectures. As this function re-encodes the blob to verify the
+    /// notably on 32-bit architectures. As this function may re-encode the blob to verify the
     /// metadata, similar limits apply as in [`BlobEncoder::encode_with_metadata`].
     fn decode_and_verify<S, E>(
         &self,
-        blob_id: &BlobId,
-        blob_size: u64,
+        metadata: &VerifiedBlobMetadataWithId,
         slivers: S,
-    ) -> Result<(Vec<u8>, VerifiedBlobMetadataWithId), DecodeError>
+        consistency_check: ConsistencyCheckType,
+    ) -> Result<Vec<u8>, DecodeError>
     where
         S: IntoIterator<Item = SliverData<E>>,
         E: EncodingAxis;
+
+    /// Performs a strict consistency check on the decoded blob.
+    ///
+    /// Encodes the blob and returns a [`DecodeError::VerificationError`] if the computed blob ID
+    /// does not match the provided blob ID.
+    ///
+    /// Returns a [`DecodeError::DataTooLarge`] if the blob size is too large to be encoded.
+    fn strict_consistency_check(&self, blob_id: &BlobId, blob: &[u8]) -> Result<(), DecodeError> {
+        let blob_metadata = self.compute_metadata(blob)?;
+        crate::ensure!(
+            blob_metadata.blob_id() == blob_id,
+            DecodeError::VerificationError
+        );
+        Ok(())
+    }
 
     /// Returns the number of primary source symbols as a `NonZeroU16`.
     fn n_primary_source_symbols(&self) -> NonZeroU16;
@@ -518,7 +532,7 @@ impl ReedSolomonEncodingConfig {
     pub fn get_blob_decoder<E: EncodingAxis>(
         &self,
         blob_size: u64,
-    ) -> Result<BlobDecoder<'_, ReedSolomonDecoder, E>, DecodeError> {
+    ) -> Result<BlobDecoder<ReedSolomonDecoder, E>, DecodeError> {
         BlobDecoder::new(self, blob_size)
     }
 }
@@ -568,16 +582,28 @@ impl EncodingFactory for ReedSolomonEncodingConfig {
 
     fn decode_and_verify<S, E>(
         &self,
-        blob_id: &BlobId,
-        blob_size: u64,
+        metadata: &VerifiedBlobMetadataWithId,
         slivers: S,
-    ) -> Result<(Vec<u8>, VerifiedBlobMetadataWithId), DecodeError>
+        consistency_check: ConsistencyCheckType,
+    ) -> Result<Vec<u8>, DecodeError>
     where
         S: IntoIterator<Item = SliverData<E>>,
         E: EncodingAxis,
     {
-        self.get_blob_decoder::<E>(blob_size)?
-            .decode_and_verify(blob_id, slivers)
+        let decoded_blob = self.decode(metadata.metadata().unencoded_length(), slivers)?;
+
+        match consistency_check {
+            ConsistencyCheckType::Skip => (),
+            ConsistencyCheckType::Default => {
+                // TODO(WAL-1054): Implement the new default consistency check.
+                self.strict_consistency_check(metadata.blob_id(), &decoded_blob)?;
+            }
+            ConsistencyCheckType::Strict => {
+                self.strict_consistency_check(metadata.blob_id(), &decoded_blob)?;
+            }
+        }
+
+        Ok(decoded_blob)
     }
 
     fn encode_all_symbols<E: EncodingAxis>(

@@ -293,8 +293,15 @@ pub enum CliCommands {
         // TODO(WAL-1055): Adjust docstring when changing the default behavior.
         #[arg(long)]
         #[serde(default)]
-        #[allow(unused)]
         strict_consistency_check: bool,
+        /// Whether to skip consistency checks entirely.
+        ///
+        /// When enabled, this flag bypasses all consistency verification during blob reading. This
+        /// should be used only when the writer of the blob is trusted. Does *not* affect any
+        /// authentication checks for data received from storage nodes, which are always performed.
+        #[arg(long, conflicts_with = "strict_consistency_check")]
+        #[serde(default)]
+        skip_consistency_check: bool,
     },
     /// Read quilt patches (blobs) from Walrus.
     #[command(override_usage = "walrus read-quilt ARGUMENTS [OPTIONS]")]
@@ -1933,6 +1940,7 @@ mod tests {
             out: None,
             rpc_arg: RpcArg { rpc_url: None },
             strict_consistency_check: false,
+            skip_consistency_check: false,
         })
     }
 
