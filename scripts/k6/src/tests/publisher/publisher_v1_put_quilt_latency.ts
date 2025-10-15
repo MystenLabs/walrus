@@ -11,10 +11,11 @@
 import { loadEnvironment } from '../../config/environment.ts'
 import { putQuilt } from '../../flows/publisher.ts'
 import * as fs from 'k6/experimental/fs';
-import { parseHumanFileSize, loadParameters } from "../../lib/utils.ts"
+import { parseHumanFileSize, loadParameters, logObject } from "../../lib/utils.ts"
 import { BlobHistory } from "../../lib/blob_history.ts"
-// @ts-ignore
-import { expect } from 'https://jslib.k6.io/k6-testing/0.5.0/index.js';
+import { expect }
+    // @ts-ignore
+    from 'https://jslib.k6.io/k6-testing/0.5.0/index.js';
 import { BYTES_PER_KIBIBYTE } from "../../lib/constants.ts";
 
 
@@ -38,9 +39,13 @@ interface TestParameters {
     timeout: string,
 }
 
+/** Common environment setting like URLs, loaded from __ENV with defaults. */
 const env = loadEnvironment();
+/** File providing random bytes to be used for blob files. */
 const dataFile = await fs.open(env.payloadSourceFile);
+/** Handle for storing the IDs of blobs written to the network. */
 const blobHistory = new BlobHistory(env.redisUrl);
+/** Parameters from __ENV with defaults. */
 const params = loadParameters<TestParameters>({
     quiltsToStore: 1,
     totalFileSize: "10Mi",
@@ -65,33 +70,24 @@ export const options = {
 
 
 export function setup() {
-    console.log('');
-    console.log(`Publisher URL: ${env.publisherUrl}`);
-    console.log(`Quilts to store: ${params.quiltsToStore}`);
-    console.log(`Virtual users: ${params.maxConcurrency}`);
-    console.log(`Data file path: ${env.payloadSourceFile}`);
-    console.log(`Total file size: ~${params.totalFileSize}`);
-    console.log(`Number of files in quilt: ${params.quiltFileCount}`);
-    console.log(`Blob store timeout: ${params.timeout}`);
-    if (env.redisUrl != undefined) {
-        console.log(`Blob history written to: ${env.redisUrl}`);
-    }
+    logObject(params, env);
+    return {
+        totalFileSizeBytes: parseHumanFileSize(params.totalFileSize),
+        maxQuiltFileSizeKib: Math.round(
+            parseHumanFileSize(params.maxQuiltFileSize) / BYTES_PER_KIBIBYTE
+        )
+    };
 }
 
-export default async function () {
-    const totalFileSize = parseHumanFileSize(params.totalFileSize);
-    const maxQuiltFileSizeKib = Math.round(
-        parseHumanFileSize(params.maxQuiltFileSize) / BYTES_PER_KIBIBYTE
-    );
+export default async function ({ totalFileSizeBytes, maxQuiltFileSizeKib }: any) {
     const options = {
-        totalFileSizeBytes: totalFileSize,
+        totalFileSizeBytes: totalFileSizeBytes,
         quiltFileCount: params.quiltFileCount,
         quiltFileSizeAssignment: params.quiltFileSizeAssignment,
         maxQuiltFileSizeKib: maxQuiltFileSizeKib
     }
 
     const response = await putQuilt(dataFile, env.publisherUrl, options);
-
     expect(response.status).toBe(200);
 
     const keyPrefix = `quilt:${params.totalFileSize}:${params.quiltFileSizeAssignment}`;

@@ -16,28 +16,19 @@
 import { putBlob } from "../../flows/publisher.ts"
 import { loadEnvironment } from "../../config/environment.ts"
 import { open } from 'k6/experimental/fs';
-import { loadParameters, parseHumanFileSize } from "../../lib/utils.ts"
+import {
+    StageConfig, countSteadyStageFailures, createStages,
+    loadParameters, logObject, parseHumanFileSize
+} from "../../lib/utils.ts"
 import { check } from "k6";
 import { BlobHistory } from "../../lib/blob_history.ts"
-// @ts-ignore
-import { getCurrentStageIndex, tagWithCurrentStageIndex, tagWithCurrentStageProfile } from 'https://jslib.k6.io/k6-utils/1.6.0/index.js'
 import { Rate } from "k6/metrics";
 
 
 /**
  * Test parameters read from the environment in UPPER_CASE with a WALRUS_K6_ prefix.
  */
-interface TestParameters {
-    /** The start rate in requests per minute. */
-    startRatePerMinute: number,
-    /** The amount to increment the rate by at each stage. */
-    rateIncrement: number,
-    /** The duration of each held (non-ramping) stage. */
-    heldStageDuration: string,
-    /** The duration of each ramping stage. */
-    rampStageDuration: string,
-    /** The number of stages where the arrival rate is held constant. */
-    heldStageCount: number
+interface TestParameters extends StageConfig {
     /** The payload size of each request with a Ki or Mi or Gi suffix. */
     payloadSize: string,
     /** The timeout for storing each blob. */
@@ -46,7 +37,13 @@ interface TestParameters {
     preallocatedVus: number,
 }
 
+/** Common environment setting like URLs, loaded from __ENV with defaults. */
 const env = loadEnvironment();
+/** File providing random bytes to be used for blob files. */
+const dataFile = await open(env.payloadSourceFile);
+/** Handle for storing the IDs of blobs written to the network. */
+const blobHistory = new BlobHistory(env.redisUrl);
+/** Parameters from __ENV with defaults. */
 const params = loadParameters<TestParameters>({
     startRatePerMinute: 40,
     rateIncrement: 5,
@@ -57,10 +54,10 @@ const params = loadParameters<TestParameters>({
     preallocatedVus: 50,
     rampStageDuration: "5s"
 });
-const dataFile = await open(env.payloadSourceFile);
-const blobHistory = new BlobHistory(env.redisUrl);
+/** The stages with different arrival rates, used to setup the test and in metrics. */
 const stages = createStages(params);
-const stageFailureRate = new Rate('stage_failed');
+/** The failure rate for a given test stage. */
+const stageFailureRate = new Rate('put_blob_throughput_stage_failed');
 
 export const options = {
     scenarios: {
@@ -78,62 +75,17 @@ export const options = {
     insecureSkipTLSVerify: true,
 };
 
-
 export function setup(): number {
-    const fileSizeBytes = parseHumanFileSize(params.payloadSize);
-
-    console.log('');
-    console.log(`Publisher URL: ${env.publisherUrl}`);
-    console.log(`Data file path: ${env.payloadSourceFile}`);
-    console.log(`Payload size: ${params.payloadSize} (${fileSizeBytes} B)`);
-    console.log(`Blob store timeout: ${params.timeout}`);
-    console.log(`Arrival rate progression i, in [0, ${params.heldStageCount}): ` +
-        `${params.startRatePerMinute} + ${params.rateIncrement}*i`);
-    console.log(`Arrival rate hold duration: ${params.heldStageDuration}`);
-
-    if (env.redisUrl != undefined) {
-        console.log(`Blob history written to: ${env.redisUrl}`);
-    }
-
-    return fileSizeBytes
+    logObject(params, env);
+    return parseHumanFileSize(params.payloadSize)
 }
 
 export default async function (fileSizeBytes: number) {
     const response = await putBlob(
         dataFile, env.publisherUrl, fileSizeBytes, { timeout: params.timeout }
     );
+    countSteadyStageFailures(response.status == 200, stageFailureRate, stages)
+    check(response, { 'is status 200': (r) => r.status === 200 });
 
-    countSteadyStageFailures(response.status == 200)
-
-    await blobHistory.maybeRecordFromResponse(params.payloadSize, response);
-
-    check(response, {
-        'is status 200': (r) => r.status === 200,
-    });
-}
-
-function createStages(params: TestParameters): { duration: string, target: number }[] {
-    const stages = [];
-    var target = params.startRatePerMinute;
-    for (var i = 0; i < params.heldStageCount; ++i) {
-        stages.push({ target: target, duration: params.rampStageDuration });
-        stages.push({ target: target, duration: params.heldStageDuration });
-        target += params.rateIncrement;
-    }
-    return stages;
-}
-
-function countSteadyStageFailures(is_success: boolean) {
-    const stageIndex = getCurrentStageIndex();
-    const isSteadyStage = (stageIndex % 2 == 1);
-
-    if (isSteadyStage) {
-        stageFailureRate.add(
-            !is_success,
-            {
-                target_rpm: stages[stageIndex].target.toString(),
-                stage_profile: (stageIndex % 2 == 0) ? 'ramp-up' : 'steady'
-            }
-        );
-    }
+    await blobHistory.maybeRecordFromResponse(`blob_ids:${params.payloadSize}`, response);
 }

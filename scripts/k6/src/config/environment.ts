@@ -15,7 +15,7 @@ export interface EnvironmentConfig {
     /**
      * The name of the environment.
      */
-    name: string,
+    environment: string,
     /**
      * The default URL of the publisher for the environment.
      */
@@ -39,7 +39,7 @@ const testnetPublisherUrl = "https://publisher.walrus-testnet.walrus.space";
 /**
  * Default configurations for various running environments.
  */
-const ENVIRONMENT_DEFAULTS: { [index: string]: Omit<EnvironmentConfig, "name"> } = {
+const ENVIRONMENT_DEFAULTS: { [index: string]: Omit<EnvironmentConfig, "environment"> } = {
     "localhost": {
         "publisherUrl": "http://localhost:31415",
         "aggregatorUrl": "http://localhost:31415", // Run as daemon
@@ -79,11 +79,11 @@ export const DEFAULT_ENVIRONMENT: string = "walrus-testnet";
  */
 export function loadEnvironment(): EnvironmentConfig {
     const environmentName = __ENV["WALRUS_K6_ENVIRONMENT"] || DEFAULT_ENVIRONMENT;
-    const environment = loadParameters<Omit<EnvironmentConfig, "name">>({
+    const environment = loadParameters<Omit<EnvironmentConfig, "environment">>({
         ...ENVIRONMENT_DEFAULTS[environmentName]
     });
     return {
-        name: environmentName,
+        environment: environmentName,
         ...environment
     }
 }

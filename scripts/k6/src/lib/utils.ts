@@ -1,12 +1,15 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-// @ts-ignore
-import { randomIntBetween } from 'https://jslib.k6.io/k6-utils/1.2.0/index.js'
-// @ts-ignore
-import { expect } from 'https://jslib.k6.io/k6-testing/0.5.0/index.js';
+import { randomIntBetween, getCurrentStageIndex }
+    // @ts-ignore
+    from 'https://jslib.k6.io/k6-utils/1.6.0/index.js'
+import { expect }
+    // @ts-ignore
+    from 'https://jslib.k6.io/k6-testing/0.5.0/index.js';
 import { File, SeekMode } from 'k6/experimental/fs';
 import { randomBytes } from 'k6/crypto';
+import { Rate } from 'k6/metrics';
 
 /**
  * Returns a random range `[start, length]` on the interval `[0, limit)`.
@@ -49,26 +52,6 @@ export async function readFileRange(
 }
 
 
-/**
- * Calculate the `startTime` offset for a scenario.
- * @param index - Zero based index of the scenario's run order.
- * @param scenarioDurationSeconds - Number of seconds each scenario runs for.
- * @param [gapSeconds=5] - Time between one scenario ending and another starting.
- * @returns The startTime offset in seconds.
- */
-export function scenarioStartTimeSeconds(
-    index: number,
-    scenarioDurationSeconds: number,
-    gapSeconds: number = 5
-): number {
-    if (index == 0) {
-        return 0;
-    } else {
-        return (index * (scenarioDurationSeconds + gapSeconds))
-    }
-}
-
-
 export function parseHumanFileSize(value: string): number {
     // parseInt just takes the numeric prefix and parses it.
     var numericValue = parseFloat(value);
@@ -84,24 +67,6 @@ export function parseHumanFileSize(value: string): number {
     }
     return Math.floor(numericValue);
 }
-
-/**
- * Loads the plan if specified.
- *
- * If the specified plan does not exist an error is raised.
- */
-function loadPlan(path: string, plan?: string): Record<string, any> {
-    if (plan == undefined) {
-        return {};
-    }
-    const plans = JSON.parse(open(path));
-    if (!(plan in plans)) {
-        throw new Error(`The requested plan "${plan}" is not present in "${path}"`);
-    } else {
-        return plans[plan];
-    }
-}
-
 
 type Parameters = Record<string, string | number>;
 
@@ -128,51 +93,20 @@ function loadEnv(keysAndTypes: Record<string, string>): Parameters {
 
 
 /**
- * Loads parameters from a plan and __ENV.
- *
- * Variables set in __ENV take precedence over those in the plan.
+ * Loads parameters from __ENV.
  *
  * @param defaults - The default parameters. The keys in the `defaults` are converted from camelCase
  * to UPPER_SNAKE_CASE, prepended with `WALRUS_K6_`, and fetched from the environment variables.
- * @param planFilePath - A path within the config/ directory that contains the plans. If specified,
- * then the environment variable __ENV.WALRUS_K6_PLAN is checked for a plan name and the defaults
- * are updated with the named plan.
  * @returns The loaded parameters.
  */
-export function loadParameters<T extends object>(defaults: T, planFilePath?: string): T {
+export function loadParameters<T extends object>(defaults: T): T {
     var output = defaults;
-
-    if (planFilePath != undefined) {
-        output = Object.assign(
-            output,
-            loadPlan(import.meta.resolve("../config/" + planFilePath), __ENV.WALRUS_K6_PLAN),
-        );
-    }
-
     const keysAndTypes = Object.fromEntries(
         Object.entries(defaults).map(([key, value]) => [key, typeof (value)])
     );
     return Object.assign(output, loadEnv(keysAndTypes))
 }
 
-/**
- * Gets the WALRUS_K6_TEST_ID and WALRUS_K6_TEST_RUN_ID tags from the environment, if present,
- * and returns them as testid and test_run_id.
- *
- * @param defaultTestId - Default test ID to use if none is provided via ENV.
- */
-export function getTestIdTags(defaultTestId?: string): { testid?: string, test_run_id?: string } {
-    const testid = __ENV["WALRUS_K6_TEST_ID"] || defaultTestId;
-    const test_run_id_suffix = __ENV["WALRUS_K6_TEST_RUN_ID_SUFFIX"];
-    const test_run_id = __ENV["WALRUS_K6_TEST_RUN_ID"] || (
-        (testid && test_run_id_suffix) ? `${testid}:${test_run_id_suffix}` : undefined
-    )
-
-    return {
-        testid: testid,
-        test_run_id: test_run_id
-    }
-}
 
 /**
  * Perturbs a random number (maximum 30) bytes in the provided data array.
@@ -207,5 +141,56 @@ export async function loadRandomData(
 export function ensure(condition: boolean, message: string) {
     if (!condition) {
         throw new Error(message);
+    }
+}
+
+
+export interface Stage { duration: string, target: number }
+
+export interface StageConfig {
+    /** The start rate in requests per minute. */
+    startRatePerMinute: number,
+    /** The amount to increment the rate by at each stage. */
+    rateIncrement: number,
+    /** The duration of each held (non-ramping) stage. */
+    heldStageDuration: string,
+    /** The duration of each ramping stage. */
+    rampStageDuration: string,
+    /** The number of stages where the arrival rate is held constant. */
+    heldStageCount: number
+}
+
+
+export function createStages(params: StageConfig): Stage[] {
+    const stages = [];
+    var target = params.startRatePerMinute;
+    for (var i = 0; i < params.heldStageCount; ++i) {
+        stages.push({ target: target, duration: params.rampStageDuration });
+        stages.push({ target: target, duration: params.heldStageDuration });
+        target += params.rateIncrement;
+    }
+    return stages;
+}
+
+export function countSteadyStageFailures(is_success: boolean, rate: Rate, stages: Stage[]) {
+    const stageIndex = getCurrentStageIndex();
+    const isSteadyStage = (stageIndex % 2 == 1);
+
+    if (isSteadyStage) {
+        rate.add(
+            !is_success,
+            {
+                target_rpm: stages[stageIndex].target.toString(),
+                stage_profile: (stageIndex % 2 == 0) ? 'ramp-up' : 'steady'
+            }
+        );
+    }
+}
+
+export function logObject(...objects: object[]) {
+    for (const obj of objects) {
+        for (const [key, value] of Object.entries(obj)) {
+            console.log(`${key}: ${value}`);
+        }
     }
 }

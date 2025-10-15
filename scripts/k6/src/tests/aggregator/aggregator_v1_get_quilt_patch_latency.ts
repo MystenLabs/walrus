@@ -1,11 +1,6 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 //
-// Retrieve a fixed number of blobs from Walrus and report the metrics.
-//
-// The blob IDs to fetch are read from the Redis database located at `WALRUS_K6_REDIS_URL`
-// under the key with the name `blob_ids:<WALRUS_K6_PAYLOAD_SIZE>`.
-//
 import { randomIntBetween }
     // @ts-ignore
     from 'https://jslib.k6.io/k6-utils/1.6.0/index.js'
@@ -15,21 +10,18 @@ import { expect }
 import { loadEnvironment } from '../../config/environment.ts'
 import { ensure, loadParameters, logObject } from "../../lib/utils.ts"
 import { BlobHistory } from "../../lib/blob_history.ts"
-import { getBlob } from '../../flows/aggregator.ts';
+import { getQuiltPatch } from '../../flows/aggregator.ts';
 
 /**
  * Test parameters read from the environment in UPPER_CASE with a WALRUS_K6_ prefix.
  */
 interface TestParameters {
     /** Number of blobs to read. */
-    blobsToRead: number,
+    patchesToRead: number,
     /** The number of virtual users that will repeatedly read blobs. */
     maxConcurrency: number,
-    /**
-     * Used as the key into the redis key-value store to fetch blob IDs
-     * corresponding to blobs of the given size.
-     */
-    payloadSize: string,
+    /** The key into the Redis instance under which patches IDs. */
+    patchIdListKey: string,
     /** The timeout for fetching each blob. */
     timeout: string,
 }
@@ -40,20 +32,18 @@ const env = loadEnvironment();
 const blobHistory = new BlobHistory(env.redisUrl);
 /** Parameters from __ENV with defaults. */
 const params = loadParameters<TestParameters>({
-    blobsToRead: 20,
+    patchesToRead: 20,
     maxConcurrency: 1,
-    payloadSize: "1Ki",
+    patchIdListKey: 'quilt:1Mi:uniform:patches',
     timeout: "1m",
 });
-/** Key used to lookup blob IDs from the redis database. */
-const blobIdsKey = `blob_ids:${params.payloadSize}`;
 
 export const options = {
     scenarios: {
         "getBlobs": {
             executor: 'shared-iterations',
             vus: `${params.maxConcurrency}`,
-            iterations: `${params.blobsToRead}`,
+            iterations: `${params.patchesToRead}`,
             maxDuration: "15m",
         }
     },
@@ -64,19 +54,19 @@ export async function setup(): Promise<number> {
     logObject(params, env);
 
     ensure(env.redisUrl !== undefined, "WALRUS_K6_REDIS_URL must be defined");
-    const blobIdCount = await blobHistory.len(blobIdsKey);
+    const patchCount = await blobHistory.len(params.patchIdListKey);
     ensure(
-        (blobIdCount !== null && blobIdCount >= params.blobsToRead),
-        `insufficient blob IDs stored under ${blobIdsKey}: ${blobIdCount}`
+        (patchCount !== null && patchCount >= params.patchesToRead),
+        `insufficient patches stored under ${params.patchIdListKey}: ${patchCount}`
     );
 
-    return blobIdCount!;
+    return patchCount!;
 }
 
-export default async function (blobIdCount: number) {
-    const blobIdIndex = randomIntBetween(0, blobIdCount - 1);
-    const blobId = await blobHistory.index(blobIdsKey, blobIdIndex);
-    const response = await getBlob(env.aggregatorUrl, blobId!, params.timeout);
+export default async function (patchIdCount: number) {
+    const patchIndex = randomIntBetween(0, patchIdCount - 1);
+    const quiltOrPatchId = await blobHistory.index(params.patchIdListKey, patchIndex);
+    const response = await getQuiltPatch(env.aggregatorUrl, quiltOrPatchId!, params.timeout);
 
     expect(response.status).toBe(200);
 }

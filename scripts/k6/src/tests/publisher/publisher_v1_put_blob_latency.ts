@@ -7,10 +7,11 @@
 import { loadEnvironment } from '../../config/environment.ts'
 import { putBlob } from '../../flows/publisher.ts'
 import * as fs from 'k6/experimental/fs';
-import { parseHumanFileSize, loadParameters } from "../../lib/utils.ts"
+import { parseHumanFileSize, loadParameters, logObject } from "../../lib/utils.ts"
 import { BlobHistory } from "../../lib/blob_history.ts"
-// @ts-ignore
-import { expect } from 'https://jslib.k6.io/k6-testing/0.5.0/index.js';
+import { expect }
+    // @ts-ignore
+    from 'https://jslib.k6.io/k6-testing/0.5.0/index.js';
 
 
 /**
@@ -27,14 +28,18 @@ interface TestParameters {
     timeout: string,
 }
 
-const env = loadEnvironment();
+/** Parameters from __ENV with defaults. */
 const params = loadParameters<TestParameters>({
     blobsToStore: 10,
     maxConcurrency: 3,
     payloadSize: "1Ki",
     timeout: "10m",
 });
+/** Common environment setting like URLs, loaded from __ENV with defaults. */
+const env = loadEnvironment();
+/** File providing random bytes to be used for blob files. */
 const dataFile = await fs.open(env.payloadSourceFile);
+/** Handle for storing the IDs of blobs written to the network. */
 const blobHistory = new BlobHistory(env.redisUrl);
 
 export const options = {
@@ -49,22 +54,9 @@ export const options = {
     insecureSkipTLSVerify: true,
 };
 
-
 export function setup(): number {
-    const fileSizeBytes = parseHumanFileSize(params.payloadSize);
-
-    console.log('');
-    console.log(`Publisher URL: ${env.publisherUrl}`);
-    console.log(`Blobs to store: ${params.blobsToStore}`);
-    console.log(`Concurrent stores: ${params.maxConcurrency}`);
-    console.log(`Data file path: ${env.payloadSourceFile}`);
-    console.log(`Payload size: ${params.payloadSize} (${fileSizeBytes} B)`);
-    console.log(`Blob store timeout: ${params.timeout}`);
-    if (env.redisUrl) {
-        console.log(`Blob history written to: ${env.redisUrl}`);
-    }
-
-    return fileSizeBytes;
+    logObject(params, env);
+    return parseHumanFileSize(params.payloadSize);
 }
 
 export default async function (fileSizeBytes: number) {
@@ -75,5 +67,5 @@ export default async function (fileSizeBytes: number) {
     expect(response.status).toBe(200);
     expect(response.json()).toHaveProperty('newlyCreated');
 
-    await blobHistory.maybeRecordFromResponse(params.payloadSize, response);
+    await blobHistory.maybeRecordFromResponse(`blob_ids:${params.payloadSize}`, response);
 }

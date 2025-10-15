@@ -4,8 +4,9 @@ import { loadRandomData, ensure } from "../lib/utils.ts";
 import { MAX_FILES_IN_QUILT, BYTES_PER_KIBIBYTE } from "../lib/constants.ts";
 import { File } from 'k6/experimental/fs';
 import http, { RequestBody } from 'k6/http';
-// @ts-ignore
-import { randomIntBetween } from 'https://jslib.k6.io/k6-utils/1.2.0/index.js'
+import { randomIntBetween }
+    // @ts-ignore
+    from 'https://jslib.k6.io/k6-utils/1.6.0/index.js'
 import { Trend } from "k6/metrics";
 
 /**
@@ -64,7 +65,7 @@ export interface PostQuiltOptions {
 /**
  * Stores a quilt via the publisher.
  *
- * The number of files and ther sizes are computed based on the provided options, and the data
+ * The number of files and their sizes are computed based on the provided options, and the data
  * for each file is taken from the provided data file.
  * @param dataFile - The file from which to read a chunk of data to send.
  * @param publisherUrl - Base URL of the Walrus publisher to which to send.

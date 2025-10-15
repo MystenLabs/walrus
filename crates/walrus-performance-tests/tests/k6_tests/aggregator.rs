@@ -1,14 +1,13 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-use super::{ByteSize, TestResult};
-use crate::k6_tests;
+use crate::k6_tests::{self, ByteSize, TestResult};
 
 mod blob {
     use super::*;
 
     walrus_test_utils::param_test! {
-        blob_upload_latency -> TestResult: [
+        blob_download_latency -> TestResult: [
             payload_1ki: (ByteSize::kibi(1), 20, 3),
             payload_100ki: (ByteSize::kibi(100), 20, 3),
             payload_1mi: (ByteSize::mebi(1), 20, 3),
@@ -19,17 +18,17 @@ mod blob {
             // payload_2gi: (ByteSize::gibibyte(2), 3, 1),
         ]
     }
-    fn blob_upload_latency(
+    fn blob_download_latency(
         payload_size: ByteSize,
-        files_to_store: usize,
+        files_to_read: usize,
         max_concurrency: usize,
     ) -> TestResult {
         k6_tests::run(
-            "publisher/publisher_v1_put_blob_latency.ts",
-            &format!("upload:latency:{payload_size}"),
+            "aggregator/aggregator_v1_get_blob_latency.ts",
+            &format!("download:latency:{payload_size}"),
         )
         .env("WALRUS_K6_PAYLOAD_SIZE", payload_size)
-        .env("WALRUS_K6_BLOBS_TO_STORE", files_to_store)
+        .env("WALRUS_K6_BLOBS_TO_READ", files_to_read)
         .env("WALRUS_K6_MAX_CONCURRENCY", max_concurrency)
         .tag("payload_size", payload_size)
         .tag("payload_size_bytes", payload_size.byte_value())
@@ -37,28 +36,28 @@ mod blob {
     }
 
     #[test]
-    fn blob_upload_request_throughput() -> TestResult {
+    fn blob_download_request_throughput() -> TestResult {
         let environment = k6_tests::get_environment();
         let (start, increment, duration) = match environment.as_str() {
-            "performance-main-baseline" => (150, 10, "15s"),
-            "localhost" | _ => (40, 5, "30s"),
+            "performance-main-baseline" => (340, 10, "10s"),
+            "localhost" | _ => (180, 10, "15s"),
         };
 
-        blob_upload_throughput("requests", ByteSize::kibi(1), start, increment, duration)
+        blob_download_throughput("requests", ByteSize::kibi(1), start, increment, duration)
     }
 
     #[test]
-    fn blob_upload_data_throughput() -> TestResult {
+    fn blob_download_data_throughput() -> TestResult {
         let environment = k6_tests::get_environment();
         let (start, increment, duration) = match environment.as_str() {
-            "performance-main-baseline" => (20, 2, "90s"),
-            "localhost" | _ => (40, 1, "25s"),
+            "performance-main-baseline" => (90, 10, "15s"),
+            "localhost" | _ => (40, 5, "90s"),
         };
 
-        blob_upload_throughput("data", ByteSize::mebi(100), start, increment, duration)
+        blob_download_throughput("data", ByteSize::mebi(100), start, increment, duration)
     }
 
-    fn blob_upload_throughput(
+    fn blob_download_throughput(
         throughput_type: &str,
         payload_size: ByteSize,
         start_rate: usize,
@@ -66,8 +65,8 @@ mod blob {
         stage_duration: &str,
     ) -> TestResult {
         k6_tests::run(
-            "publisher/publisher_v1_put_blob_throughput.ts",
-            &format!("upload:throughput:{throughput_type}"),
+            "aggregator/aggregator_v1_get_blob_throughput.ts",
+            &format!("download:throughput:{throughput_type}"),
         )
         .env("WALRUS_K6_PAYLOAD_SIZE", payload_size)
         .env("WALRUS_K6_START_RATE_PER_MINUTE", start_rate.to_string())
@@ -84,56 +83,56 @@ mod quilt {
     use super::*;
 
     walrus_test_utils::param_test! {
-        quilt_upload_latency_uniform_file_sizes -> TestResult: [
+        patch_download_latency_uniform_by_patch_id -> TestResult: [
             total_file_size_1mi: (ByteSize::mebi(1), 20, 3),
             total_file_size_10mi: (ByteSize::mebi(10), 20, 3),
-            total_file_size_100mi: (ByteSize::mebi(100), 5, 1),
-            total_file_size_500mi: (ByteSize::mebi(500), 3, 1),
-            total_file_size_1gi: (ByteSize::gibi(1), 3, 1),
+            total_file_size_100mi: (ByteSize::mebi(100), 20, 3),
+            total_file_size_500mi: (ByteSize::mebi(500), 20, 3),
+            total_file_size_1gi: (ByteSize::gibi(1), 20, 3),
         ]
     }
-    fn quilt_upload_latency_uniform_file_sizes(
+    fn patch_download_latency_uniform_by_patch_id(
         total_file_size: ByteSize,
-        quilts_to_store: usize,
+        patches_to_read: usize,
         max_concurrency: usize,
     ) -> TestResult {
-        quilt_upload_latency("uniform", total_file_size, quilts_to_store, max_concurrency)
+        let key = format!("quilt:{total_file_size}:uniform:patches");
+
+        k6_tests::run(
+            "aggregator/aggregator_v1_get_quilt_patch_latency.ts",
+            &format!("quilt-patch-id-download:latency:{total_file_size}:uniform_patches"),
+        )
+        .env("WALRUS_K6_PATCHES_TO_READ", patches_to_read)
+        .env("WALRUS_K6_PATCH_ID_LIST_KEY", key)
+        .env("WALRUS_K6_MAX_CONCURRENCY", max_concurrency)
+        .tag("total_file_size", total_file_size)
+        .status()
     }
 
     walrus_test_utils::param_test! {
-        quilt_upload_latency_random_file_sizes -> TestResult: [
+        patch_download_latency_uniform_by_quilt_id -> TestResult: [
             total_file_size_1mi: (ByteSize::mebi(1), 20, 3),
             total_file_size_10mi: (ByteSize::mebi(10), 20, 3),
-            total_file_size_100mi: (ByteSize::mebi(100), 5, 1),
-            total_file_size_500mi: (ByteSize::mebi(500), 3, 1),
-            total_file_size_1gi: (ByteSize::gibi(1), 3, 1),
+            total_file_size_100mi: (ByteSize::mebi(100), 20, 3),
+            total_file_size_500mi: (ByteSize::mebi(500), 20, 3),
+            total_file_size_1gi: (ByteSize::gibi(1), 20, 3),
         ]
     }
-    fn quilt_upload_latency_random_file_sizes(
+    fn patch_download_latency_uniform_by_quilt_id(
         total_file_size: ByteSize,
-        quilts_to_store: usize,
+        patches_to_read: usize,
         max_concurrency: usize,
     ) -> TestResult {
-        quilt_upload_latency("random", total_file_size, quilts_to_store, max_concurrency)
-    }
+        let key = format!("quilt:{total_file_size}:uniform:file_ids");
 
-    fn quilt_upload_latency(
-        file_size_assignment: &str,
-        total_file_size: ByteSize,
-        quilts_to_store: usize,
-        max_concurrency: usize,
-    ) -> TestResult {
         k6_tests::run(
-            "publisher/publisher_v1_put_quilt_latency.ts",
-            &format!("quilt-{file_size_assignment}-upload:latency:{total_file_size}"),
+            "aggregator/aggregator_v1_get_quilt_patch_latency.ts",
+            &format!("quilt-file-id-download:latency:{total_file_size}:uniform_patches"),
         )
-        .env("WALRUS_K6_TOTAL_FILE_SIZE", total_file_size)
-        .env("WALRUS_K6_QUILTS_TO_STORE", quilts_to_store)
-        .env("WALRUS_K6_QUILT_FILE_COUNT", -1)
-        .env("WALRUS_K6_QUILT_FILE_SIZE_ASSIGNMENT", file_size_assignment)
-        .env("WALRUS_K6_MAX_QUILT_FILE_SIZE", total_file_size / 10)
+        .env("WALRUS_K6_PATCHES_TO_READ", patches_to_read)
+        .env("WALRUS_K6_PATCH_ID_LIST_KEY", key)
         .env("WALRUS_K6_MAX_CONCURRENCY", max_concurrency)
-        .tag("total_quilt_file_size", total_file_size)
+        .tag("total_file_size", total_file_size)
         .status()
     }
 }

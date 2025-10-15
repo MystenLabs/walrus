@@ -93,7 +93,7 @@ export class BlobHistory {
      *
      * @returns The blob ID or null if not connected to a redis instance.
      */
-    async blobIdAtIndex(groupKey: string, index: number): Promise<string | null> {
+    async index(groupKey: string, index: number): Promise<string | null> {
         if (this.client == undefined) {
             return null;
         } else {

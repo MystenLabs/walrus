@@ -82,16 +82,6 @@ impl K6 {
         self
     }
 
-    pub fn maybe_env<S>(&mut self, key: &str, value: Option<S>) -> &mut Self
-    where
-        S: Display,
-    {
-        let Some(value) = value else {
-            return self;
-        };
-        self.env(key, value)
-    }
-
     pub fn env<S>(&mut self, key: &str, value: S) -> &mut Self
     where
         S: Display,
@@ -113,7 +103,7 @@ impl K6 {
     }
 
     pub fn status(&mut self) -> Result<(), Box<dyn Error>> {
-        println!("k6 command: {}", self);
+        println!("{}", self);
 
         let mut args: Vec<_> = self
             .args
