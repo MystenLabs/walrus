@@ -104,6 +104,8 @@ macro_rules! retry_transaction {
             match status {
                 Err(TypedStoreError::RetryableTransactionError) => {
                     retries += 1;
+                    let metrics = $crate::metrics::DBMetrics::get();
+                    metrics.op_metrics.rocksdb_optimistic_tx_retries_total.inc();
                     // Randomized delay to help racing transactions get out of each other's way.
                     let delay = {
                         let mut rng = ThreadRng::default();
@@ -127,7 +129,15 @@ macro_rules! retry_transaction {
                     }
                     sleep(delay).await;
                 }
-                _ => break status,
+                _ => {
+                    // Observe per-transaction retries in a histogram (0 if no retries).
+                    let metrics = $crate::metrics::DBMetrics::get();
+                    metrics
+                        .op_metrics
+                        .rocksdb_optimistic_tx_retries_per_tx
+                        .observe(f64::from(retries));
+                    break status;
+                }
             }
         }
     }};
@@ -1459,7 +1469,7 @@ impl DBBatch {
 
     /// Deletes a range of keys between `from` (inclusive) and `to` (non-inclusive)
     /// by writing a range delete tombstone in the db map.
-    /// If the DBMap is configured with ignore_range_deletions set to false,.
+    /// If the DBMap is configured with ignore_range_deletions set to false,
     /// the effect of this write will be visible immediately i.e. you won't.
     /// see old values when you do a lookup or scan. But if it is configured.
     /// with ignore_range_deletions set to true, the old value are visible until.
@@ -1624,7 +1634,7 @@ where
     fn contains_key(&self, key: &K) -> Result<bool, TypedStoreError> {
         let start = std::time::Instant::now();
         let key_buf = be_fix_int_ser(key)?;
-        // [`rocksdb::DBWithThreadMode::key_may_exist_cf`] can have false positives,.
+        // [`rocksdb::DBWithThreadMode::key_may_exist_cf`] can have false positives,
         // but no false negatives. We use it to short-circuit the absent case.
         let readopts = self.opts.readopts();
         let may_exist = self
@@ -1821,7 +1831,7 @@ where
     }
 
     /// Writes a range delete tombstone to delete all entries in the db map.
-    /// If the DBMap is configured with ignore_range_deletions set to false,.
+    /// If the DBMap is configured with ignore_range_deletions set to false,
     /// the effect of this write will be visible immediately i.e. you won't.
     /// see old values when you do a lookup or scan. But if it is configured.
     /// with ignore_range_deletions set to true, the old value are visible until.
@@ -2056,7 +2066,7 @@ impl fmt::Debug for DBOptions {
 pub fn default_db_options() -> DBOptions {
     let mut opt = rocksdb::Options::default();
 
-    // One common issue when running tests on Mac is that the default ulimit is too low,.
+    // One common issue when running tests on Mac is that the default ulimit is too low,
     // leading to I/O errors such as "Too many open files". Raising fdlimit to bypass it.
     if let Ok(outcome) = fdlimit::raise_fd_limit() {
         let limit = match outcome {
@@ -2292,7 +2302,7 @@ pub fn safe_drop_db(path: PathBuf) -> Result<(), rocksdb::Error> {
     rocksdb::DB::destroy(&rocksdb::Options::default(), path)
 }
 
-/// Populate missing column families
+/// Populate missing column families.
 fn populate_missing_cfs(
     input_cfs: &[(&str, rocksdb::Options)],
     path: &Path,

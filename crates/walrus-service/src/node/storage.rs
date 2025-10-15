@@ -263,12 +263,21 @@ impl Storage {
             .chain(blob_info_column_families)
             .collect::<Vec<_>>();
 
-        let database = rocks::open_cf_opts(
-            path,
-            Some(db_opts),
-            metrics_config,
-            &expected_column_families,
-        )?;
+        let database = if db_config.experimental_use_optimistic_transaction_db() {
+            rocks::open_cf_opts_optimistic(
+                path,
+                Some(db_opts),
+                metrics_config,
+                &expected_column_families,
+            )?
+        } else {
+            rocks::open_cf_opts(
+                path,
+                Some(db_opts),
+                metrics_config,
+                &expected_column_families,
+            )?
+        };
 
         let node_status = DBMap::reopen(
             &database,

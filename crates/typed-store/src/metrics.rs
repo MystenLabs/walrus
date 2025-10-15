@@ -13,12 +13,16 @@ use std::{
 
 use once_cell::sync::OnceCell;
 use prometheus::{
+    Histogram,
     HistogramVec,
+    IntCounter,
     IntCounterVec,
     IntGaugeVec,
     Registry,
     register_histogram_vec_with_registry,
+    register_histogram_with_registry,
     register_int_counter_vec_with_registry,
+    register_int_counter_with_registry,
     register_int_gauge_vec_with_registry,
 };
 use rocksdb::{
@@ -401,6 +405,10 @@ pub struct OperationMetrics {
     pub rocksdb_batch_commit_bytes: HistogramVec,
     /// Number of active db handles
     pub rocksdb_num_active_db_handles: IntGaugeVec,
+    /// Number of times we retried an optimistic transaction due to write conflict (total)
+    pub rocksdb_optimistic_tx_retries_total: IntCounter,
+    /// Histogram of retry counts per transaction (observed once per transaction)
+    pub rocksdb_optimistic_tx_retries_per_tx: Histogram,
     /// Number of batch writes that took more than 1 second
     pub rocksdb_very_slow_batch_writes_count: IntCounterVec,
     /// Total duration of batch writes that took more than 1 second
@@ -447,6 +455,22 @@ impl OperationMetrics {
                 "Rocksdb iter latency in seconds",
                 &["cf_class"],
                 LATENCY_SEC_BUCKETS.to_vec(),
+                registry,
+            )
+            .unwrap(),
+            rocksdb_optimistic_tx_retries_total: register_int_counter_with_registry!(
+                "rocksdb_optimistic_tx_retries_total",
+                "Number of times we retried an optimistic transaction due to write
+                conflict (total)",
+                registry,
+            )
+            .unwrap(),
+            rocksdb_optimistic_tx_retries_per_tx: register_histogram_with_registry!(
+                "rocksdb_optimistic_tx_retries_per_tx",
+                "Histogram of optimistic transaction retry counts per transaction",
+                // Buckets for retry counts: capture 0 (no retry), small counts, and tail
+                // 0,1,2,3,5,8,13,21
+                vec![0.0, 1.0, 2.0, 3.0, 5.0, 8.0, 13.0, 21.0],
                 registry,
             )
             .unwrap(),
