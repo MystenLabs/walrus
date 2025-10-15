@@ -197,6 +197,11 @@ pub enum StoreMetadataError {
     #[rest_api_error(reason = "NOT_REGISTERED", status = ApiStatusCode::FailedPrecondition)]
     NotCurrentlyRegistered,
 
+    /// The node refused the metadata upload because the pending cache is full.
+    #[error("pending upload cache is saturated; retry once the node catches up")]
+    #[rest_api_error(reason = "CACHE_SATURATED", status = ApiStatusCode::FailedPrecondition)]
+    CacheSaturated,
+
     /// The provided metadata is not valid for the blob.
     #[error("the provided metadata failed to verify: {0}")]
     #[rest_api_error(reason = "INVALID_METADATA", status = ApiStatusCode::InvalidArgument)]
@@ -294,6 +299,11 @@ pub enum StoreSliverError {
     #[error("unsupported encoding type {0}, supported types are: {SUPPORTED_ENCODING_TYPES:?}")]
     #[rest_api_error(reason = "UNSUPPORTED_ENCODING_TYPE", status = ApiStatusCode::InvalidArgument)]
     UnsupportedEncodingType(EncodingType),
+
+    /// The node refused the sliver because the pending upload cache is full.
+    #[error("pending upload cache is saturated; retry once the node catches up")]
+    #[rest_api_error(reason = "CACHE_SATURATED", status = ApiStatusCode::FailedPrecondition)]
+    CacheSaturated,
 
     #[error(transparent)]
     #[rest_api_error(delegate)]

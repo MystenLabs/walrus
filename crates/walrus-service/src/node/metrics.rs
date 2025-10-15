@@ -92,6 +92,18 @@ walrus_utils::metrics::define_metric_set! {
         #[help = "Total number of sliver instances returned"]
         slivers_retrieved_total: IntCounterVec["sliver_type"],
 
+        #[help = "Number of slivers buffered in the pending sliver cache"]
+        pending_sliver_cache_slivers: IntGauge[],
+
+        #[help = "Number of blobs currently represented in the pending sliver cache"]
+        pending_sliver_cache_blobs: IntGauge[],
+
+        #[help = "Total bytes buffered in the pending sliver cache"]
+        pending_sliver_cache_bytes: IntGauge[],
+
+        #[help = "Number of metadata records buffered prior to registration"]
+        pending_metadata_cache_entries: IntGauge[],
+
         #[help = "The number of Walrus events processed"]
         event_cursor_progress: U64GaugeVec["state"],
 

@@ -140,6 +140,12 @@ pub struct StorageNodeConfig {
     /// This is ignored if `use_legacy_event_provider` is set to `true`.
     #[serde(default, skip_serializing_if = "defaults::is_default")]
     pub event_processor_config: EventProcessorConfig,
+    /// Configuration for the pending sliver cache.
+    #[serde(default, skip_serializing_if = "defaults::is_default")]
+    pub pending_sliver_cache: PendingSliverCacheConfig,
+    /// Configuration for the pending metadata cache.
+    #[serde(default, skip_serializing_if = "defaults::is_default")]
+    pub pending_metadata_cache: PendingMetadataCacheConfig,
     /// Use the legacy event provider.
     ///
     /// This is deprecated and will be removed in the future.
@@ -221,6 +227,8 @@ impl Default for StorageNodeConfig {
             tls: Default::default(),
             shard_sync_config: Default::default(),
             event_processor_config: Default::default(),
+            pending_sliver_cache: Default::default(),
+            pending_metadata_cache: Default::default(),
             use_legacy_event_provider: false,
             disable_event_blob_writer: Default::default(),
             commission_rate: defaults::commission_rate(),
@@ -598,6 +606,55 @@ impl BlobRecoveryConfig {
     }
 }
 
+/// Configuration for the pending sliver cache.
+#[serde_as]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct PendingSliverCacheConfig {
+    /// Maximum number of slivers retained in memory while the blob registration is pending.
+    pub max_cached_slivers: usize,
+    /// Maximum number of bytes retained in memory while the blob registration is pending.
+    pub max_cached_bytes: usize,
+    /// Maximum size of a single sliver retained in memory while the blob registration is pending.
+    pub max_cached_sliver_bytes: usize,
+    /// Duration after which pending uploads are evicted if the blob is still unregistered.
+    #[serde_as(as = "DurationSeconds<u64>")]
+    pub cache_ttl: Duration,
+}
+
+impl Default for PendingSliverCacheConfig {
+    fn default() -> Self {
+        Self {
+            max_cached_slivers: defaults::pending_sliver_cache_max_cached_slivers(),
+            max_cached_bytes: defaults::pending_sliver_cache_max_cached_bytes(),
+            max_cached_sliver_bytes: defaults::pending_sliver_cache_max_cached_sliver_bytes(),
+            cache_ttl: defaults::pending_sliver_cache_ttl(),
+        }
+    }
+}
+
+/// Configuration for the pending metadata cache.
+#[serde_as]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct PendingMetadataCacheConfig {
+    /// Maximum number of metadata entries retained in memory while the blob registration is
+    /// pending.
+    pub max_cached_entries: usize,
+    /// Duration after which cached metadata is evicted if the blob is still unregistered.
+    #[serde_as(as = "DurationSeconds<u64>")]
+    pub cache_ttl: Duration,
+}
+
+impl Default for PendingMetadataCacheConfig {
+    fn default() -> Self {
+        Self {
+            max_cached_entries: defaults::pending_metadata_cache_max_cached_entries(),
+            cache_ttl: defaults::pending_metadata_cache_ttl(),
+        }
+    }
+}
+
 /// Configuration of a Walrus storage node.
 #[serde_as]
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
@@ -751,11 +808,17 @@ pub struct BlobEventProcessorConfig {
     /// The number of workers to process blob events in parallel.
     /// When set to 0, the node will process all blob events sequentially.
     pub num_workers: usize,
+    /// The number of workers handling best-effort cache flushes after registration.
+    /// If not set, defaults to 4.
+    pub num_flush_workers: Option<usize>,
 }
 
 impl Default for BlobEventProcessorConfig {
     fn default() -> Self {
-        Self { num_workers: 10 }
+        Self {
+            num_workers: 10,
+            num_flush_workers: Some(4),
+        }
     }
 }
 
@@ -904,6 +967,21 @@ pub mod defaults {
     pub const BALANCE_CHECK_WARNING_THRESHOLD_MIST: u64 = 5_000_000_000;
     /// The default number of max concurrent streams for the rest API.
     pub const REST_HTTP2_MAX_CONCURRENT_STREAMS: u32 = 1000;
+    /// Default capacity for the pending sliver cache (number of slivers).
+    pub const PENDING_SLIVER_CACHE_MAX_SLIVERS: usize = 4_096;
+    /// Default byte capacity for the pending sliver cache (~512 MiB).
+    pub const PENDING_SLIVER_CACHE_MAX_BYTES: usize = 512 * 1024 * 1024;
+    /// Default maximum size for a single sliver buffered in the pending sliver cache (~4 MiB).
+    pub const PENDING_SLIVER_CACHE_MAX_SLIVER_BYTES: usize = 4 * 1024 * 1024;
+    /// Default time-to-live for pending uploads before eviction.
+    pub const PENDING_SLIVER_CACHE_TTL: Duration = Duration::from_secs(10);
+    /// Default capacity for the pending metadata cache (number of entries).
+    pub const PENDING_METADATA_CACHE_MAX_ENTRIES: usize = {
+        let value = PENDING_SLIVER_CACHE_MAX_SLIVERS / 8;
+        if value == 0 { 1 } else { value }
+    };
+    /// Default time-to-live for pending metadata before eviction.
+    pub const PENDING_METADATA_CACHE_TTL: Duration = PENDING_SLIVER_CACHE_TTL;
 
     /// Returns the default metrics port.
     pub fn metrics_port() -> u16 {
@@ -923,6 +1001,36 @@ pub mod defaults {
     /// Returns the default REST API address.
     pub fn rest_api_address() -> SocketAddr {
         (Ipv4Addr::UNSPECIFIED, REST_API_PORT).into()
+    }
+
+    /// Returns the default maximum number of slivers retained in the pending sliver cache.
+    pub const fn pending_sliver_cache_max_cached_slivers() -> usize {
+        PENDING_SLIVER_CACHE_MAX_SLIVERS
+    }
+
+    /// Returns the default maximum number of bytes retained in the pending sliver cache.
+    pub const fn pending_sliver_cache_max_cached_bytes() -> usize {
+        PENDING_SLIVER_CACHE_MAX_BYTES
+    }
+
+    /// Returns the default maximum size for a single sliver retained in the pending sliver cache.
+    pub const fn pending_sliver_cache_max_cached_sliver_bytes() -> usize {
+        PENDING_SLIVER_CACHE_MAX_SLIVER_BYTES
+    }
+
+    /// Returns the default time-to-live for pending uploads.
+    pub const fn pending_sliver_cache_ttl() -> Duration {
+        PENDING_SLIVER_CACHE_TTL
+    }
+
+    /// Returns the default maximum number of metadata entries retained in the cache.
+    pub const fn pending_metadata_cache_max_cached_entries() -> usize {
+        PENDING_METADATA_CACHE_MAX_ENTRIES
+    }
+
+    /// Returns the default time-to-live for pending metadata uploads.
+    pub const fn pending_metadata_cache_ttl() -> Duration {
+        PENDING_METADATA_CACHE_TTL
     }
 
     /// Returns the default network ([`SuiNetwork::Devnet`])
