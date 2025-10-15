@@ -1102,7 +1102,10 @@ async fn parse_multipart_quilt(
         let tags = if let Some(meta) = metadata_map.get(&identifier) {
             meta.tags
                 .iter()
-                .map(|(k, v)| (k.clone(), v.to_string()))
+                .map(|(k, v)| match v {
+                    serde_json::Value::String(s) => (k.clone(), s.clone()),
+                    _ => (k.clone(), v.to_string()),
+                })
                 .collect()
         } else {
             BTreeMap::new()
