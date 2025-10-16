@@ -85,6 +85,12 @@ pub struct StorageNodeConfig {
     /// Optional "config" to tune storage database.
     #[serde(default, skip_serializing_if = "defaults::is_default")]
     pub db_config: DatabaseConfig,
+    /// Configuration for pre-certify notices and recovery deferral.
+    #[serde(default, skip_serializing_if = "defaults::is_default")]
+    pub precertify_notice: PrecertifyNoticeConfig,
+    /// Configuration for deferring recovery while uploads are in progress.
+    #[serde(default, skip_serializing_if = "defaults::is_default")]
+    pub live_upload_deferral: LiveUploadDeferralConfig,
     /// Key pair used in Walrus protocol messages.
     // Important: this name should be in-sync with the name used in `rotate_protocol_key_pair()`
     #[serde_as(as = "PathOrInPlace<Base64>")]
@@ -203,6 +209,8 @@ impl Default for StorageNodeConfig {
             storage_path: PathBuf::from("/opt/walrus/db"),
             blocklist_path: Default::default(),
             db_config: Default::default(),
+            precertify_notice: Default::default(),
+            live_upload_deferral: Default::default(),
             protocol_key_pair: PathOrInPlace::from_path("/opt/walrus/config/protocol.key"),
             next_protocol_key_pair: None,
             network_key_pair: PathOrInPlace::from_path("/opt/walrus/config/network.key"),
@@ -780,6 +788,96 @@ impl GarbageCollectionConfig {
         Self {
             enable_blob_info_cleanup: true,
         }
+    }
+}
+
+/// Configuration for pre-certify notice handling and recovery deferral.
+#[serde_as]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct PrecertifyNoticeConfig {
+    /// Enable handling of pre-certify notices.
+    pub enabled: bool,
+    /// Minimum deferral duration to apply when a notice is received.
+    #[serde_as(as = "DurationSeconds<u64>")]
+    #[serde(rename = "defer_min_secs")]
+    pub defer_min: Duration,
+    /// Maximum deferral duration to apply when a notice is received.
+    #[serde_as(as = "DurationSeconds<u64>")]
+    #[serde(rename = "defer_max_secs")]
+    pub defer_max: Duration,
+    /// Random jitter percentage applied to the defer window to avoid thundering herds.
+    pub jitter_pct: u8,
+}
+
+impl Default for PrecertifyNoticeConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            defer_min: Duration::from_secs(0),
+            defer_max: Duration::from_secs(30),
+            jitter_pct: 15,
+        }
+    }
+}
+
+/// Entry defining a size bucket and the corresponding deferral duration.
+#[serde_as]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+pub struct SizeDeferralEntry {
+    /// Maximum unencoded blob size (inclusive) in bytes for this bucket.
+    pub max_unencoded_bytes: u64,
+    /// Deferral duration to apply for this bucket.
+    #[serde_as(as = "DurationSeconds<u64>")]
+    #[serde(rename = "defer_secs")]
+    pub defer: Duration,
+}
+
+/// Configuration that controls deferring recovery when a live client upload is likely.
+#[serde_as]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct LiveUploadDeferralConfig {
+    /// Enables applying a deferral window based on blob size.
+    pub enabled: bool,
+    /// Lookup table from size upper-bounds to deferral durations. The first matching entry applies.
+    pub table: Vec<SizeDeferralEntry>,
+    /// Maximum total deferral to apply, acting as an upper bound.
+    #[serde_as(as = "DurationSeconds<u64>")]
+    #[serde(rename = "max_total_defer_secs")]
+    pub max_total_defer: Duration,
+}
+
+impl Default for LiveUploadDeferralConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            table: Vec::new(),
+            max_total_defer: Duration::from_secs(30),
+        }
+    }
+}
+
+impl LiveUploadDeferralConfig {
+    /// Computes the deferral for the provided unencoded blob size, if any.
+    pub fn deferral_for_size(&self, size_bytes: u64) -> Option<Duration> {
+        if !self.enabled {
+            return None;
+        }
+
+        let mut candidate: Option<&SizeDeferralEntry> = None;
+        for entry in &self.table {
+            if size_bytes <= entry.max_unencoded_bytes {
+                candidate = match candidate {
+                    Some(best) if best.max_unencoded_bytes <= entry.max_unencoded_bytes => {
+                        Some(best)
+                    }
+                    _ => Some(entry),
+                };
+            }
+        }
+
+        candidate.map(|entry| std::cmp::min(entry.defer, self.max_total_defer))
     }
 }
 

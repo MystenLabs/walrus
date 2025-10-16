@@ -31,7 +31,12 @@ use walrus_core::{
         SignedSyncShardRequest,
         StorageConfirmation,
     },
-    metadata::{BlobMetadata, UnverifiedBlobMetadataWithId, VerifiedBlobMetadataWithId},
+    metadata::{
+        BlobMetadata,
+        BlobMetadataApi,
+        UnverifiedBlobMetadataWithId,
+        VerifiedBlobMetadataWithId,
+    },
 };
 use walrus_storage_node_client::{
     RecoverySymbolsFilter,
@@ -58,7 +63,7 @@ use crate::{
         StoreMetadataError,
         StoreSliverError,
         SyncShardServiceError,
-        errors::{IndexOutOfRange, ListSymbolsError, Unavailable},
+        errors::{IndexOutOfRange, ListSymbolsError, SetRecoveryDeferralError, Unavailable},
     },
 };
 
@@ -92,6 +97,8 @@ pub const INCONSISTENCY_PROOF_ENDPOINT: &str =
 pub const BLOB_STATUS_ENDPOINT: &str = "/v1/blobs/{blob_id}/status";
 pub const HEALTH_ENDPOINT: &str = "/v1/health";
 pub const SYNC_SHARD_ENDPOINT: &str = "/v1/migrate/sync_shard";
+/// The path to explicitly set/extend recovery deferral for a blob (milliseconds).
+pub const SET_DEFERRAL_ENDPOINT: &str = "/v1/blobs/{blob_id}/precertify/deferral";
 
 /// Convenience trait to apply bounds on the ServiceState.
 pub(crate) trait SyncServiceState: ServiceState + Send + Sync + 'static {}
@@ -178,6 +185,50 @@ pub async fn put_metadata<S: SyncServiceState>(
     };
 
     Ok(ApiSuccess::new(code, message))
+}
+
+/// Recovery deferral query.
+#[derive(Debug, Deserialize)]
+pub struct SetDeferralQuery {
+    /// The duration of the recovery deferral window (in milliseconds).
+    pub ms: u64,
+}
+
+/// Explicitly set a recovery deferral window for a blob (in milliseconds).
+#[tracing::instrument(skip_all, fields(walrus.blob_id = %blob_id), err(level = Level::DEBUG))]
+#[utoipa::path(
+    post,
+    path = SET_DEFERRAL_ENDPOINT,
+    params(("blob_id" = BlobId,), ("ms" = u64,)),
+    responses(
+        (status = OK, description = "Deferral set", body = ApiSuccess<String>),
+        SetRecoveryDeferralError,
+    ),
+    tag = openapi::GROUP_STATUS
+)]
+pub async fn post_set_deferral<S: SyncServiceState>(
+    State(state): State<RestApiState<S>>,
+    Path(BlobIdString(blob_id)): Path<BlobIdString>,
+    Query(SetDeferralQuery { ms }): Query<SetDeferralQuery>,
+) -> Result<ApiSuccess<String>, SetRecoveryDeferralError> {
+    let mut duration = std::time::Duration::from_millis(ms);
+    let maybe_size_bound = state
+        .service
+        .retrieve_metadata(&blob_id)
+        .ok()
+        .and_then(|md| {
+            let size = md.as_ref().unencoded_length();
+            state.config.live_upload_deferral.deferral_for_size(size)
+        });
+    let bound = maybe_size_bound.unwrap_or(state.config.live_upload_deferral.max_total_defer);
+    if duration > bound {
+        duration = bound;
+    }
+    state
+        .service
+        .set_recovery_deferral(blob_id, duration)
+        .await?;
+    Ok(ApiSuccess::ok("deferral set".to_string()))
 }
 
 /// Get blob slivers.
