@@ -6,6 +6,8 @@ use std::{
     fmt::{self, Display},
     ops::Div,
     path::{Path, PathBuf},
+    str::FromStr,
+    sync::LazyLock,
 };
 
 use crate::k6_tests::k6::K6;
@@ -19,58 +21,118 @@ type TestResult = Result<(), Box<dyn std::error::Error>>;
 
 /// Default directory in which the k6 test scripts can be found.
 const DEFAULT_K6_SCRIPTS_DIRECTORY: &str = "../../scripts/k6/src/tests";
-/// Default environment in which the k6 tests are being run.
-const DEFAULT_K6_ENVIRONMENT: &str = "localhost";
+
+/// The environment in which the test is running, defaults to 'localhost'.
+static WALRUS_K6_ENVIRONMENT: LazyLock<K6Environment> = LazyLock::new(|| {
+    env::var("WALRUS_K6_ENVIRONMENT")
+        .map(|s| {
+            s.parse()
+                .expect("WALRUS_K6_ENVIRONMENT must be a known environment")
+        })
+        .unwrap_or_default()
+});
+
+/// The directory in which the k6 scripts are located.
+static WALRUS_K6_SCRIPTS_DIRECTORY: LazyLock<PathBuf> = LazyLock::new(|| {
+    PathBuf::from(
+        env::var("WALRUS_K6_SCRIPTS_DIRECTORY").unwrap_or(DEFAULT_K6_SCRIPTS_DIRECTORY.to_owned()),
+    )
+});
+
+/// Optional suffix appended to `testid`s to create a `test_run_id` metric label value.
+///
+/// Specifying this in CI allows identifying test results from different workflow runs.
+static WALRUS_K6_TEST_RUN_ID_SUFFIX: LazyLock<Option<String>> =
+    LazyLock::new(|| env::var("WALRUS_K6_TEST_RUN_ID_SUFFIX").ok());
+
+/// A directory that, if specified, causes test reports to be generated and written into it.
+static WALRUS_K6_REPORT_DIRECTORY: LazyLock<Option<String>> =
+    LazyLock::new(|| env::var("WALRUS_K6_REPORT_DIRECTORY").ok());
+
+/// If specified, defines the argument to the k6 `--out` flag, for how to export metrics.
+static WALRUS_K6_OUT: LazyLock<Option<String>> = LazyLock::new(|| env::var("WALRUS_K6_OUT").ok());
+
+/// If set to 'true', call k6 with the `--quiet` flag, to avoid real-time progress out.
+static WALRUS_K6_QUIET: LazyLock<bool> =
+    LazyLock::new(|| env::var("WALRUS_K6_QUIET").map_or(false, |s| s.parse().unwrap_or(false)));
+
+/// If set to 'true', call k6 with the `--no-color` flag.
+static WALRUS_K6_NO_COLOR: LazyLock<bool> =
+    LazyLock::new(|| env::var("WALRUS_K6_NO_COLOR").map_or(false, |s| s.parse().unwrap_or(false)));
 
 /// Create a new [`K6`] instance for running a command and sets common options.
 fn run<P>(script: P, testid_suffix: &str) -> K6
 where
     P: AsRef<Path>,
 {
-    let environment = get_environment();
-    let testid = format!("{environment}:{testid_suffix}");
+    let testid = format!("{0}:{testid_suffix}", *WALRUS_K6_ENVIRONMENT);
     let script = script_path(script);
 
     let mut k6_run = K6::new(script);
     k6_run
-        .env("WALRUS_K6_ENVIRONMENT", environment)
+        .env("WALRUS_K6_ENVIRONMENT", *WALRUS_K6_ENVIRONMENT)
         .tag("testid", &testid)
         .maybe_tag("test_run_id", get_test_run_id(&testid))
         .web_dashboard_export(report_path(&testid));
     k6_run
 }
 
-/// Returns the environment specified by the `WALRUS_K6_ENVIRONMENT` env variable,
-/// or DEFAULT_K6_ENVIRONMENT if unset.
-fn get_environment() -> String {
-    env::var("WALRUS_K6_ENVIRONMENT").unwrap_or(DEFAULT_K6_ENVIRONMENT.to_owned())
-}
-
-// TODO(jsmith): Need to override the environment as my default is likely different than that of the
-// script.
-
+/// If the environment variable `WALRUS_K6_TEST_RUN_ID_SUFFIX` is set, append it to the provided
+/// testid and return the resulting test_run_id.
 fn get_test_run_id(testid: &str) -> Option<String> {
-    env::var("WALRUS_K6_TEST_RUN_ID_SUFFIX")
+    WALRUS_K6_TEST_RUN_ID_SUFFIX
+        .as_deref()
         .map(|suffix| format!("{testid}:{suffix}"))
-        .ok()
 }
 
+/// Returns the path [`WALRUS_K6_SCRIPTS_DIRECTORY`] + `/<script>`.
 fn script_path<P: AsRef<Path>>(script: P) -> PathBuf {
-    env::var("WALRUS_K6_SCRIPTS_DIRECTORY")
-        .map(|s| PathBuf::from(s))
-        .unwrap_or(Path::new(DEFAULT_K6_SCRIPTS_DIRECTORY).to_path_buf())
-        .join(script)
+    WALRUS_K6_SCRIPTS_DIRECTORY.join(script)
 }
 
+/// If [`WALRUS_K6_REPORT_DIRECTORY`] returns `WALRUS_K6_REPORT_DIRECTORY/<testid>.html`,
+/// with any colons in testid replaced with hyphens.
 fn report_path(testid: &str) -> Option<String> {
-    env::var("WALRUS_K6_REPORT_DIRECTORY")
-        .map(|directory| {
-            let filename_stem = testid.replace(':', "-");
-            format!("{directory}/{filename_stem}.html")
-        })
-        .ok()
+    WALRUS_K6_REPORT_DIRECTORY.as_deref().map(|directory| {
+        let filename_stem = testid.replace(':', "-");
+        format!("{directory}/{filename_stem}.html")
+    })
 }
 
+/// Environment in which the tests are running.
+///
+/// Used to tag metrics as well as determine some test defaults.
+// An enum is used to ensure that whenever a new environment is added, the places where defaults
+// need to be set are highlighted.
+#[derive(Debug, Default, PartialEq, Eq, Clone, Copy)]
+enum K6Environment {
+    #[default]
+    Localhost,
+    NightlyBaseline,
+}
+
+impl FromStr for K6Environment {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "localhost" => Ok(Self::Localhost),
+            "performance-main-baseline" => Ok(Self::NightlyBaseline),
+            _ => Err(format!("unrecognised environment: {s}")),
+        }
+    }
+}
+
+impl Display for K6Environment {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            K6Environment::Localhost => f.write_str("localhost"),
+            K6Environment::NightlyBaseline => f.write_str("performance-main-baseline"),
+        }
+    }
+}
+
+/// A wrapper around byte counts which allows printing the value as `<x>Ki`, `<x>Mi`, or `<x>Gi`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 struct ByteSize(usize);
 

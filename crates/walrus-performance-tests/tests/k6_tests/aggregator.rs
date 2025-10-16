@@ -5,6 +5,7 @@ use crate::k6_tests::{self, ByteSize, TestResult};
 
 mod blob {
     use super::*;
+    use crate::k6_tests::{K6Environment, WALRUS_K6_ENVIRONMENT};
 
     walrus_test_utils::param_test! {
         blob_download_latency -> TestResult: [
@@ -37,10 +38,9 @@ mod blob {
 
     #[test]
     fn blob_download_request_throughput() -> TestResult {
-        let environment = k6_tests::get_environment();
-        let (start, increment, duration) = match environment.as_str() {
-            "performance-main-baseline" => (340, 10, "10s"),
-            "localhost" | _ => (180, 10, "15s"),
+        let (start, increment, duration) = match *WALRUS_K6_ENVIRONMENT {
+            K6Environment::NightlyBaseline => (340, 10, "10s"),
+            K6Environment::Localhost => (180, 10, "15s"),
         };
 
         blob_download_throughput("requests", ByteSize::kibi(1), start, increment, duration)
@@ -48,10 +48,9 @@ mod blob {
 
     #[test]
     fn blob_download_data_throughput() -> TestResult {
-        let environment = k6_tests::get_environment();
-        let (start, increment, duration) = match environment.as_str() {
-            "performance-main-baseline" => (90, 10, "15s"),
-            "localhost" | _ => (40, 5, "90s"),
+        let (start, increment, duration) = match *WALRUS_K6_ENVIRONMENT {
+            K6Environment::NightlyBaseline => (90, 10, "15s"),
+            K6Environment::Localhost => (40, 5, "90s"),
         };
 
         blob_download_throughput("data", ByteSize::mebi(100), start, increment, duration)

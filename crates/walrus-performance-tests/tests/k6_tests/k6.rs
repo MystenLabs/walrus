@@ -3,13 +3,14 @@
 
 use std::{
     borrow::Cow,
-    env,
     error::Error,
     ffi::OsStr,
     fmt::{Display, Write},
     path::PathBuf,
     process::Command,
 };
+
+use crate::k6_tests::{WALRUS_K6_NO_COLOR, WALRUS_K6_OUT, WALRUS_K6_QUIET};
 
 const THRESHOLDS_HAVE_FAILED_EXIT_CODE: i32 = 99;
 
@@ -41,13 +42,13 @@ impl K6 {
     {
         let mut args = vec!["run".into()];
 
-        if let Ok("true") = env::var("WALRUS_K6_QUIET").as_deref() {
+        if *WALRUS_K6_QUIET {
             args.push("--quiet".into());
         }
-        if let Ok(target) = env::var("WALRUS_K6_OUT") {
+        if let Some(target) = WALRUS_K6_OUT.as_deref() {
             args.extend(["--out".into(), target.into()]);
         }
-        if let Ok("true") = env::var("WALRUS_K6_NO_COLOR").as_deref() {
+        if *WALRUS_K6_NO_COLOR {
             args.push("--no-color".into());
         }
 

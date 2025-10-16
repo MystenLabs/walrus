@@ -6,6 +6,7 @@ use crate::k6_tests;
 
 mod blob {
     use super::*;
+    use crate::k6_tests::{K6Environment, WALRUS_K6_ENVIRONMENT};
 
     walrus_test_utils::param_test! {
         blob_upload_latency -> TestResult: [
@@ -38,10 +39,9 @@ mod blob {
 
     #[test]
     fn blob_upload_request_throughput() -> TestResult {
-        let environment = k6_tests::get_environment();
-        let (start, increment, duration) = match environment.as_str() {
-            "performance-main-baseline" => (150, 10, "15s"),
-            "localhost" | _ => (40, 5, "30s"),
+        let (start, increment, duration) = match *WALRUS_K6_ENVIRONMENT {
+            K6Environment::NightlyBaseline => (150, 10, "15s"),
+            K6Environment::Localhost => (40, 5, "30s"),
         };
 
         blob_upload_throughput("requests", ByteSize::kibi(1), start, increment, duration)
@@ -49,10 +49,9 @@ mod blob {
 
     #[test]
     fn blob_upload_data_throughput() -> TestResult {
-        let environment = k6_tests::get_environment();
-        let (start, increment, duration) = match environment.as_str() {
-            "performance-main-baseline" => (20, 2, "90s"),
-            "localhost" | _ => (40, 1, "25s"),
+        let (start, increment, duration) = match *WALRUS_K6_ENVIRONMENT {
+            K6Environment::NightlyBaseline => (20, 2, "90s"),
+            K6Environment::Localhost => (40, 1, "25s"),
         };
 
         blob_upload_throughput("data", ByteSize::mebi(100), start, increment, duration)

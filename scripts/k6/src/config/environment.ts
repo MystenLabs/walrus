@@ -34,7 +34,12 @@ export interface EnvironmentConfig {
     redisUrl?: RedisUrl,
 }
 
-const testnetPublisherUrl = "https://publisher.walrus-testnet.walrus.space";
+const ciEnvironmentDefaults: Omit<EnvironmentConfig, "environment"> = {
+    "publisherUrl": "http://walrus-publisher-0.walrus-publisher:31415",
+    "aggregatorUrl": "http://walrus-aggregator-0.walrus-aggregator:31415",
+    "payloadSourceFile": "/opt/k6/data/data.bin",
+    "redisUrl": "redis://localhost:6379",
+}
 
 /**
  * Default configurations for various running environments.
@@ -46,26 +51,14 @@ const ENVIRONMENT_DEFAULTS: { [index: string]: Omit<EnvironmentConfig, "environm
         "payloadSourceFile": "../../../data.bin", // Within the k6 folder
         "redisUrl": undefined // Set to undefined as the key is used to fetch the ENV variable.
     },
-    "walrus-performance-network": {
-        "publisherUrl": "http://walrus-publisher-0.walrus-publisher:31415",
-        "aggregatorUrl": "http://walrus-aggregator-0.walrus-aggregator:31415",
-        "payloadSourceFile": "/opt/k6/data/data.bin",
-        "redisUrl": "redis://localhost:6379",
-    },
     "walrus-testnet": {
-        "publisherUrl": testnetPublisherUrl,
+        "publisherUrl": "https://publisher.walrus-testnet.walrus.space",
         "aggregatorUrl": "https://aggregator.walrus-testnet.walrus.space",
         "payloadSourceFile": "../../../data.bin", // Within the k6 folder
         "redisUrl": undefined // Set to undefined as the key is used to fetch the ENV variable.
     },
-    "walrus-testnet-ci": {
-        "publisherUrl": testnetPublisherUrl,
-        // We use an aggregator running within the test environment to ensure
-        // that we do not access the cache
-        "aggregatorUrl": "http://walrus-aggregator-0.walrus-aggregator:31415",
-        "payloadSourceFile": "/opt/k6/data/data.bin",
-        "redisUrl": "redis://localhost:6379",
-    }
+    "ci-testnet-performance": ciEnvironmentDefaults,
+    "performance-main-baseline": ciEnvironmentDefaults,
 }
 
 /**
