@@ -80,11 +80,12 @@ impl<T, E> WeightedResult for NodeResult<T, E> {
     }
 }
 
-pub(crate) struct NodeCommunication<'a, W = ()> {
+#[derive(Debug)]
+pub struct NodeCommunication<W = ()> {
     pub node_index: NodeIndex,
     pub committee_epoch: Epoch,
-    pub node: &'a StorageNode,
-    pub encoding_config: &'a EncodingConfig,
+    pub node: StorageNode,
+    pub encoding_config: Arc<EncodingConfig>,
     pub span: Span,
     pub client: StorageNodeClient,
     pub config: RequestRateConfig,
@@ -93,10 +94,10 @@ pub(crate) struct NodeCommunication<'a, W = ()> {
     pub sliver_write_limit: W,
 }
 
-pub type NodeReadCommunication<'a> = NodeCommunication<'a, ()>;
-pub type NodeWriteCommunication<'a> = NodeCommunication<'a, Arc<Semaphore>>;
+pub type NodeReadCommunication = NodeCommunication;
+pub type NodeWriteCommunication = NodeCommunication<Arc<Semaphore>>;
 
-impl<'a> NodeReadCommunication<'a> {
+impl NodeReadCommunication {
     /// Creates a new [`NodeCommunication`].
     ///
     /// Returns `None` if the `node` has no shards.
@@ -104,8 +105,8 @@ impl<'a> NodeReadCommunication<'a> {
         node_index: NodeIndex,
         committee_epoch: Epoch,
         client: StorageNodeClient,
-        node: &'a StorageNode,
-        encoding_config: &'a EncodingConfig,
+        node: StorageNode,
+        encoding_config: Arc<EncodingConfig>,
         config: RequestRateConfig,
         sliver_status_check_threshold: usize,
     ) -> Option<Self> {
@@ -119,6 +120,7 @@ impl<'a> NodeReadCommunication<'a> {
             %config.max_node_connections,
             "initializing communication with node"
         );
+        let pk_prefix = string_prefix(&node.public_key);
         Some(Self {
             node_index,
             committee_epoch,
@@ -129,7 +131,7 @@ impl<'a> NodeReadCommunication<'a> {
                 "node",
                 index = node_index,
                 committee_epoch,
-                pk_prefix = string_prefix(&node.public_key)
+                pk_prefix = pk_prefix
             ),
             client,
             config,
@@ -139,10 +141,7 @@ impl<'a> NodeReadCommunication<'a> {
         })
     }
 
-    pub fn with_write_limits(
-        self,
-        sliver_write_limit: Arc<Semaphore>,
-    ) -> NodeWriteCommunication<'a> {
+    pub fn with_write_limits(self, sliver_write_limit: Arc<Semaphore>) -> NodeWriteCommunication {
         let node_write_limit = Arc::new(Semaphore::new(self.config.max_node_connections));
         let Self {
             node_index,
@@ -170,7 +169,7 @@ impl<'a> NodeReadCommunication<'a> {
     }
 }
 
-impl<W> NodeCommunication<'_, W> {
+impl<W> NodeCommunication<W> {
     /// Returns the number of shards.
     pub fn n_shards(&self) -> NonZeroU16 {
         self.encoding_config.n_shards()
@@ -207,7 +206,7 @@ impl<W> NodeCommunication<'_, W> {
         tracing::debug!(%blob_id, "retrieving metadata");
         let result = self
             .client
-            .get_and_verify_metadata(blob_id, self.encoding_config)
+            .get_and_verify_metadata(blob_id, self.encoding_config.as_ref())
             .await;
         self.to_node_result_with_n_shards(result)
     }
@@ -231,7 +230,7 @@ impl<W> NodeCommunication<'_, W> {
         let sliver_pair_index = shard_index.to_pair_index(self.n_shards(), metadata.blob_id());
         let sliver = self
             .client
-            .get_and_verify_sliver(sliver_pair_index, metadata, self.encoding_config)
+            .get_and_verify_sliver(sliver_pair_index, metadata, self.encoding_config.as_ref())
             .await;
 
         // Each sliver is in this case requested individually, so the weight is 1.
@@ -298,7 +297,7 @@ impl<W> NodeCommunication<'_, W> {
     }
 }
 
-impl NodeWriteCommunication<'_> {
+impl NodeWriteCommunication {
     /// Stores metadata and sliver pairs on a node, and requests a storage confirmation.
     ///
     /// Returns a [`NodeResult`], where the weight is the number of shards for which the storage
