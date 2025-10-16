@@ -186,10 +186,10 @@ walrus_utils::metrics::define_metric_set! {
         event_position_sui_checkpoint_index: U64GaugeVec["state"],
 
         #[help = "The total number of expired blob objects deleted"]
-        expired_blob_objects_deleted_total: IntCounter[],
+        cleanup_expired_blob_objects_deleted_total: IntCounter[],
 
         #[help = "The total number of blob data deletion attempts"]
-        blob_data_deletion_attempts_total: IntCounterVec["status"],
+        cleanup_blob_data_deletion_attempts_total: IntCounterVec["status"],
     }
 }
 

@@ -1591,7 +1591,7 @@ impl StorageNode {
         {
             tracing::warn!(
                 ?err,
-                epoch = %event.epoch,
+                walrus.epoch = event.epoch,
                 "failed to schedule background blob info consistency check"
             );
         }
@@ -1729,7 +1729,7 @@ impl StorageNode {
             return Ok(());
         }
 
-        tracing::info!(epoch = %event.epoch, "catching-up node reaches the current epoch");
+        tracing::info!(walrus.epoch = %event.epoch, "catching-up node reaches the current epoch");
 
         let active_committees = self.inner.committee_service.active_committees();
         if !active_committees

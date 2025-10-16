@@ -598,18 +598,13 @@ impl Storage {
         current_epoch: Epoch,
         node_metrics: &NodeMetricSet,
     ) -> anyhow::Result<()> {
-        tracing::info!(epoch = %current_epoch, "processing expired blob objects");
-
         self.blob_info
             .process_expired_blob_objects(current_epoch, node_metrics)
-            .await?;
-
-        tracing::info!(epoch = %current_epoch, "finished processing expired blob objects");
-
-        Ok(())
+            .await
     }
 
     /// Deletes the metadata and slivers for blobs that are expired in the given epoch.
+    #[tracing::instrument(skip_all, fields(walrus.epoch = %current_epoch))]
     pub(crate) async fn delete_expired_blob_data(
         &self,
         current_epoch: Epoch,
@@ -631,7 +626,10 @@ impl Storage {
             }
         };
 
-        tracing::info!(epoch = %current_epoch, "deleting expired blob data");
+        tracing::info!("starting to delete expired blob data");
+        let mut cleaned_up_blob_id_count = 0;
+        let start_time = Instant::now();
+
         let shards = futures::future::try_join_all(self.shards.read().await.values().map(
             |shard| async move {
                 match shard.status().await {
@@ -672,19 +670,32 @@ impl Storage {
 
             // At this point we know that the blob is no longer registered, and we can attempt to
             // delete the related data.
-            self.attempt_to_delete_blob_data(
-                &optimistic_handle,
-                &blob_id,
-                current_epoch,
-                &shards,
-                node_metrics,
-            )
-            .await?;
+            if self
+                .attempt_to_delete_blob_data(
+                    &optimistic_handle,
+                    &blob_id,
+                    current_epoch,
+                    &shards,
+                    node_metrics,
+                )
+                .await?
+            {
+                cleaned_up_blob_id_count += 1;
+            }
         }
+
+        tracing::info!(
+            cleaned_up_blob_id_count,
+            duration_seconds = %start_time.elapsed().as_secs_f64(),
+            "finished deleting expired blob data",
+        );
 
         Ok(())
     }
 
+    /// Attempts to delete the blob data for the given blob ID.
+    ///
+    /// Returns true if the blob data was deleted, false otherwise.
     async fn attempt_to_delete_blob_data(
         &self,
         optimistic_handle: &OptimisticHandle<'_>,
@@ -692,7 +703,7 @@ impl Storage {
         current_epoch: Epoch,
         shards: &[Arc<ShardStorage>],
         node_metrics: &NodeMetricSet,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<bool> {
         let transaction = optimistic_handle.transaction();
         let Some(blob_info) = self
             .blob_info
@@ -702,14 +713,14 @@ impl Storage {
                 %blob_id,
                 "blob info not found when attempting to delete expired blob data"
             );
-            return Ok(());
+            return Ok(false);
         };
         if blob_info.is_registered(current_epoch) {
             tracing::debug!(
                 %blob_id,
                 "blob was reregistered before attempting to delete expired blob data",
             );
-            return Ok(());
+            return Ok(false);
         }
 
         // At this point we are sure that the blob is no longer registered and can actually delete
@@ -734,23 +745,23 @@ impl Storage {
 
             // Record failed deletion in metrics.
             walrus_utils::with_label!(
-                node_metrics.blob_data_deletion_attempts_total,
+                node_metrics.cleanup_blob_data_deletion_attempts_total,
                 STATUS_FAILURE
             )
             .inc();
 
             // Returning successfully here because it doesn't matter if the deletion failed.
             // The data will simply be deleted in a future garbage-collection process.
-            return Ok(());
+            return Ok(false);
         }
 
         // Record successful deletion in metrics.
         walrus_utils::with_label!(
-            node_metrics.blob_data_deletion_attempts_total,
+            node_metrics.cleanup_blob_data_deletion_attempts_total,
             STATUS_SUCCESS
         )
         .inc();
-        Ok(())
+        Ok(true)
     }
 
     /// Repositions the event cursor to the specified event index.
