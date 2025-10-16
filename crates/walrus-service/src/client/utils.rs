@@ -11,6 +11,7 @@ pub(crate) fn consistency_check_type_from_flags(
         (true, false) => ConsistencyCheckType::Strict,
         (false, true) => ConsistencyCheckType::Skip,
         (true, true) => anyhow::bail!("cannot set both strict and skip consistency check options"),
-        (false, false) => ConsistencyCheckType::Default,
+        // TODO(WAL-1055): Change this to ConsistencyCheckType::Default.
+        (false, false) => ConsistencyCheckType::Strict,
     })
 }

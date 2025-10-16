@@ -1905,7 +1905,7 @@ impl<T> WalrusNodeClient<T> {
             .communication_factory
             .node_read_communications(&committees, certified_epoch)?;
         // Create requests to get all slivers from all nodes.
-        let futures = comms.iter().flat_map(|n| {
+        let verified_slivers_futures = comms.iter().flat_map(|n| {
             // NOTE: the cloned here is needed because otherwise the compiler complains about the
             // lifetimes of `s`.
             n.node.shard_ids.iter().cloned().map(|s| {
@@ -1923,7 +1923,7 @@ impl<T> WalrusNodeClient<T> {
             })
         });
         // Get the first ~1/3 or ~2/3 of slivers directly, and decode with these.
-        let mut requests = WeightedFutures::new(futures);
+        let mut requests = WeightedFutures::new(verified_slivers_futures);
 
         // Note: The following code may have to be changed if we add encodings that require a
         // variable number of slivers to reconstruct a blob.
@@ -1946,15 +1946,15 @@ impl<T> WalrusNodeClient<T> {
 
         match completed_reason {
             CompletedReasonWeight::ThresholdReached => {
-                let slivers = requests.take_inner_ok();
+                let verified_slivers = requests.take_inner_ok();
                 assert!(
-                    slivers.len() >= required_slivers,
+                    verified_slivers.len() >= required_slivers,
                     "we must have sufficient slivers if the threshold was reached"
                 );
                 match self
                     .encoding_config
                     .get_for_type(metadata.metadata().encoding_type())
-                    .decode_and_verify(metadata, slivers, consistency_check)
+                    .decode_and_verify(metadata, verified_slivers, consistency_check)
                 {
                     Ok(blob) => Ok(blob),
                     Err(DecodeError::VerificationError) => Err(ClientErrorKind::InvalidBlob.into()),

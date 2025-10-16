@@ -115,17 +115,28 @@ impl<T: EncodingAxis> SliverData<T> {
             Ok(self.symbols.symbol_size()) == metadata.symbol_size(encoding_config),
             SliverVerificationError::SymbolSizeMismatch
         );
+        self.check_hash(&encoding_config_for_type, metadata)
+    }
+
+    /// Checks that the hash of the sliver matches the hash in the metadata.
+    ///
+    /// This assumes that all relevant size checks have already been performed.
+    pub fn check_hash(
+        &self,
+        encoding_config: &EncodingConfigEnum,
+        metadata: &BlobMetadata,
+    ) -> Result<(), SliverVerificationError> {
         let pair_metadata = metadata
             .hashes()
             .get(
                 self.index
-                    .to_pair_index::<T>(encoding_config.n_shards)
+                    .to_pair_index::<T>(encoding_config.n_shards())
                     .as_usize(),
             )
-            .expect("n_shards and shard_index < n_shards are checked above");
+            .expect("hash must exist if all size checks have been performed");
         ensure!(
-            self.get_merkle_root::<Blake2b256>(&encoding_config_for_type)
-                .expect("encoding definitely works after checking all sizes above")
+            self.get_merkle_root::<Blake2b256>(encoding_config)
+                .expect("encoding must work if all size checks have been performed")
                 == *pair_metadata.hash::<T>(),
             SliverVerificationError::MerkleRootMismatch
         );
