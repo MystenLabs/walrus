@@ -139,7 +139,7 @@ impl StartEpochChangeFinisher {
                 .await
                 .map_err(|error| {
                     tracing::error!(
-                        epoch = %event.epoch,
+                        walrus.epoch = %event.epoch,
                         walrus.shard_index = %shard_index,
                         ?error,
                         "failed to remove storage for shard",

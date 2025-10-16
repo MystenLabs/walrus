@@ -213,6 +213,7 @@ impl DatabaseTableOptions {
 
 /// RocksDB options applied to the overall database.
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(default)]
 pub struct GlobalDatabaseOptions {
     /// The maximum number of open files
     pub max_open_files: Option<i32>,

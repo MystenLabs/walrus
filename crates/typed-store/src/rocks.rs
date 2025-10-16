@@ -587,6 +587,11 @@ impl RocksDB {
         delegate_call!(self.set_options_cf(cf, opts))
     }
 
+    /// Set options for the database.
+    pub fn set_options(&self, opts: &[(&str, &str)]) -> Result<(), rocksdb::Error> {
+        delegate_call!(self.set_options(opts))
+    }
+
     /// Get the sampling interval for the database.
     pub fn get_sampling_interval(&self) -> SamplingInterval {
         delegate_call!(self.metric_conf)
