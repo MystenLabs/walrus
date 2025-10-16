@@ -16,7 +16,7 @@ mod blob {
             payload_100mi: (ByteSize::mebi(100), 5, 1),
             payload_500mi: (ByteSize::mebi(500), 3, 1),
             payload_1gi: (ByteSize::gibi(1), 3, 1),
-            // payload_2gi: (ByteSize::gibibyte(2), 3, 1),
+            payload_2gi: (ByteSize::gibi(2), 3, 1),
         ]
     }
     fn blob_download_latency(
