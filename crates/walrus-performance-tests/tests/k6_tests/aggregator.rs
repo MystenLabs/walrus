@@ -41,6 +41,7 @@ mod blob {
         let (start, increment, duration) = match *WALRUS_K6_ENVIRONMENT {
             K6Environment::NightlyBaseline => (340, 10, "10s"),
             K6Environment::Localhost => (180, 10, "15s"),
+            K6Environment::TestnetFromCi => (180, 10, "15s"),
         };
 
         blob_download_throughput("requests", ByteSize::kibi(1), start, increment, duration)
@@ -51,6 +52,7 @@ mod blob {
         let (start, increment, duration) = match *WALRUS_K6_ENVIRONMENT {
             K6Environment::NightlyBaseline => (90, 10, "15s"),
             K6Environment::Localhost => (40, 5, "90s"),
+            K6Environment::TestnetFromCi => (40, 5, "90s"),
         };
 
         blob_download_throughput("data", ByteSize::mebi(100), start, increment, duration)

@@ -109,6 +109,7 @@ enum K6Environment {
     #[default]
     Localhost,
     NightlyBaseline,
+    TestnetFromCi,
 }
 
 impl FromStr for K6Environment {
@@ -117,6 +118,7 @@ impl FromStr for K6Environment {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "localhost" => Ok(Self::Localhost),
+            "ci-testnet-performance" => Ok(Self::TestnetFromCi),
             "performance-main-baseline" => Ok(Self::NightlyBaseline),
             _ => Err(format!("unrecognised environment: {s}")),
         }
@@ -128,6 +130,7 @@ impl Display for K6Environment {
         match self {
             K6Environment::Localhost => f.write_str("localhost"),
             K6Environment::NightlyBaseline => f.write_str("performance-main-baseline"),
+            K6Environment::TestnetFromCi => f.write_str("ci-testnet-performance"),
         }
     }
 }
