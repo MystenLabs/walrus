@@ -3549,16 +3549,15 @@ mod tests {
         deletes_blob_data_on_event -> TestResult: [
             invalid_blob_event_registered: (InvalidBlobId::for_testing(BLOB_ID).into(), false),
             invalid_blob_event_certified: (InvalidBlobId::for_testing(BLOB_ID).into(), true),
-            // TODO (WAL-201): Uncomment the following tests as soon as we actually delete blob
-            // data.
-            // blob_deleted_event_registered: (
-            //     BlobDeleted{was_certified: false, ..BlobDeleted::for_testing(BLOB_ID)}.into(),
-            //     false
-            // ),
-            // blob_deleted_event_certified: (BlobDeleted::for_testing(BLOB_ID).into(), true),
+            blob_deleted_event_registered: (
+                BlobDeleted{was_certified: false, ..BlobDeleted::for_testing(BLOB_ID)}.into(),
+                false
+            ),
+            blob_deleted_event_certified: (BlobDeleted::for_testing(BLOB_ID).into(), true),
         ]
     }
     async fn deletes_blob_data_on_event(event: BlobEvent, is_certified: bool) -> TestResult {
+        walrus_test_utils::init_tracing();
         let events = Sender::new(48);
         let node = StorageNodeHandle::builder()
             .with_storage(

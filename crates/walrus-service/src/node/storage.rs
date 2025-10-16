@@ -453,6 +453,22 @@ impl Storage {
             .collect::<Vec<_>>()
     }
 
+    async fn owned_shard_storages(&self) -> Result<Vec<Arc<ShardStorage>>, TypedStoreError> {
+        let shards = futures::future::try_join_all(self.shards.read().await.values().map(
+            |shard| async move {
+                match shard.status().await {
+                    Ok(status) => Ok(status.is_owned_by_node().then_some(shard.clone())),
+                    Err(error) => Err(error),
+                }
+            },
+        ))
+        .await?
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>();
+        Ok(shards)
+    }
+
     /// Returns a handle over the storage for a single shard.
     pub async fn shard_storage(&self, shard: ShardIndex) -> Option<Arc<ShardStorage>> {
         self.shards.read().await.get(&shard).cloned()
@@ -630,19 +646,10 @@ impl Storage {
         let mut cleaned_up_blob_id_count = 0;
         let start_time = Instant::now();
 
-        let shards = futures::future::try_join_all(self.shards.read().await.values().map(
-            |shard| async move {
-                match shard.status().await {
-                    Ok(status) => Ok(status.is_owned_by_node().then_some(shard.clone())),
-                    Err(error) => Err(error),
-                }
-            },
-        ))
-        .await
-        .context("error while collecting shards for data deletion")?
-        .into_iter()
-        .flatten()
-        .collect::<Vec<_>>();
+        let shards = self
+            .owned_shard_storages()
+            .await
+            .context("error while collecting shards for data deletion")?;
 
         for entry in self
             .blob_info
@@ -671,7 +678,7 @@ impl Storage {
             // At this point we know that the blob is no longer registered, and we can attempt to
             // delete the related data.
             if self
-                .attempt_to_delete_blob_data(
+                .attempt_to_delete_blob_data_inner(
                     &optimistic_handle,
                     &blob_id,
                     current_epoch,
@@ -693,10 +700,34 @@ impl Storage {
         Ok(())
     }
 
+    pub(crate) async fn attempt_to_delete_blob_data(
+        &self,
+        blob_id: &BlobId,
+        current_epoch: Epoch,
+        node_metrics: &NodeMetricSet,
+    ) -> anyhow::Result<bool> {
+        let Some(optimistic_handle) = self.database.as_optimistic() else {
+            tracing::warn!("data deletion is only possible when the DB supports transactions");
+            return Ok(false);
+        };
+        let shards = self
+            .owned_shard_storages()
+            .await
+            .context("error while collecting shards for data deletion")?;
+        self.attempt_to_delete_blob_data_inner(
+            &optimistic_handle,
+            blob_id,
+            current_epoch,
+            &shards,
+            node_metrics,
+        )
+        .await
+    }
+
     /// Attempts to delete the blob data for the given blob ID.
     ///
     /// Returns true if the blob data was deleted, false otherwise.
-    async fn attempt_to_delete_blob_data(
+    async fn attempt_to_delete_blob_data_inner(
         &self,
         optimistic_handle: &OptimisticHandle<'_>,
         blob_id: &BlobId,
