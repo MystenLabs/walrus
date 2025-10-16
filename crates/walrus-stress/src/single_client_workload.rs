@@ -57,7 +57,7 @@ pub struct SingleClientWorkload {
     /// Whether to check the read result matches the record of writes.
     check_read_result: bool,
     /// The percentage of write operations that will write the same data.
-    write_same_data_percentage: u32,
+    write_same_data_ratio: f64,
     /// The maximum number of blobs to keep in the blob pool.
     max_blobs_in_pool: usize,
     /// The initial number of blobs to pre-create in the blob pool.
@@ -79,7 +79,7 @@ impl SingleClientWorkload {
         client: WalrusNodeClient<SuiContractClient>,
         target_requests_per_minute: u64,
         check_read_result: bool,
-        write_same_data_percentage: u32,
+        write_same_data_ratio: f64,
         max_blobs_in_pool: usize,
         initial_blobs_in_pool: usize,
         size_distribution_config: SizeDistributionConfig,
@@ -91,7 +91,7 @@ impl SingleClientWorkload {
             client,
             target_requests_per_minute,
             check_read_result,
-            write_same_data_percentage,
+            write_same_data_ratio,
             max_blobs_in_pool,
             initial_blobs_in_pool,
             size_distribution_config,
@@ -107,14 +107,14 @@ impl SingleClientWorkload {
 
         // Use a blob pool to manage existing blobs.
         let mut blob_pool = BlobPool::new(
-            self.check_read_result || self.write_same_data_percentage > 0,
+            self.check_read_result || self.write_same_data_ratio > 0.0,
             self.max_blobs_in_pool,
         );
         let client_op_generator = ClientOpGenerator::new(
             self.request_type_distribution.clone(),
             self.size_distribution_config.clone(),
             self.store_length_distribution_config.clone(),
-            self.write_same_data_percentage,
+            self.write_same_data_ratio,
         );
 
         let mut request_interval = tokio::time::interval(Duration::from_millis(

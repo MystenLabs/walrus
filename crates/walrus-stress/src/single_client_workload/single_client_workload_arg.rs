@@ -22,8 +22,8 @@ pub struct SingleClientWorkloadArgs {
     #[arg(long, default_value_t = true)]
     pub check_read_result: bool,
     /// The percentage of write operations that will write the same data.
-    #[arg(long, default_value_t = 10)]
-    pub write_same_data_percentage: u32,
+    #[arg(long, default_value = "0.1")]
+    pub write_same_data_ratio: f64,
     /// The maximum number of blobs to keep in the blob pool. The limit needs to be set in a way
     /// that the pool will hold blob data in memory.
     #[arg(long, default_value_t = 10000)]

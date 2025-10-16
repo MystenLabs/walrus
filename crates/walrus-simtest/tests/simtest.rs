@@ -1169,7 +1169,7 @@ mod tests {
                 client.inner,
                 60,   // target_requests_per_minute
                 true, // check_read_result
-                10,   // write_same_data_percentage
+                0.1,  // write_same_data_ratio
                 1000, // max_blobs_in_pool
                 10,   // initial_blobs_in_pool
                 SizeDistributionConfig::Poisson {

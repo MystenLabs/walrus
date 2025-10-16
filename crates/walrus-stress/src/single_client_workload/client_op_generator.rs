@@ -46,7 +46,7 @@ pub(crate) struct ClientOpGenerator {
     request_type_distribution: RequestTypeDistributionConfig,
     blob_generator: BlobGenerator,
     epoch_length_generator: EpochLengthGenerator,
-    write_same_data_percentage: u32,
+    write_same_data_ratio: f64,
 }
 
 impl ClientOpGenerator {
@@ -54,7 +54,7 @@ impl ClientOpGenerator {
         request_type_distribution: RequestTypeDistributionConfig,
         size_distribution: SizeDistributionConfig,
         store_length_distribution: StoreLengthDistributionConfig,
-        write_same_data_percentage: u32,
+        write_same_data_ratio: f64,
     ) -> Self {
         let blob_generator = BlobGenerator::new(size_distribution);
         let epoch_length_generator = EpochLengthGenerator::new(store_length_distribution);
@@ -62,7 +62,7 @@ impl ClientOpGenerator {
             request_type_distribution,
             blob_generator,
             epoch_length_generator,
-            write_same_data_percentage,
+            write_same_data_ratio,
         }
     }
 
@@ -122,7 +122,7 @@ impl ClientOpGenerator {
         deletable: bool,
         rng: &mut R,
     ) -> WalrusNodeClientOp {
-        if rng.gen_bool(f64::from(self.write_same_data_percentage) / 100.0) {
+        if rng.gen_bool(self.write_same_data_ratio) {
             // Select a random blob from the pool to write again.
             let blob = blob_pool
                 .select_random_blob_data(rng)
@@ -259,7 +259,7 @@ mod tests {
             request_type_distribution,
             size_distribution,
             store_length_distribution,
-            0, // write_same_data_percentage
+            0.0, // write_same_data_ratio
         )
     }
 
@@ -344,7 +344,7 @@ mod tests {
             },
         );
 
-        // Create a generator with 100% write_same_data_percentage
+        // Create a generator with 100% write_same_data_ratio
         let request_type_distribution = RequestTypeDistributionConfig {
             read_weight: 0,
             write_permanent_weight: 1,
@@ -367,7 +367,7 @@ mod tests {
             request_type_distribution,
             size_distribution,
             store_length_distribution,
-            100, // 100% write_same_data_percentage
+            1.0, // 100% write_same_data_ratio
         );
 
         // Generate multiple write operations and verify they all use existing blob data
