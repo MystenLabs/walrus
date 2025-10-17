@@ -11,7 +11,8 @@
 import { loadEnvironment } from '../../config/environment.ts'
 import { putQuilt } from '../../flows/publisher.ts'
 import * as fs from 'k6/experimental/fs';
-import { parseHumanFileSize, loadParameters, logObject } from "../../lib/utils.ts"
+import { parseHumanFileSize, loadParameters, logObject, recordEndTime, recordStartTime }
+    from "../../lib/utils.ts"
 import { BlobHistory } from "../../lib/blob_history.ts"
 import { expect }
     // @ts-ignore
@@ -70,6 +71,7 @@ export const options = {
 
 
 export function setup() {
+    recordStartTime();
     logObject(params, env);
     return {
         totalFileSizeBytes: parseHumanFileSize(params.totalFileSize),
@@ -93,4 +95,8 @@ export default async function ({ totalFileSizeBytes, maxQuiltFileSizeKib }: any)
     const keyPrefix = `quilt:${params.totalFileSize}:${params.quiltFileSizeAssignment}`;
     await blobHistory.recordQuiltPatchesFromResponse(`${keyPrefix}:patches`, response);
     await blobHistory.recordQuiltFileIdsFromResponse(`${keyPrefix}:file_ids`, response);
+}
+
+export function teardown() {
+    recordEndTime();
 }

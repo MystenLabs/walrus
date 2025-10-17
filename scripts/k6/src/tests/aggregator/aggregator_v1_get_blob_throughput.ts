@@ -5,7 +5,8 @@ import { BlobHistory } from "../../lib/blob_history.ts"
 import { loadEnvironment } from '../../config/environment.ts'
 import { check } from 'k6';
 import {
-    StageConfig, countSteadyStageFailures, createStages, ensure, loadParameters, logObject
+    StageConfig, countSteadyStageFailures, createStages, ensure, loadParameters,
+    logObject, recordEndTime, recordStartTime
 } from "../../lib/utils.ts"
 import { getBlob } from '../../flows/aggregator.ts';
 import { Rate } from 'k6/metrics';
@@ -66,6 +67,7 @@ export const options = {
 };
 
 export async function setup(): Promise<number> {
+    recordStartTime();
     logObject(params, env);
 
     ensure(env.redisUrl !== undefined, "WALRUS_K6_REDIS_URL must be defined");
@@ -86,4 +88,8 @@ export default async function (blobIdCount: number) {
     countSteadyStageFailures(response.status == 200, stageFailureRate, stages)
 
     check(response, { 'is status 200': (r) => r.status === 200 });
+}
+
+export function teardown() {
+    recordEndTime();
 }

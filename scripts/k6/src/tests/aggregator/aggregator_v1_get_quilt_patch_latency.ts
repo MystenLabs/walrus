@@ -8,7 +8,8 @@ import { expect }
     // @ts-ignore
     from 'https://jslib.k6.io/k6-testing/0.5.0/index.js';
 import { loadEnvironment } from '../../config/environment.ts'
-import { ensure, loadParameters, logObject } from "../../lib/utils.ts"
+import { ensure, loadParameters, logObject, recordEndTime, recordStartTime }
+    from "../../lib/utils.ts"
 import { BlobHistory } from "../../lib/blob_history.ts"
 import { getQuiltPatch } from '../../flows/aggregator.ts';
 
@@ -51,6 +52,7 @@ export const options = {
 };
 
 export async function setup(): Promise<number> {
+    recordStartTime();
     logObject(params, env);
 
     ensure(env.redisUrl !== undefined, "WALRUS_K6_REDIS_URL must be defined");
@@ -69,4 +71,8 @@ export default async function (patchIdCount: number) {
     const response = await getQuiltPatch(env.aggregatorUrl, quiltOrPatchId!, params.timeout);
 
     expect(response.status).toBe(200);
+}
+
+export function teardown() {
+    recordEndTime();
 }

@@ -18,7 +18,7 @@ import { loadEnvironment } from "../../config/environment.ts"
 import { open } from 'k6/experimental/fs';
 import {
     StageConfig, countSteadyStageFailures, createStages,
-    loadParameters, logObject, parseHumanFileSize
+    loadParameters, logObject, parseHumanFileSize, recordEndTime, recordStartTime
 } from "../../lib/utils.ts"
 import { check } from "k6";
 import { BlobHistory } from "../../lib/blob_history.ts"
@@ -76,6 +76,7 @@ export const options = {
 };
 
 export function setup(): number {
+    recordStartTime();
     logObject(params, env);
     return parseHumanFileSize(params.payloadSize)
 }
@@ -88,4 +89,8 @@ export default async function (fileSizeBytes: number) {
     check(response, { 'is status 200': (r) => r.status === 200 });
 
     await blobHistory.maybeRecordFromResponse(`blob_ids:${params.payloadSize}`, response);
+}
+
+export function teardown() {
+    recordEndTime();
 }

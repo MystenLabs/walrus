@@ -7,7 +7,8 @@
 import { loadEnvironment } from '../../config/environment.ts'
 import { putBlob } from '../../flows/publisher.ts'
 import * as fs from 'k6/experimental/fs';
-import { parseHumanFileSize, loadParameters, logObject } from "../../lib/utils.ts"
+import { parseHumanFileSize, loadParameters, logObject, recordEndTime, recordStartTime }
+    from "../../lib/utils.ts"
 import { BlobHistory } from "../../lib/blob_history.ts"
 import { expect }
     // @ts-ignore
@@ -55,6 +56,7 @@ export const options = {
 };
 
 export function setup(): number {
+    recordStartTime();
     logObject(params, env);
     return parseHumanFileSize(params.payloadSize);
 }
@@ -68,4 +70,8 @@ export default async function (fileSizeBytes: number) {
     expect(response.json()).toHaveProperty('newlyCreated');
 
     await blobHistory.maybeRecordFromResponse(`blob_ids:${params.payloadSize}`, response);
+}
+
+export function teardown() {
+    recordEndTime();
 }

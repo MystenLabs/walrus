@@ -9,7 +9,7 @@ import { expect }
     from 'https://jslib.k6.io/k6-testing/0.5.0/index.js';
 import { File, SeekMode } from 'k6/experimental/fs';
 import { randomBytes } from 'k6/crypto';
-import { Rate } from 'k6/metrics';
+import { Gauge, Rate } from 'k6/metrics';
 
 /**
  * Returns a random range `[start, length]` on the interval `[0, limit)`.
@@ -193,4 +193,21 @@ export function logObject(...objects: object[]) {
             console.log(`${key}: ${value}`);
         }
     }
+}
+
+const startTime = new Gauge("test_start_timestamp_seconds", /*isTime =*/true);
+const endTime = new Gauge("test_end_timestamp_seconds", /*isTime =*/true);
+
+/**
+ * Record the test start time, should only be called once in setup().
+ */
+export function recordStartTime() {
+    startTime.add(Date.now() / 1000);
+}
+
+/**
+ * Record the test end time, should only be called once in teardown().
+ */
+export function recordEndTime() {
+    endTime.add(Date.now() / 1000);
 }
