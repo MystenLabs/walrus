@@ -29,7 +29,8 @@ use walrus_utils::{backoff::ExponentialBackoffConfig, config::path_or_defaults_i
 use crate::client::quilt_client::QuiltClientConfig;
 
 mod committees_refresh_config;
-mod communication_config;
+/// Communication configuration options.
+pub mod communication_config;
 mod reqwest_config;
 mod sliver_write_extra_time;
 mod upload_mode;
