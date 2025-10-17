@@ -47,7 +47,7 @@ const blobIdsKey = `blob_ids:${params.payloadSize}`;
 /** The stages with different arrival rates, used to setup the test and in metrics. */
 const stages = createStages(params);
 /** The failure rate for a given test stage. */
-const stageFailureRate = new Rate('get_blob_throughput_stage_failed');
+const stageFailureRate = new Rate('throughput_stage_failed');
 
 
 export const options = {
