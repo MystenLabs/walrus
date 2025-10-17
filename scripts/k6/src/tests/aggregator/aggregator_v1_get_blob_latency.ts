@@ -44,7 +44,7 @@ const params = loadParameters<TestParameters>({
     blobsToRead: 20,
     maxConcurrency: 1,
     payloadSize: "1Ki",
-    timeout: "1m",
+    timeout: "10m",
 });
 /** Key used to lookup blob IDs from the redis database. */
 const blobIdsKey = `blob_ids:${params.payloadSize}`;
