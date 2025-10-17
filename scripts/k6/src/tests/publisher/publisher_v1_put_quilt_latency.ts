@@ -89,7 +89,9 @@ export default async function ({ totalFileSizeBytes, maxQuiltFileSizeKib }: any)
         maxQuiltFileSizeKib: maxQuiltFileSizeKib
     }
 
-    const response = await putQuilt(dataFile, env.publisherUrl, options);
+    const response = await putQuilt(
+        dataFile, env.publisherUrl, options, { timeout: params.timeout }
+    );
     expect(response.status).toBe(200);
 
     const keyPrefix = `quilt:${params.totalFileSize}:${params.quiltFileSizeAssignment}`;
