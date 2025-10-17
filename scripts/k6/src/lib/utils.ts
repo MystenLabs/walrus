@@ -195,14 +195,16 @@ export function logObject(...objects: object[]) {
     }
 }
 
-const startTime = new Gauge("test_start_timestamp_seconds", /*isTime =*/true);
-const endTime = new Gauge("test_end_timestamp_seconds", /*isTime =*/true);
+const testActive = new Gauge("test_active", /*isTime=*/false);
+const startTime = new Gauge("test_start_timestamp_seconds", /*isTime=*/true);
+const endTime = new Gauge("test_end_timestamp_seconds", /*isTime=*/true);
 
 /**
  * Record the test start time, should only be called once in setup().
  */
 export function recordStartTime() {
     startTime.add(Date.now() / 1000);
+    testActive.add(1);
 }
 
 /**
@@ -210,4 +212,5 @@ export function recordStartTime() {
  */
 export function recordEndTime() {
     endTime.add(Date.now() / 1000);
+    testActive.add(0);
 }
