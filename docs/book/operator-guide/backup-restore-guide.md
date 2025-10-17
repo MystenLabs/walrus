@@ -70,7 +70,7 @@ checkpoint_config:
     secs: 14400  # 4 hours in seconds
     nanos: 0
 
-  # Sync in-memory data to disk before creating a bakcup
+  # Sync in-memory data to disk before creating a backup
   sync: true
 
   # Maximum concurrent backup operations
