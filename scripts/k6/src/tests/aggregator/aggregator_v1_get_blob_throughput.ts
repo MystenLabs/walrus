@@ -38,7 +38,7 @@ const params = loadParameters<TestParameters>({
     startRatePerMinute: 100,
     rateIncrement: 10,
     heldStageDuration: "10s",
-    heldStageCount: 10,
+    heldStageCount: 20,
     rampStageDuration: "5s",
     timeout: "1m",
 });

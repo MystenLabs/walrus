@@ -40,7 +40,7 @@ mod blob {
     #[test]
     fn blob_upload_request_throughput() -> TestResult {
         let (start, increment, duration) = match *WALRUS_K6_ENVIRONMENT {
-            K6Environment::NightlyBaseline => (120, 5, "15s"),
+            K6Environment::NightlyBaseline => (60, 5, "15s"),
             // Untuned below this line...
             K6Environment::Localhost => (40, 5, "30s"),
             K6Environment::TestnetFromCi => (40, 5, "30s"),
