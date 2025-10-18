@@ -21,7 +21,10 @@ pub mod simtest_utils {
         EpochCount,
         encoding::{Primary, Secondary},
     };
-    use walrus_sdk::client::{StoreArgs, WalrusNodeClient, responses::BlobStoreResult};
+    use walrus_sdk::{
+        client::{StoreArgs, WalrusNodeClient, responses::BlobStoreResult},
+        uploader::TailHandling,
+    };
     use walrus_service::test_utils::{SimStorageNodeHandle, TestCluster};
     use walrus_storage_node_client::api::ServiceHealthInfo;
     use walrus_sui::{
@@ -134,16 +137,30 @@ pub mod simtest_utils {
         let blob = walrus_test_utils::random_data(data_length);
 
         let mut retry_count = 0;
+        let tail_handle_collector = Arc::new(tokio::sync::Mutex::new(vec![]));
         let store_results = loop {
-            let store_args = StoreArgs::default_with_epochs(epoch_ahead)
-                .no_store_optimizations()
-                .with_persistence(BlobPersistence::from_deletable_and_permanent(
+            let store_args = {
+                let base = StoreArgs::default_with_epochs(epoch_ahead).no_store_optimizations();
+                let base = if rand::thread_rng().gen_bool(0.5) {
+                    base.with_tail_handling(TailHandling::Detached)
+                        .with_tail_handle_collector(tail_handle_collector.clone())
+                } else {
+                    base
+                };
+                base.with_persistence(BlobPersistence::from_deletable_and_permanent(
                     deletable, !deletable,
-                )?);
+                )?)
+            };
             let result = client
                 .as_ref()
                 .reserve_and_store_blobs_retry_committees(&[blob.as_slice()], &[], &store_args)
                 .await;
+            let mut handles = tail_handle_collector.lock().await;
+            while let Some(handle) = handles.pop() {
+                if let Err(err) = handle.await {
+                    tracing::error!("error awaiting tail handle: {:?}", err);
+                }
+            }
             if let Ok(result) = result {
                 break result;
             }
