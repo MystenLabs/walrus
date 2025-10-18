@@ -1,0 +1,26 @@
+[package]
+name = "walrus-performance-tests"
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+autotests = false
+resolver = "2"
+
+[features]
+default = []
+k6-tests = []
+
+
+[dependencies]
+
+[dev-dependencies]
+walrus-test-utils = { workspace = true, features = [] }
+
+[lints]
+workspace = true
+
+[[test]]
+name = "k6" # The name of the target.
+path = "tests/main.rs" # The source file of the target.
+required-features = ["k6-tests"]
