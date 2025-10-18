@@ -1,8 +1,7 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-use super::{ByteSize, TestResult};
-use crate::k6_tests;
+use crate::k6_tests::{self, ByteSize, SAMPLE_SIZE_FAST, SAMPLE_SIZE_SLOW, TestResult};
 
 mod blob {
     use super::*;
@@ -10,14 +9,14 @@ mod blob {
 
     walrus_test_utils::param_test! {
         blob_upload_latency -> TestResult: [
-            payload_1ki: (ByteSize::kibi(1), 20, 3),
-            payload_100ki: (ByteSize::kibi(100), 20, 3),
-            payload_1mi: (ByteSize::mebi(1), 20, 3),
-            payload_10mi: (ByteSize::mebi(10), 20, 3),
-            payload_100mi: (ByteSize::mebi(100), 5, 1),
-            payload_500mi: (ByteSize::mebi(500), 3, 1),
-            payload_1gi: (ByteSize::gibi(1), 3, 1),
-            payload_2gi: (ByteSize::gibi(2), 3, 1),
+            payload_1ki: (ByteSize::kibi(1), SAMPLE_SIZE_FAST, 3),
+            payload_100ki: (ByteSize::kibi(100), SAMPLE_SIZE_FAST, 3),
+            payload_1mi: (ByteSize::mebi(1), SAMPLE_SIZE_FAST, 3),
+            payload_10mi: (ByteSize::mebi(10), SAMPLE_SIZE_FAST, 3),
+            payload_100mi: (ByteSize::mebi(100), SAMPLE_SIZE_SLOW, 1),
+            payload_500mi: (ByteSize::mebi(500), SAMPLE_SIZE_SLOW, 1),
+            payload_1gi: (ByteSize::gibi(1), SAMPLE_SIZE_SLOW, 1),
+            payload_2gi: (ByteSize::gibi(2), SAMPLE_SIZE_SLOW, 1),
         ]
     }
     fn blob_upload_latency(
@@ -40,7 +39,7 @@ mod blob {
     #[test]
     fn blob_upload_request_throughput() -> TestResult {
         let (start, increment, duration) = match *WALRUS_K6_ENVIRONMENT {
-            K6Environment::NightlyBaseline => (70, 5, "15s"),
+            K6Environment::NightlyBaseline => (75, 5, "15s"),
             // Untuned below this line...
             K6Environment::Localhost => (40, 5, "30s"),
             K6Environment::TestnetFromCi => (40, 5, "30s"),
@@ -52,7 +51,7 @@ mod blob {
     #[test]
     fn blob_upload_data_throughput() -> TestResult {
         let (start, increment, duration) = match *WALRUS_K6_ENVIRONMENT {
-            K6Environment::NightlyBaseline => (35, 1, "90s"),
+            K6Environment::NightlyBaseline => (37, 1, "90s"),
             // Untuned below this line...
             K6Environment::Localhost => (40, 1, "25s"),
             K6Environment::TestnetFromCi => (8, 1, "90s"),
@@ -88,11 +87,11 @@ mod quilt {
 
     walrus_test_utils::param_test! {
         quilt_upload_latency_uniform_file_sizes -> TestResult: [
-            total_file_size_1mi: (ByteSize::mebi(1), 20, 3),
-            total_file_size_10mi: (ByteSize::mebi(10), 20, 3),
-            total_file_size_100mi: (ByteSize::mebi(100), 5, 1),
-            total_file_size_500mi: (ByteSize::mebi(500), 3, 1),
-            total_file_size_1gi: (ByteSize::gibi(1), 3, 1),
+            total_file_size_1mi: (ByteSize::mebi(1), SAMPLE_SIZE_FAST, 3),
+            total_file_size_10mi: (ByteSize::mebi(10), SAMPLE_SIZE_FAST, 3),
+            total_file_size_100mi: (ByteSize::mebi(100), SAMPLE_SIZE_SLOW, 1),
+            total_file_size_500mi: (ByteSize::mebi(500), SAMPLE_SIZE_SLOW, 1),
+            total_file_size_1gi: (ByteSize::gibi(1), SAMPLE_SIZE_SLOW, 1),
         ]
     }
     fn quilt_upload_latency_uniform_file_sizes(
@@ -105,11 +104,11 @@ mod quilt {
 
     walrus_test_utils::param_test! {
         quilt_upload_latency_random_file_sizes -> TestResult: [
-            total_file_size_1mi: (ByteSize::mebi(1), 20, 3),
-            total_file_size_10mi: (ByteSize::mebi(10), 20, 3),
-            total_file_size_100mi: (ByteSize::mebi(100), 5, 1),
-            total_file_size_500mi: (ByteSize::mebi(500), 3, 1),
-            total_file_size_1gi: (ByteSize::gibi(1), 3, 1),
+            total_file_size_1mi: (ByteSize::mebi(1), SAMPLE_SIZE_FAST, 3),
+            total_file_size_10mi: (ByteSize::mebi(10), SAMPLE_SIZE_FAST, 3),
+            total_file_size_100mi: (ByteSize::mebi(100), SAMPLE_SIZE_SLOW, 1),
+            total_file_size_500mi: (ByteSize::mebi(500), SAMPLE_SIZE_SLOW, 1),
+            total_file_size_1gi: (ByteSize::gibi(1), SAMPLE_SIZE_SLOW, 1),
         ]
     }
     fn quilt_upload_latency_random_file_sizes(

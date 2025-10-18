@@ -1,22 +1,29 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::k6_tests::{self, ByteSize, TestResult};
+use crate::k6_tests::{
+    self,
+    ByteSize,
+    K6Environment,
+    SAMPLE_SIZE_FAST,
+    SAMPLE_SIZE_SLOW,
+    TestResult,
+    WALRUS_K6_ENVIRONMENT,
+};
 
 mod blob {
     use super::*;
-    use crate::k6_tests::{K6Environment, WALRUS_K6_ENVIRONMENT};
 
     walrus_test_utils::param_test! {
         blob_download_latency -> TestResult: [
-            payload_1ki: (ByteSize::kibi(1), 20, 3),
-            payload_100ki: (ByteSize::kibi(100), 20, 3),
-            payload_1mi: (ByteSize::mebi(1), 20, 3),
-            payload_10mi: (ByteSize::mebi(10), 20, 3),
-            payload_100mi: (ByteSize::mebi(100), 5, 1),
-            payload_500mi: (ByteSize::mebi(500), 3, 1),
-            payload_1gi: (ByteSize::gibi(1), 3, 1),
-            payload_2gi: (ByteSize::gibi(2), 3, 1),
+            payload_1ki: (ByteSize::kibi(1), SAMPLE_SIZE_FAST, 3),
+            payload_100ki: (ByteSize::kibi(100), SAMPLE_SIZE_FAST, 3),
+            payload_1mi: (ByteSize::mebi(1), SAMPLE_SIZE_FAST, 3),
+            payload_10mi: (ByteSize::mebi(10), SAMPLE_SIZE_FAST, 3),
+            payload_100mi: (ByteSize::mebi(100), SAMPLE_SIZE_SLOW, 1),
+            payload_500mi: (ByteSize::mebi(500), SAMPLE_SIZE_SLOW, 1),
+            payload_1gi: (ByteSize::gibi(1), SAMPLE_SIZE_SLOW, 1),
+            payload_2gi: (ByteSize::gibi(2), SAMPLE_SIZE_SLOW, 1),
         ]
     }
     fn blob_download_latency(
@@ -85,11 +92,11 @@ mod quilt {
 
     walrus_test_utils::param_test! {
         patch_download_latency_uniform_by_patch_id -> TestResult: [
-            total_file_size_1mi: (ByteSize::mebi(1), 20, 3),
-            total_file_size_10mi: (ByteSize::mebi(10), 20, 3),
-            total_file_size_100mi: (ByteSize::mebi(100), 20, 3),
-            total_file_size_500mi: (ByteSize::mebi(500), 20, 3),
-            total_file_size_1gi: (ByteSize::gibi(1), 20, 3),
+            total_file_size_1mi: (ByteSize::mebi(1), SAMPLE_SIZE_FAST, 3),
+            total_file_size_10mi: (ByteSize::mebi(10), SAMPLE_SIZE_FAST, 3),
+            total_file_size_100mi: (ByteSize::mebi(100), SAMPLE_SIZE_FAST, 3),
+            total_file_size_500mi: (ByteSize::mebi(500), SAMPLE_SIZE_FAST, 3),
+            total_file_size_1gi: (ByteSize::gibi(1), SAMPLE_SIZE_FAST, 3),
         ]
     }
     fn patch_download_latency_uniform_by_patch_id(
@@ -112,11 +119,11 @@ mod quilt {
 
     walrus_test_utils::param_test! {
         patch_download_latency_uniform_by_quilt_id -> TestResult: [
-            total_file_size_1mi: (ByteSize::mebi(1), 20, 3),
-            total_file_size_10mi: (ByteSize::mebi(10), 20, 3),
-            total_file_size_100mi: (ByteSize::mebi(100), 20, 3),
-            total_file_size_500mi: (ByteSize::mebi(500), 20, 3),
-            total_file_size_1gi: (ByteSize::gibi(1), 20, 3),
+            total_file_size_1mi: (ByteSize::mebi(1), SAMPLE_SIZE_FAST, 3),
+            total_file_size_10mi: (ByteSize::mebi(10), SAMPLE_SIZE_FAST, 3),
+            total_file_size_100mi: (ByteSize::mebi(100), SAMPLE_SIZE_FAST, 3),
+            total_file_size_500mi: (ByteSize::mebi(500), SAMPLE_SIZE_FAST, 3),
+            total_file_size_1gi: (ByteSize::gibi(1), SAMPLE_SIZE_FAST, 3),
         ]
     }
     fn patch_download_latency_uniform_by_quilt_id(

@@ -19,6 +19,11 @@ mod publisher;
 /// Alias for test results that return a standard error.
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 
+/// Number of samples to collector for cases where the time required for each is fast.
+const SAMPLE_SIZE_FAST: usize = 10;
+/// Number of samples to collector for cases where the time required for each is slow.
+const SAMPLE_SIZE_SLOW: usize = 3;
+
 /// Default directory in which the k6 test scripts can be found.
 const DEFAULT_K6_SCRIPTS_DIRECTORY: &str = "../../scripts/k6/src/tests";
 
