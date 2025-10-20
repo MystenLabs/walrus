@@ -161,7 +161,13 @@ impl CliOutput for Vec<DryRunOutput> {
 
 impl CliOutput for BlobStoreResultWithPath {
     fn print_cli_output(&self) {
-        match &self.blob_store_result {
+        println!("Path: {}\n", self.path.display());
+        self.blob_store_result.print_cli_output();
+    }
+}
+impl CliOutput for BlobStoreResult {
+    fn print_cli_output(&self) {
+        match self {
             BlobStoreResult::AlreadyCertified {
                 blob_id,
                 event_or_object,
@@ -169,10 +175,9 @@ impl CliOutput for BlobStoreResultWithPath {
             } => {
                 println!(
                     "{} Blob was already available and certified within Walrus, \
-                    for a sufficient number of epochs.\nPath: {}\n\
+                    for a sufficient number of epochs.\n\
                     Blob ID: {}\n{event_or_object}\nExpiry epoch (exclusive): {}\n",
                     success(),
-                    self.path.display(),
                     blob_id,
                     end_epoch,
                 )
@@ -200,7 +205,6 @@ impl CliOutput for BlobStoreResultWithPath {
                 };
                 println!(
                     "{} {} blob stored successfully.\n\
-                    Path: {}\n\
                     Blob ID: {}\n\
                     Sui object ID: {}\n\
                     Unencoded size: {}\n\
@@ -214,7 +218,6 @@ impl CliOutput for BlobStoreResultWithPath {
                     } else {
                         "Permanent"
                     },
-                    self.path.display(),
                     blob_object.blob_id,
                     blob_object.id,
                     HumanReadableBytes(blob_object.size),
@@ -229,19 +232,26 @@ impl CliOutput for BlobStoreResultWithPath {
             }
             BlobStoreResult::MarkedInvalid { blob_id, event } => {
                 println!(
-                    "{} Blob was marked as invalid.\nPath: {}\nBlob ID: {}\n
+                    "{} Blob was marked as invalid.\nBlob ID: {}\n
                     Invalidation event ID: {}\n",
                     error(),
-                    self.path.display(),
                     blob_id,
                     format_event_id(event),
                 )
             }
+            BlobStoreResult::BlobSliced { slices } => {
+                let delim = "---------------------------------------------------------------------";
+                println!("File was sliced into {} blob(s).", slices.len());
+                for slice in slices {
+                    println!("{delim}");
+                    slice.print_cli_output();
+                }
+                println!("{delim}");
+            }
             BlobStoreResult::Error { blob_id, error_msg } => {
                 println!(
-                    "{} Error storing blob.\nPath: {}\nBlob ID: {:?}\nError: {}",
+                    "{} Error storing blob.\nBlob ID: {:?}\nError: {}",
                     error(),
-                    self.path.display(),
                     blob_id,
                     error_msg,
                 )

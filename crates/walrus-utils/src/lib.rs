@@ -3,7 +3,7 @@
 
 #![allow(missing_docs)]
 
-use std::{env, fs, path::Path};
+use std::{env, path::Path};
 
 use anyhow::Context;
 use serde::de::DeserializeOwned;
@@ -61,10 +61,10 @@ pub fn load_from_yaml<P: AsRef<Path>, T: DeserializeOwned>(path: P) -> anyhow::R
     Ok(serde_yaml::from_reader(reader)?)
 }
 
-/// Reads a blob from the filesystem or returns a helpful error message.
-pub fn read_blob_from_file(path: impl AsRef<Path>) -> anyhow::Result<Vec<u8>> {
-    fs::read(&path).context(format!(
-        "unable to read blob from '{}'",
+/// Reads raw data from the filesystem or returns a helpful error message.
+pub fn read_data_from_file(path: impl AsRef<Path>) -> anyhow::Result<Vec<u8>> {
+    std::fs::read(&path).context(format!(
+        "unable to read data from '{}'",
         path.as_ref().display()
     ))
 }

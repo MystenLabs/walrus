@@ -28,13 +28,13 @@ use walrus_core::{
     encoding::{EncodingConfig, EncodingFactory},
     ensure,
 };
-use walrus_sdk::config::UploadMode;
+use walrus_sdk::{client::SliceSize, config::UploadMode};
 use walrus_sui::{
     client::{ExpirySelectionPolicy, ReadClient, SuiContractClient},
     types::{StorageNode, move_structs::Authorized},
     utils::SuiNetwork,
 };
-use walrus_utils::read_blob_from_file;
+use walrus_utils::read_data_from_file;
 
 use super::{BlobIdDecimal, HumanReadableBytes, parse_blob_id, parse_quilt_patch_id};
 use crate::client::{config::AuthConfig, daemon::CacheConfig};
@@ -1194,6 +1194,17 @@ pub struct CommonStoreOptions {
     #[arg(long, hide = true)]
     #[serde(default)]
     pub internal_run: bool,
+    /// Slice sizing strategy for blobs.
+    ///
+    /// This setting specifies the size (in bytes) above which blobs will be automatically
+    /// sliced into smaller blobs for upload. This is useful for use-cases such as download
+    /// streaming, and storing very large files.
+    ///
+    /// Valid options are "disabled", "auto", or a positive integer representing the size in bytes
+    /// above which blobs will be sliced.
+    #[arg(long, default_value = "disabled")]
+    #[serde(default)]
+    pub slice_size: SliceSize,
 }
 
 #[serde_as]
@@ -1257,7 +1268,7 @@ impl FileOrBlobId {
                 );
                 Ok(*encoding_config
                     .get_for_type(encoding_type)
-                    .compute_metadata(&read_blob_from_file(&file)?)?
+                    .compute_metadata(&read_data_from_file(&file)?)?
                     .blob_id())
             }
             // This case is required for JSON mode where we don't have the clap checking.
@@ -1537,7 +1548,7 @@ impl BlobIdentifiers {
             );
             let blob_id = *encoding_config
                 .get_for_type(encoding_type)
-                .compute_metadata(&read_blob_from_file(file)?)?
+                .compute_metadata(&read_data_from_file(file)?)?
                 .blob_id();
 
             result.push(BlobIdentity {
@@ -1962,6 +1973,7 @@ mod tests {
                 skip_tip_confirmation: false,
                 upload_mode: None,
                 internal_run: false,
+                slice_size: Default::default(),
             },
         })
     }

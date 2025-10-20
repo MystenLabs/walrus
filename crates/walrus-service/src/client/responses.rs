@@ -138,6 +138,10 @@ pub(crate) struct DryRunOutput {
     pub storage_cost: u64,
     /// The encoding type used for the blob.
     pub encoding_type: EncodingType,
+    /// The count of slices if this file was sliced.
+    pub slice_count: Option<usize>,
+    /// The slice index, if this blob was part of a sliced file.
+    pub slice_index: Option<usize>,
 }
 
 /// The output of the `store-quilt --dry-run` command.
