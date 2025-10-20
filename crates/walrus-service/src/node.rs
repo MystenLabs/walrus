@@ -1626,7 +1626,8 @@ impl StorageNode {
         if !garbage_collection_config.enable_blob_info_cleanup {
             if garbage_collection_config.enable_data_deletion {
                 tracing::warn!(
-                    "data deletion is enabled, but requires blob info cleanup to be enabled"
+                    "data deletion is enabled, but requires blob info cleanup to be enabled; \
+                    skipping data deletion",
                 );
             } else {
                 tracing::info!("garbage collection is disabled, skipping cleanup");

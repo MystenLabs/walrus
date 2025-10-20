@@ -619,7 +619,8 @@ impl Storage {
             .await
     }
 
-    /// Deletes the metadata and slivers for blobs that are expired in the given epoch.
+    /// Deletes the aggregate blob info, metadata, and slivers for blobs that are expired in the
+    /// `current_epoch`.
     #[tracing::instrument(skip_all, fields(walrus.epoch = %current_epoch))]
     pub(crate) async fn delete_expired_blob_data(
         &self,
@@ -677,7 +678,7 @@ impl Storage {
 
             // At this point we know that the blob is no longer registered, and we can attempt to
             // delete the related data.
-            if self
+            match self
                 .attempt_to_delete_blob_data_inner(
                     &optimistic_handle,
                     &blob_id,
@@ -685,9 +686,19 @@ impl Storage {
                     &shards,
                     node_metrics,
                 )
-                .await?
+                .await
             {
-                cleaned_up_blob_id_count += 1;
+                Ok(true) => {
+                    cleaned_up_blob_id_count += 1;
+                }
+                Ok(false) => (),
+                Err(error) => {
+                    tracing::error!(
+                        ?error,
+                        %blob_id,
+                        "encountered an error while attempting to delete blob data"
+                    );
+                }
             }
         }
 
