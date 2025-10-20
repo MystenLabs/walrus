@@ -34,6 +34,7 @@ use walrus_core::{
         EncodingFactory as _,
         Primary,
         encoded_blob_length_for_n_shards,
+        max_blob_size_for_n_shards,
         quilt_encoding::{QuiltApi, QuiltStoreBlob, QuiltVersionV1},
     },
     ensure,
@@ -73,7 +74,7 @@ use walrus_sdk::{
 };
 use walrus_storage_node_client::api::BlobStatus;
 use walrus_sui::{client::rpc_client, wallet::Wallet};
-use walrus_utils::{metrics::Registry, read_blob_from_file};
+use walrus_utils::{metrics::Registry, read_blob_from_file, slice_size::SliceSize};
 
 use super::{
     args::{
@@ -713,6 +714,9 @@ impl ClientCommandRunner {
         config = apply_upload_mode_to_config(config, upload_mode.unwrap_or(UploadMode::Balanced));
         let client = get_contract_client(config, self.wallet, self.gas_budget, &None).await?;
 
+        let committee = client.get_committees().await?.current_committee();
+        let network_max_blob_size =
+            max_blob_size_for_n_shards(committee.n_shards(), DEFAULT_ENCODING);
         let system_object = client.sui_client().read_client.get_system_object().await?;
         let epochs_ahead =
             get_epochs_ahead(&epoch_arg, system_object.max_epochs_ahead(), &client).await?;
@@ -724,8 +728,15 @@ impl ClientCommandRunner {
         let encoding_type = encoding_type.unwrap_or(DEFAULT_ENCODING);
 
         if dry_run {
-            return Self::store_dry_run(client, files, encoding_type, epochs_ahead, self.json)
-                .await;
+            return Self::store_dry_run(
+                client,
+                files,
+                encoding_type,
+                epochs_ahead,
+                slice_size,
+                self.json,
+            )
+            .await;
         }
 
         tracing::info!("storing {} files as blobs on Walrus", files.len());
@@ -734,8 +745,11 @@ impl ClientCommandRunner {
         let blobs = tracing::info_span!("read_blobs").in_scope(|| {
             files
                 .into_iter()
-                .map(|file| read_blob_from_file(&file).map(|blob| (file, blob)))
-                .collect::<Result<Vec<(PathBuf, Vec<u8>)>>>()
+                .map(|file| {
+                    read_blob_from_file(&file, slice_size, network_max_blob_size)
+                        .map(|blob| (file, blob))
+                })
+                .collect::<Result<Vec<(PathBuf, _)>>>()
         })?;
 
         if let Some(()) = maybe_spawn_child_upload_process(
@@ -943,6 +957,7 @@ impl ClientCommandRunner {
         files: Vec<PathBuf>,
         encoding_type: EncodingType,
         epochs_ahead: EpochCount,
+        slice_size: SliceSize,
         json: bool,
     ) -> Result<()> {
         tracing::info!("performing dry-run store for {} files", files.len());
@@ -1932,6 +1947,7 @@ struct StoreOptions {
     confirmation: UserConfirmation,
     upload_mode: Option<UploadMode>,
     internal_run: bool,
+    slice_size: SliceSize,
 }
 
 impl TryFrom<CommonStoreOptions> for StoreOptions {
@@ -1951,7 +1967,7 @@ impl TryFrom<CommonStoreOptions> for StoreOptions {
             skip_tip_confirmation,
             upload_mode,
             internal_run,
-            slice_size: _,
+            slice_size,
         }: CommonStoreOptions,
     ) -> Result<Self, Self::Error> {
         Ok(Self {
@@ -1968,6 +1984,7 @@ impl TryFrom<CommonStoreOptions> for StoreOptions {
             confirmation: skip_tip_confirmation.into(),
             upload_mode: upload_mode.map(Into::into),
             internal_run,
+            slice_size,
         })
     }
 }
