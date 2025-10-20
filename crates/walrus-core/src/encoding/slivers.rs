@@ -121,7 +121,7 @@ impl<T: EncodingAxis> SliverData<T> {
     /// Checks that the hash of the sliver matches the hash in the metadata.
     ///
     /// This assumes that all relevant size checks have already been performed.
-    pub fn check_hash(
+    pub(crate) fn check_hash(
         &self,
         encoding_config: &EncodingConfigEnum,
         metadata: &BlobMetadata,

@@ -26,10 +26,11 @@ normal way to set this up is via the Sui CLI; see the [installation
 instructions](https://docs.sui.io/guides/developer/getting-started/sui-install) in the Sui
 documentation.
 
-After installing the Sui CLI, you need to set up a wallet by running `sui client`, which
-prompts you to set up a new configuration. Make sure to point it to Sui Mainnet, you can use the
-full node at `https://fullnode.mainnet.sui.io:443` for this. See [the Sui
-documentation](https://docs.sui.io/guides/developer/getting-started/connect) for further details.
+After installing the Sui CLI, you need to set up a wallet by running `sui client`, which prompts you
+to set up a new configuration. Make sure to point it to Sui Mainnet, you can use the full node at
+`https://fullnode.mainnet.sui.io:443` for this. See [the Sui
+documentation](https://docs.sui.io/guides/developer/getting-started/configure-sui-client) for
+further details.
 
 After this, you should get something like this (everything besides the `mainnet` line is optional):
 

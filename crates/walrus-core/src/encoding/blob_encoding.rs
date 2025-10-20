@@ -270,9 +270,16 @@ impl<'a> BlobEncoder<'a> {
     /// whether it has already been verified (and thus can be skipped). If not `None`, the length of
     /// the vector must be the number of systematic primary slivers.
     ///
+    /// # Errors
+    ///
     /// Returns a [`DecodeError::VerificationError`] if the check fails.
     ///
     /// Returns a [`DecodeError::DataTooLarge`] if the blob size is too large to be encoded.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the length of the `already_verified_slivers` vector is not equal to the number of
+    /// systematic primary slivers.
     pub(crate) fn default_consistency_check(
         &self,
         metadata: &VerifiedBlobMetadataWithId,
