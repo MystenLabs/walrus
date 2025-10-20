@@ -4,7 +4,7 @@
 //! Low-level client for use when communicating directly with Walrus nodes.
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, hash_map},
     fmt::{Debug, Display},
     marker::PhantomData,
     num::NonZeroU16,
@@ -69,7 +69,7 @@ use walrus_sui::{
         move_structs::{BlobAttribute, BlobWithAttribute},
     },
 };
-use walrus_utils::{backoff::BackoffStrategy, metrics::Registry};
+use walrus_utils::{backoff::BackoffStrategy, metrics::Registry, slice_size::BlobUploadJob};
 
 mod auto_tune;
 
@@ -898,6 +898,27 @@ impl<T: ReadClient> WalrusNodeClient<T> {
     }
 }
 
+fn flatten_results(
+    nested_results: Vec<Vec<BlobStoreResultWithPath>>,
+) -> Vec<BlobStoreResultWithPath> {
+    nested_results
+        .into_iter()
+        .map(|mut results| {
+            assert!(!results.is_empty());
+            if results.len() != 1 {
+                let path = results[0].path.clone();
+                let slices = results.into_iter().map(|r| r.blob_store_result).collect();
+                BlobStoreResultWithPath {
+                    path,
+                    blob_store_result: BlobStoreResult::BlobSliced { slices },
+                }
+            } else {
+                results.pop().unwrap()
+            }
+        })
+        .collect()
+}
+
 impl WalrusNodeClient<SuiContractClient> {
     /// Creates a new client starting from a config file.
     pub async fn new_contract_client(
@@ -942,8 +963,13 @@ impl WalrusNodeClient<SuiContractClient> {
             return Ok(vec![]);
         }
 
+        let named_blobs: Vec<(String, &[u8])> = blobs
+            .iter()
+            .enumerate()
+            .map(|(i, &data)| (format!("blob_{i:06}"), data))
+            .collect();
         let walrus_store_blobs =
-            WalrusStoreBlob::<String>::default_unencoded_blobs_from_slice(blobs, attributes);
+            WalrusStoreBlob::<String>::default_unencoded_blobs_from_slice(&named_blobs, attributes);
         let start = Instant::now();
         let encoded_blobs = self.encode_blobs(walrus_store_blobs, store_args.encoding_type)?;
         store_args.maybe_observe_encoding_latency(start.elapsed());
@@ -980,16 +1006,26 @@ impl WalrusNodeClient<SuiContractClient> {
     #[tracing::instrument(skip_all, fields(blob_id))]
     pub async fn reserve_and_store_blobs_retry_committees_with_path(
         &self,
-        blobs_with_paths: &[(PathBuf, Vec<u8>)],
+        blobs_with_paths: &[(PathBuf, BlobUploadJob)],
         store_args: &StoreArgs,
     ) -> ClientResult<Vec<BlobStoreResultWithPath>> {
         // Not using Path as identifier because it's not unique.
-        let blobs = blobs_with_paths
+        let blob_upload_jobs = blobs_with_paths
             .iter()
-            .map(|(_, blob)| blob.as_slice())
+            .map(|(_, blob_upload_job)| blob_upload_job)
+            .collect::<Vec<_>>();
+        let named_blobs = blob_upload_jobs
+            .iter()
+            .enumerate()
+            .flat_map(move |(i, blob_upload_job)| {
+                blob_upload_job
+                    .iterate_slices()
+                    .enumerate()
+                    .map(move |(j, data)| ((i, j), data))
+            })
             .collect::<Vec<_>>();
         let walrus_store_blobs =
-            WalrusStoreBlob::<String>::default_unencoded_blobs_from_slice(&blobs, &[]);
+            WalrusStoreBlob::default_unencoded_blobs_from_slice(&named_blobs, &[]);
 
         let encoded_blobs = self.encode_blobs(walrus_store_blobs, store_args.encoding_type)?;
         let (failed_blobs, encoded_blobs): (Vec<_>, Vec<_>) =
@@ -1006,7 +1042,8 @@ impl WalrusNodeClient<SuiContractClient> {
         assert_eq!(completed_blobs.len(), blobs_with_paths.len());
         completed_blobs.sort_by_key(|blob| blob.get_identifier().to_string());
 
-        let mut results: Vec<BlobStoreResultWithPath> = Vec::new();
+        let mut results: Vec<Vec<BlobStoreResultWithPath>> = Default::default();
+
         for (blob, (path, _)) in completed_blobs.iter().zip(blobs_with_paths.iter()) {
             let store_result = blob.get_result().ok_or_else(|| {
                 ClientError::store_blob_internal(format!(
@@ -1016,13 +1053,21 @@ impl WalrusNodeClient<SuiContractClient> {
                 ))
             })?;
 
-            results.push(BlobStoreResultWithPath {
-                path: path.clone(),
-                blob_store_result: store_result.clone(),
-            });
+            let (file_index, slice_index): (usize, usize) = *blob.get_identifier();
+            if file_index == results.len() {
+                results.push(vec![BlobStoreResultWithPath {
+                    path: path.clone(),
+                    blob_store_result: store_result.clone(),
+                }]);
+            } else {
+                results.last_mut().unwrap().push(BlobStoreResultWithPath {
+                    path: path.clone(),
+                    blob_store_result: store_result.clone(),
+                });
+            }
         }
 
-        Ok(results)
+        Ok(flatten_results(results))
     }
 
     /// Encodes the blob, reserves & registers the space on chain, and stores the slivers to the

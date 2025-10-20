@@ -53,7 +53,7 @@ impl std::fmt::Display for SliceSize {
 
 /// Represents either a single full blob or a large file sliced into multiple blobs.
 #[derive(Debug)]
-pub enum ReadBlobFromFileOutput {
+pub enum BlobUploadJob {
     /// A single full blob.
     Blob { data: Vec<u8> },
     /// A single file sliced into multiple blobs.
@@ -65,15 +65,21 @@ pub enum ReadBlobFromFileOutput {
     },
 }
 
-impl ReadBlobFromFileOutput {
+impl BlobUploadJob {
     pub fn total_bytes(&self) -> u64 {
         match self {
-            ReadBlobFromFileOutput::Blob { data } => {
-                u64::try_from(data.len()).expect("blob size too large")
-            }
-            ReadBlobFromFileOutput::SlicedBlobs { slices, .. } => {
+            BlobUploadJob::Blob { data } => u64::try_from(data.len()).expect("blob size too large"),
+            BlobUploadJob::SlicedBlobs { slices, .. } => {
                 u64::try_from(slices.iter().map(|s| s.len()).sum::<usize>())
                     .expect("sliced blobs size too large")
+            }
+        }
+    }
+    pub fn iterate_slices(&self) -> Box<dyn Iterator<Item = &[u8]> + '_> {
+        match self {
+            BlobUploadJob::Blob { data } => Box::new(std::iter::once(data.as_slice())),
+            BlobUploadJob::SlicedBlobs { slices, .. } => {
+                Box::new(slices.iter().map(|s| s.as_slice()))
             }
         }
     }
@@ -83,7 +89,7 @@ pub fn read_blob_from_file(
     path: impl AsRef<Path>,
     slice_size: SliceSize,
     network_max_blob_size: u64,
-) -> anyhow::Result<ReadBlobFromFileOutput> {
+) -> anyhow::Result<BlobUploadJob> {
     // Get the file size.
     let size = std::fs::metadata(&path)
         .context(format!(
@@ -105,7 +111,7 @@ pub fn read_blob_from_file(
                 "unable to read blob from '{}'",
                 path.as_ref().display()
             ))?;
-            Ok(ReadBlobFromFileOutput::Blob { data })
+            Ok(BlobUploadJob::Blob { data })
         }
         SliceSize::Auto => {
             if size <= network_max_blob_size {
@@ -113,7 +119,7 @@ pub fn read_blob_from_file(
                     "unable to read blob from '{}'",
                     path.as_ref().display()
                 ))?;
-                Ok(ReadBlobFromFileOutput::Blob { data })
+                Ok(BlobUploadJob::Blob { data })
             } else {
                 slice_file_into_blobs(&path, size, network_max_blob_size)
             }
@@ -125,7 +131,7 @@ pub fn read_blob_from_file(
                     "unable to read blob from '{}'",
                     path.as_ref().display()
                 ))?;
-                Ok(ReadBlobFromFileOutput::Blob { data })
+                Ok(BlobUploadJob::Blob { data })
             } else {
                 slice_file_into_blobs(&path, size, specific_size)
             }
@@ -138,7 +144,7 @@ fn slice_file_into_blobs(
     path: impl AsRef<Path>,
     file_size: u64,
     slice_size: u64,
-) -> anyhow::Result<ReadBlobFromFileOutput> {
+) -> anyhow::Result<BlobUploadJob> {
     anyhow::ensure!(slice_size > 0, "slice size must be greater than 0");
 
     let path = path.as_ref();
@@ -172,7 +178,7 @@ fn slice_file_into_blobs(
         remaining -= bytes_read;
     }
 
-    Ok(ReadBlobFromFileOutput::SlicedBlobs { slice_size, slices })
+    Ok(BlobUploadJob::SlicedBlobs { slice_size, slices })
 }
 
 #[cfg(test)]
@@ -201,7 +207,7 @@ mod tests {
         let result = slice_file_into_blobs(file.path(), 100, 25).expect("slicing failed");
 
         match result {
-            ReadBlobFromFileOutput::SlicedBlobs { slice_size, slices } => {
+            BlobUploadJob::SlicedBlobs { slice_size, slices } => {
                 assert_eq!(slice_size, 25);
                 assert_eq!(slices.len(), 4);
                 for slice in slices {
@@ -223,7 +229,7 @@ mod tests {
         let result = slice_file_into_blobs(file.path(), 100, 30).expect("slicing failed");
 
         match result {
-            ReadBlobFromFileOutput::SlicedBlobs { slice_size, slices } => {
+            BlobUploadJob::SlicedBlobs { slice_size, slices } => {
                 assert_eq!(slice_size, 30);
                 assert_eq!(slices.len(), 4);
                 assert_eq!(slices[0].len(), 30);
@@ -248,7 +254,7 @@ mod tests {
         let result = slice_file_into_blobs(file.path(), 50, 50).expect("slicing failed");
 
         match result {
-            ReadBlobFromFileOutput::SlicedBlobs { slice_size, slices } => {
+            BlobUploadJob::SlicedBlobs { slice_size, slices } => {
                 assert_eq!(slice_size, 50);
                 assert_eq!(slices.len(), 1);
                 assert_eq!(slices[0], content);
@@ -266,7 +272,7 @@ mod tests {
         let result = slice_file_into_blobs(file.path(), 10, 100).expect("slicing failed");
 
         match result {
-            ReadBlobFromFileOutput::SlicedBlobs { slice_size, slices } => {
+            BlobUploadJob::SlicedBlobs { slice_size, slices } => {
                 assert_eq!(slice_size, 100);
                 assert_eq!(slices.len(), 1);
                 assert_eq!(slices[0], content);
@@ -284,7 +290,7 @@ mod tests {
         let result = slice_file_into_blobs(file.path(), 0, 100).expect("slicing failed");
 
         match result {
-            ReadBlobFromFileOutput::SlicedBlobs { slice_size, slices } => {
+            BlobUploadJob::SlicedBlobs { slice_size, slices } => {
                 assert_eq!(slice_size, 100);
                 assert_eq!(slices.len(), 0);
             }
@@ -301,7 +307,7 @@ mod tests {
         let result = slice_file_into_blobs(file.path(), 10, 1).expect("slicing failed");
 
         match result {
-            ReadBlobFromFileOutput::SlicedBlobs { slice_size, slices } => {
+            BlobUploadJob::SlicedBlobs { slice_size, slices } => {
                 assert_eq!(slice_size, 1);
                 assert_eq!(slices.len(), 10);
                 for (i, slice) in slices.iter().enumerate() {
@@ -343,7 +349,7 @@ mod tests {
         let result = slice_file_into_blobs(file.path(), 1000, 77).expect("slicing failed");
 
         match result {
-            ReadBlobFromFileOutput::SlicedBlobs {
+            BlobUploadJob::SlicedBlobs {
                 slice_size: _,
                 slices,
             } => {
@@ -368,7 +374,7 @@ mod tests {
             slice_file_into_blobs(file.path(), size as u64, slice_size).expect("slicing failed");
 
         match result {
-            ReadBlobFromFileOutput::SlicedBlobs {
+            BlobUploadJob::SlicedBlobs {
                 slice_size: returned_slice_size,
                 slices,
             } => {

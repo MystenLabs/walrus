@@ -37,7 +37,7 @@ use walrus_sui::{
 };
 use walrus_utils::{
     read_blob_from_file,
-    slice_size::{ReadBlobFromFileOutput, SliceSize},
+    slice_size::{BlobUploadJob, SliceSize},
 };
 
 use crate::{
@@ -110,8 +110,8 @@ pub fn read_blobs_from_paths<P: AsRef<Path>>(
 
         // Extract the raw bytes from the blob output
         let content = match blob_output {
-            ReadBlobFromFileOutput::Blob { data } => data,
-            ReadBlobFromFileOutput::SlicedBlobs { .. } => {
+            BlobUploadJob::Blob { data } => data,
+            BlobUploadJob::SlicedBlobs { .. } => {
                 return Err(ClientError::from(ClientErrorKind::Other(
                     "unexpected sliced blob output when slicing is disabled".into(),
                 )));
