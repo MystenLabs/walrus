@@ -1075,10 +1075,7 @@ impl Storage {
     }
 
     /// Enables or disables automatic compactions for all column families.
-    ///
-    /// This is useful during bulk operations to improve performance by disabling compactions,
-    /// then re-enabling them afterward.
-    pub fn enable_auto_compactions(&self, enable: bool) -> Result<(), anyhow::Error> {
+    fn enable_auto_compactions(&self, enable: bool) -> Result<(), anyhow::Error> {
         tracing::info!(
             "{} auto compactions for all column families",
             if enable { "enabling" } else { "disabling" },
@@ -1088,6 +1085,32 @@ impl Storage {
             .set_options(&[("disable_auto_compactions", disable_value)])
             .context("failed to set auto compactions (enable: {enable})")?;
         Ok(())
+    }
+
+    /// Disables automatic compactions for all column families and returns a guard that re-enables
+    /// them when dropped.
+    ///
+    /// This is useful during bulk operations to improve performance by disabling compactions,
+    /// then re-enabling them afterward.
+    pub fn temporarily_disable_auto_compactions<'a>(
+        &'a self,
+    ) -> Result<DisableAutoCompactionsGuard<'a>, anyhow::Error> {
+        self.enable_auto_compactions(false)?;
+        Ok(DisableAutoCompactionsGuard { storage: self })
+    }
+}
+
+#[derive(Debug)]
+#[must_use = "auto compactions are automatically re-enabled when the guard is dropped"]
+pub struct DisableAutoCompactionsGuard<'a> {
+    storage: &'a Storage,
+}
+
+impl Drop for DisableAutoCompactionsGuard<'_> {
+    fn drop(&mut self) {
+        if let Err(error) = self.storage.enable_auto_compactions(true) {
+            tracing::error!(?error, "failed to re-enable auto compactions");
+        }
     }
 }
 

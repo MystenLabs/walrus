@@ -1634,8 +1634,9 @@ impl StorageNode {
             return Ok(());
         }
 
-        // Disable DB compactions during cleanup to improve performance.
-        self.inner.storage.enable_auto_compactions(false)?;
+        // Disable DB compactions during cleanup to improve performance. DB compactions are
+        // automatically re-enabled when the guard is dropped.
+        let _guard = self.inner.storage.temporarily_disable_auto_compactions()?;
 
         // The if condition is redundant, but it's kept in case we change the if condition above.
         if garbage_collection_config.enable_blob_info_cleanup {
@@ -1651,9 +1652,6 @@ impl StorageNode {
                 .delete_expired_blob_data(epoch, &self.inner.metrics)
                 .await?;
         }
-
-        // Re-enable DB compactions after cleanup.
-        self.inner.storage.enable_auto_compactions(true)?;
 
         Ok(())
     }
