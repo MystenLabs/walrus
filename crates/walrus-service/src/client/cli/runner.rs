@@ -1951,6 +1951,7 @@ impl TryFrom<CommonStoreOptions> for StoreOptions {
             skip_tip_confirmation,
             upload_mode,
             internal_run,
+            slice_size: _,
         }: CommonStoreOptions,
     ) -> Result<Self, Self::Error> {
         Ok(Self {
