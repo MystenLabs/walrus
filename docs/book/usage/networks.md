@@ -69,7 +69,8 @@ Testnet using `walrus generate-sui-wallet --network testnet`.
 After installing the Sui CLI, you need to set up a Testnet wallet by running `sui client`, which
 prompts you to set up a new configuration. Make sure to point it to Sui Testnet, you can use the
 full node at `https://fullnode.testnet.sui.io:443` for this. See [the Sui
-documentation](https://docs.sui.io/guides/developer/getting-started/connect) for further details.
+documentation](https://docs.sui.io/guides/developer/getting-started/configure-sui-client) for
+further details.
 
 If you already have a Sui wallet configured, you can directly set up the Testnet environment (if you
 don't have it yet),
