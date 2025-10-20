@@ -43,7 +43,7 @@ impl EncodingAxis for Secondary {
 }
 
 /// Types of consistency checks that can be performed after reconstructing a blob.
-#[derive(Debug, Clone, Deserialize, Serialize, Default, Copy)]
+#[derive(Debug, Clone, Deserialize, Serialize, Default, Copy, PartialEq, Eq)]
 pub enum ConsistencyCheckType {
     /// Skip consistency checks entirely.
     Skip,

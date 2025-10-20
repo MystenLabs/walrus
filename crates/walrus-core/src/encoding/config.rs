@@ -1,7 +1,7 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-use alloc::vec::Vec;
+use alloc::{vec, vec::Vec};
 use core::num::{NonZeroU16, NonZeroU32};
 
 use enum_dispatch::enum_dispatch;
@@ -108,6 +108,8 @@ pub trait EncodingFactory {
     ///
     /// Returns the source blob as a byte vector if decoding succeeds or `None` if decoding fails.
     ///
+    /// This assumes that the provided slivers are authentic.
+    ///
     /// # Panics
     ///
     /// This function can panic if there is insufficient virtual memory for the decoded blob in
@@ -122,6 +124,9 @@ pub trait EncodingFactory {
     ///
     /// If the decoding and the checks are successful, the function returns the reconstructed source
     /// blob as a byte vector.
+    ///
+    /// This assumes that the provided slivers are authentic. This is relevant for the default
+    /// consistency check, because the provided slivers are *not* re-verified.
     ///
     /// # Errors
     ///
@@ -152,6 +157,7 @@ pub trait EncodingFactory {
     ///
     /// Returns a [`DecodeError::DataTooLarge`] if the blob size is too large to be encoded.
     fn strict_consistency_check(&self, blob_id: &BlobId, blob: &[u8]) -> Result<(), DecodeError> {
+        tracing::debug!("performing strict consistency check");
         let blob_metadata = self.compute_metadata(blob)?;
         crate::ensure!(
             blob_metadata.blob_id() == blob_id,
@@ -171,12 +177,19 @@ pub trait EncodingFactory {
 
     /// Returns the number of source symbols configured for this type.
     #[inline]
-    fn n_source_symbols<T: EncodingAxis>(&self) -> NonZeroU16 {
-        if T::IS_PRIMARY {
+    fn n_source_symbols<E: EncodingAxis>(&self) -> NonZeroU16 {
+        if E::IS_PRIMARY {
             self.n_primary_source_symbols()
         } else {
             self.n_secondary_source_symbols()
         }
+    }
+
+    /// Returns the number of systematic slivers of type `E`. Systematic slivers are slivers that
+    /// contain parts of the unencoded blob data (or padding).
+    #[inline]
+    fn n_systematic_slivers<E: EncodingAxis>(&self) -> NonZeroU16 {
+        self.n_source_symbols::<E>()
     }
 
     /// Returns the number of valid symbols required to recover a sliver of [`EncodingAxis`] `A`.
@@ -199,8 +212,8 @@ pub trait EncodingFactory {
 
     /// The maximum size in bytes of data that can be encoded with this encoding.
     #[inline]
-    fn max_data_size<T: EncodingAxis>(&self) -> u32 {
-        u32::from(self.n_source_symbols::<T>().get()) * u32::from(self.max_symbol_size())
+    fn max_data_size<E: EncodingAxis>(&self) -> u32 {
+        u32::from(self.n_source_symbols::<E>().get()) * u32::from(self.max_symbol_size())
     }
 
     /// The maximum size in bytes of a blob that can be encoded.
@@ -275,11 +288,11 @@ pub trait EncodingFactory {
     ///
     /// Returns a [`DataTooLargeError`] `blob_size > self.max_blob_size()`.
     #[inline]
-    fn sliver_size_for_blob<T: EncodingAxis>(
+    fn sliver_size_for_blob<E: EncodingAxis>(
         &self,
         blob_size: u64,
     ) -> Result<NonZeroU32, DataTooLargeError> {
-        NonZeroU32::from(self.n_source_symbols::<T::OrthogonalAxis>())
+        NonZeroU32::from(self.n_source_symbols::<E::OrthogonalAxis>())
             .checked_mul(self.symbol_size_for_blob(blob_size)?.into())
             .ok_or(DataTooLargeError)
     }
@@ -590,13 +603,34 @@ impl EncodingFactory for ReedSolomonEncodingConfig {
         S: IntoIterator<Item = SliverData<E>>,
         E: EncodingAxis,
     {
-        let decoded_blob = self.decode(metadata.metadata().unencoded_length(), slivers)?;
+        let (decoded_blob, already_verified_slivers) =
+            if E::IS_PRIMARY && consistency_check == ConsistencyCheckType::Default {
+                let n_systematic_slivers = self.n_systematic_slivers::<E>().get().into();
+                let mut already_verified_slivers = vec![false; n_systematic_slivers];
+                (
+                    self.decode(
+                        metadata.metadata().unencoded_length(),
+                        slivers.into_iter().inspect(|sliver| {
+                            let index = sliver.index.as_usize();
+                            if index < n_systematic_slivers {
+                                already_verified_slivers[index] = true;
+                            };
+                        }),
+                    )?,
+                    Some(already_verified_slivers),
+                )
+            } else {
+                (
+                    self.decode(metadata.metadata().unencoded_length(), slivers)?,
+                    None,
+                )
+            };
 
         match consistency_check {
             ConsistencyCheckType::Skip => (),
             ConsistencyCheckType::Default => {
-                // TODO(WAL-1054): Implement the new default consistency check.
-                self.strict_consistency_check(metadata.blob_id(), &decoded_blob)?;
+                self.get_blob_encoder(&decoded_blob)?
+                    .default_consistency_check(metadata, &already_verified_slivers)?;
             }
             ConsistencyCheckType::Strict => {
                 self.strict_consistency_check(metadata.blob_id(), &decoded_blob)?;
