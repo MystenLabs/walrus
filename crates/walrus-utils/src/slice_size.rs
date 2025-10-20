@@ -65,6 +65,20 @@ pub enum ReadBlobFromFileOutput {
     },
 }
 
+impl ReadBlobFromFileOutput {
+    pub fn total_bytes(&self) -> u64 {
+        match self {
+            ReadBlobFromFileOutput::Blob { data } => {
+                u64::try_from(data.len()).expect("blob size too large")
+            }
+            ReadBlobFromFileOutput::SlicedBlobs { slices, .. } => {
+                u64::try_from(slices.iter().map(|s| s.len()).sum::<usize>())
+                    .expect("sliced blobs size too large")
+            }
+        }
+    }
+}
+
 pub fn read_blob_from_file(
     path: impl AsRef<Path>,
     slice_size: SliceSize,

@@ -802,7 +802,7 @@ impl ClientCommandRunner {
                 client.encoding_config().n_shards(),
                 &blobs
                     .iter()
-                    .map(|blob| blob.1.len().try_into().expect("32 or 64-bit arch"))
+                    .map(|blob| blob.1.total_bytes().try_into().expect("32 or 64-bit arch"))
                     .collect::<Vec<_>>(),
             )?;
 
