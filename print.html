@@ -913,10 +913,11 @@ You still need to obtain some SUI and WAL tokens, but you do not have to install
 normal way to set this up is via the Sui CLI; see the <a href="https://docs.sui.io/guides/developer/getting-started/sui-install">installation
 instructions</a> in the Sui
 documentation.</p>
-<p>After installing the Sui CLI, you need to set up a wallet by running <code>sui client</code>, which
-prompts you to set up a new configuration. Make sure to point it to Sui Mainnet, you can use the
-full node at <code>https://fullnode.mainnet.sui.io:443</code> for this. See <a href="https://docs.sui.io/guides/developer/getting-started/connect">the Sui
-documentation</a> for further details.</p>
+<p>After installing the Sui CLI, you need to set up a wallet by running <code>sui client</code>, which prompts you
+to set up a new configuration. Make sure to point it to Sui Mainnet, you can use the full node at
+<code>https://fullnode.mainnet.sui.io:443</code> for this. See <a href="https://docs.sui.io/guides/developer/getting-started/configure-sui-client">the Sui
+documentation</a> for
+further details.</p>
 <p>After this, you should get something like this (everything besides the <code>mainnet</code> line is optional):</p>
 <pre><code class="language-terminal">$ sui client envs
 ╭──────────┬─────────────────────────────────────┬────────╮
@@ -1194,8 +1195,9 @@ documentation. If you do not want to install the Sui CLI, you can also generate 
 Testnet using <code>walrus generate-sui-wallet --network testnet</code>.</p>
 <p>After installing the Sui CLI, you need to set up a Testnet wallet by running <code>sui client</code>, which
 prompts you to set up a new configuration. Make sure to point it to Sui Testnet, you can use the
-full node at <code>https://fullnode.testnet.sui.io:443</code> for this. See <a href="https://docs.sui.io/guides/developer/getting-started/connect">the Sui
-documentation</a> for further details.</p>
+full node at <code>https://fullnode.testnet.sui.io:443</code> for this. See <a href="https://docs.sui.io/guides/developer/getting-started/configure-sui-client">the Sui
+documentation</a> for
+further details.</p>
 <p>If you already have a Sui wallet configured, you can directly set up the Testnet environment (if you
 don't have it yet),</p>
 <pre><code class="language-sh">sui client new-env --alias testnet --rpc https://fullnode.testnet.sui.io:443
@@ -6329,7 +6331,7 @@ authentic primary slivers, the original blob data can be decoded.</p>
 together with the blob length uniquely determine the content of the blob. Therefore, by recomputing
 the sliver hashes of the first 334 slivers and checking them against the metadata, the client can
 verify that the decoded data is correct. If this check succeeds, the data is provided to the user,
-otherwise an error is returned. This check provides the following guarantee:</p>
+otherwise an error is returned. This check provides the following guarantees:</p>
 <div id="admonition-data-consistency-property" class="admonition admonish-tip" role="note" aria-labelledby="admonition-data-consistency-property-title">
 <div class="admonition-title">
 <div id="admonition-data-consistency-property-title">
@@ -6351,9 +6353,12 @@ succeed. Furthermore, the blob may be detected as inconsistent by storage nodes 
 after which all read attempts would fail.</p>
 <p>For this reason, Walrus optionally offers a <em>strict consistency check</em>: After decoding the blob, the
 client fully <em>re-encodes</em> it and recomputes all hashes and the blob ID. Only if that computation
-results in the blob ID they are trying to read is the read considered successful.</p>
-<p>This process <em>ensures that the original writer encoded the blob correctly</em>. Therefore, after a blob
-was read successfully with the strict consistency check enabled, the following property holds:</p>
+results in the blob ID they are trying to read is the read considered successful. This check is
+strictly stronger than the default consistency check and therefore also fulfills the data
+consistency property above.</p>
+<p>In addition, this process <em>ensures that the original writer encoded the blob correctly</em>. Therefore,
+after a blob was read successfully with the strict consistency check enabled, the following property
+holds in addition:</p>
 <div id="admonition-guarantee-after-strict-consistency-check-succeeded" class="admonition admonish-tip" role="note" aria-labelledby="admonition-guarantee-after-strict-consistency-check-succeeded-title">
 <div class="admonition-title">
 <div id="admonition-guarantee-after-strict-consistency-check-succeeded-title">
@@ -6363,7 +6368,7 @@ was read successfully with the strict consistency check enabled, the following p
 </div>
 <div>
 <p>Any correct client attempting to read a blob during its lifetime will always succeed and read the
-same data intended by the writer.</p>
+same data intended by the writer, irrespective of which consistency check is performed.</p>
 </div>
 </div>
 <p>Note that for quilt patches, only a variant of the default consistency check is available, as only
