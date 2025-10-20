@@ -61,6 +61,11 @@ use crate::{
 
 type ShardMetrics = CommonDatabaseMetrics;
 
+// Type aliases to simplify complex return types flagged by clippy::type_complexity.
+type NextBlobInfo = Option<(BlobId, BlobInfo)>;
+type ClearedBlobIds = Vec<BlobId>;
+type BatchFetchedSliversOutcome = Result<(NextBlobInfo, ClearedBlobIds), SyncShardClientError>;
+
 /// A cache of the family names created for an instance of a shard, to avoid recomputing them for
 /// metrics.
 #[derive(Debug)]
@@ -1007,16 +1012,18 @@ impl ShardStorage {
                     )
                     .await?;
 
-                next_blob_info = self.batch_fetched_slivers_and_check_missing_blobs(
-                    epoch,
-                    &node,
-                    &fetched_slivers,
-                    sliver_type,
-                    next_blob_info,
-                    &mut blob_info_iter,
-                    &mut batch,
-                    config,
-                )?;
+                let (updated_next_blob_info, cleared_blob_ids) = self
+                    .batch_fetched_slivers_and_check_missing_blobs(
+                        epoch,
+                        &node,
+                        &fetched_slivers,
+                        sliver_type,
+                        next_blob_info,
+                        &mut blob_info_iter,
+                        &mut batch,
+                        config,
+                    )?;
+                next_blob_info = updated_next_blob_info;
 
                 #[cfg(msim)]
                 {
@@ -1052,6 +1059,10 @@ impl ShardStorage {
                 }
 
                 batch.write()?;
+
+                for blob_id in cleared_blob_ids {
+                    node.clear_recovery_deferral(&blob_id).await;
+                }
 
                 walrus_utils::with_label!(
                     node.metrics.sync_shard_sync_sliver_total,
@@ -1178,11 +1189,12 @@ impl ShardStorage {
         _node: &Arc<StorageNodeInner>,
         fetched_slivers: &[(BlobId, Sliver)],
         sliver_type: SliverType,
-        mut next_blob_info: Option<(BlobId, BlobInfo)>,
+        mut next_blob_info: NextBlobInfo,
         blob_info_iter: &mut BlobInfoIterator,
         batch: &mut DBBatch,
         config: &crate::node::config::ShardSyncConfig,
-    ) -> Result<Option<(BlobId, BlobInfo)>, SyncShardClientError> {
+    ) -> BatchFetchedSliversOutcome {
+        let mut cleared_blob_ids = Vec::new();
         let use_sst = config.sst_ingestion_config.is_some();
         for (blob_id, sliver) in fetched_slivers.iter() {
             tracing::debug!(
@@ -1266,8 +1278,10 @@ impl ShardStorage {
                 sliver_type,
                 batch,
             )?;
+
+            cleared_blob_ids.push(*blob_id);
         }
-        Ok(next_blob_info)
+        Ok((next_blob_info, cleared_blob_ids))
     }
 
     /// Given a iterator over blob info table that is currently pointing to `next_blob_info`,

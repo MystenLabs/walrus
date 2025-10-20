@@ -1,6 +1,9 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
+//! The additional time allowed to sliver writes,
+//! to allow for more nodes to receive them.
+
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
