@@ -829,7 +829,8 @@ mod tests {
             &sui_cluster.lock().await.additional_rpc_urls()[0].clone(),
         )
         .expect("Failed to create RPC client");
-        let latest_sui_checkpoint = rpc_client
+        let mut client = (*rpc_client).clone();
+        let latest_sui_checkpoint = client
             .get_latest_checkpoint()
             .await
             .expect("Failed to get latest checkpoint from Sui");
