@@ -34,7 +34,7 @@ use walrus_sui::{
     types::{StorageNode, move_structs::Authorized},
     utils::SuiNetwork,
 };
-use walrus_utils::{read_blob_from_file, slice_size::SliceSize};
+use walrus_utils::{read_data_from_file, slice_size::SliceSize};
 
 use super::{BlobIdDecimal, HumanReadableBytes, parse_blob_id, parse_quilt_patch_id};
 use crate::client::{config::AuthConfig, daemon::CacheConfig};
@@ -1261,7 +1261,7 @@ impl FileOrBlobId {
                 );
                 Ok(*encoding_config
                     .get_for_type(encoding_type)
-                    .compute_metadata(&read_blob_from_file(&file)?)?
+                    .compute_metadata(&read_data_from_file(&file)?)?
                     .blob_id())
             }
             // This case is required for JSON mode where we don't have the clap checking.
@@ -1541,7 +1541,7 @@ impl BlobIdentifiers {
             );
             let blob_id = *encoding_config
                 .get_for_type(encoding_type)
-                .compute_metadata(&read_blob_from_file(file)?)?
+                .compute_metadata(&read_data_from_file(file)?)?
                 .blob_id();
 
             result.push(BlobIdentity {

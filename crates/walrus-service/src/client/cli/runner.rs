@@ -34,7 +34,6 @@ use walrus_core::{
         EncodingFactory as _,
         Primary,
         encoded_blob_length_for_n_shards,
-        max_blob_size_for_n_shards,
         quilt_encoding::{QuiltApi, QuiltStoreBlob, QuiltVersionV1},
     },
     ensure,
@@ -74,7 +73,12 @@ use walrus_sdk::{
 };
 use walrus_storage_node_client::api::BlobStatus;
 use walrus_sui::{client::rpc_client, wallet::Wallet};
-use walrus_utils::{metrics::Registry, read_blob_from_file, slice_size::SliceSize};
+use walrus_utils::{
+    metrics::Registry,
+    read_blob_from_file,
+    read_data_from_file,
+    slice_size::SliceSize,
+};
 
 use super::{
     args::{
@@ -714,9 +718,7 @@ impl ClientCommandRunner {
         config = apply_upload_mode_to_config(config, upload_mode.unwrap_or(UploadMode::Balanced));
         let client = get_contract_client(config, self.wallet, self.gas_budget, &None).await?;
 
-        let committee = client.get_committees().await?.current_committee();
-        let network_max_blob_size =
-            max_blob_size_for_n_shards(committee.n_shards(), DEFAULT_ENCODING);
+        let network_max_blob_size = client.get_max_blob_size(DEFAULT_ENCODING).await?;
         let system_object = client.sui_client().read_client.get_system_object().await?;
         let epochs_ahead =
             get_epochs_ahead(&epoch_arg, system_object.max_epochs_ahead(), &client).await?;
@@ -963,33 +965,47 @@ impl ClientCommandRunner {
         tracing::info!("performing dry-run store for {} files", files.len());
         let encoding_config = client.encoding_config();
         let mut outputs = Vec::with_capacity(files.len());
+        let network_max_blob_size = client.get_max_blob_size(encoding_type).await?;
 
+        let mut blob_upload_jobs = Vec::with_capacity(files.len());
         for file in files {
-            let blob = read_blob_from_file(&file)?;
-            let (_, metadata) =
-                client.encode_pairs_and_metadata(&blob, encoding_type, &MultiProgress::new())?;
-            let unencoded_size = metadata.metadata().unencoded_length();
-            let encoded_size = encoded_blob_length_for_n_shards(
-                encoding_config.n_shards(),
-                unencoded_size,
-                encoding_type,
-            )
-            .expect("must be valid as the encoding succeeded");
-            let storage_cost = client.get_price_computation().await?.operation_cost(
-                &RegisterBlobOp::RegisterFromScratch {
-                    encoded_length: encoded_size,
-                    epochs_ahead,
-                },
-            );
+            let blob_upload_job = read_blob_from_file(&file, slice_size, network_max_blob_size)?;
+            blob_upload_jobs.push((file, blob_upload_job));
+        }
 
-            outputs.push(DryRunOutput {
-                path: file,
-                blob_id: *metadata.blob_id(),
-                encoding_type: metadata.metadata().encoding_type(),
-                unencoded_size,
-                encoded_size,
-                storage_cost,
-            });
+        for (file, blob_upload_job) in blob_upload_jobs {
+            let slice_count = blob_upload_job.slice_count();
+            for (slice_index, blob) in blob_upload_job.iterate_slices().enumerate() {
+                let (_, metadata) = client.encode_pairs_and_metadata(
+                    &blob,
+                    encoding_type,
+                    &MultiProgress::new(),
+                )?;
+                let unencoded_size = metadata.metadata().unencoded_length();
+                let encoded_size = encoded_blob_length_for_n_shards(
+                    encoding_config.n_shards(),
+                    unencoded_size,
+                    encoding_type,
+                )
+                .expect("must be valid as the encoding succeeded");
+                let storage_cost = client.get_price_computation().await?.operation_cost(
+                    &RegisterBlobOp::RegisterFromScratch {
+                        encoded_length: encoded_size,
+                        epochs_ahead,
+                    },
+                );
+
+                outputs.push(DryRunOutput {
+                    path: file.clone(),
+                    slice_index: slice_count.map(|_| slice_index),
+                    slice_count,
+                    blob_id: *metadata.blob_id(),
+                    encoding_type: metadata.metadata().encoding_type(),
+                    unencoded_size,
+                    encoded_size,
+                    storage_cost,
+                });
+            }
         }
         outputs.print_output(json)
     }
@@ -1009,8 +1025,14 @@ impl ClientCommandRunner {
             confirmation,
             upload_mode,
             internal_run,
+            slice_size,
         }: StoreOptions,
     ) -> Result<()> {
+        // REVIEW: It probably doesn't make sense for quilts to be sliced.
+        assert!(
+            matches!(slice_size, SliceSize::Disabled),
+            "slice size is not applicable to quilt storage"
+        );
         epoch_arg.exactly_one_is_some()?;
         if encoding_type.is_some_and(|encoding| !encoding.is_supported()) {
             anyhow::bail!(ClientErrorKind::UnsupportedEncodingType(
@@ -1329,6 +1351,8 @@ impl ClientCommandRunner {
                 unencoded_size,
                 encoded_size,
                 storage_cost,
+                slice_count: None,
+                slice_index: None,
             },
             quilt_index: QuiltIndex::V1(quilt.quilt_index()?.clone()),
         };
@@ -1502,7 +1526,7 @@ impl ClientCommandRunner {
         spinner.set_message("computing the blob ID");
         let metadata = EncodingConfig::new(n_shards)
             .get_for_type(encoding_type)
-            .compute_metadata(&read_blob_from_file(&file)?)?;
+            .compute_metadata(&read_data_from_file(&file)?)?;
         spinner.finish_with_message(format!("blob ID computed: {}", metadata.blob_id()));
 
         BlobIdOutput::new(&file, &metadata).print_output(self.json)

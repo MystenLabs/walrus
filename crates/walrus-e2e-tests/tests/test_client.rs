@@ -104,7 +104,11 @@ use walrus_upload_relay::{
     UploadRelayHandle,
     controller::{WalrusUploadRelayConfig, get_client_with_config},
 };
-use walrus_utils::{backoff::ExponentialBackoffConfig, metrics::Registry};
+use walrus_utils::{
+    backoff::ExponentialBackoffConfig,
+    metrics::Registry,
+    slice_size::BlobUploadJob,
+};
 
 async_param_test! {
     #[ignore = "ignore E2E tests by default"]
@@ -140,14 +144,19 @@ where
     // Generate random blobs.
     let blob_data = walrus_test_utils::random_data_list(data_length, num_blobs);
     let mut path_to_data: HashMap<PathBuf, Vec<u8>> = HashMap::new();
-    let mut blobs_with_paths: Vec<(PathBuf, Vec<u8>)> = vec![];
+    let mut blobs_with_paths: Vec<(PathBuf, BlobUploadJob)> = vec![];
     let mut path_to_blob_id: HashMap<PathBuf, BlobId> = HashMap::new();
 
     // Create paths for each blob.
     for (i, data) in blob_data.iter().enumerate() {
         let path = PathBuf::from(format!("blob_{i}"));
         path_to_data.insert(path.clone(), data.to_vec());
-        blobs_with_paths.push((path, data.to_vec()));
+        blobs_with_paths.push((
+            path,
+            BlobUploadJob::Blob {
+                data: data.to_vec(),
+            },
+        ));
     }
 
     let tail_handle_collector = Arc::new(Mutex::new(vec![]));

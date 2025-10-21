@@ -64,13 +64,14 @@ pub fn load_from_yaml<P: AsRef<Path>, T: DeserializeOwned>(path: P) -> anyhow::R
 }
 
 pub use slice_size::read_blob_from_file;
-// /// Reads a blob from the filesystem or returns a helpful error message.
-//pub fn read_blob_from_file(path: impl AsRef<Path>) -> anyhow::Result<Vec<u8>> {
-//    fs::read(&path).context(format!(
-//        "unable to read blob from '{}'",
-//        path.as_ref().display()
-//    ))
-//}
+
+/// Reads raw data from the filesystem or returns a helpful error message.
+pub fn read_data_from_file(path: impl AsRef<Path>) -> anyhow::Result<Vec<u8>> {
+    std::fs::read(&path).context(format!(
+        "unable to read data from '{}'",
+        path.as_ref().display()
+    ))
+}
 
 /// A macro to print a crumb of information to the console. This is useful for debugging.
 #[macro_export]

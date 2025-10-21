@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 /// A blob slicing strategy. Blob slicing can be used to split blobs into smaller chunks for various
 /// reasons.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum SliceSize {
     /// No blob slicing.
@@ -66,6 +66,12 @@ pub enum BlobUploadJob {
 }
 
 impl BlobUploadJob {
+    pub fn slice_count(&self) -> Option<usize> {
+        match self {
+            BlobUploadJob::Blob { .. } => None,
+            BlobUploadJob::SlicedBlobs { slices, .. } => Some(slices.len()),
+        }
+    }
     pub fn total_bytes(&self) -> u64 {
         match self {
             BlobUploadJob::Blob { data } => u64::try_from(data.len()).expect("blob size too large"),
