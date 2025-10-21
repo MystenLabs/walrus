@@ -56,6 +56,7 @@ pub(crate) async fn check_experimental_rest_endpoint_exists(
     // TODO: https://github.com/MystenLabs/walrus/issues/1049
     // TODO: Use utils::retry once it is outside walrus-service such that it doesn't trigger
     // cyclic dependency errors
+    let mut client = (*client).clone();
     let latest_checkpoint = client.get_latest_checkpoint().await?;
     let mut total_remaining_attempts = 5;
     while let Err(e) = client
@@ -265,7 +266,8 @@ impl RetriableRpcClient {
             client
                 .call(
                     |rpc_client| {
-                        async move { rpc_client.get_checkpoint_summary(sequence_number).await }
+                        let mut client = (*rpc_client).clone();
+                        async move { client.get_checkpoint_summary(sequence_number).await }
                     },
                     request_timeout,
                 )
@@ -301,11 +303,8 @@ impl RetriableRpcClient {
             client
                 .call(
                     |rpc_client| {
-                        async move {
-                            rpc_client
-                                .get_full_checkpoint(sequence_number)
-                                .await
-                        }
+                        let mut client = (*rpc_client).clone();
+                        async move { client.get_full_checkpoint(sequence_number).await }
                     },
                     request_timeout,
                 )
@@ -511,7 +510,10 @@ impl RetriableRpcClient {
         ) -> Result<CertifiedCheckpointSummary, RetriableClientError> {
             client
                 .call(
-                    |rpc_client| async move { rpc_client.get_latest_checkpoint().await },
+                    |rpc_client| {
+                        let mut client = (*rpc_client).clone();
+                        async move { client.get_latest_checkpoint().await }
+                    },
                     request_timeout,
                 )
                 .await
@@ -545,7 +547,10 @@ impl RetriableRpcClient {
         ) -> Result<Object, RetriableClientError> {
             client
                 .call(
-                    |rpc_client| async move { rpc_client.get_object(id).await },
+                    |rpc_client| {
+                        let mut client = (*rpc_client).clone();
+                        async move { client.get_object(id).await }
+                    },
                     request_timeout,
                 )
                 .await

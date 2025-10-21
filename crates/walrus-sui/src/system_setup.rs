@@ -34,7 +34,7 @@ use sui_types::{
     SUI_CLOCK_OBJECT_ID,
     SUI_CLOCK_OBJECT_SHARED_VERSION,
     SUI_FRAMEWORK_ADDRESS,
-    transaction::{ObjectArg, TransactionKind},
+    transaction::{ObjectArg, SharedObjectMutability, TransactionKind},
 };
 use walkdir::WalkDir;
 use walrus_core::{EpochCount, ensure};
@@ -460,7 +460,7 @@ pub async fn create_system_and_staking_objects(
     let clock_arg = pt_builder.obj(ObjectArg::SharedObject {
         id: SUI_CLOCK_OBJECT_ID,
         initial_shared_version: SUI_CLOCK_OBJECT_SHARED_VERSION,
-        mutable: false,
+        mutability: SharedObjectMutability::Immutable,
     })?;
 
     // Create the system and staking objects
