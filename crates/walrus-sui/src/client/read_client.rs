@@ -35,7 +35,7 @@ use sui_types::{
     TypeTag,
     base_types::{ObjectRef, SequenceNumber, SuiAddress},
     event::EventID,
-    transaction::ObjectArg,
+    transaction::{ObjectArg, SharedObjectMutability},
 };
 use tokio::sync::{OnceCell, mpsc};
 use tokio_stream::{Stream, wrappers::ReceiverStream};
@@ -253,32 +253,7 @@ pub trait ReadClient: Send + Sync {
     fn flush_cache(&self) -> impl Future<Output = ()> + Send;
 }
 
-/// The mutability of a shared object.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Mutability {
-    /// The object is mutable.
-    Mutable,
-    /// The object is immutable.
-    Immutable,
-}
-
-impl From<bool> for Mutability {
-    fn from(value: bool) -> Self {
-        if value {
-            Self::Mutable
-        } else {
-            Self::Immutable
-        }
-    }
-}
-
-impl From<Mutability> for bool {
-    fn from(value: Mutability) -> Self {
-        matches!(value, Mutability::Mutable)
-    }
-}
-
-/// Configuration and state for a shared object with a package ID that is not the walrus package.
+/// The mut/// Configuration and state for a shared object with a package ID that is not the walrus package.
 /// E.g. for credits or walrus subsidies.
 #[derive(Clone, Debug)]
 pub struct SharedObjectWithPkgConfig {
@@ -433,7 +408,7 @@ impl SuiReadClient {
     pub(crate) async fn object_arg_for_shared_obj(
         &self,
         object_id: ObjectID,
-        mutable: Mutability,
+        mutability: SharedObjectMutability,
     ) -> SuiClientResult<ObjectArg> {
         let initial_shared_version = self
             .sui_client
@@ -442,19 +417,19 @@ impl SuiReadClient {
         Ok(ObjectArg::SharedObject {
             id: object_id,
             initial_shared_version,
-            mutable: mutable.into(),
+            mutability,
         })
     }
 
     pub(crate) async fn object_arg_for_system_obj(
         &self,
-        mutable: Mutability,
+        mutability: SharedObjectMutability,
     ) -> SuiClientResult<ObjectArg> {
         let initial_shared_version = self.system_object_initial_version().await?;
         Ok(ObjectArg::SharedObject {
             id: self.system_object_id,
             initial_shared_version,
-            mutable: mutable.into(),
+            mutability,
         })
     }
 
@@ -471,19 +446,19 @@ impl SuiReadClient {
 
     pub(crate) async fn object_arg_for_staking_obj(
         &self,
-        mutable: Mutability,
+        mutability: SharedObjectMutability,
     ) -> SuiClientResult<ObjectArg> {
         let initial_shared_version = self.staking_object_initial_version().await?;
         Ok(ObjectArg::SharedObject {
             id: self.staking_object_id,
             initial_shared_version,
-            mutable: mutable.into(),
+            mutability,
         })
     }
 
     pub(crate) async fn object_arg_for_credits_obj(
         &self,
-        mutable: Mutability,
+        mutability: SharedObjectMutability,
     ) -> SuiClientResult<ObjectArg> {
         let credits = self.credits.read().expect("mutex should not be poisoned");
         let credits = credits
@@ -493,13 +468,13 @@ impl SuiReadClient {
         Ok(ObjectArg::SharedObject {
             id: credits.object_id,
             initial_shared_version: credits.initial_version,
-            mutable: mutable.into(),
+            mutability,
         })
     }
 
     pub(crate) async fn object_arg_for_walrus_subsidies_obj(
         &self,
-        mutable: Mutability,
+        mutability: SharedObjectMutability,
     ) -> SuiClientResult<ObjectArg> {
         let walrus_subsidies = self
             .walrus_subsidies
@@ -512,7 +487,7 @@ impl SuiReadClient {
         Ok(ObjectArg::SharedObject {
             id: walrus_subsidies.object_id,
             initial_shared_version: walrus_subsidies.initial_version,
-            mutable: mutable.into(),
+            mutability,
         })
     }
 
