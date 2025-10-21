@@ -1894,7 +1894,7 @@ pub(crate) mod default {
     }
 
     pub(crate) fn max_aggregator_buffer_size() -> usize {
-        128
+        384
     }
 }
 

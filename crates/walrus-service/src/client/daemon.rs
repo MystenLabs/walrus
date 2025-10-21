@@ -661,11 +661,7 @@ mod tests {
     }
 
     impl WalrusReadClient for MockSlowClient {
-        async fn read_blob(
-            &self,
-            _blob_id: &BlobId,
-            _consistency_check: ConsistencyCheckType,
-        ) -> ClientResult<Vec<u8>> {
+        async fn read_blob(&self, _blob_id: &BlobId) -> ClientResult<Vec<u8>> {
             // Increment active request counter and track max
             let current = self.active_requests.fetch_add(1, Ordering::SeqCst) + 1;
             self.max_concurrent.fetch_max(current, Ordering::SeqCst);
