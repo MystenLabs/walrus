@@ -613,10 +613,7 @@ async fn handle_service_error(error: BoxError, service_name: &str) -> Response {
     if error.is::<Overloaded>() {
         (
             StatusCode::TOO_MANY_REQUESTS,
-            format!(
-                "the {} is receiving too many requests; please try again later",
-                service_name
-            ),
+            format!("the {service_name} is receiving too many requests; please try again later"),
         )
             .into_response()
     } else {
@@ -671,7 +668,11 @@ mod tests {
     }
 
     impl WalrusReadClient for MockSlowClient {
-        async fn read_blob(&self, _blob_id: &BlobId) -> ClientResult<Vec<u8>> {
+        async fn read_blob(
+            &self,
+            _blob_id: &BlobId,
+            _consistency_check: ConsistencyCheckType,
+        ) -> ClientResult<Vec<u8>> {
             // Increment active request counter and track max
             let current = self.active_requests.fetch_add(1, Ordering::SeqCst) + 1;
             self.max_concurrent.fetch_max(current, Ordering::SeqCst);
@@ -727,8 +728,8 @@ mod tests {
         // Get the router (without global middleware for simpler testing)
         let app = daemon.router.with_state(daemon.client);
 
-        // Create a fake blob ID for testing
-        let blob_id = "8h2jF5xHGH8sS4vVUOgbW2VcwxoK0wJPXlJviMtGHTU";
+        // Create a random blob ID for testing
+        let blob_id = walrus_core::test_utils::random_blob_id();
 
         // Launch concurrent requests
         let mut handles = vec![];
