@@ -341,14 +341,15 @@ impl<T: WalrusReadClient + Send + Sync + 'static> ClientDaemon<T> {
         client: T,
         network_address: SocketAddr,
         registry: &Registry,
-        allowed_headers: Vec<String>,
-        allow_quilt_patch_tags_in_response: bool,
+        args: &AggregatorArgs,
     ) -> Self {
         Self::new::<AggregatorApiDoc>(client, network_address, registry).with_aggregator(
             AggregatorResponseHeaderConfig {
-                allowed_headers: allowed_headers.into_iter().collect(),
-                allow_quilt_patch_tags_in_response,
+                allowed_headers: args.allowed_headers.clone().into_iter().collect(),
+                allow_quilt_patch_tags_in_response: args.allow_quilt_patch_tags_in_response,
             },
+            args.max_request_buffer_size,
+            args.max_concurrent_requests,
         )
     }
 
@@ -370,33 +371,61 @@ impl<T: WalrusReadClient + Send + Sync + 'static> ClientDaemon<T> {
     }
 
     /// Specifies that the daemon should expose the aggregator interface (read blobs).
-    fn with_aggregator(mut self, response_header_config: AggregatorResponseHeaderConfig) -> Self {
+    fn with_aggregator(
+        mut self,
+        response_header_config: AggregatorResponseHeaderConfig,
+        max_request_buffer_size: usize,
+        max_concurrent_requests: usize,
+    ) -> Self {
         self.response_header_config = Arc::new(response_header_config);
         tracing::info!(
             "Aggregator response header config: {:?}",
             self.response_header_config
         );
+        tracing::debug!(
+            %max_request_buffer_size,
+            %max_concurrent_requests,
+            "configuring the aggregator endpoint",
+        );
+
+        let aggregator_layers = ServiceBuilder::new()
+            .layer(HandleErrorLayer::new(handle_aggregator_error))
+            // If inner service isn't ready, fail fast (no pile-ups)
+            .layer(LoadShedLayer::new())
+            // Small bounded queue to smooth tiny bursts
+            .layer(BufferLayer::new(max_request_buffer_size))
+            // Cap total in-flight requests across the aggregator
+            .layer(ConcurrencyLimitLayer::new(max_concurrent_requests));
+
         self.router = self
             .router
-            .route(BLOB_GET_ENDPOINT, get(routes::get_blob))
+            .route(
+                BLOB_GET_ENDPOINT,
+                get(routes::get_blob).route_layer(aggregator_layers.clone()),
+            )
             .route(
                 BLOB_OBJECT_GET_ENDPOINT,
                 get(routes::get_blob_by_object_id)
-                    .with_state((self.client.clone(), self.response_header_config.clone())),
+                    .with_state((self.client.clone(), self.response_header_config.clone()))
+                    .route_layer(aggregator_layers.clone()),
             )
             .route(
                 QUILT_PATCH_BY_ID_GET_ENDPOINT,
                 get(routes::get_patch_by_quilt_patch_id)
-                    .with_state((self.client.clone(), self.response_header_config.clone())),
+                    .with_state((self.client.clone(), self.response_header_config.clone()))
+                    .route_layer(aggregator_layers.clone()),
             )
             .route(
                 QUILT_PATCH_BY_IDENTIFIER_GET_ENDPOINT,
                 get(routes::get_patch_by_quilt_id_and_identifier)
-                    .with_state((self.client.clone(), self.response_header_config.clone())),
+                    .with_state((self.client.clone(), self.response_header_config.clone()))
+                    .route_layer(aggregator_layers.clone()),
             )
             .route(
                 LIST_PATCHES_IN_QUILT_ENDPOINT,
-                get(routes::list_patches_in_quilt).with_state(self.client.clone()),
+                get(routes::list_patches_in_quilt)
+                    .with_state(self.client.clone())
+                    .route_layer(aggregator_layers),
             );
         self
     }
@@ -456,15 +485,19 @@ impl<T: WalrusWriteClient + Send + Sync + 'static> ClientDaemon<T> {
         aggregator_args: &AggregatorArgs,
     ) -> Self {
         Self::new::<DaemonApiDoc>(client, publisher_args.daemon_args.bind_address, registry)
-            .with_aggregator(AggregatorResponseHeaderConfig {
-                allowed_headers: aggregator_args
-                    .allowed_headers
-                    .clone()
-                    .into_iter()
-                    .collect(),
-                allow_quilt_patch_tags_in_response: aggregator_args
-                    .allow_quilt_patch_tags_in_response,
-            })
+            .with_aggregator(
+                AggregatorResponseHeaderConfig {
+                    allowed_headers: aggregator_args
+                        .allowed_headers
+                        .clone()
+                        .into_iter()
+                        .collect(),
+                    allow_quilt_patch_tags_in_response: aggregator_args
+                        .allow_quilt_patch_tags_in_response,
+                },
+                aggregator_args.max_request_buffer_size,
+                aggregator_args.max_concurrent_requests,
+            )
             .with_publisher(
                 auth_config,
                 publisher_args.max_body_size_kib,
@@ -566,18 +599,195 @@ pub(crate) async fn auth_layer(
     }
 }
 
-async fn handle_publisher_error(error: BoxError) -> Response {
+/// Handles errors from Tower middleware layers for service endpoints.
+///
+/// Returns HTTP 429 for overload errors, and HTTP 500 with error details for other errors.
+async fn handle_service_error(error: BoxError, service_name: &str) -> Response {
     if error.is::<Overloaded>() {
         (
             StatusCode::TOO_MANY_REQUESTS,
-            "the publisher is receiving too many requests; please try again later",
+            format!("the {service_name} is receiving too many requests; please try again later"),
         )
             .into_response()
     } else {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            "something went wrong while storing the blob",
+            format!("{service_name} internal server error: {error}"),
         )
             .into_response()
+    }
+}
+
+async fn handle_aggregator_error(error: BoxError) -> Response {
+    handle_service_error(error, "aggregator").await
+}
+
+async fn handle_publisher_error(error: BoxError) -> Response {
+    handle_service_error(error, "publisher").await
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{
+        sync::atomic::{AtomicUsize, Ordering},
+        time::Duration,
+    };
+
+    use axum::http::StatusCode as HttpStatusCode;
+    use tower::ServiceExt;
+    use walrus_core::BlobId;
+
+    use super::*;
+
+    /// Mock client that simulates slow blob reads to test concurrency limits.
+    #[derive(Clone)]
+    struct MockSlowClient {
+        /// Tracks the maximum number of concurrent requests observed.
+        max_concurrent: Arc<AtomicUsize>,
+        /// Tracks the current number of active requests.
+        active_requests: Arc<AtomicUsize>,
+        /// Artificial delay for read operations.
+        delay: Duration,
+    }
+
+    impl MockSlowClient {
+        fn new(delay: Duration) -> Self {
+            Self {
+                max_concurrent: Arc::new(AtomicUsize::new(0)),
+                active_requests: Arc::new(AtomicUsize::new(0)),
+                delay,
+            }
+        }
+    }
+
+    impl WalrusReadClient for MockSlowClient {
+        async fn read_blob(&self, _blob_id: &BlobId) -> ClientResult<Vec<u8>> {
+            // Increment active request counter and track max
+            let current = self.active_requests.fetch_add(1, Ordering::SeqCst) + 1;
+            self.max_concurrent.fetch_max(current, Ordering::SeqCst);
+
+            // Simulate slow read
+            tokio::time::sleep(self.delay).await;
+
+            // Decrement active request counter
+            self.active_requests.fetch_sub(1, Ordering::SeqCst);
+
+            Ok(b"mock data".to_vec())
+        }
+
+        async fn get_blob_by_object_id(
+            &self,
+            _blob_object_id: &ObjectID,
+        ) -> ClientResult<walrus_sui::types::move_structs::BlobWithAttribute> {
+            unimplemented!("not needed for rate limit tests")
+        }
+    }
+
+    #[tokio::test]
+    async fn test_aggregator_rate_limiting_returns_429() {
+        // Create a registry for metrics
+        let registry = Registry::new(prometheus::Registry::new());
+
+        // Configure very low limits to easily trigger rate limiting
+        let max_concurrent = 2;
+        let max_buffer = 1;
+        let num_requests = 5; // More than max_concurrent + max_buffer
+
+        // Create mock client with slow responses
+        let mock_client = MockSlowClient::new(Duration::from_millis(100));
+        let active_counter = mock_client.active_requests.clone();
+        let max_concurrent_counter = mock_client.max_concurrent.clone();
+
+        // Create aggregator with low limits
+        let args = AggregatorArgs {
+            allowed_headers: vec![],
+            allow_quilt_patch_tags_in_response: false,
+            max_blob_size: None,
+            max_request_buffer_size: max_buffer,
+            max_concurrent_requests: max_concurrent,
+        };
+
+        let daemon = ClientDaemon::new_aggregator(
+            mock_client,
+            "127.0.0.1:0".parse().unwrap(),
+            &registry,
+            &args,
+        );
+
+        // Get the router (without global middleware for simpler testing)
+        let app = daemon.router.with_state(daemon.client);
+
+        // Create a random blob ID for testing
+        let blob_id = walrus_core::test_utils::random_blob_id();
+
+        // Launch concurrent requests
+        let mut handles = vec![];
+        for _ in 0..num_requests {
+            let app = app.clone();
+            let handle = tokio::spawn(async move {
+                let request = axum::http::Request::builder()
+                    .uri(format!("/v1/blobs/{}", blob_id))
+                    .body(axum::body::Body::empty())
+                    .unwrap();
+
+                app.oneshot(request).await
+            });
+            handles.push(handle);
+        }
+
+        // Wait for all requests to complete
+        let results = futures::future::join_all(handles).await;
+
+        // Count successful and rate-limited responses
+        let mut success_count = 0;
+        let mut rate_limited_count = 0;
+
+        for result in results {
+            let response = result.expect("request should complete");
+            match response.unwrap().status() {
+                HttpStatusCode::OK => success_count += 1,
+                HttpStatusCode::TOO_MANY_REQUESTS => rate_limited_count += 1,
+                status => panic!("unexpected status code: {}", status),
+            }
+        }
+
+        // Verify that some requests were rate limited
+        assert!(
+            rate_limited_count > 0,
+            "Expected some requests to be rate limited, but got {} successes and {} rate limited",
+            success_count,
+            rate_limited_count
+        );
+
+        // Verify the total adds up
+        assert_eq!(
+            success_count + rate_limited_count,
+            num_requests,
+            "Total responses should equal number of requests"
+        );
+
+        // The number of successful requests should not exceed max_concurrent + max_buffer
+        assert!(
+            success_count <= max_concurrent + max_buffer,
+            "Success count {} should not exceed max_concurrent + max_buffer = {}",
+            success_count,
+            max_concurrent + max_buffer
+        );
+
+        // Ensure no requests are still active
+        assert_eq!(
+            active_counter.load(Ordering::SeqCst),
+            0,
+            "All requests should have completed"
+        );
+
+        // Verify the concurrency limit was enforced
+        let observed_max_concurrent = max_concurrent_counter.load(Ordering::SeqCst);
+        assert!(
+            observed_max_concurrent <= max_concurrent,
+            "Observed max concurrent {} should not exceed limit {}",
+            observed_max_concurrent,
+            max_concurrent
+        );
     }
 }

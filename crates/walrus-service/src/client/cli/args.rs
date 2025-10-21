@@ -887,6 +887,19 @@ pub struct AggregatorArgs {
     #[arg(long)]
     #[serde(default)]
     pub max_blob_size: Option<u64>,
+    /// The maximum number of requests that can be buffered before the server starts rejecting new
+    /// ones.
+    #[arg(long = "max-buffer-size", default_value_t = default::max_aggregator_buffer_size())]
+    #[serde(default = "default::max_aggregator_buffer_size")]
+    pub max_request_buffer_size: usize,
+    /// The maximum number of requests the aggregator can process concurrently.
+    ///
+    /// If more requests than this maximum are received, the excess requests are buffered up to
+    /// `--max-buffer-size`. Any outstanding request will result in a response with a
+    /// 429 HTTP status code.
+    #[arg(long, default_value_t = default::max_aggregator_concurrent_requests())]
+    #[serde(default = "default::max_aggregator_concurrent_requests")]
+    pub max_concurrent_requests: usize,
 }
 
 /// The arguments for the publisher service.
@@ -1875,6 +1888,14 @@ pub(crate) mod default {
     pub(crate) fn concurrent_requests_for_health() -> usize {
         60
     }
+
+    pub(crate) fn max_aggregator_concurrent_requests() -> usize {
+        256
+    }
+
+    pub(crate) fn max_aggregator_buffer_size() -> usize {
+        384
+    }
 }
 
 #[cfg(test)]
@@ -1967,6 +1988,8 @@ mod tests {
                 allowed_headers: default::allowed_headers(),
                 allow_quilt_patch_tags_in_response: false,
                 max_blob_size: None,
+                max_request_buffer_size: default::max_aggregator_buffer_size(),
+                max_concurrent_requests: default::max_aggregator_concurrent_requests(),
             },
         })
     }
