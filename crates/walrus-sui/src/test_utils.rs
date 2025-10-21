@@ -669,6 +669,30 @@ pub fn new_move_storage_node_for_testing() -> StorageNode {
     }
 }
 
+impl BlobRegistered {
+    /// Creates a certified event with the same parameters as the provided registered event (but a
+    /// new event ID) for testing.
+    pub fn into_corresponding_certified_event_for_testing(self) -> BlobCertified {
+        let Self {
+            epoch,
+            blob_id,
+            end_epoch,
+            deletable,
+            object_id,
+            ..
+        } = self;
+        BlobCertified {
+            epoch,
+            blob_id,
+            end_epoch,
+            deletable,
+            object_id,
+            is_extension: false,
+            event_id: event_id_for_testing(),
+        }
+    }
+}
+
 /// A sorted list of BLS keys for a walrus committee that can be used
 /// to certify protocol messages for testing the contracts without
 /// running a full walrus system.

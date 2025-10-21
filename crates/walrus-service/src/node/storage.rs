@@ -11,9 +11,10 @@ use std::{
     time::Instant,
 };
 
+use anyhow::Context;
 use futures::FutureExt as _;
 use itertools::Itertools;
-use rocksdb::Options;
+use rocksdb::{Options, Transaction};
 use serde::{Deserialize, Serialize};
 use sui_sdk::types::event::EventID;
 use sui_types::base_types::ObjectID;
@@ -21,7 +22,7 @@ use tokio::sync::{OwnedRwLockWriteGuard, RwLock};
 use typed_store::{
     Map,
     TypedStoreError,
-    rocks::{self, DBBatch, DBMap, MetricConf, ReadWriteOptions, RocksDB},
+    rocks::{self, DBBatch, DBMap, MetricConf, OptimisticHandle, ReadWriteOptions, RocksDB},
 };
 use walrus_core::{
     BlobId,
@@ -54,7 +55,10 @@ use self::{
     event_cursor_table::{EventCursorTable, EventIdWithProgress},
     metrics::{CommonDatabaseMetrics, Labels, OperationType},
 };
-use super::errors::{ShardNotAssigned, SyncShardServiceError};
+use super::{
+    errors::{ShardNotAssigned, SyncShardServiceError},
+    metrics::{NodeMetricSet, STATUS_FAILURE, STATUS_SUCCESS},
+};
 use crate::utils;
 
 pub(crate) mod blob_info;
@@ -449,6 +453,22 @@ impl Storage {
             .collect::<Vec<_>>()
     }
 
+    async fn owned_shard_storages(&self) -> Result<Vec<Arc<ShardStorage>>, TypedStoreError> {
+        let shards = futures::future::try_join_all(self.shards.read().await.values().map(
+            |shard| async move {
+                match shard.status().await {
+                    Ok(status) => Ok(status.is_owned_by_node().then_some(shard.clone())),
+                    Err(error) => Err(error),
+                }
+            },
+        ))
+        .await?
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>();
+        Ok(shards)
+    }
+
     /// Returns a handle over the storage for a single shard.
     pub async fn shard_storage(&self, shard: ShardIndex) -> Option<Arc<ShardStorage>> {
         self.shards.read().await.get(&shard).cloned()
@@ -592,16 +612,198 @@ impl Storage {
     pub(crate) async fn process_expired_blob_objects(
         &self,
         current_epoch: Epoch,
+        node_metrics: &NodeMetricSet,
     ) -> anyhow::Result<()> {
-        tracing::info!(epoch = %current_epoch, "processing expired blob objects");
-
         self.blob_info
-            .process_expired_blob_objects(current_epoch)
-            .await?;
+            .process_expired_blob_objects(current_epoch, node_metrics)
+            .await
+    }
 
-        tracing::info!(epoch = %current_epoch, "finished processing expired blob objects");
+    /// Deletes the aggregate blob info, metadata, and slivers for blobs that are expired in the
+    /// `current_epoch`.
+    #[tracing::instrument(skip_all, fields(walrus.epoch = %current_epoch))]
+    pub(crate) async fn delete_expired_blob_data(
+        &self,
+        current_epoch: Epoch,
+        node_metrics: &NodeMetricSet,
+    ) -> anyhow::Result<()> {
+        let Some(optimistic_handle) = self.database.as_optimistic() else {
+            tracing::warn!("data deletion is only possible when the DB supports transactions");
+            return Ok(());
+        };
+
+        match self.node_status()? {
+            NodeStatus::Active => (),
+            status => {
+                tracing::info!(
+                    %status,
+                    "data deletion is only performed when the node is active, skipping"
+                );
+                return Ok(());
+            }
+        };
+
+        tracing::info!("starting to delete expired blob data");
+        let mut cleaned_up_blob_id_count = 0;
+        let start_time = Instant::now();
+
+        let shards = self
+            .owned_shard_storages()
+            .await
+            .context("error while collecting shards for data deletion")?;
+
+        for entry in self
+            .blob_info
+            .aggregate_blob_info_iter()
+            .context("DB error while attempting to iterate over aggregate blob info")?
+        {
+            let (blob_id, blob_info) = match entry {
+                Ok(entry) => entry,
+                Err(error) => {
+                    tracing::warn!(
+                        ?error,
+                        "a DB error occurred while iterating over aggregate blob info"
+                    );
+                    continue;
+                }
+            };
+
+            if blob_info.is_registered(current_epoch) {
+                tracing::trace!(
+                    %blob_id,
+                    "skipping blob that is still registered",
+                );
+                continue;
+            }
+
+            // At this point we know that the blob is no longer registered, and we can attempt to
+            // delete the related data.
+            match self
+                .attempt_to_delete_blob_data_inner(
+                    &optimistic_handle,
+                    &blob_id,
+                    current_epoch,
+                    &shards,
+                    node_metrics,
+                )
+                .await
+            {
+                Ok(true) => {
+                    cleaned_up_blob_id_count += 1;
+                }
+                Ok(false) => (),
+                Err(error) => {
+                    tracing::error!(
+                        ?error,
+                        %blob_id,
+                        "encountered an error while attempting to delete blob data"
+                    );
+                }
+            }
+        }
+
+        tracing::info!(
+            cleaned_up_blob_id_count,
+            duration_seconds = %start_time.elapsed().as_secs_f64(),
+            "finished deleting expired blob data",
+        );
 
         Ok(())
+    }
+
+    pub(crate) async fn attempt_to_delete_blob_data(
+        &self,
+        blob_id: &BlobId,
+        current_epoch: Epoch,
+        node_metrics: &NodeMetricSet,
+    ) -> anyhow::Result<bool> {
+        let Some(optimistic_handle) = self.database.as_optimistic() else {
+            tracing::warn!("data deletion is only possible when the DB supports transactions");
+            return Ok(false);
+        };
+        let shards = self
+            .owned_shard_storages()
+            .await
+            .context("error while collecting shards for data deletion")?;
+        self.attempt_to_delete_blob_data_inner(
+            &optimistic_handle,
+            blob_id,
+            current_epoch,
+            &shards,
+            node_metrics,
+        )
+        .await
+    }
+
+    /// Attempts to delete the blob data for the given blob ID.
+    ///
+    /// Returns true if the blob data was deleted, false otherwise.
+    async fn attempt_to_delete_blob_data_inner(
+        &self,
+        optimistic_handle: &OptimisticHandle<'_>,
+        blob_id: &BlobId,
+        current_epoch: Epoch,
+        shards: &[Arc<ShardStorage>],
+        node_metrics: &NodeMetricSet,
+    ) -> anyhow::Result<bool> {
+        let transaction = optimistic_handle.transaction();
+        let Some(blob_info) = self
+            .blob_info
+            .get_for_update_in_transaction(&transaction, blob_id)?
+        else {
+            tracing::warn!(
+                %blob_id,
+                "blob info not found when attempting to delete expired blob data"
+            );
+            return Ok(false);
+        };
+        if blob_info.is_registered(current_epoch) {
+            tracing::debug!(
+                %blob_id,
+                "blob was reregistered before attempting to delete expired blob data",
+            );
+            return Ok(false);
+        }
+
+        // At this point we are sure that the blob is no longer registered and can actually delete
+        // the blob info and data. If the blob is reregistered outside this transaction, the
+        // transaction will fail.
+        self.blob_info
+            .delete_in_transaction(&transaction, blob_id)?;
+        self.delete_blob_data_in_transaction(&transaction, blob_id, shards)?;
+
+        if let Err(error) = transaction.commit() {
+            if matches!(
+                error.kind(),
+                rocksdb::ErrorKind::Busy | rocksdb::ErrorKind::TryAgain
+            ) {
+                tracing::debug!(
+                    %error,
+                    "deleting blob data failed due to a conflict, skipping deletion"
+                );
+            } else {
+                tracing::warn!(?error, "encountered an error while committing transaction");
+            }
+
+            // Record failed deletion in metrics.
+            walrus_utils::with_label!(
+                node_metrics.cleanup_blob_data_deletion_attempts_total,
+                STATUS_FAILURE
+            )
+            .inc();
+
+            // Returning successfully here because it doesn't matter if the deletion failed.
+            // The data will simply be deleted in a future garbage-collection process.
+            return Ok(false);
+        }
+
+        // Record successful deletion in metrics.
+        walrus_utils::with_label!(
+            node_metrics.cleanup_blob_data_deletion_attempts_total,
+            STATUS_SUCCESS
+        )
+        .inc();
+        Ok(true)
     }
 
     /// Repositions the event cursor to the specified event index.
@@ -674,6 +876,9 @@ impl Storage {
     /// Deletes the metadata and slivers for the provided [`BlobId`] from the storage.
     ///
     /// This *does not* update the blob-info table in any way.
+    ///
+    /// **Important**: This does not prevent the blob info from being updated concurrently and thus
+    /// must only be used if the blob cannot be reregistered, for example for invalid blobs.
     #[tracing::instrument(skip_all)]
     pub async fn delete_blob_data(&self, blob_id: &BlobId) -> Result<(), TypedStoreError> {
         let mut batch = self.metadata.batch();
@@ -705,6 +910,26 @@ impl Storage {
     ) -> Result<(), TypedStoreError> {
         for shard in self.existing_shard_storages().await {
             shard.delete_sliver_pair(batch, blob_id)?;
+        }
+        Ok(())
+    }
+
+    /// Deletes the metadata and slivers for the provided [`BlobId`] from the storage within a DB
+    /// transaction.
+    ///
+    /// This *does not* update the blob-info table in any way.
+    fn delete_blob_data_in_transaction(
+        &self,
+        transaction: &Transaction<'_, rocksdb::OptimisticTransactionDB>,
+        blob_id: &BlobId,
+        shards: &[Arc<ShardStorage>],
+    ) -> anyhow::Result<()> {
+        transaction.delete_cf(
+            &self.metadata.cf().expect("metadata CF must always exist"),
+            blob_id,
+        )?;
+        for shard in shards {
+            shard.delete_sliver_pair_in_transaction(transaction, blob_id)?;
         }
         Ok(())
     }
@@ -858,6 +1083,45 @@ impl Storage {
         .into_iter()
         .flatten()
         .collect()
+    }
+
+    /// Enables or disables automatic compactions for all column families.
+    fn enable_auto_compactions(&self, enable: bool) -> Result<(), anyhow::Error> {
+        tracing::info!(
+            "{} auto compactions for all column families",
+            if enable { "enabling" } else { "disabling" },
+        );
+        let disable_value = if enable { "false" } else { "true" };
+        self.database
+            .set_options(&[("disable_auto_compactions", disable_value)])
+            .context("failed to set auto compactions (enable: {enable})")?;
+        Ok(())
+    }
+
+    /// Disables automatic compactions for all column families and returns a guard that re-enables
+    /// them when dropped.
+    ///
+    /// This is useful during bulk operations to improve performance by disabling compactions,
+    /// then re-enabling them afterward.
+    pub fn temporarily_disable_auto_compactions<'a>(
+        &'a self,
+    ) -> Result<DisableAutoCompactionsGuard<'a>, anyhow::Error> {
+        self.enable_auto_compactions(false)?;
+        Ok(DisableAutoCompactionsGuard { storage: self })
+    }
+}
+
+#[derive(Debug)]
+#[must_use = "auto compactions are automatically re-enabled when the guard is dropped"]
+pub struct DisableAutoCompactionsGuard<'a> {
+    storage: &'a Storage,
+}
+
+impl Drop for DisableAutoCompactionsGuard<'_> {
+    fn drop(&mut self) {
+        if let Err(error) = self.storage.enable_auto_compactions(true) {
+            tracing::error!(?error, "failed to re-enable auto compactions");
+        }
     }
 }
 

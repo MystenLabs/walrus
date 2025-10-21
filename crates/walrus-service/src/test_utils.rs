@@ -3104,7 +3104,7 @@ async fn wait_for_event_processor_to_start(
 pub async fn empty_storage_with_shards(shards: &[ShardIndex]) -> WithTempDir<Storage> {
     let temp_dir =
         nondeterministic!(tempfile::tempdir().expect("temporary directory creation must succeed"));
-    let db_config = DatabaseConfig::default();
+    let db_config = DatabaseConfig::default_for_test();
     let storage = Storage::open(
         temp_dir.path(),
         db_config,

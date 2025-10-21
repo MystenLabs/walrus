@@ -266,9 +266,10 @@ impl BackgroundEventProcessor {
         event: BlobDeleted,
     ) -> anyhow::Result<()> {
         let blob_id = event.blob_id;
+        let current_epoch = self.node.current_committee_epoch();
 
         if let Some(blob_info) = self.node.storage.get_blob_info(&blob_id)? {
-            if !blob_info.is_certified(self.node.current_committee_epoch()) {
+            if !blob_info.is_certified(current_epoch) {
                 self.node
                     .blob_retirement_notifier
                     .notify_blob_retirement(&blob_id);
@@ -282,9 +283,14 @@ impl BackgroundEventProcessor {
             // We use the event's epoch for this check (as opposed to the current epoch) as
             // subsequent certify or delete events may update the `blob_info`; so we cannot remove
             // it even if it is no longer valid in the *current* epoch
-            if !blob_info.is_registered(event.epoch) {
+            if !blob_info.is_registered(current_epoch)
+                && self.node.garbage_collection_config.enable_data_deletion
+            {
                 tracing::debug!(walrus.blob_id = %blob_id, "deleting data for deleted blob");
-                // TODO (WAL-201): Actually delete blob data.
+                self.node
+                    .storage
+                    .attempt_to_delete_blob_data(&blob_id, current_epoch, &self.node.metrics)
+                    .await?;
             }
         } else if self
             .node

@@ -11,9 +11,10 @@ use std::{
 };
 
 use enum_dispatch::enum_dispatch;
-use rocksdb::{MergeOperands, Options};
+use rocksdb::{MergeOperands, Options, Transaction};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use sui_types::{base_types::ObjectID, event::EventID};
+use tokio::time::Instant;
 use tracing::Level;
 use typed_store::{
     Map,
@@ -27,6 +28,7 @@ use walrus_sui::types::{BlobCertified, BlobDeleted, BlobEvent, BlobRegistered, I
 use self::per_object_blob_info::PerObjectBlobInfoMergeOperand;
 pub(crate) use self::per_object_blob_info::{PerObjectBlobInfo, PerObjectBlobInfoApi};
 use super::{DatabaseTableOptionsFactory, constants};
+use crate::node::metrics::NodeMetricSet;
 
 pub type BlobInfoIterator<'a> = BlobInfoIter<
     BlobId,
@@ -304,6 +306,45 @@ impl BlobInfoTable {
         )
     }
 
+    /// Returns an iterator over all entries in the aggregate blob info table.
+    pub fn aggregate_blob_info_iter(
+        &self,
+    ) -> Result<impl Iterator<Item = Result<(BlobId, BlobInfo), TypedStoreError>>, TypedStoreError>
+    {
+        self.aggregate_blob_info.safe_iter()
+    }
+
+    /// Returns the column family handle for the aggregate blob info table.
+    pub fn aggregate_cf(&self) -> Arc<rocksdb::BoundColumnFamily<'_>> {
+        self.aggregate_blob_info
+            .cf()
+            .expect("we know that this CF exists")
+    }
+
+    pub fn get_for_update_in_transaction(
+        &self,
+        transaction: &Transaction<'_, rocksdb::OptimisticTransactionDB>,
+        blob_id: &BlobId,
+    ) -> Result<Option<BlobInfo>, rocksdb::Error> {
+        // The value of the `exclusive` parameter does not matter for optimistic transactions.
+        Ok(transaction
+            .get_for_update_cf_opt(
+                &self.aggregate_cf(),
+                blob_id,
+                false,
+                &self.aggregate_blob_info.opts.readopts(),
+            )?
+            .and_then(|data| deserialize_from_db(&data)))
+    }
+
+    pub fn delete_in_transaction(
+        &self,
+        transaction: &Transaction<'_, rocksdb::OptimisticTransactionDB>,
+        blob_id: &BlobId,
+    ) -> Result<(), rocksdb::Error> {
+        transaction.delete_cf(&self.aggregate_cf(), blob_id)
+    }
+
     /// Returns an iterator over all blobs that were certified before the specified epoch in the
     /// blob info table starting with the `starting_blob_id` bound.
     #[tracing::instrument(skip_all)]
@@ -368,11 +409,16 @@ impl BlobInfoTable {
     /// This function iterates over the per-object blob info table, deleting any entries that have
     /// an end epoch equal to or less than the current epoch, and updating the aggregate blob info
     /// table in case of deletable blobs to reflect the new status of the blob objects.
-    #[tracing::instrument(skip_all)]
+    #[tracing::instrument(skip_all, fields(walrus.epoch = %current_epoch))]
     pub(crate) async fn process_expired_blob_objects(
         &self,
         current_epoch: Epoch,
+        node_metrics: &NodeMetricSet,
     ) -> anyhow::Result<()> {
+        tracing::info!("starting to process expired blob objects");
+        let mut cleaned_up_objects_count = 0;
+        let start_time = Instant::now();
+
         for entry in self.per_object_blob_info.safe_iter()? {
             let (object_id, per_object_blob_info) = match entry {
                 Ok(entry) => entry,
@@ -424,7 +470,20 @@ impl BlobInfoTable {
                 );
             }
             batch.write()?;
+
+            // Record the number of deleted objects in a metric.
+            node_metrics
+                .cleanup_expired_blob_objects_deleted_total
+                .inc();
+            cleaned_up_objects_count += 1;
         }
+
+        tracing::info!(
+            cleaned_up_objects_count,
+            duration_seconds = %start_time.elapsed().as_secs_f64(),
+            "finished processing expired blob objects",
+        );
+
         Ok(())
     }
 }
