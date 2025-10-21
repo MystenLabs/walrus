@@ -3,8 +3,8 @@
 # Copy in all crates, Cargo.toml and Cargo.lock unmodified,
 # and build the application.
 
-# This is the same as rust:1.89-bookworm but we use the GCP registry to avoid rate limiting.
-FROM rust:1.89-bookworm AS builder
+# This is the same as rust:1.90-bookworm but we use the GCP registry to avoid rate limiting.
+FROM rust:1.90-bookworm AS builder
 
 ARG PROFILE=release
 ARG GIT_REVISION
@@ -24,7 +24,7 @@ RUN cargo build --profile $PROFILE \
 
 # Production Image for all binaries under walrus-service
 # This is the same as debian:bookworm-slim but we use the GCP registry to avoid rate limiting.
-FROM rust:1.89-bookworm AS walrus-service
+FROM rust:1.90-bookworm AS walrus-service
 
 RUN apt-get update && apt-get install -y ca-certificates curl git
 ARG PROFILE=release
@@ -42,7 +42,7 @@ LABEL git-revision=$GIT_REVISION
 
 # Production Image for walrus CLI
 # This is the same as debian:bookworm-slim but we use the GCP registry to avoid rate limiting.
-FROM rust:1.89-bookworm AS walrus-cli
+FROM rust:1.90-bookworm AS walrus-cli
 
 RUN apt-get update && apt-get install -y ca-certificates curl
 ARG PROFILE=release
@@ -57,7 +57,7 @@ LABEL git-revision=$GIT_REVISION
 
 # Production Image for walrus node
 # This is the same as debian:bookworm-slim but we use the GCP registry to avoid rate limiting.
-FROM rust:1.89-bookworm AS walrus-node
+FROM rust:1.90-bookworm AS walrus-node
 RUN apt-get update && apt-get install -y ca-certificates curl
 ARG PROFILE=release
 WORKDIR "$WORKDIR/walrus"
@@ -71,7 +71,7 @@ LABEL git-revision=$GIT_REVISION
 
 # Production Image for walrus deployment CLI
 # This is the same as debian:bookworm-slim but we use the GCP registry to avoid rate limiting.
-FROM rust:1.89-bookworm AS walrus-deploy
+FROM rust:1.90-bookworm AS walrus-deploy
 RUN apt-get update && apt-get install -y ca-certificates curl
 ARG PROFILE=release
 WORKDIR "$WORKDIR/walrus"

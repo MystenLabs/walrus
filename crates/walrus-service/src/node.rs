@@ -2150,7 +2150,7 @@ impl StorageNode {
         // `NUM_EVENTS_PER_DIGEST_RECORDING` is chosen in a way that a node produces a recording
         // every few hours.
 
-        if event_index % NUM_EVENTS_PER_DIGEST_RECORDING != 0 {
+        if !event_index.is_multiple_of(NUM_EVENTS_PER_DIGEST_RECORDING) {
             return Ok(());
         }
 

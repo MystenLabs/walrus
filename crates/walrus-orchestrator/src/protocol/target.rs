@@ -5,29 +5,13 @@ use std::{
     fmt::{Debug, Display},
     fs::File,
     io::BufReader,
-    num::NonZeroU16,
     path::{Path, PathBuf},
 };
 
 use serde::{Deserialize, Serialize};
-use walrus_core::ShardIndex;
 
 use super::{BINARY_PATH, ProtocolCommands, ProtocolMetrics, ProtocolParameters};
 use crate::{benchmark::BenchmarkParameters, client::Instance};
-
-#[derive(Clone, Serialize, Deserialize, Debug)]
-enum ShardsAllocation {
-    /// Evenly distribute the specified number of shards among the nodes.
-    Even(NonZeroU16),
-    /// Manually specify the shards for each node.
-    Manual(Vec<Vec<ShardIndex>>),
-}
-
-impl Default for ShardsAllocation {
-    fn default() -> Self {
-        Self::Even(NonZeroU16::new(10).unwrap())
-    }
-}
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct ProtocolClientParameters {

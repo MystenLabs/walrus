@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 #[derive(Serialize, Deserialize, Clone, Eq, PartialEq, Hash, Debug, Error)]
+#[allow(unused)]
 pub(crate) struct RocksErrorDef {
     message: String,
 }
@@ -20,6 +21,7 @@ impl Display for RocksErrorDef {
 }
 
 #[derive(Serialize, Deserialize, Clone, Hash, Eq, PartialEq, Debug, Error)]
+#[allow(unused)]
 pub(crate) enum BincodeErrorDef {
     Io(String),
     InvalidUtf8Encoding(String),

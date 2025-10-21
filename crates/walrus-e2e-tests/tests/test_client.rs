@@ -2450,7 +2450,7 @@ pub async fn test_select_coins_max_objects() -> TestResult {
     let env = cluster_wallet.get_active_env()?.to_owned();
     let mut wallet = test_utils::temp_dir_wallet(None, env).await?;
 
-    let sui = |sui: u64| (sui * 1_000_000_000);
+    let sui = |sui: u64| sui * 1_000_000_000;
 
     // Add 4 coins with 1 SUI each to the wallet.
     let address = wallet.as_mut().active_address()?;

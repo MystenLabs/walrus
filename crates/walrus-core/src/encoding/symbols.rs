@@ -57,7 +57,7 @@ impl Symbols {
     /// `data.len() % symbol_size != 0`.
     pub fn new(data: Vec<u8>, symbol_size: NonZeroU16) -> Self {
         assert!(
-            data.len() % usize::from(symbol_size.get()) == 0,
+            data.len().is_multiple_of(usize::from(symbol_size.get())),
             "the provided data must contain complete symbols"
         );
         Symbols { data, symbol_size }
@@ -193,7 +193,7 @@ impl Symbols {
     /// `symbol_size` of the struct.
     #[inline]
     pub fn extend(&mut self, symbols: &[u8]) -> Result<(), WrongSymbolSizeError> {
-        if symbols.len() % self.symbol_usize() != 0 {
+        if !symbols.len().is_multiple_of(self.symbol_usize()) {
             return Err(WrongSymbolSizeError);
         }
         self.data.extend(symbols);

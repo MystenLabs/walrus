@@ -69,7 +69,7 @@ impl AuthConfig {
 
     fn secret_to_bytes(secret: &str) -> Result<Vec<u8>, JwtDecodeError> {
         if secret.starts_with("0x") {
-            if secret.len() % 2 != 0 {
+            if !secret.len().is_multiple_of(2) {
                 Err(JwtDecodeError)
             } else {
                 Hex::decode(secret).map_err(|_| JwtDecodeError)
