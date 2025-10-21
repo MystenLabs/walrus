@@ -198,6 +198,7 @@ thread_pool:
   max_blocking_io_threads: 1024
 consistency_check:
   enable_consistency_check: true
+  enable_blob_info_invariants_check: false
   enable_sliver_data_existence_check: false
   sliver_data_existence_check_sample_rate_percentage: 100
 checkpoint_config:
