@@ -14,7 +14,7 @@ use std::{
 };
 
 use futures::Future;
-use tokio::{sync::Semaphore, task::JoinHandle};
+use tokio::task::JoinHandle;
 use walrus_core::{BlobId, encoding::SliverPair, metadata::VerifiedBlobMetadataWithId};
 
 use crate::{
@@ -107,8 +107,6 @@ pub struct DistributedUploader {
     progress: HashMap<BlobId, BlobUploadProgress>,
     /// Node write communications aligned with the committee used to derive `work_items`.
     comms: Vec<NodeWriteCommunication>,
-    /// The concurrency limiter for the uploads.
-    sliver_write_limit: usize,
     /// The extra time to wait for tail-end writes.
     sliver_write_extra_time: SliverWriteExtraTime,
 }
@@ -120,7 +118,6 @@ impl DistributedUploader {
         blobs: &[(VerifiedBlobMetadataWithId, Arc<Vec<SliverPair>>)],
         committees: Arc<ActiveCommittees>,
         comms: Vec<NodeWriteCommunication>,
-        sliver_write_limit: usize,
         sliver_write_extra_time: SliverWriteExtraTime,
     ) -> Self {
         let mut work_items: HashMap<usize, Vec<UploadWorkItem>> = HashMap::new();
@@ -158,7 +155,6 @@ impl DistributedUploader {
             committees,
             progress,
             comms,
-            sliver_write_limit,
             sliver_write_extra_time,
         }
     }
@@ -176,7 +172,6 @@ impl DistributedUploader {
         R: AsRef<[BlobId]> + Send + Sync + 'static,
         E: Send + Sync + 'static,
     {
-        let semaphore = Arc::new(Semaphore::new(self.sliver_write_limit));
         let scheduled: Vec<_> = self
             .comms
             .drain(..)
@@ -189,17 +184,9 @@ impl DistributedUploader {
         let upload_action = Arc::new(upload_action);
         let futures = scheduled.into_iter().map({
             let upload_action = upload_action.clone();
-            let semaphore = semaphore.clone();
             move |(n, work)| {
                 let upload_action = upload_action.clone();
-                let sem_clone = semaphore.clone();
-                async move {
-                    let _permit = sem_clone
-                        .acquire()
-                        .await
-                        .expect("semaphore acquire should not fail");
-                    (*upload_action)(n, work).await
-                }
+                async move { (*upload_action)(n, work).await }
             }
         });
 

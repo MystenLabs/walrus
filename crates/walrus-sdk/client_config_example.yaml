@@ -31,6 +31,7 @@ communication_config:
     factor: 0.5
     base_millis: 500
   sliver_status_check_threshold: 5560
+  child_process_uploads_enabled: false
   registration_delay_millis: 200
   max_total_blob_size: 1073741824
   committee_change_backoff:

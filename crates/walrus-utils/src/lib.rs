@@ -3,7 +3,7 @@
 
 #![allow(missing_docs)]
 
-use std::{fs, path::Path};
+use std::{env, fs, path::Path};
 
 use anyhow::Context;
 use serde::de::DeserializeOwned;
@@ -37,6 +37,13 @@ pub mod tests {
         static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
         LOCK.get_or_init(Mutex::default)
     }
+}
+
+#[inline]
+pub fn is_internal_run() -> bool {
+    env::var("INTERNAL_RUN")
+        .map(|v| v == "true")
+        .unwrap_or(false)
 }
 
 /// Load the config from a YAML file located at the provided path.
