@@ -233,7 +233,6 @@ impl<'a, Identifier: Debug + Clone + Send + Sync> WalrusStoreBlob<'a, Identifier
                 WalrusStoreBlob::new_unencoded(
                     blob,
                     id.clone(),
-                    //format!("blob_{i:06}"),
                     attributes.get(i).cloned().unwrap_or_default(),
                 )
             })

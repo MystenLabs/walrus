@@ -979,11 +979,7 @@ impl WalrusNodeClient<SuiContractClient> {
             return Ok(vec![]);
         }
 
-        let named_blobs: Vec<(String, &[u8])> = blobs
-            .iter()
-            .enumerate()
-            .map(|(i, &data)| (format!("blob_{i:06}"), data))
-            .collect();
+        let named_blobs: Vec<(String, &[u8])> = named_blobs(blobs);
         let walrus_store_blobs =
             WalrusStoreBlob::<String>::default_unencoded_blobs_from_slice(&named_blobs, attributes);
         let start = Instant::now();
@@ -1703,7 +1699,6 @@ impl WalrusNodeClient<SuiContractClient> {
     }
 }
 
-#[cfg(any(test, feature = "test-utils"))]
 fn named_blobs<'a>(blobs: &[&'a [u8]]) -> Vec<(String, &'a [u8])> {
     blobs
         .iter()
