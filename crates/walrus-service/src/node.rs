@@ -526,7 +526,6 @@ pub struct StorageNodeInner {
     committee_service: Arc<dyn CommitteeService>,
     start_time: Instant,
     metrics: Arc<NodeMetricSet>,
-    current_epoch: watch::Sender<Epoch>,
     is_shutting_down: AtomicBool,
     blocklist: Arc<Blocklist>,
     node_capability: ObjectID,
@@ -669,7 +668,6 @@ impl StorageNode {
             system_parameters,
             event_manager,
             contract_service: contract_service.clone(),
-            current_epoch: watch::Sender::new(committee_service.get_epoch()),
             committee_service,
             metrics,
             start_time,
@@ -866,12 +864,15 @@ impl StorageNode {
     /// Returns the epoch to which the storage node arrived, which may be later than the requested
     /// epoch.
     pub async fn wait_for_epoch(&self, epoch: Epoch) -> Epoch {
-        let mut receiver = self.inner.current_epoch.subscribe();
-        let epoch_ref = receiver
-            .wait_for(|current_epoch| *current_epoch >= epoch)
+        self.inner
+            .latest_event_epoch_watcher
+            .clone()
+            .wait_for(|current_epoch| {
+                current_epoch.is_some_and(|current_epoch| current_epoch >= epoch)
+            })
             .await
-            .expect("current_epoch channel cannot be dropped while holding a ref to self");
-        *epoch_ref
+            .expect("current_epoch channel cannot be dropped while holding a ref to self")
+            .expect("current_epoch should be some")
     }
 
     /// Continues the event stream from the last committed event.
@@ -1941,7 +1942,6 @@ impl StorageNode {
                     walrus.epoch = epoch,
                     "successfully started a transition to a new epoch"
                 );
-                self.inner.current_epoch.send_replace(epoch);
                 Ok(BeginCommitteeChangeAction::ExecuteEpochChange)
             }
             Err(BeginCommitteeChangeError::EpochIsTheSameAsCurrent) => {
@@ -4521,10 +4521,13 @@ mod tests {
     // Tests that a blob sync is not started for a node in recovery catch up.
     #[tokio::test]
     async fn does_not_start_blob_sync_for_node_in_recovery_catch_up() -> TestResult {
+        walrus_test_utils::init_tracing();
         let shards: &[&[u16]] = &[&[1], &[0, 2, 3, 4, 5, 6]];
 
         // Create a cluster at epoch 1 without any blobs.
         let (cluster, _events) = cluster_at_epoch1_without_blobs(shards, None).await?;
+
+        cluster.wait_for_nodes_to_reach_epoch(1).await;
 
         // Set node 0 status to recovery catch up.
         cluster.nodes[0]
