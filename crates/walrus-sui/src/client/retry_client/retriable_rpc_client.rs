@@ -51,12 +51,11 @@ const RPC_MAX_TRIES: u32 = 3;
 
 /// Checks if the full node provides the required REST endpoint for event processing.
 pub(crate) async fn check_experimental_rest_endpoint_exists(
-    client: Arc<Client>,
+    mut client: Client,
 ) -> anyhow::Result<bool> {
     // TODO: https://github.com/MystenLabs/walrus/issues/1049
     // TODO: Use utils::retry once it is outside walrus-service such that it doesn't trigger
     // cyclic dependency errors
-    let mut client = (*client).clone();
     let latest_checkpoint = client.get_latest_checkpoint().await?;
     let mut total_remaining_attempts = 5;
     while let Err(e) = client
@@ -79,10 +78,8 @@ pub(crate) async fn check_experimental_rest_endpoint_exists(
 }
 
 /// Ensures that the full node provides the required REST endpoint for event processing.
-pub(crate) async fn ensure_experimental_rest_endpoint_exists(
-    client: Arc<Client>,
-) -> anyhow::Result<()> {
-    if !check_experimental_rest_endpoint_exists(client.clone()).await? {
+pub(crate) async fn ensure_experimental_rest_endpoint_exists(client: Client) -> anyhow::Result<()> {
+    if !check_experimental_rest_endpoint_exists(client).await? {
         anyhow::bail!(
             "the configured full node *does not* provide the required REST endpoint for event \
             processing; make sure to configure a full node in the node's configuration file, which \
@@ -265,9 +262,8 @@ impl RetriableRpcClient {
         ) -> Result<CertifiedCheckpointSummary, RetriableClientError> {
             client
                 .call(
-                    |rpc_client| {
-                        let mut client = (*rpc_client).clone();
-                        async move { client.get_checkpoint_summary(sequence_number).await }
+                    |mut rpc_client| async move {
+                        rpc_client.get_checkpoint_summary(sequence_number).await
                     },
                     request_timeout,
                 )
@@ -302,9 +298,8 @@ impl RetriableRpcClient {
         ) -> Result<CheckpointData, RetriableClientError> {
             client
                 .call(
-                    |rpc_client| {
-                        let mut client = (*rpc_client).clone();
-                        async move { client.get_full_checkpoint(sequence_number).await }
+                    |mut rpc_client| async move {
+                        rpc_client.get_full_checkpoint(sequence_number).await
                     },
                     request_timeout,
                 )
@@ -453,13 +448,13 @@ impl RetriableRpcClient {
         &self,
         sequence_number: u64,
     ) -> Result<CheckpointData, RetriableClientError> {
-        let Some(fb_client) = &self.fallback_client else {
+        let Some(fallback_client) = &self.fallback_client else {
             return Err(RetriableClientError::Other(anyhow::anyhow!(
                 "Misconfiguration: Skip primary indicated but no fallback client."
             )));
         };
 
-        fb_client
+        fallback_client
             .get_full_checkpoint(sequence_number)
             .await
             .map_err(RetriableClientError::from)
@@ -510,10 +505,7 @@ impl RetriableRpcClient {
         ) -> Result<CertifiedCheckpointSummary, RetriableClientError> {
             client
                 .call(
-                    |rpc_client| {
-                        let mut client = (*rpc_client).clone();
-                        async move { client.get_latest_checkpoint().await }
-                    },
+                    |mut rpc_client| async move { rpc_client.get_latest_checkpoint().await },
                     request_timeout,
                 )
                 .await
@@ -547,10 +539,7 @@ impl RetriableRpcClient {
         ) -> Result<Object, RetriableClientError> {
             client
                 .call(
-                    |rpc_client| {
-                        let mut client = (*rpc_client).clone();
-                        async move { client.get_object(id).await }
-                    },
+                    |mut rpc_client| async move { rpc_client.get_object(id).await },
                     request_timeout,
                 )
                 .await
