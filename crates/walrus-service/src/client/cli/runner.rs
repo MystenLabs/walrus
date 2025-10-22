@@ -1866,9 +1866,8 @@ async fn get_latest_checkpoint_sequence_number(
 
     // Now url is a String, not an Option<String>
     let rpc_client_result = rpc_client::create_sui_rpc_client(&url);
-    if let Ok(rpc_client) = rpc_client_result {
-        let mut client = (*rpc_client).clone();
-        match client.get_latest_checkpoint().await {
+    if let Ok(mut rpc_client) = rpc_client_result {
+        match rpc_client.get_latest_checkpoint().await {
             Ok(checkpoint) => Some(checkpoint.sequence_number),
             Err(e) => {
                 eprintln!("Failed to get latest checkpoint: {e}");
