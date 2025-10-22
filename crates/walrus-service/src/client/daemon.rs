@@ -701,7 +701,7 @@ mod tests {
 
         // Configure very low limits to easily trigger rate limiting
         let max_concurrent = 2;
-        let max_buffer = 1;
+        let max_buffer = 3;
         let num_requests = 5; // More than max_concurrent + max_buffer
 
         // Create mock client with slow responses
@@ -777,12 +777,13 @@ mod tests {
             "Total responses should equal number of requests"
         );
 
-        // The number of successful requests should not exceed max_concurrent + max_buffer
+        // The number of successful requests should be the same as max_buffer. Note that this
+        //includes the number of requests that are being processed currently.
         assert!(
-            success_count <= max_concurrent + max_buffer,
-            "Success count {} should not exceed max_concurrent + max_buffer = {}",
+            success_count == max_buffer,
+            "Success count {} should be the same as max_buffer {}",
             success_count,
-            max_concurrent + max_buffer
+            max_buffer
         );
 
         // Ensure no requests are still active

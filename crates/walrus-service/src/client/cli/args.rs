@@ -895,7 +895,7 @@ pub struct AggregatorArgs {
     #[serde(default)]
     pub max_blob_size: Option<u64>,
     /// The maximum number of requests that can be buffered before the server starts rejecting new
-    /// ones.
+    /// ones. Note that this includes the number of requests that are being processed currently.
     #[arg(long = "max-buffer-size", default_value_t = default::max_aggregator_buffer_size())]
     #[serde(default = "default::max_aggregator_buffer_size")]
     pub max_request_buffer_size: usize,
@@ -1901,7 +1901,7 @@ pub(crate) mod default {
     }
 
     pub(crate) fn max_aggregator_buffer_size() -> usize {
-        128
+        320 // 256 + 64
     }
 }
 
