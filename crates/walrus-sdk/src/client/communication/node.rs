@@ -1,7 +1,11 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{num::NonZeroU16, sync::Arc};
+use std::{
+    num::NonZeroU16,
+    sync::{Arc, Mutex},
+    time::{Duration, Instant},
+};
 
 use anyhow::Result;
 use futures::{Future, StreamExt, future::Either, stream::FuturesUnordered};
@@ -28,6 +32,7 @@ use walrus_sui::types::StorageNode;
 use walrus_utils::backoff::{self, ExponentialBackoff};
 
 use crate::{
+    client::auto_tune::AutoTuneHandle,
     config::RequestRateConfig,
     error::{SliverStoreError, StoreError},
     utils::{WeightedResult, string_prefix},
@@ -90,12 +95,22 @@ pub struct NodeCommunication<W = ()> {
     pub client: StorageNodeClient,
     pub config: RequestRateConfig,
     pub sliver_status_check_threshold: usize,
+    pub(crate) auto_tune_handle: Option<AutoTuneHandle>,
+    pub(crate) throughput_stats: Arc<Mutex<NodeThroughputStats>>,
     pub node_write_limit: W,
     pub sliver_write_limit: W,
 }
 
 pub type NodeReadCommunication = NodeCommunication;
 pub type NodeWriteCommunication = NodeCommunication<Arc<Semaphore>>;
+
+#[derive(Debug, Default)]
+pub(crate) struct NodeThroughputStats {
+    total_bytes: u64,
+    total_duration: Duration,
+    sliver_count: u64,
+    last_throughput: f64,
+}
 
 impl NodeReadCommunication {
     /// Creates a new [`NodeCommunication`].
@@ -135,13 +150,19 @@ impl NodeReadCommunication {
             ),
             client,
             config,
+            auto_tune_handle: None,
             sliver_status_check_threshold,
+            throughput_stats: Arc::new(Mutex::new(NodeThroughputStats::default())),
             node_write_limit: (),
             sliver_write_limit: (),
         })
     }
 
-    pub fn with_write_limits(self, sliver_write_limit: Arc<Semaphore>) -> NodeWriteCommunication {
+    pub(crate) fn with_write_limits(
+        self,
+        sliver_write_limit: Arc<Semaphore>,
+        auto_tune_handle: Option<AutoTuneHandle>,
+    ) -> NodeWriteCommunication {
         let node_write_limit = Arc::new(Semaphore::new(self.config.max_node_connections));
         let Self {
             node_index,
@@ -152,6 +173,7 @@ impl NodeReadCommunication {
             client,
             config,
             sliver_status_check_threshold,
+            throughput_stats,
             ..
         } = self;
         NodeWriteCommunication {
@@ -162,7 +184,9 @@ impl NodeReadCommunication {
             span,
             client,
             config,
+            auto_tune_handle,
             sliver_status_check_threshold,
+            throughput_stats,
             node_write_limit,
             sliver_write_limit,
         }
@@ -486,21 +510,82 @@ impl NodeWriteCommunication {
                 "the sliver is sufficiently small not to require a status check; \
                 storing the sliver",
             );
-        } else if self.get_sliver_status::<A>(blob_id, pair_index).await?
-            == StoredOnNodeStatus::Nonexistent
-        {
-            print_debug("the sliver is not stored on the node; storing the sliver");
         } else {
-            tracing::debug!(
-                ?pair_index,
-                sliver_type=?A::sliver_type(),
-                sliver_len=sliver.len(),
-                "the sliver is already stored on the node"
-            );
-            return Ok(());
+            match self.get_sliver_status::<A>(blob_id, pair_index).await {
+                Ok(StoredOnNodeStatus::Nonexistent) => {
+                    print_debug("the sliver is not stored on the node; storing the sliver");
+                }
+                Ok(_) => {
+                    tracing::debug!(
+                        ?pair_index,
+                        sliver_type=?A::sliver_type(),
+                        sliver_len=sliver.len(),
+                        "the sliver is already stored on the node"
+                    );
+                    return Ok(());
+                }
+                Err(error) => {
+                    return Err(error);
+                }
+            }
         }
 
-        self.store_sliver(blob_id, sliver, pair_index).await
+        let start = Instant::now();
+        match self.store_sliver(blob_id, sliver, pair_index).await {
+            Ok(()) => {
+                let completed_at = Instant::now();
+                self.record_throughput_success::<A>(
+                    sliver.len(),
+                    completed_at,
+                    completed_at.duration_since(start),
+                );
+                Ok(())
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    fn record_throughput_success<A: EncodingAxis>(
+        &self,
+        bytes: usize,
+        completed_at: Instant,
+        elapsed: Duration,
+    ) {
+        let elapsed_secs = elapsed.as_secs_f64().max(f64::EPSILON);
+        let instantaneous = bytes as f64 / elapsed_secs;
+
+        let mut stats = self
+            .throughput_stats
+            .lock()
+            .expect("node throughput mutex poisoned");
+        stats.total_bytes = stats
+            .total_bytes
+            .saturating_add(bytes.try_into().unwrap_or(u64::MAX));
+        stats.total_duration += elapsed;
+        stats.sliver_count = stats.sliver_count.saturating_add(1);
+        stats.last_throughput = instantaneous;
+
+        let average = if stats.total_duration.is_zero() {
+            instantaneous
+        } else {
+            stats.total_bytes as f64 / stats.total_duration.as_secs_f64().max(f64::EPSILON)
+        };
+
+        tracing::debug!(
+            node_index = self.node_index,
+            node = %self.node.public_key,
+            blob_bytes = bytes,
+            elapsed_millis = elapsed.as_millis(),
+            instantaneous_bps = instantaneous,
+            average_bps = average,
+            sliver_count = stats.sliver_count,
+            total_bytes = stats.total_bytes,
+            "sliver upload completed on node"
+        );
+
+        if let Some(handle) = &self.auto_tune_handle {
+            handle.record_success(bytes, A::sliver_type(), completed_at);
+        }
     }
 
     fn should_skip_sliver_status_check(&self, sliver_len: usize) -> bool {
