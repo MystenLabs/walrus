@@ -175,7 +175,7 @@ impl CliOutput for BlobStoreResult {
             } => {
                 println!(
                     "{} Blob was already available and certified within Walrus, \
-                    for a sufficient number of epochs.\n
+                    for a sufficient number of epochs.\n\
                     Blob ID: {}\n{event_or_object}\nExpiry epoch (exclusive): {}\n",
                     success(),
                     blob_id,

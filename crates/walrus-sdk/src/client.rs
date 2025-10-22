@@ -910,21 +910,26 @@ impl<T: ReadClient> WalrusNodeClient<T> {
 }
 
 fn flatten_blob_store_results(
-    nested_results: Vec<Vec<BlobStoreResultWithPath>>,
+    nested_blob_store_results_with_path: Vec<Vec<BlobStoreResultWithPath>>,
 ) -> Vec<BlobStoreResultWithPath> {
-    nested_results
+    nested_blob_store_results_with_path
         .into_iter()
-        .map(|mut results| {
-            assert!(!results.is_empty());
-            if results.len() != 1 {
-                let path = results[0].path.clone();
-                let slices = results.into_iter().map(|r| r.blob_store_result).collect();
+        .map(|mut blob_store_result_with_path| {
+            assert!(!blob_store_result_with_path.is_empty());
+            if blob_store_result_with_path.len() == 1 {
+                blob_store_result_with_path
+                    .pop()
+                    .expect("results is not empty")
+            } else {
+                let path = blob_store_result_with_path[0].path.clone();
+                let slices = blob_store_result_with_path
+                    .into_iter()
+                    .map(|r| r.blob_store_result)
+                    .collect();
                 BlobStoreResultWithPath {
                     path,
                     blob_store_result: BlobStoreResult::BlobSliced { slices },
                 }
-            } else {
-                results.pop().unwrap()
             }
         })
         .collect()
@@ -1020,23 +1025,19 @@ impl WalrusNodeClient<SuiContractClient> {
         blobs_with_paths: &[(PathBuf, BlobUploadJob)],
         store_args: &StoreArgs,
     ) -> ClientResult<Vec<BlobStoreResultWithPath>> {
-        // Not using Path as identifier because it's not unique.
         let blob_upload_jobs = blobs_with_paths
             .iter()
             .map(|(_, blob_upload_job)| blob_upload_job)
             .collect::<Vec<_>>();
-        let named_blobs = blob_upload_jobs
-            .iter()
-            .enumerate()
-            .flat_map(move |(file_index, blob_upload_job)| {
-                blob_upload_job
-                    .iterate_slices()
-                    .enumerate()
-                    .map(move |(slice_index, data)| {
-                        (BlobStoreId::new_file_slice(file_index, slice_index), data)
-                    })
-            })
-            .collect::<Vec<_>>();
+        let mut blob_path_mapping: HashMap<BlobStoreId, PathBuf> = Default::default();
+        let mut named_blobs: Vec<(BlobStoreId, &[u8])> = Vec::new();
+        for (file_index, blob_upload_job) in blob_upload_jobs.iter().enumerate() {
+            for (slice_index, data) in blob_upload_job.iterate_slices().enumerate() {
+                let blob_store_id = BlobStoreId::new_file_slice(file_index, slice_index);
+                blob_path_mapping.insert(blob_store_id, blobs_with_paths[file_index].0.clone());
+                named_blobs.push((blob_store_id, data));
+            }
+        }
         let walrus_store_blobs =
             WalrusStoreBlob::default_unencoded_blobs_from_slice(&named_blobs, &[]);
 
@@ -1052,12 +1053,20 @@ impl WalrusNodeClient<SuiContractClient> {
 
         completed_blobs.extend(failed_blobs);
 
-        assert_eq!(completed_blobs.len(), blobs_with_paths.len());
+        assert_eq!(
+            completed_blobs.len(),
+            blobs_with_paths
+                .iter()
+                .map(|(_, blob_upload_job)| blob_upload_job.slice_count().unwrap_or(1))
+                .sum::<usize>()
+        );
         completed_blobs.sort_by_key(|blob| blob.get_identifier().to_string());
 
         let mut results: Vec<Vec<BlobStoreResultWithPath>> = Default::default();
 
-        for (blob, (path, _)) in completed_blobs.iter().zip(blobs_with_paths.iter()) {
+        for blob in completed_blobs.iter() {
+            let path: PathBuf = blob_path_mapping[blob.get_identifier()].clone();
+            tracing::info!("blob stored: {:?}", blob.get_identifier());
             let store_result = blob.get_result().ok_or_else(|| {
                 ClientError::store_blob_internal(format!(
                     "Invalid state for completedblob: {}, {:?}",
@@ -1069,7 +1078,7 @@ impl WalrusNodeClient<SuiContractClient> {
             let blob_store_id = blob.get_identifier();
             if blob_store_id.file_index == results.len() {
                 results.push(vec![BlobStoreResultWithPath {
-                    path: path.clone(),
+                    path,
                     blob_store_result: store_result.clone(),
                 }]);
             } else {
@@ -1077,10 +1086,13 @@ impl WalrusNodeClient<SuiContractClient> {
                     blob_store_id.file_index + 1 == results.len(),
                     "order was not maintained in the store results"
                 );
-                results.last_mut().unwrap().push(BlobStoreResultWithPath {
-                    path: path.clone(),
-                    blob_store_result: store_result.clone(),
-                });
+                results
+                    .last_mut()
+                    .expect("results is not empty")
+                    .push(BlobStoreResultWithPath {
+                        path,
+                        blob_store_result: store_result.clone(),
+                    });
             }
         }
 
@@ -1090,7 +1102,7 @@ impl WalrusNodeClient<SuiContractClient> {
     /// Encodes the blob, reserves & registers the space on chain, and stores the slivers to the
     /// storage nodes. Finally, the function aggregates the storage confirmations and posts the
     /// [`ConfirmationCertificate`] on chain.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-utils"))]
     #[tracing::instrument(skip_all, fields(blob_id))]
     pub async fn reserve_and_store_blobs(
         &self,
@@ -1691,7 +1703,7 @@ impl WalrusNodeClient<SuiContractClient> {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-utils"))]
 fn named_blobs<'a>(blobs: &[&'a [u8]]) -> Vec<(String, &'a [u8])> {
     blobs
         .iter()

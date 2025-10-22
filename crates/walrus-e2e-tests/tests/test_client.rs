@@ -645,12 +645,17 @@ pub async fn test_store_and_read_duplicate_blobs() -> TestResult {
     blob_data.push(blob_data[0].clone());
     blob_data.push(blob_data[1].clone());
     blob_data.push(blob_data[0].clone());
-    let mut blobs_with_paths: Vec<(PathBuf, Vec<u8>)> = vec![];
+    let mut blobs_with_paths: Vec<(PathBuf, BlobUploadJob)> = vec![];
 
     // Create paths for each blob.
     for (i, data) in blob_data.iter().enumerate() {
         let path = PathBuf::from(format!("blob_{i}"));
-        blobs_with_paths.push((path, data.to_vec()));
+        blobs_with_paths.push((
+            path,
+            BlobUploadJob::Blob {
+                data: data.to_vec(),
+            },
+        ));
     }
 
     let store_args = StoreArgs::default_with_epochs(1).no_store_optimizations();
@@ -680,6 +685,9 @@ pub async fn test_store_and_read_duplicate_blobs() -> TestResult {
         .zip(read_result.iter())
         .for_each(|((result, (path, data)), (blob_id, blob))| {
             assert_eq!(&result.path, path);
+            let BlobUploadJob::Blob { data } = data else {
+                panic!("expected BlobUploadJob::Blob");
+            };
             assert_eq!(blob, data);
             assert_eq!(blob_id, &result.blob_store_result.blob_id());
         });

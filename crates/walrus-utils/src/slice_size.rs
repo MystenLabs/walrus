@@ -52,7 +52,6 @@ impl std::fmt::Display for SliceSize {
 }
 
 /// Represents either a single full blob or a large file sliced into multiple blobs.
-#[derive(Debug)]
 pub enum BlobUploadJob {
     /// A single full blob.
     Blob { data: Vec<u8> },
@@ -63,6 +62,24 @@ pub enum BlobUploadJob {
         /// The blob slices.
         slices: Vec<Vec<u8>>,
     },
+}
+
+impl std::fmt::Debug for BlobUploadJob {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            BlobUploadJob::Blob { data } => {
+                write!(f, "BlobUploadJob::Blob {{ size: {} bytes }}", data.len())
+            }
+            BlobUploadJob::SlicedBlobs { slice_size, slices } => {
+                write!(
+                    f,
+                    "BlobUploadJob::SlicedBlobs {{ slice_size: {} bytes, slice_count: {} }}",
+                    slice_size,
+                    slices.len()
+                )
+            }
+        }
+    }
 }
 
 impl BlobUploadJob {

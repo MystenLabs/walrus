@@ -77,7 +77,7 @@ use walrus_utils::{
     metrics::Registry,
     read_blob_from_file,
     read_data_from_file,
-    slice_size::SliceSize,
+    slice_size::{BlobUploadJob, SliceSize},
 };
 
 use super::{
@@ -789,28 +789,15 @@ impl ClientCommandRunner {
         let mut store_args = internal_run_ctx.configure_store_args(internal_run, base_store_args);
 
         if let Some(upload_relay) = upload_relay {
-            let upload_relay_client = UploadRelayClient::new(
-                client.sui_client().address(),
-                client.encoding_config().n_shards(),
+            store_args = Self::transform_store_args_for_upload_relay(
+                confirmation,
+                &client,
+                &blobs,
+                store_args,
                 upload_relay,
                 self.gas_budget,
-                client.config().backoff_config().clone(),
             )
             .await?;
-            // Store operations will use the upload relay.
-            store_args = store_args.with_upload_relay_client(upload_relay_client);
-
-            let total_tip = store_args.compute_total_tip_amount(
-                client.encoding_config().n_shards(),
-                &blobs
-                    .iter()
-                    .map(|blob| blob.1.total_bytes().try_into().expect("32 or 64-bit arch"))
-                    .collect::<Vec<_>>(),
-            )?;
-
-            if confirmation.is_required() {
-                ask_for_tip_confirmation(total_tip)?;
-            }
         }
 
         let results = client
@@ -953,6 +940,40 @@ impl ClientCommandRunner {
         results.print_output(self.json)
     }
 
+    async fn transform_store_args_for_upload_relay(
+        confirmation: UserConfirmation,
+        client: &WalrusNodeClient<SuiContractClient>,
+        blobs: &[(PathBuf, BlobUploadJob)],
+        mut store_args: StoreArgs,
+        upload_relay: Url,
+        gas_budget: Option<u64>,
+    ) -> Result<StoreArgs, anyhow::Error> {
+        let upload_relay_client = UploadRelayClient::new(
+            client.sui_client().address(),
+            client.encoding_config().n_shards(),
+            upload_relay,
+            gas_budget,
+            client.config().backoff_config().clone(),
+        )
+        .await?;
+        store_args = store_args.with_upload_relay_client(upload_relay_client);
+        let total_tip = store_args.compute_total_tip_amount(
+            client.encoding_config().n_shards(),
+            &blobs
+                .iter()
+                .flat_map(|(_, blob_upload_job)| {
+                    blob_upload_job.iterate_slices().map(|data| {
+                        u64::try_from(data.len()).expect("blob slice length must fit in u64")
+                    })
+                })
+                .collect::<Vec<_>>(),
+        )?;
+        if confirmation.is_required() {
+            ask_for_tip_confirmation(total_tip)?;
+        }
+        Ok(store_args)
+    }
+
     #[tracing::instrument(skip_all)]
     async fn store_dry_run(
         client: WalrusNodeClient<SuiContractClient>,
@@ -976,11 +997,8 @@ impl ClientCommandRunner {
         for (file, blob_upload_job) in blob_upload_jobs {
             let slice_count = blob_upload_job.slice_count();
             for (slice_index, blob) in blob_upload_job.iterate_slices().enumerate() {
-                let (_, metadata) = client.encode_pairs_and_metadata(
-                    &blob,
-                    encoding_type,
-                    &MultiProgress::new(),
-                )?;
+                let (_, metadata) =
+                    client.encode_pairs_and_metadata(blob, encoding_type, &MultiProgress::new())?;
                 let unencoded_size = metadata.metadata().unencoded_length();
                 let encoded_size = encoded_blob_length_for_n_shards(
                     encoding_config.n_shards(),
