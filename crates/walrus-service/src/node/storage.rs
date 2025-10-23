@@ -668,7 +668,7 @@ impl Storage {
                 }
             };
 
-            if blob_info.can_data_be_deleted(current_epoch) {
+            if !blob_info.can_data_be_deleted(current_epoch) {
                 tracing::trace!(
                     %blob_id,
                     "skipping blob that is still registered",
@@ -757,7 +757,7 @@ impl Storage {
             );
             return Ok(false);
         };
-        if blob_info.can_data_be_deleted(current_epoch) {
+        if !blob_info.can_data_be_deleted(current_epoch) {
             tracing::debug!(
                 %blob_id,
                 "blob was reregistered before attempting to delete expired blob data",

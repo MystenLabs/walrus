@@ -739,7 +739,7 @@ pub(crate) trait BlobInfoApi: CertifiedBlobInfoApi {
     /// Returns true iff the data of the blob can be deleted at the given epoch. The default
     /// implementation simply checks if the blob is registered in that epoch.
     fn can_data_be_deleted(&self, current_epoch: Epoch) -> bool {
-        self.is_registered(current_epoch)
+        !self.is_registered(current_epoch)
     }
 
     /// Returns true iff the *blob info* can be deleted at the given epoch. This is a stronger
