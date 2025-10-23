@@ -3,7 +3,7 @@
 
 #![allow(missing_docs)]
 
-use std::{env, fs, path::Path};
+use std::{env, path::Path};
 
 use anyhow::Context;
 use serde::de::DeserializeOwned;

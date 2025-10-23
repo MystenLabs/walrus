@@ -702,6 +702,7 @@ impl ClientCommandRunner {
             confirmation,
             upload_mode,
             internal_run,
+            slice_size,
         }: StoreOptions,
     ) -> Result<()> {
         epoch_arg.exactly_one_is_some()?;

@@ -78,6 +78,7 @@ use self::{
     auto_tune::AutoTuneHandle,
     blob_store_id::BlobStoreId,
     communication::NodeResult,
+    quilt_client::QuiltClient,
     refresh::{CommitteesRefresherHandle, RequestKind, are_current_previous_different},
     resource::{PriceComputation, RegisterBlobOp, ResourceManager, StoreOp},
     responses::{BlobStoreResult, BlobStoreResultWithPath},
@@ -85,7 +86,6 @@ use self::{
 pub(crate) use crate::utils::{CompletedReasonWeight, WeightedFutures};
 use crate::{
     active_committees::ActiveCommittees,
-    client::{blob_store_id::BlobStoreId, quilt_client::QuiltClient},
     config::CommunicationLimits,
     error::{ClientError, ClientErrorKind, ClientResult, StoreError},
     uploader::{DistributedUploader, RunOutput, TailHandling, UploaderEvent},
