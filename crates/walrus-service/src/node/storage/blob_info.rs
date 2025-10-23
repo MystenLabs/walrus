@@ -1972,15 +1972,17 @@ fn merge_mergeable<T: Mergeable>(
         format!("{key:?}")
     };
     tracing::Span::current().record("key", &key_str);
+    tracing::debug!(operands_count = operands.len(), "merging blob info");
 
     for operand_bytes in operands {
         let Some(operand) = deserialize_from_db::<T::MergeOperand>(operand_bytes) else {
             continue;
         };
-        tracing::debug!(?current_val, ?operand, "updating blob info");
+        tracing::trace!(?current_val, ?operand, "applying operand");
 
         current_val = T::merge(current_val, operand);
     }
+    tracing::debug!(final_val = ?current_val, "finished merging blob info");
 
     current_val.as_ref().map(|value| value.to_bytes())
 }

@@ -53,7 +53,6 @@ impl Default for StorageNodeConsistencyCheckConfig {
     }
 }
 
-#[cfg(any(test, feature = "test-utils"))]
 impl StorageNodeConsistencyCheckConfig {
     /// Returns a default configuration for testing.
     pub fn default_for_test() -> Self {
