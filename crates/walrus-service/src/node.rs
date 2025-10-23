@@ -6503,35 +6503,48 @@ mod tests {
                 move || skip_blob_certification_at_recovery_beginning,
             );
 
-            let skip_stored_blob_index: [usize; 12] = [3, 4, 5, 9, 10, 11, 15, 18, 19, 20, 21, 22];
-            // Blob 9 is a deletable blob.
-            let deletable_blob_index: [usize; 1] = [9];
+            let skip_stored_blob_index = [3, 4, 5, 9, 10, 11, 15, 18, 19, 20, 21, 22];
+            let expired_blob_index = [3];
+            let deletable_blob_index = [9];
+            let invalid_blob_index = [19];
+            let non_synced_blob_index =
+                [expired_blob_index, deletable_blob_index, invalid_blob_index].concat();
 
             let (cluster, blob_details, event_senders) = setup_shard_recovery_test_cluster(
                 |blob_index| !skip_stored_blob_index.contains(&blob_index),
                 // Blob 3 expires at epoch 2, which is the current epoch when
                 // `setup_shard_recovery_test_cluster` returns.
-                |blob_index| if blob_index == 3 { 2 } else { 42 },
+                |blob_index| {
+                    if expired_blob_index.contains(&blob_index) {
+                        2
+                    } else {
+                        42
+                    }
+                },
                 |blob_index| deletable_blob_index.contains(&blob_index),
             )
             .await?;
 
             // Delete blob 9 and invalidate blob 19.
-            event_senders
-                .all_other_node_events
-                .send(BlobDeleted::for_testing(*blob_details[9].blob_id()).into())?;
-
-            event_senders
-                .all_other_node_events
-                .send(InvalidBlobId::for_testing(*blob_details[19].blob_id()).into())?;
+            for i in invalid_blob_index {
+                event_senders
+                    .all_other_node_events
+                    .send(InvalidBlobId::for_testing(*blob_details[i].blob_id()).into())?;
+            }
+            for i in deletable_blob_index {
+                event_senders
+                    .all_other_node_events
+                    .send(BlobDeleted::for_testing(*blob_details[i].blob_id()).into())?;
+            }
 
             // Make sure that blobs in `skip_stored_blob_index` are not certified in node 0.
             for i in skip_stored_blob_index {
+                let blob_id = blob_details[i].blob_id();
                 let blob_info = cluster.nodes[0]
                     .storage_node
                     .inner
                     .storage
-                    .get_blob_info(blob_details[i].blob_id());
+                    .get_blob_info(blob_id);
                 if deletable_blob_index.contains(&i) {
                     assert!(matches!(
                         blob_info.unwrap().unwrap().to_blob_status(1),
@@ -6544,13 +6557,19 @@ mod tests {
                         }
                     ));
                 } else {
-                    assert!(matches!(
-                        blob_info.unwrap().unwrap().to_blob_status(1),
-                        BlobStatus::Permanent {
-                            is_certified: false,
-                            ..
-                        }
-                    ));
+                    let blob_status = blob_info.unwrap().unwrap().to_blob_status(1);
+                    if expired_blob_index.contains(&i) {
+                        assert!(
+                            matches!(blob_status, BlobStatus::Nonexistent),
+                            "unexpected blob status for expired blob {i} ({blob_id}): \
+                            {blob_status:?}",
+                        );
+                    } else {
+                        assert!(
+                            matches!(blob_status, BlobStatus::Permanent { .. }),
+                            "unexpected blob status for blob {i} ({blob_id}): {blob_status:?}",
+                        );
+                    }
                 }
             }
 
@@ -6582,7 +6601,7 @@ mod tests {
                 &blob_details,
                 &node_inner.storage,
                 shard_storage_dst.as_ref(),
-                &[3, 9, 19],
+                &non_synced_blob_index,
             )?;
 
             // Checks that the shard sync progress is reset.
