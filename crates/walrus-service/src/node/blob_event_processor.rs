@@ -284,16 +284,16 @@ impl BackgroundEventProcessor {
             // Note that this function is called *after* the blob info has already been updated with
             // the event. So it can happen that the only registered blob was deleted and the blob is
             // now no longer registered.
-            // We use the event's epoch for this check (as opposed to the current epoch) as
-            // subsequent certify or delete events may update the `blob_info`; so we cannot remove
-            // it even if it is no longer valid in the *current* epoch
-            if !blob_info.is_registered(current_epoch)
+            // *Important*: We use the event's epoch for this check (as opposed to the current
+            // epoch) as subsequent certify or delete events may update the `blob_info`; so we
+            // cannot remove it even if it is no longer valid in the *current* epoch
+            if blob_info.can_data_be_deleted(event.epoch)
                 && self.node.garbage_collection_config.enable_data_deletion
             {
                 tracing::debug!("deleting data for deleted blob");
                 self.node
                     .storage
-                    .attempt_to_delete_blob_data(&blob_id, current_epoch, &self.node.metrics)
+                    .attempt_to_delete_blob_data(&blob_id, event.epoch, &self.node.metrics)
                     .await?;
             }
         } else if self
