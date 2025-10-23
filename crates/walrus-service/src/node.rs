@@ -3340,7 +3340,7 @@ mod tests {
             move_structs::EpochState,
         },
     };
-    use walrus_test_utils::{Result as TestResult, WithTempDir, async_param_test};
+    use walrus_test_utils::{Result as TestResult, WithTempDir, async_param_test, random_data};
 
     use super::*;
     use crate::test_utils::{StorageNodeHandle, StorageNodeHandleTrait, TestCluster};
@@ -3637,47 +3637,111 @@ mod tests {
 
     async_param_test! {
         correctly_handles_blob_deletions_with_concurrent_instances -> TestResult: [
-            same_epoch: (1),
-            later_epoch: (2),
+            same_epoch_deletable: (true, 1),
+            same_epoch_permanent: (false, 1),
+            later_epoch_deletable: (true, 2),
+            later_epoch_permanent: (false, 2),
         ]
     }
     async fn correctly_handles_blob_deletions_with_concurrent_instances(
+        blob_2_deletable: bool,
         current_epoch: Epoch,
     ) -> TestResult {
-        let (cluster, events) = cluster_at_epoch1_without_blobs(&[&[0]], None).await?;
-        advance_cluster_to_epoch(&cluster, &[&events], current_epoch).await?;
+        walrus_test_utils::init_tracing();
 
+        tracing::info!("setting up cluster at epoch 1");
+        let (cluster, events) =
+            cluster_at_epoch1_without_blobs_waiting_for_active_nodes(&[&[0, 1, 2, 3]], None)
+                .await?;
         let node = &cluster.nodes[0];
-        println!("{}", node.storage_node.inner.current_committee_epoch());
+        let mut current_events_processed_count = node
+            .storage_node
+            .inner
+            .storage
+            .get_sequentially_processed_event_count()?;
 
-        let blob_events: Vec<BlobEvent> = vec![
-            BlobRegistered {
-                deletable: true,
-                end_epoch: 2,
-                ..BlobRegistered::for_testing(BLOB_ID)
-            }
-            .into(),
-            BlobCertified {
-                deletable: true,
-                end_epoch: 2,
-                ..BlobCertified::for_testing(BLOB_ID)
-            }
-            .into(),
-            BlobDeleted {
-                end_epoch: 2,
-                ..BlobDeleted::for_testing(BLOB_ID)
-            }
-            .into(),
-        ];
+        tracing::info!("generating random blob");
+        let blob = random_data(100);
+        let blob_details = EncodedBlob::new(&blob, cluster.encoding_config());
+        let blob_id = *blob_details.blob_id();
 
-        // Send each event twice. This corresponds to registering and certifying two `Blob`
-        // instances with the same blob ID, and then deleting both.
-        for event in blob_events {
-            events.send(event.clone().into())?;
-            events.send(event.into())?;
+        let blob_1_registration_event = BlobRegistered {
+            epoch: 1,
+            deletable: true,
+            end_epoch: 2,
+            ..BlobRegistered::for_testing_with_random_object_id(blob_id)
+        };
+        let blob_2_registration_event = BlobRegistered {
+            epoch: 1,
+            deletable: blob_2_deletable,
+            end_epoch: 2,
+            ..BlobRegistered::for_testing_with_random_object_id(blob_id)
+        };
+
+        tracing::info!("storing blob at all shards");
+        events.send(blob_1_registration_event.clone().into())?;
+        store_at_shards(&blob_details, &cluster, |_, _| true).await?;
+        current_events_processed_count =
+            wait_until_events_processed_exact(node, current_events_processed_count + 1).await?;
+
+        if current_epoch > 1 {
+            tracing::info!("advancing cluster to epoch {current_epoch}");
+            advance_cluster_to_epoch(&cluster, &[&events], current_epoch).await?;
+
+            tracing::info!("sending first blob registration event again");
+            events.send(blob_1_registration_event.clone().into())?;
+            current_events_processed_count = wait_until_events_processed_exact(
+                node,
+                current_events_processed_count + 2 * (u64::from(current_epoch) - 1) + 1,
+            )
+            .await?;
         }
 
-        wait_until_events_processed(node, 6).await?;
+        tracing::info!(
+            "current epoch: {}",
+            node.storage_node.inner.current_committee_epoch()
+        );
+        tracing::info!("current events processed count: {current_events_processed_count}");
+
+        tracing::info!("registering same blob again");
+        events.send(blob_2_registration_event.clone().into())?;
+        current_events_processed_count =
+            wait_until_events_processed_exact(node, current_events_processed_count + 1).await?;
+
+        tracing::info!("certifying and deleting first blob");
+        events.send(
+            blob_1_registration_event
+                .clone()
+                .into_corresponding_certified_event_for_testing()
+                .into(),
+        )?;
+        events.send(
+            blob_1_registration_event
+                .into_corresponding_deleted_event_for_testing(true)
+                .into(),
+        )?;
+        current_events_processed_count =
+            wait_until_events_processed_exact(node, current_events_processed_count + 2).await?;
+
+        tracing::info!("certifying second blob");
+        events.send(
+            blob_2_registration_event
+                .clone()
+                .into_corresponding_certified_event_for_testing()
+                .into(),
+        )?;
+        current_events_processed_count =
+            wait_until_events_processed_exact(node, current_events_processed_count + 1).await?;
+
+        if blob_2_deletable {
+            tracing::info!("deleting second blob");
+            events.send(
+                blob_2_registration_event
+                    .into_corresponding_deleted_event_for_testing(true)
+                    .into(),
+            )?;
+            wait_until_events_processed_exact(node, current_events_processed_count + 1).await?;
+        }
 
         Ok(())
     }
@@ -4438,13 +4502,14 @@ mod tests {
         )?;
         advance_cluster_to_epoch(&cluster, &[&events], 2).await?;
 
-        // Node 1 which has the blob stored should finish processing 4 events: blob registered,
-        // blob certified, epoch change start, epoch change done.
-        wait_until_events_processed(&cluster.nodes[1], 4).await?;
+        // Node 1 which has the blob stored should finish processing 6 events: epoch change start 1,
+        // epoch change done 1, blob registered, blob certified, epoch change start 2, epoch change
+        // done 2.
+        wait_until_events_processed_exact(&cluster.nodes[1], 6).await?;
 
         // Node 0 should also finish all events as blob syncs of expired blobs are cancelled on
         // epoch change.
-        wait_until_events_processed(&cluster.nodes[0], 4).await?;
+        wait_until_events_processed_exact(&cluster.nodes[0], 6).await?;
 
         Ok(())
     }
@@ -4476,7 +4541,7 @@ mod tests {
         for (i, &(end_epoch, deletable)) in blob_end_epochs_and_deletable.iter().enumerate() {
             tracing::info!("adding blob {i} with end epoch {end_epoch}");
             let blob_details = EncodedBlob::new(
-                &walrus_test_utils::random_data_from_rng(10000, &mut rng),
+                &walrus_test_utils::random_data_from_rng(100, &mut rng),
                 config.clone(),
             );
             let registered_event = BlobRegistered {
@@ -6278,12 +6343,12 @@ mod tests {
                 .wait_until_previous_task_done()
                 .await;
 
-            // There should be 4 initial events:
-            //  - EpochChangeStart
-            //  - EpochChangeDone
+            // There should be 6 initial events:
+            //  - 2x EpochChangeStart
+            //  - 2x EpochChangeDone
             //  - BlobRegistered
             //  - BlobCertified
-            wait_until_events_processed(&cluster.nodes[0], 4).await?;
+            wait_until_events_processed_exact(&cluster.nodes[0], 6).await?;
 
             let processed_event_count_initial = &cluster.nodes[0]
                 .storage_node
@@ -6370,11 +6435,11 @@ mod tests {
             );
 
             // Unblock the epoch change start event, and expect that processed event count should
-            // make progress. Use `+2` instead of `+3` is because certify blob initiats a blob sync,
-            // and sync we don't upload the blob data, so it won't get processed.
-            // The point here is that the epoch change start event should be marked completed.
+            // make progress. Use `+2` instead of `+3` is because certify blob initiates a blob
+            // sync, and sync we don't upload the blob data, so it won't get processed. The point
+            // here is that the epoch change start event should be marked completed.
             unblock.notify_one();
-            wait_until_events_processed(&cluster.nodes[0], processed_event_count_initial + 2)
+            wait_until_events_processed_exact(&cluster.nodes[0], processed_event_count_initial + 2)
                 .await?;
 
             Ok(())
@@ -6441,35 +6506,48 @@ mod tests {
                 move || skip_blob_certification_at_recovery_beginning,
             );
 
-            let skip_stored_blob_index: [usize; 12] = [3, 4, 5, 9, 10, 11, 15, 18, 19, 20, 21, 22];
-            // Blob 9 is a deletable blob.
-            let deletable_blob_index: [usize; 1] = [9];
+            let skip_stored_blob_index = [3, 4, 5, 9, 10, 11, 15, 18, 19, 20, 21, 22];
+            let expired_blob_index = [3];
+            let deletable_blob_index = [9];
+            let invalid_blob_index = [19];
+            let non_synced_blob_index =
+                [expired_blob_index, deletable_blob_index, invalid_blob_index].concat();
 
             let (cluster, blob_details, event_senders) = setup_shard_recovery_test_cluster(
                 |blob_index| !skip_stored_blob_index.contains(&blob_index),
                 // Blob 3 expires at epoch 2, which is the current epoch when
                 // `setup_shard_recovery_test_cluster` returns.
-                |blob_index| if blob_index == 3 { 2 } else { 42 },
+                |blob_index| {
+                    if expired_blob_index.contains(&blob_index) {
+                        2
+                    } else {
+                        42
+                    }
+                },
                 |blob_index| deletable_blob_index.contains(&blob_index),
             )
             .await?;
 
             // Delete blob 9 and invalidate blob 19.
-            event_senders
-                .all_other_node_events
-                .send(BlobDeleted::for_testing(*blob_details[9].blob_id()).into())?;
-
-            event_senders
-                .all_other_node_events
-                .send(InvalidBlobId::for_testing(*blob_details[19].blob_id()).into())?;
+            for i in invalid_blob_index {
+                event_senders
+                    .all_other_node_events
+                    .send(InvalidBlobId::for_testing(*blob_details[i].blob_id()).into())?;
+            }
+            for i in deletable_blob_index {
+                event_senders
+                    .all_other_node_events
+                    .send(BlobDeleted::for_testing(*blob_details[i].blob_id()).into())?;
+            }
 
             // Make sure that blobs in `skip_stored_blob_index` are not certified in node 0.
             for i in skip_stored_blob_index {
+                let blob_id = blob_details[i].blob_id();
                 let blob_info = cluster.nodes[0]
                     .storage_node
                     .inner
                     .storage
-                    .get_blob_info(blob_details[i].blob_id());
+                    .get_blob_info(blob_id);
                 if deletable_blob_index.contains(&i) {
                     assert!(matches!(
                         blob_info.unwrap().unwrap().to_blob_status(1),
@@ -6482,13 +6560,19 @@ mod tests {
                         }
                     ));
                 } else {
-                    assert!(matches!(
-                        blob_info.unwrap().unwrap().to_blob_status(1),
-                        BlobStatus::Permanent {
-                            is_certified: false,
-                            ..
-                        }
-                    ));
+                    let blob_status = blob_info.unwrap().unwrap().to_blob_status(1);
+                    if expired_blob_index.contains(&i) {
+                        assert!(
+                            matches!(blob_status, BlobStatus::Nonexistent),
+                            "unexpected blob status for expired blob {i} ({blob_id}): \
+                            {blob_status:?}",
+                        );
+                    } else {
+                        assert!(
+                            matches!(blob_status, BlobStatus::Permanent { .. }),
+                            "unexpected blob status for blob {i} ({blob_id}): {blob_status:?}",
+                        );
+                    }
                 }
             }
 
@@ -6520,7 +6604,7 @@ mod tests {
                 &blob_details,
                 &node_inner.storage,
                 shard_storage_dst.as_ref(),
-                &[3, 9, 19],
+                &non_synced_blob_index,
             )?;
 
             // Checks that the shard sync progress is reset.
@@ -6886,21 +6970,35 @@ mod tests {
     async fn wait_until_events_processed(
         node: &StorageNodeHandle,
         processed_event_count: u64,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<u64> {
         retry_until_success_or_timeout(Duration::from_secs(10), || async {
-            if node
+            let count = node
                 .storage_node
                 .inner
                 .storage
-                .get_sequentially_processed_event_count()?
-                >= processed_event_count
-            {
-                Ok(())
+                .get_sequentially_processed_event_count()?;
+            if count >= processed_event_count {
+                Ok(count)
             } else {
                 bail!("not enough events processed")
             }
         })
         .await
+    }
+
+    async fn wait_until_events_processed_exact(
+        node: &StorageNodeHandle,
+        processed_event_count: u64,
+    ) -> anyhow::Result<u64> {
+        let event_count = wait_until_events_processed(node, processed_event_count).await?;
+        if event_count == processed_event_count {
+            Ok(event_count)
+        } else {
+            bail!(
+                "too many events processed: {event_count} (actual) > {processed_event_count} \
+                (expected)"
+            )
+        }
     }
 
     #[tokio::test]
@@ -6918,7 +7016,7 @@ mod tests {
             .build()
             .await?;
 
-        wait_until_events_processed(&node, 1).await?;
+        wait_until_events_processed_exact(&node, 1).await?;
 
         assert_eq!(
             node.as_ref()
@@ -7063,7 +7161,7 @@ mod tests {
             .build()
             .await?;
 
-        wait_until_events_processed(&node, 1).await?;
+        wait_until_events_processed_exact(&node, 1).await?;
 
         Ok(())
     }
@@ -7125,7 +7223,7 @@ mod tests {
         ))?;
 
         if wait_for_shard_active {
-            wait_until_events_processed(&cluster.nodes[1], processed_event_count + 1).await?;
+            wait_until_events_processed_exact(&cluster.nodes[1], processed_event_count + 1).await?;
             wait_for_shard_in_active_state(
                 &cluster.nodes[1]
                     .storage_node
@@ -7146,7 +7244,7 @@ mod tests {
             }),
         ))?;
 
-        wait_until_events_processed(&cluster.nodes[1], processed_event_count + 2).await?;
+        wait_until_events_processed_exact(&cluster.nodes[1], processed_event_count + 2).await?;
 
         assert_eq!(
             cluster
@@ -7264,7 +7362,7 @@ mod tests {
             .into(),
         )?;
 
-        wait_until_events_processed(&cluster.nodes[0], 9).await?;
+        wait_until_events_processed_exact(&cluster.nodes[0], 11).await?;
         Ok(())
     }
 

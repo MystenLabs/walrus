@@ -691,6 +691,31 @@ impl BlobRegistered {
             event_id: event_id_for_testing(),
         }
     }
+
+    /// Creates a deleted event with the same parameters as the provided registered event (but a
+    /// new event ID) for testing.
+    pub fn into_corresponding_deleted_event_for_testing(self, was_certified: bool) -> BlobDeleted {
+        let Self {
+            epoch,
+            blob_id,
+            end_epoch,
+            deletable,
+            object_id,
+            ..
+        } = self;
+        assert!(
+            deletable,
+            "the blob must be deletable to create a deleted event"
+        );
+        BlobDeleted {
+            epoch,
+            blob_id,
+            end_epoch,
+            object_id,
+            was_certified,
+            event_id: event_id_for_testing(),
+        }
+    }
 }
 
 /// A sorted list of BLS keys for a walrus committee that can be used

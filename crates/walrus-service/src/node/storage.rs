@@ -668,7 +668,7 @@ impl Storage {
                 }
             };
 
-            if blob_info.is_registered(current_epoch) {
+            if !blob_info.can_data_be_deleted(current_epoch) {
                 tracing::trace!(
                     %blob_id,
                     "skipping blob that is still registered",
@@ -738,6 +738,10 @@ impl Storage {
     /// Attempts to delete the blob data for the given blob ID.
     ///
     /// Returns true if the blob data was deleted, false otherwise.
+    #[tracing::instrument(
+        skip_all,
+        fields(walrus.blob_id = %blob_id, walrus.current_epoch = %current_epoch),
+    )]
     async fn attempt_to_delete_blob_data_inner(
         &self,
         optimistic_handle: &OptimisticHandle<'_>,
@@ -751,25 +755,25 @@ impl Storage {
             .blob_info
             .get_for_update_in_transaction(&transaction, blob_id)?
         else {
-            tracing::warn!(
-                %blob_id,
-                "blob info not found when attempting to delete expired blob data"
-            );
+            tracing::warn!("blob info not found when attempting to delete expired blob data");
             return Ok(false);
         };
-        if blob_info.is_registered(current_epoch) {
-            tracing::debug!(
-                %blob_id,
-                "blob was reregistered before attempting to delete expired blob data",
-            );
+        if !blob_info.can_data_be_deleted(current_epoch) {
+            tracing::debug!("blob was reregistered before attempting to delete expired blob data");
             return Ok(false);
         }
 
         // At this point we are sure that the blob is no longer registered and can actually delete
-        // the blob info and data. If the blob is reregistered outside this transaction, the
-        // transaction will fail.
-        self.blob_info
-            .delete_in_transaction(&transaction, blob_id)?;
+        // the data. If the blob is reregistered outside this transaction, the transaction will
+        // fail.
+        if blob_info.can_blob_info_be_deleted(current_epoch) {
+            // It is possible that there are still (expired) deletable blob objects for this blob
+            // ID. In that case, we should not delete the aggregate blob info yet.
+            tracing::debug!("deleting aggregate blob info");
+            self.blob_info
+                .delete_in_transaction(&transaction, blob_id)?;
+        }
+        tracing::debug!("deleting blob data");
         self.delete_blob_data_in_transaction(&transaction, blob_id, shards)?;
 
         if let Err(error) = transaction.commit() {
@@ -1044,6 +1048,13 @@ impl Storage {
     ) -> PerObjectBlobInfoIterator<'_> {
         self.blob_info
             .certified_per_object_blob_info_iter_before_epoch(epoch, std::ops::Bound::Unbounded)
+    }
+
+    /// Checks internal invariants of the blob info table.
+    pub(crate) fn blob_info_invariants_check(&self) {
+        if let Err(error) = self.blob_info.check_invariants() {
+            tracing::error!(?error, "blob info internal consistency check failed");
+        }
     }
 
     /// Returns the current event cursor.

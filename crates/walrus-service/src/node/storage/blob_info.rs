@@ -10,6 +10,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+use anyhow::Context as _;
 use enum_dispatch::enum_dispatch;
 use rocksdb::{MergeOperands, Options, Transaction};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
@@ -442,25 +443,29 @@ impl BlobInfoTable {
 
             let blob_id = per_object_blob_info.blob_id();
             let was_certified = per_object_blob_info.initial_certified_epoch().is_some();
+            let deletable = per_object_blob_info.is_deletable();
             let mut batch = self.per_object_blob_info.batch();
             // Clean up all expired objects.
             batch.delete_batch(&self.per_object_blob_info, [object_id])?;
 
-            // Only update the aggregate blob info if the blob is deletable and not already deleted
-            // (in which case it was already updated).
-            if per_object_blob_info.is_deletable() && !per_object_blob_info.is_deleted() {
+            // Only update the aggregate blob info if the blob is not already deleted (in which case
+            // it was already updated).
+            if !per_object_blob_info.is_deleted() {
                 tracing::debug!(
                     %object_id,
                     %blob_id,
                     %was_certified,
-                    "updating blob info for expired deletable blob"
+                    %deletable,
+                    "updating blob info for expired blob object"
                 );
+                let operand = if deletable {
+                    BlobInfoMergeOperand::DeletableExpired { was_certified }
+                } else {
+                    BlobInfoMergeOperand::PermanentExpired { was_certified }
+                };
                 batch.partial_merge_batch(
                     &self.aggregate_blob_info,
-                    [(
-                        blob_id,
-                        &BlobInfoMergeOperand::DeletableExpired { was_certified }.to_bytes(),
-                    )],
+                    [(blob_id, &operand.to_bytes())],
                 )?;
             } else {
                 tracing::debug!(
@@ -484,6 +489,82 @@ impl BlobInfoTable {
             "finished processing expired blob objects",
         );
 
+        Ok(())
+    }
+
+    /// Checks some internal invariants of the blob info table.
+    ///
+    /// The checks are not exhaustive yet.
+    pub fn check_invariants(&self) -> Result<(), anyhow::Error> {
+        for result in self.per_object_blob_info.safe_iter()? {
+            let Ok((object_id, PerObjectBlobInfo::V1(per_object_blob_info))) = result else {
+                return Err(anyhow::anyhow!(
+                    "error encountered while iterating over per-object blob info: {result:?}"
+                ));
+            };
+            let blob_id = per_object_blob_info.blob_id();
+            let Some(blob_info) = self.aggregate_blob_info.get(&blob_id)? else {
+                return Err(anyhow::anyhow!(
+                    "blob info not found for blob ID {blob_id}, even though a corresponding \
+                    per-object blob info entry exists (object ID: {object_id})"
+                ));
+            };
+            let BlobInfo::V1(BlobInfoV1::Valid(ValidBlobInfoV1 {
+                count_deletable_total,
+                count_deletable_certified,
+                latest_seen_deletable_registered_end_epoch,
+                latest_seen_deletable_certified_end_epoch,
+                ..
+            })) = blob_info
+            else {
+                continue;
+            };
+            if per_object_blob_info.is_deletable() {
+                let per_object_end_epoch = per_object_blob_info.end_epoch;
+                anyhow::ensure!(
+                    count_deletable_total > 0,
+                    "count_deletable_total is 0 for blob ID {blob_id}, even though a deletable \
+                    blob object exists (object ID: {object_id})"
+                );
+                anyhow::ensure!(
+                    latest_seen_deletable_registered_end_epoch
+                        .is_some_and(|e| e >= per_object_end_epoch),
+                    "latest_seen_deletable_registered_end_epoch for blob ID {blob_id} is \
+                    {latest_seen_deletable_registered_end_epoch:?}, which is inconsistent with the \
+                    end epoch of a deletable blob object: {per_object_end_epoch} (object ID: \
+                    {object_id})"
+                );
+                if per_object_blob_info.certified_epoch.is_some() {
+                    anyhow::ensure!(
+                        count_deletable_certified > 0,
+                        "count_deletable_certified is 0 for blob ID {blob_id}, even though a \
+                        deletable certified blob object exists (object ID: {object_id})"
+                    );
+                    anyhow::ensure!(
+                        latest_seen_deletable_certified_end_epoch
+                            .is_some_and(|e| e >= per_object_end_epoch),
+                        "latest_seen_deletable_certified_end_epoch for blob ID {blob_id} is \
+                        {latest_seen_deletable_certified_end_epoch:?}, which is inconsistent with \
+                        the end epoch of a deletable certified blob object: {per_object_end_epoch} \
+                        (object ID: {object_id})"
+                    );
+                }
+            }
+        }
+
+        for result in self.aggregate_blob_info.safe_iter()? {
+            let Ok((blob_id, blob_info)) = result else {
+                return Err(anyhow::anyhow!(
+                    "error encountered while iterating over aggregate blob info: {result:?}"
+                ));
+            };
+            let BlobInfo::V1(BlobInfoV1::Valid(blob_info)) = blob_info else {
+                continue;
+            };
+            blob_info.check_invariants().context(format!(
+                "aggregate blob info invariants violated for blob ID {blob_id}"
+            ))?;
+        }
         Ok(())
     }
 }
@@ -608,6 +689,7 @@ pub(super) trait ToBytes: Serialize + Sized {
 }
 trait Mergeable: ToBytes + Debug + DeserializeOwned + Serialize + Sized {
     type MergeOperand: Debug + DeserializeOwned + ToBytes;
+    type Key: Debug + DeserializeOwned + std::fmt::Display;
 
     /// Updates the existing blob info with the provided merge operand and returns the result.
     ///
@@ -654,8 +736,20 @@ pub(crate) trait CertifiedBlobInfoApi {
 pub(crate) trait BlobInfoApi: CertifiedBlobInfoApi {
     /// Returns a boolean indicating whether the metadata of the blob is stored.
     fn is_metadata_stored(&self) -> bool;
+
     /// Returns true iff there exists at least one non-expired deletable or permanent `Blob` object.
     fn is_registered(&self, current_epoch: Epoch) -> bool;
+
+    /// Returns true iff the data of the blob can be deleted at the given epoch. The default
+    /// implementation simply checks if the blob is registered in that epoch.
+    fn can_data_be_deleted(&self, current_epoch: Epoch) -> bool {
+        !self.is_registered(current_epoch)
+    }
+
+    /// Returns true iff the *blob info* can be deleted at the given epoch. This is a stronger
+    /// condition than whether the data can be deleted as it also checks that no deletable blob
+    /// objects exist in the per-object blob info table.
+    fn can_blob_info_be_deleted(&self, current_epoch: Epoch) -> bool;
 
     /// Returns the event through which this blob was marked invalid.
     ///
@@ -680,6 +774,9 @@ pub(super) enum BlobInfoMergeOperand {
     // Adding a new variant should be fine as it does not affect the serialization of existing
     // variants.
     DeletableExpired {
+        was_certified: bool,
+    },
+    PermanentExpired {
         was_certified: bool,
     },
 }
@@ -851,6 +948,7 @@ impl ToBytes for BlobInfoV1 {}
 // INV: initial_certified_epoch.is_some()
 //      <=> count_deletable_certified > 0 || permanent_certified.is_some()
 // INV: latest_seen_deletable_registered_end_epoch >= latest_seen_deletable_certified_end_epoch
+// See the `check_invariants` method for more details.
 // Important: This struct MUST NOT be changed. Instead, if needed, a new `ValidBlobInfoV2` struct
 // should be created.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -1015,12 +1113,9 @@ impl ValidBlobInfoV1 {
                     Self::extend_permanent(&mut self.permanent_total, &change_info);
                     Self::extend_permanent(&mut self.permanent_certified, &change_info);
                 }
-                BlobStatusChangeType::Delete { was_certified } => {
-                    Self::delete_permanent(
-                        &mut self.permanent_total,
-                        &mut self.permanent_certified,
-                        was_certified,
-                    );
+                BlobStatusChangeType::Delete { .. } => {
+                    tracing::error!("attempt to delete a permanent blob");
+                    return;
                 }
             }
         }
@@ -1173,15 +1268,12 @@ impl ValidBlobInfoV1 {
     /// the certified permanent blobs.
     ///
     /// This is called when blobs expire at the end of an epoch.
-    fn delete_permanent(
-        permanent_total: &mut Option<PermanentBlobInfoV1>,
-        permanent_certified: &mut Option<PermanentBlobInfoV1>,
-        was_certified: bool,
-    ) {
-        Self::decrement_blob_info_inner(permanent_total);
+    fn permanent_expired(&mut self, was_certified: bool) {
+        Self::decrement_blob_info_inner(&mut self.permanent_total);
         if was_certified {
-            Self::decrement_blob_info_inner(permanent_certified);
+            Self::decrement_blob_info_inner(&mut self.permanent_certified);
         }
+        self.maybe_unset_initial_certified_epoch();
     }
 
     fn decrement_blob_info_inner(blob_info_inner: &mut Option<PermanentBlobInfoV1>) {
@@ -1198,10 +1290,10 @@ impl ValidBlobInfoV1 {
         }
     }
 
-    #[cfg(test)]
-    fn check_invariants(&self) {
+    /// Checks the invariants of the aggregate blob info, returning an error if any invariant is
+    /// violated.
+    fn check_invariants(&self) -> anyhow::Result<()> {
         let Self {
-            is_metadata_stored: _,
             count_deletable_total,
             count_deletable_certified,
             permanent_total,
@@ -1212,17 +1304,23 @@ impl ValidBlobInfoV1 {
             ..
         } = self;
 
-        assert!(count_deletable_total >= count_deletable_certified);
+        anyhow::ensure!(count_deletable_total >= count_deletable_certified);
         match initial_certified_epoch {
-            None => assert!(*count_deletable_certified == 0 && permanent_certified.is_none()),
-            Some(_) => assert!(*count_deletable_certified > 0 || permanent_certified.is_some()),
+            None => {
+                anyhow::ensure!(*count_deletable_certified == 0 && permanent_certified.is_none())
+            }
+            Some(_) => {
+                anyhow::ensure!(*count_deletable_certified > 0 || permanent_certified.is_some())
+            }
         }
 
         match (permanent_total, permanent_certified) {
-            (None, Some(_)) => panic!("permanent_total.is_none() => permanent_certified.is_none()"),
+            (None, Some(_)) => {
+                anyhow::bail!("permanent_total.is_none() => permanent_certified.is_none()")
+            }
             (Some(total_inner), Some(certified_inner)) => {
-                assert!(total_inner.end_epoch >= certified_inner.end_epoch);
-                assert!(total_inner.count >= certified_inner.count);
+                anyhow::ensure!(total_inner.end_epoch >= certified_inner.end_epoch);
+                anyhow::ensure!(total_inner.count >= certified_inner.count);
             }
             _ => (),
         }
@@ -1231,15 +1329,16 @@ impl ValidBlobInfoV1 {
             latest_seen_deletable_registered_end_epoch,
             latest_seen_deletable_certified_end_epoch,
         ) {
-            (None, Some(_)) => panic!(
+            (None, Some(_)) => anyhow::bail!(
                 "latest_seen_deletable_registered_end_epoch.is_none() => \
                 latest_seen_deletable_certified_end_epoch.is_none()"
             ),
             (Some(registered), Some(certified)) => {
-                assert!(registered >= certified);
+                anyhow::ensure!(registered >= certified);
             }
             _ => (),
         }
+        Ok(())
     }
 }
 
@@ -1384,6 +1483,24 @@ impl BlobInfoApi for BlobInfoV1 {
         exists_registered_permanent_blob || probably_exists_registered_deletable_blob
     }
 
+    fn can_blob_info_be_deleted(&self, current_epoch: Epoch) -> bool {
+        match self {
+            Self::Invalid { .. } => {
+                // We don't know whether there are any deletable blob objects for this blob ID.
+                false
+            }
+            Self::Valid(ValidBlobInfoV1 {
+                count_deletable_total,
+                permanent_total,
+                ..
+            }) => {
+                *count_deletable_total == 0
+                    && permanent_total.is_none()
+                    && self.can_data_be_deleted(current_epoch)
+            }
+        }
+    }
+
     fn invalidation_event(&self) -> Option<EventID> {
         if let Self::Invalid { event, .. } = self {
             Some(*event)
@@ -1402,6 +1519,7 @@ impl BlobInfoApi for BlobInfoV1 {
 
 impl Mergeable for BlobInfoV1 {
     type MergeOperand = BlobInfoMergeOperand;
+    type Key = BlobId;
 
     fn merge_with(mut self, operand: Self::MergeOperand) -> Self {
         match (&mut self, operand) {
@@ -1438,6 +1556,10 @@ impl Mergeable for BlobInfoV1 {
                 Self::Valid(valid_blob_info),
                 BlobInfoMergeOperand::DeletableExpired { was_certified },
             ) => valid_blob_info.deletable_expired(was_certified),
+            (
+                Self::Valid(valid_blob_info),
+                BlobInfoMergeOperand::PermanentExpired { was_certified },
+            ) => valid_blob_info.permanent_expired(was_certified),
         }
         self
     }
@@ -1481,7 +1603,8 @@ impl Mergeable for BlobInfoV1 {
             }),
             BlobInfoMergeOperand::ChangeStatus { .. }
             | BlobInfoMergeOperand::MarkMetadataStored(_)
-            | BlobInfoMergeOperand::DeletableExpired { .. } => {
+            | BlobInfoMergeOperand::DeletableExpired { .. }
+            | BlobInfoMergeOperand::PermanentExpired { .. } => {
                 tracing::error!(
                     ?operand,
                     "encountered an unexpected update for an untracked blob ID"
@@ -1577,6 +1700,7 @@ impl ToBytes for BlobInfo {}
 
 impl Mergeable for BlobInfo {
     type MergeOperand = BlobInfoMergeOperand;
+    type Key = BlobId;
 
     fn merge_with(self, operand: Self::MergeOperand) -> Self {
         match self {
@@ -1668,6 +1792,7 @@ mod per_object_blob_info {
 
     impl Mergeable for PerObjectBlobInfo {
         type MergeOperand = PerObjectBlobInfoMergeOperand;
+        type Key = ObjectID;
 
         fn merge_with(self, operand: Self::MergeOperand) -> Self {
             match self {
@@ -1733,6 +1858,7 @@ mod per_object_blob_info {
 
     impl Mergeable for PerObjectBlobInfoV1 {
         type MergeOperand = PerObjectBlobInfoMergeOperand;
+        type Key = ObjectID;
 
         fn merge_with(
             mut self,
@@ -1839,8 +1965,8 @@ where
 
 #[tracing::instrument(
     level = Level::DEBUG,
-    skip(existing_val, operands),
-    fields(existing_val = existing_val.is_some())
+    skip_all,
+    fields(existing_val = existing_val.is_some(), key = tracing::field::Empty)
 )]
 fn merge_mergeable<T: Mergeable>(
     key: &[u8],
@@ -1848,15 +1974,26 @@ fn merge_mergeable<T: Mergeable>(
     operands: &MergeOperands,
 ) -> Option<Vec<u8>> {
     let mut current_val: Option<T> = existing_val.and_then(deserialize_from_db);
+    let key_str = if cfg!(debug_assertions) {
+        // In debug mode, we deserialize the key for more readable logging.
+        bcs::from_bytes::<T::Key>(key)
+            .expect("key must be valid")
+            .to_string()
+    } else {
+        format!("{key:?}")
+    };
+    tracing::Span::current().record("key", &key_str);
+    tracing::debug!(operands_count = operands.len(), "merging blob info");
 
     for operand_bytes in operands {
         let Some(operand) = deserialize_from_db::<T::MergeOperand>(operand_bytes) else {
             continue;
         };
-        tracing::debug!(?current_val, ?operand, "updating blob info");
+        tracing::trace!(?current_val, ?operand, "applying operand");
 
         current_val = T::merge(current_val, operand);
     }
+    tracing::debug!(final_val = ?current_val, "finished merging blob info");
 
     current_val.as_ref().map(|value| value.to_bytes())
 }
@@ -1870,7 +2007,9 @@ mod tests {
 
     fn check_invariants(blob_info: &BlobInfoV1) {
         if let BlobInfoV1::Valid(valid_blob_info) = blob_info {
-            valid_blob_info.check_invariants()
+            valid_blob_info
+                .check_invariants()
+                .expect("aggregate blob info invariants violated")
         }
     }
 
@@ -1998,12 +2137,16 @@ mod tests {
     fn test_mark_metadata_stored_keeps_everything_else_unchanged(
         preexisting_info: ValidBlobInfoV1,
     ) {
-        preexisting_info.check_invariants();
+        preexisting_info
+            .check_invariants()
+            .expect("preexisting blob info invariants violated");
         let expected_updated_info = ValidBlobInfoV1 {
             is_metadata_stored: true,
             ..preexisting_info.clone()
         };
-        expected_updated_info.check_invariants();
+        expected_updated_info
+            .check_invariants()
+            .expect("expected updated blob info invariants violated");
 
         let updated_info = BlobInfoV1::Valid(preexisting_info)
             .merge_with(BlobInfoMergeOperand::MarkMetadataStored(true));
@@ -2248,20 +2391,16 @@ mod tests {
                     ..Default::default()
                 },
             ),
-            delete_permanent_blob: (
+            expire_permanent_blob: (
                 ValidBlobInfoV1{
                     permanent_total: Some(PermanentBlobInfoV1::new_fixed_for_testing(3, 5, 0)),
                     permanent_certified: Some(PermanentBlobInfoV1::new_fixed_for_testing(2, 5, 1)),
                     initial_certified_epoch: Some(1),
                     ..Default::default()
                 },
-                BlobInfoMergeOperand::new_change_for_testing(
-                    BlobStatusChangeType::Delete { was_certified: true },
-                    false,
-                    2,
-                    6,
-                    fixed_event_id_for_testing(2),
-                ),
+                BlobInfoMergeOperand::PermanentExpired {
+                    was_certified: true,
+                },
                 ValidBlobInfoV1{
                     permanent_total: Some(PermanentBlobInfoV1::new_fixed_for_testing(2, 5, 0)),
                     permanent_certified: Some(PermanentBlobInfoV1::new_fixed_for_testing(1, 5, 1)),
@@ -2269,20 +2408,16 @@ mod tests {
                     ..Default::default()
                 },
             ),
-            delete_last_permanent_blob: (
+            expire_last_permanent_blob: (
                 ValidBlobInfoV1{
                     permanent_total: Some(PermanentBlobInfoV1::new_fixed_for_testing(2, 5, 0)),
                     permanent_certified: Some(PermanentBlobInfoV1::new_fixed_for_testing(1, 5, 1)),
                     initial_certified_epoch: Some(1),
                     ..Default::default()
                 },
-                BlobInfoMergeOperand::new_change_for_testing(
-                    BlobStatusChangeType::Delete { was_certified: true },
-                    false,
-                    1,
-                    6,
-                    fixed_event_id_for_testing(2),
-                ),
+                BlobInfoMergeOperand::PermanentExpired {
+                    was_certified: true,
+                },
                 ValidBlobInfoV1{
                     permanent_total: Some(PermanentBlobInfoV1::new_fixed_for_testing(1, 5, 0)),
                     permanent_certified: None,
@@ -2306,6 +2441,27 @@ mod tests {
                     6,
                     event_id_for_testing(),
                 ),
+                ValidBlobInfoV1{
+                    count_deletable_total: 2,
+                    count_deletable_certified: 1,
+                    initial_certified_epoch: Some(1),
+                    latest_seen_deletable_registered_end_epoch: Some(5),
+                    latest_seen_deletable_certified_end_epoch: Some(4),
+                    ..Default::default()
+                },
+            ),
+            expire_deletable_blob: (
+                ValidBlobInfoV1{
+                    count_deletable_total: 3,
+                    count_deletable_certified: 2,
+                    initial_certified_epoch: Some(1),
+                    latest_seen_deletable_registered_end_epoch: Some(5),
+                    latest_seen_deletable_certified_end_epoch: Some(4),
+                    ..Default::default()
+                },
+                BlobInfoMergeOperand::DeletableExpired {
+                    was_certified: true,
+                },
                 ValidBlobInfoV1{
                     count_deletable_total: 2,
                     count_deletable_certified: 1,
@@ -2340,35 +2496,48 @@ mod tests {
                     ..Default::default()
                 },
             ),
-            delete_uncertified_permanent_blob: (
+            expire_last_deletable_blob: (
+                ValidBlobInfoV1{
+                    count_deletable_total: 2,
+                    count_deletable_certified: 1,
+                    initial_certified_epoch: Some(1),
+                    latest_seen_deletable_registered_end_epoch: Some(5),
+                    latest_seen_deletable_certified_end_epoch: Some(4),
+                    ..Default::default()
+                },
+                BlobInfoMergeOperand::DeletableExpired {
+                    was_certified: true,
+                },
+                ValidBlobInfoV1{
+                    count_deletable_total: 1,
+                    count_deletable_certified: 0,
+                    initial_certified_epoch: None,
+                    latest_seen_deletable_registered_end_epoch: Some(5),
+                    latest_seen_deletable_certified_end_epoch: None,
+                    ..Default::default()
+                },
+            ),
+            expire_uncertified_permanent_blob: (
                 ValidBlobInfoV1{
                     permanent_total: Some(PermanentBlobInfoV1::new_fixed_for_testing(3, 5, 0)),
                     ..Default::default()
                 },
-                BlobInfoMergeOperand::new_change_for_testing(
-                    BlobStatusChangeType::Delete { was_certified: false },
-                    false,
-                    1,
-                    6,
-                    fixed_event_id_for_testing(2),
-                ),
+                BlobInfoMergeOperand::PermanentExpired {
+                    was_certified: false,
+                },
                 ValidBlobInfoV1{
                     permanent_total: Some(PermanentBlobInfoV1::new_fixed_for_testing(2, 5, 0)),
                     ..Default::default()
                 },
             ),
-            delete_last_uncertified_permanent_blob: (
+            expire_last_uncertified_permanent_blob: (
                 ValidBlobInfoV1{
                     permanent_total: Some(PermanentBlobInfoV1::new_fixed_for_testing(1, 5, 0)),
                     ..Default::default()
                 },
-                BlobInfoMergeOperand::new_change_for_testing(
-                    BlobStatusChangeType::Delete { was_certified: false },
-                    false,
-                    2,
-                    5,
-                    fixed_event_id_for_testing(2),
-                ),
+                BlobInfoMergeOperand::PermanentExpired {
+                    was_certified: false,
+                },
                 ValidBlobInfoV1{
                     permanent_total: None,
                     ..Default::default()
@@ -2419,8 +2588,12 @@ mod tests {
         operand: BlobInfoMergeOperand,
         expected_info: ValidBlobInfoV1,
     ) {
-        preexisting_info.check_invariants();
-        expected_info.check_invariants();
+        preexisting_info
+            .check_invariants()
+            .expect("preexisting blob info invariants violated");
+        expected_info
+            .check_invariants()
+            .expect("expected blob info invariants violated");
 
         let updated_info = BlobInfoV1::Valid(preexisting_info).merge_with(operand);
 
@@ -2453,7 +2626,9 @@ mod tests {
         preexisting_info: ValidBlobInfoV1,
         operand: BlobInfoMergeOperand,
     ) {
-        preexisting_info.check_invariants();
+        preexisting_info
+            .check_invariants()
+            .expect("preexisting blob info invariants violated");
         let preexisting_info = BlobInfoV1::Valid(preexisting_info);
         let blob_info = preexisting_info.clone().merge_with(operand);
         assert_eq!(preexisting_info, blob_info);
