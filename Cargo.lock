@@ -13056,6 +13056,7 @@ dependencies = [
  "integer-encoding 4.0.2",
  "itertools 0.14.0",
  "jsonwebtoken",
+ "libc",
  "md5",
  "mime",
  "mockall 0.12.1",
