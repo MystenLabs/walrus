@@ -443,25 +443,29 @@ impl BlobInfoTable {
 
             let blob_id = per_object_blob_info.blob_id();
             let was_certified = per_object_blob_info.initial_certified_epoch().is_some();
+            let deletable = per_object_blob_info.is_deletable();
             let mut batch = self.per_object_blob_info.batch();
             // Clean up all expired objects.
             batch.delete_batch(&self.per_object_blob_info, [object_id])?;
 
-            // Only update the aggregate blob info if the blob is deletable and not already deleted
-            // (in which case it was already updated).
-            if per_object_blob_info.is_deletable() && !per_object_blob_info.is_deleted() {
+            // Only update the aggregate blob info if the blob is not already deleted (in which case
+            // it was already updated).
+            if !per_object_blob_info.is_deleted() {
                 tracing::debug!(
                     %object_id,
                     %blob_id,
                     %was_certified,
-                    "updating blob info for expired deletable blob"
+                    %deletable,
+                    "updating blob info for expired blob object"
                 );
+                let operand = if deletable {
+                    BlobInfoMergeOperand::DeletableExpired { was_certified }
+                } else {
+                    BlobInfoMergeOperand::PermanentExpired { was_certified }
+                };
                 batch.partial_merge_batch(
                     &self.aggregate_blob_info,
-                    [(
-                        blob_id,
-                        &BlobInfoMergeOperand::DeletableExpired { was_certified }.to_bytes(),
-                    )],
+                    [(blob_id, &operand.to_bytes())],
                 )?;
             } else {
                 tracing::debug!(
@@ -770,6 +774,9 @@ pub(super) enum BlobInfoMergeOperand {
     // Adding a new variant should be fine as it does not affect the serialization of existing
     // variants.
     DeletableExpired {
+        was_certified: bool,
+    },
+    PermanentExpired {
         was_certified: bool,
     },
 }
@@ -1106,12 +1113,9 @@ impl ValidBlobInfoV1 {
                     Self::extend_permanent(&mut self.permanent_total, &change_info);
                     Self::extend_permanent(&mut self.permanent_certified, &change_info);
                 }
-                BlobStatusChangeType::Delete { was_certified } => {
-                    Self::delete_permanent(
-                        &mut self.permanent_total,
-                        &mut self.permanent_certified,
-                        was_certified,
-                    );
+                BlobStatusChangeType::Delete { .. } => {
+                    tracing::error!("attempt to delete a permanent blob");
+                    return;
                 }
             }
         }
@@ -1264,15 +1268,12 @@ impl ValidBlobInfoV1 {
     /// the certified permanent blobs.
     ///
     /// This is called when blobs expire at the end of an epoch.
-    fn delete_permanent(
-        permanent_total: &mut Option<PermanentBlobInfoV1>,
-        permanent_certified: &mut Option<PermanentBlobInfoV1>,
-        was_certified: bool,
-    ) {
-        Self::decrement_blob_info_inner(permanent_total);
+    fn permanent_expired(&mut self, was_certified: bool) {
+        Self::decrement_blob_info_inner(&mut self.permanent_total);
         if was_certified {
-            Self::decrement_blob_info_inner(permanent_certified);
+            Self::decrement_blob_info_inner(&mut self.permanent_certified);
         }
+        self.maybe_unset_initial_certified_epoch();
     }
 
     fn decrement_blob_info_inner(blob_info_inner: &mut Option<PermanentBlobInfoV1>) {
@@ -1490,8 +1491,13 @@ impl BlobInfoApi for BlobInfoV1 {
             }
             Self::Valid(ValidBlobInfoV1 {
                 count_deletable_total,
+                permanent_total,
                 ..
-            }) => *count_deletable_total == 0 && self.can_data_be_deleted(current_epoch),
+            }) => {
+                *count_deletable_total == 0
+                    && permanent_total.is_none()
+                    && self.can_data_be_deleted(current_epoch)
+            }
         }
     }
 
@@ -1550,6 +1556,10 @@ impl Mergeable for BlobInfoV1 {
                 Self::Valid(valid_blob_info),
                 BlobInfoMergeOperand::DeletableExpired { was_certified },
             ) => valid_blob_info.deletable_expired(was_certified),
+            (
+                Self::Valid(valid_blob_info),
+                BlobInfoMergeOperand::PermanentExpired { was_certified },
+            ) => valid_blob_info.permanent_expired(was_certified),
         }
         self
     }
@@ -1593,7 +1603,8 @@ impl Mergeable for BlobInfoV1 {
             }),
             BlobInfoMergeOperand::ChangeStatus { .. }
             | BlobInfoMergeOperand::MarkMetadataStored(_)
-            | BlobInfoMergeOperand::DeletableExpired { .. } => {
+            | BlobInfoMergeOperand::DeletableExpired { .. }
+            | BlobInfoMergeOperand::PermanentExpired { .. } => {
                 tracing::error!(
                     ?operand,
                     "encountered an unexpected update for an untracked blob ID"
@@ -2380,20 +2391,16 @@ mod tests {
                     ..Default::default()
                 },
             ),
-            delete_permanent_blob: (
+            expire_permanent_blob: (
                 ValidBlobInfoV1{
                     permanent_total: Some(PermanentBlobInfoV1::new_fixed_for_testing(3, 5, 0)),
                     permanent_certified: Some(PermanentBlobInfoV1::new_fixed_for_testing(2, 5, 1)),
                     initial_certified_epoch: Some(1),
                     ..Default::default()
                 },
-                BlobInfoMergeOperand::new_change_for_testing(
-                    BlobStatusChangeType::Delete { was_certified: true },
-                    false,
-                    2,
-                    6,
-                    fixed_event_id_for_testing(2),
-                ),
+                BlobInfoMergeOperand::PermanentExpired {
+                    was_certified: true,
+                },
                 ValidBlobInfoV1{
                     permanent_total: Some(PermanentBlobInfoV1::new_fixed_for_testing(2, 5, 0)),
                     permanent_certified: Some(PermanentBlobInfoV1::new_fixed_for_testing(1, 5, 1)),
@@ -2401,20 +2408,16 @@ mod tests {
                     ..Default::default()
                 },
             ),
-            delete_last_permanent_blob: (
+            expire_last_permanent_blob: (
                 ValidBlobInfoV1{
                     permanent_total: Some(PermanentBlobInfoV1::new_fixed_for_testing(2, 5, 0)),
                     permanent_certified: Some(PermanentBlobInfoV1::new_fixed_for_testing(1, 5, 1)),
                     initial_certified_epoch: Some(1),
                     ..Default::default()
                 },
-                BlobInfoMergeOperand::new_change_for_testing(
-                    BlobStatusChangeType::Delete { was_certified: true },
-                    false,
-                    1,
-                    6,
-                    fixed_event_id_for_testing(2),
-                ),
+                BlobInfoMergeOperand::PermanentExpired {
+                    was_certified: true,
+                },
                 ValidBlobInfoV1{
                     permanent_total: Some(PermanentBlobInfoV1::new_fixed_for_testing(1, 5, 0)),
                     permanent_certified: None,
@@ -2438,6 +2441,27 @@ mod tests {
                     6,
                     event_id_for_testing(),
                 ),
+                ValidBlobInfoV1{
+                    count_deletable_total: 2,
+                    count_deletable_certified: 1,
+                    initial_certified_epoch: Some(1),
+                    latest_seen_deletable_registered_end_epoch: Some(5),
+                    latest_seen_deletable_certified_end_epoch: Some(4),
+                    ..Default::default()
+                },
+            ),
+            expire_deletable_blob: (
+                ValidBlobInfoV1{
+                    count_deletable_total: 3,
+                    count_deletable_certified: 2,
+                    initial_certified_epoch: Some(1),
+                    latest_seen_deletable_registered_end_epoch: Some(5),
+                    latest_seen_deletable_certified_end_epoch: Some(4),
+                    ..Default::default()
+                },
+                BlobInfoMergeOperand::DeletableExpired {
+                    was_certified: true,
+                },
                 ValidBlobInfoV1{
                     count_deletable_total: 2,
                     count_deletable_certified: 1,
@@ -2472,35 +2496,48 @@ mod tests {
                     ..Default::default()
                 },
             ),
-            delete_uncertified_permanent_blob: (
+            expire_last_deletable_blob: (
+                ValidBlobInfoV1{
+                    count_deletable_total: 2,
+                    count_deletable_certified: 1,
+                    initial_certified_epoch: Some(1),
+                    latest_seen_deletable_registered_end_epoch: Some(5),
+                    latest_seen_deletable_certified_end_epoch: Some(4),
+                    ..Default::default()
+                },
+                BlobInfoMergeOperand::DeletableExpired {
+                    was_certified: true,
+                },
+                ValidBlobInfoV1{
+                    count_deletable_total: 1,
+                    count_deletable_certified: 0,
+                    initial_certified_epoch: None,
+                    latest_seen_deletable_registered_end_epoch: Some(5),
+                    latest_seen_deletable_certified_end_epoch: None,
+                    ..Default::default()
+                },
+            ),
+            expire_uncertified_permanent_blob: (
                 ValidBlobInfoV1{
                     permanent_total: Some(PermanentBlobInfoV1::new_fixed_for_testing(3, 5, 0)),
                     ..Default::default()
                 },
-                BlobInfoMergeOperand::new_change_for_testing(
-                    BlobStatusChangeType::Delete { was_certified: false },
-                    false,
-                    1,
-                    6,
-                    fixed_event_id_for_testing(2),
-                ),
+                BlobInfoMergeOperand::PermanentExpired {
+                    was_certified: false,
+                },
                 ValidBlobInfoV1{
                     permanent_total: Some(PermanentBlobInfoV1::new_fixed_for_testing(2, 5, 0)),
                     ..Default::default()
                 },
             ),
-            delete_last_uncertified_permanent_blob: (
+            expire_last_uncertified_permanent_blob: (
                 ValidBlobInfoV1{
                     permanent_total: Some(PermanentBlobInfoV1::new_fixed_for_testing(1, 5, 0)),
                     ..Default::default()
                 },
-                BlobInfoMergeOperand::new_change_for_testing(
-                    BlobStatusChangeType::Delete { was_certified: false },
-                    false,
-                    2,
-                    5,
-                    fixed_event_id_for_testing(2),
-                ),
+                BlobInfoMergeOperand::PermanentExpired {
+                    was_certified: false,
+                },
                 ValidBlobInfoV1{
                     permanent_total: None,
                     ..Default::default()
