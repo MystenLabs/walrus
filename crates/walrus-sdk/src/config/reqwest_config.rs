@@ -84,7 +84,7 @@ pub(crate) mod default {
 
     /// Allows for enough time to transfer big slivers on the other side of the world.
     pub fn total_timeout() -> Duration {
-        Duration::from_secs(30)
+        Duration::from_secs(300)
     }
 
     /// Disabled by default, i.e., connections are kept alive.
