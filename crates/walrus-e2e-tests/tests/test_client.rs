@@ -49,6 +49,7 @@ use walrus_proc_macros::walrus_simtest;
 use walrus_sdk::{
     client::{
         Blocklist,
+        FileUploadJob,
         StoreArgs,
         WalrusNodeClient,
         WalrusStoreBlob,
@@ -104,11 +105,7 @@ use walrus_upload_relay::{
     UploadRelayHandle,
     controller::{WalrusUploadRelayConfig, get_client_with_config},
 };
-use walrus_utils::{
-    backoff::ExponentialBackoffConfig,
-    metrics::Registry,
-    slice_size::BlobUploadJob,
-};
+use walrus_utils::{backoff::ExponentialBackoffConfig, metrics::Registry};
 
 async_param_test! {
     #[ignore = "ignore E2E tests by default"]
@@ -144,7 +141,7 @@ where
     // Generate random blobs.
     let blob_data = walrus_test_utils::random_data_list(data_length, num_blobs);
     let mut path_to_data: HashMap<PathBuf, Vec<u8>> = HashMap::new();
-    let mut blobs_with_paths: Vec<(PathBuf, BlobUploadJob)> = vec![];
+    let mut blobs_with_paths: Vec<(PathBuf, FileUploadJob)> = vec![];
     let mut path_to_blob_id: HashMap<PathBuf, BlobId> = HashMap::new();
 
     // Create paths for each blob.
@@ -153,7 +150,7 @@ where
         path_to_data.insert(path.clone(), data.to_vec());
         blobs_with_paths.push((
             path,
-            BlobUploadJob::Blob {
+            FileUploadJob::Blob {
                 data: data.to_vec(),
             },
         ));
@@ -645,14 +642,14 @@ pub async fn test_store_and_read_duplicate_blobs() -> TestResult {
     blob_data.push(blob_data[0].clone());
     blob_data.push(blob_data[1].clone());
     blob_data.push(blob_data[0].clone());
-    let mut blobs_with_paths: Vec<(PathBuf, BlobUploadJob)> = vec![];
+    let mut blobs_with_paths: Vec<(PathBuf, FileUploadJob)> = vec![];
 
     // Create paths for each blob.
     for (i, data) in blob_data.iter().enumerate() {
         let path = PathBuf::from(format!("blob_{i}"));
         blobs_with_paths.push((
             path,
-            BlobUploadJob::Blob {
+            FileUploadJob::Blob {
                 data: data.to_vec(),
             },
         ));
@@ -685,8 +682,8 @@ pub async fn test_store_and_read_duplicate_blobs() -> TestResult {
         .zip(read_result.iter())
         .for_each(|((result, (path, data)), (blob_id, blob))| {
             assert_eq!(&result.path, path);
-            let BlobUploadJob::Blob { data } = data else {
-                panic!("expected BlobUploadJob::Blob");
+            let FileUploadJob::Blob { data } = data else {
+                panic!("expected FileUploadJob::Blob");
             };
             assert_eq!(blob, data);
             assert_eq!(blob_id, &result.blob_store_result.blob_id());

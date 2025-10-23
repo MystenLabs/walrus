@@ -28,13 +28,13 @@ use walrus_core::{
     encoding::{EncodingConfig, EncodingFactory},
     ensure,
 };
-use walrus_sdk::config::UploadMode;
+use walrus_sdk::{client::SliceSize, config::UploadMode};
 use walrus_sui::{
     client::{ExpirySelectionPolicy, ReadClient, SuiContractClient},
     types::{StorageNode, move_structs::Authorized},
     utils::SuiNetwork,
 };
-use walrus_utils::{read_data_from_file, slice_size::SliceSize};
+use walrus_utils::read_data_from_file;
 
 use super::{BlobIdDecimal, HumanReadableBytes, parse_blob_id, parse_quilt_patch_id};
 use crate::client::{config::AuthConfig, daemon::CacheConfig};

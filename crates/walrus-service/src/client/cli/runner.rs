@@ -42,9 +42,12 @@ use walrus_core::{
 use walrus_sdk::{
     SuiReadClient,
     client::{
+        FileUploadJob,
         NodeCommunicationFactory,
+        SliceSize,
         StoreArgs,
         WalrusNodeClient,
+        file_upload_job::read_blob_from_file,
         quilt_client::{
             assign_identifiers_with_paths,
             generate_identifier_from_path,
@@ -73,12 +76,7 @@ use walrus_sdk::{
 };
 use walrus_storage_node_client::api::BlobStatus;
 use walrus_sui::{client::rpc_client, wallet::Wallet};
-use walrus_utils::{
-    metrics::Registry,
-    read_blob_from_file,
-    read_data_from_file,
-    slice_size::{BlobUploadJob, SliceSize},
-};
+use walrus_utils::{metrics::Registry, read_data_from_file};
 
 use super::{
     args::{
@@ -943,7 +941,7 @@ impl ClientCommandRunner {
     async fn transform_store_args_for_upload_relay(
         confirmation: UserConfirmation,
         client: &WalrusNodeClient<SuiContractClient>,
-        blobs: &[(PathBuf, BlobUploadJob)],
+        blobs: &[(PathBuf, FileUploadJob)],
         mut store_args: StoreArgs,
         upload_relay: Url,
         gas_budget: Option<u64>,
@@ -961,8 +959,9 @@ impl ClientCommandRunner {
             client.encoding_config().n_shards(),
             &blobs
                 .iter()
-                .flat_map(|(_, blob_upload_job)| {
-                    blob_upload_job.iterate_slices().map(|data| {
+                .enumerate()
+                .flat_map(|(file_index, (_, blob_upload_job))| {
+                    blob_upload_job.iterate_slices(file_index).map(|(_, data)| {
                         u64::try_from(data.len()).expect("blob slice length must fit in u64")
                     })
                 })
@@ -994,9 +993,9 @@ impl ClientCommandRunner {
             blob_upload_jobs.push((file, blob_upload_job));
         }
 
-        for (file, blob_upload_job) in blob_upload_jobs {
+        for (file_index, (file, blob_upload_job)) in blob_upload_jobs.into_iter().enumerate() {
             let slice_count = blob_upload_job.slice_count();
-            for (slice_index, blob) in blob_upload_job.iterate_slices().enumerate() {
+            for (slice_index, (_, blob)) in blob_upload_job.iterate_slices(file_index).enumerate() {
                 let (_, metadata) =
                     client.encode_pairs_and_metadata(blob, encoding_type, &MultiProgress::new())?;
                 let unencoded_size = metadata.metadata().unencoded_length();

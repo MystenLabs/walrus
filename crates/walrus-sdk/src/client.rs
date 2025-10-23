@@ -70,7 +70,7 @@ use walrus_sui::{
         move_structs::{BlobAttribute, BlobWithAttribute},
     },
 };
-use walrus_utils::{backoff::BackoffStrategy, metrics::Registry, slice_size::BlobUploadJob};
+use walrus_utils::{backoff::BackoffStrategy, metrics::Registry};
 
 mod auto_tune;
 
@@ -85,7 +85,7 @@ use self::{
 pub(crate) use crate::utils::{CompletedReasonWeight, WeightedFutures};
 use crate::{
     active_committees::ActiveCommittees,
-    client::quilt_client::QuiltClient,
+    client::{blob_store_id::BlobStoreId, quilt_client::QuiltClient},
     config::CommunicationLimits,
     error::{ClientError, ClientErrorKind, ClientResult, StoreError},
     uploader::{DistributedUploader, RunOutput, TailHandling, UploaderEvent},
@@ -93,17 +93,20 @@ use crate::{
 };
 pub use crate::{
     blocklist::Blocklist,
+    client::{file_upload_job::FileUploadJob, slice_size::SliceSize},
     config::{ClientCommunicationConfig, ClientConfig, default_configuration_paths},
 };
 
-mod blob_store_id;
+pub mod blob_store_id;
 pub mod client_types;
 pub mod communication;
+pub mod file_upload_job;
 pub mod metrics;
 pub mod quilt_client;
 pub mod refresh;
 pub mod resource;
 pub mod responses;
+pub mod slice_size;
 pub mod store_args;
 pub mod upload_relay_client;
 
@@ -1018,19 +1021,18 @@ impl WalrusNodeClient<SuiContractClient> {
     #[tracing::instrument(skip_all, fields(blob_id))]
     pub async fn reserve_and_store_blobs_retry_committees_with_path(
         &self,
-        blobs_with_paths: &[(PathBuf, BlobUploadJob)],
+        file_upload_jobs: &[(PathBuf, FileUploadJob)],
         store_args: &StoreArgs,
     ) -> ClientResult<Vec<BlobStoreResultWithPath>> {
-        let blob_upload_jobs = blobs_with_paths
+        let blob_upload_jobs = file_upload_jobs
             .iter()
-            .map(|(_, blob_upload_job)| blob_upload_job)
+            .map(|(_, file_upload_job)| file_upload_job)
             .collect::<Vec<_>>();
         let mut blob_path_mapping: HashMap<BlobStoreId, PathBuf> = Default::default();
         let mut named_blobs: Vec<(BlobStoreId, &[u8])> = Vec::new();
-        for (file_index, blob_upload_job) in blob_upload_jobs.iter().enumerate() {
-            for (slice_index, data) in blob_upload_job.iterate_slices().enumerate() {
-                let blob_store_id = BlobStoreId::new_file_slice(file_index, slice_index);
-                blob_path_mapping.insert(blob_store_id, blobs_with_paths[file_index].0.clone());
+        for (file_index, file_upload_job) in blob_upload_jobs.iter().enumerate() {
+            for (blob_store_id, data) in file_upload_job.iterate_slices(file_index) {
+                blob_path_mapping.insert(blob_store_id, file_upload_jobs[file_index].0.clone());
                 named_blobs.push((blob_store_id, data));
             }
         }
@@ -1051,9 +1053,9 @@ impl WalrusNodeClient<SuiContractClient> {
 
         assert_eq!(
             completed_blobs.len(),
-            blobs_with_paths
+            file_upload_jobs
                 .iter()
-                .map(|(_, blob_upload_job)| blob_upload_job.slice_count().unwrap_or(1))
+                .map(|(_, file_upload_job)| file_upload_job.slice_count().unwrap_or(1))
                 .sum::<usize>()
         );
         completed_blobs.sort_by_key(|blob| blob.get_identifier().to_string());

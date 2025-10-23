@@ -26,8 +26,6 @@ pub mod tracing_sampled;
 #[cfg(feature = "log")]
 pub use tracing_sampled::*;
 
-pub mod slice_size;
-
 #[cfg(feature = "test-utils")]
 pub mod tests {
     use std::sync::OnceLock;
@@ -62,8 +60,6 @@ pub fn load_from_yaml<P: AsRef<Path>, T: DeserializeOwned>(path: P) -> anyhow::R
 
     Ok(serde_yaml::from_reader(reader)?)
 }
-
-pub use slice_size::read_blob_from_file;
 
 /// Reads raw data from the filesystem or returns a helpful error message.
 pub fn read_data_from_file(path: impl AsRef<Path>) -> anyhow::Result<Vec<u8>> {
