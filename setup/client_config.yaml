@@ -29,4 +29,4 @@ contexts:
       # active_address: 0x0000000000000000000000000000000000000000000000000000000000000000
     rpc_urls:
       - https://fullnode.testnet.sui.io:443
-default_context: mainnet
+default_context: testnet
