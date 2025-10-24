@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use alloc::{collections::BTreeSet, vec, vec::Vec};
-use core::{cmp, marker::PhantomData, num::NonZeroU16, slice::Chunks};
+use core::{cmp, marker::PhantomData, slice::Chunks};
 
 use fastcrypto::hash::Blake2b256;
 use tracing::{Level, Span};
@@ -17,14 +17,14 @@ use super::{
     Secondary,
     SliverData,
     SliverPair,
+    SymbolSizeType,
     Symbols,
     basic_encoding::Decoder,
-    utils,
 };
 use crate::{
     SliverIndex,
     SliverPairIndex,
-    encoding::config::EncodingFactory as _,
+    encoding::EncodingFactory,
     ensure,
     merkle::{MerkleTree, leaf_hash},
     metadata::{SliverPairMetadata, VerifiedBlobMetadataWithId},
@@ -37,7 +37,7 @@ pub struct BlobEncoder<'a> {
     // INV: `blob.len() > 0`
     blob: &'a [u8],
     /// The size of the encoded and decoded symbols.
-    symbol_size: NonZeroU16,
+    symbol_size: SymbolSizeType,
     /// The number of rows of the message matrix.
     ///
     /// Stored as a `usize` for convenience, but guaranteed to be non-zero.
@@ -69,11 +69,7 @@ impl<'a> BlobEncoder<'a> {
     ///    that due to limitations of the address space.
     pub fn new(config: EncodingConfigEnum, blob: &'a [u8]) -> Result<Self, DataTooLargeError> {
         tracing::debug!("creating new blob encoder");
-        let symbol_size = utils::compute_symbol_size_from_usize(
-            blob.len(),
-            config.source_symbols_per_blob(),
-            config.encoding_type().required_alignment(),
-        )?;
+        let symbol_size = config.symbol_size_for_blob_from_usize(blob.len())?;
         let n_rows = config.n_source_symbols::<Primary>().get().into();
         let n_columns = config.n_source_symbols::<Secondary>().get().into();
 
@@ -192,7 +188,7 @@ impl<'a> BlobEncoder<'a> {
 
     /// Returns the size of the symbol in bytes.
     pub fn symbol_usize(&self) -> usize {
-        self.symbol_size.get().into()
+        crate::utils::usize_from_u32(self.symbol_size.get())
     }
 
     /// Returns a reference to the symbol at the provided indices in the message matrix.
@@ -329,11 +325,11 @@ struct ExpandedMessageMatrix<'a> {
     n_rows: usize,
     /// The number of columns in the non-expanded message matrix.
     n_columns: usize,
-    symbol_size: NonZeroU16,
+    symbol_size: SymbolSizeType,
 }
 
 impl<'a> ExpandedMessageMatrix<'a> {
-    fn new(config: EncodingConfigEnum, symbol_size: NonZeroU16, blob: &'a [u8]) -> Self {
+    fn new(config: EncodingConfigEnum, symbol_size: SymbolSizeType, blob: &'a [u8]) -> Self {
         tracing::debug!("computing expanded message matrix");
         let matrix = vec![
             Symbols::zeros(config.n_shards_as_usize(), symbol_size);
@@ -357,7 +353,7 @@ impl<'a> ExpandedMessageMatrix<'a> {
     fn fill_systematic_with_rows(&mut self) {
         for (destination_row, row) in self.matrix.iter_mut().zip(
             self.blob
-                .chunks(self.n_columns * usize::from(self.symbol_size.get())),
+                .chunks(self.n_columns * crate::utils::usize_from_u32(self.symbol_size.get())),
         ) {
             destination_row.data_mut()[0..row.len()].copy_from_slice(row);
         }
@@ -530,7 +526,7 @@ pub struct BlobDecoder<D: Decoder, E: EncodingAxis = Primary> {
     _decoding_axis: PhantomData<E>,
     decoder: D,
     blob_size: usize,
-    symbol_size: NonZeroU16,
+    symbol_size: SymbolSizeType,
     sliver_count: usize,
     sliver_length: usize,
     /// The number of columns of the blob's message matrix (i.e., the number of secondary slivers).
@@ -715,12 +711,14 @@ impl<D: Decoder, E: EncodingAxis> BlobDecoder<D, E> {
     }
 
     fn symbol_usize(&self) -> usize {
-        self.symbol_size.get().into()
+        crate::utils::usize_from_u32(self.symbol_size.get())
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use core::num::NonZeroU16;
+
     use walrus_test_utils::{param_test, random_data, random_subset};
 
     use super::*;

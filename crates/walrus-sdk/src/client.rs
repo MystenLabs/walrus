@@ -1140,11 +1140,12 @@ impl WalrusNodeClient<SuiContractClient> {
 
         let duration = encode_start_timer.elapsed();
         let pair = pairs.first().expect("the encoding produces sliver pairs");
-        let symbol_size = pair.primary.symbols.symbol_size().get();
+        let symbol_size =
+            walrus_core::utils::usize_from_u32(pair.primary.symbols.symbol_size().get());
         tracing::info!(
             symbol_size,
-            primary_sliver_size = pair.primary.symbols.len() * usize::from(symbol_size),
-            secondary_sliver_size = pair.secondary.symbols.len() * usize::from(symbol_size),
+            primary_sliver_size = pair.primary.symbols.len() * symbol_size,
+            secondary_sliver_size = pair.secondary.symbols.len() * symbol_size,
             ?duration,
             "encoded sliver pairs and metadata"
         );

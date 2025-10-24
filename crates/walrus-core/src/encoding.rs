@@ -70,7 +70,8 @@ pub use symbols::{
     RecoverySymbol,
     RecoverySymbolPair,
     SecondaryRecoverySymbol,
+    SymbolSizeType,
     Symbols,
 };
 
-mod utils;
+pub(crate) mod utils;

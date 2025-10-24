@@ -7,7 +7,7 @@ use alloc::{vec, vec::Vec};
 use core::{
     fmt::Display,
     marker::PhantomData,
-    num::NonZeroU16,
+    num::{NonZeroU16, NonZeroU32},
     ops::{Index, IndexMut, Range},
     slice::{Chunks, ChunksMut},
 };
@@ -36,6 +36,9 @@ use crate::{
     utils,
 };
 
+/// The number of bytes for each symbol.
+pub type SymbolSizeType = NonZeroU32;
+
 /// A set of encoded symbols.
 #[serde_as]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -45,7 +48,7 @@ pub struct Symbols {
     #[serde_as(as = "Bytes")]
     data: Vec<u8>,
     /// The number of bytes for each symbol.
-    symbol_size: NonZeroU16,
+    symbol_size: SymbolSizeType,
 }
 
 impl Symbols {
@@ -55,9 +58,10 @@ impl Symbols {
     ///
     /// Panics if the `data` does not contain complete symbols, i.e., if
     /// `data.len() % symbol_size != 0`.
-    pub fn new(data: Vec<u8>, symbol_size: NonZeroU16) -> Self {
+    pub fn new(data: Vec<u8>, symbol_size: SymbolSizeType) -> Self {
         assert!(
-            data.len().is_multiple_of(usize::from(symbol_size.get())),
+            data.len()
+                .is_multiple_of(utils::usize_from_u32(symbol_size.get())),
             "the provided data must contain complete symbols"
         );
         Symbols { data, symbol_size }
@@ -68,13 +72,13 @@ impl Symbols {
     /// no effect.
     pub fn truncate(&mut self, len: usize) {
         self.data
-            .truncate(len * usize::from(self.symbol_size.get()));
+            .truncate(len * utils::usize_from_u32(self.symbol_size.get()));
     }
 
     /// Creates a new [`Symbols`] struct with zeroed-out data of length `n_symbols * symbol_size`.
-    pub fn zeros(n_symbols: usize, symbol_size: NonZeroU16) -> Self {
+    pub fn zeros(n_symbols: usize, symbol_size: SymbolSizeType) -> Self {
         Symbols {
-            data: vec![0; n_symbols * usize::from(symbol_size.get())],
+            data: vec![0; n_symbols * utils::usize_from_u32(symbol_size.get())],
             symbol_size,
         }
     }
@@ -88,7 +92,7 @@ impl Symbols {
     /// #
     /// assert!(Symbols::with_capacity(42, 1.try_into().unwrap()).is_empty());
     /// ```
-    pub fn with_capacity(capacity: usize, symbol_size: NonZeroU16) -> Self {
+    pub fn with_capacity(capacity: usize, symbol_size: SymbolSizeType) -> Self {
         Symbols {
             data: Vec::<u8>::with_capacity(capacity),
             symbol_size,
@@ -101,7 +105,7 @@ impl Symbols {
     ///
     /// Panics if the slice does not contain complete symbols, i.e., if
     /// `slice.len() % symbol_size != 0`.
-    pub fn from_slice(slice: &[u8], symbol_size: NonZeroU16) -> Self {
+    pub fn from_slice(slice: &[u8], symbol_size: SymbolSizeType) -> Self {
         Self::new(slice.into(), symbol_size)
     }
 
@@ -202,14 +206,14 @@ impl Symbols {
 
     /// Returns the `symbol_size`.
     #[inline]
-    pub fn symbol_size(&self) -> NonZeroU16 {
+    pub fn symbol_size(&self) -> SymbolSizeType {
         self.symbol_size
     }
 
     /// Returns the `symbol_size` as a `usize`.
     #[inline]
     pub fn symbol_usize(&self) -> usize {
-        self.symbol_size.get().into()
+        utils::usize_from_u32(self.symbol_size.get())
     }
 
     /// Returns a reference to the inner vector of `data` representing the symbols.
@@ -476,7 +480,7 @@ impl<U: MerkleAuth> GeneralRecoverySymbol<U> {
         ensure!(
             metadata
                 .symbol_size(encoding_config)
-                .is_ok_and(|s| self.symbol.len() == usize::from(s.get())),
+                .is_ok_and(|s| self.symbol.len() == utils::usize_from_u32(s.get())),
             SymbolVerificationError::SymbolSizeMismatch
         );
         ensure!(
@@ -607,10 +611,11 @@ impl<T: EncodingAxis, U: MerkleAuth> RecoverySymbol<T, U> {
     pub fn verify(
         &self,
         n_shards: NonZeroU16,
-        expected_symbol_size: usize,
+        expected_symbol_size: SymbolSizeType,
         metadata: &BlobMetadata,
         target_index: SliverIndex,
     ) -> Result<(), SymbolVerificationError> {
+        let expected_symbol_size = crate::utils::usize_from_u32(expected_symbol_size.get());
         if self.symbol.index >= n_shards.get() {
             return Err(SymbolVerificationError::IndexTooLarge);
         }
@@ -686,16 +691,16 @@ mod tests {
             empty_3: (&[], 2, 1, None),
         ]
     }
-    fn get_correct_symbol(symbols: &[u8], symbol_size: u16, index: usize, target: Option<&[u8]>) {
+    fn get_correct_symbol(symbols: &[u8], symbol_size: u32, index: usize, target: Option<&[u8]>) {
         assert_eq!(
-            Symbols::from_slice(symbols, symbol_size.try_into().unwrap()).get(index),
+            Symbols::from_slice(symbols, SymbolSizeType::new(symbol_size).unwrap()).get(index),
             target
         )
     }
 
     #[test]
     fn test_wrong_symbol_size() {
-        let mut symbols = Symbols::new(vec![1, 2, 3, 4, 5, 6], 2.try_into().unwrap());
+        let mut symbols = Symbols::new(vec![1, 2, 3, 4, 5, 6], SymbolSizeType::new(2).unwrap());
         assert_eq!(symbols.extend(&[1]), Err(WrongSymbolSizeError));
     }
 
@@ -709,8 +714,8 @@ mod tests {
             #[should_panic] non_empty_panic_1: (&[1,2,3,4,5,6], 4),
         ]
     }
-    fn correct_symbols_from_slice(slice: &[u8], symbol_size: u16) {
-        let symbol_size = symbol_size.try_into().unwrap();
+    fn correct_symbols_from_slice(slice: &[u8], symbol_size: u32) {
+        let symbol_size = SymbolSizeType::new(symbol_size).unwrap();
         let symbols = Symbols::from_slice(slice, symbol_size);
         assert_eq!(symbols.data, slice.to_vec());
         assert_eq!(symbols.symbol_size, symbol_size);
@@ -724,12 +729,12 @@ mod tests {
             init_2: (0, 3),
         ]
     }
-    fn correct_symbols_new_empty(n_symbols: usize, symbol_size: u16) {
-        let symbol_size = symbol_size.try_into().unwrap();
+    fn correct_symbols_new_empty(n_symbols: usize, symbol_size: u32) {
+        let symbol_size = SymbolSizeType::new(symbol_size).unwrap();
         let symbols = Symbols::zeros(n_symbols, symbol_size);
         assert_eq!(
             symbols.data.len(),
-            n_symbols * usize::from(symbol_size.get())
+            n_symbols * utils::usize_from_u32(symbol_size.get())
         );
         assert_eq!(symbols.symbol_size, symbol_size);
     }

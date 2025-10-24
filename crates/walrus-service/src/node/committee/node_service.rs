@@ -239,7 +239,7 @@ impl Service<Request> for UnboundedRemoteStorageNode {
                         client
                             .get_and_verify_recovery_symbol::<Primary>(
                                 n_shards,
-                                symbol_size.get().into(),
+                                symbol_size,
                                 &metadata,
                                 sliver_pair_at_remote,
                                 intersecting_pair_index,
@@ -250,7 +250,7 @@ impl Service<Request> for UnboundedRemoteStorageNode {
                         client
                             .get_and_verify_recovery_symbol::<Secondary>(
                                 n_shards,
-                                symbol_size.get().into(),
+                                symbol_size,
                                 &metadata,
                                 sliver_pair_at_remote,
                                 intersecting_pair_index,

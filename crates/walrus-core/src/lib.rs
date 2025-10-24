@@ -756,7 +756,11 @@ pub struct InvalidEncodingType;
 // limited scope. Without this, the serde derivations would cause deprecation warnings.
 #[allow(deprecated)]
 mod encoding_type {
+    use core::num::NonZeroU32;
+
     use super::*;
+    use crate::encoding::{DataTooLargeError, SymbolSizeType, utils};
+
     /// Supported Walrus encoding types.
     #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash, Serialize, Deserialize)]
     #[repr(u8)]
@@ -808,20 +812,42 @@ mod encoding_type {
     impl EncodingType {
         /// Returns the required alignment of symbols for the encoding type.
         #[inline]
-        pub fn required_alignment(&self) -> u16 {
+        pub fn required_alignment(&self) -> u32 {
             2
         }
 
         /// Returns the maximum size of a symbol for the encoding type.
         #[inline]
-        pub fn max_symbol_size(&self) -> u16 {
-            u16::MAX - 1
+        pub fn max_symbol_size(&self) -> SymbolSizeType {
+            // TODO(WAL-1081): Change this to `u32::MAX - 1` after the next contract upgrade.
+            SymbolSizeType::new((u16::MAX - 1).into()).expect("this is non-zero")
+        }
+
+        /// Returns the maximum size of a symbol for the encoding type as a `usize`.
+        #[inline]
+        pub fn max_symbol_size_as_usize(&self) -> usize {
+            crate::utils::usize_from_u32(self.max_symbol_size().get())
         }
 
         /// Returns `true` if the current build supports the encoding type.
         #[inline]
         pub fn is_supported(&self) -> bool {
             SUPPORTED_ENCODING_TYPES.contains(self)
+        }
+
+        /// Computes the symbol size for the given data length and number of symbols.
+        #[inline]
+        pub fn compute_symbol_size(
+            &self,
+            data_length: u64,
+            n_symbols: NonZeroU32,
+        ) -> Result<SymbolSizeType, DataTooLargeError> {
+            utils::compute_symbol_size(
+                data_length,
+                n_symbols,
+                self.required_alignment(),
+                self.max_symbol_size(),
+            )
         }
     }
 

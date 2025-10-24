@@ -26,6 +26,7 @@ use crate::{
         EncodingConfig,
         EncodingFactory as _,
         QuiltError,
+        SymbolSizeType,
         encoded_blob_length_for_n_shards,
         quilt_encoding::{
             QuiltIndexApi,
@@ -473,7 +474,7 @@ pub trait BlobMetadataApi {
     fn symbol_size(
         &self,
         encoding_config: &EncodingConfig,
-    ) -> Result<NonZeroU16, DataTooLargeError>;
+    ) -> Result<SymbolSizeType, DataTooLargeError>;
 
     /// Returns the encoded size of the blob.
     fn encoded_size(&self) -> Option<u64>;
@@ -569,7 +570,7 @@ impl BlobMetadataApi for BlobMetadataV1 {
     fn symbol_size(
         &self,
         encoding_config: &EncodingConfig,
-    ) -> Result<NonZeroU16, DataTooLargeError> {
+    ) -> Result<SymbolSizeType, DataTooLargeError> {
         encoding_config
             .get_for_type(self.encoding_type)
             .symbol_size_for_blob(self.unencoded_length)

@@ -24,7 +24,15 @@ const SOURCE_SYMBOLS_SECONDARY: u16 = 662;
 
 const SYMBOL_COUNTS: [u16; 2] = [SOURCE_SYMBOLS_PRIMARY, SOURCE_SYMBOLS_SECONDARY];
 // Can be at most `u16::MAX`. Using multiples of 2 to be compatible with Reed-Solomon encoding.
-const SYMBOL_SIZES: [u16; 5] = [2, 16, 256, 4096, u16::MAX - 1];
+const SYMBOL_SIZES: [u32; 5] = [
+    2,
+    16,
+    256,
+    4096,
+    1 << 16 - 2,
+    // TODO(WAL-1081): Uncomment this after the next contract upgrade.
+    // 1 << 16, // u16::MAX + 1
+];
 
 fn basic_encoding(c: &mut Criterion) {
     let mut group = c.benchmark_group("basic_encoding");
@@ -32,7 +40,8 @@ fn basic_encoding(c: &mut Criterion) {
 
     for symbol_count in SYMBOL_COUNTS {
         for symbol_size in SYMBOL_SIZES {
-            let data_length = usize::from(symbol_size) * usize::from(symbol_count);
+            let data_length =
+                walrus_core::utils::usize_from_u32(symbol_size) * usize::from(symbol_count);
             let data = random_data(data_length);
             group.throughput(criterion::Throughput::Bytes(
                 u64::try_from(data_length).unwrap(),
@@ -67,7 +76,8 @@ fn basic_decoding(c: &mut Criterion) {
 
     for symbol_count in SYMBOL_COUNTS {
         for symbol_size in SYMBOL_SIZES {
-            let data_length = usize::from(symbol_size) * usize::from(symbol_count);
+            let data_length =
+                walrus_core::utils::usize_from_u32(symbol_size) * usize::from(symbol_count);
             let data = random_data(data_length);
             group.throughput(criterion::Throughput::Bytes(
                 u64::try_from(data_length).unwrap(),
@@ -133,9 +143,10 @@ fn flatten_symbols(c: &mut Criterion) {
 
     for symbol_count in SYMBOL_COUNTS {
         for symbol_size in SYMBOL_SIZES {
-            let data_length = usize::from(symbol_size) * usize::from(symbol_count);
+            let data_length =
+                walrus_core::utils::usize_from_u32(symbol_size) * usize::from(symbol_count);
             let input: Vec<_> = (0..symbol_count)
-                .map(|_| random_data(symbol_size.into()))
+                .map(|_| random_data(walrus_core::utils::usize_from_u32(symbol_size)))
                 .collect();
 
             group.throughput(criterion::Throughput::Bytes(
@@ -186,7 +197,8 @@ fn merkle_tree(c: &mut Criterion) {
 
     for symbol_count in SYMBOL_COUNTS {
         for symbol_size in SYMBOL_SIZES {
-            let data_length = usize::from(symbol_size) * usize::from(symbol_count);
+            let data_length =
+                walrus_core::utils::usize_from_u32(symbol_size) * usize::from(symbol_count);
             let data = random_data(data_length);
             let encoded_symbols = ReedSolomonEncoder::new(
                 &data,

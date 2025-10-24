@@ -7,7 +7,7 @@ use core::{fmt, mem, num::NonZeroU16};
 use reed_solomon_simd;
 use tracing::Level;
 
-use super::{DecodingSymbol, EncodingAxis, EncodingFactory};
+use super::{DecodingSymbol, EncodingAxis, EncodingFactory, SymbolSizeType};
 use crate::{
     EncodingType,
     encoding::{
@@ -16,7 +16,6 @@ use crate::{
         InvalidDataSizeError,
         ReedSolomonEncodingConfig,
         Symbols,
-        utils,
     },
 };
 
@@ -43,7 +42,7 @@ pub trait Decoder: Sized {
     fn new(
         n_source_symbols: NonZeroU16,
         n_shards: NonZeroU16,
-        symbol_size: NonZeroU16,
+        symbol_size: SymbolSizeType,
     ) -> Result<Self, DecodeError>;
 
     /// Attempts to decode the source data from the provided iterator over
@@ -72,7 +71,7 @@ pub struct ReedSolomonEncoder<'a> {
     n_source_symbols: NonZeroU16,
     // INV: n_source_symbols <= n_shards.
     n_shards: NonZeroU16,
-    symbol_size: NonZeroU16,
+    symbol_size: SymbolSizeType,
     source_symbols: Vec<&'a [u8]>,
 }
 
@@ -112,13 +111,15 @@ impl<'a> ReedSolomonEncoder<'a> {
     ) -> Result<Self, EncodeError> {
         tracing::trace!("creating a new Encoder");
         let symbol_size = Self::check_parameters_and_compute_symbol_size(data, n_source_symbols)?;
-        let source_symbols: Vec<_> = data.chunks(symbol_size.get().into()).collect();
+        let source_symbols: Vec<_> = data
+            .chunks(crate::utils::usize_from_u32(symbol_size.get()))
+            .collect();
         assert_eq!(source_symbols.len(), usize::from(n_source_symbols.get()));
 
         let mut encoder = reed_solomon_simd::ReedSolomonEncoder::new(
             n_source_symbols.get().into(),
             (n_shards.get() - n_source_symbols.get()).into(),
-            symbol_size.get().into(),
+            crate::utils::usize_from_u32(symbol_size.get()),
         )?;
 
         for symbol in &source_symbols {
@@ -137,17 +138,21 @@ impl<'a> ReedSolomonEncoder<'a> {
     pub(super) fn check_parameters_and_compute_symbol_size(
         data: &[u8],
         n_source_symbols: NonZeroU16,
-    ) -> Result<NonZeroU16, EncodeError> {
+    ) -> Result<SymbolSizeType, EncodeError> {
         if data.is_empty() {
             return Err(InvalidDataSizeError::EmptyData.into());
         }
-        let symbol_size = utils::compute_symbol_size_from_usize(
-            data.len(),
-            n_source_symbols.into(),
-            Self::ASSOCIATED_ENCODING_TYPE.required_alignment(),
-        )
-        .map_err(InvalidDataSizeError::from)?;
-        if data.len() != usize::from(n_source_symbols.get()) * usize::from(symbol_size.get()) {
+        let symbol_size = Self::ASSOCIATED_ENCODING_TYPE
+            .compute_symbol_size(
+                data.len()
+                    .try_into()
+                    .map_err(|_| InvalidDataSizeError::DataTooLarge)?,
+                n_source_symbols.into(),
+            )
+            .map_err(InvalidDataSizeError::from)?;
+        if data.len()
+            != usize::from(n_source_symbols.get()) * crate::utils::usize_from_u32(symbol_size.get())
+        {
             return Err(EncodeError::MisalignedData(n_source_symbols));
         }
         Ok(symbol_size)
@@ -155,7 +160,7 @@ impl<'a> ReedSolomonEncoder<'a> {
 
     /// Gets the symbol size of this encoder.
     #[inline]
-    pub fn symbol_size(&self) -> NonZeroU16 {
+    pub fn symbol_size(&self) -> SymbolSizeType {
         self.symbol_size
     }
 
@@ -236,7 +241,7 @@ impl Decoder for ReedSolomonDecoder {
     fn new(
         n_source_symbols: NonZeroU16,
         n_shards: NonZeroU16,
-        symbol_size: NonZeroU16,
+        symbol_size: SymbolSizeType,
     ) -> Result<Self, DecodeError> {
         tracing::trace!("creating a new Decoder");
         let source_symbols = Symbols::zeros(n_source_symbols.get().into(), symbol_size);
@@ -244,7 +249,7 @@ impl Decoder for ReedSolomonDecoder {
             decoder: reed_solomon_simd::ReedSolomonDecoder::new(
                 n_source_symbols.get().into(),
                 (n_shards.get() - n_source_symbols.get()).into(),
-                symbol_size.get().into(),
+                crate::utils::usize_from_u32(symbol_size.get()),
             )
             .map_err(DecodeError::IncompatibleParameters)?,
             n_source_symbols,
@@ -262,7 +267,7 @@ impl Decoder for ReedSolomonDecoder {
         let decoder = &mut self.decoder;
         let symbol_size = self.source_symbols.symbol_size();
         for symbol in symbols.into_iter() {
-            if symbol.data.len() != usize::from(symbol_size.get()) {
+            if symbol.data.len() != crate::utils::usize_from_u32(symbol_size.get()) {
                 tracing::warn!("dropping symbol of incorrect size");
                 continue;
             }
@@ -290,7 +295,7 @@ impl Decoder for ReedSolomonDecoder {
             .reset(
                 self.n_source_symbols.get().into(),
                 (self.n_shards.get() - self.n_source_symbols.get()).into(),
-                self.source_symbols.symbol_size().get().into(),
+                crate::utils::usize_from_u32(self.source_symbols.symbol_size().get()),
             )
             .expect("cannot fail as we use the same parameters as when the decoder was created");
 
