@@ -897,7 +897,10 @@ pub struct AggregatorArgs {
     pub max_blob_size: Option<u64>,
     /// The maximum number of requests that can be buffered before the server starts rejecting new
     /// ones. Note that this includes the number of requests that are being processed currently.
-    #[arg(long = "max-buffer-size", default_value_t = default::max_aggregator_buffer_size())]
+    #[arg(
+        long = "aggregator-max-buffer-size",
+        default_value_t = default::max_aggregator_buffer_size()
+    )]
     #[serde(default = "default::max_aggregator_buffer_size")]
     pub max_request_buffer_size: usize,
     /// The maximum number of requests the aggregator can process concurrently.
@@ -905,7 +908,10 @@ pub struct AggregatorArgs {
     /// If more requests than this maximum are received, the excess requests are buffered up to
     /// `--max-buffer-size`. Any outstanding request will result in a response with a
     /// 429 HTTP status code.
-    #[arg(long, default_value_t = default::max_aggregator_concurrent_requests())]
+    #[arg(
+        long = "aggregator-max-concurrent-requests",
+        default_value_t = default::max_aggregator_concurrent_requests()
+    )]
     #[serde(default = "default::max_aggregator_concurrent_requests")]
     pub max_concurrent_requests: usize,
 }
