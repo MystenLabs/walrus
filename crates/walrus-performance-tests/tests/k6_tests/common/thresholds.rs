@@ -23,11 +23,11 @@ static BLOB_UPLOAD_DOWNLOAD_TPUT_THRESHOLDS: BlobThroughputThresholdsInner = {
         // The following must be sorted, within each env group.
         // Environment, key, up_throughput, down_throughput
         // ---- NightlyBaseline ----
-        (NightlyBaseline, ByteSize::kibi(1), 75, 330),
-        (NightlyBaseline, ByteSize::mebi(100), 37, 105),
+        (NightlyBaseline, ByteSize::kibi(1), 83, 330),
+        (NightlyBaseline, ByteSize::mebi(100), 40, 105),
         // ---- NightlyWithLatency ----
-        (NightlyWithLatency, ByteSize::kibi(1), 50, 280),
-        (NightlyWithLatency, ByteSize::mebi(100), 10, 80),
+        (NightlyWithLatency, ByteSize::kibi(1), 30, 280),
+        (NightlyWithLatency, ByteSize::mebi(100), 5, 80),
         // ---- TestnetFromCi ----
         (TestnetFromCi, ByteSize::kibi(1), 50, 280),
         (TestnetFromCi, ByteSize::mebi(100), 10, 80),

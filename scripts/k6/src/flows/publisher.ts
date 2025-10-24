@@ -31,7 +31,7 @@ export async function putBlob(
     dataFile: File,
     publisherUrl: string,
     fileSizeBytes: number,
-    params?: any,
+    params?: Record<string, any>,
 ) {
     const blob = await loadRandomData(dataFile, fileSizeBytes);
     return http.put(`${publisherUrl}/v1/blobs`, blob, params);
@@ -76,7 +76,7 @@ export async function putQuilt(
     dataFile: File,
     publisherUrl: string,
     options: PostQuiltOptions,
-    params?: any
+    params?: Record<string, any>,
 ) {
     const body = await quiltPostBody(dataFile, options);
     return http.put(`${publisherUrl}/v1/quilts`, body, params);

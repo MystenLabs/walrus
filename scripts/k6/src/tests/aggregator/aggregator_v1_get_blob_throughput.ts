@@ -18,7 +18,7 @@ import { BlobHistory } from "../../lib/blob_history.ts"
 import { loadEnvironment } from '../../config/environment.ts'
 import { check } from 'k6';
 import {
-    StageConfig,  createStageThresholds, createStages, ensure, getTargetRpmTags, loadParameters,
+    StageConfig, createStageThresholds, createStages, ensure, getTargetRpmTags, loadParameters,
     logObject, countSteadyStageFailures, recordEndTime, recordStartTime
 } from "../../lib/utils.ts"
 import { getBlob } from '../../flows/aggregator.ts';

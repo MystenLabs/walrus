@@ -20,7 +20,7 @@ type PatchId = string;
 export async function getBlob(
     aggregatorUrl: string,
     blobId: BlobId,
-    params?: any,
+    params?: Record<string, any>,
 ) {
     return http.get(http.url`${aggregatorUrl}/v1/blobs/${blobId}`, params);
 }
@@ -35,7 +35,7 @@ export async function getBlob(
 export async function getQuiltPatch(
     aggregatorUrl: string,
     quiltPatch: QuiltId | PatchId,
-    params?: any,
+    params?: Record<string, any>,
 ) {
     const url = quiltPatch.includes('/')
         ? http.url`${aggregatorUrl}/v1/blobs/by-quilt-id/${quiltPatch}`

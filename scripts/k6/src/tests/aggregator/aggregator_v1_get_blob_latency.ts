@@ -84,7 +84,7 @@ export async function setup(): Promise<number> {
 export default async function (blobIdCount: number) {
     const blobIdIndex = randomIntBetween(0, blobIdCount - 1);
     const blobId = await blobHistory.index(blobIdsKey, blobIdIndex);
-    const response = await getBlob(env.aggregatorUrl, blobId!, params.timeout);
+    const response = await getBlob(env.aggregatorUrl, blobId!, { timeout: params.timeout });
 
     expect(response.status).toBe(200);
 }
