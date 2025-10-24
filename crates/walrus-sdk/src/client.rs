@@ -911,7 +911,7 @@ impl WalrusNodeClient<SuiContractClient> {
             .await)
     }
 
-    /// Creates a new client, and starts a committes refresher process in the background.
+    /// Creates a new client, and starts a committees refresher process in the background.
     ///
     /// This is useful when only one client is needed, and the refresher handle is not useful.
     pub async fn new_contract_client_with_refresher(
