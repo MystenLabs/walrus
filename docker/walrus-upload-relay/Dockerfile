@@ -16,7 +16,7 @@ COPY contracts contracts
 RUN cargo build --profile $PROFILE --bin walrus-upload-relay
 
 # Production Image for walrus walrus-upload-relay
-FROM rust:1.90-bookworm AS walrus-upload-relay
+FROM debian:bookworm-slim AS walrus-upload-relay
 RUN apt-get update && apt-get install -y ca-certificates curl
 ARG PROFILE=release
 WORKDIR "/tmp/walrus"
