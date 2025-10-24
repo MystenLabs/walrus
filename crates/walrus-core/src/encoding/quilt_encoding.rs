@@ -955,7 +955,7 @@ impl QuiltApi<QuiltVersionV1> for QuiltV1 {
                 "n_source_symbols cannot be zero".to_string(),
             ));
         }
-        if quilt_blob.len() % n_source_symbols != 0 {
+        if !quilt_blob.len().is_multiple_of(n_source_symbols) {
             return Err(QuiltError::InvalidFormatNotAligned(format!(
                 "quilt_blob length {} is not a multiple of n_source_symbols {}",
                 quilt_blob.len(),
@@ -1361,7 +1361,7 @@ impl<'a> QuiltEncoderV1<'a> {
         row_size: usize,
         symbol_size: usize,
     ) -> Result<usize, QuiltError> {
-        assert!(column_size % symbol_size == 0);
+        assert!(column_size.is_multiple_of(symbol_size));
 
         let mut total_bytes_written = 0;
         if !is_meta_blob {
