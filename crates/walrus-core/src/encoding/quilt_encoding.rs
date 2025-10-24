@@ -1907,13 +1907,15 @@ mod utils {
             }
         }
 
-        let symbol_size = min_val.next_multiple_of(encoding_type.required_alignment().into());
+        let symbol_size = min_val.next_multiple_of(crate::utils::usize_from_u32(
+            encoding_type.required_alignment(),
+        ));
         debug_assert!(can_blobs_fit_into_matrix(
             blobs_sizes,
             n_columns,
             symbol_size * n_rows
         ));
-        let max_symbol_size = usize::from(encoding_type.max_symbol_size());
+        let max_symbol_size = encoding_type.max_symbol_size_as_usize();
         if symbol_size > max_symbol_size {
             return Err(QuiltError::QuiltOversize(format!(
                 "the resulting symbol size {symbol_size} is larger than the maximum symbol size \
@@ -1966,15 +1968,15 @@ mod utils {
 
 #[cfg(test)]
 mod tests {
-    use core::num::NonZeroU16;
-    use std::collections::HashSet;
 
-    use rand::Rng;
+    use core::num::NonZeroU16;
+
+    use rand::Rng as _;
     use walrus_test_utils::param_test;
 
     use super::*;
     use crate::{
-        encoding::{ReedSolomonEncodingConfig, common::ConsistencyCheckType},
+        encoding::{ConsistencyCheckType, ReedSolomonEncodingConfig, SymbolSizeType},
         test_utils::QuiltTestData,
     };
 
@@ -2563,19 +2565,14 @@ mod tests {
 
     #[test]
     fn test_new_from_quilt_blob_panics_on_empty_input() {
-        use core::num::NonZeroU16;
         let config = ReedSolomonEncodingConfig::new(NonZeroU16::new(7).unwrap());
         let _ = QuiltV1::new_from_quilt_blob(Vec::new(), EncodingConfigEnum::ReedSolomon(config));
     }
 
     #[test]
     fn test_column_size_mismatch_errors() {
-        use core::num::NonZeroU16;
-
-        use crate::encoding::errors::QuiltError;
-
         // Create slivers with different sizes.
-        let symbol_size = NonZeroU16::new(10).unwrap();
+        let symbol_size = SymbolSizeType::new(10).unwrap();
         let sliver1 =
             SliverData::<Secondary>::new(vec![0u8; 100], symbol_size, SliverIndex::new(0));
 

@@ -33,6 +33,7 @@ use walrus_core::{
         RecoverySymbol,
         Secondary,
         SliverData,
+        SymbolSizeType,
     },
     inconsistency::InconsistencyProof,
     keys::ProtocolKeyPair,
@@ -704,7 +705,7 @@ impl StorageNodeClient {
     pub async fn get_and_verify_recovery_symbol<A: EncodingAxis>(
         &self,
         n_shards: NonZeroU16,
-        expected_symbol_size: usize,
+        expected_symbol_size: SymbolSizeType,
         metadata: &VerifiedBlobMetadataWithId,
         remote_sliver_pair: SliverPairIndex,
         local_sliver_pair: SliverPairIndex,

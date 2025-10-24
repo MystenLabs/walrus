@@ -2,11 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use alloc::vec::Vec;
-use core::{
-    fmt::Display,
-    marker::PhantomData,
-    num::{NonZeroU16, NonZeroU32},
-};
+use core::{fmt::Display, marker::PhantomData, num::NonZeroU16};
 
 use fastcrypto::hash::{Blake2b256, HashFunction};
 use serde::{Deserialize, Serialize};
@@ -23,6 +19,7 @@ use super::{
     RecoverySymbolPair,
     Secondary,
     SliverRecoveryOrVerificationError,
+    SymbolSizeType,
     Symbols,
     errors::{SliverRecoveryError, SliverVerificationError},
 };
@@ -62,7 +59,7 @@ impl<T: EncodingAxis> SliverData<T> {
     ///
     /// Panics if the slice does not contain complete symbols, i.e., if
     /// `data.len() % symbol_size != 0`.
-    pub fn new<U: Into<Vec<u8>>>(data: U, symbol_size: NonZeroU16, index: SliverIndex) -> Self {
+    pub fn new<U: Into<Vec<u8>>>(data: U, symbol_size: SymbolSizeType, index: SliverIndex) -> Self {
         Self {
             symbols: Symbols::new(data.into(), symbol_size),
             index,
@@ -73,7 +70,7 @@ impl<T: EncodingAxis> SliverData<T> {
     /// Creates a new `Sliver` with empty data of specified length.
     ///
     /// The `length` parameter specifies the number of symbols.
-    pub fn new_empty(length: u16, symbol_size: NonZeroU16, index: SliverIndex) -> Self {
+    pub fn new_empty(length: u16, symbol_size: SymbolSizeType, index: SliverIndex) -> Self {
         Self {
             symbols: Symbols::zeros(length.into(), symbol_size),
             index,
@@ -146,15 +143,17 @@ impl<T: EncodingAxis> SliverData<T> {
     /// Returns true iff the sliver has the length expected based on the encoding configuration and
     /// blob size.
     fn has_correct_length(&self, config: &EncodingConfigEnum, blob_size: u64) -> bool {
-        self.expected_length(config, blob_size).is_some_and(|l| {
-            self.len() == usize::try_from(l).expect("we assume at least a 32-bit architecture")
-        })
+        let Ok(length) = u64::try_from(self.len()) else {
+            // Length should always fit into a u64.
+            return false;
+        };
+        self.expected_length(config, blob_size) == Some(length)
     }
 
-    fn expected_length(&self, config: &EncodingConfigEnum, blob_size: u64) -> Option<u32> {
+    fn expected_length(&self, config: &EncodingConfigEnum, blob_size: u64) -> Option<u64> {
         config
             .sliver_size_for_blob::<T>(blob_size)
-            .map(NonZeroU32::get)
+            .map(|s| s.get())
             .ok()
     }
 
@@ -175,7 +174,7 @@ impl<T: EncodingAxis> SliverData<T> {
         assert!(!symbol_list[0].is_empty(), "symbols must have data");
 
         let symbol_size = self.symbols.symbol_size(); // Symbol size does not vary when re-encoding.
-        let data_length = symbol_list.len() * usize::from(symbol_size.get());
+        let data_length = symbol_list.len() * utils::usize_from_u32(symbol_size.get());
 
         let mut flattened: Vec<u8> = Vec::with_capacity(data_length);
         for symbol in symbol_list {
@@ -255,7 +254,7 @@ impl<T: EncodingAxis> SliverData<T> {
     pub fn recover_sliver_without_verification<I, U>(
         recovery_symbols: I,
         target_index: SliverIndex,
-        symbol_size: NonZeroU16,
+        symbol_size: SymbolSizeType,
         config: EncodingConfigEnum,
     ) -> Result<Self, DecodeError>
     where
@@ -401,7 +400,7 @@ impl SliverPair {
     /// size.
     pub fn new_empty(
         config: EncodingConfigEnum,
-        symbol_size: NonZeroU16,
+        symbol_size: SymbolSizeType,
         index: SliverPairIndex,
     ) -> Self {
         SliverPair {
@@ -509,7 +508,7 @@ mod tests {
     fn copy_symbol_to_modifies_empty_sliver_correctly(
         sliver_n_symbols: u16,
         index: usize,
-        symbol_size: u16,
+        symbol_size: u32,
         symbol: &[u8],
         expected_sliver_data: &[u8],
     ) {
@@ -592,7 +591,7 @@ mod tests {
         ]
     }
     // Only testing for failures in the decoding. The correct decoding is tested below.
-    fn test_recover_sliver_failure(symbols: &[&[u8]], n_source_symbols: u16, symbol_size: u16) {
+    fn test_recover_sliver_failure(symbols: &[&[u8]], n_source_symbols: u16, symbol_size: u32) {
         let config = ReedSolomonEncodingConfig::new_for_test(
             n_source_symbols,
             n_source_symbols,
@@ -793,7 +792,7 @@ mod tests {
         encoding_type: EncodingType,
         slice: &[u8],
         f: u16,
-        symbol_size: u16,
+        symbol_size: u32,
     ) {
         let n_shards = 3 * f + 1;
         let config = EncodingConfig::new_for_test(f, 2 * f, n_shards);

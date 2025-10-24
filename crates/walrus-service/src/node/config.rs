@@ -1123,9 +1123,7 @@ impl Default for Http2Config {
     fn default() -> Self {
         Self {
             http2_max_concurrent_streams: defaults::REST_HTTP2_MAX_CONCURRENT_STREAMS,
-            http2_max_pending_accept_reset_streams: u32::MAX
-                .try_into()
-                .expect("assuming at least 32-bit architecture"),
+            http2_max_pending_accept_reset_streams: walrus_core::utils::usize_from_u32(u32::MAX),
             http2_initial_stream_window_size: None,
             http2_initial_connection_window_size: None,
             http2_adaptive_window: true,

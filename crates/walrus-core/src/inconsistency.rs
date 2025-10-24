@@ -60,6 +60,7 @@ use crate::{
         Secondary,
         SliverData,
         SliverVerificationError,
+        SymbolSizeType,
     },
     ensure,
     merkle::MerkleAuth,
@@ -132,7 +133,7 @@ impl<T: EncodingAxis, U: MerkleAuth> InconsistencyProof<T, U> {
     fn check_recovery_symbols(
         &self,
         metadata: &BlobMetadata,
-        symbol_size: usize,
+        symbol_size: SymbolSizeType,
         encoding_config: &EncodingConfig,
     ) -> Result<(), InconsistencyVerificationError> {
         // Note: The following code may have to be changed if we add encodings that require a
@@ -173,7 +174,7 @@ impl<T: EncodingAxis, U: MerkleAuth> InconsistencyProof<T, U> {
         let symbol_size = metadata
             .symbol_size(encoding_config)
             .map_err(|_| InconsistencyVerificationError::RecoveryFailure)?;
-        self.check_recovery_symbols(metadata, symbol_size.get().into(), encoding_config)?;
+        self.check_recovery_symbols(metadata, symbol_size, encoding_config)?;
         let sliver = SliverData::recover_sliver_without_verification(
             self.recovery_symbols,
             self.target_sliver_index,

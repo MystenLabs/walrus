@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use alloc::{vec, vec::Vec};
-use core::num::{NonZeroU16, NonZeroU32};
+use core::num::{NonZeroU16, NonZeroU32, NonZeroU64};
 
 use enum_dispatch::enum_dispatch;
 
@@ -16,6 +16,7 @@ use super::{
     ReedSolomonDecoder,
     ReedSolomonEncoder,
     SliverPair,
+    SymbolSizeType,
     basic_encoding::Decoder as _,
     utils,
 };
@@ -39,7 +40,7 @@ pub trait EncodingFactory {
     fn encoding_type(&self) -> EncodingType;
 
     /// The maximum symbol size associated with this factory.
-    fn max_symbol_size(&self) -> u16 {
+    fn max_symbol_size(&self) -> SymbolSizeType {
         self.encoding_type().max_symbol_size()
     }
 
@@ -68,7 +69,7 @@ pub trait EncodingFactory {
     /// Returns the source data as a byte vector if decoding succeeds or `None` if decoding fails.
     fn decode_from_decoding_symbols<T, E>(
         &self,
-        symbol_size: NonZeroU16,
+        symbol_size: SymbolSizeType,
         symbols: T,
     ) -> Result<Vec<u8>, DecodeError>
     where
@@ -210,12 +211,6 @@ pub trait EncodingFactory {
         self.n_shards().get().into()
     }
 
-    /// The maximum size in bytes of data that can be encoded with this encoding.
-    #[inline]
-    fn max_data_size<E: EncodingAxis>(&self) -> u32 {
-        u32::from(self.n_source_symbols::<E>().get()) * u32::from(self.max_symbol_size())
-    }
-
     /// The maximum size in bytes of a blob that can be encoded.
     ///
     /// See [`max_blob_size_for_n_shards`] for additional documentation.
@@ -240,30 +235,9 @@ pub trait EncodingFactory {
     /// Returns a [`DataTooLargeError`] if the computed symbol size is larger than the maximum
     /// symbol size.
     #[inline]
-    fn symbol_size_for_blob(&self, blob_size: u64) -> Result<NonZeroU16, DataTooLargeError> {
-        utils::compute_symbol_size(
-            blob_size,
-            self.source_symbols_per_blob(),
-            self.encoding_type().required_alignment(),
-        )
-    }
-
-    /// The symbol size when encoding a blob of size `blob_size`.
-    ///
-    /// # Errors
-    ///
-    /// Returns a [`DataTooLargeError`] if the computed symbol size is larger than the maximum
-    /// symbol size.
-    #[inline]
-    fn symbol_size_for_blob_from_nonzero(
-        &self,
-        blob_size: u64,
-    ) -> Result<NonZeroU16, DataTooLargeError> {
-        utils::compute_symbol_size(
-            blob_size,
-            self.source_symbols_per_blob(),
-            self.encoding_type().required_alignment(),
-        )
+    fn symbol_size_for_blob(&self, blob_size: u64) -> Result<SymbolSizeType, DataTooLargeError> {
+        self.encoding_type()
+            .compute_symbol_size(blob_size, self.source_symbols_per_blob())
     }
 
     /// The symbol size when encoding a blob of size `blob_size`.
@@ -276,12 +250,8 @@ pub trait EncodingFactory {
     fn symbol_size_for_blob_from_usize(
         &self,
         blob_size: usize,
-    ) -> Result<NonZeroU16, DataTooLargeError> {
-        utils::compute_symbol_size_from_usize(
-            blob_size,
-            self.source_symbols_per_blob(),
-            self.encoding_type().required_alignment(),
-        )
+    ) -> Result<SymbolSizeType, DataTooLargeError> {
+        self.symbol_size_for_blob(blob_size.try_into().map_err(|_| DataTooLargeError)?)
     }
 
     /// The size (in bytes) of a sliver corresponding to a blob of size `blob_size`.
@@ -291,8 +261,8 @@ pub trait EncodingFactory {
     fn sliver_size_for_blob<E: EncodingAxis>(
         &self,
         blob_size: u64,
-    ) -> Result<NonZeroU32, DataTooLargeError> {
-        NonZeroU32::from(self.n_source_symbols::<E::OrthogonalAxis>())
+    ) -> Result<NonZeroU64, DataTooLargeError> {
+        NonZeroU64::from(self.n_source_symbols::<E::OrthogonalAxis>())
             .checked_mul(self.symbol_size_for_blob(blob_size)?.into())
             .ok_or(DataTooLargeError)
     }
@@ -527,7 +497,7 @@ impl ReedSolomonEncodingConfig {
 
     fn get_decoder<E: EncodingAxis>(
         &self,
-        symbol_size: NonZeroU16,
+        symbol_size: SymbolSizeType,
     ) -> Result<ReedSolomonDecoder, DecodeError> {
         ReedSolomonDecoder::new(self.n_source_symbols::<E>(), self.n_shards(), symbol_size)
     }
@@ -585,6 +555,36 @@ impl EncodingFactory for ReedSolomonEncodingConfig {
         Ok(self.get_blob_encoder(blob)?.compute_metadata())
     }
 
+    fn encode_all_symbols<E: EncodingAxis>(
+        &self,
+        data: &[u8],
+    ) -> Result<Vec<Vec<u8>>, EncodeError> {
+        Ok(self.get_encoder::<E>(data)?.encode_all())
+    }
+
+    fn encode_all_repair_symbols<E: EncodingAxis>(
+        &self,
+        data: &[u8],
+    ) -> Result<Vec<Vec<u8>>, EncodeError> {
+        // TODO (WAL-621): Can we delegate this to the implementation for
+        // `&ReedSolomonEncodingConfig`?
+        Ok(self.get_encoder::<E>(data)?.encode_all_repair_symbols())
+    }
+
+    fn decode_from_decoding_symbols<T, E>(
+        &self,
+        symbol_size: SymbolSizeType,
+        symbols: T,
+    ) -> Result<Vec<u8>, DecodeError>
+    where
+        T: IntoIterator,
+        T::IntoIter: Iterator<Item = DecodingSymbol<E>>,
+        E: EncodingAxis,
+    {
+        self.get_decoder::<E::OrthogonalAxis>(symbol_size)?
+            .decode(symbols)
+    }
+
     fn decode<S, E>(&self, blob_size: u64, slivers: S) -> Result<Vec<u8>, DecodeError>
     where
         S: IntoIterator<Item = SliverData<E>>,
@@ -640,20 +640,6 @@ impl EncodingFactory for ReedSolomonEncodingConfig {
         Ok(decoded_blob)
     }
 
-    fn encode_all_symbols<E: EncodingAxis>(
-        &self,
-        data: &[u8],
-    ) -> Result<Vec<Vec<u8>>, EncodeError> {
-        Ok(self.get_encoder::<E>(data)?.encode_all())
-    }
-
-    fn encode_all_repair_symbols<E: EncodingAxis>(
-        &self,
-        data: &[u8],
-    ) -> Result<Vec<Vec<u8>>, EncodeError> {
-        Ok(self.get_encoder::<E>(data)?.encode_all_repair_symbols())
-    }
-
     /// Returns the symbol at the given index.
     ///
     /// If the index corresponds to a source symbol, the function directly returns the corresponding
@@ -663,32 +649,17 @@ impl EncodingFactory for ReedSolomonEncodingConfig {
         data: &[u8],
         index: u16,
     ) -> Result<Vec<u8>, EncodeError> {
-        let symbol_size: usize = ReedSolomonEncoder::check_parameters_and_compute_symbol_size(
+        let symbol_size = ReedSolomonEncoder::check_parameters_and_compute_symbol_size(
             data,
             self.n_source_symbols::<E>(),
-        )?
-        .get()
-        .into();
+        )?;
+        let symbol_size = crate::utils::usize_from_u32(symbol_size.get());
         if index < self.n_source_symbols::<E>().get() {
             let symbol_start = usize::from(index) * symbol_size;
             Ok(data[symbol_start..symbol_start + symbol_size].to_vec())
         } else {
             Ok(self.get_encoder::<E>(data)?.into_symbol(index))
         }
-    }
-
-    fn decode_from_decoding_symbols<T, E>(
-        &self,
-        symbol_size: NonZeroU16,
-        symbols: T,
-    ) -> Result<Vec<u8>, DecodeError>
-    where
-        T: IntoIterator,
-        T::IntoIter: Iterator<Item = DecodingSymbol<E>>,
-        E: EncodingAxis,
-    {
-        self.get_decoder::<E::OrthogonalAxis>(symbol_size)?
-            .decode(symbols)
     }
 }
 
@@ -729,7 +700,7 @@ pub fn max_sliver_size_for_n_secondary(
     n_secondary_source_symbols: NonZeroU16,
     encoding_type: EncodingType,
 ) -> u64 {
-    u64::from(n_secondary_source_symbols.get()) * u64::from(encoding_type.max_symbol_size())
+    u64::from(n_secondary_source_symbols.get()) * u64::from(encoding_type.max_symbol_size().get())
 }
 
 /// Returns the maximum size of a sliver for a system with `n_shards` shards.
@@ -753,7 +724,7 @@ pub fn max_sliver_size_for_n_shards(n_shards: NonZeroU16) -> u64 {
 #[inline]
 pub fn max_blob_size_for_n_shards(n_shards: NonZeroU16, encoding_type: EncodingType) -> u64 {
     u64::from(source_symbols_per_blob_for_n_shards(n_shards).get())
-        * u64::from(encoding_type.max_symbol_size())
+        * u64::from(encoding_type.max_symbol_size().get())
 }
 
 #[inline]
@@ -798,13 +769,13 @@ pub fn encoded_slivers_length_for_n_shards(
     let single_shard_slivers_size = (u64::from(source_symbols_primary.get())
         + u64::from(source_symbols_secondary.get()))
         * u64::from(
-            utils::compute_symbol_size(
-                unencoded_length,
-                source_symbols_per_blob_for_n_shards(n_shards),
-                encoding_type.required_alignment(),
-            )
-            .ok()?
-            .get(),
+            encoding_type
+                .compute_symbol_size(
+                    unencoded_length,
+                    source_symbols_per_blob_for_n_shards(n_shards),
+                )
+                .ok()?
+                .get(),
         );
     Some(u64::from(n_shards.get()) * single_shard_slivers_size)
 }
@@ -823,19 +794,19 @@ mod tests {
             full_matrix: (30, Ok(10)),
             full_matrix_plus_1: (31, Ok(20)),
             too_large: (
-                3 * 5 * u64::from(EncodingType::RS2.max_symbol_size()) + 1,
+                3 * 5 * u64::from(EncodingType::RS2.max_symbol_size().get()) + 1,
                 Err(DataTooLargeError)
             ),
         ]
     }
     fn test_sliver_size_for_blob(
         blob_size: u64,
-        expected_primary_sliver_size: Result<u32, DataTooLargeError>,
+        expected_primary_sliver_size: Result<u64, DataTooLargeError>,
     ) {
         assert_eq!(
             ReedSolomonEncodingConfig::new_for_test(3, 5, 10)
                 .sliver_size_for_blob::<Primary>(blob_size),
-            expected_primary_sliver_size.map(|e| NonZeroU32::new(e).unwrap())
+            expected_primary_sliver_size.map(|e| NonZeroU64::new(e).unwrap())
         );
     }
 

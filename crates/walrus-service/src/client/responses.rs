@@ -316,9 +316,11 @@ impl EncodingDependentPriceInfo {
         storage_price_per_unit_size: u64,
         encoding_type: EncodingType,
     ) -> Self {
+        let max_blob_size = max_blob_size_for_n_shards(n_shards, encoding_type);
+
         // Calculate marginal size and price
         let mut marginal_size = 1024 * 1024; // Start with 1 MiB
-        while marginal_size > max_blob_size_for_n_shards(n_shards, encoding_type) {
+        while marginal_size > max_blob_size {
             marginal_size /= 4;
         }
 
@@ -333,25 +335,23 @@ impl EncodingDependentPriceInfo {
         ) * storage_price_per_unit_size;
 
         // Calculate example blobs
-        let example_blob_0 =
-            max_blob_size_for_n_shards(n_shards, encoding_type).next_power_of_two() / 1024;
+        let example_blob_0 = std::cmp::min(
+            1 << 20, // 1 MiB
+            max_blob_size.next_power_of_two() / 1024,
+        );
         let example_blob_1 = example_blob_0 * 32;
-        let example_blobs = [
-            example_blob_0,
-            example_blob_1,
-            max_blob_size_for_n_shards(n_shards, encoding_type),
-        ]
-        .into_iter()
-        .map(|unencoded_size| {
-            ExampleBlobInfo::new(
-                unencoded_size,
-                n_shards,
-                storage_price_per_unit_size,
-                encoding_type,
-            )
-            .expect("we can encode the given examples")
-        })
-        .collect();
+        let example_blobs = [example_blob_0, example_blob_1, max_blob_size]
+            .into_iter()
+            .map(|unencoded_size| {
+                ExampleBlobInfo::new(
+                    unencoded_size,
+                    n_shards,
+                    storage_price_per_unit_size,
+                    encoding_type,
+                )
+                .expect("we can encode the given examples")
+            })
+            .collect();
 
         Self {
             marginal_size,

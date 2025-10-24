@@ -109,3 +109,14 @@ pub fn data_prefix_string<T: ToString>(data: &[T], max_values_printed: usize) ->
         format!("[{data_items}, ...]")
     }
 }
+
+/// Converts a `u32` to a `usize`.
+///
+/// This is a helper function to convert a `u32` to a `usize`.
+///
+/// # Panics
+///
+/// Panics if running on a 16-bit architecture.
+pub fn usize_from_u32(value: u32) -> usize {
+    usize::try_from(value).expect("assuming at least a 32-bit architecture")
+}

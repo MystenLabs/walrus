@@ -272,8 +272,7 @@ impl std::fmt::Display for HumanReadableBytes {
         // We know that `value >= 1024`, so `exponent >= 1`.
         let exponent = value.ilog(BASE);
         let normalized_value = value as f64 / BASE.pow(exponent) as f64;
-        let unit =
-            UNITS[usize::try_from(exponent - 1).expect("we assume at least a 32-bit architecture")];
+        let unit = UNITS[walrus_core::utils::usize_from_u32(exponent - 1)];
 
         // Get correct number of significant digits (not rounding integer part).
         #[allow(clippy::cast_possible_truncation)] // the truncation is intentional here

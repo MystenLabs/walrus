@@ -26,6 +26,8 @@ const BLOB_SIZES: [(u64, &str); 5] = [
     (1 << 20, "1MiB"),
     (1 << 25, "32MiB"),
     (1 << 30, "1GiB"),
+    // TODO(WAL-1081): Uncomment this after the next contract upgrade.
+    // (1 << 34, "16GiB"),
 ];
 
 fn encoding_config() -> ReedSolomonEncodingConfig {

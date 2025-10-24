@@ -3,39 +3,29 @@
 
 use core::num::{NonZeroU16, NonZeroU32};
 
-use super::DataTooLargeError;
+use super::{DataTooLargeError, SymbolSizeType};
 
 /// Computes the correct symbol size given the data length and the number of source symbols.
 #[inline]
 pub fn compute_symbol_size(
     data_length: u64,
     n_symbols: NonZeroU32,
-    required_alignment: u16,
-) -> Result<NonZeroU16, DataTooLargeError> {
+    required_alignment: u32,
+    max_symbol_size: SymbolSizeType,
+) -> Result<SymbolSizeType, DataTooLargeError> {
     // Use a 1-byte symbol size for the empty blob.
     let data_length = data_length.max(1);
     let symbol_size = data_length
         .div_ceil(u64::from(n_symbols.get()))
         .next_multiple_of(required_alignment.into());
+    let symbol_size =
+        SymbolSizeType::new(u32::try_from(symbol_size).map_err(|_| DataTooLargeError)?)
+            .expect("we start with something positive and always round up");
+    if symbol_size > max_symbol_size {
+        return Err(DataTooLargeError);
+    }
 
-    Ok(
-        NonZeroU16::new(u16::try_from(symbol_size).map_err(|_| DataTooLargeError)?)
-            .expect("we start with something positive and always round up"),
-    )
-}
-
-/// Computes the correct symbol size given the data length and the number of source symbols.
-#[inline]
-pub fn compute_symbol_size_from_usize(
-    data_length: usize,
-    n_symbols: NonZeroU32,
-    required_alignment: u16,
-) -> Result<NonZeroU16, DataTooLargeError> {
-    compute_symbol_size(
-        data_length.try_into().map_err(|_| DataTooLargeError)?,
-        n_symbols,
-        required_alignment,
-    )
+    Ok(symbol_size)
 }
 
 /// The number of symbols a blob is split into.
@@ -44,7 +34,7 @@ pub fn source_symbols_per_blob(
     source_symbols_primary: NonZeroU16,
     source_symbols_secondary: NonZeroU16,
 ) -> NonZeroU32 {
-    NonZeroU32::from(source_symbols_primary)
+    SymbolSizeType::from(source_symbols_primary)
         .checked_mul(source_symbols_secondary.into())
         .expect("product of two u16 always fits into a u32")
 }
@@ -54,6 +44,7 @@ mod tests {
     use walrus_test_utils::param_test;
 
     use super::*;
+    use crate::EncodingType;
 
     param_test! {
         compute_symbol_size_matches_expectation: [
@@ -74,17 +65,19 @@ mod tests {
     fn compute_symbol_size_matches_expectation(
         data_length: u64,
         n_symbols: u32,
-        required_alignment: u16,
-        expected_result: u16,
+        required_alignment: u32,
+        expected_result: u32,
     ) {
+        let max_symbol_size = EncodingType::RS2.max_symbol_size();
         assert_eq!(
             compute_symbol_size(
                 data_length,
-                NonZeroU32::new(n_symbols).unwrap(),
-                required_alignment
+                SymbolSizeType::new(n_symbols).unwrap(),
+                required_alignment,
+                max_symbol_size,
             )
             .unwrap(),
-            NonZeroU16::new(expected_result).unwrap()
+            SymbolSizeType::new(expected_result).unwrap()
         );
     }
 }
