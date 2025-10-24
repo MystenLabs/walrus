@@ -14,7 +14,7 @@ communication_config:
   max_concurrent_status_reads: null
   max_data_in_flight: 12500000
   reqwest_config:
-    total_timeout_millis: 30000
+    total_timeout_millis: 300000
     pool_idle_timeout_millis: null
     http2_keep_alive_timeout_millis: 5000
     http2_keep_alive_interval_millis: 30000
@@ -31,6 +31,17 @@ communication_config:
     factor: 0.5
     base_millis: 500
   sliver_status_check_threshold: 5560
+  child_process_uploads_enabled: false
+  data_in_flight_auto_tune:
+    enabled: false
+    window_sample_target: 20
+    window_timeout_millis: 10000
+    increase_factor: 2.0
+    lock_factor: 1.5
+    min_permits: 50
+    max_permits: 2000
+    secondary_weight: 0.5
+    min_blob_size_bytes: 52428800
   registration_delay_millis: 200
   max_total_blob_size: 1073741824
   committee_change_backoff:
