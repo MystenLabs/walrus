@@ -101,6 +101,11 @@ pub enum BlobStoreResult {
         #[schema(value_type = EventIdSchema)]
         event: EventID,
     },
+    /// Blob was sliced into multiple parts.
+    BlobSliced {
+        /// The contiguous slices that make up the blob.
+        slices: Vec<BlobStoreResult>,
+    },
     /// Operation failed.
     Error {
         /// The blob ID.
@@ -121,6 +126,9 @@ impl BlobStoreResult {
                 blob_object: Blob { blob_id, .. },
                 ..
             } => Some(*blob_id),
+            Self::BlobSliced { slices: _ } => {
+                todo!("handle what it means to fetch the blob_id of a sliced blob")
+            }
             Self::Error { blob_id, .. } => *blob_id,
         }
     }
@@ -131,6 +139,18 @@ impl BlobStoreResult {
             Self::AlreadyCertified { end_epoch, .. } => Some(*end_epoch),
             Self::NewlyCreated { blob_object, .. } => Some(blob_object.storage.end_epoch),
             Self::MarkedInvalid { .. } => None,
+            Self::BlobSliced { slices } => {
+                slices
+                    .iter()
+                    .fold(None, |acc, slice| match (acc, slice.end_epoch()) {
+                        (Some(a), Some(b)) => Some(a.min(b)),
+                        (Some(_), None) => {
+                            tracing::warn!("sliced blob has slice with no end epoch");
+                            None
+                        }
+                        (None, b) => b,
+                    })
+            }
             Self::Error { .. } => None,
         }
     }
