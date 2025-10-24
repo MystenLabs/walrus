@@ -63,8 +63,7 @@ available.
 Interacting with Walrus requires a valid Sui Testnet wallet with some amount of SUI tokens. The
 normal way to set this up is via the Sui CLI; see the [installation
 instructions](https://docs.sui.io/guides/developer/getting-started/sui-install) in the Sui
-documentation. If you do not want to install the Sui CLI, you can also generate a new Sui wallet for
-Testnet using `walrus generate-sui-wallet --network testnet`.
+documentation.
 
 After installing the Sui CLI, you need to set up a Testnet wallet by running `sui client`, which
 prompts you to set up a new configuration. Make sure to point it to Sui Testnet, you can use the

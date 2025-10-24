@@ -15,12 +15,6 @@ for an overview over all Walrus networks.
 
 ## Prerequisites: Sui wallet, SUI and WAL {#prerequisites}
 
-```admonish tip title="Quick wallet setup"
-If you just want to set up a new Sui wallet for Walrus, you can generate one using the
-`walrus generate-sui-wallet --sui-network mainnet` command after [installing Walrus](#installation).
-You still need to obtain some SUI and WAL tokens, but you do not have to install the Sui CLI.
-```
-
 Interacting with Walrus requires a valid Sui wallet with some amount of SUI and WAL tokens. The
 normal way to set this up is via the Sui CLI; see the [installation
 instructions](https://docs.sui.io/guides/developer/getting-started/sui-install) in the Sui
