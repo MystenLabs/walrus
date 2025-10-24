@@ -10,9 +10,6 @@
 // For a given stage of the test, the script is either ramping up to the next tested rate, or it
 // is holding the the arrival rate steady to check if the publisher can support that arrival rate.
 //
-// The prometheus metric `k6_stage_failed_rate` reports the number of requests at a given target
-// rate that failed, and can be used to find the highest supported request rate.
-//
 import { putBlob } from "../../flows/publisher.ts"
 import { loadEnvironment } from "../../config/environment.ts"
 import { open } from 'k6/experimental/fs';

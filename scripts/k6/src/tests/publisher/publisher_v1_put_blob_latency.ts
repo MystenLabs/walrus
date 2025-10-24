@@ -4,6 +4,9 @@
 // Measures the latency of putting file via a publisher on Walrus, by storing a
 // fixed number of files of a given size.
 //
+// if WALRUS_K6_REDIS_URL is specified, then the stored blob IDs are written to a redis list with
+// payload size as the key.
+//
 import { loadEnvironment } from '../../config/environment.ts'
 import { putBlob } from '../../flows/publisher.ts'
 import * as fs from 'k6/experimental/fs';

@@ -1,6 +1,12 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 //
+// Retrieves quilt patches and reports the timings.
+//
+// The IDs to fetch are read from the Redis database located at `WALRUS_K6_REDIS_URL` under the
+// key with the specified name. The format of each ID determines whether patches are fetched by
+// patch or quilt ID.
+//
 import { randomIntBetween }
     // @ts-ignore
     from 'https://jslib.k6.io/k6-utils/1.6.0/index.js'

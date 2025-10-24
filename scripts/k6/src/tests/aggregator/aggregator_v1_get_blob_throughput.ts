@@ -1,6 +1,19 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 //
+// Retrieve blobs from an aggregator at an increasing rate, ending when requests
+// begin to fail or the request service-level-objective SLO is exceeded.
+//
+// The script requests blobs at increasing arrival rates and stops when the request failure
+// threshold is crossed. The various arrival rates that are tested are defined by sequence
+// `arrivalRate_i = startRatePerMinute + (i - 1) * rateIncrement`.
+//
+// For a given stage of the test, the script is either ramping up to the next tested rate, or it
+// is holding the the arrival rate steady to check if the aggregator can support that arrival rate.
+//
+// The blob IDs to fetch are read from the Redis database located at `WALRUS_K6_REDIS_URL`
+// under the key with the name `blob_ids:<WALRUS_K6_PAYLOAD_SIZE>`.
+//
 import { BlobHistory } from "../../lib/blob_history.ts"
 import { loadEnvironment } from '../../config/environment.ts'
 import { check } from 'k6';
