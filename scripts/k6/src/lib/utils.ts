@@ -1,12 +1,15 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-// @ts-ignore
-import { randomIntBetween } from 'https://jslib.k6.io/k6-utils/1.2.0/index.js'
-// @ts-ignore
-import { expect } from 'https://jslib.k6.io/k6-testing/0.5.0/index.js';
+import { randomIntBetween, getCurrentStageIndex }
+    // @ts-ignore
+    from 'https://jslib.k6.io/k6-utils/1.6.0/index.js'
+import { expect }
+    // @ts-ignore
+    from 'https://jslib.k6.io/k6-testing/0.5.0/index.js';
 import { File, SeekMode } from 'k6/experimental/fs';
 import { randomBytes } from 'k6/crypto';
+import { Gauge, Rate } from 'k6/metrics';
 
 /**
  * Returns a random range `[start, length]` on the interval `[0, limit)`.
@@ -49,26 +52,6 @@ export async function readFileRange(
 }
 
 
-/**
- * Calculate the `startTime` offset for a scenario.
- * @param index - Zero based index of the scenario's run order.
- * @param scenarioDurationSeconds - Number of seconds each scenario runs for.
- * @param [gapSeconds=5] - Time between one scenario ending and another starting.
- * @returns The startTime offset in seconds.
- */
-export function scenarioStartTimeSeconds(
-    index: number,
-    scenarioDurationSeconds: number,
-    gapSeconds: number = 5
-): number {
-    if (index == 0) {
-        return 0;
-    } else {
-        return (index * (scenarioDurationSeconds + gapSeconds))
-    }
-}
-
-
 export function parseHumanFileSize(value: string): number {
     // parseInt just takes the numeric prefix and parses it.
     var numericValue = parseFloat(value);
@@ -85,35 +68,18 @@ export function parseHumanFileSize(value: string): number {
     return Math.floor(numericValue);
 }
 
-/**
- * Loads the plan if specified.
- *
- * If the specified plan does not exist an error is raised.
- */
-function loadPlan(path: string, plan?: string): Record<string, any> {
-    if (plan == undefined) {
-        return {};
-    }
-    const plans = JSON.parse(open(path));
-    if (!(plan in plans)) {
-        throw new Error(`The requested plan "${plan}" is not present in "${path}"`);
-    } else {
-        return plans[plan];
-    }
-}
-
-
 type Parameters = Record<string, string | number>;
 
 /**
- * For each camelCase property in `example`, load the corresponding UPPER_SNAKE_CASE
- * value from __ENV and return it.
+ * For each camelCase property in `example`, load the corresponding WALRUS_K6_<UPPER_SNAKE_CASE>
+ * key from __ENV and return it.
  */
 function loadEnv(keysAndTypes: Record<string, string>): Parameters {
     const output: Parameters = {}
 
     for (const [key, keyType] of Object.entries(keysAndTypes)) {
-        const value = __ENV[key.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toUpperCase()];
+        const upperKey = "WALRUS_K6_" + key.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toUpperCase();
+        const value = __ENV[upperKey];
         if (value !== undefined) {
             if (keyType == "number") {
                 output[key] = parseFloat(value)
@@ -127,43 +93,20 @@ function loadEnv(keysAndTypes: Record<string, string>): Parameters {
 
 
 /**
- * Loads parameters from a plan and __ENV.
- *
- * Variables set in __ENV take precedence over those in the plan.
+ * Loads parameters from __ENV.
  *
  * @param defaults - The default parameters. The keys in the `defaults` are converted from camelCase
- * to UPPER_SNAKE_CASE and used as keys to fetch any set values in __ENV.
- * @param planFilePath - A path within the config/ directory that contains the plans. If specified,
- * then the environment variable __ENV.PLAN is checked for a plan name and the defaults are updated
- * with the named plan.
+ * to UPPER_SNAKE_CASE, prepended with `WALRUS_K6_`, and fetched from the environment variables.
  * @returns The loaded parameters.
  */
-export function loadParameters<T extends object>(defaults: T, planFilePath?: string): T {
+export function loadParameters<T extends object>(defaults: T): T {
     var output = defaults;
-
-    if (planFilePath != undefined) {
-        output = Object.assign(
-            output,
-            loadPlan(import.meta.resolve("../config/" + planFilePath), __ENV.PLAN),
-        );
-    }
-
     const keysAndTypes = Object.fromEntries(
         Object.entries(defaults).map(([key, value]) => [key, typeof (value)])
     );
     return Object.assign(output, loadEnv(keysAndTypes))
 }
 
-/**
- * Gets the TEST_ID  and TEST_RUN_ID tags from the environment, if present, and returns them
- * as testid and test_run_id
- */
-export function getTestIdTags(): { testid?: string, test_run_id?: string } {
-    return {
-        testid: __ENV["TEST_ID"],
-        test_run_id: __ENV["TEST_RUN_ID"],
-    }
-}
 
 /**
  * Perturbs a random number (maximum 30) bytes in the provided data array.
@@ -178,4 +121,132 @@ export function perturbData(array: Uint8Array): Uint8Array {
     }
 
     return array;
+}
+
+/**
+ * Loads a random range of data from the file of length between the specified
+ * minimum and maximum.
+ */
+export async function loadRandomData(
+    dataFile: File, minLength: number, maxLength: number = minLength
+): Promise<Uint8Array> {
+    const dataFileLength = (await dataFile.stat()).size;
+    const [dataStart, dataLength] = randomRange(minLength, maxLength, dataFileLength);
+    return perturbData(await readFileRange(dataFile, dataStart, dataLength));
+}
+
+/**
+ * Throws an error with the specified message if the condition is not true.
+ */
+export function ensure(condition: boolean, message: string) {
+    if (!condition) {
+        throw new Error(message);
+    }
+}
+
+
+export interface Stage { duration: string, target: number }
+
+export interface StageConfig {
+    /** The start rate in requests per minute. */
+    startRatePerMinute: number,
+    /** The amount to increment the rate by at each stage. */
+    rateIncrement: number,
+    /** The duration of each held (non-ramping) stage. */
+    heldStageDuration: string,
+    /** The duration of each ramping stage. */
+    rampStageDuration: string,
+    /** The number of stages where the arrival rate is held constant. */
+    heldStageCount: number
+    /**Objective for the request duration. Anything higher is considered a failed for that stage.*/
+    requestSloMillis: number,
+}
+
+const stageFailureRate = new Rate('throughput_stage_failed');
+
+export function countSteadyStageFailures(isFailure: boolean, stages: Stage[]) {
+    const stageIndex = getCurrentStageIndex();
+    const isSteadyStage = (stageIndex % 2 == 1);
+    if (isSteadyStage) {
+        stageFailureRate.add(
+            isFailure,
+            { target_rpm: stages[stageIndex].target.toString(), stage_profile: 'steady' }
+        );
+    }
+}
+
+export function createStages(params: StageConfig): Stage[] {
+    const stages = [];
+    var target = params.startRatePerMinute;
+    for (var i = 0; i < params.heldStageCount; ++i) {
+        stages.push({ target: target, duration: params.rampStageDuration });
+        stages.push({ target: target, duration: params.heldStageDuration });
+        target += params.rateIncrement;
+    }
+    return stages;
+}
+
+export function createStageThresholds(params: StageConfig, requestSloMillis: number) {
+    const thresholds: any = {
+        http_req_duration: [{
+            threshold: `p(95) < ${requestSloMillis}`,
+            abortOnFail: true,
+            delayAbortEval: `${Math.ceil(requestSloMillis / 2)}`
+        }],
+        // Overall there should be less than 5% failures.
+        // We use throughput_stage_failed instead of http_req_failed for this threshold,
+        // as the former is more generic and considers long durations as failed.
+        throughput_stage_failed: [{ threshold: 'rate <= 0.05', abortOnFail: true }],
+    };
+
+    var target = params.startRatePerMinute;
+    for (var i = 0; i < params.heldStageCount; ++i) {
+        const key = `throughput_stage_failed{stage_profile: steady, target_rpm: ${target}}`;
+        // The threshold for i == 0 is real, the first stage should not have failures.
+        // The threshold for the other stages are pseudo-thresholds, they will always pass as the
+        // rate is always at least zero. They show the failure rate per stage in the output.
+        thresholds[key] = [
+            i == 0 ? { threshold: 'rate <= 0', abortOnFail: true } : 'rate >= 0'
+        ];
+        target += params.rateIncrement;
+    }
+
+    return thresholds
+}
+
+export function getTargetRpmTags(stages: Stage[]): object {
+    const stageIndex = getCurrentStageIndex();
+    const isSteadyStage = (stageIndex % 2 == 1);
+    return {
+        target_rpm: stages[stageIndex].target.toString(),
+        stage_profile: isSteadyStage ? 'steady' : 'ramp-up',
+    };
+}
+
+export function logObject(...objects: object[]) {
+    for (const obj of objects) {
+        for (const [key, value] of Object.entries(obj)) {
+            console.log(`${key}: ${value}`);
+        }
+    }
+}
+
+const testActive = new Gauge("test_active", /*isTime=*/false);
+const startTime = new Gauge("test_start_timestamp_seconds", /*isTime=*/true);
+const endTime = new Gauge("test_end_timestamp_seconds", /*isTime=*/true);
+
+/**
+ * Record the test start time, should only be called once in setup().
+ */
+export function recordStartTime() {
+    startTime.add(Date.now() / 1000);
+    testActive.add(1);
+}
+
+/**
+ * Record the test end time, should only be called once in teardown().
+ */
+export function recordEndTime() {
+    endTime.add(Date.now() / 1000);
+    testActive.add(0);
 }

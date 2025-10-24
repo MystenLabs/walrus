@@ -1,6 +1,7 @@
 # See https://nexte.st/docs/configuration/ for configuration parameters.
 
 [profile.default]
+default-filter = 'not package(walrus-performance-tests)'
 fail-fast = false # do not stop at first failure
 slow-timeout = { period = "1m", terminate-after = 5 }
 
@@ -37,3 +38,13 @@ status-level = "fail"
 fail-fast = false
 # Mark tests as slow after 30m, terminate after 1.5h
 slow-timeout = { period = "30m", terminate-after = 5 }
+
+[profile.performance-test]
+default-filter = 'package(walrus-performance-tests)'
+retries = 0
+slow-timeout = { period = "15m", terminate-after = 2 }
+test-threads = 1
+
+[[profile.performance-test.overrides]]
+filter = 'test(aggregator)'
+priority = -50
