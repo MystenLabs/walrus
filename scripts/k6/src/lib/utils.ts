@@ -162,8 +162,14 @@ export interface StageConfig {
     requestSloMillis: number,
 }
 
+/** Metric recording the rate of failed requests in a throughput stage */
 const stageFailureRate = new Rate('throughput_stage_failed');
 
+/**
+ * If the current stage is a steady stage, record whether the request was a failure or not.
+ * @param stages - The stages that were created for the throughput experiment.
+ * @param isFailure - Whether the request was a failure.
+ */
 export function countSteadyStageFailures(isFailure: boolean, stages: Stage[]) {
     const stageIndex = getCurrentStageIndex();
     const isSteadyStage = (stageIndex % 2 == 1);
@@ -175,6 +181,14 @@ export function countSteadyStageFailures(isFailure: boolean, stages: Stage[]) {
     }
 }
 
+/**
+ * Creates stages for a throughput test according to the specified params.
+ * Stages follow the pattern "ramp, steady, ramp, steady, ..." where each steady stage is higher
+ * than the previous by the specified increment, and the times spend in each ramp and steady stage
+ * are constant.
+ * @param params - Parameters specifying the start, increment, number of stages and duration spend
+ * in the stages.
+ */
 export function createStages(params: StageConfig): Stage[] {
     const stages = [];
     var target = params.startRatePerMinute;
@@ -186,6 +200,14 @@ export function createStages(params: StageConfig): Stage[] {
     return stages;
 }
 
+/**
+ * Creates thresholds for aborting a throughput test.
+ * Aborting the test does not mean it failed, just that we see indiciations that the
+ * service cannot keep up with the load (e.g., longer or failed requests), and therefore
+ * need to end the test.
+ * @param params - The start, step, and durations that were used to create the stages.
+ * @param requestSloMillis - The number of milliseconds that requests should complete within.
+ */
 export function createStageThresholds(params: StageConfig, requestSloMillis: number) {
     const thresholds: any = {
         http_req_duration: [{
@@ -214,6 +236,11 @@ export function createStageThresholds(params: StageConfig, requestSloMillis: num
     return thresholds
 }
 
+/**
+ * Returns metric tags corresponding to the stage that can be attached to requests.
+ *
+ * @param stages - the stages in the test.
+ */
 export function getTargetRpmTags(stages: Stage[]): object {
     const stageIndex = getCurrentStageIndex();
     const isSteadyStage = (stageIndex % 2 == 1);
@@ -223,6 +250,7 @@ export function getTargetRpmTags(stages: Stage[]): object {
     };
 }
 
+/** Prints "key: value" to the console for all keys in the object. */
 export function logObject(...objects: object[]) {
     for (const obj of objects) {
         for (const [key, value] of Object.entries(obj)) {
@@ -231,21 +259,20 @@ export function logObject(...objects: object[]) {
     }
 }
 
+/** Metric recording whether the test is currently running in a scraping interval. **/
 const testActive = new Gauge("test_active", /*isTime=*/false);
+/** Metric recording the start timestamp of the test */
 const startTime = new Gauge("test_start_timestamp_seconds", /*isTime=*/true);
+/** Metric recording the end timestamp of the test */
 const endTime = new Gauge("test_end_timestamp_seconds", /*isTime=*/true);
 
-/**
- * Record the test start time, should only be called once in setup().
- */
+/** Record the test start time, should only be called once in setup(). */
 export function recordStartTime() {
     startTime.add(Date.now() / 1000);
     testActive.add(1);
 }
 
-/**
- * Record the test end time, should only be called once in teardown().
- */
+/** Record the test end time, should only be called once in teardown(). */
 export function recordEndTime() {
     endTime.add(Date.now() / 1000);
     testActive.add(0);

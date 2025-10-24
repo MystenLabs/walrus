@@ -68,7 +68,9 @@ export async function setup(): Promise<number> {
 export default async function (patchIdCount: number) {
     const patchIndex = randomIntBetween(0, patchIdCount - 1);
     const quiltOrPatchId = await blobHistory.index(params.patchIdListKey, patchIndex);
-    const response = await getQuiltPatch(env.aggregatorUrl, quiltOrPatchId!, params.timeout);
+    const response = await getQuiltPatch(
+        env.aggregatorUrl, quiltOrPatchId!, { timeout: params.timeout }
+    );
 
     expect(response.status).toBe(200);
 }

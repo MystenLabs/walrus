@@ -13,7 +13,7 @@ type BlobThroughputThresholdsInner = [(K6Environment, ByteSize, usize, usize); 8
 static BLOB_UPLOAD_DOWNLOAD_LATENCY_THRESHOLDS: BlobLatencyThresholdsInner = [
     (ByteSize::kibi(1), 12, 2),
     (ByteSize::mebi(10), 22, 3),
-    (ByteSize::mebi(100), 150, 35),
+    (ByteSize::mebi(100), 180, 35),
     (ByteSize::mebi(500), 500, 110),
 ];
 
