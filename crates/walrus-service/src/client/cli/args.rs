@@ -287,10 +287,11 @@ pub enum CliCommands {
         rpc_arg: RpcArg,
         /// Whether to perform a strict consistency check.
         ///
-        /// This is the current default behavior and has no effect. However, the default consistency
-        /// check is changing in `v1.37` to a more performant one, which is sufficient for the
-        /// majority of cases. This flag can be used to enable the current strict consistency check.
-        // TODO(WAL-1055): Adjust docstring when changing the default behavior.
+        /// This was the default before `v1.37`. In `v1.37`, the default consistency was changed to
+        /// a more performant one, which is sufficient for the majority of cases. This flag can be
+        /// used to enable the previous strict consistency check. See
+        /// <https://docs.wal.app/design/encoding.html#data-integrity-and-consistency> for more
+        /// details.
         #[arg(long)]
         #[serde(default)]
         strict_consistency_check: bool,
