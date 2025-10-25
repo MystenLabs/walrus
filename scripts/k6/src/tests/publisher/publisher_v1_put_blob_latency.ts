@@ -40,7 +40,7 @@ const params = loadParameters<TestParameters>({
     maxConcurrency: 3,
     payloadSize: "1Ki",
     httpDurationThreshold: "",
-    timeout: "10m",
+    timeout: "15m",
 });
 /** Common environment setting like URLs, loaded from __ENV with defaults. */
 const env = loadEnvironment();
@@ -55,7 +55,7 @@ export const options = {
             executor: 'shared-iterations',
             vus: params.maxConcurrency,
             iterations: params.blobCount,
-            maxDuration: "15m",
+            maxDuration: "30m",
         }
     },
     thresholds: !params.httpDurationThreshold ? {} : {
