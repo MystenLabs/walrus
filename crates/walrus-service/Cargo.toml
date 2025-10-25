@@ -38,6 +38,7 @@ backup = [
 ]
 client = [
   "dep:colored",
+  "dep:libc",
   "dep:object_store",
   "dep:prettytable",
 ]
@@ -108,6 +109,7 @@ indoc.workspace = true
 integer-encoding.workspace = true
 itertools.workspace = true
 jsonwebtoken.workspace = true
+libc = { workspace = true, optional = true }
 md5 = { workspace = true, optional = true }
 mime = { workspace = true, optional = true }
 moka = { version = "0.12.10", features = ["future"] }
