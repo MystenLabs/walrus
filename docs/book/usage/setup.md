@@ -1,5 +1,7 @@
 # Setup
 
+In order to learn to use Walrus, we recommend starting with the command-line interface.
+
 We provide a pre-compiled `walrus` client binary for macOS (Intel and Apple CPUs) and Ubuntu, which
 supports different usage patterns (see [the next chapter](./interacting.md)). This chapter describes
 the [prerequisites](#prerequisites), [installation](#installation), and
@@ -192,10 +194,12 @@ CLI configuration refers to the standard location for Sui configuration
 <!-- markdownlint-disable code-fence-style -->
 
 ````admonish tip
-The easiest way to obtain the latest configuration is by downloading it directly from Walrus:
+If you installed Walrus through the [install script](#nix-install), a configuration file was
+already created. If not, the easiest way to obtain the latest configuration is by downloading it
+directly from Walrus:
 
 ```sh
-curl https://docs.wal.app/setup/client_config.yaml -o ~/.config/walrus/client_config.yaml
+curl --create-dirs https://docs.wal.app/setup/client_config.yaml -o ~/.config/walrus/client_config.yaml
 ```
 ````
 
