@@ -313,6 +313,17 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlob<'a, T> {
             tracing::event!(BLOB_SPAN_LEVEL, state = self.get_state(), message);
         });
     }
+
+    /// Returns the sliver pairs wrapped in an `Arc`, if available.
+    pub fn sliver_pairs_arc(&self) -> Option<Arc<Vec<SliverPair>>> {
+        match self {
+            WalrusStoreBlob::Encoded(blob) => Some(blob.pairs.clone()),
+            WalrusStoreBlob::WithStatus(blob) => Some(blob.pairs.clone()),
+            WalrusStoreBlob::Registered(blob) => Some(blob.pairs.clone()),
+            WalrusStoreBlob::WithCertificate(blob) => Some(blob.pairs.clone()),
+            _ => None,
+        }
+    }
 }
 
 /// Unencoded blob.
