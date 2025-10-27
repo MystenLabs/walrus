@@ -204,11 +204,18 @@ fn populate_response_headers_from_attributes(
     allowed_headers: Option<&HashSet<HeaderName>>,
 ) {
     for (key, value) in attribute.iter() {
-        if !key.is_empty()
-            && let Ok(header_name) = HeaderName::from_str(key)
-            && allowed_headers.is_none_or(|headers| headers.contains(&header_name))
-            && let Ok(header_value) = HeaderValue::from_str(value)
-        {
+        if key.is_empty() {
+            continue;
+        }
+        let Ok(header_name) = HeaderName::from_str(key) else {
+            tracing::warn!("Invalid header name '{}' in blob attribute", key);
+            continue;
+        };
+        let Ok(header_value) = HeaderValue::from_str(value) else {
+            tracing::warn!("Invalid header value '{}' in blob attribute", value);
+            continue;
+        };
+        if allowed_headers.is_none_or(|headers| headers.contains(&header_name)) {
             headers.insert(header_name, header_value);
         }
     }

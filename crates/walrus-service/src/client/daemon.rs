@@ -360,7 +360,7 @@ impl<T: WalrusReadClient + Send + Sync + 'static> ClientDaemon<T> {
                     .filter_map(|h| match h.parse::<HeaderName>() {
                         Ok(name) => Some(name),
                         Err(e) => {
-                            tracing::warn!("Invalid header name '{}': {}", h, e);
+                            tracing::error!("Invalid header name '{}': {}", h, e);
                             None
                         }
                     })
@@ -512,7 +512,7 @@ impl<T: WalrusWriteClient + Send + Sync + 'static> ClientDaemon<T> {
                         .filter_map(|h| match HeaderName::from_str(h) {
                             Ok(name) => Some(name),
                             Err(e) => {
-                                tracing::warn!("Invalid header name '{}': {}", h, e);
+                                tracing::error!("Invalid header name '{}': {}", h, e);
                                 None
                             }
                         })
