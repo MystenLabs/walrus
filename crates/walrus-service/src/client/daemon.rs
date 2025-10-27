@@ -3,7 +3,7 @@
 
 //! A client daemon who serves a set of simple HTTP endpoints to store, encode, or read blobs.
 
-use std::{collections::HashSet, fmt::Debug, net::SocketAddr, sync::Arc};
+use std::{collections::HashSet, fmt::Debug, net::SocketAddr, str::FromStr, sync::Arc};
 
 use axum::{
     BoxError,
@@ -11,6 +11,7 @@ use axum::{
     body::HttpBody,
     error_handling::HandleErrorLayer,
     extract::{DefaultBodyLimit, Query, Request, State},
+    http::HeaderName,
     middleware::{self, Next},
     response::{IntoResponse, Response},
     routing::{get, put},
@@ -324,7 +325,8 @@ impl WalrusWriteClient for WalrusNodeClient<SuiContractClient> {
 #[derive(Debug, Clone, Default)]
 pub struct AggregatorResponseHeaderConfig {
     /// The headers that are allowed to be returned in the response.
-    pub allowed_headers: HashSet<String>,
+    /// Uses HeaderName for automatic case-insensitive comparison.
+    pub allowed_headers: HashSet<HeaderName>,
     /// If true, the tags of the quilt patch will be returned in the response headers.
     pub allow_quilt_patch_tags_in_response: bool,
 }
@@ -352,7 +354,17 @@ impl<T: WalrusReadClient + Send + Sync + 'static> ClientDaemon<T> {
     ) -> Self {
         Self::new::<AggregatorApiDoc>(client, network_address, registry).with_aggregator(
             AggregatorResponseHeaderConfig {
-                allowed_headers: args.allowed_headers.clone().into_iter().collect(),
+                allowed_headers: args
+                    .allowed_headers
+                    .iter()
+                    .filter_map(|h| match h.parse::<HeaderName>() {
+                        Ok(name) => Some(name),
+                        Err(e) => {
+                            tracing::error!("Invalid header name '{}': {}", h, e);
+                            None
+                        }
+                    })
+                    .collect(),
                 allow_quilt_patch_tags_in_response: args.allow_quilt_patch_tags_in_response,
             },
             args.max_request_buffer_size,
@@ -496,8 +508,14 @@ impl<T: WalrusWriteClient + Send + Sync + 'static> ClientDaemon<T> {
                 AggregatorResponseHeaderConfig {
                     allowed_headers: aggregator_args
                         .allowed_headers
-                        .clone()
-                        .into_iter()
+                        .iter()
+                        .filter_map(|h| match HeaderName::from_str(h) {
+                            Ok(name) => Some(name),
+                            Err(e) => {
+                                tracing::error!("Invalid header name '{}': {}", h, e);
+                                None
+                            }
+                        })
                         .collect(),
                     allow_quilt_patch_tags_in_response: aggregator_args
                         .allow_quilt_patch_tags_in_response,
@@ -645,6 +663,61 @@ mod tests {
     use walrus_core::BlobId;
 
     use super::*;
+
+    #[test]
+    fn test_header_name_case_insensitive_comparison() {
+        // Create allowed headers with mixed case.
+        let allowed_headers_input = [
+            "Content-Type".to_string(),
+            "AUTHORIZATION".to_string(),
+            "X-Custom-Header".to_string(),
+            "cache-control".to_string(),
+        ];
+
+        // Convert to HeaderName set as done in the actual code.
+        let allowed_headers: HashSet<HeaderName> = allowed_headers_input
+            .iter()
+            .filter_map(|h| h.parse::<HeaderName>().ok())
+            .collect();
+
+        // All of these should be found regardless of case.
+        assert!(allowed_headers.contains(&HeaderName::from_static("content-type")));
+        assert!(allowed_headers.contains(&HeaderName::from_static("authorization")));
+        assert!(allowed_headers.contains(&HeaderName::from_static("x-custom-header")));
+        assert!(allowed_headers.contains(&HeaderName::from_static("cache-control")));
+
+        // Test with parsed headers (simulating headers from requests).
+        assert!(allowed_headers.contains(&"Content-Type".parse::<HeaderName>().unwrap()));
+        assert!(allowed_headers.contains(&"content-type".parse::<HeaderName>().unwrap()));
+        assert!(allowed_headers.contains(&"CONTENT-TYPE".parse::<HeaderName>().unwrap()));
+        assert!(allowed_headers.contains(&"CoNtEnT-tYpE".parse::<HeaderName>().unwrap()));
+
+        // Test that non-allowed headers are not found.
+        assert!(!allowed_headers.contains(&HeaderName::from_static("x-not-allowed")));
+        assert!(!allowed_headers.contains(&HeaderName::from_static("accept")));
+    }
+
+    #[test]
+    fn test_invalid_header_names_are_filtered() {
+        // Test that invalid header names are filtered out.
+        let invalid_headers = [
+            "Valid-Header".to_string(),
+            "Invalid Header".to_string(),  // Contains space
+            "Invalid\nHeader".to_string(), // Contains newline
+            "".to_string(),                // Empty
+            "Another-Valid".to_string(),
+        ];
+
+        let allowed_headers: HashSet<HeaderName> = invalid_headers
+            .iter()
+            .filter_map(|h| h.parse::<HeaderName>().ok())
+            .collect();
+
+        // Only valid headers should be in the set.
+        assert_eq!(allowed_headers.len(), 2);
+        assert!(allowed_headers.contains(&HeaderName::from_static("valid-header")));
+        assert!(allowed_headers.contains(&HeaderName::from_static("another-valid")));
+    }
 
     /// Mock client that simulates slow blob reads to test concurrency limits.
     #[derive(Clone)]
