@@ -22,8 +22,8 @@ use serde::{Deserialize, Serialize};
 use serde_json;
 use tokio::{
     io::{AsyncBufRead, AsyncBufReadExt, BufReader},
-    process::{ChildStderr, ChildStdout, Command as TokioCommand},
-    sync::{Mutex as TokioMutex, mpsc::channel as mpsc_channel},
+    process::{Child as TokioChild, ChildStderr, ChildStdout, Command as TokioCommand},
+    sync::{Mutex as TokioMutex, mpsc::channel as mpsc_channel, watch},
 };
 use walrus_core::BlobId;
 use walrus_sdk::{
@@ -41,6 +41,33 @@ use crate::client::cli::{
     WalrusColors,
     args::{EpochArg, QuiltBlobInput},
 };
+
+#[derive(Clone)]
+struct ChildProcessHandle {
+    pid: u32,
+    inner: Arc<TokioMutex<Option<TokioChild>>>,
+}
+
+impl ChildProcessHandle {
+    fn new(mut child: TokioChild) -> (Self, Option<ChildStdout>, Option<ChildStderr>) {
+        let pid = child.id().expect("spawned child process must have a pid");
+        let stdout = child.stdout.take();
+        let stderr = child.stderr.take();
+        let handle = Self {
+            pid,
+            inner: Arc::new(TokioMutex::new(Some(child))),
+        };
+        (handle, stdout, stderr)
+    }
+
+    fn pid(&self) -> u32 {
+        self.pid
+    }
+
+    async fn take_child(&self) -> Option<TokioChild> {
+        self.inner.lock().await.take()
+    }
+}
 
 /// Deserializable representation of JSON events from the walrus-uploader-child stdout.
 /// These events are emitted by the child process and sent to the parent process.
@@ -447,6 +474,97 @@ fn apply_common_store_child_args(
     }
 }
 
+/// Spawns a task to forward signals to the child uploader process.
+/// This is used to forward the signals from the parent process to the child process.
+#[cfg(unix)]
+fn spawn_signal_forwarders(handle: ChildProcessHandle, cancel_rx: watch::Receiver<bool>) {
+    use tokio::signal::unix::{SignalKind, signal};
+
+    let signals = [
+        (SignalKind::terminate(), libc::SIGTERM, "SIGTERM"),
+        (SignalKind::interrupt(), libc::SIGINT, "SIGINT"),
+    ];
+
+    for (kind, signo, name) in signals {
+        let handle_clone = handle.clone();
+        let mut cancel_rx = cancel_rx.clone();
+        match signal(kind) {
+            Ok(stream) => {
+                let mut stream = stream;
+                tokio::spawn(async move {
+                    tokio::select! {
+                        _ = stream.recv() => {
+                            forward_unix_signal_to_child(handle_clone, signo, name).await;
+                            // When not catching the signal, the process will exit with
+                            // 128 + signo by default. But when catching the signal, we need
+                            // to do it ourself.
+                            let exit_code = 128 + signo;
+                            std::process::exit(exit_code);
+                        }
+                        _ = cancel_rx.changed() => {
+                        }
+                    }
+                });
+            }
+            Err(error) => {
+                tracing::warn!(%error, signal = name,
+                    "failed to register signal forwarder for child uploader process");
+            }
+        }
+    }
+}
+
+/// Forwards a Unix signal to the child uploader process.
+/// This is used to forward the Unix signals from the parent process to the child process.
+#[cfg(unix)]
+async fn forward_unix_signal_to_child(
+    handle: ChildProcessHandle,
+    signo: libc::c_int,
+    signal_name: &'static str,
+) {
+    let pid = i32::try_from(handle.pid()).expect("pid should be in range");
+    let result = unsafe { libc::kill(pid, signo) };
+    if result != 0 {
+        let error = std::io::Error::last_os_error();
+        tracing::warn!(pid, signal = signal_name, %error,
+            "failed to forward signal to child uploader process");
+    }
+    tracing::debug!(
+        pid,
+        signal = signal_name,
+        "forwarded signal to child uploader process"
+    );
+}
+
+#[cfg(not(unix))]
+fn spawn_signal_forwarders(handle: ChildProcessHandle, mut cancel_rx: watch::Receiver<bool>) {
+    tokio::spawn(async move {
+        tokio::select! {
+            res = tokio::signal::ctrl_c() => {
+                match res {
+                    Ok(()) => {
+                        tracing::debug!("forwarding ctrl_c to child uploader process");
+                        if let Some(mut child) = handle.take_child().await {
+                            if let Err(error) = child.start_kill() {
+                                tracing::warn!(%error,
+                                    "failed to terminate child uploader process after ctrl_c");
+                            }
+                        }
+                        std::process::exit(130);
+                    }
+                    Err(error) => {
+                        tracing::warn!(%error,
+                            "failed to listen for ctrl_c to forward to child uploader process");
+                    }
+                }
+            }
+            _ = cancel_rx.changed() => {
+                return;
+            }
+        }
+    });
+}
+
 /// Spawns a child process to handle the upload of blobs.
 /// This is used to handle the upload of blobs in a separate child process.
 #[allow(clippy::too_many_arguments)]
@@ -518,14 +636,34 @@ where
     cmd.kill_on_drop(false);
 
     match cmd.stdout(Stdio::piped()).stderr(Stdio::piped()).spawn() {
-        Ok(mut child) => {
+        Ok(child) => {
             tracing::info!("Child process spawned successfully");
 
-            if let Some(stderr) = child.stderr.take() {
+            let (child_handle, child_stdout, child_stderr) = ChildProcessHandle::new(child);
+            let (cancel_tx, cancel_rx) = watch::channel(false);
+            spawn_signal_forwarders(child_handle.clone(), cancel_rx);
+            tokio::spawn({
+                let handle_for_wait = child_handle.clone();
+                let cancel_tx = cancel_tx.clone();
+                async move {
+                    if let Some(mut child) = handle_for_wait.take_child().await
+                        && let Err(error) = child.wait().await
+                    {
+                        tracing::warn!(%error,
+                                "failed to wait for child process to exit");
+                    }
+                    if let Err(error) = cancel_tx.send(true) {
+                        tracing::warn!(%error,
+                            "failed to send cancellation signal to child process");
+                    }
+                }
+            });
+
+            if let Some(stderr) = child_stderr {
                 spawn_child_stderr_to_stderr(stderr);
             }
 
-            if let Some(stdout) = child.stdout.take() {
+            if let Some(stdout) = child_stdout {
                 process_child_stdout_events(
                     stdout,
                     |blob_id, extra| async move {
