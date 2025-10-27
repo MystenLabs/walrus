@@ -201,14 +201,21 @@ fn populate_response_headers_from_request(
 fn populate_response_headers_from_attributes(
     headers: &mut HeaderMap,
     attribute: &BlobAttribute,
-    allowed_headers: Option<&HashSet<String>>,
+    allowed_headers: Option<&HashSet<HeaderName>>,
 ) {
     for (key, value) in attribute.iter() {
-        if !key.is_empty()
-            && allowed_headers.is_none_or(|headers| headers.contains(key))
-            && let (Ok(header_name), Ok(header_value)) =
-                (HeaderName::from_str(key), HeaderValue::from_str(value))
-        {
+        if key.is_empty() {
+            continue;
+        }
+        let Ok(header_name) = HeaderName::from_str(key) else {
+            tracing::warn!("Invalid header name '{}' in blob attribute", key);
+            continue;
+        };
+        let Ok(header_value) = HeaderValue::from_str(value) else {
+            tracing::warn!("Invalid header value '{}' in blob attribute", value);
+            continue;
+        };
+        if allowed_headers.is_none_or(|headers| headers.contains(&header_name)) {
             headers.insert(header_name, header_value);
         }
     }
@@ -1102,7 +1109,10 @@ async fn parse_multipart_quilt(
         let tags = if let Some(meta) = metadata_map.get(&identifier) {
             meta.tags
                 .iter()
-                .map(|(k, v)| (k.clone(), v.to_string()))
+                .map(|(k, v)| match v {
+                    serde_json::Value::String(s) => (k.clone(), s.clone()),
+                    _ => (k.clone(), v.to_string()),
+                })
                 .collect()
         } else {
             BTreeMap::new()
@@ -1311,5 +1321,56 @@ mod tests {
                 .to_string(),
             "3"
         );
+    }
+
+    #[test]
+    fn test_populate_response_headers_case_insensitive() {
+        use walrus_sui::types::move_structs::BlobAttribute;
+
+        let mut headers = HeaderMap::new();
+
+        let blob_attribute = BlobAttribute::from([
+            ("Content-Type", "text/html"),
+            ("X-Custom-Header", "custom-value"),
+            ("cache-control", "no-cache"),
+            ("AUTHORIZATION", "Bearer token"),
+            ("Not-Allowed-Header", "should-not-appear"),
+        ]);
+
+        // Create allowed headers with different casing.
+        let allowed_headers_input = [
+            "content-type".to_string(),
+            "X-CUSTOM-HEADER".to_string(),
+            "Cache-Control".to_string(),
+            "authorization".to_string(),
+        ];
+
+        let allowed_headers: HashSet<HeaderName> = allowed_headers_input
+            .iter()
+            .filter_map(|h| h.parse::<HeaderName>().ok())
+            .collect();
+
+        populate_response_headers_from_attributes(
+            &mut headers,
+            &blob_attribute,
+            Some(&allowed_headers),
+        );
+
+        // Verify that all allowed headers are present (case-insensitive matching worked).
+        assert_eq!(headers.get("content-type").unwrap(), "text/html");
+        assert_eq!(headers.get("x-custom-header").unwrap(), "custom-value");
+        assert_eq!(headers.get("cache-control").unwrap(), "no-cache");
+        assert_eq!(headers.get("authorization").unwrap(), "Bearer token");
+
+        // Verify that non-allowed header is not present.
+        assert!(headers.get("not-allowed-header").is_none());
+
+        // Test with no allowed headers filter (all headers should be included).
+        let mut headers_all = HeaderMap::new();
+        populate_response_headers_from_attributes(&mut headers_all, &blob_attribute, None);
+
+        // All headers should be present when no filter is applied.
+        assert_eq!(headers_all.len(), 5);
+        assert!(headers_all.get("not-allowed-header").is_some());
     }
 }
