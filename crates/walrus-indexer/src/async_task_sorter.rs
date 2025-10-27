@@ -266,7 +266,6 @@ where
                         return Some(task);
                     }
                     if let Some(task) = inner.latest_queue.pop_front() {
-                        inner.catchup_low_watermark = Some(task.task_id().clone());
                         tracing::debug!(?task, "popped task from latest queue");
                         return Some(task);
                     }
@@ -299,7 +298,6 @@ where
                     (inner.get_fetch_completed(), true, from_task_id, to_task_id)
                 }
             };
-            // Lock is released here
 
             if should_fetch {
                 self.trigger_fetch(from_task_id, to_task_id);
