@@ -303,7 +303,7 @@ impl CommitteesRefresherHandle {
     }
 }
 
-/// Checks if two committes are different enough to require a notification to the clients.
+/// Checks if two committees are different enough to require a notification to the clients.
 pub fn are_current_previous_different(first: &ActiveCommittees, second: &ActiveCommittees) -> bool {
     // Compare the current committees.
     if let Err(error) = first

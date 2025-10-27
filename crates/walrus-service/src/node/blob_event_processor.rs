@@ -259,16 +259,21 @@ impl BackgroundEventProcessor {
     }
 
     /// Processes a blob deleted event.
-    #[tracing::instrument(skip_all)]
+    #[tracing::instrument(
+        skip_all,
+        fields(walrus.blob_id = %event.blob_id, walrus.epoch = tracing::field::Empty),
+    )]
     async fn process_blob_deleted_event(
         &self,
         event_handle: EventHandle,
         event: BlobDeleted,
     ) -> anyhow::Result<()> {
         let blob_id = event.blob_id;
+        let current_epoch = self.node.current_committee_epoch();
+        tracing::Span::current().record("walrus.epoch", current_epoch);
 
         if let Some(blob_info) = self.node.storage.get_blob_info(&blob_id)? {
-            if !blob_info.is_certified(self.node.current_committee_epoch()) {
+            if !blob_info.is_certified(current_epoch) {
                 self.node
                     .blob_retirement_notifier
                     .notify_blob_retirement(&blob_id);
@@ -279,12 +284,17 @@ impl BackgroundEventProcessor {
             // Note that this function is called *after* the blob info has already been updated with
             // the event. So it can happen that the only registered blob was deleted and the blob is
             // now no longer registered.
-            // We use the event's epoch for this check (as opposed to the current epoch) as
-            // subsequent certify or delete events may update the `blob_info`; so we cannot remove
-            // it even if it is no longer valid in the *current* epoch
-            if !blob_info.is_registered(event.epoch) {
-                tracing::debug!(walrus.blob_id = %blob_id, "deleting data for deleted blob");
-                // TODO (WAL-201): Actually delete blob data.
+            // *Important*: We use the event's epoch for this check (as opposed to the current
+            // epoch) as subsequent certify or delete events may update the `blob_info`; so we
+            // cannot remove it even if it is no longer valid in the *current* epoch
+            if blob_info.can_data_be_deleted(event.epoch)
+                && self.node.garbage_collection_config.enable_data_deletion
+            {
+                tracing::debug!("deleting data for deleted blob");
+                self.node
+                    .storage
+                    .attempt_to_delete_blob_data(&blob_id, event.epoch, &self.node.metrics)
+                    .await?;
             }
         } else if self
             .node
@@ -293,15 +303,11 @@ impl BackgroundEventProcessor {
             .is_catching_up_with_incomplete_history()
         {
             tracing::debug!(
-                walrus.blob_id = %blob_id,
                 "handling a `BlobDeleted` event for an untracked blob while catching up with \
                 incomplete history; not deleting blob data"
             );
         } else {
-            tracing::warn!(
-                walrus.blob_id = %blob_id,
-                "handling a `BlobDeleted` event for an untracked blob"
-            );
+            tracing::warn!("handling a `BlobDeleted` event for an untracked blob");
         }
 
         event_handle.mark_as_complete();

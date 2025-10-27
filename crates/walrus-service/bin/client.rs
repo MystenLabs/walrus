@@ -16,6 +16,7 @@ use walrus_service::{
     utils::{self, MetricsAndLoggingRuntime},
 };
 use walrus_sui::client::retry_client::RetriableRpcError;
+use walrus_utils::is_internal_run;
 
 // Define the `GIT_REVISION` and `VERSION` consts for the Walrus client.
 walrus_utils::bin_version!();
@@ -61,7 +62,9 @@ fn client() -> Result<()> {
     let mut app = ClientArgs::parse().inner;
     app.extract_json_command()?;
 
-    tracing::info!("client version: {VERSION}");
+    if !is_internal_run() {
+        tracing::info!("client version: {VERSION}");
+    }
     let runner = ClientCommandRunner::new(
         &app.config,
         app.context.as_deref(),

@@ -361,6 +361,13 @@ pub fn styled_progress_bar(length: u64) -> ProgressBar {
     pb
 }
 
+/// Returns a styled progress bar with the steady tick disabled.
+pub fn styled_progress_bar_with_disabled_steady_tick(length: u64) -> ProgressBar {
+    let pb = styled_progress_bar(length);
+    pb.disable_steady_tick();
+    pb
+}
+
 /// Returns a pre-configured spinner.
 pub fn styled_spinner() -> ProgressBar {
     let spinner = ProgressBar::new_spinner();

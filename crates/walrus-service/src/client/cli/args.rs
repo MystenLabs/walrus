@@ -287,10 +287,11 @@ pub enum CliCommands {
         rpc_arg: RpcArg,
         /// Whether to perform a strict consistency check.
         ///
-        /// This is the current default behavior and has no effect. However, the default consistency
-        /// check is changing in `v1.37` to a more performant one, which is sufficient for the
-        /// majority of cases. This flag can be used to enable the current strict consistency check.
-        // TODO(WAL-1055): Adjust docstring when changing the default behavior.
+        /// This was the default before `v1.37`. In `v1.37`, the default consistency was changed to
+        /// a more performant one, which is sufficient for the majority of cases. This flag can be
+        /// used to enable the previous strict consistency check. See
+        /// <https://docs.wal.app/design/encoding.html#data-integrity-and-consistency> for more
+        /// details.
         #[arg(long)]
         #[serde(default)]
         strict_consistency_check: bool,
@@ -894,6 +895,25 @@ pub struct AggregatorArgs {
     #[arg(long)]
     #[serde(default)]
     pub max_blob_size: Option<u64>,
+    /// The maximum number of requests that can be buffered before the server starts rejecting new
+    /// ones. Note that this includes the number of requests that are being processed currently.
+    #[arg(
+        long = "aggregator-max-buffer-size",
+        default_value_t = default::max_aggregator_buffer_size()
+    )]
+    #[serde(default = "default::max_aggregator_buffer_size")]
+    pub max_request_buffer_size: usize,
+    /// The maximum number of requests the aggregator can process concurrently.
+    ///
+    /// If more requests than this maximum are received, the excess requests are buffered up to
+    /// `--max-buffer-size`. Any outstanding request will result in a response with a
+    /// 429 HTTP status code.
+    #[arg(
+        long = "aggregator-max-concurrent-requests",
+        default_value_t = default::max_aggregator_concurrent_requests()
+    )]
+    #[serde(default = "default::max_aggregator_concurrent_requests")]
+    pub max_concurrent_requests: usize,
 }
 
 /// The arguments for the publisher service.
@@ -1170,6 +1190,10 @@ pub struct CommonStoreOptions {
     #[arg(long, value_enum)]
     #[serde(default)]
     pub upload_mode: Option<UploadModeCli>,
+    /// Internal flag to signal the process is running as a child for background uploads.
+    #[arg(long, hide = true)]
+    #[serde(default)]
+    pub internal_run: bool,
 }
 
 #[serde_as]
@@ -1882,6 +1906,14 @@ pub(crate) mod default {
     pub(crate) fn concurrent_requests_for_health() -> usize {
         60
     }
+
+    pub(crate) fn max_aggregator_concurrent_requests() -> usize {
+        256
+    }
+
+    pub(crate) fn max_aggregator_buffer_size() -> usize {
+        320 // 256 + 64
+    }
 }
 
 #[cfg(test)]
@@ -1929,6 +1961,7 @@ mod tests {
                 upload_relay: None,
                 skip_tip_confirmation: false,
                 upload_mode: None,
+                internal_run: false,
             },
         })
     }
@@ -1975,6 +2008,8 @@ mod tests {
                 allowed_headers: default::allowed_headers(),
                 allow_quilt_patch_tags_in_response: false,
                 max_blob_size: None,
+                max_request_buffer_size: default::max_aggregator_buffer_size(),
+                max_concurrent_requests: default::max_aggregator_concurrent_requests(),
             },
         })
     }

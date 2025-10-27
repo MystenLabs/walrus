@@ -3,8 +3,7 @@
 # Copy in all crates, Cargo.toml and Cargo.lock unmodified,
 # and build the application.
 
-# This is the same as rust:1.89-bookworm but we use the GCP registry to avoid rate limiting.
-FROM us-central1-docker.pkg.dev/cryptic-bolt-398315/base-images/rust:1.89-bookworm-amd64 AS builder
+FROM rust:1.90-bookworm AS builder
 
 ARG PROFILE=release
 ARG GIT_REVISION
@@ -18,8 +17,7 @@ COPY crates crates
 RUN cargo build --profile $PROFILE --bin walrus-orchestrator
 
 # Production Image for walrus orchestrator
-# This is the same as debian:bookworm-slim but we use the GCP registry to avoid rate limiting.
-FROM us-central1-docker.pkg.dev/cryptic-bolt-398315/base-images/debian:bookworm-slim-amd64 AS walrus-orchestrator
+FROM debian:bookworm-slim AS walrus-orchestrator
 
 RUN apt-get update && apt-get install -y ca-certificates curl
 ARG PROFILE=release

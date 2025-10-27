@@ -37,6 +37,7 @@ usage() {
   echo "  -d <duration>         Set the length of the epoch (in human readable format, e.g., '60s', default: 1h)"
   echo "  -e                    Use existing config"
   echo "  -f                    Tail the logs of the nodes (default: false)"
+  echo "  -g                    Enable garbage collection (blob info cleanup and data deletion)"
   echo "  -h                    Print this usage message"
   echo "  -l <rust_log>         Set RUST_LOG environment variable for all nodes (default: info)"
   echo "  -n <network>          Sui network to generate configs for (default: devnet)"
@@ -47,7 +48,7 @@ usage() {
 
 run_node() {
   cmd="RUST_LOG=$rust_log ./target/release/walrus-node run --config-path $working_dir/$1.yaml ${2:-} \
-    |& tee $working_dir/$1.log"
+    |& tee -a $working_dir/$1.log"
   echo "Running within tmux: '$cmd'..."
   tmux new -d -s "$1" "$cmd"
 }
@@ -63,11 +64,15 @@ tail_logs=false
 use_existing_config=false
 contract_dir="./contracts"
 host_address="127.0.0.1"
+enable_garbage_collection=false
 
-while getopts "b:c:d:efhl:n:s:ta:" arg; do
+while getopts "b:c:d:efghl:n:s:ta:" arg; do
   case "${arg}" in
     f)
       tail_logs=true
+      ;;
+    g)
+      enable_garbage_collection=true
       ;;
     n)
       network=${OPTARG}
@@ -118,12 +123,17 @@ if ! [ "$shards" -ge "$committee_size" ] 2>/dev/null; then
   exit 1
 fi
 
-echo "$0: Using network: $network"
-echo "$0: Using committee_size: $committee_size"
-echo "$0: Using shards: $shards"
-echo "$0: Using epoch_duration: $epoch_duration"
-echo "$0: Using RUST_LOG: $rust_log"
-echo "$0: Using backup_database_url: $backup_database_url"
+if $use_existing_config; then
+  echo "$0: Using existing config"
+else
+  echo "$0: Using network: $network"
+  echo "$0: Using committee_size: $committee_size"
+  echo "$0: Using shards: $shards"
+  echo "$0: Using epoch_duration: $epoch_duration"
+  echo "$0: Using RUST_LOG: $rust_log"
+  echo "$0: Using backup_database_url: $backup_database_url"
+  echo "$0: Using garbage collection: $enable_garbage_collection"
+fi
 
 
 if ! $use_existing_config; then
@@ -172,6 +182,7 @@ if ! $use_existing_config; then
   # Cleanup
   find contracts -name 'build' -type d -exec rm -rf {} +
   rm -f $working_dir/dryrun-node-*.yaml
+  rm -f $working_dir/dryrun-node-*.log
   cleanup="--cleanup-storage"
 
   # Deploy system contract
@@ -201,6 +212,18 @@ event_processor_config:
   max_workers: 2
   initial_workers: 2" | \
       tee -a $working_dir/dryrun-node-*[0-9].yaml >/dev/null
+
+  # Add garbage collection configuration if enabled
+  if $enable_garbage_collection; then
+    echo "
+db_config:
+  global:
+    experimental_use_optimistic_transaction_db: true
+garbage_collection:
+  enable_blob_info_cleanup: true
+  enable_data_deletion: true" | \
+        tee -a $working_dir/dryrun-node-*[0-9].yaml >/dev/null
+  fi
 fi
 
 node_count=0

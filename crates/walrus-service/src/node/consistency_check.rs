@@ -33,6 +33,8 @@ use super::{
 pub struct StorageNodeConsistencyCheckConfig {
     /// Enable the consistency check for the blob info table.
     pub enable_consistency_check: bool,
+    /// Enable an internal invariant check for the blob info tables.
+    pub enable_blob_info_invariants_check: bool,
     /// Enable the sliver data existence check.
     pub enable_sliver_data_existence_check: bool,
     /// The sample rate of the sliver data existence check. Value is between 0 and 100.
@@ -44,8 +46,20 @@ impl Default for StorageNodeConsistencyCheckConfig {
     fn default() -> Self {
         Self {
             enable_consistency_check: true,
+            enable_blob_info_invariants_check: false,
             enable_sliver_data_existence_check: false,
             sliver_data_existence_check_sample_rate_percentage: 100,
+        }
+    }
+}
+
+impl StorageNodeConsistencyCheckConfig {
+    /// Returns a default configuration for testing.
+    pub fn default_for_test() -> Self {
+        Self {
+            enable_blob_info_invariants_check: true,
+            enable_sliver_data_existence_check: true,
+            ..Self::default()
         }
     }
 }
@@ -128,6 +142,13 @@ pub(super) async fn schedule_background_consistency_check(
             per_object_blob_info_iterator,
             epoch,
         );
+
+        if node
+            .consistency_check_config
+            .enable_blob_info_invariants_check
+        {
+            node.storage.blob_info_invariants_check();
+        }
     });
 
     // We need to make sure that the function returns only after the blob info iterator is

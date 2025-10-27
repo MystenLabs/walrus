@@ -220,15 +220,17 @@ impl<'a> BlobEncoder<'a> {
         self.blob.chunks(self.n_columns * self.symbol_usize())
     }
 
-    fn empty_slivers<T: EncodingAxis>(&self) -> Vec<SliverData<T>> {
+    fn empty_sliver<E: EncodingAxis>(&self, index: SliverIndex) -> SliverData<E> {
+        SliverData::<E>::new_empty(
+            self.config.n_source_symbols::<E::OrthogonalAxis>().get(),
+            self.symbol_size,
+            index,
+        )
+    }
+
+    fn empty_slivers<E: EncodingAxis>(&self) -> Vec<SliverData<E>> {
         (0..self.config.n_shards().get())
-            .map(|i| {
-                SliverData::<T>::new_empty(
-                    self.config.n_source_symbols::<T::OrthogonalAxis>().get(),
-                    self.symbol_size,
-                    SliverIndex(i),
-                )
-            })
+            .map(|i| self.empty_sliver::<E>(SliverIndex(i)))
             .collect()
     }
 
@@ -246,6 +248,70 @@ impl<'a> BlobEncoder<'a> {
     fn get_expanded_matrix(&self) -> ExpandedMessageMatrix<'_> {
         self.span
             .in_scope(|| ExpandedMessageMatrix::new(self.config, self.symbol_size, self.blob))
+    }
+
+    /// Returns the systematic primary sliver at the given index.
+    ///
+    /// For indices greater than the number of systematic primary slivers, the function returns a
+    /// sliver with the correct length but all symbols set to 0.
+    fn systematic_primary_sliver(&self, index: SliverIndex) -> SliverData<Primary> {
+        let mut sliver = self.empty_sliver::<Primary>(index);
+        if let Some(row) = self.rows().nth(index.as_usize()) {
+            sliver.symbols.data_mut()[..row.len()].copy_from_slice(row);
+        }
+        sliver
+    }
+
+    /// Performs the default consistency check.
+    ///
+    /// This checks the primary sliver hashes against the metadata.
+    ///
+    /// Also takes an optional vector of booleans indicating for each systematic primary sliver
+    /// whether it has already been verified (and thus can be skipped). If not `None`, the length of
+    /// the vector must be the number of systematic primary slivers.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`DecodeError::VerificationError`] if the check fails.
+    ///
+    /// Returns a [`DecodeError::DataTooLarge`] if the blob size is too large to be encoded.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the length of the `already_verified_slivers` vector is not equal to the number of
+    /// systematic primary slivers.
+    pub(crate) fn default_consistency_check(
+        &self,
+        metadata: &VerifiedBlobMetadataWithId,
+        already_verified_slivers: &Option<Vec<bool>>,
+    ) -> Result<(), DecodeError> {
+        let n_systematic_primary_slivers = self.config.n_systematic_slivers::<Primary>().get();
+        tracing::debug!(
+            n_systematic_primary_slivers,
+            "performing default consistency check"
+        );
+        if let Some(already_verified_slivers) = already_verified_slivers {
+            assert_eq!(
+                already_verified_slivers.len(),
+                usize::from(n_systematic_primary_slivers)
+            );
+        }
+        for i in 0..n_systematic_primary_slivers {
+            if let Some(already_verified_slivers) = already_verified_slivers
+                && already_verified_slivers[usize::from(i)]
+            {
+                tracing::trace!(
+                    "skipping verification of already verified systematic primary sliver {i}"
+                );
+                continue;
+            }
+            tracing::trace!("verifying systematic primary sliver {i}");
+            let sliver = self.systematic_primary_sliver(SliverIndex(i));
+            sliver
+                .check_hash(&self.config, metadata.metadata())
+                .map_err(|_| DecodeError::VerificationError)?;
+        }
+        Ok(())
     }
 }
 
@@ -836,6 +902,8 @@ mod tests {
 
     #[test]
     fn test_encode_decode_and_verify() {
+        walrus_test_utils::init_tracing();
+
         let blob = random_data(16180);
         let blob_size: u64 = blob.len().try_into().unwrap();
         let n_shards = 102;

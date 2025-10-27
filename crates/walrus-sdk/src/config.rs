@@ -24,21 +24,27 @@ use walrus_sui::{
     config::WalletConfig,
     wallet::Wallet,
 };
-use walrus_utils::{backoff::ExponentialBackoffConfig, config::path_or_defaults_if_exist};
+use walrus_utils::{
+    backoff::ExponentialBackoffConfig,
+    config::path_or_defaults_if_exist,
+    is_internal_run,
+};
 
 use crate::client::quilt_client::QuiltClientConfig;
 
 mod committees_refresh_config;
-mod communication_config;
+/// Communication configuration options.
+pub mod communication_config;
 mod reqwest_config;
 mod sliver_write_extra_time;
 mod upload_mode;
 
 pub use self::{
     committees_refresh_config::CommitteesRefreshConfig,
-    communication_config::{ClientCommunicationConfig, CommunicationLimits},
+    communication_config::{ClientCommunicationConfig, CommunicationLimits, UploadMode},
     reqwest_config::RequestRateConfig,
-    upload_mode::UploadMode,
+    sliver_write_extra_time::SliverWriteExtraTime,
+    upload_mode::UploadMode as UploadPreset,
 };
 
 /// Returns the default paths for the Walrus configuration file.
@@ -73,11 +79,13 @@ pub fn load_configuration(
     let path = path_or_defaults_if_exist(path, &default_configuration_paths())
         .ok_or(anyhow!("could not find a valid Walrus configuration file"))?;
     let (config, context) = ClientConfig::load_from_multi_config(&path, context)?;
-    tracing::info!(
-        "using Walrus configuration from '{}' with {} context",
-        path.display(),
-        context.map_or("default".to_string(), |c| format!("'{c}'"))
-    );
+    if !is_internal_run() {
+        tracing::info!(
+            "using Walrus configuration from '{}' with {} context",
+            path.display(),
+            context.map_or("default".to_string(), |c| format!("'{c}'"))
+        );
+    }
     Ok(config)
 }
 

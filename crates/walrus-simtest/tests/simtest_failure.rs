@@ -825,7 +825,7 @@ mod tests {
         tokio::time::sleep(Duration::from_secs(30)).await;
 
         // Get the latest checkpoint from Sui.
-        let rpc_client = rpc_client::create_sui_rpc_client(
+        let mut rpc_client = rpc_client::create_sui_rpc_client(
             &sui_cluster.lock().await.additional_rpc_urls()[0].clone(),
         )
         .expect("Failed to create RPC client");

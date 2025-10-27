@@ -24,7 +24,7 @@ pub struct FallibleRpcClient {
     /// The RPC URL.
     rpc_url: String,
     /// The underlying RPC client.
-    client: Arc<RwLock<Arc<RpcClient>>>,
+    client: Arc<RwLock<RpcClient>>,
     /// The instant of the last successful RPC call.
     last_success: AtomicInstant,
     /// The number of failures since the last successful RPC call.
@@ -49,7 +49,7 @@ impl FallibleRpcClient {
     }
 
     /// Returns the underlying RPC client.
-    pub async fn inner(&self) -> Arc<RpcClient> {
+    pub async fn inner(&self) -> RpcClient {
         self.client.read().await.clone()
     }
 
@@ -61,7 +61,7 @@ impl FallibleRpcClient {
     /// Calls the underlying RPC client with the given function.
     pub async fn call<F, Fut, T>(&self, f: F, timeout: Duration) -> Result<T, tonic::Status>
     where
-        F: FnOnce(Arc<RpcClient>) -> Fut,
+        F: FnOnce(RpcClient) -> Fut,
         Fut: Future<Output = Result<T, tonic::Status>>,
     {
         let client = self.client.read().await;
