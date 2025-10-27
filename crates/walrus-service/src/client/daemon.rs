@@ -664,6 +664,61 @@ mod tests {
 
     use super::*;
 
+    #[test]
+    fn test_header_name_case_insensitive_comparison() {
+        // Create allowed headers with mixed case.
+        let allowed_headers_input = [
+            "Content-Type".to_string(),
+            "AUTHORIZATION".to_string(),
+            "X-Custom-Header".to_string(),
+            "cache-control".to_string(),
+        ];
+
+        // Convert to HeaderName set as done in the actual code.
+        let allowed_headers: HashSet<HeaderName> = allowed_headers_input
+            .iter()
+            .filter_map(|h| h.parse::<HeaderName>().ok())
+            .collect();
+
+        // All of these should be found regardless of case.
+        assert!(allowed_headers.contains(&HeaderName::from_static("content-type")));
+        assert!(allowed_headers.contains(&HeaderName::from_static("authorization")));
+        assert!(allowed_headers.contains(&HeaderName::from_static("x-custom-header")));
+        assert!(allowed_headers.contains(&HeaderName::from_static("cache-control")));
+
+        // Test with parsed headers (simulating headers from requests).
+        assert!(allowed_headers.contains(&"Content-Type".parse::<HeaderName>().unwrap()));
+        assert!(allowed_headers.contains(&"content-type".parse::<HeaderName>().unwrap()));
+        assert!(allowed_headers.contains(&"CONTENT-TYPE".parse::<HeaderName>().unwrap()));
+        assert!(allowed_headers.contains(&"CoNtEnT-tYpE".parse::<HeaderName>().unwrap()));
+
+        // Test that non-allowed headers are not found.
+        assert!(!allowed_headers.contains(&HeaderName::from_static("x-not-allowed")));
+        assert!(!allowed_headers.contains(&HeaderName::from_static("accept")));
+    }
+
+    #[test]
+    fn test_invalid_header_names_are_filtered() {
+        // Test that invalid header names are filtered out.
+        let invalid_headers = [
+            "Valid-Header".to_string(),
+            "Invalid Header".to_string(),  // Contains space
+            "Invalid\nHeader".to_string(), // Contains newline
+            "".to_string(),                // Empty
+            "Another-Valid".to_string(),
+        ];
+
+        let allowed_headers: HashSet<HeaderName> = invalid_headers
+            .iter()
+            .filter_map(|h| h.parse::<HeaderName>().ok())
+            .collect();
+
+        // Only valid headers should be in the set.
+        assert_eq!(allowed_headers.len(), 2);
+        assert!(allowed_headers.contains(&HeaderName::from_static("valid-header")));
+        assert!(allowed_headers.contains(&HeaderName::from_static("another-valid")));
+    }
+
     /// Mock client that simulates slow blob reads to test concurrency limits.
     #[derive(Clone)]
     struct MockSlowClient {
