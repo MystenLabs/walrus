@@ -226,6 +226,8 @@ where
     }
 
     /// Push a task to the latest queue, potentially moving overflow to catchup queue.
+    /// TaskBuffer is always operating in async mode, even if it is in up-to-date state, tasks are
+    /// added to the latest queue, and pulled by the puller later.
     /// When latest_queue overflows:
     /// - If catchup_queue has space: move old tasks to catchup queue (stay UpToDate)
     /// - If catchup_queue is full: drop tasks and transition to CatchingUp
