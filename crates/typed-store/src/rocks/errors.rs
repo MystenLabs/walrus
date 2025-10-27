@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 #[derive(Serialize, Deserialize, Clone, Eq, PartialEq, Hash, Debug, Error)]
+#[allow(unused)]
 pub(crate) struct RocksErrorDef {
     message: String,
 }
@@ -20,6 +21,7 @@ impl Display for RocksErrorDef {
 }
 
 #[derive(Serialize, Deserialize, Clone, Hash, Eq, PartialEq, Debug, Error)]
+#[allow(unused)]
 pub(crate) enum BincodeErrorDef {
     Io(String),
     InvalidUtf8Encoding(String),
@@ -92,6 +94,13 @@ pub fn typed_store_err_from_bcs_err(err: bcs::Error) -> TypedStoreError {
 /// Convert the rocksdb error to the typed store error
 pub fn typed_store_err_from_rocks_err(err: RocksError) -> TypedStoreError {
     match err.kind() {
+        // Busy: transaction conflict (pessimistic lock conflict or optimistic commit conflict).
+        // TryAgain: insufficient memtable history to validate conflicts; retry is recommended.
+        // References:
+        // - Transactions overview: https://github.com/facebook/rocksdb/wiki/Transactions
+        // - Optimistic txns (Busy/TryAgain, history tuning):
+        //   https://github.com/facebook/rocksdb/wiki/Optimistic-Transactions
+        // - Status codes: https://github.com/facebook/rocksdb/blob/main/include/rocksdb/status.h
         rocksdb::ErrorKind::Busy | rocksdb::ErrorKind::TryAgain => {
             TypedStoreError::RetryableTransactionError
         }

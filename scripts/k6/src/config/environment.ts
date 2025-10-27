@@ -25,7 +25,7 @@ export interface EnvironmentConfig {
      */
     payloadSourceFile: string,
     /**
-     * URL to a redis instance that can be used to persist state across expiriments.
+     * URL to a redis instance that can be used to persist state across experiments.
      */
     redisUrl?: RedisUrl,
 }

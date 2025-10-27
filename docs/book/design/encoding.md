@@ -82,7 +82,8 @@ The following sections describe the different types of consistency checks perfor
 ```admonish info title="Select the appropriate consistency check"
 In the majority of cases, the default consistency check is sufficient, in particular if the writer
 of the blob is trusted. The strict consistency check is only needed if specific availability
-guarantees are required.
+guarantees are required. If the writer of a blob is known and trusted, it is also possible to
+completely disable the consistency check.
 ```
 
 ### Default consistency check
@@ -96,11 +97,11 @@ The encoding used by Walrus has the property that *the first 334 primary slivers
 together with the blob length uniquely determine the content of the blob. Therefore, by recomputing
 the sliver hashes of the first 334 slivers and checking them against the metadata, the client can
 verify that the decoded data is correct. If this check succeeds, the data is provided to the user,
-otherwise an error is returned. This check provides the following guarantee:
+otherwise an error is returned. This check provides the following guarantees:
 
 ```admonish tip title="Data consistency property"
-Any correct client attempting to read a blob will either read the specific value authenticated by
-the writer or return an error.
+Any correct client attempting to read a blob, performing the default consistency check, will either
+read the specific value authenticated by the writer or return an error.
 ```
 
 ### Strict consistency check
@@ -114,14 +115,17 @@ after which all read attempts would fail.
 
 For this reason, Walrus optionally offers a *strict consistency check*: After decoding the blob, the
 client fully *re-encodes* it and recomputes all hashes and the blob ID. Only if that computation
-results in the blob ID they are trying to read is the read considered successful.
+results in the blob ID they are trying to read is the read considered successful. This check is
+strictly stronger than the default consistency check and therefore also fulfills the data
+consistency property above.
 
-This process *ensures that the original writer encoded the blob correctly*. Therefore, after a blob
-was read successfully with the strict consistency check enabled, the following property holds:
+In addition, this process *ensures that the original writer encoded the blob correctly*. Therefore,
+after a blob was read successfully with the strict consistency check enabled, the following property
+holds in addition:
 
 ```admonish tip title="Guarantee after strict consistency check succeeded"
 Any correct client attempting to read a blob during its lifetime will always succeed and read the
-same data intended by the writer.
+same data intended by the writer, irrespective of which consistency check is performed.
 ```
 
 Note that for quilt patches, only a variant of the default consistency check is available, as only

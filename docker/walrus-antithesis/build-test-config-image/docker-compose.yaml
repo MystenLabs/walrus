@@ -19,11 +19,18 @@ services:
     environment:
       - NO_COLOR=1
       - SUI_PROTOCOL_CONFIG_CHAIN_OVERRIDE=mainnet # Always use sui mainnet protocol config.
+      - ANTITHESIS_ENABLE_EXECUTION_TIME_INJECTION=false # Disable execution time injection to avoid artificial congestion control.
     command: >
       /bin/sh -c "cp /usr/local/bin/sui /root/sui_bin/ && \
-      sui start --with-faucet --force-regenesis --committee-size 3 --epoch-duration-ms 86400000"
+      sui start --with-faucet --force-regenesis --committee-size 1 --epoch-duration-ms 86400000"
     healthcheck:
-      test: ["CMD", "/bin/bash", "-c", "echo > /dev/tcp/127.0.0.1/9123 && echo > /dev/tcp/127.0.0.1/9000"]
+      test:
+        [
+          "CMD",
+          "/bin/bash",
+          "-c",
+          "echo > /dev/tcp/127.0.0.1/9123 && echo > /dev/tcp/127.0.0.1/9000",
+        ]
       interval: 10s
       timeout: 10s
       retries: 10

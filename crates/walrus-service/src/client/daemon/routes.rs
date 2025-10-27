@@ -35,6 +35,7 @@ use walrus_core::{
     EpochCount,
     QuiltPatchId,
     encoding::{
+        ConsistencyCheckType,
         QuiltError,
         quilt_encoding::{QuiltApi, QuiltStoreBlob, QuiltVersionEnum, QuiltVersionV1},
     },
@@ -93,12 +94,29 @@ const WALRUS_NATIVE_METADATA_FIELD_NAME: &str = "_metadata";
 pub struct ReadOptions {
     /// Whether to perform a strict consistency check.
     ///
-    /// This is the current default behavior and has no effect. However, the default consistency
-    /// check is changing in `v1.37` to a more performant one, which is sufficient for the
-    /// majority of cases. This flag can be used to enable the current strict consistency check.
-    // TODO(WAL-1055): Adjust docstring when changing the default behavior.
+    /// This was the default before `v1.37`. In `v1.37`, the default consistency was changed to a
+    /// more performant one, which is sufficient for the majority of cases. This flag can be used to
+    /// enable the previous strict consistency check. See
+    /// https://docs.wal.app/design/encoding.html#data-integrity-and-consistency for more details.
     #[serde(default)]
     pub strict_consistency_check: bool,
+    /// Whether to skip consistency checks entirely.
+    ///
+    /// When enabled, this flag bypasses all consistency verification during blob reading. This
+    /// should be used only when the writer of the blob is trusted. Does *not* affect any
+    /// authentication checks for data received from storage nodes, which are always performed.
+    #[serde(default)]
+    pub skip_consistency_check: bool,
+}
+
+impl ReadOptions {
+    pub fn consistency_check(&self) -> Result<ConsistencyCheckType, InvalidConsistencyCheck> {
+        crate::client::utils::consistency_check_type_from_flags(
+            self.strict_consistency_check,
+            self.skip_consistency_check,
+        )
+        .map_err(|_| InvalidConsistencyCheck)
+    }
 }
 
 /// Retrieve a Walrus blob.
@@ -112,16 +130,21 @@ pub struct ReadOptions {
     responses(
         (status = 200, description = "The blob was reconstructed successfully", body = [u8]),
         GetBlobError,
+        InvalidConsistencyCheck,
     ),
 )]
 pub(super) async fn get_blob<T: WalrusReadClient>(
     request_headers: HeaderMap,
     State(client): State<Arc<T>>,
     Path(BlobIdString(blob_id)): Path<BlobIdString>,
-    Query(_read_options): Query<ReadOptions>,
+    Query(read_options): Query<ReadOptions>,
 ) -> Response {
     tracing::debug!("starting to read blob");
-    match client.read_blob(&blob_id).await {
+    let consistency_check = match read_options.consistency_check() {
+        Ok(consistency_check) => consistency_check,
+        Err(error) => return error.into_response(),
+    };
+    match client.read_blob(&blob_id, consistency_check).await {
         Ok(blob) => {
             tracing::debug!("successfully retrieved blob");
             let mut response = (StatusCode::OK, blob).into_response();
@@ -211,6 +234,7 @@ fn populate_response_headers_from_attributes(
             body = [u8]
         ),
         GetBlobError,
+        InvalidConsistencyCheck,
     ),
 )]
 pub(super) async fn get_blob_by_object_id<T: WalrusReadClient>(
@@ -309,6 +333,16 @@ impl From<ClientError> for GetBlobError {
         }
     }
 }
+
+/// The consistency check options are invalid.
+#[derive(Debug, thiserror::Error, RestApiError)]
+#[error("cannot set both strict and skip consistency check options")]
+#[rest_api_error(
+    domain = ERROR_DOMAIN,
+    reason = "INVALID_CONSISTENCY_CHECK",
+    status = ApiStatusCode::InvalidArgument
+)]
+pub(crate) struct InvalidConsistencyCheck;
 
 /// Store a blob on Walrus.
 ///

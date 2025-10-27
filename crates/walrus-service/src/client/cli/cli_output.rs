@@ -1102,7 +1102,7 @@ fn blob_and_file_str(blob_id: &BlobId, file: &Option<PathBuf>) -> String {
     }
 }
 
-/// Print the full information of the storage node to stdoud.
+/// Print the full information of the storage node to stdout.
 fn print_storage_node_info(node: &StorageNodeInfo, node_idx: usize, n_shards: &NonZeroU16) {
     let n_owned = node.n_shards;
     let n_owned_percent = (n_owned as f64) / f64::from(n_shards.get()) * 100.0;

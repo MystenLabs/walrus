@@ -15,20 +15,25 @@ use super::client_op_generator::WalrusNodeClientOp;
 pub(crate) struct BlobDataAndInfo {
     /// The user blob data. Only stored if `store_blob_data` is true in BlobPool.
     blob: Option<Vec<u8>>,
-    /// The object id of the blob.
-    blob_object_id: ObjectID,
+    /// The blob objects.
+    blob_objects: HashMap<ObjectID, BlobObjectInfo>,
+}
+
+/// Info of a blob object.
+pub(crate) struct BlobObjectInfo {
     /// Whether the blob is deletable.
     deletable: bool,
-    /// The epoch at which the blob will be deleted.
+    /// The epoch at which the blob will be expired.
     end_epoch: Epoch,
 }
 
 /// Manages a pool of blobs that are live in the system.
 pub(crate) struct BlobPool {
-    // TODO(WAL-946): when writing the same blob but with different properties (e.g. deletable or
-    // permanent), we may want to keep the object id in the map as well.
+    /// The blobs in the pool.
     blobs: HashMap<BlobId, BlobDataAndInfo>,
+    /// Whether to store the blob data.
     store_blob_data: bool,
+    /// The maximum number of blobs in the pool.
     max_blobs_in_pool: usize,
 }
 
@@ -45,12 +50,38 @@ impl BlobPool {
         self.blobs.keys().choose(rng).cloned()
     }
 
-    pub fn select_random_deletable_blob_id<R: Rng>(&self, rng: &mut R) -> Option<BlobId> {
+    pub fn select_random_deletable_blob_id<R: Rng>(
+        &self,
+        rng: &mut R,
+    ) -> Option<(BlobId, ObjectID)> {
         self.blobs
             .iter()
-            .filter(|(_, blob_data)| blob_data.deletable)
+            .flat_map(|(blob_id, blob_data)| {
+                blob_data
+                    .blob_objects
+                    .iter()
+                    .filter(|(_, blob_object_info)| blob_object_info.deletable)
+                    .map(move |(object_id, _)| (*blob_id, *object_id))
+            })
             .choose(rng)
-            .map(|(blob_id, _)| *blob_id)
+    }
+
+    /// Returns the object id of a blob.
+    pub fn select_random_blob_object_id<R: Rng>(
+        &self,
+        blob_id: BlobId,
+        rng: &mut R,
+    ) -> Option<ObjectID> {
+        self.blobs
+            .get(&blob_id)
+            .and_then(|blob_data| blob_data.blob_objects.keys().choose(rng).cloned())
+    }
+
+    pub fn select_random_blob_data<R: Rng>(&self, rng: &mut R) -> Option<Vec<u8>> {
+        self.blobs
+            .values()
+            .flat_map(|blob_data| blob_data.blob.clone())
+            .choose(rng)
     }
 
     /// Updates the blob pool with a client operation.
@@ -74,15 +105,15 @@ impl BlobPool {
                     store_epoch_ahead,
                 );
             }
-            WalrusNodeClientOp::Delete { blob_id } => {
-                self.delete_blob(blob_id);
+            WalrusNodeClientOp::Delete { blob_id, object_id } => {
+                self.delete_blob(blob_id, object_id);
             }
             WalrusNodeClientOp::Extend {
                 blob_id,
-                object_id: _object_id,
+                object_id,
                 store_epoch_ahead,
             } => {
-                self.extend_blob(blob_id, store_epoch_ahead);
+                self.extend_blob(blob_id, object_id, store_epoch_ahead);
             }
             WalrusNodeClientOp::Read {
                 blob_id: _blob_id,
@@ -113,21 +144,40 @@ impl BlobPool {
                 } else {
                     None
                 },
-                blob_object_id,
-                deletable,
-                end_epoch,
+                blob_objects: HashMap::from([(
+                    blob_object_id,
+                    BlobObjectInfo {
+                        deletable,
+                        end_epoch,
+                    },
+                )]),
             },
         );
     }
 
     /// Deletes a blob from the pool.
-    fn delete_blob(&mut self, blob_id: BlobId) {
-        self.blobs.remove(&blob_id);
+    fn delete_blob(&mut self, blob_id: BlobId, object_id: ObjectID) {
+        self.blobs
+            .get_mut(&blob_id)
+            .expect("blob must exist")
+            .blob_objects
+            .remove(&object_id);
+
+        // If there are no more blob objects, remove the blob from the pool.
+        if self.blobs[&blob_id].blob_objects.is_empty() {
+            self.blobs.remove(&blob_id);
+        }
     }
 
     /// Extends the end epoch of a blob.
-    fn extend_blob(&mut self, blob_id: BlobId, additional_epochs: EpochCount) {
-        let blob_data = self.blobs.get_mut(&blob_id).expect("blob must exist");
+    fn extend_blob(&mut self, blob_id: BlobId, object_id: ObjectID, additional_epochs: EpochCount) {
+        let blob_data = self
+            .blobs
+            .get_mut(&blob_id)
+            .expect("blob must exist")
+            .blob_objects
+            .get_mut(&object_id)
+            .expect("blob object must exist");
         blob_data.end_epoch += additional_epochs;
     }
 
@@ -140,23 +190,24 @@ impl BlobPool {
 
     /// Expire blobs that have expired at the given epoch.
     pub fn expire_blobs_in_new_epoch(&mut self, epoch: Epoch) {
-        let expired_blob_ids: Vec<BlobId> = self
-            .blobs
-            .iter()
-            .filter(|(_, blob_data)| blob_data.end_epoch <= epoch)
-            .map(|(blob_id, _)| *blob_id)
-            .collect();
+        let mut blobs_to_remove = Vec::new();
 
-        for blob_id in expired_blob_ids {
+        for (blob_id, blob_data) in self.blobs.iter_mut() {
+            // Remove expired objects from this blob
+            blob_data
+                .blob_objects
+                .retain(|_, blob_object| blob_object.end_epoch > epoch);
+
+            // If no objects remain, mark the blob for removal
+            if blob_data.blob_objects.is_empty() {
+                blobs_to_remove.push(*blob_id);
+            }
+        }
+
+        // Remove blobs that have no remaining objects
+        for blob_id in blobs_to_remove {
             self.blobs.remove(&blob_id);
         }
-    }
-
-    /// Returns the object id of a blob.
-    pub fn get_blob_object_id(&self, blob_id: BlobId) -> Option<ObjectID> {
-        self.blobs
-            .get(&blob_id)
-            .map(|blob_data| blob_data.blob_object_id)
     }
 
     /// Returns true if the blob pool is empty.
@@ -211,9 +262,12 @@ mod tests {
 
         let stored_blob = &pool.blobs[&blob_id];
         assert_eq!(stored_blob.blob, Some(blob_data));
-        assert_eq!(stored_blob.blob_object_id, object_id);
-        assert!(stored_blob.deletable);
-        assert_eq!(stored_blob.end_epoch, 10);
+        assert_eq!(stored_blob.blob_objects.keys().next().unwrap(), &object_id);
+        assert!(stored_blob.blob_objects.values().next().unwrap().deletable);
+        assert_eq!(
+            stored_blob.blob_objects.values().next().unwrap().end_epoch,
+            10
+        );
     }
 
     #[test]
@@ -232,8 +286,8 @@ mod tests {
         assert!(!pool.is_empty());
 
         // Then delete it
-        let delete_op = WalrusNodeClientOp::Delete { blob_id };
-        pool.update_blob_pool(blob_id, None, delete_op);
+        let delete_op = WalrusNodeClientOp::Delete { blob_id, object_id };
+        pool.update_blob_pool(blob_id, Some(object_id), delete_op);
 
         assert!(pool.is_empty());
         assert!(!pool.blobs.contains_key(&blob_id));
@@ -262,7 +316,10 @@ mod tests {
         pool.update_blob_pool(blob_id, None, extend_op);
 
         let stored_blob = &pool.blobs[&blob_id];
-        assert_eq!(stored_blob.end_epoch, 15); // 10 + 5
+        assert_eq!(
+            stored_blob.blob_objects.values().next().unwrap().end_epoch,
+            15
+        ); // 10 + 5
     }
 
     #[test]
@@ -288,7 +345,10 @@ mod tests {
 
         assert_eq!(pool.blobs.len(), 1);
         let stored_blob = &pool.blobs[&blob_id];
-        assert_eq!(stored_blob.end_epoch, 10); // Unchanged
+        assert_eq!(
+            stored_blob.blob_objects.values().next().unwrap().end_epoch,
+            10
+        ); // Unchanged
     }
 
     #[test]
@@ -381,7 +441,8 @@ mod tests {
             deletable: true,
             store_epoch_ahead: 10,
         };
-        pool.update_blob_pool(deletable_blob_id, Some(create_test_object_id()), write_op1);
+        let deletable_object_id = create_test_object_id();
+        pool.update_blob_pool(deletable_blob_id, Some(deletable_object_id), write_op1);
 
         // Add non-deletable blob
         let permanent_blob_id = BlobId([2; 32]);
@@ -401,7 +462,73 @@ mod tests {
         // Random deletable blob selection should only return the deletable one
         assert_eq!(
             pool.select_random_deletable_blob_id(&mut rng),
-            Some(deletable_blob_id)
+            Some((deletable_blob_id, deletable_object_id))
         );
+    }
+
+    #[test]
+    fn test_expire_blob_objects_independently() {
+        let mut pool = BlobPool::new(false, 1000);
+        let blob_id = BlobId([1; 32]);
+
+        // Manually create a blob with multiple objects having different expiration epochs
+        let object_id1 = ObjectID::new([1; 32]);
+        let object_id2 = ObjectID::new([2; 32]);
+        let object_id3 = ObjectID::new([3; 32]);
+
+        let mut blob_objects = HashMap::new();
+        blob_objects.insert(
+            object_id1,
+            BlobObjectInfo {
+                deletable: true,
+                end_epoch: 5, // Expires at epoch 5
+            },
+        );
+        blob_objects.insert(
+            object_id2,
+            BlobObjectInfo {
+                deletable: false,
+                end_epoch: 10, // Expires at epoch 10
+            },
+        );
+        blob_objects.insert(
+            object_id3,
+            BlobObjectInfo {
+                deletable: true,
+                end_epoch: 15, // Expires at epoch 15
+            },
+        );
+
+        pool.blobs.insert(
+            blob_id,
+            BlobDataAndInfo {
+                blob: None,
+                blob_objects,
+            },
+        );
+
+        // Verify initial state
+        assert_eq!(pool.blobs.len(), 1);
+        assert_eq!(pool.blobs[&blob_id].blob_objects.len(), 3);
+
+        // Expire at epoch 5 - should remove object_id1
+        pool.expire_blobs_in_new_epoch(5);
+        assert_eq!(pool.blobs.len(), 1); // Blob still exists
+        assert_eq!(pool.blobs[&blob_id].blob_objects.len(), 2); // One object removed
+        assert!(!pool.blobs[&blob_id].blob_objects.contains_key(&object_id1));
+        assert!(pool.blobs[&blob_id].blob_objects.contains_key(&object_id2));
+        assert!(pool.blobs[&blob_id].blob_objects.contains_key(&object_id3));
+
+        // Expire at epoch 10 - should remove object_id2
+        pool.expire_blobs_in_new_epoch(10);
+        assert_eq!(pool.blobs.len(), 1); // Blob still exists
+        assert_eq!(pool.blobs[&blob_id].blob_objects.len(), 1); // Another object removed
+        assert!(!pool.blobs[&blob_id].blob_objects.contains_key(&object_id1));
+        assert!(!pool.blobs[&blob_id].blob_objects.contains_key(&object_id2));
+        assert!(pool.blobs[&blob_id].blob_objects.contains_key(&object_id3));
+
+        // Expire at epoch 15 - should remove object_id3 and the entire blob
+        pool.expire_blobs_in_new_epoch(15);
+        assert_eq!(pool.blobs.len(), 0); // Blob removed when all objects expire
     }
 }

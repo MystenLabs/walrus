@@ -111,7 +111,7 @@ impl StorageNodeClientBuilder {
         self
     }
 
-    /// Registers metrics the provided registry. Defaults to the globabl default registry.
+    /// Registers metrics the provided registry. Defaults to the global default registry.
     pub fn metric_registry(mut self, registry: Registry) -> Self {
         self.registry = Some(registry);
         self

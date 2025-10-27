@@ -742,11 +742,7 @@ pub async fn create_storage_node_configs(
             num_uncertified_blob_threshold: Some(10),
             balance_check: Default::default(),
             thread_pool: Default::default(),
-            consistency_check: StorageNodeConsistencyCheckConfig {
-                enable_consistency_check: true,
-                enable_sliver_data_existence_check: true,
-                sliver_data_existence_check_sample_rate_percentage: 100,
-            },
+            consistency_check: StorageNodeConsistencyCheckConfig::default_for_test(),
             checkpoint_config: Default::default(),
             admin_socket_path: Some(working_dir.join(format!("admin-{node_index}.sock"))),
             node_recovery_config: Default::default(),

@@ -955,7 +955,7 @@ impl QuiltApi<QuiltVersionV1> for QuiltV1 {
                 "n_source_symbols cannot be zero".to_string(),
             ));
         }
-        if quilt_blob.len() % n_source_symbols != 0 {
+        if !quilt_blob.len().is_multiple_of(n_source_symbols) {
             return Err(QuiltError::InvalidFormatNotAligned(format!(
                 "quilt_blob length {} is not a multiple of n_source_symbols {}",
                 quilt_blob.len(),
@@ -1361,7 +1361,7 @@ impl<'a> QuiltEncoderV1<'a> {
         row_size: usize,
         symbol_size: usize,
     ) -> Result<usize, QuiltError> {
-        assert!(column_size % symbol_size == 0);
+        assert!(column_size.is_multiple_of(symbol_size));
 
         let mut total_bytes_written = 0;
         if !is_meta_blob {
@@ -1974,8 +1974,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        encoding::ReedSolomonEncodingConfig,
-        metadata::BlobMetadataApi as _,
+        encoding::{ReedSolomonEncodingConfig, common::ConsistencyCheckType},
         test_utils::QuiltTestData,
     };
 
@@ -2301,6 +2300,7 @@ mod tests {
         );
 
         let QuiltMetadata::V1(quilt_metadata_v1) = quilt_metadata;
+        let verified_metadata = quilt_metadata_v1.get_verified_metadata();
 
         let slivers: Vec<&SliverData<Secondary>> = sliver_pairs
             .iter()
@@ -2440,18 +2440,16 @@ mod tests {
             }
         }
 
-        let (quilt_blob, metadata_with_id) = config
+        let quilt_blob = config
             .decode_and_verify(
-                &quilt_metadata_v1.quilt_id,
-                quilt_metadata_v1.metadata.unencoded_length(),
+                &verified_metadata,
                 sliver_pairs
                     .iter()
                     .map(|s| s.secondary.clone())
                     .collect::<Vec<_>>(),
+                ConsistencyCheckType::Strict,
             )
             .expect("should decode and verify quilt");
-
-        assert_eq!(metadata_with_id.metadata(), &quilt_metadata_v1.metadata);
 
         let quilt = QuiltV1::new_from_quilt_blob(quilt_blob, config).expect("Should create quilt");
         assert_eq!(

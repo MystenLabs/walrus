@@ -21,10 +21,17 @@ pub struct SingleClientWorkloadArgs {
     /// Check read result
     #[arg(long, default_value_t = true)]
     pub check_read_result: bool,
+    /// The percentage of write operations that will write the same data.
+    #[arg(long, default_value = "0.1")]
+    pub write_same_data_ratio: f64,
     /// The maximum number of blobs to keep in the blob pool. The limit needs to be set in a way
     /// that the pool will hold blob data in memory.
     #[arg(long, default_value_t = 10000)]
     pub max_blobs_in_pool: usize,
+    /// The initial number of blobs to pre-create in the blob pool. This is useful for read-heavy
+    /// workloads to ensure there are enough blobs to read from at the start.
+    #[arg(long, default_value_t = 0)]
+    pub initial_blobs_in_pool: usize,
     /// Define the distribution of request types: read, write, delete, extend
     #[command(flatten)]
     pub request_type_distribution: RequestTypeDistributionArgs,
@@ -141,7 +148,7 @@ impl WorkloadConfig {
 #[derive(clap::Subcommand, Debug, Clone)]
 pub enum RequestStoreLengthDistributionArgs {
     /// Use uniform store length distribution with min and max epoch bounds
-    Uniform {
+    UniformStoreLength {
         /// Minimum store length in epochs
         #[arg(long, default_value_t = 1)]
         min_store_epochs: u32,
@@ -150,7 +157,7 @@ pub enum RequestStoreLengthDistributionArgs {
         max_store_epochs: u32,
     },
     /// Use Poisson distribution for store lengths
-    Poisson {
+    PoissonStoreLength {
         /// Lambda parameter for Poisson distribution of store lengths
         #[arg(long, default_value_t = 5.0)]
         store_lambda: f64,
@@ -164,14 +171,14 @@ impl RequestStoreLengthDistributionArgs {
     /// Get the configuration for this store length distribution
     pub fn get_store_length_config(&self) -> StoreLengthDistributionConfig {
         match self {
-            RequestStoreLengthDistributionArgs::Uniform {
+            RequestStoreLengthDistributionArgs::UniformStoreLength {
                 min_store_epochs,
                 max_store_epochs,
             } => StoreLengthDistributionConfig::Uniform {
                 min_epochs: *min_store_epochs,
                 max_epochs: *max_store_epochs,
             },
-            RequestStoreLengthDistributionArgs::Poisson {
+            RequestStoreLengthDistributionArgs::PoissonStoreLength {
                 store_lambda,
                 store_base_epochs,
             } => StoreLengthDistributionConfig::Poisson {

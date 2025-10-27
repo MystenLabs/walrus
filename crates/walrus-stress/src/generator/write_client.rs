@@ -27,6 +27,7 @@ use walrus_sdk::{
     },
     error::ClientError,
     store_optimizations::StoreOptimizations,
+    uploader::TailHandling,
 };
 use walrus_service::client::{ClientConfig, Refiller};
 use walrus_sui::{
@@ -222,9 +223,12 @@ impl WriteClient {
             .as_ref()
             .send_blob_data_and_get_certificate(
                 &metadata,
-                &pairs,
+                Arc::new(pairs),
                 &blob_sui_object.blob_persistence_type(),
                 Some(&MultiProgress::new()),
+                TailHandling::Blocking,
+                None,
+                None,
             )
             .await?;
 

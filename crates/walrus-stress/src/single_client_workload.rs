@@ -56,8 +56,12 @@ pub struct SingleClientWorkload {
     target_requests_per_minute: u64,
     /// Whether to check the read result matches the record of writes.
     check_read_result: bool,
+    /// The percentage of write operations that will write the same data.
+    write_same_data_ratio: f64,
     /// The maximum number of blobs to keep in the blob pool.
     max_blobs_in_pool: usize,
+    /// The initial number of blobs to pre-create in the blob pool.
+    initial_blobs_in_pool: usize,
     /// The size distribution of uploaded blobs.
     size_distribution_config: SizeDistributionConfig,
     /// The store length distribution of store and extend operations.
@@ -75,7 +79,9 @@ impl SingleClientWorkload {
         client: WalrusNodeClient<SuiContractClient>,
         target_requests_per_minute: u64,
         check_read_result: bool,
+        write_same_data_ratio: f64,
         max_blobs_in_pool: usize,
+        initial_blobs_in_pool: usize,
         size_distribution_config: SizeDistributionConfig,
         store_length_distribution_config: StoreLengthDistributionConfig,
         request_type_distribution: RequestTypeDistributionConfig,
@@ -85,7 +91,9 @@ impl SingleClientWorkload {
             client,
             target_requests_per_minute,
             check_read_result,
+            write_same_data_ratio,
             max_blobs_in_pool,
+            initial_blobs_in_pool,
             size_distribution_config,
             store_length_distribution_config,
             request_type_distribution,
@@ -98,11 +106,15 @@ impl SingleClientWorkload {
         let mut rng = rand::rngs::StdRng::from_entropy();
 
         // Use a blob pool to manage existing blobs.
-        let mut blob_pool = BlobPool::new(self.check_read_result, self.max_blobs_in_pool);
+        let mut blob_pool = BlobPool::new(
+            self.check_read_result || self.write_same_data_ratio > 0.0,
+            self.max_blobs_in_pool,
+        );
         let client_op_generator = ClientOpGenerator::new(
             self.request_type_distribution.clone(),
             self.size_distribution_config.clone(),
             self.store_length_distribution_config.clone(),
+            self.write_same_data_ratio,
         );
 
         let mut request_interval = tokio::time::interval(Duration::from_millis(
@@ -110,8 +122,17 @@ impl SingleClientWorkload {
         ));
         request_interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
-        // TODO(WAL-936): for read heavy workloads, we should pre-create a pool of blobs so that
-        // there are enough blobs to read from.
+        // Pre-populate the blob pool for read-heavy workloads.
+        for _ in 0..self.initial_blobs_in_pool {
+            // Getting the current epoch in case epoch changed during the loop.
+            let write_op = client_op_generator.generate_write_op_for_pool_initialization(&mut rng);
+            self.execute_client_op(&write_op, &mut blob_pool).await?;
+        }
+
+        tracing::info!(
+            "blob pool initialized with {} blobs",
+            self.initial_blobs_in_pool
+        );
 
         let mut current_epoch = 0;
 
@@ -189,11 +210,11 @@ impl SingleClientWorkload {
                     }
                 }
             }
-            WalrusNodeClientOp::Delete { blob_id } => {
+            WalrusNodeClientOp::Delete { blob_id, object_id } => {
                 let now = Instant::now();
-                self.client.delete_owned_blob(blob_id).await?;
+                self.client.delete_owned_blob_by_object(*object_id).await?;
                 self.metrics.observe_latency("delete_blob", now.elapsed());
-                blob_pool.update_blob_pool(*blob_id, None, client_op.clone());
+                blob_pool.update_blob_pool(*blob_id, Some(*object_id), client_op.clone());
             }
             WalrusNodeClientOp::Extend {
                 blob_id,

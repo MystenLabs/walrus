@@ -184,6 +184,12 @@ walrus_utils::metrics::define_metric_set! {
 
         #[help = "The index within Sui checkpoint of the last Walrus event processed."]
         event_position_sui_checkpoint_index: U64GaugeVec["state"],
+
+        #[help = "The total number of expired blob objects deleted"]
+        cleanup_expired_blob_objects_deleted_total: IntCounter[],
+
+        #[help = "The total number of blob data deletion attempts"]
+        cleanup_blob_data_deletion_attempts_total: IntCounterVec["status"],
     }
 }
 
@@ -346,6 +352,7 @@ impl TelemetryLabel for ClientErrorKind {
             ClientErrorKind::NotEnoughConfirmations(_, _) => "not-enough-confirmations",
             ClientErrorKind::NotEnoughSlivers => "not-enough-slivers",
             ClientErrorKind::BlobIdDoesNotExist => "blob-id-does-not-exist",
+            ClientErrorKind::InvalidBlob => "invalid-blob",
             ClientErrorKind::NoMetadataReceived => "no-metadata-received",
             ClientErrorKind::NoValidStatusReceived => "no-valid-status-received",
             ClientErrorKind::InvalidConfig => "invalid-config",

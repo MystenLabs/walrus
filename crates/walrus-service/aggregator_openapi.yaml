@@ -38,6 +38,12 @@ paths:
                   type: integer
                   format: int32
                   minimum: 0
+        '400':
+          description: The consistency check options are invalid.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         '403':
           description: The blob size exceeds the maximum allowed size that was configured for this service. The blob is still stored on Walrus and may be accessible through a different aggregator or the CLI.
           content:
@@ -224,9 +230,22 @@ paths:
         description: |-
           Whether to perform a strict consistency check.
 
-          This is the current default behavior and has no effect. However, the default consistency
-          check is changing in `v1.37` to a more performant one, which is sufficient for the
-          majority of cases. This flag can be used to enable the current strict consistency check.
+          This was the default before `v1.37`. In `v1.37`, the default consistency was changed to a
+          more performant one, which is sufficient for the majority of cases. This flag can be used to
+          enable the previous strict consistency check. See
+          https://docs.wal.app/design/encoding.html#data-integrity-and-consistency for more details.
+        required: false
+        schema:
+          type: boolean
+        style: form
+      - name: skip_consistency_check
+        in: query
+        description: |-
+          Whether to skip consistency checks entirely.
+
+          When enabled, this flag bypasses all consistency verification during blob reading. This
+          should be used only when the writer of the blob is trusted. Does *not* affect any
+          authentication checks for data received from storage nodes, which are always performed.
         required: false
         schema:
           type: boolean
@@ -242,6 +261,12 @@ paths:
                   type: integer
                   format: int32
                   minimum: 0
+        '400':
+          description: The consistency check options are invalid.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         '403':
           description: The blob size exceeds the maximum allowed size that was configured for this service. The blob is still stored on Walrus and may be accessible through a different aggregator or the CLI.
           content:

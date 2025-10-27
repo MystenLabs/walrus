@@ -3037,7 +3037,7 @@ pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
             .try_into()
             .expect("should be able to find an unused socket address"),
             storage_path: temp_dir.path().to_path_buf(),
-            db_config: Default::default(),
+            db_config: DatabaseConfig::default_for_test(),
             rest_server: Default::default(),
             blocklist_path: None,
             sui: None,
@@ -3068,11 +3068,7 @@ pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
             balance_check: Default::default(),
             thread_pool: Default::default(),
             // Turn on all consistency checks in integration tests.
-            consistency_check: StorageNodeConsistencyCheckConfig {
-                enable_consistency_check: true,
-                enable_sliver_data_existence_check: true,
-                sliver_data_existence_check_sample_rate_percentage: 100,
-            },
+            consistency_check: StorageNodeConsistencyCheckConfig::default_for_test(),
             checkpoint_config: Default::default(),
             admin_socket_path: None,
             node_recovery_config: Default::default(),
@@ -3104,7 +3100,7 @@ async fn wait_for_event_processor_to_start(
 pub async fn empty_storage_with_shards(shards: &[ShardIndex]) -> WithTempDir<Storage> {
     let temp_dir =
         nondeterministic!(tempfile::tempdir().expect("temporary directory creation must succeed"));
-    let db_config = DatabaseConfig::default();
+    let db_config = DatabaseConfig::default_for_test();
     let storage = Storage::open(
         temp_dir.path(),
         db_config,
