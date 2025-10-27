@@ -32,7 +32,6 @@ use walrus_sdk::config::UploadMode;
 use walrus_sui::{
     client::{ExpirySelectionPolicy, ReadClient, SuiContractClient},
     types::{StorageNode, move_structs::Authorized},
-    utils::SuiNetwork,
 };
 use walrus_utils::read_blob_from_file;
 
@@ -488,35 +487,6 @@ pub enum CliCommands {
         #[serde(default = "default::staking_amounts_frost")]
         amounts: Vec<u64>,
     },
-    /// Generates a new Sui wallet.
-    GenerateSuiWallet {
-        /// The path where the wallet configuration will be stored.
-        ///
-        /// If not specified, the command will try to create the wallet configuration at the default
-        /// location `$HOME/.sui/sui_config/`. If the directory already exists, an error will be
-        /// returned specifying to use the Sui CLI to manage the existing wallets.
-        #[arg(long)]
-        path: Option<PathBuf>,
-        /// Sui network for which the wallet is generated.
-        ///
-        /// Available options are `devnet`, `testnet`, `mainnet`, and `localnet`.
-        #[arg(long, default_value_t = default::sui_network())]
-        #[serde(default = "default::sui_network")]
-        sui_network: SuiNetwork,
-        /// Whether to attempt to get SUI tokens from the faucet.
-        #[arg(long)]
-        #[serde(default)]
-        use_faucet: bool,
-        /// Timeout for the faucet call.
-        #[arg(
-            long,
-            value_parser = humantime::parse_duration,
-            default_value = "1min",
-            requires = "use_faucet")
-        ]
-        #[serde(default = "default::faucet_timeout")]
-        faucet_timeout: Duration,
-    },
     /// Exchange SUI for WAL through the configured exchange. This command is only available on
     /// Testnet.
     GetWal {
@@ -690,7 +660,6 @@ impl CliCommands {
             CliCommands::ListBlobs { .. } => "list-blobs",
             CliCommands::Delete { .. } => "delete",
             CliCommands::Stake { .. } => "stake",
-            CliCommands::GenerateSuiWallet { .. } => "generate-sui-wallet",
             CliCommands::GetWal { .. } => "get-wal",
             CliCommands::BurnBlobs { .. } => "burn-blobs",
             CliCommands::FundSharedBlob { .. } => "fund-shared-blob",
@@ -1828,8 +1797,6 @@ impl EpochArg {
 pub(crate) mod default {
     use std::{net::SocketAddr, time::Duration};
 
-    use walrus_sui::utils::SuiNetwork;
-
     pub(crate) fn max_body_size_kib() -> usize {
         10_240
     }
@@ -1895,14 +1862,6 @@ pub(crate) mod default {
 
     pub(crate) fn exchange_amount_mist() -> u64 {
         500_000_000 // 0.5 SUI
-    }
-
-    pub(crate) fn sui_network() -> SuiNetwork {
-        SuiNetwork::Testnet
-    }
-
-    pub(crate) fn faucet_timeout() -> Duration {
-        Duration::from_secs(60)
     }
 
     pub(crate) fn allowed_headers() -> Vec<String> {

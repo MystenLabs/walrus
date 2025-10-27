@@ -20,7 +20,6 @@ use itertools::Itertools as _;
 use rand::seq::SliceRandom;
 use reqwest::Url;
 use serde_json;
-use sui_config::{SUI_CLIENT_CONFIG, sui_config_dir};
 use sui_types::base_types::ObjectID;
 use walrus_core::{
     BlobId,
@@ -67,7 +66,6 @@ use walrus_sdk::{
         },
         config::WalletConfig,
         types::move_structs::{Authorized, BlobAttribute, EpochState},
-        utils::SuiNetwork,
     },
     utils::styled_spinner,
 };
@@ -150,11 +148,10 @@ use crate::{
             ShareBlobOutput,
             StakeOutput,
             StoreQuiltDryRunOutput,
-            WalletOutput,
         },
     },
     common::telemetry::TracingSubscriberBuilder,
-    utils::{self, MetricsAndLoggingRuntime, generate_sui_wallet},
+    utils::{self, MetricsAndLoggingRuntime},
 };
 
 fn apply_upload_mode_to_config(
@@ -341,32 +338,6 @@ impl ClientCommandRunner {
 
             CliCommands::Stake { node_ids, amounts } => {
                 self.stake_with_node_pools(node_ids, amounts).await
-            }
-
-            CliCommands::GenerateSuiWallet {
-                path,
-                sui_network,
-                use_faucet,
-                faucet_timeout,
-            } => {
-                let wallet_path = if let Some(path) = path {
-                    path
-                } else {
-                    // This automatically creates the Sui configuration directory if it doesn't
-                    // exist.
-                    let config_dir = sui_config_dir()?;
-                    anyhow::ensure!(
-                        config_dir.read_dir()?.next().is_none(),
-                        "The Sui configuration directory {} is not empty; please specify a \
-                        different wallet path using `--path` or manage the wallet using the Sui \
-                        CLI.",
-                        config_dir.display()
-                    );
-                    config_dir.join(SUI_CLIENT_CONFIG)
-                };
-
-                self.generate_sui_wallet(&wallet_path, sui_network, use_faucet, faucet_timeout)
-                    .await
             }
 
             CliCommands::GetWal {
@@ -1724,18 +1695,6 @@ impl ClientCommandRunner {
         let client = get_contract_client(self.config?, self.wallet, self.gas_budget, &None).await?;
         let staked_wal = client.stake_with_node_pools(&node_ids_with_amounts).await?;
         StakeOutput { staked_wal }.print_output(self.json)
-    }
-
-    pub(crate) async fn generate_sui_wallet(
-        self,
-        path: &Path,
-        sui_network: SuiNetwork,
-        use_faucet: bool,
-        faucet_timeout: Duration,
-    ) -> Result<()> {
-        let wallet_address =
-            generate_sui_wallet(sui_network, path, use_faucet, faucet_timeout).await?;
-        WalletOutput { wallet_address }.print_output(self.json)
     }
 
     pub(crate) async fn exchange_sui_for_wal(
