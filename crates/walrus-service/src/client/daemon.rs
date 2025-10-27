@@ -367,8 +367,8 @@ impl<T: WalrusReadClient + Send + Sync + 'static> ClientDaemon<T> {
                     .collect(),
                 allow_quilt_patch_tags_in_response: args.allow_quilt_patch_tags_in_response,
             },
-            args.max_request_buffer_size,
-            args.max_concurrent_requests,
+            args.aggregator_max_request_buffer_size,
+            args.aggregator_max_concurrent_requests,
         )
     }
 
@@ -489,8 +489,8 @@ impl<T: WalrusWriteClient + Send + Sync + 'static> ClientDaemon<T> {
             .with_publisher(
                 auth_config,
                 args.max_body_size(),
-                args.max_request_buffer_size,
-                args.max_concurrent_requests,
+                args.publisher_max_request_buffer_size,
+                args.publisher_max_concurrent_requests,
                 args.max_quilt_body_size(),
             )
     }
@@ -520,14 +520,14 @@ impl<T: WalrusWriteClient + Send + Sync + 'static> ClientDaemon<T> {
                     allow_quilt_patch_tags_in_response: aggregator_args
                         .allow_quilt_patch_tags_in_response,
                 },
-                aggregator_args.max_request_buffer_size,
-                aggregator_args.max_concurrent_requests,
+                aggregator_args.aggregator_max_request_buffer_size,
+                aggregator_args.aggregator_max_concurrent_requests,
             )
             .with_publisher(
                 auth_config,
                 publisher_args.max_body_size_kib,
-                publisher_args.max_request_buffer_size,
-                publisher_args.max_concurrent_requests,
+                publisher_args.publisher_max_request_buffer_size,
+                publisher_args.publisher_max_concurrent_requests,
                 publisher_args.max_quilt_body_size(),
             )
     }
@@ -787,8 +787,8 @@ mod tests {
             allowed_headers: vec![],
             allow_quilt_patch_tags_in_response: false,
             max_blob_size: None,
-            max_request_buffer_size: max_buffer,
-            max_concurrent_requests: max_concurrent,
+            aggregator_max_request_buffer_size: max_buffer,
+            aggregator_max_concurrent_requests: max_concurrent,
         };
 
         let daemon = ClientDaemon::new_aggregator(
