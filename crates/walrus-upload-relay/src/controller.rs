@@ -214,7 +214,7 @@ impl Controller {
             .client
             .send_blob_data_and_get_certificate(
                 &metadata,
-                &sliver_pairs,
+                Arc::new(sliver_pairs),
                 &blob_persistence,
                 None,
                 TailHandling::Blocking,

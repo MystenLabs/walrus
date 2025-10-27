@@ -373,7 +373,7 @@ async fn test_inconsistency(failed_nodes: &[usize]) -> TestResult {
         .as_ref()
         .send_blob_data_and_get_certificate(
             &metadata,
-            &pairs,
+            Arc::new(pairs),
             &BlobPersistenceType::Permanent,
             None,
             TailHandling::Blocking,

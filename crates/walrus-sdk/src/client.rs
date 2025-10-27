@@ -1468,7 +1468,7 @@ impl WalrusNodeClient<SuiContractClient> {
         let committees = self.get_committees().await?;
 
         let (Some(pairs), Some(metadata), Some(blob_status)) = (
-            registered_blob.get_sliver_pairs(),
+            registered_blob.sliver_pairs_arc(),
             registered_blob.get_metadata(),
             registered_blob.get_status(),
         ) else {
@@ -1682,7 +1682,7 @@ impl<T> WalrusNodeClient<T> {
     pub async fn send_blob_data_and_get_certificate(
         &self,
         metadata: &VerifiedBlobMetadataWithId,
-        pairs: &[SliverPair],
+        pairs: Arc<Vec<SliverPair>>,
         blob_persistence_type: &BlobPersistenceType,
         multi_pb: Option<&MultiProgress>,
         tail_handling: TailHandling,
@@ -1698,7 +1698,7 @@ impl<T> WalrusNodeClient<T> {
             multi_pb.add(pb)
         });
 
-        let blobs = vec![(metadata.clone(), Arc::new(pairs.to_vec()))];
+        let blobs = vec![(metadata.clone(), pairs)];
         let (event_tx, mut event_rx) = tokio::sync::mpsc::channel(blobs.len().max(1));
 
         let mut upload_fut = Box::pin(self.distributed_upload_without_confirmation(

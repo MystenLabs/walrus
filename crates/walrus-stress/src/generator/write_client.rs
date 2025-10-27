@@ -223,7 +223,7 @@ impl WriteClient {
             .as_ref()
             .send_blob_data_and_get_certificate(
                 &metadata,
-                &pairs,
+                Arc::new(pairs),
                 &blob_sui_object.blob_persistence_type(),
                 Some(&MultiProgress::new()),
                 TailHandling::Blocking,
