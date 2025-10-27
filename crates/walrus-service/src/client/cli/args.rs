@@ -901,7 +901,7 @@ pub struct AggregatorArgs {
         default_value_t = default::max_aggregator_buffer_size()
     )]
     #[serde(default = "default::max_aggregator_buffer_size")]
-    pub max_request_buffer_size: usize,
+    pub aggregator_max_request_buffer_size: usize,
     /// The maximum number of requests the aggregator can process concurrently.
     ///
     /// If more requests than this maximum are received, the excess requests are buffered up to
@@ -912,7 +912,7 @@ pub struct AggregatorArgs {
         default_value_t = default::max_aggregator_concurrent_requests()
     )]
     #[serde(default = "default::max_aggregator_concurrent_requests")]
-    pub max_concurrent_requests: usize,
+    pub aggregator_max_concurrent_requests: usize,
 }
 
 /// The arguments for the publisher service.
@@ -933,17 +933,31 @@ pub struct PublisherArgs {
     pub max_quilt_body_size_kib: usize,
     /// The maximum number of requests that can be buffered before the server starts rejecting new
     /// ones.
-    #[arg(long = "max-buffer-size", default_value_t = default::max_request_buffer_size())]
-    #[serde(default = "default::max_request_buffer_size")]
-    pub max_request_buffer_size: usize,
+    #[arg(
+        long = "publisher-max-buffer-size",
+        alias = "max-buffer-size",
+        default_value_t = default::publisher_max_request_buffer_size(),
+        help = "The maximum number of requests that can be buffered before the server starts \
+        rejecting new ones. (Note: --max-buffer-size is deprecated, use \
+        --publisher-max-buffer-size)"
+    )]
+    #[serde(default = "default::publisher_max_request_buffer_size")]
+    pub publisher_max_request_buffer_size: usize,
     /// The maximum number of requests the publisher can process concurrently.
     ///
     /// If more requests than this maximum are received, the excess requests are buffered up to
-    /// `--max-buffer-size`. Any outstanding request will result in a response with a 429 HTTP
-    /// status code.
-    #[arg(long, default_value_t = default::max_concurrent_requests())]
-    #[serde(default = "default::max_concurrent_requests")]
-    pub max_concurrent_requests: usize,
+    /// `--publisher-max-buffer-size`. Any outstanding request will result in a response with a
+    /// 429 HTTP status code.
+    #[arg(
+        long = "publisher-max-concurrent-requests",
+        alias = "max-concurrent-requests",
+        default_value_t = default::publisher_max_concurrent_requests(),
+        help = "The maximum number of requests the publisher can process concurrently. \
+        (Note: --max-concurrent-requests is deprecated, use \
+        --publisher-max-concurrent-requests)"
+    )]
+    #[serde(default = "default::publisher_max_concurrent_requests")]
+    pub publisher_max_concurrent_requests: usize,
     /// The number of clients to use for the publisher.
     ///
     /// The publisher uses this number of clients to publish blobs concurrently.
@@ -1823,23 +1837,23 @@ pub(crate) mod default {
         102_400 // 100MB default for quilts.
     }
 
-    pub(crate) fn max_concurrent_requests() -> usize {
+    pub(crate) fn publisher_max_concurrent_requests() -> usize {
         8
     }
 
-    pub(crate) fn max_request_buffer_size() -> usize {
+    pub(crate) fn publisher_max_request_buffer_size() -> usize {
         // 1x the number of concurrent requests by default means that we start rejecting requests
         // rather soon to avoid overloading the publisher.
         //
         // In total there can be 1x processing and 1x in the buffer, for 2x number of concurrent
         // requests allowed before we start rejecting.
-        max_concurrent_requests()
+        publisher_max_concurrent_requests()
     }
 
     pub(crate) fn n_publisher_clients() -> usize {
         // Use the same number of clients as the number of concurrent requests. This way, the
         // publisher will have the lowest possible latency for every request.
-        max_concurrent_requests()
+        publisher_max_concurrent_requests()
     }
 
     pub(crate) fn sub_wallets_min_balance() -> u64 {
@@ -1988,8 +2002,8 @@ mod tests {
                 },
                 max_body_size_kib: default::max_body_size_kib(),
                 max_quilt_body_size_kib: default::max_quilt_body_size_kib(),
-                max_request_buffer_size: default::max_request_buffer_size(),
-                max_concurrent_requests: default::max_concurrent_requests(),
+                publisher_max_request_buffer_size: default::publisher_max_request_buffer_size(),
+                publisher_max_concurrent_requests: default::publisher_max_concurrent_requests(),
                 refill_interval: default::refill_interval(),
                 sub_wallets_dir: "/some/path".into(),
                 gas_refill_amount: default::gas_refill_amount(),
@@ -2007,8 +2021,8 @@ mod tests {
                 allowed_headers: default::allowed_headers(),
                 allow_quilt_patch_tags_in_response: false,
                 max_blob_size: None,
-                max_request_buffer_size: default::max_aggregator_buffer_size(),
-                max_concurrent_requests: default::max_aggregator_concurrent_requests(),
+                aggregator_max_request_buffer_size: default::max_aggregator_buffer_size(),
+                aggregator_max_concurrent_requests: default::max_aggregator_concurrent_requests(),
             },
         })
     }
