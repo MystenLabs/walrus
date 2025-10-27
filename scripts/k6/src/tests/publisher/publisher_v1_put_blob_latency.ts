@@ -55,7 +55,7 @@ export const options = {
             executor: 'shared-iterations',
             vus: params.maxConcurrency,
             iterations: params.blobCount,
-            maxDuration: "30m",
+            maxDuration: "60m",
         }
     },
     thresholds: !params.httpDurationThreshold ? {} : {
