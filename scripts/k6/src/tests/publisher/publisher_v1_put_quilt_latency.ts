@@ -54,7 +54,7 @@ const params = loadParameters<TestParameters>({
     quiltFileSizeAssignment: "uniform",
     maxQuiltFileSize: "1Mi",
     maxConcurrency: 1,
-    timeout: "15m",
+    timeout: "30m",
 });
 
 export const options = {
