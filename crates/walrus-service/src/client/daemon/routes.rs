@@ -201,13 +201,13 @@ fn populate_response_headers_from_request(
 fn populate_response_headers_from_attributes(
     headers: &mut HeaderMap,
     attribute: &BlobAttribute,
-    allowed_headers: Option<&HashSet<String>>,
+    allowed_headers: Option<&HashSet<HeaderName>>,
 ) {
     for (key, value) in attribute.iter() {
         if !key.is_empty()
-            && allowed_headers.is_none_or(|headers| headers.contains(key))
-            && let (Ok(header_name), Ok(header_value)) =
-                (HeaderName::from_str(key), HeaderValue::from_str(value))
+            && let Ok(header_name) = HeaderName::from_str(key)
+            && allowed_headers.is_none_or(|headers| headers.contains(&header_name))
+            && let Ok(header_value) = HeaderValue::from_str(value)
         {
             headers.insert(header_name, header_value);
         }
