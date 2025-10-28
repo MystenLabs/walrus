@@ -442,6 +442,22 @@ components:
                 $ref: '#/components/schemas/EventID'
                 description: The event where the blob was marked as invalid.
       - type: object
+        description: Blob was sliced into multiple parts.
+        required:
+        - blobSliced
+        properties:
+          blobSliced:
+            type: object
+            description: Blob was sliced into multiple parts.
+            required:
+            - slices
+            properties:
+              slices:
+                type: array
+                items:
+                  $ref: '#/components/schemas/BlobStoreResult'
+                description: The contiguous slices that make up the blob.
+      - type: object
         description: Operation failed.
         required:
         - error
