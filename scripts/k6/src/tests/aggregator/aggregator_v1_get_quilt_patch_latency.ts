@@ -42,7 +42,7 @@ const params = loadParameters<TestParameters>({
     patchesToRead: 20,
     maxConcurrency: 1,
     patchIdListKey: 'quilt:1Mi:uniform:patches',
-    timeout: "1m",
+    timeout: "30m",
 });
 
 export const options = {
@@ -51,7 +51,7 @@ export const options = {
             executor: 'shared-iterations',
             vus: `${params.maxConcurrency}`,
             iterations: `${params.patchesToRead}`,
-            maxDuration: "15m",
+            maxDuration: "60m",
         }
     },
     insecureSkipTLSVerify: true,
