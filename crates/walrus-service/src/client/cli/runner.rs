@@ -22,6 +22,7 @@ use reqwest::Url;
 use serde_json;
 use sui_config::{SUI_CLIENT_CONFIG, sui_config_dir};
 use sui_types::base_types::ObjectID;
+use tokio::sync::Mutex as TokioMutex;
 use walrus_core::{
     BlobId,
     DEFAULT_ENCODING,
@@ -69,6 +70,7 @@ use walrus_sdk::{
         types::move_structs::{Authorized, BlobAttribute, EpochState},
         utils::SuiNetwork,
     },
+    uploader::TailHandling,
     utils::styled_spinner,
 };
 use walrus_storage_node_client::api::BlobStatus;
@@ -698,6 +700,7 @@ impl ClientCommandRunner {
             upload_relay,
             confirmation,
             upload_mode,
+            child_process_uploads,
             internal_run,
         }: StoreOptions,
     ) -> Result<()> {
@@ -740,6 +743,7 @@ impl ClientCommandRunner {
 
         if let Some(()) = maybe_spawn_child_upload_process(
             &client,
+            child_process_uploads,
             &epoch_arg,
             dry_run,
             &store_optimizations,
@@ -771,6 +775,26 @@ impl ClientCommandRunner {
 
         let mut internal_run_ctx = InternalRunContext::new(internal_run, &client, blobs.len());
         let mut store_args = internal_run_ctx.configure_store_args(internal_run, base_store_args);
+        let mut tail_handle_collector: Option<Arc<TokioMutex<Vec<tokio::task::JoinHandle<()>>>>> =
+            None;
+        if !internal_run
+            && matches!(
+                client.config().communication_config.tail_handling,
+                TailHandling::Detached
+            )
+        {
+            if !child_process_uploads {
+                tracing::warn!(
+                    "tail uploads will run in the current process; \
+                    rerun with --child-process-uploads to offload them"
+                );
+            }
+            let collector = Arc::new(TokioMutex::new(Vec::new()));
+            store_args = store_args
+                .with_tail_handling(TailHandling::Detached)
+                .with_tail_handle_collector(collector.clone());
+            tail_handle_collector = Some(collector);
+        }
 
         if let Some(upload_relay) = upload_relay {
             let upload_relay_client = UploadRelayClient::new(
@@ -802,6 +826,18 @@ impl ClientCommandRunner {
             .await?;
 
         internal_run_ctx.finalize_after_store(&mut store_args).await;
+
+        if let Some(collector) = tail_handle_collector {
+            let mut handles_guard = collector.lock().await;
+            let mut handles = Vec::new();
+            std::mem::swap(&mut *handles_guard, &mut handles);
+            drop(handles_guard);
+            for handle in handles {
+                if let Err(err) = handle.await {
+                    tracing::warn!(?err, "tail upload task failed");
+                }
+            }
+        }
 
         let blobs_len = blobs.len();
         if results.len() != blobs_len {
@@ -993,6 +1029,7 @@ impl ClientCommandRunner {
             upload_relay,
             confirmation,
             upload_mode,
+            child_process_uploads,
             internal_run,
         }: StoreOptions,
     ) -> Result<()> {
@@ -1047,6 +1084,7 @@ impl ClientCommandRunner {
 
         if let Some(()) = maybe_spawn_child_upload_process(
             &client,
+            child_process_uploads,
             &epoch_arg,
             dry_run,
             &store_optimizations,
@@ -1091,6 +1129,26 @@ impl ClientCommandRunner {
 
         let mut internal_run_ctx = InternalRunContext::new(internal_run, &client, 1);
         let mut store_args = internal_run_ctx.configure_store_args(internal_run, base_store_args);
+        let mut tail_handle_collector: Option<Arc<TokioMutex<Vec<tokio::task::JoinHandle<()>>>>> =
+            None;
+        if !internal_run
+            && matches!(
+                client.config().communication_config.tail_handling,
+                TailHandling::Detached
+            )
+        {
+            if !child_process_uploads {
+                tracing::warn!(
+                    "tail uploads will run in the current process; \
+                    rerun with --child-process-uploads to offload them"
+                );
+            }
+            let collector = Arc::new(TokioMutex::new(Vec::new()));
+            store_args = store_args
+                .with_tail_handling(TailHandling::Detached)
+                .with_tail_handle_collector(collector.clone());
+            tail_handle_collector = Some(collector);
+        }
 
         if let Some(upload_relay) = upload_relay {
             let upload_relay_client = UploadRelayClient::new(
@@ -1122,6 +1180,18 @@ impl ClientCommandRunner {
             .await?;
 
         internal_run_ctx.finalize_after_store(&mut store_args).await;
+
+        if let Some(collector) = tail_handle_collector {
+            let mut handles_guard = collector.lock().await;
+            let mut handles = Vec::new();
+            std::mem::swap(&mut *handles_guard, &mut handles);
+            drop(handles_guard);
+            for handle in handles {
+                if let Err(err) = handle.await {
+                    tracing::warn!(?err, "tail upload task failed");
+                }
+            }
+        }
 
         if !internal_run {
             tracing::info!(
@@ -1931,6 +2001,7 @@ struct StoreOptions {
     upload_relay: Option<Url>,
     confirmation: UserConfirmation,
     upload_mode: Option<UploadMode>,
+    child_process_uploads: bool,
     internal_run: bool,
 }
 
@@ -1950,9 +2021,12 @@ impl TryFrom<CommonStoreOptions> for StoreOptions {
             upload_relay,
             skip_tip_confirmation,
             upload_mode,
+            child_process_uploads,
             internal_run,
         }: CommonStoreOptions,
     ) -> Result<Self, Self::Error> {
+        let child_process_uploads = child_process_uploads && !internal_run;
+
         Ok(Self {
             epoch_arg,
             dry_run,
@@ -1966,6 +2040,7 @@ impl TryFrom<CommonStoreOptions> for StoreOptions {
             upload_relay,
             confirmation: skip_tip_confirmation.into(),
             upload_mode: upload_mode.map(Into::into),
+            child_process_uploads,
             internal_run,
         })
     }
