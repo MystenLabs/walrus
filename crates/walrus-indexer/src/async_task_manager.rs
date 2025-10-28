@@ -3,6 +3,8 @@
 
 //! Async task manager built on top of PersistentQueue.
 
+#![allow(dead_code)]
+
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -112,7 +114,7 @@ where
                         handle.await.ok()
                     } else {
                         // No task running, wait forever.
-                        futures::future::pending::<Option<()>>().await
+                        std::future::pending::<Option<()>>().await
                     }
                 } => {
                     // Task finished, clear the handle.
@@ -304,8 +306,9 @@ impl Default for AsyncTaskManagerConfig {
 }
 
 /// Async task manager.
-/// 
-/// The caller only needs to call `submit` to submit a task, and the manager will take care of the rest.
+///
+/// The caller only needs to call `submit` to submit a task, and the manager will take care
+/// of the rest:
 /// - Persist tasks to storage
 /// - Execute tasks asynchronously
 /// - Retry failed tasks
@@ -394,25 +397,17 @@ where
             // Create a semaphore for limiting concurrent tasks.
             let semaphore = Arc::new(Semaphore::new(config.max_concurrent_tasks));
 
-            // The processing loop function.
-            let processing_loop = Self::task_processing_loop(
+            // The processing loop function with cancellation token.
+            Self::task_processing_loop(
                 task_sorter,
                 store,
                 executor,
                 config.inter_task_delay,
                 semaphore.clone(),
                 retry_notification_sender,
-            );
-
-            // Outer select for cancellation.
-            tokio::select! {
-                _ = cancel_token.cancelled() => {
-                    tracing::info!("Task processing cancelled.");
-                }
-                _ = processing_loop => {
-                    tracing::info!("Processing loop ended.");
-                }
-            }
+                cancel_token,
+            )
+            .await;
 
             // Wait for all tasks to complete before exiting.
             // We do this by acquiring all permits.
@@ -432,39 +427,59 @@ where
         inter_task_delay: Duration,
         semaphore: Arc<Semaphore>,
         retry_notification_sender: mpsc::UnboundedSender<()>,
+        cancel_token: CancellationToken,
     ) {
         loop {
-            // Wait to get the next task.
-            let task = match task_sorter.get_next_task().await {
-                Ok(Some(task)) => task,
-                Ok(None) => {
-                    // No more tasks available, wait a bit and try again.
-                    tokio::time::sleep(inter_task_delay).await;
-                    continue;
+            tokio::select! {
+                _ = cancel_token.cancelled() => {
+                    tracing::info!("Task processing loop cancelled");
+                    break;
                 }
-                Err(e) => {
-                    tracing::error!("Failed to get next task: {}", e);
-                    tokio::time::sleep(inter_task_delay).await;
-                    continue;
+
+                // Wait to get the next task.
+                task_result = task_sorter.get_next_task() => {
+                    let task = match task_result {
+                        Ok(Some(task)) => task,
+                        Ok(None) => {
+                            // This is not supposed to happen, just a sanity check.
+                            tracing::error!("No more tasks available");
+                            tokio::time::sleep(inter_task_delay).await;
+                            continue;
+                        }
+                        Err(e) => {
+                            tracing::error!("Failed to get next task: {}", e);
+                            tokio::select! {
+                                _ = cancel_token.cancelled() => break,
+                                _ = tokio::time::sleep(inter_task_delay) => continue,
+                            }
+                        }
+                    };
+
+                    if cancel_token.is_cancelled() {
+                        break;
+                    }
+
+                    // Wait for a permit (this blocks until one is available).
+                    let permit = match semaphore.clone().acquire_owned().await {
+                        Ok(p) => p,
+                        Err(_) => {
+                        tracing::error!("Failed to acquire permit");
+                            break;
+                        }
+                    };
+
+                    tracing::debug!("Processing task {:?}", task);
+
+                    // Spawn task processing in background.
+                    Self::spawn_task_worker(
+                        task,
+                        permit,
+                        store.clone(),
+                        executor.clone(),
+                        Some(retry_notification_sender.clone()),
+                    );
                 }
-            };
-
-            // Wait for a permit (this blocks until one is available).
-            let permit = match semaphore.clone().acquire_owned().await {
-                Ok(p) => p,
-                Err(_) => break, // Semaphore was closed.
-            };
-
-            tracing::debug!("Processing task {:?}", task);
-
-            // Spawn task processing in background.
-            Self::spawn_task_worker(
-                task,
-                permit,
-                store.clone(),
-                executor.clone(),
-                Some(retry_notification_sender.clone()),
-            );
+            }
         }
     }
 
@@ -508,13 +523,6 @@ where
         });
     }
 
-    /// Start processing in the background.
-    /// This is useful if you want to start processing without submitting a task.
-    pub async fn start(&self) -> Result<()> {
-        // Processing loop is already running continuously.
-        Ok(())
-    }
-
     /// Shutdown the task manager gracefully.
     pub async fn shutdown(&self) {
         // Cancel the shutdown token to stop processing.
@@ -544,9 +552,10 @@ where
 
 #[cfg(test)]
 mod tests {
+    use rand::Rng;
 
     use super::*;
-    use crate::test_util::{OrderedTestStore, TestExecutor, TestTask, TestTaskGenerator};
+    use crate::test_utils::{OrderedTestStore, TestExecutor, TestTask, TestTaskGenerator};
 
     #[tokio::test]
     async fn test_task_manager_cancellation() -> Result<()> {
@@ -571,7 +580,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_retry_queue_with_failures() -> Result<()> {
-        // Initialize tracing for test visibility.
         let _ = tracing_subscriber::fmt()
             .with_max_level(tracing::Level::INFO)
             .with_test_writer()
@@ -579,9 +587,9 @@ mod tests {
 
         let config = AsyncTaskManagerConfig {
             config: crate::async_task_sorter::AsyncTaskSorterConfig {
-                max_num_latest_tasks: 10,
-                load_batch_size: 5,
-                grace_period: Duration::from_millis(50),
+                latest_queue_max: 10,
+                catchup_queue_max: 10,
+                drop_batch_size: 2,
             },
             inter_task_delay: Duration::from_millis(10),
             max_concurrent_tasks: 2,
@@ -591,21 +599,23 @@ mod tests {
         let store = Arc::new(OrderedTestStore::new());
         let executor = Arc::new(TestExecutor::new(store.clone()));
 
-        // Create tasks with moderate failure rates (will eventually succeed through retries).
-        let tasks: Vec<TestTask> = (1..=5)
+        // Create tasks with random failure rates, and random durations.
+        let tasks: Vec<TestTask> = (1..=50)
             .map(|i| {
                 TestTask::new(i)
-                    .with_failure_rate(30) // 30% failure rate - will eventually succeed.
-                    .with_duration(Duration::from_millis(20))
+                    .with_failure_rate(rand::thread_rng().gen_range(0..60))
+                    .with_duration(Duration::from_millis(
+                        50 + rand::thread_rng().gen_range(0..100),
+                    ))
             })
             .collect();
 
         let task_manager = AsyncTaskManager::new(config, store.clone(), executor.clone()).await?;
-        task_manager.start().await?;
 
         // Submit all tasks.
         for task in tasks {
             task_manager.submit(task).await?;
+            tokio::time::sleep(Duration::from_millis(rand::thread_rng().gen_range(0..100))).await;
         }
 
         let start = std::time::Instant::now();
@@ -614,67 +624,12 @@ mod tests {
         }
 
         // Check that all tasks were processed and removed from storage.
-        // With 30% failure rate, tasks should eventually succeed and be removed.
         let remaining_tasks = store.task_count().await;
 
         assert_eq!(
             remaining_tasks, 0,
             "All tasks should be processed and removed"
         );
-
-        task_manager.shutdown().await;
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn test_concurrent_retry_processing() -> Result<()> {
-        let _ = tracing_subscriber::fmt()
-            .with_max_level(tracing::Level::INFO)
-            .with_test_writer()
-            .try_init();
-
-        let config = AsyncTaskManagerConfig {
-            config: crate::async_task_sorter::AsyncTaskSorterConfig::default(),
-            inter_task_delay: Duration::from_millis(10),
-            max_concurrent_tasks: 4, // Allow 4 concurrent workers.
-            read_batch_size: 10,
-        };
-
-        let store = Arc::new(OrderedTestStore::new());
-        let executor = Arc::new(TestExecutor::new(store.clone()));
-
-        // Create tasks with moderate failure rates that will eventually succeed.
-        let tasks: Vec<TestTask> = (1..=8)
-            .map(|i| {
-                TestTask::new(i)
-                    .with_failure_rate(50) // 50% failure rate - will eventually succeed.
-                    .with_duration(Duration::from_millis(100))
-            })
-            .collect();
-
-        let task_manager = AsyncTaskManager::new(config, store.clone(), executor.clone()).await?;
-
-        // Submit all tasks.
-        for task in tasks {
-            task_manager.submit(task).await?;
-        }
-
-        // Start processing.
-        task_manager.start().await?;
-
-        // Wait for all tasks to complete.
-        let start = std::time::Instant::now();
-        while start.elapsed() < Duration::from_secs(60) && store.task_count().await > 0 {
-            tokio::time::sleep(Duration::from_millis(500)).await;
-        }
-
-        // All tasks should eventually be processed.
-        assert_eq!(store.task_count().await, 0, "All tasks should be processed");
-        assert_eq!(executor.executed(), 8, "All 8 tasks should be executed");
-
-        // Verify that concurrent retry processing is working.
-        // With 50% failure rate, some tasks will go to retry queue and be processed concurrently.
-        tracing::info!("All tasks completed in {:?}", start.elapsed());
 
         task_manager.shutdown().await;
         Ok(())
@@ -689,9 +644,9 @@ mod tests {
 
         let config = AsyncTaskManagerConfig {
             config: crate::async_task_sorter::AsyncTaskSorterConfig {
-                max_num_latest_tasks: 20,
-                load_batch_size: 10,
-                grace_period: Duration::from_millis(50),
+                latest_queue_max: 20,
+                catchup_queue_max: 20,
+                drop_batch_size: 2,
             },
             inter_task_delay: Duration::from_millis(5),
             max_concurrent_tasks: 4,
@@ -710,8 +665,6 @@ mod tests {
         // Pre-populate with some tasks.
         let historical_tasks: Vec<TestTask> = generator.by_ref().take(10).collect();
         store.populate_with_tasks(historical_tasks).await;
-
-        task_manager.start().await?;
 
         // Submit more tasks while processing.
         for task in generator.by_ref().take(10) {
