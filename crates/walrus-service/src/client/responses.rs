@@ -15,7 +15,7 @@ use chrono::{DateTime, Utc};
 use futures::{StreamExt as _, stream};
 use serde::Serialize;
 use serde_with::{DisplayFromStr, base64::Base64, serde_as};
-use sui_types::base_types::{ObjectID, SuiAddress};
+use sui_types::base_types::ObjectID;
 use walrus_core::{
     BlobId,
     DEFAULT_ENCODING,
@@ -609,14 +609,6 @@ pub(crate) struct DeleteOutput {
 pub struct StakeOutput {
     /// The staked WAL after staking.
     pub staked_wal: Vec<StakedWal>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-/// The output of the `walrus generate-sui-wallet` command.
-pub struct WalletOutput {
-    /// The address of the generated wallet.
-    pub wallet_address: SuiAddress,
 }
 
 #[derive(Debug, Clone, Serialize)]

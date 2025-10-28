@@ -68,7 +68,6 @@ use crate::client::{
         StakeOutput,
         StorageNodeInfo,
         StoreQuiltDryRunOutput,
-        WalletOutput,
     },
 };
 
@@ -859,16 +858,6 @@ impl CliOutput for StakeOutput {
                 self.staked_wal.iter().map(ToString::to_string).join("\n")
             );
         }
-    }
-}
-
-impl CliOutput for WalletOutput {
-    fn print_cli_output(&self) {
-        println!(
-            "{} Generated a new Sui wallet with address {}",
-            success(),
-            self.wallet_address
-        );
     }
 }
 
