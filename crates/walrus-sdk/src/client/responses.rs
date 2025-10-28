@@ -57,6 +57,7 @@ pub struct BlobStoreResultWithPath {
 #[serde_as]
 #[derive(Debug, Clone, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase", rename_all_fields = "camelCase")]
+#[schema(no_recursion)]
 pub enum BlobStoreResult {
     /// The blob already exists within Walrus, was certified, and is stored for at least the
     /// intended duration.
