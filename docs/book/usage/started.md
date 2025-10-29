@@ -53,7 +53,7 @@ prefilled configuration file.
 
 ```bash
 mkdir ~/.config/walrus/
-curl https://manansh11.github.io/walrus-docs/setup/client_config_testnet.yaml -o ~/.config/walrus/client_config.yaml
+curl --create-dirs https://manansh11.github.io/walrus-docs/setup/client_config_testnet.yaml -o ~/.config/walrus/client_config.yaml
 ```
 
 Next, you need to configure the Sui client to connect to Testnet. The Sui client configuration is
@@ -102,7 +102,7 @@ Anyone can see addresses, and they are valid on all networks (Testnet, Mainnet, 
 networks do not share data and assets.
 
 An *account* is an address plus the key to access it. If you have an address's private key, you
-can actually use what the address owns, such as tokens and objects.
+have privileged access and control over what the address owns, such as tokens and objects.
 
 To view your active address, run:
 
