@@ -14,7 +14,7 @@ Sui and Walrus are both decentralized, distributed systems made up of many indep
 
 Sui and Walrus each have the following available networks:
 
-- **Testnet** is a sandbox-like network where you can receive test tokens for free to use for the network's fees. You can build, test, and debug software packages on Testnet. Testnet does not guarantee data persistence and may wipe data at any time without warning.
+- **Testnet** is a sandbox-like network where you can receive test tokens for free to use for the network's fees. You can build, test, and debug software packages on Testnet. Testnet does not guarantee data persistence and might wipe data at any time without warning.
 - **Mainnet** is a production environment where you use real tokens and users or other applications rely on consistent functionality.
 
 When you are getting started, you should use **Testnet.**
@@ -58,7 +58,7 @@ When prompted, enter the following:
 - Environment alias → `testnet`
 - Select key scheme → `0` (for ed25519)
 
-This creates your Sui client configuration file with a "testnet" environment and generates your first address.
+This creates your Sui client configuration file with a Testnet environment and generates your first address.
 
 To confirm the Walrus configuration also uses Testnet, run the command:
 
@@ -76,7 +76,7 @@ When you ran `sui client` during setup, the system automatically created a Sui a
 
 An *address* is a unique location on the blockchain. A 32-byte identifier (displayed as 64 hex characters with `0x` prefix) identifies the address, which can own objects. The system derives the address from a public key using a hash function.
 
-Anyone can see addresses, and they are valid on all networks (Testnet, Mainnet, etc.), but networks do not share data and assets.
+Anyone can see addresses, and they are valid on all networks (Testnet, Mainnet, and so on), but networks do not share data and assets.
 
 An *account* is an address plus the key to access it. If you have an address's private key, you can actually use what the address owns, such as tokens and objects.
 
@@ -94,7 +94,7 @@ sui client addresses
 
 > **Warning: Store your keys securely**
 >
-> You must store your private key and recovery phrase securely, otherwise you may lose access to your address.
+> You must store your private key and recovery passphrase securely, otherwise you might lose access to your address.
 >
 > [Learn more about addresses, available key pair options, and key storage.](https://docs.sui.io/guides/developer/getting-started/get-address)
 
@@ -115,7 +115,7 @@ To get SUI tokens, navigate to the SUI Testnet faucet:
 
 [https://faucet.sui.io/](https://faucet.sui.io/)
 
-Ensure you select "Testnet". Then, insert your Sui address. To print your Sui address, use the command:
+Ensure you select Testnet. Then, insert your Sui address. To print your Sui address, use the command:
 
 ```bash
 sui client active-address
@@ -168,7 +168,7 @@ You must specify the `--epochs` flag, as the system stores blobs for a certain n
 
 The system uploads a blob in *slivers*, which are small pieces of the file the system stores on different servers through *erasure coding*. [Learn more](https://docs.wal.app/design/encoding.html) about the Walrus architecture and how the system implements erasure coding.
 
-After you upload a blob to Walrus, it has two identifiers:
+After you upload a blob to Walrus, it has 2 identifiers:
 
 ```bash
 Blob ID: oehkoh0352bRGNPjuwcy0nye3OLKT649K62imNdAlXg
@@ -178,7 +178,7 @@ Sui object ID: 0x1c086e216c4d35bf4c1ea493aea701260ffa5b0070622b17271e4495a030fe8
 - Blob ID: A way to reference the blob on Walrus. The system generates the blob ID based on the blob's contents, meaning any file you upload to the network twice results in the same blob ID.
 - Sui Object ID: The blob's corresponding newly created Sui object identifier, as the system binds all blobs to one or more Sui objects.
 
-You use blob IDs to read blob data, while you use Sui object IDs to make modifications to the blob's metadata, such as its storage duration. You may also use them to read blob data.
+You use blob IDs to read blob data, while you use Sui object IDs to make modifications to the blob's metadata, such as its storage duration. You might also use them to read blob data.
 
 You can use the [Walrus Explorer](https://walruscan.com/) to view more information about a blob ID.
 
@@ -196,7 +196,7 @@ Replace `<blob-id>` with the blob's identifier the `walrus store` command return
 
 To extend a blob's storage duration, you must reference the Sui object ID and indicate how many epochs you want to extend the blob's storage for.
 
-Run the following command to extend a blob's storage duration by 3 epochs. Note that you must use the Sui object ID, not the blob ID:
+Run the following command to extend a blob's storage duration by 3 epochs. You must use the Sui object ID, not the blob ID:
 
 ```bash
 walrus extend --blob-obj-id <blob-object-id> --epochs-extended 3 --context testnet
