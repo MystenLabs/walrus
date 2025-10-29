@@ -74,17 +74,13 @@ mod quilt {
         patches_to_read: usize,
         max_concurrency: usize,
     ) -> TestResult {
-        let key = format!("quilt:{total_file_size}:uniform:patches");
-
-        k6_tests::run(
-            "aggregator/aggregator_v1_get_quilt_patch_latency.ts",
+        patch_download_latency(
             &format!("quilt-patch-id-download:latency:{total_file_size}:uniform_patches"),
+            format!("quilt:{total_file_size}:uniform:patches"),
+            total_file_size,
+            patches_to_read,
+            max_concurrency,
         )
-        .env("WALRUS_K6_PATCHES_TO_READ", patches_to_read)
-        .env("WALRUS_K6_PATCH_ID_LIST_KEY", key)
-        .env("WALRUS_K6_MAX_CONCURRENCY", max_concurrency)
-        .tag("total_file_size", total_file_size)
-        .status()
     }
 
     walrus_test_utils::param_test! {
@@ -101,14 +97,28 @@ mod quilt {
         patches_to_read: usize,
         max_concurrency: usize,
     ) -> TestResult {
-        let key = format!("quilt:{total_file_size}:uniform:file_ids");
+        patch_download_latency(
+            &format!("quilt-file-id-download:latency:{total_file_size}:uniform_patches"),
+            format!("quilt:{total_file_size}:uniform:file_ids"),
+            total_file_size,
+            patches_to_read,
+            max_concurrency,
+        )
+    }
 
+    fn patch_download_latency(
+        test_id: &str,
+        patch_id_list_key: String,
+        total_file_size: ByteSize,
+        patches_to_read: usize,
+        max_concurrency: usize,
+    ) -> TestResult {
         k6_tests::run(
             "aggregator/aggregator_v1_get_quilt_patch_latency.ts",
-            &format!("quilt-file-id-download:latency:{total_file_size}:uniform_patches"),
+            test_id,
         )
         .env("WALRUS_K6_PATCHES_TO_READ", patches_to_read)
-        .env("WALRUS_K6_PATCH_ID_LIST_KEY", key)
+        .env("WALRUS_K6_PATCH_ID_LIST_KEY", patch_id_list_key)
         .env("WALRUS_K6_MAX_CONCURRENCY", max_concurrency)
         .tag("total_file_size", total_file_size)
         .status()
