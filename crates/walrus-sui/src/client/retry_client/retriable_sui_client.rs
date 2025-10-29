@@ -789,7 +789,9 @@ impl RetriableSuiClient {
     }
 
     /// Returns the Sui Object of type `U` with the provided [`ObjectID`].
-    #[tracing::instrument(level = Level::DEBUG, skip_all)]
+    #[tracing::instrument(
+        level = Level::DEBUG, skip_all, fields(object_type = %U::CONTRACT_STRUCT)
+    )]
     pub async fn get_sui_object<U>(&self, object_id: ObjectID) -> SuiClientResult<U>
     where
         U: AssociatedContractStruct,
@@ -804,7 +806,9 @@ impl RetriableSuiClient {
     }
 
     /// Returns the Sui Objects of type `U` with the provided [`ObjectID`]s.
-    #[tracing::instrument(level = Level::DEBUG, skip_all)]
+    #[tracing::instrument(
+        level = Level::DEBUG, skip_all, fields(object_type = %U::CONTRACT_STRUCT)
+    )]
     pub async fn get_sui_objects<U>(&self, object_ids: &[ObjectID]) -> SuiClientResult<Vec<U>>
     where
         U: AssociatedContractStruct,
