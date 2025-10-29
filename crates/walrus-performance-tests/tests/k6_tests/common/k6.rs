@@ -68,7 +68,7 @@ impl Display for K6Command {
         f.write_str("k6")?;
         for arg in self.args.iter() {
             f.write_char(' ')?;
-            f.write_str(&arg)?;
+            f.write_str(arg)?;
         }
         f.write_char(' ')?;
         f.write_fmt(format_args!("{}", self.script.display()))?;

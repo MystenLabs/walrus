@@ -63,6 +63,7 @@ pub(crate) fn blob_request_throughput(
         .status()
 }
 
+#[allow(clippy::cast_possible_truncation)]
 pub(crate) fn throughput_increment(start_rate: usize) -> usize {
     cmp::max((start_rate as f64 * 0.05).round() as usize, 1)
 }
