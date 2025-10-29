@@ -905,7 +905,7 @@ suiup install walrus
 use to access Testnet or Mainnet. The easiest way to configure Walrus is to download the following
 prefilled configuration file.</p>
 <pre><code class="language-bash">mkdir ~/.config/walrus/
-curl https://manansh11.github.io/walrus-docs/setup/client_config_testnet.yaml -o ~/.config/walrus/client_config.yaml
+curl --create-dirs https://manansh11.github.io/walrus-docs/setup/client_config_testnet.yaml -o ~/.config/walrus/client_config.yaml
 </code></pre>
 <p>Next, you need to configure the Sui client to connect to Testnet. The Sui client configuration is
 separate from the Walrus client configuration.
@@ -939,7 +939,7 @@ address from a public key using a hash function.</p>
 <p>Anyone can see addresses, and they are valid on all networks (Testnet, Mainnet, and so on), but
 networks do not share data and assets.</p>
 <p>An <em>account</em> is an address plus the key to access it. If you have an address's private key, you
-can actually use what the address owns, such as tokens and objects.</p>
+have privileged access and control over what the address owns, such as tokens and objects.</p>
 <p>To view your active address, run:</p>
 <pre><code class="language-bash">sui client active-address
 </code></pre>
