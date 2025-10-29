@@ -67,11 +67,11 @@ pub(crate) fn throughput_increment(start_rate: usize) -> usize {
     cmp::max((start_rate as f64 * 0.05).round() as usize, 1)
 }
 
-pub(crate) fn throughput_stage_duration_secs(base_request_duration: Duration) -> usize {
+pub(crate) fn throughput_stage_duration_secs(base_request_duration: Duration) -> u64 {
     let stage_duration_factor = if base_request_duration <= Duration::from_secs(30) {
-        2.0 // Enough for 2 rounds of requests.
+        2 // Enough for 2 rounds of requests.
     } else {
-        1.0 // Enough for 1 round of requests.
+        1 // Enough for 1 round of requests.
     };
-    (base_request_duration.as_secs_f64() * stage_duration_factor).ceil() as usize
+    base_request_duration.as_secs() * stage_duration_factor
 }

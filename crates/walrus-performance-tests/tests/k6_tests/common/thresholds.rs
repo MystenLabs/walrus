@@ -54,8 +54,7 @@ impl BlobThresholds {
         assert!(
             BLOB_UPLOAD_DOWNLOAD_TPUT_THRESHOLDS
                 .iter()
-                .find(|(item_env, ..)| *item_env == env)
-                .is_some(),
+                .any(|(item_env, ..)| *item_env == env),
             "the requested env ({}) must have thresholds set",
             env
         );

@@ -156,10 +156,8 @@ impl K6Command {
 
         let status = Command::new("k6").args(args).status()?;
 
-        if status.success() {
-            Ok(())
-        } else if self.is_threshold_failure_ok
-            && status.code() == Some(K6_THRESHOLD_FAILED_EXIT_CODE)
+        if status.success()
+            || self.is_threshold_failure_ok && status.code() == Some(K6_THRESHOLD_FAILED_EXIT_CODE)
         {
             Ok(())
         } else {

@@ -56,11 +56,11 @@ static WALRUS_K6_OUT: LazyLock<Option<String>> = LazyLock::new(|| env::var("WALR
 
 /// If set to 'true', call k6 with the `--quiet` flag, to avoid real-time progress out.
 static WALRUS_K6_QUIET: LazyLock<bool> =
-    LazyLock::new(|| env::var("WALRUS_K6_QUIET").map_or(false, |s| s.parse().unwrap_or(false)));
+    LazyLock::new(|| env::var("WALRUS_K6_QUIET").is_ok_and(|s| s.parse().unwrap_or(false)));
 
 /// If set to 'true', call k6 with the `--no-color` flag.
 static WALRUS_K6_NO_COLOR: LazyLock<bool> =
-    LazyLock::new(|| env::var("WALRUS_K6_NO_COLOR").map_or(false, |s| s.parse().unwrap_or(false)));
+    LazyLock::new(|| env::var("WALRUS_K6_NO_COLOR").is_ok_and(|s| s.parse().unwrap_or(false)));
 
 /// Create a new [`K6`] instance for running a command and sets common options.
 fn run<P>(script: P, testid_suffix: &str) -> K6Command
