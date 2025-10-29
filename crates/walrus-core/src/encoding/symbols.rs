@@ -88,9 +88,9 @@ impl Symbols {
     /// #
     /// assert!(Symbols::with_capacity(42, 1.try_into().unwrap()).is_empty());
     /// ```
-    pub fn with_capacity(capacity: usize, symbol_size: NonZeroU16) -> Self {
+    pub fn with_capacity(n_symbols: usize, symbol_size: NonZeroU16) -> Self {
         Symbols {
-            data: Vec::<u8>::with_capacity(capacity),
+            data: Vec::<u8>::with_capacity(n_symbols * usize::from(symbol_size.get())),
             symbol_size,
         }
     }
