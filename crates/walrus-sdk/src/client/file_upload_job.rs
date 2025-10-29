@@ -138,6 +138,7 @@ pub fn read_blob_from_file(
 }
 
 /// Slices a file into multiple blobs of the specified size.
+// TODO(WAL-1085): Support incremental read/store of very large blobs
 fn slice_file_into_blobs(
     path: impl AsRef<Path>,
     file_size: u64,
@@ -151,11 +152,11 @@ fn slice_file_into_blobs(
         path.display()
     ))?;
 
+    let mut remaining = usize::try_from(file_size).context("file_size too large")?;
     let num_slices = file_size.div_ceil(slice_size);
-    let mut slices = Vec::with_capacity(usize::try_from(num_slices).expect("num_slices too large"));
-    let slice_usize = usize::try_from(slice_size).expect("slice_size too large");
-
-    let mut remaining = usize::try_from(file_size).expect("file_size too large");
+    let mut slices =
+        Vec::with_capacity(usize::try_from(num_slices).context("num_slices too large")?);
+    let slice_usize = usize::try_from(slice_size).context("slice_size too large")?;
 
     loop {
         let mut buffer = Vec::with_capacity(slice_usize.min(remaining));
