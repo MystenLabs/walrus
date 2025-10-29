@@ -212,7 +212,7 @@ system implements erasure coding.
 After you upload a blob to Walrus, it has 2 identifiers:
 
 ```bash
-Blob ID: oehkoh0352bRGNPjuwcy0nye3OLKT649K62imNdAlXg
+Blob ID: oehkoh0352bRGNPjuwcy0nye3OLKT649K62imdNAlXg
 Sui object ID: 0x1c086e216c4d35bf4c1ea493aea701260ffa5b0070622b17271e4495a030fe83
 ```
 
