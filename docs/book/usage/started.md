@@ -58,7 +58,7 @@ curl https://manansh11.github.io/walrus-docs/setup/client_config_testnet.yaml -o
 
 Next, you need to configure the Sui client to connect to Testnet. The Sui client configuration is
 separate from the Walrus client configuration.
-[Learn more about the Sui client configuration.](https://docs.sui.io/guides/developer/getting-started/connect#configure-sui-client)
+[Learn more about the Sui client configuration.](https://docs.sui.io/guides/developer/getting-started/configure-sui-client)
 
 Initialize the Sui client:
 
@@ -161,7 +161,7 @@ sui client balance
 >
 > The Sui faucet is rate limited. If you encounter errors or have questions, you can request
 > tokens from the Discord faucet or a third party faucet.
-> [Learn more about the Sui faucet.](https://docs.sui.io/guides/developer/getting-started/get-coins#request-test-tokens-through-discord)
+> [Learn more about the Sui faucet.](https://docs.sui.io/guides/developer/getting-started/get-coins)
 
 Now, convert some of those SUI tokens into WAL with the command:
 
