@@ -29,8 +29,8 @@ static BLOB_UPLOAD_DOWNLOAD_TPUT_THRESHOLDS: BlobThroughputThresholdsInner = {
         (NightlyWithLatency, ByteSize::kibi(1), 28, 280),
         (NightlyWithLatency, ByteSize::mebi(100), 4, 76),
         // ---- TestnetFromCi ----
-        (TestnetFromCi, ByteSize::kibi(1), 20, 280),
-        (TestnetFromCi, ByteSize::mebi(100), 4, 70),
+        (TestnetFromCi, ByteSize::kibi(1), 20, 250),
+        (TestnetFromCi, ByteSize::mebi(100), 7, 70),
         // ---- Localhost ----
         (Localhost, ByteSize::kibi(1), 10, 10),
         (Localhost, ByteSize::mebi(100), 10, 10),
