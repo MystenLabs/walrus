@@ -22,7 +22,9 @@ use crate::{
     async_task_sorter::{AsyncTaskSorter, AsyncTaskSorterConfig},
 };
 
-/// Handles retry queue processing with channel-based signaling.
+/// Handles retry queue processing.
+/// It scans the retry queue, and spawns workers for any retry tasks it finds.
+/// The process is repeated as long as there exists retry tasks in the queue.
 struct RetryQueueHandler<T, S, E>
 where
     T: AsyncTask,
@@ -35,8 +37,11 @@ where
     retry_notification_receiver: mpsc::UnboundedReceiver<()>,
     retry_notification_sender: mpsc::UnboundedSender<()>,
     shutdown_token: CancellationToken,
+    /// Synchronization mutex for task_handle and retry_notified
+    sync_mutex: Arc<Mutex<()>>,
     task_handle: Option<JoinHandle<()>>,
-    retry_notified: Arc<Mutex<bool>>,
+    /// A hint whether there are retry tasks to process.
+    retry_notified: bool,
     _phantom: std::marker::PhantomData<T>,
 }
 
@@ -61,12 +66,14 @@ where
             retry_notification_receiver,
             retry_notification_sender,
             shutdown_token,
+            sync_mutex: Arc::new(Mutex::new(())),
             task_handle: None,
-            retry_notified: Arc::new(Mutex::new(false)),
+            retry_notified: true, // Initialize to true to start processing on first signal
             _phantom: std::marker::PhantomData,
         }
     }
 
+    /// Runs the retry queue handler in a background task.
     fn spawn(
         store: Arc<S>,
         executor: Arc<E>,
@@ -89,12 +96,12 @@ where
         })
     }
 
+    /// The main retry queue processing loop.
     async fn run(&mut self) {
         loop {
             self.start_processing_retry_tasks().await;
 
             tokio::select! {
-                // Shutdown signal - highest priority.
                 _ = self.shutdown_token.cancelled() => {
                     tracing::info!("Retry handler shutting down");
                     if let Some(handle) = self.task_handle.take() {
@@ -105,53 +112,60 @@ where
 
                 // Listen for retry signals.
                 Some(_) = self.retry_notification_receiver.recv() => {
-                    *self.retry_notified.lock().await = true;
+                    let _guard = self.sync_mutex.lock().await;
+                    self.retry_notified = true;
                 }
 
                 // Check if current task finished.
                 _ = async {
-                    if let Some(ref mut handle) = self.task_handle {
-                        handle.await.ok()
+                    // Check if we have a handle without taking it
+                    let has_handle = {
+                        let _guard = self.sync_mutex.lock().await;
+                        self.task_handle.is_some()
+                    };
+
+                    if has_handle {
+                        // Wait for the task to complete
+                        if let Some(ref mut handle) = self.task_handle {
+                            handle.await.ok()
+                        } else {
+                            None
+                        }
                     } else {
                         // No task running, wait forever.
                         std::future::pending::<Option<()>>().await
                     }
                 } => {
                     // Task finished, clear the handle.
+                    let _guard = self.sync_mutex.lock().await;
                     self.task_handle = None;
-                    // The task itself checked the flag and decided to stop.
                 }
             }
         }
     }
 
     /// Spawn a task that processes the retry queue once and exits.
-    // TODO: Add a mutex and use it to sync task creation.
     async fn start_processing_retry_tasks(&mut self) {
+        let _guard = self.sync_mutex.lock().await;
         if self.task_handle.is_some() {
-            // Already processing, don't start another.
             return;
         }
-        if !*self.retry_notified.lock().await {
+        if !self.retry_notified {
             return;
         }
+
+        // Clear the retry_notified flag.
+        self.retry_notified = false;
 
         let store = self.store.clone();
         let executor = self.executor.clone();
         let config = self.config.clone();
         let shutdown_token = self.shutdown_token.clone();
-        let retry_notified = self.retry_notified.clone();
         let retry_notification_sender = self.retry_notification_sender.clone();
-        let semaphore = Arc::new(Semaphore::new(config.max_concurrent_tasks));
+        let semaphore = Arc::new(Semaphore::new(config.max_concurrent_retry_tasks));
         let read_batch_size = config.read_batch_size;
 
         let task_handle = tokio::spawn(async move {
-            // Clear the flag at the start.
-            {
-                let mut flag = retry_notified.lock().await;
-                *flag = false;
-            }
-
             Self::process_retry_queue(
                 store,
                 executor,
@@ -163,6 +177,7 @@ where
             .await;
         });
 
+        // Store the handle.
         self.task_handle = Some(task_handle);
     }
 
@@ -234,8 +249,6 @@ where
                     shutdown_token.clone(),
                 );
             }
-            // After dispatching all tasks in this batch, continue to next batch.
-            // The semaphore will limit concurrent execution across all batches.
         }
     }
 
@@ -263,10 +276,6 @@ where
                     if !shutdown_token.is_cancelled() {
                         tracing::warn!("Retry task {:?} failed: {}", task, e);
 
-                        // Task was already removed from retry queue before execution.
-                        // We don't need to update it - it's gone from storage.
-                        // The executor should handle re-adding if needed.
-
                         // Signal that retry processing may be needed.
                         if let Some(sender) = retry_notification_sender {
                             let _ = sender.send(());
@@ -287,9 +296,10 @@ pub struct AsyncTaskManagerConfig {
     pub config: AsyncTaskSorterConfig,
     /// Delay between processing tasks (to avoid tight loops).
     pub inter_task_delay: Duration,
-    /// Maximum number of concurrent tasks (applies to both regular and retry tasks).
-    /// TODO: Use two different values for regular and retry tasks.
+    /// Maximum number of concurrent regular tasks.
     pub max_concurrent_tasks: usize,
+    /// Maximum number of concurrent retry tasks.
+    pub max_concurrent_retry_tasks: usize,
     /// Batch size for reading entries from disk.
     pub read_batch_size: usize,
 }
@@ -300,6 +310,7 @@ impl Default for AsyncTaskManagerConfig {
             config: AsyncTaskSorterConfig::default(),
             inter_task_delay: Duration::from_millis(100),
             max_concurrent_tasks: 4,
+            max_concurrent_retry_tasks: 2,
             read_batch_size: 10,
         }
     }
@@ -319,12 +330,12 @@ where
     S: AsyncTaskStore<T>,
     E: TaskExecutor<T>,
 {
+    /// Interface for sorted task queue.
     task_sorter: Arc<AsyncTaskSorter<T, S>>,
     /// Handle to the main processing task.
     processing_handle: Arc<Mutex<Option<JoinHandle<()>>>>,
     /// Handle to the retry queue processing task.
     retry_handle: Arc<Mutex<Option<JoinHandle<()>>>>,
-    /// Cancellation token for shutting down processing.
     shutdown_token: CancellationToken,
     _phantom: std::marker::PhantomData<(T, S, E)>,
 }
@@ -375,7 +386,7 @@ where
         })
     }
 
-    /// Submit a task to the manager.
+    /// Submit a new task.
     /// The task will be persisted, enqueued and eventually executed.
     pub async fn submit(&self, task: T) -> Result<()> {
         tracing::debug!("Submitted task {:?}", task);
@@ -394,7 +405,7 @@ where
         tokio::spawn(async move {
             tracing::info!("Starting task processing loop");
 
-            // Create a semaphore for limiting concurrent tasks.
+            // Create a semaphore for limiting concurrent regular tasks.
             let semaphore = Arc::new(Semaphore::new(config.max_concurrent_tasks));
 
             // The processing loop function with cancellation token.
@@ -409,7 +420,7 @@ where
             )
             .await;
 
-            // Wait for all tasks to complete before exiting.
+            // Wait for all regular tasks to complete before exiting.
             // We do this by acquiring all permits.
             for _ in 0..config.max_concurrent_tasks {
                 let _ = semaphore.acquire().await;
@@ -478,6 +489,8 @@ where
                         executor.clone(),
                         Some(retry_notification_sender.clone()),
                     );
+
+                    tokio::time::sleep(inter_task_delay).await;
                 }
             }
         }
@@ -593,6 +606,7 @@ mod tests {
             },
             inter_task_delay: Duration::from_millis(10),
             max_concurrent_tasks: 2,
+            max_concurrent_retry_tasks: 1,
             read_batch_size: 10,
         };
 
@@ -649,7 +663,8 @@ mod tests {
                 drop_batch_size: 2,
             },
             inter_task_delay: Duration::from_millis(5),
-            max_concurrent_tasks: 4,
+            max_concurrent_tasks: 3,
+            max_concurrent_retry_tasks: 2,
             read_batch_size: 10,
         };
 
