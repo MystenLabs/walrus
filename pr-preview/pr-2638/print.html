@@ -877,7 +877,7 @@ user.</p>
 <h3 id="available-networks"><a class="header" href="#available-networks">Available networks</a></h3>
 <p>Sui and Walrus each have the following available networks:</p>
 <ul>
-<li><strong>Testnet</strong> is a sandbox-like network where you can receive test tokens for free to use for the network's fees. You can build, test, and debug software packages on Testnet. Testnet does not guarantee data persistence and may wipe data at any time without warning.</li>
+<li><strong>Testnet</strong> is a sandbox-like network where you can receive test tokens for free to use for the network's fees. You can build, test, and debug software packages on Testnet. Testnet does not guarantee data persistence and might wipe data at any time without warning.</li>
 <li><strong>Mainnet</strong> is a production environment where you use real tokens and users or other applications rely on consistent functionality.</li>
 </ul>
 <p>When you are getting started, you should use <strong>Testnet.</strong></p>
@@ -905,7 +905,7 @@ curl https://manansh11.github.io/walrus-docs/setup/client_config_testnet.yaml -o
 <li>Environment alias → <code>testnet</code></li>
 <li>Select key scheme → <code>0</code> (for ed25519)</li>
 </ul>
-<p>This creates your Sui client configuration file with a "testnet" environment and generates your first address.</p>
+<p>This creates your Sui client configuration file with a Testnet environment and generates your first address.</p>
 <p>To confirm the Walrus configuration also uses Testnet, run the command:</p>
 <pre><code class="language-bash">walrus info
 </code></pre>
@@ -914,7 +914,7 @@ curl https://manansh11.github.io/walrus-docs/setup/client_config_testnet.yaml -o
 <h2 id="understanding-your-sui-account"><a class="header" href="#understanding-your-sui-account">Understanding your Sui account</a></h2>
 <p>When you ran <code>sui client</code> during setup, the system automatically created a Sui account for you. Sui uses addresses and accounts. When you store blobs on Walrus, Walrus binds them to an object on Sui that an address owns.</p>
 <p>An <em>address</em> is a unique location on the blockchain. A 32-byte identifier (displayed as 64 hex characters with <code>0x</code> prefix) identifies the address, which can own objects. The system derives the address from a public key using a hash function.</p>
-<p>Anyone can see addresses, and they are valid on all networks (Testnet, Mainnet, etc.), but networks do not share data and assets.</p>
+<p>Anyone can see addresses, and they are valid on all networks (Testnet, Mainnet, and so on), but networks do not share data and assets.</p>
 <p>An <em>account</em> is an address plus the key to access it. If you have an address's private key, you can actually use what the address owns, such as tokens and objects.</p>
 <p>To view your active address, run:</p>
 <pre><code class="language-bash">sui client active-address
@@ -924,7 +924,7 @@ curl https://manansh11.github.io/walrus-docs/setup/client_config_testnet.yaml -o
 </code></pre>
 <blockquote>
 <p><strong>Warning: Store your keys securely</strong></p>
-<p>You must store your private key and recovery phrase securely, otherwise you may lose access to your address.</p>
+<p>You must store your private key and recovery passphrase securely, otherwise you might lose access to your address.</p>
 <p><a href="https://docs.sui.io/guides/developer/getting-started/get-address">Learn more about addresses, available key pair options, and key storage.</a></p>
 </blockquote>
 <h3 id="creating-additional-addresses-optional"><a class="header" href="#creating-additional-addresses-optional">Creating additional addresses (Optional)</a></h3>
@@ -936,7 +936,7 @@ curl https://manansh11.github.io/walrus-docs/setup/client_config_testnet.yaml -o
 <p>Before you can upload a file to Walrus and store it as a blob, you need SUI tokens to pay transaction fees and WAL tokens to pay for storage on the network. The Walrus Testnet uses Testnet WAL tokens that have no value and you can exchange them at a 1:1 rate for Testnet SUI tokens.</p>
 <p>To get SUI tokens, navigate to the SUI Testnet faucet:</p>
 <p><a href="https://faucet.sui.io/">https://faucet.sui.io/</a></p>
-<p>Ensure you select "Testnet". Then, insert your Sui address. To print your Sui address, use the command:</p>
+<p>Ensure you select Testnet. Then, insert your Sui address. To print your Sui address, use the command:</p>
 <pre><code class="language-bash">sui client active-address
 </code></pre>
 <p>After you insert your address on the faucet and receive a message saying you have received SUI tokens, check your balance with the command:</p>
@@ -969,7 +969,7 @@ curl https://manansh11.github.io/walrus-docs/setup/client_config_testnet.yaml -o
 <p>Replace <code>file.txt</code> with the file you want to store on Walrus. You can store any file type on Walrus.</p>
 <p>You must specify the <code>--epochs</code> flag, as the system stores blobs for a certain number of epochs. An <em>epoch</em> is a certain period of time on the network. On Testnet, epochs are 1 day, and on Mainnet epochs are 2 weeks. You can extend the number of epochs the system stores a blob indefinitely.</p>
 <p>The system uploads a blob in <em>slivers</em>, which are small pieces of the file the system stores on different servers through <em>erasure coding</em>. <a href="https://docs.wal.app/design/encoding.html">Learn more</a> about the Walrus architecture and how the system implements erasure coding.</p>
-<p>After you upload a blob to Walrus, it has two identifiers:</p>
+<p>After you upload a blob to Walrus, it has 2 identifiers:</p>
 <pre><code class="language-bash">Blob ID: oehkoh0352bRGNPjuwcy0nye3OLKT649K62imNdAlXg
 Sui object ID: 0x1c086e216c4d35bf4c1ea493aea701260ffa5b0070622b17271e4495a030fe83
 </code></pre>
@@ -977,7 +977,7 @@ Sui object ID: 0x1c086e216c4d35bf4c1ea493aea701260ffa5b0070622b17271e4495a030fe8
 <li>Blob ID: A way to reference the blob on Walrus. The system generates the blob ID based on the blob's contents, meaning any file you upload to the network twice results in the same blob ID.</li>
 <li>Sui Object ID: The blob's corresponding newly created Sui object identifier, as the system binds all blobs to one or more Sui objects.</li>
 </ul>
-<p>You use blob IDs to read blob data, while you use Sui object IDs to make modifications to the blob's metadata, such as its storage duration. You may also use them to read blob data.</p>
+<p>You use blob IDs to read blob data, while you use Sui object IDs to make modifications to the blob's metadata, such as its storage duration. You might also use them to read blob data.</p>
 <p>You can use the <a href="https://walruscan.com/">Walrus Explorer</a> to view more information about a blob ID.</p>
 <h2 id="retrieve-a-blob"><a class="header" href="#retrieve-a-blob">Retrieve a blob</a></h2>
 <p>To retrieve a blob and save it on your local machine, run the following command:</p>
@@ -986,7 +986,7 @@ Sui object ID: 0x1c086e216c4d35bf4c1ea493aea701260ffa5b0070622b17271e4495a030fe8
 <p>Replace <code>&lt;blob-id&gt;</code> with the blob's identifier the <code>walrus store</code> command returns in its output, and replace <code>file.txt</code> with the name and file extension for storing the file locally.</p>
 <h2 id="extend-a-blobs-storage-duration"><a class="header" href="#extend-a-blobs-storage-duration">Extend a blob's storage duration</a></h2>
 <p>To extend a blob's storage duration, you must reference the Sui object ID and indicate how many epochs you want to extend the blob's storage for.</p>
-<p>Run the following command to extend a blob's storage duration by 3 epochs. Note that you must use the Sui object ID, not the blob ID:</p>
+<p>Run the following command to extend a blob's storage duration by 3 epochs. You must use the Sui object ID, not the blob ID:</p>
 <pre><code class="language-bash">walrus extend --blob-obj-id &lt;blob-object-id&gt; --epochs-extended 3 --context testnet
 </code></pre>
 <p>Replace <code>&lt;blob-object-id&gt;</code> with the blob's Sui object ID the <code>walrus store</code> command returns in its output.</p>
@@ -1222,7 +1222,7 @@ default_context: mainnet
 </div>
 <div>
 <p>The easiest way to obtain the latest configuration is by downloading it directly from Walrus:</p>
-<pre><code class="language-sh">curl https://docs.wal.app/setup/client_config.yaml -o ~/.config/walrus/client_config.yaml
+<pre><code class="language-sh">curl --create-dirs https://docs.wal.app/setup/client_config.yaml -o ~/.config/walrus/client_config.yaml
 </code></pre>
 </div>
 </div>
@@ -3791,7 +3791,7 @@ following configs to your node configuration:</p>
     secs: 14400  # 4 hours in seconds
     nanos: 0
 
-  # Sync in-memory data to disk before creating a bakcup
+  # Sync in-memory data to disk before creating a backup
   sync: true
 
   # Maximum concurrent backup operations
