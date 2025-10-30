@@ -13,9 +13,8 @@ blobs to *objects* on the Sui blockchain.
 Walrus depends on Sui, as it leverages Sui to track blobs, their respective owners, and their
 lifetimes.
 
-Sui and Walrus are both decentralized, distributed systems made up of many independent servers
-that communicate and collectively establish shared state. A group of servers together is a
-*network*.
+Sui and Walrus are both decentralized, distributed systems made up of many independent servers that
+communicate and collectively establish shared state. A group of servers together is a *network*.
 
 ### Available networks
 
@@ -24,8 +23,8 @@ Sui and Walrus each have the following available [networks](./networks.md):
 - **Testnet** is a sandbox-like network where you can receive test tokens for free to use for the
   network's fees. You can build, test, and debug software packages on Testnet. Testnet does not
   guarantee data persistence and might wipe data at any time without warning.
-- **Mainnet** is a production environment where you use real tokens and users or other
-  applications rely on consistent functionality.
+- **Mainnet** is a production environment where you use real tokens and users or other applications
+  rely on consistent functionality.
 
 When you are getting started, you should use **Testnet**.
 
@@ -73,8 +72,8 @@ When prompted, enter the following:
 - Environment alias → `testnet`
 - Select key scheme → `0` (for ed25519)
 
-This creates your Sui client configuration file with a Testnet environment and generates your
-first address.
+This creates your Sui client configuration file with a Testnet environment and generates your first
+address.
 
 To confirm the Walrus configuration also uses Testnet, run the command:
 
@@ -85,14 +84,14 @@ walrus info
 Make sure that this command's output includes `Epoch duration: 1day` to indicate connection to
 Testnet.
 
-For detailed information about the `walrus` command-line tool, use the `walrus --help` command.
-Or, append `--help` to any `walrus` subcommand to get details about that specific command.
+For detailed information about the `walrus` command-line tool, use the `walrus --help` command. Or,
+append `--help` to any `walrus` subcommand to get details about that specific command.
 
 ## Understanding your Sui account
 
-When you ran `sui client` during setup, the system automatically created a Sui account for you.
-Sui uses addresses and accounts. When you store blobs on Walrus, Walrus binds them to an object on
-Sui that an address owns.
+When you ran `sui client` during setup, the system automatically created a Sui account for you. Sui
+uses addresses and accounts. When you store blobs on Walrus, Walrus binds them to an object on Sui
+that an address owns.
 
 An *address* is a unique location on the blockchain. A 32-byte identifier (displayed as 64 hex
 characters with `0x` prefix) identifies the address, which can own objects. The system derives the
@@ -101,8 +100,8 @@ address from a public key using a hash function.
 Anyone can see addresses, and they are valid on all networks (Testnet, Mainnet, and so on), but
 networks do not share data and assets.
 
-An *account* is an address plus the key to access it. If you have an address's private key, you
-have privileged access and control over what the address owns, such as tokens and objects.
+An *account* is an address plus the key to access it. If you have an address's private key, you have
+privileged access and control over what the address owns, such as tokens and objects.
 
 To view your active address, run:
 
@@ -118,8 +117,8 @@ sui client addresses
 
 > **Warning: Store your keys securely**
 >
-> You must store your private key and recovery passphrase securely, otherwise you might lose
-> access to your address.
+> You must store your private key and recovery passphrase securely, otherwise you might lose access
+> to your address.
 >
 > [Learn more about addresses, available key pair options, and key storage.](https://docs.sui.io/guides/developer/getting-started/get-address)
 
@@ -159,8 +158,8 @@ sui client balance
 
 > **Tip: Faucet alternatives**
 >
-> The Sui faucet is rate limited. If you encounter errors or have questions, you can request
-> tokens from the Discord faucet or a third party faucet.
+> The Sui faucet is rate limited. If you encounter errors or have questions, you can request tokens
+> from the Discord faucet or a third party faucet.
 > [Learn more about the Sui faucet.](https://docs.sui.io/guides/developer/getting-started/get-coins)
 
 Now, convert some of those SUI tokens into WAL with the command:
@@ -187,8 +186,8 @@ Then, check your balance again with `sui client balance` to confirm you now have
 ## Store a blob
 
 Changes to objects on Sui happen through the use of transactions. Accounts sign these transactions
-on behalf of addresses and they result in the system creating, updating, transferring, and
-sometimes destroying objects. Learn more about [transactions](https://docs.sui.io/concepts/transactions).
+on behalf of addresses and they result in the system creating, updating, transferring, and sometimes
+destroying objects. Learn more about [transactions](https://docs.sui.io/concepts/transactions).
 
 To upload a file to Walrus and store it as a blob, run the following command:
 
@@ -196,18 +195,15 @@ To upload a file to Walrus and store it as a blob, run the following command:
 walrus store file.txt --epochs 2 --context testnet
 ```
 
-Replace `file.txt` with the file you want to store on Walrus. You can store any file type on
-Walrus.
+Replace `file.txt` with the file you want to store on Walrus. You can store any file type on Walrus.
 
-You must specify the `--epochs` flag, as the system stores blobs for a certain number of epochs.
-An *epoch* is a certain period of time on the network. On Testnet, epochs are 1 day, and on
-Mainnet epochs are 2 weeks. You can extend the number of epochs the system stores a blob
-indefinitely.
+You must specify the `--epochs` flag, as the system stores blobs for a certain number of epochs. An
+*epoch* is a certain period of time on the network. On Testnet, epochs are 1 day, and on Mainnet
+epochs are 2 weeks. You can extend the number of epochs the system stores a blob indefinitely.
 
 The system uploads a blob in *slivers*, which are small pieces of the file the system stores on
-different servers through *erasure coding*.
-[Learn more](https://docs.wal.app/design/encoding.html) about the Walrus architecture and how the
-system implements erasure coding.
+different servers through *erasure coding*. [Learn more](https://docs.wal.app/design/encoding.html)
+about the Walrus architecture and how the system implements erasure coding.
 
 After you upload a blob to Walrus, it has 2 identifiers:
 
@@ -221,11 +217,10 @@ Sui object ID: 0x1c086e216c4d35bf4c1ea493aea701260ffa5b0070622b17271e4495a030fe8
 - Sui Object ID: The blob's corresponding newly created Sui object identifier, as the system binds
   all blobs to one or more Sui objects.
 
-You use blob IDs to read blob data, while you use Sui object IDs to make modifications to the
-blob's metadata, such as its storage duration. You might also use them to read blob data.
+You use blob IDs to read blob data, while you use Sui object IDs to make modifications to the blob's
+metadata, such as its storage duration. You might also use them to read blob data.
 
-You can use the [Walrus Explorer](https://walruscan.com/) to view more information about a blob
-ID.
+You can use the [Walrus Explorer](https://walruscan.com/) to view more information about a blob ID.
 
 ## Retrieve a blob
 
@@ -235,8 +230,8 @@ To retrieve a blob and save it on your local machine, run the following command:
 walrus read <blob-id> --out file.txt --context testnet
 ```
 
-Replace `<blob-id>` with the blob's identifier the `walrus store` command returns in its output,
-and replace `file.txt` with the name and file extension for storing the file locally.
+Replace `<blob-id>` with the blob's identifier the `walrus store` command returns in its output, and
+replace `file.txt` with the name and file extension for storing the file locally.
 
 ## Extend a blob's storage duration
 
@@ -255,7 +250,9 @@ output.
 
 ## Delete a blob
 
-All blobs stored in Walrus are public and discoverable by anyone The `delete` command does not delete blobs from caches, slivers from past storage nodes, or copies that could have been made by users before the blob was deleted.
+All blobs stored in Walrus are public and discoverable by anyone The `delete` command does not
+delete blobs from caches, slivers from past storage nodes, or copies that could have been made by
+users before the blob was deleted.
 
 To delete a blob, run the following command:
 
@@ -268,10 +265,11 @@ Replace `<blob-id>` with the blob's identifier the `walrus store` command return
 ## Next steps
 
 [Build your first Walrus application](https://docs.wal.app/dev-guide/dev-guide.html). Explore
-   working examples:
-   - [Python examples](https://github.com/MystenLabs/walrus/tree/main/docs/examples/python)
-   - [JavaScript web form](https://github.com/MystenLabs/walrus/tree/main/docs/examples/javascript)
-   - [Move smart contracts](https://github.com/MystenLabs/walrus/tree/main/docs/examples/move)
+working examples:
+
+- [Python examples](https://github.com/MystenLabs/walrus/tree/main/docs/examples/python)
+- [JavaScript web form](https://github.com/MystenLabs/walrus/tree/main/docs/examples/javascript)
+- [Move smart contracts](https://github.com/MystenLabs/walrus/tree/main/docs/examples/move)
 
 ## Need help?
 
