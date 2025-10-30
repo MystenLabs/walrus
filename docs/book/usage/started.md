@@ -1,8 +1,8 @@
-# Getting Started with Walrus
+# Getting started with Walrus
 
 Walrus is a platform for building efficient and resilient data markets, where data is stored as
-*blobs*. Walrus stores all blobs as an array of bytes, and you can store any
-type of file, such as text, video, or source code.
+*blobs*. Walrus stores each blob as an immutable array of bytes, and you can store any type of file,
+such as text, video, or source code.
 
 Sui is a blockchain that supports programmability at a
 [fundamental level](https://docs.sui.io/concepts/transactions/prog-txn-blocks). Walrus binds all
@@ -27,7 +27,7 @@ Sui and Walrus each have the following available [networks](./networks.md):
 - **Mainnet** is a production environment where you use real tokens and users or other
   applications rely on consistent functionality.
 
-When you are getting started, you should use **Testnet.**
+When you are getting started, you should use **Testnet**.
 
 ## Install tooling
 
@@ -48,8 +48,9 @@ suiup install walrus
 ### Configure tooling for Walrus Testnet
 
 After you install Walrus, you need to configure the Walrus client, which tells it the RPC URLs to
-use to access Testnet or Mainnet, as well as the Sui objects that track the state of the Walrus network. The easiest way to configure Walrus is to download the following
-prefilled configuration file.
+use to access Testnet or Mainnet, as well as the Sui objects that track the state of the Walrus
+network. The easiest way to configure Walrus is to download the following pre-filled configuration
+file.
 
 ```bash
 curl --create-dirs https://docs.wal.app/setup/client_config.yaml -o ~/.config/walrus/client_config.yaml
