@@ -870,7 +870,7 @@ user.</p>
 <div style="break-before: page; page-break-before: always;"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.4/dist/katex.min.css">
 <h1 id="getting-started-with-walrus"><a class="header" href="#getting-started-with-walrus">Getting Started with Walrus</a></h1>
 <p>Walrus is a platform for building efficient and resilient data markets, where data is stored as
-<em>blobs</em>. Walrus stores all blobs as an array of bytes with a fixed size, and you can store any
+<em>blobs</em>. Walrus stores all blobs as an array of bytes, and you can store any
 type of file, such as text, video, or source code.</p>
 <p>Sui is a blockchain that supports programmability at a
 <a href="https://docs.sui.io/concepts/transactions/prog-txn-blocks">fundamental level</a>. Walrus binds all
@@ -882,7 +882,7 @@ lifetimes.</p>
 that communicate and collectively establish shared state. A group of servers together is a
 <em>network</em>.</p>
 <h3 id="available-networks"><a class="header" href="#available-networks">Available networks</a></h3>
-<p>Sui and Walrus each have the following available networks:</p>
+<p>Sui and Walrus each have the following available <a href="usage/./networks.html">networks</a>:</p>
 <ul>
 <li><strong>Testnet</strong> is a sandbox-like network where you can receive test tokens for free to use for the
 network's fees. You can build, test, and debug software packages on Testnet. Testnet does not
@@ -902,10 +902,9 @@ suiup install walrus
 </code></pre>
 <h3 id="configure-tooling-for-walrus-testnet"><a class="header" href="#configure-tooling-for-walrus-testnet">Configure tooling for Walrus Testnet</a></h3>
 <p>After you install Walrus, you need to configure the Walrus client, which tells it the RPC URLs to
-use to access Testnet or Mainnet. The easiest way to configure Walrus is to download the following
+use to access Testnet or Mainnet, as well as the Sui objects that track the state of the Walrus network. The easiest way to configure Walrus is to download the following
 prefilled configuration file.</p>
-<pre><code class="language-bash">mkdir ~/.config/walrus/
-curl --create-dirs https://manansh11.github.io/walrus-docs/setup/client_config_testnet.yaml -o ~/.config/walrus/client_config.yaml
+<pre><code class="language-bash">curl --create-dirs https://docs.wal.app/setup/client_config.yaml -o ~/.config/walrus/client_config.yaml
 </code></pre>
 <p>Next, you need to configure the Sui client to connect to Testnet. The Sui client configuration is
 separate from the Walrus client configuration.
@@ -987,8 +986,8 @@ tokens from the Discord faucet or a third party faucet.
 │ ╭─────────────────────────────────────╮ │
 │ │ coin  balance (raw)     balance     │ │
 │ ├─────────────────────────────────────┤ │
-│ │ Sui   8869252670        0.05 SUI    │ │
-│ │ WAL   500000000         0.50 WAL    │ │
+│ │ Sui        497664604      0.49 SUI   │ │
+│ │ WAL Token  500000000      0.50 WAL   │ │
 │ ╰─────────────────────────────────────╯ │
 ╰─────────────────────────────────────────╯
 </code></pre>
@@ -1039,6 +1038,7 @@ object ID, not the blob ID:</p>
 <p>Replace <code>&lt;blob-object-id&gt;</code> with the blob's Sui object ID the <code>walrus store</code> command returns in its
 output.</p>
 <h2 id="delete-a-blob"><a class="header" href="#delete-a-blob">Delete a blob</a></h2>
+<p>All blobs stored in Walrus are public and discoverable by anyone The <code>delete</code> command does not delete blobs from caches, slivers from past storage nodes, or copies that could have been made by users before the blob was deleted.</p>
 <p>To delete a blob, run the following command:</p>
 <pre><code class="language-bash">walrus delete --blob-id &lt;blob-id&gt; --context testnet
 </code></pre>
@@ -1056,7 +1056,7 @@ working examples:
 </ol>
 <h2 id="need-help"><a class="header" href="#need-help">Need help?</a></h2>
 <ul>
-<li><a href="https://docs.wal.app/usage/troubleshooting.html">Troubleshooting guide</a></li>
+<li><a href="usage/./troubleshooting.html">Troubleshooting guide</a></li>
 <li><a href="https://discord.gg/walrus">Discord community</a></li>
 </ul>
 <div style="break-before: page; page-break-before: always;"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.4/dist/katex.min.css">
@@ -1075,7 +1075,7 @@ source code via cargo.</p>
 <a class="admonition-anchor-link" href="usage/setup.html#admonition-walrus-networks"></a>
 </div>
 <div>
-<p>This page describes how to connect to Walrus <strong>Mainnet</strong>. See <a href="usage/./networks.html">Available networks</a>
+<p>This page describes how to connect to Walrus <strong>Testnet</strong>. See <a href="usage/./networks.html">Available networks</a>
 for an overview over all Walrus networks.</p>
 </div>
 </div>
@@ -1259,7 +1259,7 @@ CLI configuration refers to the standard location for Sui configuration
       # active_address: 0x0000000000000000000000000000000000000000000000000000000000000000
     rpc_urls:
       - https://fullnode.testnet.sui.io:443
-default_context: mainnet
+default_context: testnet
 </code></pre>
 <!-- markdownlint-disable code-fence-style -->
 <div id="admonition-tip-1" class="admonition admonish-tip" role="note" aria-labelledby="admonition-tip-1-title">
