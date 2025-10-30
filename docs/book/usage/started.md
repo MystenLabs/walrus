@@ -1,7 +1,7 @@
 # Getting Started with Walrus
 
 Walrus is a platform for building efficient and resilient data markets, where data is stored as
-*blobs*. Walrus stores all blobs as an array of bytes with a fixed size, and you can store any
+*blobs*. Walrus stores all blobs as an array of bytes, and you can store any
 type of file, such as text, video, or source code.
 
 Sui is a blockchain that supports programmability at a
@@ -19,7 +19,7 @@ that communicate and collectively establish shared state. A group of servers tog
 
 ### Available networks
 
-Sui and Walrus each have the following available networks:
+Sui and Walrus each have the following available [networks](./networks.md):
 
 - **Testnet** is a sandbox-like network where you can receive test tokens for free to use for the
   network's fees. You can build, test, and debug software packages on Testnet. Testnet does not
@@ -48,12 +48,11 @@ suiup install walrus
 ### Configure tooling for Walrus Testnet
 
 After you install Walrus, you need to configure the Walrus client, which tells it the RPC URLs to
-use to access Testnet or Mainnet. The easiest way to configure Walrus is to download the following
+use to access Testnet or Mainnet, as well as the Sui objects that track the state of the Walrus network. The easiest way to configure Walrus is to download the following
 prefilled configuration file.
 
 ```bash
-mkdir ~/.config/walrus/
-curl --create-dirs https://manansh11.github.io/walrus-docs/setup/client_config_testnet.yaml -o ~/.config/walrus/client_config.yaml
+curl --create-dirs https://docs.wal.app/setup/client_config.yaml -o ~/.config/walrus/client_config.yaml
 ```
 
 Next, you need to configure the Sui client to connect to Testnet. The Sui client configuration is
@@ -178,8 +177,8 @@ Then, check your balance again with `sui client balance` to confirm you now have
 │ ╭─────────────────────────────────────╮ │
 │ │ coin  balance (raw)     balance     │ │
 │ ├─────────────────────────────────────┤ │
-│ │ Sui   8869252670        0.05 SUI    │ │
-│ │ WAL   500000000         0.50 WAL    │ │
+│ │ Sui        497664604      0.49 SUI   │ │
+│ │ WAL Token  500000000      0.50 WAL   │ │
 │ ╰─────────────────────────────────────╯ │
 ╰─────────────────────────────────────────╯
 ```
@@ -255,6 +254,8 @@ output.
 
 ## Delete a blob
 
+All blobs stored in Walrus are public and discoverable by anyone The `delete` command does not delete blobs from caches, slivers from past storage nodes, or copies that could have been made by users before the blob was deleted.
+
 To delete a blob, run the following command:
 
 ```bash
@@ -273,5 +274,5 @@ Replace `<blob-id>` with the blob's identifier the `walrus store` command return
 
 ## Need help?
 
-- [Troubleshooting guide](https://docs.wal.app/usage/troubleshooting.html)
+- [Troubleshooting guide](./troubleshooting.html)
 - [Discord community](https://discord.gg/walrus)
