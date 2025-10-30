@@ -47,8 +47,8 @@ suiup install walrus
 
 ### Configure tooling for Walrus Testnet
 
-After you install Walrus, you need to configure the Walrus client, which tells it the RPC URLs to
-use to access Testnet or Mainnet, as well as the Sui objects that track the state of the Walrus
+After installing Walrus it is important to configure the Walrus client, which tells it the RPC URLs
+to use to access Testnet or Mainnet, as well as the Sui objects that track the state of the Walrus
 network. The easiest way to configure Walrus is to download the following pre-filled configuration
 file.
 
