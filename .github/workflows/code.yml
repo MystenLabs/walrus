@@ -43,8 +43,10 @@ jobs:
       isDenyConfig: ${{ steps.diff.outputs.isDenyConfig }}
       isTestConfig: ${{ steps.diff.outputs.isTestConfig }}
       isOpenapi: ${{ steps.diff.outputs.isOpenapi }}
-      isRelevantForRustTests: ${{ steps.diff.outputs.isRust == 'true' || steps.diff.outputs.isMove == 'true' || steps.diff.outputs.isTestConfig
-        == 'true' || steps.diff.outputs.isTestnetContracts == 'true' }}
+      isRelevantForRustTests:
+        ${{ steps.diff.outputs.isRust == 'true' || steps.diff.outputs.isMove == 'true' || steps.diff.outputs.isTestConfig
+        == 'true' || steps.diff.outputs.isTestnetContracts == 'true' || steps.diff.outputs.isExampleConfig == 'true' || steps.diff.outputs.isOpenapi
+        == 'true' }}
       isTestnetContracts: ${{ steps.diff.outputs.isTestnetContracts }}
       isMainnetContracts: ${{ steps.diff.outputs.isMainnetContracts }}
       isExampleConfig: ${{ steps.diff.outputs.isExampleConfig }}
@@ -205,7 +207,8 @@ jobs:
 
       - name: Install sui
         if: steps.cache-sui-restore.outputs.cache-hit != 'true'
-        run: cargo install --locked --git https://github.com/MystenLabs/sui.git --tag $SUI_TAG --debug --features tracing
+        run:
+          cargo install --locked --git https://github.com/MystenLabs/sui.git --tag $SUI_TAG --debug --features tracing
           sui
       - name: Run Move tests and check coverage
         run: bash ./scripts/move_tests.sh -c
