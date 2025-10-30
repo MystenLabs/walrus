@@ -166,13 +166,14 @@ pub struct ConcatRequestBody {
 
 /// Helper function to parse an ID string and resolve it to a BlobId.
 /// Tries to parse as BlobId first, then as ObjectID if that fails.
+/// Returns the BlobId and optionally the BlobAttribute if the ID was an ObjectID.
 async fn parse_and_resolve_id<T: WalrusReadClient>(
     id_str: &str,
     client: &T,
-) -> Result<BlobId, ConcatBlobError> {
+) -> Result<(BlobId, Option<BlobAttribute>), ConcatBlobError> {
     // Try parsing as BlobId first
     if let Ok(blob_id) = BlobId::from_str(id_str) {
-        return Ok(blob_id);
+        return Ok((blob_id, None));
     }
 
     // Try parsing as ObjectID
@@ -184,7 +185,7 @@ async fn parse_and_resolve_id<T: WalrusReadClient>(
                 object_id: object_id.to_string(),
                 message: e.to_string(),
             })?;
-        return Ok(blob_info.blob.blob_id);
+        return Ok((blob_info.blob.blob_id, blob_info.attribute));
     }
 
     Err(ConcatBlobError::InvalidId {
@@ -467,6 +468,8 @@ async fn concat_blobs_impl<T: WalrusReadClient + Send + Sync + 'static>(
     client: Arc<T>,
     id_strings: Vec<String>,
     consistency_check: ConsistencyCheckType,
+    request_headers: HeaderMap,
+    response_header_config: Arc<AggregatorResponseHeaderConfig>,
 ) -> Response {
     // Validate input
     if id_strings.is_empty() {
@@ -478,10 +481,18 @@ async fn concat_blobs_impl<T: WalrusReadClient + Send + Sync + 'static>(
     }
 
     // Resolve all IDs to blob IDs upfront (fail fast)
+    // Track the first blob's attribute for header population
     let mut blob_ids = Vec::new();
-    for id_str in &id_strings {
+    let mut first_attribute: Option<BlobAttribute> = None;
+    for (index, id_str) in id_strings.iter().enumerate() {
         match parse_and_resolve_id(id_str.as_str(), client.as_ref()).await {
-            Ok(blob_id) => blob_ids.push(blob_id),
+            Ok((blob_id, attribute)) => {
+                blob_ids.push(blob_id);
+                // Only capture the first blob's attribute
+                if index == 0 {
+                    first_attribute = attribute;
+                }
+            }
             Err(error) => return error.into_response(),
         }
     }
@@ -521,13 +532,29 @@ async fn concat_blobs_impl<T: WalrusReadClient + Send + Sync + 'static>(
     let body = Body::from_stream(stream);
 
     // Build response with appropriate headers
-    Response::builder()
+    let mut response = Response::builder()
         .status(StatusCode::OK)
         .header(CONTENT_TYPE, "application/octet-stream")
         .header(CACHE_CONTROL, "max-age=86400, stale-while-revalidate=3600")
         .header(X_CONTENT_TYPE_OPTIONS, "nosniff")
         .body(body)
-        .expect("failed to build concatenated blob response")
+        .expect("failed to build concatenated blob response");
+
+    // Populate response headers with priority:
+    // 1. Request header override (if Content-Type in request)
+    // 2. First blob's attributes (if available)
+    // 3. Default (already set above)
+    if let Some(content_type) = request_headers.get(CONTENT_TYPE) {
+        response.headers_mut().insert(CONTENT_TYPE, content_type.clone());
+    } else if let Some(attribute) = first_attribute {
+        populate_response_headers_from_attributes(
+            response.headers_mut(),
+            &attribute,
+            Some(&response_header_config.allowed_headers),
+        );
+    }
+
+    response
 }
 
 /// Concatenate and stream multiple blobs via GET.
@@ -547,7 +574,8 @@ async fn concat_blobs_impl<T: WalrusReadClient + Send + Sync + 'static>(
     ),
 )]
 pub(super) async fn get_blobs_concat<T: WalrusReadClient + Send + Sync + 'static>(
-    State(client): State<Arc<T>>,
+    State((client, response_header_config)): State<(Arc<T>, Arc<AggregatorResponseHeaderConfig>)>,
+    request_headers: HeaderMap,
     Query(params): Query<ConcatQueryParams>,
 ) -> Response {
     // Parse consistency check options
@@ -564,7 +592,14 @@ pub(super) async fn get_blobs_concat<T: WalrusReadClient + Send + Sync + 'static
         .filter(|s| !s.is_empty())
         .collect();
 
-    concat_blobs_impl(client, id_strings, consistency_check).await
+    concat_blobs_impl(
+        client,
+        id_strings,
+        consistency_check,
+        request_headers,
+        response_header_config,
+    )
+    .await
 }
 
 /// Concatenate and stream multiple blobs via POST.
@@ -584,7 +619,8 @@ pub(super) async fn get_blobs_concat<T: WalrusReadClient + Send + Sync + 'static
     ),
 )]
 pub(super) async fn post_blobs_concat<T: WalrusReadClient + Send + Sync + 'static>(
-    State(client): State<Arc<T>>,
+    State((client, response_header_config)): State<(Arc<T>, Arc<AggregatorResponseHeaderConfig>)>,
+    request_headers: HeaderMap,
     Json(body): Json<ConcatRequestBody>,
 ) -> Response {
     // Parse consistency check options
@@ -596,7 +632,14 @@ pub(super) async fn post_blobs_concat<T: WalrusReadClient + Send + Sync + 'stati
         Err(_) => return InvalidConsistencyCheck.into_response(),
     };
 
-    concat_blobs_impl(client, body.ids, consistency_check).await
+    concat_blobs_impl(
+        client,
+        body.ids,
+        consistency_check,
+        request_headers,
+        response_header_config,
+    )
+    .await
 }
 
 /// Store a blob on Walrus.

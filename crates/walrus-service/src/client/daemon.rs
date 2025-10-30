@@ -433,6 +433,7 @@ impl<T: WalrusReadClient + Send + Sync + 'static> ClientDaemon<T> {
                 BLOB_CONCAT_ENDPOINT,
                 get(routes::get_blobs_concat)
                     .post(routes::post_blobs_concat)
+                    .with_state((self.client.clone(), self.response_header_config.clone()))
                     .route_layer(aggregator_layers.clone()),
             )
             .route(
