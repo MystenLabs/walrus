@@ -19,7 +19,7 @@ join_by() {
 }
 
 kill_tmux_sessions() {
-  { tmux ls || true; } | { grep -o "dryrun-node-\d*" || true; } | xargs -rn1 tmux kill-session -t
+  { tmux ls || true; } | { grep -o "dryrun-[a-z]*-\?\d*" || true; } | xargs -rn1 tmux kill-session -t
 }
 
 ctrl_c() {
@@ -32,6 +32,8 @@ kill_tmux_sessions
 usage() {
   echo "Usage: $0 [OPTIONS]"
   echo "OPTIONS:"
+  echo "  -A                    Start an aggregator daemon (default: false)"
+  echo "  -a <ip_address>       Specify the IP address that is used for all nodes (default: 127.0.0.1)"
   echo "  -b <database_url>     Specify a backup database url (ie: postgresql://postgres:postgres@localhost/postgres, default: none)"
   echo "  -c <committee_size>   Number of storage nodes (default: 4)"
   echo "  -d <duration>         Set the length of the epoch (in human readable format, e.g., '60s', default: 1h)"
@@ -43,7 +45,6 @@ usage() {
   echo "  -n <network>          Sui network to generate configs for (default: devnet)"
   echo "  -s <n_shards>         Number of shards (default: 10)"
   echo "  -t                    Use testnet contracts"
-  echo "  -a <ip_address>       Specify the IP address that is used for all nodes (default: 127.0.0.1)"
 }
 
 run_node() {
@@ -51,6 +52,20 @@ run_node() {
     |& tee -a $working_dir/$1.log"
   echo "Running within tmux: '$cmd'..."
   tmux new -d -s "$1" "$cmd"
+}
+
+run_aggregator() {
+  bind_address=$1
+  metrics_address=$2
+  session_name="dryrun-aggregator"
+
+  cmd="RUST_LOG=$rust_log ./target/release/walrus aggregator \
+    --config $working_dir/client_config.yaml \
+    --bind-address $bind_address \
+    --metrics-address $metrics_address \
+    |& tee -a $working_dir/$session_name.log"
+  echo "Running aggregator within tmux: '$cmd'..."
+  tmux new -d -s "$session_name" "$cmd"
 }
 
 
@@ -65,9 +80,13 @@ use_existing_config=false
 contract_dir="./contracts"
 host_address="127.0.0.1"
 enable_garbage_collection=false
+start_aggregator=false
 
-while getopts "b:c:d:efghl:n:s:ta:" arg; do
+while getopts "Ab:c:d:efghl:n:s:ta:" arg; do
   case "${arg}" in
+    A)
+      start_aggregator=true
+      ;;
     f)
       tail_logs=true
       ;;
@@ -133,6 +152,7 @@ else
   echo "$0: Using RUST_LOG: $rust_log"
   echo "$0: Using backup_database_url: $backup_database_url"
   echo "$0: Using garbage collection: $enable_garbage_collection"
+  echo "$0: Starting aggregator: $start_aggregator"
 fi
 
 
@@ -242,8 +262,19 @@ Spawned $node_count nodes in separate tmux sessions. (See \`tmux ls\` for the li
 Client configuration stored at '$working_dir/client_config.yaml'.
 See README.md for further information on the Walrus client."
 
+# Start aggregator if requested
+if $start_aggregator; then
+  echo "Starting aggregator..."
+  run_aggregator "127.0.0.1:31415" "127.0.0.1:27182"
+  echo "Aggregator running at http://127.0.0.1:31415 (see 'tmux attach -t dryrun-aggregator')"
+fi
+
 if $tail_logs; then
-  tail -F "$working_dir"/dryrun-node-*.log | grep --line-buffered --color -Ei "ERROR|CRITICAL|^"
+  log_files=("$working_dir"/dryrun-node-*.log)
+  if $start_aggregator; then
+    log_files+=("$working_dir"/dryrun-aggregator.log)
+  fi
+  tail -F "${log_files[@]}" | grep --line-buffered --color -Ei "ERROR|CRITICAL|^"
 else
   echo "Press Ctrl+C to stop the nodes."
   while (( 1 )); do
