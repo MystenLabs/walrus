@@ -74,7 +74,7 @@ pub const API_DOCS: &str = "/v1/api";
 /// The path to get the blob with the given blob ID.
 pub const BLOB_GET_ENDPOINT: &str = "/v1/blobs/{blob_id}";
 /// The path to get and concatenate multiple blobs by their IDs or blob IDs.
-pub const BLOB_CONCAT_ENDPOINT: &str = "/v2alpha/blobs/concat";
+pub const BLOB_CONCAT_ENDPOINT: &str = "/v1alpha/blobs/concat";
 /// The path to get the blob and its attribute with the given object ID.
 pub const BLOB_OBJECT_GET_ENDPOINT: &str = "/v1/blobs/by-object-id/{blob_object_id}";
 /// The path to store a blob.
@@ -457,10 +457,6 @@ pub(crate) enum ConcatBlobError {
     #[error("failed to read blob {blob_id}: {message}")]
     #[rest_api_error(reason = "BLOB_READ_FAILED", status = ApiStatusCode::Internal)]
     BlobReadFailed { blob_id: String, message: String },
-
-    #[error(transparent)]
-    #[rest_api_error(delegate)]
-    Internal(anyhow::Error),
 }
 
 /// Shared implementation for concatenating and streaming multiple blobs.
@@ -531,7 +527,7 @@ async fn concat_blobs_impl<T: WalrusReadClient + Send + Sync + 'static>(
         .header(CACHE_CONTROL, "max-age=86400, stale-while-revalidate=3600")
         .header(X_CONTENT_TYPE_OPTIONS, "nosniff")
         .body(body)
-        .unwrap()
+        .expect("failed to build concatenated blob response")
 }
 
 /// Concatenate and stream multiple blobs via GET.
