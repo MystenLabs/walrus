@@ -16,12 +16,12 @@ use axum::{
     http::{HeaderMap, HeaderName, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
 };
-use futures::stream::{self, StreamExt};
 use axum_extra::{
     TypedHeader,
     extract::Multipart,
     headers::{Authorization, authorization::Bearer},
 };
+use futures::stream::{self, StreamExt};
 use jsonwebtoken::{DecodingKey, Validation};
 use reqwest::header::{CACHE_CONTROL, CONTENT_TYPE, ETAG, X_CONTENT_TYPE_OPTIONS};
 use serde::{Deserialize, Serialize};
@@ -57,9 +57,12 @@ use walrus_sui::{
 
 use super::{AggregatorResponseHeaderConfig, WalrusReadClient, WalrusWriteClient};
 use crate::{
-    client::daemon::{
-        PostStoreAction,
-        auth::{Claim, PublisherAuthError},
+    client::{
+        daemon::{
+            PostStoreAction,
+            auth::{Claim, PublisherAuthError},
+        },
+        utils::consistency_check_type_from_flags,
     },
     common::api::{Binary, BlobIdString, QuiltPatchIdString, RestApiError},
 };
@@ -114,7 +117,7 @@ pub struct ReadOptions {
 
 impl ReadOptions {
     pub fn consistency_check(&self) -> Result<ConsistencyCheckType, InvalidConsistencyCheck> {
-        crate::client::utils::consistency_check_type_from_flags(
+        consistency_check_type_from_flags(
             self.strict_consistency_check,
             self.skip_consistency_check,
         )
@@ -139,7 +142,7 @@ pub struct ConcatQueryParams {
 
 impl ConcatQueryParams {
     pub fn consistency_check(&self) -> Result<ConsistencyCheckType, InvalidConsistencyCheck> {
-        crate::client::utils::consistency_check_type_from_flags(
+        consistency_check_type_from_flags(
             self.strict_consistency_check,
             self.skip_consistency_check,
         )
@@ -589,7 +592,7 @@ pub(super) async fn post_blobs_concat<T: WalrusReadClient + Send + Sync + 'stati
     Json(body): Json<ConcatRequestBody>,
 ) -> Response {
     // Parse consistency check options
-    let consistency_check = match crate::client::utils::consistency_check_type_from_flags(
+    let consistency_check = match consistency_check_type_from_flags(
         body.strict_consistency_check.unwrap_or(false),
         body.skip_consistency_check.unwrap_or(false),
     ) {
