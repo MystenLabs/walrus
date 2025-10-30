@@ -266,7 +266,7 @@ Replace `<blob-id>` with the blob's identifier the `walrus store` command return
 
 ## Next steps
 
-1. [Build your first Walrus application](https://docs.wal.app/dev-guide/dev-guide.html). Explore
+[Build your first Walrus application](https://docs.wal.app/dev-guide/dev-guide.html). Explore
    working examples:
    - [Python examples](https://github.com/MystenLabs/walrus/tree/main/docs/examples/python)
    - [JavaScript web form](https://github.com/MystenLabs/walrus/tree/main/docs/examples/javascript)
