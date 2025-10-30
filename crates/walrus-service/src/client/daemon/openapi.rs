@@ -24,11 +24,20 @@ use crate::common::api::Binary;
     paths(
         routes::get_blob,
         routes::get_blob_by_object_id,
+        routes::get_blobs_concat,
+        routes::post_blobs_concat,
         routes::get_patch_by_quilt_patch_id,
         routes::get_patch_by_quilt_id_and_identifier,
         routes::list_patches_in_quilt,
     ),
-    components(schemas(BlobId, ObjectIdSchema, Status, QuiltPatchId))
+    components(schemas(
+        BlobId,
+        ObjectIdSchema,
+        Status,
+        QuiltPatchId,
+        routes::ConcatQueryParams,
+        routes::ConcatRequestBody,
+    ))
 )]
 pub(super) struct AggregatorApiDoc;
 
@@ -60,6 +69,8 @@ pub(super) struct PublisherApiDoc;
     paths(
         routes::get_blob,
         routes::get_blob_by_object_id,
+        routes::get_blobs_concat,
+        routes::post_blobs_concat,
         routes::get_patch_by_quilt_patch_id,
         routes::get_patch_by_quilt_id_and_identifier,
         routes::list_patches_in_quilt,
@@ -81,6 +92,8 @@ pub(super) struct PublisherApiDoc;
         StorageResource,
         SuiAddressSchema,
         Binary,
+        routes::ConcatQueryParams,
+        routes::ConcatRequestBody,
     ))
 )]
 pub(super) struct DaemonApiDoc;
