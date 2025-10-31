@@ -619,6 +619,9 @@ impl SuiContractClient {
     }
 
     /// Reserves space and registers blobs in a BlobManager (public wrapper).
+    ///
+    /// Returns the registered Blob objects. Callers should check `blob.certified_epoch`
+    /// to determine if a blob was newly registered or already existed (deduplication).
     pub async fn reserve_and_register_blobs_in_blobmanager(
         &self,
         manager_id: ObjectID,
@@ -626,7 +629,7 @@ impl SuiContractClient {
         epochs_ahead: EpochCount,
         blob_metadata_list: Vec<BlobObjectMetadata>,
         persistence: BlobPersistence,
-    ) -> SuiClientResult<Vec<ObjectID>> {
+    ) -> SuiClientResult<Vec<Blob>> {
         self.retry_on_wrong_version(|| async {
             self.inner
                 .lock()
@@ -1908,7 +1911,7 @@ impl SuiContractClientInner {
         epochs_ahead: EpochCount,
         blob_metadata_list: Vec<BlobObjectMetadata>,
         persistence: BlobPersistence,
-    ) -> SuiClientResult<Vec<ObjectID>> {
+    ) -> SuiClientResult<Vec<Blob>> {
         if blob_metadata_list.is_empty() {
             tracing::debug!("no blobs to register in blob manager");
             return Ok(vec![]);
@@ -1992,7 +1995,14 @@ impl SuiContractClientInner {
             "successfully registered blobs in blob manager"
         );
 
-        Ok(blob_obj_ids)
+        // Query each created blob object
+        let mut result = Vec::with_capacity(blob_obj_ids.len());
+        for blob_obj_id in blob_obj_ids.iter() {
+            let blob_with_attr = self.read_client.get_blob_by_object_id(blob_obj_id).await?;
+            result.push(blob_with_attr.blob);
+        }
+
+        Ok(result)
     }
 
     /// Creates a new BlobManager and returns its ID and capability ID.
