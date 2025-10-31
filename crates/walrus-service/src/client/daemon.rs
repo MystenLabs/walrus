@@ -262,14 +262,15 @@ impl WalrusWriteClient for WalrusNodeClient<SuiContractClient> {
         post_store: PostStoreAction,
     ) -> ClientResult<BlobStoreResult> {
         let encoding_type = encoding_type.unwrap_or(DEFAULT_ENCODING);
-
+        let tail_mode = self.config().communication_config.tail_handling;
         let store_args = StoreArgs::new(
             encoding_type,
             epochs_ahead,
             store_optimizations,
             persistence,
             post_store,
-        );
+        )
+        .with_tail_handling(tail_mode);
         let result = self
             .reserve_and_store_blobs_retry_committees(&[blob], &[], &store_args)
             .await?;
@@ -303,14 +304,15 @@ impl WalrusWriteClient for WalrusNodeClient<SuiContractClient> {
         post_store: PostStoreAction,
     ) -> ClientResult<QuiltStoreResult> {
         let encoding_type = encoding_type.unwrap_or(DEFAULT_ENCODING);
-
+        let tail_mode = self.config().communication_config.tail_handling;
         let store_args = StoreArgs::new(
             encoding_type,
             epochs_ahead,
             store_optimizations,
             persistence,
             post_store,
-        );
+        )
+        .with_tail_handling(tail_mode);
         self.quilt_client()
             .reserve_and_store_quilt::<V>(&quilt, &store_args)
             .await

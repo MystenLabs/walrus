@@ -570,6 +570,7 @@ fn spawn_signal_forwarders(handle: ChildProcessHandle, mut cancel_rx: watch::Rec
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn maybe_spawn_child_upload_process<F>(
     client: &WalrusNodeClient<SuiContractClient>,
+    child_process_uploads: bool,
     epoch_arg: &EpochArg,
     dry_run: bool,
     store_optimizations: &StoreOptimizations,
@@ -585,11 +586,12 @@ pub(crate) async fn maybe_spawn_child_upload_process<F>(
 where
     F: FnOnce(&mut TokioCommand),
 {
-    let child_uploads_enabled = client
-        .config()
-        .communication_config
-        .child_process_uploads_enabled;
-    if !(child_uploads_enabled && upload_relay.is_none() && !internal_run) {
+    let tail_handling = client.config().communication_config.tail_handling;
+    if !(child_process_uploads
+        && matches!(tail_handling, TailHandling::Detached)
+        && upload_relay.is_none()
+        && !internal_run)
+    {
         return Ok(None);
     }
 

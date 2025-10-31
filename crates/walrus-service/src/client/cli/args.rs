@@ -1206,6 +1206,11 @@ pub struct CommonStoreOptions {
     #[arg(long, value_enum)]
     #[serde(default)]
     pub upload_mode: Option<UploadModeCli>,
+    /// Spawn a helper process that continues detached tail uploads after quorum is reached.
+    /// This is only effective when tail handling is configured as `detached`.
+    #[arg(long)]
+    #[serde(default)]
+    pub child_process_uploads: bool,
     /// Internal flag to signal the process is running as a child for background uploads.
     #[arg(long, hide = true)]
     #[serde(default)]
@@ -1977,6 +1982,7 @@ mod tests {
                 upload_relay: None,
                 skip_tip_confirmation: false,
                 upload_mode: None,
+                child_process_uploads: false,
                 internal_run: false,
             },
         })
