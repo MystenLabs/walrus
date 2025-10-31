@@ -4,8 +4,6 @@ This page covers advanced setup options for Walrus, including building from sour
 installing from binaries, or using Cargo. For standard setup instructions, see the
 Walrus [Getting Started](./setup.md) guide.
 
-
-
 Walrus is open source under an Apache 2 license. You can download and install it through
 [`suiup`](./setup.md), or you can build and
 install it from the Rust source code through Cargo.
@@ -35,8 +33,32 @@ Because of DoS protection, it might not be possible to download the binaries wit
 
 ## Install via script {#nix-install}
 
-To download and install `walrus` to your `"$HOME"/.local/bin` directory, follow the
-instructions in the [Getting Started](./setup.md) guide.
+To download and install walrus to your "$HOME"/.local/bin directory, run one of the following commands in your terminal then follow on-screen instructions. If you are on Windows, see the Windows-specific instructions or the [`suiup` installation](./setup.md).
+
+```
+# Run a first-time install using the latest Mainnet version.
+curl -sSf https://install.wal.app | sh
+
+# Install the latest Testnet version instead.
+curl -sSf https://install.wal.app | sh -s -- -n testnet
+
+# Update an existing installation (overwrites prior version of walrus).
+curl -sSf https://install.wal.app | sh -s -- -f
+```
+
+Make sure that the `"$HOME"/.local/bin` directory is in your `$PATH`.
+
+Once this is done, you can run Walrus by using the `walrus` command in your terminal.
+
+```
+$ walrus --help
+Walrus client
+
+Usage: walrus [OPTIONS] <COMMAND>
+
+Commands:
+⋮
+```
 
 ## Install on Windows {#windows-install}
 
