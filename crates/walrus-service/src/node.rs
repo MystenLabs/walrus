@@ -49,6 +49,7 @@ use tracing::{Instrument as _, Span, field};
 use typed_store::{TypedStoreError, rocks::MetricConf};
 use walrus_core::{
     BlobId,
+    EncodingType,
     Epoch,
     InconsistencyProof,
     PublicKey,
@@ -57,6 +58,7 @@ use walrus_core::{
     SliverPairIndex,
     SliverType,
     SymbolId,
+    by_axis::Axis,
     encoding::{
         EncodingAxis,
         EncodingConfig,
@@ -2661,48 +2663,6 @@ impl StorageNodeInner {
         self.is_shutting_down.load(Ordering::SeqCst)
     }
 
-    async fn try_retrieve_recovery_symbol(
-        &self,
-        blob_id: &BlobId,
-        sliver_pair_index: SliverPairIndex,
-        target_sliver_type: SliverType,
-        target_pair_index: SliverPairIndex,
-    ) -> Result<GeneralRecoverySymbol, RetrieveSymbolError> {
-        // Claim a worker for performing the expansion necessary to get the symbol.
-        let mut worker = match self.symbol_service.clone().ready_oneshot().now_or_never() {
-            Some(result) => result.expect("polling the symbol service is infallible"),
-            None => return Err(Unavailable.into()),
-        };
-
-        let sliver = self
-            .retrieve_sliver(blob_id, sliver_pair_index, target_sliver_type.orthogonal())
-            .await?;
-        let convert_error = |error| match error {
-            RecoverySymbolError::IndexTooLarge => {
-                panic!("index validity must be checked above")
-            }
-            RecoverySymbolError::EncodeError(error) => {
-                RetrieveSymbolError::Internal(anyhow!(error))
-            }
-        };
-        let metadata = self
-            .storage
-            .get_metadata(blob_id)
-            .context("could not retrieve blob metadata")?
-            .ok_or_else(|| {
-                RetrieveSymbolError::Internal(anyhow!("metadata not found for blob {:?}", blob_id))
-            })?;
-
-        let request = RecoverySymbolRequest {
-            blob_id: *metadata.blob_id(),
-            source_sliver: sliver,
-            target_pair_index,
-            encoding_type: metadata.metadata().encoding_type(),
-        };
-
-        worker.call(request).map_err(convert_error).await
-    }
-
     /// Common validation for blob operations
     fn validate_blob_access<E>(
         &self,
@@ -2716,6 +2676,195 @@ impl StorageNodeInner {
         ensure!(!self.is_blocked(blob_id), forbidden_error);
         ensure!(self.is_blob_registered(blob_id)?, unavailable_error,);
         Ok(())
+    }
+
+    #[tracing::instrument(level = "debug", skip_all)]
+    async fn retrieve_sliver_unchecked(
+        &self,
+        blob_id: &BlobId,
+        sliver_pair_index: SliverPairIndex,
+        sliver_type: SliverType,
+    ) -> Result<Sliver, RetrieveSliverError> {
+        let shard_storage = self
+            .get_shard_for_sliver_pair(sliver_pair_index, blob_id)
+            .await?;
+
+        let blob_id = *blob_id;
+
+        let result = tokio::task::spawn_blocking(move || {
+            shard_storage
+                .get_sliver(&blob_id, sliver_type)
+                .context("unable to retrieve sliver")?
+                .ok_or(RetrieveSliverError::Unavailable)
+        })
+        .await;
+
+        match result {
+            Ok(result) => result.inspect(|sliver| {
+                walrus_utils::with_label!(self.metrics.slivers_retrieved_total, sliver.r#type())
+                    .inc();
+            }),
+            Err(e) => {
+                if e.is_panic() {
+                    std::panic::resume_unwind(e.into_panic());
+                }
+                Err(e)
+                    .context("blocking thread failed to retrieve sliver")
+                    .map_err(RetrieveSliverError::Internal)
+            }
+        }
+    }
+
+    /// Retrieve the recovery symbol without calling `validate_blob_access`.
+    #[tracing::instrument(level = "debug", skip_all)]
+    async fn retrieve_recovery_symbol_unchecked(
+        &self,
+        blob_id: &BlobId,
+        symbol_id: SymbolId,
+        sliver_type: Option<SliverType>,
+        encoding_type: EncodingType,
+        worker: RecoverySymbolService,
+    ) -> Result<GeneralRecoverySymbol, RetrieveSymbolError> {
+        let n_shards = self.n_shards();
+
+        let primary_index = symbol_id.primary_sliver_index();
+        self.check_index(primary_index)?;
+        let primary_pair_index = primary_index.to_pair_index::<Primary>(n_shards);
+
+        let secondary_index = symbol_id.secondary_sliver_index();
+        self.check_index(secondary_index)?;
+        let secondary_pair_index = secondary_index.to_pair_index::<Secondary>(n_shards);
+
+        let owned_shards = self.owned_shards_at_latest_epoch();
+
+        // In the event that neither of the slivers are assigned to this shard use this error,
+        // otherwise it is overwritten.
+        let mut final_error = RetrieveSymbolError::SymbolNotPresentAtShards;
+
+        let mut worker = Some(worker);
+
+        for target_sliver_type in [SliverType::Secondary, SliverType::Primary]
+            .into_iter()
+            .filter(|target_type| sliver_type.is_none() || sliver_type == Some(*target_type))
+        {
+            let (source_pair_index, target_pair_index) = match target_sliver_type {
+                Axis::Primary => (secondary_pair_index, primary_pair_index),
+                Axis::Secondary => (primary_pair_index, secondary_pair_index),
+            };
+
+            let required_shard = &source_pair_index.to_shard_index(n_shards, blob_id);
+            if !owned_shards.contains(required_shard) {
+                // This node does not manage the shard owning the source pair.
+                continue;
+            }
+
+            // Since the caller was granted a ready-worker, we ensure that both attempts are made,
+            // and avoid failing the second attempt with Unavailable. Note that in most cases,
+            // the node has only a single matching shard and so this loop and code only runs once.
+            let wait_for_worker = async {
+                match worker.take() {
+                    Some(worker) => worker,
+                    None => self.wait_for_ready_symbol_service().await,
+                }
+            };
+
+            let (mut worker, sliver_result) = tokio::join!(
+                wait_for_worker,
+                self.retrieve_sliver_unchecked(
+                    blob_id,
+                    source_pair_index,
+                    target_sliver_type.orthogonal(),
+                )
+            );
+
+            let source_sliver = match sliver_result {
+                Ok(sliver) => sliver,
+                Err(err) => {
+                    final_error = err.into();
+                    continue;
+                }
+            };
+
+            let request = RecoverySymbolRequest {
+                blob_id: *blob_id,
+                source_sliver,
+                target_pair_index,
+                encoding_type,
+            };
+
+            match worker.call(request).await {
+                Ok(symbol) => return Ok(symbol),
+                Err(RecoverySymbolError::IndexTooLarge) => {
+                    panic!("index validity must be checked before calling this function")
+                }
+                Err(RecoverySymbolError::EncodeError(error)) => {
+                    final_error = RetrieveSymbolError::Internal(anyhow!(error));
+                }
+            }
+        }
+
+        Err(final_error)
+    }
+
+    fn get_encoding_type_for_blob(
+        &self,
+        blob_id: &BlobId,
+    ) -> Result<Option<EncodingType>, TypedStoreError> {
+        match walrus_core::SUPPORTED_ENCODING_TYPES {
+            &[EncodingType::RS2] => Ok(Some(EncodingType::RS2)),
+            // If additional encoding types are used, then it becomes necessary to fetch the
+            // encoding type from the database. If the metadata is otherwise available, then the
+            // encoding type is available there and this function should not be used, otherwise, a
+            // database call may be required.
+            _ => self
+                .storage
+                .get_metadata(blob_id)
+                .map(|option| option.map(|metadata| metadata.metadata().encoding_type())),
+        }
+    }
+
+    fn symbol_ids_from_filter<'a>(
+        &self,
+        blob_id: BlobId,
+        filter: &'a RecoverySymbolsFilter,
+    ) -> impl Iterator<Item = SymbolId> + 'a {
+        match filter.id_filter() {
+            SymbolIdFilter::Ids(symbol_ids) => Either::Left(symbol_ids.iter().copied()),
+
+            SymbolIdFilter::Recovers {
+                target_sliver: target,
+                target_type,
+            } => {
+                let n_shards = self.n_shards();
+                let map_fn = move |shard_id: ShardIndex| {
+                    let pair_stored = shard_id.to_pair_index(n_shards, &blob_id);
+                    match *target_type {
+                        SliverType::Primary => SymbolId::new(
+                            *target,
+                            pair_stored.to_sliver_index::<Secondary>(n_shards),
+                        ),
+                        SliverType::Secondary => {
+                            SymbolId::new(pair_stored.to_sliver_index::<Primary>(n_shards), *target)
+                        }
+                    }
+                };
+                Either::Right(self.owned_shards_at_latest_epoch().into_iter().map(map_fn))
+            }
+        }
+    }
+
+    async fn wait_for_ready_symbol_service(&self) -> RecoverySymbolService {
+        self.symbol_service
+            .clone()
+            .ready_oneshot()
+            .await
+            .expect("polling the symbol_service is infallible")
+    }
+
+    fn get_ready_symbol_service(&self) -> Result<RecoverySymbolService, RetrieveSymbolError> {
+        self.wait_for_ready_symbol_service()
+            .now_or_never()
+            .ok_or_else(|| Unavailable.into())
     }
 }
 
@@ -2969,18 +3118,8 @@ impl ServiceState for StorageNodeInner {
             RetrieveSliverError::Unavailable,
         )?;
 
-        let shard_storage = self
-            .get_shard_for_sliver_pair(sliver_pair_index, blob_id)
-            .await?;
-
-        shard_storage
-            .get_sliver(blob_id, sliver_type)
-            .context("unable to retrieve sliver")?
-            .ok_or(RetrieveSliverError::Unavailable)
-            .inspect(|sliver| {
-                walrus_utils::with_label!(self.metrics.slivers_retrieved_total, sliver.r#type())
-                    .inc();
-            })
+        self.retrieve_sliver_unchecked(blob_id, sliver_pair_index, sliver_type)
+            .await
     }
 
     async fn store_sliver(
@@ -3086,60 +3225,29 @@ impl ServiceState for StorageNodeInner {
         symbol_id: SymbolId,
         sliver_type: Option<SliverType>,
     ) -> Result<GeneralRecoverySymbol, RetrieveSymbolError> {
-        let n_shards = self.n_shards();
+        // Begin by fetching a ready worker, as this gates all database reads based
+        // on whether we have capacity to even serve the request.
+        let worker = self.get_ready_symbol_service()?;
 
-        let primary_index = symbol_id.primary_sliver_index();
-        self.check_index(primary_index)?;
-        let primary_pair_index = primary_index.to_pair_index::<Primary>(n_shards);
+        self.validate_blob_access(
+            blob_id,
+            RetrieveSliverError::Forbidden,
+            RetrieveSliverError::Unavailable,
+        )?;
 
-        let secondary_index = symbol_id.secondary_sliver_index();
-        self.check_index(secondary_index)?;
-        let secondary_pair_index = secondary_index.to_pair_index::<Secondary>(n_shards);
+        let encoding_type = self
+            .get_encoding_type_for_blob(blob_id)
+            .context("could not retrieve blob encoding type")?
+            .ok_or_else(|| anyhow!("encoding type unavailable for blob {:?}", blob_id))?;
 
-        let owned_shards = self.owned_shards_at_latest_epoch();
-
-        // In the event that neither of the slivers are assigned to this shard use this error,
-        // otherwise it is overwritten.
-        let mut final_error = RetrieveSymbolError::SymbolNotPresentAtShards;
-
-        for (source_pair_index, target_sliver_pair, target_sliver_type) in [
-            (
-                primary_pair_index,
-                secondary_pair_index,
-                SliverType::Secondary,
-            ),
-            (
-                secondary_pair_index,
-                primary_pair_index,
-                SliverType::Primary,
-            ),
-        ] {
-            if sliver_type.is_some() && sliver_type != Some(target_sliver_type) {
-                // Respect the caller specified sliver type.
-                continue;
-            }
-
-            let required_shard = &source_pair_index.to_shard_index(n_shards, blob_id);
-            if !owned_shards.contains(required_shard) {
-                // This node does not manage the shard owning the source pair.
-                continue;
-            }
-
-            match self
-                .try_retrieve_recovery_symbol(
-                    blob_id,
-                    source_pair_index,
-                    target_sliver_type,
-                    target_sliver_pair,
-                )
-                .await
-            {
-                Ok(symbol) => return Ok(symbol),
-                Err(error) => final_error = error,
-            }
-        }
-
-        Err(final_error)
+        self.retrieve_recovery_symbol_unchecked(
+            blob_id,
+            symbol_id,
+            sliver_type,
+            encoding_type,
+            worker,
+        )
+        .await
     }
 
     #[tracing::instrument(skip_all)]
@@ -3148,46 +3256,55 @@ impl ServiceState for StorageNodeInner {
         blob_id: &BlobId,
         filter: RecoverySymbolsFilter,
     ) -> Result<Vec<GeneralRecoverySymbol>, ListSymbolsError> {
-        let n_shards = self.n_shards();
+        // Begin by fetching a ready worker, as this gates all database reads based
+        // on whether we have capacity to even serve the request.
+        let mut worker = Some(self.get_ready_symbol_service()?);
 
-        let symbol_id_iter =
-            match filter.id_filter() {
-                SymbolIdFilter::Ids(symbol_ids) => Either::Left(symbol_ids.iter().copied()),
+        self.validate_blob_access(
+            blob_id,
+            RetrieveSliverError::Forbidden,
+            RetrieveSliverError::Unavailable,
+        )
+        .map_err(RetrieveSymbolError::RetrieveSliver)?;
 
-                SymbolIdFilter::Recovers {
-                    target_sliver: target,
-                    target_type,
-                } => Either::Right(self.owned_shards_at_latest_epoch().into_iter().map(
-                    |shard_id| {
-                        let pair_stored = shard_id.to_pair_index(n_shards, blob_id);
-                        match *target_type {
-                            SliverType::Primary => SymbolId::new(
-                                *target,
-                                pair_stored.to_sliver_index::<Secondary>(n_shards),
-                            ),
-                            SliverType::Secondary => SymbolId::new(
-                                pair_stored.to_sliver_index::<Primary>(n_shards),
-                                *target,
-                            ),
-                        }
-                    },
-                )),
-            };
-
-        let mut output = vec![];
-        let mut last_error = ListSymbolsError::NoSymbolsSpecified;
+        let encoding_type = self
+            .get_encoding_type_for_blob(blob_id)
+            .context("could not retrieve blob encoding type")?
+            .ok_or_else(|| anyhow!("encoding type unavailable for blob {:?}", blob_id))?;
 
         // If a specific proof axis is requested, then specify the target-type to the retrieve
         // function, otherwise, specify only the symbol IDs.
         let target_type_from_proof = filter.proof_axis().map(|axis| axis.orthogonal());
 
         // We use FuturesOrdered to keep the results in the same order as the requests.
-        let mut symbols: FuturesOrdered<_> = symbol_id_iter
-            .map(|symbol_id| {
-                self.retrieve_recovery_symbol(blob_id, symbol_id, target_type_from_proof)
-                    .map(move |result| (symbol_id, result))
-            })
-            .collect();
+        let mut symbols = FuturesOrdered::new();
+
+        for symbol_id in self.symbol_ids_from_filter(*blob_id, &filter) {
+            let owned_worker = worker.take();
+
+            symbols.push_back(async move {
+                // Since we acquired the service above, and began processing this list-request,
+                // wait for workers for the subsequent symbols so that we make an attempt at
+                // processing the entire request.
+                let worker = match owned_worker {
+                    Some(worker) => worker,
+                    None => self.wait_for_ready_symbol_service().await,
+                };
+
+                self.retrieve_recovery_symbol_unchecked(
+                    blob_id,
+                    symbol_id,
+                    target_type_from_proof,
+                    encoding_type,
+                    worker,
+                )
+                .map(move |result| (symbol_id, result))
+                .await
+            });
+        }
+
+        let mut output = vec![];
+        let mut last_error = ListSymbolsError::NoSymbolsSpecified;
 
         while let Some((symbol_id, result)) = symbols.next().await {
             match result {
