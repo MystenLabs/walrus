@@ -1060,8 +1060,9 @@ working examples:</p>
 installing from binaries, or using Cargo. For standard setup instructions, see the
 Walrus <a href="usage/./setup.html">Getting Started</a> guide.</p>
 <p>Walrus is open source under an Apache 2 license. You can download and install it through
-<a href="https://github.com/MystenLabs/suiup/commits/main/"><code>suiup</code></a>, or you can build and
+<a href="usage/./setup.html"><code>suiup</code></a>, or you can build and
 install it from the Rust source code through Cargo.</p>
+<h2 id="walrus-binaries"><a class="header" href="#walrus-binaries">Walrus binaries</a></h2>
 <p>The <code>walrus</code> client binary is currently provided for macOS (Intel and Apple CPUs),
 Ubuntu, and Windows. The Ubuntu version most likely works on other Linux distributions
 as well.</p>
@@ -1091,7 +1092,7 @@ Because of DoS protection, it might not be possible to download the binaries wit
 <h2 id="nix-install"><a class="header" href="#nix-install">Install via script</a></h2>
 <p>To download and install <code>walrus</code> to your <code>"$HOME"/.local/bin</code> directory, follow the
 instructions in the <a href="usage/./setup.html">Getting Started</a> guide.</p>
-<h3 id="windows-install"><a class="header" href="#windows-install">Install on Windows</a></h3>
+<h2 id="windows-install"><a class="header" href="#windows-install">Install on Windows</a></h2>
 <p>To download <code>walrus</code> to your Microsoft Windows computer, run the following in a
 PowerShell.</p>
 <pre><code class="language-PowerShell">(New-Object System.Net.WebClient).DownloadFile(
@@ -1113,11 +1114,11 @@ structure, commands, and so on. If you use Windows, you might need to adapt most
 those.</p>
 </div>
 </div>
-<h3 id="github-releases"><a class="header" href="#github-releases">GitHub releases</a></h3>
+<h2 id="github-releases"><a class="header" href="#github-releases">GitHub releases</a></h2>
 <p>You can find all the releases including release notes on
 <a href="https://github.com/MystenLabs/walrus/releases">GitHub</a>. Download the archive for your
 system and extract the <code>walrus</code> binary.</p>
-<h3 id="install-via-cargo"><a class="header" href="#install-via-cargo">Install via Cargo</a></h3>
+<h2 id="install-via-cargo"><a class="header" href="#install-via-cargo">Install via Cargo</a></h2>
 <p>You can also install Walrus through Cargo. For example, to install the latest Mainnet
 version:</p>
 <pre><code class="language-sh">cargo install --git https://github.com/MystenLabs/walrus --branch mainnet walrus-service --locked
@@ -1125,7 +1126,7 @@ version:</p>
 <p>In place of <code>--branch mainnet</code>, you can also specify specific tags (for example,
 <code>--tag mainnet-v1.18.2</code>) or commits (for example,
 <code>--rev b2009ac73388705f379ddad48515e1c1503fc8fc</code>).</p>
-<h3 id="build-from-source"><a class="header" href="#build-from-source">Build from source</a></h3>
+<h2 id="build-from-source"><a class="header" href="#build-from-source">Build from source</a></h2>
 <p>Walrus is open source software published under the Apache 2 license. The code is
 developed in a <code>git</code> repository at <a href="https://github.com/MystenLabs/walrus">https://github.com/MystenLabs/walrus</a>.</p>
 <p>The latest version of Mainnet and Testnet are available under the branches <code>mainnet</code> and
@@ -1195,7 +1196,7 @@ default_context: testnet
 <code>$XDG_CONFIG_HOME/walrus/</code>, <code>~/.config/walrus/</code>, or <code>~/.walrus/</code>. However, you can place
 the file anywhere and name it anything you like. In this case, use the <code>--config</code> option
 when running the <code>walrus</code> binary.</p>
-<h3 id="advanced-configuration-optional"><a class="header" href="#advanced-configuration-optional">Advanced configuration (optional)</a></h3>
+<h2 id="advanced-configuration-optional"><a class="header" href="#advanced-configuration-optional">Advanced configuration (optional)</a></h2>
 <p>The configuration file currently supports the following parameters for each of the
 contexts:</p>
 <pre><code class="language-yaml"># These are the only mandatory fields. These objects are specific for a particular Walrus
