@@ -88,7 +88,7 @@ pub fn get_stored_quilt_patches(
 
 /// API for a blob that is being stored to Walrus.
 #[enum_dispatch]
-pub trait WalrusStoreBlobApi<'a, T: Debug + Clone + Send + Sync> {
+pub trait WalrusStoreBlobApi<'a, Identifier: Debug + Clone + Send + Sync> {
     /// Returns a string representation of the current state.
     fn get_state(&self) -> &'static str;
 
@@ -96,7 +96,7 @@ pub trait WalrusStoreBlobApi<'a, T: Debug + Clone + Send + Sync> {
     fn get_blob(&self) -> &'a [u8];
 
     /// Returns a reference to the blob's identifier.
-    fn get_identifier(&self) -> &T;
+    fn get_identifier(&self) -> &Identifier;
 
     /// Returns the length of the unencoded blob data in bytes.
     fn unencoded_length(&self) -> usize;
@@ -144,7 +144,7 @@ pub trait WalrusStoreBlobApi<'a, T: Debug + Clone + Send + Sync> {
     fn with_encode_result(
         self,
         result: Result<(Vec<SliverPair>, VerifiedBlobMetadataWithId), ClientError>,
-    ) -> ClientResult<WalrusStoreBlob<'a, T>>;
+    ) -> ClientResult<WalrusStoreBlob<'a, Identifier>>;
 
     /// Transitions the blob to the next state based on the status result.
     ///
@@ -154,7 +154,7 @@ pub trait WalrusStoreBlobApi<'a, T: Debug + Clone + Send + Sync> {
     fn with_status(
         self,
         status: Result<BlobStatus, ClientError>,
-    ) -> ClientResult<WalrusStoreBlob<'a, T>>;
+    ) -> ClientResult<WalrusStoreBlob<'a, Identifier>>;
 
     /// Tries to complete the blob if it is certified beyond the given epoch.
     ///
@@ -162,21 +162,21 @@ pub trait WalrusStoreBlobApi<'a, T: Debug + Clone + Send + Sync> {
     fn try_complete_if_certified_beyond_epoch(
         self,
         target_epoch: u32,
-    ) -> ClientResult<WalrusStoreBlob<'a, T>>;
+    ) -> ClientResult<WalrusStoreBlob<'a, Identifier>>;
 
     /// Updates the blob with the result of the register operation and transitions
     /// to the appropriate next state.
     fn with_register_result(
         self,
         result: Result<StoreOp, ClientError>,
-    ) -> ClientResult<WalrusStoreBlob<'a, T>>;
+    ) -> ClientResult<WalrusStoreBlob<'a, Identifier>>;
 
     /// Updates the blob with the result of storing it to the Walrus storage nodes
     /// and transitions to the appropriate next state.
     fn with_get_certificate_result(
         self,
         certificate_result: ClientResult<ConfirmationCertificate>,
-    ) -> ClientResult<WalrusStoreBlob<'a, T>>;
+    ) -> ClientResult<WalrusStoreBlob<'a, Identifier>>;
 
     /// Updates the blob with the result of the complete operation and
     /// transitions to the Completed state.
@@ -184,55 +184,55 @@ pub trait WalrusStoreBlobApi<'a, T: Debug + Clone + Send + Sync> {
         self,
         result: CertifyAndExtendBlobResult,
         price_computation: &PriceComputation,
-    ) -> ClientResult<WalrusStoreBlob<'a, T>>;
+    ) -> ClientResult<WalrusStoreBlob<'a, Identifier>>;
 
     /// Updates the blob with the provided result and transitions to the Completed state.
     ///
     /// This update is forced, even if the blob is in the Error state.
-    fn complete_with(self, result: BlobStoreResult) -> WalrusStoreBlob<'a, T>;
+    fn complete_with(self, result: BlobStoreResult) -> WalrusStoreBlob<'a, Identifier>;
 
     /// Converts the current blob state to a Failed state.
-    fn with_error(self, error: ClientError) -> ClientResult<WalrusStoreBlob<'a, T>>;
+    fn with_error(self, error: ClientError) -> ClientResult<WalrusStoreBlob<'a, Identifier>>;
 }
 
 /// A blob that is being stored in Walrus, representing its current phase in the lifecycle.
 // TODO(WAL-755): Use a enum to represent the result of each transition.
 // TODO(WAL-755): Remove the clippy exception during the refactoring.
 #[allow(clippy::large_enum_variant)]
-#[enum_dispatch(WalrusStoreBlobApi<T>)]
+#[enum_dispatch(WalrusStoreBlobApi<Identifier>)]
 #[derive(Clone, Debug)]
-pub enum WalrusStoreBlob<'a, T: Debug + Clone + Send + Sync> {
+pub enum WalrusStoreBlob<'a, Identifier: Debug + Clone + Send + Sync> {
     /// Initial state before encoding.
-    Unencoded(UnencodedBlob<'a, T>),
+    Unencoded(UnencodedBlob<'a, Identifier>),
     /// After encoding, contains the encoded data and metadata.
-    Encoded(EncodedBlob<'a, T>),
+    Encoded(EncodedBlob<'a, Identifier>),
     /// After status check, includes the blob status.
-    WithStatus(BlobWithStatus<'a, T>),
+    WithStatus(BlobWithStatus<'a, Identifier>),
     /// After registration, includes the store operation.
-    Registered(RegisteredBlob<'a, T>),
+    Registered(RegisteredBlob<'a, Identifier>),
     /// After certificate, includes the certificate.
-    WithCertificate(BlobWithCertificate<'a, T>),
+    WithCertificate(BlobWithCertificate<'a, Identifier>),
     /// Final phase with the complete result.
-    Completed(CompletedBlob<'a, T>),
+    Completed(CompletedBlob<'a, Identifier>),
     /// Error occurred during the blob lifecycle.
-    Error(FailedBlob<'a, T>),
+    Error(FailedBlob<'a, Identifier>),
 }
 
-impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlob<'a, T> {
-    /// Create a list of UnencodedBlobs with default identifiers in the form of "blob_{:06}".
+impl<'a, Identifier: Debug + Clone + Send + Sync> WalrusStoreBlob<'a, Identifier> {
+    /// Create a list of UnencodedBlobs with given identifiers.
     pub fn default_unencoded_blobs_from_slice(
-        blobs: &'a [&[u8]],
+        blobs: &'a [(Identifier, &[u8])],
         attributes: &[BlobAttribute],
-    ) -> Vec<WalrusStoreBlob<'a, String>> {
+    ) -> Vec<WalrusStoreBlob<'a, Identifier>> {
         // TODO(WAL-962): Remove this assertion once we have a better struct to represent a blob.
         assert!(attributes.is_empty() || attributes.len() == blobs.len());
         blobs
             .iter()
             .enumerate()
-            .map(|(i, blob)| {
+            .map(|(i, (id, blob))| {
                 WalrusStoreBlob::new_unencoded(
                     blob,
-                    format!("blob_{i:06}"),
+                    id.clone(),
                     attributes.get(i).cloned().unwrap_or_default(),
                 )
             })
@@ -245,7 +245,7 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlob<'a, T> {
     }
 
     /// Creates a new unencoded blob.
-    pub fn new_unencoded(blob: &'a [u8], identifier: T, attribute: BlobAttribute) -> Self {
+    pub fn new_unencoded(blob: &'a [u8], identifier: Identifier, attribute: BlobAttribute) -> Self {
         let span = tracing::span!(
             BLOB_SPAN_LEVEL,
             "store_blob_tracing",
