@@ -1785,7 +1785,8 @@ impl WalrusPtbBuilder {
 
         let new_args = vec![storage_arg];
 
-        let result_arg = self.blobmanager_move_call(contracts::blobmanager::new, new_args)?;
+        let result_arg =
+            self.blobmanager_move_call(contracts::blobmanager::new_with_unified_storage, new_args)?;
 
         self.mark_arg_as_consumed(&storage_arg);
         self.add_result_to_be_consumed(result_arg);
@@ -1846,7 +1847,7 @@ impl WalrusPtbBuilder {
         ];
 
         let result_arg =
-            self.blobmanager_move_call(contracts::blobmanager::register, register_args)?;
+            self.blobmanager_move_call(contracts::blobmanager::register_blob, register_args)?;
 
         self.reduce_wal_balance(price)?;
         self.add_result_to_be_consumed(result_arg);
@@ -1880,7 +1881,7 @@ impl WalrusPtbBuilder {
             self.pt_builder.pure(&certificate.serialized_message)?,
         ];
 
-        self.blobmanager_move_call(contracts::blobmanager::certify, certify_args)?;
+        self.blobmanager_move_call(contracts::blobmanager::certify_blob, certify_args)?;
         self.mark_arg_as_consumed(&blob_arg);
         Ok(())
     }

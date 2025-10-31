@@ -48,6 +48,8 @@ pub struct StoreArgs {
     /// ownership of the handles with the caller so they can decide when to await them. Without a
     /// collector, detached handles are awaited in a background task and only surfaced via logging.
     pub tail_handle_collector: Option<Arc<Mutex<Vec<JoinHandle<()>>>>>,
+    /// The blob manager cap to use for the blob.
+    pub blob_manager_cap: Option<ObjectID>,
 }
 
 impl StoreArgs {

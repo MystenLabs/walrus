@@ -51,10 +51,8 @@ public enum BlobStash has store {
     ObjectBased {
         /// Maps blob_id to its object ID(s)
         blob_id_to_objects: Table<u256, vector<ID>>,
-
         /// All blobs indexed by their object ID
         blobs_by_object_id: Table<ID, Blob>,
-
         /// Total unencoded size of all blobs
         total_unencoded_size: u64,
     },
@@ -84,7 +82,7 @@ public struct BlobManagerCap has key, store {
 /// Creates a new shared BlobManager and returns its capability
 /// The BlobManager is automatically shared in the same transaction
 /// Requires minimum initial capacity of 100MB
-public fun new(initial_storage: Storage, ctx: &mut TxContext): BlobManagerCap {
+public fun new_with_unified_storage(initial_storage: Storage, ctx: &mut TxContext): BlobManagerCap {
     let manager_id = object::new(ctx);
     let manager_uid = object::uid_to_inner(&manager_id);
 
@@ -102,8 +100,7 @@ public fun new(initial_storage: Storage, ctx: &mut TxContext): BlobManagerCap {
         blob_stash: BlobStash::ObjectBased {
             blob_id_to_objects: table::new<u256, vector<ID>>(ctx),
             blobs_by_object_id: table::new<ID, Blob>(ctx),
-            blob_count: 0,
-            total_size: 0,
+            total_unencoded_size: 0,
         },
     };
 
@@ -194,7 +191,7 @@ fun check_cap(self: &BlobManager, cap: &BlobManagerCap) {
 /// If storage_for_blob is None, uses manager's storage
 /// If storage_for_blob is provided but insufficient, combines with manager's storage
 /// The returned Blob can be transferred to the user or stored elsewhere
-public fun register(
+public fun register_blob(
     self: &mut BlobManager,
     cap: &BlobManagerCap,
     system: &mut System,
@@ -226,8 +223,7 @@ public fun register(
         BlobStash::ObjectBased {
             blob_id_to_objects,
             blobs_by_object_id,
-            blob_count,
-            total_size,
+            total_unencoded_size,
         } => {
             // Look up existing blobs with this blob_id
             if (table::contains(blob_id_to_objects, blob_id)) {
@@ -282,9 +278,8 @@ public fun register(
             // Store blob in blobs_by_object_id
             table::add(blobs_by_object_id, object_id, blob);
 
-            // Update counters
-            *blob_count = *blob_count + 1;
-            *total_size = *total_size + size;
+            // Update total unencoded size
+            *total_unencoded_size = *total_unencoded_size + size;
 
             // Return the newly stored blob (remove it from table to transfer ownership)
             table::remove(blobs_by_object_id, object_id)
@@ -295,7 +290,7 @@ public fun register(
 /// Certifies a blob and stores it in the certified table
 /// Requires a valid BlobManagerCap to prove write access
 /// The blob must have been previously registered (blob_id tracked in blob_id_to_object)
-public fun certify(
+public fun certify_blob(
     self: &mut BlobManager,
     cap: &BlobManagerCap,
     system: &System,
@@ -316,8 +311,7 @@ public fun certify(
         BlobStash::ObjectBased {
             blob_id_to_objects,
             blobs_by_object_id,
-            blob_count: _,
-            total_size: _,
+            total_unencoded_size: _,
         } => {
             // Verify the blob_id is tracked
             assert!(table::contains(blob_id_to_objects, blob_id), EBlobNotFound);
@@ -370,22 +364,20 @@ public fun blob_count(self: &BlobManager): u64 {
     match (&self.blob_stash) {
         BlobStash::ObjectBased {
             blob_id_to_objects: _,
-            blobs_by_object_id: _,
-            blob_count,
-            total_size: _,
-        } => *blob_count,
+            blobs_by_object_id,
+            total_unencoded_size: _,
+        } => table::length(blobs_by_object_id),
     }
 }
 
-/// Returns the total size of all blobs
+/// Returns the total unencoded size of all blobs
 public fun total_blob_size(self: &BlobManager): u64 {
     match (&self.blob_stash) {
         BlobStash::ObjectBased {
             blob_id_to_objects: _,
             blobs_by_object_id: _,
-            blob_count: _,
-            total_size,
-        } => *total_size,
+            total_unencoded_size,
+        } => *total_unencoded_size,
     }
 }
 
@@ -395,8 +387,7 @@ public fun has_blob(self: &BlobManager, blob_id: u256): bool {
         BlobStash::ObjectBased {
             blob_id_to_objects,
             blobs_by_object_id: _,
-            blob_count: _,
-            total_size: _,
+            total_unencoded_size: _,
         } => table::contains(blob_id_to_objects, blob_id),
     }
 }
@@ -407,8 +398,7 @@ public fun get_blob_object_ids(self: &BlobManager, blob_id: u256): vector<ID> {
         BlobStash::ObjectBased {
             blob_id_to_objects,
             blobs_by_object_id: _,
-            blob_count: _,
-            total_size: _,
+            total_unencoded_size: _,
         } => {
             if (table::contains(blob_id_to_objects, blob_id)) {
                 *table::borrow(blob_id_to_objects, blob_id)

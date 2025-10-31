@@ -35,7 +35,6 @@ use walrus_core::{
     DEFAULT_ENCODING,
     EncodingType,
     Epoch,
-    EpochCount,
     ShardIndex,
     Sliver,
     SliverIndex,
