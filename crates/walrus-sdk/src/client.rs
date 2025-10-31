@@ -2157,7 +2157,9 @@ impl<T> WalrusNodeClient<T> {
                 {
                     return Err(client_error);
                 }
-                Err(_) => (),
+                Err(error) => {
+                    tracing::debug!("fetching blob status failed: {:?}", error);
+                }
             };
 
             if peekable.peek().is_some() {
