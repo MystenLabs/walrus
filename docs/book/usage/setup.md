@@ -4,9 +4,13 @@ This page covers advanced setup options for Walrus, including building from sour
 installing from binaries, or using Cargo. For standard setup instructions, see the
 Walrus [Getting Started](./setup.md) guide.
 
+
+
 Walrus is open source under an Apache 2 license. You can download and install it through
-[`suiup`](https://github.com/MystenLabs/suiup/commits/main/), or you can build and
+[`suiup`](./setup.md), or you can build and
 install it from the Rust source code through Cargo.
+
+## Walrus binaries
 
 The `walrus` client binary is currently provided for macOS (Intel and Apple CPUs),
 Ubuntu, and Windows. The Ubuntu version most likely works on other Linux distributions
@@ -34,7 +38,7 @@ Because of DoS protection, it might not be possible to download the binaries wit
 To download and install `walrus` to your `"$HOME"/.local/bin` directory, follow the
 instructions in the [Getting Started](./setup.md) guide.
 
-### Install on Windows {#windows-install}
+## Install on Windows {#windows-install}
 
 To download `walrus` to your Microsoft Windows computer, run the following in a
 PowerShell.
@@ -54,13 +58,13 @@ structure, commands, and so on. If you use Windows, you might need to adapt most
 those.
 ```
 
-### GitHub releases
+## GitHub releases
 
 You can find all the releases including release notes on
 [GitHub](https://github.com/MystenLabs/walrus/releases). Download the archive for your
 system and extract the `walrus` binary.
 
-### Install via Cargo
+## Install via Cargo
 
 You can also install Walrus through Cargo. For example, to install the latest Mainnet
 version:
@@ -73,7 +77,7 @@ In place of `--branch mainnet`, you can also specify specific tags (for example,
 `--tag mainnet-v1.18.2`) or commits (for example,
 `--rev b2009ac73388705f379ddad48515e1c1503fc8fc`).
 
-### Build from source
+## Build from source
 
 Walrus is open source software published under the Apache 2 license. The code is
 developed in a `git` repository at <https://github.com/MystenLabs/walrus>.
@@ -119,7 +123,7 @@ By default, the Walrus client looks for the `client_config.yaml` (or
 the file anywhere and name it anything you like. In this case, use the `--config` option
 when running the `walrus` binary.
 
-### Advanced configuration (optional)
+## Advanced configuration (optional)
 
 The configuration file currently supports the following parameters for each of the
 contexts:
