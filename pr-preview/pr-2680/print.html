@@ -3309,31 +3309,34 @@ aggregators and publishers.</p>
 <div style="break-before: page; page-break-before: always;"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.4/dist/katex.min.css">
 <h1 id="operating-an-aggregator-or-publisher"><a class="header" href="#operating-an-aggregator-or-publisher">Operating an Aggregator or Publisher</a></h1>
 <!-- TODO (WAL-118): Add further details and example cache setup. -->
-<p>This page describes how you can run a Walrus aggregator or publisher exposing the <a href="operator-guide/../usage/web-api.html">HTTP
-API</a>.</p>
+<p>This page describes how you can run a Walrus aggregator or publisher exposing the
+<a href="operator-guide/../usage/web-api.html">HTTP API</a>.</p>
 <h2 id="local-daemon"><a class="header" href="#local-daemon">Starting the daemon locally</a></h2>
-<p>You can run a local Walrus daemon through the <code>walrus</code> binary. There are three different commands:</p>
+<p>You can run a local Walrus daemon through the <code>walrus</code> binary. There are three different
+commands:</p>
 <ul>
-<li><code>walrus aggregator</code> starts an aggregator that offers an HTTP interface to read blobs from
+<li><code>walrus aggregator</code> starts an aggregator that offers an HTTP interface to read blobs
+from Walrus.</li>
+<li><code>walrus publisher</code> starts a publisher that offers an HTTP interface to store blobs in
 Walrus.</li>
-<li><code>walrus publisher</code> starts a publisher that offers an HTTP interface to store blobs in Walrus.</li>
-<li><code>walrus daemon</code> offers the combined functionality of an aggregator and publisher on the same
-address and port.</li>
+<li><code>walrus daemon</code> offers the combined functionality of an aggregator and publisher on
+the same address and port.</li>
 </ul>
-<p>The aggregator does not perform any on-chain actions, and only requires specifying the address on
-which it listens:</p>
+<p>The aggregator does not perform any on-chain actions, and only requires specifying the
+address on which it listens:</p>
 <pre><code class="language-sh">walrus aggregator --bind-address "127.0.0.1:31415"
 </code></pre>
-<p>The publisher and daemon perform on-chain actions and thus require a Sui Testnet wallet with
-sufficient SUI and WAL balances. To enable handling many parallel requests without object
-conflicts, they create internal sub-wallets since version 1.4.0, which are funded from the main
-wallet. These sub-wallets are persisted in a directory specified with the <code>--sub-wallets-dir</code>
-argument. Any existing directory can be used. If it already contains sub-wallets, they are
-reused.</p>
-<p>By default, 8 sub-wallets are created and funded. You can change this with the <code>--n-clients</code>
-argument. For simple local testing, 1 or 2 sub-wallets are usually sufficient.</p>
-<p>For example, you can run a publisher with a single sub-wallet stored in the Walrus configuration
-directory with the following command:</p>
+<p>The publisher and daemon perform on-chain actions and thus require a Sui Testnet wallet
+with sufficient SUI and WAL balances. To enable handling many parallel requests without
+object conflicts, they create internal sub-wallets since version 1.4.0, which are funded
+from the main wallet. These sub-wallets are persisted in a directory specified with the
+<code>--sub-wallets-dir</code> argument. Any existing directory can be used. If it already contains
+sub-wallets, they are reused.</p>
+<p>By default, 8 sub-wallets are created and funded. You can change this with the
+<code>--n-clients</code> argument. For simple local testing, 1 or 2 sub-wallets are usually
+sufficient.</p>
+<p>For example, you can run a publisher with a single sub-wallet stored in the Walrus
+configuration directory with the following command:</p>
 <pre><code class="language-sh">PUBLISHER_WALLETS_DIR=~/.config/walrus/publisher-wallets
 mkdir -p "$PUBLISHER_WALLETS_DIR"
 walrus publisher \
@@ -3341,8 +3344,8 @@ walrus publisher \
   --sub-wallets-dir "$PUBLISHER_WALLETS_DIR" \
   --n-clients 1
 </code></pre>
-<p>Replace <code>publisher</code> by <code>daemon</code> to run both an aggregator and publisher on the same address and
-port.</p>
+<p>Replace <code>publisher</code> by <code>daemon</code> to run both an aggregator and publisher on the same
+address and port.</p>
 <div id="admonition-warning" class="admonition admonish-warning" role="note" aria-labelledby="admonition-warning-title">
 <div class="admonition-title">
 <div id="admonition-warning-title">
@@ -3351,25 +3354,29 @@ port.</p>
 <a class="admonition-anchor-link" href="operator-guide/aggregator.html#admonition-warning"></a>
 </div>
 <div>
-<p>While the aggregator does not perform Sui on-chain actions, and therefore consumes no gas, the
-publisher does perform actions on-chain and consumes both SUI and WAL tokens. Ensure only authorized parties can access it, or use other measures to manage gas costs,
+<p>While the aggregator does not perform Sui on-chain actions, and therefore consumes no
+gas, the publisher does perform actions on-chain and consumes both SUI and WAL tokens.
+Ensure only authorized parties can access it, or use other measures to manage gas costs,
 especially in a future Mainnet deployment.</p>
 </div>
 </div>
 <h3 id="limitations"><a class="header" href="#limitations">Limitations</a></h3>
-<p>By default, <a href="operator-guide/../usage/web-api.html#store">store blob</a> requests are limited to 10 MiB. You can
-increase this limit through the <code>--max-body-size</code> option.
-<a href="operator-guide/../usage/web-api.html#storing-quilts">Store quilt</a> requests are limited to 100 MiB by default, and
-you can increase them using the <code>--max-quilt-body-size</code> option.</p>
-<p>If the aggregator or publisher is hosted on a third-party platform, ensure that any additional platform-imposed limits or constraints are compatible with your intended use case.</p>
+<p>By default, <a href="operator-guide/../usage/web-api.html#store">store blob</a> requests are limited to 10 MiB. You
+can increase this limit through the <code>--max-body-size</code> option.
+<a href="operator-guide/../usage/web-api.html#storing-quilts">Store quilt</a> requests are limited to 100 MiB by
+default, and you can increase them using the <code>--max-quilt-body-size</code> option.</p>
+<p>If the aggregator or publisher is hosted on a third-party platform, ensure that any
+additional platform-imposed limits or constraints are compatible with your intended use
+case.</p>
 <h3 id="daemon-metrics"><a class="header" href="#daemon-metrics">Daemon metrics</a></h3>
-<p>Services by default export a metrics endpoint accessible through <code>curl http://127.0.0.1:27182/metrics</code>.
-You can change it using the <code>--metrics-address &lt;METRICS_ADDRESS&gt;</code> CLI option.</p>
+<p>Services by default export a metrics endpoint accessible through
+<code>curl http://127.0.0.1:27182/metrics</code>. You can change it using the
+<code>--metrics-address &lt;METRICS_ADDRESS&gt;</code> CLI option.</p>
 <h3 id="sample-systemd-configuration"><a class="header" href="#sample-systemd-configuration">Sample systemd configuration</a></h3>
 <p>Below is an example of an aggregator node that hosts an HTTP endpoint that you can use
 to fetch data from Walrus over the web.</p>
-<p>The aggregator process is run through the <code>walrus</code> client binary as discussed previously.
-You can run it in many ways, one example being through a systemd service:</p>
+<p>The aggregator process is run through the <code>walrus</code> client binary as discussed
+previously. You can run it in many ways, one example being through a systemd service:</p>
 <pre><code class="language-ini">[Unit]
 Description=Walrus Aggregator
 
@@ -3383,59 +3390,64 @@ Restart=always
 LimitNOFILE=65536
 </code></pre>
 <h2 id="publisher-operation-and-configuration"><a class="header" href="#publisher-operation-and-configuration">Publisher operation and configuration</a></h2>
-<p>This section lists a few important details on how the publisher deals with funds and objects on Sui.</p>
+<p>This section lists a few important details on how the publisher deals with funds and
+objects on Sui.</p>
 <h3 id="number-of-sub-wallets-and-upload-concurrency"><a class="header" href="#number-of-sub-wallets-and-upload-concurrency">Number of sub-wallets and upload concurrency</a></h3>
-<p>As mentioned previously, the publisher uses sub-wallets to allow storing blobs in parallel. By default,
-the publisher uses 8 sub-wallets, meaning it can handle 8 blob store HTTP requests concurrently.</p>
-<p>In order to operate a high-performance and concurrency publisher, the following options might be of
-interest:</p>
+<p>As mentioned previously, the publisher uses sub-wallets to allow storing blobs in
+parallel. By default, the publisher uses 8 sub-wallets, meaning it can handle 8 blob
+store HTTP requests concurrently.</p>
+<p>In order to operate a high-performance and concurrency publisher, the following options
+might be of interest:</p>
 <ul>
 <li>
-<p>The <code>--n-clients &lt;NUM&gt;</code> option creates a number of separate wallets used to perform concurrent
-Sui chain operations. Increase this to allow more parallel uploads. A higher number
-requires more SUI and WAL coins initially to be distributed to more wallets.</p>
+<p>The <code>--n-clients &lt;NUM&gt;</code> option creates a number of separate wallets used to perform
+concurrent Sui chain operations. Increase this to allow more parallel uploads. A
+higher number requires more SUI and WAL coins initially to be distributed to more
+wallets.</p>
 </li>
 <li>
-<p>The <code>--max-concurrent-requests &lt;NUM&gt;</code> determines how many concurrent requests can be handled,
-including Sui operations (limited by number of clients) but also uploads. After this is exceeded,
-more requests are queued up to the <code>--max-buffer-size &lt;NUM&gt;</code>, after which requests are rejected
-with an HTTP 429 code.</p>
+<p>The <code>--max-concurrent-requests &lt;NUM&gt;</code> determines how many concurrent requests can be
+handled, including Sui operations (limited by number of clients) but also uploads.
+After this is exceeded, more requests are queued up to the <code>--max-buffer-size &lt;NUM&gt;</code>,
+after which requests are rejected with an HTTP 429 code.</p>
 </li>
 </ul>
 <h3 id="sui-coin-management-in-sub-wallets"><a class="header" href="#sui-coin-management-in-sub-wallets">SUI coin management in sub-wallets</a></h3>
-<p>Each of the sub-wallets requires funds to interact with the chain and purchase storage. For this
-reason, a background process checks periodically if the sub-wallets have enough funds. In steady
-state, each of the sub-wallets has a balance of 0.5-1.0 SUI and WAL. You can configure the amount and triggers
-for coin refills through CLI arguments.</p>
+<p>Each of the sub-wallets requires funds to interact with the chain and purchase storage.
+For this reason, a background process checks periodically if the sub-wallets have enough
+funds. In steady state, each of the sub-wallets has a balance of 0.5-1.0 SUI and WAL.
+You can configure the amount and triggers for coin refills through CLI arguments.</p>
 <p>To tweak how refills are handled, you can use the <code>--refill-interval &lt;REFILL_INTERVAL&gt;</code>,
-<code>--gas-refill-amount &lt;GAS_REFILL_AMOUNT&gt;</code>, <code>--wal-refill-amount &lt;WAL_REFILL_AMOUNT&gt;</code>, and
-<code>--sub-wallets-min-balance &lt;SUB_WALLETS_MIN_BALANCE&gt;</code> arguments.</p>
+<code>--gas-refill-amount &lt;GAS_REFILL_AMOUNT&gt;</code>, <code>--wal-refill-amount &lt;WAL_REFILL_AMOUNT&gt;</code>,
+and <code>--sub-wallets-min-balance &lt;SUB_WALLETS_MIN_BALANCE&gt;</code> arguments.</p>
 <h3 id="lifecycle-of-created-blob-on-chain-objects"><a class="header" href="#lifecycle-of-created-blob-on-chain-objects">Lifecycle of created <code>Blob</code> on-chain objects</a></h3>
-<p>Each store operation in Walrus creates a <code>Blob</code> object on Sui. This blob object represents the
-(partial) ownership over the associated data, and allows certain data management operations (for example,
-in the case of deletable blobs).</p>
-<p>When the publisher stores a blob on behalf of a client, the <code>Blob</code> object is initially owned by the
-sub-wallet that stored the blob. Then, the following cases are possible, depending on the
-configuration:</p>
+<p>Each store operation in Walrus creates a <code>Blob</code> object on Sui. This blob object
+represents the (partial) ownership over the associated data, and allows certain data
+management operations (for example, in the case of deletable blobs).</p>
+<p>When the publisher stores a blob on behalf of a client, the <code>Blob</code> object is initially
+owned by the sub-wallet that stored the blob. Then, the following cases are possible,
+depending on the configuration:</p>
 <ul>
-<li>If the client requests to store a blob and specifies the <code>send_object_to</code> query parameter (see
-<a href="operator-guide/../usage/web-api.html#store">the relevant section</a> for examples),
-then the <code>Blob</code> object is transferred to the
-specified address. This is a way for clients to get back the created object for their data.</li>
+<li>If the client requests to store a blob and specifies the <code>send_object_to</code> query
+parameter (see <a href="operator-guide/../usage/web-api.html#store">the relevant section</a> for examples), then
+the <code>Blob</code> object is transferred to the specified address. This is a way for clients
+to get back the created object for their data.</li>
 <li>If the <code>send_object_to</code> query parameter is not specified, two cases are possible:
 <ul>
-<li>By default the sub-wallet transfers the
-newly-created blob object to the main wallet, such that all these objects are kept there.
-You can change this behavior by setting the <code>--burn-after-store</code> flag, and the blob object
-is then immediately deleted.</li>
-<li>However, this flag <em>does not affect</em> the use of the <code>send_object_to</code> query parameter.
-Regardless of this flag's status, the publisher sends created objects to the address in
-the <code>send_object_to</code> query parameter if it is specified in the PUT request.</li>
+<li>By default the sub-wallet transfers the newly-created blob object to the main
+wallet, such that all these objects are kept there. You can change this behavior by
+setting the <code>--burn-after-store</code> flag, and the blob object is then immediately
+deleted.</li>
+<li>However, this flag <em>does not affect</em> the use of the <code>send_object_to</code> query
+parameter. Regardless of this flag's status, the publisher sends created objects to
+the address in the <code>send_object_to</code> query parameter if it is specified in the PUT
+request.</li>
 </ul>
 </li>
 </ul>
 <h3 id="advanced-publisher-uses"><a class="header" href="#advanced-publisher-uses">Advanced publisher uses</a></h3>
-<p>The setup and use of an authenticated publisher is covered in a <a href="operator-guide/./auth-publisher.html">separate section</a>.</p>
+<p>The setup and use of an authenticated publisher is covered in a
+<a href="operator-guide/./auth-publisher.html">separate section</a>.</p>
 <div style="break-before: page; page-break-before: always;"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.4/dist/katex.min.css">
 <h1 id="the-authenticated-publisher"><a class="header" href="#the-authenticated-publisher">The authenticated publisher</a></h1>
 <p>We now describe the authenticated publisher, which requires the HTTP request to store a blob to be
