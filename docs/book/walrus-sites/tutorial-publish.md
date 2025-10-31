@@ -40,7 +40,7 @@ duration of an epoch is one day. On Mainnet, the duration of an epoch is two wee
 - **Mainnet sites**: Can be accessed through any mainnet portal.
 <https://wal.app> serves Walrus Sites on mainnet by resolving SuiNS names that point to them.
 - **Testnet sites**: Can be accessed through any testnet portal.
-Walrus Foundation does not operate a testnet portal. You can [self-host or run one locally](./portal.md)
+Walrus Foundation does not operate a testnet portal. You can [self-host or run one locally](./portal.md).
 ```
 
 The end of the output should look like the following:
