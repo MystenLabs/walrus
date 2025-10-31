@@ -5,6 +5,7 @@
 
 use std::{num::NonZeroU16, sync::Arc, time::Duration};
 
+use sui_types::base_types::ObjectID;
 use tokio::{
     sync::{Mutex, mpsc::Sender as MpscSender},
     task::JoinHandle,
@@ -72,6 +73,7 @@ impl StoreArgs {
             tail_handling: TailHandling::Blocking,
             quorum_event_tx: None,
             tail_handle_collector: None,
+            blob_manager_cap: None,
         }
     }
 
@@ -92,6 +94,7 @@ impl StoreArgs {
             tail_handling: TailHandling::Blocking,
             quorum_event_tx: None,
             tail_handle_collector: None,
+            blob_manager_cap: None,
         }
     }
 

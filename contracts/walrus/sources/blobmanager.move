@@ -7,12 +7,7 @@ module walrus::blobmanager;
 
 use sui::{coin::Coin, table::{Self, Table}};
 use wal::wal::WAL;
-use walrus::{
-    blob::{Self, Blob},
-    encoding,
-    storage_resource::{Self, Storage},
-    system::{Self, System}
-};
+use walrus::{blob::{Self, Blob}, encoding, storage_resource::Storage, system::{Self, System}};
 
 // === Constants ===
 
@@ -86,7 +81,7 @@ public fun new_with_unified_storage(initial_storage: Storage, ctx: &mut TxContex
     let manager_id = object::new(ctx);
     let manager_uid = object::uid_to_inner(&manager_id);
 
-    let capacity = storage_resource::size(&initial_storage);
+    let capacity = initial_storage.size();
 
     // Enforce minimum capacity requirement
     assert!(capacity >= MIN_INITIAL_CAPACITY, EInitialCapacityTooSmall);
@@ -130,36 +125,32 @@ fun prepare_storage_for_blob(
     if (option::is_some(&provided_storage)) {
         let mut provided = option::extract(&mut provided_storage);
         option::destroy_none(provided_storage);
-        let provided_size = storage_resource::size(&provided);
+        let provided_size = provided.size();
 
         if (provided_size == encoded_size) {
             // Case 2: Exact match - use provided storage
             provided
         } else if (provided_size > encoded_size) {
             // Case 1: Excess storage - split and return remainder to manager
-            let excess = storage_resource::split_by_size(&mut provided, encoded_size, ctx);
-            storage_resource::fuse_amount(available_storage, excess);
+            let excess = provided.split_by_size(encoded_size, ctx);
+            available_storage.fuse_amount(excess);
             provided
         } else {
             // Case 3: Insufficient - need to combine with manager's storage
-            let available = storage_resource::size(available_storage);
+            let available = available_storage.size();
             let needed_from_manager = encoded_size - provided_size;
             assert!(available >= needed_from_manager, EInsufficientCapacity);
 
-            let from_manager = storage_resource::split_by_size(
-                available_storage,
-                needed_from_manager,
-                ctx,
-            );
-            storage_resource::fuse_amount(&mut provided, from_manager);
+            let from_manager = available_storage.split_by_size(needed_from_manager, ctx);
+            provided.fuse_amount(from_manager);
             provided
         }
     } else {
         // No provided storage - use manager's storage
         option::destroy_none(provided_storage);
-        let available = storage_resource::size(available_storage);
+        let available = available_storage.size();
         assert!(available >= encoded_size, EInsufficientCapacity);
-        storage_resource::split_by_size(available_storage, encoded_size, ctx)
+        available_storage.split_by_size(encoded_size, ctx)
     }
 }
 
@@ -228,12 +219,12 @@ public fun register_blob(
             // Look up existing blobs with this blob_id
             if (table::contains(blob_id_to_objects, blob_id)) {
                 let object_ids = table::borrow(blob_id_to_objects, blob_id);
-                let len = vector::length(object_ids);
+                let len = object_ids.length();
                 let mut i = 0;
 
                 // Search for matching variant (same deletable flag)
                 while (i < len) {
-                    let obj_id = *vector::borrow(object_ids, i);
+                    let obj_id = object_ids[i];
                     let existing_blob = table::borrow(blobs_by_object_id, obj_id);
 
                     // Check if this variant matches (same blob_id and deletable)
@@ -241,7 +232,7 @@ public fun register_blob(
                         // Found matching blob - return excess storage to manager
                         match (&mut self.storage) {
                             BlobStorage::Unified { available_storage, total_capacity: _ } => {
-                                storage_resource::fuse_amount(available_storage, final_storage);
+                                available_storage.fuse_amount(final_storage);
                             },
                         };
                         // Return the existing blob (transfer it out of the table)
@@ -268,10 +259,10 @@ public fun register_blob(
             // Add to blob_id_to_objects mapping
             if (table::contains(blob_id_to_objects, blob_id)) {
                 let object_ids = table::borrow_mut(blob_id_to_objects, blob_id);
-                vector::push_back(object_ids, object_id);
+                object_ids.push_back(object_id);
             } else {
                 let mut new_vec = vector::empty<ID>();
-                vector::push_back(&mut new_vec, object_id);
+                new_vec.push_back(object_id);
                 table::add(blob_id_to_objects, blob_id, new_vec);
             };
 
@@ -318,7 +309,7 @@ public fun certify_blob(
 
             // Verify this specific object_id is in the list for this blob_id
             let object_ids = table::borrow(blob_id_to_objects, blob_id);
-            assert!(vector::contains(object_ids, &object_id), EBlobNotFound);
+            assert!(object_ids.contains(&object_id), EBlobNotFound);
 
             // Certify the blob through the system with signature data
             system::certify_blob(system, &mut blob, signature, signers_bitmap, message);
@@ -340,7 +331,7 @@ public fun manager_id(self: &BlobManager): ID {
 public fun capacity_info(self: &BlobManager): (u64, u64, u64) {
     match (&self.storage) {
         BlobStorage::Unified { available_storage, total_capacity } => {
-            let available = storage_resource::size(available_storage);
+            let available = available_storage.size();
             let used = *total_capacity - available;
             (*total_capacity, used, available)
         },
@@ -351,10 +342,7 @@ public fun capacity_info(self: &BlobManager): (u64, u64, u64) {
 public fun storage_epochs(self: &BlobManager): (u32, u32) {
     match (&self.storage) {
         BlobStorage::Unified { available_storage, total_capacity: _ } => {
-            (
-                storage_resource::start_epoch(available_storage),
-                storage_resource::end_epoch(available_storage),
-            )
+            (available_storage.start_epoch(), available_storage.end_epoch())
         },
     }
 }
