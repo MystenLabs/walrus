@@ -545,7 +545,9 @@ async fn concat_blobs_impl<T: WalrusReadClient + Send + Sync + 'static>(
     // 2. First blob's attributes (if available)
     // 3. Default (already set above)
     if let Some(content_type) = request_headers.get(CONTENT_TYPE) {
-        response.headers_mut().insert(CONTENT_TYPE, content_type.clone());
+        response
+            .headers_mut()
+            .insert(CONTENT_TYPE, content_type.clone());
     } else if let Some(attribute) = first_attribute {
         populate_response_headers_from_attributes(
             response.headers_mut(),
