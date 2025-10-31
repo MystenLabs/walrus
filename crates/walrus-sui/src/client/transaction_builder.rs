@@ -12,14 +12,12 @@ use std::{
 };
 
 use fastcrypto::traits::ToFromBytes;
-use move_core_types::{ident_str, language_storage::StructTag};
 use sui_move_build::CompiledPackage;
 use sui_sdk::rpc_types::SuiObjectDataOptions;
 use sui_types::{
     Identifier,
     SUI_CLOCK_OBJECT_ID,
     SUI_CLOCK_OBJECT_SHARED_VERSION,
-    TypeTag,
     base_types::{ObjectID, ObjectType, SuiAddress},
     programmable_transaction_builder::ProgrammableTransactionBuilder,
     transaction::{
@@ -1800,7 +1798,7 @@ impl WalrusPtbBuilder {
         &mut self,
         manager: ObjectID,
         cap: ArgumentOrOwnedObject,
-        storage_for_blob: Option<ArgumentOrOwnedObject>,
+        storage_for_blob: ArgumentOrOwnedObject,
         blob_metadata: BlobObjectMetadata,
         persistence: BlobPersistence,
     ) -> SuiClientResult<Argument> {
@@ -1810,34 +1808,7 @@ impl WalrusPtbBuilder {
         self.fill_wal_balance(price).await?;
 
         let cap_arg = self.argument_from_arg_or_obj(cap).await?;
-
-        // Build Option<Storage> argument
-        // In Sui PTB, Option<T> is represented as vector<T> with length 0 or 1
-        let storage_arg = if let Some(storage) = storage_for_blob {
-            let storage_arg = self.argument_from_arg_or_obj(storage).await?;
-            self.mark_arg_as_consumed(&storage_arg);
-            // Build Some variant: vector with one element
-            let type_tag = TypeTag::Struct(Box::new(StructTag {
-                address: self.read_client.get_system_package_id().into(),
-                module: ident_str!("storage_resource").to_owned(),
-                name: ident_str!("Storage").to_owned(),
-                type_params: vec![],
-            }));
-            self.pt_builder.command(Command::MakeMoveVec(
-                Some(type_tag.into()),
-                vec![storage_arg],
-            ))
-        } else {
-            // Build None variant: empty vector
-            let type_tag = TypeTag::Struct(Box::new(StructTag {
-                address: self.read_client.get_system_package_id().into(),
-                module: ident_str!("storage_resource").to_owned(),
-                name: ident_str!("Storage").to_owned(),
-                type_params: vec![],
-            }));
-            self.pt_builder
-                .command(Command::MakeMoveVec(Some(type_tag.into()), vec![]))
-        };
+        let storage_arg = self.argument_from_arg_or_obj(storage_for_blob).await?;
 
         let register_args = vec![
             self.pt_builder.obj(ObjectArg::SharedObject {
@@ -1861,6 +1832,7 @@ impl WalrusPtbBuilder {
             self.blobmanager_move_call(contracts::blobmanager::register, register_args)?;
 
         self.reduce_wal_balance(price)?;
+        self.mark_arg_as_consumed(&storage_arg);
         self.add_result_to_be_consumed(result_arg);
         Ok(result_arg)
     }

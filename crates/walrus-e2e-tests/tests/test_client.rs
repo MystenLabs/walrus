@@ -2817,3 +2817,38 @@ async fn test_store_with_upload_relay_with_tip() {
         .await
         .expect("shutdown upload relay");
 }
+
+#[ignore = "ignore E2E tests by default"]
+#[walrus_simtest]
+async fn test_create_blob_manager() {
+    walrus_test_utils::init_tracing();
+
+    let test_nodes_config = TestNodesConfig {
+        node_weights: vec![7, 7, 7, 7, 7],
+        ..Default::default()
+    };
+    let test_cluster_builder =
+        test_cluster::E2eTestSetupBuilder::new().with_test_nodes_config(test_nodes_config);
+    let (_sui_cluster_handle, _cluster, mut client, _) =
+        test_cluster_builder.build().await.unwrap();
+    let client_ref = client.as_mut();
+
+    // Create a BlobManager with 200MB capacity
+    let initial_capacity = 200 * 1024 * 1024; // 200MB
+    let epochs_ahead = 5;
+
+    let (manager_id, cap_id) = client_ref
+        .sui_client()
+        .create_blob_manager(initial_capacity, epochs_ahead)
+        .await
+        .expect("Failed to create BlobManager");
+
+    tracing::info!("Created BlobManager: {}", manager_id);
+    tracing::info!("BlobManagerCap: {}", cap_id);
+
+    // Verify the IDs are valid
+    assert_ne!(manager_id, sui_types::base_types::ObjectID::ZERO);
+    assert_ne!(cap_id, sui_types::base_types::ObjectID::ZERO);
+
+    tracing::info!("BlobManager creation test completed successfully!");
+}

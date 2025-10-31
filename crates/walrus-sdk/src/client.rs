@@ -35,6 +35,7 @@ use walrus_core::{
     DEFAULT_ENCODING,
     EncodingType,
     Epoch,
+    EpochCount,
     ShardIndex,
     Sliver,
     SliverIndex,
@@ -94,6 +95,7 @@ pub use crate::{
     config::{ClientCommunicationConfig, ClientConfig, default_configuration_paths},
 };
 
+pub mod blobmanager_client;
 pub mod client_types;
 pub mod communication;
 pub mod metrics;
@@ -1624,6 +1626,15 @@ impl WalrusNodeClient<SuiContractClient> {
                 .await
                 .map_err(ClientError::other)?,
         ))
+    }
+
+    /// Returns a [`BlobManagerClient`] for managing blobs through a BlobManager.
+    pub fn blobmanager_client(
+        &mut self,
+        manager_id: ObjectID,
+        manager_cap: ObjectID,
+    ) -> blobmanager_client::BlobManagerClient<'_, SuiContractClient> {
+        blobmanager_client::BlobManagerClient::new(self, manager_id, manager_cap)
     }
 }
 

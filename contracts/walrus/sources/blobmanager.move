@@ -3,15 +3,11 @@
 
 /// Minimal blob-management interface using enum-based storage strategies.
 /// This version provides only essential functionality: new, register, and certify.
-module blobmanager::blobmanager;
+module walrus::blobmanager;
 
-use sui::coin::Coin;
-use sui::table::{Self, Table};
-use walrus::blob::Blob;
-use walrus::encoding;
-use walrus::storage_resource::{Self, Storage};
-use walrus::system::{Self, System};
-use walrus::wal::WAL;
+use sui::{coin::Coin, table::{Self, Table}};
+use wal::wal::WAL;
+use walrus::{blob::Blob, encoding, storage_resource::{Self, Storage}, system::{Self, System}};
 
 // === Constants ===
 
@@ -46,13 +42,16 @@ public enum BlobStorage has store {
 // === BlobStash Enum ===
 
 /// Blob storage implementation
-/// Currently implements ObjectID-based storage
+/// Currently implements ObjectID-based storage with separate tables for
+/// registered and certified blobs
 public enum BlobStash has store {
     /// Blobs keyed by their Object ID for efficient access
     ObjectBased {
-        /// Table mapping Blob Object ID to Blob
-        blobs: Table<ID, Blob>,
-        /// Total number of blobs
+        /// Table mapping Blob Object ID to Blob (registered but not yet certified)
+        registered_blobs: Table<ID, Blob>,
+        /// Table mapping Blob Object ID to Blob (certified)
+        certified_blobs: Table<ID, Blob>,
+        /// Total number of blobs (registered + certified)
         blob_count: u64,
         /// Total size of all blobs
         total_size: u64,
@@ -85,10 +84,7 @@ public struct BlobManagerCap has key, store {
 /// Creates a new shared BlobManager and returns its capability
 /// The BlobManager is automatically shared in the same transaction
 /// Requires minimum initial capacity of 100MB
-public fun new(
-    initial_storage: Storage,
-    ctx: &mut TxContext,
-): BlobManagerCap {
+public fun new(initial_storage: Storage, ctx: &mut TxContext): BlobManagerCap {
     let manager_id = object::new(ctx);
     let manager_uid = object::uid_to_inner(&manager_id);
 
@@ -104,7 +100,8 @@ public fun new(
             total_capacity: capacity,
         },
         blob_stash: BlobStash::ObjectBased {
-            blobs: table::new(ctx),
+            registered_blobs: table::new(ctx),
+            certified_blobs: table::new(ctx),
             blob_count: 0,
             total_size: 0,
             blob_id_to_object: table::new(ctx),
@@ -153,7 +150,11 @@ fun prepare_storage_for_blob(
             let needed_from_manager = encoded_size - provided_size;
             assert!(available >= needed_from_manager, EInsufficientCapacity);
 
-            let from_manager = storage_resource::split_by_size(available_storage, needed_from_manager, ctx);
+            let from_manager = storage_resource::split_by_size(
+                available_storage,
+                needed_from_manager,
+                ctx,
+            );
             storage_resource::fuse_amount(&mut provided, from_manager);
             provided
         }
@@ -189,15 +190,14 @@ fun check_cap(self: &BlobManager, cap: &BlobManagerCap) {
 
 // === Core Operations ===
 
-/// Registers a new blob with the system and adds it to the manager
+/// Registers a new blob with the system and adds it to the manager's registered table
 /// Requires a valid BlobManagerCap to prove write access
-/// storage_for_blob is optional - if None, splits from BlobManager's storage
-/// If None but insufficient capacity, aborts with EInsufficientCapacity
+/// storage_for_blob is required - use prepare_storage_for_blob helper if needed
 public fun register(
     self: &mut BlobManager,
     cap: &BlobManagerCap,
     system: &mut System,
-    mut storage_for_blob: Option<Storage>,
+    storage_for_blob: Storage,
     blob_id: u256,
     root_hash: u256,
     size: u64,
@@ -209,58 +209,47 @@ public fun register(
     // Verify the capability
     check_cap(self, cap);
 
-    // Calculate the encoded size needed for storage
-    let n_shards = system::n_shards(system);
-    let encoded_size = encoding::encoded_blob_length(size, encoding_type, n_shards);
+    // Register blob with the system using the provided storage
+    let blob = system.register_blob(
+        storage_for_blob,
+        blob_id,
+        root_hash,
+        size,
+        encoding_type,
+        deletable,
+        payment,
+        ctx,
+    );
 
-    // Check capacity based on storage strategy
-    match (&mut self.storage) {
-        BlobStorage::Unified { available_storage, total_capacity } => {
-            // Prepare storage for the blob using the helper function
-            let storage_to_use = prepare_storage_for_blob(
-                available_storage,
-                storage_for_blob,
-                encoded_size,
-                ctx,
-            );
+    // Get the object ID before moving the blob
+    let object_id = object::id(&blob);
 
-            // Register blob with the system using the determined storage
-            let blob = system.register_blob(
-                storage_to_use,
-                blob_id,
-                root_hash,
-                size,
-                encoding_type,
-                deletable,
-                payment,
-                ctx,
-            );
+    // Add to registered blob stash
+    match (&mut self.blob_stash) {
+        BlobStash::ObjectBased {
+            registered_blobs,
+            certified_blobs: _,
+            blob_count,
+            total_size,
+            blob_id_to_object,
+        } => {
+            // Check if blob already exists
+            assert!(!table::contains(blob_id_to_object, blob_id), EBlobAlreadyExists);
 
-            // Get the object ID before moving the blob
-            let object_id = object::id(&blob);
+            // Add blob to registered tables
+            table::add(registered_blobs, object_id, blob);
+            table::add(blob_id_to_object, blob_id, object_id);
 
-            // Add to blob stash
-            match (&mut self.blob_stash) {
-                BlobStash::ObjectBased { blobs, blob_count, total_size, blob_id_to_object } => {
-                    // Check if blob already exists
-                    assert!(!table::contains(blob_id_to_object, blob_id), EBlobAlreadyExists);
-
-                    // Add blob to tables
-                    table::add(blobs, object_id, blob);
-                    table::add(blob_id_to_object, blob_id, object_id);
-
-                    // Update counters
-                    *blob_count = *blob_count + 1;
-                    *total_size = *total_size + size;
-                },
-            };
-
-            object_id
+            // Update counters
+            *blob_count = *blob_count + 1;
+            *total_size = *total_size + size;
         },
-    }
+    };
+
+    object_id
 }
 
-/// Certifies a blob that has been registered
+/// Certifies a blob that has been registered and moves it to the certified table
 /// Requires a valid BlobManagerCap to prove write access
 public fun certify(
     self: &mut BlobManager,
@@ -274,21 +263,28 @@ public fun certify(
 ) {
     // Verify the capability
     check_cap(self, cap);
-    // Find the blob by its blob_id
-    let object_id = match (&self.blob_stash) {
-        BlobStash::ObjectBased { blobs: _, blob_count: _, total_size: _, blob_id_to_object } => {
-            assert!(table::contains(blob_id_to_object, blob_id), EBlobNotFound);
-            *table::borrow(blob_id_to_object, blob_id)
-        },
-    };
 
-    // Get mutable reference to the blob and certify it
+    // Find the blob object ID and move it from registered to certified
     match (&mut self.blob_stash) {
-        BlobStash::ObjectBased { blobs, blob_count: _, total_size: _, blob_id_to_object: _ } => {
-            let blob = table::borrow_mut(blobs, object_id);
+        BlobStash::ObjectBased {
+            registered_blobs,
+            certified_blobs,
+            blob_count: _,
+            total_size: _,
+            blob_id_to_object,
+        } => {
+            // Find the object ID
+            assert!(table::contains(blob_id_to_object, blob_id), EBlobNotFound);
+            let object_id = *table::borrow(blob_id_to_object, blob_id);
+
+            // Remove blob from registered table
+            let mut blob = table::remove(registered_blobs, object_id);
 
             // Certify the blob through the system with signature data
-            system::certify_blob(system, blob, signature, signers_bitmap, message);
+            system::certify_blob(system, &mut blob, signature, signers_bitmap, message);
+
+            // Move blob to certified table
+            table::add(certified_blobs, object_id, blob);
         },
     };
 }
@@ -315,45 +311,63 @@ public fun capacity_info(self: &BlobManager): (u64, u64, u64) {
 public fun storage_epochs(self: &BlobManager): (u32, u32) {
     match (&self.storage) {
         BlobStorage::Unified { available_storage, total_capacity: _ } => {
-            (storage_resource::start_epoch(available_storage), storage_resource::end_epoch(available_storage))
+            (
+                storage_resource::start_epoch(available_storage),
+                storage_resource::end_epoch(available_storage),
+            )
         },
     }
 }
 
-/// Returns the number of blobs
+/// Returns the number of blobs (registered + certified)
 public fun blob_count(self: &BlobManager): u64 {
     match (&self.blob_stash) {
-        BlobStash::ObjectBased { blobs, blob_count, total_size, blob_id_to_object } => {
-            *blob_count
-        },
+        BlobStash::ObjectBased {
+            registered_blobs: _,
+            certified_blobs: _,
+            blob_count,
+            total_size: _,
+            blob_id_to_object: _,
+        } => *blob_count,
     }
 }
 
 /// Returns the total size of all blobs
 public fun total_blob_size(self: &BlobManager): u64 {
     match (&self.blob_stash) {
-        BlobStash::ObjectBased { blobs, blob_count, total_size, blob_id_to_object } => {
-            *total_size
-        },
+        BlobStash::ObjectBased {
+            registered_blobs: _,
+            certified_blobs: _,
+            blob_count: _,
+            total_size,
+            blob_id_to_object: _,
+        } => *total_size,
     }
 }
 
-/// Checks if a blob exists by blob_id
+/// Checks if a blob exists by blob_id (in either registered or certified)
 public fun has_blob(self: &BlobManager, blob_id: u256): bool {
     match (&self.blob_stash) {
-        BlobStash::ObjectBased { blobs, blob_count, total_size, blob_id_to_object } => {
-            table::contains(blob_id_to_object, blob_id)
-        },
+        BlobStash::ObjectBased {
+            registered_blobs: _,
+            certified_blobs: _,
+            blob_count: _,
+            total_size: _,
+            blob_id_to_object,
+        } => table::contains(blob_id_to_object, blob_id),
     }
 }
 
 /// Gets the object ID for a blob_id
-public fun get_blob_object_id(
-    self: &BlobManager,
-    blob_id: u256,
-): Option<ID> {
+public fun get_blob_object_id(self: &BlobManager, blob_id: u256): Option<ID> {
     match (&self.blob_stash) {
-        BlobStash::ObjectBased { blobs, blob_count, total_size, blob_id_to_object } => {
+        BlobStash::ObjectBased {
+            registered_blobs: _,
+            certified_blobs: _,
+            blob_count: _,
+            total_size: _,
+            blob_id_to_object,
+        } => {
             if (table::contains(blob_id_to_object, blob_id)) {
                 option::some(*table::borrow(blob_id_to_object, blob_id))
             } else {

@@ -27,7 +27,7 @@ use sui_types::{TypeTag, base_types::SuiAddress, event::EventID, transaction::Tr
 use tokio::sync::Mutex;
 use tokio_stream::Stream;
 use tracing::Level;
-use transaction_builder::{MAX_BURNS_PER_PTB, WalrusPtbBuilder};
+use transaction_builder::{ArgumentOrOwnedObject, MAX_BURNS_PER_PTB, WalrusPtbBuilder};
 use walrus_core::{
     BlobId,
     EncodingType,
@@ -613,6 +613,47 @@ impl SuiContractClient {
                 .lock()
                 .await
                 .reserve_and_register_blobs(epochs_ahead, blob_metadata_list.clone(), persistence)
+                .await
+        })
+        .await
+    }
+
+    /// Reserves space and registers blobs in a BlobManager (public wrapper).
+    pub async fn reserve_and_register_blobs_in_blobmanager(
+        &self,
+        manager_id: ObjectID,
+        manager_cap: ArgumentOrOwnedObject,
+        epochs_ahead: EpochCount,
+        blob_metadata_list: Vec<BlobObjectMetadata>,
+        persistence: BlobPersistence,
+    ) -> SuiClientResult<Vec<ObjectID>> {
+        self.retry_on_wrong_version(|| async {
+            self.inner
+                .lock()
+                .await
+                .reserve_and_register_blobs_in_blobmanager(
+                    manager_id,
+                    manager_cap,
+                    epochs_ahead,
+                    blob_metadata_list.clone(),
+                    persistence,
+                )
+                .await
+        })
+        .await
+    }
+
+    /// Creates a new BlobManager and returns its ID and capability ID.
+    pub async fn create_blob_manager(
+        &self,
+        initial_capacity: u64,
+        epochs_ahead: EpochCount,
+    ) -> SuiClientResult<(ObjectID, ObjectID)> {
+        self.retry_on_wrong_version(|| async {
+            self.inner
+                .lock()
+                .await
+                .create_blob_manager(initial_capacity, epochs_ahead)
                 .await
         })
         .await
@@ -1853,6 +1894,208 @@ impl SuiContractClientInner {
         let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
         self.sign_and_send_transaction(transaction, "invalidate_blob_id")
             .await?;
+        Ok(())
+    }
+
+    /// Reserves space and registers blobs in a BlobManager.
+    ///
+    /// This function reserves storage using reserve_space() and then registers each blob
+    /// with its allocated storage in the BlobManager.
+    pub async fn reserve_and_register_blobs_in_blobmanager(
+        &mut self,
+        manager_id: ObjectID,
+        manager_cap: ArgumentOrOwnedObject,
+        epochs_ahead: EpochCount,
+        blob_metadata_list: Vec<BlobObjectMetadata>,
+        persistence: BlobPersistence,
+    ) -> SuiClientResult<Vec<ObjectID>> {
+        if blob_metadata_list.is_empty() {
+            tracing::debug!("no blobs to register in blob manager");
+            return Ok(vec![]);
+        }
+
+        let expected_num_blobs = blob_metadata_list.len();
+        tracing::debug!(
+            num_blobs = expected_num_blobs,
+            manager_id = %manager_id,
+            "starting to reserve and register blobs in blob manager"
+        );
+
+        let mut pt_builder = self.transaction_builder()?;
+
+        // Calculate total storage needed for all blobs
+        let total_storage_size = blob_metadata_list
+            .iter()
+            .fold(0, |acc, metadata| acc + metadata.encoded_size);
+
+        // Reserve storage for all blobs
+        let main_storage_arg = pt_builder
+            .reserve_space(total_storage_size, epochs_ahead)
+            .await?;
+
+        // Register each blob in the BlobManager with split storage
+        for (i, metadata) in blob_metadata_list.iter().enumerate() {
+            tracing::debug!(
+                blob_id = %metadata.blob_id,
+                count = format!("{}/{}", i + 1, expected_num_blobs),
+                "registering blob in blob manager"
+            );
+
+            // For the last blob, use the remaining storage directly
+            // For others, split off the exact amount needed
+            let storage_for_blob = if i == expected_num_blobs - 1 {
+                main_storage_arg.into()
+            } else {
+                let split_storage = pt_builder
+                    .split_storage_by_size(main_storage_arg.into(), metadata.encoded_size)
+                    .await?;
+                split_storage.into()
+            };
+
+            pt_builder
+                .register_blob_in_blob_manager(
+                    manager_id,
+                    manager_cap,
+                    storage_for_blob,
+                    metadata.clone(),
+                    persistence,
+                )
+                .await?;
+        }
+
+        let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
+        let res = self
+            .sign_and_send_transaction(transaction, "reserve_and_register_blobs_in_blobmanager")
+            .await?;
+
+        if !res.errors.is_empty() {
+            tracing::warn!(errors = ?res.errors, "failed to register blobs in blob manager");
+            return Err(anyhow!("could not register blobs: {:?}", res.errors).into());
+        }
+
+        // Extract the created blob object IDs from the transaction results by type
+        let blob_obj_ids = get_created_sui_object_ids_by_type(
+            &res,
+            &contracts::blob::Blob
+                .to_move_struct_tag_with_type_map(&self.read_client.type_origin_map(), &[])?,
+        )?;
+
+        ensure!(
+            blob_obj_ids.len() == expected_num_blobs,
+            "unexpected number of blob objects created: {} expected {}",
+            blob_obj_ids.len(),
+            expected_num_blobs
+        );
+
+        tracing::debug!(
+            num_registered = blob_obj_ids.len(),
+            "successfully registered blobs in blob manager"
+        );
+
+        Ok(blob_obj_ids)
+    }
+
+    /// Creates a new BlobManager and returns its ID and capability ID.
+    ///
+    /// The BlobManager is automatically shared and can be used to manage blobs.
+    pub async fn create_blob_manager(
+        &mut self,
+        initial_capacity: u64,
+        epochs_ahead: EpochCount,
+    ) -> SuiClientResult<(ObjectID, ObjectID)> {
+        // Reserve storage for the initial capacity
+        let initial_storage = self.reserve_space(initial_capacity, epochs_ahead).await?;
+
+        // Create the BlobManager with PTB
+        let mut pt_builder = self.transaction_builder()?;
+        let cap_arg = pt_builder
+            .create_blob_manager(initial_storage.id.into())
+            .await?;
+
+        // Transfer the capability to the sender
+        pt_builder.transfer(None, vec![cap_arg.into()]).await?;
+
+        let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
+        let res = self
+            .sign_and_send_transaction(transaction, "create_blob_manager")
+            .await?;
+
+        if !res.errors.is_empty() {
+            tracing::warn!(errors = ?res.errors, "failed to create blob manager");
+            return Err(anyhow!("could not create blob manager: {:?}", res.errors).into());
+        }
+
+        // Extract the BlobManager and Cap object IDs from the transaction effects
+        let effects = res
+            .effects
+            .ok_or_else(|| anyhow!("No effects in transaction response"))?;
+        let object_changes = effects.created();
+
+        let mut manager_id: Option<ObjectID> = None;
+        let mut cap_id: Option<ObjectID> = None;
+
+        for obj_ref in object_changes {
+            // We need to query the object to get its type
+            // For now, we'll use a heuristic: the shared object is the manager, owned is the cap
+            if obj_ref.reference.object_id != ObjectID::ZERO {
+                // Check if it's shared or owned by looking at the owner field
+                // The manager is shared, the cap is owned
+                // We'll need to inspect the objects to determine which is which
+                if manager_id.is_none() {
+                    manager_id = Some(obj_ref.reference.object_id);
+                } else if cap_id.is_none() {
+                    cap_id = Some(obj_ref.reference.object_id);
+                }
+            }
+        }
+
+        let manager_id =
+            manager_id.ok_or_else(|| anyhow!("BlobManager not found in transaction effects"))?;
+        let cap_id =
+            cap_id.ok_or_else(|| anyhow!("BlobManagerCap not found in transaction effects"))?;
+
+        tracing::debug!(%manager_id, %cap_id, "created blob manager");
+        Ok((manager_id, cap_id))
+    }
+
+    /// Certifies blobs that have been registered in a BlobManager.
+    #[allow(dead_code)]
+    pub async fn certify_blobs_in_blobmanager(
+        &mut self,
+        manager_id: ObjectID,
+        manager_cap: ArgumentOrOwnedObject,
+        blobs_with_certificates: &[(BlobId, &ConfirmationCertificate)],
+    ) -> SuiClientResult<()> {
+        if blobs_with_certificates.is_empty() {
+            tracing::debug!("no blobs to certify in blob manager");
+            return Ok(());
+        }
+
+        let mut pt_builder = self.transaction_builder()?;
+
+        for (i, (blob_id, certificate)) in blobs_with_certificates.iter().enumerate() {
+            tracing::debug!(
+                blob_id = %blob_id,
+                count = format!("{}/{}", i + 1, blobs_with_certificates.len()),
+                "certifying blob in blob manager"
+            );
+
+            pt_builder
+                .certify_blob_in_blob_manager(manager_id, manager_cap, *blob_id, certificate)
+                .await?;
+        }
+
+        let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
+        let res = self
+            .sign_and_send_transaction(transaction, "certify_blobs_in_blobmanager")
+            .await?;
+
+        if !res.errors.is_empty() {
+            tracing::warn!(errors = ?res.errors, "failed to certify blobs in blob manager");
+            return Err(anyhow!("could not certify blobs: {:?}", res.errors).into());
+        }
+
+        tracing::debug!("successfully certified blobs in blob manager");
         Ok(())
     }
 
