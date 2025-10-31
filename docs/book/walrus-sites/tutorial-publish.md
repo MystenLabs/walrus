@@ -132,15 +132,16 @@ Site object ID: 0x4a1be0fb330215c532d74c70d34bc35f185cc7ce025e04b9ad42bc4ac8eda5
             or find third-party hosted testnet portals.
 ```
 
+Browsing to the provided URL should reflect the change. You've updated the site!
+
 Notice that all site resources are deleted (because they all belong to the same quilt), even those
 that haven't been modified. They then get re-uploaded together as a single quilt, where each
 resource corresponds to a quilt patch. This happens because the site-builder stores files on Walrus
 using quilts by default. This approach offers significant benefits: faster upload speeds and lower
 storage costs, especially when uploading many small files. The only disadvantage is that you cannot
 update a single file within a quilt—if even a tiny file changes, the entire quilt must be
-re-uploaded.
-
-Browsing to the provided URL should reflect the change. You've updated the site!
+re-uploaded. If you want to tweak with the updates mechanism, you should check out the `--strategy`
+flag, but this is something to cover in a following section.
 
 ```admonish note
 The wallet you are using must be the *owner* of the Walrus Site object to be able to update it.
