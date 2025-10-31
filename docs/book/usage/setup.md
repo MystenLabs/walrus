@@ -1,9 +1,8 @@
 # Advanced Setup
 
-This page provides advanced setup instructions, such as how to build and install
-Walrus from source, binaries, or using Cargo. For the faster and more accessible,
-recommended setup instructions, including download, client configuration, and address
-funding, see the Walrus [Getting Started](./setup.md) guide.
+This page covers advanced setup options for Walrus, including building from source,
+installing from binaries, or using Cargo. For standard setup instructions, see the
+Walrus [Getting Started](./setup.md) guide.
 
 Walrus is open source under an Apache 2 license. You can download and install it through
 [`suiup`](https://github.com/MystenLabs/suiup/commits/main/), or you can build and
