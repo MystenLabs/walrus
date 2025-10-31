@@ -1793,11 +1793,13 @@ impl WalrusPtbBuilder {
     }
 
     /// Registers a blob with BlobManager.
+    /// If storage_for_blob is None, BlobManager uses its own storage.
+    /// If storage_for_blob is provided but insufficient, it combines with manager's storage.
     pub async fn register_blob_in_blob_manager(
         &mut self,
         manager: ObjectID,
         cap: ArgumentOrOwnedObject,
-        storage_for_blob: ArgumentOrOwnedObject,
+        storage_for_blob: Option<ArgumentOrOwnedObject>,
         blob_metadata: BlobObjectMetadata,
         persistence: BlobPersistence,
     ) -> SuiClientResult<Argument> {
@@ -1807,7 +1809,23 @@ impl WalrusPtbBuilder {
         self.fill_wal_balance(price).await?;
 
         let cap_arg = self.argument_from_arg_or_obj(cap).await?;
-        let storage_arg = self.argument_from_arg_or_obj(storage_for_blob).await?;
+
+        // Create Option<Storage> for Move (represented as a vector)
+        let storage_option_arg = if let Some(storage) = storage_for_blob {
+            let storage_arg = self.argument_from_arg_or_obj(storage).await?;
+            self.mark_arg_as_consumed(&storage_arg);
+            // Create a vector with one element for Some(storage)
+            self.pt_builder.command(Command::MakeMoveVec(
+                None, // Type will be inferred
+                vec![storage_arg],
+            ))
+        } else {
+            // Create an empty vector for None
+            self.pt_builder.command(Command::MakeMoveVec(
+                None, // Type will be inferred
+                vec![],
+            ))
+        };
 
         let register_args = vec![
             self.pt_builder.obj(ObjectArg::SharedObject {
@@ -1817,7 +1835,7 @@ impl WalrusPtbBuilder {
             })?,
             cap_arg,
             self.system_arg(SharedObjectMutability::Mutable).await?,
-            storage_arg,
+            storage_option_arg,
             self.pt_builder.pure(blob_metadata.blob_id)?,
             self.pt_builder.pure(blob_metadata.root_hash.bytes())?,
             self.pt_builder.pure(blob_metadata.unencoded_size)?,
@@ -1831,7 +1849,6 @@ impl WalrusPtbBuilder {
             self.blobmanager_move_call(contracts::blobmanager::register, register_args)?;
 
         self.reduce_wal_balance(price)?;
-        self.mark_arg_as_consumed(&storage_arg);
         self.add_result_to_be_consumed(result_arg);
         Ok(result_arg)
     }

@@ -1944,12 +1944,12 @@ impl SuiContractClientInner {
             // For the last blob, use the remaining storage directly
             // For others, split off the exact amount needed
             let storage_for_blob = if i == expected_num_blobs - 1 {
-                main_storage_arg.into()
+                Some(main_storage_arg.into())
             } else {
                 let split_storage = pt_builder
                     .split_storage_by_size(main_storage_arg.into(), metadata.encoded_size)
                     .await?;
-                split_storage.into()
+                Some(split_storage.into())
             };
 
             pt_builder

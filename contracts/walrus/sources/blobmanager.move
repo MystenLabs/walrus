@@ -197,13 +197,14 @@ fun check_cap(self: &BlobManager, cap: &BlobManagerCap) {
 
 /// Registers a new blob with the system and returns it
 /// Requires a valid BlobManagerCap to prove write access
-/// storage_for_blob is required - use prepare_storage_for_blob helper if needed
+/// If storage_for_blob is None, uses manager's storage
+/// If storage_for_blob is provided but insufficient, combines with manager's storage
 /// The returned Blob can be transferred to the user or stored elsewhere
 public fun register(
     self: &mut BlobManager,
     cap: &BlobManagerCap,
     system: &mut System,
-    storage_for_blob: Storage,
+    storage_for_blob: Option<Storage>,
     blob_id: u256,
     root_hash: u256,
     size: u64,
@@ -215,9 +216,20 @@ public fun register(
     // Verify the capability
     check_cap(self, cap);
 
-    // Register blob with the system using the provided storage
+    // Calculate encoded size for storage
+    let n_shards = system::n_shards(system);
+    let encoded_size = encoding::encoded_blob_length(size, encoding_type, n_shards);
+
+    // Prepare storage using the helper function
+    let final_storage = match (&mut self.storage) {
+        BlobStorage::Unified { available_storage, total_capacity: _ } => {
+            prepare_storage_for_blob(available_storage, storage_for_blob, encoded_size, ctx)
+        },
+    };
+
+    // Register blob with the system using the prepared storage
     let blob = system.register_blob(
-        storage_for_blob,
+        final_storage,
         blob_id,
         root_hash,
         size,
