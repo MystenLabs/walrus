@@ -1,4 +1,4 @@
-# Publishing a Walrus Site
+# Deploying a Walrus Site
 
 Now that everything is installed and configured, you should be able to start publishing your first
 Walrus Site!
@@ -20,10 +20,10 @@ First, clone the repository of the examples:
 git clone https://github.com/MystenLabs/example-walrus-sites.git && cd example-walrus-sites
 ```
 
-## Publish the site
+## Deploying the site
 
 Since we have placed the `walrus` and `site-builder` binaries and configuration in their default
-locations, publishing the `./walrus-snake` site is as simple as calling the publishing command:
+locations, deploying the `./walrus-snake` site is as simple as calling again the deploy command:
 
 ```sh
 site-builder --context=testnet deploy ./walrus-snake --epochs 1
@@ -35,7 +35,7 @@ duration of an epoch is one day. On Mainnet, the duration of an epoch is two wee
 ```
 
 ```admonish warning title="Important: Testnet vs Mainnet Access"
-**After publishing, how you access your site depends on which network you used:**
+**After deploying, how you access your site depends on which network you used:**
 
 - **Mainnet sites**: Can be accessed through any mainnet portal.
 <https://wal.app> serves Walrus Sites on mainnet by resolving SuiNS names that point to them.
@@ -78,7 +78,7 @@ This output tells you that, for each file in the folder, a new Walrus quilt was 
 respective quilt ID. Further, it prints the object ID of the Walrus Site object on Sui (so you can
 have a look in the explorer and use it to set the SuiNS name) and, finally, the URL at which you can
 browse the site.
-The deploy command will also save this new Site Object ID to the ws-resources.json
+The deploy command will also save this new Site Object ID to the `ws-resources.json`.
 
 Note here that we are implicitly using the default `sites-config.yaml` as the config for the site
 builder that we set up previously on the [installation section](./tutorial-install.md). The
