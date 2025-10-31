@@ -7,7 +7,12 @@ module walrus::blobmanager;
 
 use sui::{coin::Coin, table::{Self, Table}};
 use wal::wal::WAL;
-use walrus::{blob::Blob, encoding, storage_resource::{Self, Storage}, system::{Self, System}};
+use walrus::{
+    blob::{Self, Blob},
+    encoding,
+    storage_resource::{Self, Storage},
+    system::{Self, System}
+};
 
 // === Constants ===
 
@@ -190,9 +195,10 @@ fun check_cap(self: &BlobManager, cap: &BlobManagerCap) {
 
 // === Core Operations ===
 
-/// Registers a new blob with the system and adds it to the manager's registered table
+/// Registers a new blob with the system and returns it
 /// Requires a valid BlobManagerCap to prove write access
 /// storage_for_blob is required - use prepare_storage_for_blob helper if needed
+/// The returned Blob can be transferred to the user or stored elsewhere
 public fun register(
     self: &mut BlobManager,
     cap: &BlobManagerCap,
@@ -205,7 +211,7 @@ public fun register(
     deletable: bool,
     payment: &mut Coin<WAL>,
     ctx: &mut TxContext,
-): ID {
+): Blob {
     // Verify the capability
     check_cap(self, cap);
 
@@ -221,13 +227,13 @@ public fun register(
         ctx,
     );
 
-    // Get the object ID before moving the blob
+    // Get the object ID and blob_id for tracking
     let object_id = object::id(&blob);
 
-    // Add to registered blob stash
+    // Add to tracking tables
     match (&mut self.blob_stash) {
         BlobStash::ObjectBased {
-            registered_blobs,
+            registered_blobs: _,
             certified_blobs: _,
             blob_count,
             total_size,
@@ -236,8 +242,7 @@ public fun register(
             // Check if blob already exists
             assert!(!table::contains(blob_id_to_object, blob_id), EBlobAlreadyExists);
 
-            // Add blob to registered tables
-            table::add(registered_blobs, object_id, blob);
+            // Track the blob ID to object ID mapping
             table::add(blob_id_to_object, blob_id, object_id);
 
             // Update counters
@@ -246,16 +251,17 @@ public fun register(
         },
     };
 
-    object_id
+    blob
 }
 
-/// Certifies a blob that has been registered and moves it to the certified table
+/// Certifies a blob and stores it in the certified table
 /// Requires a valid BlobManagerCap to prove write access
+/// The blob must have been previously registered (blob_id tracked in blob_id_to_object)
 public fun certify(
     self: &mut BlobManager,
     cap: &BlobManagerCap,
     system: &System,
-    blob_id: u256,
+    mut blob: Blob,
     signature: vector<u8>,
     signers_bitmap: vector<u8>,
     message: vector<u8>,
@@ -264,26 +270,27 @@ public fun certify(
     // Verify the capability
     check_cap(self, cap);
 
-    // Find the blob object ID and move it from registered to certified
+    let object_id = object::id(&blob);
+    let blob_id = blob::blob_id(&blob);
+
+    // Verify this blob was registered with this manager
     match (&mut self.blob_stash) {
         BlobStash::ObjectBased {
-            registered_blobs,
+            registered_blobs: _,
             certified_blobs,
             blob_count: _,
             total_size: _,
             blob_id_to_object,
         } => {
-            // Find the object ID
+            // Verify the blob was registered
             assert!(table::contains(blob_id_to_object, blob_id), EBlobNotFound);
-            let object_id = *table::borrow(blob_id_to_object, blob_id);
-
-            // Remove blob from registered table
-            let mut blob = table::remove(registered_blobs, object_id);
+            let tracked_object_id = *table::borrow(blob_id_to_object, blob_id);
+            assert!(tracked_object_id == object_id, EBlobNotFound);
 
             // Certify the blob through the system with signature data
             system::certify_blob(system, &mut blob, signature, signers_bitmap, message);
 
-            // Move blob to certified table
+            // Store blob in certified table
             table::add(certified_blobs, object_id, blob);
         },
     };

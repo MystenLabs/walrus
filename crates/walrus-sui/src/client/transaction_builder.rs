@@ -32,7 +32,6 @@ use sui_types::{
 };
 use tracing::instrument;
 use walrus_core::{
-    BlobId,
     Epoch,
     EpochCount,
     NetworkPublicKey,
@@ -1838,14 +1837,16 @@ impl WalrusPtbBuilder {
     }
 
     /// Certifies a blob in BlobManager.
+    /// The blob argument should be the Blob object returned from register_blob_in_blob_manager.
     pub async fn certify_blob_in_blob_manager(
         &mut self,
         manager: ObjectID,
         cap: ArgumentOrOwnedObject,
-        blob_id: BlobId,
+        blob: ArgumentOrOwnedObject,
         certificate: &ConfirmationCertificate,
     ) -> SuiClientResult<()> {
         let cap_arg = self.argument_from_arg_or_obj(cap).await?;
+        let blob_arg = self.argument_from_arg_or_obj(blob).await?;
         let signers = self.signers_to_bitmap(&certificate.signers).await?;
 
         let certify_args = vec![
@@ -1856,13 +1857,14 @@ impl WalrusPtbBuilder {
             })?,
             cap_arg,
             self.system_arg(SharedObjectMutability::Immutable).await?,
-            self.pt_builder.pure(blob_id)?,
+            blob_arg,
             self.pt_builder.pure(certificate.signature.as_bytes())?,
             self.pt_builder.pure(&signers)?,
             self.pt_builder.pure(&certificate.serialized_message)?,
         ];
 
         self.blobmanager_move_call(contracts::blobmanager::certify, certify_args)?;
+        self.mark_arg_as_consumed(&blob_arg);
         Ok(())
     }
 

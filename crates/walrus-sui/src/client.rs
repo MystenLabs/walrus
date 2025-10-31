@@ -2064,7 +2064,7 @@ impl SuiContractClientInner {
         &mut self,
         manager_id: ObjectID,
         manager_cap: ArgumentOrOwnedObject,
-        blobs_with_certificates: &[(BlobId, &ConfirmationCertificate)],
+        blobs_with_certificates: &[(ArgumentOrOwnedObject, &ConfirmationCertificate)],
     ) -> SuiClientResult<()> {
         if blobs_with_certificates.is_empty() {
             tracing::debug!("no blobs to certify in blob manager");
@@ -2073,15 +2073,14 @@ impl SuiContractClientInner {
 
         let mut pt_builder = self.transaction_builder()?;
 
-        for (i, (blob_id, certificate)) in blobs_with_certificates.iter().enumerate() {
+        for (i, (blob, certificate)) in blobs_with_certificates.iter().enumerate() {
             tracing::debug!(
-                blob_id = %blob_id,
                 count = format!("{}/{}", i + 1, blobs_with_certificates.len()),
                 "certifying blob in blob manager"
             );
 
             pt_builder
-                .certify_blob_in_blob_manager(manager_id, manager_cap, *blob_id, certificate)
+                .certify_blob_in_blob_manager(manager_id, manager_cap, *blob, certificate)
                 .await?;
         }
 
