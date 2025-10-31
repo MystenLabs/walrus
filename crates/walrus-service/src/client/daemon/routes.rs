@@ -11,7 +11,7 @@ use std::{
 use anyhow::anyhow;
 use axum::{
     Json,
-    body::Bytes,
+    body::{Body, Bytes},
     extract::{Path, Query, State},
     http::{HeaderMap, HeaderName, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
@@ -21,6 +21,7 @@ use axum_extra::{
     extract::Multipart,
     headers::{Authorization, authorization::Bearer},
 };
+use futures::stream::{self, StreamExt};
 use jsonwebtoken::{DecodingKey, Validation};
 use reqwest::header::{CACHE_CONTROL, CONTENT_TYPE, ETAG, X_CONTENT_TYPE_OPTIONS};
 use serde::{Deserialize, Serialize};
@@ -56,9 +57,12 @@ use walrus_sui::{
 
 use super::{AggregatorResponseHeaderConfig, WalrusReadClient, WalrusWriteClient};
 use crate::{
-    client::daemon::{
-        PostStoreAction,
-        auth::{Claim, PublisherAuthError},
+    client::{
+        daemon::{
+            PostStoreAction,
+            auth::{Claim, PublisherAuthError},
+        },
+        utils::consistency_check_type_from_flags,
     },
     common::api::{Binary, BlobIdString, QuiltPatchIdString, RestApiError},
 };
@@ -69,6 +73,8 @@ pub const STATUS_ENDPOINT: &str = "/status";
 pub const API_DOCS: &str = "/v1/api";
 /// The path to get the blob with the given blob ID.
 pub const BLOB_GET_ENDPOINT: &str = "/v1/blobs/{blob_id}";
+/// The path to get and concatenate multiple blobs by their IDs or blob IDs.
+pub const BLOB_CONCAT_ENDPOINT: &str = "/v1alpha/blobs/concat";
 /// The path to get the blob and its attribute with the given object ID.
 pub const BLOB_OBJECT_GET_ENDPOINT: &str = "/v1/blobs/by-object-id/{blob_object_id}";
 /// The path to store a blob.
@@ -111,12 +117,80 @@ pub struct ReadOptions {
 
 impl ReadOptions {
     pub fn consistency_check(&self) -> Result<ConsistencyCheckType, InvalidConsistencyCheck> {
-        crate::client::utils::consistency_check_type_from_flags(
+        consistency_check_type_from_flags(
             self.strict_consistency_check,
             self.skip_consistency_check,
         )
         .map_err(|_| InvalidConsistencyCheck)
     }
+}
+
+/// The query parameters for concatenating multiple blobs.
+#[derive(Debug, Deserialize, Serialize, IntoParams, utoipa::ToSchema, PartialEq, Eq)]
+#[into_params(parameter_in = Query, style = Form)]
+#[serde(deny_unknown_fields)]
+pub struct ConcatQueryParams {
+    /// Comma-separated list of blob IDs or object IDs to concatenate.
+    pub ids: String,
+    /// Whether to perform a strict consistency check.
+    #[serde(default)]
+    pub strict_consistency_check: bool,
+    /// Whether to skip consistency checks entirely.
+    #[serde(default)]
+    pub skip_consistency_check: bool,
+}
+
+impl ConcatQueryParams {
+    pub fn consistency_check(&self) -> Result<ConsistencyCheckType, InvalidConsistencyCheck> {
+        consistency_check_type_from_flags(
+            self.strict_consistency_check,
+            self.skip_consistency_check,
+        )
+        .map_err(|_| InvalidConsistencyCheck)
+    }
+}
+
+/// The request body for concatenating multiple blobs via POST.
+#[derive(Debug, Deserialize, Serialize, utoipa::ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ConcatRequestBody {
+    /// List of blob IDs or object IDs to concatenate.
+    pub ids: Vec<String>,
+    /// Whether to perform a strict consistency check.
+    #[serde(default)]
+    pub strict_consistency_check: Option<bool>,
+    /// Whether to skip consistency checks entirely.
+    #[serde(default)]
+    pub skip_consistency_check: Option<bool>,
+}
+
+/// Helper function to parse an ID string and resolve it to a BlobId.
+/// Tries to parse as BlobId first, then as ObjectID if that fails.
+/// Returns the BlobId and optionally the BlobAttribute if the ID was an ObjectID.
+async fn parse_and_resolve_id<T: WalrusReadClient>(
+    id_str: &str,
+    client: &T,
+) -> Result<(BlobId, Option<BlobAttribute>), ConcatBlobError> {
+    // Try parsing as BlobId first
+    if let Ok(blob_id) = BlobId::from_str(id_str) {
+        return Ok((blob_id, None));
+    }
+
+    // Try parsing as ObjectID
+    if let Ok(object_id) = ObjectID::from_str(id_str) {
+        let blob_info = client
+            .get_blob_by_object_id(&object_id)
+            .await
+            .map_err(|e| ConcatBlobError::ObjectIdResolutionFailed {
+                object_id: object_id.to_string(),
+                message: e.to_string(),
+            })?;
+        return Ok((blob_info.blob.blob_id, blob_info.attribute));
+    }
+
+    Err(ConcatBlobError::InvalidId {
+        id: id_str.to_string(),
+    })
 }
 
 /// Retrieve a Walrus blob.
@@ -350,6 +424,225 @@ impl From<ClientError> for GetBlobError {
     status = ApiStatusCode::InvalidArgument
 )]
 pub(crate) struct InvalidConsistencyCheck;
+
+/// Errors that can occur when concatenating blobs.
+#[derive(Debug, thiserror::Error, RestApiError)]
+#[rest_api_error(domain = ERROR_DOMAIN)]
+pub(crate) enum ConcatBlobError {
+    /// The provided ID string is neither a valid blob ID nor a valid object ID.
+    #[error("invalid ID format: {id}")]
+    #[rest_api_error(reason = "INVALID_ID_FORMAT", status = ApiStatusCode::InvalidArgument)]
+    InvalidId { id: String },
+
+    /// Failed to resolve an object ID to a blob ID.
+    #[error("failed to resolve object ID {object_id}: {message}")]
+    #[rest_api_error(reason = "OBJECT_ID_RESOLUTION_FAILED", status = ApiStatusCode::NotFound)]
+    ObjectIdResolutionFailed { object_id: String, message: String },
+
+    /// One of the requested blobs was not found.
+    #[error("blob not found: {blob_id}")]
+    #[rest_api_error(reason = "BLOB_NOT_FOUND", status = ApiStatusCode::NotFound)]
+    BlobNotFound { blob_id: String },
+
+    /// One of the blobs is blocked.
+    #[error("blob is blocked: {blob_id}")]
+    #[rest_api_error(reason = "FORBIDDEN_BLOB", status = ApiStatusCode::UnavailableForLegalReasons)]
+    BlobBlocked { blob_id: String },
+
+    /// One of the blobs exceeds the maximum allowed size.
+    #[error("blob exceeds maximum size: {blob_id} (size: {size})")]
+    #[rest_api_error(reason = "BLOB_TOO_LARGE", status = ApiStatusCode::SizeExceeded)]
+    BlobTooLarge { blob_id: String, size: u64 },
+
+    /// Failed to read a blob.
+    #[error("failed to read blob {blob_id}: {message}")]
+    #[rest_api_error(reason = "BLOB_READ_FAILED", status = ApiStatusCode::Internal)]
+    BlobReadFailed { blob_id: String, message: String },
+}
+
+/// Shared implementation for concatenating and streaming multiple blobs.
+///
+/// Takes a list of ID strings (blob IDs or object IDs), resolves them to blob IDs,
+/// and returns a streaming response with the concatenated blob data.
+async fn concat_blobs_impl<T: WalrusReadClient + Send + Sync + 'static>(
+    client: Arc<T>,
+    id_strings: Vec<String>,
+    consistency_check: ConsistencyCheckType,
+    request_headers: HeaderMap,
+    response_header_config: Arc<AggregatorResponseHeaderConfig>,
+) -> Response {
+    // Validate input
+    if id_strings.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            "at least one blob ID or object ID must be provided",
+        )
+            .into_response();
+    }
+
+    // Resolve all IDs to blob IDs upfront (fail fast)
+    // Track the first blob's attribute for header population
+    let mut blob_ids = Vec::new();
+    let mut first_attribute: Option<BlobAttribute> = None;
+    for (index, id_str) in id_strings.iter().enumerate() {
+        match parse_and_resolve_id(id_str.as_str(), client.as_ref()).await {
+            Ok((blob_id, attribute)) => {
+                blob_ids.push(blob_id);
+                // Only capture the first blob's attribute
+                if index == 0 {
+                    first_attribute = attribute;
+                }
+            }
+            Err(error) => return error.into_response(),
+        }
+    }
+
+    // Create streaming response
+    let client_clone = client.clone();
+    let stream = stream::iter(blob_ids).then(move |blob_id| {
+        let client = client_clone.clone();
+        async move {
+            match client.read_blob(&blob_id, consistency_check).await {
+                Ok(blob_data) => Ok(Bytes::from(blob_data)),
+                Err(error) => {
+                    // Map ClientError to appropriate ConcatBlobError
+                    let concat_error = match error.kind() {
+                        ClientErrorKind::BlobIdDoesNotExist => ConcatBlobError::BlobNotFound {
+                            blob_id: blob_id.to_string(),
+                        },
+                        ClientErrorKind::BlobIdBlocked(_) => ConcatBlobError::BlobBlocked {
+                            blob_id: blob_id.to_string(),
+                        },
+                        ClientErrorKind::BlobTooLarge(size) => ConcatBlobError::BlobTooLarge {
+                            blob_id: blob_id.to_string(),
+                            size: *size,
+                        },
+                        _ => ConcatBlobError::BlobReadFailed {
+                            blob_id: blob_id.to_string(),
+                            message: error.to_string(),
+                        },
+                    };
+                    Err(concat_error)
+                }
+            }
+        }
+    });
+
+    // Convert stream to body
+    let body = Body::from_stream(stream);
+
+    // Build response with appropriate headers
+    let mut response = Response::builder()
+        .status(StatusCode::OK)
+        .header(CONTENT_TYPE, "application/octet-stream")
+        .header(CACHE_CONTROL, "max-age=86400, stale-while-revalidate=3600")
+        .header(X_CONTENT_TYPE_OPTIONS, "nosniff")
+        .body(body)
+        .expect("failed to build concatenated blob response");
+
+    // Populate response headers with priority:
+    // 1. Request header override (if Content-Type in request)
+    // 2. First blob's attributes (if available)
+    // 3. Default (already set above)
+    if let Some(content_type) = request_headers.get(CONTENT_TYPE) {
+        response
+            .headers_mut()
+            .insert(CONTENT_TYPE, content_type.clone());
+    } else if let Some(attribute) = first_attribute {
+        populate_response_headers_from_attributes(
+            response.headers_mut(),
+            &attribute,
+            Some(&response_header_config.allowed_headers),
+        );
+    }
+
+    response
+}
+
+/// Concatenate and stream multiple blobs via GET.
+///
+/// Retrieves multiple blobs specified by comma-separated blob IDs or object IDs in the query
+/// parameter, and streams them concatenated in the order specified. Each blob is loaded,
+/// streamed, and then freed from memory before the next blob is processed.
+#[tracing::instrument(level = Level::ERROR, skip_all)]
+#[utoipa::path(
+    get,
+    path = BLOB_CONCAT_ENDPOINT,
+    params(ConcatQueryParams),
+    responses(
+        (status = 200, description = "Blobs concatenated and streamed successfully", body = [u8]),
+        ConcatBlobError,
+        InvalidConsistencyCheck,
+    ),
+)]
+pub(super) async fn get_blobs_concat<T: WalrusReadClient + Send + Sync + 'static>(
+    State((client, response_header_config)): State<(Arc<T>, Arc<AggregatorResponseHeaderConfig>)>,
+    request_headers: HeaderMap,
+    Query(params): Query<ConcatQueryParams>,
+) -> Response {
+    // Parse consistency check options
+    let consistency_check = match params.consistency_check() {
+        Ok(check) => check,
+        Err(error) => return error.into_response(),
+    };
+
+    // Parse comma-separated IDs
+    let id_strings: Vec<String> = params
+        .ids
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+
+    concat_blobs_impl(
+        client,
+        id_strings,
+        consistency_check,
+        request_headers,
+        response_header_config,
+    )
+    .await
+}
+
+/// Concatenate and stream multiple blobs via POST.
+///
+/// Retrieves multiple blobs specified in a JSON request body containing an array of blob IDs
+/// or object IDs, and streams them concatenated in the order specified. Each blob is loaded,
+/// streamed, and then freed from memory before the next blob is processed.
+#[tracing::instrument(level = Level::ERROR, skip_all)]
+#[utoipa::path(
+    post,
+    path = BLOB_CONCAT_ENDPOINT,
+    request_body = ConcatRequestBody,
+    responses(
+        (status = 200, description = "Blobs concatenated and streamed successfully", body = [u8]),
+        ConcatBlobError,
+        InvalidConsistencyCheck,
+    ),
+)]
+pub(super) async fn post_blobs_concat<T: WalrusReadClient + Send + Sync + 'static>(
+    State((client, response_header_config)): State<(Arc<T>, Arc<AggregatorResponseHeaderConfig>)>,
+    request_headers: HeaderMap,
+    Json(body): Json<ConcatRequestBody>,
+) -> Response {
+    // Parse consistency check options
+    let consistency_check = match consistency_check_type_from_flags(
+        body.strict_consistency_check.unwrap_or(false),
+        body.skip_consistency_check.unwrap_or(false),
+    ) {
+        Ok(check) => check,
+        Err(_) => return InvalidConsistencyCheck.into_response(),
+    };
+
+    concat_blobs_impl(
+        client,
+        body.ids,
+        consistency_check,
+        request_headers,
+        response_header_config,
+    )
+    .await
+}
 
 /// Store a blob on Walrus.
 ///
