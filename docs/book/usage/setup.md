@@ -30,7 +30,7 @@ Because of DoS protection, it might not be possible to download the binaries wit
 `curl` or `wget`.
 ```
 
-### Install via script {#nix-install}
+## Install via script {#nix-install}
 
 To download and install `walrus` to your `"$HOME"/.local/bin` directory, follow the
 instructions in the [Getting Started](./setup.md) guide.
