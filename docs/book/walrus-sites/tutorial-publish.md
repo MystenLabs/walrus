@@ -26,7 +26,7 @@ Since we have placed the `walrus` and `site-builder` binaries and configuration 
 locations, publishing the `./walrus-snake` site is as simple as calling the publishing command:
 
 ```sh
-site-builder deploy ./walrus-snake --epochs 1
+site-builder --context=testnet deploy ./walrus-snake --epochs 1
 ```
 
 ```admonish tip
@@ -48,21 +48,25 @@ The end of the output should look like the following:
 ```txt
 Execution completed
 Resource operations performed:
-  - created resource /.DS_Store with blob ID PwNzE9_a9anYb8AZysafQZGqd4h0scsTGhzF2GPsWmQ
-  - created resource /Oi-Regular.ttf with blob ID KUTTV_95_c68oQhaRP97tDPOYu0vqCWiGL7mzOq1faU
-  - created resource /file.svg with blob ID oUpm044qBN1rkyIJYvMB4dUj6bRe3QEvJAN-cvlIFmk
-  - created resource /index.html with blob ID AR03hvxSlyfYl-7MhXct4y3rnIIGPHdnjiIF03BK_XY
-  - created resource /walrus.svg with blob ID xK8K1Q5khrl3eBT4jEiB-L_gyShEIOVWti8DcAoEjtw
-The site routes were modified
+  - created resource /Oi-Regular.ttf with quilt patch ID Jqz2KSMu18pygjkC-WVEQqtUZRo18-cuf_566VZSxVoBHgAjAg
+  - created resource /file.svg with quilt patch ID Jqz2KSMu18pygjkC-WVEQqtUZRo18-cuf_566VZSxVoBAQAMAA
+  - created resource /index.html with quilt patch ID Jqz2KSMu18pygjkC-WVEQqtUZRo18-cuf_566VZSxVoBDAAZAA
+  - created resource /walrus.svg with quilt patch ID Jqz2KSMu18pygjkC-WVEQqtUZRo18-cuf_566VZSxVoBGQAeAA
+The site routes were modified.
+Metadata updated.
+The site name has been updated.
 
-Created new site: test site
-New site object ID: 0xe674c144119a37a0ed9cef26a962c3fdfbdbfd86a3b3db562ee81d5542a4eccf
-To browse the site, you have the following options:
-        1. Run a local portal, and browse the site through it: e.g. http://5qs1ypn4wn90d6mv7d7dkwvvl49hdrlpqulr11ngpykoifycwf.localhost:3000
-           (more info: https://docs.wal.app/walrus-sites/portal.html#running-the-portal-locally)
-        2. Use a third-party portal (e.g. wal.app), which will require a SuiNS name.
-           First, buy a SuiNS name at suins.io (e.g. example-domain), then point it to the site object ID.
-           Finally, browse it with: https://example-domain.wal.app
+Created new site!
+New site object ID: 0x617221edd060dafb4070b73160ebf535e1516bf7f246890ed35190eba786d7ac
+⚠ wal.app only supports sites deployed on mainnet.
+     To browse your testnet site, you need to self-host a portal:
+     1. For local development: http://2ffmxm7jmglccr79htmpdbaeqezp2krgftue5pfq9f83tdqjsc.localhost:3000
+     2. For public sharing: http://2ffmxm7jmglccr79htmpdbaeqezp2krgftue5pfq9f83tdqjsc.yourdomain.com:3000
+
+     📖 Setup instructions: https://docs.wal.app/walrus-sites/portal.html#running-the-portal-locally
+
+     💡 Tip: You may also bring your own domain (https://docs.wal.app/walrus-sites/bring-your-own-domain.html)
+            or find third-party hosted testnet portals.
 ```
 
 ```admonish note
@@ -70,8 +74,8 @@ Keep in mind that option 2 is only available on `mainnet`.
 For testnet sites, use option 1 - see the [portal setup guide](./portal.md) for instructions.
 ```
 
-This output tells you that, for each file in the folder, a new Walrus blob was created, and the
-respective blob ID. Further, it prints the object ID of the Walrus Site object on Sui (so you can
+This output tells you that, for each file in the folder, a new Walrus quilt was created, and the
+respective quilt ID. Further, it prints the object ID of the Walrus Site object on Sui (so you can
 have a look in the explorer and use it to set the SuiNS name) and, finally, the URL at which you can
 browse the site.
 The deploy command will also save this new Site Object ID to the ws-resources.json
@@ -96,7 +100,7 @@ use the Site Object ID stored in ws-resources.json (from the initial deployment)
 to update. You do not need to specify the object ID manually:
 
 ```sh
-site-builder deploy --epochs 1 ./walrus-snake
+site-builder --context=testnet deploy --epochs 1 ./walrus-snake
 ```
 
 The output this time should be:
@@ -104,21 +108,37 @@ The output this time should be:
 ```txt
 Execution completed
 Resource operations performed:
-  - deleted resource /index.html with blob ID LVLk9VSnBrEgQ2HJHAgU3p8IarKypQpfn38aSeUZzzE
-  - created resource /index.html with blob ID pcZaosgEFtmP2d2IV3QdVhnUjajvQzY2ev8d9U_D5VY
-The site routes were left unchanged
+  - deleted resource /Oi-Regular.ttf with quilt patch ID Jqz2KSMu18pygjkC-WVEQqtUZRo18-cuf_566VZSxVoBHgAjAg
+  - deleted resource /file.svg with quilt patch ID Jqz2KSMu18pygjkC-WVEQqtUZRo18-cuf_566VZSxVoBAQAMAA
+  - deleted resource /index.html with quilt patch ID Jqz2KSMu18pygjkC-WVEQqtUZRo18-cuf_566VZSxVoBDAAZAA
+  - deleted resource /walrus.svg with quilt patch ID Jqz2KSMu18pygjkC-WVEQqtUZRo18-cuf_566VZSxVoBGQAeAA
+  - created resource /Oi-Regular.ttf with quilt patch ID BjJAfHLJKMDZ0tFZaLKVw0R74re5RG65-xNhaZ5uwowBHgAjAg
+  - created resource /file.svg with quilt patch ID BjJAfHLJKMDZ0tFZaLKVw0R74re5RG65-xNhaZ5uwowBAQAMAA
+  - created resource /index.html with quilt patch ID BjJAfHLJKMDZ0tFZaLKVw0R74re5RG65-xNhaZ5uwowBDAAZAA
+  - created resource /walrus.svg with quilt patch ID BjJAfHLJKMDZ0tFZaLKVw0R74re5RG65-xNhaZ5uwowBGQAeAA
+The site routes were left unchanged.
+No Metadata updated.
+Site name has not been updated.
 
-Site object ID: 0xe674c144119a37a0ed9cef26a962c3fdfbdbfd86a3b3db562ee81d5542a4eccf
-To browse the site, you have the following options:
-        1. Run a local portal, and browse the site through it: e.g. http://2ql9wtro4xf2x13pm9jjeyhhfj28okawz5hy453hkyfeholy6f.localhost:3000
-           (more info: https://docs.wal.app/walrus-sites/portal.html#running-the-portal-locally)
-        2. Use a third-party portal (e.g. wal.app), which will require a SuiNS name.
-           First, buy a SuiNS name at suins.io (e.g. example-domain), then point it to the site object ID.
-           Finally, browse it with: https://example-domain.wal.app
+Site object ID: 0x4a1be0fb330215c532d74c70d34bc35f185cc7ce025e04b9ad42bc4ac8eda5ce
+⚠ wal.app only supports sites deployed on mainnet.
+     To browse your testnet site, you need to self-host a portal:
+     1. For local development: http://1uhtkoi4t8swxbn2y0mec0l94368nhq2wa1xlh1kc1e43fbzym.localhost:3000
+     2. For public sharing: http://1uhtkoi4t8swxbn2y0mec0l94368nhq2wa1xlh1kc1e43fbzym.yourdomain.com:3000
+
+     📖 Setup instructions: https://docs.wal.app/walrus-sites/portal.html#running-the-portal-locally
+
+     💡 Tip: You may also bring your own domain (https://docs.wal.app/walrus-sites/bring-your-own-domain.html)
+            or find third-party hosted testnet portals.
 ```
 
-Compared to the when the site was first published, we can see that now the only actions performed
-were to delete the old `index.html`, and update it with the newer one.
+Notice that all site resources are deleted (because they all belong to the same quilt), even those
+that haven't been modified. They then get re-uploaded together as a single quilt, where each
+resource corresponds to a quilt patch. This happens because the site-builder stores files on Walrus
+using quilts by default. This approach offers significant benefits: faster upload speeds and lower
+storage costs, especially when uploading many small files. The only disadvantage is that you cannot
+update a single file within a quilt—if even a tiny file changes, the entire quilt must be
+re-uploaded.
 
 Browsing to the provided URL should reflect the change. You've updated the site!
 
