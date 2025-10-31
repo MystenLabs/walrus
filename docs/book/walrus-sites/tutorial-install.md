@@ -60,6 +60,21 @@ curl https://storage.googleapis.com/mysten-walrus-binaries/site-builder-testnet-
 chmod +x site-builder
 ```
 
+As an alternative, you can also use the `suiup` tool which enables you to install different
+versions of the site-builder seamlessly.
+
+```sh
+curl -sSfL \
+  https://raw.githubusercontent.com/Mystenlabs/suiup/main/install.sh \
+  | sh
+```
+
+Then, install the `site-builder`:
+
+```sh
+suiup install site-builder@mainnet
+```
+
 To be able to run it simply as `site-builder`, move the binary to any directory included in your
 `$PATH` environment variable. Standard locations are `/usr/local/bin/`, `$HOME/bin/`, or
 `$HOME/.local/bin/`.
