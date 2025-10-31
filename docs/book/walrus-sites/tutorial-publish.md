@@ -95,9 +95,9 @@ Let's say now you want to update the content of the site, for example by changin
 
 First, make this edit on in the `./walrus-snake/index.html` file.
 
-Then, you can update the existing site by running the `deploy` command again. The deploy command will
-use the Site Object ID stored in ws-resources.json (from the initial deployment) to identify which site
-to update. You do not need to specify the object ID manually:
+Then, you can update the existing site by running the `deploy` command again. The `deploy` command
+will use the Site Object ID stored in ws-resources.json (from the initial deployment) to identify
+which site to update. You do not need to specify the object ID manually:
 
 ```sh
 site-builder --context=testnet deploy --epochs 1 ./walrus-snake
