@@ -32,6 +32,7 @@ use sui_types::{
 };
 use tracing::instrument;
 use walrus_core::{
+    BlobId,
     Epoch,
     EpochCount,
     NetworkPublicKey,
@@ -1796,13 +1797,14 @@ impl WalrusPtbBuilder {
     /// Registers a blob with BlobManager.
     /// If storage_for_blob is None, BlobManager uses its own storage.
     /// Uses the BlobManager's available storage.
+    /// Returns nothing (void) - no return value to capture.
     pub async fn register_blob_in_blob_manager(
         &mut self,
         manager: ObjectID,
         cap: ArgumentOrOwnedObject,
         blob_metadata: BlobObjectMetadata,
         persistence: BlobPersistence,
-    ) -> SuiClientResult<Argument> {
+    ) -> SuiClientResult<()> {
         let price = self
             .write_price_for_encoded_length(blob_metadata.encoded_size, false)
             .await?;
@@ -1833,25 +1835,25 @@ impl WalrusPtbBuilder {
             self.wal_coin_arg()?,
         ];
 
-        let result_arg =
-            self.blobmanager_move_call(contracts::blobmanager::register_blob, register_args)?;
+        self.blobmanager_move_call(contracts::blobmanager::register_blob, register_args)?;
 
         self.reduce_wal_balance(price)?;
-        // Don't add result_arg to consumed list - it's an ID value, not an object
-        Ok(result_arg)
+        Ok(())
     }
 
     /// Certifies a blob in BlobManager.
-    /// The blob_object_id is the ID of the blob stored in BlobManager's table.
+    /// Uses blob_id and deletable flag to identify the blob.
     pub async fn certify_blob_in_blob_manager(
         &mut self,
         manager: ObjectID,
         cap: ArgumentOrOwnedObject,
-        blob_object_id: ObjectID,
+        blob_id: BlobId,
+        deletable: bool,
         certificate: &ConfirmationCertificate,
     ) -> SuiClientResult<()> {
         let cap_arg = self.argument_from_arg_or_obj(cap).await?;
-        let blob_id_arg = self.pt_builder.pure(blob_object_id)?;
+        let blob_id_arg = self.pt_builder.pure(blob_id)?;
+        let deletable_arg = self.pt_builder.pure(deletable)?;
         let signers = self.signers_to_bitmap(&certificate.signers).await?;
 
         // Get the initial shared version for the BlobManager
@@ -1869,6 +1871,7 @@ impl WalrusPtbBuilder {
             cap_arg,
             self.system_arg(SharedObjectMutability::Immutable).await?,
             blob_id_arg,
+            deletable_arg,
             self.pt_builder.pure(certificate.signature.as_bytes())?,
             self.pt_builder.pure(&signers)?,
             self.pt_builder.pure(&certificate.serialized_message)?,

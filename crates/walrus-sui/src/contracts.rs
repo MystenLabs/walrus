@@ -462,6 +462,13 @@ pub mod package {
     contract_ident!(struct package::UpgradeCap);
 }
 
+/// Module for tags corresponding to the Move module `blob_stash`.
+pub mod blob_stash {
+    use super::*;
+
+    contract_ident!(struct blob_stash::ManagedBlobInfo);
+}
+
 /// Module for tags corresponding to the Move module `blobmanager`.
 pub mod blobmanager {
     use super::*;
@@ -480,4 +487,5 @@ pub mod blobmanager {
     contract_ident!(fn blobmanager::total_blob_size);
     contract_ident!(fn blobmanager::has_blob);
     contract_ident!(fn blobmanager::get_blob_object_ids);
+    contract_ident!(fn blobmanager::get_blob_info);
 }

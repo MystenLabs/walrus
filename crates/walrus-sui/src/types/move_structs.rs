@@ -1133,3 +1133,35 @@ pub struct BlobManagerCap {
 impl AssociatedContractStruct for BlobManagerCap {
     const CONTRACT_STRUCT: StructTag<'static> = contracts::blobmanager::BlobManagerCap;
 }
+
+/// Information about a blob managed by BlobManager.
+/// Returned by `register_blob` to provide full blob information.
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+pub struct ManagedBlobInfo {
+    /// The blob's unique identifier
+    #[serde(serialize_with = "serialize_blob_id")]
+    pub blob_id: BlobId,
+    /// The object ID of the blob
+    #[cfg_attr(feature = "utoipa", schema(schema_with = object_id_schema))]
+    pub object_id: ObjectID,
+    /// Epoch when the blob was registered
+    pub registered_epoch: Epoch,
+    /// Unencoded size of the blob
+    pub size: u64,
+    /// Encoding type used for the blob
+    pub encoding_type: EncodingType,
+    /// Whether the blob is certified (Some(epoch) if certified, None otherwise)
+    pub certified_epoch: Option<Epoch>,
+    /// Storage start epoch
+    pub storage_start_epoch: Epoch,
+    /// Storage end epoch
+    pub storage_end_epoch: Epoch,
+    /// Whether the blob is deletable
+    pub deletable: bool,
+}
+
+impl AssociatedContractStruct for ManagedBlobInfo {
+    const CONTRACT_STRUCT: StructTag<'static> = contracts::blob_stash::ManagedBlobInfo;
+}

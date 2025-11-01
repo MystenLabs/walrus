@@ -627,7 +627,7 @@ impl SuiContractClient {
 
     /// Reserves space and registers blobs in a BlobManager (public wrapper).
     ///
-    /// Returns the ObjectIDs of the registered blobs (blobs stay in BlobManager's table).
+    /// Registers blobs in a BlobManager (returns void).
     pub async fn reserve_and_register_blobs_in_blobmanager(
         &self,
         manager_id: ObjectID,
@@ -635,7 +635,7 @@ impl SuiContractClient {
         epochs_ahead: EpochCount,
         blob_metadata_list: Vec<BlobObjectMetadata>,
         persistence: BlobPersistence,
-    ) -> SuiClientResult<Vec<ObjectID>> {
+    ) -> SuiClientResult<()> {
         self.retry_on_wrong_version(|| async {
             self.inner
                 .lock()
@@ -669,11 +669,12 @@ impl SuiContractClient {
     }
 
     /// Certifies blobs that have been registered in a BlobManager.
+    /// Uses blob_id and deletable flag to identify each blob.
     pub async fn certify_blobs_in_blobmanager(
         &self,
         manager_id: ObjectID,
         manager_cap: ArgumentOrOwnedObject,
-        blobs_with_certificates: &[(ObjectID, &ConfirmationCertificate)],
+        blobs_with_certificates: &[(BlobId, bool, &ConfirmationCertificate)],
     ) -> SuiClientResult<()> {
         self.retry_on_wrong_version(|| async {
             self.inner
@@ -1926,10 +1927,7 @@ impl SuiContractClientInner {
     /// Reserves space and registers blobs in a BlobManager.
     ///
     /// This function registers each blob with the BlobManager, which manages its own storage.
-    /// Returns the ObjectIDs of the registered blobs (blobs stay in BlobManager's table).
-    ///
-    /// Note: The Move contract returns ObjectIDs as values. We extract these ObjectIDs from
-    /// transaction effects. Blobs are stored in the BlobManager's table (owned by the table).
+    /// Returns nothing (void) - blobs are registered in place and stay in BlobManager's table.
     pub async fn reserve_and_register_blobs_in_blobmanager(
         &mut self,
         manager_id: ObjectID,
@@ -1937,10 +1935,10 @@ impl SuiContractClientInner {
         _epochs_ahead: EpochCount,
         blob_metadata_list: Vec<BlobObjectMetadata>,
         persistence: BlobPersistence,
-    ) -> SuiClientResult<Vec<ObjectID>> {
+    ) -> SuiClientResult<()> {
         if blob_metadata_list.is_empty() {
             tracing::debug!("no blobs to register in blob manager");
-            return Ok(vec![]);
+            return Ok(());
         }
 
         let expected_num_blobs = blob_metadata_list.len();
@@ -1952,10 +1950,6 @@ impl SuiContractClientInner {
 
         let mut pt_builder = self.transaction_builder()?;
 
-        // Collect result arguments from each register_blob call
-        // These will contain the ObjectID return values
-        let mut result_args = Vec::new();
-
         // Register each blob in the BlobManager (BlobManager manages its own storage)
         for (i, metadata) in blob_metadata_list.iter().enumerate() {
             tracing::debug!(
@@ -1964,7 +1958,7 @@ impl SuiContractClientInner {
                 "registering blob in blob manager"
             );
 
-            let result_arg = pt_builder
+            pt_builder
                 .register_blob_in_blob_manager(
                     manager_id,
                     manager_cap,
@@ -1972,7 +1966,6 @@ impl SuiContractClientInner {
                     persistence,
                 )
                 .await?;
-            result_args.push(result_arg);
         }
 
         let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
@@ -1986,28 +1979,391 @@ impl SuiContractClientInner {
         }
 
         tracing::debug!("successfully registered blobs in blob manager");
-
-        // Extract blob object IDs from the return values of the Move calls
-        let blob_obj_ids = self
-            .extract_blob_object_ids_from_return_values(&res, &result_args)
-            .await?;
-
-        ensure!(
-            blob_obj_ids.len() == expected_num_blobs,
-            "unexpected number of blob object IDs returned: {} expected {}",
-            blob_obj_ids.len(),
-            expected_num_blobs
-        );
-
-        Ok(blob_obj_ids)
+        Ok(())
     }
 
-    /// Extracts blob ObjectIDs from the transaction effects.
+    /// Extracts ManagedBlobInfo directly from Move function return values in the transaction response.
     ///
-    /// When blobs are stored in BlobManager's table (via table::add), they appear as
-    /// Field<ObjectID, Blob> objects in object_changes (the blob ObjectID is the Field's key).
-    /// We extract the blob ObjectIDs from these Field objects by reading them and
-    /// deserializing as SuiDynamicField<ObjectID, Blob>.
+    /// This extracts return values by:
+    /// 1. Accessing the transaction data (already included with with_input())
+    /// 2. Finding the commands that correspond to register_blob calls
+    /// 3. Deserializing the return values as ManagedBlobInfo from the transaction data
+    ///
+    /// No extra RPC calls are needed - everything is in the transaction response.
+    async fn extract_managed_blob_infos_from_return_values(
+        &self,
+        res: &SuiTransactionBlockResponse,
+        result_args: &[Argument],
+    ) -> SuiClientResult<Vec<crate::types::move_structs::ManagedBlobInfo>> {
+        use crate::types::move_structs::ManagedBlobInfo;
+
+        // Log the entire transaction response to inspect its structure
+        tracing::debug!(
+            "Full transaction response:\n{}",
+            res
+        );
+
+        // Log transaction data structure
+        if let Some(transaction) = res.transaction.as_ref() {
+            tracing::debug!(
+                "Transaction block structure: {:?}",
+                transaction
+            );
+            // Also log as JSON to see full structure
+            if let Ok(transaction_json) = serde_json::to_value(transaction) {
+                tracing::debug!(
+                    "Transaction block JSON structure: {}",
+                    serde_json::to_string_pretty(&transaction_json)
+                        .unwrap_or_else(|_| "Failed to serialize".to_string())
+                );
+            }
+        } else {
+            tracing::warn!("Transaction block not available in response");
+        }
+
+        // Log all fields of the response to see what's available
+        tracing::debug!(
+            "Transaction response fields: digest={:?}, transaction={:?}, effects={:?}, events={:?}, object_changes={:?}, balance_changes={:?}, errors={:?}",
+            res.digest,
+            res.transaction.is_some(),
+            res.effects.is_some(),
+            res.events.is_some(),
+            res.object_changes.is_some(),
+            res.balance_changes.is_some(),
+            !res.errors.is_empty()
+        );
+
+        // Log the full response as JSON to see all fields
+        if let Ok(response_json) = serde_json::to_value(res) {
+            tracing::debug!(
+                "Full transaction response JSON: {}",
+                serde_json::to_string_pretty(&response_json)
+                    .unwrap_or_else(|_| "Failed to serialize".to_string())
+            );
+        }
+
+        // In Sui, return values from Move calls in PTBs are stored in the transaction effects.
+        // They are BCS-serialized and accessible through effects. However, the exact API
+        // depends on the SDK version. We'll use a practical approach: serialize the effects
+        // to JSON and parse return values from there, or use available methods.
+
+        let effects = res.effects.as_ref().ok_or_else(|| {
+            anyhow!("Transaction effects not available")
+        })?;
+
+        tracing::debug!(
+            "Transaction effects structure: {:?}",
+            effects
+        );
+
+        // Note: Return values from Move calls in PTBs are NOT stored in the transaction
+        // response by default in Sui. They're only available during execution.
+        // Since we're returning ManagedBlobInfo which contains an object_id, we need to
+        // reconstruct it from the created objects or use an alternative approach.
+        // For now, let's check if we can extract from created objects or if we need
+        // to query the blob objects after creation.
+
+        let mut blob_infos = Vec::new();
+
+        // Extract return values by parsing effects JSON
+        // Since the exact field structure may vary by SDK version, we'll serialize
+        // effects to JSON and parse return values from there
+        let effects_json = serde_json::to_value(effects).map_err(|e| {
+            anyhow!("Failed to serialize effects to JSON: {}", e)
+        })?;
+
+        // Log the full effects JSON structure for inspection
+        tracing::debug!(
+            "Full effects JSON structure: {}",
+            serde_json::to_string_pretty(&effects_json)
+                .unwrap_or_else(|_| "Failed to serialize".to_string())
+        );
+
+        // Extract return values based on result argument indices
+        // Return values from Move calls are NOT objects, so they won't appear in object_changes.
+        // They are BCS-serialized data stored in the transaction effects structure.
+        // We'll extract them by parsing the effects JSON structure.
+        
+        tracing::debug!(
+            "Extracting {} return values from effects (result_args: {})",
+            result_args.len(),
+            result_args.len()
+        );
+        
+        // Process each result argument to extract its return value
+        for (idx, result_arg) in result_args.iter().enumerate() {
+            if let Argument::Result(cmd_index) = result_arg {
+                tracing::debug!(
+                    "Processing result arg {}: command index {}",
+                    idx,
+                    cmd_index
+                );
+                
+                let mut found = false;
+                
+                // Try multiple possible paths for return values
+                let possible_paths = [
+                    format!("/data/transaction_effects/results/{}", cmd_index),
+                    format!("/results/{}", cmd_index),
+                    format!("/transaction_effects/results/{}", cmd_index),
+                    format!("/data/results/{}", cmd_index),
+                ];
+                
+                tracing::debug!(
+                    "Trying to find return value for command {} at paths: {:?}",
+                    cmd_index,
+                    possible_paths
+                );
+                
+                for path in &possible_paths {
+                    if let Some(result_value) = effects_json.pointer(path) {
+                        tracing::debug!(
+                            "Found value at path {}: {}",
+                            path,
+                            serde_json::to_string(result_value)
+                                .unwrap_or_else(|_| "Failed to serialize".to_string())
+                        );
+                        // Try to extract BCS bytes from the result
+                        // BCS bytes might be in various formats:
+                        // - Base64-encoded string in "bcsBytes" field
+                        // - Hex-encoded string
+                        // - Raw bytes array
+                        
+                        if let Some(bcs_bytes_base64) = result_value
+                            .get("bcsBytes")
+                            .or_else(|| result_value.get("bcs"))
+                            .or_else(|| result_value.get("returnValue"))
+                            .and_then(|v| v.as_str())
+                        {
+                            // Decode base64 - try multiple decoding methods
+                            let bcs_bytes = {
+                                // Try base64 decoding first
+                                if let Ok(decoded) = {
+                                    use base64::{Engine as _, engine::general_purpose::STANDARD};
+                                    STANDARD.decode(bcs_bytes_base64)
+                                } {
+                                    decoded
+                                } else {
+                                    // Try hex decoding as fallback
+                                    hex::decode(bcs_bytes_base64)
+                                        .map_err(|e| {
+                                            anyhow!("Failed to decode BCS bytes (tried base64 and hex): {}", e)
+                                        })?
+                                }
+                            };
+                            
+                            // Deserialize as ManagedBlobInfo
+                            match bcs::from_bytes::<ManagedBlobInfo>(&bcs_bytes) {
+                                Ok(managed_info) => {
+                                    tracing::debug!(
+                                        "Successfully extracted ManagedBlobInfo from return value at path {}",
+                                        path
+                                    );
+                                    blob_infos.push(managed_info);
+                                    found = true;
+                                    break;
+                                }
+                                Err(e) => {
+                                    tracing::debug!(
+                                        "Failed to deserialize return value at path {}: {}",
+                                        path,
+                                        e
+                                    );
+                                }
+                            }
+                        } else if let Some(bytes_array) = result_value.as_array() {
+                            // Try interpreting as array of bytes (u8 values)
+                            let bcs_bytes: Result<Vec<u8>, _> = bytes_array
+                                .iter()
+                                .map(|v| {
+                                    v.as_u64()
+                                        .and_then(|b| u8::try_from(b).ok())
+                                        .ok_or_else(|| anyhow!("Invalid byte value in array"))
+                                })
+                                .collect();
+                            
+                            if let Ok(bytes) = bcs_bytes {
+                                match bcs::from_bytes::<ManagedBlobInfo>(&bytes) {
+                                    Ok(managed_info) => {
+                                        tracing::debug!(
+                                            "Successfully extracted ManagedBlobInfo from bytes array at path {}",
+                                            path
+                                        );
+                                        blob_infos.push(managed_info);
+                                        found = true;
+                                        break;
+                                    }
+                                    Err(e) => {
+                                        tracing::debug!(
+                                            "Failed to deserialize from bytes array: {}",
+                                            e
+                                        );
+                                    }
+                                }
+                            }
+                        } else if let Some(hex_str) = result_value.as_str() {
+                            // Try hex decoding
+                            if let Ok(bytes) = hex::decode(hex_str) {
+                                match bcs::from_bytes::<ManagedBlobInfo>(&bytes) {
+                                    Ok(managed_info) => {
+                                        tracing::debug!(
+                                            "Successfully extracted ManagedBlobInfo from hex string at path {}",
+                                            path
+                                        );
+                                        blob_infos.push(managed_info);
+                                        found = true;
+                                        break;
+                                    }
+                                    Err(e) => {
+                                        tracing::debug!(
+                                            "Failed to deserialize from hex: {}",
+                                            e
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                if !found {
+                    tracing::warn!(
+                        "Could not find return value for command index {} in effects JSON. \
+                        Tried paths: {:?}.",
+                        cmd_index,
+                        possible_paths
+                    );
+                    // Log the top-level keys in effects JSON to help debug
+                    if let Some(obj) = effects_json.as_object() {
+                        tracing::debug!(
+                            "Top-level keys in effects JSON: {:?}",
+                            obj.keys().collect::<Vec<_>>()
+                        );
+                    }
+                    // Try to find any "results" field anywhere in the structure
+                    if let Some(results) = effects_json.pointer("/results") {
+                        tracing::debug!(
+                            "Found /results field: {}",
+                            serde_json::to_string(results)
+                                .unwrap_or_else(|_| "Failed to serialize".to_string())
+                        );
+                    }
+                    if let Some(data) = effects_json.pointer("/data") {
+                        if let Some(keys) = data.as_object() {
+                            tracing::debug!(
+                                "Keys in /data: {:?}",
+                                keys.keys().collect::<Vec<_>>()
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
+        tracing::debug!(
+            "Extracted {}/{} ManagedBlobInfo structs from return values",
+            blob_infos.len(),
+            result_args.len()
+        );
+
+        if blob_infos.len() != result_args.len() {
+            tracing::warn!(
+                "Failed to extract all return values from effects JSON. Expected {} but got {}. \
+                This indicates that return values from Move calls are NOT stored in the standard \
+                transaction response structure (effects). \
+                \
+                Summary of what was checked: \
+                - Effects JSON structure: no 'results' field found \
+                - Top-level keys in effects: {:?} \
+                - Full transaction response JSON has been logged above \
+                \
+                In Sui, return values from Move calls in PTBs are typically not persisted \
+                in the transaction response. They may need to be: \
+                1. Reconstructed from created/mutated objects, \
+                2. Extracted from accumulator events, or \
+                3. Retrieved via a follow-up query.",
+                result_args.len(),
+                blob_infos.len(),
+                effects_json.as_object().map(|o| o.keys().collect::<Vec<_>>())
+            );
+            
+            // Log created objects to see if we can reconstruct from them
+            let created = effects.created();
+            if !created.is_empty() {
+                tracing::debug!(
+                    "Created objects in effects ({}): {:?}",
+                    created.len(),
+                    created.iter().map(|o| o.reference.object_id).collect::<Vec<_>>()
+                );
+            }
+            
+            // Check if Blob objects appear directly in object_changes (before being stored in table)
+            // This helps answer: can we get ObjectID without RPC call?
+            if let Some(object_changes) = res.object_changes.as_ref() {
+                use crate::utils::get_created_sui_object_ids_by_type;
+                use crate::contracts;
+                if let Ok(blob_type_tag) = contracts::blob::Blob
+                    .to_move_struct_tag_with_type_map(&self.read_client.type_origin_map(), &[])
+                {
+                    if let Ok(blob_obj_ids) = get_created_sui_object_ids_by_type(res, &blob_type_tag) {
+                        if !blob_obj_ids.is_empty() {
+                            tracing::debug!(
+                                "✓ Found {} Blob objects directly in object_changes (NEW blob - ObjectID available without RPC!): {:?}",
+                                blob_obj_ids.len(),
+                                blob_obj_ids
+                            );
+                        } else {
+                            tracing::debug!(
+                                "✗ No Blob objects in object_changes (likely REUSED existing blob - ObjectID not in response)"
+                            );
+                        }
+                    }
+                }
+                
+                // Also check for Field objects
+                let field_count = object_changes
+                    .iter()
+                    .filter(|change| {
+                        if let sui_sdk::rpc_types::ObjectChange::Created { object_type, .. } = change {
+                            let type_str = object_type.to_string();
+                            type_str.contains("Field") && type_str.contains("Blob")
+                        } else {
+                            false
+                        }
+                    })
+                    .count();
+                if field_count > 0 {
+                    tracing::debug!(
+                        "Found {} Field<ObjectID, Blob> objects (blob stored in table - ObjectID is in Field's 'name' field, requires RPC call)",
+                        field_count
+                    );
+                }
+            }
+            
+            // Summary of what's in the response WITHOUT RPC:
+            // - NEW blob: Field<ObjectID, Blob> object in object_changes
+            //            → Blob ObjectID is the Field's key, but requires RPC to read
+            // - REUSED blob: Nothing new in response → ObjectID only in function return value
+            return Err(anyhow!(
+                "Return values from Move calls are not in the transaction response. \
+                For NEW blobs: Field objects exist but require RPC to extract ObjectID. \
+                For REUSED blobs: No objects created, ObjectID only in function return value."
+            )
+            .into());
+        }
+
+        tracing::info!(
+            "Successfully extracted {} ManagedBlobInfo structs from transaction return values",
+            blob_infos.len()
+        );
+
+        Ok(blob_infos)
+    }
+
+
+    /// Extracts blob ObjectIDs from the transaction response (legacy method, kept for compatibility).
+    ///
+    /// This extracts ObjectIDs from Field<ObjectID, Blob> objects in object_changes.
     async fn extract_blob_object_ids_from_return_values(
         &self,
         res: &SuiTransactionBlockResponse,
@@ -2020,6 +2376,8 @@ impl SuiContractClientInner {
         let mut blob_ids = Vec::new();
 
         // Look for Field<ID, Blob> objects in object_changes
+        // When blobs are stored in BlobManager's table (via table::add), they appear as
+        // Field<ObjectID, Blob> objects. The blob ObjectID is the Field's key.
         if let Some(object_changes) = res.object_changes.as_ref() {
             for change in object_changes {
                 if let ObjectChange::Created {
@@ -2144,12 +2502,12 @@ impl SuiContractClientInner {
     }
 
     /// Certifies blobs that have been registered in a BlobManager.
-    #[allow(dead_code)]
+    /// Uses blob_id and deletable flag to identify each blob.
     pub async fn certify_blobs_in_blobmanager(
         &mut self,
         manager_id: ObjectID,
         manager_cap: ArgumentOrOwnedObject,
-        blobs_with_certificates: &[(ObjectID, &ConfirmationCertificate)],
+        blobs_with_certificates: &[(BlobId, bool, &ConfirmationCertificate)],
     ) -> SuiClientResult<()> {
         if blobs_with_certificates.is_empty() {
             tracing::debug!("no blobs to certify in blob manager");
@@ -2158,15 +2516,22 @@ impl SuiContractClientInner {
 
         let mut pt_builder = self.transaction_builder()?;
 
-        for (i, (blob_object_id, certificate)) in blobs_with_certificates.iter().enumerate() {
+        for (i, (blob_id, deletable, certificate)) in blobs_with_certificates.iter().enumerate() {
             tracing::debug!(
                 count = format!("{}/{}", i + 1, blobs_with_certificates.len()),
-                blob_object_id = %blob_object_id,
+                blob_id = %blob_id,
+                deletable = %deletable,
                 "certifying blob in blob manager"
             );
 
             pt_builder
-                .certify_blob_in_blob_manager(manager_id, manager_cap, *blob_object_id, certificate)
+                .certify_blob_in_blob_manager(
+                    manager_id,
+                    manager_cap,
+                    *blob_id,
+                    *deletable,
+                    certificate,
+                )
                 .await?;
         }
 
@@ -2202,12 +2567,12 @@ impl SuiContractClientInner {
             return Ok(vec![]);
         }
 
-        // Extract blob object IDs with their certificates for batch certification
+        // Extract blob_id, deletable, and certificates for batch certification
         let blobs_with_certs: Vec<_> = blobs_with_certificates
             .iter()
             .filter_map(|params| {
                 let certificate = params.certificate.as_ref()?;
-                Some((params.blob.id, certificate))
+                Some((params.blob.blob_id, params.blob.deletable, certificate))
             })
             .collect();
 

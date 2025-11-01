@@ -189,10 +189,10 @@ pub enum StoreOp {
     },
     /// A blob registered in BlobManager (BlobManager owns the blob)
     RegisteredInBlobManager {
-        /// The object ID of the blob in BlobManager's table
-        object_id: ObjectID,
         /// The blob_id for tracking
         blob_id: BlobId,
+        /// Whether the blob is deletable
+        deletable: bool,
         /// The operation performed
         operation: RegisterBlobOp,
     },
@@ -726,9 +726,8 @@ impl<'a> ResourceManager<'a> {
             .map(|m| (*m).try_into())
             .collect::<Result<Vec<_>, _>>()?;
 
-        // Register blobs and get back ObjectIDs
-        let object_ids = self
-            .sui_client
+        // Register blobs (returns void)
+        self.sui_client
             .reserve_and_register_blobs_in_blobmanager(
                 manager_id,
                 ArgumentOrOwnedObject::Object(manager_cap),
@@ -738,13 +737,11 @@ impl<'a> ResourceManager<'a> {
             )
             .await?;
 
-        debug_assert_eq!(object_ids.len(), blobs.len());
-
-        // Create StoreOp::RegisteredInBlobManager for each blob
+        // Create StoreOp::RegisteredInBlobManager for each blob using blob_id + deletable
         Ok(blobs
             .into_iter()
-            .zip(object_ids.iter().zip(blob_metadata.iter()))
-            .map(|(blob, (object_id, metadata))| {
+            .zip(blob_metadata.iter())
+            .map(|(blob, metadata)| {
                 let blob_id = blob.get_blob_id().expect("blob ID should be present");
                 let operation = RegisterBlobOp::RegisterFromScratch {
                     encoded_length: metadata.encoded_size,
@@ -752,8 +749,8 @@ impl<'a> ResourceManager<'a> {
                 };
 
                 let store_op = StoreOp::RegisteredInBlobManager {
-                    object_id: *object_id,
                     blob_id,
+                    deletable: persistence.is_deletable(),
                     operation,
                 };
 
