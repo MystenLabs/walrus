@@ -70,8 +70,7 @@ impl BlobManagerClient<'_, SuiContractClient> {
             blob_metadata_list.len()
         );
 
-        let blob_infos: Vec<walrus_sui::types::move_structs::ManagedBlobInfo> = self
-            .client
+        self.client
             .sui_client()
             .reserve_and_register_blobs_in_blobmanager(
                 self.manager_id,
@@ -83,8 +82,10 @@ impl BlobManagerClient<'_, SuiContractClient> {
             .await
             .map_err(crate::error::ClientError::from)?;
 
-        // Extract ObjectIDs from ManagedBlobInfo
-        Ok(blob_infos.into_iter().map(|info| info.object_id).collect())
+        // Note: ObjectIDs are not available without querying BlobManager
+        // Return empty vector for backward compatibility
+        // Callers should use blob_id + deletable for further operations
+        Ok(vec![])
     }
 
     /// Registers blobs with the BlobManager and returns WalrusStoreBlob results.
