@@ -193,6 +193,9 @@ pub enum StoreOp {
         blob_id: BlobId,
         /// Whether the blob is deletable
         deletable: bool,
+        /// The ObjectID of the blob (extracted from transaction response)
+        /// Needed for storage nodes to verify registration during certificate fetching
+        object_id: ObjectID,
         /// The operation performed
         operation: RegisterBlobOp,
     },
@@ -726,8 +729,9 @@ impl<'a> ResourceManager<'a> {
             .map(|m| (*m).try_into())
             .collect::<Result<Vec<_>, _>>()?;
 
-        // Register blobs (returns void)
-        self.sui_client
+        // Register blobs and get back ObjectIDs (extracted from transaction response)
+        let blob_object_ids = self
+            .sui_client
             .reserve_and_register_blobs_in_blobmanager(
                 manager_id,
                 ArgumentOrOwnedObject::Object(manager_cap),
@@ -737,11 +741,20 @@ impl<'a> ResourceManager<'a> {
             )
             .await?;
 
+        use walrus_core::ensure;
+        ensure!(
+            blob_object_ids.len() == blobs.len(),
+            "unexpected number of blob ObjectIDs returned: {} expected {}",
+            blob_object_ids.len(),
+            blobs.len()
+        );
+
         // Create StoreOp::RegisteredInBlobManager for each blob using blob_id + deletable
+        // Store ObjectID for use by storage nodes (needed for certificate fetching)
         Ok(blobs
             .into_iter()
-            .zip(blob_metadata.iter())
-            .map(|(blob, metadata)| {
+            .zip(blob_metadata.iter().zip(blob_object_ids.iter()))
+            .map(|(blob, (metadata, object_id))| {
                 let blob_id = blob.get_blob_id().expect("blob ID should be present");
                 let operation = RegisterBlobOp::RegisterFromScratch {
                     encoded_length: metadata.encoded_size,
@@ -751,6 +764,7 @@ impl<'a> ResourceManager<'a> {
                 let store_op = StoreOp::RegisteredInBlobManager {
                     blob_id,
                     deletable: persistence.is_deletable(),
+                    object_id: *object_id, // Store ObjectID for storage node verification
                     operation,
                 };
 

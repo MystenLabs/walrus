@@ -627,7 +627,7 @@ impl SuiContractClient {
 
     /// Reserves space and registers blobs in a BlobManager (public wrapper).
     ///
-    /// Registers blobs in a BlobManager (returns void).
+    /// Registers blobs in a BlobManager and returns their ObjectIDs.
     pub async fn reserve_and_register_blobs_in_blobmanager(
         &self,
         manager_id: ObjectID,
@@ -635,7 +635,7 @@ impl SuiContractClient {
         epochs_ahead: EpochCount,
         blob_metadata_list: Vec<BlobObjectMetadata>,
         persistence: BlobPersistence,
-    ) -> SuiClientResult<()> {
+    ) -> SuiClientResult<Vec<ObjectID>> {
         self.retry_on_wrong_version(|| async {
             self.inner
                 .lock()
@@ -1927,7 +1927,7 @@ impl SuiContractClientInner {
     /// Reserves space and registers blobs in a BlobManager.
     ///
     /// This function registers each blob with the BlobManager, which manages its own storage.
-    /// Returns nothing (void) - blobs are registered in place and stay in BlobManager's table.
+    /// Returns the ObjectIDs of the registered blobs (extracted from Field objects in response).
     pub async fn reserve_and_register_blobs_in_blobmanager(
         &mut self,
         manager_id: ObjectID,
@@ -1935,10 +1935,10 @@ impl SuiContractClientInner {
         _epochs_ahead: EpochCount,
         blob_metadata_list: Vec<BlobObjectMetadata>,
         persistence: BlobPersistence,
-    ) -> SuiClientResult<()> {
+    ) -> SuiClientResult<Vec<ObjectID>> {
         if blob_metadata_list.is_empty() {
             tracing::debug!("no blobs to register in blob manager");
-            return Ok(());
+            return Ok(vec![]);
         }
 
         let expected_num_blobs = blob_metadata_list.len();
@@ -1979,7 +1979,21 @@ impl SuiContractClientInner {
         }
 
         tracing::debug!("successfully registered blobs in blob manager");
-        Ok(())
+
+        // Extract ObjectIDs from Field<ObjectID, Blob> objects in the transaction response
+        // These are needed for storage nodes to verify registration
+        let blob_object_ids = self
+            .extract_blob_object_ids_from_return_values(&res, &[])
+            .await?;
+
+        tracing::debug!(
+            "Extracted {} blob ObjectIDs from transaction response",
+            blob_object_ids.len()
+        );
+
+        // Return the ObjectIDs so callers can use them
+        // The caller should match them with blob_metadata_list by order
+        Ok(blob_object_ids)
     }
 
     /// Extracts ManagedBlobInfo directly from Move function return values in the transaction response.

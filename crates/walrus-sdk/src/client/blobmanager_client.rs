@@ -70,7 +70,8 @@ impl BlobManagerClient<'_, SuiContractClient> {
             blob_metadata_list.len()
         );
 
-        self.client
+        let blob_object_ids = self
+            .client
             .sui_client()
             .reserve_and_register_blobs_in_blobmanager(
                 self.manager_id,
@@ -82,10 +83,8 @@ impl BlobManagerClient<'_, SuiContractClient> {
             .await
             .map_err(crate::error::ClientError::from)?;
 
-        // Note: ObjectIDs are not available without querying BlobManager
-        // Return empty vector for backward compatibility
-        // Callers should use blob_id + deletable for further operations
-        Ok(vec![])
+        // Return ObjectIDs extracted from transaction response
+        Ok(blob_object_ids)
     }
 
     /// Registers blobs with the BlobManager and returns WalrusStoreBlob results.
@@ -124,7 +123,7 @@ impl BlobManagerClient<'_, SuiContractClient> {
             return Ok(vec![]);
         }
 
-        // Extract blob_ids, deletable flags, operations and certificates from blobs
+        // Extract blob_ids, deletable flags, object_ids, operations and certificates from blobs
         let mut blob_info: Vec<_> = Vec::new();
         let mut certs_with_blob_ids: Vec<_> = Vec::new();
 
@@ -133,12 +132,14 @@ impl BlobManagerClient<'_, SuiContractClient> {
                 if let StoreOp::RegisteredInBlobManager {
                     blob_id,
                     deletable,
+                    object_id,
                     operation,
                 } = &inner.operation
                 {
                     blob_info.push((
                         *blob_id,
                         *deletable,
+                        *object_id,
                         operation.clone(),
                     ));
                     certs_with_blob_ids.push((*blob_id, *deletable, &inner.certificate));
@@ -177,7 +178,7 @@ impl BlobManagerClient<'_, SuiContractClient> {
 
         // Complete the blobs by creating BlobStoreResult::ManagedByBlobManager
         let mut completed_blobs = Vec::new();
-        for (blob, (blob_id, _deletable, operation)) in
+        for (blob, (blob_id, _deletable, object_id, operation)) in
             blobs_to_certify.into_iter().zip(blob_info.iter())
         {
             // Calculate cost from the operation
@@ -205,12 +206,9 @@ impl BlobManagerClient<'_, SuiContractClient> {
                 }
             };
 
-            // Note: blob_object_id is not available without querying BlobManager
-            // We use ObjectID::ZERO as a placeholder since it's not needed for certification
-            // If needed later, we can query it via get_blob_object_ids(blob_id)
             let result = BlobStoreResult::ManagedByBlobManager {
                 blob_id: *blob_id,
-                blob_object_id: ObjectID::ZERO, // Not available without extra RPC call
+                blob_object_id: *object_id, // Use ObjectID from StoreOp
                 resource_operation: operation.clone(),
                 cost,
                 end_epoch,

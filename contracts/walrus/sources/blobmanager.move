@@ -260,3 +260,19 @@ public fun get_blob_object_ids(self: &BlobManager, blob_id: u256): vector<ID> {
 public fun get_blob_info(self: &BlobManager, object_id: ID): blob_stash::ManagedBlobInfo {
     blob_stash::get_blob_info_from_stash(&self.blob_stash, object_id)
 }
+
+/// Gets the ObjectID of a blob by blob_id and deletable flag
+/// Returns the blob's ObjectID if found, aborts otherwise
+public fun get_blob_object_id_by_blob_id_and_deletable(
+    self: &BlobManager,
+    blob_id: u256,
+    deletable: bool,
+): ID {
+    let blob_object_id_opt = blob_stash::find_blob_object_id_by_blob_id_and_deletable(
+        &self.blob_stash,
+        blob_id,
+        deletable,
+    );
+    assert!(option::is_some(&blob_object_id_opt), EBlobNotRegisteredInBlobManager);
+    option::extract(&mut blob_object_id_opt)
+}
