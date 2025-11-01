@@ -45,7 +45,7 @@ jobs:
         run: |
           echo ${{ inputs.transaction_type }}
 
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # pin@v4
         with:
           fetch-depth: 1
           ref: ${{ inputs.commit }}
@@ -79,7 +79,7 @@ jobs:
           cat artifacts/tx-data.txt
 
       - name: Upload Transaction Artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # pin@v4
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # pin@v4
         with:
           name: transaction-data
           path: artifacts/tx-data.txt
