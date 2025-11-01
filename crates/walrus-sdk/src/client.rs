@@ -1478,9 +1478,9 @@ impl WalrusNodeClient<SuiContractClient> {
                             registered_blob.with_get_certificate_result(certificate_result)
                         }
                         Some(StoreOp::RegisteredInBlobManager {
-                            object_id,
+                            blob_id,
+                            deletable,
                             operation,
-                            ..
                         }) => {
                             // For BlobManager blobs, construct a minimal Blob from metadata
                             // since the blob is stored in a table and can't be fetched directly
@@ -1492,22 +1492,24 @@ impl WalrusNodeClient<SuiContractClient> {
 
                             // Construct minimal Blob with just the fields needed for certificate fetching
                             // get_blob_certificate only needs blob_id and blob_persistence_type()
+                            // Use ObjectID::ZERO as placeholder since object_id is not available
+                            use sui_types::base_types::ObjectID;
                             use walrus_sui::types::Blob;
                             let blob_size = registered_blob.unencoded_length() as u64;
                             let blob = Blob {
-                                id: object_id,
+                                id: ObjectID::ZERO, // Placeholder - not available without RPC call
                                 registered_epoch: 0, // Not used for certificate fetching
-                                blob_id: *metadata.blob_id(),
+                                blob_id: *metadata.blob_id(), // Use blob_id from StoreOp, but metadata has the correct one
                                 size: blob_size,
                                 encoding_type: metadata.metadata().encoding_type(),
                                 certified_epoch: None, // Not yet certified
                                 storage: walrus_sui::types::StorageResource {
-                                    id: object_id,           // Use object_id as storage ID for BlobManager blobs
+                                    id: ObjectID::ZERO, // Placeholder - not available without RPC call
                                     start_epoch: 0,          // Not used for certificate fetching
                                     end_epoch: 0,            // Not used for certificate fetching
                                     storage_size: blob_size, // Not used for certificate fetching
                                 },
-                                deletable: true, // Default to deletable (can be made configurable)
+                                deletable, // Use deletable from StoreOp
                             };
 
                             let certificate_result = self

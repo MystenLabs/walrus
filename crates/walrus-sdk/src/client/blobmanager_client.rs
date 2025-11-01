@@ -176,7 +176,7 @@ impl BlobManagerClient<'_, SuiContractClient> {
 
         // Complete the blobs by creating BlobStoreResult::ManagedByBlobManager
         let mut completed_blobs = Vec::new();
-        for (blob, (blob_id, deletable, operation)) in
+        for (blob, (blob_id, _deletable, operation)) in
             blobs_to_certify.into_iter().zip(blob_info.iter())
         {
             // Calculate cost from the operation
