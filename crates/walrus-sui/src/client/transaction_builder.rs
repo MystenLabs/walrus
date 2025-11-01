@@ -1795,12 +1795,11 @@ impl WalrusPtbBuilder {
 
     /// Registers a blob with BlobManager.
     /// If storage_for_blob is None, BlobManager uses its own storage.
-    /// If storage_for_blob is provided but insufficient, it combines with manager's storage.
+    /// Uses the BlobManager's available storage.
     pub async fn register_blob_in_blob_manager(
         &mut self,
         manager: ObjectID,
         cap: ArgumentOrOwnedObject,
-        storage_for_blob: Option<ArgumentOrOwnedObject>,
         blob_metadata: BlobObjectMetadata,
         persistence: BlobPersistence,
     ) -> SuiClientResult<Argument> {
@@ -1811,32 +1810,20 @@ impl WalrusPtbBuilder {
 
         let cap_arg = self.argument_from_arg_or_obj(cap).await?;
 
-        // Create Option<Storage> for Move (represented as a vector)
-        let storage_option_arg = if let Some(storage) = storage_for_blob {
-            let storage_arg = self.argument_from_arg_or_obj(storage).await?;
-            self.mark_arg_as_consumed(&storage_arg);
-            // Create a vector with one element for Some(storage)
-            self.pt_builder.command(Command::MakeMoveVec(
-                None, // Type will be inferred
-                vec![storage_arg],
-            ))
-        } else {
-            // Create an empty vector for None
-            self.pt_builder.command(Command::MakeMoveVec(
-                None, // Type will be inferred
-                vec![],
-            ))
-        };
+        // Get the initial shared version for the BlobManager
+        let manager_initial_version = self
+            .read_client
+            .get_shared_object_initial_version(manager)
+            .await?;
 
         let register_args = vec![
             self.pt_builder.obj(ObjectArg::SharedObject {
                 id: manager,
-                initial_shared_version: 1.into(), // TODO: get actual version
+                initial_shared_version: manager_initial_version,
                 mutability: SharedObjectMutability::Mutable,
             })?,
             cap_arg,
             self.system_arg(SharedObjectMutability::Mutable).await?,
-            storage_option_arg,
             self.pt_builder.pure(blob_metadata.blob_id)?,
             self.pt_builder.pure(blob_metadata.root_hash.bytes())?,
             self.pt_builder.pure(blob_metadata.unencoded_size)?,
@@ -1850,39 +1837,44 @@ impl WalrusPtbBuilder {
             self.blobmanager_move_call(contracts::blobmanager::register_blob, register_args)?;
 
         self.reduce_wal_balance(price)?;
-        self.add_result_to_be_consumed(result_arg);
+        // Don't add result_arg to consumed list - it's an ID value, not an object
         Ok(result_arg)
     }
 
     /// Certifies a blob in BlobManager.
-    /// The blob argument should be the Blob object returned from register_blob_in_blob_manager.
+    /// The blob_object_id is the ID of the blob stored in BlobManager's table.
     pub async fn certify_blob_in_blob_manager(
         &mut self,
         manager: ObjectID,
         cap: ArgumentOrOwnedObject,
-        blob: ArgumentOrOwnedObject,
+        blob_object_id: ObjectID,
         certificate: &ConfirmationCertificate,
     ) -> SuiClientResult<()> {
         let cap_arg = self.argument_from_arg_or_obj(cap).await?;
-        let blob_arg = self.argument_from_arg_or_obj(blob).await?;
+        let blob_id_arg = self.pt_builder.pure(blob_object_id)?;
         let signers = self.signers_to_bitmap(&certificate.signers).await?;
+
+        // Get the initial shared version for the BlobManager
+        let manager_initial_version = self
+            .read_client
+            .get_shared_object_initial_version(manager)
+            .await?;
 
         let certify_args = vec![
             self.pt_builder.obj(ObjectArg::SharedObject {
                 id: manager,
-                initial_shared_version: 1.into(), // TODO: get actual version
+                initial_shared_version: manager_initial_version,
                 mutability: SharedObjectMutability::Mutable,
             })?,
             cap_arg,
             self.system_arg(SharedObjectMutability::Immutable).await?,
-            blob_arg,
+            blob_id_arg,
             self.pt_builder.pure(certificate.signature.as_bytes())?,
             self.pt_builder.pure(&signers)?,
             self.pt_builder.pure(&certificate.serialized_message)?,
         ];
 
         self.blobmanager_move_call(contracts::blobmanager::certify_blob, certify_args)?;
-        self.mark_arg_as_consumed(&blob_arg);
         Ok(())
     }
 

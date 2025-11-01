@@ -444,6 +444,16 @@ impl SuiReadClient {
         Ok(*initial_shared_version)
     }
 
+    /// Gets the initial shared version for any shared object.
+    pub(crate) async fn get_shared_object_initial_version(
+        &self,
+        object_id: ObjectID,
+    ) -> SuiClientResult<SequenceNumber> {
+        self.sui_client
+            .get_shared_object_initial_version(object_id)
+            .await
+    }
+
     pub(crate) async fn object_arg_for_staking_obj(
         &self,
         mutability: SharedObjectMutability,

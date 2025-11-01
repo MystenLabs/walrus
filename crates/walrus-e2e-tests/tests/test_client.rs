@@ -2820,7 +2820,7 @@ async fn test_store_with_upload_relay_with_tip() {
 
 #[ignore = "ignore E2E tests by default"]
 #[walrus_simtest]
-async fn test_create_blob_manager() {
+async fn test_blob_manager_basic() {
     walrus_test_utils::init_tracing();
 
     let test_nodes_config = TestNodesConfig {
@@ -2850,5 +2850,60 @@ async fn test_create_blob_manager() {
     assert_ne!(manager_id, sui_types::base_types::ObjectID::ZERO);
     assert_ne!(cap_id, sui_types::base_types::ObjectID::ZERO);
 
-    tracing::info!("BlobManager creation test completed successfully!");
+    // Wait a bit for the objects to be indexed
+    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+    // Now test storing a blob through the BlobManager
+    let test_blob = b"Hello, BlobManager! This is a test blob.";
+
+    // Create StoreArgs with BlobManager configuration
+    let mut store_args = walrus_sdk::client::StoreArgs::default_with_epochs(epochs_ahead);
+    store_args.blob_manager_id = Some(manager_id);
+    store_args.blob_manager_cap = Some(cap_id);
+
+    // Store the blob through BlobManager
+    let results = client_ref
+        .reserve_and_store_blobs_retry_committees(&[test_blob.as_ref()], &[], &store_args)
+        .await
+        .expect("Failed to store blob through BlobManager");
+
+    assert_eq!(results.len(), 1, "Should store one blob");
+    let result = &results[0];
+
+    tracing::info!("Stored blob through BlobManager:");
+    tracing::info!("  Blob ID: {:?}", result.blob_id());
+    tracing::info!("  Result: {:?}", result);
+    tracing::info!("  End epoch: {:?}", result.end_epoch());
+
+    // Verify the blob was stored successfully
+    assert!(result.blob_id().is_some(), "Blob ID should be present");
+
+    // Test deduplication: try to store the same blob again
+    // Since the blob was already certified in the first store, this should fail with EBlobAlreadyCertified
+    let error_result = client_ref
+        .reserve_and_store_blobs_retry_committees(&[test_blob.as_ref()], &[], &store_args)
+        .await;
+
+    // Verify we get the expected error for trying to register an already-certified blob
+    let error =
+        error_result.expect_err("Should fail when trying to register already-certified blob");
+    tracing::info!("Got expected error for duplicate blob: {:?}", error);
+
+    // Verify the error is EBlobAlreadyCertified
+    match error.kind() {
+        walrus_sdk::error::ClientErrorKind::Other(_) => {
+            // Check if the error message contains EBlobAlreadyCertified
+            let error_msg = format!("{:?}", error);
+            assert!(
+                error_msg.contains("EBlobAlreadyCertified")
+                    || error_msg.contains("BlobAlreadyCertified"),
+                "Expected EBlobAlreadyCertified error, got: {}",
+                error_msg
+            );
+        }
+        _ => panic!("Unexpected error kind: {:?}", error),
+    }
+
+    tracing::info!("Deduplication test passed (correctly rejected already-certified blob)!");
+    tracing::info!("BlobManager store flow test completed successfully!");
 }
