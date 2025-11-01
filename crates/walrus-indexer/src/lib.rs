@@ -8,6 +8,7 @@ use std::fmt::Debug;
 use anyhow::Result;
 use async_trait::async_trait;
 
+mod async_task_manager;
 mod async_task_sorter;
 mod errors;
 mod storage;
