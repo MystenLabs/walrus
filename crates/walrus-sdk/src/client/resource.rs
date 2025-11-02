@@ -741,13 +741,13 @@ impl<'a> ResourceManager<'a> {
             )
             .await?;
 
-        use walrus_core::ensure;
-        ensure!(
-            blob_object_ids.len() == blobs.len(),
-            "unexpected number of blob ObjectIDs returned: {} expected {}",
-            blob_object_ids.len(),
-            blobs.len()
-        );
+        if blob_object_ids.len() != blobs.len() {
+            return Err(ClientError::store_blob_internal(format!(
+                "unexpected number of blob ObjectIDs returned: {} expected {}",
+                blob_object_ids.len(),
+                blobs.len()
+            )));
+        }
 
         // Create StoreOp::RegisteredInBlobManager for each blob using blob_id + deletable
         // Store ObjectID for use by storage nodes (needed for certificate fetching)

@@ -103,15 +103,14 @@ public fun find_matching_blob_id(
     option::none()
 }
 
-/// Adds a new blob to the object-based storage
-public fun add_blob(
+/// Adds only the object_id to tracking (blob is owned by caller, not stored yet)
+public fun add_blob_object_id_only(
     self: &mut ObjectBasedBlobStash,
     blob_id: u256,
     object_id: ID,
-    blob: Blob,
     size: u64,
 ) {
-    // Add to blob_id_to_objects mapping
+    // Add to blob_id_to_objects mapping (tracking only)
     if (self.blob_id_to_objects.contains(blob_id)) {
         let object_ids = self.blob_id_to_objects.borrow_mut(blob_id);
         object_ids.push_back(object_id);
@@ -120,11 +119,29 @@ public fun add_blob(
         self.blob_id_to_objects.add(blob_id, new_vec);
     };
 
-    // Store blob in blobs_by_object_id (blob stays in BlobManager's table)
-    self.blobs_by_object_id.add(object_id, blob);
-
     // Update total unencoded size
     self.total_unencoded_size = self.total_unencoded_size + size;
+}
+
+/// Adds a new blob to the object-based storage (transfers ownership to BlobManager)
+/// Used during certification when blob is transferred from caller to BlobManager
+public fun add_blob(
+    self: &mut ObjectBasedBlobStash,
+    blob_id: u256,
+    object_id: ID,
+    blob: Blob,
+    size: u64,
+) {
+    // Verify object_id is already tracked (from registration)
+    assert!(self.blob_id_to_objects.contains(blob_id), EBlobNotRegisteredInBlobManager);
+    let object_ids = self.blob_id_to_objects.borrow(blob_id);
+    assert!(object_ids.contains(&object_id), EBlobNotRegisteredInBlobManager);
+
+    // Verify blob is NOT already stored in table (shouldn't happen, but safety check)
+    assert!(!self.blobs_by_object_id.contains(object_id), EBlobAlreadyCertifiedInBlobManager);
+
+    // Store blob in blobs_by_object_id (blob ownership transferred to BlobManager)
+    self.blobs_by_object_id.add(object_id, blob);
 }
 
 /// Returns the number of blobs
@@ -164,7 +181,21 @@ public fun find_matching_blob_id_for_stash(
     }
 }
 
+/// Adds only the object_id to tracking (dispatches to variant)
+/// Blob remains owned by caller, not stored in BlobManager yet
+public fun add_blob_object_id_only_to_stash(
+    stash: &mut BlobStash,
+    blob_id: u256,
+    object_id: ID,
+    size: u64,
+) {
+    match (stash) {
+        BlobStash::ObjectBased(s) => add_blob_object_id_only(s, blob_id, object_id, size),
+    }
+}
+
 /// Adds a new blob to storage (dispatches to variant)
+/// Transfers ownership from caller to BlobManager (used during certification)
 public fun add_blob_to_stash(
     stash: &mut BlobStash,
     blob_id: u256,
@@ -175,6 +206,19 @@ public fun add_blob_to_stash(
     match (stash) {
         BlobStash::ObjectBased(s) => add_blob(s, blob_id, object_id, blob, size),
     }
+}
+
+/// Checks if a blob with the given object_id is stored in the table
+public fun is_blob_in_table(stash: &BlobStash, object_id: ID): bool {
+    match (stash) {
+        BlobStash::ObjectBased(s) => s.blobs_by_object_id.contains(object_id),
+    }
+}
+
+/// Verifies that a blob with the given object_id is NOT already stored in the table
+/// Aborts if the blob is already in the table
+public fun verify_blob_not_in_table(stash: &BlobStash, object_id: ID) {
+    assert!(!is_blob_in_table(stash, object_id), EBlobAlreadyCertifiedInBlobManager);
 }
 
 /// Returns the number of blobs (dispatches to variant)

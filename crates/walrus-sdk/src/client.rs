@@ -1480,6 +1480,7 @@ impl WalrusNodeClient<SuiContractClient> {
                         Some(StoreOp::RegisteredInBlobManager {
                             blob_id,
                             deletable,
+                            object_id,
                             operation,
                         }) => {
                             // For BlobManager blobs, construct a minimal Blob from metadata
@@ -1492,19 +1493,18 @@ impl WalrusNodeClient<SuiContractClient> {
 
                             // Construct minimal Blob with just the fields needed for certificate fetching
                             // get_blob_certificate only needs blob_id and blob_persistence_type()
-                            // Use ObjectID::ZERO as placeholder since object_id is not available
-                            use sui_types::base_types::ObjectID;
+                            // Use the ObjectID extracted from transaction response
                             use walrus_sui::types::Blob;
                             let blob_size = registered_blob.unencoded_length() as u64;
                             let blob = Blob {
-                                id: ObjectID::ZERO, // Placeholder - not available without RPC call
+                                id: (*object_id).into(), // Use ObjectID extracted from transaction response
                                 registered_epoch: 0, // Not used for certificate fetching
-                                blob_id: *metadata.blob_id(), // Use blob_id from StoreOp, but metadata has the correct one
+                                blob_id: *metadata.blob_id(), // Use blob_id from metadata
                                 size: blob_size,
                                 encoding_type: metadata.metadata().encoding_type(),
                                 certified_epoch: None, // Not yet certified
                                 storage: walrus_sui::types::StorageResource {
-                                    id: ObjectID::ZERO, // Placeholder - not available without RPC call
+                                    id: (*object_id).into(), // Use ObjectID for storage resource
                                     start_epoch: 0,          // Not used for certificate fetching
                                     end_epoch: 0,            // Not used for certificate fetching
                                     storage_size: blob_size, // Not used for certificate fetching
