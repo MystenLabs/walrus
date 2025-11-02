@@ -84,7 +84,7 @@ impl BlobManagerClient<'_, SuiContractClient> {
             .map_err(crate::error::ClientError::from)?;
 
         // Return ObjectIDs extracted from the Blob objects
-        Ok(registered_blobs.iter().map(|blob| blob.id.into()).collect())
+        Ok(registered_blobs.iter().map(|blob| blob.id).collect())
     }
 
     /// Registers blobs with the BlobManager and returns WalrusStoreBlob results.
@@ -126,15 +126,14 @@ impl BlobManagerClient<'_, SuiContractClient> {
         let mut certs_with_blobs: Vec<_> = Vec::new();
 
         for blob in &blobs_to_certify {
-            if let WalrusStoreBlob::WithCertificate(inner) = blob {
-                if let StoreOp::RegisteredInBlobManager {
+            if let WalrusStoreBlob::WithCertificate(inner) = blob
+                && let StoreOp::RegisteredInBlobManager {
                     blob: registered_blob,
                     operation,
                 } = &inner.operation
-                {
-                    blob_info.push((registered_blob.clone(), operation.clone()));
-                    certs_with_blobs.push((registered_blob, &inner.certificate));
-                }
+            {
+                blob_info.push((registered_blob.clone(), operation.clone()));
+                certs_with_blobs.push((registered_blob, &inner.certificate));
             }
         }
 
@@ -199,7 +198,7 @@ impl BlobManagerClient<'_, SuiContractClient> {
 
             let result = BlobStoreResult::ManagedByBlobManager {
                 blob_id: registered_blob.blob_id,
-                blob_object_id: registered_blob.id.into(), // Use ObjectID from the Blob object
+                blob_object_id: registered_blob.id, // Use ObjectID from the Blob object
                 resource_operation: operation.clone(),
                 cost,
                 end_epoch,

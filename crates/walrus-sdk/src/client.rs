@@ -1308,27 +1308,26 @@ impl WalrusNodeClient<SuiContractClient> {
             };
 
         // Certify BlobManager blobs using the new flow
-        if !blobmanager_blobs.is_empty() {
-            if let (Some(manager_id), Some(manager_cap)) =
+        if !blobmanager_blobs.is_empty()
+            && let (Some(manager_id), Some(manager_cap)) =
                 (store_args.blob_manager_id, store_args.blob_manager_cap)
-            {
-                let sui_cert_timer = Instant::now();
-                let completed_bm_blobs = self
-                    .blobmanager_client(manager_id, manager_cap)
-                    .certify_and_complete_blobs(blobmanager_blobs)
-                    .await?;
+        {
+            let sui_cert_timer = Instant::now();
+            let completed_bm_blobs = self
+                .blobmanager_client(manager_id, manager_cap)
+                .certify_and_complete_blobs(blobmanager_blobs)
+                .await?;
 
-                let sui_cert_timer_duration = sui_cert_timer.elapsed();
-                tracing::info!(
-                    duration = ?sui_cert_timer_duration,
-                    "certified and completed {} blobs via BlobManager",
-                    completed_bm_blobs.len()
-                );
-                store_args.maybe_observe_upload_certificate(sui_cert_timer_duration);
+            let sui_cert_timer_duration = sui_cert_timer.elapsed();
+            tracing::info!(
+                duration = ?sui_cert_timer_duration,
+                "certified and completed {} blobs via BlobManager",
+                completed_bm_blobs.len()
+            );
+            store_args.maybe_observe_upload_certificate(sui_cert_timer_duration);
 
-                // Add completed BlobManager blobs to final result
-                final_result.extend(completed_bm_blobs);
-            }
+            // Add completed BlobManager blobs to final result
+            final_result.extend(completed_bm_blobs);
         }
 
         // For regular blobs and extensions, use standard flow
