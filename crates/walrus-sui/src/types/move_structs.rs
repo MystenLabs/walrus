@@ -1098,3 +1098,70 @@ pub(crate) struct SubsidiesInnerKey {
 impl AssociatedContractStruct for SubsidiesInnerKey {
     const CONTRACT_STRUCT: StructTag<'static> = contracts::walrus_subsidies::SubsidiesInnerKey;
 }
+
+// ===== BlobManager Types =====
+
+/// Sui type for a `BlobManager` object.
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+pub struct BlobManager {
+    /// Object ID of the BlobManager.
+    #[cfg_attr(feature = "utoipa", schema(schema_with = object_id_schema))]
+    pub id: ObjectID,
+    // Note: The internal storage and blob_stash fields are not exposed
+    // as they use complex enum types that would require additional parsing
+}
+
+impl AssociatedContractStruct for BlobManager {
+    const CONTRACT_STRUCT: StructTag<'static> = contracts::blobmanager::BlobManager;
+}
+
+/// Sui type for a `BlobManagerCap` capability object.
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+pub struct BlobManagerCap {
+    /// Object ID of the capability.
+    #[cfg_attr(feature = "utoipa", schema(schema_with = object_id_schema))]
+    pub id: ObjectID,
+    /// The ID of the BlobManager this capability controls.
+    #[cfg_attr(feature = "utoipa", schema(schema_with = object_id_schema))]
+    pub manager_id: ObjectID,
+}
+
+impl AssociatedContractStruct for BlobManagerCap {
+    const CONTRACT_STRUCT: StructTag<'static> = contracts::blobmanager::BlobManagerCap;
+}
+
+/// Information about a blob managed by BlobManager.
+/// Returned by `register_blob` to provide full blob information.
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+pub struct ManagedBlobInfo {
+    /// The blob's unique identifier
+    #[serde(serialize_with = "serialize_blob_id")]
+    pub blob_id: BlobId,
+    /// The object ID of the blob
+    #[cfg_attr(feature = "utoipa", schema(schema_with = object_id_schema))]
+    pub object_id: ObjectID,
+    /// Epoch when the blob was registered
+    pub registered_epoch: Epoch,
+    /// Unencoded size of the blob
+    pub size: u64,
+    /// Encoding type used for the blob
+    pub encoding_type: EncodingType,
+    /// Whether the blob is certified (Some(epoch) if certified, None otherwise)
+    pub certified_epoch: Option<Epoch>,
+    /// Storage start epoch
+    pub storage_start_epoch: Epoch,
+    /// Storage end epoch
+    pub storage_end_epoch: Epoch,
+    /// Whether the blob is deletable
+    pub deletable: bool,
+}
+
+impl AssociatedContractStruct for ManagedBlobInfo {
+    const CONTRACT_STRUCT: StructTag<'static> = contracts::blob_stash::ManagedBlobInfo;
+}

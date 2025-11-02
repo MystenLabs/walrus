@@ -6,6 +6,7 @@ use std::{collections::HashMap, fmt::Debug};
 
 use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
+use sui_types::base_types::ObjectID;
 use tracing::Level;
 use utoipa::ToSchema;
 use walrus_core::{
@@ -186,6 +187,13 @@ pub enum StoreOp {
         /// The operation to be performed.
         operation: RegisterBlobOp,
     },
+    /// A blob registered in BlobManager (caller owns the blob until certification)
+    RegisteredInBlobManager {
+        /// The Blob object (caller owns it, will transfer to BlobManager during certification)
+        blob: Blob,
+        /// The operation performed
+        operation: RegisterBlobOp,
+    },
 }
 
 impl StoreOp {
@@ -245,6 +253,8 @@ impl<'a> ResourceManager<'a> {
         epochs_ahead: EpochCount,
         persistence: BlobPersistence,
         store_optimizations: StoreOptimizations,
+        blob_manager_id: Option<ObjectID>,
+        blob_manager_cap: Option<ObjectID>,
     ) -> ClientResult<Vec<WalrusStoreBlob<'a, T>>> {
         let mut results: Vec<WalrusStoreBlob<'a, T>> =
             Vec::with_capacity(encoded_blobs_with_status.len());
@@ -283,6 +293,8 @@ impl<'a> ResourceManager<'a> {
                 epochs_ahead,
                 persistence,
                 store_optimizations,
+                blob_manager_id,
+                blob_manager_cap,
             )
             .await?;
         debug_assert_eq!(
@@ -364,6 +376,8 @@ impl<'a> ResourceManager<'a> {
         epochs_ahead: EpochCount,
         persistence: BlobPersistence,
         store_optimizations: StoreOptimizations,
+        blob_manager_id: Option<ObjectID>,
+        blob_manager_cap: Option<ObjectID>,
     ) -> ClientResult<Vec<WalrusStoreBlob<'b, T>>> {
         blobs.iter().for_each(|b| {
             debug_assert!(b.is_with_status());
@@ -380,6 +394,31 @@ impl<'a> ResourceManager<'a> {
                 })
             })
             .collect();
+
+        // Handle BlobManager path separately since it works with ObjectIDs, not Blob objects
+        if let (Some(manager_id), Some(manager_cap)) = (blob_manager_id, blob_manager_cap) {
+            // Collect metadata - need to clone to avoid borrow when moving blobs
+            let metadata_list_for_bm: Vec<_> = blobs
+                .iter()
+                .map(|b| {
+                    b.get_metadata()
+                        .expect("metadata is present on the allowed blob types")
+                        .clone()
+                })
+                .collect();
+            // Convert to refs for the function call
+            let metadata_refs: Vec<_> = metadata_list_for_bm.iter().collect();
+            return self
+                .register_with_blobmanager(
+                    manager_id,
+                    manager_cap,
+                    epochs_ahead,
+                    blobs,
+                    metadata_refs,
+                    persistence,
+                )
+                .await;
+        }
 
         let metadata_list: Vec<_> = blobs
             .iter()
@@ -660,6 +699,68 @@ impl<'a> ResourceManager<'a> {
                         epochs_ahead,
                     },
                 )
+            })
+            .collect())
+    }
+
+    /// Registers blobs with a BlobManager.
+    ///
+    /// This method calls `reserve_and_register_blobs_in_blobmanager()` to register blobs
+    /// through a BlobManager and creates StoreOp::RegisteredInBlobManager for each blob.
+    /// The BlobManager handles deduplication automatically.
+    async fn register_with_blobmanager<'b, T: Debug + Clone + Send + Sync>(
+        &self,
+        manager_id: ObjectID,
+        manager_cap: ObjectID,
+        epochs_ahead: EpochCount,
+        blobs: Vec<WalrusStoreBlob<'b, T>>,
+        metadata_list: Vec<&VerifiedBlobMetadataWithId>,
+        persistence: BlobPersistence,
+    ) -> ClientResult<Vec<WalrusStoreBlob<'b, T>>> {
+        use walrus_sui::client::ArgumentOrOwnedObject;
+
+        let blob_metadata: Vec<_> = metadata_list
+            .iter()
+            .map(|m| (*m).try_into())
+            .collect::<Result<Vec<_>, _>>()?;
+
+        // Register blobs and get back Blob objects (caller owns them)
+        let registered_blobs = self
+            .sui_client
+            .reserve_and_register_blobs_in_blobmanager(
+                manager_id,
+                ArgumentOrOwnedObject::Object(manager_cap),
+                epochs_ahead,
+                blob_metadata.clone(),
+                persistence,
+            )
+            .await?;
+
+        if registered_blobs.len() != blobs.len() {
+            return Err(ClientError::store_blob_internal(format!(
+                "unexpected number of blobs returned: {} expected {}",
+                registered_blobs.len(),
+                blobs.len()
+            )));
+        }
+
+        // Create StoreOp::RegisteredInBlobManager for each blob using the returned Blob object
+        Ok(blobs
+            .into_iter()
+            .zip(blob_metadata.iter().zip(registered_blobs.iter()))
+            .map(|(blob, (metadata, registered_blob))| {
+                let operation = RegisterBlobOp::RegisterFromScratch {
+                    encoded_length: metadata.encoded_size,
+                    epochs_ahead,
+                };
+
+                let store_op = StoreOp::RegisteredInBlobManager {
+                    blob: registered_blob.clone(), // Use the Blob object returned from registration
+                    operation,
+                };
+
+                blob.with_register_result(Ok(store_op))
+                    .expect("should succeed on a Ok result")
             })
             .collect())
     }
