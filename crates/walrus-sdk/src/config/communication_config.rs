@@ -16,9 +16,12 @@ use walrus_core::{
 };
 use walrus_utils::backoff::ExponentialBackoffConfig;
 
-use crate::config::{
-    reqwest_config::{RequestRateConfig, ReqwestConfig},
-    sliver_write_extra_time::SliverWriteExtraTime,
+use crate::{
+    config::{
+        reqwest_config::{RequestRateConfig, ReqwestConfig},
+        sliver_write_extra_time::SliverWriteExtraTime,
+    },
+    uploader::TailHandling,
 };
 
 /// Below this threshold, the `NodeCommunication` client will not check if the sliver is present on
@@ -186,8 +189,8 @@ pub struct ClientCommunicationConfig {
     /// Defaults to 5_560 bytes.
     #[serde(default = "default_sliver_status_check_threshold")]
     pub sliver_status_check_threshold: usize,
-    /// Enable uploading slivers via a detached child process that continues tail writes.
-    pub child_process_uploads_enabled: bool,
+    /// Preferred handling mode for tail uploads once quorum has been reached.
+    pub tail_handling: TailHandling,
     /// Auto-tuning options for write concurrency derived from the data-in-flight limit.
     pub data_in_flight_auto_tune: DataInFlightAutoTuneConfig,
     /// The delay for which the client waits before storing data to ensure that storage nodes have
@@ -220,7 +223,7 @@ impl Default for ClientCommunicationConfig {
             request_rate_config: Default::default(),
             disable_proxy: Default::default(),
             sliver_write_extra_time: Default::default(),
-            child_process_uploads_enabled: false,
+            tail_handling: TailHandling::Blocking,
             data_in_flight_auto_tune: Default::default(),
             registration_delay: Duration::from_millis(200),
             max_total_blob_size: 1024 * 1024 * 1024, // 1GiB

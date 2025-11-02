@@ -54,6 +54,7 @@ runs:
             - 'Cargo.lock'
             - 'rust-toolchain.toml'
             - '.github/workflows/code.yml'
+            - 'setup/*.yaml'
           isReleaseNotesEligible:
             - 'contracts/**'
             - 'crates/**'

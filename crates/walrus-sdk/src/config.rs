@@ -299,7 +299,7 @@ mod tests {
         check_client_config -> TestResult: [
             testnet: ("../../setup/client_config_testnet.yaml", None, None),
             mainnet: ("../../setup/client_config_mainnet.yaml", None, None),
-            multi_config: ("../../setup/client_config.yaml", None, Some("mainnet")),
+            multi_config: ("../../setup/client_config.yaml", None, Some("testnet")),
             multi_config_with_testnet_context: (
                 "../../setup/client_config.yaml",
                 Some("testnet"),

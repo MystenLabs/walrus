@@ -9,7 +9,7 @@ Walrus is open-source under an Apache 2 license, and can also be built and insta
 source code via cargo.
 
 ```admonish info title="Walrus networks"
-This page describes how to connect to Walrus **Mainnet**. See [Available networks](./networks.md)
+This page describes how to connect to Walrus **Testnet**. See [Available networks](./networks.md)
 for an overview over all Walrus networks.
 ```
 

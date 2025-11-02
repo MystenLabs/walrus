@@ -635,8 +635,9 @@ pub enum CliCommands {
         #[command(subcommand)]
         command: NodeAdminCommands,
     },
-    /// Pull all blobs (filtered by optional prefix specifier) from Google Cloud Storage down into
-    /// the specified backfill_dir.
+    /// Pull all blobs (filtered by optional prefix specifier) from an archive of blobs in a Google
+    /// Cloud Storage bucket down into the specified directory.
+    #[command(hide = true)]
     PullArchiveBlobs {
         /// The Google Cloud Storage bucket to pull from.
         #[arg(long)]
@@ -658,11 +659,12 @@ pub enum CliCommands {
         pulled_state: PathBuf,
     },
     /// Upload blob slivers and metadata from a specified directory to the listed storage nodes.
+    #[command(hide = true)]
     BlobBackfill {
-        /// The subdirectory when blob-backfill can find blobs.
+        /// The directory where the blobs to backfill are stored.
         ///
-        /// Blobs in this directory must be named with their blob id. Any files that exist in this
-        /// directory that do not have a conforming blob id name will be skipped.
+        /// Blobs in this directory must be named with their blob ID. Any files that exist in this
+        /// directory that do not have a conforming blob ID name will be skipped.
         #[arg(long)]
         backfill_dir: PathBuf,
         /// The file where successfully pushed blob IDs will be stored.
@@ -1204,6 +1206,11 @@ pub struct CommonStoreOptions {
     #[arg(long, value_enum)]
     #[serde(default)]
     pub upload_mode: Option<UploadModeCli>,
+    /// Spawn a helper process that continues detached tail uploads after quorum is reached.
+    /// This is only effective when tail handling is configured as `detached`.
+    #[arg(long)]
+    #[serde(default)]
+    pub child_process_uploads: bool,
     /// Internal flag to signal the process is running as a child for background uploads.
     #[arg(long, hide = true)]
     #[serde(default)]
@@ -1975,6 +1982,7 @@ mod tests {
                 upload_relay: None,
                 skip_tip_confirmation: false,
                 upload_mode: None,
+                child_process_uploads: false,
                 internal_run: false,
             },
         })
