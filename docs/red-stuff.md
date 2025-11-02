@@ -97,7 +97,7 @@ $$
 - The fundamental property we achieve with this construction, and thanks to the linearity of RaptorQ, is that encoding the primary slivers (as rows)
   with the secondary encoding and the secondary slivers (as columns) with the primary encoding results in the same $N \times N$ expanded message
   matrix. This property can then be used for lost sliver recovery:
-  - If a shard is trying reconstruct a lost primary sliver, it can request $N-f$ symbols from the encodings of the secondary slivers of other shards,
+  - If a shard is trying to reconstruct a lost primary sliver, it can request $N-f$ symbols from the encodings of the secondary slivers of other shards,
     because, as mentioned above, the primary encoding of secondary slivers results in the symbols for primary slivers. Then, since the secondary
     encoding has $n_C$ source symbols, and $n_C \leq N-2f$, we can decode the original primary sliver from the obtained recovery symbols with high
     probability (see the later [discussion on recovery probability](#decoding-probability-and-decoding-safety-limit)).
@@ -225,7 +225,7 @@ s_{2,0} & s_{2,1} & s_{2,2} & \textcolor{red}{s_{2,3}} & s_{2,4} & r_{2,5} & r_{
 \right]
 $$
 
-To recover the secondary sliver, the node needs to contact at 3 other shards to obtain recovery symbols. In this case however, the recovery symbols
+To recover the secondary sliver, the node needs to contact 3 other shards to obtain recovery symbols. In this case however, the recovery symbols
 are already part of the primary slivers (here highlighted as rows) stored by the other shards, so no re-encoding is necessary. For example, shards 0,
 1, 5 provide the recovery symbols:
 
@@ -421,7 +421,7 @@ blob sizes, for `N=1000` shards and different number of nodes (1 node, floor(N/f
 | floor(N/floor(log2(N))) nodes |             7.10 MB |            32.6 |        0.000498 |                    7.17 |                0.000109 |
 | N nodes                       |             64.0 MB |             294 |         0.00448 |                    64.6 |                0.000985 |
 
-We see that for realistic node counts and small blob sizes, the total metadata overhead goes can be multiple times the size of the initial unencoded
+We see that for realistic node counts and small blob sizes, the total metadata overhead can be multiple times the size of the initial unencoded
 blob. However, for larger blob sizes, the overhead is negligible.
 
 [^twincode]: K. V. Rashmi, N. B. Shah and P. V . Kumar, "Enabling node repair in any erasure code for distributed storage," 2011 IEEE International
