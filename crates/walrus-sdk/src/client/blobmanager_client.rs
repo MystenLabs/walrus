@@ -135,7 +135,7 @@ impl BlobManagerClient<'_, SuiContractClient> {
                 } = &inner.operation
                 {
                     blob_info.push((registered_blob.clone(), operation.clone()));
-                    certs_with_blobs.push((registered_blob.clone(), &inner.certificate));
+                    certs_with_blobs.push((registered_blob, &inner.certificate));
                 }
             }
         }

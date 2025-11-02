@@ -627,7 +627,7 @@ impl SuiContractClient {
 
     /// Reserves space and registers blobs in a BlobManager (public wrapper).
     ///
-    /// Registers blobs in a BlobManager and returns their ObjectIDs.
+    /// Registers blobs in a BlobManager and returns the Blob objects (caller owns them).
     pub async fn reserve_and_register_blobs_in_blobmanager(
         &self,
         manager_id: ObjectID,
@@ -635,7 +635,7 @@ impl SuiContractClient {
         epochs_ahead: EpochCount,
         blob_metadata_list: Vec<BlobObjectMetadata>,
         persistence: BlobPersistence,
-    ) -> SuiClientResult<Vec<ObjectID>> {
+    ) -> SuiClientResult<Vec<Blob>> {
         self.retry_on_wrong_version(|| async {
             self.inner
                 .lock()
@@ -2591,7 +2591,7 @@ impl SuiContractClientInner {
             .iter()
             .filter_map(|params| {
                 let certificate = params.certificate.as_ref()?;
-                Some((&params.blob, certificate))
+                Some((params.blob, certificate)) // params.blob is already &Blob
             })
             .collect();
 
