@@ -23,7 +23,12 @@ use sui_sdk::{
     rpc_types::{SuiExecutionStatus, SuiTransactionBlockEffectsAPI, SuiTransactionBlockResponse},
     types::base_types::ObjectID,
 };
-use sui_types::{TypeTag, base_types::SuiAddress, event::EventID, transaction::TransactionData};
+use sui_types::{
+    TypeTag,
+    base_types::SuiAddress,
+    event::EventID,
+    transaction::{Argument, TransactionData},
+};
 use tokio::sync::Mutex;
 use tokio_stream::Stream;
 use tracing::Level;
@@ -88,6 +93,8 @@ pub mod rpc_client;
 pub mod rpc_config;
 
 pub mod transaction_builder;
+pub use transaction_builder::ArgumentOrOwnedObject;
+
 use crate::types::move_structs::EventBlob;
 
 pub mod contract_config;
@@ -613,6 +620,67 @@ impl SuiContractClient {
                 .lock()
                 .await
                 .reserve_and_register_blobs(epochs_ahead, blob_metadata_list.clone(), persistence)
+                .await
+        })
+        .await
+    }
+
+    /// Reserves space and registers blobs in a BlobManager (public wrapper).
+    ///
+    /// Registers blobs in a BlobManager and returns the Blob objects (caller owns them).
+    pub async fn reserve_and_register_blobs_in_blobmanager(
+        &self,
+        manager_id: ObjectID,
+        manager_cap: ArgumentOrOwnedObject,
+        epochs_ahead: EpochCount,
+        blob_metadata_list: Vec<BlobObjectMetadata>,
+        persistence: BlobPersistence,
+    ) -> SuiClientResult<Vec<Blob>> {
+        self.retry_on_wrong_version(|| async {
+            self.inner
+                .lock()
+                .await
+                .reserve_and_register_blobs_in_blobmanager(
+                    manager_id,
+                    manager_cap,
+                    epochs_ahead,
+                    blob_metadata_list.clone(),
+                    persistence,
+                )
+                .await
+        })
+        .await
+    }
+
+    /// Creates a new BlobManager and returns its ID and capability ID.
+    pub async fn create_blob_manager(
+        &self,
+        initial_capacity: u64,
+        epochs_ahead: EpochCount,
+    ) -> SuiClientResult<(ObjectID, ObjectID)> {
+        self.retry_on_wrong_version(|| async {
+            self.inner
+                .lock()
+                .await
+                .create_blob_manager(initial_capacity, epochs_ahead)
+                .await
+        })
+        .await
+    }
+
+    /// Certifies blobs that have been registered in a BlobManager.
+    /// Takes Blob objects and transfers ownership to BlobManager during certification.
+    pub async fn certify_blobs_in_blobmanager(
+        &self,
+        manager_id: ObjectID,
+        manager_cap: ArgumentOrOwnedObject,
+        blobs_with_certificates: &[(&Blob, &ConfirmationCertificate)],
+    ) -> SuiClientResult<()> {
+        self.retry_on_wrong_version(|| async {
+            self.inner
+                .lock()
+                .await
+                .certify_blobs_in_blobmanager(manager_id, manager_cap, blobs_with_certificates)
                 .await
         })
         .await
@@ -1854,6 +1922,321 @@ impl SuiContractClientInner {
         self.sign_and_send_transaction(transaction, "invalidate_blob_id")
             .await?;
         Ok(())
+    }
+
+    /// Reserves space and registers blobs in a BlobManager.
+    ///
+    /// This function registers each blob with the BlobManager, which manages its own storage.
+    /// Returns the Blob objects that the caller owns (until certification).
+    pub async fn reserve_and_register_blobs_in_blobmanager(
+        &mut self,
+        manager_id: ObjectID,
+        manager_cap: ArgumentOrOwnedObject,
+        _epochs_ahead: EpochCount,
+        blob_metadata_list: Vec<BlobObjectMetadata>,
+        persistence: BlobPersistence,
+    ) -> SuiClientResult<Vec<Blob>> {
+        use walrus_core::ensure;
+
+        use crate::utils::get_created_sui_object_ids_by_type;
+
+        if blob_metadata_list.is_empty() {
+            tracing::debug!("no blobs to register in blob manager");
+            return Ok(vec![]);
+        }
+
+        let expected_num_blobs = blob_metadata_list.len();
+        tracing::debug!(
+            num_blobs = expected_num_blobs,
+            manager_id = %manager_id,
+            "starting to reserve and register blobs in blob manager"
+        );
+
+        let mut pt_builder = self.transaction_builder()?;
+
+        // Register each blob in the BlobManager (BlobManager manages its own storage)
+        for (i, metadata) in blob_metadata_list.iter().enumerate() {
+            tracing::debug!(
+                blob_id = %metadata.blob_id,
+                count = format!("{}/{}", i + 1, expected_num_blobs),
+                "registering blob in blob manager"
+            );
+
+            pt_builder
+                .register_blob_in_blob_manager(
+                    manager_id,
+                    manager_cap,
+                    metadata.clone(),
+                    persistence,
+                )
+                .await?;
+        }
+
+        let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
+        let res = self
+            .sign_and_send_transaction(transaction, "reserve_and_register_blobs_in_blobmanager")
+            .await?;
+
+        if !res.errors.is_empty() {
+            tracing::warn!(errors = ?res.errors, "failed to register blobs in blob manager");
+            return Err(anyhow!("could not register blobs: {:?}", res.errors).into());
+        }
+
+        tracing::debug!("successfully registered blobs in blob manager");
+
+        // Extract Blob ObjectIDs from created objects (blobs are returned to caller)
+        let blob_obj_ids = get_created_sui_object_ids_by_type(
+            &res,
+            &contracts::blob::Blob
+                .to_move_struct_tag_with_type_map(&self.read_client.type_origin_map(), &[])?,
+        )?;
+
+        ensure!(
+            blob_obj_ids.len() == expected_num_blobs,
+            "unexpected number of blob objects created: {} expected {}",
+            blob_obj_ids.len(),
+            expected_num_blobs
+        );
+
+        // Fetch and return the Blob objects (caller owns them)
+        self.retriable_sui_client()
+            .get_sui_objects(&blob_obj_ids)
+            .await
+    }
+
+    /// Extracts blob ObjectIDs from transaction response (legacy method for compatibility).
+    ///
+    /// This extracts ObjectIDs from Field<ObjectID, Blob> objects in object_changes.
+    #[allow(dead_code)]
+    async fn extract_blob_object_ids_from_return_values(
+        &self,
+        res: &SuiTransactionBlockResponse,
+        _result_args: &[Argument],
+    ) -> SuiClientResult<Vec<ObjectID>> {
+        use sui_sdk::rpc_types::ObjectChange;
+
+        use crate::types::move_structs::{Blob, SuiDynamicField};
+
+        let mut blob_ids = Vec::new();
+
+        // Look for Field<ID, Blob> objects in object_changes
+        // When blobs are stored in BlobManager's table (via table::add), they appear as
+        // Field<ObjectID, Blob> objects. The blob ObjectID is the Field's key.
+        if let Some(object_changes) = res.object_changes.as_ref() {
+            for change in object_changes {
+                if let ObjectChange::Created {
+                    object_type,
+                    object_id: field_object_id,
+                    ..
+                } = change
+                {
+                    // Check if this is a Field containing a Blob
+                    let type_str = object_type.to_string();
+                    if type_str.contains("Field") && type_str.contains("Blob") {
+                        tracing::debug!(
+                            "Found Field object {} with type {}",
+                            field_object_id,
+                            object_type
+                        );
+
+                        // Read and deserialize the Field object as SuiDynamicField<ObjectID, Blob>
+                        // The Field's 'name' field contains the blob ObjectID (the key)
+                        match self
+                            .read_client
+                            .retriable_sui_client()
+                            .get_sui_object::<SuiDynamicField<ObjectID, Blob>>(*field_object_id)
+                            .await
+                        {
+                            Ok(field) => {
+                                tracing::debug!(
+                                    "Extracted blob ObjectID {} from Field {}",
+                                    field.name,
+                                    field_object_id
+                                );
+                                blob_ids.push(field.name);
+                            }
+                            Err(e) => {
+                                tracing::warn!(
+                                    "Failed to read Field {} as SuiDynamicField: {}",
+                                    field_object_id,
+                                    e
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        tracing::debug!(
+            "Extracted {} blob ObjectIDs from Field objects",
+            blob_ids.len()
+        );
+
+        Ok(blob_ids)
+    }
+
+    /// Creates a new BlobManager and returns its ID and capability ID.
+    ///
+    /// The BlobManager is automatically shared and can be used to manage blobs.
+    pub async fn create_blob_manager(
+        &mut self,
+        initial_capacity: u64,
+        epochs_ahead: EpochCount,
+    ) -> SuiClientResult<(ObjectID, ObjectID)> {
+        // Reserve storage for the initial capacity
+        let initial_storage = self.reserve_space(initial_capacity, epochs_ahead).await?;
+
+        // Create the BlobManager with PTB
+        let mut pt_builder = self.transaction_builder()?;
+        let cap_arg = pt_builder
+            .create_blob_manager(initial_storage.id.into())
+            .await?;
+
+        // Transfer the capability to the sender
+        pt_builder.transfer(None, vec![cap_arg.into()]).await?;
+
+        let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
+        let res = self
+            .sign_and_send_transaction(transaction, "create_blob_manager")
+            .await?;
+
+        if !res.errors.is_empty() {
+            tracing::warn!(errors = ?res.errors, "failed to create blob manager");
+            return Err(anyhow!("could not create blob manager: {:?}", res.errors).into());
+        }
+
+        // Extract the BlobManager and Cap object IDs from the transaction effects
+        let effects = res
+            .effects
+            .ok_or_else(|| anyhow!("No effects in transaction response"))?;
+        let object_changes = effects.created();
+
+        let mut manager_id: Option<ObjectID> = None;
+        let mut cap_id: Option<ObjectID> = None;
+
+        for obj_ref in object_changes {
+            // Check if it's shared or owned by looking at the owner field
+            // The manager is shared, the cap is owned
+            use sui_types::object::Owner;
+            match &obj_ref.owner {
+                Owner::Shared { .. } => {
+                    // This is the BlobManager (shared object)
+                    manager_id = Some(obj_ref.reference.object_id);
+                }
+                Owner::AddressOwner(_)
+                | Owner::ObjectOwner(_)
+                | Owner::ConsensusAddressOwner { .. } => {
+                    // This is the BlobManagerCap (owned object)
+                    cap_id = Some(obj_ref.reference.object_id);
+                }
+                Owner::Immutable => {
+                    // Shouldn't happen, but skip
+                }
+            }
+        }
+
+        let manager_id =
+            manager_id.ok_or_else(|| anyhow!("BlobManager not found in transaction effects"))?;
+        let cap_id =
+            cap_id.ok_or_else(|| anyhow!("BlobManagerCap not found in transaction effects"))?;
+
+        tracing::debug!(%manager_id, %cap_id, "created blob manager");
+        Ok((manager_id, cap_id))
+    }
+
+    /// Certifies blobs that have been registered in a BlobManager.
+    /// Uses blob_id and deletable flag to identify each blob.
+    pub async fn certify_blobs_in_blobmanager(
+        &mut self,
+        manager_id: ObjectID,
+        manager_cap: ArgumentOrOwnedObject,
+        blobs_with_certificates: &[(&Blob, &ConfirmationCertificate)],
+    ) -> SuiClientResult<()> {
+        if blobs_with_certificates.is_empty() {
+            tracing::debug!("no blobs to certify in blob manager");
+            return Ok(());
+        }
+
+        let mut pt_builder = self.transaction_builder()?;
+
+        for (i, (blob, certificate)) in blobs_with_certificates.iter().enumerate() {
+            tracing::debug!(
+                count = format!("{}/{}", i + 1, blobs_with_certificates.len()),
+                blob_id = %blob.blob_id,
+                "certifying blob in blob manager"
+            );
+
+            pt_builder
+                .certify_blob_in_blob_manager(
+                    manager_id,
+                    manager_cap,
+                    ArgumentOrOwnedObject::Object(blob.id),
+                    certificate,
+                )
+                .await?;
+        }
+
+        let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
+        let res = self
+            .sign_and_send_transaction(transaction, "certify_blobs_in_blobmanager")
+            .await?;
+
+        if !res.errors.is_empty() {
+            tracing::warn!(errors = ?res.errors, "failed to certify blobs in blob manager");
+            return Err(anyhow!("could not certify blobs: {:?}", res.errors).into());
+        }
+
+        tracing::debug!("successfully certified blobs in blob manager");
+        Ok(())
+    }
+
+    /// Certifies blobs through BlobManager using CertifyAndExtendBlobParams.
+    ///
+    /// This is a higher-level wrapper around certify_blobs_in_blobmanager() that
+    /// accepts CertifyAndExtendBlobParams and returns CertifyAndExtendBlobResult.
+    #[allow(dead_code)]
+    async fn certify_blobs_with_blobmanager(
+        &mut self,
+        manager_id: ObjectID,
+        manager_cap: ObjectID,
+        blobs_with_certificates: &[CertifyAndExtendBlobParams<'_>],
+        _post_store: PostStoreAction,
+    ) -> SuiClientResult<Vec<CertifyAndExtendBlobResult>> {
+        use crate::client::PostStoreActionResult;
+
+        if blobs_with_certificates.is_empty() {
+            return Ok(vec![]);
+        }
+
+        // Extract Blob objects and certificates for batch certification
+        let blobs_with_certs: Vec<_> = blobs_with_certificates
+            .iter()
+            .filter_map(|params| {
+                let certificate = params.certificate.as_ref()?;
+                Some((params.blob, certificate)) // params.blob is already &Blob
+            })
+            .collect();
+
+        // Certify all blobs in BlobManager
+        self.certify_blobs_in_blobmanager(
+            manager_id,
+            ArgumentOrOwnedObject::Object(manager_cap),
+            &blobs_with_certs,
+        )
+        .await?;
+
+        // Build results - for now only supporting Keep action
+        // TODO: Support other PostStoreAction variants for BlobManager
+        let results = blobs_with_certificates
+            .iter()
+            .map(|params| CertifyAndExtendBlobResult {
+                blob_object_id: params.blob.id,
+                post_store_action_result: PostStoreActionResult::Kept,
+            })
+            .collect();
+
+        Ok(results)
     }
 
     /// Registers a candidate node.

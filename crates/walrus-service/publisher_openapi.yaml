@@ -442,6 +442,40 @@ components:
                 $ref: '#/components/schemas/EventID'
                 description: The event where the blob was marked as invalid.
       - type: object
+        description: The blob is managed by a BlobManager (BlobManager owns the blob object).
+        required:
+        - managedByBlobManager
+        properties:
+          managedByBlobManager:
+            type: object
+            description: The blob is managed by a BlobManager (BlobManager owns the blob object).
+            required:
+            - blob_id
+            - blob_object_id
+            - resource_operation
+            - cost
+            - end_epoch
+            properties:
+              blob_id:
+                $ref: '#/components/schemas/BlobId'
+                description: The blob ID.
+              blob_object_id:
+                $ref: '#/components/schemas/ObjectID'
+                description: The object ID of the blob in BlobManager's table.
+              cost:
+                type: integer
+                format: int64
+                description: The storage cost, excluding gas.
+                minimum: 0
+              end_epoch:
+                type: integer
+                format: int64
+                description: The epoch until which the blob is stored (exclusive).
+                minimum: 0
+              resource_operation:
+                $ref: '#/components/schemas/RegisterBlobOp'
+                description: The operation that created or reused the blob.
+      - type: object
         description: Operation failed.
         required:
         - error

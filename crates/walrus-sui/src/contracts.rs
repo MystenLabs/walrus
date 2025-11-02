@@ -461,3 +461,27 @@ pub mod package {
 
     contract_ident!(struct package::UpgradeCap);
 }
+
+/// Module for tags corresponding to the Move module `blob_stash`.
+pub mod blob_stash {}
+
+/// Module for tags corresponding to the Move module `blobmanager`.
+pub mod blobmanager {
+    use super::*;
+
+    contract_ident!(struct blobmanager::BlobManager);
+    contract_ident!(struct blobmanager::BlobManagerCap);
+    contract_ident!(fn blobmanager::new_with_unified_storage);
+    contract_ident!(fn blobmanager::register_blob);
+    contract_ident!(fn blobmanager::certify_blob);
+    contract_ident!(fn blobmanager::duplicate_cap);
+    contract_ident!(fn blobmanager::cap_manager_id);
+    contract_ident!(fn blobmanager::manager_id);
+    contract_ident!(fn blobmanager::capacity_info);
+    contract_ident!(fn blobmanager::storage_epochs);
+    contract_ident!(fn blobmanager::blob_count);
+    contract_ident!(fn blobmanager::total_blob_size);
+    contract_ident!(fn blobmanager::has_blob);
+    contract_ident!(fn blobmanager::get_blob_object_ids);
+    contract_ident!(fn blobmanager::get_blob_info);
+}

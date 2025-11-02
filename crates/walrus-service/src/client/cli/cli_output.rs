@@ -227,6 +227,33 @@ impl CliOutput for BlobStoreResultWithPath {
                     blob_object.encoding_type,
                 )
             }
+            BlobStoreResult::ManagedByBlobManager {
+                blob_id,
+                blob_object_id,
+                resource_operation,
+                cost,
+                end_epoch,
+            } => {
+                let operation_str = match resource_operation {
+                    RegisterBlobOp::RegisterFromScratch { .. } => "(registered via BlobManager)",
+                    _ => "(via BlobManager)",
+                };
+                println!(
+                    "{} Blob managed by BlobManager and stored successfully.\n\
+                    Path: {}\n\
+                    Blob ID: {}\n\
+                    Blob object ID: {}\n\
+                    Cost (excluding gas): {} {} \n\
+                    Expiry epoch (exclusive): {}\n",
+                    success(),
+                    self.path.display(),
+                    blob_id,
+                    blob_object_id,
+                    HumanReadableFrost::from(*cost),
+                    operation_str,
+                    end_epoch,
+                )
+            }
             BlobStoreResult::MarkedInvalid { blob_id, event } => {
                 println!(
                     "{} Blob was marked as invalid.\nPath: {}\nBlob ID: {}\n

@@ -94,6 +94,7 @@ pub use crate::{
     config::{ClientCommunicationConfig, ClientConfig, default_configuration_paths},
 };
 
+pub mod blobmanager_client;
 pub mod client_types;
 pub mod communication;
 pub mod metrics;
@@ -1202,6 +1203,8 @@ impl WalrusNodeClient<SuiContractClient> {
                 store_args.epochs_ahead,
                 store_args.persistence,
                 store_args.store_optimizations,
+                store_args.blob_manager_id,
+                store_args.blob_manager_cap,
             )
             .await?;
 
@@ -1265,13 +1268,14 @@ impl WalrusNodeClient<SuiContractClient> {
             // Get the blob certificates, possibly storing slivers, while checking if the committee
             // has changed in the meantime.
             // This operation can be safely interrupted as it does not require a wallet.
+            // Note: This includes BlobManager blobs too - they need certificates but
+            // use different certification flow
             blobs_with_certificates = self
                 .await_while_checking_notification(
                     self.get_all_blob_certificates(to_be_certified, store_args),
                 )
                 .await?;
 
-            debug_assert_eq!(blobs_with_certificates.len(), num_to_be_certified);
             let get_certificates_duration = get_certificates_timer.elapsed();
 
             tracing::debug!(
@@ -1289,20 +1293,57 @@ impl WalrusNodeClient<SuiContractClient> {
 
         final_result.extend(completed_blobs);
 
+        // Separate BlobManager blobs from regular blobs (after getting certificates)
+        // BlobManager blobs use a different certification flow on-chain
+        let (blobmanager_blobs, regular_to_be_certified): (Vec<_>, Vec<_>) =
+            if store_args.blob_manager_id.is_some() {
+                to_be_certified.into_iter().partition(|blob| {
+                    matches!(
+                        blob.get_operation(),
+                        Some(StoreOp::RegisteredInBlobManager { .. })
+                    )
+                })
+            } else {
+                (vec![], to_be_certified)
+            };
+
+        // Certify BlobManager blobs using the new flow
+        if !blobmanager_blobs.is_empty() {
+            if let (Some(manager_id), Some(manager_cap)) =
+                (store_args.blob_manager_id, store_args.blob_manager_cap)
+            {
+                let sui_cert_timer = Instant::now();
+                let completed_bm_blobs = self
+                    .blobmanager_client(manager_id, manager_cap)
+                    .certify_and_complete_blobs(blobmanager_blobs)
+                    .await?;
+
+                let sui_cert_timer_duration = sui_cert_timer.elapsed();
+                tracing::info!(
+                    duration = ?sui_cert_timer_duration,
+                    "certified and completed {} blobs via BlobManager",
+                    completed_bm_blobs.len()
+                );
+                store_args.maybe_observe_upload_certificate(sui_cert_timer_duration);
+
+                // Add completed BlobManager blobs to final result
+                final_result.extend(completed_bm_blobs);
+            }
+        }
+
+        // For regular blobs and extensions, use standard flow
         let cert_and_extend_params: Vec<CertifyAndExtendBlobParams> = to_be_extended
             .iter()
-            .chain(to_be_certified.iter())
+            .chain(regular_to_be_certified.iter())
             .map(|blob| {
                 blob.get_certify_and_extend_params()
                     .expect("should be a CertifyAndExtendBlobParams")
             })
             .collect();
 
-        let mut cert_and_extend_results = vec![];
         if !cert_and_extend_params.is_empty() {
-            // Certify all blobs on Sui.
             let sui_cert_timer = Instant::now();
-            cert_and_extend_results = self
+            let cert_and_extend_results = self
                 .sui_client
                 .certify_and_extend_blobs(&cert_and_extend_params, store_args.post_store)
                 .await
@@ -1313,6 +1354,7 @@ impl WalrusNodeClient<SuiContractClient> {
                     );
                     ClientError::from(ClientErrorKind::CertificationFailed(error))
                 })?;
+
             let sui_cert_timer_duration = sui_cert_timer.elapsed();
             tracing::info!(
                 duration = ?sui_cert_timer_duration,
@@ -1320,40 +1362,42 @@ impl WalrusNodeClient<SuiContractClient> {
                 cert_and_extend_params.len()
             );
             store_args.maybe_observe_upload_certificate(sui_cert_timer_duration);
-        }
 
-        // Build map from BlobId to CertifyAndExtendBlobResult
-        let result_map: HashMap<ObjectID, CertifyAndExtendBlobResult> = cert_and_extend_results
-            .into_iter()
-            .map(|result| (result.blob_object_id, result))
-            .collect();
+            // Build map from BlobId to CertifyAndExtendBlobResult
+            let result_map: HashMap<ObjectID, CertifyAndExtendBlobResult> = cert_and_extend_results
+                .into_iter()
+                .map(|result| (result.blob_object_id, result))
+                .collect();
 
-        // Get price computation for completing blobs
-        let price_computation = self.get_price_computation().await?;
+            // Get price computation for completing blobs
+            let price_computation = self.get_price_computation().await?;
 
-        // Complete to_be_extended blobs.
-        for blob in to_be_extended {
-            let Some(object_id) = blob.get_object_id() else {
-                panic!("Invalid blob state {blob:?}");
-            };
-            if let Some(result) = result_map.get(&object_id) {
-                final_result
-                    .push(blob.with_certify_and_extend_result(result.clone(), &price_computation)?);
-            } else {
-                panic!("Invalid blob state {blob:?}");
+            // Complete to_be_extended blobs.
+            for blob in to_be_extended {
+                let Some(object_id) = blob.get_object_id() else {
+                    panic!("Invalid blob state {blob:?}");
+                };
+                if let Some(result) = result_map.get(&object_id) {
+                    final_result.push(
+                        blob.with_certify_and_extend_result(result.clone(), &price_computation)?,
+                    );
+                } else {
+                    panic!("Invalid blob state {blob:?}");
+                }
             }
-        }
 
-        // Complete to_be_certified blobs.
-        for blob in to_be_certified {
-            let Some(object_id) = blob.get_object_id() else {
-                panic!("Invalid blob state {blob:?}");
-            };
-            if let Some(result) = result_map.get(&object_id) {
-                final_result
-                    .push(blob.with_certify_and_extend_result(result.clone(), &price_computation)?);
-            } else {
-                panic!("Invalid blob state {blob:?}");
+            // Complete regular to_be_certified blobs.
+            for blob in regular_to_be_certified {
+                let Some(object_id) = blob.get_object_id() else {
+                    panic!("Invalid blob state {blob:?}");
+                };
+                if let Some(result) = result_map.get(&object_id) {
+                    final_result.push(
+                        blob.with_certify_and_extend_result(result.clone(), &price_computation)?,
+                    );
+                } else {
+                    panic!("Invalid blob state {blob:?}");
+                }
             }
         }
 
@@ -1421,22 +1465,42 @@ impl WalrusNodeClient<SuiContractClient> {
                 let multi_pb_arc = Arc::clone(&multi_pb);
                 async move {
                     let operation = registered_blob.get_operation().cloned();
-                    let Some(StoreOp::RegisterNew { blob, operation }) = operation else {
-                        return Err(ClientError::store_blob_internal(format!(
-                            "Expected a WalrusStoreBlob::RegisterNew, got {registered_blob:?}"
-                        )));
-                    };
-
-                    let certificate_result = self
-                        .get_blob_certificate(
-                            &blob,
-                            &operation,
-                            &registered_blob,
-                            multi_pb_arc.as_ref(),
-                            store_args,
-                        )
-                        .await;
-                    registered_blob.with_get_certificate_result(certificate_result)
+                    match operation {
+                        Some(StoreOp::RegisterNew { blob, operation }) => {
+                            let certificate_result = self
+                                .get_blob_certificate(
+                                    &blob,
+                                    &operation,
+                                    &registered_blob,
+                                    multi_pb_arc.as_ref(),
+                                    store_args,
+                                )
+                                .await;
+                            registered_blob.with_get_certificate_result(certificate_result)
+                        }
+                        Some(StoreOp::RegisteredInBlobManager {
+                            blob: registered_blob_obj,
+                            operation,
+                        }) => {
+                            // For BlobManager blobs, use the Blob object directly from StoreOp
+                            // The blob is owned by the caller and will be transferred to
+                            // BlobManager during certification
+                            let certificate_result = self
+                                .get_blob_certificate(
+                                    &registered_blob_obj,
+                                    &operation,
+                                    &registered_blob,
+                                    multi_pb_arc.as_ref(),
+                                    store_args,
+                                )
+                                .await;
+                            registered_blob.with_get_certificate_result(certificate_result)
+                        }
+                        _ => Err(ClientError::store_blob_internal(format!(
+                            "Unexpected operation type for blob: {:?}",
+                            registered_blob
+                        ))),
+                    }
                 }
             }))
             .await;
@@ -1624,6 +1688,15 @@ impl WalrusNodeClient<SuiContractClient> {
                 .await
                 .map_err(ClientError::other)?,
         ))
+    }
+
+    /// Returns a BlobManagerClient for managing blobs through a BlobManager.
+    pub fn blobmanager_client(
+        &self,
+        manager_id: ObjectID,
+        manager_cap: ObjectID,
+    ) -> blobmanager_client::BlobManagerClient<'_, SuiContractClient> {
+        blobmanager_client::BlobManagerClient::new(self, manager_id, manager_cap)
     }
 }
 

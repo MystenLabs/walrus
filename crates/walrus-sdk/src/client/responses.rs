@@ -101,6 +101,23 @@ pub enum BlobStoreResult {
         #[schema(value_type = EventIdSchema)]
         event: EventID,
     },
+    /// The blob is managed by a BlobManager (BlobManager owns the blob object).
+    ManagedByBlobManager {
+        /// The blob ID.
+        #[serde_as(as = "DisplayFromStr")]
+        blob_id: BlobId,
+        /// The object ID of the blob in BlobManager's table.
+        #[serde_as(as = "DisplayFromStr")]
+        #[schema(value_type = ObjectIdSchema)]
+        blob_object_id: ObjectID,
+        /// The operation that created or reused the blob.
+        resource_operation: RegisterBlobOp,
+        /// The storage cost, excluding gas.
+        cost: u64,
+        /// The epoch until which the blob is stored (exclusive).
+        #[schema(value_type = u64)]
+        end_epoch: Epoch,
+    },
     /// Operation failed.
     Error {
         /// The blob ID.
@@ -121,6 +138,7 @@ impl BlobStoreResult {
                 blob_object: Blob { blob_id, .. },
                 ..
             } => Some(*blob_id),
+            Self::ManagedByBlobManager { blob_id, .. } => Some(*blob_id),
             Self::Error { blob_id, .. } => *blob_id,
         }
     }
@@ -130,6 +148,7 @@ impl BlobStoreResult {
         match self {
             Self::AlreadyCertified { end_epoch, .. } => Some(*end_epoch),
             Self::NewlyCreated { blob_object, .. } => Some(blob_object.storage.end_epoch),
+            Self::ManagedByBlobManager { end_epoch, .. } => Some(*end_epoch),
             Self::MarkedInvalid { .. } => None,
             Self::Error { .. } => None,
         }
