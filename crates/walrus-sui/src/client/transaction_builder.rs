@@ -1794,17 +1794,16 @@ impl WalrusPtbBuilder {
         Ok(result_arg)
     }
 
-    /// Registers a blob with BlobManager.
-    /// If storage_for_blob is None, BlobManager uses its own storage.
-    /// Uses the BlobManager's available storage.
-    /// Returns nothing (void) - no return value to capture.
+    /// Registers a blob with BlobManager and returns the result Argument to capture the Blob.
+    /// The caller will own the Blob until certification, when ownership is transferred to BlobManager.
+    /// Returns the result Argument so the caller can extract the Blob object.
     pub async fn register_blob_in_blob_manager(
         &mut self,
         manager: ObjectID,
         cap: ArgumentOrOwnedObject,
         blob_metadata: BlobObjectMetadata,
         persistence: BlobPersistence,
-    ) -> SuiClientResult<()> {
+    ) -> SuiClientResult<Argument> {
         let price = self
             .write_price_for_encoded_length(blob_metadata.encoded_size, false)
             .await?;
@@ -1835,25 +1834,25 @@ impl WalrusPtbBuilder {
             self.wal_coin_arg()?,
         ];
 
-        self.blobmanager_move_call(contracts::blobmanager::register_blob, register_args)?;
+        let result_arg =
+            self.blobmanager_move_call(contracts::blobmanager::register_blob, register_args)?;
 
         self.reduce_wal_balance(price)?;
-        Ok(())
+        self.add_result_to_be_consumed(result_arg);
+        Ok(result_arg)
     }
 
-    /// Certifies a blob in BlobManager.
-    /// Uses blob_id and deletable flag to identify the blob.
+    /// Certifies a blob in BlobManager and transfers ownership to BlobManager.
+    /// Takes the Blob object from the caller and certifies it.
     pub async fn certify_blob_in_blob_manager(
         &mut self,
         manager: ObjectID,
         cap: ArgumentOrOwnedObject,
-        blob_id: BlobId,
-        deletable: bool,
+        blob: ArgumentOrOwnedObject, // Blob object to be certified
         certificate: &ConfirmationCertificate,
     ) -> SuiClientResult<()> {
         let cap_arg = self.argument_from_arg_or_obj(cap).await?;
-        let blob_id_arg = self.pt_builder.pure(blob_id)?;
-        let deletable_arg = self.pt_builder.pure(deletable)?;
+        let blob_arg = self.argument_from_arg_or_obj(blob).await?;
         let signers = self.signers_to_bitmap(&certificate.signers).await?;
 
         // Get the initial shared version for the BlobManager
@@ -1870,14 +1869,14 @@ impl WalrusPtbBuilder {
             })?,
             cap_arg,
             self.system_arg(SharedObjectMutability::Immutable).await?,
-            blob_id_arg,
-            deletable_arg,
+            blob_arg, // Pass the Blob object
             self.pt_builder.pure(certificate.signature.as_bytes())?,
             self.pt_builder.pure(&signers)?,
             self.pt_builder.pure(&certificate.serialized_message)?,
         ];
 
         self.blobmanager_move_call(contracts::blobmanager::certify_blob, certify_args)?;
+        self.mark_arg_as_consumed(&blob_arg);
         Ok(())
     }
 

@@ -187,15 +187,10 @@ pub enum StoreOp {
         /// The operation to be performed.
         operation: RegisterBlobOp,
     },
-    /// A blob registered in BlobManager (BlobManager owns the blob)
+    /// A blob registered in BlobManager (caller owns the blob until certification)
     RegisteredInBlobManager {
-        /// The blob_id for tracking
-        blob_id: BlobId,
-        /// Whether the blob is deletable
-        deletable: bool,
-        /// The ObjectID of the blob (extracted from transaction response)
-        /// Needed for storage nodes to verify registration during certificate fetching
-        object_id: ObjectID,
+        /// The Blob object (caller owns it, will transfer to BlobManager during certification)
+        blob: Blob,
         /// The operation performed
         operation: RegisterBlobOp,
     },
@@ -729,8 +724,8 @@ impl<'a> ResourceManager<'a> {
             .map(|m| (*m).try_into())
             .collect::<Result<Vec<_>, _>>()?;
 
-        // Register blobs and get back ObjectIDs (extracted from transaction response)
-        let blob_object_ids = self
+        // Register blobs and get back Blob objects (caller owns them)
+        let registered_blobs = self
             .sui_client
             .reserve_and_register_blobs_in_blobmanager(
                 manager_id,
@@ -741,30 +736,26 @@ impl<'a> ResourceManager<'a> {
             )
             .await?;
 
-        if blob_object_ids.len() != blobs.len() {
+        if registered_blobs.len() != blobs.len() {
             return Err(ClientError::store_blob_internal(format!(
-                "unexpected number of blob ObjectIDs returned: {} expected {}",
-                blob_object_ids.len(),
+                "unexpected number of blobs returned: {} expected {}",
+                registered_blobs.len(),
                 blobs.len()
             )));
         }
 
-        // Create StoreOp::RegisteredInBlobManager for each blob using blob_id + deletable
-        // Store ObjectID for use by storage nodes (needed for certificate fetching)
+        // Create StoreOp::RegisteredInBlobManager for each blob using the returned Blob object
         Ok(blobs
             .into_iter()
-            .zip(blob_metadata.iter().zip(blob_object_ids.iter()))
-            .map(|(blob, (metadata, object_id))| {
-                let blob_id = blob.get_blob_id().expect("blob ID should be present");
+            .zip(blob_metadata.iter().zip(registered_blobs.iter()))
+            .map(|(blob, (metadata, registered_blob))| {
                 let operation = RegisterBlobOp::RegisterFromScratch {
                     encoded_length: metadata.encoded_size,
                     epochs_ahead,
                 };
 
                 let store_op = StoreOp::RegisteredInBlobManager {
-                    blob_id,
-                    deletable: persistence.is_deletable(),
-                    object_id: *object_id, // Store ObjectID for storage node verification
+                    blob: registered_blob.clone(), // Use the Blob object returned from registration
                     operation,
                 };
 

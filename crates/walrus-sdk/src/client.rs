@@ -1478,43 +1478,14 @@ impl WalrusNodeClient<SuiContractClient> {
                             registered_blob.with_get_certificate_result(certificate_result)
                         }
                         Some(StoreOp::RegisteredInBlobManager {
-                            blob_id,
-                            deletable,
-                            object_id,
+                            blob: registered_blob_obj,
                             operation,
                         }) => {
-                            // For BlobManager blobs, construct a minimal Blob from metadata
-                            // since the blob is stored in a table and can't be fetched directly
-                            let metadata = registered_blob.get_metadata().ok_or_else(|| {
-                                ClientError::store_blob_internal(
-                                    "Missing metadata for BlobManager blob".to_string(),
-                                )
-                            })?;
-
-                            // Construct minimal Blob with just the fields needed for certificate fetching
-                            // get_blob_certificate only needs blob_id and blob_persistence_type()
-                            // Use the ObjectID extracted from transaction response
-                            use walrus_sui::types::Blob;
-                            let blob_size = registered_blob.unencoded_length() as u64;
-                            let blob = Blob {
-                                id: (*object_id).into(), // Use ObjectID extracted from transaction response
-                                registered_epoch: 0, // Not used for certificate fetching
-                                blob_id: *metadata.blob_id(), // Use blob_id from metadata
-                                size: blob_size,
-                                encoding_type: metadata.metadata().encoding_type(),
-                                certified_epoch: None, // Not yet certified
-                                storage: walrus_sui::types::StorageResource {
-                                    id: (*object_id).into(), // Use ObjectID for storage resource
-                                    start_epoch: 0,          // Not used for certificate fetching
-                                    end_epoch: 0,            // Not used for certificate fetching
-                                    storage_size: blob_size, // Not used for certificate fetching
-                                },
-                                deletable, // Use deletable from StoreOp
-                            };
-
+                            // For BlobManager blobs, use the Blob object directly from StoreOp
+                            // The blob is owned by the caller and will be transferred to BlobManager during certification
                             let certificate_result = self
                                 .get_blob_certificate(
-                                    &blob,
+                                    &registered_blob_obj,
                                     &operation,
                                     &registered_blob,
                                     multi_pb_arc.as_ref(),

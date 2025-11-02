@@ -669,12 +669,12 @@ impl SuiContractClient {
     }
 
     /// Certifies blobs that have been registered in a BlobManager.
-    /// Uses blob_id and deletable flag to identify each blob.
+    /// Takes Blob objects and transfers ownership to BlobManager during certification.
     pub async fn certify_blobs_in_blobmanager(
         &self,
         manager_id: ObjectID,
         manager_cap: ArgumentOrOwnedObject,
-        blobs_with_certificates: &[(BlobId, bool, &ConfirmationCertificate)],
+        blobs_with_certificates: &[(&Blob, &ConfirmationCertificate)],
     ) -> SuiClientResult<()> {
         self.retry_on_wrong_version(|| async {
             self.inner
@@ -1927,7 +1927,7 @@ impl SuiContractClientInner {
     /// Reserves space and registers blobs in a BlobManager.
     ///
     /// This function registers each blob with the BlobManager, which manages its own storage.
-    /// Returns the ObjectIDs of the registered blobs (extracted from Field objects in response).
+    /// Returns the Blob objects that the caller owns (until certification).
     pub async fn reserve_and_register_blobs_in_blobmanager(
         &mut self,
         manager_id: ObjectID,
@@ -1935,7 +1935,10 @@ impl SuiContractClientInner {
         _epochs_ahead: EpochCount,
         blob_metadata_list: Vec<BlobObjectMetadata>,
         persistence: BlobPersistence,
-    ) -> SuiClientResult<Vec<ObjectID>> {
+    ) -> SuiClientResult<Vec<Blob>> {
+        use crate::utils::get_created_sui_object_ids_by_type;
+        use walrus_core::ensure;
+
         if blob_metadata_list.is_empty() {
             tracing::debug!("no blobs to register in blob manager");
             return Ok(vec![]);
@@ -1980,20 +1983,24 @@ impl SuiContractClientInner {
 
         tracing::debug!("successfully registered blobs in blob manager");
 
-        // Extract ObjectIDs from Field<ObjectID, Blob> objects in the transaction response
-        // These are needed for storage nodes to verify registration
-        let blob_object_ids = self
-            .extract_blob_object_ids_from_return_values(&res, &[])
-            .await?;
+        // Extract Blob ObjectIDs from created objects (blobs are returned to caller)
+        let blob_obj_ids = get_created_sui_object_ids_by_type(
+            &res,
+            &contracts::blob::Blob
+                .to_move_struct_tag_with_type_map(&self.read_client.type_origin_map(), &[])?,
+        )?;
 
-        tracing::debug!(
-            "Extracted {} blob ObjectIDs from transaction response",
-            blob_object_ids.len()
+        ensure!(
+            blob_obj_ids.len() == expected_num_blobs,
+            "unexpected number of blob objects created: {} expected {}",
+            blob_obj_ids.len(),
+            expected_num_blobs
         );
 
-        // Return the ObjectIDs so callers can use them
-        // The caller should match them with blob_metadata_list by order
-        Ok(blob_object_ids)
+        // Fetch and return the Blob objects (caller owns them)
+        self.retriable_sui_client()
+            .get_sui_objects(&blob_obj_ids)
+            .await
     }
 
     /// Extracts ManagedBlobInfo directly from Move function return values in the transaction response.
@@ -2521,7 +2528,7 @@ impl SuiContractClientInner {
         &mut self,
         manager_id: ObjectID,
         manager_cap: ArgumentOrOwnedObject,
-        blobs_with_certificates: &[(BlobId, bool, &ConfirmationCertificate)],
+        blobs_with_certificates: &[(&Blob, &ConfirmationCertificate)],
     ) -> SuiClientResult<()> {
         if blobs_with_certificates.is_empty() {
             tracing::debug!("no blobs to certify in blob manager");
@@ -2530,11 +2537,10 @@ impl SuiContractClientInner {
 
         let mut pt_builder = self.transaction_builder()?;
 
-        for (i, (blob_id, deletable, certificate)) in blobs_with_certificates.iter().enumerate() {
+        for (i, (blob, certificate)) in blobs_with_certificates.iter().enumerate() {
             tracing::debug!(
                 count = format!("{}/{}", i + 1, blobs_with_certificates.len()),
-                blob_id = %blob_id,
-                deletable = %deletable,
+                blob_id = %blob.blob_id,
                 "certifying blob in blob manager"
             );
 
@@ -2542,8 +2548,7 @@ impl SuiContractClientInner {
                 .certify_blob_in_blob_manager(
                     manager_id,
                     manager_cap,
-                    *blob_id,
-                    *deletable,
+                    ArgumentOrOwnedObject::Object(blob.id.into()),
                     certificate,
                 )
                 .await?;
@@ -2581,12 +2586,12 @@ impl SuiContractClientInner {
             return Ok(vec![]);
         }
 
-        // Extract blob_id, deletable, and certificates for batch certification
+        // Extract Blob objects and certificates for batch certification
         let blobs_with_certs: Vec<_> = blobs_with_certificates
             .iter()
             .filter_map(|params| {
                 let certificate = params.certificate.as_ref()?;
-                Some((params.blob.blob_id, params.blob.deletable, certificate))
+                Some((&params.blob, certificate))
             })
             .collect();
 
