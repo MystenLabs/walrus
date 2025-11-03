@@ -3,6 +3,9 @@
 
 // Allowing `unwrap`s in tests.
 #![allow(clippy::unwrap_used)]
+// This avoids the following error when running simtests:
+// error[E0275]: overflow evaluating the requirement `{coroutine ...}: std::marker::Send`
+#![recursion_limit = "256"]
 
 //! Contains end-to-end tests for the Walrus client interacting with a Walrus test cluster.
 
