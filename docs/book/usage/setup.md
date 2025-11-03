@@ -33,9 +33,10 @@ Because of DoS protection, it might not be possible to download the binaries wit
 
 ## Install via script {#nix-install}
 
-To download and install `walrus` to your `"$HOME"/.local/bin directory`, run one of the following commands 
-in your terminal then follow on-screen instructions. If you are on Windows, see the 
-Windows-specific instructions or the [`suiup` installation](./setup.md).
+To download and install `walrus` to your `"$HOME"/.local/bin directory`, run one of the
+following commands in your terminal then follow on-screen instructions. If you are on Windows, 
+see the Windows-specific instructions or the
+[`suiup` installation](./setup.md).
 
 ```bash
 # Run a first-time install using the latest Mainnet version.
