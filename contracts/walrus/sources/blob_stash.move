@@ -15,9 +15,9 @@ const EBlobAlreadyCertifiedInBlobManager: u64 = 4;
 /// The requested blob was not found.
 const EBlobNotRegisteredInBlobManager: u64 = 2;
 
-// === HybridOwnershipBlobStash Struct ===
+// === TwoPhaseOwnershipBlobStash Struct ===
 
-/// Hybrid ownership blob storage implementation
+/// Two-phase ownership blob storage implementation
 /// Tracks blobs with two-phase ownership: initially caller-owned, then BlobManager-owned
 /// Stores blobs in tables indexed by blob_id and object_id
 /// Blob deduplication behavior:
@@ -25,7 +25,7 @@ const EBlobNotRegisteredInBlobManager: u64 = 2;
 ///   EBlobAlreadyCertified error
 /// - If an uncertified blob with same blob_id and deletable exists: Returns its object ID
 /// - Otherwise: Creates new blob, stores it, and returns its object ID
-public struct HybridOwnershipBlobStash has store {
+public struct TwoPhaseOwnershipBlobStash has store {
     /// Maps blob_id to its object ID(s)
     blob_id_to_objects: Table<u256, vector<ID>>,
     /// All blobs indexed by their object ID
@@ -38,16 +38,16 @@ public struct HybridOwnershipBlobStash has store {
 /// Supports multiple variants of the same blob_id (e.g., deletable vs permanent)
 public enum BlobStash has store {
     /// Object-based storage variant
-    ObjectBased(HybridOwnershipBlobStash),
+    ObjectBased(TwoPhaseOwnershipBlobStash),
 }
 
-// === HybridOwnershipBlobStash Methods ===
+// === TwoPhaseOwnershipBlobStash Methods ===
 
 /// Finds a matching blob with the given blob_id and deletable flag
 /// Returns Option::some(object_id) if found and not certified, otherwise Option::none()
 /// Aborts with EBlobAlreadyCertifiedInBlobManager if found and already certified
 public fun find_matching_blob_id(
-    self: &HybridOwnershipBlobStash,
+    self: &TwoPhaseOwnershipBlobStash,
     blob_id: u256,
     deletable: bool,
 ): Option<ID> {
@@ -81,7 +81,7 @@ public fun find_matching_blob_id(
 
 /// Adds only the object_id to tracking (blob is owned by caller, not stored yet)
 public fun add_blob_object_id_only(
-    self: &mut HybridOwnershipBlobStash,
+    self: &mut TwoPhaseOwnershipBlobStash,
     blob_id: u256,
     object_id: ID,
     size: u64,
@@ -102,7 +102,7 @@ public fun add_blob_object_id_only(
 /// Adds a new blob to the object-based storage (transfers ownership to BlobManager)
 /// Used during certification when blob is transferred from caller to BlobManager
 public fun add_blob(
-    self: &mut HybridOwnershipBlobStash,
+    self: &mut TwoPhaseOwnershipBlobStash,
     blob_id: u256,
     object_id: ID,
     blob: Blob,
@@ -121,22 +121,22 @@ public fun add_blob(
 }
 
 /// Returns the number of blobs
-public fun blob_count(self: &HybridOwnershipBlobStash): u64 {
+public fun blob_count(self: &TwoPhaseOwnershipBlobStash): u64 {
     self.blobs_by_object_id.length()
 }
 
 /// Returns the total unencoded size of all blobs
-public fun total_blob_size(self: &HybridOwnershipBlobStash): u64 {
+public fun total_blob_size(self: &TwoPhaseOwnershipBlobStash): u64 {
     self.total_unencoded_size
 }
 
 /// Checks if a blob_id exists
-public fun has_blob(self: &HybridOwnershipBlobStash, blob_id: u256): bool {
+public fun has_blob(self: &TwoPhaseOwnershipBlobStash, blob_id: u256): bool {
     self.blob_id_to_objects.contains(blob_id)
 }
 
 /// Gets all object IDs for a given blob_id (may include multiple variants)
-public fun get_blob_object_ids(self: &HybridOwnershipBlobStash, blob_id: u256): vector<ID> {
+public fun get_blob_object_ids(self: &TwoPhaseOwnershipBlobStash, blob_id: u256): vector<ID> {
     if (self.blob_id_to_objects.contains(blob_id)) {
         *self.blob_id_to_objects.borrow(blob_id)
     } else {
@@ -262,7 +262,7 @@ public fun find_blob_object_id_by_blob_id_and_deletable(
 /// Finds blob ObjectID by blob_id and deletable for certification
 /// Does not check if blob is already certified (that check happens in certify_blob)
 fun find_blob_object_id_for_certification(
-    self: &HybridOwnershipBlobStash,
+    self: &TwoPhaseOwnershipBlobStash,
     blob_id: u256,
     deletable: bool,
 ): Option<ID> {
@@ -315,9 +315,9 @@ public fun verify_and_get_blob_id(stash: &BlobStash, blob_object_id: ID): u256 {
     }
 }
 
-/// Creates a new HybridOwnershipBlobStash instance
-public fun new_object_based_blob_stash(ctx: &mut TxContext): HybridOwnershipBlobStash {
-    HybridOwnershipBlobStash {
+/// Creates a new TwoPhaseOwnershipBlobStash instance
+public fun new_object_based_blob_stash(ctx: &mut TxContext): TwoPhaseOwnershipBlobStash {
+    TwoPhaseOwnershipBlobStash {
         blob_id_to_objects: table::new(ctx),
         blobs_by_object_id: table::new(ctx),
         total_unencoded_size: 0,
