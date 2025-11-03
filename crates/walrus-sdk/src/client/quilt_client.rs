@@ -765,9 +765,7 @@ impl QuiltClient<'_, SuiContractClient> {
         store_args: &StoreArgs,
     ) -> ClientResult<QuiltStoreResult> {
         let quilt = self.construct_quilt_from_paths::<V, P>(paths, store_args.encoding_type)?;
-        let result = self
-            .reserve_and_store_quilt::<V>(&quilt, store_args)
-            .await?;
+        let result = self.reserve_and_store_quilt::<V>(quilt, store_args).await?;
 
         Ok(result)
     }
@@ -776,16 +774,21 @@ impl QuiltClient<'_, SuiContractClient> {
     #[tracing::instrument(skip_all, fields(blob_id))]
     pub async fn reserve_and_store_quilt<V: QuiltVersion>(
         &self,
-        quilt: &V::Quilt,
+        quilt: V::Quilt,
         store_args: &StoreArgs,
     ) -> ClientResult<QuiltStoreResult> {
         let attributes = vec![BlobAttribute::from([(
             BLOB_TYPE_ATTRIBUTE_KEY,
             QUILT_TYPE_VALUE,
         )])];
+        let quilt_index = quilt.quilt_index()?.clone();
         let result = self
             .client
-            .reserve_and_store_blobs_retry_committees(&[quilt.data()], &attributes, store_args)
+            .reserve_and_store_blobs_retry_committees(
+                vec![quilt.into_data()],
+                attributes,
+                store_args,
+            )
             .await?;
 
         let blob_store_result = result.first().expect("the first blob should exist").clone();
@@ -800,8 +803,7 @@ impl QuiltClient<'_, SuiContractClient> {
         let blob_id = blob_store_result
             .blob_id()
             .expect("the blob should have an id");
-        let stored_quilt_blobs = quilt
-            .quilt_index()?
+        let stored_quilt_blobs = quilt_index
             .patches()
             .iter()
             .map(|patch| {

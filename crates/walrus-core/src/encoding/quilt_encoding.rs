@@ -218,12 +218,15 @@ pub trait QuiltApi<V: QuiltVersion> {
     /// Returns the data of the quilt.
     fn data(&self) -> &[u8];
 
+    /// Returns the data of the quilt by moving it out, consuming the Quilt.
+    fn into_data(self) -> Vec<u8>;
+
     /// Returns the symbol size of the quilt.
     fn symbol_size(&self) -> usize;
 }
 
 /// API for QuiltIndex.
-pub trait QuiltIndexApi<V: QuiltVersion>: Clone + Into<QuiltIndex> {
+pub trait QuiltIndexApi<V: QuiltVersion>: Clone + Into<QuiltIndex> + Send + Sync {
     /// Returns the quilt patches matching the given identifiers.
     ///
     /// If the quilt contains duplicate identifiers, the first matching patch is returned.
@@ -1027,6 +1030,10 @@ impl QuiltApi<QuiltVersionV1> for QuiltV1 {
 
     fn data(&self) -> &[u8] {
         &self.data
+    }
+
+    fn into_data(self) -> Vec<u8> {
+        self.data
     }
 
     fn symbol_size(&self) -> usize {

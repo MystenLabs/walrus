@@ -149,7 +149,7 @@ pub trait WalrusWriteClient: WalrusReadClient {
     /// Writes a blob to Walrus.
     fn write_blob(
         &self,
-        blob: &[u8],
+        blob: Vec<u8>,
         encoding_type: Option<EncodingType>,
         epochs_ahead: EpochCount,
         store_optimizations: StoreOptimizations,
@@ -254,7 +254,7 @@ impl WalrusWriteClient for WalrusNodeClient<SuiContractClient> {
     #[tracing::instrument(skip_all)]
     async fn write_blob(
         &self,
-        blob: &[u8],
+        blob: Vec<u8>,
         encoding_type: Option<EncodingType>,
         epochs_ahead: EpochCount,
         store_optimizations: StoreOptimizations,
@@ -272,7 +272,7 @@ impl WalrusWriteClient for WalrusNodeClient<SuiContractClient> {
         )
         .with_tail_handling(tail_mode);
         let result = self
-            .reserve_and_store_blobs_retry_committees(&[blob], &[], &store_args)
+            .reserve_and_store_blobs_retry_committees(vec![blob], vec![], &store_args)
             .await?;
 
         Ok(result
@@ -313,7 +313,7 @@ impl WalrusWriteClient for WalrusNodeClient<SuiContractClient> {
         )
         .with_tail_handling(tail_mode);
         self.quilt_client()
-            .reserve_and_store_quilt::<V>(&quilt, &store_args)
+            .reserve_and_store_quilt::<V>(quilt, &store_args)
             .await
     }
 
