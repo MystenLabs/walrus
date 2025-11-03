@@ -18,19 +18,34 @@ const EBlobNotRegisteredInBlobManager: u64 = 2;
 // === TwoPhaseOwnershipBlobStash Struct ===
 
 /// Two-phase ownership blob storage implementation
-/// Tracks blobs with two-phase ownership: initially caller-owned, then BlobManager-owned
-/// Stores blobs in tables indexed by blob_id and object_id
+///
+/// This struct manages blobs through a two-phase ownership lifecycle:
+///
+/// PHASE 1 - REGISTRATION (Caller Ownership):
+/// - When a blob is registered via `add_blob_object_id_only_to_stash()`, the Blob object
+///   is returned to the caller who owns it
+/// - Only the blob's ObjectID is tracked in `blob_id_to_objects` table for deduplication
+/// - The caller can do anything with the blob (transfer, store, etc.) before certification
+///
+/// PHASE 2 - CERTIFICATION (BlobManager Ownership):
+/// - When the blob is certified via `add_blob_to_stash()`, the caller transfers the Blob
+///   object to BlobManager
+/// - The Blob is stored in `blobs_by_object_id` table and becomes permanently managed
+/// - BlobManager now owns and controls the blob's lifecycle
+///
 /// Blob deduplication behavior:
 /// - If a certified blob with same blob_id and deletable exists: Returns
 ///   EBlobAlreadyCertified error
 /// - If an uncertified blob with same blob_id and deletable exists: Returns its object ID
 /// - Otherwise: Creates new blob, stores it, and returns its object ID
 public struct TwoPhaseOwnershipBlobStash has store {
-    /// Maps blob_id to its object ID(s)
+    /// Maps blob_id to vector of ObjectIDs (supports multiple variants per blob_id)
+    /// Used in PHASE 1 to track caller-owned blobs and check for duplicates
     blob_id_to_objects: Table<u256, vector<ID>>,
-    /// All blobs indexed by their object ID
+    /// Maps ObjectID to the actual Blob object
+    /// Used in PHASE 2 to store BlobManager-owned certified blobs
     blobs_by_object_id: Table<ID, Blob>,
-    /// Total unencoded size of all blobs
+    /// Total unencoded size of all blobs (both phases)
     total_unencoded_size: u64,
 }
 
