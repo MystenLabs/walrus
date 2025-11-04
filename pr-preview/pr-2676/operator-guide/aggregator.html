@@ -363,7 +363,7 @@ the <code>send_object_to</code> query parameter, if it is specified in the PUT r
 <p>The aggregator can perform concatenation of multiple blobs via the <code>/v1alpha/blobs/concat</code> endpoint.
 This endpoint enables delivery of very large files - which would otherwise be unsupported due to
 individual blob size restrictions. See <code>./scripts/walrus-store-sliced.sh</code> for an example of how a
-very large file can be sliced and uploaded to walrus. Once the slices are uploaded, the very large
+very large file can be sliced and uploaded to Walrus. Once the slices are uploaded, the very large
 file can be read directly by your downstream users by <code>GET</code> URL construction (listing the blob
 slices in the query params), or via a <code>POST</code> request with a JSON body listing the ids. Details of
 this api are available in the online aggregator docs. These can be found at
