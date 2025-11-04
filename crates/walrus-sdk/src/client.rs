@@ -845,7 +845,7 @@ impl<T: ReadClient> WalrusNodeClient<T> {
     /// Returns a vector containing the results of the store operations on each node.
     pub async fn backfill_blob_to_nodes(
         &self,
-        blob: &[u8],
+        blob: Vec<u8>,
         node_ids: impl IntoIterator<Item = ObjectID>,
         encoding_type: EncodingType,
         expected_blob_id: Option<BlobId>,

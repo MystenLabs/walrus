@@ -1240,7 +1240,7 @@ impl EventBlobWriter {
             .node
             .encoding_config()
             .get_for_type(DEFAULT_ENCODING)
-            .encode_with_metadata(&content)?;
+            .encode_with_metadata(content)?;
         self.node
             .storage()
             .put_verified_metadata_without_blob_info(&blob_metadata)

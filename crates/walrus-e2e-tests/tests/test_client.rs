@@ -328,7 +328,7 @@ async fn test_inconsistency(failed_nodes: &[usize]) -> TestResult {
         .as_ref()
         .encoding_config()
         .get_for_type(DEFAULT_ENCODING)
-        .encode_with_metadata(&blob)?;
+        .encode_with_metadata(blob)?;
     let mut metadata = metadata.metadata().to_owned();
     let mut i = 0;
     // Change a shard that is not in the failure set. Since the mapping of slivers to shards
@@ -496,7 +496,7 @@ async fn test_store_with_existing_blob_resource(
                 .as_ref()
                 .encoding_config()
                 .get_for_type(encoding_type)
-                .encode_with_metadata(blob)
+                .encode_with_metadata(blob.clone())
                 .expect("blob encoding should not fail");
             let metadata = metadata.metadata().to_owned();
             let blob_id = BlobId::from_sliver_pair_metadata(&metadata);

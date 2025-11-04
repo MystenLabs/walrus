@@ -387,7 +387,7 @@ async fn process_file_and_backfill(
     match std::fs::read(blob_filename) {
         Ok(blob) => {
             if let Ok(blob_id) = blob_id_from_path(blob_filename) {
-                let _ = backfill_blob(client, node_ids, blob_id, &blob, pushed_blobs, pushed_state)
+                let _ = backfill_blob(client, node_ids, blob_id, blob, pushed_blobs, pushed_state)
                     .await
                     .inspect(|_| {
                         tracing::debug!(?blob_id, ?blob_filename, "successfully pushed blob");
@@ -433,7 +433,7 @@ async fn backfill_blob(
     client: &WalrusNodeClient<SuiReadClient>,
     node_ids: &[ObjectID],
     blob_id: BlobId,
-    blob: &[u8],
+    blob: Vec<u8>,
     pushed_blobs: &mut HashSet<BlobId>,
     pushed_state: &mut File,
 ) -> Result<()> {

@@ -160,7 +160,7 @@ impl WriteClient {
             .as_ref()
             .encoding_config()
             .get_for_type(DEFAULT_ENCODING)
-            .encode_with_metadata(&blob)
+            .encode_with_metadata(blob)
             .map_err(ClientError::other)?;
 
         let mut metadata = metadata.metadata().to_owned();
