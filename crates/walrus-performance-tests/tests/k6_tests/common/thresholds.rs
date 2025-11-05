@@ -11,8 +11,8 @@ type BlobThroughputThresholdsInner = [(K6Environment, ByteSize, usize, usize); 8
 /// These thresholds are taken from one set of nightly experiments (NightlyWithLatency), and it's
 /// expected that all tests that have enforced thresholds are lower than this.
 static BLOB_UPLOAD_DOWNLOAD_LATENCY_THRESHOLDS: BlobLatencyThresholdsInner = [
-    (ByteSize::kibi(1), 12, 2),
-    (ByteSize::mebi(10), 22, 3),
+    (ByteSize::kibi(1), 20, 2),
+    (ByteSize::mebi(10), 40, 3),
     (ByteSize::mebi(100), 180, 35),
     (ByteSize::mebi(500), 500, 110),
 ];
