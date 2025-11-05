@@ -30,7 +30,9 @@ walrus-test-utils = { workspace = true, optional = true }
 [dev-dependencies]
 anyhow.workspace = true
 criterion.workspace = true
+divan = "0.1.21"
 serde_test.workspace = true
+tempfile.workspace = true
 tracing-subscriber.workspace = true
 walrus-test-utils.workspace = true
 
@@ -46,4 +48,8 @@ harness = false
 
 [[bench]]
 name = "blob_encoding"
+harness = false
+
+[[bench]]
+name = "symbol_file"
 harness = false

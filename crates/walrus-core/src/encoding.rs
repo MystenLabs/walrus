@@ -74,3 +74,4 @@ pub use symbols::{
 };
 
 mod utils;
+pub mod disk_encoder;
