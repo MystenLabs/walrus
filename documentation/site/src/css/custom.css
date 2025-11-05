@@ -1,0 +1,33 @@
+@import "./fonts.css";
+
+@layer theme, utilities;
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities);
+
+@theme {
+  --color-wal-black: hsl(229, 42%, 8%);
+  --color-wal-white: hsl(0, 0%, 97%);
+  --color-wal-purple-light: hsl(275, 94%, 86%);
+  --color-wal-purple: hsl(275, 86%, 74%);
+  --color-wal-purple-dark: hsl(275, 68%, 49%);
+  --color-wal-green-light: hsl(172, 83%, 89%);
+  --color-wal-green: hsl(173, 75%, 77%);
+  --color-wal-green-dark: hsl(172, 92%, 36%);
+}
+
+:root {
+  --ifm-font-family-base: var(--font-sans);
+  --ifm-font-family-monospace: var(--font-mono);
+}
+
+body {
+  @apply font-sans text-sm leading-[130%] font-normal not-italic tracking-normal;
+}
+
+.markdown header > h1 {
+  @apply text-wal-purple-dark font-bold text-[2.5rem];
+}
+
+.markdown h2 {
+  @apply font-semibold text-[1.75rem];
+}
