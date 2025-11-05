@@ -50,7 +50,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # pin@v4
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # pin@v5.0.0
 
       - name: Get testnet version, if not provided
         if: ${{ env.NEW_TAG == '' }}
@@ -127,7 +127,7 @@ jobs:
           echo "slack_id=$(echo ${slack_id} | tr -d '"')" >> $GITHUB_ENV
 
       - name: Post to slack
-        uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # pin@v2.1.1
+        uses: slackapi/slack-github-action@34c3fd73326693ef04728f8611669d918a2d781d # pin@v1.19.0
         env:
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
           SUI_SHA: ${{ env.sui_sha }}

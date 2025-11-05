@@ -41,7 +41,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # pin@v4
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # pin@v5.0.0
       - uses: ./.github/actions/build-mdbook
         with:
           with_linkcheck: "false"
@@ -69,7 +69,7 @@ jobs:
       group: sui-wallet-operations
       cancel-in-progress: false
     steps:
-      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # pin@v4
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # pin@v5.0.0
       - uses: ./.github/actions/build-mdbook
         with:
           with_linkcheck: "false"

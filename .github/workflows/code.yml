@@ -43,8 +43,7 @@ jobs:
       isDenyConfig: ${{ steps.diff.outputs.isDenyConfig }}
       isTestConfig: ${{ steps.diff.outputs.isTestConfig }}
       isOpenapi: ${{ steps.diff.outputs.isOpenapi }}
-      isRelevantForRustTests:
-        ${{ steps.diff.outputs.isRust == 'true' || steps.diff.outputs.isMove == 'true' || steps.diff.outputs.isTestConfig
+      isRelevantForRustTests: ${{ steps.diff.outputs.isRust == 'true' || steps.diff.outputs.isMove == 'true' || steps.diff.outputs.isTestConfig
         == 'true' || steps.diff.outputs.isTestnetContracts == 'true' || steps.diff.outputs.isExampleConfig == 'true' || steps.diff.outputs.isOpenapi
         == 'true' }}
       isTestnetContracts: ${{ steps.diff.outputs.isTestnetContracts }}
@@ -52,7 +51,7 @@ jobs:
       isExampleConfig: ${{ steps.diff.outputs.isExampleConfig }}
       isCLI: ${{ steps.diff.outputs.isCLI }}
     steps:
-      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # pin@v4
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # pin@v5.0.0
       - name: Detect Changes
         uses: "./.github/actions/diffs"
         id: diff
@@ -63,7 +62,7 @@ jobs:
     if: ${{ needs.diff.outputs.isRust == 'true' || needs.diff.outputs.isDenyConfig == 'true' }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # pin@v4
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # pin@v5.0.0
       - uses: taiki-e/install-action@970d55e3ce02a46d60ffae7b4fab3dedace6e769 # pin@v2.49.13
         with:
           tool: cargo-deny@0.18.4
@@ -76,7 +75,7 @@ jobs:
     if: ${{ needs.diff.outputs.isRust == 'true' }}
     runs-on: ubuntu-ghcloud
     steps:
-      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # pin@v4
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # pin@v5.0.0
 
       - name: Check formatting with rustfmt
         run: >
@@ -99,7 +98,7 @@ jobs:
 
     runs-on: ubuntu-ghcloud
     steps:
-      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # pin@v4
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # pin@v5.0.0
       - name: Install dependencies
         run: |
           sudo apt-get update
@@ -120,7 +119,7 @@ jobs:
       - uses: taiki-e/install-action@970d55e3ce02a46d60ffae7b4fab3dedace6e769 # pin@v2.49.13
         with:
           tool: cargo-nextest
-      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # pin@v4
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # pin@v5.0.0
       - uses: Swatinem/rust-cache@f13886b937689c021905a6b90929199931d60db1 # pin@v2.8.1
         with:
           save-if: ${{ github.ref == 'refs/heads/main' && 'true' || 'false' }}
@@ -145,7 +144,7 @@ jobs:
       - uses: taiki-e/install-action@970d55e3ce02a46d60ffae7b4fab3dedace6e769 # pin@v2.49.13
         with:
           tool: cargo-nextest
-      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # pin@v4
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # pin@v5.0.0
       - uses: Swatinem/rust-cache@f13886b937689c021905a6b90929199931d60db1 # pin@v2.8.1
         with:
           save-if: ${{ github.ref == 'refs/heads/main' && 'true' || 'false' }}
@@ -172,7 +171,7 @@ jobs:
       - uses: taiki-e/install-action@970d55e3ce02a46d60ffae7b4fab3dedace6e769 # pin@v2.49.13
         with:
           tool: cargo-nextest
-      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # pin@v4
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # pin@v5.0.0
       - run: ./scripts/simtest/install.sh
       - name: Build simtests
         run: cargo simtest build
@@ -185,7 +184,7 @@ jobs:
     env:
       SUI_BIN: "/home/runner/.cargo/bin/sui"
     steps:
-      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # pin@v4
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # pin@v5.0.0
 
       - name: Get Sui tag
         shell: bash
@@ -196,7 +195,7 @@ jobs:
 
       - name: Restore cached sui binary
         id: cache-sui-restore
-        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # pin@v4
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # pin@v4.3.0
         with:
           path: ${{ env.SUI_BIN }}
           key: ${{ runner.os }}-${{ runner.arch }}-${{ env.SUI_TAG }}
@@ -207,14 +206,13 @@ jobs:
 
       - name: Install sui
         if: steps.cache-sui-restore.outputs.cache-hit != 'true'
-        run:
-          cargo install --locked --git https://github.com/MystenLabs/sui.git --tag $SUI_TAG --debug --features tracing
+        run: cargo install --locked --git https://github.com/MystenLabs/sui.git --tag $SUI_TAG --debug --features tracing
           sui
       - name: Run Move tests and check coverage
         run: bash ./scripts/move_tests.sh -c
       - name: Cache sui binary
         if: ${{ github.ref == 'refs/heads/main' && steps.cache-sui-restore.outputs.cache-hit != 'true' }}
-        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # pin@v4
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # pin@v4.3.0
         with:
           path: ${{ env.SUI_BIN }}
           key: ${{ steps.cache-sui-restore.outputs.cache-primary-key }}
@@ -228,7 +226,7 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # pin@v4
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # pin@v5.0.0
       - name: Post a warning if the PR touches the testnet-contracts directory
         uses: marocchino/sticky-pull-request-comment@773744901bac0e8cbb5a0dc842800d45e9b2b405 # pin@v2
         with:
@@ -248,7 +246,7 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # pin@v4
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # pin@v5.0.0
       - name: Post a warning if the PR touches the mainnet-contracts directory
         uses: marocchino/sticky-pull-request-comment@773744901bac0e8cbb5a0dc842800d45e9b2b405 # pin@v2
         with:
@@ -267,7 +265,7 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # pin@v4
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # pin@v5.0.0
       - name: Post a warning if the PR touches an example config file
         uses: marocchino/sticky-pull-request-comment@773744901bac0e8cbb5a0dc842800d45e9b2b405 # pin@v2
         with:
@@ -293,7 +291,7 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # pin@v4
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # pin@v5.0.0
       - name: Post a warning if the PR modifies the Walrus CLI
         uses: marocchino/sticky-pull-request-comment@773744901bac0e8cbb5a0dc842800d45e9b2b405 # pin@v2
         with:
@@ -317,7 +315,7 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # pin@v4
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # pin@v5.0.0
       - name: Post a warning if the PR touches an OpenAPI file
         uses: marocchino/sticky-pull-request-comment@773744901bac0e8cbb5a0dc842800d45e9b2b405 # pin@v2
         with:

@@ -63,7 +63,7 @@ jobs:
           echo "previous_release_branch=${previous_release_branch}" >> $GITHUB_ENV
 
       - name: Checkout commit
-        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # pin@v4
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # pin@v5.0.0
         with:
           fetch-depth: 0
           ref: ${{ inputs.walrus_commit }}
@@ -134,7 +134,7 @@ jobs:
             https://api.github.com/repos/MystenLabs/walrus/commits/${{ env.CURRENT_BRANCH }} | jq .sha | tr -d '"')" >> $GITHUB_ENV
 
       - name: Checkout main
-        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # pin@v4
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # pin@v5.0.0
         with:
           fetch-depth: 0
           ref: main
