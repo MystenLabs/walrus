@@ -54,7 +54,7 @@ diesel-async = { version = "0.5", features = ["postgres"] }
 diesel_migrations = { version = "2.2.0", features = ["postgres"] }
 enum_dispatch = "0.3"
 eyre = "0.6.12"
-fastcrypto = { git = "https://github.com/MystenLabs/fastcrypto", rev = "d1fcb853196c3de7888ed8fad74f419b8c8fbe3b" }
+fastcrypto = { git = "https://github.com/MystenLabs/fastcrypto", rev = "09f86974195ec85d8aae386b1909d341d3ccfe52" }
 fdlimit = "0.3.0"
 futures = { version = "0.3.31", default-features = false, features = ["async-await", "std"] }
 futures-timer = "=3.0.3" # required for MSIM
@@ -140,7 +140,7 @@ tokio = { version = "=1.47.1", features = ["macros", "rt-multi-thread", "signal"
 tokio-metrics = { version = "0.4.5", default-features = false }
 tokio-stream = "0.1.17"
 tokio-util = "0.7.13"
-tonic = { version = "0.13.1", default-features = false }
+tonic = { version = "0.14.2", default-features = false }
 tower = "0.5"
 tower-http = { version = "0.5.2", features = ["cors", "timeout", "trace"] }
 tracing = "0.1.41"
