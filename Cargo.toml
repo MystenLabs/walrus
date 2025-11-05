@@ -108,7 +108,7 @@ rstest = "0.25.0"
 rustls = { version = "0.23.32", default-features = false, features = ["logging", "ring", "tls12"] }
 rustls-native-certs = "0.8.1"
 scoped-futures = "0.1.4"
-serde = { version = "1.0.226", features = ["derive"] }
+serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.145"
 serde_test = "1.0.177"
 serde_urlencoded = { version = "0.7.1" }
