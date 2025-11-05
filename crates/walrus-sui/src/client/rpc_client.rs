@@ -11,19 +11,23 @@ use crate::client::rpc_config::{RpcAuthConfig, RpcEndpointAuth};
 fn create_client(rpc_url: &str, auth_config: &RpcAuthConfig) -> anyhow::Result<RpcClient> {
     let mut client = RpcClient::new(rpc_url.to_string())?;
 
-    let auth_config = auth_config.get_auth_for_url(rpc_url);
-    if let Some(auth_config) = auth_config {
-        let auth_interceptor =
-            if let RpcEndpointAuth::BasicAuth { username, password } = auth_config {
-                tracing::debug!("Configuring basic authentication for RPC client");
-                sui_rpc_api::client::AuthInterceptor::basic(username, Some(password))
-            } else if let RpcEndpointAuth::BearerToken(token) = auth_config {
-                tracing::debug!("Configuring bearer token authentication for RPC client");
-                sui_rpc_api::client::AuthInterceptor::bearer(token)
-            } else {
+    if let Some(auth_config) = auth_config.get_auth_for_url(rpc_url) {
+        let mut headers_interceptor = sui_rpc_api::client::HeadersInterceptor::new();
+        match auth_config {
+            RpcEndpointAuth::BasicAuth { username, password } => {
+                tracing::debug!("configuring basic authentication for RPC client");
+                headers_interceptor.basic_auth(username, Some(password));
+            }
+            RpcEndpointAuth::BearerToken(token) => {
+                tracing::debug!("configuring bearer token authentication for RPC client");
+                headers_interceptor.bearer_auth(token);
+            }
+            RpcEndpointAuth::None => {
+                tracing::debug!("no authentication configured for RPC client");
                 return Ok(client);
-            };
-        client = client.with_auth(auth_interceptor);
+            }
+        }
+        client = client.with_headers(headers_interceptor);
     }
 
     Ok(client)

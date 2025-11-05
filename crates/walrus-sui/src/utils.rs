@@ -277,12 +277,14 @@ impl SuiNetwork {
                 rpc: sui_sdk::SUI_MAINNET_URL.into(),
                 ws: None,
                 basic_auth: None,
+                chain_id: None,
             },
             SuiNetwork::Custom { rpc, .. } => SuiEnv {
                 alias: "custom".to_owned(),
                 rpc: rpc.to_string(),
                 ws: None,
                 basic_auth: None,
+                chain_id: None,
             },
         }
     }
