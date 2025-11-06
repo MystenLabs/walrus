@@ -5,6 +5,8 @@ use std::{
     path::Path,
 };
 
+use memmap2::{Mmap, MmapOptions};
+
 use crate::encoding::disk_encoder::{BlobExpansionParameters, Region};
 
 #[derive(Default, Debug)]
@@ -23,10 +25,12 @@ enum State {
 }
 
 /// This stores the symbols in stream-order, i.e., the order in which they are generated.
+#[derive(Debug)]
 pub struct StreamOrderSymbolFile {
     params: BlobExpansionParameters,
     reader: BufReader<File>,
     state: State,
+    mmap: Option<Mmap>,
 }
 
 // TODO(jsmith): Try memory mapped reads.
@@ -52,10 +56,14 @@ impl StreamOrderSymbolFile {
             },
             params,
             reader,
+            mmap: None,
         })
     }
 
-    pub fn write_expanded_source_primary_sliver_data(&mut self, data: &[u8]) -> std::io::Result<()> {
+    pub fn write_expanded_source_primary_sliver_data(
+        &mut self,
+        data: &[u8],
+    ) -> std::io::Result<()> {
         assert!(
             matches!(self.state, State::WantsExpandedPrimarySlivers { .. }),
             "no longer expecting primary slivers"
@@ -114,7 +122,60 @@ impl StreamOrderSymbolFile {
         };
     }
 
-    pub fn read_secondary_sliver(&mut self, index: usize, buffer: &mut [u8]) -> std::io::Result<()> {
+    pub fn switch_to_mmap_reads(&mut self) -> std::io::Result<()> {
+        assert!(matches!(self.state, State::WritingComplete));
+        let file = self.reader.get_ref();
+        let mmap = unsafe { MmapOptions::new().no_reserve_swap().map(file)? };
+
+        self.mmap = Some(mmap);
+
+        Ok(())
+    }
+
+    pub fn read_secondary_sliver(
+        &mut self,
+        index: usize,
+        buffer: &mut [u8],
+    ) -> std::io::Result<()> {
+        if self.mmap.is_some() && matches!(self.state, State::WritingComplete { .. }) {
+            self.read_secondary_sliver_using_mmap(index, buffer)
+        } else {
+            self.read_secondary_sliver_using_seek(index, buffer)
+        }
+    }
+
+    pub fn read_secondary_sliver_using_mmap(
+        &self,
+        index: usize,
+        buffer: &mut [u8],
+    ) -> std::io::Result<()> {
+        assert!(index < self.params.n_shards, "index out of range");
+        assert_eq!(
+            buffer.len(),
+            self.params.column_bytes(Region::Secondary),
+            "buffer size must be exactly that of a primary sliver"
+        );
+        let mmap = self.mmap.as_ref().expect("method called so mmap exists");
+
+        let mut offset = index * self.params.symbol_size;
+
+        for (i, chunk) in buffer.chunks_exact_mut(self.params.symbol_size).enumerate() {
+            if i != 0 {
+                offset += self.params.row_bytes(Region::Secondary);
+            }
+            let end = offset + self.params.symbol_size;
+
+            chunk.copy_from_slice(&mmap[offset..end]);
+        }
+
+        Ok(())
+    }
+
+    pub fn read_secondary_sliver_using_seek(
+        &mut self,
+        index: usize,
+        buffer: &mut [u8],
+    ) -> std::io::Result<()> {
         assert!(
             matches!(
                 self.state,
@@ -155,6 +216,67 @@ impl StreamOrderSymbolFile {
     }
 
     pub fn read_primary_sliver(&mut self, index: usize, buffer: &mut [u8]) -> std::io::Result<()> {
+        if self.mmap.is_some() && matches!(self.state, State::WritingComplete { .. }) {
+            self.read_primary_sliver_using_mmap(index, buffer)
+        } else {
+            self.read_primary_sliver_using_seek(index, buffer)
+        }
+    }
+
+    pub fn read_primary_sliver_using_mmap(
+        &self,
+        index: usize,
+        buffer: &mut [u8],
+    ) -> std::io::Result<()> {
+        assert!(
+            matches!(self.state, State::WritingComplete),
+            "reading primary slivers is only supported when writing is complete"
+        );
+        assert!(index < self.params.n_shards, "index out of range");
+        assert_eq!(
+            buffer.len(),
+            self.params.row_bytes(Region::Primary),
+            "buffer size must be exactly that of a primary sliver"
+        );
+
+        let mmap = self.mmap.as_ref().expect("method called so mmap exists");
+
+        if index < self.params.row_count(Region::Secondary) {
+            let offset = index * self.params.row_bytes(Region::Secondary);
+            tracing::debug!(
+                index,
+                offset,
+                "reading primary sliver from the soure region"
+            );
+            let end = offset + self.params.row_bytes(Region::Source);
+
+            buffer.copy_from_slice(&mmap[offset..end]);
+        } else {
+            assert!(index >= self.params.row_count(Region::Source));
+
+            // Seek to the first symbol in the row, just after the Secondary region.
+            let relative_index = index - self.params.row_count(Region::Source);
+            let mut start = self.params.region_bytes(Region::Secondary)
+                + relative_index * self.params.symbol_size;
+
+            for (i, chunk) in buffer.chunks_exact_mut(self.params.symbol_size).enumerate() {
+                if i != 0 {
+                    start += self.params.column_bytes(Region::SourceColumnExpansion);
+                }
+                let end = start + self.params.symbol_size;
+
+                chunk.copy_from_slice(&mmap[start..end]);
+            }
+        }
+
+        Ok(())
+    }
+
+    pub fn read_primary_sliver_using_seek(
+        &mut self,
+        index: usize,
+        buffer: &mut [u8],
+    ) -> std::io::Result<()> {
         assert!(
             matches!(self.state, State::WritingComplete),
             "reading primary slivers is only supported when writing is complete"
@@ -359,18 +481,25 @@ mod tests {
 
     param_test! {
         read_slivers -> TestResult: [
-            small_primary: (10, 8, true),
-            hundred_mib_primary: (1000, 100 << 20, true),
-            one_gib_primary: (1000, 1 << 30, true),
-            small_secondary: (10, 8, false),
-            hundred_mib_secondary: (1000, 100 << 20, false),
-            one_gib_secondary: (1000, 1 << 30, false),
+            small_primary: (10, 8, true, false),
+            hundred_mib_primary: (1000, 100 << 20, true, false),
+            one_gib_primary: (1000, 1 << 30, true, false),
+            small_secondary: (10, 8, false, false),
+            hundred_mib_secondary: (1000, 100 << 20, false, false),
+            one_gib_secondary: (1000, 1 << 30, false, false),
+            small_primary_mmap: (10, 8, true, true),
+            hundred_mib_primary_mmap: (1000, 100 << 20, true, true),
+            one_gib_primary_mmap: (1000, 1 << 30, true, true),
+            small_secondary_mmap: (10, 8, false, true),
+            hundred_mib_secondary_mmap: (1000, 100 << 20, false, true),
+            one_gib_secondary_mmap: (1000, 1 << 30, false, true),
         ]
     }
     fn read_slivers(
         shards: u16,
         blob_size: usize,
         primary_read: bool,
+        use_mmap: bool,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let params = BlobExpansionParameters::new(
             blob_size,
@@ -389,6 +518,10 @@ mod tests {
         }
         for data in test_blob.iter_column_data(Region::SourceColumnExpansion) {
             symbol_file.write_secondary_sliver_expansion(&data)?;
+        }
+
+        if use_mmap {
+            symbol_file.switch_to_mmap_reads()?;
         }
 
         if primary_read {

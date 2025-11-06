@@ -1,24 +1,45 @@
 #![allow(missing_docs)]
-use core::ops::DerefMut;
+use core::{cmp, ops::DerefMut};
+use std::{boxed::Box, vec};
 
 pub(super) const UNSPECIFIED_DIMENSION: usize = 0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum ArrayOrder {
+pub enum ArrayOrder {
     RowMajor,
     ColumnMajor,
 }
 
+pub type WriteOrder = ArrayOrder;
+
 #[derive(Debug)]
-pub(super) struct SymbolArray2d<T> {
-    /// The shape of the array.
-    shape: (usize, usize),
-    /// The size of each symbol in the tile.
-    symbol_size: usize,
-    /// The layout order of the array.
-    order: ArrayOrder,
+pub struct SymbolArray2d<T> {
+    /// The number of rows in this 2d array.
+    n_rows: usize,
+    /// The number of columns in this 2d array.
+    n_columns: usize,
+    /// The layout of the array, either row or column major order.
+    ///
+    /// If [`ArrayOrder::RowMajor`], then the data in the buffer is laid out with rows sequential.
+    /// If [`ArrayOrder::ColumnMajor`], then columns are laid out sequentially.
+    layout_order: ArrayOrder,
+    /// The size of each symbol in bytes.
+    symbol_size_bytes: usize,
     /// Buffer containing symbol data.
     buffer: T,
+}
+
+impl SymbolArray2d<Box<[u8]>> {
+    pub fn new(shape: (usize, usize), symbol_size: usize, layout: ArrayOrder) -> Self {
+        assert_ne!(shape.0, UNSPECIFIED_DIMENSION, "rows must be specified");
+        assert_ne!(shape.1, UNSPECIFIED_DIMENSION, "columns must be specified");
+        assert_ne!(symbol_size, 0, "`symbol_size` cannot be zero");
+
+        let buffer_size_bytes = shape.0 * shape.1 * symbol_size;
+        let buffer = vec![0u8; buffer_size_bytes].into_boxed_slice();
+
+        Self::from_buffer(buffer, shape, symbol_size, layout)
+    }
 }
 
 impl<T> SymbolArray2d<T>
@@ -27,9 +48,9 @@ where
 {
     pub fn from_buffer(
         buffer: T,
-        mut shape: (usize, usize),
+        shape: (usize, usize),
         symbol_size: usize,
-        order: ArrayOrder,
+        layout: ArrayOrder,
     ) -> Self {
         assert_ne!(
             shape,
@@ -43,18 +64,20 @@ where
             "buffer length must be a multiple of a symbol size"
         );
 
+        let (mut n_rows, mut n_columns) = shape;
         let buffer_symbol_capacity = buffer.len() / symbol_size;
 
-        if shape.0 != UNSPECIFIED_DIMENSION && shape.1 != UNSPECIFIED_DIMENSION {
+        if n_rows != UNSPECIFIED_DIMENSION && n_columns != UNSPECIFIED_DIMENSION {
             // Dimensions are fully specified.
             assert_eq!(
-                shape.0 * shape.1,
+                n_rows * n_columns,
                 buffer_symbol_capacity,
                 "buffer must have capacity to store total number of symbols"
             );
         } else {
-            // At least 1 dimension is unspecified (zero).
-            let specified_dim = shape.0 + shape.1;
+            // At least 1 dimension is unspecified (zero), so adding them gives the specified dim.
+            let specified_dim = n_rows + n_columns;
+
             assert_eq!(
                 buffer_symbol_capacity % specified_dim,
                 0,
@@ -62,36 +85,46 @@ where
             );
 
             let calculated_dim = buffer_symbol_capacity / specified_dim;
-            shape = match shape {
-                (UNSPECIFIED_DIMENSION, specified_dim) => (calculated_dim, specified_dim),
-                (specified_dim, UNSPECIFIED_DIMENSION) => (specified_dim, calculated_dim),
-                _ => unreachable!("handled in the if branch"),
-            };
+            if n_rows == UNSPECIFIED_DIMENSION {
+                n_rows = calculated_dim;
+            } else {
+                n_columns = calculated_dim;
+            }
         }
 
         Self {
-            shape,
-            symbol_size,
-            order,
+            n_rows,
+            n_columns,
+            symbol_size_bytes: symbol_size,
+            layout_order: layout,
             buffer,
         }
     }
 
-    /// Changes the layout of the 2D array.
-    ///
-    /// This changes how the data is laid-out, but not the semantics of the data (the rows before
-    /// and after the change are the same, just possibly not contiguous).
-    pub fn change_layout(&mut self, order: ArrayOrder) {
-        if self.order == order {
-            return;
-        }
+    pub fn get_mut(&mut self, row: usize, column: usize) -> &mut [u8] {
+        let flat_index = match self.layout_order {
+            ArrayOrder::RowMajor => row * self.n_columns + column,
+            ArrayOrder::ColumnMajor => column * self.n_rows + row,
+        };
+        let start = flat_index * self.symbol_size_bytes;
+        let end = start + self.symbol_size_bytes;
 
-        self.order == order;
-        self.transpose();
+        &mut self.buffer.deref_mut()[start..end]
     }
 
-    fn transpose(&mut self) {
-        todo!()
+    /// Shrink to the new shape, which must have a capacity at most the prior capacity.
+    pub fn shrink_to(&mut self, shape: (usize, usize)) {
+        assert!(shape.0 != 0 && shape.1 != 0, "both axes must be non-zero");
+        assert!(
+            shape.0 * shape.1 <= self.n_rows * self.n_columns,
+            "specified shape must be a smaller capacity"
+        );
+        self.n_rows = shape.0;
+        self.n_columns = shape.0;
+    }
+
+    pub fn capacity_bytes(&self) -> usize {
+        self.n_rows * self.n_columns * self.symbol_size_bytes
     }
 }
 
@@ -100,7 +133,122 @@ where
     T: DerefMut<Target = [u8]>,
 {
     fn as_ref(&self) -> &[u8] {
-        self.buffer.deref()
+        let end = self.capacity_bytes();
+        &self.buffer[..end]
+    }
+}
+
+#[derive(Debug)]
+pub struct SymbolArray2dCursor<T = Box<[u8]>> {
+    inner: SymbolArray2d<T>,
+    write_order: ArrayOrder,
+    symbol_offset: usize,
+    bytes_written_in_symbol: usize,
+}
+
+impl<T> SymbolArray2dCursor<T>
+where
+    T: DerefMut<Target = [u8]>,
+{
+    pub fn new(inner: SymbolArray2d<T>, write_order: ArrayOrder) -> Self {
+        Self {
+            inner,
+            write_order,
+            symbol_offset: 0,
+            bytes_written_in_symbol: 0,
+        }
+    }
+
+    fn current_symbol_mut(&mut self) -> &mut [u8] {
+        let (row, column) = match self.write_order {
+            ArrayOrder::RowMajor => (
+                self.symbol_offset / self.inner.n_columns,
+                self.symbol_offset % self.inner.n_columns,
+            ),
+            ArrayOrder::ColumnMajor => (
+                self.symbol_offset % self.inner.n_rows,
+                self.symbol_offset / self.inner.n_rows,
+            ),
+        };
+
+        self.inner.get_mut(row, column)
+    }
+
+    fn write_transposed(&mut self, mut data: &[u8]) -> std::io::Result<usize> {
+        if self.is_full() {
+            return Ok(0);
+        }
+        assert!(
+            self.bytes_written_in_symbol < self.inner.symbol_size_bytes,
+            "byte offset must be kept less than `symbol_size` by advancing `symbol_offset`"
+        );
+
+        let mut written = 0;
+
+        while !data.is_empty() && !self.is_full() {
+            let byte_offset_in_symbol = self.bytes_written_in_symbol;
+            let symbol_buffer = &mut self.current_symbol_mut()[byte_offset_in_symbol..];
+            let amount_to_copy = cmp::min(data.len(), symbol_buffer.len());
+
+            symbol_buffer[..amount_to_copy].copy_from_slice(&data[..amount_to_copy]);
+
+            data = &data[amount_to_copy..];
+
+            self.bytes_written_in_symbol += amount_to_copy;
+            if self.bytes_written_in_symbol == self.inner.symbol_size_bytes {
+                self.symbol_offset += 1;
+                self.bytes_written_in_symbol = 0;
+            }
+
+            written += amount_to_copy;
+        }
+
+        Ok(written)
+    }
+
+    pub fn is_full(&self) -> bool {
+        let total_symbols = self.inner.n_rows * self.inner.n_columns;
+        self.symbol_offset == total_symbols
+    }
+
+    /// Returns a reference to the underlying [`SymbolArray2d`].
+    pub fn get_ref(&self) -> &SymbolArray2d<T> {
+        &self.inner
+    }
+
+    fn write_in_order(&mut self, _buf: &[u8]) -> std::io::Result<usize> {
+        unimplemented!()
+    }
+
+    pub fn capacity_bytes(&self) -> usize {
+        self.inner.capacity_bytes()
+    }
+
+    pub fn clear(&mut self) {
+        self.symbol_offset = 0;
+        self.bytes_written_in_symbol = 0;
+    }
+
+    pub fn clear_and_shrink_to(&mut self, shape: (usize, usize)) {
+        self.clear();
+        self.inner.shrink_to(shape);
+    }
+}
+
+impl<T> std::io::Write for SymbolArray2dCursor<T>
+where
+    T: DerefMut<Target = [u8]>,
+{
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        if self.write_order == self.inner.layout_order {
+            self.write_in_order(buf)
+        } else {
+            self.write_transposed(buf)
+        }
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
     }
 }
 

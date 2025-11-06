@@ -16,6 +16,7 @@ bcs.workspace = true
 enum_dispatch = { workspace = true }
 fastcrypto.workspace = true
 hex.workspace = true
+memmap2 = "0.9.9"
 p256 = { workspace = true, features = ["pem", "pkcs8"] }
 rand.workspace = true
 reed-solomon-simd.workspace = true
