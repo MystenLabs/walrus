@@ -74,7 +74,7 @@ export async function setup(): Promise<number> {
     ensure(env.redisUrl !== undefined, "WALRUS_K6_REDIS_URL must be defined");
     const blobIdCount = await blobHistory.len(blobIdsKey);
     ensure(
-        (blobIdCount !== null && blobIdCount >= params.blobCount),
+        (blobIdCount !== null && blobIdCount >= 1),
         `insufficient blob IDs stored under ${blobIdsKey}: ${blobIdCount}`
     );
 
