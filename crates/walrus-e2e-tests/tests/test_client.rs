@@ -2511,7 +2511,6 @@ pub async fn test_select_coins_max_objects() -> TestResult {
 #[walrus_simtest]
 async fn test_store_with_upload_relay_no_tip() {
     walrus_test_utils::init_tracing();
-    walrus_test_utils::init_tracing();
 
     // Start the Sui and Walrus clusters.
     let (sui_cluster_handle, _cluster, cluster_client, _) =
