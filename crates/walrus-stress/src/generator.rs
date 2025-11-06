@@ -384,7 +384,7 @@ fn burst_load(load: u64) -> (u64, Interval) {
         // Set the interval to ~100 years. `Duration::MAX` causes an overflow in tokio.
         return (
             0,
-            tokio::time::interval(Duration::from_secs(100 * 365 * 24 * 60 * 60)),
+            tokio::time::interval(Duration::from_hours(100 * 365 * 24)),
         );
     }
     let duration_per_op = Duration::from_secs_f64(SECS_PER_LOAD_PERIOD as f64 / (load as f64));

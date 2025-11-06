@@ -504,7 +504,7 @@ pub(super) fn daemon_cors_layer() -> CorsLayer {
     CorsLayer::new()
         .allow_origin(Any)
         .allow_methods(Any)
-        .max_age(Duration::from_secs(86400))
+        .max_age(Duration::from_hours(24))
         .allow_headers(Any)
 }
 

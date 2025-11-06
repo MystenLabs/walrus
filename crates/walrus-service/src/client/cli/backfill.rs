@@ -50,7 +50,7 @@ use walrus_sdk::{ObjectID, client::WalrusNodeClient, config::ClientConfig};
 use walrus_sui::client::{SuiReadClient, retry_client::RetriableSuiClient};
 
 const TOMBSTONE_FILENAME: &str = "tombstone";
-const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(15 * 60);
+const DOWNLOAD_TIMEOUT: Duration = Duration::from_mins(15);
 
 // TODO: Possibly make this configurable.
 const DOWNLOAD_BATCH_SIZE: usize = 10;

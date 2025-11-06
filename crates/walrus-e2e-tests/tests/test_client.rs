@@ -1095,7 +1095,7 @@ async fn test_store_quilt(blobs_to_create: u32) -> TestResult {
     // Store the quilt.
     let quilt_client = client
         .quilt_client()
-        .with_config(QuiltClientConfig::new(6, Duration::from_secs(60)));
+        .with_config(QuiltClientConfig::new(6, Duration::from_mins(1)));
     let quilt = quilt_client
         .construct_quilt::<QuiltVersionV1>(&quilt_store_blobs, encoding_type)
         .await?;
@@ -2572,7 +2572,7 @@ async fn test_store_with_upload_relay_no_tip() {
         upload_relay_sui_client,
         WalrusUploadRelayConfig {
             tip_config: TipConfig::NoTip,
-            tx_freshness_threshold: Duration::from_secs(300),
+            tx_freshness_threshold: Duration::from_mins(5),
             tx_max_future_threshold: Duration::from_secs(10),
         },
         server_address,
@@ -2703,7 +2703,7 @@ async fn test_store_with_upload_relay_with_tip() {
                     encoded_size_mul_per_kib: TIP_MULTIPLIER,
                 },
             },
-            tx_freshness_threshold: Duration::from_secs(300),
+            tx_freshness_threshold: Duration::from_mins(5),
             tx_max_future_threshold: Duration::from_secs(10),
         },
         server_address,
