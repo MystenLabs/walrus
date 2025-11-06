@@ -47,12 +47,12 @@ and Testnet configuration. If you want *only* the Mainnet configuration, you can
 
 ## Testnet configuration
 
-```admonish warning title="Walrus Testnet redeployment"
+:::warning Walrus Testnet redeployment
 The Walrus Testnet is currently undergoing a redeployment. The configuration parameters included
 here refer to the *new* Testnet v3, which will be operational after 2025-04-03T15:00:00Z.
-```
+:::
 
-```admonish danger title="Disclaimer about the Walrus Testnet"
+:::danger Disclaimer about the Walrus Testnet
 All transactions are executed on the Sui Testnet and use Testnet WAL and SUI which have no
 value. The state of the store **can and will be wiped** at any point and possibly with no warning.
 Do not rely on this Testnet for any production purposes, it comes with no availability or
@@ -63,7 +63,7 @@ new updates including for compatibility with eco-system applications.
 
 Also see the [Testnet terms of service](/legal/testnet_tos.mdx) under which this Testnet is made
 available.
-```
+:::
 
 ### Prerequisites: Sui wallet and Testnet SUI {#prerequisites}
 
@@ -82,19 +82,24 @@ If you already have a Sui wallet configured, you can directly set up the Testnet
 don't have it yet),
 
 ```sh
-sui client new-env --alias testnet --rpc https://fullnode.testnet.sui.io:443
+$ sui client new-env --alias testnet --rpc https://fullnode.testnet.sui.io:443
 ```
 
 and switch the active environment to it:
 
 ```sh
-sui client switch --env testnet
+$ sui client switch --env testnet
 ```
 
 After this, you should get something like this (everything besides the `testnet` line is optional):
 
-```terminal
+```sh
 $ sui client envs
+```
+
+If successful, the console responds:
+
+```sh
 ╭──────────┬─────────────────────────────────────┬────────╮
 │ alias    │ url                                 │ active │
 ├──────────┼─────────────────────────────────────┼────────┤
@@ -111,8 +116,12 @@ Finally, make sure you have at least one gas coin with at least 1 SUI. You can o
 
 After some seconds, you should see your new SUI coins:
 
-```terminal
+```sh
 $ sui client gas
+```
+If successful, the console responds:
+
+```sh
 ╭─────────────────┬────────────────────┬──────────────────╮
 │ gasCoinId       │ mistBalance (MIST) │ suiBalance (SUI) │
 ├─────────────────┼────────────────────┼──────────────────┤
@@ -130,9 +139,7 @@ The configuration parameters for the Walrus Testnet are included in the configur
 on the [setup page](/usage/setup.mdx#configuration). If you want *only* the Testnet configuration, you can
 get the [Testnet-only configuration file](../setup/client_config_testnet.yaml). The parameters are:
 
-```yaml
-{{ #include ../setup/client_config_testnet.yaml }}
-```
+<ImportContent source="/setup/client_config_testnet.yaml" mode="code"/>
 
 The current Testnet package IDs can be
 found in the `Move.lock` files in the subdirectories of the [`testnet-contracts` directory on
@@ -145,13 +152,18 @@ value and can be exchanged (at a 1:1 rate) for some Testnet SUI tokens, which al
 through the following command:
 
 ```sh
-walrus get-wal
+$ walrus get-wal
 ```
 
 You can check that you have received Testnet WAL by checking the Sui balances:
 
 ```sh
 $ sui client balance
+```
+
+If successful, the console responds:
+
+```sh
 ╭─────────────────────────────────────────╮
 │ Balance of coins owned by this address  │
 ├─────────────────────────────────────────┤

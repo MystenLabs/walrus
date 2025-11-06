@@ -12,7 +12,7 @@ const OUT_FILE = path.join(SITE_ROOT, "src/.generated/ImportContentMap.ts");
 // Content directory contains MDX files that might use <ImportContent>
 
 // Optionally constrain which repo roots are permitted for mode="code"
-const ALLOWED_ROOTS = new Set(["crates", "external-crates", "examples"]);
+const ALLOWED_ROOTS = new Set(["crates", "examples", "setup", "scripts"]);
 
 // --- helpers ---
 const readText = (p) => fs.readFileSync(p, "utf8").replace(/\r\n?/g, "\n");

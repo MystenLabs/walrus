@@ -35,15 +35,15 @@ When you are getting started, you should use **Testnet**.
 To install Walrus and Sui, use the Mysten Labs `suiup` tool. First,
 [install suiup](https://github.com/MystenLabs/suiup?tab=readme-ov-file#installation):
 
-```bash
-curl -sSfL https://raw.githubusercontent.com/Mystenlabs/suiup/main/install.sh | sh
+```sh
+$ curl -sSfL https://raw.githubusercontent.com/Mystenlabs/suiup/main/install.sh | sh
 ```
 
 Then, install `sui` and `walrus`:
 
-```bash
-suiup install sui
-suiup install walrus
+```sh
+$ suiup install sui
+$ suiup install walrus
 ```
 
 ### Configure tooling for Walrus Testnet
@@ -53,8 +53,8 @@ to use to access Testnet or Mainnet, as well as the Sui objects that track the s
 network. The easiest way to configure Walrus is to download the following pre-filled configuration
 file.
 
-```bash
-curl --create-dirs https://docs.wal.app/setup/client_config.yaml -o ~/.config/walrus/client_config.yaml
+```sh
+$ curl --create-dirs https://docs.wal.app/setup/client_config.yaml -o ~/.config/walrus/client_config.yaml
 ```
 
 Next, you need to configure the Sui client to connect to Testnet. The Sui client configuration is
@@ -63,8 +63,8 @@ separate from the Walrus client configuration.
 
 Initialize the Sui client:
 
-```bash
-sui client
+```sh
+$ sui client
 ```
 
 When prompted, enter the following:
@@ -79,8 +79,8 @@ address.
 
 To confirm the Walrus configuration also uses Testnet, run the command:
 
-```bash
-walrus info
+```sh
+$ walrus info
 ```
 
 Make sure that this command's output includes `Epoch duration: 1day` to indicate connection to
@@ -107,14 +107,14 @@ privileged access and control over what the address owns, such as tokens and obj
 
 To view your active address, run:
 
-```bash
-sui client active-address
+```sh
+$ sui client active-address
 ```
 
 To see all your addresses and their key schemes, run:
 
-```bash
-sui client addresses
+```sh
+$ sui client addresses
 ```
 
 > **Warning: Store your keys securely**
@@ -128,8 +128,8 @@ sui client addresses
 
 You can create additional addresses if needed:
 
-```bash
-sui client new-address ed25519
+```sh
+$ sui client new-address ed25519
 ```
 
 The argument `ed25519` specifies the key pair scheme to be of type `ed25519`.
@@ -147,15 +147,15 @@ To get SUI tokens, navigate to the SUI Testnet faucet:
 Ensure you select Testnet. Then, insert your Sui address. To print your Sui address, use the
 command:
 
-```bash
-sui client active-address
+```sh
+$ sui client active-address
 ```
 
 After you insert your address on the faucet and receive a message saying you have received SUI
 tokens, check your balance with the command:
 
-```bash
-sui client balance
+```sh
+$ sui client balance
 ```
 
 > **Tip: Faucet alternatives**
@@ -166,13 +166,13 @@ sui client balance
 
 Now, convert some of those SUI tokens into WAL with the command:
 
-```bash
-walrus get-wal --context testnet
+```sh
+$ walrus get-wal --context testnet
 ```
 
 Then, check your balance again with `sui client balance` to confirm you now have WAL:
 
-```bash
+```sh
 ╭─────────────────────────────────────────╮
 │ Balance of coins owned by this address  │
 ├─────────────────────────────────────────┤
@@ -193,8 +193,8 @@ destroying objects. Learn more about [transactions](https://docs.sui.io/concepts
 
 To upload a file to Walrus and store it as a blob, run the following command:
 
-```bash
-walrus store file.txt --epochs 2 --context testnet
+```sh
+$ walrus store file.txt --epochs 2 --context testnet
 ```
 
 Replace `file.txt` with the file you want to store on Walrus. You can store any file type on Walrus.
@@ -209,7 +209,7 @@ about the Walrus architecture and how the system implements erasure coding.
 
 After you upload a blob to Walrus, it has 2 identifiers:
 
-```bash
+```sh
 Blob ID: oehkoh0352bRGNPjuwcy0nye3OLKT649K62imdNAlXg
 Sui object ID: 0x1c086e216c4d35bf4c1ea493aea701260ffa5b0070622b17271e4495a030fe83
 ```
@@ -228,8 +228,8 @@ You can use the [Walrus Explorer](https://walruscan.com/) to view more informati
 
 To retrieve a blob and save it on your local machine, run the following command:
 
-```bash
-walrus read <blob-id> --out file.txt --context testnet
+```sh
+$ walrus read <blob-id> --out file.txt --context testnet
 ```
 
 Replace `<blob-id>` with the blob's identifier the `walrus store` command returns in its output, and
@@ -243,8 +243,8 @@ epochs you want to extend the blob's storage for.
 Run the following command to extend a blob's storage duration by 3 epochs. You must use the Sui
 object ID, not the blob ID:
 
-```bash
-walrus extend --blob-obj-id <blob-object-id> --epochs-extended 3 --context testnet
+```sh
+$ walrus extend --blob-obj-id <blob-object-id> --epochs-extended 3 --context testnet
 ```
 
 Replace `<blob-object-id>` with the blob's Sui object ID the `walrus store` command returns in its
@@ -258,8 +258,8 @@ users before the blob was deleted.
 
 To delete a blob, run the following command:
 
-```bash
-walrus delete --blob-id <blob-id> --context testnet
+```sh
+$ walrus delete --blob-id <blob-id> --context testnet
 ```
 
 Replace `<blob-id>` with the blob's identifier the `walrus store` command returns in its output.

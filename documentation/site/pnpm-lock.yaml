@@ -14,12 +14,39 @@ importers:
       '@docusaurus/preset-classic':
         specifier: 3.8.1
         version: 3.8.1(@algolia/client-search@5.42.0)(@mdx-js/react@3.1.1(@types/react@19.2.2)(react@19.2.0))(@types/react@19.2.2)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)(search-insights@2.17.3)
+      '@docusaurus/theme-common':
+        specifier: 3.8.1
+        version: 3.8.1(@docusaurus/plugin-content-docs@3.8.1(@mdx-js/react@3.1.1(@types/react@19.2.2)(react@19.2.0))(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
+      '@fortawesome/fontawesome-svg-core':
+        specifier: ^7.1.0
+        version: 7.1.0
+      '@fortawesome/free-brands-svg-icons':
+        specifier: ^7.1.0
+        version: 7.1.0
+      '@fortawesome/free-regular-svg-icons':
+        specifier: ^7.1.0
+        version: 7.1.0
+      '@fortawesome/free-solid-svg-icons':
+        specifier: ^7.1.0
+        version: 7.1.0
+      '@fortawesome/react-fontawesome':
+        specifier: ^3.1.0
+        version: 3.1.0(@fortawesome/fontawesome-svg-core@7.1.0)(react@19.2.0)
       '@mdx-js/react':
         specifier: ^3.0.0
         version: 3.1.1(@types/react@19.2.2)(react@19.2.0)
+      algoliasearch:
+        specifier: ^5.42.0
+        version: 5.42.0
       clsx:
         specifier: ^2.0.0
         version: 2.1.1
+      copy-text-to-clipboard:
+        specifier: ^3.2.2
+        version: 3.2.2
+      he:
+        specifier: ^1.2.0
+        version: 1.2.0
       js-yaml:
         specifier: ^4.1.0
         version: 4.1.0
@@ -35,6 +62,12 @@ importers:
       react-dom:
         specifier: ^19.0.0
         version: 19.2.0(react@19.2.0)
+      react-instantsearch:
+        specifier: ^7.17.0
+        version: 7.17.0(algoliasearch@5.42.0)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
+      unist-util-visit:
+        specifier: ^5.0.0
+        version: 5.0.0
     devDependencies:
       '@docusaurus/module-type-aliases':
         specifier: 3.8.1
@@ -53,6 +86,22 @@ importers:
         version: 4.1.16
 
 packages:
+
+  '@ai-sdk/gateway@2.0.6':
+    resolution: {integrity: sha512-FmhR6Tle09I/RUda8WSPpJ57mjPWzhiVVlB50D+k+Qf/PBW0CBtnbAUxlNSR5v+NIZNLTK3C56lhb23ntEdxhQ==}
+    engines: {node: '>=18'}
+    peerDependencies:
+      zod: ^3.25.76 || ^4.1.8
+
+  '@ai-sdk/provider-utils@3.0.16':
+    resolution: {integrity: sha512-lsWQY9aDXHitw7C1QRYIbVGmgwyT98TF3MfM8alNIXKpdJdi+W782Rzd9f1RyOfgRmZ08gJ2EYNDhWNK7RqpEA==}
+    engines: {node: '>=18'}
+    peerDependencies:
+      zod: ^3.25.76 || ^4.1.8
+
+  '@ai-sdk/provider@2.0.0':
+    resolution: {integrity: sha512-6o7Y2SeO9vFKB8lArHXehNuusnpddKPk7xqL7T2/b+OvXMRIXUO1rR4wcv1hAFUAT9avGZshty3Wlua/XA7TvA==}
+    engines: {node: '>=18'}
 
   '@algolia/abtesting@1.8.0':
     resolution: {integrity: sha512-Hb4BkGNnvgCj3F9XzqjiFTpA5IGkjOXwGAOV13qtc27l2qNF8X9rzSp1H5hu8XewlC0DzYtQtZZIOYzRZDyuXg==}
@@ -1178,6 +1227,33 @@ packages:
     resolution: {integrity: sha512-P1ml0nvOmEFdmu0smSXOqTS1sxU5tqvnc0dA4MTKV39kye+bhQnjkIKEE18fNOvxjyB86k8esoCIFM3x4RykOQ==}
     engines: {node: '>=18.0'}
 
+  '@fortawesome/fontawesome-common-types@7.1.0':
+    resolution: {integrity: sha512-l/BQM7fYntsCI//du+6sEnHOP6a74UixFyOYUyz2DLMXKx+6DEhfR3F2NYGE45XH1JJuIamacb4IZs9S0ZOWLA==}
+    engines: {node: '>=6'}
+
+  '@fortawesome/fontawesome-svg-core@7.1.0':
+    resolution: {integrity: sha512-fNxRUk1KhjSbnbuBxlWSnBLKLBNun52ZBTcs22H/xEEzM6Ap81ZFTQ4bZBxVQGQgVY0xugKGoRcCbaKjLQ3XZA==}
+    engines: {node: '>=6'}
+
+  '@fortawesome/free-brands-svg-icons@7.1.0':
+    resolution: {integrity: sha512-9byUd9bgNfthsZAjBl6GxOu1VPHgBuRUP9juI7ZoM98h8xNPTCTagfwUFyYscdZq4Hr7gD1azMfM9s5tIWKZZA==}
+    engines: {node: '>=6'}
+
+  '@fortawesome/free-regular-svg-icons@7.1.0':
+    resolution: {integrity: sha512-0e2fdEyB4AR+e6kU4yxwA/MonnYcw/CsMEP9lH82ORFi9svA6/RhDyhxIv5mlJaldmaHLLYVTb+3iEr+PDSZuQ==}
+    engines: {node: '>=6'}
+
+  '@fortawesome/free-solid-svg-icons@7.1.0':
+    resolution: {integrity: sha512-Udu3K7SzAo9N013qt7qmm22/wo2hADdheXtBfxFTecp+ogsc0caQNRKEb7pkvvagUGOpG9wJC1ViH6WXs8oXIA==}
+    engines: {node: '>=6'}
+
+  '@fortawesome/react-fontawesome@3.1.0':
+    resolution: {integrity: sha512-5OUQH9aDH/xHJwnpD4J7oEdGvFGJgYnGe0UebaPIdMW9UxYC/f5jv2VjVEgnikdJN0HL8yQxp9Nq+7gqGZpIIA==}
+    engines: {node: '>=20'}
+    peerDependencies:
+      '@fortawesome/fontawesome-svg-core': ~6 || ~7
+      react: ^18.0.0 || ^19.0.0
+
   '@hapi/hoek@9.3.0':
     resolution: {integrity: sha512-/c6rf4UJlmHlC9b5BaNvzAcFv7HZ2QHaV0D4/HNlBdvFnvQq8RI4kYdhyPCl7Xj+oWvTWQ8ujhqS53LIgAe6KQ==}
 
@@ -1235,6 +1311,10 @@ packages:
     resolution: {integrity: sha512-oGB+UxlgWcgQkgwo8GcEGwemoTFt3FIO9ababBmaGwXIoBKZ+GTy0pP185beGg7Llih/NSHSV2XAs1lnznocSg==}
     engines: {node: '>= 8'}
 
+  '@opentelemetry/api@1.9.0':
+    resolution: {integrity: sha512-3giAOQvZiH5F9bMlMiv8+GSPMeqg0dbaeo58/0SlA9sxSqZhnUtxzX9/2FzyhS9sWQf5S0GJE0AKBrFqjpeYcg==}
+    engines: {node: '>=8.0.0'}
+
   '@pnpm/config.env-replace@1.1.0':
     resolution: {integrity: sha512-htyl8TWnKL7K/ESFa1oW2UB5lVDxuF5DpM7tBi6Hu2LNL3mWkIzNLG6N4zoCUP1lCKNxWy/3iu8mS8MvToGd6w==}
     engines: {node: '>=12.22.0'}
@@ -1278,6 +1358,9 @@ packages:
 
   '@slorber/remark-comment@1.0.0':
     resolution: {integrity: sha512-RCE24n7jsOj1M0UPvIQCHTe7fI0sFL4S2nwKVWwHyVr/wI/H8GosgsJGyhnsZoGFnD/P2hLf1mSbrrgSLN93NA==}
+
+  '@standard-schema/spec@1.0.0':
+    resolution: {integrity: sha512-m2bOd0f2RT9k8QJx1JN85cZYyH1RqFBdlwtkSlf4tBDYLCiiZnv1fIIwacK6cqwXavOydf0NPToMQgpKq+dVlA==}
 
   '@svgr/babel-plugin-add-jsx-attribute@8.0.0':
     resolution: {integrity: sha512-b9MIk7yhdS1pMCZM8VeNfUlSKVRhsHZNMl5O9SfaX0l0t5wjdgu4IDzGB8bpnGBBOjGST3rRFVsaaEtI4W6f7g==}
@@ -1468,6 +1551,9 @@ packages:
   '@types/debug@4.1.12':
     resolution: {integrity: sha512-vIChWdVG3LG1SMxEvI/AK+FWJthlrqlTu7fbrlywTkkaONwk/UAGaULXRlf8vkzFBLVm0zkMdCquhL5aOjhXPQ==}
 
+  '@types/dom-speech-recognition@0.0.1':
+    resolution: {integrity: sha512-udCxb8DvjcDKfk1WTBzDsxFbLgYxmQGKrE/ricoMqHRNjSlSUCcamVTA5lIQqzY10mY5qCY0QDwBfFEwhfoDPw==}
+
   '@types/eslint-scope@3.7.7':
     resolution: {integrity: sha512-MzMFlSLBqNF2gcHWO0G1vP/YQyfvrxZ0bF+u7mzUdZ1/xK4A4sru+nraZz5i3iEIk1l1uyicaDVTB4QbbEkAYg==}
 
@@ -1489,6 +1575,9 @@ packages:
   '@types/express@4.17.25':
     resolution: {integrity: sha512-dVd04UKsfpINUnK0yBoYHDF3xu7xVH4BuDotC/xGuycx4CgbP48X/KF/586bcObxT0HENHXEU8Nqtu6NR+eKhw==}
 
+  '@types/google.maps@3.58.1':
+    resolution: {integrity: sha512-X9QTSvGJ0nCfMzYOnaVs/k6/4L+7F5uCS+4iUmkLEls6J9S/Phv+m/i3mDeyc49ZBgwab3EFO1HEoBY7k98EGQ==}
+
   '@types/gtag.js@0.0.12':
     resolution: {integrity: sha512-YQV9bUsemkzG81Ea295/nF/5GijnD2Af7QhEofh7xu+kvCN6RdodgNwwGWXB5GMI3NoyvQo0odNctoH/qLMIpg==}
 
@@ -1497,6 +1586,9 @@ packages:
 
   '@types/history@4.7.11':
     resolution: {integrity: sha512-qjDJRrmvBMiTx+jyLxvLfJU7UznFuokDv4f3WRuriHKERccVpFU+8XMQUAbDzoiJCsmexxRExQeMwwCdamSKDA==}
+
+  '@types/hogan.js@3.0.5':
+    resolution: {integrity: sha512-/uRaY3HGPWyLqOyhgvW9Aa43BNnLZrNeQxl2p8wqId4UHMfPKolSB+U7BlZyO1ng7MkLnyEAItsBzCG0SDhqrA==}
 
   '@types/html-minifier-terser@6.1.0':
     resolution: {integrity: sha512-oh/6byDPnL1zeNXFrDXFLyZjkr1MsBG667IM792caf1L2UPOOMf65NFzjUH/ltyfwjAGfs1rsX1eftK0jC/KIg==}
@@ -1603,6 +1695,10 @@ packages:
   '@ungap/structured-clone@1.3.0':
     resolution: {integrity: sha512-WmoN8qaIAo7WTYWbAZuG8PYEhn5fkz7dZrqTBZ7dtt//lL2Gwms1IcnQ5yHqjDfX8Ft5j4YzDM23f87zBfDe9g==}
 
+  '@vercel/oidc@3.0.3':
+    resolution: {integrity: sha512-yNEQvPcVrK9sIe637+I0jD6leluPxzwJKx/Haw6F4H77CdDsszUn5V3o96LPziXkSNE2B83+Z3mjqGKBK/R6Gg==}
+    engines: {node: '>= 20'}
+
   '@webassemblyjs/ast@1.14.1':
     resolution: {integrity: sha512-nuBEDgQfm1ccRp/8bCQrx1frohyufl4JlbMMZ4P1wpeOfDhF6FQkxZJ1b/e+PLwr6X1Nhw6OLme5usuBWYBvuQ==}
 
@@ -1654,6 +1750,9 @@ packages:
   '@xtuc/long@4.2.2':
     resolution: {integrity: sha512-NuHqBY1PB/D8xU6s/thBgOAiAP7HOYDQ32+BFZILJ8ivkUkAHQnWfn6WhL79Owj1qmUnoN/YPhktdIoucipkAQ==}
 
+  abbrev@1.1.1:
+    resolution: {integrity: sha512-nne9/IiQ/hzIhY6pdDnbBtz7DjPTKrY00P/zvPSm5pOFkl6xuGrGnXn/VtTNNfNtAfZ9/1RtehkszU9qcTii0Q==}
+
   accepts@1.3.8:
     resolution: {integrity: sha512-PYAthTa2m2VKxuvSD3DPC/Gy+U+sOA1LAuT8mkmRuvw+NACSaeXEQ+NHcVF7rONl6qcaxV3Uuemwawk+7+SJLw==}
     engines: {node: '>= 0.6'}
@@ -1685,6 +1784,12 @@ packages:
   aggregate-error@3.1.0:
     resolution: {integrity: sha512-4I7Td01quW/RpocfNayFdFVk1qSuoh0E7JrbRJ16nH01HhKFQ88INq9Sd+nd72zqRySlr9BmDA8xlEJ6vJMrYA==}
     engines: {node: '>=8'}
+
+  ai@5.0.87:
+    resolution: {integrity: sha512-9Cjx7o8IY9zAczigX0Tk/BaQwjPe/M6DpEjejKSBNrf8mOPIvyM+pJLqJSC10IsKci3FPsnaizJeJhoetU1Wfw==}
+    engines: {node: '>=18'}
+    peerDependencies:
+      zod: ^3.25.76 || ^4.1.8
 
   ajv-formats@2.1.1:
     resolution: {integrity: sha512-Wx0Kx52hxE7C18hkMEggYlEifqWZtYaRgouJor+WMdPnQyEK13vgEWyVNup7SoeeoLMsr4kf5h6dOW11I15MUA==}
@@ -2522,6 +2627,10 @@ packages:
     resolution: {integrity: sha512-mQw+2fkQbALzQ7V0MY0IqdnXNOeTtP4r0lN9z7AAawCXgqea7bDii20AYrIBrFd/Hx0M2Ocz6S111CaFkUcb0Q==}
     engines: {node: '>=0.8.x'}
 
+  eventsource-parser@3.0.6:
+    resolution: {integrity: sha512-Vo1ab+QXPzZ4tCa8SwIHJFaSzy4R6SHf7BY79rFBDf0idraZWAkYrDjDj8uWaSm3S2TK+hJ7/t1CEmZ7jXw+pg==}
+    engines: {node: '>=18.0.0'}
+
   execa@5.1.1:
     resolution: {integrity: sha512-8uSpZZocAZRBAPIEINJj3Lo9HyGitllczc27Eh5YYojjMFMn8yHMDMaUHE2Jqfq05D/wucwI4JGURyXt1vchyg==}
     engines: {node: '>=10'}
@@ -2764,11 +2873,18 @@ packages:
   history@4.10.1:
     resolution: {integrity: sha512-36nwAD620w12kuzPAsyINPWJqlNbij+hpK1k9XRloDtym8mxzGYl2c17LnV6IAGB2Dmg4tEa7G7DlawS0+qjew==}
 
+  hogan.js@3.0.2:
+    resolution: {integrity: sha512-RqGs4wavGYJWE07t35JQccByczmNUXQT0E12ZYV1VKYu5UiAU9lsos/yBAcf840+zrUQQxgVduCR5/B8nNtibg==}
+    hasBin: true
+
   hoist-non-react-statics@3.3.2:
     resolution: {integrity: sha512-/gGivxi8JPKWNm/W0jSmzcMPpfpPLc3dY/6GxhX2hQ9iGj3aDfklV4ET7NjKpSinLpJ5vafa9iiGIEZg10SfBw==}
 
   hpack.js@2.1.6:
     resolution: {integrity: sha512-zJxVehUdMGIKsRaNt7apO2Gqp0BdqW5yaiGHXXmbpvxgBYVZnAql+BJb4RO5ad2MgpbZKn5G6nMnegrH1FcNYQ==}
+
+  htm@3.1.1:
+    resolution: {integrity: sha512-983Vyg8NwUE7JkZ6NmOqpCZ+sh1bKv2iYTlUkzlWmA5JD2acKoxd4KVxbMmxX/85mtfdnDmTFoNKcg5DGAvxNQ==}
 
   html-entities@2.6.0:
     resolution: {integrity: sha512-kig+rMn/QOVRvr7c86gQ8lWXq+Hkv6CbAH1hLu+RG338StTpE8Z0b44SDVaqVu7HGKf27frdmUYEs9hTUX/cLQ==}
@@ -2907,6 +3023,14 @@ packages:
 
   inline-style-parser@0.2.4:
     resolution: {integrity: sha512-0aO8FkhNZlj/ZIbNi7Lxxr12obT7cL1moPfE4tg1LkX7LlLfC6DeX4l2ZEud1ukP9jNQyNnfzQVqwbwmAATY4Q==}
+
+  instantsearch-ui-components@0.12.0:
+    resolution: {integrity: sha512-WcyrNJ5sqeqAWLibztnssSKDhgFEdj4C1prZOHSCONxF+5RSfCsD0oqKiZrTMx3dlAL/Qx7eZxKhD56u5mxJMA==}
+
+  instantsearch.js@4.81.0:
+    resolution: {integrity: sha512-zyIUSrikpst5eaBMrruGRGmRHOHQciDyJ8UW7i4xhPVNRwxr5Ls/NBez9AdNne+7OvALCOeaTI3t9LoBQakWhw==}
+    peerDependencies:
+      algoliasearch: '>= 3.1 < 6'
 
   invariant@2.2.4:
     resolution: {integrity: sha512-phJfQVBuaJM5raOpJjSfkiD6BpbCE4Ns//LaXl6wGYtUBY83nWS6Rf9tXm2e8VaK60JEjYldbPif/A2B1C2gNA==}
@@ -3086,6 +3210,9 @@ packages:
   json-schema-traverse@1.0.0:
     resolution: {integrity: sha512-NM8/P9n3XjXhIZn1lLhkFaACTOURQXjWhV4BA/RnOv8xvgqtqpAX9IO4mRQxSx1Rlo4tqzeqb0sOlruaOy3dug==}
 
+  json-schema@0.4.0:
+    resolution: {integrity: sha512-es94M3nTIfsEPisRafak+HDLfHXnKBhV3vU5eqPcS3flIWqcxJWgXHXiey3YrpaNsanY5ei1VoYEbOzijuq9BA==}
+
   json5@2.2.3:
     resolution: {integrity: sha512-XmOWe7eyHYH14cLdVPoyg+GOH3rYX++KpzrylJwSW98t3Nk+U8XOl8FWKOgwtzdb8lXGf6zYwDUzeHMWfxasyg==}
     engines: {node: '>=6'}
@@ -3253,6 +3380,15 @@ packages:
 
   markdown-table@3.0.4:
     resolution: {integrity: sha512-wiYz4+JrLyb/DqW2hkFJxP7Vd7JuTDm77fvbM8VfEQdmSMqcImWeeRbHwZjBjIFki/VaMK2BhFi7oUUZeM5bqw==}
+
+  markdown-to-jsx@7.7.17:
+    resolution: {integrity: sha512-7mG/1feQ0TX5I7YyMZVDgCC/y2I3CiEhIRQIhyov9nGBP5eoVrOXXHuL5ZP8GRfxVZKRiXWJgwXkb9It+nQZfQ==}
+    engines: {node: '>= 10'}
+    peerDependencies:
+      react: '>= 0.14.0'
+    peerDependenciesMeta:
+      react:
+        optional: true
 
   math-intrinsics@1.1.0:
     resolution: {integrity: sha512-/IXtbwEk5HTPyEwyKX6hGkYXxM9nbj64B+ilVJnC/R6B0pH5G4V3b0pVbL7DBj4tkhBAppbQUlf6F6Xl9LHu1g==}
@@ -3522,6 +3658,10 @@ packages:
   minimist@1.2.8:
     resolution: {integrity: sha512-2yyAR8qBkN3YuheJanUpWC5U3bb5osDywNB8RzDVlDwDHbocAJveqqj1u8+SVD7jkWT4yvsHCpWqqWqAxb0zCA==}
 
+  mkdirp@0.3.0:
+    resolution: {integrity: sha512-OHsdUcVAQ6pOtg5JYWpCBo9W/GySVuwvP9hueRMW7UqshC0tbfzLv8wjySTPm3tfUZ/21CE9E1pJagOA91Pxew==}
+    deprecated: Legacy versions of mkdirp are no longer supported. Please update to mkdirp 1.x. (Note that the API surface has changed to use Promises in 1.x.)
+
   mrmime@2.0.1:
     resolution: {integrity: sha512-Y3wQdFg2Va6etvQ5I82yUhGdsKrcYox6p7FfL1LbK2J4V01F9TGlepTIhnK24t7koZibmg82KGglhA1XK5IsLQ==}
     engines: {node: '>=10'}
@@ -3565,6 +3705,10 @@ packages:
 
   node-releases@2.0.27:
     resolution: {integrity: sha512-nmh3lCkYZ3grZvqcCH+fjmQ7X+H0OeZgP40OierEaAptX4XofMh5kwNbWh7lBduUzCcV/8kZ+NDLCwm2iorIlA==}
+
+  nopt@1.0.10:
+    resolution: {integrity: sha512-NWmpvLSqUrgrAC9HCuxEvb+PSloHpqVu+FqcO4eeF2h5qYRhA7ev6KvelyQAKtegUbC6RypJnlEOhd8vloNKYg==}
+    hasBin: true
 
   normalize-path@3.0.0:
     resolution: {integrity: sha512-6eZs5Ls3WtCisHWp9S2GUy8dqkpGi4BVSz3GaqiE6ezub0512ESztXUwUB6C6IKbQkY2Pnb/mD4WYojCRwcwLA==}
@@ -4135,6 +4279,9 @@ packages:
     resolution: {integrity: sha512-3Ybi1tAuwAP9s0r1UQ2J4n5Y0G05bJkpUIO0/bI9MhwmD70S5aTWbXGBwxHrelT+XM1k6dM0pk+SwNkpTRN7Pg==}
     engines: {node: ^10 || ^12 || >=14}
 
+  preact@10.27.2:
+    resolution: {integrity: sha512-5SYSgFKSyhCbk6SrXyMpqjb5+MQBgfvEKE/OC+PujcY34sOpqtr+0AZQtPYx5IA6VxynQ7rUPCtKzyovpj9Bpg==}
+
   pretty-error@4.0.0:
     resolution: {integrity: sha512-AoJ5YMAcXKYxKhuJGdcvse+Voc6v1RgnsR3nWcYU7q4t6z0Q6T86sv5Zq8VIRbOWWFpvdGE83LtdSMNd+6Y0xw==}
 
@@ -4190,6 +4337,10 @@ packages:
     resolution: {integrity: sha512-+38qI9SOr8tfZ4QmJNplMUxqjbe7LKvvZgWdExBOmd+egZTtjLB67Gu0HRX3u/XOq7UU2Nx6nsjvS16Z9uwfpg==}
     engines: {node: '>=0.6'}
 
+  qs@6.9.7:
+    resolution: {integrity: sha512-IhMFgUmuNpyRfxA90umL7ByLlgRXu6tIfKPpF5TmcfRLlLCckfP/g3IQmju6jjpu+Hh8rA+2p6A27ZSPOOHdKw==}
+    engines: {node: '>=0.6'}
+
   queue-microtask@1.2.3:
     resolution: {integrity: sha512-NuaNSa6flKT5JaSYQzJok04JzTL1CA6aGhv5rfLW3PgqA+M2ChpZQnAC8h8i4ZFkBS8X5RqkDBHA7r4hej3K9A==}
 
@@ -4223,6 +4374,19 @@ packages:
 
   react-fast-compare@3.2.2:
     resolution: {integrity: sha512-nsO+KSNgo1SbJqJEYRE9ERzo7YtYbou/OqjSQKxV7jcKox7+usiUVZOAC+XnDOABXggQTno0Y1CpVnuWEc1boQ==}
+
+  react-instantsearch-core@7.17.0:
+    resolution: {integrity: sha512-Rws1jXfnL955NdGnClk4bNIKXSk3abyqk+wUT1uffAdc2xHin/tj+erIWotJtkynRdldPDD4VavpmvoUKdMmDg==}
+    peerDependencies:
+      algoliasearch: '>= 3.1 < 6'
+      react: '>= 16.8.0 < 20'
+
+  react-instantsearch@7.17.0:
+    resolution: {integrity: sha512-YUqT3Q4NSO7eCtwOUVVKFtTw7sL+3zhsHJ4SFZBnf0np18U1nTw3LTSZVg8vMmzCwJgFNU8z0pJzZjStIWuYpA==}
+    peerDependencies:
+      algoliasearch: '>= 3.1 < 6'
+      react: '>= 16.8.0 < 20'
+      react-dom: '>= 16.8.0 < 20'
 
   react-is@16.13.1:
     resolution: {integrity: sha512-24e6ynE2H+OKt4kqsOvNd8kBpV65zoxbA4BVsEOB3ARVWQki/DHzaUoC5KuON/BiccDaCCTZBuOcfZs70kR8bQ==}
@@ -4839,6 +5003,11 @@ packages:
       file-loader:
         optional: true
 
+  use-sync-external-store@1.6.0:
+    resolution: {integrity: sha512-Pp6GSwGP/NrPIrxVFAIkOQeyw8lFenOHijQWkUTrDvrF4ALqylP2C/KCkeS9dpUM3KvYRQhna5vt7IL95+ZQ9w==}
+    peerDependencies:
+      react: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
+
   util-deprecate@1.0.2:
     resolution: {integrity: sha512-EPD5q1uXyFxJpCrLnCc1nHnq3gOa6DZBocAIiI2TaSCA7VCJ1UJDMagCzIkXNsUYfD1daK//LTEQ8xiIbrHtcw==}
 
@@ -5008,10 +5177,36 @@ packages:
     resolution: {integrity: sha512-AyeEbWOu/TAXdxlV9wmGcR0+yh2j3vYPGOECcIj2S7MkrLyC7ne+oye2BKTItt0ii2PHk4cDy+95+LshzbXnGg==}
     engines: {node: '>=12.20'}
 
+  zod-to-json-schema@3.24.6:
+    resolution: {integrity: sha512-h/z3PKvcTcTetyjl1fkj79MHNEjm+HpD6NXheWjzOekY7kV+lwDYnHw+ivHkijnCSMz1yJaWBD9vu/Fcmk+vEg==}
+    peerDependencies:
+      zod: ^3.24.1
+
+  zod@4.1.12:
+    resolution: {integrity: sha512-JInaHOamG8pt5+Ey8kGmdcAcg3OL9reK8ltczgHTAwNhMys/6ThXHityHxVV2p3fkw/c+MAvBHFVYHFZDmjMCQ==}
+
   zwitch@2.0.4:
     resolution: {integrity: sha512-bXE4cR/kVZhKZX/RjPEflHaKVhUVl85noU3v6b8apfQEc1x4A+zBxjZ4lN8LqGd6WZ3dl98pY4o717VFmoPp+A==}
 
 snapshots:
+
+  '@ai-sdk/gateway@2.0.6(zod@4.1.12)':
+    dependencies:
+      '@ai-sdk/provider': 2.0.0
+      '@ai-sdk/provider-utils': 3.0.16(zod@4.1.12)
+      '@vercel/oidc': 3.0.3
+      zod: 4.1.12
+
+  '@ai-sdk/provider-utils@3.0.16(zod@4.1.12)':
+    dependencies:
+      '@ai-sdk/provider': 2.0.0
+      '@standard-schema/spec': 1.0.0
+      eventsource-parser: 3.0.6
+      zod: 4.1.12
+
+  '@ai-sdk/provider@2.0.0':
+    dependencies:
+      json-schema: 0.4.0
 
   '@algolia/abtesting@1.8.0':
     dependencies:
@@ -6940,6 +7135,29 @@ snapshots:
       - uglify-js
       - webpack-cli
 
+  '@fortawesome/fontawesome-common-types@7.1.0': {}
+
+  '@fortawesome/fontawesome-svg-core@7.1.0':
+    dependencies:
+      '@fortawesome/fontawesome-common-types': 7.1.0
+
+  '@fortawesome/free-brands-svg-icons@7.1.0':
+    dependencies:
+      '@fortawesome/fontawesome-common-types': 7.1.0
+
+  '@fortawesome/free-regular-svg-icons@7.1.0':
+    dependencies:
+      '@fortawesome/fontawesome-common-types': 7.1.0
+
+  '@fortawesome/free-solid-svg-icons@7.1.0':
+    dependencies:
+      '@fortawesome/fontawesome-common-types': 7.1.0
+
+  '@fortawesome/react-fontawesome@3.1.0(@fortawesome/fontawesome-svg-core@7.1.0)(react@19.2.0)':
+    dependencies:
+      '@fortawesome/fontawesome-svg-core': 7.1.0
+      react: 19.2.0
+
   '@hapi/hoek@9.3.0': {}
 
   '@hapi/topo@5.1.0':
@@ -7033,6 +7251,8 @@ snapshots:
       '@nodelib/fs.scandir': 2.1.5
       fastq: 1.19.1
 
+  '@opentelemetry/api@1.9.0': {}
+
   '@pnpm/config.env-replace@1.1.0': {}
 
   '@pnpm/network.ca-file@1.0.2':
@@ -7076,6 +7296,8 @@ snapshots:
       micromark-factory-space: 1.1.0
       micromark-util-character: 1.2.0
       micromark-util-symbol: 1.1.0
+
+  '@standard-schema/spec@1.0.0': {}
 
   '@svgr/babel-plugin-add-jsx-attribute@8.0.0(@babel/core@7.28.5)':
     dependencies:
@@ -7267,6 +7489,8 @@ snapshots:
     dependencies:
       '@types/ms': 2.1.0
 
+  '@types/dom-speech-recognition@0.0.1': {}
+
   '@types/eslint-scope@3.7.7':
     dependencies:
       '@types/eslint': 9.6.1
@@ -7304,6 +7528,8 @@ snapshots:
       '@types/qs': 6.14.0
       '@types/serve-static': 1.15.10
 
+  '@types/google.maps@3.58.1': {}
+
   '@types/gtag.js@0.0.12': {}
 
   '@types/hast@3.0.4':
@@ -7311,6 +7537,8 @@ snapshots:
       '@types/unist': 3.0.3
 
   '@types/history@4.7.11': {}
+
+  '@types/hogan.js@3.0.5': {}
 
   '@types/html-minifier-terser@6.1.0': {}
 
@@ -7426,6 +7654,8 @@ snapshots:
 
   '@ungap/structured-clone@1.3.0': {}
 
+  '@vercel/oidc@3.0.3': {}
+
   '@webassemblyjs/ast@1.14.1':
     dependencies:
       '@webassemblyjs/helper-numbers': 1.13.2
@@ -7506,6 +7736,8 @@ snapshots:
 
   '@xtuc/long@4.2.2': {}
 
+  abbrev@1.1.1: {}
+
   accepts@1.3.8:
     dependencies:
       mime-types: 2.1.35
@@ -7531,6 +7763,14 @@ snapshots:
     dependencies:
       clean-stack: 2.2.0
       indent-string: 4.0.0
+
+  ai@5.0.87(zod@4.1.12):
+    dependencies:
+      '@ai-sdk/gateway': 2.0.6(zod@4.1.12)
+      '@ai-sdk/provider': 2.0.0
+      '@ai-sdk/provider-utils': 3.0.16(zod@4.1.12)
+      '@opentelemetry/api': 1.9.0
+      zod: 4.1.12
 
   ajv-formats@2.1.1(ajv@8.17.1):
     optionalDependencies:
@@ -8391,6 +8631,8 @@ snapshots:
 
   events@3.3.0: {}
 
+  eventsource-parser@3.0.6: {}
+
   execa@5.1.1:
     dependencies:
       cross-spawn: 7.0.6
@@ -8758,6 +9000,11 @@ snapshots:
       tiny-warning: 1.0.3
       value-equal: 1.0.1
 
+  hogan.js@3.0.2:
+    dependencies:
+      mkdirp: 0.3.0
+      nopt: 1.0.10
+
   hoist-non-react-statics@3.3.2:
     dependencies:
       react-is: 16.13.1
@@ -8768,6 +9015,8 @@ snapshots:
       obuf: 1.1.2
       readable-stream: 2.3.8
       wbuf: 1.7.3
+
+  htm@3.1.1: {}
 
   html-entities@2.6.0: {}
 
@@ -8908,6 +9157,36 @@ snapshots:
   ini@2.0.0: {}
 
   inline-style-parser@0.2.4: {}
+
+  instantsearch-ui-components@0.12.0(react@19.2.0):
+    dependencies:
+      '@babel/runtime': 7.28.4
+      ai: 5.0.87(zod@4.1.12)
+      markdown-to-jsx: 7.7.17(react@19.2.0)
+      zod: 4.1.12
+      zod-to-json-schema: 3.24.6(zod@4.1.12)
+    transitivePeerDependencies:
+      - react
+
+  instantsearch.js@4.81.0(algoliasearch@5.42.0):
+    dependencies:
+      '@algolia/events': 4.0.1
+      '@types/dom-speech-recognition': 0.0.1
+      '@types/google.maps': 3.58.1
+      '@types/hogan.js': 3.0.5
+      '@types/qs': 6.14.0
+      ai: 5.0.87(zod@4.1.12)
+      algoliasearch: 5.42.0
+      algoliasearch-helper: 3.26.0(algoliasearch@5.42.0)
+      hogan.js: 3.0.2
+      htm: 3.1.1
+      instantsearch-ui-components: 0.12.0(react@19.2.0)
+      preact: 10.27.2
+      qs: 6.9.7
+      react: 19.2.0
+      search-insights: 2.17.3
+      zod: 4.1.12
+      zod-to-json-schema: 3.24.6(zod@4.1.12)
 
   invariant@2.2.4:
     dependencies:
@@ -9052,6 +9331,8 @@ snapshots:
 
   json-schema-traverse@1.0.0: {}
 
+  json-schema@0.4.0: {}
+
   json5@2.2.3: {}
 
   jsonfile@6.2.0:
@@ -9192,6 +9473,10 @@ snapshots:
       repeat-string: 1.6.1
 
   markdown-table@3.0.4: {}
+
+  markdown-to-jsx@7.7.17(react@19.2.0):
+    optionalDependencies:
+      react: 19.2.0
 
   math-intrinsics@1.1.0: {}
 
@@ -9739,6 +10024,8 @@ snapshots:
 
   minimist@1.2.8: {}
 
+  mkdirp@0.3.0: {}
+
   mrmime@2.0.1: {}
 
   ms@2.0.0: {}
@@ -9773,6 +10060,10 @@ snapshots:
   node-forge@1.3.1: {}
 
   node-releases@2.0.27: {}
+
+  nopt@1.0.10:
+    dependencies:
+      abbrev: 1.1.1
 
   normalize-path@3.0.0: {}
 
@@ -10381,6 +10672,8 @@ snapshots:
       picocolors: 1.1.1
       source-map-js: 1.2.1
 
+  preact@10.27.2: {}
+
   pretty-error@4.0.0:
     dependencies:
       lodash: 4.17.21
@@ -10432,6 +10725,8 @@ snapshots:
     dependencies:
       side-channel: 1.1.0
 
+  qs@6.9.7: {}
+
   queue-microtask@1.2.3: {}
 
   quick-lru@5.1.1: {}
@@ -10464,6 +10759,28 @@ snapshots:
       scheduler: 0.27.0
 
   react-fast-compare@3.2.2: {}
+
+  react-instantsearch-core@7.17.0(algoliasearch@5.42.0)(react@19.2.0):
+    dependencies:
+      '@babel/runtime': 7.28.4
+      ai: 5.0.87(zod@4.1.12)
+      algoliasearch: 5.42.0
+      algoliasearch-helper: 3.26.0(algoliasearch@5.42.0)
+      instantsearch.js: 4.81.0(algoliasearch@5.42.0)
+      react: 19.2.0
+      use-sync-external-store: 1.6.0(react@19.2.0)
+      zod: 4.1.12
+      zod-to-json-schema: 3.24.6(zod@4.1.12)
+
+  react-instantsearch@7.17.0(algoliasearch@5.42.0)(react-dom@19.2.0(react@19.2.0))(react@19.2.0):
+    dependencies:
+      '@babel/runtime': 7.28.4
+      algoliasearch: 5.42.0
+      instantsearch-ui-components: 0.12.0(react@19.2.0)
+      instantsearch.js: 4.81.0(algoliasearch@5.42.0)
+      react: 19.2.0
+      react-dom: 19.2.0(react@19.2.0)
+      react-instantsearch-core: 7.17.0(algoliasearch@5.42.0)(react@19.2.0)
 
   react-is@16.13.1: {}
 
@@ -11196,6 +11513,10 @@ snapshots:
     optionalDependencies:
       file-loader: 6.2.0(webpack@5.102.1)
 
+  use-sync-external-store@1.6.0(react@19.2.0):
+    dependencies:
+      react: 19.2.0
+
   util-deprecate@1.0.2: {}
 
   utila@0.4.0: {}
@@ -11413,5 +11734,11 @@ snapshots:
   yallist@3.1.1: {}
 
   yocto-queue@1.2.1: {}
+
+  zod-to-json-schema@3.24.6(zod@4.1.12):
+    dependencies:
+      zod: 4.1.12
+
+  zod@4.1.12: {}
 
   zwitch@2.0.4: {}

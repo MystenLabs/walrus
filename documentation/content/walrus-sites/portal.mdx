@@ -12,13 +12,13 @@ portals:
 
 Currently, only a server-side portal is served at `<https://wal.app>`.
 
-```admonish warning title="Important: Testnet Portal Access"
+:::warning Important: Testnet Portal Access
 `<https://wal.app>` only serves sites deployed on mainnet, linked with SuiNS names.
 You can run a portal to access mainnet sites as well.
 Walrus Foundation does not maintain a Portal that serves testnet Walrus Sites.
 To access Sites deployed on testnet you can either use a thirdparty testnet portal,
 self-host one or run one locally.
-```
+:::
 
 We maintain a list of known portals. New portals can self-identify by opening a PR to add themselves
 to the list.
@@ -31,15 +31,15 @@ import PortalsList from '@site/src/components/PortalsList';
 
 <PortalsList />
 
-```admonish note title="Hosting of the service worker"
+:::note Hosting of the service worker
 The service-worker portal is no longer hosted, but you can still run it locally. Its code is
 available in the `walrus-sites` repository. For more information, see
 [running a local portal](#running-a-local-portal).
-```
+:::
 
-```admonish danger title="Walrus Sites stable branch"
+:::danger Walrus Sites stable branch
 The stable branch of Walrus Sites is `mainnet`.
-```
+:::
 
 ## Running a local portal
 
@@ -48,15 +48,15 @@ accessing external portals, or for development purposes.
 
 Let's start by cloning the `walrus-sites` repository:
 
-```bash
-git clone https://github.com/MystenLabs/walrus-sites.git
-cd walrus-sites
+```sh
+$ git clone https://github.com/MystenLabs/walrus-sites.git
+$ cd walrus-sites
 ```
 
 Make sure you are on the stable branch:
 
 ```sh
-git checkout mainnet
+$ git checkout mainnet
 ```
 
 Next, we will see how to configure the portal so it can support the functionality that
@@ -78,13 +78,13 @@ in the `.env.<network>.example` file:
 ##### Mainnet Server Portal Environment Variables
 
 ```sh
-cp ./portal/server/.env.mainnet.example ./portal/server/.env.local
+$ cp ./portal/server/.env.mainnet.example ./portal/server/.env.local
 ```
 
 ##### Testnet Server Portal Environment Variables
 
 ```sh
-cp ./portal/server/.env.testnet.example ./portal/server/.env.local
+$ cp ./portal/server/.env.testnet.example ./portal/server/.env.local
 ```
 
 Likewise, if you want to run the service-worker portal, you can copy the `.env.<network>.example`
@@ -93,25 +93,26 @@ file to `.env.local` in the `portal/worker` directory.
 ##### Mainnet Service Worker Portal Environment Variables
 
 ```sh
-cp ./portal/worker/.env.mainnet.example ./portal/worker/.env.local
+$ cp ./portal/worker/.env.mainnet.example ./portal/worker/.env.local
 ```
 
 ##### Testnet Service Worker Portal Environment Variables
 
 ```sh
-cp ./portal/worker/.env.testnet.example ./portal/worker/.env.local
+$ cp ./portal/worker/.env.testnet.example ./portal/worker/.env.local
 ```
 
 For a more detailed configuration, you can modify the `.env.local` files to suit your needs.
 As a reference, here are the definitions of the environment variables:
 
-```admonish note
+:::note
+
 The server portal code contains additional functionality that can be enabled or disabled
 using environment variables. For example, you can enable or disable the blocklist feature
 by setting the `ENABLE_BLOCKLIST` variable to `true` or `false`. This can be helpful to
-manage the behavior of the portal. For example, if you host a publicly-accessible portal, you might want to avoid
-serving sites that are not published by you.
-```
+manage the behavior of the portal. For example, if you host a publicly-accessible portal, you might want to avoid serving sites that are not published by you.
+
+:::
 
 - `AGGREGATOR_URL`: The url to a Walrus aggregator that will fetch the site resources from Walrus.
 
@@ -183,7 +184,7 @@ want to modify the code or contribute to the project.
 First, make sure you have Docker installed on your system.
 
 ```sh
-docker --version
+$ docker --version
 ```
 
 If it is not installed, follow the instructions on the `[Docker website][get-docker]`.
@@ -191,13 +192,13 @@ If it is not installed, follow the instructions on the `[Docker website][get-doc
 Then, build the Docker image with:
 
 ```sh
-docker build -f portal/docker/server/Dockerfile -t server-portal . --build-arg ENABLE_SENTRY=false --no-cache
+$ docker build -f portal/docker/server/Dockerfile -t server-portal . --build-arg ENABLE_SENTRY=false --no-cache
 ```
 
 Finally, run the Docker container:
 
 ```sh
-docker run --env-file ./portal/server/.env.local -p 3000:3000 server-portal
+$ docker run --env-file ./portal/server/.env.local -p 3000:3000 server-portal
 ```
 
 Browse the sites at `localhost:3000`.
@@ -209,37 +210,36 @@ This requires having the [`bun`](https://bun.sh/) tool installed:
 Check if bun is installed with:
 
 ```sh
-bun --version
+$ bun --version
 ```
 
 If not installed, run the following command:
 
 ```sh
-curl -fsSL https://bun.sh/install | bash
+$ curl -fsSL https://bun.sh/install | bash
 ```
 
 Install the dependencies:
 
 ```sh
-cd portal
-bun install
+$ cd portal
+$ bun install
 ```
 
 To run a server-side portal:
 
 ```sh
-bun run server
+$ bun run server
 ```
 
 To run a service-worker portal:
 
 ```sh
-bun build:worker
-bun run worker
+$ bun build:worker
+$ bun run worker
 ```
 
-To serve one of the portals. Typically, you will find it served at `localhost:3000` (for the server
-side portal) or `localhost:8080` for the service worker (but check the output of the serve
+To serve one of the portals. Typically, you will find it served at `localhost:3000` (for the server side portal) or `localhost:8080` for the service worker (but check the output of the serve
 command).
 
 ## Next Steps

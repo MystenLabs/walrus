@@ -1,11 +1,12 @@
 - id: storage-node
   label: Storage node
   definition: Entity storing data for Walrus; holds one or several *shards*.
-  aliases: ["storage node (SN)", "SN"]
+  aliases: ["storage node (SN)", "SN", "storage nodes"]
 
 - id: blob
   label: Blob
   definition: Single unstructured data object stored on Walrus.
+  aliases: ["blobs"]
 
 - id: permanent-blob
   label: Permanent blob

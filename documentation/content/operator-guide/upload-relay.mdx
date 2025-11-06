@@ -13,13 +13,15 @@ themselves can run on internet-facing hosts to facilitate storing blob slivers o
 nodes on behalf of the end-users, thus mitigating browser resource consumption and enabling
 web-based `store` operations.
 
-```admonish tip title="Public upload relays"
+:::tip Public upload relays
+
 Mysten Labs runs two publicly-available upload relays, one for `testnet` and one for `mainnet`.
 You can find them at the following addresses:
 
 - `testnet`: `https://upload-relay.testnet.walrus.space`
 - `mainnet`: `https://upload-relay.mainnet.walrus.space`
-```
+
+:::
 
 ## Design
 
@@ -144,7 +146,7 @@ The docker image for `walrus-upload-relay` is available on Docker Hub as
 `mysten/walrus-upload-relay`.
 
 ```sh
-docker run -it --rm mysten/walrus-upload-relay --help
+$ docker run -it --rm mysten/walrus-upload-relay --help
 ```
 
 ### Build from source
@@ -155,7 +157,7 @@ the `walrus-upload-relay` are available on [GitHub](https://github.com/MystenLab
 should get you a working binary.
 
 ```sh
-cargo build --release --bin walrus-upload-relay
+$ cargo build --release --bin walrus-upload-relay
 ./target/release/walrus-upload-relay --help
 ```
 
@@ -174,22 +176,22 @@ relay. For the sake of the example below, we're assuming that:
   expose from your host.)
 
 ```sh
-docker run \
-  -p 3000:3000 \
-  -v $HOME/.config/walrus/walrus_upload_relay_config.yaml:/opt/walrus/walrus_upload_relay_config.yaml \
-  -v $HOME/.config/walrus/client_config.yaml:/opt/walrus/client_config.yaml \
-  mysten/walrus-upload-relay \
-    --context testnet \
-    --walrus-config /opt/walrus/client_config.yaml \
-    --server-address 0.0.0.0:3000 \
-    --relay-config /opt/walrus/walrus_upload_relay_config.yaml
+$ docker run \
+    -p 3000:3000 \
+    -v $HOME/.config/walrus/walrus_upload_relay_config.yaml:/opt/walrus/walrus_upload_relay_config.yaml \
+    -v $HOME/.config/walrus/client_config.yaml:/opt/walrus/client_config.yaml \
+    mysten/walrus-upload-relay \
+      --context testnet \
+      --walrus-config /opt/walrus/client_config.yaml \
+      --server-address 0.0.0.0:3000 \
+      --relay-config /opt/walrus/walrus_upload_relay_config.yaml
 ```
 
 ### Relay-specific configuration
 
 Here is an example of the `walrus-upload-relay` configuration file:
 
-<ImportContent source="/setup/walrus_upload_relay_config_example.yaml" mode="code" />
+<ImportContent source="/crates/walrus-upload-relay/walrus_upload_relay_config_example.yaml" mode="code" />
 
 Currently, the options are the following:
 

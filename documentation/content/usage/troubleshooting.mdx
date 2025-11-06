@@ -2,9 +2,9 @@
 title: Troubleshooting
 ---
 
-```admonish tip title="Debug logging"
+:::tip Debug logging
 You can enable debug logging for Walrus by setting the environment variable `RUST_LOG=walrus=debug`.
-```
+:::
 
 ## Latest binary
 
@@ -33,8 +33,8 @@ blob", you are probably using an outdated configuration pointing to an inactive 
 this case, update your configuration file with the latest [configuration](/usage/setup.mdx#configuration)
 and make sure the CLI uses the intended configuration.
 
-```admonish tip
+:::tip
 When setting `RUST_LOG=info`, the `walrus` client binary prints information about the used
 configuration when starting execution, including the path to the Walrus configuration file and the
 Sui wallet.
-```
+:::

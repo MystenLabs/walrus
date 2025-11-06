@@ -19,7 +19,7 @@ with the `--ws-resources` flag when running the `deploy`, `publish` or `update` 
 
 The file is JSON-formatted, and looks like the following:
 
-``` JSON
+```json
 {
   "headers": {
     "/index.html": {
@@ -45,9 +45,9 @@ The file is JSON-formatted, and looks like the following:
 }
 ```
 
-```admonish note
+:::note
 The `ws-resources.json` file, expects the field names to be in `snake_case`
-```
+:::
 
 We now describe in detail six sections of the configuration file: `headers`, `routes`,
 `metadata`, `site_name`, `object_id` and the `ignore` section.
@@ -65,9 +65,9 @@ For example, in the configuration above, the file `index.html` will be served wi
 This mechanism allows you to control various aspects of the resource delivery, such as caching,
 encoding, and content types.
 
-```admonish
+:::note
 The resource path is always represented as starting from the root `/`.
-```
+:::
 
 ### Default headers
 
@@ -90,18 +90,18 @@ The configuration in the `routes` object is a mapping from route keys to resourc
 The **`routes` keys** are path patterns in the form `/path/to/some/*`, where the `*` character
 represents a wildcard.
 
-```admonish
+:::note
 Currently, the wildcard *can only be specified at the end of the path*.
 Therefore, `/path/*` is a valid path, while `/path/*/to` and `*/path/to/*` are not.
-```
+:::
 
 The **`routes` values** are the resource paths that should be served when the route key is matched.
 
-```admonish danger title="Important"
+:::danger Important
 The paths in the values **must** be valid resource paths, meaning that they must be present among
 the site's resources. The Walrus sites contract will **abort** if the user tries to create a route
 that points to a non-existing resource.
-```
+:::
 
 The simple routing algorithm is as follows:
 
@@ -110,14 +110,14 @@ The simple routing algorithm is as follows:
 - All matching routes are then *lexicographically ordered*, and the *longest* match is chosen.
 - The resource corresponding to this longest match is then served.
 
-```admonish
+:::note
 In other words, the portal will *always* serve a resource if present, and if not present will serve
 the resource with the *longest matching prefix* among the routes.
-```
+:::
 
 Recall the example above:
 
-``` JSON
+```json
 "routes": {
   "/*": "/index.html",
   "/path/*": "/accounts.html",
@@ -146,7 +146,7 @@ As you can see from the example above, the fields correspond to the basic set of
 suggested by the
 [Sui Display object standard](https://docs.sui.io/standards/display#display-properties).
 
-```JSON
+```json
 "metadata": {
       "link": "https://subdomain.wal.app",
       "image_url": "https://www.walrus.xyz/walrus-site",
@@ -173,16 +173,16 @@ example you can place a link to your sites favicon.
 You can set a Name for your Walrus Site, via the optional `site_name` field in your
 `ws-resources.json` file.
 
-```admonish note
+:::note
 In case you have also provided a Site Name via the `--site-name` cli flag, the cli flag
 will take priority over the `site_name` field in the `ws-resources.json`, which will be
 overwritten.
-```
+:::
 
-```admonish note
+:::note
 If a Site Name is not provided at all (neither through the `--site-name` cli flag, nor
 through the `site_name` field in `ws-resources.json`), then a default name will be used.
-```
+:::
 
 ## Site Object ID (`object_id`)
 

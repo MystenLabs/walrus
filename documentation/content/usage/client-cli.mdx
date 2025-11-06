@@ -8,7 +8,7 @@ chapter](/usage/setup.mdx) for prerequisites, installation, and configuration.
 Detailed usage information including a full list of available commands can be viewed with
 
 ```sh
-walrus --help
+$ walrus --help
 ```
 
 Each sub-command of `walrus` can also be called with `--help` to print its specific arguments and
@@ -28,9 +28,13 @@ overview of current system parameters such as the current epoch, the number of s
 shards in the system, the maximum blob size, and the current cost in WAL for storing
 blobs:
 
-```console
+```sh
 $ walrus info
+```
 
+If successful, the console responds:
+
+```sh
 Walrus system information
 
 Epochs and storage duration
@@ -56,21 +60,23 @@ Additional price for each write: 20,000 FROST
 ...
 ```
 
-```admonish tip title="Epoch duration"
-The epoch duration on Mainnet is 2 weeks. See [here](/usage/networks.mdx#network-parameters) for other
-parameters on Mainnet and Testnet.
-```
+:::tip Epoch duration
 
-```admonish tip title="FROST and WAL"
+The epoch duration on Mainnet is 2 weeks. See [here](/usage/networks.mdx#network-parameters) for other parameters on Mainnet and Testnet.
+
+:::
+
+:::tip FROST and WAL
+
 FROST is the smaller unit of WAL, similar to MIST for SUI. The conversion is also the same as for
 SUI: `1 WAL = 1 000 000 000 FROST`.
-```
+
+:::
 
 Additional information such as encoding parameters and sizes, BFT system information, and
 information on the storage nodes in the current and (if already selected) the next committee,
 including their node IDs and stake and shard distribution can be viewed with various subcommands,
-see `walrus info --help` for details. Note that the previous `--dev` option has been replaced by the
-`all` subcommand.
+see `walrus info --help` for details. Note that the previous `--dev` option has been replaced by the `all` subcommand.
 
 The health of storage nodes can be checked with the `walrus health` command. This command takes
 different options to select the nodes to check (see `walrus health --help` for details). For
@@ -78,23 +84,27 @@ example, `walrus health --committee` checks the status of all current committee 
 
 ## Storing blobs
 
-```admonish danger title="Public access"
+:::danger Public access
+
 **All blobs stored in Walrus are public and discoverable by all.** Therefore you must not use Walrus
 to store anything that contains secrets or private data without additional measures to protect
 confidentiality.
-```
 
-```admonish warning
+:::
+
+:::warning
+
 It must be ensured that only a single process uses the Sui wallet for write actions (storing or
 deleting). When using multiple instances of the client simultaneously, each of them must be pointed
 to a different wallet. Note, it is possible to store multiple blobs with a single `walrus store`
 command.
-```
+
+:::
 
 Storing one or multiple blobs on Walrus can be achieved through the following command:
 
 ```sh
-walrus store <FILES> --epochs <EPOCHS>
+$ walrus store <FILES> --epochs <EPOCHS>
 ```
 
 A mandatory CLI argument must be set to specify the lifetime for the blob. There are currently three
@@ -110,13 +120,15 @@ ways for this:
    the blob expires after that date if possible.
 1. The `--end-epoch <END_EPOCH>` option takes a specific end epoch for the blob.
 
-```admonish warning title="End epoch"
+:::warning End epoch
+
 A blob expires *at the beginning of its end epoch*. For example, a blob with end epoch `314` will
 become unavailable at the beginning of epoch `314`. One consequence of this is that when storing a
 blob with `--epochs 1` immediately before an epoch change, it will expire and become unavailable
 almost immediately. Note that blobs can be [extended](#extending-the-lifetime-of-a-blob) only if
 they have not expired.
-```
+
+:::
 
 You can store a single file or multiple files, separated by spaces. Notably, this is compatible
 with glob patterns; for example, `walrus store *.png --epochs <EPOCHS>` will store all PNG files
@@ -131,12 +143,14 @@ and `--permanent` option, respectively:
   corresponding Sui object. See the [section on deletable blobs](#reclaiming-space-via-deletable-blobs)
   for more details.
 
-```admonish warning title="Change of default blob persistence"
+:::warning Change of default blob persistence
+
 Up to (including) version 1.32, the CLI and [publisher](/usage/web-api.mdx) store blobs as *permanent* by
 default, requiring the user to explicitly specify a blob to be deletable. Starting with version
 1.33, newly stored blobs are *deletable* by default. If you care about the blob persistence, make
 sure to use the appropriate flag.
-```
+
+:::
 
 By default an owned `Blob` object is created. It is possible to wrap this into a shared object,
 which can be funded and extended by anyone, see the [shared blobs section](#shared-blobs).
@@ -154,14 +168,19 @@ following:
   number of epochs, the command skips sending encoded blob data to the storage nodes and just
   collects the availability certificate.
 
-```admonish tip title="Costs"
+:::tip Costs
+
 We have a [separate page](/dev-guide/costs.mdx) with some considerations regarding cost.
-```
+
+:::
+
 ### Using a Walrus upload relay
 
-```admonish note title="Minimum CLI version"
+:::note Minimum CLI version
+
 The Walrus upload relay functionality is only available in the Walrus CLI version *v1.29* or higher.
-```
+
+:::
 
 A Walrus upload relay is a third party service that can help clients with limited bandwidth and
 networking capabilities (a browser, for example) in storing blobs on Walrus.
@@ -175,22 +194,24 @@ When storing blobs with the `walrus store` command (and also when [storing
 quilts](#storing-blobs-as-a-quilt)) you can use the `--upload-relay` flag with a URL to specify an
 upload relay server be used by the CLI.
 
-```admonish tip title="Tipping"
+:::tip Tipping
+
 The upload relay is a third party service that may require a fee, or "tip". This tip may be a
 constant SUI amount per blob stored, or dependent on the size of the blob being stored. The Walrus CLI will show you
 how much tip the upload relay requires, and will ask for confirmation before continuing.
 
 The technical details on how the tip is computed and paid are
 [here](/operator-guide/upload-relay.mdx).
-```
+
+:::
 
 ## Querying blob status
 
 The status of a blob can be queried through one of the following commands:
 
 ```sh
-walrus blob-status --blob-id <BLOB_ID>
-walrus blob-status --file <FILE>
+$ walrus blob-status --blob-id <BLOB_ID>
+$ walrus blob-status --file <FILE>
 ```
 
 This returns whether the blob is stored and its availability period. If you specify a file with the
@@ -206,7 +227,7 @@ The existence of this event certifies the availability of the blob.
 Reading blobs from Walrus can be achieved through the following command:
 
 ```sh
-walrus read <some blob ID>
+$ walrus read <some blob ID>
 ```
 
 By default the blob data is written to the standard output. The `--out <OUT>` CLI option can be used
@@ -251,7 +272,7 @@ them, and should not be relied upon for availability by others.
 A deletable blob may be deleted with the command:
 
 ```sh
-walrus delete --blob-id <BLOB_ID>
+$ walrus delete --blob-id <BLOB_ID>
 ```
 
 Optionally the delete command can be invoked by specifying a `--file <PATH>` option, to derive the
@@ -272,12 +293,14 @@ finished, the CLI checks the updated status of the blob to see if it is still ac
 (unless the `--no-status-check` option is specified). However, even if it isn't, copies of the
 public blob may be cached or downloaded by users, and these copies are not deleted.
 
-```admonish danger title="Delete reclaims space only"
+:::danger Delete reclaims space only
+
 **All blobs stored in Walrus are public and discoverable by all.** The `delete` command will
 not delete slivers if other copies of the blob are stored on Walrus, possibly by other users.
 It does not delete blobs from caches, slivers from past storage nodes, or copies
 that could have been made by users before the blob was deleted.
-```
+
+:::
 
 ## Shared blobs
 
@@ -289,7 +312,7 @@ for further details.
 You can create a shared blob from an existing `Blob` object you own with the `walrus share` command:
 
 ```sh
-walrus share --blob-obj-id <BLOB_OBJ_ID>
+$ walrus share --blob-obj-id <BLOB_OBJ_ID>
 ```
 
 The resulting shared blob can be directly funded by adding an `--amount`, or you can fund an
@@ -304,13 +327,15 @@ See [this section](#extending-the-lifetime-of-a-blob) for more on blob extension
 
  **Note:** The *quilt* feature is only available in Walrus version *v1.29* or higher.
 
-```admonish warning
+:::warning
+
 - Blobs within a quilt are retrieved by a `QuiltPatchId`, not their standard `BlobId`. This ID
   is generated based on all blobs in the quilt, so a blob's `QuiltPatchId` will change if it's
   moved to a different quilt.
 - Standard blob operations like `delete`, `extend`, or `share` cannot target individual blobs
   inside a quilt; they must be applied to the entire quilt.
-```
+
+:::
 
 For efficiently storing large numbers of small blobs, Walrus provides the Quilt. It batches
 multiple blobs into a single storage unit, significantly reducing overhead and cost. You can find
@@ -323,10 +348,12 @@ You can interact with quilts using a dedicated set of `walrus` subcommands.
 To batch-store multiple files as a single quilt, use the `store-quilt` command. You can specify
 the files to include in two ways:
 
-```admonish warning
+:::warning
+
 You must ensure that all the identifiers are unique within a quilt, the operation will fail otherwise.
 Identifiers are the unique names used to retrieve individual blobs from within a quilt.
-```
+
+:::
 
 #### Using `--paths`
 
@@ -338,7 +365,7 @@ Like the regular `store` command, you can specify the storage duration using `--
 `--earliest-expiry-time`, or `--end-epoch`.
 
 ```sh
-walrus store-quilt --epochs <EPOCHS> --paths <path-to-directory-1> <path-to-directory-2> <path-to-blob>
+$ walrus store-quilt --epochs <EPOCHS> --paths <path-to-directory-1> <path-to-directory-2> <path-to-blob>
 ```
 
 #### Using `--blobs`
@@ -348,10 +375,10 @@ custom `identifier` and `tags` for each file. If `identifier` is `null` or omitt
 name is used instead.
 
 ```sh
-walrus store-quilt \
-  --blobs '{"path":"<path-to-blob-1>","identifier":"walrus","tags":{"color":"grey","size":"medium"}}' \
-          '{"path":"<path-to_blob-2>","identifier":"seal","tags":{"color":"grey","size":"small"}}' \
-  --epochs <EPOCHS>
+$ walrus store-quilt \
+    --blobs '{"path":"<path-to-blob-1>","identifier":"walrus","tags":{"color":"grey","size":"medium"}}' \
+            '{"path":"<path-to_blob-2>","identifier":"seal","tags":{"color":"grey","size":"small"}}' \
+    --epochs <EPOCHS>
 ```
 
 ### Reading Blobs from a Quilt
@@ -363,25 +390,26 @@ tags, or unique patch ID.
 To read blobs by their identifiers, use the `--identifiers` flag:
 
 ```sh
-walrus read-quilt --out <download dir> \
-  --quilt-id 057MX9PAaUIQLliItM_khR_cp5jPHzJWf-CuJr1z1ik --identifiers walrus.jpg another-walrus.jpg
+$ walrus read-quilt --out <download dir> \
+    --quilt-id 057MX9PAaUIQLliItM_khR_cp5jPHzJWf-CuJr1z1ik --identifiers walrus.jpg another-walrus.jpg
 ```
 
 Blobs within a quilt can be accessed and filtered based on their tags. For instance, if you have a
 collection of animal images stored in a quilt, each labeled with a species tag such as "species=cat,"
 you can download **all** images labeled as cats with the following command:
 
+Read all blobs with tag "size: medium":
+
 ```sh
-# Read all blobs with tag "size: medium"
-walrus read-quilt --out <download dir> \
-  --quilt-id 057MX9PAaUIQLliItM_khR_cp5jPHzJWf-CuJr1z1ik --tag species cat
+$ walrus read-quilt --out <download dir> \
+    --quilt-id 057MX9PAaUIQLliItM_khR_cp5jPHzJWf-CuJr1z1ik --tag species cat
 ```
 
 You can also read a blob using its QuiltPatchId, which can be retrieved using
 [`list-patches-in-quilt`](#list-patches-in-a-quilt).
 
 ```sh
-walrus read-quilt --out <download dir> \
+$ walrus read-quilt --out <download dir> \
   --quilt-patch-ids GRSuRSQ_hLYR9nyo7mlBlS7MLQVSSXRrfPVOxF6n6XcBuQG8AQ \
   GRSuRSQ_hLYR9nyo7mlBlS7MLQVSSXRrfPVOxF6n6XcBwgHHAQ
 ```
@@ -392,7 +420,7 @@ To see all the patches contained within a quilt, along with their identifiers an
 the `list-patches-in-quilt` command.
 
 ```sh
-walrus list-patches-in-quilt 057MX9PAaUIQLliItM_khR_cp5jPHzJWf-CuJr1z1ik
+$ walrus list-patches-in-quilt 057MX9PAaUIQLliItM_khR_cp5jPHzJWf-CuJr1z1ik
 ```
 
 ## Blob object and blob ID utilities
@@ -425,14 +453,14 @@ aggregator --help`.
 The command
 
 ```sh
-walrus set-blob-attribute <BLOB_OBJ_ID> --attr "key1" "value1" --attr "key2" "value2"
+$ walrus set-blob-attribute <BLOB_OBJ_ID> --attr "key1" "value1" --attr "key2" "value2"
 ```
 
 sets attributes `key1` and `key2` to values `value1` and `value2`, respectively. The command
 `walrus get-blob-attribute <BLOB_OBJ_ID>` returns all attributes associated with a blob ID. Finally,
 
 ```sh
-walrus remove-blob-attribute-fields <BLOB_OBJ_ID> --keys "key1,key2"
+$ walrus remove-blob-attribute-fields <BLOB_OBJ_ID> --keys "key1,key2"
 ```
 
 deletes the attributes with
@@ -457,7 +485,7 @@ MIST) that the command is allowed to use.
 The `walrus` CLI allows for multiple levels of logging, which can be turned on via an env variable:
 
 ```sh
-RUST_LOG=walrus=trace walrus info
+$ RUST_LOG=walrus=trace walrus info
 ```
 
 By default `info` level logs are enabled, but `debug` and `trace` can give a more intimate

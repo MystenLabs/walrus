@@ -2,15 +2,16 @@
 title: Linking from and to Walrus Sites
 ---
 
-``` admonish warning title="Walrus Sites links are currently unavailable"
+::: warning Walrus Sites links are currently unavailable
+
 This feature is currently unavailable on server-side portals. So if you are browsing a Walrus Site
-on <https://wal.app>, you will not be able to use Walrus Sites links.
+on `<https://wal.app>`, you will not be able to use Walrus Sites links.
 
 We are working on enabling this feature. Stay tuned!
-```
 
-Links in Walrus Sites work *almost* as you would expect in a regular website. We specify here a few
-of the details.
+:::
+
+Links in Walrus Sites work *almost* as you would expect in a regular website. We specify here a few of the details.
 
 ## Linking to resources within the same site
 
@@ -33,9 +34,11 @@ interoperability, availability, and respecting the user's choice of portal.
 
 ### The solution: Walrus Sites links
 
-``` admonish warning
+:::warning
+
 This feature is only available for service-worker based portals.
-```
+
+:::
 
 We solve this problem by having the portals interpret special links that are normally invalid on
 the web and redirect to the corresponding Walrus Sites resource in the portal itself.
@@ -50,5 +53,4 @@ browser "sniff" the content type. This works for images, for example, but not fo
 stylesheets. For example to point to the blob ID (e.g., containing an image) `qwer5678…`, use the
 URL `https://blobid.walrus/qwer5678…`.
 
-With such a link, the portal will extract the blob ID and redirect the request to the aggregator it
-is using to fetch blobs.
+With such a link, the portal will extract the blob ID and redirect the request to the aggregator it is using to fetch blobs.

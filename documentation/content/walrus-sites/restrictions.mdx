@@ -34,9 +34,9 @@ path will not be loaded correctly.
 
 The following limitations only apply to portals based on service workers.
 
-``` admonish tip
+:::tip
 If you need to support any of the features listed below, you should use a server-side portal.
-```
+:::
 
 ### Service-worker portals, can't serve sites based on service workers
 
@@ -53,10 +53,10 @@ result in a dysfunctional site and a poor experience for the user.
 
 ### iOS Sui mobile wallets do not work with the service-worker portal
 
-```admonish warning
+:::warning
 This limitation **only applies to portal based on service workers**. If you need to access sites
 that support this feature, you should use a server-side portal.
-```
+:::
 
 Service workers cannot be loaded inside an in-app browser on iOS, because of a limitation of the
 WebKit engine. As a consequence, Walrus Sites that are accessed through a service worker portal
@@ -72,10 +72,10 @@ to the `<site_name>.wal.app` server-side portal. This way, the user can still us
 
 ### Service worker portals do not support progressive web apps (PWAs)
 
-```admonish warning
+:::warning
 This limitation **only applies to portal based on service workers**. If you need to access sites
 that support this feature, you should use a server-side portal.
-```
+:::
 
 With the current design, service-worker portals cannot be used to access progressive web apps
 (PWAs).

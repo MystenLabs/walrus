@@ -18,11 +18,13 @@ upgrade) and commission operations and how these operations are performed.
 It is possible to either designate an arbitrary object as a capability for governance/commission
 operations or to designate an address to be authorized.
 
-```admonish warning
+:::warning
+
 Once set, only the authorized entity (either based on the address or capability) can
 change the authorization again, so only set it to addresses/objects that you control and make sure
 they remain accessible.
-```
+
+:::
 
 To set the authorization to receive the commission and perform governance operations you can either
 use the `walrus` binary in your CLI, or you can use the [node operations web interface](https://stake-wal.wal.app/node-operations).
@@ -39,22 +41,22 @@ Note that the authorized entities for commission and governance are independent,
 need to be set to the same address or object.
 
 ```sh
-NODE_ID=            # Set this to your node ID.
-COMMISSION_AUTHORIZED_ADDRESS= # Set this to a secure wallet address that you control.
-GOVERNANCE_AUTHORIZED_ADDRESS= # Set this to a secure wallet address that you control.
-walrus node-admin set-commission-authorized --node-id $NODE_ID --address $COMMISSION_AUTHORIZED_ADDRESS
-walrus node-admin set-governance-authorized --node-id $NODE_ID --address $GOVERNANCE_AUTHORIZED_ADDRESS
+$ NODE_ID=            # Set this to your node ID.
+$ COMMISSION_AUTHORIZED_ADDRESS= # Set this to a secure wallet address that you control.
+$ GOVERNANCE_AUTHORIZED_ADDRESS= # Set this to a secure wallet address that you control.
+$ walrus node-admin set-commission-authorized --node-id $NODE_ID --address $COMMISSION_AUTHORIZED_ADDRESS
+$ walrus node-admin set-governance-authorized --node-id $NODE_ID --address $GOVERNANCE_AUTHORIZED_ADDRESS
 ```
 
 Instead of specifying an authorized address using the `--address` flag, an arbitrary object can be
 designated as capability, using the `--object` flag:
 
 ```sh
-NODE_ID=           # Set this to your node ID.
-COMMISSION_AUTHORIZED_OBJECT= # Set this to the ID of an object that you own in a secure wallet.
-GOVERNANCE_AUTHORIZED_OBJECT= # Set this to the ID of an object that you own in a secure wallet.
-walrus node-admin set-commission-authorized --node-id $NODE_ID --object $COMMISSION_AUTHORIZED_OBJECT
-walrus node-admin set-governance-authorized --node-id $NODE_ID --object $GOVERNANCE_AUTHORIZED_OBJECT
+$ NODE_ID=           # Set this to your node ID.
+$ COMMISSION_AUTHORIZED_OBJECT= # Set this to the ID of an object that you own in a secure wallet.
+$ GOVERNANCE_AUTHORIZED_OBJECT= # Set this to the ID of an object that you own in a secure wallet.
+$ walrus node-admin set-commission-authorized --node-id $NODE_ID --object $COMMISSION_AUTHORIZED_OBJECT
+$ walrus node-admin set-governance-authorized --node-id $NODE_ID --object $GOVERNANCE_AUTHORIZED_OBJECT
 ```
 
 ### Using the web interface
@@ -70,8 +72,8 @@ To collect your commission, you can again either use the CLI or the web interfac
 make sure that `walrus` is configured to use the authorized wallet and run the following command:
 
 ```sh
-NODE_ID=           # Set this to your node ID.
-walrus node-admin --node-id $NODE_ID collect-commission
+$ NODE_ID=           # Set this to your node ID.
+$ walrus node-admin --node-id $NODE_ID collect-commission
 ```
 
 To use the web interface, go to the
@@ -110,16 +112,16 @@ Assuming that your current working directory is the root of the Walrus repositor
 checked out the correct commit, you would use the following command for Testnet upgrades:
 
 ```sh
-walrus node-admin package-digest --package-path testnet-contracts/walrus --context testnet
+$ walrus node-admin package-digest --package-path testnet-contracts/walrus --context testnet
 ```
 
 And the following for Mainnet upgrades:
 
 ```sh
-walrus node-admin package-digest --package-path mainnet-contracts/walrus --context mainnet
+$ walrus node-admin package-digest --package-path mainnet-contracts/walrus --context mainnet
 ```
 
-The command will output a digest (as Hex and Base64) that you can use to verify the proposal and
+The command outputs a digest (as Hex and Base64) that you can use to verify the proposal and
 vote on the upgrade.
 
 #### Voting on upgrades using the web interface
@@ -140,10 +142,10 @@ wallet, and that you are on the correct branch in the root directory of the Walr
 Then run the following for Testnet:
 
 ```sh
-NODE_ID=   # Set this to your node ID.
-PACKAGE_PATH=testnet-contracts/walrus
-UPGRADE_MANAGER_OBJECT_ID=0xc768e475fd1527b7739884d7c3a3d1bc09ae422dfdba6b9ae94c1f128297283c
-walrus node-admin vote-for-upgrade \
+$ NODE_ID=   # Set this to your node ID.
+$ PACKAGE_PATH=testnet-contracts/walrus
+$ UPGRADE_MANAGER_OBJECT_ID=0xc768e475fd1527b7739884d7c3a3d1bc09ae422dfdba6b9ae94c1f128297283c
+$ walrus node-admin vote-for-upgrade \
     --node-id $NODE_ID \
     --upgrade-manager-object-id $UPGRADE_MANAGER_OBJECT_ID \
     --package-path $PACKAGE_PATH \
@@ -153,10 +155,10 @@ walrus node-admin vote-for-upgrade \
 And for Mainnet upgrades:
 
 ```sh
-NODE_ID=   # Set this to your node ID.
-PACKAGE_PATH=mainnet-contracts/walrus
-UPGRADE_MANAGER_OBJECT_ID=0xc42868ad4861f22bd1bcd886ae1858d5c007458f647a49e502d44da8bbd17b51
-walrus node-admin vote-for-upgrade \
+$ NODE_ID=   # Set this to your node ID.
+$ PACKAGE_PATH=mainnet-contracts/walrus
+$ UPGRADE_MANAGER_OBJECT_ID=0xc42868ad4861f22bd1bcd886ae1858d5c007458f647a49e502d44da8bbd17b51
+$ walrus node-admin vote-for-upgrade \
     --node-id $NODE_ID \
     --upgrade-manager-object-id $UPGRADE_MANAGER_OBJECT_ID \
     --package-path $PACKAGE_PATH \
@@ -165,7 +167,7 @@ walrus node-admin vote-for-upgrade \
 
 #### Upgrade completion
 
-Once a quorum of node operators (by number of shards) has voted in favor of a proposal, the contract
+After a quorum of node operators (by number of shards) has voted in favor of a proposal, the contract
 upgrade can be finalized. This will usually be done by the proposer using a PTB that calls the
 respective functions to authorize, execute, and commit the upgrade. Then, depending on the upgrade,
 either at the start of the next epoch or immediately, the system and staking objects are migrated to

@@ -16,15 +16,17 @@ to your desired aggregator and publisher, respectively. For example, the instanc
 Labs on Walrus Testnet (see [below](#public-services) for further public options):
 
 ```sh
-AGGREGATOR=https://aggregator.walrus-testnet.walrus.space
-PUBLISHER=https://publisher.walrus-testnet.walrus.space
+$ AGGREGATOR=https://aggregator.walrus-testnet.walrus.space
+$ PUBLISHER=https://publisher.walrus-testnet.walrus.space
 ```
 
-```admonish tip title="API specification"
+:::tip API specification
+
 Walrus aggregators and publishers expose their API specifications at the path `/v1/api`. You can
-view this in the browser, for example, at <https://aggregator.walrus-testnet.walrus.space/v1/api>. The latest version of these specifications are also available [on GitHub](https://github.com/MystenLabs/walrus/tree/main/crates/walrus-service)
+view this in the browser, for example, at `<https://aggregator.walrus-testnet.walrus.space/v1/api>`. The latest version of these specifications are also available [on GitHub](https://github.com/MystenLabs/walrus/tree/main/crates/walrus-service)
 in HTML and YAML format.
-```
+
+:::
 
 ### Store
 
@@ -33,9 +35,9 @@ You can interact with the daemon through simple HTTP PUT requests. For example, 
 
 ```sh
 # store the string `some string` for 1 storage epoch
-curl -X PUT "$PUBLISHER/v1/blobs" -d "some string"
+$ curl -X PUT "$PUBLISHER/v1/blobs" -d "some string"
 # store file `some/file` for 1 storage epoch
-curl -X PUT "$PUBLISHER/v1/blobs?epochs=5" --upload-file "some/file"
+$ curl -X PUT "$PUBLISHER/v1/blobs?epochs=5" --upload-file "some/file"
 ```
 
 You can control how the new blob should be created through several query parameters, which can be
@@ -46,33 +48,37 @@ combined and are all documented in the [OpenAPI specification mentioned above](#
 
   ```sh
   # store file `some/file` for 5 storage epochs
-  curl -X PUT "$PUBLISHER/v1/blobs?epochs=5" --upload-file "some/file"
+  $ curl -X PUT "$PUBLISHER/v1/blobs?epochs=5" --upload-file "some/file"
   ```
 
 - Similar to the CLI, the publisher API allows you to specify whether a blob should be stored as
   permanent or deletable through a query parameter `permanent=true` or `deletable=true`,
   respectively:
 
+  Store file `some/file` as a deletable blob:
   ```sh
-  # store file `some/file` as a deletable blob
-  curl -X PUT "$PUBLISHER/v1/blobs?deletable=true" --upload-file "some/file"
-  # store file `some/file` as a permanent blob
-  curl -X PUT "$PUBLISHER/v1/blobs?permanent=true" --upload-file "some/file"
+  $ curl -X PUT "$PUBLISHER/v1/blobs?deletable=true" --upload-file "some/file"
   ```
 
-  ```admonish warning title="Change of default blob persistence"
-  Up to (including) version 1.32, the CLI and [publisher](./web-api.md) store blobs as *permanent*
-  by default, requiring the user to explicitly specify a blob to be deletable. Starting with version
-  1.33, newly stored blobs are *deletable* by default. If you care about the blob persistence, make
-  sure to use the appropriate flag.
+  Store file `some/file` as a permanent blob:
+
+  ```sh
+  $ curl -X PUT "$PUBLISHER/v1/blobs?permanent=true" --upload-file "some/file"
   ```
+
+  :::warning Change of default blob persistence
+
+  Up to (including) version 1.32, the CLI and [publisher](/usage/web-api.mdx) store blobs as permanent by default, requiring the user to explicitly specify a blob to be deletable. Starting with version 1.33, newly stored blobs are *deletable* by default. If you care about the blob persistence, make sure to use the appropriate flag.
+
+  :::
 
 - You can specify an address to which the resulting `Blob` object should be sent through the
   `send-object-to` parameter:
 
+  Store file `some/file` and send the blob object to `$ADDRESS`:
+
   ```sh
-  # store file `some/file` and send the blob object to $ADDRESS
-  curl -X PUT "$PUBLISHER/v1/blobs?send_object_to=$ADDRESS" --upload-file "some/file"
+  $ curl -X PUT "$PUBLISHER/v1/blobs?send_object_to=$ADDRESS" --upload-file "some/file"
   ```
 
 The store HTTP API end points return information about the blob stored in JSON format. When a blob
@@ -81,6 +87,11 @@ new blob:
 
 ```sh
 $ curl -X PUT "$PUBLISHER/v1/blobs" -d "some other string"
+```
+
+If successful, the console responds:
+
+```sh
 {
   "newlyCreated": {
     "blobObject": {
@@ -116,6 +127,11 @@ it returns a `alreadyCertified` JSON structure:
 
 ```sh
 $ curl -X PUT "$PUBLISHER/v1/blobs" -d "some other string"
+```
+
+If successful, the console responds:
+
+```sh
 {
   "alreadyCertified": {
     "blobId": "M4hsZGQ1oCktdzegB6HnI6Mi28S2nqOPHxK-W7_4BUk",
@@ -137,20 +153,22 @@ Blobs may be read from an aggregator or daemon using HTTP GET using their blob I
 For example, the following cURL command reads a blob and writes it to an output file:
 
 ```sh
-curl "$AGGREGATOR/v1/blobs/<some blob ID>" -o <some file name>
+$ curl "$AGGREGATOR/v1/blobs/<some blob ID>" -o <some file name>
 ```
 
 Alternatively you may print the contents of a blob in the terminal with the cURL command:
 
 ```sh
-curl "$AGGREGATOR/v1/blobs/<some blob ID>"
+$ curl "$AGGREGATOR/v1/blobs/<some blob ID>"
 ```
 
-```admonish tip title="Content sniffing"
+:::tip Content sniffing
+
 Modern browsers will attempt to sniff the content type for such resources, and will generally do a
 good job of inferring content types for media. However, the aggregator on purpose prevents such
 sniffing from inferring dangerous executable types such as JavaScript or style sheet types.
-```
+
+:::
 
 #### Reading by object ID
 
@@ -159,7 +177,7 @@ For example the following
 cURL command downloads the blob corresponding to a Sui blob with a specific object ID:
 
 ```sh
-curl "$AGGREGATOR/v1/blobs/by-object-id/<object-id>" -o <some file name>
+$ curl "$AGGREGATOR/v1/blobs/by-object-id/<object-id>" -o <some file name>
 ```
 
 Downloading blobs by object ID allows the use of attributes to set some HTTP headers.
@@ -184,23 +202,27 @@ The publishers and aggregators support *quilt* related operations.
 
 #### Storing quilts
 
-```admonish tip
-All the query parameters available for storing regular blobs (see [Store](#store) section above) can
-also be used when storing quilts.
-```
+:::tip
 
-Use the following publisher API to store multiple blobs as a quilt:
+All the query parameters available for storing regular blobs (see [Store](#store) section above) can also be used when storing quilts.
+
+:::
+
+Use the following publisher API to store multiple blobs as a quilt.
+
+Store two files `document.pdf` and `image.png`, with custom identifiers `contract-v2` and
+`logo-2024`, respectively:
 
 ```sh
-# Store two files `document.pdf` and `image.png`, with custom identifiers `contract-v2` and
-# `logo-2024, respectively.
-curl -X PUT "$PUBLISHER/v1/quilts?epochs=5" \
+$ curl -X PUT "$PUBLISHER/v1/quilts?epochs=5" \
   -F "contract-v2=@document.pdf" \
   -F "logo-2024=@image.png"
+```
 
-# Store two files with Walrus-native metadata. The metadata are assigned to the blob with
-# the same identifier. Note: `_metadata` must be used as the field name for Walrus-native metadata.
-curl -X PUT "$PUBLISHER/v1/quilts?epochs=5" \
+Store two files with Walrus-native metadata. The metadata are assigned to the blob with the same identifier. Note: `_metadata` must be used as the field name for Walrus-native metadata.
+
+```sh
+$ curl -X PUT "$PUBLISHER/v1/quilts?epochs=5" \
   -F "quilt-manual=@document.pdf" \
   -F "logo-2025=@image.png" \
   -F '_metadata=[
@@ -209,25 +231,34 @@ curl -X PUT "$PUBLISHER/v1/quilts?epochs=5" \
   ]'
 ```
 
-```admonish warning
-Identifiers must be unique within a quilt.
-```
+:::warning
 
-```admonish info
+Identifiers must be unique within a quilt.
+
+:::
+
+:::info
+
 Since identifiers cannot start with `_`, the field name `_metadata` is reserved for Walrus native
 metadata and won't conflict with user-defined identifiers. See
 [Quilt documentation](/usage/quilt.mdx) for complete identifier restrictions.
-```
+
+:::
 
 The quilt store API returns a JSON response with information about the stored quilt, including
 the quilt ID (blobId) and individual blob patch IDs that can be used to retrieve specific blobs
 later. The following example shows the command and response (the actual JSON output is returned
 as a single line; it's formatted here for readability):
 
-```console
+```sh
 $ curl -X PUT "http://127.0.0.1:31415/v1/quilts?epochs=1" \
   -F "walrus.jpg=@./walrus-33.jpg" \
   -F "another_walrus.jpg=@./walrus-46.jpg"
+```
+
+If successful, the console responds:
+
+```sh
 {
   "blobStoreResult": {
     "newlyCreated": {
@@ -272,32 +303,37 @@ $ curl -X PUT "http://127.0.0.1:31415/v1/quilts?epochs=1" \
 
 There are two ways to retrieve blobs from a quilt via the aggregator APIs:
 
-```admonish info
+:::info
+
 Currently, only one blob can be retrieved per request. Bulk retrieval of multiple blobs from a
 quilt in a single request is not yet supported.
-```
+
+:::
 
 ##### By quilt patch ID
 
-Each blob in a quilt has a unique patch ID. You can retrieve a specific blob using its patch ID:
+Each blob in a quilt has a unique patch ID. You can retrieve a specific blob using its patch ID.
+
+Retrieve a blob using its quilt patch ID:
 
 ```sh
-# Retrieve a blob using its quilt patch ID.
-curl "$AGGREGATOR/v1/blobs/by-quilt-patch-id/6XUOE-Q5-nAXHRifN6n9nomVDtHZQbGuAkW3PjlBuKoBAQDQAA" \
+$ curl "$AGGREGATOR/v1/blobs/by-quilt-patch-id/6XUOE-Q5-nAXHRifN6n9nomVDtHZQbGuAkW3PjlBuKoBAQDQAA" \
 ```
 
-```admonish tip
+:::tip
+
 QuiltPatchIds can be obtained from the store quilt output (as shown above) or by using the
 [`list-patches-in-quilt`](/usage/client-cli.mdx#batch-storing-blobs-with-quilt) CLI command.
-```
+
+:::
 
 ##### By quilt ID and identifier
 
-You can also retrieve a blob using the quilt ID and the blob's identifier:
+You can also retrieve a blob using the quilt ID and the blob's identifier.
 
+Retrieve a blob with identifier `walrus.jpg` from the quilt.
 ```sh
-# Retrieve a blob with identifier `walrus.jpg` from the quilt.
-curl "$AGGREGATOR/v1/blobs/by-quilt-id/6XUOE-Q5-nAXHRifN6n9nomVDtHZQbGuAkW3PjlBuKo/walrus.jpg" \
+$ curl "$AGGREGATOR/v1/blobs/by-quilt-id/6XUOE-Q5-nAXHRifN6n9nomVDtHZQbGuAkW3PjlBuKo/walrus.jpg" \
 ```
 
 Both methods return the raw blob bytes in the response body. Metadata such as the blob identifier
@@ -318,11 +354,11 @@ See the following subsections for [public aggregators on Mainnet](#mainnet) and 
 [aggregators](#aggregators-testnet) and [publishers](#publishers-testnet) on Testnet. We also
 provide the [operator lists in JSON format](../assets/operators.json).
 
-```admonish tip
-The operator list in JSON format includes additional info about aggregators, namely whether they are
-deployed with caching functionality and whether they are found to be functional. The list is updated
-once per week.
-```
+:::tip
+
+The operator list in JSON format includes additional info about aggregators, namely whether they are deployed with caching functionality and whether they are found to be functional. The list is updated once per week.
+
+:::
 
 import OperatorsList from '@site/src/components/OperatorsList';
 

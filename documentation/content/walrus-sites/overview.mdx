@@ -90,12 +90,14 @@ Walrus Sites also work *without* SuiNS: when a site is accessed through a self-h
 through a portal that supports Base36 domain resolution, a site can be browsed by using as
 subdomain the Base36 encoding of the Sui object ID of the site.
 
-``` admonish danger
+:::danger
+
 The `wal.app` portal does not support Base36 domain resolution; therefore,
 `<https://58gr4pinoayuijgdixud23441t55jd94ugep68fsm72b8mwmq2.wal.app>` is not a valid URL. If you
 want to access such a site, you should either use another portal or
 [host your own](/walrus-sites/portal.mdx#running-a-local-portal).
-```
+
+:::
 
 Base36 was chosen for two reasons, forced by the subdomain standards:
 

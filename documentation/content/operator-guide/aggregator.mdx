@@ -19,7 +19,7 @@ The aggregator does not perform any on-chain actions, and only requires specifyi
 which it listens:
 
 ```sh
-walrus aggregator --bind-address "127.0.0.1:31415"
+$ walrus aggregator --bind-address "127.0.0.1:31415"
 ```
 
 The publisher and daemon perform on-chain actions and thus require a Sui Testnet wallet with
@@ -36,23 +36,23 @@ For example, you can run a publisher with a single sub-wallet stored in the Walr
 directory with the following command:
 
 ```sh
-PUBLISHER_WALLETS_DIR=~/.config/walrus/publisher-wallets
-mkdir -p "$PUBLISHER_WALLETS_DIR"
-walrus publisher \
-  --bind-address "127.0.0.1:31416" \
-  --sub-wallets-dir "$PUBLISHER_WALLETS_DIR" \
-  --n-clients 1
+$ PUBLISHER_WALLETS_DIR=~/.config/walrus/publisher-wallets
+$ mkdir -p "$PUBLISHER_WALLETS_DIR"
+$ walrus publisher \
+    --bind-address "127.0.0.1:31416" \
+    --sub-wallets-dir "$PUBLISHER_WALLETS_DIR" \
+    --n-clients 1
 ```
 
 Replace `publisher` by `daemon` to run both an aggregator and publisher on the same address and
 port.
 
-```admonish warning
+:::warning
 While the aggregator does not perform Sui on-chain actions, and therefore consumes no gas, the
 publisher does perform actions on-chain and will consume both SUI and WAL tokens. It is therefore
 important to ensure only authorized parties may access it, or other measures to manage gas costs,
 especially in a future Mainnet deployment.
-```
+:::
 
 By default, [store blob](/usage/web-api.mdx#store) requests are limited to 10 MiB; you can
 increase this limit through the `--max-body-size` option.

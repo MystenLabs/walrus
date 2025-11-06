@@ -54,10 +54,10 @@ To use this feature:
      pull-requests: write
    ```
 
-```admonish note
+:::note
 If you don't provide the `GITHUB_TOKEN`, the action will still deploy your site successfully but
 won't create pull requests for resource file changes.
-```
+:::
 
 ### New Site vs Existing Site
 
@@ -79,17 +79,17 @@ Understanding how the workflow behaves depends on whether you have an existing s
   as long as the `object_id` is present in your `WS_RESOURCES` file (defaults to
   `DIST/ws-resources.json`)
 
-```admonish tip
+:::tip
 The `ws-resources.json` file is crucial - it tells the action which site to update. Make sure to
 merge the PR from the first run so future deployments update the same site instead of creating new
 ones.
-```
+:::
 
-```admonish tip
+:::tip
 Once your site is deployed and you have the `object_id`, you can link it with a SuiNS name to make
 your site accessible at `<suins>.wal.app`. See [Set a SuiNS name](/walrus-sites/tutorial-suins.mdx) for details
 on how to set this up.
-```
+:::
 
 ## Creating Your Workflow
 

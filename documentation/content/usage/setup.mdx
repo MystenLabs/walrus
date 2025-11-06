@@ -10,18 +10,42 @@ the [prerequisites](#prerequisites), [installation](#installation), and
 Walrus is open-source under an Apache 2 license, and can also be built and installed from the Rust
 source code via cargo.
 
-```admonish info title="Walrus networks"
+:::info Walrus networks
 This page describes how to connect to Walrus **Testnet**. See [Available networks](/usage/networks.mdx)
 for an overview over all Walrus networks.
-```
+:::
+
+:::danger Walrus Testnet disclaimer
+
+The current Testnet release of Walrus and Walrus Sites is a preview intended to showcase
+the technology and solicit feedback from builders, users, and storage-node operators.
+All transactions are executed on the Sui Testnet and use Testnet WAL and SUI which have no
+value. The state of the store **can and will be wiped** at any point and possibly with no warning.
+Do not rely on this Testnet for any production purposes, it comes with no availability or
+persistence guarantees.
+
+Furthermore, encodings and blob IDs may be incompatible with the future Testnet and Mainnet, and
+developers will be responsible for migrating any Testnet applications and data to Mainnet. Detailed
+migration guides will be provided when Mainnet becomes available.
+
+Also see the [Testnet terms of service](/docs/legal/testnet_tos) under which this Testnet is made
+available.
+
+:::
+
+:::danger Public access
+
+All blobs stored in Walrus are public and discoverable. Do not use Walrus to store anything that contains secrets or private data without additional measures to protect confidentiality.
+
+:::
 
 ## Prerequisites: Sui wallet, SUI and WAL {#prerequisites}
 
-```admonish tip title="Quick wallet setup"
+:::tip Quick wallet setup
 If you just want to set up a new Sui wallet for Walrus, you can generate one using the
 `walrus generate-sui-wallet --sui-network mainnet` command after [installing Walrus](#installation).
 You still need to obtain some SUI and WAL tokens, but you do not have to install the Sui CLI.
-```
+:::
 
 Interacting with Walrus requires a valid Sui wallet with some amount of SUI and WAL tokens. The
 normal way to set this up is via the Sui CLI; see the [installation
@@ -36,8 +60,13 @@ further details.
 
 After this, you should get something like this (everything besides the `mainnet` line is optional):
 
-```terminal
+```sh
 $ sui client envs
+```
+
+If successful, the console responds:
+
+```sh
 ╭──────────┬─────────────────────────────────────┬────────╮
 │ alias    │ url                                 │ active │
 ├──────────┼─────────────────────────────────────┼────────┤
@@ -50,8 +79,13 @@ $ sui client envs
 
 Make sure you have at least one gas coin with at least 1 SUI.
 
-```terminal
+```sh
 $ sui client gas
+```
+
+If successful, the console responds:
+
+```sh
 ╭─────────────────┬────────────────────┬──────────────────╮
 │ gasCoinId       │ mistBalance (MIST) │ suiBalance (SUI) │
 ├─────────────────┼────────────────────┼──────────────────┤
@@ -88,13 +122,13 @@ commands in your terminal then follow on-screen instructions. If you are on Wind
 
 ```sh
 # Run a first-time install using the latest Mainnet version.
-curl -sSf https://install.wal.app | sh
+$ curl -sSf https://install.wal.app | sh
 
 # Install the latest Testnet version instead.
-curl -sSf https://install.wal.app | sh -s -- -n testnet
+$ curl -sSf https://install.wal.app | sh -s -- -n testnet
 
 # Update an existing installation (overwrites prior version of walrus).
-curl -sSf https://install.wal.app | sh -s -- -f
+$ curl -sSf https://install.wal.app | sh -s -- -f
 ```
 
 Make sure that the `"$HOME"/.local/bin` directory is in your `$PATH`.
@@ -104,8 +138,13 @@ Once this is done, you should be able to run Walrus by using the `walrus` comman
 You can see usage instructions as follows (see [the next chapter](/usage/interacting.mdx) for further
 details):
 
-```terminal
+```sh
 $ walrus --help
+```
+
+If successful, the console responds:
+
+```sh
 Walrus client
 
 Usage: walrus [OPTIONS] <COMMAND>
@@ -114,18 +153,20 @@ Commands:
 ⋮
 ```
 
-```admonish tip
+:::tip
+
 Our latest Walrus binaries are also available on Walrus itself, namely on
-<https://bin.wal.app>, for example, <https://bin.wal.app/walrus-mainnet-latest-ubuntu-x86_64>.
+`<https://bin.wal.app>`, for example, `<https://bin.wal.app/walrus-mainnet-latest-ubuntu-x86_64>`.
 Note that due to DoS protection, it may not be possible to download the binaries with `curl` or
 `wget`.
-```
+
+:::
 
 ### Install on Windows {#windows-install}
 
 To download `walrus` to your Microsoft Windows computer, run the following in a PowerShell.
 
-```PowerShell
+```sh
 (New-Object System.Net.WebClient).DownloadFile(
   "https://storage.googleapis.com/mysten-walrus-binaries/walrus-testnet-latest-windows-x86_64.exe",
   "walrus.exe"
@@ -134,10 +175,12 @@ To download `walrus` to your Microsoft Windows computer, run the following in a 
 
 From there, you'll need to place `walrus.exe` somewhere in your `PATH`.
 
-```admonish title="Windows"
+:::note Windows
+
 Note that most of the remaining instructions assume a UNIX-based system for the directory structure,
 commands, etc. If you use Windows, you may need to adapt most of those.
-```
+
+:::
 
 ### Install via suiup (experimental) {#suiup-install}
 
@@ -147,9 +190,9 @@ documentation](https://github.com/MystenLabs/suiup?tab=readme-ov-file#installati
 specific versions of the `walrus` CLI:
 
 ```sh
-suiup install walrus@testnet # install the latest testnet release
-suiup install walrus@mainnet # install the latest mainnet release
-suiup install walrus@testnet-v1.27.1 # install a specific release
+$ suiup install walrus@testnet # install the latest testnet release
+$ suiup install walrus@mainnet # install the latest mainnet release
+$ suiup install walrus@testnet-v1.27.1 # install a specific release
 ```
 
 ### GitHub releases
@@ -162,7 +205,7 @@ Simply download the archive for your system and extract the `walrus` binary.
 You can also install Walrus via Cargo. For example, to install the latest Mainnet version:
 
 ```sh
-cargo install --git https://github.com/MystenLabs/walrus --branch mainnet walrus-service --locked
+$ cargo install --git https://github.com/MystenLabs/walrus --branch mainnet walrus-service --locked
 ```
 
 In place of `--branch mainnet`, you can also specify specific tags (e.g., `--tag mainnet-v1.18.2`)
@@ -187,17 +230,16 @@ You can access Testnet and Mainnet via the following configuration. Note that th
 CLI configuration refers to the standard location for Sui configuration
 (`"~/.sui/sui_config/client.yaml"`).
 
-```yaml
-{{ #include ../setup/client_config.yaml }}
-```
+<ImportContent source="/setup/client_config.yaml" mode="code" />
 
-````admonish tip
+:::tip
+
 The easiest way to obtain the latest configuration is by downloading it directly from Walrus:
 
 ```sh
-curl https://docs.wal.app/setup/client_config.yaml -o ~/.config/walrus/client_config.yaml
+$ curl https://docs.wal.app/setup/client_config.yaml -o ~/.config/walrus/client_config.yaml
 ```
-````
+:::
 
 ### Custom path (optional) {#config-custom-path}
 

@@ -19,7 +19,7 @@ For simplicity, we will start by publishing the most frugal of the sites, the `w
 First, clone the repository of the examples:
 
 ```sh
-git clone https://github.com/MystenLabs/example-walrus-sites.git && cd example-walrus-sites
+$ git clone https://github.com/MystenLabs/example-walrus-sites.git && cd example-walrus-sites
 ```
 
 ## Publish the site
@@ -28,26 +28,28 @@ Since we have placed the `walrus` and `site-builder` binaries and configuration 
 locations, publishing the `./walrus-snake` site is as simple as calling the publishing command:
 
 ```sh
-site-builder deploy ./walrus-snake --epochs 1
+$ site-builder deploy ./walrus-snake --epochs 1
 ```
 
-```admonish tip
+:::tip
 Depending on the network, the duration of an epoch may vary. Currently on Walrus Testnet, the
 duration of an epoch is one day. On Mainnet, the duration of an epoch is two weeks.
-```
+:::
 
-```admonish warning title="Important: Testnet vs Mainnet Access"
+:::warning Testnet vs Mainnet Access
+
 **After publishing, how you access your site depends on which network you used:**
 
 - **Mainnet sites**: Can be accessed through any mainnet portal.
-<https://wal.app> serves Walrus Sites on mainnet by resolving SuiNS names that point to them.
+`<https://wal.app>` serves Walrus Sites on mainnet by resolving SuiNS names that point to them.
 - **Testnet sites**: Can be accessed through any testnet portal.
 Walrus Foundation does not operate a testnet portal. You can [self-host or run one locally](/walrus-sites/portal.mdx)
-```
+
+:::
 
 The end of the output should look like the following:
 
-```txt
+```sh
 Execution completed
 Resource operations performed:
   - created resource /.DS_Store with blob ID PwNzE9_a9anYb8AZysafQZGqd4h0scsTGhzF2GPsWmQ
@@ -67,21 +69,19 @@ To browse the site, you have the following options:
            Finally, browse it with: https://example-domain.wal.app
 ```
 
-```admonish note
+:::note
+
 Keep in mind that option 2 is only available on `mainnet`.
 For testnet sites, use option 1 - see the [portal setup guide](/walrus-sites/portal.mdx) for instructions.
-```
+
+:::
 
 This output tells you that, for each file in the folder, a new Walrus blob was created, and the
 respective blob ID. Further, it prints the object ID of the Walrus Site object on Sui (so you can
-have a look in the explorer and use it to set the SuiNS name) and, finally, the URL at which you can
-browse the site.
-The deploy command will also save this new Site Object ID to the ws-resources.json
+have a look in the explorer and use it to set the SuiNS name) and, finally, the URL at which you can browse the site. The deploy command will also save this new Site Object ID to the ws-resources.json
 
 Note here that we are implicitly using the default `sites-config.yaml` as the config for the site
-builder that we set up previously on the [installation section](/walrus-sites/tutorial-install.mdx). The
-configuration file is necessary to ensure that the `site-builder` knows the correct Sui package for
-the Walrus Sites logic.
+builder that we set up previously on the [installation section](/walrus-sites/tutorial-install.mdx). The configuration file is necessary to ensure that the `site-builder` knows the correct Sui package for the Walrus Sites logic.
 
 More details on the configuration of the `site-builder` can be found under the [advanced
 configuration](/walrus-sites/builder-config.mdx) section.
@@ -98,12 +98,12 @@ use the Site Object ID stored in ws-resources.json (from the initial deployment)
 to update. You do not need to specify the object ID manually:
 
 ```sh
-site-builder deploy --epochs 1 ./walrus-snake
+$ site-builder deploy --epochs 1 ./walrus-snake
 ```
 
 The output this time should be:
 
-```txt
+```sh
 Execution completed
 Resource operations performed:
   - deleted resource /index.html with blob ID LVLk9VSnBrEgQ2HJHAgU3p8IarKypQpfn38aSeUZzzE
@@ -124,14 +124,18 @@ were to delete the old `index.html`, and update it with the newer one.
 
 Browsing to the provided URL should reflect the change. You've updated the site!
 
-```admonish note
-The wallet you are using must be the *owner* of the Walrus Site object to be able to update it.
-```
+:::note
 
-```admonish danger title="Extending the expiration date of an existing site"
+The wallet you are using must be the *owner* of the Walrus Site object to be able to update it.
+
+:::
+
+:::danger Extending the expiration date of an existing site
+
 To extend the expiration date of a previously-stored site, use the `update` command with the
 `--check-extend` flag. With this flag, the site-builder will force a check of the status of
 all the Walrus blobs composing the site, and will extend the ones that expire before `--epochs`
 epochs. This is useful to ensure all the resources in the site are available for the same amount
 of epochs.
-```
+
+:::
