@@ -45,6 +45,53 @@ public struct BlobDeleted has copy, drop {
     was_certified: bool,
 }
 
+/// Signals that a managed blob has been registered.
+/// Note: end_epoch is managed at the BlobManager level, not per blob.
+public struct ManagedBlobRegistered has copy, drop {
+    epoch: u32,
+    blob_manager_id: ID,
+    blob_id: u256,
+    size: u64,
+    encoding_type: u8,
+    deletable: bool,
+    is_quilt: bool,
+    // The object id of the related `ManagedBlob` object
+    object_id: ID,
+}
+
+/// Signals that a managed blob is certified.
+/// Note: end_epoch is managed at the BlobManager level, not per blob.
+public struct ManagedBlobCertified has copy, drop {
+    epoch: u32,
+    blob_manager_id: ID,
+    blob_id: u256,
+    deletable: bool,
+    is_quilt: bool,
+    // The object id of the related `ManagedBlob` object
+    object_id: ID,
+    // Marks if this is an extension
+    is_extension: bool,
+}
+
+/// Signals that a managed blob has been deleted.
+public struct ManagedBlobDeleted has copy, drop {
+    epoch: u32,
+    blob_manager_id: ID,
+    blob_id: u256,
+    // The object ID of the related `ManagedBlob` object.
+    object_id: ID,
+    // If the blob object was previously certified.
+    was_certified: bool,
+}
+
+/// Signals that a BlobManager's storage has been extended.
+public struct BlobManagerExtended has copy, drop {
+    epoch: u32,
+    blob_manager_id: ID,
+    additional_storage: u64,
+    new_end_epoch: u32,
+}
+
 /// Signals that a BlobID is invalid.
 public struct InvalidBlobID has copy, drop {
     epoch: u32, // The epoch in which the blob ID is first registered as invalid
@@ -172,6 +219,78 @@ public(package) fun emit_blob_deleted(
     was_certified: bool,
 ) {
     event::emit(BlobDeleted { epoch, blob_id, end_epoch, object_id, was_certified });
+}
+
+public(package) fun emit_managed_blob_registered(
+    epoch: u32,
+    blob_manager_id: ID,
+    blob_id: u256,
+    size: u64,
+    encoding_type: u8,
+    deletable: bool,
+    is_quilt: bool,
+    object_id: ID,
+) {
+    event::emit(ManagedBlobRegistered {
+        epoch,
+        blob_manager_id,
+        blob_id,
+        size,
+        encoding_type,
+        deletable,
+        is_quilt,
+        object_id,
+    });
+}
+
+public(package) fun emit_managed_blob_certified(
+    epoch: u32,
+    blob_manager_id: ID,
+    blob_id: u256,
+    deletable: bool,
+    is_quilt: bool,
+    object_id: ID,
+    is_extension: bool,
+) {
+    event::emit(ManagedBlobCertified {
+        epoch,
+        blob_manager_id,
+        blob_id,
+        deletable,
+        is_quilt,
+        object_id,
+        is_extension,
+    });
+}
+
+public(package) fun emit_managed_blob_deleted(
+    epoch: u32,
+    blob_manager_id: ID,
+    blob_id: u256,
+    object_id: ID,
+    was_certified: bool,
+) {
+    event::emit(ManagedBlobDeleted {
+        epoch,
+        blob_manager_id,
+        blob_id,
+        object_id,
+        was_certified,
+    });
+}
+
+public(package) fun emit_blob_manager_extended(
+    epoch: u32,
+    blob_manager_id: ID,
+    additional_storage: u64,
+    new_end_epoch: u32,
+) {
+    event::emit(BlobManagerExtended {
+        epoch,
+        blob_manager_id,
+        additional_storage,
+        new_end_epoch,
+    });
 }
 
 public(package) fun emit_epoch_change_start(epoch: u32) {

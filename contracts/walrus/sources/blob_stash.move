@@ -1,8 +1,8 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-/// Blob storage implementation for BlobManager
-/// Supports multiple variants of the same blob_id (e.g., deletable vs permanent)
+/// Blob storage implementation for BlobManager.
+/// Supports multiple variants of the same blob_id (e.g., deletable vs permanent).
 module walrus::blob_stash;
 
 use sui::table::{Self as table, Table};
@@ -17,75 +17,75 @@ const EBlobNotRegisteredInBlobManager: u64 = 2;
 
 // === TwoPhaseOwnershipBlobStash Struct ===
 
-/// Two-phase ownership blob storage implementation
+/// Two-phase ownership blob storage implementation.
 ///
-/// This struct manages blobs through a two-phase ownership lifecycle:
+/// This struct manages blobs through a two-phase ownership lifecycle.
 ///
 /// PHASE 1 - REGISTRATION (Caller Ownership):
 /// - When a blob is registered via `add_blob_object_id_only_to_stash()`, the Blob object
-///   is returned to the caller who owns it
-/// - Only the blob's ObjectID is tracked in `blob_id_to_objects` table for deduplication
-/// - The caller can do anything with the blob (transfer, store, etc.) before certification
+///   is returned to the caller who owns it.
+/// - Only the blob's ObjectID is tracked in `blob_id_to_objects` table for deduplication.
+/// - The caller can do anything with the blob (transfer, store, etc.) before certification.
 ///
 /// PHASE 2 - CERTIFICATION (BlobManager Ownership):
 /// - When the blob is certified via `add_blob_to_stash()`, the caller transfers the Blob
-///   object to BlobManager
-/// - The Blob is stored in `blobs_by_object_id` table and becomes permanently managed
-/// - BlobManager now owns and controls the blob's lifecycle
+///   object to BlobManager.
+/// - The Blob is stored in `blobs_by_object_id` table and becomes permanently managed.
+/// - BlobManager now owns and controls the blob's lifecycle.
 ///
-/// Blob deduplication behavior:
+/// Blob deduplication behavior.
 /// - If a certified blob with same blob_id and deletable exists: Returns
-///   EBlobAlreadyCertified error
-/// - If an uncertified blob with same blob_id and deletable exists: Returns its object ID
-/// - Otherwise: Creates new blob, stores it, and returns its object ID
+///   EBlobAlreadyCertified error.
+/// - If an uncertified blob with same blob_id and deletable exists: Returns its object ID.
+/// - Otherwise: Creates new blob, stores it, and returns its object ID.
 public struct TwoPhaseOwnershipBlobStash has store {
-    /// Maps blob_id to vector of ObjectIDs (supports multiple variants per blob_id)
-    /// Used in PHASE 1 to track caller-owned blobs and check for duplicates
+    /// Maps blob_id to vector of ObjectIDs (supports multiple variants per blob_id).
+    /// Used in PHASE 1 to track caller-owned blobs and check for duplicates.
     blob_id_to_objects: Table<u256, vector<ID>>,
-    /// Maps ObjectID to the actual Blob object
-    /// Used in PHASE 2 to store BlobManager-owned certified blobs
+    /// Maps ObjectID to the actual Blob object.
+    /// Used in PHASE 2 to store BlobManager-owned certified blobs.
     blobs_by_object_id: Table<ID, Blob>,
-    /// Total unencoded size of all blobs (both phases)
+    /// Total unencoded size of all blobs (both phases).
     total_unencoded_size: u64,
 }
 
-/// Blob storage implementation
-/// Supports multiple variants of the same blob_id (e.g., deletable vs permanent)
+/// Blob storage implementation.
+/// Supports multiple variants of the same blob_id (e.g., deletable vs permanent).
 public enum BlobStash has store {
-    /// Object-based storage variant
+    /// Object-based storage variant.
     ObjectBased(TwoPhaseOwnershipBlobStash),
 }
 
 // === TwoPhaseOwnershipBlobStash Methods ===
 
-/// Finds a matching blob with the given blob_id and deletable flag
-/// Returns Option::some(object_id) if found and not certified, otherwise Option::none()
-/// Aborts with EBlobAlreadyCertifiedInBlobManager if found and already certified
+/// Finds a matching blob with the given blob_id and deletable flag.
+/// Returns Option::some(object_id) if found and not certified, otherwise Option::none().
+/// Aborts with EBlobAlreadyCertifiedInBlobManager if found and already certified.
 public fun find_matching_blob_id(
     self: &TwoPhaseOwnershipBlobStash,
     blob_id: u256,
     deletable: bool,
 ): Option<ID> {
-    // Look up existing blobs with this blob_id
+    // Look up existing blobs with this blob_id.
     if (self.blob_id_to_objects.contains(blob_id)) {
         let object_ids = self.blob_id_to_objects.borrow(blob_id);
         let len = object_ids.length();
         let mut i = 0;
 
-        // Search for matching variant (same deletable flag)
+        // Search for matching variant (same deletable flag).
         while (i < len) {
             let obj_id = object_ids[i];
             let existing_blob = self.blobs_by_object_id.borrow(obj_id);
 
-            // Check if this variant matches (same blob_id and deletable)
+            // Check if this variant matches (same blob_id and deletable).
             if (blob::is_deletable(existing_blob) == deletable) {
-                // Found matching blob - check if it's already certified
+                // Found matching blob - check if it's already certified.
                 assert!(
                     blob::certified_epoch(existing_blob).is_none(),
                     EBlobAlreadyCertifiedInBlobManager,
                 );
 
-                // Return existing blob's object ID
+                // Return existing blob's object ID.
                 return option::some(obj_id)
             };
             i = i + 1;
@@ -94,14 +94,14 @@ public fun find_matching_blob_id(
     option::none()
 }
 
-/// Adds only the object_id to tracking (blob is owned by caller, not stored yet)
+/// Adds only the object_id to tracking (blob is owned by caller, not stored yet).
 public fun add_blob_object_id_only(
     self: &mut TwoPhaseOwnershipBlobStash,
     blob_id: u256,
     object_id: ID,
     size: u64,
 ) {
-    // Add to blob_id_to_objects mapping (tracking only)
+    // Add to blob_id_to_objects mapping (tracking only).
     if (self.blob_id_to_objects.contains(blob_id)) {
         let object_ids = self.blob_id_to_objects.borrow_mut(blob_id);
         object_ids.push_back(object_id);
@@ -110,12 +110,12 @@ public fun add_blob_object_id_only(
         self.blob_id_to_objects.add(blob_id, new_vec);
     };
 
-    // Update total unencoded size
+    // Update total unencoded size.
     self.total_unencoded_size = self.total_unencoded_size + size;
 }
 
-/// Adds a new blob to the object-based storage (transfers ownership to BlobManager)
-/// Used during certification when blob is transferred from caller to BlobManager
+/// Adds a new blob to the object-based storage (transfers ownership to BlobManager).
+/// Used during certification when blob is transferred from caller to BlobManager.
 public fun add_blob(
     self: &mut TwoPhaseOwnershipBlobStash,
     blob_id: u256,
@@ -123,34 +123,34 @@ public fun add_blob(
     blob: Blob,
     size: u64,
 ) {
-    // Verify object_id is already tracked (from registration)
+    // Verify object_id is already tracked (from registration).
     assert!(self.blob_id_to_objects.contains(blob_id), EBlobNotRegisteredInBlobManager);
     let object_ids = self.blob_id_to_objects.borrow(blob_id);
     assert!(object_ids.contains(&object_id), EBlobNotRegisteredInBlobManager);
 
-    // Verify blob is NOT already stored in table (shouldn't happen, but safety check)
+    // Verify blob is NOT already stored in table (shouldn't happen, but safety check).
     assert!(!self.blobs_by_object_id.contains(object_id), EBlobAlreadyCertifiedInBlobManager);
 
-    // Store blob in blobs_by_object_id (blob ownership transferred to BlobManager)
+    // Store blob in blobs_by_object_id (blob ownership transferred to BlobManager).
     self.blobs_by_object_id.add(object_id, blob);
 }
 
-/// Returns the number of blobs
+/// Returns the number of blobs.
 public fun blob_count(self: &TwoPhaseOwnershipBlobStash): u64 {
     self.blobs_by_object_id.length()
 }
 
-/// Returns the total unencoded size of all blobs
+/// Returns the total unencoded size of all blobs.
 public fun total_blob_size(self: &TwoPhaseOwnershipBlobStash): u64 {
     self.total_unencoded_size
 }
 
-/// Checks if a blob_id exists
+/// Checks if a blob_id exists.
 public fun has_blob(self: &TwoPhaseOwnershipBlobStash, blob_id: u256): bool {
     self.blob_id_to_objects.contains(blob_id)
 }
 
-/// Gets all object IDs for a given blob_id (may include multiple variants)
+/// Gets all object IDs for a given blob_id (may include multiple variants).
 public fun get_blob_object_ids(self: &TwoPhaseOwnershipBlobStash, blob_id: u256): vector<ID> {
     if (self.blob_id_to_objects.contains(blob_id)) {
         *self.blob_id_to_objects.borrow(blob_id)
@@ -161,7 +161,7 @@ public fun get_blob_object_ids(self: &TwoPhaseOwnershipBlobStash, blob_id: u256)
 
 // === BlobStash Dispatch Functions ===
 
-/// Finds a matching blob with the given blob_id and deletable flag (dispatches to variant)
+/// Finds a matching blob with the given blob_id and deletable flag (dispatches to variant).
 public fun find_matching_blob_id_for_stash(
     stash: &BlobStash,
     blob_id: u256,
@@ -172,8 +172,8 @@ public fun find_matching_blob_id_for_stash(
     }
 }
 
-/// Adds only the object_id to tracking (dispatches to variant)
-/// Blob remains owned by caller, not stored in BlobManager yet
+/// Adds only the object_id to tracking (dispatches to variant).
+/// Blob remains owned by caller, not stored in BlobManager yet.
 public fun add_blob_object_id_only_to_stash(
     stash: &mut BlobStash,
     blob_id: u256,
@@ -185,8 +185,8 @@ public fun add_blob_object_id_only_to_stash(
     }
 }
 
-/// Adds a new blob to storage (dispatches to variant)
-/// Transfers ownership from caller to BlobManager (used during certification)
+/// Adds a new blob to storage (dispatches to variant).
+/// Transfers ownership from caller to BlobManager (used during certification).
 public fun add_blob_to_stash(
     stash: &mut BlobStash,
     blob_id: u256,
@@ -199,71 +199,71 @@ public fun add_blob_to_stash(
     }
 }
 
-/// Checks if a blob with the given object_id is stored in the table
+/// Checks if a blob with the given object_id is stored in the table.
 public fun is_blob_in_table(stash: &BlobStash, object_id: ID): bool {
     match (stash) {
         BlobStash::ObjectBased(s) => s.blobs_by_object_id.contains(object_id),
     }
 }
 
-/// Verifies that a blob with the given object_id is NOT already stored in the table
-/// Aborts if the blob is already in the table
+/// Verifies that a blob with the given object_id is NOT already stored in the table.
+/// Aborts if the blob is already in the table.
 public fun verify_blob_not_in_table(stash: &BlobStash, object_id: ID) {
     assert!(!is_blob_in_table(stash, object_id), EBlobAlreadyCertifiedInBlobManager);
 }
 
-/// Returns the number of blobs (dispatches to variant)
+/// Returns the number of blobs (dispatches to variant).
 public fun blob_count_for_stash(stash: &BlobStash): u64 {
     match (stash) {
         BlobStash::ObjectBased(s) => blob_count(s),
     }
 }
 
-/// Returns the total unencoded size of all blobs (dispatches to variant)
+/// Returns the total unencoded size of all blobs (dispatches to variant).
 public fun total_blob_size_for_stash(stash: &BlobStash): u64 {
     match (stash) {
         BlobStash::ObjectBased(s) => total_blob_size(s),
     }
 }
 
-/// Checks if a blob_id exists (dispatches to variant)
+/// Checks if a blob_id exists (dispatches to variant).
 public fun has_blob_in_stash(stash: &BlobStash, blob_id: u256): bool {
     match (stash) {
         BlobStash::ObjectBased(s) => has_blob(s, blob_id),
     }
 }
 
-/// Gets all object IDs for a given blob_id (dispatches to variant)
+/// Gets all object IDs for a given blob_id (dispatches to variant).
 public fun get_blob_object_ids_from_stash(stash: &BlobStash, blob_id: u256): vector<ID> {
     match (stash) {
         BlobStash::ObjectBased(s) => get_blob_object_ids(s, blob_id),
     }
 }
 
-/// Gets mutable reference to blob from stash for certification (dispatches to variant)
+/// Gets mutable reference to blob from stash for certification (dispatches to variant).
 public fun borrow_blob_mut_for_certification(stash: &mut BlobStash, blob_object_id: ID): &mut Blob {
     match (stash) {
         BlobStash::ObjectBased(s) => s.blobs_by_object_id.borrow_mut(blob_object_id),
     }
 }
 
-/// Gets immutable reference to blob from stash for verification (dispatches to variant)
+/// Gets immutable reference to blob from stash for verification (dispatches to variant).
 public fun borrow_blob_for_verification(stash: &BlobStash, blob_object_id: ID): &Blob {
     match (stash) {
         BlobStash::ObjectBased(s) => s.blobs_by_object_id.borrow(blob_object_id),
     }
 }
 
-/// Verifies blob_id is tracked in stash (dispatches to variant)
+/// Verifies blob_id is tracked in stash (dispatches to variant).
 public fun verify_blob_id_tracked(stash: &BlobStash, blob_id: u256): bool {
     match (stash) {
         BlobStash::ObjectBased(s) => s.blob_id_to_objects.contains(blob_id),
     }
 }
 
-/// Finds the ObjectID of a blob by blob_id and deletable flag
-/// Returns Option::some(object_id) if found, Option::none() otherwise
-/// Does not check certification status (used for certification operations)
+/// Finds the ObjectID of a blob by blob_id and deletable flag.
+/// Returns Option::some(object_id) if found, Option::none() otherwise.
+/// Does not check certification status (used for certification operations).
 public fun find_blob_object_id_by_blob_id_and_deletable(
     stash: &BlobStash,
     blob_id: u256,
@@ -274,27 +274,27 @@ public fun find_blob_object_id_by_blob_id_and_deletable(
     }
 }
 
-/// Finds blob ObjectID by blob_id and deletable for certification
-/// Does not check if blob is already certified (that check happens in certify_blob)
+/// Finds blob ObjectID by blob_id and deletable for certification.
+/// Does not check if blob is already certified (that check happens in certify_blob).
 fun find_blob_object_id_for_certification(
     self: &TwoPhaseOwnershipBlobStash,
     blob_id: u256,
     deletable: bool,
 ): Option<ID> {
-    // Look up existing blobs with this blob_id
+    // Look up existing blobs with this blob_id.
     if (self.blob_id_to_objects.contains(blob_id)) {
         let object_ids = self.blob_id_to_objects.borrow(blob_id);
         let len = object_ids.length();
         let mut i = 0;
 
-        // Search for matching variant (same deletable flag)
+        // Search for matching variant (same deletable flag).
         while (i < len) {
             let obj_id = object_ids[i];
             let existing_blob = self.blobs_by_object_id.borrow(obj_id);
 
-            // Check if this variant matches (same blob_id and deletable)
+            // Check if this variant matches (same blob_id and deletable).
             if (blob::is_deletable(existing_blob) == deletable) {
-                // Found matching blob - return its object ID
+                // Found matching blob - return its object ID.
                 return option::some(obj_id)
             };
             i = i + 1;
@@ -303,25 +303,25 @@ fun find_blob_object_id_for_certification(
     option::none()
 }
 
-/// Gets object IDs for a blob_id for verification (dispatches to variant)
+/// Gets object IDs for a blob_id for verification (dispatches to variant).
 public fun get_object_ids_for_blob_id(stash: &BlobStash, blob_id: u256): &vector<ID> {
     match (stash) {
         BlobStash::ObjectBased(s) => s.blob_id_to_objects.borrow(blob_id),
     }
 }
 
-/// Verifies blob exists and returns its blob_id for certification (dispatches to variant)
-/// Performs all necessary checks before certification
+/// Verifies blob exists and returns its blob_id for certification (dispatches to variant).
+/// Performs all necessary checks before certification.
 public fun verify_and_get_blob_id(stash: &BlobStash, blob_object_id: ID): u256 {
     match (stash) {
         BlobStash::ObjectBased(s) => {
             let existing_blob = s.blobs_by_object_id.borrow(blob_object_id);
             let blob_id = blob::blob_id(existing_blob);
 
-            // Verify the blob_id is tracked in our manager
+            // Verify the blob_id is tracked in our manager.
             assert!(s.blob_id_to_objects.contains(blob_id), EBlobNotRegisteredInBlobManager);
 
-            // Verify this specific object_id is in the list for this blob_id
+            // Verify this specific object_id is in the list for this blob_id.
             let object_ids = s.blob_id_to_objects.borrow(blob_id);
             assert!(object_ids.contains(&blob_object_id), EBlobNotRegisteredInBlobManager);
 
@@ -330,7 +330,7 @@ public fun verify_and_get_blob_id(stash: &BlobStash, blob_object_id: ID): u256 {
     }
 }
 
-/// Creates a new TwoPhaseOwnershipBlobStash instance
+/// Creates a new TwoPhaseOwnershipBlobStash instance.
 public fun new_object_based_blob_stash(ctx: &mut TxContext): TwoPhaseOwnershipBlobStash {
     TwoPhaseOwnershipBlobStash {
         blob_id_to_objects: table::new(ctx),
@@ -339,7 +339,7 @@ public fun new_object_based_blob_stash(ctx: &mut TxContext): TwoPhaseOwnershipBl
     }
 }
 
-/// Creates a new BlobStash with ObjectBased variant
+/// Creates a new BlobStash with ObjectBased variant.
 public fun new_object_based_stash(ctx: &mut TxContext): BlobStash {
     BlobStash::ObjectBased(new_object_based_blob_stash(ctx))
 }

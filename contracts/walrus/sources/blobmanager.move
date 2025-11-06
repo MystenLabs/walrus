@@ -12,14 +12,17 @@ use walrus::{
     blob_stash::{Self, BlobStash},
     blob_storage::{Self, BlobStorage},
     encoding,
+    events,
+    managed_blob::{Self, ManagedBlob},
+    messages,
     storage_resource::Storage,
     system::{Self, System}
 };
 
 // === Constants ===
 
-/// Minimum initial capacity for BlobManager (100MB in bytes)
-const MIN_INITIAL_CAPACITY: u64 = 100_000_000; // 100 MB
+/// Minimum initial capacity for BlobManager (100MB in bytes).
+const MIN_INITIAL_CAPACITY: u64 = 100_000_000; // 100 MB.
 
 // === Error Codes ===
 
@@ -34,12 +37,12 @@ const EBlobNotRegisteredInBlobManager: u64 = 2;
 
 // === Main Structures ===
 
-/// The minimal blob-management interface
+/// The minimal blob-management interface.
 public struct BlobManager has key, store {
     id: UID,
-    /// Storage management strategy
+    /// Storage management strategy.
     storage: BlobStorage,
-    /// Blob stash strategy
+    /// Blob stash strategy - handles both individual blobs and managed blobs.
     blob_stash: BlobStash,
 }
 
@@ -52,24 +55,23 @@ public struct BlobManagerCap has key, store {
 
 // === Constructors ===
 
-/// Creates a new shared BlobManager and returns its capability
-/// The BlobManager is automatically shared in the same transaction
-/// Requires minimum initial capacity of 100MB
+/// Creates a new shared BlobManager and returns its capability.
+/// The BlobManager is automatically shared in the same transaction.
+/// Requires minimum initial capacity of 100MB.
 public fun new_with_unified_storage(initial_storage: Storage, ctx: &mut TxContext): BlobManagerCap {
     let manager_uid = object::new(ctx);
 
+    // Check minimum capacity before consuming the storage
     let capacity = initial_storage.size();
-
-    // Enforce minimum capacity requirement
     assert!(capacity >= MIN_INITIAL_CAPACITY, EInitialBlobManagerCapacityTooSmall);
 
     let manager = BlobManager {
         id: manager_uid,
-        storage: blob_storage::new_unified_blob_storage(initial_storage, capacity),
+        storage: blob_storage::new_unified_blob_storage(initial_storage),
         blob_stash: blob_stash::new_object_based_stash(ctx),
     };
 
-    // Get the ObjectID from the constructed manager object
+    // Get the ObjectID from the constructed manager object.
     let manager_object_id = object::id(&manager);
 
     let cap = BlobManagerCap {
@@ -85,8 +87,8 @@ public fun new_with_unified_storage(initial_storage: Storage, ctx: &mut TxContex
 
 // === Storage Management ===
 
-/// Prepares storage for blob registration from the BlobManager's available storage
-/// Checks the storage strategy and creates storage accordingly
+/// Prepares storage for blob registration from the BlobManager's available storage.
+/// Creates a Storage object from the unified pool.
 fun prepare_storage_for_blob(
     self: &mut BlobManager,
     encoded_size: u64,
@@ -97,8 +99,8 @@ fun prepare_storage_for_blob(
 
 // === Capability Operations ===
 
-/// Duplicates the given BlobManagerCap
-/// Allows delegation of write access to other parties
+/// Duplicates the given BlobManagerCap.
+/// Allows delegation of write access to other parties.
 public fun duplicate_cap(cap: &BlobManagerCap, ctx: &mut TxContext): BlobManagerCap {
     BlobManagerCap {
         id: object::new(ctx),
@@ -106,12 +108,12 @@ public fun duplicate_cap(cap: &BlobManagerCap, ctx: &mut TxContext): BlobManager
     }
 }
 
-/// Returns the manager ID from a capability
+/// Returns the manager ID from a capability.
 public fun cap_manager_id(cap: &BlobManagerCap): ID {
     cap.manager_id
 }
 
-/// Checks that the given BlobManagerCap matches the BlobManager
+/// Checks that the given BlobManagerCap matches the BlobManager.
 fun check_cap(self: &BlobManager, cap: &BlobManagerCap) {
     assert!(object::id(self) == cap.manager_id, EInvalidBlobManagerCap);
 }
@@ -120,8 +122,8 @@ fun check_cap(self: &BlobManager, cap: &BlobManagerCap) {
 
 /// Registers a new blob with the system and returns it to the caller.
 /// The caller owns the blob until certification, when ownership is transferred to BlobManager.
-/// Requires a valid BlobManagerCap to prove write access
-/// Aborts with EBlobAlreadyCertifiedInBlobManager if blob already exists and is certified
+/// Requires a valid BlobManagerCap to prove write access.
+/// Aborts with EBlobAlreadyCertifiedInBlobManager if blob already exists and is certified.
 public fun register_blob(
     self: &mut BlobManager,
     cap: &BlobManagerCap,
@@ -134,12 +136,12 @@ public fun register_blob(
     payment: &mut Coin<WAL>,
     ctx: &mut TxContext,
 ): Blob {
-    // Verify the capability
+    // Verify the capability.
     check_cap(self, cap);
 
-    // Step 1: Check for existing blob with same blob_id and deletable flag
-    // Only check blobs that are already stored in the table (managed by BlobManager)
-    // We allow multiple registrations if the blob is not yet in the table
+    // Step 1: Check for existing blob with same blob_id and deletable flag.
+    // Only check blobs that are already stored in the table (managed by BlobManager).
+    // We allow multiple registrations if the blob is not yet in the table.
     let existing_obj_id_opt = blob_stash::find_matching_blob_id_for_stash(
         &self.blob_stash,
         blob_id,
@@ -148,9 +150,9 @@ public fun register_blob(
     if (option::is_some(&existing_obj_id_opt)) {
         let mut existing_obj_id_opt = existing_obj_id_opt;
         let existing_obj_id = option::extract(&mut existing_obj_id_opt);
-        // Check if this blob is already stored in the table (already managed)
+        // Check if this blob is already stored in the table (already managed).
         if (blob_stash::is_blob_in_table(&self.blob_stash, existing_obj_id)) {
-            // Blob is already in table - check if certified
+            // Blob is already in table - check if certified.
             let existing_blob_ref = blob_stash::borrow_blob_for_verification(
                 &self.blob_stash,
                 existing_obj_id,
@@ -159,21 +161,21 @@ public fun register_blob(
                 blob::certified_epoch(existing_blob_ref).is_none(),
                 EBlobAlreadyCertifiedInBlobManager,
             );
-            // Blob exists in table but not certified - abort (caller should use existing blob)
+            // Blob exists in table but not certified - abort (caller should use existing blob).
             abort EBlobAlreadyCertifiedInBlobManager
         };
-        // Blob is tracked but not in table - allow registration (caller will own new blob)
+        // Blob is tracked but not in table - allow registration (caller will own new blob).
     };
 
-    // Step 2: Create storage and register new blob
-    // Calculate encoded size for storage
+    // Step 2: Create storage and register new blob.
+    // Calculate encoded size for storage.
     let n_shards = system::n_shards(system);
     let encoded_size = encoding::encoded_blob_length(size, encoding_type, n_shards);
 
-    // Prepare storage for the new blob
+    // Prepare storage for the new blob.
     let blob_storage = prepare_storage_for_blob(self, encoded_size, ctx);
 
-    // Register new blob (caller will own this)
+    // Register new blob (caller will own this).
     let blob = system.register_blob(
         blob_storage,
         blob_id,
@@ -187,93 +189,98 @@ public fun register_blob(
 
     let object_id = object::id(&blob);
 
-    // Add object_id to tracking table (blob remains owned by caller)
-    // During certification, the blob will be transferred to BlobManager's table
-    blob_stash::add_blob_object_id_only_to_stash(&mut self.blob_stash, blob_id, object_id, size);
+    // Add object_id to tracking table (blob remains owned by caller).
+    // During certification, the blob will be transferred to BlobManager's table.
+    blob_stash::add_blob_object_id_only_to_stash(
+        &mut self.blob_stash,
+        blob_id,
+        object_id,
+        size,
+    );
 
-    // Return blob to caller (caller owns it)
+    // Return blob to caller (caller owns it).
     blob
 }
 
-/// Certifies a blob and transfers ownership to BlobManager
-/// Requires a valid BlobManagerCap to prove write access
-/// Takes the Blob object from the caller and stores it in BlobManager's table
+/// Certifies a blob and transfers ownership to BlobManager.
+/// Requires a valid BlobManagerCap to prove write access.
+/// Takes the Blob object from the caller and stores it in BlobManager's table.
 public fun certify_blob(
     self: &mut BlobManager,
     cap: &BlobManagerCap,
     system: &System,
-    mut blob: Blob, // Blob object transferred from caller
+    mut blob: Blob, // Blob object transferred from caller.
     signature: vector<u8>,
     signers_bitmap: vector<u8>,
     message: vector<u8>,
     _ctx: &mut TxContext,
 ) {
-    // Verify the capability
+    // Verify the capability.
     check_cap(self, cap);
 
-    // Extract blob_id from the blob
+    // Extract blob_id from the blob.
     let blob_id = blob::blob_id(&blob);
     let object_id = object::id(&blob);
     let size = blob::size(&blob);
 
-    // Verify the blob's object_id is tracked (registered earlier)
+    // Verify the blob's object_id is tracked (registered earlier).
     assert!(
         blob_stash::has_blob_in_stash(&self.blob_stash, blob_id),
         EBlobNotRegisteredInBlobManager,
     );
 
-    // Verify the blob is NOT already stored in table (not yet managed)
+    // Verify the blob is NOT already stored in table (not yet managed).
     blob_stash::verify_blob_not_in_table(&self.blob_stash, object_id);
 
-    // Verify the blob is not already certified (safety check)
+    // Verify the blob is not already certified (safety check).
     assert!(blob::certified_epoch(&blob).is_none(), EBlobAlreadyCertifiedInBlobManager);
 
-    // Certify the blob first (while caller still owns it)
+    // Certify the blob first (while caller still owns it).
     system::certify_blob(system, &mut blob, signature, signers_bitmap, message);
 
-    // Transfer ownership: store blob in BlobManager's table
+    // Transfer ownership: store blob in BlobManager's table.
     blob_stash::add_blob_to_stash(&mut self.blob_stash, blob_id, object_id, blob, size);
 }
 
 // === Query Functions ===
 
-/// Returns the ID of the BlobManager
+/// Returns the ID of the BlobManager.
 public fun manager_id(self: &BlobManager): ID {
     object::uid_to_inner(&self.id)
 }
 
-/// Returns capacity information: (total, used, available)
+/// Returns capacity information: (total, used, available).
 public fun capacity_info(self: &BlobManager): (u64, u64, u64) {
     blob_storage::capacity_info(&self.storage)
 }
 
-/// Returns storage epoch information: (start, end)
+/// Returns storage epoch information: (start, end).
 public fun storage_epochs(self: &BlobManager): (u32, u32) {
     blob_storage::storage_epochs(&self.storage)
 }
 
-/// Returns the number of blobs (all variants)
+/// Returns the number of blobs (all variants).
 public fun blob_count(self: &BlobManager): u64 {
     blob_stash::blob_count_for_stash(&self.blob_stash)
 }
 
-/// Returns the total unencoded size of all blobs
+/// Returns the total unencoded size of all blobs.
 public fun total_blob_size(self: &BlobManager): u64 {
     blob_stash::total_blob_size_for_stash(&self.blob_stash)
 }
 
-/// Checks if a blob_id exists (any variant)
+/// Checks if a blob_id exists (any variant).
 public fun has_blob(self: &BlobManager, blob_id: u256): bool {
     blob_stash::has_blob_in_stash(&self.blob_stash, blob_id)
 }
 
-/// Gets all object IDs for a given blob_id (may include multiple variants)
+/// Gets all object IDs for a given blob_id (may include multiple variants).
 public fun get_blob_object_ids(self: &BlobManager, blob_id: u256): vector<ID> {
     blob_stash::get_blob_object_ids_from_stash(&self.blob_stash, blob_id)
 }
 
-/// Gets the ObjectID of a blob by blob_id and deletable flag
-/// Returns the blob's ObjectID if found, aborts otherwise
+/// Gets the ObjectID of a blob by blob_id and deletable flag.
+/// Returns the blob's ObjectID if found, aborts otherwise.
 public fun get_blob_object_id_by_blob_id_and_deletable(
     self: &BlobManager,
     blob_id: u256,
@@ -287,3 +294,166 @@ public fun get_blob_object_id_by_blob_id_and_deletable(
     assert!(option::is_some(&blob_object_id_opt), EBlobNotRegisteredInBlobManager);
     option::extract(&mut blob_object_id_opt)
 }
+
+// === Managed Blob Operations (Single-Phase Ownership) ===
+// TODO: Implement managed blob operations using the existing blob_stash
+// or add table-based storage directly in BlobManager
+
+/*
+/// Registers a new managed blob with the system.
+/// The BlobManager owns the blob immediately upon registration (single-phase ownership).
+/// No object is returned to the caller - use events or blob_id for tracking.
+/// Note: end_epoch is managed at the BlobManager's storage level, not per blob.
+/// Aborts with EBlobAlreadyCertifiedInBlobManager if blob already exists and is certified.
+public entry fun register_managed_blob(
+    self: &mut BlobManager,
+    cap: &BlobManagerCap,
+    system: &mut System,
+    blob_id: u256,
+    root_hash: u256,
+    size: u64,
+    encoding_type: u8,
+    deletable: bool,
+    is_quilt: bool,
+    payment: &mut Coin<WAL>,
+    ctx: &mut TxContext,
+) {
+    // Verify the capability.
+    check_cap(self, cap);
+
+    // Check for existing managed blob with same blob_id and deletable flag.
+    let existing_obj_id_opt = managed_blob_stash::find_matching_blob_id_for_stash(
+        &self.managed_blob_stash,
+        blob_id,
+        deletable,
+    );
+    if (option::is_some(&existing_obj_id_opt)) {
+        // Blob already exists - abort (already certified check is in find_matching_blob_id).
+        abort EBlobAlreadyCertifiedInBlobManager
+    };
+
+    // Calculate encoded size for storage validation.
+    let n_shards = system::n_shards(system);
+    let _encoded_size = encoding::encoded_blob_length(size, encoding_type, n_shards);
+
+    // Note: Storage accounting is handled at the BlobManager level,
+    // not per-blob since ManagedBlobs don't own storage directly.
+    // The blob's validity period is determined by the BlobManager's storage end_epoch.
+
+    // Get current epoch for registration.
+    let current_epoch = system::epoch(system);
+
+    // Create the ManagedBlob owned by BlobManager.
+    let managed_blob = managed_blob::new(
+        object::id(self),  // blob_manager_id
+        blob_id,
+        root_hash,
+        size,
+        encoding_type,
+        deletable,
+        is_quilt,
+        current_epoch,  // registered_epoch
+        ctx,
+    );
+
+    // Get the object ID before storing.
+    let blob_object_id = object::id(&managed_blob);
+
+    // Store the blob in the managed stash (BlobManager owns it).
+    managed_blob_stash::store_managed_blob_in_stash(
+        &mut self.managed_blob_stash,
+        blob_id,
+        managed_blob,
+    );
+
+    // Emit registration event.
+    events::emit_managed_blob_registered(
+        current_epoch,
+        object::id(self),  // blob_manager_id
+        blob_id,
+        size,
+        encoding_type,
+        deletable,
+        is_quilt,
+        blob_object_id,
+    );
+
+    // Note: Payment processing would normally happen here through the system.
+    // For now, we just consume the payment reference to avoid unused parameter warning.
+    let _payment = payment;
+}
+
+/// Certifies a managed blob.
+/// The blob is already owned by BlobManager, so no ownership transfer occurs.
+/// Uses blob_id and deletable flag to identify the blob (no ObjectID needed from client).
+public entry fun certify_managed_blob(
+    self: &mut BlobManager,
+    cap: &BlobManagerCap,
+    system: &System,
+    blob_id: u256,
+    deletable: bool,
+    _signature: vector<u8>,
+    _signers_bitmap: vector<u8>,
+    _message: vector<u8>,
+    _ctx: &mut TxContext,
+) {
+    // Verify the capability.
+    check_cap(self, cap);
+
+    // Get mutable reference to the managed blob.
+    let blob_mut = managed_blob_stash::get_blob_mut_for_certification_from_stash(
+        &mut self.managed_blob_stash,
+        blob_id,
+        deletable,
+    );
+
+    // Verify the blob is not already certified.
+    assert!(
+        managed_blob::certified_epoch(blob_mut).is_none(),
+        EBlobAlreadyCertifiedInBlobManager,
+    );
+
+    // Get current epoch.
+    let current_epoch = system::epoch(system);
+
+    // Create the certified blob message using the test functions.
+    // TODO: In production, this should use proper message construction from certified messages.
+    let certified_msg = if (deletable) {
+        messages::certified_deletable_blob_message_for_testing(
+            blob_id,
+            object::id(blob_mut),
+        )
+    } else {
+        messages::certified_permanent_blob_message_for_testing(blob_id)
+    };
+
+    // Certify the blob using the certified message.
+    managed_blob::certify_with_certified_msg(blob_mut, current_epoch, certified_msg);
+
+    // Note: The emit_certified is already called inside certify_with_certified_msg,
+    // so we don't need to emit again here.
+    // The signature verification would normally happen at a higher level.
+}
+
+// === Query Functions for Managed Blobs ===
+
+/// Returns the number of managed blobs.
+public fun managed_blob_count(self: &BlobManager): u64 {
+    managed_blob_stash::blob_count_for_stash(&self.managed_blob_stash)
+}
+
+/// Returns the total unencoded size of all managed blobs.
+public fun total_managed_blob_size(self: &BlobManager): u64 {
+    managed_blob_stash::total_blob_size_for_stash(&self.managed_blob_stash)
+}
+
+/// Checks if a managed blob with blob_id exists.
+public fun has_managed_blob(self: &BlobManager, blob_id: u256): bool {
+    managed_blob_stash::has_blob_in_stash(&self.managed_blob_stash, blob_id)
+}
+
+/// Gets all object IDs for managed blobs with a given blob_id.
+public fun get_managed_blob_object_ids(self: &BlobManager, blob_id: u256): vector<ID> {
+    managed_blob_stash::get_blob_object_ids_from_stash(&self.managed_blob_stash, blob_id)
+}
+*/

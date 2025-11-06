@@ -384,3 +384,17 @@ public fun certify_with_certified_msg_for_testing(
 ) {
     certify_with_certified_msg(blob, current_epoch, message)
 }
+
+public struct ManagedBlob has key, store {
+    id: UID,
+    registered_epoch: u32,
+    blob_id: u256,
+    size: u64,
+    encoding_type: u8,
+    // Stores the epoch first certified.
+    certified_epoch: option::Option<u32>,
+    // The ID of the object that manages the storage resource of this blob.
+    storage: ID,
+    // Marks if this blob can be deleted.
+    deletable: bool,
+}
