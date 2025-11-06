@@ -20,6 +20,8 @@ type TestResult = Result<(), Box<dyn std::error::Error>>;
 const SAMPLE_SIZE_FAST: usize = 10;
 /// Number of samples to collector for cases where the time required for each is slow.
 const SAMPLE_SIZE_SLOW: usize = 3;
+/// Number of samples to collector for cases where the time required for each is very slow.
+const SAMPLE_SIZE_VERY_SLOW: usize = 1;
 
 /// Default directory in which the k6 test scripts can be found.
 const DEFAULT_K6_SCRIPTS_DIRECTORY: &str = "../../scripts/k6/src/tests";
