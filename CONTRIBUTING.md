@@ -118,6 +118,8 @@ In particular, please adhere to the following conventions:
   whenever it makes sense.
 - Module docstrings should be inside the respective module file with `//!` (instead of at the module
   inclusion location).
+- Escape literal `{{ }}` patterns with a backslash (`\{{`) due to Handlebars templating.
+  GitHub Actions `${{ }}` syntax is automatically preserved.
 
 Additionally, if you made any user-facing changes, please adjust our documentation under
 [docs/book](./docs/book/).
