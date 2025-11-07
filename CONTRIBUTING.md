@@ -121,6 +121,9 @@ In particular, please adhere to the following conventions:
 
 Additionally, if you made any user-facing changes, please adjust our documentation under
 [docs/book](./docs/book/).
+When editing the documentation, escape literal `{{ }}` patterns with a
+backslash (`\{{`) due to Handlebars templating. GitHub Actions `${{ }}` syntax is automatically
+preserved.
 
 ### Formatting
 
