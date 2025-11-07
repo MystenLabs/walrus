@@ -55,7 +55,7 @@ use walrus_sdk::{
         responses as sdk_responses,
         upload_relay_client::UploadRelayClient,
     },
-    config::{UploadMode, UploadPreset, load_configuration},
+    config::load_configuration,
     error::ClientErrorKind,
     store_optimizations::StoreOptimizations,
     sui::{
@@ -158,20 +158,6 @@ use crate::{
     common::telemetry::TracingSubscriberBuilder,
     utils::{self, MetricsAndLoggingRuntime, generate_sui_wallet},
 };
-
-fn apply_upload_mode_to_config(
-    mut config: walrus_sdk::config::ClientConfig,
-    upload_mode: UploadMode,
-) -> walrus_sdk::config::ClientConfig {
-    // Use UploadPreset to apply tuning to the communication config
-    let preset = match upload_mode {
-        UploadMode::Conservative => UploadPreset::Conservative,
-        UploadMode::Balanced => UploadPreset::Balanced,
-        UploadMode::Aggressive => UploadPreset::Aggressive,
-    };
-    config.communication_config = preset.apply_to(config.communication_config.clone());
-    config
-}
 
 /// A helper struct to run commands for the Walrus client.
 #[allow(missing_debug_implementations)]
@@ -699,7 +685,6 @@ impl ClientCommandRunner {
             encoding_type,
             upload_relay,
             confirmation,
-            upload_mode,
             child_process_uploads,
             internal_run,
         }: StoreOptions,
@@ -711,9 +696,7 @@ impl ClientCommandRunner {
             ));
         }
 
-        // Apply CLI upload preset to the in-memory config before building the client, if provided.
-        let mut config = self.config?;
-        config = apply_upload_mode_to_config(config, upload_mode.unwrap_or(UploadMode::Balanced));
+        let config = self.config?;
         let client = get_contract_client(config, self.wallet, self.gas_budget, &None).await?;
 
         let system_object = client.sui_client().read_client.get_system_object().await?;
@@ -749,7 +732,6 @@ impl ClientCommandRunner {
             &store_optimizations,
             persistence,
             post_store,
-            upload_mode,
             upload_relay.as_ref(),
             internal_run,
             "store",
@@ -1028,7 +1010,6 @@ impl ClientCommandRunner {
             encoding_type,
             upload_relay,
             confirmation,
-            upload_mode,
             child_process_uploads,
             internal_run,
         }: StoreOptions,
@@ -1044,9 +1025,7 @@ impl ClientCommandRunner {
         }
 
         let encoding_type = encoding_type.unwrap_or(DEFAULT_ENCODING);
-        // Apply CLI upload preset to the in-memory config before building the client, if provided.
-        let mut config = self.config?;
-        config = apply_upload_mode_to_config(config, upload_mode.unwrap_or(UploadMode::Balanced));
+        let config = self.config?;
         let client = get_contract_client(config, self.wallet, self.gas_budget, &None).await?;
 
         let system_object = client.sui_client().read_client.get_system_object().await?;
@@ -1090,7 +1069,6 @@ impl ClientCommandRunner {
             &store_optimizations,
             persistence,
             post_store,
-            upload_mode,
             upload_relay.as_ref(),
             internal_run,
             "store-quilt",
@@ -2000,7 +1978,6 @@ struct StoreOptions {
     encoding_type: Option<EncodingType>,
     upload_relay: Option<Url>,
     confirmation: UserConfirmation,
-    upload_mode: Option<UploadMode>,
     child_process_uploads: bool,
     internal_run: bool,
 }
@@ -2020,7 +1997,6 @@ impl TryFrom<CommonStoreOptions> for StoreOptions {
             encoding_type,
             upload_relay,
             skip_tip_confirmation,
-            upload_mode,
             child_process_uploads,
             internal_run,
         }: CommonStoreOptions,
@@ -2039,7 +2015,6 @@ impl TryFrom<CommonStoreOptions> for StoreOptions {
             encoding_type,
             upload_relay,
             confirmation: skip_tip_confirmation.into(),
-            upload_mode: upload_mode.map(Into::into),
             child_process_uploads,
             internal_run,
         })
