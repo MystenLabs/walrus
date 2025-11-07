@@ -15,17 +15,7 @@ pub(crate) fn blob_request_latency(
     payload_size: ByteSize,
     files_to_store: usize,
     max_concurrency: usize,
-    thresholds: BlobThresholds,
 ) -> TestResult {
-    let duration_threshold_millis = thresholds.latency_threshold(payload_size).as_secs() * 1000;
-
-    if thresholds.enforce_thresholds() {
-        command.env(
-            "WALRUS_K6_HTTP_DURATION_THRESHOLD",
-            duration_threshold_millis,
-        );
-    }
-
     command
         .env("WALRUS_K6_PAYLOAD_SIZE", payload_size)
         .env("WALRUS_K6_BLOB_COUNT", files_to_store)

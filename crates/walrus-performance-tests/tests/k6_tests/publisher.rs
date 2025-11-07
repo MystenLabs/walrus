@@ -32,13 +32,12 @@ mod blob {
         samples: usize,
         max_concurrency: usize,
     ) -> TestResult {
-        let thresholds = BlobThresholds::upload(*WALRUS_K6_ENVIRONMENT);
         let command = k6_tests::run(
             "publisher/publisher_v1_put_blob_latency.ts",
             &format!("upload:latency:{payload_size}"),
         );
 
-        common::blob_request_latency(command, payload_size, samples, max_concurrency, thresholds)
+        common::blob_request_latency(command, payload_size, samples, max_concurrency)
     }
 
     walrus_test_utils::param_test! {

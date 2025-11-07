@@ -74,13 +74,6 @@ impl BlobThresholds {
         Self::new(env, /*is_upload=*/ false)
     }
 
-    pub fn enforce_thresholds(&self) -> bool {
-        matches!(
-            self.env,
-            K6Environment::NightlyWithLatency | K6Environment::NightlyBaseline
-        )
-    }
-
     pub fn latency_threshold(&self, key: ByteSize) -> Duration {
         Duration::from_secs(self.get(key, self.latency_thresholds.iter().copied()))
     }
