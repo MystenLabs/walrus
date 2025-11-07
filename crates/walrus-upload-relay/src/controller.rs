@@ -463,7 +463,7 @@ pub(crate) fn cors_layer() -> CorsLayer {
     CorsLayer::new()
         .allow_origin(Any)
         .allow_methods(Any)
-        .max_age(Duration::from_secs(86400))
+        .max_age(Duration::from_hours(24))
         .allow_headers(Any)
 }
 
@@ -614,7 +614,7 @@ mod tests {
                 address: SuiAddress::from_bytes([42; 32]).expect("valid bytes"),
                 kind: TipKind::Const(42),
             },
-            tx_freshness_threshold: Duration::from_secs(60 * 60 * 10), // 10 hours.
+            tx_freshness_threshold: Duration::from_hours(10),
             tx_max_future_threshold: Duration::from_secs(30),
         };
 

@@ -1379,8 +1379,8 @@ impl ShardStorage {
                 // TODO: in test, check that we have recovered all the certified blobs.
                 break;
             }
-            tracing::warn!("recovering missing blobs still misses blobs. Retrying in 60 seconds.",);
-            tokio::time::sleep(Duration::from_secs(60)).await;
+            tracing::warn!("recovering missing blobs still misses blobs; retrying in 1 minute");
+            tokio::time::sleep(Duration::from_mins(1)).await;
         }
 
         Ok(())

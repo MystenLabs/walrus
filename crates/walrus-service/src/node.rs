@@ -4584,7 +4584,7 @@ mod tests {
 
         // Wait for the node runtime to finish, and check that a panic was thrown.
         match tokio::time::timeout(
-            Duration::from_secs(120),
+            Duration::from_mins(2),
             cluster.nodes[0].node_runtime_handle.as_mut().unwrap(),
         )
         .await
@@ -5791,7 +5791,7 @@ mod tests {
 
         async fn wait_until_no_sync_tasks(shard_sync_handler: &ShardSyncHandler) -> TestResult {
             // Timeout needs to be longer than shard sync retry interval.
-            tokio::time::timeout(Duration::from_secs(120), async {
+            tokio::time::timeout(Duration::from_mins(2), async {
                 loop {
                     if shard_sync_handler.current_sync_task_count().await == 0
                         && shard_sync_handler.no_pending_recover_metadata().await
@@ -7245,8 +7245,8 @@ mod tests {
                 Ok(FixedSystemParameters {
                     n_shards: NonZeroU16::new(1000).expect("1000 > 0"),
                     max_epochs_ahead: 200,
-                    epoch_duration: Duration::from_secs(600),
-                    epoch_zero_end: Utc::now() + Duration::from_secs(60),
+                    epoch_duration: Duration::from_mins(10),
+                    epoch_zero_end: Utc::now() + Duration::from_mins(1),
                 })
             });
         contract_service

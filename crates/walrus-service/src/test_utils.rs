@@ -1598,8 +1598,8 @@ impl Default for StubContractService {
             system_parameters: FixedSystemParameters {
                 n_shards: NonZeroU16::new(4).unwrap(),
                 max_epochs_ahead: DEFAULT_MAX_EPOCHS_AHEAD,
-                epoch_duration: Duration::from_secs(600),
-                epoch_zero_end: Utc::now() + Duration::from_secs(60),
+                epoch_duration: Duration::from_mins(10),
+                epoch_zero_end: Utc::now() + Duration::from_mins(1),
             },
             node_capability_object: StorageNodeCap::new_for_testing(),
             certify_event_blob_tx: Arc::new(std::sync::Mutex::new(tx)),
@@ -2574,7 +2574,7 @@ pub mod test_cluster {
     pub const FROST_PER_NODE_WEIGHT: u64 = 1_000_000_000_000;
 
     /// The default epoch duration for tests
-    pub const DEFAULT_EPOCH_DURATION_FOR_TESTS: Duration = Duration::from_secs(60 * 60);
+    pub const DEFAULT_EPOCH_DURATION_FOR_TESTS: Duration = Duration::from_hours(1);
 
     #[derive(Debug)]
     /// Builder for the E2E test setup.

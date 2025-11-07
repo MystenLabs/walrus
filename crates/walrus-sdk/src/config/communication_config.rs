@@ -39,21 +39,16 @@ fn default_sliver_status_check_threshold() -> usize {
 }
 
 /// Upload mode for controlling concurrency and aggressiveness of uploads.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum UploadMode {
     /// Conservative mode: lower concurrency, slower but more reliable.
     Conservative,
     /// Balanced mode: moderate concurrency (default).
+    #[default]
     Balanced,
     /// Aggressive mode: higher concurrency, faster but more resource-intensive.
     Aggressive,
-}
-
-impl Default for UploadMode {
-    fn default() -> Self {
-        Self::Balanced
-    }
 }
 
 /// Default number of sliver uploads that should be observed before evaluating throughput.

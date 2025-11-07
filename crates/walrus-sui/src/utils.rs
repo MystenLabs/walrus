@@ -387,7 +387,7 @@ pub async fn request_sui_from_faucet(
     sui_client: &RetriableSuiClient,
 ) -> Result<()> {
     let mut backoff = Duration::from_millis(100);
-    let max_backoff = Duration::from_secs(300);
+    let max_backoff = Duration::from_mins(5);
     // Set of coins to allow checking if we have received a new coin from the faucet
     let coins = sui_coin_set(sui_client, address).await?;
 

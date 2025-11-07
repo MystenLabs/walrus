@@ -1234,18 +1234,13 @@ pub struct FileOrBlobId {
 }
 
 /// CLI enum for selecting upload presets. Converted to SDK UploadMode at runtime.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, clap::ValueEnum)]
+#[derive(Debug, Clone, Default, Copy, PartialEq, Eq, Serialize, Deserialize, clap::ValueEnum)]
 #[serde(rename_all = "camelCase")]
 pub enum UploadModeCli {
     Conservative,
+    #[default]
     Balanced,
     Aggressive,
-}
-
-impl Default for UploadModeCli {
-    fn default() -> Self {
-        Self::Balanced
-    }
 }
 
 impl From<UploadModeCli> for UploadMode {
@@ -1909,7 +1904,7 @@ pub(crate) mod default {
     }
 
     pub(crate) fn faucet_timeout() -> Duration {
-        Duration::from_secs(60)
+        Duration::from_mins(1)
     }
 
     pub(crate) fn allowed_headers() -> Vec<String> {

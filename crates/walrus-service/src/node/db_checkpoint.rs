@@ -86,7 +86,7 @@ impl Default for DbCheckpointConfig {
         Self {
             db_checkpoint_dir: None,
             max_db_checkpoints: 3,
-            db_checkpoint_interval: StdDuration::from_secs(86400), // 1 day.
+            db_checkpoint_interval: StdDuration::from_hours(24),
             sync: true,
             max_background_operations: 1,
             periodic_db_checkpoints: false,
@@ -272,11 +272,11 @@ pub struct DbCheckpointManager {
 
 impl DbCheckpointManager {
     /// Initial delay before first db_checkpoint creation, to avoid resource contention.
-    const CHECKPOINT_CREATION_INITIAL_DELAY: time::Duration = time::Duration::from_secs(15 * 60);
+    const CHECKPOINT_CREATION_INITIAL_DELAY: time::Duration = time::Duration::from_mins(15);
     /// Delay between db_checkpoint creation retries.
-    const CHECKPOINT_CREATION_RETRY_DELAY: time::Duration = time::Duration::from_secs(300);
+    const CHECKPOINT_CREATION_RETRY_DELAY: time::Duration = time::Duration::from_mins(5);
     /// Default timeout for tasks.
-    const DEFAULT_TASK_TIMEOUT: StdDuration = time::Duration::from_secs(60 * 60);
+    const DEFAULT_TASK_TIMEOUT: StdDuration = time::Duration::from_hours(1);
 
     /// Create a new db_checkpoint manager for RocksDB.
     //
@@ -508,7 +508,7 @@ impl DbCheckpointManager {
                         "Failed to calculate next db_checkpoint time, retrying..."
                     );
                     // Wait 10 minutes before retrying.
-                    time::sleep(time::Duration::from_secs(600)).await;
+                    time::sleep(time::Duration::from_mins(10)).await;
                 }
             }
         };
@@ -548,7 +548,7 @@ impl DbCheckpointManager {
                                 "failed to receive db_checkpoint creation result"
                             );
                             next_db_checkpoint_time = time::Instant::now() +
-                                StdDuration::from_secs(300);
+                                StdDuration::from_mins(5);
                             continue;
                         }
                     };

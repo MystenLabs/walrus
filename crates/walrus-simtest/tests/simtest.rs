@@ -170,7 +170,7 @@ mod tests {
             simtest_utils::start_background_workload(client_arc.clone(), true, None, None);
 
         // Run the workload to get some data in the system.
-        tokio::time::sleep(Duration::from_secs(60)).await;
+        tokio::time::sleep(Duration::from_mins(1)).await;
 
         // Repeatedly move shards among storage nodes.
         for _i in 0..3 {
@@ -684,12 +684,12 @@ mod tests {
             simtest_utils::start_background_workload(client_arc.clone(), false, None, None);
 
         // Run the workload to get some data in the system.
-        tokio::time::sleep(Duration::from_secs(60)).await;
+        tokio::time::sleep(Duration::from_mins(1)).await;
 
         // Register a fail point to have a temporary pause in the first node recovery process that
         // is longer than epoch length.
         // Note that when a node is in RecoveryInProgress state, it will not start a new recovery
-        // everytime when a new epoch change start event is processed. So here we only delay the
+        // every time when a new epoch change start event is processed. So here we only delay the
         // first recovery.
         let delay_triggered = Arc::new(AtomicBool::new(false));
         register_fail_point_async("start_node_recovery_entry", move || {
@@ -698,7 +698,7 @@ mod tests {
                 if !delay_triggered_clone.load(Ordering::SeqCst) {
                     delay_triggered_clone.store(true, Ordering::SeqCst);
                     tracing::info!("delaying node recovery for 60s");
-                    tokio::time::sleep(Duration::from_secs(60)).await;
+                    tokio::time::sleep(Duration::from_mins(1)).await;
                 }
             }
         });
@@ -714,11 +714,11 @@ mod tests {
             crash_target_node(
                 target_fail_node_id,
                 fail_triggered_clone.clone(),
-                Duration::from_secs(60),
+                Duration::from_mins(1),
             );
         });
 
-        tokio::time::sleep(Duration::from_secs(180)).await;
+        tokio::time::sleep(Duration::from_mins(3)).await;
 
         let node_health_info = simtest_utils::get_nodes_health_info(&walrus_cluster.nodes).await;
 
@@ -771,15 +771,15 @@ mod tests {
             simtest_utils::start_background_workload(Arc::new(client), true, None, None);
 
         // Run the workload to get some data in the system.
-        tokio::time::sleep(Duration::from_secs(120)).await;
+        tokio::time::sleep(Duration::from_mins(2)).await;
 
         workload_handle.abort();
 
         // Wait for event to catch up.
-        tokio::time::sleep(Duration::from_secs(60)).await;
+        tokio::time::sleep(Duration::from_mins(1)).await;
 
         // Wait for all nodes to have event_progress.pending < 10 with timeout
-        let timeout = Duration::from_secs(60);
+        let timeout = Duration::from_mins(1);
         let start_time = Instant::now();
 
         loop {
@@ -847,7 +847,7 @@ mod tests {
             simtest_utils::start_background_workload(client_arc.clone(), false, None, None);
 
         // Run the workload to get some data in the system.
-        tokio::time::sleep(Duration::from_secs(60)).await;
+        tokio::time::sleep(Duration::from_mins(1)).await;
 
         // Register a fail point to have a temporary pause in the first node recovery process that
         // is longer than epoch length.
@@ -861,7 +861,7 @@ mod tests {
                 if !delay_triggered_clone.load(Ordering::SeqCst) {
                     delay_triggered_clone.store(true, Ordering::SeqCst);
                     tracing::info!("delaying node recovery for 60s");
-                    tokio::time::sleep(Duration::from_secs(60)).await;
+                    tokio::time::sleep(Duration::from_mins(1)).await;
                 }
             }
         });
@@ -879,7 +879,7 @@ mod tests {
                 crash_target_node(
                     target_fail_node_id,
                     fail_triggered_clone.clone(),
-                    Duration::from_secs(60),
+                    Duration::from_mins(1),
                 );
             });
 
@@ -897,7 +897,7 @@ mod tests {
         {
             let next_fail_triggered = Arc::new(Mutex::new(Instant::now()));
             let next_fail_triggered_clone = next_fail_triggered.clone();
-            let crash_end_time = Instant::now() + Duration::from_secs(120);
+            let crash_end_time = Instant::now() + Duration::from_mins(2);
             let target_fail_node_id = walrus_cluster.nodes[0]
                 .node_id
                 .expect("node id should be set");
@@ -917,7 +917,7 @@ mod tests {
             });
         }
 
-        tokio::time::sleep(Duration::from_secs(180)).await;
+        tokio::time::sleep(Duration::from_mins(3)).await;
 
         let node_health_info = simtest_utils::get_nodes_health_info(&walrus_cluster.nodes).await;
 
@@ -1150,7 +1150,7 @@ mod tests {
             })
             // Use a long epoch duration to avoid operation across epoch change.
             // TODO(WAL-937): shorten this and fix any issues exposed by this.
-            .with_epoch_duration(Duration::from_secs(600))
+            .with_epoch_duration(Duration::from_mins(10))
             .with_communication_config(
                 ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
                     Duration::from_secs(2),
@@ -1196,7 +1196,7 @@ mod tests {
                 .expect("single client workload exited with error");
         });
 
-        tokio::time::sleep(Duration::from_secs(240)).await;
+        tokio::time::sleep(Duration::from_mins(4)).await;
 
         handle.abort();
 
