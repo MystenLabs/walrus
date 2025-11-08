@@ -134,7 +134,7 @@ public fun new_unified_blob_storage(initial_storage: Storage): BlobStorage {
     let capacity = initial_storage.size();
     let end_epoch = initial_storage.end_epoch();
 
-    // Destroy the storage object - we only need accounting
+    // Destroy the storage object - we only need accounting.
     initial_storage.destroy();
 
     BlobStorage::Unified(UnifiedStorage {

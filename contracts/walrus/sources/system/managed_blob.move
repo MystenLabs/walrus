@@ -140,7 +140,7 @@ public(package) fun new(
     // both the size and encoding_type (sanity check).
     assert!(derive_blob_id(root_hash, encoding_type, size) == blob_id, EInvalidBlobId);
 
-    // Emit register event
+    // Emit register event.
     emit_managed_blob_registered(
         registered_epoch,
         blob_manager_id,
@@ -167,43 +167,42 @@ public(package) fun new(
 
 /// Certifies that a blob will be available in the storage system.
 /// Note: Storage validity is checked at the BlobManager level.
-public(package) fun certify_with_certified_msg(
-    blob: &mut ManagedBlob,
+public fun certify_with_certified_msg(
+    self: &mut ManagedBlob,
     current_epoch: u32,
     message: CertifiedBlobMessage,
 ) {
     // Check that the blob is registered in the system
-    assert!(blob.blob_id() == message.certified_blob_id(), EInvalidBlobId);
+    assert!(self.blob_id == message.certified_blob_id(), EInvalidBlobId);
 
     // Check that the blob is not already certified
-    assert!(!blob.certified_epoch.is_some(), EAlreadyCertified);
+    assert!(!self.certified_epoch.is_some(), EAlreadyCertified);
 
     // Check the blob persistence type
     assert!(
-        blob.deletable == message.blob_persistence_type().is_deletable(),
+        self.deletable == message.blob_persistence_type().is_deletable(),
         EInvalidBlobPersistenceType,
     );
 
     // Check that the object id matches the message
-    if (blob.deletable) {
+    if (self.deletable) {
         assert!(
-            message.blob_persistence_type().object_id() == object::id(blob),
+            message.blob_persistence_type().object_id() == object::id(self),
             EInvalidBlobObject,
         );
     };
 
     // Mark the blob as certified
-    blob.certified_epoch.fill(current_epoch);
+    self.certified_epoch.fill(current_epoch);
 
-    blob.emit_certified(false);
+    self.emit_certified();
 }
 
 /// Deletes a deletable blob.
 ///
-/// Emits a `BlobDeleted` event for the given epoch.
+/// Emits a `ManagedBlobDeleted` event for the given epoch.
 /// Aborts if the ManagedBlob is not deletable.
 /// Also removes any metadata associated with the blob.
-/// Note: Storage validity is checked at the BlobManager level.
 public(package) fun delete(mut self: ManagedBlob, epoch: u32) {
     dynamic_field::remove_if_exists<_, Metadata>(&mut self.id, METADATA_DF);
     let ManagedBlob {
@@ -238,7 +237,7 @@ public fun burn(mut self: ManagedBlob) {
 }
 
 /// Emits a `ManagedBlobCertified` event for the given blob.
-public(package) fun emit_certified(self: &ManagedBlob, is_extension: bool) {
+public(package) fun emit_certified(self: &ManagedBlob) {
     // Emit certified event
     emit_managed_blob_certified(
         *self.certified_epoch.borrow(),
@@ -247,7 +246,6 @@ public(package) fun emit_certified(self: &ManagedBlob, is_extension: bool) {
         self.deletable,
         self.is_quilt,
         self.id.to_inner(),
-        is_extension,
     );
 }
 

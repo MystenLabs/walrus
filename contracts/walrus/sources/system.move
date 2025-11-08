@@ -11,6 +11,7 @@ use walrus::{
     blob::Blob,
     bls_aggregate::BlsCommittee,
     epoch_parameters::EpochParams,
+    managed_blob::ManagedBlob,
     storage_accounting::FutureAccountingRingBuffer,
     storage_node::StorageNodeCap,
     storage_resource::Storage,
@@ -154,6 +155,35 @@ public fun register_blob(
         )
 }
 
+/// Registers a managed blob without a Storage object.
+/// Used by BlobManager for blobs with accounting-based storage.
+public fun register_managed_blob(
+    self: &mut System,
+    blob_manager_id: ID,
+    blob_id: u256,
+    root_hash: u256,
+    size: u64,
+    encoding_type: u8,
+    deletable: bool,
+    is_quilt: bool,
+    write_payment: &mut Coin<WAL>,
+    ctx: &mut TxContext,
+): walrus::managed_blob::ManagedBlob {
+    self
+        .inner_mut()
+        .register_managed_blob(
+            blob_manager_id,
+            blob_id,
+            root_hash,
+            size,
+            encoding_type,
+            deletable,
+            is_quilt,
+            write_payment,
+            ctx,
+        )
+}
+
 /// Certify that a blob will be available in the storage system until the end epoch of the
 /// storage associated with it.
 public fun certify_blob(
@@ -164,6 +194,19 @@ public fun certify_blob(
     message: vector<u8>,
 ) {
     self.inner().certify_blob(blob, signature, signers_bitmap, message);
+}
+
+/// Certifies a managed blob.
+/// Similar to certify_blob but takes a mutable reference to ManagedBlob instead
+/// of taking ownership. The blob must already be registered in the system.
+public fun certify_managed_blob(
+    self: &System,
+    managed_blob: &mut ManagedBlob,
+    signature: vector<u8>,
+    signers_bitmap: vector<u8>,
+    message: vector<u8>,
+) {
+    self.inner().certify_managed_blob(managed_blob, signature, signers_bitmap, message);
 }
 
 /// Deletes a deletable blob and returns the contained storage resource.

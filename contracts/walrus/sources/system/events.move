@@ -55,7 +55,7 @@ public struct ManagedBlobRegistered has copy, drop {
     encoding_type: u8,
     deletable: bool,
     is_quilt: bool,
-    // The object id of the related `ManagedBlob` object
+    // The object id of the related `ManagedBlob` object.
     object_id: ID,
 }
 
@@ -67,10 +67,8 @@ public struct ManagedBlobCertified has copy, drop {
     blob_id: u256,
     deletable: bool,
     is_quilt: bool,
-    // The object id of the related `ManagedBlob` object
+    // The object id of the related `ManagedBlob` object.
     object_id: ID,
-    // Marks if this is an extension
-    is_extension: bool,
 }
 
 /// Signals that a managed blob has been deleted.
@@ -250,7 +248,6 @@ public(package) fun emit_managed_blob_certified(
     deletable: bool,
     is_quilt: bool,
     object_id: ID,
-    is_extension: bool,
 ) {
     event::emit(ManagedBlobCertified {
         epoch,
@@ -259,7 +256,6 @@ public(package) fun emit_managed_blob_certified(
         deletable,
         is_quilt,
         object_id,
-        is_extension,
     });
 }
 

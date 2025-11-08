@@ -14,6 +14,7 @@ use walrus::{
     event_blob::{Self, EventBlobCertificationState, new_attestation},
     events,
     extended_field::{Self, ExtendedField},
+    managed_blob,
     messages,
     storage_accounting::{Self, FutureAccountingRingBuffer},
     storage_node::StorageNodeCap,
@@ -339,6 +340,41 @@ public(package) fun register_blob(
     blob
 }
 
+/// Registers a managed blob without a Storage object.
+/// Used by BlobManager for blobs with accounting-based storage.
+public(package) fun register_managed_blob(
+    self: &mut SystemStateInnerV1,
+    blob_manager_id: ID,
+    blob_id: u256,
+    root_hash: u256,
+    size: u64,
+    encoding_type: u8,
+    deletable: bool,
+    is_quilt: bool,
+    write_payment_coin: &mut Coin<WAL>,
+    ctx: &mut TxContext,
+): walrus::managed_blob::ManagedBlob {
+    let managed_blob = walrus::managed_blob::new(
+        blob_manager_id,
+        blob_id,
+        root_hash,
+        size,
+        encoding_type,
+        deletable,
+        is_quilt,
+        self.epoch(),
+        ctx,
+    );
+
+    // Calculate and charge for storage
+    let encoded_size = managed_blob.encoded_size(self.n_shards());
+    let write_price = self.write_price(encoded_size);
+    let payment = write_payment_coin.balance_mut().split(write_price);
+    let _accounts = self.future_accounting.ring_lookup_mut(0).rewards_balance().join(payment);
+
+    managed_blob
+}
+
 /// Certify that a blob will be available in the storage system until the end
 /// epoch of the
 /// storage associated with it.
@@ -360,6 +396,29 @@ public(package) fun certify_blob(
 
     let certified_blob_msg = certified_msg.certify_blob_message();
     blob.certify_with_certified_msg(self.epoch(), certified_blob_msg);
+}
+
+/// Certifies a managed blob.
+/// Similar to certify_blob but takes a mutable reference to ManagedBlob instead
+/// of taking ownership. The blob must already be registered in the system.
+public(package) fun certify_managed_blob(
+    self: &SystemStateInnerV1,
+    managed_blob: &mut managed_blob::ManagedBlob,
+    signature: vector<u8>,
+    signers_bitmap: vector<u8>,
+    message: vector<u8>,
+) {
+    let certified_msg = self
+        .committee()
+        .verify_quorum_in_epoch(
+            signature,
+            signers_bitmap,
+            message,
+        );
+    assert!(certified_msg.cert_epoch() == self.epoch(), EInvalidIdEpoch);
+
+    let certified_blob_msg = certified_msg.certify_blob_message();
+    managed_blob.certify_with_certified_msg(self.epoch(), certified_blob_msg);
 }
 
 /// Deletes a deletable blob and returns the contained storage resource.
