@@ -11,6 +11,7 @@ use walrus::{
     blob_stash::{Self, BlobStash},
     blob_storage::{Self, BlobStorage},
     encoding,
+    managed_blob::BlobType,
     storage_resource::Storage,
     system::{Self, System}
 };
@@ -118,7 +119,7 @@ public fun register_blob(
     size: u64,
     encoding_type: u8,
     deletable: bool,
-    is_quilt: bool, // TODO(heliu): Make this an enum.
+    blob_type: BlobType,
     payment: &mut Coin<WAL>,
     ctx: &mut TxContext,
 ) {
@@ -158,7 +159,7 @@ public fun register_blob(
         size,
         encoding_type,
         deletable,
-        is_quilt,
+        blob_type,
         payment,
         ctx,
     );

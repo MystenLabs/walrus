@@ -14,7 +14,7 @@ use walrus::{
     event_blob::{Self, EventBlobCertificationState, new_attestation},
     events,
     extended_field::{Self, ExtendedField},
-    managed_blob,
+    managed_blob::{Self, BlobType},
     messages,
     storage_accounting::{Self, FutureAccountingRingBuffer},
     storage_node::StorageNodeCap,
@@ -350,18 +350,18 @@ public(package) fun register_managed_blob(
     size: u64,
     encoding_type: u8,
     deletable: bool,
-    is_quilt: bool,
+    blob_type: BlobType,
     write_payment_coin: &mut Coin<WAL>,
     ctx: &mut TxContext,
-): walrus::managed_blob::ManagedBlob {
-    let managed_blob = walrus::managed_blob::new(
+): managed_blob::ManagedBlob {
+    let managed_blob = managed_blob::new(
         blob_manager_id,
         blob_id,
         root_hash,
         size,
         encoding_type,
         deletable,
-        is_quilt,
+        blob_type,
         self.epoch(),
         ctx,
     );

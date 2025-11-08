@@ -11,7 +11,7 @@ use walrus::{
     blob::Blob,
     bls_aggregate::BlsCommittee,
     epoch_parameters::EpochParams,
-    managed_blob::ManagedBlob,
+    managed_blob::{BlobType, ManagedBlob},
     storage_accounting::FutureAccountingRingBuffer,
     storage_node::StorageNodeCap,
     storage_resource::Storage,
@@ -165,10 +165,10 @@ public fun register_managed_blob(
     size: u64,
     encoding_type: u8,
     deletable: bool,
-    is_quilt: bool,
+    blob_type: BlobType,
     write_payment: &mut Coin<WAL>,
     ctx: &mut TxContext,
-): walrus::managed_blob::ManagedBlob {
+): ManagedBlob {
     self
         .inner_mut()
         .register_managed_blob(
@@ -178,7 +178,7 @@ public fun register_managed_blob(
             size,
             encoding_type,
             deletable,
-            is_quilt,
+            blob_type,
             write_payment,
             ctx,
         )

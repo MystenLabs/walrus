@@ -40,6 +40,14 @@ const EInvalidBlobObject: u64 = 10;
 // The fixed dynamic field name for metadata
 const METADATA_DF: vector<u8> = b"metadata";
 
+// === Blob Type ===
+
+/// Type of blob: Regular or Quilt (composite blob).
+public enum BlobType has copy, drop, store {
+    Regular,
+    Quilt,
+}
+
 // === Object definitions ===
 
 /// The managed blob structure represents a blob that has been registered with
@@ -57,8 +65,8 @@ public struct ManagedBlob has key, store {
     blob_manager_id: ID,
     // Marks if this blob can be deleted.
     deletable: bool,
-    // Marks if this blob is a quilt (composite blob).
-    is_quilt: bool,
+    // Type of blob: Regular or Quilt (composite blob).
+    blob_type: BlobType,
 }
 
 // === Accessors ===
@@ -95,8 +103,15 @@ public fun is_deletable(self: &ManagedBlob): bool {
     self.deletable
 }
 
+public fun blob_type(self: &ManagedBlob): BlobType {
+    self.blob_type
+}
+
 public fun is_quilt(self: &ManagedBlob): bool {
-    self.is_quilt
+    match (self.blob_type) {
+        BlobType::Quilt => true,
+        BlobType::Regular => false,
+    }
 }
 
 public fun encoded_size(self: &ManagedBlob, n_shards: u16): u64 {
@@ -130,7 +145,7 @@ public(package) fun new(
     size: u64,
     encoding_type: u8,
     deletable: bool,
-    is_quilt: bool,
+    blob_type: BlobType,
     registered_epoch: u32,
     ctx: &mut TxContext,
 ): ManagedBlob {
@@ -141,6 +156,10 @@ public(package) fun new(
     assert!(derive_blob_id(root_hash, encoding_type, size) == blob_id, EInvalidBlobId);
 
     // Emit register event.
+    let is_quilt = match (blob_type) {
+        BlobType::Quilt => true,
+        BlobType::Regular => false,
+    };
     emit_managed_blob_registered(
         registered_epoch,
         blob_manager_id,
@@ -161,7 +180,7 @@ public(package) fun new(
         certified_epoch: option::none(),
         blob_manager_id,
         deletable,
-        is_quilt,
+        blob_type,
     }
 }
 
@@ -244,7 +263,7 @@ public(package) fun emit_certified(self: &ManagedBlob) {
         self.blob_manager_id,
         self.blob_id,
         self.deletable,
-        self.is_quilt,
+        self.is_quilt(),
         self.id.to_inner(),
     );
 }
