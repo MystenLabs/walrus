@@ -35,14 +35,16 @@ use walrus_sui::{
     client::{ReadClient, SuiContractClient},
     types::move_structs::BlobAttribute,
 };
-use walrus_utils::read_blob_from_file;
 
 use crate::{
     client::{
+        FileUploadJob,
         StoreArgs,
         WalrusNodeClient,
         client_types::StoredQuiltPatch,
+        file_upload_job::read_blob_from_file,
         responses::QuiltStoreResult,
+        slice_size::SliceSize,
     },
     error::{ClientError, ClientErrorKind, ClientResult},
 };
@@ -102,8 +104,16 @@ pub fn read_blobs_from_paths<P: AsRef<Path>>(
 
     let mut collected_files_with_content = HashMap::with_capacity(collected_files.len());
     for file_path in collected_files {
-        let content = read_blob_from_file(&file_path)
+        let blob_output = read_blob_from_file(&file_path, SliceSize::Disabled, u64::MAX)
             .map_err(|e| ClientError::from(ClientErrorKind::Other(e.to_string().into())))?;
+
+        // Extract the raw bytes from the blob output
+        let FileUploadJob::Blob { data: content } = blob_output else {
+            return Err(ClientError::from(ClientErrorKind::Other(
+                "unexpected sliced blob output when slicing is disabled".into(),
+            )));
+        };
+
         collected_files_with_content.insert(file_path, content);
     }
 

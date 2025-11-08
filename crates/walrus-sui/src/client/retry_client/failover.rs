@@ -399,7 +399,6 @@ mod tests {
 
     #[test]
     fn test_retriable_errors() {
-        // REVIEW: make sure this test fails! then remove this line
         assert!(SuiClientError::make_retriable_error().is_retriable_rpc_error());
         assert!(RetriableClientError::make_retriable_error().is_retriable_rpc_error());
     }
