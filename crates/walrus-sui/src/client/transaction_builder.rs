@@ -53,6 +53,7 @@ use super::{
 use crate::{
     contracts::{self, FunctionTag},
     types::{
+        BlobType,
         NetworkAddress,
         NodeRegistrationParams,
         NodeUpdateParams,
@@ -1802,6 +1803,7 @@ impl WalrusPtbBuilder {
         cap: ArgumentOrOwnedObject,
         blob_metadata: BlobObjectMetadata,
         persistence: BlobPersistence,
+        blob_type: BlobType,
     ) -> SuiClientResult<Argument> {
         let price = self
             .write_price_for_encoded_length(blob_metadata.encoded_size, false)
@@ -1815,6 +1817,13 @@ impl WalrusPtbBuilder {
             .read_client
             .get_shared_object_initial_version(manager)
             .await?;
+
+        // Convert BlobType enum to u8 (0 for Regular, 1 for Quilt)
+        // Move function accepts u8 blob_type instead of BlobType enum
+        let blob_type_u8 = match blob_type {
+            BlobType::Regular => 0u8,
+            BlobType::Quilt => 1u8,
+        };
 
         let register_args = vec![
             self.pt_builder.obj(ObjectArg::SharedObject {
@@ -1830,15 +1839,19 @@ impl WalrusPtbBuilder {
             self.pt_builder
                 .pure(u8::from(blob_metadata.encoding_type))?,
             self.pt_builder.pure(persistence.is_deletable())?,
+            // Pass blob_type as u8 (0 = Regular, 1 = Quilt)
+            self.pt_builder.pure(blob_type_u8)?,
             self.wal_coin_arg()?,
         ];
 
-        let result_arg =
-            self.blobmanager_move_call(contracts::blobmanager::register_blob, register_args)?;
+        // register_blob doesn't return anything - it creates ManagedBlob owned by BlobManager
+        // We call it as a statement, not expecting a return value
+        self.blobmanager_move_call(contracts::blobmanager::register_blob, register_args)?;
 
         self.reduce_wal_balance(price)?;
-        self.add_result_to_be_consumed(result_arg);
-        Ok(result_arg)
+        // Return a dummy unit argument since the function signature requires an Argument
+        // but register_blob doesn't actually return anything
+        Ok(self.pt_builder.pure(())?)
     }
 
     /// Certifies a blob in BlobManager and transfers ownership to BlobManager.

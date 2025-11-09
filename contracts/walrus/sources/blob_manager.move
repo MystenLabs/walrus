@@ -11,7 +11,6 @@ use walrus::{
     blob_stash::{Self, BlobStash},
     blob_storage::{Self, BlobStorage},
     encoding,
-    managed_blob::BlobType,
     storage_resource::Storage,
     system::{Self, System}
 };
@@ -108,8 +107,13 @@ fun check_cap(self: &BlobManager, cap: &BlobManagerCap) {
 /// Registers a new blob in the BlobManager.
 /// BlobManager owns the blob immediately upon registration.
 /// Requires a valid BlobManagerCap to prove write access.
-/// Aborts with EBlobAlreadyCertifiedInBlobManager if blob already exists and is certified.
-/// A matching reisigered but uncertified blob will be reused.
+/// Returns ok status (no abort) when:
+///   - A matching blob already exists (certified or uncertified) - reuses existing blob
+///   - A new blob is successfully created
+/// Only aborts on errors:
+///   - Insufficient funds (payment too small)
+///   - Insufficient storage capacity
+///   - Inconsistency detected in blob stash
 public fun register_blob(
     self: &mut BlobManager,
     cap: &BlobManagerCap,
@@ -119,7 +123,7 @@ public fun register_blob(
     size: u64,
     encoding_type: u8,
     deletable: bool,
-    blob_type: BlobType,
+    blob_type: u8,
     payment: &mut Coin<WAL>,
     ctx: &mut TxContext,
 ) {
@@ -134,13 +138,9 @@ public fun register_blob(
             deletable,
         );
     if (existing_blob.is_some()) {
-        let info = option::borrow(&existing_blob);
-        if (info.is_certified()) {
-            abort EBlobAlreadyCertifiedInBlobManager
-        } else {
-            // Blob exists but is uncertified - reuse it, skip registration.
-            return
-        }
+        // Blob already exists (certified or uncertified) - reuse it, skip registration.
+        // Return ok status - no abort.
+        return
     };
 
     // Step 2: Allocate storage and register managed blob.

@@ -54,7 +54,7 @@ public struct ManagedBlobRegistered has copy, drop {
     size: u64,
     encoding_type: u8,
     deletable: bool,
-    is_quilt: bool,
+    blob_type: u8,
     // The object id of the related `ManagedBlob` object.
     object_id: ID,
 }
@@ -66,7 +66,7 @@ public struct ManagedBlobCertified has copy, drop {
     blob_manager_id: ID,
     blob_id: u256,
     deletable: bool,
-    is_quilt: bool,
+    blob_type: u8,
     // The object id of the related `ManagedBlob` object.
     object_id: ID,
 }
@@ -226,7 +226,7 @@ public(package) fun emit_managed_blob_registered(
     size: u64,
     encoding_type: u8,
     deletable: bool,
-    is_quilt: bool,
+    blob_type: u8,
     object_id: ID,
 ) {
     event::emit(ManagedBlobRegistered {
@@ -236,7 +236,7 @@ public(package) fun emit_managed_blob_registered(
         size,
         encoding_type,
         deletable,
-        is_quilt,
+        blob_type,
         object_id,
     });
 }
@@ -246,7 +246,7 @@ public(package) fun emit_managed_blob_certified(
     blob_manager_id: ID,
     blob_id: u256,
     deletable: bool,
-    is_quilt: bool,
+    blob_type: u8,
     object_id: ID,
 ) {
     event::emit(ManagedBlobCertified {
@@ -254,7 +254,7 @@ public(package) fun emit_managed_blob_certified(
         blob_manager_id,
         blob_id,
         deletable,
-        is_quilt,
+        blob_type,
         object_id,
     });
 }

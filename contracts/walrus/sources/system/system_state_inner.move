@@ -350,7 +350,7 @@ public(package) fun register_managed_blob(
     size: u64,
     encoding_type: u8,
     deletable: bool,
-    blob_type: BlobType,
+    blob_type: u8,
     write_payment_coin: &mut Coin<WAL>,
     ctx: &mut TxContext,
 ): managed_blob::ManagedBlob {

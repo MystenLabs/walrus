@@ -705,8 +705,8 @@ impl<'a> ResourceManager<'a> {
 
     /// Registers blobs with a BlobManager.
     ///
-    /// This method calls `reserve_and_register_blobs_in_blobmanager()` to register blobs
-    /// through a BlobManager and creates StoreOp::RegisteredInBlobManager for each blob.
+    /// This method calls `reserve_and_register_managed_blobs()` to register blobs
+    /// through a BlobManager and converts them to `RegisteredManagedBlob` instances.
     /// The BlobManager handles deduplication automatically.
     async fn register_with_blobmanager<'b, T: Debug + Clone + Send + Sync>(
         &self,
@@ -717,52 +717,97 @@ impl<'a> ResourceManager<'a> {
         metadata_list: Vec<&VerifiedBlobMetadataWithId>,
         persistence: BlobPersistence,
     ) -> ClientResult<Vec<WalrusStoreBlob<'b, T>>> {
-        use walrus_sui::client::ArgumentOrOwnedObject;
-
         let blob_metadata: Vec<_> = metadata_list
             .iter()
             .map(|m| (*m).try_into())
             .collect::<Result<Vec<_>, _>>()?;
 
-        // Register blobs and get back Blob objects (caller owns them)
-        let registered_blobs = self
-            .sui_client
-            .reserve_and_register_blobs_in_blobmanager(
+        // Register blobs in BlobManager
+        // Note: register_blob doesn't return ManagedBlob objects - they are owned by BlobManager
+        self.sui_client
+            .reserve_and_register_managed_blobs(
                 manager_id,
-                ArgumentOrOwnedObject::Object(manager_cap),
+                manager_cap,
                 epochs_ahead,
                 blob_metadata.clone(),
                 persistence,
             )
             .await?;
 
-        if registered_blobs.len() != blobs.len() {
-            return Err(ClientError::store_blob_internal(format!(
-                "unexpected number of blobs returned: {} expected {}",
-                registered_blobs.len(),
-                blobs.len()
-            )));
-        }
-
-        // Create StoreOp::RegisteredInBlobManager for each blob using the returned Blob object
+        // Convert blobs to RegisteredManagedBlob instances
+        // The actual ManagedBlob objects are owned by BlobManager and not accessible here
         Ok(blobs
             .into_iter()
-            .zip(blob_metadata.iter().zip(registered_blobs.iter()))
-            .map(|(blob, (metadata, registered_blob))| {
-                let operation = RegisterBlobOp::RegisterFromScratch {
-                    encoded_length: metadata.encoded_size,
-                    epochs_ahead,
+            .zip(blob_metadata.iter())
+            .map(|(blob, metadata)| {
+                // Extract fields from WithStatus blob to create RegisteredManagedBlob
+                let WalrusStoreBlob::WithStatus(blob_with_status) = blob else {
+                    panic!("expected WithStatus blob, got different variant");
                 };
 
-                let store_op = StoreOp::RegisteredInBlobManager {
-                    blob: registered_blob.clone(), // Use the Blob object returned from registration
-                    operation,
-                };
-
-                blob.with_register_result(Ok(store_op))
-                    .expect("should succeed on a Ok result")
+                WalrusStoreBlob::RegisteredManagedBlob(super::client_types::RegisteredManagedBlob {
+                    input_blob: blob_with_status.input_blob,
+                    pairs: blob_with_status.pairs,
+                    metadata: blob_with_status.metadata,
+                    blob_id: metadata.blob_id,
+                    blob_manager_id: manager_id,
+                })
             })
             .collect())
+    }
+
+    /// Registers a single managed blob in a BlobManager.
+    ///
+    /// Returns `RegisteredManagedBlob` if registration succeeded, `FailedBlob` if it failed,
+    /// or `Completed` with `AlreadyCertified` if the blob was already certified.
+    pub async fn register_managed_blob<T: Debug + Clone + Send + Sync>(
+        &self,
+        blob: WalrusStoreBlob<'a, T>,
+        manager_id: ObjectID,
+        manager_cap: ObjectID,
+        persistence: BlobPersistence,
+    ) -> ClientResult<WalrusStoreBlob<'a, T>> {
+        use crate::error::{ClientError, ClientErrorKind};
+
+        // Extract metadata from blob
+        let metadata = blob.get_metadata().ok_or_else(|| {
+            ClientError::from(ClientErrorKind::Other(
+                "blob must have metadata".to_string().into(),
+            ))
+        })?;
+        let blob_metadata: walrus_sui::client::BlobObjectMetadata = metadata.try_into()?;
+
+        // Register the blob in BlobManager
+        // Note: register_blob returns Ok(()) for both new blobs and existing blobs
+        self.sui_client
+            .reserve_and_register_managed_blobs(
+                manager_id,
+                manager_cap,
+                0, // epochs_ahead not needed for single blob registration
+                vec![blob_metadata.clone()],
+                persistence,
+            )
+            .await?;
+
+        // Extract blob from WithStatus state
+        let WalrusStoreBlob::WithStatus(blob_with_status) = blob else {
+            return Err(ClientError::from(ClientErrorKind::Other(
+                "blob must be in WithStatus state".to_string().into(),
+            )));
+        };
+
+        // Create RegisteredManagedBlob
+        // We already have blob_id from metadata and manager_id from parameters
+
+        Ok(WalrusStoreBlob::RegisteredManagedBlob(
+            super::client_types::RegisteredManagedBlob {
+                input_blob: blob_with_status.input_blob,
+                pairs: blob_with_status.pairs,
+                metadata: blob_with_status.metadata,
+                blob_id: blob_metadata.blob_id,
+                blob_manager_id: manager_id,
+            },
+        ))
     }
 
     /// Finds a blob object with the given `blob_id` owned by the active wallet.

@@ -625,22 +625,22 @@ impl SuiContractClient {
         .await
     }
 
-    /// Reserves space and registers blobs in a BlobManager (public wrapper).
+    /// Reserves space and registers managed blobs in a BlobManager.
     ///
-    /// Registers blobs in a BlobManager and returns the Blob objects (caller owns them).
-    pub async fn reserve_and_register_blobs_in_blobmanager(
+    /// Returns `Ok(())` on success, or an error if registration failed.
+    pub async fn reserve_and_register_managed_blobs(
         &self,
         manager_id: ObjectID,
-        manager_cap: ArgumentOrOwnedObject,
+        manager_cap: ObjectID,
         epochs_ahead: EpochCount,
         blob_metadata_list: Vec<BlobObjectMetadata>,
         persistence: BlobPersistence,
-    ) -> SuiClientResult<Vec<Blob>> {
+    ) -> SuiClientResult<()> {
         self.retry_on_wrong_version(|| async {
             self.inner
                 .lock()
                 .await
-                .reserve_and_register_blobs_in_blobmanager(
+                .reserve_and_register_managed_blobs(
                     manager_id,
                     manager_cap,
                     epochs_ahead,
@@ -1924,57 +1924,56 @@ impl SuiContractClientInner {
         Ok(())
     }
 
-    /// Reserves space and registers blobs in a BlobManager.
+    /// Reserves space and registers managed blobs in a BlobManager.
     ///
-    /// This function registers each blob with the BlobManager, which manages its own storage.
-    /// Returns the Blob objects that the caller owns (until certification).
-    pub async fn reserve_and_register_blobs_in_blobmanager(
+    /// Returns `Ok(())` on success, or an error if registration failed.
+    pub async fn reserve_and_register_managed_blobs(
         &mut self,
         manager_id: ObjectID,
-        manager_cap: ArgumentOrOwnedObject,
+        manager_cap: ObjectID,
         _epochs_ahead: EpochCount,
         blob_metadata_list: Vec<BlobObjectMetadata>,
         persistence: BlobPersistence,
-    ) -> SuiClientResult<Vec<Blob>> {
-        use walrus_core::ensure;
-
-        use crate::utils::get_created_sui_object_ids_by_type;
+    ) -> SuiClientResult<()> {
+        use transaction_builder::ArgumentOrOwnedObject;
 
         if blob_metadata_list.is_empty() {
             tracing::debug!("no blobs to register in blob manager");
-            return Ok(vec![]);
+            return Ok(());
         }
 
         let expected_num_blobs = blob_metadata_list.len();
         tracing::debug!(
             num_blobs = expected_num_blobs,
             manager_id = %manager_id,
-            "starting to reserve and register blobs in blob manager"
+            "starting to reserve and register managed blobs in blob manager"
         );
 
         let mut pt_builder = self.transaction_builder()?;
+        let manager_cap_arg = ArgumentOrOwnedObject::Object(manager_cap);
 
         // Register each blob in the BlobManager (BlobManager manages its own storage)
         for (i, metadata) in blob_metadata_list.iter().enumerate() {
             tracing::debug!(
                 blob_id = %metadata.blob_id,
                 count = format!("{}/{}", i + 1, expected_num_blobs),
-                "registering blob in blob manager"
+                "registering managed blob in blob manager"
             );
 
             pt_builder
                 .register_blob_in_blob_manager(
                     manager_id,
-                    manager_cap,
+                    manager_cap_arg,
                     metadata.clone(),
                     persistence,
+                    crate::types::BlobType::Regular, // Default to Regular for now
                 )
                 .await?;
         }
 
         let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
         let res = self
-            .sign_and_send_transaction(transaction, "reserve_and_register_blobs_in_blobmanager")
+            .sign_and_send_transaction(transaction, "reserve_and_register_managed_blobs")
             .await?;
 
         if !res.errors.is_empty() {
@@ -1983,25 +1982,7 @@ impl SuiContractClientInner {
         }
 
         tracing::debug!("successfully registered blobs in blob manager");
-
-        // Extract Blob ObjectIDs from created objects (blobs are returned to caller)
-        let blob_obj_ids = get_created_sui_object_ids_by_type(
-            &res,
-            &contracts::blob::Blob
-                .to_move_struct_tag_with_type_map(&self.read_client.type_origin_map(), &[])?,
-        )?;
-
-        ensure!(
-            blob_obj_ids.len() == expected_num_blobs,
-            "unexpected number of blob objects created: {} expected {}",
-            blob_obj_ids.len(),
-            expected_num_blobs
-        );
-
-        // Fetch and return the Blob objects (caller owns them)
-        self.retriable_sui_client()
-            .get_sui_objects(&blob_obj_ids)
-            .await
+        Ok(())
     }
 
     /// Extracts blob ObjectIDs from transaction response (legacy method for compatibility).

@@ -353,6 +353,8 @@ pub mod events {
     contract_ident!(struct events::BlobCertified);
     contract_ident!(struct events::BlobRegistered);
     contract_ident!(struct events::BlobDeleted);
+    contract_ident!(struct events::ManagedBlobRegistered);
+    contract_ident!(struct events::ManagedBlobCertified);
     contract_ident!(struct events::InvalidBlobID);
     contract_ident!(struct events::EpochParametersSelected);
     contract_ident!(struct events::EpochChangeStart);
@@ -464,6 +466,13 @@ pub mod package {
 
 /// Module for tags corresponding to the Move module `blob_stash`.
 pub mod blob_stash {}
+
+/// Module for tags corresponding to the Move module `managed_blob`.
+pub mod managed_blob {
+    use super::*;
+
+    contract_ident!(struct managed_blob::ManagedBlob);
+}
 
 /// Module for tags corresponding to the Move module `blobmanager`.
 pub mod blobmanager {

@@ -153,6 +153,14 @@ impl BlobInfoTable {
         let operation = BlobInfoMergeOperand::from(event);
         tracing::debug!(?operation, "updating blob info");
 
+        // Skip NoOp operations.
+        if matches!(operation, BlobInfoMergeOperand::NoOp) {
+            tracing::debug!("skipping NoOp blob info update");
+            let mut batch = self.aggregate_blob_info.batch();
+            batch.insert_batch(&latest_handled_event_index, [(&(), event_index)])?;
+            return batch.write();
+        }
+
         let mut batch = self.aggregate_blob_info.batch();
 
         batch.partial_merge_batch(
@@ -206,7 +214,9 @@ impl BlobInfoTable {
             })
             | BlobEvent::Deleted(_)
             | BlobEvent::InvalidBlobID(_)
-            | BlobEvent::DenyListBlobDeleted(_) => {
+            | BlobEvent::DenyListBlobDeleted(_)
+            | BlobEvent::ManagedBlobRegistered(_)
+            | BlobEvent::ManagedBlobCertified(_) => {
                 tracing::debug!("performing standard blob-info update for event");
                 return self.update_blob_info(event_index, event);
             }
@@ -779,6 +789,8 @@ pub(super) enum BlobInfoMergeOperand {
     PermanentExpired {
         was_certified: bool,
     },
+    /// No-op operand for events that don't require blob info updates.
+    NoOp,
 }
 
 impl ToBytes for BlobInfoMergeOperand {}
@@ -928,6 +940,12 @@ impl From<&BlobEvent> for BlobInfoMergeOperand {
                 // event, we need f+1 signatures and until the Rust integration is implemented no
                 // such event should be emitted.
                 todo!("DenyListBlobDeleted event handling is not yet implemented");
+            }
+            BlobEvent::ManagedBlobRegistered(_) | BlobEvent::ManagedBlobCertified(_) => {
+                // Managed blobs are not tracked in the standard blob info system.
+                // They are managed by BlobManager contracts and don't need per-node tracking.
+                // Return a no-op operand.
+                BlobInfoMergeOperand::NoOp
             }
         }
     }
@@ -1560,6 +1578,9 @@ impl Mergeable for BlobInfoV1 {
                 Self::Valid(valid_blob_info),
                 BlobInfoMergeOperand::PermanentExpired { was_certified },
             ) => valid_blob_info.permanent_expired(was_certified),
+            (_, BlobInfoMergeOperand::NoOp) => {
+                // NoOp: do nothing.
+            }
         }
         self
     }
@@ -1610,6 +1631,10 @@ impl Mergeable for BlobInfoV1 {
                     "encountered an unexpected update for an untracked blob ID"
                 );
                 debug_assert!(false);
+                None
+            }
+            BlobInfoMergeOperand::NoOp => {
+                // NoOp: return None to not create a new blob info entry.
                 None
             }
         }

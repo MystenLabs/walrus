@@ -29,6 +29,8 @@ pub use events::{
     EpochChangeStart,
     EpochParametersSelected,
     InvalidBlobId,
+    ManagedBlobCertified,
+    ManagedBlobRegistered,
     PackageEvent,
     ProtocolEvent,
     ProtocolVersionUpdatedEvent,
@@ -38,6 +40,8 @@ pub use events::{
 pub mod move_structs;
 pub use move_structs::{
     Blob,
+    BlobType,
+    ManagedBlob,
     NodeMetadata,
     StakedWal,
     StakingObject,

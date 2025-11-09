@@ -210,6 +210,8 @@ pub enum WalrusStoreBlob<'a, T: Debug + Clone + Send + Sync> {
     WithStatus(BlobWithStatus<'a, T>),
     /// After registration, includes the store operation.
     Registered(RegisteredBlob<'a, T>),
+    /// After registration in BlobManager, contains blob_id and manager_id (no ObjectID).
+    RegisteredManagedBlob(RegisteredManagedBlob<'a, T>),
     /// After certificate, includes the certificate.
     WithCertificate(BlobWithCertificate<'a, T>),
     /// Final phase with the complete result.
@@ -301,6 +303,7 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlob<'a, T> {
             WalrusStoreBlob::Encoded(inner) => &inner.input_blob.span,
             WalrusStoreBlob::WithStatus(inner) => &inner.input_blob.span,
             WalrusStoreBlob::Registered(inner) => &inner.input_blob.span,
+            WalrusStoreBlob::RegisteredManagedBlob(inner) => &inner.input_blob.span,
             WalrusStoreBlob::WithCertificate(inner) => &inner.input_blob.span,
             WalrusStoreBlob::Completed(inner) => &inner.input_blob.span,
             WalrusStoreBlob::Error(inner) => &inner.input_blob.span,
@@ -1609,6 +1612,186 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for Completed
             &self,
             format!("with_error: {error:?}"),
         ))
+    }
+}
+
+/// Registered managed blob (owned by BlobManager).
+#[derive(Clone)]
+pub struct RegisteredManagedBlob<'a, T: Debug + Clone + Send + Sync> {
+    /// The base unencoded blob.
+    pub input_blob: UnencodedBlob<'a, T>,
+    /// The encoded sliver pairs.
+    pub pairs: Arc<Vec<SliverPair>>,
+    /// The verified metadata associated with the blob.
+    pub metadata: Arc<VerifiedBlobMetadataWithId>,
+    /// The blob ID.
+    pub blob_id: BlobId,
+    /// The ID of the BlobManager that manages this blob.
+    pub blob_manager_id: ObjectID,
+}
+
+impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T>
+    for RegisteredManagedBlob<'a, T>
+{
+    fn get_state(&self) -> &'static str {
+        "RegisteredManagedBlob"
+    }
+
+    fn get_blob(&self) -> &'a [u8] {
+        self.input_blob.blob
+    }
+
+    fn get_identifier(&self) -> &T {
+        &self.input_blob.identifier
+    }
+
+    fn unencoded_length(&self) -> usize {
+        self.input_blob.blob.len()
+    }
+
+    fn encoded_size(&self) -> Option<u64> {
+        self.metadata.metadata().encoded_size()
+    }
+
+    fn get_metadata(&self) -> Option<&VerifiedBlobMetadataWithId> {
+        Some(&self.metadata)
+    }
+
+    fn get_blob_id(&self) -> Option<BlobId> {
+        Some(self.blob_id)
+    }
+
+    fn get_sliver_pairs(&self) -> Option<&Vec<SliverPair>> {
+        Some(&self.pairs)
+    }
+
+    fn get_status(&self) -> Option<&BlobStatus> {
+        None
+    }
+
+    fn get_object_id(&self) -> Option<ObjectID> {
+        // ManagedBlob objects are owned by BlobManager, not exposed to clients
+        None
+    }
+
+    fn get_operation(&self) -> Option<&StoreOp> {
+        None
+    }
+
+    fn get_error(&self) -> Option<&ClientError> {
+        None
+    }
+
+    fn get_result(&self) -> Option<BlobStoreResult> {
+        None
+    }
+
+    fn ready_to_store_to_nodes(&self) -> bool {
+        // Blobs registered in BlobManager are ready to certify immediately
+        true
+    }
+
+    fn ready_to_extend(&self) -> bool {
+        false
+    }
+
+    fn get_certify_and_extend_params(&self) -> Result<CertifyAndExtendBlobParams<'_>, ClientError> {
+        Err(invalid_operation_for_blob(
+            &self,
+            "get_certify_and_extend_params: not implemented for RegisteredManagedBlob".to_string(),
+        ))
+    }
+
+    fn with_encode_result(
+        self,
+        _result: Result<(Vec<SliverPair>, VerifiedBlobMetadataWithId), ClientError>,
+    ) -> ClientResult<WalrusStoreBlob<'a, T>> {
+        Err(invalid_operation_for_blob(
+            &self,
+            "with_encode_result: already encoded".to_string(),
+        ))
+    }
+
+    fn with_status(
+        self,
+        _status: Result<BlobStatus, ClientError>,
+    ) -> ClientResult<WalrusStoreBlob<'a, T>> {
+        Err(invalid_operation_for_blob(
+            &self,
+            "with_status: already registered".to_string(),
+        ))
+    }
+
+    fn try_complete_if_certified_beyond_epoch(
+        self,
+        _target_epoch: u32,
+    ) -> ClientResult<WalrusStoreBlob<'a, T>> {
+        Err(invalid_operation_for_blob(
+            &self,
+            "try_complete_if_certified_beyond_epoch: not implemented for RegisteredManagedBlob"
+                .to_string(),
+        ))
+    }
+
+    fn with_register_result(
+        self,
+        _result: ClientResult<StoreOp>,
+    ) -> ClientResult<WalrusStoreBlob<'a, T>> {
+        Err(invalid_operation_for_blob(
+            &self,
+            "with_register_result: already registered".to_string(),
+        ))
+    }
+
+    fn with_get_certificate_result(
+        self,
+        _result: ClientResult<ConfirmationCertificate>,
+    ) -> ClientResult<WalrusStoreBlob<'a, T>> {
+        Err(invalid_operation_for_blob(
+            &self,
+            "with_get_certificate_result: not certified yet".to_string(),
+        ))
+    }
+
+    fn with_certify_and_extend_result(
+        self,
+        _result: CertifyAndExtendBlobResult,
+        _price_computation: &PriceComputation,
+    ) -> ClientResult<WalrusStoreBlob<'a, T>> {
+        Err(invalid_operation_for_blob(
+            &self,
+            "with_certify_and_extend_result: not implemented yet".to_string(),
+        ))
+    }
+
+    fn complete_with(self, result: BlobStoreResult) -> WalrusStoreBlob<'a, T> {
+        WalrusStoreBlob::Completed(CompletedBlob {
+            input_blob: self.input_blob,
+            result,
+        })
+    }
+
+    fn with_error(self, error: ClientError) -> ClientResult<WalrusStoreBlob<'a, T>> {
+        if WalrusStoreBlob::<'_, T>::should_fail_early(&error) {
+            return Err(error);
+        }
+
+        Ok(WalrusStoreBlob::Error(FailedBlob {
+            input_blob: self.input_blob,
+            blob_id: Some(self.blob_id),
+            failure_phase: "register_managed_blob".to_string(),
+            error,
+        }))
+    }
+}
+
+impl<T: Debug + Clone + Send + Sync> std::fmt::Debug for RegisteredManagedBlob<'_, T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RegisteredManagedBlob")
+            .field("identifier", &self.input_blob.identifier)
+            .field("blob_id", &self.blob_id)
+            .field("blob_manager_id", &self.blob_manager_id)
+            .finish()
     }
 }
 

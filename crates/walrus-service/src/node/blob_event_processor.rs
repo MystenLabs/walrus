@@ -187,6 +187,11 @@ impl BackgroundEventProcessor {
             BlobEvent::Registered(_) => {
                 unreachable!("registered event should be processed immediately");
             }
+            BlobEvent::ManagedBlobRegistered(_) | BlobEvent::ManagedBlobCertified(_) => {
+                // TODO: Implement managed blob event handling.
+                tracing::warn!("Managed blob events not yet handled by storage nodes");
+                event_handle.mark_as_complete();
+            }
         }
 
         Ok(())

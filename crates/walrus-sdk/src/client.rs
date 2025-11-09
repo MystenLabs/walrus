@@ -1315,6 +1315,7 @@ impl WalrusNodeClient<SuiContractClient> {
             let sui_cert_timer = Instant::now();
             let completed_bm_blobs = self
                 .blobmanager_client(manager_id, manager_cap)
+                .await?
                 .certify_and_complete_blobs(blobmanager_blobs)
                 .await?;
 
@@ -1690,12 +1691,13 @@ impl WalrusNodeClient<SuiContractClient> {
     }
 
     /// Returns a BlobManagerClient for managing blobs through a BlobManager.
-    pub fn blobmanager_client(
+    pub async fn blobmanager_client(
         &self,
         manager_id: ObjectID,
         manager_cap: ObjectID,
-    ) -> blobmanager_client::BlobManagerClient<'_, SuiContractClient> {
-        blobmanager_client::BlobManagerClient::new(self, manager_id, manager_cap)
+    ) -> crate::error::ClientResult<blobmanager_client::BlobManagerClient<'_, SuiContractClient>>
+    {
+        blobmanager_client::BlobManagerClient::new(self, manager_id, manager_cap).await
     }
 }
 

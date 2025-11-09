@@ -107,12 +107,7 @@ public fun blob_type(self: &ManagedBlob): BlobType {
     self.blob_type
 }
 
-public fun is_quilt(self: &ManagedBlob): bool {
-    match (self.blob_type) {
-        BlobType::Quilt => true,
-        BlobType::Regular => false,
-    }
-}
+// Removed is_quilt() - use blob_type() and match on BlobType enum directly if needed
 
 public fun encoded_size(self: &ManagedBlob, n_shards: u16): u64 {
     encoding::encoded_blob_length(
@@ -145,7 +140,7 @@ public(package) fun new(
     size: u64,
     encoding_type: u8,
     deletable: bool,
-    blob_type: BlobType,
+    blob_type: u8,
     registered_epoch: u32,
     ctx: &mut TxContext,
 ): ManagedBlob {
@@ -155,11 +150,14 @@ public(package) fun new(
     // both the size and encoding_type (sanity check).
     assert!(derive_blob_id(root_hash, encoding_type, size) == blob_id, EInvalidBlobId);
 
-    // Emit register event.
-    let is_quilt = match (blob_type) {
-        BlobType::Quilt => true,
-        BlobType::Regular => false,
+    // Convert u8 to BlobType enum (0 = Regular, 1 = Quilt)
+    let blob_type_enum = if (blob_type == 1) {
+        BlobType::Quilt
+    } else {
+        BlobType::Regular
     };
+
+    // Emit register event (event uses u8 for blob_type)
     emit_managed_blob_registered(
         registered_epoch,
         blob_manager_id,
@@ -167,7 +165,7 @@ public(package) fun new(
         size,
         encoding_type,
         deletable,
-        is_quilt,
+        blob_type,
         id.to_inner(),
     );
 
@@ -180,7 +178,7 @@ public(package) fun new(
         certified_epoch: option::none(),
         blob_manager_id,
         deletable,
-        blob_type,
+        blob_type: blob_type_enum,
     }
 }
 
@@ -258,12 +256,17 @@ public fun burn(mut self: ManagedBlob) {
 /// Emits a `ManagedBlobCertified` event for the given blob.
 public(package) fun emit_certified(self: &ManagedBlob) {
     // Emit certified event
+    // Convert BlobType enum to u8 for event (event uses u8 for blob_type)
+    let blob_type_u8 = match (self.blob_type) {
+        BlobType::Quilt => 1,
+        BlobType::Regular => 0,
+    };
     emit_managed_blob_certified(
         *self.certified_epoch.borrow(),
         self.blob_manager_id,
         self.blob_id,
         self.deletable,
-        self.is_quilt(),
+        blob_type_u8,
         self.id.to_inner(),
     );
 }
