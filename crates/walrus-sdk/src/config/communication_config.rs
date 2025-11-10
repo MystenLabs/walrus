@@ -51,6 +51,10 @@ pub enum UploadMode {
     Aggressive,
 }
 
+fn default_upload_mode() -> Option<UploadMode> {
+    Some(UploadMode::Balanced)
+}
+
 /// Default number of sliver uploads that should be observed before evaluating throughput.
 pub const DEFAULT_AUTO_TUNE_WINDOW_SAMPLE_TARGET: usize = 20;
 /// Default timeout while waiting for a throughput sample window to complete.
@@ -188,6 +192,9 @@ pub struct ClientCommunicationConfig {
     pub tail_handling: TailHandling,
     /// Auto-tuning options for write concurrency derived from the data-in-flight limit.
     pub data_in_flight_auto_tune: DataInFlightAutoTuneConfig,
+    /// Optional preset that adjusts concurrency limits unless explicit overrides are provided.
+    #[serde(default = "default_upload_mode")]
+    pub upload_mode: Option<UploadMode>,
     /// The delay for which the client waits before storing data to ensure that storage nodes have
     /// seen the registration event.
     #[serde(rename = "registration_delay_millis")]
@@ -220,6 +227,7 @@ impl Default for ClientCommunicationConfig {
             sliver_write_extra_time: Default::default(),
             tail_handling: TailHandling::Blocking,
             data_in_flight_auto_tune: Default::default(),
+            upload_mode: default_upload_mode(),
             registration_delay: Duration::from_millis(200),
             max_total_blob_size: 1024 * 1024 * 1024, // 1GiB
             sliver_status_check_threshold: DEFAULT_SLIVER_STATUS_CHECK_THRESHOLD,
