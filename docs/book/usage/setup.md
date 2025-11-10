@@ -34,7 +34,7 @@ further details.
 
 After this, you should get something like this (everything besides the `mainnet` line is optional):
 
-```terminal
+```console
 $ sui client envs
 ╭──────────┬─────────────────────────────────────┬────────╮
 │ alias    │ url                                 │ active │
@@ -48,7 +48,7 @@ $ sui client envs
 
 Make sure you have at least one gas coin with at least 1 SUI.
 
-```terminal
+```console
 $ sui client gas
 ╭─────────────────┬────────────────────┬──────────────────╮
 │ gasCoinId       │ mistBalance (MIST) │ suiBalance (SUI) │
@@ -102,7 +102,7 @@ Once this is done, you should be able to run Walrus by using the `walrus` comman
 You can see usage instructions as follows (see [the next chapter](./interacting.md) for further
 details):
 
-```terminal
+```console
 $ walrus --help
 Walrus client
 
