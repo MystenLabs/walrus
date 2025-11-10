@@ -11,6 +11,7 @@ use std::{
 };
 
 use anyhow::Result;
+use bytes::Bytes;
 use rand::{Rng, RngCore, rngs::ThreadRng};
 use reqwest::{Response, Url};
 use serde::Serialize;
@@ -313,25 +314,21 @@ impl UploadRelayClient {
         blob: &[u8],
         post_url: &Url,
     ) -> Result<Response, UploadRelayClientError> {
+        let payload = Bytes::copy_from_slice(blob);
+        let client = self.http_client.clone();
+        let post_url = post_url.clone();
         let mut attempts = 0;
         let mut backoff = self
             .backoff_config
             .get_strategy(ThreadRng::default().next_u64());
 
-        let post_fn = |blob: Vec<u8>| async {
-            self.http_client
-                .post(post_url.clone())
-                .body(blob)
-                .send()
-                .await
-        };
+        let post_fn = |body: Bytes| async { client.post(post_url.clone()).body(body).send().await };
 
         while let Some(delay) = backoff.next_delay() {
-            let response = post_fn(blob.to_vec()).await;
-
-            match response {
+            match post_fn(payload.clone()).await {
                 Ok(response) => return Ok(response),
                 Err(error) => {
+                    attempts += 1;
                     tracing::debug!(
                         %error,
                         ?delay,
@@ -341,11 +338,10 @@ impl UploadRelayClient {
                     tokio::time::sleep(delay).await;
                 }
             }
-            attempts += 1;
         }
 
         // Try one last time.
-        post_fn(blob.to_vec()).await.map_err(|error| {
+        post_fn(payload).await.map_err(|error| {
             tracing::warn!(
                 attempts,
                 ?error,

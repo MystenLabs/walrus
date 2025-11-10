@@ -13066,6 +13066,7 @@ dependencies = [
  "anyhow",
  "base64 0.22.1",
  "bimap",
+ "bytes",
  "chrono",
  "enum_dispatch",
  "fastcrypto",
