@@ -150,6 +150,10 @@ impl<S: WalrusStoreBlobStateApi> From<WalrusStoreBlobUnfinished<S>>
 }
 
 impl<S: WalrusStoreBlobStateApi> WalrusStoreBlobUnfinished<S> {
+    /// A state-transition helper that transforms the blob state into a new one using a function
+    /// that cannot fail.
+    ///
+    /// For a more general transition, use [`Self::into_maybe_finished`] and [`Self::map`].
     pub(crate) fn map_infallible<T: WalrusStoreBlobStateApi>(
         self,
         f: impl Fn(S) -> T,
@@ -174,6 +178,8 @@ impl<S: WalrusStoreBlobStateApi> WalrusStoreBlobUnfinished<S> {
         new_blob
     }
 
+    /// A state-transition helper that transforms the blob state into one of two possible new
+    /// states.
     pub(crate) fn map_either<T, U, F>(
         self,
         f: F,
@@ -210,6 +216,9 @@ impl<S: WalrusStoreBlobStateApi> WalrusStoreBlobUnfinished<S> {
         }
     }
 
+    /// Converts the blob state into a new blob state that is either unfinished or finished.
+    ///
+    /// This can be used to subsequently apply a fallible state transition.
     pub(crate) fn into_maybe_finished(self) -> WalrusStoreBlobMaybeFinished<S> {
         WalrusStoreBlobMaybeFinished {
             common: self.common,
@@ -217,6 +226,7 @@ impl<S: WalrusStoreBlobStateApi> WalrusStoreBlobUnfinished<S> {
         }
     }
 
+    /// Converts the blob state into a new blob state that is finished with the given error.
     pub(crate) fn fail_with<T: WalrusStoreBlobStateApi>(
         self,
         error: ClientError,
@@ -234,6 +244,8 @@ impl<S: WalrusStoreBlobStateApi> WalrusStoreBlobUnfinished<S> {
 }
 
 impl<S: WalrusStoreBlobStateApi> WalrusStoreBlobMaybeFinished<S> {
+    /// A state-transition helper that transforms the blob state into a new one using a function
+    /// that can fail.
     pub(crate) fn map<T, F>(
         self,
         f: F,
@@ -265,6 +277,10 @@ impl<S: WalrusStoreBlobStateApi> WalrusStoreBlobMaybeFinished<S> {
         Ok(new_blob)
     }
 
+    /// Checks if the blob state is finished and converts it to a finished blob state if it is.
+    ///
+    /// If the blob state is unfinished, the original blob is returned as a
+    /// [`WalrusStoreBlobUnfinished`].
     pub(crate) fn try_finish<T: From<BlobStoreResult>>(
         self,
     ) -> Result<WalrusStoreBlob<T>, WalrusStoreBlobUnfinished<S>> {
