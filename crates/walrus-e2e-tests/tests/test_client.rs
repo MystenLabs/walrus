@@ -802,7 +802,7 @@ async fn test_store_with_existing_storage_resource(
             )
         })
         .collect();
-    let encoded_blobs = client.as_ref().encode_blobs(unencoded_blobs, None)?;
+    let encoded_blobs = client.as_ref().encode_blobs(unencoded_blobs, None, None)?;
     let encoded_sizes = encoded_blobs
         .iter()
         .map(|blob| {

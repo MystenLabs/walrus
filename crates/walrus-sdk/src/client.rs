@@ -10,7 +10,10 @@ use std::{
     num::NonZeroU16,
     path::PathBuf,
     pin::pin,
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
     time::Instant,
 };
 
@@ -108,7 +111,7 @@ pub mod refresh;
 pub mod resource;
 pub mod responses;
 pub mod store_args;
-pub use store_args::StoreArgs;
+pub use store_args::{EncodingProgressEvent, StoreArgs};
 pub mod upload_relay_client;
 
 mod auto_tune;
@@ -971,9 +974,12 @@ impl WalrusNodeClient<SuiContractClient> {
         }
         let start = Instant::now();
 
-        let (encoded_blobs, mut results) = client_types::partition_unfinished_finished(
-            self.encode_blobs(walrus_store_blobs, store_args.upload_relay_client.clone())?,
-        );
+        let (encoded_blobs, mut results) =
+            client_types::partition_unfinished_finished(self.encode_blobs(
+                walrus_store_blobs,
+                store_args.upload_relay_client.clone(),
+                store_args.encoding_event_tx.as_ref(),
+            )?);
         store_args.maybe_observe_encoding_latency(start.elapsed());
 
         if !encoded_blobs.is_empty() {
@@ -1055,6 +1061,7 @@ impl WalrusNodeClient<SuiContractClient> {
         &self,
         walrus_store_blobs: Vec<WalrusStoreBlobMaybeFinished<UnencodedBlob>>,
         upload_relay_client: Option<Arc<UploadRelayClient>>,
+        encoding_event_tx: Option<&tokio::sync::mpsc::UnboundedSender<EncodingProgressEvent>>,
     ) -> ClientResult<Vec<WalrusStoreBlobMaybeFinished<EncodedBlob>>> {
         if walrus_store_blobs.is_empty() {
             return Ok(Vec::new());
@@ -1079,25 +1086,58 @@ impl WalrusNodeClient<SuiContractClient> {
 
         let multi_pb = Arc::new(MultiProgress::new());
         let parent = tracing::span::Span::current();
+        let total = walrus_store_blobs.len();
+        let encoding_event_tx = encoding_event_tx.cloned();
+        if let Some(tx) = encoding_event_tx.as_ref()
+            && let Err(err) = tx.send(EncodingProgressEvent::Started { total })
+        {
+            tracing::warn!(%err, "failed to send encoding started event")
+        }
+        let completed = Arc::new(AtomicUsize::new(0));
+        let show_spinner = encoding_event_tx.is_none();
 
-        // Encode each blob into sliver pairs and metadata. Filters out failed blobs and continue.
-        walrus_store_blobs
+        let results = walrus_store_blobs
             .into_par_iter()
             .map(|blob| {
                 let _entered =
                     tracing::info_span!(parent: parent.clone(), "encode_blobs__par_iter").entered();
                 let encoding_type = blob.common.encoding_config.encoding_type();
-                let encode_fn = |blob: UnencodedBlob| {
-                    self.encode_blob(
-                        blob,
-                        self.encoding_config.get_for_type(encoding_type),
-                        multi_pb.as_ref(),
-                        upload_relay_client.clone(),
-                    )
-                };
-                blob.map(encode_fn, "encode")
+                let multi_pb = multi_pb.clone();
+                let upload_relay_client = upload_relay_client.clone();
+                let encoding_event_tx = encoding_event_tx.clone();
+                let completed = completed.clone();
+                let encode_result = blob.map(
+                    |blob| {
+                        self.encode_blob(
+                            blob,
+                            self.encoding_config.get_for_type(encoding_type),
+                            multi_pb.as_ref(),
+                            upload_relay_client.clone(),
+                            show_spinner,
+                        )
+                    },
+                    "encode",
+                );
+                if let Some(tx) = encoding_event_tx.as_ref() {
+                    let finished = completed.fetch_add(1, Ordering::SeqCst) + 1;
+                    if let Err(err) = tx.send(EncodingProgressEvent::BlobCompleted {
+                        completed: finished,
+                        total,
+                    }) {
+                        tracing::warn!(%err, "failed to send encoding blob completed event");
+                    }
+                }
+                encode_result
             })
-            .collect()
+            .collect::<ClientResult<Vec<_>>>()?;
+
+        if let Some(tx) = encoding_event_tx
+            && let Err(err) = tx.send(EncodingProgressEvent::Finished)
+        {
+            tracing::warn!(%err, "failed to send encoding finished event");
+        }
+
+        Ok(results)
     }
 
     fn encode_blob(
@@ -1106,9 +1146,13 @@ impl WalrusNodeClient<SuiContractClient> {
         encoding_config: EncodingConfigEnum,
         multi_pb: &MultiProgress,
         upload_relay_client: Option<Arc<UploadRelayClient>>,
+        show_spinner: bool,
     ) -> ClientResult<EncodedBlob> {
-        let spinner = multi_pb.add(styled_spinner());
-        spinner.set_message("encoding the blob");
+        let spinner = show_spinner.then(|| {
+            let spinner = multi_pb.add(styled_spinner());
+            spinner.set_message("encoding the blob");
+            spinner
+        });
         let encode_start_timer = Instant::now();
 
         let encoded_blob = blob.encode(encoding_config, upload_relay_client)?;
@@ -1118,7 +1162,10 @@ impl WalrusNodeClient<SuiContractClient> {
             duration = ?encode_start_timer.elapsed().as_millis(),
             "blob encoded"
         );
-        spinner.finish_with_message(format!("blob encoded; blob ID: {}", encoded_blob.blob_id()));
+        if let Some(spinner) = spinner {
+            spinner
+                .finish_with_message(format!("blob encoded; blob ID: {}", encoded_blob.blob_id()));
+        }
 
         Ok(encoded_blob)
     }
