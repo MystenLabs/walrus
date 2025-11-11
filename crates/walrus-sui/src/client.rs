@@ -7,6 +7,7 @@ use core::fmt;
 use std::{
     collections::HashMap,
     future::Future,
+    num::NonZeroU16,
     path::PathBuf,
     str::FromStr,
     sync::Arc,
@@ -2976,6 +2977,10 @@ impl ReadClient for SuiContractClient {
         self.read_client
             .storage_and_write_price_per_unit_size()
             .await
+    }
+
+    async fn n_shards(&self) -> SuiClientResult<NonZeroU16> {
+        self.read_client.n_shards().await
     }
 
     async fn event_stream(
