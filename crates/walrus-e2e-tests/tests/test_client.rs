@@ -799,7 +799,7 @@ async fn test_store_with_existing_storage_resource(
     let encoding_type = DEFAULT_ENCODING;
     let encoded_blobs = client
         .as_ref()
-        .encode_blobs(unencoded_blobs, encoding_type)?;
+        .encode_blobs(unencoded_blobs, encoding_type, None)?;
     let encoded_sizes = encoded_blobs
         .iter()
         .map(|blob| blob.encoded_size().expect("encoded size should be present"))

@@ -6,7 +6,10 @@
 use std::{num::NonZeroU16, sync::Arc, time::Duration};
 
 use tokio::{
-    sync::{Mutex, mpsc::Sender as MpscSender},
+    sync::{
+        Mutex,
+        mpsc::{Sender as MpscSender, UnboundedSender},
+    },
     task::JoinHandle,
 };
 use walrus_core::{DEFAULT_ENCODING, EncodingType, EpochCount};
@@ -19,6 +22,25 @@ use crate::{
     upload_relay::tip_config::TipConfig,
     uploader::{TailHandling, UploaderEvent},
 };
+
+/// Events emitted while encoding blobs before upload.
+#[derive(Debug, Clone)]
+pub enum EncodingProgressEvent {
+    /// Encoding is starting with the given total number of blobs.
+    Started {
+        /// The total number of blobs that will be encoded.
+        total: usize,
+    },
+    /// A blob finished encoding.
+    BlobCompleted {
+        /// The number of blobs that have finished encoding so far (1-indexed).
+        completed: usize,
+        /// The total number of blobs scheduled for encoding.
+        total: usize,
+    },
+    /// Encoding finished (all blobs encoded).
+    Finished,
+}
 
 /// Arguments for store operations that are frequently passed together.
 // NOTE: In the future, if the struct grows larger, we may need to consider using a builder.
@@ -48,6 +70,8 @@ pub struct StoreArgs {
     /// ownership of the handles with the caller so they can decide when to await them. Without a
     /// collector, detached handles are awaited in a background task and only surfaced via logging.
     pub tail_handle_collector: Option<Arc<Mutex<Vec<JoinHandle<()>>>>>,
+    /// Optional channel to forward encoding progress events to.
+    pub encoding_event_tx: Option<UnboundedSender<EncodingProgressEvent>>,
 }
 
 impl StoreArgs {
@@ -70,6 +94,7 @@ impl StoreArgs {
             tail_handling: TailHandling::Blocking,
             quorum_event_tx: None,
             tail_handle_collector: None,
+            encoding_event_tx: None,
         }
     }
 
@@ -90,6 +115,7 @@ impl StoreArgs {
             tail_handling: TailHandling::Blocking,
             quorum_event_tx: None,
             tail_handle_collector: None,
+            encoding_event_tx: None,
         }
     }
 
@@ -109,6 +135,12 @@ impl StoreArgs {
     /// Sets the uploader event channel used to forward quorum notifications.
     pub fn with_quorum_event_tx(mut self, tx: MpscSender<UploaderEvent>) -> Self {
         self.quorum_event_tx = Some(tx);
+        self
+    }
+
+    /// Sets the encoding event channel used to forward encoding progress.
+    pub fn with_encoding_event_tx(mut self, tx: UnboundedSender<EncodingProgressEvent>) -> Self {
+        self.encoding_event_tx = Some(tx);
         self
     }
 

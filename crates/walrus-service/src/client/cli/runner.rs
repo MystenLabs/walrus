@@ -969,8 +969,12 @@ impl ClientCommandRunner {
 
         for file in files {
             let blob = read_blob_from_file(&file)?;
-            let (_, metadata) =
-                client.encode_pairs_and_metadata(&blob, encoding_type, &MultiProgress::new())?;
+            let (_, metadata) = client.encode_pairs_and_metadata(
+                &blob,
+                encoding_type,
+                &MultiProgress::new(),
+                true,
+            )?;
             let unencoded_size = metadata.metadata().unencoded_length();
             let encoded_size = encoded_blob_length_for_n_shards(
                 encoding_config.n_shards(),
@@ -1337,8 +1341,12 @@ impl ClientCommandRunner {
         let quilt = quilt_client
             .construct_quilt::<QuiltVersionV1>(blobs, encoding_type)
             .await?;
-        let (_, metadata) =
-            client.encode_pairs_and_metadata(quilt.data(), encoding_type, &MultiProgress::new())?;
+        let (_, metadata) = client.encode_pairs_and_metadata(
+            quilt.data(),
+            encoding_type,
+            &MultiProgress::new(),
+            true,
+        )?;
         let unencoded_size = metadata.metadata().unencoded_length();
         let encoded_size = encoded_blob_length_for_n_shards(
             client.encoding_config().n_shards(),
