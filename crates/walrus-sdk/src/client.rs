@@ -176,7 +176,7 @@ pub struct WalrusNodeClient<T> {
 
 impl WalrusNodeClient<()> {
     /// Creates a new Walrus client without a Sui client.
-    pub async fn new(
+    pub fn new(
         config: ClientConfig,
         committees_handle: CommitteesRefresherHandle,
     ) -> ClientResult<Self> {
@@ -190,10 +190,10 @@ impl WalrusNodeClient<()> {
             None,
             None,
         )
-        .await
     }
+
     /// Creates a new Walrus client without a Sui client.
-    pub async fn new_with_max_blob_size(
+    pub fn new_with_max_blob_size(
         config: ClientConfig,
         committees_handle: CommitteesRefresherHandle,
         max_blob_size: Option<u64>,
@@ -208,12 +208,11 @@ impl WalrusNodeClient<()> {
             None,
             max_blob_size,
         )
-        .await
     }
 
     /// Creates a new Walrus client without a Sui client, that records metrics to the provided
     /// registry.
-    pub async fn new_with_metrics(
+    pub fn new_with_metrics(
         config: ClientConfig,
         committees_handle: CommitteesRefresherHandle,
         metrics_registry: Registry,
@@ -228,7 +227,6 @@ impl WalrusNodeClient<()> {
             Some(metrics_registry),
             None,
         )
-        .await
     }
 
     fn build_encoding_artifacts(
@@ -241,7 +239,7 @@ impl WalrusNodeClient<()> {
         (encoding_config, communication_limits)
     }
 
-    async fn new_inner(
+    fn new_inner(
         config: ClientConfig,
         committees_handle: CommitteesRefresherHandle,
         encoding_config: Arc<EncodingConfig>,
@@ -268,7 +266,7 @@ impl WalrusNodeClient<()> {
     }
 
     /// Converts `self` to a [`WalrusNodeClient<C>`] by adding the `sui_client`.
-    pub async fn with_client<C>(self, sui_client: C) -> WalrusNodeClient<C> {
+    pub fn with_client<C>(self, sui_client: C) -> WalrusNodeClient<C> {
         let Self {
             config,
             sui_client: _,
@@ -294,29 +292,24 @@ impl WalrusNodeClient<()> {
 
 impl<T: ReadClient> WalrusNodeClient<T> {
     /// Creates a new read client starting from a config file.
-    pub async fn new_read_client(
+    pub fn new_read_client(
         config: ClientConfig,
         committees_handle: CommitteesRefresherHandle,
         sui_read_client: T,
     ) -> ClientResult<Self> {
-        Ok(WalrusNodeClient::new(config, committees_handle)
-            .await?
-            .with_client(sui_read_client)
-            .await)
+        Ok(WalrusNodeClient::new(config, committees_handle)?.with_client(sui_read_client))
     }
 
     /// Creates a new read client starting from a config file with an optional maximum blob size.
-    pub async fn new_read_client_with_max_blob_size(
+    pub fn new_read_client_with_max_blob_size(
         config: ClientConfig,
         committees_handle: CommitteesRefresherHandle,
         sui_read_client: T,
         max_blob_size: Option<u64>,
     ) -> ClientResult<Self> {
         Ok(
-            WalrusNodeClient::new_with_max_blob_size(config, committees_handle, max_blob_size)
-                .await?
-                .with_client(sui_read_client)
-                .await,
+            WalrusNodeClient::new_with_max_blob_size(config, committees_handle, max_blob_size)?
+                .with_client(sui_read_client),
         )
     }
 
@@ -331,14 +324,10 @@ impl<T: ReadClient> WalrusNodeClient<T> {
         T: ReadClient + Clone + 'static,
     {
         let committees_handle = config
-            .refresh_config
             .build_refresher_and_run(sui_read_client.clone())
             .await
             .map_err(|e| ClientError::from(ClientErrorKind::Other(e.into())))?;
-        Ok(WalrusNodeClient::new(config, committees_handle)
-            .await?
-            .with_client(sui_read_client)
-            .await)
+        Ok(WalrusNodeClient::new(config, committees_handle)?.with_client(sui_read_client))
     }
 
     /// Reconstructs the blob by reading slivers from Walrus shards.
@@ -935,10 +924,7 @@ impl WalrusNodeClient<SuiContractClient> {
         committees_handle: CommitteesRefresherHandle,
         sui_client: SuiContractClient,
     ) -> ClientResult<Self> {
-        Ok(WalrusNodeClient::new(config, committees_handle)
-            .await?
-            .with_client(sui_client)
-            .await)
+        Ok(WalrusNodeClient::new(config, committees_handle)?.with_client(sui_client))
     }
 
     /// Creates a new client, and starts a committees refresher process in the background.
@@ -949,14 +935,10 @@ impl WalrusNodeClient<SuiContractClient> {
         sui_client: SuiContractClient,
     ) -> ClientResult<Self> {
         let committees_handle = config
-            .refresh_config
             .build_refresher_and_run(sui_client.read_client().clone())
             .await
             .map_err(|e| ClientError::from(ClientErrorKind::Other(e.into())))?;
-        Ok(WalrusNodeClient::new(config, committees_handle)
-            .await?
-            .with_client(sui_client)
-            .await)
+        Ok(WalrusNodeClient::new(config, committees_handle)?.with_client(sui_client))
     }
 
     /// Stores a list of blobs to Walrus, retrying if it fails because of epoch change.

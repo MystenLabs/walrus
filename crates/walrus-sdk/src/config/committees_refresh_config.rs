@@ -1,16 +1,10 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{sync::Arc, time::Duration};
+use std::time::Duration;
 
-use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_with::{DurationSeconds, serde_as};
-use tokio::sync::{Notify, mpsc};
-use tracing::error;
-use walrus_sui::client::ReadClient;
-
-use crate::client::refresh::{CommitteesRefresher, CommitteesRefresherHandle};
 
 /// The configuration for the committees refresher.
 #[serde_as]
@@ -39,41 +33,6 @@ pub struct CommitteesRefreshConfig {
     pub epoch_change_distance_threshold: Duration,
     /// The size of the refresher channel.
     pub refresher_channel_size: usize,
-}
-
-impl CommitteesRefreshConfig {
-    /// Builds a new [`CommitteesRefresher`], spawns it on a separate task, and
-    /// returns the [`CommitteesRefresherHandle`].
-    pub async fn build_refresher_and_run(
-        &self,
-        sui_client: impl ReadClient + Clone + 'static,
-    ) -> Result<CommitteesRefresherHandle> {
-        let n_shards = sui_client
-            .clone()
-            .n_shards()
-            .await
-            .context("failed to determine n_shards before starting refresher")?;
-
-        let notify = Arc::new(Notify::new());
-        let (req_tx, req_rx) = mpsc::channel(self.refresher_channel_size);
-        let handle = CommitteesRefresherHandle::new(notify.clone(), req_tx, n_shards);
-        let config = self.clone();
-
-        tokio::spawn(async move {
-            if let Err(error) = async {
-                let mut refresher =
-                    CommitteesRefresher::new(config, sui_client, req_rx, notify).await?;
-                refresher.run().await;
-                Ok::<(), anyhow::Error>(())
-            }
-            .await
-            {
-                error!(%error, "failed to run committees refresher");
-            }
-        });
-
-        Ok(handle)
-    }
 }
 
 impl Default for CommitteesRefreshConfig {

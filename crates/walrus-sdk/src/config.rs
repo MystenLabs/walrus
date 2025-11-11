@@ -6,6 +6,7 @@ use std::{
     collections::HashMap,
     iter::once,
     path::{Path, PathBuf},
+    sync::Arc,
 };
 
 use anyhow::{Context, Result, anyhow, bail};
@@ -13,8 +14,10 @@ use indexmap::IndexSet;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use sui_types::base_types::ObjectID;
+use tokio::sync::{Notify, mpsc};
 use walrus_sui::{
     client::{
+        ReadClient,
         SuiClientError,
         SuiContractClient,
         SuiReadClient,
@@ -30,7 +33,10 @@ use walrus_utils::{
     is_internal_run,
 };
 
-use crate::client::quilt_client::QuiltClientConfig;
+use crate::client::{
+    quilt_client::QuiltClientConfig,
+    refresh::{CommitteesRefresher, CommitteesRefresherHandle},
+};
 
 mod committees_refresh_config;
 /// Communication configuration options.
@@ -230,6 +236,42 @@ impl ClientConfig {
     pub fn backoff_config(&self) -> &ExponentialBackoffConfig {
         &self.communication_config.request_rate_config.backoff_config
     }
+
+    /// Builds a new [`CommitteesRefresher`], spawns it on a separate task, and
+    /// returns the [`CommitteesRefresherHandle`].
+    pub async fn build_refresher_and_run(
+        &self,
+        sui_client: impl ReadClient + 'static,
+    ) -> Result<CommitteesRefresherHandle> {
+        let n_shards = if let Some(n_shards) = self.contract_config.n_shards {
+            n_shards
+        } else {
+            sui_client
+                .n_shards()
+                .await
+                .context("failed to determine n_shards before starting refresher")?
+        };
+
+        let notify = Arc::new(Notify::new());
+        let (req_tx, req_rx) = mpsc::channel(self.refresh_config.refresher_channel_size);
+        let handle = CommitteesRefresherHandle::new(notify.clone(), req_tx, n_shards);
+        let config = self.refresh_config.clone();
+
+        tokio::spawn(async move {
+            if let Err(error) = async {
+                let mut refresher =
+                    CommitteesRefresher::new(config, sui_client, req_rx, notify).await?;
+                refresher.run().await;
+                Ok::<(), anyhow::Error>(())
+            }
+            .await
+            {
+                tracing::error!(%error, "failed to run committees refresher");
+            }
+        });
+
+        Ok(handle)
+    }
 }
 
 /// Combines the main RPC URL with additional RPC endpoints, ensuring uniqueness of each URL string.
@@ -260,6 +302,8 @@ pub enum MultiClientConfig {
 
 #[cfg(test)]
 mod tests {
+    use std::num::NonZeroU16;
+
     use indoc::indoc;
     use rand::{SeedableRng as _, rngs::StdRng};
     use tempfile::TempDir;
@@ -277,10 +321,13 @@ mod tests {
         const EXAMPLE_CONFIG_PATH: &str = "client_config_example.yaml";
 
         let mut rng = StdRng::seed_from_u64(42);
-        let contract_config = ContractConfig::new(
-            ObjectID::random_from_rng(&mut rng),
-            ObjectID::random_from_rng(&mut rng),
-        );
+        let contract_config = ContractConfig {
+            n_shards: Some(NonZeroU16::new(1000).expect("1000 is non-zero")),
+            ..ContractConfig::new(
+                ObjectID::random_from_rng(&mut rng),
+                ObjectID::random_from_rng(&mut rng),
+            )
+        };
         let config = ClientConfig {
             contract_config,
             exchange_objects: vec![

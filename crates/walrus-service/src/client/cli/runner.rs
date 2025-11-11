@@ -1384,10 +1384,9 @@ impl ClientCommandRunner {
         let encoding_type = encoding_type.unwrap_or(DEFAULT_ENCODING);
 
         let refresher_handle = config
-            .refresh_config
             .build_refresher_and_run(sui_read_client.clone())
             .await?;
-        let client = WalrusNodeClient::new(config, refresher_handle).await?;
+        let client = WalrusNodeClient::new(config, refresher_handle)?;
 
         let file = file_or_blob_id.file.clone();
         let blob_id =

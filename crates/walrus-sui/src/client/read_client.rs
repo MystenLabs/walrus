@@ -574,6 +574,7 @@ impl SuiReadClient {
                 .as_ref()
                 .map(|s| s.object_id),
             cache_ttl: self.cache_ttl,
+            n_shards: None,
         }
     }
 

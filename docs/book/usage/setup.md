@@ -218,6 +218,10 @@ The configuration file currently supports the following parameters for each of t
 system_object: 0x2134d52768ea07e8c43570ef975eb3e4c27a39fa6396bef985b5abc58d03ddd2
 staking_object: 0x10b9d30c28448939ce6c4d6c6e0ffce4a7f8a4ada8248bdad09ef8b70e4a3904
 
+# Specifying the number of shards is optional but can speed up some client operations. If this is
+# set, it MUST be consistent with the system object above.
+n_shards: 1000
+
 # You can specify a list of Sui RPC URLs for reads. If none is provided, the RPC URL in the Sui
 # wallet is used.
 rpc_urls:

@@ -79,15 +79,13 @@ impl ClientMultiplexer {
 
         // Start the refresher here, so that all the clients can share it.
         let refresh_handle = config
-            .refresh_config
             .build_refresher_and_run(sui_read_client.clone())
             .await?;
         let read_client = WalrusNodeClient::new_read_client(
             config.clone(),
             refresh_handle.clone(),
             sui_read_client.clone(),
-        )
-        .await?;
+        )?;
 
         let refiller = Refiller::new(
             contract_client,
