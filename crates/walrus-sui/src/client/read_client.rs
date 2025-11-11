@@ -137,6 +137,9 @@ pub trait ReadClient: Send + Sync {
         &self,
     ) -> impl Future<Output = SuiClientResult<(u64, u64)>> + Send;
 
+    /// Returns the configured number of shards for the Walrus network.
+    fn n_shards(&self) -> impl Future<Output = SuiClientResult<NonZeroU16>> + Send;
+
     /// Returns a stream of new blob events.
     ///
     /// The `polling_interval` defines how often the connected full node is polled for events.
@@ -1205,6 +1208,10 @@ impl ReadClient for SuiReadClient {
             system_object.storage_price_per_unit_size(),
             system_object.write_price_per_unit_size(),
         ))
+    }
+
+    async fn n_shards(&self) -> SuiClientResult<NonZeroU16> {
+        Ok(self.get_staking_object().await?.inner.n_shards)
     }
 
     async fn event_stream(
