@@ -120,7 +120,7 @@ where
             "specified shape must be a smaller capacity"
         );
         self.n_rows = shape.0;
-        self.n_columns = shape.0;
+        self.n_columns = shape.1;
     }
 
     pub fn capacity_bytes(&self) -> usize {
@@ -249,6 +249,53 @@ where
 
     fn flush(&mut self) -> std::io::Result<()> {
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::Write as _;
+
+    use super::*;
+
+    #[test]
+    fn cursor_write() {
+        let array = SymbolArray2d::new((3, 5), 1, ArrayOrder::ColumnMajor);
+        let mut cursor = SymbolArray2dCursor::new(array, ArrayOrder::RowMajor);
+
+        let written = cursor
+            .write(&[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14])
+            .unwrap();
+
+        assert_eq!(written, 15);
+        assert!(cursor.is_full());
+        assert_eq!(
+            cursor.get_ref().as_ref(),
+            [0, 5, 10, 1, 6, 11, 2, 7, 12, 3, 8, 13, 4, 9, 14]
+        );
+    }
+
+    #[test]
+    fn cursor_write_2() {
+        let array = SymbolArray2d::new((3, 5), 2, ArrayOrder::ColumnMajor);
+        let mut cursor = SymbolArray2dCursor::new(array, ArrayOrder::RowMajor);
+
+        let written = cursor
+            .write(&[
+                0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22,
+                23, 24, 25, 26, 27, 28, 29,
+            ])
+            .unwrap();
+
+        assert_eq!(written, 30);
+        assert!(cursor.is_full());
+        assert_eq!(
+            cursor.get_ref().as_ref(),
+            [
+                0, 1, 10, 11, 20, 21, 2, 3, 12, 13, 22, 23, 4, 5, 14, 15, 24, 25, 6, 7, 16, 17, 26,
+                27, 8, 9, 18, 19, 28, 29
+            ]
+        );
     }
 }
 

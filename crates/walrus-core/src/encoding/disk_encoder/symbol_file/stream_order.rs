@@ -2,6 +2,7 @@
 use std::{
     fs::File,
     io::{BufReader, BufWriter, Read as _, Seek as _, SeekFrom, Write as _},
+    os::unix::fs::FileExt as _,
     path::Path,
 };
 
@@ -153,7 +154,7 @@ impl StreamOrderSymbolFile {
         assert_eq!(
             buffer.len(),
             self.params.column_bytes(Region::Secondary),
-            "buffer size must be exactly that of a primary sliver"
+            "buffer size must be exactly that of a secondary sliver"
         );
         let mmap = self.mmap.as_ref().expect("method called so mmap exists");
 
@@ -187,7 +188,7 @@ impl StreamOrderSymbolFile {
         assert_eq!(
             buffer.len(),
             self.params.column_bytes(Region::Secondary),
-            "buffer size must be exactly that of a primary sliver"
+            "buffer size must be exactly that of a secondary sliver"
         );
 
         // Seek to the first symbol in the row, just after the Secondary region.
@@ -210,6 +211,42 @@ impl StreamOrderSymbolFile {
             tracing::trace!(i, offset, "reading sliver symbol");
 
             self.reader.read_exact(chunk)?;
+        }
+
+        Ok(())
+    }
+
+    pub fn read_secondary_sliver_using_read_at(
+        &self,
+        index: usize,
+        buffer: &mut [u8],
+    ) -> std::io::Result<()> {
+        assert!(
+            matches!(
+                self.state,
+                State::WantsSecondaryExpansions { .. } | State::WritingComplete
+            ),
+            "reading secondary slivers is only supported once they've all be written"
+        );
+        assert!(index < self.params.n_shards, "index out of range");
+        assert_eq!(
+            buffer.len(),
+            self.params.column_bytes(Region::Secondary),
+            "buffer size must be exactly that of a secondary sliver"
+        );
+
+        // Seek to the first symbol in the row, just after the Secondary region.
+        tracing::debug!(
+            index,
+            "reading secondary sliver symbols from the secondary region"
+        );
+
+        let initial_position = index * self.params.symbol_size;
+
+        for (i, chunk) in buffer.chunks_exact_mut(self.params.symbol_size).enumerate() {
+            let offset = initial_position + i * self.params.row_bytes(Region::Secondary);
+
+            self.reader.get_ref().read_exact_at(chunk, offset as u64)?;
         }
 
         Ok(())
@@ -266,6 +303,55 @@ impl StreamOrderSymbolFile {
                 let end = start + self.params.symbol_size;
 
                 chunk.copy_from_slice(&mmap[start..end]);
+            }
+        }
+
+        Ok(())
+    }
+
+    pub fn read_primary_sliver_using_read_at(
+        &self,
+        index: usize,
+        buffer: &mut [u8],
+    ) -> std::io::Result<()> {
+        assert!(
+            matches!(self.state, State::WritingComplete),
+            "reading primary slivers is only supported when writing is complete"
+        );
+        assert!(index < self.params.n_shards, "index out of range");
+        assert_eq!(
+            buffer.len(),
+            self.params.row_bytes(Region::Primary),
+            "buffer size must be exactly that of a primary sliver"
+        );
+
+        if index < self.params.row_count(Region::Secondary) {
+            let offset = index * self.params.row_bytes(Region::Secondary);
+            tracing::debug!(
+                index,
+                offset,
+                "reading primary sliver from the soure region"
+            );
+
+            self.reader.get_ref().read_exact_at(buffer, offset as u64)?;
+        } else {
+            assert!(index >= self.params.row_count(Region::Source));
+            // Seek to the first symbol in the row, just after the Secondary region.
+            let relative_index = index - self.params.row_count(Region::Source);
+            tracing::debug!(
+                index,
+                relative_index,
+                "reading primary sliver symbols from expansion region"
+            );
+
+            let initial_position = self.params.region_bytes(Region::Secondary)
+                + relative_index * self.params.symbol_size;
+
+            for (i, chunk) in buffer.chunks_exact_mut(self.params.symbol_size).enumerate() {
+                let offset =
+                    initial_position + i * self.params.column_bytes(Region::SourceColumnExpansion);
+
+                self.reader.get_ref().read_exact_at(chunk, offset as u64)?;
             }
         }
 
