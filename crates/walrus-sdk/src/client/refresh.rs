@@ -5,6 +5,7 @@
 //! when needed.
 
 use std::{
+    num::NonZeroU16,
     ops::ControlFlow,
     sync::Arc,
     time::{Duration, Instant},
@@ -277,12 +278,21 @@ pub enum RefresherCommunicationError {
 pub struct CommitteesRefresherHandle {
     notify: Arc<Notify>,
     req_tx: mpsc::Sender<CommitteesRequest>,
+    n_shards: NonZeroU16,
 }
 
 impl CommitteesRefresherHandle {
     /// Creates a new handle to communicate with the refresher.
-    pub fn new(notify: Arc<Notify>, req_tx: mpsc::Sender<CommitteesRequest>) -> Self {
-        Self { notify, req_tx }
+    pub fn new(
+        notify: Arc<Notify>,
+        req_tx: mpsc::Sender<CommitteesRequest>,
+        n_shards: NonZeroU16,
+    ) -> Self {
+        Self {
+            notify,
+            req_tx,
+            n_shards,
+        }
     }
 
     /// Sends a request to the refresher to refresh and get the active committees and the price
@@ -300,6 +310,11 @@ impl CommitteesRefresherHandle {
     /// Awaits for a notification from the refresher that the active committee has changed.
     pub async fn change_notified(&self) {
         self.notify.notified().await
+    }
+
+    /// Returns the configured number of shards for the Walrus network.
+    pub fn n_shards(&self) -> NonZeroU16 {
+        self.n_shards
     }
 }
 

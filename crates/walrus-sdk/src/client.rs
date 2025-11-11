@@ -180,7 +180,17 @@ impl WalrusNodeClient<()> {
         config: ClientConfig,
         committees_handle: CommitteesRefresherHandle,
     ) -> ClientResult<Self> {
-        Self::new_inner(config, committees_handle, None, None).await
+        let (encoding_config, communication_limits) =
+            Self::build_encoding_artifacts(&config, committees_handle.n_shards());
+        Self::new_inner(
+            config,
+            committees_handle,
+            encoding_config,
+            communication_limits,
+            None,
+            None,
+        )
+        .await
     }
     /// Creates a new Walrus client without a Sui client.
     pub async fn new_with_max_blob_size(
@@ -188,7 +198,17 @@ impl WalrusNodeClient<()> {
         committees_handle: CommitteesRefresherHandle,
         max_blob_size: Option<u64>,
     ) -> ClientResult<Self> {
-        Self::new_inner(config, committees_handle, None, max_blob_size).await
+        let (encoding_config, communication_limits) =
+            Self::build_encoding_artifacts(&config, committees_handle.n_shards());
+        Self::new_inner(
+            config,
+            committees_handle,
+            encoding_config,
+            communication_limits,
+            None,
+            max_blob_size,
+        )
+        .await
     }
 
     /// Creates a new Walrus client without a Sui client, that records metrics to the provided
@@ -198,28 +218,38 @@ impl WalrusNodeClient<()> {
         committees_handle: CommitteesRefresherHandle,
         metrics_registry: Registry,
     ) -> ClientResult<Self> {
-        Self::new_inner(config, committees_handle, Some(metrics_registry), None).await
+        let (encoding_config, communication_limits) =
+            Self::build_encoding_artifacts(&config, committees_handle.n_shards());
+        Self::new_inner(
+            config,
+            committees_handle,
+            encoding_config,
+            communication_limits,
+            Some(metrics_registry),
+            None,
+        )
+        .await
+    }
+
+    fn build_encoding_artifacts(
+        config: &ClientConfig,
+        n_shards: NonZeroU16,
+    ) -> (Arc<EncodingConfig>, CommunicationLimits) {
+        let encoding_config = Arc::new(EncodingConfig::new(n_shards));
+        let communication_limits =
+            CommunicationLimits::new(&config.communication_config, encoding_config.n_shards());
+        (encoding_config, communication_limits)
     }
 
     async fn new_inner(
         config: ClientConfig,
         committees_handle: CommitteesRefresherHandle,
+        encoding_config: Arc<EncodingConfig>,
+        communication_limits: CommunicationLimits,
         metrics_registry: Option<Registry>,
         max_blob_size: Option<u64>,
     ) -> ClientResult<Self> {
         tracing::debug!(?config, "running client");
-
-        // Request the committees and price computation from the cache.
-        let (committees, _) = committees_handle
-            .send_committees_and_price_request(RequestKind::Get)
-            .await
-            .map_err(ClientError::other)?;
-
-        let encoding_config = EncodingConfig::new(committees.n_shards());
-        let communication_limits =
-            CommunicationLimits::new(&config.communication_config, encoding_config.n_shards());
-
-        let encoding_config = Arc::new(encoding_config);
 
         Ok(Self {
             sui_client: (),
