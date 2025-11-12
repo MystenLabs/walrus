@@ -16,6 +16,10 @@ Additionally, test scripts inherit the following features:
 
 ## Running a test script
 
+> Note that the instructions here detail how to manually run k6 scripts that you may be
+> developing or expeirmenting with. See the `walrus-performance-tests` crate for running these
+> tests with varying parameters against a deployment.
+
 First, ensure that k6 is installed. On MacOs, this can be done with `brew`:
 ```shell
 brew install k6
@@ -41,7 +45,7 @@ export K6_WEB_DASHBOARD_EXPORT=report.html
 The following command will store 1KiB files on **testnet** using the
 testnet publisher and report the metrics:
 ```shell
-k6 run scripts/k6/src/tests/publisher/publisher_v1_put_blobs.ts
+k6 run scripts/k6/src/tests/publisher/publisher_v1_put_blob_latency.ts
 ```
 The web dashboard, if enabled, is viewable on http://127.0.0.1:5665.
 
@@ -56,11 +60,12 @@ what they do and how they can be called.
 **Passing script arguments**. Scripts can be written to accept arguments.
 These are passed with repeated `--env` flags.
 
-For example, the script `publisher_v1_put_blobs.ts` has been written to accept
-the arguments `PAYLOAD_SIZE` and `BLOBS_TO_STORE`, among others. The above example
+For example, the script `publisher_v1_put_blob_latency.ts` has been written to accept
+the arguments `WALRUS_K6_PAYLOAD_SIZE` and `WALRUS_K6_BLOB_COUNT`, among others. The above example
 could therefore be run as
 ```shell
-k6 run --env PAYLOAD_SIZE=1Mi --env BLOBS_TO_STORE=10 scripts/k6/src/tests/publisher/publisher_v1_put_blobs.ts
+k6 run --env WALRUS_K6_PAYLOAD_SIZE=1Mi --env WALRUS_K6_BLOB_COUNT=10 \
+    scripts/k6/src/tests/publisher/publisher_v1_put_blob_latency.ts
 ```
 to sequentially store ten, 1 MiB files with the publisher.
 
@@ -89,16 +94,14 @@ scripts/k6/src
 │   └── utils.ts
 └── tests
     └── publisher
-        ├── publisher_v1_put_blobs_breakpoint.ts
-        └── publisher_v1_put_blobs.ts
+    └── aggregator
 ```
 
 - **`tests/`** contains the test scripts that can be run and which utilise
   the helpers in `config/`, `flows/`, and `lib/`. They are written in
   Javascript or Typescript but do not require additional tooling to write or
   transpile.
-- **`flows/publisher.ts`** abstracts the HTTP requests to the publisher,
-  the `putBlob` method provided here is what is called by the current tests.
+- **`flows/`** abstracts the HTTP requests to the publisher and aggregator.
 - **`config/environment.ts`** contains some default arguments, such as the
   publisher's URL, for walrus-testnet and localhost.
 - **`lib/utils.ts`** contains various utilities and sundry code.
@@ -109,9 +112,11 @@ The major limitation for these scripts is the persistence of state across tests.
 Since the k6 is built with the aim distributed load testing (i.e., running from
 different hosts), access to the filesystem is limited.
 
-The current approaches around this topic (should the need arise) is to use a
-redis instance or the [xk6-exec] extension to run shell commands.
+The current approaches around this topic is to use a redis instance to persist stored blob IDs and
+quilt patch IDs for subsequent tests. A local redis instance can be run with:
+```
+docker  run --rm --name redis -p 6379:6379 redis
+```
 
 [k6]: https://k6.io/
-[xk6-exec]: https://github.com/grafana/xk6-exec
 [k6-prometheus]: https://grafana.com/docs/k6/latest/results-output/real-time/prometheus-remote-write/
