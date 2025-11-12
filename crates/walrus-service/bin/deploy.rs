@@ -547,8 +547,7 @@ mod commands {
                 rpc_fallback_config_args
                     .as_ref()
                     .and_then(|args| args.to_config()),
-            )
-            .await?;
+            )?;
             let serialized_backup_config = serde_yaml::to_string(&backup_config)
                 .context("Failed to serialize backup config")?;
             let backup_config_path = working_dir.join("backup_config.yaml");

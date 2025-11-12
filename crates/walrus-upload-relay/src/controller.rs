@@ -581,8 +581,7 @@ pub async fn get_client_with_config(
         &client_config.rpc_urls,
         client_config.backoff_config().clone(),
         None,
-    )
-    .await?
+    )?
     .with_metrics(Some(Arc::new(SuiClientMetricSet::new(registry))));
 
     let sui_read_client = client_config.new_read_client(retriable_sui_client).await?;

@@ -214,7 +214,7 @@ impl DelayedTask {
     }
 
     /// Cancel the task.
-    pub async fn cancel(&self) {
+    pub fn cancel(&self) {
         if let Ok(mut status_guard) = self.status.lock() {
             *status_guard = TaskStatus::Cancelled;
             self.handle.abort();
@@ -281,10 +281,7 @@ impl DbCheckpointManager {
     /// Create a new db_checkpoint manager for RocksDB.
     //
     // TODO(WAL-845): Add metrics for db_checkpoint creation and restore.
-    pub async fn new(
-        db: Arc<RocksDB>,
-        config: DbCheckpointConfig,
-    ) -> Result<Self, DbCheckpointError> {
+    pub fn new(db: Arc<RocksDB>, config: DbCheckpointConfig) -> Result<Self, DbCheckpointError> {
         tracing::info!(?config, "DbCheckpointManager starting...");
         if let Some(db_checkpoint_dir) = config.db_checkpoint_dir.as_ref() {
             create_dir_all(db_checkpoint_dir).map_err(|e| DbCheckpointError::Other(e.into()))?;
@@ -465,7 +462,7 @@ impl DbCheckpointManager {
                         },
                         DbCheckpointRequest::CancelBackup { response } => {
                             if let Some(task) = current_task.as_ref() {
-                                task.cancel().await;
+                                task.cancel();
                                 let _ = response.send(true);
                             } else {
                                 let _ = response.send(false);
@@ -498,9 +495,7 @@ impl DbCheckpointManager {
             match Self::calculate_first_db_checkpoint_time(
                 db_checkpoint_dir,
                 config.db_checkpoint_interval,
-            )
-            .await
-            {
+            ) {
                 Ok(time) => break time,
                 Err(e) => {
                     tracing::error!(
@@ -577,7 +572,7 @@ impl DbCheckpointManager {
     }
 
     /// Calculate the first db_checkpoint time.
-    async fn calculate_first_db_checkpoint_time(
+    fn calculate_first_db_checkpoint_time(
         db_checkpoint_dir: &Path,
         db_checkpoint_interval: StdDuration,
     ) -> Result<time::Instant, DbCheckpointError> {
@@ -654,7 +649,7 @@ impl DbCheckpointManager {
     ///
     /// If backup_id is provided, restore from the specified backup.
     /// If backup_id is not provided, restore from the latest backup.
-    pub async fn restore_from_backup(
+    pub fn restore_from_backup(
         db_checkpoint_dir: &Path,
         db_path: &Path,
         wal_dir: Option<&Path>,
@@ -840,8 +835,7 @@ mod tests {
                     db_checkpoint_dir: Some(db_checkpoint_dir.path().to_path_buf()),
                     ..Default::default()
                 },
-            )
-            .await?;
+            )?;
 
             db_checkpoint_manager
                 .schedule_and_wait_for_db_checkpoint_creation(Some(db_checkpoint_dir.path()), None)
@@ -859,8 +853,7 @@ mod tests {
             restore_dir.path(),
             None,
             None,
-        )
-        .await?;
+        )?;
 
         // Reopen restored DB and verify contents.
         {

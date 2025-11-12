@@ -238,7 +238,7 @@ impl WalrusNodeClient<()> {
     }
 
     /// Converts `self` to a [`WalrusNodeClient<C>`] by adding the `sui_client`.
-    pub async fn with_client<C>(self, sui_client: C) -> WalrusNodeClient<C> {
+    pub fn with_client<C>(self, sui_client: C) -> WalrusNodeClient<C> {
         let Self {
             config,
             sui_client: _,
@@ -271,8 +271,7 @@ impl<T: ReadClient> WalrusNodeClient<T> {
     ) -> ClientResult<Self> {
         Ok(WalrusNodeClient::new(config, committees_handle)
             .await?
-            .with_client(sui_read_client)
-            .await)
+            .with_client(sui_read_client))
     }
 
     /// Creates a new read client starting from a config file with an optional maximum blob size.
@@ -285,8 +284,7 @@ impl<T: ReadClient> WalrusNodeClient<T> {
         Ok(
             WalrusNodeClient::new_with_max_blob_size(config, committees_handle, max_blob_size)
                 .await?
-                .with_client(sui_read_client)
-                .await,
+                .with_client(sui_read_client),
         )
     }
 
@@ -307,8 +305,7 @@ impl<T: ReadClient> WalrusNodeClient<T> {
             .map_err(|e| ClientError::from(ClientErrorKind::Other(e.into())))?;
         Ok(WalrusNodeClient::new(config, committees_handle)
             .await?
-            .with_client(sui_read_client)
-            .await)
+            .with_client(sui_read_client))
     }
 
     /// Reconstructs the blob by reading slivers from Walrus shards.
@@ -397,7 +394,7 @@ impl<T: ReadClient> WalrusNodeClient<T> {
     /// known status.
     ///
     /// Otherwise, propagates the error.
-    async fn continue_on_no_valid_status_received(
+    fn continue_on_no_valid_status_received(
         result: ClientResult<BlobStatus>,
         committees: &ActiveCommittees,
         known_status: Option<BlobStatus>,
@@ -425,8 +422,7 @@ impl<T: ReadClient> WalrusNodeClient<T> {
                 self.try_get_blob_status(blob_id, known_status).await,
                 &committees,
                 known_status,
-            )
-            .await?
+            )?
         } else {
             // We are not during epoch change, we can read from the current epoch directly if we do
             // not have a blob status.
@@ -506,8 +502,7 @@ impl<T: ReadClient> WalrusNodeClient<T> {
                     status_result,
                     self.get_committees().await?.as_ref(),
                     blob_status,
-                )
-                .await?;
+                )?;
                 read_future.await
             }
             Either::Right((read_result, _status_future)) => read_result,
@@ -864,9 +859,7 @@ impl<T: ReadClient> WalrusNodeClient<T> {
             )
         }
 
-        let mut pairs_per_node = self
-            .pairs_per_node(metadata.blob_id(), &pairs, &committees)
-            .await;
+        let mut pairs_per_node = self.pairs_per_node(metadata.blob_id(), &pairs, &committees);
 
         let (sliver_write_semaphore, auto_tune_handle) = self.build_sliver_write_throttle(
             metadata.metadata().unencoded_length(),
@@ -907,8 +900,7 @@ impl WalrusNodeClient<SuiContractClient> {
     ) -> ClientResult<Self> {
         Ok(WalrusNodeClient::new(config, committees_handle)
             .await?
-            .with_client(sui_client)
-            .await)
+            .with_client(sui_client))
     }
 
     /// Creates a new client, and starts a committees refresher process in the background.
@@ -925,8 +917,7 @@ impl WalrusNodeClient<SuiContractClient> {
             .map_err(|e| ClientError::from(ClientErrorKind::Other(e.into())))?;
         Ok(WalrusNodeClient::new(config, committees_handle)
             .await?
-            .with_client(sui_client)
-            .await)
+            .with_client(sui_client))
     }
 
     /// Stores a list of blobs to Walrus, retrying if it fails because of epoch change.
@@ -1196,7 +1187,6 @@ impl WalrusNodeClient<SuiContractClient> {
         // Register blobs if they are not registered, and get the store operations.
         let registered_blobs = self
             .resource_manager(&committees)
-            .await
             .register_walrus_store_blobs(
                 encoded_blobs_with_status,
                 store_args.epochs_ahead,
@@ -1546,7 +1536,7 @@ impl WalrusNodeClient<SuiContractClient> {
     }
 
     /// Creates a resource manager for the client.
-    pub async fn resource_manager(&self, committees: &ActiveCommittees) -> ResourceManager<'_> {
+    pub fn resource_manager(&self, committees: &ActiveCommittees) -> ResourceManager<'_> {
         ResourceManager::new(&self.sui_client, committees.write_committee().epoch)
     }
 
@@ -1925,7 +1915,6 @@ impl<T> WalrusNodeClient<T> {
         let results = requests.into_results();
 
         self.confirmations_to_certificate(results, &committees)
-            .await
     }
 
     /// Combines the received storage confirmations into a single certificate.
@@ -1934,7 +1923,7 @@ impl<T> WalrusNodeClient<T> {
     /// blob ID, as it assumes that the storage confirmations were received through
     /// [`NodeCommunication::store_metadata_and_pairs`], which internally verifies it to check the
     /// blob ID, epoch, and blob persistence type.
-    async fn confirmations_to_certificate<E: Display>(
+    fn confirmations_to_certificate<E: Display>(
         &self,
         confirmations: Vec<NodeResult<SignedStorageConfirmation, E>>,
         committees: &ActiveCommittees,
@@ -1968,7 +1957,6 @@ impl<T> WalrusNodeClient<T> {
                 .write_committee()
                 .is_at_least_min_n_correct(aggregate_weight),
             self.not_enough_confirmations_error(aggregate_weight, committees)
-                .await
         );
 
         let cert =
@@ -1977,7 +1965,7 @@ impl<T> WalrusNodeClient<T> {
         Ok(cert)
     }
 
-    async fn not_enough_confirmations_error(
+    fn not_enough_confirmations_error(
         &self,
         weight: usize,
         committees: &ActiveCommittees,
@@ -2329,7 +2317,7 @@ impl<T> WalrusNodeClient<T> {
 
     /// Returns the shards of the given node in the write committee.
     #[cfg(any(test, feature = "test-utils"))]
-    pub async fn shards_of(
+    pub fn shards_of(
         &self,
         node_names: &[String],
         committees: &ActiveCommittees,
@@ -2344,7 +2332,7 @@ impl<T> WalrusNodeClient<T> {
     }
 
     /// Maps the sliver pairs to the node in the write committee that holds their shard.
-    async fn pairs_per_node<'a>(
+    fn pairs_per_node<'a>(
         &'a self,
         blob_id: &'a BlobId,
         pairs: &'a [SliverPair],

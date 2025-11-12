@@ -480,15 +480,12 @@ impl<'a> ResourceManager<'a> {
         let mut blob_processing_items = Vec::with_capacity(max_len);
 
         for (metadata, encoded_length) in metadata_list.iter().zip(encoded_lengths) {
-            if let Some(blob) = self
-                .find_blob_owned_by_wallet(
-                    metadata.blob_id(),
-                    persistence,
-                    store_optimizations.should_check_status(),
-                    &owned_blobs,
-                )
-                .await?
-            {
+            if let Some(blob) = self.find_blob_owned_by_wallet(
+                metadata.blob_id(),
+                persistence,
+                store_optimizations.should_check_status(),
+                &owned_blobs,
+            )? {
                 tracing::debug!(
                     end_epoch=%blob.storage.end_epoch,
                     blob_id=%blob.blob_id,
@@ -670,7 +667,7 @@ impl<'a> ResourceManager<'a> {
     ///
     /// If `include_certified` is `true`, the function includes already certified blobs owned by the
     /// wallet.
-    async fn find_blob_owned_by_wallet(
+    fn find_blob_owned_by_wallet(
         &self,
         blob_id: &BlobId,
         persistence: BlobPersistence,

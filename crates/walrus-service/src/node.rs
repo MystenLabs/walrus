@@ -646,18 +646,14 @@ impl StorageNode {
             &config.blocklist_path,
             Some(registry),
         )?);
-        let checkpoint_manager = match DbCheckpointManager::new(
-            storage.get_db(),
-            config.checkpoint_config.clone(),
-        )
-        .await
-        {
-            Ok(manager) => Some(Arc::new(manager)),
-            Err(error) => {
-                tracing::warn!(?error, "failed to initialize checkpoint manager");
-                None
-            }
-        };
+        let checkpoint_manager =
+            match DbCheckpointManager::new(storage.get_db(), config.checkpoint_config.clone()) {
+                Ok(manager) => Some(Arc::new(manager)),
+                Err(error) => {
+                    tracing::warn!(?error, "failed to initialize checkpoint manager");
+                    None
+                }
+            };
         let system_parameters = contract_service.fixed_system_parameters().await?;
         let (latest_event_epoch_sender, latest_event_epoch_watcher) = watch::channel(None);
         let inner = Arc::new(StorageNodeInner {
@@ -753,18 +749,15 @@ impl StorageNode {
                 .map(LastCertifiedEventBlob::EventBlob);
         }
         let event_blob_writer_factory = if !config.disable_event_blob_writer {
-            Some(
-                EventBlobWriterFactory::new(
-                    &config.storage_path,
-                    &config.db_config,
-                    inner.clone(),
-                    registry,
-                    node_params.num_checkpoints_per_blob,
-                    last_certified_event_blob,
-                    config.num_uncertified_blob_threshold,
-                )
-                .await?,
-            )
+            Some(EventBlobWriterFactory::new(
+                &config.storage_path,
+                &config.db_config,
+                inner.clone(),
+                registry,
+                node_params.num_checkpoints_per_blob,
+                last_certified_event_blob,
+                config.num_uncertified_blob_threshold,
+            )?)
         } else {
             None
         };
@@ -942,7 +935,7 @@ impl StorageNode {
                 writer_starting_index,
                 first_available_event_index
             );
-            writer.update(init_state).await?;
+            writer.update(init_state)?;
         }
 
         // Reset the starting indices to the first event that is available for processing and
@@ -1067,7 +1060,7 @@ impl StorageNode {
         )))
     }
 
-    async fn storage_node_cursor(&self) -> anyhow::Result<EventStreamCursor> {
+    fn storage_node_cursor(&self) -> anyhow::Result<EventStreamCursor> {
         let storage = &self.inner.storage;
         let (from_event_id, next_event_index) = storage
             .get_event_cursor_and_next_index()?
@@ -1076,15 +1069,15 @@ impl StorageNode {
     }
 
     #[cfg(not(msim))]
-    async fn get_storage_node_cursor(&self) -> anyhow::Result<EventStreamCursor> {
-        self.storage_node_cursor().await
+    fn get_storage_node_cursor(&self) -> anyhow::Result<EventStreamCursor> {
+        self.storage_node_cursor()
     }
 
     // A version of `get_storage_node_cursor` that can be used in simtest which can control the
     // initial cursor.
     #[cfg(msim)]
-    async fn get_storage_node_cursor(&self) -> anyhow::Result<EventStreamCursor> {
-        let mut cursor = self.storage_node_cursor().await?;
+    fn get_storage_node_cursor(&self) -> anyhow::Result<EventStreamCursor> {
+        let mut cursor = self.storage_node_cursor()?;
         fail_point_arg!(
             "storage_node_initial_cursor",
             |update_cursor: EventStreamCursor| {
@@ -1100,7 +1093,7 @@ impl StorageNode {
             Some(ref factory) => factory.event_cursor().unwrap_or_default(),
             None => EventStreamCursor::new(None, u64::MAX),
         };
-        let storage_node_cursor = self.get_storage_node_cursor().await?;
+        let storage_node_cursor = self.get_storage_node_cursor()?;
 
         let mut event_blob_writer = match &self.event_blob_writer_factory {
             Some(factory) => Some(factory.create().await?),
@@ -2613,7 +2606,6 @@ impl StorageNodeInner {
         tokio::task::spawn_blocking(move || async move {
             this.storage
                 .create_storage_for_shards_locked(shard_map_lock, &new_shards)
-                .await
         })
         .in_current_span()
         .await?

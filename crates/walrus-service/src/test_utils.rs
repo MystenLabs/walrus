@@ -2800,7 +2800,7 @@ pub mod test_cluster {
 
             let event_processor_config = Default::default();
             let mut cluster_builder = if test_nodes_config.use_legacy_event_processor {
-                setup_legacy_event_processors(sui_read_client.clone(), cluster_builder).await?
+                setup_legacy_event_processors(sui_read_client.clone(), cluster_builder)?
             } else {
                 setup_checkpoint_based_event_processors(
                     &event_processor_config,
@@ -2997,7 +2997,7 @@ pub mod test_cluster {
         Ok(res)
     }
 
-    async fn setup_legacy_event_processors(
+    fn setup_legacy_event_processors(
         sui_read_client: SuiReadClient,
         test_cluster_builder: TestClusterBuilder,
     ) -> anyhow::Result<TestClusterBuilder> {

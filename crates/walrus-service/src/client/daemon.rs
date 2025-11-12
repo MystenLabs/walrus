@@ -291,7 +291,6 @@ impl WalrusWriteClient for WalrusNodeClient<SuiContractClient> {
         // TODO(WAL-927): Make QuiltConfig part of ClientConfig.
         self.quilt_client()
             .construct_quilt::<V>(blobs, encoding_type)
-            .await
     }
 
     async fn write_quilt<V: QuiltVersion>(
@@ -629,7 +628,7 @@ pub(crate) async fn auth_layer(
 /// Handles errors from Tower middleware layers for service endpoints.
 ///
 /// Returns HTTP 429 for overload errors, and HTTP 500 with error details for other errors.
-async fn handle_service_error(error: BoxError, service_name: &str) -> Response {
+fn handle_service_error(error: BoxError, service_name: &str) -> Response {
     if error.is::<Overloaded>() {
         (
             StatusCode::TOO_MANY_REQUESTS,
@@ -646,11 +645,11 @@ async fn handle_service_error(error: BoxError, service_name: &str) -> Response {
 }
 
 async fn handle_aggregator_error(error: BoxError) -> Response {
-    handle_service_error(error, "aggregator").await
+    handle_service_error(error, "aggregator")
 }
 
 async fn handle_publisher_error(error: BoxError) -> Response {
-    handle_service_error(error, "publisher").await
+    handle_service_error(error, "publisher")
 }
 
 #[cfg(test)]

@@ -216,7 +216,7 @@ impl RetriableRpcClient {
     // TODO(WAL-718): The timeout should ideally be set directly on the tonic client.
 
     /// Creates a new retriable client.
-    pub async fn new(
+    pub fn new(
         lazy_client_builders: Vec<LazyFallibleRpcClientBuilder>,
         request_timeout: Duration,
         backoff_config: ExponentialBackoffConfig,
@@ -230,7 +230,7 @@ impl RetriableRpcClient {
         });
 
         Ok(Self {
-            client: Arc::new(FailoverWrapper::new(lazy_client_builders).await?),
+            client: Arc::new(FailoverWrapper::new(lazy_client_builders)?),
             request_timeout,
             backoff_config,
             fallback_client,

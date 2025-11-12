@@ -484,7 +484,7 @@ fn spawn_signal_forwarders(handle: ChildProcessHandle, cancel_rx: watch::Receive
                 tokio::spawn(async move {
                     tokio::select! {
                         _ = stream.recv() => {
-                            forward_unix_signal_to_child(handle_clone, signo, name).await;
+                            forward_unix_signal_to_child(handle_clone, signo, name);
                             // When not catching the signal, the process will exit with
                             // 128 + signo by default. But when catching the signal, we need
                             // to do it ourself.
@@ -507,7 +507,7 @@ fn spawn_signal_forwarders(handle: ChildProcessHandle, cancel_rx: watch::Receive
 /// Forwards a Unix signal to the child uploader process.
 /// This is used to forward the Unix signals from the parent process to the child process.
 #[cfg(unix)]
-async fn forward_unix_signal_to_child(
+fn forward_unix_signal_to_child(
     handle: ChildProcessHandle,
     signo: libc::c_int,
     signal_name: &'static str,

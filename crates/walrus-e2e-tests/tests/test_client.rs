@@ -319,10 +319,7 @@ async fn test_inconsistency(failed_nodes: &[usize]) -> TestResult {
         .get_committees()
         .await
         .expect("committees should be available");
-    let shards_of_failed_nodes = client
-        .as_ref()
-        .shards_of(&failed_node_names, &committees)
-        .await;
+    let shards_of_failed_nodes = client.as_ref().shards_of(&failed_node_names, &committees);
 
     // Encode the blob with false metadata for one shard.
     let (pairs, metadata) = client
@@ -356,7 +353,6 @@ async fn test_inconsistency(failed_nodes: &[usize]) -> TestResult {
     let (blob_sui_object, _) = client
         .as_ref()
         .resource_manager(&committees)
-        .await
         .get_existing_or_register(
             &[&metadata],
             1,
@@ -517,7 +513,6 @@ async fn test_store_with_existing_blob_resource(
     let original_blob_objects = client
         .as_ref()
         .resource_manager(&committees)
-        .await
         .get_existing_or_register(
             &metadata.iter().collect::<Vec<_>>(),
             epochs_ahead_registered,
@@ -581,7 +576,6 @@ async fn register_blob(
     let blob_id = client
         .as_ref()
         .resource_manager(&committees)
-        .await
         .get_existing_or_register(
             &[&metadata],
             epochs_ahead,
@@ -1096,9 +1090,8 @@ async fn test_store_quilt(blobs_to_create: u32) -> TestResult {
     let quilt_client = client
         .quilt_client()
         .with_config(QuiltClientConfig::new(6, Duration::from_mins(1)));
-    let quilt = quilt_client
-        .construct_quilt::<QuiltVersionV1>(&quilt_store_blobs, encoding_type)
-        .await?;
+    let quilt =
+        quilt_client.construct_quilt::<QuiltVersionV1>(&quilt_store_blobs, encoding_type)?;
     let store_args = StoreArgs::default_with_epochs(2)
         .with_encoding_type(encoding_type)
         .no_store_optimizations();
@@ -2466,8 +2459,7 @@ pub async fn test_select_coins_max_objects() -> TestResult {
             .map(|rpc_url| LazySuiClientBuilder::new(rpc_url, None))
             .collect(),
         ExponentialBackoffConfig::default(),
-    )
-    .await?;
+    )?;
 
     let balance = retry_client.get_balance(address, None).await?;
     assert_eq!(balance.total_balance, u128::from(sui(4)));
@@ -2746,7 +2738,6 @@ async fn test_store_with_upload_relay_with_tip() {
             vec![LazySuiClientBuilder::new(&rpc_url, None)],
             ExponentialBackoffConfig::default(),
         )
-        .await
         .expect("create retry client")
     };
 

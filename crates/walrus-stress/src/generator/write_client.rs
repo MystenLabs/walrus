@@ -203,7 +203,6 @@ impl WriteClient {
             .client
             .as_ref()
             .resource_manager(&committees)
-            .await
             .get_existing_or_register(
                 &[&metadata],
                 epochs_to_store,
@@ -268,8 +267,7 @@ async fn new_client(
             })
             .collect(),
         Default::default(),
-    )
-    .await?;
+    )?;
     let sui_read_client = config.new_read_client(sui_client).await?;
     let sui_contract_client = wallet.and_then(|wallet| {
         SuiContractClient::new_with_read_client(wallet, gas_budget, Arc::new(sui_read_client))
