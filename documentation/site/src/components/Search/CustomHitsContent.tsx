@@ -20,7 +20,7 @@ export default function CustomHitsContent({ name }) {
     siteToVisit = `${siteToVisit} or visit <a href="https://move-book.com/" target="_blank">The Move Book</a> dedicated site.`;
   } else if (name === "sui_sdks") {
     siteToVisit = `${siteToVisit} or visit the official <a href="https://sdk.mystenlabs.com" target="_blank">Sui SDKs</a> site.`;
-  } else if (name === "walrus_sdks") {
+  } else if (name === "walrus_docs") {
     siteToVisit = `${siteToVisit} or visit the official <a href="https://docs.wal.app/" target="_blank">Walrus Docs</a> site.`;
   } else {
     siteToVisit = `${siteToVisit}.`;
@@ -54,10 +54,10 @@ export default function CustomHitsContent({ name }) {
       {Object.entries(grouped).map(([key, group], index) => {
         return (
           <div
-            className="p-6 pb-[40px] mb-6 bg-sui-gray-35 rounded-[20px]"
+            className="p-6 pb-[40px] mb-6 bg-wal-gray-5 dark:bg-wal-white-10 rounded-[20px]"
             key={index}
           >
-            <div className="text-xl text-sui-gray-3s font-semibold mb-4">
+            <div className="text-xl text-wal-purple-dark dark:text-wal-purple font-semibold mb-4">
               {group[0].hierarchy?.lvl1 ||
                 group[0].hierarchy?.lvl0 ||
                 "[no title]"}
@@ -80,7 +80,7 @@ export default function CustomHitsContent({ name }) {
                     {isInternal ? (
                       <button
                         onClick={() => history.push(new URL(hit.url).pathname)}
-                        className="text-base text-blue-600 hover:text-sui-blue underline text-left bg-transparent border-0 pl-0 cursor-pointer font-[Inter]"
+                        className="text-base text-blue-600 hover:text-wal-green-dark underline text-left bg-transparent border-0 pl-0 cursor-pointer font-[Inter]"
                       >
                         {sectionTitle}
                       </button>
@@ -89,13 +89,13 @@ export default function CustomHitsContent({ name }) {
                         href={hit.url}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="text-base text-blue-600 underline pb-2"
+                        className="text-base text-wal-link underline pb-2"
                       >
                         {sectionTitle}
                       </a>
                     )}
                     <p
-                      className="font-normal text-base text-sui-gray-5s"
+                      className="font-normal text-base text-wal-gray-50 dark:text-wal-white-80"
                       dangerouslySetInnerHTML={{
                         __html: hit.content
                           ? truncateAtWord(hit._highlightResult.content.value)

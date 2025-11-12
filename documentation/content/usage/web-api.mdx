@@ -188,7 +188,7 @@ the values in the corresponding HTTP headers.
 #### Consistency checks
 
 The consistency checks performed by the aggregator are the same as the ones [performed by the CLI](/usage/client-cli.mdx#consistency-checks).
-For special use cases, the [strict consistency check](/design/encoding.mdx#strict-consistency-check)
+For special use cases, the [strict consistency check](/design/encoding.mdx)
 can be enabled by adding a query parameter `strict_consistency_check=true` (starting with `v1.35`).
 If the writer of the blob is known and trusted, the consistency check can be disabled by adding a
 query parameter `skip_consistency_check=true` (starting with `v1.36`).
@@ -323,7 +323,7 @@ $ curl "$AGGREGATOR/v1/blobs/by-quilt-patch-id/6XUOE-Q5-nAXHRifN6n9nomVDtHZQbGuA
 :::tip
 
 QuiltPatchIds can be obtained from the store quilt output (as shown above) or by using the
-[`list-patches-in-quilt`](/usage/client-cli.mdx#batch-storing-blobs-with-quilt) CLI command.
+[`list-patches-in-quilt`](/usage/client-cli.mdx#batch-store) CLI command.
 
 :::
 
@@ -350,9 +350,8 @@ aggregator and/or publisher is required. On Walrus Testnet, many entities run pu
 publishers. On Mainnet, there are no public publishers without authentication, as they consume both
 SUI and WAL.
 
-See the following subsections for [public aggregators on Mainnet](#mainnet) and public
-[aggregators](#aggregators-testnet) and [publishers](#publishers-testnet) on Testnet. We also
-provide the [operator lists in JSON format](../assets/operators.json).
+See the [aggregators and publishers list](#agg-list) below for public services on Mainnet and Testnet. We also
+provide the [operator lists in JSON format](/operators.json).
 
 :::tip
 
@@ -361,6 +360,8 @@ The operator list in JSON format includes additional info about aggregators, nam
 :::
 
 import OperatorsList from '@site/src/components/OperatorsList';
+
+### Aggregators and publishers list {#agg-list}
 
 <OperatorsList />
 

@@ -12,8 +12,8 @@ export default function RefinementSection() {
 
   return (
     <div className="col-span-12 md:col-span-4 xl:col-span-3">
-      <div className="sticky mr-4 p-6 pb-[40px] top-24 z-10 border border-solid border-wal-gray-50 rounded-[20px]">
-        <h2 className="text-lg font-semibold text-wal-gray-70 dark:text-wal-gray-50">
+      <div className="sticky mr-4 p-6 pb-[40px] top-[174px] z-10 border border-solid border-wal-purple-dark rounded-[20px] bg-wal-grey-10 dark:bg-wal-white-20">
+        <h2 className="text-lg font-semibold text-wal-gray-70 dark:text-wal-white-80">
           Refine results
         </h2>
         <ul className="pl-0">
@@ -30,7 +30,7 @@ export default function RefinementSection() {
                     onChange={() => refine(item.value)}
                     className="sr-only peer"
                   />
-                  <div className="flex peer-checked:hidden peer-checked:bg-wal-success rounded !ml-0 dark:bg-wal-gray-40">
+                  <div className="flex peer-checked:hidden peer-checked:bg-wal-green rounded !ml-0 dark:bg-wal-white-40">
                     <svg
                       width="20"
                       height="20"
@@ -55,7 +55,7 @@ export default function RefinementSection() {
                       />
                     </svg>
                   </div>
-                  <div className="hidden peer-checked:flex peer-checked:bg-sui-primary rounded !ml-0 dark:bg-wal-gray-40">
+                  <div className="hidden peer-checked:flex peer-checked:bg-wal-green rounded !ml-0 dark:bg-wal-white-40">
                     <svg
                       width="20"
                       height="20"
@@ -77,12 +77,12 @@ export default function RefinementSection() {
                       />
                     </svg>
                   </div>
-                  <span className="text-wal-gray-80 dark:text-wal-gray-50 peer-checked:text-wal-gray-50 peer-checked:font-bold dark:peer-checked:text-wal-gray-40">
+                  <span className="text-wal-gray-80 dark:text-wal-white-80 peer-checked:text-wal-gray-90 peer-checked:font-bold dark:peer-checked:text-wal-white-100">
                     {item.label}
                   </span>
                 </label>
               </div>
-              <span className="text-sm text-wal-gray-50 dark:text-wal-gray-40">
+              <span className="text-sm text-wal-gray-80 dark:text-wal-white-80">
                 {item.count}
               </span>
             </li>

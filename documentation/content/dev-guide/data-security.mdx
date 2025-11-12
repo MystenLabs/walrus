@@ -11,13 +11,13 @@ security guarantees provided by Walrus natively or through additional mechanisms
 The encoding mechanisms applied by Walrus guarantee that blobs can be written and remains available
 as long as 2/3 of the data is handled by honest and functional nodes. Once data is written, reads
 are even possible if as few as 1/3 of the nodes are available. This is described in further detail
-in the [whitepaper](../walrus.pdf) and in the [properties chapter](/design/properties.mdx).
+in the [whitepaper](/walrus.pdf) and in the [properties chapter](/design/properties.mdx).
 
 ## Integrity
 
 Walrus guarantees that any data read corresponds to what was intended by the writer. As the encoding
 is done by the client, it is possible that this encoding is incorrect (by mistake or on purpose).
-This causes some subtleties, which are described in the [encoding chapter](/design/encoding.mdx#metadata-and-data-authentication).
+This causes some subtleties, which are described in the [encoding chapter](/design/encoding.mdx).
 
 ## Confidentiality and access control using Seal
 

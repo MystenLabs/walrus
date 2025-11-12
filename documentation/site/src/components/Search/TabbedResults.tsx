@@ -16,16 +16,16 @@ export default function TabbedResults({
   const walrustooltip =
     "Search results from the Walrus decentralized storage platform";
   return (
-    <div className="mb-4 flex justify-start border-2 border-solid border-white rounded-t-lg dark:bg-black dark:border-sui-black border-b-sui-gray-50 dark:border-b-sui-gray-80">
+    <div className="mb-4 flex justify-start border-2 border-solid border-transparent rounded-t-lg border-b-wal-gray-50 dark:border-b-wal-white-30">
       {tabs.map(({ label, indexName, count }) => (
         <div className="relative group inline-block" key={indexName}>
           <button
-            className={`mr-4 flex items-center font-semibold text-sm lg:text-md xl:text-lg bg-white dark:bg-sui-black cursor-pointer dark:text-sui-gray-45 ${activeTab === indexName ? "text-sui-disabled/100 font-bold border-2 border-solid border-transparent border-b-sui-blue-dark dark:border-b-sui-blue" : "border-transparent text-sui-disabled/70"}`}
+            className={`mr-4 flex items-center font-semibold text-sm lg:text-md xl:text-lg bg-[var(--ifm-background-color)] cursor-pointer dark:text-wal-white-80 ${activeTab === indexName ? "text-wal-gray-80 font-bold border-2 border-solid border-transparent border-b-wal-link-hover dark:border-b-wal-link" : "border-transparent text-wal-grey-40"}`}
             onClick={() => onChange(indexName)}
           >
             {label}{" "}
             <span
-              className={`dark:text-sui-gray-90 text-xs rounded-full ml-1 py-1 px-2 border border-solid ${activeTab === indexName ? "dark:!text-sui-gray-45 bg-transparent border-sui-gray-3s dark:border-sui-gray-50" : "bg-sui-gray-45 border-transparent"}`}
+              className={`dark:text-wal-white-80 text-xs rounded-full ml-1 py-1 px-2 border border-solid ${activeTab === indexName ? "dark:!text-wal-green bg-transparent border-wal-gray-80 dark:border-wal-white-80" : "bg-wal-gray-10 dark:bg-wal-white-30 border-transparent"}`}
             >
               {count}
             </span>

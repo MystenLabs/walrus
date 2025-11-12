@@ -5,7 +5,7 @@ date: 2025-01-16
 
 We are today redeploying the Walrus Testnet to incorporate various improvements, including some
 backwards-incompatible changes. Make sure to get the latest binary and configuration as described
-in the [setup section](/usage/setup).
+in the [setup section](/docs/usage/setup).
 
 {/* truncate */}
 
@@ -39,13 +39,13 @@ also brings several user-facing improvements.
   *.png --epochs 100` to store all PNG files in the current directory.
 - The `walrus` CLI now supports creating, funding, and extending *shared blobs* using the `walrus
   share`, `walrus store --share`, and `walrus fund-shared-blob` commands. Shared blobs are an
-  example of collectively managed and funded blobs. See the [shared blobs section](/usage/client-cli#shared-blobs) for more details.
+  example of collectively managed and funded blobs. See the [shared blobs section](/docs/usage/client-cli#shared-blobs) for more details.
 
 ## New WAL token
 
 Along with the redeployment of Walrus, we have also deployed a fresh WAL contract. This
 means that you cannot use any WAL token from the previous Testnet instance with the new Testnet
-instance. You need to request new WAL tokens through the [Testnet WAL faucet](/usage/setup#testnet-wal-faucet).
+instance. You need to request new WAL tokens through the [Testnet WAL faucet](/docs/usage/networks#testnet-wal-faucet).
 
 ## Backwards-incompatible changes
 
@@ -56,21 +56,21 @@ There are, however, some changes that may affect you.
 ### Configuration files
 
 The format of the configuration files for storage nodes and clients has been changed. Make sure to
-use the latest version of the configuration files, see the [configuration section](/usage/setup#configuration).
+use the latest version of the configuration files, see the [configuration section](/docs/usage/setup#configuration).
 
 ### CLI options
 
 Several CLI options of the `walrus` CLI have been changed. Notably, all "short" variants of options
 (e.g., `-e` instead of `--epochs`) have been removed to prevent future confusion with new options.
 Additionally, the `--epochs` flag is now mandatory for the `walrus store` command (this also affects
-the [JSON API](/usage/json-api)).
+the [JSON API](/docs/usage/json-api)).
 
 Please refer to the CLI help (`walrus --help`, or `walrus <command> --help`) for further details.
 
 ### HTTP APIs
 
 The paths, request, and response formats of the HTTP APIs have changed for the storage nodes, and
-also the aggregator and publisher. Please refer to the section on the [HTTP API](/usage/web-api) for further details.
+also the aggregator and publisher. Please refer to the section on the [HTTP API](/docs/usage/web-api) for further details.
 
 ## Effects on and actions required for existing Walrus Sites
 

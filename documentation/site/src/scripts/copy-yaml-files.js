@@ -2,6 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const yaml = require('js-yaml');
 
 // Define source and destination directories
 const dataDir = path.join(__dirname, '../../../data');
@@ -32,8 +33,8 @@ function getYamlFiles(dir) {
   return files;
 }
 
-// Copy YAML files to static directory
-function copyYamlFiles() {
+// Convert YAML files to JSON and copy to static directory
+function convertYamlToJson() {
   try {
     const yamlFiles = getYamlFiles(dataDir);
     
@@ -46,25 +47,26 @@ function copyYamlFiles() {
     
     for (const yamlFile of yamlFiles) {
       const relativePath = path.relative(dataDir, yamlFile);
-      const destPath = path.join(staticDir, relativePath);
-      const destDir = path.dirname(destPath);
+      const fileNameWithoutExt = path.basename(yamlFile, path.extname(yamlFile));
+      const destPath = path.join(staticDir, `${fileNameWithoutExt}.json`);
       
-      // Ensure destination directory exists
-      if (!fs.existsSync(destDir)) {
-        fs.mkdirSync(destDir, { recursive: true });
-      }
+      // Read and parse YAML file
+      const yamlContent = fs.readFileSync(yamlFile, 'utf8');
+      const jsonData = yaml.load(yamlContent);
       
-      // Copy file
-      fs.copyFileSync(yamlFile, destPath);
-      console.log(`  Copied: ${relativePath} -> static/${relativePath}`);
+      // Convert to JSON and write to static directory
+      const jsonContent = JSON.stringify(jsonData, null, 2);
+      fs.writeFileSync(destPath, jsonContent);
+      
+      console.log(`  Converted: ${relativePath} -> ${fileNameWithoutExt}.json`);
     }
     
-    console.log('All YAML files copied successfully!');
+    console.log('All YAML files converted to JSON successfully!');
   } catch (error) {
-    console.error('Error copying YAML files:', error.message);
+    console.error('Error converting YAML files:', error.message);
     process.exit(1);
   }
 }
 
 // Run the script
-copyYamlFiles();
+convertYamlToJson();

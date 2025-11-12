@@ -66,14 +66,14 @@ export default function Search() {
       ))}
 
       <div className="grid grid-cols-12 gap-4 sui-search">
-        <div className="col-span-12">
+        <div className="col-span-12 pt-4 sticky top-[60px] bg-white dark:bg-docu-dark z-20">
           <ControlledSearchBox
             placeholder={`Search`}
             query={query}
             onChange={setQuery}
           />
         </div>
-        <div className="col-span-12">
+        <div className="col-span-12 sticky top-[116px] z-20">
           <TabbedResults
             activeTab={activeTab}
             onChange={setActiveTab}

@@ -220,7 +220,7 @@ The latest version of Mainnet and Testnet are available under the branches `main
 respectively, and the latest version under the `main` branch. We welcome reports of issues and bug
 fixes. Follow the instructions in the `README.md` file to build and use Walrus from source.
 
-## Configuration
+## Configuration 
 
 The Walrus client needs to know about the Sui objects that store the Walrus system and staking
 information, see the [developer guide](/dev-guide/sui-struct.mdx#system-and-staking-information).
@@ -282,8 +282,14 @@ wallet_config:
 
 ```
 
-There are some additional parameters that can be used to tune the networking behavior of the client,
-see the [full example client configuration](../setup/client_config_example.yaml). If you experience
+There are some additional parameters that can be used to tune the networking behavior of the client. If you experience
 excessively slow uploads, it may be worth experimenting with these values. There is no risk in
 playing around with these values; in the worst case, you may not be able to store/read blob due to
 timeouts or other networking errors.
+
+<details>
+<summary>
+`client_config_example.yaml`
+</summary>
+<ImportContent source="/crates/walrus-sdk/client_config_example.yaml" mode="code" />
+</details>

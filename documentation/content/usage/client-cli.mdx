@@ -238,10 +238,10 @@ instead of the one set in the wallet configuration or the configuration file.
 
 Walrus performs integrity and consistency checks to ensure that any data read from Walrus is what
 the writer intended, and that the writer encoded the blob correctly, see the [section about data
-consistency](/design/encoding.mdx#data-integrity-and-consistency) for further details. Before
+consistency](/design/encoding.mdx) for further details. Before
 `v1.37` the Walrus CLI and aggregator always perform the [strict consistency
-check](/design/encoding.mdx#strict-consistency-check). Starting with `v1.37`, the default is a [more
-performant consistency check](/design/encoding.mdx#default-consistency-check), which is sufficient for
+check](/design/encoding.mdx). Starting with `v1.37`, the default is a [more
+performant consistency check](/design/encoding.mdx), which is sufficient for
 the majority of cases. The strict consistency check can be enabled through the flag
 `--strict-consistency-check` (added in `v1.35`).
 
@@ -323,7 +323,7 @@ Shared blobs can only contain permanent blobs and as such cannot be deleted befo
 
 See [this section](#extending-the-lifetime-of-a-blob) for more on blob extension.
 
-## Batch-storing blobs with quilts
+## Batch-storing blobs with quilts {#batch-store}
 
  **Note:** The *quilt* feature is only available in Walrus version *v1.29* or higher.
 

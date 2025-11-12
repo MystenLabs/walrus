@@ -47,12 +47,12 @@ export default function ControlledSearchBox({
   }, [query]);
 
   return (
-    <div className="flex items-center mb-8 border border-sui-gray-40 dark:border-sui-gray-70 rounded-lg bg-sui-gray-40 dark:bg-sui-gray-80 pl-2">
+    <div className="flex items-center mb-8 border border-wal-gray-40 dark:border-wal-gray-70 rounded-lg bg-wal-gray-10 dark:bg-wal-white-80 pl-2">
       {searchSvg}
       <input
         ref={inputRef}
         type="search"
-        className="cursor-pointer w-full py-2 pr-4 h-[40px] text-lg border-transparent bg-transparent focus-visible:outline-none dark:text-sui-gray-50 dark:placeholder-sui-gray-50"
+        className="cursor-pointer w-full py-2 pr-4 h-[40px] text-lg border-transparent bg-transparent focus-visible:outline-none dark:text-wal-gray-50 dark:placeholder-wal-gray-50"
         placeholder={placeholder}
         value={query}
         onChange={(e) => onChange(e.currentTarget.value)}

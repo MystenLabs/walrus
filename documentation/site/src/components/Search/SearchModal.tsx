@@ -38,11 +38,11 @@ const searchClient = {
 };
 
 const indices = [
+  { label: "Walrus", indexName: "walrus_docs" },
   { label: "Sui", indexName: "sui_docs" },
   { label: "SuiNS", indexName: "suins_docs" },
   { label: "The Move Book", indexName: "move_book" },
   { label: "SDKs", indexName: "sui_sdks" },
-  { label: "Walrus", indexName: "walrus_docs" },
 ];
 
 function HitItem({ hit }: { hit: any }) {
@@ -57,7 +57,7 @@ function HitItem({ hit }: { hit: any }) {
     <div className="modal-result">
       <a
         href={hit.url}
-        className="text-blue-600 dark:text-sui-blue dark:hover:text-sui-blue-light font-medium"
+        className="text-blue-600 dark:text-wal-green dark:hover:text-wal-green-light font-medium"
       >
         {hit.title}
       </a>
@@ -65,12 +65,12 @@ function HitItem({ hit }: { hit: any }) {
         href={hit.url}
         target="_blank"
         rel="noopener noreferrer"
-        className="text-base text-blue-600 dark:text-sui-blue dark:hover:text-sui-blue-light underline pb-2"
+        className="text-base text-blue-600 dark:text-wal-green dark:hover:text-wal-green-light underline pb-2"
       >
         {sectionTitle}
       </a>
       <p
-        className="text-sm text-gray-600 dark:text-sui-gray-50"
+        className="text-sm text-wal-gray-60 dark:text-wal-white-80"
         dangerouslySetInnerHTML={{
           __html: hit.content
             ? truncateAtWord(hit._highlightResult.content.value, 100)
@@ -116,7 +116,7 @@ function EmptyState({ label }: { label: string }) {
   const { results } = useInstantSearch();
   if (results?.hits?.length === 0) {
     return (
-      <p className="text-sm text-sui-gray-5s dark:text-sui-gray-50">
+      <p className="text-sm text-wal-gray-50 dark:text-wal-gray-50">
         No results in {label}
       </p>
     );
@@ -151,7 +151,7 @@ export default function MultiIndexSearchModal({
 }) {
   const [activeIndex, setActiveIndex] = useState(indices[0].indexName);
   const [tabCounts, setTabCounts] = React.useState<Record<string, number>>({
-    sui_docs: 0,
+    walrus_docs: 0,
   });
   const [query, setQuery] = React.useState("");
   const scrollContainerRef = React.useRef<HTMLDivElement>(null);
@@ -159,6 +159,7 @@ export default function MultiIndexSearchModal({
   useEffect(() => {
     if (isOpen) {
       document.body.style.overflow = "hidden";
+      console.log('SearchModal theme =', document.documentElement.getAttribute('data-theme'));
       // Focus the search input when modal opens
       setTimeout(() => {
         searchBoxRef.current?.focus();
@@ -172,24 +173,24 @@ export default function MultiIndexSearchModal({
   }, [isOpen]);
 
   const activeMeta = {
-    sui_docs: null,
+    walrus_docs: null,
+    sui_docs: { label: "Sui Docs", url: "https://docs.sui.io" },
     suins_docs: { label: "SuiNS Docs", url: "https://docs.suins.io" },
     move_book: {
       label: "The Move Book",
       url: "https://move-book.com/",
     },
     sui_sdks: { label: "SDK Docs", url: "https://sdk.mystenlabs.com" },
-    walrus_docs: { label: "Walrus Docs", url: "https://docs.wal.app" },
   }[activeIndex];
 
   if (!isOpen) return null;
   return (
-    <div className="fixed inset-0 bg-black/50 z-50 flex justify-center p-4">
-      <div className="bg-white dark:bg-sui-gray-90 w-full max-w-3xl px-6 rounded-lg shadow-md max-h-[600px] flex flex-col">
+    <div className="fixed inset-0 bg-wal-gray-70 dark:bg-wal-gray-90/80 z-50 flex justify-center p-4">
+      <div className="bg-white dark:bg-[var(--ifm-background-color)] w-full max-w-3xl px-6 rounded-lg shadow-md max-h-[600px] flex flex-col">
         <div ref={scrollContainerRef} className="flex-1 overflow-y-auto">
           <InstantSearch searchClient={searchClient} indexName={activeIndex}>
-            <div className="bg-white dark:bg-sui-gray-90 rounded-t sticky top-0 z-10">
-              <div className="bg-white dark:bg-sui-gray-90 h-8 flex justify-end">
+            <div className="bg-white dark:bg-[var(--ifm-background-color)] rounded-t sticky top-0 z-10">
+              <div className="bg-white dark:bg-[var(--ifm-background-color)] h-8 flex justify-end">
                 <button
                   onClick={onClose}
                   className="bg-transparent border-none outline-none text-sm underline cursor-pointer"
@@ -204,7 +205,7 @@ export default function MultiIndexSearchModal({
                 inputRef={searchBoxRef}
               />
               {query.length < 3 && (
-                <p className="text-sm text-sui-gray-5s dark:text-sui-gray-50 pl-4 mb-2 -mt-6">
+                <p className="text-sm text-wal-gray-50 dark:text-wal-gray-50 pl-4 mb-2 -mt-6">
                   Three characters initiates search...
                 </p>
               )}
@@ -236,10 +237,10 @@ export default function MultiIndexSearchModal({
             ))}
           </InstantSearch>
         </div>
-        <div className="h-14 bg-white dark:bg-sui-gray-90 flex items-center justify-between text-sm border-t border-solid border-sui-gray-50 border-b-transparent border-l-transparent border-r-transparent">
+        <div className="h-14 bg-[var(--ifm-background-color)] flex items-center justify-between text-sm border-t border-solid border-wal-gray-50 border-b-transparent border-l-transparent border-r-transparent">
           <a
             href={`/search?q=${encodeURIComponent(query)}`}
-            className="text-blue-600 dark:text-sui-blue dark:hover:text-sui-blue-light underline"
+            className="wal-link-hover dark:text-wal-link dark:hover:text-wal-green underline"
           >
             Go to full search page
           </a>
@@ -248,7 +249,7 @@ export default function MultiIndexSearchModal({
               href={activeMeta.url}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-blue-600 dark:text-sui-blue dark:hover:text-sui-blue-light underline"
+              className="text-wal-link dark:text-wal-link-hover dark:hover:text-wal-green underline"
             >
               Visit {activeMeta.label} →
             </a>

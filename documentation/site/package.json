@@ -3,6 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "scripts": {
+    "deploy-site": "site-builder deploy ./build --epochs 1",
     "docusaurus": "docusaurus",
     "prestart": "node src/scripts/generate-import-context.js && node src/scripts/copy-yaml-files.js",
     "start": "docusaurus start",
@@ -16,6 +17,7 @@
     "write-heading-ids": "docusaurus write-heading-ids"
   },
   "dependencies": {
+    "@cookbookdev/docsbot": "^4.25.15",
     "@docusaurus/core": "3.8.1",
     "@docusaurus/preset-classic": "3.8.1",
     "@docusaurus/theme-common": "3.8.1",
@@ -40,9 +42,11 @@
   "devDependencies": {
     "@docusaurus/module-type-aliases": "3.8.1",
     "@docusaurus/types": "3.8.1",
-    "@tailwindcss/postcss": "^4.1.16",
+    "@tailwindcss/postcss": "^4.1.17",
+    "@types/react": "^19.2.3",
+    "@types/react-dom": "^19.2.2",
     "postcss": "^8.5.6",
-    "tailwindcss": "^4.1.16"
+    "tailwindcss": "^4.1.17"
   },
   "browserslist": {
     "production": [

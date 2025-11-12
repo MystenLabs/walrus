@@ -12,7 +12,6 @@ import ThemeToggle from "@site/src/components/ThemeToggle";
 import NavbarMobileSidebarToggle from "@theme/Navbar/MobileSidebar/Toggle";
 import NavbarLogo from "@theme/Navbar/Logo";
 import NavbarSearch from "@theme/Navbar/Search";
-
 import SearchModal from "@site/src/components/Search/SearchModal";
 
 function useNavbarItems() {

@@ -34,7 +34,7 @@ const config = {
   // organizationName: 'Mysten Labs',
   // projectName: 'Walrus',
 
-  onBrokenLinks: "warn",
+  onBrokenLinks: "throw",
   onBrokenMarkdownLinks: "warn",
 
   // Even if you don't use internationalization, you can use this field to set
@@ -60,6 +60,7 @@ const config = {
         },
       };
     },
+    path.resolve(__dirname, `./src/plugins/askcookbook/index.js`),
   ],
   presets: [
     [
@@ -72,19 +73,21 @@ const config = {
           // Please change this to your repo.
           // Remove this to remove the "edit this page" links.
           editUrl:
-            "https://github.com/facebook/docusaurus/tree/main/packages/create-docusaurus/templates/shared/",
+            "https://github.com/MystenLabs/walrus/tree/main/documentation/",
           remarkPlugins: [[remarkGlossary, { glossaryFile: "static/glossary.yaml" }]],
         },
         blog: {
           path: "../blog",
           postsPerPage: "ALL",
+          blogSidebarTitle: 'All posts',
+          blogSidebarCount: 'ALL',
           showReadingTime: true,
           feedOptions: {
             type: ["rss", "atom"],
             xslt: true,
           },
           // Remove this to remove the "edit this page" links.
-          editUrl: "https://github.com/MystenLabs/walrus/tree/main/documentation",
+          // editUrl: "https://github.com/MystenLabs/walrus/tree/main/documentation",
           // Useful options to enforce blogging best practices
           onInlineTags: "warn",
           onInlineAuthors: "warn",
@@ -94,7 +97,7 @@ const config = {
           remarkPlugins: [[remarkGlossary, { glossaryFile: "static/glossary.yaml" }]],
         },
         theme: {
-          customCss: "./src/css/custom.css",
+          customCss: path.resolve(__dirname, './src/css/custom.css'),
         },
       }),
     ],
@@ -141,48 +144,7 @@ const config = {
       },
       footer: {
         style: "dark",
-        links: [
-          {
-            title: "Docs",
-            items: [
-              {
-                label: "Tutorial",
-                to: "/docs/intro",
-              },
-            ],
-          },
-          {
-            title: "Community",
-            items: [
-              {
-                label: "Stack Overflow",
-                href: "https://stackoverflow.com/questions/tagged/docusaurus",
-              },
-              {
-                label: "Discord",
-                href: "https://discordapp.com/invite/docusaurus",
-              },
-              {
-                label: "X",
-                href: "https://x.com/docusaurus",
-              },
-            ],
-          },
-          {
-            title: "More",
-            items: [
-              {
-                label: "Blog",
-                to: "/blog",
-              },
-              {
-                label: "GitHub",
-                href: "https://github.com/MystenLabs/walrus",
-              },
-            ],
-          },
-        ],
-        copyright: `Copyright © ${new Date().getFullYear()} Walrus, Inc.`,
+        copyright: `Copyright © ${new Date().getFullYear()} Walrus Foundation. All rights reserved.`,
       },
       prism: {
         theme: prismThemes.github,
