@@ -10,7 +10,10 @@ use std::{
     num::NonZeroU16,
     path::PathBuf,
     pin::pin,
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
     time::Instant,
 };
 
@@ -26,7 +29,7 @@ use futures::{
 use indicatif::MultiProgress;
 use rand::{RngCore as _, rngs::ThreadRng};
 use rayon::{iter::IntoParallelIterator, prelude::*};
-pub use store_args::StoreArgs;
+pub use store_args::{EncodingProgressEvent, StoreArgs};
 use sui_types::base_types::ObjectID;
 use tokio::{sync::Semaphore, time::Duration};
 use tracing::{Instrument as _, Level};
@@ -945,7 +948,11 @@ impl WalrusNodeClient<SuiContractClient> {
         let walrus_store_blobs =
             WalrusStoreBlob::<String>::default_unencoded_blobs_from_slice(blobs, attributes);
         let start = Instant::now();
-        let encoded_blobs = self.encode_blobs(walrus_store_blobs, store_args.encoding_type)?;
+        let encoded_blobs = self.encode_blobs(
+            walrus_store_blobs,
+            store_args.encoding_type,
+            store_args.encoding_event_tx.as_ref(),
+        )?;
         store_args.maybe_observe_encoding_latency(start.elapsed());
 
         let (failed_blobs, encoded_blobs): (Vec<_>, Vec<_>) =
@@ -991,7 +998,11 @@ impl WalrusNodeClient<SuiContractClient> {
         let walrus_store_blobs =
             WalrusStoreBlob::<String>::default_unencoded_blobs_from_slice(&blobs, &[]);
 
-        let encoded_blobs = self.encode_blobs(walrus_store_blobs, store_args.encoding_type)?;
+        let encoded_blobs = self.encode_blobs(
+            walrus_store_blobs,
+            store_args.encoding_type,
+            store_args.encoding_event_tx.as_ref(),
+        )?;
         let (failed_blobs, encoded_blobs): (Vec<_>, Vec<_>) =
             encoded_blobs.into_iter().partition(|blob| blob.is_failed());
 
@@ -1037,7 +1048,11 @@ impl WalrusNodeClient<SuiContractClient> {
         let walrus_store_blobs =
             WalrusStoreBlob::<String>::default_unencoded_blobs_from_slice(blobs, &[]);
 
-        let encoded_blobs = self.encode_blobs(walrus_store_blobs, store_args.encoding_type)?;
+        let encoded_blobs = self.encode_blobs(
+            walrus_store_blobs,
+            store_args.encoding_type,
+            store_args.encoding_event_tx.as_ref(),
+        )?;
         let (failed_blobs, encoded_blobs): (Vec<_>, Vec<_>) =
             encoded_blobs.into_iter().partition(|blob| blob.is_failed());
 
@@ -1067,6 +1082,7 @@ impl WalrusNodeClient<SuiContractClient> {
         &self,
         walrus_store_blobs: Vec<WalrusStoreBlob<'a, T>>,
         encoding_type: EncodingType,
+        encoding_event_tx: Option<&tokio::sync::mpsc::UnboundedSender<EncodingProgressEvent>>,
     ) -> ClientResult<Vec<WalrusStoreBlob<'a, T>>> {
         if walrus_store_blobs.is_empty() {
             return Ok(Vec::new());
@@ -1091,6 +1107,15 @@ impl WalrusNodeClient<SuiContractClient> {
 
         let multi_pb = Arc::new(MultiProgress::new());
         let parent = tracing::span::Span::current();
+        let total = walrus_store_blobs.len();
+        let encoding_event_tx = encoding_event_tx.cloned();
+        if let Some(tx) = encoding_event_tx.as_ref()
+            && let Err(err) = tx.send(EncodingProgressEvent::Started { total })
+        {
+            tracing::warn!(%err, "failed to send encoding started event")
+        }
+        let completed = Arc::new(AtomicUsize::new(0));
+        let show_spinner = encoding_event_tx.is_none();
 
         // Encode each blob into sliver pairs and metadata. Filters out failed blobs and continue.
         let results = walrus_store_blobs
@@ -1100,12 +1125,24 @@ impl WalrusNodeClient<SuiContractClient> {
                     tracing::info_span!(parent: parent.clone(), "encode_blobs__par_iter").entered();
 
                 let multi_pb_clone = multi_pb.clone();
+                let encoding_event_tx = encoding_event_tx.clone();
+                let completed = completed.clone();
                 let unencoded_blob = blob.get_blob();
                 let encode_result = self.encode_pairs_and_metadata(
                     unencoded_blob,
                     encoding_type,
                     multi_pb_clone.as_ref(),
+                    show_spinner,
                 );
+                if let Some(tx) = encoding_event_tx.as_ref() {
+                    let finished = completed.fetch_add(1, Ordering::SeqCst) + 1;
+                    if let Err(err) = tx.send(EncodingProgressEvent::BlobCompleted {
+                        completed: finished,
+                        total,
+                    }) {
+                        tracing::warn!(%err, "failed to send encoding blob completed event");
+                    }
+                }
                 blob.with_encode_result(encode_result)
             })
             .collect::<Vec<_>>();
@@ -1114,6 +1151,12 @@ impl WalrusNodeClient<SuiContractClient> {
         for result in results {
             let cur = result?;
             final_results.push(cur);
+        }
+
+        if let Some(tx) = encoding_event_tx
+            && let Err(err) = tx.send(EncodingProgressEvent::Finished)
+        {
+            tracing::warn!(%err, "failed to send encoding finished event");
         }
 
         Ok(final_results)
@@ -1126,9 +1169,13 @@ impl WalrusNodeClient<SuiContractClient> {
         blob: &[u8],
         encoding_type: EncodingType,
         multi_pb: &MultiProgress,
+        show_spinner: bool,
     ) -> ClientResult<(Vec<SliverPair>, VerifiedBlobMetadataWithId)> {
-        let spinner = multi_pb.add(styled_spinner());
-        spinner.set_message("encoding the blob");
+        let spinner = show_spinner.then(|| {
+            let spinner = multi_pb.add(styled_spinner());
+            spinner.set_message("encoding the blob");
+            spinner
+        });
 
         let encode_start_timer = Instant::now();
 
@@ -1148,7 +1195,9 @@ impl WalrusNodeClient<SuiContractClient> {
             ?duration,
             "encoded sliver pairs and metadata"
         );
-        spinner.finish_with_message(format!("blob encoded; blob ID: {}", metadata.blob_id()));
+        if let Some(spinner) = spinner {
+            spinner.finish_with_message(format!("blob encoded; blob ID: {}", metadata.blob_id()));
+        }
 
         Ok((pairs, metadata))
     }
