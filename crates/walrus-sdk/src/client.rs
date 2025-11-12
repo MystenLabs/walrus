@@ -94,7 +94,7 @@ pub use crate::{
     config::{ClientCommunicationConfig, ClientConfig, default_configuration_paths},
 };
 
-pub mod blobmanager_client;
+pub mod blob_manager_client;
 pub mod client_types;
 pub mod communication;
 pub mod metrics;
@@ -1695,9 +1695,9 @@ impl WalrusNodeClient<SuiContractClient> {
         &self,
         manager_id: ObjectID,
         manager_cap: ObjectID,
-    ) -> crate::error::ClientResult<blobmanager_client::BlobManagerClient<'_, SuiContractClient>>
+    ) -> crate::error::ClientResult<blob_manager_client::BlobManagerClient<'_, SuiContractClient>>
     {
-        blobmanager_client::BlobManagerClient::new(self, manager_id, manager_cap).await
+        blob_manager_client::BlobManagerClient::new(self, manager_id, manager_cap).await
     }
 }
 
@@ -2516,6 +2516,9 @@ async fn verify_blob_status_event(
         BlobStatus::Permanent { status_event, .. } => status_event,
         BlobStatus::Deletable { .. } => {
             bail!("deletable status cannot be verified with an on-chain event")
+        }
+        BlobStatus::Managed { .. } => {
+            bail!("managed status cannot be verified with a single on-chain event")
         }
         BlobStatus::Nonexistent => return Ok(()),
     };

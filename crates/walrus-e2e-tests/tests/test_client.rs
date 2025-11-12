@@ -2945,12 +2945,12 @@ async fn test_blob_manager_basic() {
     );
 
     // Use BlobManagerClient to read the managed blob
-    let blobmanager_client = client_ref
+    let blob_manager_client = client_ref
         .blobmanager_client(manager_id, cap_id)
         .await
         .expect("Failed to create BlobManagerClient");
 
-    let read_managed_blob = blobmanager_client
+    let read_managed_blob = blob_manager_client
         .get_managed_blob(blob_id, false)
         .await
         .expect("Failed to get managed blob");

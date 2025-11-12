@@ -225,9 +225,9 @@ public fun has_blob(self: &BlobManager, blob_id: u256): bool {
     self.blob_stash.has_blob_in_stash(blob_id)
 }
 
-/// Gets all object IDs for a given blob_id (may include multiple variants).
-public fun get_blob_object_ids(self: &BlobManager, blob_id: u256): vector<ID> {
-    self.blob_stash.get_blob_object_ids_from_stash(blob_id)
+/// Gets the object ID for a given blob_id (one blob per blob_id).
+public fun get_blob_object_id(self: &BlobManager, blob_id: u256): Option<ID> {
+    self.blob_stash.get_blob_object_id_from_stash(blob_id)
 }
 
 /// Gets the ObjectID of a blob by blob_id and deletable flag.

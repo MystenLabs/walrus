@@ -20,14 +20,16 @@ const EBlobNotRegisteredInBlobManager: u64 = 3;
 const EObjectIdNotFound: u64 = 6;
 /// Inconsistent state: object_id found in blob_id_to_objects but not in blobs_by_object_id.
 const EInconsistentManagedBlobEntries: u64 = 5;
+/// Conflict: Attempting to register a blob with different deletable flag than existing blob.
+const EBlobPermanencyConflict: u64 = 7;
 
 // === BlobStashByObject Struct ===
 
 /// Each blob is uniquely referenced by its ManagedBlob object.
-/// For blobs of the same blob_id, there could be two variants (deletable vs permanent).
+/// Only one blob per blob_id is allowed (either permanent or deletable, not both).
 public struct BlobStashByObject has store {
-    /// Maps blob_id to vector of ObjectIDs.
-    blob_id_to_objects: Table<u256, vector<ID>>,
+    /// Maps blob_id to ObjectID (one blob per blob_id).
+    blob_id_to_objects: Table<u256, ID>,
     /// Maps ObjectID to the actual ManagedBlob object.
     blobs_by_object_id: Table<ID, ManagedBlob>,
     /// Total unencoded size of all blobs.
@@ -91,26 +93,19 @@ public(package) fun get_blob_object_id(
         return option::none()
     };
 
-    let object_ids = self.blob_id_to_objects.borrow(blob_id);
-    let len = object_ids.length();
-    let mut i = 0;
+    let obj_id = *self.blob_id_to_objects.borrow(blob_id);
 
-    // Search for matching variant (same deletable flag) that is in the table.
-    while (i < len) {
-        let obj_id = object_ids[i];
+    // ManagedBlob must exist if object_id is in blob_id_to_objects.
+    assert!(self.blobs_by_object_id.contains(obj_id), EInconsistentManagedBlobEntries);
+    let existing_blob = self.blobs_by_object_id.borrow(obj_id);
 
-        // ManagedBlob must exist if object_id is in blob_id_to_objects.
-        assert!(self.blobs_by_object_id.contains(obj_id), EInconsistentManagedBlobEntries);
-        let existing_blob = self.blobs_by_object_id.borrow(obj_id);
+    // Check if deletable flag matches. If not, it's a permanency conflict.
+    assert!(
+        managed_blob::is_deletable(existing_blob) == deletable,
+        EBlobPermanencyConflict
+    );
 
-        // Check if this variant matches (same blob_id and deletable).
-        if (managed_blob::is_deletable(existing_blob) == deletable) {
-            return option::some(obj_id)
-        };
-        i = i + 1;
-    };
-
-    option::none()
+    option::some(obj_id)
 }
 
 /// Finds a managed blob by object_id and returns a mutable reference.
@@ -126,22 +121,10 @@ public fun find_blob_by_object_id_mut(
         managed_blob::blob_id(managed_blob)
     };
 
-    // Check that the blob_id exists in blob_id_to_objects and that
-    // the object_id exists in the vector.
-    let mut found = false;
-    if (self.blob_id_to_objects.contains(blob_id)) {
-        let object_ids = self.blob_id_to_objects.borrow(blob_id);
-        let len = object_ids.length();
-        let mut i = 0;
-        while (i < len) {
-            if (object_ids[i] == object_id) {
-                found = true;
-                break
-            };
-            i = i + 1;
-        };
-    };
-    assert!(found, EInconsistentManagedBlobEntries);
+    // Check that the blob_id exists in blob_id_to_objects and matches the object_id.
+    assert!(self.blob_id_to_objects.contains(blob_id), EInconsistentManagedBlobEntries);
+    let stored_object_id = *self.blob_id_to_objects.borrow(blob_id);
+    assert!(stored_object_id == object_id, EInconsistentManagedBlobEntries);
 
     // Return mutable reference to the ManagedBlob.
     self.blobs_by_object_id.borrow_mut(object_id)
@@ -159,12 +142,11 @@ public fun add_blob(self: &mut BlobStashByObject, managed_blob: ManagedBlob) {
     );
 
     // Add object_id to the table keyed by blob_id.
-    // If entry exists, push to the end of the vector; otherwise create new entry.
-    if (self.blob_id_to_objects.contains(blob_id)) {
-        self.blob_id_to_objects.borrow_mut(blob_id).push_back(object_id);
-    } else {
-        self.blob_id_to_objects.add(blob_id, vector[object_id]);
-    };
+    // Check if blob_id already exists - only one blob per blob_id allowed.
+    assert!(!self.blob_id_to_objects.contains(blob_id), EBlobAlreadyInStash);
+
+    // Store the blob_id -> object_id mapping.
+    self.blob_id_to_objects.add(blob_id, object_id);
 
     // Store managed blob in blobs_by_object_id (blob ownership transferred to BlobManager).
     self.blobs_by_object_id.add(object_id, managed_blob);
@@ -188,12 +170,12 @@ public fun has_blob(self: &BlobStashByObject, blob_id: u256): bool {
     self.blob_id_to_objects.contains(blob_id)
 }
 
-/// Gets all object IDs for a given blob_id (may include multiple variants).
-public fun get_blob_object_ids(self: &BlobStashByObject, blob_id: u256): vector<ID> {
+/// Gets the object ID for a given blob_id (one blob per blob_id).
+public fun get_blob_object_id_unchecked(self: &BlobStashByObject, blob_id: u256): Option<ID> {
     if (self.blob_id_to_objects.contains(blob_id)) {
-        *self.blob_id_to_objects.borrow(blob_id)
+        option::some(*self.blob_id_to_objects.borrow(blob_id))
     } else {
-        vector[]
+        option::none()
     }
 }
 
@@ -261,10 +243,10 @@ public fun has_blob_in_stash(self: &BlobStash, blob_id: u256): bool {
     }
 }
 
-/// Gets all object IDs for a given blob_id (dispatches to variant).
-public fun get_blob_object_ids_from_stash(self: &BlobStash, blob_id: u256): vector<ID> {
+/// Gets the object ID for a given blob_id (dispatches to variant).
+public fun get_blob_object_id_from_stash(self: &BlobStash, blob_id: u256): Option<ID> {
     match (self) {
-        BlobStash::ObjectBased(s) => get_blob_object_ids(s, blob_id),
+        BlobStash::ObjectBased(s) => get_blob_object_id_unchecked(s, blob_id),
     }
 }
 
@@ -275,8 +257,8 @@ public fun find_blob_mut_by_object_id(self: &mut BlobStash, blob_object_id: ID):
     }
 }
 
-/// Gets object IDs for a blob_id for verification (dispatches to variant).
-public fun get_object_ids_for_blob_id(self: &BlobStash, blob_id: u256): &vector<ID> {
+/// Gets the object ID for a blob_id for verification (dispatches to variant).
+public fun get_object_id_for_blob_id(self: &BlobStash, blob_id: u256): &ID {
     match (self) {
         BlobStash::ObjectBased(s) => s.blob_id_to_objects.borrow(blob_id),
     }

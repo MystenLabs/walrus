@@ -232,7 +232,8 @@ impl<'a> BlobManagerClient<'a, SuiContractClient> {
         // Access the RetriableSuiClient to use get_dynamic_field.
         let sui_client: &RetriableSuiClient = self.client.sui_client().retriable_sui_client();
 
-        let object_ids: Vec<ObjectID> = sui_client
+        // Query returns a single ObjectID (one blob per blob_id).
+        let object_id: ObjectID = sui_client
             .get_dynamic_field(
                 self.blob_id_to_objects_table_id,
                 TypeTag::U256,
@@ -240,7 +241,7 @@ impl<'a> BlobManagerClient<'a, SuiContractClient> {
             )
             .await?;
 
-        // Step 2: For each ObjectID, read the ManagedBlob from blobs_by_object_id table.
+        // Step 2: Read the ManagedBlob from blobs_by_object_id table using the ObjectID.
         // The table stores ManagedBlob as dynamic fields, so we use get_dynamic_field.
         let object_id_type_tag = TypeTag::Struct(Box::new(
             sui_types::parse_sui_struct_tag(&format!("{}::object::ID", SUI_FRAMEWORK_ADDRESS))
@@ -249,24 +250,23 @@ impl<'a> BlobManagerClient<'a, SuiContractClient> {
                 })?,
         ));
 
-        for object_id in object_ids {
-            let managed_blob: ManagedBlob = sui_client
-                .get_dynamic_field(
-                    self.blobs_by_object_id_table_id,
-                    object_id_type_tag.clone(),
-                    object_id,
-                )
-                .await?;
+        let managed_blob: ManagedBlob = sui_client
+            .get_dynamic_field(
+                self.blobs_by_object_id_table_id,
+                object_id_type_tag,
+                object_id,
+            )
+            .await?;
 
-            if managed_blob.deletable == deletable {
-                return Ok(managed_blob);
-            }
+        // Step 3: Verify the deletable flag matches (contract enforces only one blob per blob_id).
+        if managed_blob.deletable != deletable {
+            return Err(Self::error(format!(
+                "Blob permanency conflict: blob_id {} exists with deletable={}, requested deletable={}",
+                blob_id, managed_blob.deletable, deletable
+            )));
         }
 
-        Err(Self::error(format!(
-            "No ManagedBlob found with blob_id {} and deletable={}",
-            blob_id, deletable
-        )))
+        Ok(managed_blob)
     }
 }
 
