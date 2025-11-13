@@ -1,73 +1,18 @@
-# Setup
+# Advanced Setup
 
-We provide a pre-compiled `walrus` client binary for macOS (Intel and Apple CPUs) and Ubuntu, which
-supports different usage patterns (see [the next chapter](./interacting.md)). This chapter describes
-the [prerequisites](#prerequisites), [installation](#installation), and
-[configuration](#configuration) of the Walrus client.
+This page covers advanced setup options for Walrus, including building from source,
+installing from binaries, or using Cargo. For standard setup instructions, see the
+Walrus [Getting Started](./setup.md) guide.
 
-Walrus is open-source under an Apache 2 license, and can also be built and installed from the Rust
-source code via cargo.
+Walrus is open source under an Apache 2 license. You can download and install it through
+[`suiup`](./setup.md), or you can build and
+install it from the Rust source code through Cargo.
 
-```admonish info title="Walrus networks"
-This page describes how to connect to Walrus **Testnet**. See [Available networks](./networks.md)
-for an overview over all Walrus networks.
-```
+## Walrus binaries
 
-## Prerequisites: Sui wallet, SUI and WAL {#prerequisites}
-
-```admonish tip title="Quick wallet setup"
-If you just want to set up a new Sui wallet for Walrus, you can generate one using the
-`walrus generate-sui-wallet --sui-network mainnet` command after [installing Walrus](#installation).
-You still need to obtain some SUI and WAL tokens, but you do not have to install the Sui CLI.
-```
-
-Interacting with Walrus requires a valid Sui wallet with some amount of SUI and WAL tokens. The
-normal way to set this up is via the Sui CLI; see the [installation
-instructions](https://docs.sui.io/guides/developer/getting-started/sui-install) in the Sui
-documentation.
-
-After installing the Sui CLI, you need to set up a wallet by running `sui client`, which prompts you
-to set up a new configuration. Make sure to point it to Sui Mainnet, you can use the full node at
-`https://fullnode.mainnet.sui.io:443` for this. See [the Sui
-documentation](https://docs.sui.io/guides/developer/getting-started/configure-sui-client) for
-further details.
-
-After this, you should get something like this (everything besides the `mainnet` line is optional):
-
-```console
-$ sui client envs
-╭──────────┬─────────────────────────────────────┬────────╮
-│ alias    │ url                                 │ active │
-├──────────┼─────────────────────────────────────┼────────┤
-│ devnet   │ https://fullnode.devnet.sui.io:443  │        │
-│ localnet │ http://127.0.0.1:9000               │        │
-│ testnet  │ https://fullnode.testnet.sui.io:443 │        │
-│ mainnet  │ https://fullnode.mainnet.sui.io:443 │ *      │
-╰──────────┴─────────────────────────────────────┴────────╯
-```
-
-Make sure you have at least one gas coin with at least 1 SUI.
-
-```console
-$ sui client gas
-╭─────────────────┬────────────────────┬──────────────────╮
-│ gasCoinId       │ mistBalance (MIST) │ suiBalance (SUI) │
-├─────────────────┼────────────────────┼──────────────────┤
-│ 0x65dca966dc... │ 1000000000         │ 1.00             │
-╰─────────────────┴────────────────────┴──────────────────╯
-```
-
-Finally, to publish blobs on Walrus you will need some Mainnet WAL to pay for storage and upload
-costs. You can buy WAL through a variety of centralized or decentralized exchanges.
-
-The system-wide wallet will be used by Walrus if no other path is specified. If you want to use a
-different Sui wallet, you can specify this in the [Walrus configuration file](#configuration) or
-when [running the CLI](./interacting.md).
-
-## Installation
-
-We currently provide the `walrus` client binary for macOS (Intel and Apple CPUs), Ubuntu, and
-Windows. The Ubuntu version most likely works on other Linux distributions as well.
+The `walrus` client binary is currently provided for macOS (Intel and Apple CPUs),
+Ubuntu, and Windows. The Ubuntu version most likely works on other Linux distributions
+as well.
 
 | OS      | CPU                   | Architecture                                                                                                                 |
 | ------- | --------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
@@ -78,13 +23,22 @@ Windows. The Ubuntu version most likely works on other Linux distributions as we
 | MacOS   | Intel 64bit           | [`macos-x86_64`](https://storage.googleapis.com/mysten-walrus-binaries/walrus-mainnet-latest-macos-x86_64)                   |
 | Windows | Intel 64bit           | [`windows-x86_64.exe`](https://storage.googleapis.com/mysten-walrus-binaries/walrus-mainnet-latest-windows-x86_64.exe)       |
 
-### Install via script {#nix-install}
+```admonish tip
+Our latest Walrus binaries are also available on Walrus itself, namely on
+<https://bin.wal.app>, for example,
+<https://bin.wal.app/walrus-mainnet-latest-ubuntu-x86_64>.
+Because of DoS protection, it might not be possible to download the binaries with
+`curl` or `wget`.
+```
 
-To download and install `walrus` to your `"$HOME"/.local/bin` directory, run one of the following
-commands in your terminal then follow on-screen instructions. If you are on Windows, see the
-[Windows-specific instructions](#windows-install) or the [`suiup` installation](#suiup-install) (experimental)
+## Install via script {#nix-install}
 
-```sh
+To download and install `walrus` to your `"$HOME"/.local/bin directory`, run one of the
+following commands in your terminal then follow on-screen instructions. If you are on Windows,
+see the Windows-specific instructions or the
+[`suiup` installation](./setup.md).
+
+```bash
 # Run a first-time install using the latest Mainnet version.
 curl -sSf https://install.wal.app | sh
 
@@ -97,10 +51,7 @@ curl -sSf https://install.wal.app | sh -s -- -f
 
 Make sure that the `"$HOME"/.local/bin` directory is in your `$PATH`.
 
-Once this is done, you should be able to run Walrus by using the `walrus` command in your terminal.
-
-You can see usage instructions as follows (see [the next chapter](./interacting.md) for further
-details):
+Once this is done, you can run Walrus by using the `walrus` command in your terminal.
 
 ```console
 $ walrus --help
@@ -112,16 +63,10 @@ Commands:
 ⋮
 ```
 
-```admonish tip
-Our latest Walrus binaries are also available on Walrus itself, namely on
-<https://bin.wal.app>, for example, <https://bin.wal.app/walrus-mainnet-latest-ubuntu-x86_64>.
-Note that due to DoS protection, it may not be possible to download the binaries with `curl` or
-`wget`.
-```
+## Install on Windows {#windows-install}
 
-### Install on Windows {#windows-install}
-
-To download `walrus` to your Microsoft Windows computer, run the following in a PowerShell.
+To download `walrus` to your Microsoft Windows computer, run the following in a
+PowerShell.
 
 ```PowerShell
 (New-Object System.Net.WebClient).DownloadFile(
@@ -130,69 +75,48 @@ To download `walrus` to your Microsoft Windows computer, run the following in a 
 )
 ```
 
-From there, you'll need to place `walrus.exe` somewhere in your `PATH`.
+From there, place `walrus.exe` somewhere in your `PATH`.
 
 ```admonish title="Windows"
-Note that most of the remaining instructions assume a UNIX-based system for the directory structure,
-commands, etc. If you use Windows, you may need to adapt most of those.
+Most of the remaining instructions assume a UNIX-based system for the directory
+structure, commands, and so on. If you use Windows, you might need to adapt most of
+those.
 ```
 
-### Install via suiup (experimental) {#suiup-install}
+## GitHub releases
 
-`suiup` is a tool to install and manage different versions of CLI tools for working in the Sui
-ecosystem, including the `walrus` CLI. After installing `suiup` as described in the [`suiup`
-documentation](https://github.com/MystenLabs/suiup?tab=readme-ov-file#installation), you can install
-specific versions of the `walrus` CLI:
+You can find all the releases including release notes on
+[GitHub](https://github.com/MystenLabs/walrus/releases). Download the archive for your
+system and extract the `walrus` binary.
 
-```sh
-suiup install walrus@testnet # install the latest testnet release
-suiup install walrus@mainnet # install the latest mainnet release
-suiup install walrus@testnet-v1.27.1 # install a specific release
-```
+## Install via Cargo
 
-### GitHub releases
-
-You can find all our releases including release notes on [GitHub](https://github.com/MystenLabs/walrus/releases).
-Simply download the archive for your system and extract the `walrus` binary.
-
-### Install via Cargo
-
-You can also install Walrus via Cargo. For example, to install the latest Mainnet version:
+You can also install Walrus through Cargo. For example, to install the latest Mainnet
+version:
 
 ```sh
 cargo install --git https://github.com/MystenLabs/walrus --branch mainnet walrus-service --locked
 ```
 
-In place of `--branch mainnet`, you can also specify specific tags (e.g., `--tag mainnet-v1.18.2`)
-or commits (e.g., `--rev b2009ac73388705f379ddad48515e1c1503fc8fc`).
+In place of `--branch mainnet`, you can also specify specific tags (for example,
+`--tag mainnet-v1.18.2`) or commits (for example,
+`--rev b2009ac73388705f379ddad48515e1c1503fc8fc`).
 
-### Build from source
+## Build from source
 
-Walrus is open-source software published under the Apache 2 license. The code is developed in a
-`git` repository at <https://github.com/MystenLabs/walrus>.
+Walrus is open source software published under the Apache 2 license. The code is
+developed in a `git` repository at <https://github.com/MystenLabs/walrus>.
 
-The latest version of Mainnet and Testnet are available under the branches `mainnet` and `testnet`
-respectively, and the latest version under the `main` branch. We welcome reports of issues and bug
-fixes. Follow the instructions in the `README.md` file to build and use Walrus from source.
+The latest version of Mainnet and Testnet are available under the branches `mainnet` and
+`testnet` respectively, and the latest version under the `main` branch. Reports of issues
+and bug fixes are welcome. Follow the instructions in the `README.md` file to build and
+use Walrus from source.
 
 ## Configuration
 
-The Walrus client needs to know about the Sui objects that store the Walrus system and staking
-information, see the [developer guide](../dev-guide/sui-struct.md#system-and-staking-information).
-These need to be configured in a file `~/.config/walrus/client_config.yaml`.
-
-You can access Testnet and Mainnet via the following configuration. Note that this example Walrus
-CLI configuration refers to the standard location for Sui configuration
-(`"~/.sui/sui_config/client.yaml"`).
-
-```yaml
-{{ #include ../setup/client_config.yaml }}
-```
-
-<!-- markdownlint-disable code-fence-style -->
-
 ````admonish tip
-The easiest way to obtain the latest configuration is by downloading it directly from Walrus:
+The easiest way to obtain the latest configuration is by downloading it directly from
+Walrus:
 
 ```sh
 curl --create-dirs https://docs.wal.app/setup/client_config.yaml -o ~/.config/walrus/client_config.yaml
@@ -201,16 +125,33 @@ curl --create-dirs https://docs.wal.app/setup/client_config.yaml -o ~/.config/wa
 
 <!-- markdownlint-enable code-fence-style -->
 
+The Walrus client needs to know about the Sui objects that store the Walrus system and
+staking information, see the
+[developer guide](../dev-guide/sui-struct.md#system-and-staking-information). Configure
+these in a file at `~/.config/walrus/client_config.yaml`.
+
+You can access Testnet and Mainnet through the following configuration. This example
+Walrus CLI configuration refers to the standard location for Sui configuration
+(`"~/.sui/sui_config/client.yaml"`).
+
+```yaml
+{{ #include ../setup/client_config.yaml }}
+```
+
+<!-- markdownlint-disable code-fence-style -->
+
 ### Custom path (optional) {#config-custom-path}
 
-By default, the Walrus client will look for the `client_config.yaml` (or `client_config.yml`)
-configuration file in the current directory, `$XDG_CONFIG_HOME/walrus/`, `~/.config/walrus/`, or
-`~/.walrus/`. However, you can place the file anywhere and name it anything you like; in this case
-you need to use the `--config` option when running the `walrus` binary.
+By default, the Walrus client looks for the `client_config.yaml` (or
+`client_config.yml`) configuration file in the current directory,
+`$XDG_CONFIG_HOME/walrus/`, `~/.config/walrus/`, or `~/.walrus/`. However, you can place
+the file anywhere and name it anything you like. In this case, use the `--config` option
+when running the `walrus` binary.
 
-### Advanced configuration (optional)
+## Advanced configuration (optional)
 
-The configuration file currently supports the following parameters for each of the contexts:
+The configuration file currently supports the following parameters for each of the
+contexts:
 
 ```yaml
 # These are the only mandatory fields. These objects are specific for a particular Walrus
@@ -241,8 +182,9 @@ wallet_config:
 # [...]
 ```
 
-There are some additional parameters that can be used to tune the networking behavior of the client,
-see the [full example client configuration](../setup/client_config_example.yaml). If you experience
-excessively slow uploads, it may be worth experimenting with these values. There is no risk in
-playing around with these values; in the worst case, you may not be able to store/read blob due to
-timeouts or other networking errors.
+There are some additional parameters that you can use to tune the networking behavior of
+the client, see the
+[full example client configuration](../setup/client_config_example.yaml). If you
+experience excessively slow uploads, it might be worth experimenting with these values.
+There is no risk in playing around with these values. In the worst case, you might not be
+able to store or read blob because of timeouts or other networking errors.
