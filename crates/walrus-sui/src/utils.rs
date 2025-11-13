@@ -428,7 +428,7 @@ pub async fn get_sui_from_wallet_or_faucet(
     let min_balance = sui_amount + 2 * one_sui;
     let sender = wallet.active_address()?;
     let rpc_urls = &[wallet.get_rpc_url()?];
-    let client = RetriableSuiClient::new_for_rpc_urls(rpc_urls, Default::default(), None).await?;
+    let client = RetriableSuiClient::new_for_rpc_urls(rpc_urls, Default::default(), None)?;
     let balance = client.get_balance(sender, None).await?;
     if balance.total_balance >= u128::from(min_balance) {
         let mut ptb = ProgrammableTransactionBuilder::new();

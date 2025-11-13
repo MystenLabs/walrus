@@ -123,7 +123,7 @@ impl CatchupCoordinationState {
 
     /// Transition from download phase to processing phase.
     /// This sends a message to stop checkpoint tailing.
-    pub async fn start_catchup_processing_phase(
+    pub fn start_catchup_processing_phase(
         &self,
     ) -> Result<(), mpsc::error::SendError<CoordinationMessage>> {
         tracing::info!(
@@ -137,9 +137,7 @@ impl CatchupCoordinationState {
 
     /// Complete catchup processing and signal for checkpoint tailing restart.
     /// This sends a message to restart checkpoint tailing from the new latest checkpoint.
-    pub async fn complete_catchup(
-        &self,
-    ) -> Result<(), mpsc::error::SendError<CoordinationMessage>> {
+    pub fn complete_catchup(&self) -> Result<(), mpsc::error::SendError<CoordinationMessage>> {
         tracing::info!("completing catchup - sending restart message to checkpoint tailing");
 
         self.catchup_active
@@ -150,7 +148,7 @@ impl CatchupCoordinationState {
     }
 
     /// Signal catchup failure and resume normal operation.
-    pub async fn catchup_failed(&self) -> Result<(), mpsc::error::SendError<CoordinationMessage>> {
+    pub fn catchup_failed(&self) -> Result<(), mpsc::error::SendError<CoordinationMessage>> {
         tracing::warn!("catchup failed - sending failure message to checkpoint tailing");
 
         self.catchup_active
@@ -205,7 +203,7 @@ mod tests {
         let (state, mut rx) = CatchupCoordinationState::new();
 
         // Test sending stop message
-        state.start_catchup_processing_phase().await.unwrap();
+        state.start_catchup_processing_phase().unwrap();
 
         match rx.recv().await {
             Some(CoordinationMessage::StopCheckpointTailing) => {
@@ -215,7 +213,7 @@ mod tests {
         }
 
         // Test sending restart message
-        state.complete_catchup().await.unwrap();
+        state.complete_catchup().unwrap();
 
         match rx.recv().await {
             Some(CoordinationMessage::RestartCheckpointTailing) => {

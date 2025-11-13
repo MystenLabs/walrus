@@ -119,8 +119,7 @@ impl EventProcessor {
             runtime_config.rpc_fallback_config.as_ref(),
             metrics_registry,
             config.sampled_tracing_interval,
-        )
-        .await?;
+        )?;
 
         let stores = EventProcessorStores::new(&runtime_config.db_config, &runtime_config.db_path)?;
 

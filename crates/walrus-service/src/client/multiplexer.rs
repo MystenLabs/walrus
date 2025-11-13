@@ -147,7 +147,7 @@ impl ClientMultiplexer {
         persistence: BlobPersistence,
         post_store: PostStoreAction,
     ) -> ClientResult<BlobStoreResult> {
-        let client = self.client_pool.next_client().await;
+        let client = self.client_pool.next_client();
         tracing::debug!("submitting write request to client in pool");
 
         let result = client
@@ -208,7 +208,7 @@ impl WalrusWriteClient for ClientMultiplexer {
         blobs: &[QuiltStoreBlob<'_>],
         encoding_type: Option<EncodingType>,
     ) -> ClientResult<V::Quilt> {
-        let client = self.client_pool.next_client().await;
+        let client = self.client_pool.next_client();
         tracing::debug!("submitting construct quilt request to client in pool");
 
         let result = client.construct_quilt::<V>(blobs, encoding_type).await?;
@@ -224,7 +224,7 @@ impl WalrusWriteClient for ClientMultiplexer {
         persistence: BlobPersistence,
         post_store: PostStoreAction,
     ) -> ClientResult<QuiltStoreResult> {
-        let client = self.client_pool.next_client().await;
+        let client = self.client_pool.next_client();
         tracing::debug!("submitting write quilt request to client in pool");
 
         let result = client
@@ -315,7 +315,7 @@ impl WriteClientPool {
     }
 
     /// Returns the next client in the pool.
-    pub async fn next_client(&self) -> Arc<WalrusNodeClient<SuiContractClient>> {
+    pub fn next_client(&self) -> Arc<WalrusNodeClient<SuiContractClient>> {
         let cur_idx = self.cur_idx.fetch_add(1, Ordering::Relaxed) % self.pool.len();
 
         self.pool
@@ -442,8 +442,7 @@ impl<'a> SubClientLoader<'a> {
             rpc_urls,
             self.config.backoff_config().clone(),
             self.config.communication_config.sui_client_request_timeout,
-        )
-        .await?;
+        )?;
 
         if should_refill(&sui_client, address, None, min_balance).await {
             self.refiller.send_gas_request(address).await?;

@@ -492,8 +492,7 @@ impl SuiContractClient {
     ) -> SuiClientResult<Self> {
         let read_client = Arc::new(
             SuiReadClient::new(
-                RetriableSuiClient::new_for_rpc_urls(rpc_urls, backoff_config.clone(), None)
-                    .await?,
+                RetriableSuiClient::new_for_rpc_urls(rpc_urls, backoff_config.clone(), None)?,
                 contract_config,
             )
             .await?,
@@ -512,8 +511,7 @@ impl SuiContractClient {
     ) -> SuiClientResult<Self> {
         let read_client = Arc::new(
             SuiReadClient::new(
-                RetriableSuiClient::new_for_rpc_urls(rpc_urls, backoff_config.clone(), None)
-                    .await?
+                RetriableSuiClient::new_for_rpc_urls(rpc_urls, backoff_config.clone(), None)?
                     .with_metrics(Some(metrics)),
                 contract_config,
             )

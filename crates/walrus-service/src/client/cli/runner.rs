@@ -648,7 +648,7 @@ impl ClientCommandRunner {
         tracing::info!("retrieved {} blobs from quilt", retrieved_blobs.len());
 
         if let Some(out) = out.as_ref() {
-            Self::write_blobs_dedup(&mut retrieved_blobs, out).await?;
+            Self::write_blobs_dedup(&mut retrieved_blobs, out)?;
         }
 
         ReadQuiltOutput::new(out.clone(), retrieved_blobs).print_output(self.json)
@@ -1048,7 +1048,7 @@ impl ClientCommandRunner {
             )
         };
 
-        let quilt_store_blobs = Self::load_blobs_for_quilt(&paths, blobs).await?;
+        let quilt_store_blobs = Self::load_blobs_for_quilt(&paths, blobs)?;
 
         if dry_run {
             return Self::store_quilt_dry_run(
@@ -1095,8 +1095,7 @@ impl ClientCommandRunner {
         let start_timer = std::time::Instant::now();
         let quilt_write_client = client.quilt_client();
         let quilt = quilt_write_client
-            .construct_quilt::<QuiltVersionV1>(&quilt_store_blobs, encoding_type)
-            .await?;
+            .construct_quilt::<QuiltVersionV1>(&quilt_store_blobs, encoding_type)?;
         let base_store_args = StoreArgs::new(
             encoding_type,
             epochs_ahead,
@@ -1285,7 +1284,7 @@ impl ClientCommandRunner {
         result.print_output(self.json)
     }
 
-    async fn load_blobs_for_quilt(
+    fn load_blobs_for_quilt(
         paths: &[PathBuf],
         blob_inputs: Vec<QuiltBlobInput>,
     ) -> Result<Vec<QuiltStoreBlob<'static>>> {
@@ -1334,9 +1333,7 @@ impl ClientCommandRunner {
         tracing::info!("performing dry-run for quilt from {} blobs", blobs.len());
 
         let quilt_client = client.quilt_client();
-        let quilt = quilt_client
-            .construct_quilt::<QuiltVersionV1>(blobs, encoding_type)
-            .await?;
+        let quilt = quilt_client.construct_quilt::<QuiltVersionV1>(blobs, encoding_type)?;
         let (_, metadata) =
             client.encode_pairs_and_metadata(quilt.data(), encoding_type, &MultiProgress::new())?;
         let unencoded_size = metadata.metadata().unencoded_length();
@@ -1932,10 +1929,7 @@ impl ClientCommandRunner {
         Ok(())
     }
 
-    async fn write_blobs_dedup(
-        blobs: &mut [QuiltStoreBlob<'static>],
-        out_dir: &Path,
-    ) -> Result<()> {
+    fn write_blobs_dedup(blobs: &mut [QuiltStoreBlob<'static>], out_dir: &Path) -> Result<()> {
         let mut filename_counters = std::collections::HashMap::new();
 
         for blob in &mut *blobs {

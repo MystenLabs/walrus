@@ -493,7 +493,7 @@ pub async fn generate_sui_wallet(
     );
     let mut wallet = walrus_sui::utils::create_wallet(path, sui_network.env(), None, None).await?;
     let rpc_urls = &[wallet.get_rpc_url()?];
-    let client = RetriableSuiClient::new_for_rpc_urls(rpc_urls, Default::default(), None).await?;
+    let client = RetriableSuiClient::new_for_rpc_urls(rpc_urls, Default::default(), None)?;
 
     let wallet_address = wallet.active_address()?;
     tracing::info!("generated a new Sui wallet; address: {wallet_address}");
