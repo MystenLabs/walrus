@@ -68,9 +68,9 @@ use crate::{
     client::{
         auto_tune::AutoTuneHandle,
         client_types::{
+            BlobAwaitingUpload,
             BlobData,
-            BlobReadyForCertifyAndExtend,
-            BlobToBeCertified,
+            BlobPendingCertifyAndExtend,
             BlobWithStatus,
             EncodedBlob,
             UnencodedBlob,
@@ -1190,25 +1190,25 @@ impl WalrusNodeClient<SuiContractClient> {
         // Classify the blobs into to_be_certified and to_be_extended, and move completed blobs to
         // final_result.
         let mut final_result: Vec<WalrusStoreBlobFinished> = Vec::with_capacity(blobs_count);
-        let mut blobs_to_be_certified = Vec::new();
-        let mut blobs_to_certify_and_extend = Vec::new();
+        let mut blobs_awaiting_upload = Vec::new();
+        let mut blobs_pending_certify_and_extend = Vec::new();
 
         for registered_blob in registered_blobs {
             match registered_blob.try_finish() {
                 Ok(blob) => final_result.push(blob),
                 Err(blob) => match blob.map_either(|blob| blob.classify(), "classify") {
                     utils::Either::Left(blob_to_be_certified) => {
-                        blobs_to_be_certified.push(blob_to_be_certified)
+                        blobs_awaiting_upload.push(blob_to_be_certified)
                     }
                     utils::Either::Right(blob_to_be_extended) => {
-                        blobs_to_certify_and_extend.push(blob_to_be_extended)
+                        blobs_pending_certify_and_extend.push(blob_to_be_extended)
                     }
                 },
             }
         }
-        let num_to_be_certified = blobs_to_be_certified.len();
+        let num_to_be_certified = blobs_awaiting_upload.len();
         debug_assert_eq!(
-            num_to_be_certified + blobs_to_certify_and_extend.len() + final_result.len(),
+            num_to_be_certified + blobs_pending_certify_and_extend.len() + final_result.len(),
             blobs_count,
             "the sum of the number of blobs to certify, extend, and store must be the original \
             number of blobs"
@@ -1224,15 +1224,15 @@ impl WalrusNodeClient<SuiContractClient> {
         }
 
         // Get blob certificates for to_be_certified blobs.
-        let mut blobs_with_certificates = Vec::with_capacity(blobs_to_be_certified.len());
-        if !blobs_to_be_certified.is_empty() {
+        let mut blobs_with_certificates = Vec::with_capacity(blobs_awaiting_upload.len());
+        if !blobs_awaiting_upload.is_empty() {
             let get_certificates_timer = Instant::now();
             // Get the blob certificates, possibly storing slivers, while checking if the committee
             // has changed in the meantime.
             // This operation can be safely interrupted as it does not require a wallet.
             blobs_with_certificates = self
                 .await_while_checking_notification(
-                    self.get_all_blob_certificates(blobs_to_be_certified, store_args),
+                    self.get_all_blob_certificates(blobs_awaiting_upload, store_args),
                 )
                 .await?;
 
@@ -1251,11 +1251,11 @@ impl WalrusNodeClient<SuiContractClient> {
         let (to_be_certified, completed_blobs) =
             client_types::partition_unfinished_finished(blobs_with_certificates);
         final_result.extend(completed_blobs);
-        blobs_to_certify_and_extend.extend(to_be_certified);
+        blobs_pending_certify_and_extend.extend(to_be_certified);
 
         // Certify and extend the blobs on Sui.
         final_result.extend(
-            self.certify_and_extend_blobs(blobs_to_certify_and_extend, store_args)
+            self.certify_and_extend_blobs(blobs_pending_certify_and_extend, store_args)
                 .await?,
         );
 
@@ -1290,9 +1290,9 @@ impl WalrusNodeClient<SuiContractClient> {
     #[tracing::instrument(level = Level::DEBUG, skip_all)]
     async fn get_all_blob_certificates(
         &self,
-        blobs_to_be_certified: Vec<WalrusStoreBlobUnfinished<BlobToBeCertified>>,
+        blobs_to_be_certified: Vec<WalrusStoreBlobUnfinished<BlobAwaitingUpload>>,
         store_args: &StoreArgs,
-    ) -> ClientResult<Vec<WalrusStoreBlobMaybeFinished<BlobReadyForCertifyAndExtend>>> {
+    ) -> ClientResult<Vec<WalrusStoreBlobMaybeFinished<BlobPendingCertifyAndExtend>>> {
         if blobs_to_be_certified.is_empty() {
             return Ok(vec![]);
         }
@@ -1325,13 +1325,13 @@ impl WalrusNodeClient<SuiContractClient> {
 
     async fn get_certificate(
         &self,
-        blob_to_be_certified: WalrusStoreBlobUnfinished<BlobToBeCertified>,
+        blob_to_be_certified: WalrusStoreBlobUnfinished<BlobAwaitingUpload>,
         multi_pb: &MultiProgress,
         store_args: &StoreArgs,
-    ) -> ClientResult<WalrusStoreBlobMaybeFinished<BlobReadyForCertifyAndExtend>> {
+    ) -> ClientResult<WalrusStoreBlobMaybeFinished<BlobPendingCertifyAndExtend>> {
         let committees = self.get_committees().await?;
 
-        let BlobToBeCertified {
+        let BlobAwaitingUpload {
             encoded_blob,
             status: blob_status,
             blob_object,
@@ -1408,7 +1408,7 @@ impl WalrusNodeClient<SuiContractClient> {
 
     async fn certify_and_extend_blobs(
         &self,
-        blobs_to_certify_and_extend: Vec<WalrusStoreBlobUnfinished<BlobReadyForCertifyAndExtend>>,
+        blobs_to_certify_and_extend: Vec<WalrusStoreBlobUnfinished<BlobPendingCertifyAndExtend>>,
         store_args: &StoreArgs,
     ) -> ClientResult<Vec<WalrusStoreBlobFinished>> {
         let blobs_count = blobs_to_certify_and_extend.len();

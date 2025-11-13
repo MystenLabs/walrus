@@ -374,11 +374,11 @@ impl<S> WalrusStoreBlobState<S> {
 impl<S: WalrusStoreBlobStateApi> WalrusStoreBlobState<S> {
     /// Maps the blob state to a new blob state with the given function.
     ///
-    /// If the blob state is already in a success or failure state, it is returned unchanged. If it
-    /// is [`WalrusStoreBlobState::BlobInState`], the function is applied to the state. If the
-    /// function returns an error, the blob state is set to [`WalrusStoreBlobState::Failure`],
-    /// unless the error indicates that the operation should fail immediately, in which case the
-    /// error is returned.
+    /// If the blob state is already in a [WalrusStoreBlobState::Finished], it is returned
+    /// unchanged. If it is [WalrusStoreBlobState::Unfinished], the function is applied to the
+    /// state. If the function returns an error, the blob state is set to
+    /// [WalrusStoreBlobState::Finished] with an error, unless the error indicates that the
+    /// operation should fail immediately, in which case the error is returned.
     pub(crate) fn map<T, F>(
         self,
         f: F,
@@ -434,7 +434,9 @@ impl WalrusStoreBlobMaybeFinished {
                 unencoded_length: blob.len(),
                 encoding_config,
             },
-            state: WalrusStoreBlobState::new(UnencodedBlob { blob }),
+            state: WalrusStoreBlobState::new(UnencodedBlob {
+                unencoded_data: blob,
+            }),
         }
     }
 
@@ -478,16 +480,16 @@ impl<S: WalrusStoreBlobStateApi> WalrusStoreBlobMaybeFinished<S> {
 pub struct UnencodedBlob {
     /// The raw blob data to be stored.
     // TODO(WAL-1008): Consider using a `Bytes` object here instead.
-    pub blob: Vec<u8>,
+    pub unencoded_data: Vec<u8>,
 }
 
 impl Debug for UnencodedBlob {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("UnencodedBlob")
-            .field("blob_len", &self.blob.len())
+            .field("blob_len", &self.unencoded_data.len())
             .field(
-                "blob_prefix",
-                &walrus_core::utils::data_prefix_string(&self.blob, 5),
+                "data_prefix",
+                &walrus_core::utils::data_prefix_string(&self.unencoded_data, 5),
             )
             .finish()
     }
@@ -517,15 +519,15 @@ impl UnencodedBlob {
 
         let (metadata, data) = if let Some(upload_relay_client) = upload_relay_client {
             let metadata = encoding_config
-                .compute_metadata(&self.blob)
+                .compute_metadata(&self.unencoded_data)
                 .map_err(ClientError::other)?;
             (
                 metadata,
-                BlobData::BlobForUploadRelay(Arc::new(self.blob), upload_relay_client),
+                BlobData::BlobForUploadRelay(Arc::new(self.unencoded_data), upload_relay_client),
             )
         } else {
             let (pairs, metadata) = encoding_config
-                .encode_with_metadata(&self.blob)
+                .encode_with_metadata(&self.unencoded_data)
                 .map_err(ClientError::other)?;
             (metadata, BlobData::SliverPairs(Arc::new(pairs)))
         };
@@ -718,11 +720,11 @@ impl WalrusStoreEncodedBlobApi for RegisteredBlob {
 impl RegisteredBlob {
     /// Classifies the registered blob into either a blob that needs to be certified or a blob that
     /// is ready to be extended.
-    pub fn classify(self) -> Either<BlobToBeCertified, BlobReadyForCertifyAndExtend> {
+    pub fn classify(self) -> Either<BlobAwaitingUpload, BlobPendingCertifyAndExtend> {
         match self.operation {
             RegisterBlobOp::ReuseAndExtend {
                 epochs_extended, ..
-            } => Either::Right(BlobReadyForCertifyAndExtend {
+            } => Either::Right(BlobPendingCertifyAndExtend {
                 blob_object: self.blob_object,
                 operation: self.operation,
                 certificate: None,
@@ -738,7 +740,7 @@ impl RegisteredBlob {
                 } else {
                     None
                 };
-                Either::Left(BlobToBeCertified {
+                Either::Left(BlobAwaitingUpload {
                     encoded_blob: self.encoded_blob,
                     status: self.status,
                     blob_object: self.blob_object,
@@ -754,7 +756,7 @@ impl RegisteredBlob {
 // INV: The operation is NOT `ReuseAndExtend`.
 // INV: The epochs_extended is `Some` iff the operation is `ReuseAndExtendNonCertified`.
 #[derive(Debug, Clone, PartialEq)]
-pub struct BlobToBeCertified {
+pub struct BlobAwaitingUpload {
     /// The encoded blob.
     pub encoded_blob: EncodedBlob,
     /// The current status of the blob in the system.
@@ -767,17 +769,17 @@ pub struct BlobToBeCertified {
     pub epochs_extended: Option<EpochCount>,
 }
 
-impl WalrusStoreBlobUnfinished<BlobToBeCertified> {
+impl WalrusStoreBlobUnfinished<BlobAwaitingUpload> {
     /// Converts the blob to a blob ready for certification and (optionally) extension based on the
     /// given certificate result.
     pub fn with_certificate_result(
         self,
         certificate: ClientResult<ConfirmationCertificate>,
-    ) -> ClientResult<WalrusStoreBlobMaybeFinished<BlobReadyForCertifyAndExtend>> {
+    ) -> ClientResult<WalrusStoreBlobMaybeFinished<BlobPendingCertifyAndExtend>> {
         let certificate = certificate?;
         self.into_maybe_finished().map(
             move |blob| {
-                Ok(BlobReadyForCertifyAndExtend {
+                Ok(BlobPendingCertifyAndExtend {
                     blob_object: blob.blob_object,
                     operation: blob.operation,
                     certificate: Some(Arc::new(certificate)),
@@ -789,8 +791,8 @@ impl WalrusStoreBlobUnfinished<BlobToBeCertified> {
     }
 }
 
-impl WalrusStoreEncodedBlobApi for BlobToBeCertified {
-    const STATE: &'static str = "ToBeCertified";
+impl WalrusStoreEncodedBlobApi for BlobAwaitingUpload {
+    const STATE: &'static str = "AwaitingUpload";
 
     fn blob_id(&self) -> BlobId {
         self.encoded_blob.blob_id()
@@ -802,7 +804,7 @@ impl WalrusStoreEncodedBlobApi for BlobToBeCertified {
 // INV: The epochs_extended is `Some` iff the operation is `ReuseAndExtend` or
 // `ReuseAndExtendNonCertified`.
 #[derive(Clone, PartialEq, Debug)]
-pub struct BlobReadyForCertifyAndExtend {
+pub struct BlobPendingCertifyAndExtend {
     /// The blob object that was registered.
     pub blob_object: Blob,
     /// The operation that is performed to store the blob.
@@ -813,15 +815,15 @@ pub struct BlobReadyForCertifyAndExtend {
     pub epochs_extended: Option<EpochCount>,
 }
 
-impl WalrusStoreEncodedBlobApi for BlobReadyForCertifyAndExtend {
-    const STATE: &'static str = "ReadyForCertifyAndExtend";
+impl WalrusStoreEncodedBlobApi for BlobPendingCertifyAndExtend {
+    const STATE: &'static str = "PendingCertifyAndExtend";
 
     fn blob_id(&self) -> BlobId {
         self.blob_object.blob_id
     }
 }
 
-impl<'a> WalrusStoreBlobUnfinished<BlobReadyForCertifyAndExtend> {
+impl<'a> WalrusStoreBlobUnfinished<BlobPendingCertifyAndExtend> {
     /// Returns the parameters for the Sui transaction to certify and extend the blob.
     pub fn get_certify_and_extend_params(&'a self) -> CertifyAndExtendBlobParams<'a> {
         CertifyAndExtendBlobParams {
@@ -833,7 +835,7 @@ impl<'a> WalrusStoreBlobUnfinished<BlobReadyForCertifyAndExtend> {
     }
 }
 
-impl BlobReadyForCertifyAndExtend {
+impl BlobPendingCertifyAndExtend {
     /// Converts the blob to a blob store result based on the given certify and extend result and
     /// price computation.
     pub fn with_certify_and_extend_result(
