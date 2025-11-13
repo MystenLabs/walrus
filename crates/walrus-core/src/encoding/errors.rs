@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use alloc::{string::String, vec::Vec};
-use core::num::NonZeroU16;
 
 use thiserror::Error;
 
@@ -36,13 +35,12 @@ pub enum EncodeError {
     /// The data size is invalid for this encoder.
     #[error(transparent)]
     InvalidDataSize(#[from] InvalidDataSizeError),
-    /// The data is not properly aligned; i.e., it is not a multiple of the symbol size or symbol
-    /// count.
-    #[error("the data is not properly aligned (must be a multiple of {0})")]
-    MisalignedData(NonZeroU16),
-    /// The parameters are incompatible with the Reed-Solomon encoder.
-    #[error("the parameters are incompatible with the Reed-Solomon encoder: {0}")]
-    IncompatibleParameters(#[from] reed_solomon_simd::Error),
+    /// The data length is not supported by this encoder.
+    #[error("the data length is incorrect (expected: {0})")]
+    IncorrectDataLength(usize),
+    /// The parameters are incompatible with the encoder.
+    #[error("the parameters are incompatible with the encoder: {0}")]
+    IncompatibleParameters(String),
 }
 
 /// Error type returned when decoding fails.

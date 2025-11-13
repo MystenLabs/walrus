@@ -479,7 +479,7 @@ impl<S: WalrusStoreBlobStateApi> WalrusStoreBlobMaybeFinished<S> {
 #[derive(Clone, PartialEq)]
 pub struct UnencodedBlob {
     /// The raw blob data to be stored.
-    // TODO(WAL-1008): Consider using a `Bytes` object here instead.
+    // TODO(WAL-1093): Consider using a `Bytes` object here instead.
     pub unencoded_data: Vec<u8>,
 }
 
@@ -527,7 +527,7 @@ impl UnencodedBlob {
             )
         } else {
             let (pairs, metadata) = encoding_config
-                .encode_with_metadata(&self.unencoded_data)
+                .encode_with_metadata(self.unencoded_data)
                 .map_err(ClientError::other)?;
             (metadata, BlobData::SliverPairs(Arc::new(pairs)))
         };

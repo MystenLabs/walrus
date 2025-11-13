@@ -175,7 +175,7 @@ impl Controller {
                     .encoding_type
                     .unwrap_or(walrus_sdk::core::DEFAULT_ENCODING),
             )
-            .encode_with_metadata(body.as_ref())?;
+            .encode_with_metadata(body.into())?;
         let duration = encode_start_timer.elapsed();
 
         tracing::debug!(
