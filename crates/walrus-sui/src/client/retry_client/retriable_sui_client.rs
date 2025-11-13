@@ -232,13 +232,12 @@ pub struct RetriableSuiClient {
 
 impl RetriableSuiClient {
     /// Creates a new retriable client.
-    pub async fn new(
+    pub fn new(
         lazy_client_builders: Vec<LazySuiClientBuilder>,
         backoff_config: ExponentialBackoffConfig,
     ) -> anyhow::Result<Self> {
         Ok(RetriableSuiClient {
             failover_sui_client: FailoverWrapper::new(lazy_client_builders)
-                .await
                 .context("creating failover wrapper")?,
             backoff_config,
             metrics: None,
@@ -257,7 +256,7 @@ impl RetriableSuiClient {
     }
 
     /// Creates a new retriable client from an RCP address.
-    pub async fn new_for_rpc_urls<S: AsRef<str>>(
+    pub fn new_for_rpc_urls<S: AsRef<str>>(
         rpc_addresses: &[S],
         backoff_config: ExponentialBackoffConfig,
         request_timeout: Option<Duration>,
@@ -266,7 +265,7 @@ impl RetriableSuiClient {
             .iter()
             .map(|rpc_url| LazySuiClientBuilder::new(rpc_url, request_timeout))
             .collect::<Vec<_>>();
-        Ok(Self::new(failover_clients, backoff_config).await?)
+        Ok(Self::new(failover_clients, backoff_config)?)
     }
 
     // Reimplementation of the `SuiClient` methods.

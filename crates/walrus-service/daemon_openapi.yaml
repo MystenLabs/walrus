@@ -802,6 +802,7 @@ components:
             type: object
             description: Operation failed.
             required:
+            - failure_phase
             - error_msg
             properties:
               blob_id:
@@ -812,6 +813,9 @@ components:
               error_msg:
                 type: string
                 description: The error message.
+              failure_phase:
+                type: string
+                description: The phase after the error occurred.
       description: Result when attempting to store a blob.
     EncodingType:
       type: string
@@ -965,13 +969,13 @@ components:
                 description: The size of the encoded blob in bytes.
                 minimum: 0
       - type: object
-        description: A registration was already present.
+        description: A matching registration was already present in the wallet.
         required:
         - reuseRegistration
         properties:
           reuseRegistration:
             type: object
-            description: A registration was already present.
+            description: A matching registration was already present in the wallet.
             required:
             - encoded_length
             properties:

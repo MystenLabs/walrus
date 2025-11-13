@@ -182,7 +182,7 @@ mod faults_tests {
     #[test]
     fn crash_recovery_1_fault() {
         let max_faults = 1;
-        let interval = Duration::from_secs(60);
+        let interval = Duration::from_mins(1);
         let faulty = (0..max_faults)
             .map(|i| Instance::new_for_test(i.to_string()))
             .collect();
@@ -214,7 +214,7 @@ mod faults_tests {
     #[test]
     fn crash_recovery_2_faults() {
         let max_faults = 2;
-        let interval = Duration::from_secs(60);
+        let interval = Duration::from_mins(1);
         let faulty = (0..max_faults)
             .map(|i| Instance::new_for_test(i.to_string()))
             .collect();
@@ -245,7 +245,7 @@ mod faults_tests {
 
     #[test]
     fn crash_recovery() {
-        let interval = Duration::from_secs(60);
+        let interval = Duration::from_mins(1);
         for i in 3..33 {
             let max_faults = i;
             let min_faults = max_faults / 3;

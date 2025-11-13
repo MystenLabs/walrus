@@ -50,7 +50,7 @@ use walrus_sdk::{ObjectID, client::WalrusNodeClient, config::ClientConfig};
 use walrus_sui::client::{SuiReadClient, retry_client::RetriableSuiClient};
 
 const TOMBSTONE_FILENAME: &str = "tombstone";
-const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(15 * 60);
+const DOWNLOAD_TIMEOUT: Duration = Duration::from_mins(15);
 
 // TODO: Possibly make this configurable.
 const DOWNLOAD_BATCH_SIZE: usize = 10;
@@ -257,8 +257,7 @@ async fn get_backfill_client(config: ClientConfig) -> Result<WalrusNodeClient<Su
         &config.rpc_urls,
         config.backoff_config().clone(),
         None,
-    )
-    .await?;
+    )?;
     let sui_read_client = config.new_read_client(retriable_sui_client).await?;
     let refresh_handle = config
         .refresh_config

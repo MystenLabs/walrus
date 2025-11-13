@@ -5,7 +5,10 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::config::communication_config::ClientCommunicationConfig;
+use crate::config::communication_config::{
+    ClientCommunicationConfig,
+    UploadMode as CommunicationUploadMode,
+};
 
 /// Upload preset modes for tuning client concurrency and network usage.
 ///
@@ -68,5 +71,15 @@ impl UploadMode {
         }
 
         config
+    }
+}
+
+impl From<CommunicationUploadMode> for UploadMode {
+    fn from(value: CommunicationUploadMode) -> Self {
+        match value {
+            CommunicationUploadMode::Conservative => UploadMode::Conservative,
+            CommunicationUploadMode::Balanced => UploadMode::Balanced,
+            CommunicationUploadMode::Aggressive => UploadMode::Aggressive,
+        }
     }
 }

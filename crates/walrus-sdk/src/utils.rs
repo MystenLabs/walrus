@@ -16,6 +16,15 @@ use indicatif::{ProgressBar, ProgressStyle};
 use tokio::time;
 use tracing::Level;
 
+/// A type representing a value that is either of type `L` or `R`.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Either<L, R> {
+    /// The value is of type `L`.
+    Left(L),
+    /// The value is of type `R`.
+    Right(R),
+}
+
 /// A trait representing a result that has a weight.
 pub trait WeightedResult {
     /// The type `T` in the inner `Result<T,E>`.

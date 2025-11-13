@@ -130,6 +130,14 @@ impl ClientConfig {
         }
     }
 
+    fn apply_upload_mode_preset(&mut self) {
+        if let Some(mode) = self.communication_config.upload_mode {
+            let preset: UploadPreset = mode.into();
+            let communication_config = std::mem::take(&mut self.communication_config);
+            self.communication_config = preset.apply_to(communication_config);
+        }
+    }
+
     /// Loads the Walrus client configuration from the given path along with a context. If the file
     /// is a multi-config file, the context argument can be used to override the default context.
     pub fn load_from_multi_config(
@@ -138,7 +146,7 @@ impl ClientConfig {
     ) -> anyhow::Result<(Self, Option<String>)> {
         let path = path.as_ref();
         match walrus_utils::load_from_yaml(path) {
-            Ok(MultiClientConfig::SingletonConfig(config)) => {
+            Ok(MultiClientConfig::SingletonConfig(mut config)) => {
                 if let Some(context) = context {
                     bail!(
                         "cannot specify context when using a single-context configuration file \
@@ -147,6 +155,7 @@ impl ClientConfig {
                         context,
                     )
                 }
+                config.apply_upload_mode_preset();
                 Ok((config, None))
             }
             Ok(MultiClientConfig::MultiConfig {
@@ -154,18 +163,17 @@ impl ClientConfig {
                 default_context,
             }) => {
                 let target_context = context.unwrap_or(&default_context);
-                Ok((
-                    contexts.get(target_context).cloned().ok_or_else(|| {
-                        anyhow::anyhow!(
+                let mut config = contexts.get(target_context).cloned().ok_or_else(|| {
+                    anyhow::anyhow!(
                         "context '{}' not found in multi-config file '{}'. available context(s): \
                         [{}]",
                         target_context,
                         path.display(),
                         contexts.keys().map(|x| format!("'{x}'")).join(", ")
                     )
-                    })?,
-                    Some(target_context.to_string()),
-                ))
+                })?;
+                config.apply_upload_mode_preset();
+                Ok((config, Some(target_context.to_string())))
             }
             Err(e) => bail!(
                 "unable to parse the client config file: [config_filename='{}', error='{}']\n\

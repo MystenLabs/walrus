@@ -28,7 +28,6 @@ use walrus_sui::client::{
 };
 use walrus_utils::backoff::{self, BackoffStrategy, ExponentialBackoff, ExponentialBackoffConfig};
 
-use super::{WalrusStoreBlob, WalrusStoreBlobApi};
 use crate::{
     ObjectID,
     client::WalrusNodeClient,
@@ -122,6 +121,17 @@ pub struct UploadRelayClient {
     http_client: reqwest::Client,
     /// The backoff configuration for retries.
     backoff_config: ExponentialBackoffConfig,
+}
+
+impl PartialEq for UploadRelayClient {
+    fn eq(&self, other: &Self) -> bool {
+        self.user_address == other.user_address
+            && self.n_shards == other.n_shards
+            && self.upload_relay == other.upload_relay
+            && self.tip_config == other.tip_config
+            && self.gas_budget == other.gas_budget
+            && self.backoff_config == other.backoff_config
+    }
 }
 
 impl UploadRelayClient {

@@ -170,11 +170,11 @@ impl RpcFallbackConfig {
     }
 
     fn default_failure_window_to_start_fallback_duration() -> Duration {
-        Duration::from_secs(300)
+        Duration::from_mins(5)
     }
 
     fn default_skip_rpc_for_checkpoint_duration() -> Duration {
-        Duration::from_secs(300)
+        Duration::from_mins(5)
     }
 
     fn default_max_consecutive_failures() -> usize {

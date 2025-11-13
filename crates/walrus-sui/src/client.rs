@@ -230,20 +230,20 @@ impl SuiClientError {
 /// When certificate is present, the blob will be certified on Sui.
 /// When epochs_ahead is present, the blob will be extended on Sui.
 /// These two operations are allowed to be present at the same time.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct CertifyAndExtendBlobParams<'a> {
     /// The ID of the blob.
     pub blob: &'a Blob,
     /// The attribute of the blob.
     pub attribute: &'a BlobAttribute,
-    /// The certificate for the blob.
-    pub certificate: Option<ConfirmationCertificate>,
-    /// The number of epochs by which to extend the blob.
+    /// The certificate for the blob (if it needs to be certified).
+    pub certificate: Option<Arc<ConfirmationCertificate>>,
+    /// The number of epochs by which to extend the blob (if it needs to be extended).
     pub epochs_extended: Option<EpochCount>,
 }
 
 /// Result of certifying and extending a blob.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct CertifyAndExtendBlobResult {
     /// The blob.
     pub blob_object_id: ObjectID,
@@ -398,7 +398,7 @@ impl PostStoreAction {
 }
 
 /// Result of getting the shared blob object ID.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum GetSharedBlobResult {
     /// The blob was found.
     Success(ObjectID),
@@ -407,7 +407,7 @@ pub enum GetSharedBlobResult {
 }
 
 /// Result of the post store action.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum PostStoreActionResult {
     /// The blob was burned.
     Burned,
@@ -492,8 +492,7 @@ impl SuiContractClient {
     ) -> SuiClientResult<Self> {
         let read_client = Arc::new(
             SuiReadClient::new(
-                RetriableSuiClient::new_for_rpc_urls(rpc_urls, backoff_config.clone(), None)
-                    .await?,
+                RetriableSuiClient::new_for_rpc_urls(rpc_urls, backoff_config.clone(), None)?,
                 contract_config,
             )
             .await?,
@@ -512,8 +511,7 @@ impl SuiContractClient {
     ) -> SuiClientResult<Self> {
         let read_client = Arc::new(
             SuiReadClient::new(
-                RetriableSuiClient::new_for_rpc_urls(rpc_urls, backoff_config.clone(), None)
-                    .await?
+                RetriableSuiClient::new_for_rpc_urls(rpc_urls, backoff_config.clone(), None)?
                     .with_metrics(Some(metrics)),
                 contract_config,
             )
@@ -1315,14 +1313,14 @@ impl SuiContractClient {
     #[tracing::instrument(level = Level::DEBUG, skip_all)]
     pub async fn certify_and_extend_blobs(
         &self,
-        blobs_with_certificates: &[CertifyAndExtendBlobParams<'_>],
+        certify_and_extend_parameters: &[CertifyAndExtendBlobParams<'_>],
         post_store: PostStoreAction,
     ) -> SuiClientResult<Vec<CertifyAndExtendBlobResult>> {
         self.retry_on_wrong_version(|| async {
             self.inner
                 .lock()
                 .await
-                .certify_and_extend_blobs(blobs_with_certificates, post_store)
+                .certify_and_extend_blobs(certify_and_extend_parameters, post_store)
                 .await
         })
         .await
@@ -2686,13 +2684,13 @@ impl SuiContractClientInner {
     /// Returns the shared blob object ID if the post store action is Share.
     pub async fn certify_and_extend_blobs(
         &mut self,
-        blobs_with_certificates: &[CertifyAndExtendBlobParams<'_>],
+        certify_and_extend_parameters: &[CertifyAndExtendBlobParams<'_>],
         post_store: PostStoreAction,
     ) -> SuiClientResult<Vec<CertifyAndExtendBlobResult>> {
         let with_credits = self.read_client.get_credits_package_id().is_some();
         if with_credits {
             match self
-                .certify_and_extend_blobs_inner(blobs_with_certificates, post_store, true)
+                .certify_and_extend_blobs_inner(certify_and_extend_parameters, post_store, true)
                 .await
             {
                 Ok(result) => return Ok(result),
@@ -2709,24 +2707,24 @@ impl SuiContractClientInner {
             }
         }
 
-        self.certify_and_extend_blobs_inner(blobs_with_certificates, post_store, false)
+        self.certify_and_extend_blobs_inner(certify_and_extend_parameters, post_store, false)
             .await
     }
 
     /// Common implementation for certifying and extending blobs with different extension strategies
     async fn certify_and_extend_blobs_inner<'b>(
         &mut self,
-        blobs_with_certificates: &[CertifyAndExtendBlobParams<'b>],
+        certify_and_extend_parameters: &[CertifyAndExtendBlobParams<'b>],
         post_store: PostStoreAction,
         with_credits: bool,
     ) -> SuiClientResult<Vec<CertifyAndExtendBlobResult>> {
-        if blobs_with_certificates.is_empty() {
+        if certify_and_extend_parameters.is_empty() {
             return Ok(vec![]);
         }
 
         let mut pt_builder = self.transaction_builder()?;
 
-        for blob_params in blobs_with_certificates {
+        for blob_params in certify_and_extend_parameters {
             let blob = blob_params.blob;
 
             if let Some(certificate) = blob_params.certificate.as_ref() {
@@ -2770,7 +2768,7 @@ impl SuiContractClientInner {
         }
 
         let post_store_action_results = self
-            .get_post_store_action_results(&res, blobs_with_certificates, &post_store)
+            .get_post_store_action_results(&res, certify_and_extend_parameters, &post_store)
             .await
             .map_err(|e| {
                 tracing::warn!(error = ?e, "failed to get post store action results");
@@ -2780,7 +2778,7 @@ impl SuiContractClientInner {
                 )
             })?;
 
-        let results = blobs_with_certificates
+        let results = certify_and_extend_parameters
             .iter()
             .zip(post_store_action_results.into_iter())
             .map(|(blob_params, r)| CertifyAndExtendBlobResult {
@@ -2796,14 +2794,14 @@ impl SuiContractClientInner {
     async fn get_post_store_action_results(
         &self,
         res: &SuiTransactionBlockResponse,
-        cert_and_extend_params: &[CertifyAndExtendBlobParams<'_>],
+        certify_and_extend_parameters: &[CertifyAndExtendBlobParams<'_>],
         post_store: &PostStoreAction,
     ) -> SuiClientResult<Vec<PostStoreActionResult>> {
         if *post_store == PostStoreAction::Share {
-            self.get_share_blob_result(cert_and_extend_params, res)
+            self.get_share_blob_result(certify_and_extend_parameters, res)
                 .await
         } else {
-            Ok(cert_and_extend_params
+            Ok(certify_and_extend_parameters
                 .iter()
                 .map(|_| PostStoreActionResult::new(post_store, None))
                 .collect())
@@ -2812,17 +2810,17 @@ impl SuiContractClientInner {
 
     async fn get_share_blob_result(
         &self,
-        cert_and_extend_params: &[CertifyAndExtendBlobParams<'_>],
+        certify_and_extend_parameters: &[CertifyAndExtendBlobParams<'_>],
         res: &SuiTransactionBlockResponse,
     ) -> SuiClientResult<Vec<PostStoreActionResult>> {
         // Try to get the shared blob mapping
         match self
-            .get_shared_blob_mapping(cert_and_extend_params, res)
+            .get_shared_blob_mapping(certify_and_extend_parameters, res)
             .await
         {
             Ok(shared_mapping) => {
                 // Create results with successful ID mappings
-                let results = cert_and_extend_params
+                let results = certify_and_extend_parameters
                     .iter()
                     .map(|param| {
                         let shared_result = match shared_mapping.get(&param.blob.id) {
@@ -2838,7 +2836,7 @@ impl SuiContractClientInner {
             }
             Err(err) => {
                 // Create results with error for all params
-                let results = cert_and_extend_params
+                let results = certify_and_extend_parameters
                     .iter()
                     .map(|_| {
                         PostStoreActionResult::Shared(GetSharedBlobResult::Failed(err.to_string()))

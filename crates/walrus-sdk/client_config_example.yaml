@@ -31,7 +31,7 @@ communication_config:
     factor: 0.5
     base_millis: 500
   sliver_status_check_threshold: 5560
-  child_process_uploads_enabled: false
+  tail_handling: blocking
   data_in_flight_auto_tune:
     enabled: false
     window_sample_target: 20
@@ -42,6 +42,7 @@ communication_config:
     max_permits: 2000
     secondary_weight: 0.5
     min_blob_size_bytes: 52428800
+  upload_mode: balanced
   registration_delay_millis: 200
   max_total_blob_size: 1073741824
   committee_change_backoff:

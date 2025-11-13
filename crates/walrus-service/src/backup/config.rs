@@ -208,11 +208,11 @@ pub mod defaults {
     }
     /// Default time to allow blob uploads to take before timing out.
     pub fn blob_upload_timeout() -> Duration {
-        Duration::from_secs(60)
+        Duration::from_mins(1)
     }
     /// Default time to allow blob deletions to take before timing out.
     pub fn blob_delete_timeout() -> Duration {
-        Duration::from_secs(60)
+        Duration::from_mins(1)
     }
     pub fn blob_job_chunk_size() -> u32 {
         10

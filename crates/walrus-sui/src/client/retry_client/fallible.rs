@@ -33,7 +33,7 @@ pub struct FallibleRpcClient {
 
 impl FallibleRpcClient {
     /// The time window during which failures are counted.
-    const FAILURE_WINDOW: Duration = Duration::from_secs(600);
+    const FAILURE_WINDOW: Duration = Duration::from_mins(10);
     /// The maximum number of failures allowed.
     const MAX_FAILURES: usize = 100;
 

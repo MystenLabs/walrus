@@ -58,7 +58,7 @@ mod tests {
                 break;
             }
 
-            if start.elapsed() > Duration::from_secs(180) {
+            if start.elapsed() > Duration::from_mins(3) {
                 panic!("Timeout waiting for event blob to get stuck");
             }
 
