@@ -1066,43 +1066,6 @@ install it from the Rust source code through Cargo.</p>
 <p>The <code>walrus</code> client binary is currently provided for macOS (Intel and Apple CPUs),
 Ubuntu, and Windows. The Ubuntu version most likely works on other Linux distributions
 as well.</p>
-<h2 id="prerequisites"><a class="header" href="#prerequisites">Prerequisites: Sui wallet, SUI and WAL</a></h2>
-<p>Interacting with Walrus requires a valid Sui wallet with some amount of SUI and WAL tokens. The
-normal way to set this up is via the Sui CLI; see the <a href="https://docs.sui.io/guides/developer/getting-started/sui-install">installation
-instructions</a> in the Sui
-documentation.</p>
-<p>After installing the Sui CLI, you need to set up a wallet by running <code>sui client</code>, which prompts you
-to set up a new configuration. Make sure to point it to Sui Mainnet, you can use the full node at
-<code>https://fullnode.mainnet.sui.io:443</code> for this. See <a href="https://docs.sui.io/guides/developer/getting-started/configure-sui-client">the Sui
-documentation</a> for
-further details.</p>
-<p>After this, you should get something like this (everything besides the <code>mainnet</code> line is optional):</p>
-<pre><code class="language-terminal">$ sui client envs
-╭──────────┬─────────────────────────────────────┬────────╮
-│ alias    │ url                                 │ active │
-├──────────┼─────────────────────────────────────┼────────┤
-│ devnet   │ https://fullnode.devnet.sui.io:443  │        │
-│ localnet │ http://127.0.0.1:9000               │        │
-│ testnet  │ https://fullnode.testnet.sui.io:443 │        │
-│ mainnet  │ https://fullnode.mainnet.sui.io:443 │ *      │
-╰──────────┴─────────────────────────────────────┴────────╯
-</code></pre>
-<p>Make sure you have at least one gas coin with at least 1 SUI.</p>
-<pre><code class="language-terminal">$ sui client gas
-╭─────────────────┬────────────────────┬──────────────────╮
-│ gasCoinId       │ mistBalance (MIST) │ suiBalance (SUI) │
-├─────────────────┼────────────────────┼──────────────────┤
-│ 0x65dca966dc... │ 1000000000         │ 1.00             │
-╰─────────────────┴────────────────────┴──────────────────╯
-</code></pre>
-<p>Finally, to publish blobs on Walrus you will need some Mainnet WAL to pay for storage and upload
-costs. You can buy WAL through a variety of centralized or decentralized exchanges.</p>
-<p>The system-wide wallet will be used by Walrus if no other path is specified. If you want to use a
-different Sui wallet, you can specify this in the <a href="usage/setup.html#configuration">Walrus configuration file</a> or
-when <a href="usage/./interacting.html">running the CLI</a>.</p>
-<h2 id="installation"><a class="header" href="#installation">Installation</a></h2>
-<p>We currently provide the <code>walrus</code> client binary for macOS (Intel and Apple CPUs), Ubuntu, and
-Windows. The Ubuntu version most likely works on other Linux distributions as well.</p>
 <div class="table-wrapper"><table><thead><tr><th>OS</th><th>CPU</th><th>Architecture</th></tr></thead><tbody>
 <tr><td>Ubuntu</td><td>Intel 64bit</td><td><a href="https://storage.googleapis.com/mysten-walrus-binaries/walrus-mainnet-latest-ubuntu-x86_64"><code>ubuntu-x86_64</code></a></td></tr>
 <tr><td>Ubuntu</td><td>Intel 64bit (generic)</td><td><a href="https://storage.googleapis.com/mysten-walrus-binaries/walrus-mainnet-latest-ubuntu-x86_64-generic"><code>ubuntu-x86_64-generic</code></a></td></tr>
@@ -4089,7 +4052,7 @@ storage nodes.</p>
 <p>Then, it will send a response to the client, containing the <code>blob_id</code> of the stored blob, along with
 the <code>confirmation_certificate</code>. The client can then use this certificate to certify the blob on
 chain.</p>
-<h2 id="installation-1"><a class="header" href="#installation-1">Installation</a></h2>
+<h2 id="installation"><a class="header" href="#installation">Installation</a></h2>
 <h3 id="download-the-binary"><a class="header" href="#download-the-binary">Download the binary</a></h3>
 <p>If you'd like to download a pre-built binary in order manually run <code>walrus-upload-relay</code>, you'll
 need to download it from <a href="https://github.com/MystenLabs/walrus/releases">the releases page</a>. Note
@@ -4383,7 +4346,7 @@ prepare your environment for development.</p>
 <li>followed all <a href="walrus-sites/../usage/setup.html">Walrus setup instructions</a>.</li>
 </ul>
 <p>Then, follow these additional setup steps.</p>
-<h2 id="installation-2"><a class="header" href="#installation-2">Installation</a></h2>
+<h2 id="installation-1"><a class="header" href="#installation-1">Installation</a></h2>
 <p>Similar to the <code>walrus</code> client CLI tool, we currently provide the <code>site-builder</code> client binary for
 macOS (Intel and Apple CPUs), Ubuntu, and Windows:</p>
 <h3 id="mainnet-binaries"><a class="header" href="#mainnet-binaries">Mainnet Binaries</a></h3>
