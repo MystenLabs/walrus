@@ -1018,19 +1018,22 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for Registere
     }
 
     fn ready_to_store_to_nodes(&self) -> bool {
-        let StoreOp::RegisterNew { operation, blob } = &self.operation else {
-            return false;
-        };
-
-        match operation {
-            RegisterBlobOp::ReuseAndExtend { .. } => false,
-            RegisterBlobOp::ReuseRegistration { .. }
-            | RegisterBlobOp::RegisterFromScratch { .. }
-            | RegisterBlobOp::ReuseStorage { .. }
-            | RegisterBlobOp::ReuseAndExtendNonCertified { .. } => {
-                debug_assert!(blob.certified_epoch.is_none());
+        match &self.operation {
+            StoreOp::RegisteredInBlobManager { .. } => {
+                // Blobs registered in BlobManager are ready to certify immediately
                 true
             }
+            StoreOp::RegisterNew { operation, blob } => match operation {
+                RegisterBlobOp::ReuseAndExtend { .. } => false,
+                RegisterBlobOp::ReuseRegistration { .. }
+                | RegisterBlobOp::RegisterFromScratch { .. }
+                | RegisterBlobOp::ReuseStorage { .. }
+                | RegisterBlobOp::ReuseAndExtendNonCertified { .. } => {
+                    debug_assert!(blob.certified_epoch.is_none());
+                    true
+                }
+            },
+            _ => false,
         }
     }
 

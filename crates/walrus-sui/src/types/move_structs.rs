@@ -1098,3 +1098,38 @@ pub(crate) struct SubsidiesInnerKey {
 impl AssociatedContractStruct for SubsidiesInnerKey {
     const CONTRACT_STRUCT: StructTag<'static> = contracts::walrus_subsidies::SubsidiesInnerKey;
 }
+
+// ===== BlobManager Types =====
+
+/// Sui type for a `BlobManager` object.
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+pub struct BlobManager {
+    /// Object ID of the BlobManager.
+    #[cfg_attr(feature = "utoipa", schema(schema_with = object_id_schema))]
+    pub id: ObjectID,
+    // Note: The internal storage and blob_stash fields are not exposed
+    // as they use complex enum types that would require additional parsing
+}
+
+impl AssociatedContractStruct for BlobManager {
+    const CONTRACT_STRUCT: StructTag<'static> = contracts::blobmanager::BlobManager;
+}
+
+/// Sui type for a `BlobManagerCap` capability object.
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+pub struct BlobManagerCap {
+    /// Object ID of the capability.
+    #[cfg_attr(feature = "utoipa", schema(schema_with = object_id_schema))]
+    pub id: ObjectID,
+    /// The ID of the BlobManager this capability controls.
+    #[cfg_attr(feature = "utoipa", schema(schema_with = object_id_schema))]
+    pub manager_id: ObjectID,
+}
+
+impl AssociatedContractStruct for BlobManagerCap {
+    const CONTRACT_STRUCT: StructTag<'static> = contracts::blobmanager::BlobManagerCap;
+}
