@@ -392,7 +392,8 @@ pub(super) async fn put_blob<T: WalrusWriteClient>(
     tracing::debug!("starting to store received blob");
     match client
         .write_blob(
-            &blob[..],
+            // TODO(WAL-1008): Can we avoid the clone here?
+            blob.to_vec(),
             query.encoding_type,
             query.epochs,
             query.optimizations(),

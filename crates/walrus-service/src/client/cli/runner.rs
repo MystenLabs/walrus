@@ -15,7 +15,6 @@ use std::{
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use fastcrypto::encoding::Encoding;
-use indicatif::MultiProgress;
 use itertools::Itertools as _;
 use rand::seq::SliceRandom;
 use reqwest::Url;
@@ -803,8 +802,9 @@ impl ClientCommandRunner {
             }
         }
 
+        let blobs_len = blobs.len();
         let results = client
-            .reserve_and_store_blobs_retry_committees_with_path(&blobs, &store_args)
+            .reserve_and_store_blobs_retry_committees_with_path(blobs, &store_args)
             .await?;
 
         internal_run_ctx.finalize_after_store(&mut store_args).await;
@@ -821,7 +821,6 @@ impl ClientCommandRunner {
             }
         }
 
-        let blobs_len = blobs.len();
         if results.len() != blobs_len {
             let not_stored = results
                 .iter()
@@ -946,7 +945,7 @@ impl ClientCommandRunner {
         } else {
             tracing::info!(
                 duration = ?start_timer.elapsed(),
-                "{} out of {} blobs stored",
+                "finished storing blobs ({}/{})",
                 results.len(),
                 blobs_len
             );
@@ -969,8 +968,9 @@ impl ClientCommandRunner {
 
         for file in files {
             let blob = read_blob_from_file(&file)?;
-            let (_, metadata) =
-                client.encode_pairs_and_metadata(&blob, encoding_type, &MultiProgress::new())?;
+            let metadata = encoding_config
+                .get_for_type(encoding_type)
+                .compute_metadata(&blob)?;
             let unencoded_size = metadata.metadata().unencoded_length();
             let encoded_size = encoded_blob_length_for_n_shards(
                 encoding_config.n_shards(),
@@ -1153,7 +1153,7 @@ impl ClientCommandRunner {
         }
 
         let result = quilt_write_client
-            .reserve_and_store_quilt::<QuiltVersionV1>(&quilt, &store_args)
+            .reserve_and_store_quilt::<QuiltVersionV1>(quilt, &store_args)
             .await?;
 
         internal_run_ctx.finalize_after_store(&mut store_args).await;
@@ -1334,8 +1334,10 @@ impl ClientCommandRunner {
 
         let quilt_client = client.quilt_client();
         let quilt = quilt_client.construct_quilt::<QuiltVersionV1>(blobs, encoding_type)?;
-        let (_, metadata) =
-            client.encode_pairs_and_metadata(quilt.data(), encoding_type, &MultiProgress::new())?;
+        let metadata = client
+            .encoding_config()
+            .get_for_type(encoding_type)
+            .compute_metadata(quilt.data())?;
         let unencoded_size = metadata.metadata().unencoded_length();
         let encoded_size = encoded_blob_length_for_n_shards(
             client.encoding_config().n_shards(),

@@ -1075,8 +1075,7 @@ mod tests {
             previous_version + 1
         );
 
-        let blob_data = walrus_test_utils::random_data_list(314, 1);
-        let blobs: Vec<&[u8]> = blob_data.iter().map(AsRef::as_ref).collect();
+        let blobs = walrus_test_utils::random_data_list(314, 1);
         let store_args = StoreArgs::default_with_epochs(1)
             .no_store_optimizations()
             .with_post_store(PostStoreAction::Keep)
@@ -1084,7 +1083,7 @@ mod tests {
         let _results = client
             .as_ref()
             .inner
-            .reserve_and_store_blobs_retry_committees(&blobs, &[], &store_args)
+            .reserve_and_store_blobs_retry_committees(blobs, vec![], &store_args)
             .await?;
 
         let last_certified_event_blob =
@@ -1106,8 +1105,7 @@ mod tests {
         wait_for_event_blob_writer_to_make_progress(&client, last_certified_event_blob).await;
 
         // Store a blob after the upgrade to check if everything works after the upgrade.
-        let blob_data = walrus_test_utils::random_data_list(314, 1);
-        let blobs: Vec<&[u8]> = blob_data.iter().map(AsRef::as_ref).collect();
+        let blobs = walrus_test_utils::random_data_list(314, 1);
 
         let store_args = StoreArgs::default_with_epochs(1)
             .no_store_optimizations()
@@ -1116,7 +1114,7 @@ mod tests {
         let _results = client
             .as_ref()
             .inner
-            .reserve_and_store_blobs_retry_committees(&blobs, &[], &store_args)
+            .reserve_and_store_blobs_retry_committees(blobs, vec![], &store_args)
             .await?;
 
         Ok(())

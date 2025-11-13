@@ -3,6 +3,9 @@
 
 // Allowing `unwrap`s in tests.
 #![allow(clippy::unwrap_used)]
+// This avoids the following error when running simtests:
+// error[E0275]: overflow evaluating the requirement `{coroutine ...}: std::marker::Send`
+#![recursion_limit = "256"]
 
 //! Contains end-to-end tests for the Walrus client interacting with a Walrus test cluster.
 
@@ -51,8 +54,7 @@ use walrus_sdk::{
         Blocklist,
         StoreArgs,
         WalrusNodeClient,
-        WalrusStoreBlob,
-        WalrusStoreBlobApi,
+        client_types::WalrusStoreBlob,
         quilt_client::QuiltClientConfig,
         responses::{BlobStoreResult, QuiltStoreResult},
         upload_relay_client::UploadRelayClient,
@@ -166,7 +168,7 @@ where
 
     let store_result = client
         .as_ref()
-        .reserve_and_store_blobs_retry_committees_with_path(&blobs_with_paths, &store_args)
+        .reserve_and_store_blobs_retry_committees_with_path(blobs_with_paths, &store_args)
         .await?;
 
     // Wait for the tail uploads to complete.
@@ -485,8 +487,7 @@ async fn test_store_with_existing_blob_resource(
     let (_sui_cluster_handle, _cluster, client, _) =
         test_cluster::E2eTestSetupBuilder::new().build().await?;
 
-    let blob_data = walrus_test_utils::random_data_list(31415, 4);
-    let blobs: Vec<&[u8]> = blob_data.iter().map(AsRef::as_ref).collect();
+    let blobs = walrus_test_utils::random_data_list(31415, 4);
     let encoding_type = DEFAULT_ENCODING;
     let metadata = blobs
         .iter()
@@ -530,7 +531,7 @@ async fn test_store_with_existing_blob_resource(
         .with_persistence(persistence_required);
     let blob_stores = client
         .inner
-        .reserve_and_store_blobs(&blobs, &store_args)
+        .reserve_and_store_blobs(blobs, &store_args)
         .await?
         .into_iter()
         .map(|blob_store_result| match blob_store_result {
@@ -557,11 +558,11 @@ async fn register_blob(
     persistence: BlobPersistence,
 ) -> TestResult<BlobId> {
     // Encode blob and get metadata
-    let (_, metadata) = client
+    let metadata = client
         .as_ref()
         .encoding_config()
         .get_for_type(encoding_type)
-        .encode_with_metadata(blob)
+        .compute_metadata(blob)
         .expect("blob encoding should not fail");
     let metadata = metadata.metadata().to_owned();
     let blob_id = BlobId::from_sliver_pair_metadata(&metadata);
@@ -594,7 +595,7 @@ async fn register_blob(
 /// Store a blob and return the blob ID.
 async fn store_blob(
     client: &WithTempDir<WalrusNodeClient<SuiContractClient>>,
-    blob: &[u8],
+    blob: Vec<u8>,
     encoding_type: EncodingType,
     epochs_ahead: EpochCount,
     persistence: BlobPersistence,
@@ -604,7 +605,7 @@ async fn store_blob(
         .with_persistence(persistence);
     let result = client
         .inner
-        .reserve_and_store_blobs(&[blob], &store_args)
+        .reserve_and_store_blobs(vec![blob.to_vec()], &store_args)
         .await?;
 
     Ok(result
@@ -630,17 +631,18 @@ pub async fn test_store_and_read_duplicate_blobs() -> TestResult {
     blob_data.push(blob_data[0].clone());
     blob_data.push(blob_data[1].clone());
     blob_data.push(blob_data[0].clone());
-    let mut blobs_with_paths: Vec<(PathBuf, Vec<u8>)> = vec![];
-
-    // Create paths for each blob.
-    for (i, data) in blob_data.iter().enumerate() {
-        let path = PathBuf::from(format!("blob_{i}"));
-        blobs_with_paths.push((path, data.to_vec()));
-    }
+    let blobs_with_paths: Vec<_> = blob_data
+        .into_iter()
+        .enumerate()
+        .map(|(i, data)| {
+            let path = PathBuf::from(format!("blob_{i}"));
+            (path, data)
+        })
+        .collect();
 
     let store_args = StoreArgs::default_with_epochs(1).no_store_optimizations();
     let store_result_with_path = client
-        .reserve_and_store_blobs_retry_committees_with_path(&blobs_with_paths, &store_args)
+        .reserve_and_store_blobs_retry_committees_with_path(blobs_with_paths.clone(), &store_args)
         .await?;
 
     let read_result =
@@ -658,7 +660,7 @@ pub async fn test_store_and_read_duplicate_blobs() -> TestResult {
         }))
         .await;
 
-    assert_eq!(store_result_with_path.len(), blob_data.len());
+    assert_eq!(store_result_with_path.len(), blobs_with_paths.len());
     store_result_with_path
         .iter()
         .zip(blobs_with_paths.iter())
@@ -687,18 +689,18 @@ async fn test_store_with_existing_blobs(persistence: BlobPersistence) -> TestRes
     let (_sui_cluster_handle, _cluster, client, _) =
         test_cluster::E2eTestSetupBuilder::new().build().await?;
 
-    let blob_data = walrus_test_utils::random_data_list(31415, 5);
-    let blobs: Vec<&[u8]> = blob_data.iter().map(AsRef::as_ref).collect();
+    let blobs = walrus_test_utils::random_data_list(31415, 5);
 
     // Initial setup, with blobs in different states, the names indicate the later outcome
     // of a following store operation.
     let encoding_type = DEFAULT_ENCODING;
-    let reuse_blob = register_blob(&client, blobs[0], encoding_type, 40, persistence).await?;
+    let reuse_blob = register_blob(&client, &blobs[0], encoding_type, 40, persistence).await?;
     let certify_and_extend_blob =
-        register_blob(&client, blobs[1], encoding_type, 10, persistence).await?;
+        register_blob(&client, &blobs[1], encoding_type, 10, persistence).await?;
     let already_certified_blob =
-        store_blob(&client, blobs[2], encoding_type, 50, persistence).await?;
-    let extended_blob = store_blob(&client, blobs[3], encoding_type, 20, persistence).await?;
+        store_blob(&client, blobs[2].clone(), encoding_type, 50, persistence).await?;
+    let extended_blob =
+        store_blob(&client, blobs[3].clone(), encoding_type, 20, persistence).await?;
 
     let epoch = client.as_ref().sui_client().current_epoch().await?;
     let epochs_ahead = 30;
@@ -707,7 +709,7 @@ async fn test_store_with_existing_blobs(persistence: BlobPersistence) -> TestRes
         .with_persistence(persistence);
     let store_results = client
         .inner
-        .reserve_and_store_blobs(&blobs, &store_args)
+        .reserve_and_store_blobs(blobs, &store_args)
         .await?;
     for (blob_index, result) in store_results.into_iter().enumerate() {
         let Some(end_epoch) = result.end_epoch() else {
@@ -782,24 +784,35 @@ async fn test_store_with_existing_storage_resource(
     let (_sui_cluster_handle, _cluster, client, _) =
         test_cluster::E2eTestSetupBuilder::new().build().await?;
 
-    let blob_data = walrus_test_utils::random_data_list(31415, 4);
-    let unencoded_blobs = blob_data
+    let blobs = walrus_test_utils::random_data_list(31415, 4);
+    let encoding_type = DEFAULT_ENCODING;
+    let unencoded_blobs = blobs
         .iter()
+        .cloned()
         .enumerate()
         .map(|(i, data)| {
-            WalrusStoreBlob::new_unencoded(data, format!("test-{i:02}"), BlobAttribute::default())
+            WalrusStoreBlob::new_unencoded(
+                data,
+                format!("test-{i:02}"),
+                BlobAttribute::default(),
+                client
+                    .as_ref()
+                    .encoding_config()
+                    .get_for_type(encoding_type),
+            )
         })
         .collect();
-    let encoding_type = DEFAULT_ENCODING;
-    let encoded_blobs = client
-        .as_ref()
-        .encode_blobs(unencoded_blobs, encoding_type)?;
+    let encoded_blobs = client.as_ref().encode_blobs(unencoded_blobs, None)?;
     let encoded_sizes = encoded_blobs
         .iter()
-        .map(|blob| blob.encoded_size().expect("encoded size should be present"))
+        .map(|blob| {
+            blob.common
+                .encoded_size()
+                .expect("encoded size should be present")
+        })
         .collect::<Vec<_>>();
 
-    // Reserve space for the blobs. Collect all original storage resource objects ids.
+    // Reserve space for the blobs. Collect all original storage resource objects IDs.
     let original_storage_resources =
         futures::future::join_all(encoded_sizes.iter().map(|encoded_size| async {
             let resource = client
@@ -814,17 +827,13 @@ async fn test_store_with_existing_storage_resource(
         .into_iter()
         .collect::<HashSet<_>>();
 
-    let blobs = encoded_blobs
-        .iter()
-        .map(|blob| blob.get_blob())
-        .collect::<Vec<_>>();
     // Now ask the client to store again.
-    // Collect all object ids of the newly created blob object.
+    // Collect all object IDs of the newly created blob objects.
     let store_args =
         StoreArgs::default_with_epochs(epochs_ahead_required).with_encoding_type(encoding_type);
     let blob_store = client
         .inner
-        .reserve_and_store_blobs(&blobs, &store_args)
+        .reserve_and_store_blobs(blobs, &store_args)
         .await?
         .into_iter()
         .map(|blob_store_result| match blob_store_result {
@@ -833,7 +842,7 @@ async fn test_store_with_existing_storage_resource(
         })
         .collect::<HashSet<_>>();
 
-    // Check the object ids are the same.
+    // Check that the object IDs are the same.
     assert!(should_match == (original_storage_resources == blob_store));
     Ok(())
 }
@@ -852,8 +861,8 @@ async fn test_delete_blob(blobs_to_create: u32) -> TestResult {
     walrus_test_utils::init_tracing();
     let (_sui_cluster_handle, _cluster, client, _) =
         test_cluster::E2eTestSetupBuilder::new().build().await?;
-    let blob = walrus_test_utils::random_data(314);
-    let blobs = vec![blob.as_slice()];
+    let blobs = walrus_test_utils::random_data_list(314, 1);
+
     // Store the blob multiple times, using separate end times to obtain multiple blob objects
     // with the same blob ID.
     let encoding_type = DEFAULT_ENCODING;
@@ -864,7 +873,7 @@ async fn test_delete_blob(blobs_to_create: u32) -> TestResult {
             .deletable();
         client
             .as_ref()
-            .reserve_and_store_blobs(&blobs, &store_args)
+            .reserve_and_store_blobs(blobs.clone(), &store_args)
             .await?;
     }
 
@@ -875,7 +884,7 @@ async fn test_delete_blob(blobs_to_create: u32) -> TestResult {
         .permanent();
     let result = client
         .as_ref()
-        .reserve_and_store_blobs(&blobs, &store_args)
+        .reserve_and_store_blobs(blobs, &store_args)
         .await?;
     let blob_id = result.first().unwrap().blob_id();
 
@@ -913,16 +922,16 @@ async fn test_storage_nodes_do_not_serve_data_for_deleted_blobs() -> TestResult 
         test_cluster::E2eTestSetupBuilder::new().build().await?;
     let client = client.as_ref();
     let blob = walrus_test_utils::random_data(314);
-    let blobs = vec![blob.as_slice()];
+    let blobs = vec![blob.clone()];
 
     let store_args = StoreArgs::default_with_epochs(1)
         .no_store_optimizations()
         .deletable();
-    let results = client.reserve_and_store_blobs(&blobs, &store_args).await?;
+    let results = client.reserve_and_store_blobs(blobs, &store_args).await?;
     let store_result = results.first().expect("should have one blob store result");
     let blob_id = store_result
         .blob_id()
-        .expect("blob id should be present after store");
+        .expect("blob ID should be present after store");
     assert!(matches!(store_result, BlobStoreResult::NewlyCreated { .. }));
 
     assert_eq!(client.read_blob::<Primary>(&blob_id).await?, blob);
@@ -946,8 +955,8 @@ async fn test_storage_nodes_do_not_serve_data_for_expired_deletable_blobs() -> T
         .build()
         .await?;
     let client = client.as_ref();
-    let blob = walrus_test_utils::random_data(314);
-    let blobs = vec![blob.as_slice()];
+    let blobs = walrus_test_utils::random_data_list(314, 1);
+    let blob = blobs[0].clone();
 
     // Store the blob for 42 epochs.
     let [
@@ -962,7 +971,7 @@ async fn test_storage_nodes_do_not_serve_data_for_expired_deletable_blobs() -> T
         },
     ] = client
         .reserve_and_store_blobs(
-            &blobs,
+            blobs.clone(),
             &StoreArgs::default_with_epochs(42)
                 .no_store_optimizations()
                 .deletable(),
@@ -979,7 +988,7 @@ async fn test_storage_nodes_do_not_serve_data_for_expired_deletable_blobs() -> T
         },
     ] = client
         .reserve_and_store_blobs(
-            &blobs,
+            blobs,
             &StoreArgs::default_with_epochs(1)
                 .no_store_optimizations()
                 .deletable(),
@@ -1092,11 +1101,12 @@ async fn test_store_quilt(blobs_to_create: u32) -> TestResult {
         .with_config(QuiltClientConfig::new(6, Duration::from_mins(1)));
     let quilt =
         quilt_client.construct_quilt::<QuiltVersionV1>(&quilt_store_blobs, encoding_type)?;
+    let quilt_index = quilt.quilt_index()?.clone();
     let store_args = StoreArgs::default_with_epochs(2)
         .with_encoding_type(encoding_type)
         .no_store_optimizations();
     let store_operation_result = quilt_client
-        .reserve_and_store_quilt::<QuiltVersionV1>(&quilt, &store_args)
+        .reserve_and_store_quilt::<QuiltVersionV1>(quilt, &store_args)
         .await?;
 
     let QuiltStoreResult {
@@ -1126,7 +1136,7 @@ async fn test_store_quilt(blobs_to_create: u32) -> TestResult {
     let blob_id = blob_object.blob_id;
     let quilt_metadata = quilt_client.get_quilt_metadata(&blob_id).await?;
     let QuiltMetadata::V1(metadata_v1) = quilt_metadata;
-    assert_eq!(&metadata_v1.index, quilt.quilt_index()?);
+    assert_eq!(metadata_v1.index, quilt_index);
 
     let mut identifiers = stored_quilt_blobs
         .iter()
@@ -1160,7 +1170,7 @@ async fn test_store_quilt(blobs_to_create: u32) -> TestResult {
         .iter()
         .map(|stored_blob| {
             QuiltPatchId::from_str(&stored_blob.quilt_patch_id)
-                .expect("should be able to parse quilt patch id")
+                .expect("should be able to parse quilt patch ID")
         })
         .collect();
 
@@ -1205,13 +1215,12 @@ async fn test_blocklist() -> TestResult {
 
     let client = client.as_ref();
     let blob = walrus_test_utils::random_data(314);
+    let blobs = vec![blob.clone()];
 
     let store_args = StoreArgs::default_with_epochs(1)
         .no_store_optimizations()
         .deletable();
-    let store_results = client
-        .reserve_and_store_blobs(&[&blob], &store_args)
-        .await?;
+    let store_results = client.reserve_and_store_blobs(blobs, &store_args).await?;
     let store_result = store_results[0].clone();
     let blob_id = store_result.blob_id();
     assert!(matches!(store_result, BlobStoreResult::NewlyCreated { .. }));
@@ -1306,10 +1315,9 @@ async fn test_blob_operations_with_credits() -> TestResult {
         .subsidy_pool;
 
     // Store a blob with credits
-    let blob_data = walrus_test_utils::random_data(314);
-    let blobs = vec![blob_data.as_slice()];
+    let blobs = walrus_test_utils::random_data_list(314, 1);
     let store_args = StoreArgs::default_with_epochs(1).no_store_optimizations();
-    let store_result = client.reserve_and_store_blobs(&blobs, &store_args).await?;
+    let store_result = client.reserve_and_store_blobs(blobs, &store_args).await?;
 
     let blob_object = match &store_result[0] {
         BlobStoreResult::NewlyCreated { blob_object, .. } => blob_object.clone(),
@@ -1399,8 +1407,7 @@ async fn test_multiple_stores_same_blob() -> TestResult {
     let (_sui_cluster_handle, _cluster, client, _) =
         test_cluster::E2eTestSetupBuilder::new().build().await?;
     let client = client.as_ref();
-    let blob = walrus_test_utils::random_data(314);
-    let blobs = vec![blob.as_slice()];
+    let blobs = walrus_test_utils::random_data_list(314, 1);
     let encoding_type = DEFAULT_ENCODING;
 
     // NOTE: not in a param_test, because we want to test these store operations in sequence.
@@ -1482,14 +1489,12 @@ async fn test_multiple_stores_same_blob() -> TestResult {
         ), // Extend lifetime
     ];
 
-    for (epochs, store_optimizations, persistence, is_already_certified) in configurations {
-        tracing::debug!(
-            "testing: epochs={:?}, store_optimizations={:?}, persistence={:?}, \
-            is_already_certified={:?}",
-            epochs,
-            store_optimizations,
-            persistence,
-            is_already_certified
+    for (i, (epochs, store_optimizations, persistence, is_already_certified)) in
+        configurations.into_iter().enumerate()
+    {
+        tracing::info!(
+            "testing step {i}: epochs={epochs}, store_optimizations={store_optimizations:?}, \
+            persistence={persistence:?}, is_already_certified={is_already_certified}",
         );
         let store_args = StoreArgs::new(
             encoding_type,
@@ -1498,7 +1503,9 @@ async fn test_multiple_stores_same_blob() -> TestResult {
             persistence,
             PostStoreAction::Keep,
         );
-        let results = client.reserve_and_store_blobs(&blobs, &store_args).await?;
+        let results = client
+            .reserve_and_store_blobs(blobs.clone(), &store_args)
+            .await?;
         let store_result = results.first().expect("should have one blob store result");
 
         match store_result {
@@ -1620,11 +1627,11 @@ async fn test_burn_blobs() -> TestResult {
 
     let mut blob_object_ids = vec![];
     for idx in 0..N_BLOBS {
-        let blob = walrus_test_utils::random_data(314 + idx);
+        let blobs = walrus_test_utils::random_data_list(314 + idx, 1);
         let store_args = StoreArgs::default_with_epochs(1).no_store_optimizations();
         let result = client
             .as_ref()
-            .reserve_and_store_blobs(&[blob.as_slice()], &store_args)
+            .reserve_and_store_blobs(blobs, &store_args)
             .await?;
         blob_object_ids.push({
             let BlobStoreResult::NewlyCreated { blob_object, .. } = result
@@ -1669,13 +1676,13 @@ async fn test_extend_owned_blobs() -> TestResult {
         test_cluster::E2eTestSetupBuilder::new().build().await?;
 
     let current_epoch = client.as_ref().sui_client().current_epoch().await?;
-    let blob = walrus_test_utils::random_data(314);
+    let blobs = walrus_test_utils::random_data_list(314, 1);
 
     let store_args = StoreArgs::default_with_epochs(1).no_store_optimizations();
 
     let result = client
         .as_ref()
-        .reserve_and_store_blobs(&[blob.as_slice()], &store_args)
+        .reserve_and_store_blobs(blobs.clone(), &store_args)
         .await?;
     let BlobStoreResult::NewlyCreated { blob_object, .. } = result[0].clone() else {
         panic!("expect newly stored blob")
@@ -1702,7 +1709,7 @@ async fn test_extend_owned_blobs() -> TestResult {
     let store_args = StoreArgs::default_with_epochs(20);
     let result = client
         .as_ref()
-        .reserve_and_store_blobs(&[blob.as_slice()], &store_args)
+        .reserve_and_store_blobs(blobs, &store_args)
         .await?;
     let BlobStoreResult::NewlyCreated {
         blob_object: second_store_blob_object,
@@ -1732,11 +1739,11 @@ async fn test_share_blobs() -> TestResult {
     let (_sui_cluster_handle, _cluster, client, _) =
         test_cluster::E2eTestSetupBuilder::new().build().await?;
 
-    let blob = walrus_test_utils::random_data(314);
+    let blobs = walrus_test_utils::random_data_list(314, 1);
     let store_args = StoreArgs::default_with_epochs(1).no_store_optimizations();
     let result = client
         .as_ref()
-        .reserve_and_store_blobs(&[blob.as_slice()], &store_args)
+        .reserve_and_store_blobs(blobs, &store_args)
         .await?;
     let (end_epoch, blob_object_id) = {
         let BlobStoreResult::NewlyCreated { blob_object, .. } = result
@@ -1795,7 +1802,7 @@ async fn test_share_blobs() -> TestResult {
     );
     assert_eq!(shared_blob.funds, INITIAL_FUNDS - 50);
 
-    // Read the blob object with attributes from the shared blob object id
+    // Read the blob object with attributes from the shared blob object ID.
     let _blob_with_attribute = client
         .as_ref()
         .get_blob_by_object_id(&shared_blob_object_id)
@@ -1830,14 +1837,13 @@ async fn test_post_store_action(
         test_cluster::E2eTestSetupBuilder::new().build().await?;
     let target_address: SuiAddress = SuiAddress::from_bytes(TARGET_ADDRESS).expect("valid address");
 
-    let blob_data = walrus_test_utils::random_data_list(314, 4);
-    let blobs: Vec<&[u8]> = blob_data.iter().map(AsRef::as_ref).collect();
+    let blobs = walrus_test_utils::random_data_list(314, 4);
     let store_args = StoreArgs::default_with_epochs(1)
         .no_store_optimizations()
         .with_post_store(post_store);
     let results = client
         .as_ref()
-        .reserve_and_store_blobs_retry_committees(&blobs, &[], &store_args)
+        .reserve_and_store_blobs_retry_committees(blobs, vec![], &store_args)
         .await?;
 
     let owned_blobs = client
@@ -1908,15 +1914,14 @@ async fn test_store_blob_with_random_attributes() -> TestResult {
         attribute.insert(key, value);
     }
 
-    let blob_data = walrus_test_utils::random_data(1024);
-    let blobs = vec![blob_data.as_slice()];
+    let blobs = walrus_test_utils::random_data_list(1024, 1);
     let attributes = vec![attribute.clone()];
 
     // Store the blob with attributes.
     let store_args = StoreArgs::default_with_epochs(2).no_store_optimizations();
     let results = client
         .as_ref()
-        .reserve_and_store_blobs_retry_committees(&blobs, &attributes, &store_args)
+        .reserve_and_store_blobs_retry_committees(blobs, attributes, &store_args)
         .await?;
 
     assert_eq!(results.len(), 1);
@@ -2072,15 +2077,14 @@ impl<'a> BlobAttributeTestContext<'a> {
         client: &'a mut WithTempDir<WalrusNodeClient<SuiContractClient>>,
     ) -> TestResult<Self> {
         let blobs_to_create = 2;
-        let blob = walrus_test_utils::random_data(314);
-        let blobs = vec![blob.as_slice()];
+        let blobs = walrus_test_utils::random_data_list(314, 1);
 
         // Store multiple copies of the same blob with different end times.
         for idx in 1..blobs_to_create + 1 {
             let store_args = StoreArgs::default_with_epochs(idx).no_store_optimizations();
             client
                 .as_mut()
-                .reserve_and_store_blobs(&blobs, &store_args)
+                .reserve_and_store_blobs(blobs.clone(), &store_args)
                 .await
                 .expect("reserve_and_store_blobs should succeed.");
         }

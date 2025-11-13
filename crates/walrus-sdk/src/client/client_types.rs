@@ -5,36 +5,863 @@
 
 use std::{fmt::Debug, sync::Arc};
 
-use enum_dispatch::enum_dispatch;
 use serde::{Deserialize, Serialize};
-use sui_types::base_types::ObjectID;
 use tracing::{Level, Span, field};
 use utoipa::ToSchema;
 use walrus_core::{
     BlobId,
+    EpochCount,
     QuiltPatchId,
     encoding::{
+        EncodingConfigEnum,
+        EncodingFactory as _,
         SliverPair,
-        quilt_encoding::{QuiltIndexApi, QuiltPatchApi, QuiltPatchInternalIdApi},
+        quilt_encoding::{QuiltIndexApi as _, QuiltPatchApi as _, QuiltPatchInternalIdApi},
     },
     messages::ConfirmationCertificate,
-    metadata::{BlobMetadataApi as _, QuiltIndex, VerifiedBlobMetadataWithId},
+    metadata::{QuiltIndex, VerifiedBlobMetadataWithId},
 };
 use walrus_storage_node_client::api::BlobStatus;
 use walrus_sui::{
     client::{CertifyAndExtendBlobParams, CertifyAndExtendBlobResult},
-    types::move_structs::BlobAttribute,
+    types::{Blob, move_structs::BlobAttribute},
 };
 
 use super::{
     ClientError,
     ClientResult,
-    resource::{PriceComputation, RegisterBlobOp, StoreOp},
+    resource::{PriceComputation, RegisterBlobOp},
     responses::{BlobStoreResult, EventOrObjectId},
 };
+use crate::{client::upload_relay_client::UploadRelayClient, utils::Either};
 
 /// The log level for all WalrusStoreBlob spans.
-pub(crate) const BLOB_SPAN_LEVEL: Level = Level::DEBUG;
+const BLOB_SPAN_LEVEL: Level = Level::DEBUG;
+
+/// The trait for the blob state to manage the state-dependent data.
+pub trait WalrusStoreBlobStateApi: Debug + Send + Sync + PartialEq {
+    /// The state of the blob.
+    fn state(&self) -> &'static str;
+
+    /// Returns the blob ID of the blob if it is already computed.
+    fn maybe_blob_id(&self) -> Option<BlobId>;
+}
+
+/// The trait for the encoded blob to manage the encoded blob state-dependent data.
+pub trait WalrusStoreEncodedBlobApi: Debug + Send + Sync + PartialEq {
+    /// The state of the blob.
+    const STATE: &'static str;
+
+    /// Returns the blob ID of the blob.
+    fn blob_id(&self) -> BlobId;
+}
+
+impl<T> WalrusStoreBlobStateApi for T
+where
+    T: WalrusStoreEncodedBlobApi,
+{
+    fn state(&self) -> &'static str {
+        T::STATE
+    }
+
+    fn maybe_blob_id(&self) -> Option<BlobId> {
+        Some(self.blob_id())
+    }
+}
+
+impl WalrusStoreBlobStateApi for BlobStoreResult {
+    fn state(&self) -> &'static str {
+        "Finished"
+    }
+
+    fn maybe_blob_id(&self) -> Option<BlobId> {
+        self.blob_id()
+    }
+}
+
+impl<S> From<BlobStoreResult> for WalrusStoreBlobState<S> {
+    fn from(value: BlobStoreResult) -> Self {
+        WalrusStoreBlobState::Finished(value)
+    }
+}
+
+/// The state-independent parameters of a blob.
+#[derive(Clone, PartialEq)]
+pub struct CommonBlobParameters {
+    /// A unique identifier for this blob.
+    pub identifier: String,
+    /// The span for this blob's lifecycle.
+    span: Span,
+    /// The attribute of the blob.
+    pub attribute: BlobAttribute,
+    /// The unencoded length of the blob.
+    pub unencoded_length: usize,
+    /// The encoding config used to encode the blob.
+    pub encoding_config: EncodingConfigEnum,
+}
+
+impl CommonBlobParameters {
+    /// Returns the encoded size of the blob.
+    pub fn encoded_size(&self) -> Option<u64> {
+        self.encoding_config
+            .encoded_blob_length_from_usize(self.unencoded_length)
+    }
+}
+
+impl Debug for CommonBlobParameters {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CommonBlobParameters")
+            .field("identifier", &self.identifier)
+            .field("attribute", &self.attribute)
+            .field("unencoded_length", &self.unencoded_length)
+            .field("encoding_config", &self.encoding_config)
+            .finish()
+    }
+}
+
+/// A blob that is being stored in Walrus, containing the common fields for all states and some
+/// state-dependent data.
+#[derive(Clone, PartialEq, Debug)]
+pub struct WalrusStoreBlob<S> {
+    /// The state-independent parameters of the blob.
+    pub common: CommonBlobParameters,
+    /// The state-dependent data of the blob.
+    pub state: S,
+}
+
+/// A blob that is being stored in Walrus, in a particular state.
+pub type WalrusStoreBlobUnfinished<S = UnencodedBlob> = WalrusStoreBlob<S>;
+
+/// A blob that is being stored in Walrus, which can be in a particular state or finished
+/// (successfully or with an error).
+///
+/// See also [`WalrusStoreBlobState`].
+pub type WalrusStoreBlobMaybeFinished<S = UnencodedBlob> = WalrusStoreBlob<WalrusStoreBlobState<S>>;
+
+/// A blob that is being stored in Walrus, and has been finished (successfully or with an error).
+pub type WalrusStoreBlobFinished = WalrusStoreBlob<BlobStoreResult>;
+
+impl<S: WalrusStoreBlobStateApi> From<WalrusStoreBlobUnfinished<S>>
+    for WalrusStoreBlobMaybeFinished<S>
+{
+    fn from(value: WalrusStoreBlobUnfinished<S>) -> Self {
+        value.into_maybe_finished()
+    }
+}
+
+impl<S: WalrusStoreBlobStateApi> WalrusStoreBlobUnfinished<S> {
+    /// A state-transition helper that transforms the blob state into a new one using a function
+    /// that cannot fail.
+    ///
+    /// For a more general transition, use [`Self::into_maybe_finished`] and [`Self::map`].
+    pub(crate) fn map_infallible<T: WalrusStoreBlobStateApi>(
+        self,
+        f: impl Fn(S) -> T,
+        phase: &'static str,
+    ) -> WalrusStoreBlob<T> {
+        let was_blob_id_known = self.state.maybe_blob_id().is_some();
+        let new_state = self.common.span.in_scope(|| {
+            tracing::event!(BLOB_SPAN_LEVEL, phase, "entering map");
+
+            let new_state = f(self.state);
+            if !was_blob_id_known && let Some(blob_id) = new_state.maybe_blob_id() {
+                self.common.span.record("blob_id", blob_id.to_string());
+            }
+            new_state
+        });
+
+        let new_blob = WalrusStoreBlob {
+            common: self.common,
+            state: new_state,
+        };
+        new_blob.log_state("map completed");
+        new_blob
+    }
+
+    /// A state-transition helper that transforms the blob state into one of two possible new
+    /// states.
+    pub(crate) fn map_either<T, U, F>(
+        self,
+        f: F,
+        phase: &'static str,
+    ) -> Either<WalrusStoreBlobUnfinished<T>, WalrusStoreBlobUnfinished<U>>
+    where
+        T: WalrusStoreBlobStateApi,
+        U: WalrusStoreBlobStateApi,
+        F: Fn(S) -> Either<T, U>,
+    {
+        let new_state = self.common.span.in_scope(|| {
+            tracing::event!(BLOB_SPAN_LEVEL, phase, "entering map");
+
+            f(self.state)
+        });
+
+        match new_state {
+            Either::Left(new_state) => Either::Left({
+                let result = WalrusStoreBlob {
+                    common: self.common,
+                    state: new_state,
+                };
+                result.log_state("map_either completed");
+                result
+            }),
+            Either::Right(new_state) => Either::Right({
+                let result = WalrusStoreBlob {
+                    common: self.common,
+                    state: new_state,
+                };
+                result.log_state("map_either completed");
+                result
+            }),
+        }
+    }
+
+    /// Converts the blob state into a new blob state that is either unfinished or finished.
+    ///
+    /// This can be used to subsequently apply a fallible state transition.
+    pub(crate) fn into_maybe_finished(self) -> WalrusStoreBlobMaybeFinished<S> {
+        WalrusStoreBlobMaybeFinished {
+            common: self.common,
+            state: WalrusStoreBlobState::new(self.state),
+        }
+    }
+
+    /// Converts the blob state into a new blob state that is finished with the given error.
+    pub(crate) fn fail_with<T: WalrusStoreBlobStateApi>(
+        self,
+        error: ClientError,
+        failure_phase: &str,
+    ) -> WalrusStoreBlobMaybeFinished<T> {
+        WalrusStoreBlobMaybeFinished {
+            common: self.common,
+            state: WalrusStoreBlobState::new_failure(
+                error,
+                failure_phase,
+                self.state.maybe_blob_id(),
+            ),
+        }
+    }
+}
+
+impl<S: WalrusStoreBlobStateApi> WalrusStoreBlobMaybeFinished<S> {
+    /// A state-transition helper that transforms the blob state into a new one using a function
+    /// that can fail.
+    pub(crate) fn map<T, F>(
+        self,
+        f: F,
+        phase: &'static str,
+    ) -> ClientResult<WalrusStoreBlobMaybeFinished<T>>
+    where
+        T: WalrusStoreBlobStateApi,
+        F: FnOnce(S) -> Result<T, ClientError>,
+    {
+        let was_blob_id_known = self.state.maybe_blob_id().is_some();
+        let new_state =
+            self.common
+                .span
+                .in_scope(|| -> ClientResult<WalrusStoreBlobState<T>> {
+                    tracing::event!(BLOB_SPAN_LEVEL, phase, "entering map");
+
+                    let new_state = self.state.map(f, phase)?;
+                    if !was_blob_id_known && let Some(blob_id) = new_state.maybe_blob_id() {
+                        self.common.span.record("blob_id", blob_id.to_string());
+                    }
+                    Ok(new_state)
+                })?;
+
+        let new_blob = WalrusStoreBlobMaybeFinished {
+            common: self.common,
+            state: new_state,
+        };
+        new_blob.log_state("map completed");
+        Ok(new_blob)
+    }
+
+    /// Checks if the blob state is finished and converts it to a finished blob state if it is.
+    ///
+    /// If the blob state is unfinished, the original blob is returned as a
+    /// [`WalrusStoreBlobUnfinished`].
+    pub(crate) fn try_finish<T: From<BlobStoreResult>>(
+        self,
+    ) -> Result<WalrusStoreBlob<T>, WalrusStoreBlobUnfinished<S>> {
+        let WalrusStoreBlob { common, state } = self;
+        match state {
+            WalrusStoreBlobState::Unfinished(state) => {
+                Err(WalrusStoreBlobUnfinished { common, state })
+            }
+            WalrusStoreBlobState::Finished(result) => Ok(WalrusStoreBlob {
+                common,
+                state: result.into(),
+            }),
+        }
+    }
+}
+
+/// Partitions a vector of maybe finished blobs into unfinished and finished blobs.
+pub fn partition_unfinished_finished<S, T>(
+    maybe_finished_blobs: Vec<WalrusStoreBlobMaybeFinished<S>>,
+) -> (Vec<WalrusStoreBlobUnfinished<S>>, Vec<WalrusStoreBlob<T>>)
+where
+    S: WalrusStoreBlobStateApi,
+    T: From<BlobStoreResult>,
+{
+    let mut unfinished_blobs = Vec::new();
+    let mut finished_blobs = Vec::new();
+    for blob in maybe_finished_blobs {
+        match blob.try_finish() {
+            Ok(blob) => finished_blobs.push(blob),
+            Err(blob) => unfinished_blobs.push(blob),
+        }
+    }
+    (unfinished_blobs, finished_blobs)
+}
+
+impl<S: WalrusStoreBlobStateApi> WalrusStoreBlob<S> {
+    /// Logs the current state with the provided message.
+    fn log_state(&self, message: &'static str) {
+        tracing::event!(BLOB_SPAN_LEVEL, state = ?self.state.state(), message);
+    }
+}
+
+/// A blob that is being stored in Walrus, representing its current phase in the lifecycle.
+#[derive(Debug, Clone, PartialEq)]
+pub enum WalrusStoreBlobState<S> {
+    /// A blob in a specific state.
+    Unfinished(S),
+    /// Final phase with the complete result.
+    Finished(BlobStoreResult),
+}
+
+impl<S: WalrusStoreBlobStateApi> WalrusStoreBlobStateApi for WalrusStoreBlobState<S> {
+    fn state(&self) -> &'static str {
+        match self {
+            Self::Unfinished(state) => state.state(),
+            Self::Finished(result) => result.state(),
+        }
+    }
+
+    fn maybe_blob_id(&self) -> Option<BlobId> {
+        match self {
+            Self::Unfinished(state) => state.maybe_blob_id(),
+            Self::Finished(result) => result.maybe_blob_id(),
+        }
+    }
+}
+
+impl<S: WalrusStoreEncodedBlobApi> WalrusStoreEncodedBlobApi for WalrusStoreBlobUnfinished<S> {
+    const STATE: &'static str = S::STATE;
+
+    fn blob_id(&self) -> BlobId {
+        self.state.blob_id()
+    }
+}
+
+impl<S> WalrusStoreBlobState<S> {
+    /// Creates a new blob state.
+    pub fn new(state: S) -> Self {
+        Self::Unfinished(state)
+    }
+
+    /// Creates a new blob state with an error.
+    pub fn new_failure(error: ClientError, failure_phase: &str, blob_id: Option<BlobId>) -> Self {
+        Self::Finished(BlobStoreResult::Error {
+            blob_id,
+            failure_phase: failure_phase.to_string(),
+            error_msg: error.to_string(),
+        })
+    }
+}
+impl<S: WalrusStoreBlobStateApi> WalrusStoreBlobState<S> {
+    /// Maps the blob state to a new blob state with the given function.
+    ///
+    /// If the blob state is already in a [WalrusStoreBlobState::Finished], it is returned
+    /// unchanged. If it is [WalrusStoreBlobState::Unfinished], the function is applied to the
+    /// state. If the function returns an error, the blob state is set to
+    /// [WalrusStoreBlobState::Finished] with an error, unless the error indicates that the
+    /// operation should fail immediately, in which case the error is returned.
+    pub(crate) fn map<T, F>(
+        self,
+        f: F,
+        phase: &'static str,
+    ) -> ClientResult<WalrusStoreBlobState<T>>
+    where
+        F: FnOnce(S) -> Result<T, ClientError>,
+    {
+        Ok(match self {
+            Self::Unfinished(state) => {
+                let blob_id = state.maybe_blob_id();
+                match f(state) {
+                    Ok(result) => WalrusStoreBlobState::Unfinished(result),
+                    Err(error) => {
+                        if should_fail_early(&error) {
+                            return Err(error);
+                        }
+
+                        WalrusStoreBlobState::new_failure(error, phase, blob_id)
+                    }
+                }
+            }
+            Self::Finished(result) => WalrusStoreBlobState::Finished(result),
+        })
+    }
+}
+
+/// Returns true if we should fail early based on the error.
+fn should_fail_early(error: &ClientError) -> bool {
+    error.may_be_caused_by_epoch_change() || error.is_no_valid_status_received()
+}
+
+impl WalrusStoreBlobMaybeFinished {
+    /// Creates a new unencoded blob.
+    pub fn new_unencoded(
+        blob: Vec<u8>,
+        identifier: String,
+        attribute: BlobAttribute,
+        encoding_config: EncodingConfigEnum,
+    ) -> Self {
+        let span = tracing::span!(
+            BLOB_SPAN_LEVEL,
+            "store_blob_tracing",
+            blob_id = field::Empty,
+            identifier,
+        );
+
+        WalrusStoreBlobMaybeFinished {
+            common: CommonBlobParameters {
+                identifier,
+                span,
+                attribute,
+                unencoded_length: blob.len(),
+                encoding_config,
+            },
+            state: WalrusStoreBlobState::new(UnencodedBlob {
+                unencoded_data: blob,
+            }),
+        }
+    }
+
+    /// Create a list of UnencodedBlobs with default identifiers in the form of "blob_{:06}".
+    ///
+    /// The `attributes` vector must be either empty or have the same length as the `blobs` vector.
+    /// If it is empty, a default (empty) attribute will be used for each blob.
+    ///
+    /// The length of the output vector is the same as the input vector.
+    pub(crate) fn unencoded_blobs_with_default_identifiers(
+        blobs: Vec<Vec<u8>>,
+        mut attributes: Vec<BlobAttribute>,
+        encoding_config: EncodingConfigEnum,
+    ) -> Vec<Self> {
+        let blobs_count = blobs.len();
+        if attributes.is_empty() {
+            attributes = vec![BlobAttribute::default(); blobs_count];
+        }
+        assert!(attributes.len() == blobs_count);
+
+        blobs
+            .into_iter()
+            .zip(attributes)
+            .enumerate()
+            .map(|(i, (blob, attribute))| {
+                Self::new_unencoded(blob, format!("blob_{i:06}"), attribute, encoding_config)
+            })
+            .collect()
+    }
+}
+
+impl<S: WalrusStoreBlobStateApi> WalrusStoreBlobMaybeFinished<S> {
+    /// Returns true if the store blob operation is completed.
+    pub fn is_finished(&self) -> bool {
+        matches!(self.state, WalrusStoreBlobState::Finished(..))
+    }
+}
+
+/// A blob before it is encoded.
+#[derive(Clone, PartialEq)]
+pub struct UnencodedBlob {
+    /// The raw blob data to be stored.
+    // TODO(WAL-1008): Consider using a `Bytes` object here instead.
+    pub unencoded_data: Vec<u8>,
+}
+
+impl Debug for UnencodedBlob {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("UnencodedBlob")
+            .field("blob_len", &self.unencoded_data.len())
+            .field(
+                "data_prefix",
+                &walrus_core::utils::data_prefix_string(&self.unencoded_data, 5),
+            )
+            .finish()
+    }
+}
+
+impl WalrusStoreBlobStateApi for UnencodedBlob {
+    fn state(&self) -> &'static str {
+        "Unencoded"
+    }
+
+    fn maybe_blob_id(&self) -> Option<BlobId> {
+        None
+    }
+}
+
+impl UnencodedBlob {
+    /// Encodes the blob using the given encoding config.
+    ///
+    /// If no upload relay client is provided, the encoded blob contains all sliver pairs.
+    /// Otherwise, the encoded blob contains the unencoded blob data to be sent to the upload relay.
+    pub fn encode(
+        self,
+        encoding_config: EncodingConfigEnum,
+        upload_relay_client: Option<Arc<UploadRelayClient>>,
+    ) -> ClientResult<EncodedBlob> {
+        tracing::event!(BLOB_SPAN_LEVEL, "encoding the blob");
+
+        let (metadata, data) = if let Some(upload_relay_client) = upload_relay_client {
+            let metadata = encoding_config
+                .compute_metadata(&self.unencoded_data)
+                .map_err(ClientError::other)?;
+            (
+                metadata,
+                BlobData::BlobForUploadRelay(Arc::new(self.unencoded_data), upload_relay_client),
+            )
+        } else {
+            let (pairs, metadata) = encoding_config
+                .encode_with_metadata(&self.unencoded_data)
+                .map_err(ClientError::other)?;
+            (metadata, BlobData::SliverPairs(Arc::new(pairs)))
+        };
+
+        Ok(EncodedBlob {
+            metadata: Arc::new(metadata),
+            data,
+        })
+    }
+}
+
+/// The data of the blob to be stored.
+///
+/// This can either be sliver pairs to be sent directly to storage nodes, or the raw blob data to be
+/// sent to the upload relay (together with the upload relay client).
+#[derive(Clone, PartialEq)]
+pub enum BlobData {
+    /// The encoded sliver pairs generated from the blob to be sent directly to storage nodes.
+    SliverPairs(Arc<Vec<SliverPair>>),
+    /// The raw blob data to be sent to the upload relay (together with the upload relay client).
+    BlobForUploadRelay(Arc<Vec<u8>>, Arc<UploadRelayClient>),
+}
+
+impl Debug for BlobData {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::SliverPairs(sliver_pairs) => f
+                .debug_struct("BlobData::SliverPairs")
+                .field("count", &sliver_pairs.len())
+                .finish(),
+
+            Self::BlobForUploadRelay(blob, upload_relay_client) => f
+                .debug_struct("BlobData::BlobForUploadRelay")
+                .field("blob_len", &blob.len())
+                .field("upload_relay_client", &upload_relay_client)
+                .finish(),
+        }
+    }
+}
+
+/// Encoded blob.
+#[derive(Debug, Clone, PartialEq)]
+pub struct EncodedBlob {
+    /// The verified metadata associated with the encoded blob.
+    pub metadata: Arc<VerifiedBlobMetadataWithId>,
+    /// The data of the blob.
+    pub data: BlobData,
+}
+
+impl WalrusStoreEncodedBlobApi for EncodedBlob {
+    const STATE: &'static str = "Encoded";
+
+    fn blob_id(&self) -> BlobId {
+        *self.metadata.blob_id()
+    }
+}
+
+impl EncodedBlob {
+    /// Converts the encoded blob to a blob with status information.
+    pub fn with_status(
+        self,
+        status: Result<BlobStatus, ClientError>,
+    ) -> ClientResult<BlobWithStatus> {
+        tracing::event!(BLOB_SPAN_LEVEL, ?status, "entering with_status");
+
+        Ok(BlobWithStatus {
+            encoded_blob: self,
+            status: status?,
+        })
+    }
+}
+
+/// Encoded blob with status information.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BlobWithStatus {
+    /// The encoded blob.
+    pub encoded_blob: EncodedBlob,
+    /// The current status of the blob in the system.
+    pub status: BlobStatus,
+}
+
+impl WalrusStoreEncodedBlobApi for BlobWithStatus {
+    const STATE: &'static str = "WithStatus";
+
+    fn blob_id(&self) -> BlobId {
+        self.encoded_blob.blob_id()
+    }
+}
+
+impl BlobWithStatus {
+    /// Converts the blob with status information to a registered blob based on the given blob
+    /// object and operation.
+    pub fn with_register_result(
+        self,
+        blob_object: Blob,
+        operation: RegisterBlobOp,
+    ) -> WalrusStoreBlobState<RegisteredBlob> {
+        tracing::event!(
+            BLOB_SPAN_LEVEL,
+            ?blob_object,
+            ?operation,
+            "entering with_register_result"
+        );
+
+        if blob_object.is_certified() && operation.is_reuse_registration() {
+            WalrusStoreBlobState::Finished(BlobStoreResult::AlreadyCertified {
+                blob_id: blob_object.blob_id,
+                event_or_object: EventOrObjectId::Object(blob_object.id),
+                end_epoch: blob_object.storage.end_epoch,
+            })
+        } else {
+            WalrusStoreBlobState::Unfinished(RegisteredBlob {
+                encoded_blob: self.encoded_blob,
+                status: self.status,
+                blob_object,
+                operation,
+            })
+        }
+    }
+}
+
+impl WalrusStoreBlobMaybeFinished<BlobWithStatus> {
+    /// Tries to complete the blob if it is certified beyond the given epoch.
+    pub fn try_complete_if_certified_beyond_epoch(
+        &mut self,
+        target_epoch: u32,
+    ) -> ClientResult<&mut Self> {
+        let _guard = self.common.span.enter();
+        let WalrusStoreBlobState::Unfinished(ref this) = self.state else {
+            tracing::event!(
+                BLOB_SPAN_LEVEL,
+                ?self,
+                "skipping try_complete_if_certified_beyond_epoch for already completed blob"
+            );
+            drop(_guard);
+            return Ok(self);
+        };
+
+        let status = this.status;
+        let blob_id = this.encoded_blob.blob_id();
+        match status {
+            BlobStatus::Permanent {
+                end_epoch,
+                is_certified: true,
+                status_event,
+                ..
+            } if end_epoch >= target_epoch => {
+                self.state = WalrusStoreBlobState::Finished(BlobStoreResult::AlreadyCertified {
+                    blob_id,
+                    event_or_object: EventOrObjectId::Event(status_event),
+                    end_epoch,
+                });
+            }
+            BlobStatus::Invalid { event } => {
+                self.state = WalrusStoreBlobState::Finished(BlobStoreResult::MarkedInvalid {
+                    blob_id,
+                    event,
+                });
+            }
+            _ => (),
+        };
+
+        self.log_state("try_complete_if_certified_beyond_epoch completed");
+        drop(_guard);
+        Ok(self)
+    }
+}
+
+/// Registered blob.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RegisteredBlob {
+    /// The encoded blob.
+    pub encoded_blob: EncodedBlob,
+    /// The current status of the blob in the system.
+    pub status: BlobStatus,
+    /// The blob object that was registered.
+    pub blob_object: Blob,
+    /// The operation that is performed to store the blob.
+    pub operation: RegisterBlobOp,
+}
+
+impl WalrusStoreEncodedBlobApi for RegisteredBlob {
+    const STATE: &'static str = "Registered";
+
+    fn blob_id(&self) -> BlobId {
+        self.encoded_blob.blob_id()
+    }
+}
+
+impl RegisteredBlob {
+    /// Classifies the registered blob into either a blob that needs to be certified or a blob that
+    /// is ready to be extended.
+    pub fn classify(self) -> Either<BlobAwaitingUpload, BlobPendingCertifyAndExtend> {
+        match self.operation {
+            RegisterBlobOp::ReuseAndExtend {
+                epochs_extended, ..
+            } => Either::Right(BlobPendingCertifyAndExtend {
+                blob_object: self.blob_object,
+                operation: self.operation,
+                certificate: None,
+                epochs_extended: Some(epochs_extended),
+            }),
+            _ => {
+                let epochs_extended = if let RegisterBlobOp::ReuseAndExtendNonCertified {
+                    epochs_extended,
+                    ..
+                } = &self.operation
+                {
+                    Some(*epochs_extended)
+                } else {
+                    None
+                };
+                Either::Left(BlobAwaitingUpload {
+                    encoded_blob: self.encoded_blob,
+                    status: self.status,
+                    blob_object: self.blob_object,
+                    operation: self.operation,
+                    epochs_extended,
+                })
+            }
+        }
+    }
+}
+
+/// A blob that needs to be certified.
+// INV: The operation is NOT `ReuseAndExtend`.
+// INV: The epochs_extended is `Some` iff the operation is `ReuseAndExtendNonCertified`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BlobAwaitingUpload {
+    /// The encoded blob.
+    pub encoded_blob: EncodedBlob,
+    /// The current status of the blob in the system.
+    pub status: BlobStatus,
+    /// The blob object that was registered.
+    pub blob_object: Blob,
+    /// The operation that is performed to store the blob.
+    pub operation: RegisterBlobOp,
+    /// The number of epochs by which to extend the blob after certification.
+    pub epochs_extended: Option<EpochCount>,
+}
+
+impl WalrusStoreBlobUnfinished<BlobAwaitingUpload> {
+    /// Converts the blob to a blob ready for certification and (optionally) extension based on the
+    /// given certificate result.
+    pub fn with_certificate_result(
+        self,
+        certificate: ClientResult<ConfirmationCertificate>,
+    ) -> ClientResult<WalrusStoreBlobMaybeFinished<BlobPendingCertifyAndExtend>> {
+        let certificate = certificate?;
+        self.into_maybe_finished().map(
+            move |blob| {
+                Ok(BlobPendingCertifyAndExtend {
+                    blob_object: blob.blob_object,
+                    operation: blob.operation,
+                    certificate: Some(Arc::new(certificate)),
+                    epochs_extended: blob.epochs_extended,
+                })
+            },
+            "with_certificate_result",
+        )
+    }
+}
+
+impl WalrusStoreEncodedBlobApi for BlobAwaitingUpload {
+    const STATE: &'static str = "AwaitingUpload";
+
+    fn blob_id(&self) -> BlobId {
+        self.encoded_blob.blob_id()
+    }
+}
+
+/// A blob that is ready to be certified and/or extended.
+// INV: The certificate is `None` iff the operation is `ReuseAndExtend`.
+// INV: The epochs_extended is `Some` iff the operation is `ReuseAndExtend` or
+// `ReuseAndExtendNonCertified`.
+#[derive(Clone, PartialEq, Debug)]
+pub struct BlobPendingCertifyAndExtend {
+    /// The blob object that was registered.
+    pub blob_object: Blob,
+    /// The operation that is performed to store the blob.
+    pub operation: RegisterBlobOp,
+    /// The certificate for the blob.
+    pub certificate: Option<Arc<ConfirmationCertificate>>,
+    /// The number of epochs by which to extend the blob.
+    pub epochs_extended: Option<EpochCount>,
+}
+
+impl WalrusStoreEncodedBlobApi for BlobPendingCertifyAndExtend {
+    const STATE: &'static str = "PendingCertifyAndExtend";
+
+    fn blob_id(&self) -> BlobId {
+        self.blob_object.blob_id
+    }
+}
+
+impl<'a> WalrusStoreBlobUnfinished<BlobPendingCertifyAndExtend> {
+    /// Returns the parameters for the Sui transaction to certify and extend the blob.
+    pub fn get_certify_and_extend_params(&'a self) -> CertifyAndExtendBlobParams<'a> {
+        CertifyAndExtendBlobParams {
+            blob: &self.state.blob_object,
+            attribute: &self.common.attribute,
+            certificate: self.state.certificate.clone(),
+            epochs_extended: self.state.epochs_extended,
+        }
+    }
+}
+
+impl BlobPendingCertifyAndExtend {
+    /// Converts the blob to a blob store result based on the given certify and extend result and
+    /// price computation.
+    pub fn with_certify_and_extend_result(
+        self,
+        certify_and_extend_result: Option<&CertifyAndExtendBlobResult>,
+        price_computation: &PriceComputation,
+    ) -> BlobStoreResult {
+        let Some(certify_and_extend_result) = certify_and_extend_result else {
+            return BlobStoreResult::Error {
+                blob_id: Some(self.blob_object.blob_id),
+                failure_phase: "with_certify_and_extend_result".to_string(),
+                error_msg: "Sui transaction result did not contain a result for the blob"
+                    .to_string(),
+            };
+        };
+
+        let cost = price_computation.operation_cost(&self.operation);
+        let shared_blob_object = certify_and_extend_result.shared_blob_object();
+        BlobStoreResult::NewlyCreated {
+            blob_object: self.blob_object,
+            resource_operation: self.operation,
+            cost,
+            shared_blob_object,
+        }
+    }
+}
 
 /// Identifies a stored quilt patch.
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -84,1747 +911,4 @@ pub fn get_stored_quilt_patches(
                 .with_range(patch.start_index.into(), patch.end_index.into())
         })
         .collect()
-}
-
-/// API for a blob that is being stored to Walrus.
-#[enum_dispatch]
-pub trait WalrusStoreBlobApi<'a, T: Debug + Clone + Send + Sync> {
-    /// Returns a string representation of the current state.
-    fn get_state(&self) -> &'static str;
-
-    /// Returns a reference to the raw blob data.
-    fn get_blob(&self) -> &'a [u8];
-
-    /// Returns a reference to the blob's identifier.
-    fn get_identifier(&self) -> &T;
-
-    /// Returns the length of the unencoded blob data in bytes.
-    fn unencoded_length(&self) -> usize;
-
-    /// Returns the size of the encoded blob if available.
-    fn encoded_size(&self) -> Option<u64>;
-
-    /// Returns a reference to the verified metadata if available.
-    fn get_metadata(&self) -> Option<&VerifiedBlobMetadataWithId>;
-
-    /// Returns the blob ID if available.
-    fn get_blob_id(&self) -> Option<BlobId>;
-
-    /// Returns a reference to the sliver pairs if available.
-    fn get_sliver_pairs(&self) -> Option<&Vec<SliverPair>>;
-
-    /// Returns a reference to the blob status if available.
-    fn get_status(&self) -> Option<&BlobStatus>;
-
-    /// Returns the corresponding Sui object ID if available.
-    fn get_object_id(&self) -> Option<ObjectID>;
-
-    /// Returns a reference to the store operation if available.
-    fn get_operation(&self) -> Option<&StoreOp>;
-
-    /// Returns the error if available.
-    fn get_error(&self) -> Option<&ClientError>;
-
-    /// Returns the final result if available.
-    fn get_result(&self) -> Option<BlobStoreResult>;
-
-    /// Returns true if a blob is ready to be stored to nodes.
-    fn ready_to_store_to_nodes(&self) -> bool;
-
-    /// Returns true if the blob is ready to be extended.
-    fn ready_to_extend(&self) -> bool;
-
-    /// Returns the parameters for certifying and extending the blob.
-    fn get_certify_and_extend_params(&self) -> Result<CertifyAndExtendBlobParams<'_>, ClientError>;
-
-    /// Transitions the blob to the next state based on the encoding result.
-    ///
-    /// If the encoding succeeds, the blob is transitioned to the Encoded state.
-    /// If the encoding fails, the blob is transitioned to the Failed state with an error.
-    fn with_encode_result(
-        self,
-        result: Result<(Vec<SliverPair>, VerifiedBlobMetadataWithId), ClientError>,
-    ) -> ClientResult<WalrusStoreBlob<'a, T>>;
-
-    /// Transitions the blob to the next state based on the status result.
-    ///
-    /// If the status is obtained, the blob is transitioned to the WithStatus state.
-    /// If the get_status operation fails, the blob is transitioned to the Failed
-    /// state with an error.
-    fn with_status(
-        self,
-        status: Result<BlobStatus, ClientError>,
-    ) -> ClientResult<WalrusStoreBlob<'a, T>>;
-
-    /// Tries to complete the blob if it is certified beyond the given epoch.
-    ///
-    /// The existing blob is re-used and no new blob will be created.
-    fn try_complete_if_certified_beyond_epoch(
-        self,
-        target_epoch: u32,
-    ) -> ClientResult<WalrusStoreBlob<'a, T>>;
-
-    /// Updates the blob with the result of the register operation and transitions
-    /// to the appropriate next state.
-    fn with_register_result(
-        self,
-        result: Result<StoreOp, ClientError>,
-    ) -> ClientResult<WalrusStoreBlob<'a, T>>;
-
-    /// Updates the blob with the result of storing it to the Walrus storage nodes
-    /// and transitions to the appropriate next state.
-    fn with_get_certificate_result(
-        self,
-        certificate_result: ClientResult<ConfirmationCertificate>,
-    ) -> ClientResult<WalrusStoreBlob<'a, T>>;
-
-    /// Updates the blob with the result of the complete operation and
-    /// transitions to the Completed state.
-    fn with_certify_and_extend_result(
-        self,
-        result: CertifyAndExtendBlobResult,
-        price_computation: &PriceComputation,
-    ) -> ClientResult<WalrusStoreBlob<'a, T>>;
-
-    /// Updates the blob with the provided result and transitions to the Completed state.
-    ///
-    /// This update is forced, even if the blob is in the Error state.
-    fn complete_with(self, result: BlobStoreResult) -> WalrusStoreBlob<'a, T>;
-
-    /// Converts the current blob state to a Failed state.
-    fn with_error(self, error: ClientError) -> ClientResult<WalrusStoreBlob<'a, T>>;
-}
-
-/// A blob that is being stored in Walrus, representing its current phase in the lifecycle.
-// TODO(WAL-755): Use a enum to represent the result of each transition.
-// TODO(WAL-755): Remove the clippy exception during the refactoring.
-#[allow(clippy::large_enum_variant)]
-#[enum_dispatch(WalrusStoreBlobApi<T>)]
-#[derive(Clone, Debug)]
-pub enum WalrusStoreBlob<'a, T: Debug + Clone + Send + Sync> {
-    /// Initial state before encoding.
-    Unencoded(UnencodedBlob<'a, T>),
-    /// After encoding, contains the encoded data and metadata.
-    Encoded(EncodedBlob<'a, T>),
-    /// After status check, includes the blob status.
-    WithStatus(BlobWithStatus<'a, T>),
-    /// After registration, includes the store operation.
-    Registered(RegisteredBlob<'a, T>),
-    /// After certificate, includes the certificate.
-    WithCertificate(BlobWithCertificate<'a, T>),
-    /// Final phase with the complete result.
-    Completed(CompletedBlob<'a, T>),
-    /// Error occurred during the blob lifecycle.
-    Error(FailedBlob<'a, T>),
-}
-
-impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlob<'a, T> {
-    /// Create a list of UnencodedBlobs with default identifiers in the form of "blob_{:06}".
-    pub fn default_unencoded_blobs_from_slice(
-        blobs: &'a [&[u8]],
-        attributes: &[BlobAttribute],
-    ) -> Vec<WalrusStoreBlob<'a, String>> {
-        // TODO(WAL-962): Remove this assertion once we have a better struct to represent a blob.
-        assert!(attributes.is_empty() || attributes.len() == blobs.len());
-        blobs
-            .iter()
-            .enumerate()
-            .map(|(i, blob)| {
-                WalrusStoreBlob::new_unencoded(
-                    blob,
-                    format!("blob_{i:06}"),
-                    attributes.get(i).cloned().unwrap_or_default(),
-                )
-            })
-            .collect()
-    }
-
-    /// Returns true if we should fail early based on the error.
-    fn should_fail_early(error: &ClientError) -> bool {
-        error.may_be_caused_by_epoch_change() || error.is_no_valid_status_received()
-    }
-
-    /// Creates a new unencoded blob.
-    pub fn new_unencoded(blob: &'a [u8], identifier: T, attribute: BlobAttribute) -> Self {
-        let span = tracing::span!(
-            BLOB_SPAN_LEVEL,
-            "store_blob_tracing",
-            blob_id = field::Empty,
-            identifier = ?identifier
-        );
-
-        WalrusStoreBlob::Unencoded(UnencodedBlob {
-            blob,
-            identifier,
-            span,
-            attribute,
-        })
-    }
-
-    /// Returns true if the blob is in the Encoded state.
-    pub fn is_encoded(&self) -> bool {
-        matches!(self, WalrusStoreBlob::Encoded(..))
-    }
-
-    /// Returns true if the blob has a status.
-    pub fn is_with_status(&self) -> bool {
-        matches!(self, WalrusStoreBlob::WithStatus(..))
-    }
-
-    /// Returns true if the blob is registered.
-    pub fn is_registered(&self) -> bool {
-        matches!(self, WalrusStoreBlob::Registered(..))
-    }
-
-    /// Returns true if the blob has a certificate.
-    pub fn is_with_certificate(&self) -> bool {
-        matches!(self, WalrusStoreBlob::WithCertificate(..))
-    }
-
-    /// Returns true if the store blob operation is completed.
-    pub fn is_completed(&self) -> bool {
-        matches!(
-            self,
-            WalrusStoreBlob::Completed(..) | WalrusStoreBlob::Error(..)
-        )
-    }
-
-    /// Returns true if the store blob operation is failed.
-    pub fn is_failed(&self) -> bool {
-        matches!(self, WalrusStoreBlob::Error(..))
-    }
-
-    /// Returns the span for this blob's lifecycle.
-    fn get_span(&self) -> &Span {
-        match self {
-            WalrusStoreBlob::Unencoded(inner) => &inner.span,
-            WalrusStoreBlob::Encoded(inner) => &inner.input_blob.span,
-            WalrusStoreBlob::WithStatus(inner) => &inner.input_blob.span,
-            WalrusStoreBlob::Registered(inner) => &inner.input_blob.span,
-            WalrusStoreBlob::WithCertificate(inner) => &inner.input_blob.span,
-            WalrusStoreBlob::Completed(inner) => &inner.input_blob.span,
-            WalrusStoreBlob::Error(inner) => &inner.input_blob.span,
-        }
-    }
-
-    /// Logs the current state with the provided message.
-    fn log_state(&self, message: &'static str) {
-        self.get_span().in_scope(|| {
-            tracing::event!(BLOB_SPAN_LEVEL, state = self.get_state(), message);
-        });
-    }
-
-    /// Returns the sliver pairs wrapped in an `Arc`, if available.
-    pub fn sliver_pairs_arc(&self) -> Option<Arc<Vec<SliverPair>>> {
-        match self {
-            WalrusStoreBlob::Encoded(blob) => Some(blob.pairs.clone()),
-            WalrusStoreBlob::WithStatus(blob) => Some(blob.pairs.clone()),
-            WalrusStoreBlob::Registered(blob) => Some(blob.pairs.clone()),
-            WalrusStoreBlob::WithCertificate(blob) => Some(blob.pairs.clone()),
-            _ => None,
-        }
-    }
-}
-
-/// Unencoded blob.
-#[derive(Clone)]
-pub struct UnencodedBlob<'a, T: Debug + Clone + Send + Sync> {
-    /// The raw blob data to be stored.
-    pub blob: &'a [u8],
-    /// A unique identifier for this blob.
-    pub identifier: T,
-    /// The span for this blob's lifecycle.
-    pub span: Span,
-    /// The attribute of the blob.
-    pub attribute: BlobAttribute,
-}
-
-impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for UnencodedBlob<'a, T> {
-    fn get_state(&self) -> &'static str {
-        "Unencoded"
-    }
-
-    fn get_blob(&self) -> &'a [u8] {
-        self.blob
-    }
-
-    fn get_identifier(&self) -> &T {
-        &self.identifier
-    }
-
-    fn unencoded_length(&self) -> usize {
-        self.blob.len()
-    }
-
-    fn encoded_size(&self) -> Option<u64> {
-        None
-    }
-
-    fn get_metadata(&self) -> Option<&VerifiedBlobMetadataWithId> {
-        None
-    }
-
-    fn get_blob_id(&self) -> Option<BlobId> {
-        None
-    }
-
-    fn get_sliver_pairs(&self) -> Option<&Vec<SliverPair>> {
-        None
-    }
-
-    fn get_status(&self) -> Option<&BlobStatus> {
-        None
-    }
-
-    fn get_object_id(&self) -> Option<ObjectID> {
-        None
-    }
-
-    fn get_operation(&self) -> Option<&StoreOp> {
-        None
-    }
-
-    fn get_error(&self) -> Option<&ClientError> {
-        None
-    }
-
-    fn get_result(&self) -> Option<BlobStoreResult> {
-        None
-    }
-
-    fn ready_to_store_to_nodes(&self) -> bool {
-        false
-    }
-
-    fn ready_to_extend(&self) -> bool {
-        false
-    }
-
-    fn get_certify_and_extend_params(&self) -> ClientResult<CertifyAndExtendBlobParams<'_>> {
-        Err(ClientError::store_blob_internal(format!(
-            "Invalid operation for blob {self:?}",
-        )))
-    }
-
-    fn with_encode_result(
-        self,
-        encode_result: ClientResult<(Vec<SliverPair>, VerifiedBlobMetadataWithId)>,
-    ) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        self.span.in_scope(|| {
-            tracing::event!(
-                BLOB_SPAN_LEVEL,
-                encode_result_success = encode_result.is_ok(),
-                "entering with_encode_result",
-            );
-        });
-
-        let new_state = match encode_result {
-            Ok((pairs, metadata)) => {
-                let blob_id = *metadata.blob_id();
-                self.span.record("blob_id", blob_id.to_string());
-                WalrusStoreBlob::Encoded(EncodedBlob {
-                    input_blob: self,
-                    pairs: Arc::new(pairs),
-                    metadata: Arc::new(metadata),
-                })
-            }
-            Err(error) => WalrusStoreBlob::Error(FailedBlob {
-                input_blob: self,
-                blob_id: None,
-                failure_phase: "encode".to_string(),
-                error,
-            }),
-        };
-
-        new_state.log_state("with_encode_result completed");
-
-        Ok(new_state)
-    }
-
-    fn with_status(
-        self,
-        status: Result<BlobStatus, ClientError>,
-    ) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        Err(ClientError::store_blob_internal(format!(
-            "Invalid operation for blob {self:?}, status: {status:?}",
-        )))
-    }
-
-    fn try_complete_if_certified_beyond_epoch(
-        self,
-        target_epoch: u32,
-    ) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        Err(ClientError::store_blob_internal(format!(
-            "Invalid operation for blob {self:?}, target_epoch: {target_epoch:?}",
-        )))
-    }
-
-    fn with_register_result(
-        self,
-        result: Result<StoreOp, ClientError>,
-    ) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        Err(ClientError::store_blob_internal(format!(
-            "Invalid operation for blob {self:?}, result: {result:?}",
-        )))
-    }
-
-    fn with_get_certificate_result(
-        self,
-        certificate_result: ClientResult<ConfirmationCertificate>,
-    ) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        Err(ClientError::store_blob_internal(format!(
-            "Invalid operation for blob {self:?}, certificate_result: {certificate_result:?}",
-        )))
-    }
-
-    fn with_certify_and_extend_result(
-        self,
-        result: CertifyAndExtendBlobResult,
-        _price_computation: &PriceComputation,
-    ) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        Err(invalid_operation_for_blob(
-            &self,
-            format!("with_certify_and_extend_result: {result:?}"),
-        ))
-    }
-
-    fn complete_with(self, result: BlobStoreResult) -> WalrusStoreBlob<'a, T> {
-        WalrusStoreBlob::Completed(CompletedBlob {
-            input_blob: self,
-            result,
-        })
-    }
-
-    fn with_error(self, error: ClientError) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        if WalrusStoreBlob::<'_, T>::should_fail_early(&error) {
-            return Err(error);
-        }
-
-        Ok(WalrusStoreBlob::Error(FailedBlob {
-            input_blob: self,
-            blob_id: None,
-            failure_phase: "with_error".to_string(),
-            error,
-        }))
-    }
-}
-
-impl<T: Debug + Clone + Send + Sync> std::fmt::Debug for UnencodedBlob<'_, T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("UnencodedBlob")
-            .field("identifier", &self.identifier)
-            .field("blob_len", &self.blob.len())
-            .field("attribute", &self.attribute)
-            .finish()
-    }
-}
-
-/// Encoded blob.
-#[derive(Clone)]
-pub struct EncodedBlob<'a, T: Debug + Clone + Send + Sync> {
-    /// The base unencoded blob.
-    pub input_blob: UnencodedBlob<'a, T>,
-    /// The encoded sliver pairs generated from the blob.
-    pub pairs: Arc<Vec<SliverPair>>,
-    /// The verified metadata associated with the encoded blob.
-    pub metadata: Arc<VerifiedBlobMetadataWithId>,
-}
-
-impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for EncodedBlob<'a, T> {
-    fn get_state(&self) -> &'static str {
-        "Encoded"
-    }
-
-    fn get_blob(&self) -> &'a [u8] {
-        self.input_blob.get_blob()
-    }
-
-    fn get_identifier(&self) -> &T {
-        self.input_blob.get_identifier()
-    }
-
-    fn unencoded_length(&self) -> usize {
-        self.input_blob.unencoded_length()
-    }
-
-    fn encoded_size(&self) -> Option<u64> {
-        self.metadata.metadata().encoded_size()
-    }
-
-    fn get_metadata(&self) -> Option<&VerifiedBlobMetadataWithId> {
-        Some(&self.metadata)
-    }
-
-    fn get_blob_id(&self) -> Option<BlobId> {
-        Some(*self.metadata.blob_id())
-    }
-
-    fn get_sliver_pairs(&self) -> Option<&Vec<SliverPair>> {
-        Some(&self.pairs)
-    }
-
-    fn get_status(&self) -> Option<&BlobStatus> {
-        None
-    }
-
-    fn get_object_id(&self) -> Option<ObjectID> {
-        None
-    }
-
-    fn get_operation(&self) -> Option<&StoreOp> {
-        None
-    }
-
-    fn get_error(&self) -> Option<&ClientError> {
-        None
-    }
-
-    fn get_result(&self) -> Option<BlobStoreResult> {
-        None
-    }
-
-    fn ready_to_store_to_nodes(&self) -> bool {
-        false
-    }
-
-    fn ready_to_extend(&self) -> bool {
-        false
-    }
-
-    fn get_certify_and_extend_params(&self) -> Result<CertifyAndExtendBlobParams<'_>, ClientError> {
-        Err(invalid_operation_for_blob(
-            &self,
-            "get_certify_and_extend_params".to_string(),
-        ))
-    }
-
-    fn with_encode_result(
-        self,
-        result: Result<(Vec<SliverPair>, VerifiedBlobMetadataWithId), ClientError>,
-    ) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        Err(invalid_operation_for_blob(
-            &self,
-            format!("with_encode_result: {result:?}"),
-        ))
-    }
-
-    fn with_status(
-        self,
-        status: Result<BlobStatus, ClientError>,
-    ) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        self.input_blob.span.in_scope(|| {
-            tracing::event!(BLOB_SPAN_LEVEL, ?status, "entering with_status");
-        });
-
-        let new_state = match status {
-            Ok(status) => WalrusStoreBlob::WithStatus(BlobWithStatus {
-                input_blob: self.input_blob,
-                pairs: self.pairs,
-                metadata: self.metadata,
-                status,
-            }),
-            Err(error) => {
-                if WalrusStoreBlob::<'_, T>::should_fail_early(&error) {
-                    return Err(error);
-                }
-                let blob_id = *self.metadata.blob_id();
-                WalrusStoreBlob::Error(FailedBlob {
-                    input_blob: self.input_blob,
-                    blob_id: Some(blob_id),
-                    failure_phase: "status".to_string(),
-                    error,
-                })
-            }
-        };
-
-        new_state.log_state("with_status completed");
-
-        Ok(new_state)
-    }
-
-    fn try_complete_if_certified_beyond_epoch(
-        self,
-        target_epoch: u32,
-    ) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        Err(invalid_operation_for_blob(
-            &self,
-            format!("try_complete_if_certified_beyond_epoch: {target_epoch:?}"),
-        ))
-    }
-
-    fn with_register_result(
-        self,
-        result: Result<StoreOp, ClientError>,
-    ) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        Err(invalid_operation_for_blob(
-            &self,
-            format!("with_register_result: {result:?}"),
-        ))
-    }
-
-    fn with_get_certificate_result(
-        self,
-        certificate_result: ClientResult<ConfirmationCertificate>,
-    ) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        Err(invalid_operation_for_blob(
-            &self,
-            format!("with_get_certificate_result: {certificate_result:?}"),
-        ))
-    }
-
-    fn with_certify_and_extend_result(
-        self,
-        result: CertifyAndExtendBlobResult,
-        _price_computation: &PriceComputation,
-    ) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        Err(invalid_operation_for_blob(
-            &self,
-            format!("with_certify_and_extend_result: {result:?}"),
-        ))
-    }
-
-    fn complete_with(self, result: BlobStoreResult) -> WalrusStoreBlob<'a, T> {
-        WalrusStoreBlob::Completed(CompletedBlob {
-            input_blob: self.input_blob,
-            result,
-        })
-    }
-
-    fn with_error(self, error: ClientError) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        Err(invalid_operation_for_blob(
-            &self,
-            format!("with_error: {error:?}"),
-        ))
-    }
-}
-
-impl<T: Debug + Clone + Send + Sync> std::fmt::Debug for EncodedBlob<'_, T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("EncodedBlob")
-            .field("identifier", &self.input_blob.identifier)
-            .field("blob_id", &self.metadata.blob_id())
-            .field("blob_len", &self.input_blob.blob.len())
-            .finish()
-    }
-}
-
-/// Encoded blob with status information.
-#[derive(Clone)]
-pub struct BlobWithStatus<'a, T: Debug + Clone + Send + Sync> {
-    /// The base unencoded blob.
-    pub input_blob: UnencodedBlob<'a, T>,
-    /// The encoded sliver pairs.
-    pub pairs: Arc<Vec<SliverPair>>,
-    /// The verified metadata associated with the blob.
-    pub metadata: Arc<VerifiedBlobMetadataWithId>,
-    /// The current status of the blob in the system.
-    pub status: BlobStatus,
-}
-
-impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for BlobWithStatus<'a, T> {
-    fn get_state(&self) -> &'static str {
-        "WithStatus"
-    }
-
-    fn get_blob(&self) -> &'a [u8] {
-        self.input_blob.blob
-    }
-
-    fn get_identifier(&self) -> &T {
-        &self.input_blob.identifier
-    }
-
-    fn unencoded_length(&self) -> usize {
-        self.input_blob.blob.len()
-    }
-
-    fn encoded_size(&self) -> Option<u64> {
-        self.metadata.metadata().encoded_size()
-    }
-
-    fn get_metadata(&self) -> Option<&VerifiedBlobMetadataWithId> {
-        Some(&self.metadata)
-    }
-
-    fn get_blob_id(&self) -> Option<BlobId> {
-        Some(*self.metadata.blob_id())
-    }
-
-    fn get_sliver_pairs(&self) -> Option<&Vec<SliverPair>> {
-        Some(&self.pairs)
-    }
-
-    fn get_status(&self) -> Option<&BlobStatus> {
-        Some(&self.status)
-    }
-
-    fn get_object_id(&self) -> Option<ObjectID> {
-        None
-    }
-
-    fn get_operation(&self) -> Option<&StoreOp> {
-        None
-    }
-
-    fn get_error(&self) -> Option<&ClientError> {
-        None
-    }
-
-    fn get_result(&self) -> Option<BlobStoreResult> {
-        None
-    }
-
-    fn ready_to_store_to_nodes(&self) -> bool {
-        false
-    }
-
-    fn ready_to_extend(&self) -> bool {
-        false
-    }
-
-    fn get_certify_and_extend_params(&self) -> Result<CertifyAndExtendBlobParams<'_>, ClientError> {
-        Err(ClientError::store_blob_internal(format!(
-            "Invalid operation for blob {self:?}",
-        )))
-    }
-
-    fn with_encode_result(
-        self,
-        result: Result<(Vec<SliverPair>, VerifiedBlobMetadataWithId), ClientError>,
-    ) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        Err(invalid_operation_for_blob(
-            &self,
-            format!("with_encode_result: {result:?}"),
-        ))
-    }
-
-    fn with_status(self, status: ClientResult<BlobStatus>) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        Err(invalid_operation_for_blob(
-            &self,
-            format!("with_status: {status:?}"),
-        ))
-    }
-
-    fn try_complete_if_certified_beyond_epoch(
-        self,
-        target_epoch: u32,
-    ) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        self.input_blob.span.in_scope(|| {
-            tracing::event!(
-                BLOB_SPAN_LEVEL,
-                target_epoch,
-                "entering try_complete_if_certified_beyond_epoch",
-            );
-        });
-
-        let status = self.status;
-        let blob_id = *self.metadata.blob_id();
-        let new_state = match status {
-            BlobStatus::Permanent {
-                end_epoch,
-                is_certified: true,
-                status_event,
-                ..
-            } => {
-                if end_epoch >= target_epoch {
-                    self.complete_with(BlobStoreResult::AlreadyCertified {
-                        blob_id,
-                        event_or_object: EventOrObjectId::Event(status_event),
-                        end_epoch,
-                    })
-                } else {
-                    WalrusStoreBlob::WithStatus(self)
-                }
-            }
-            BlobStatus::Invalid { event } => {
-                self.complete_with(BlobStoreResult::MarkedInvalid { blob_id, event })
-            }
-            _ => WalrusStoreBlob::WithStatus(self),
-        };
-
-        new_state.log_state("try_complete_if_certified_beyond_epoch completed");
-
-        Ok(new_state)
-    }
-
-    // TODO: Replace StoreOp with RegisterBlobOp and blob.
-    fn with_register_result(
-        self,
-        register_result: ClientResult<StoreOp>,
-    ) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        self.input_blob.span.in_scope(|| {
-            tracing::event!(
-                BLOB_SPAN_LEVEL,
-                ?register_result,
-                "entering with_register_result"
-            );
-        });
-
-        let new_state = match register_result {
-            Ok(StoreOp::NoOp(result)) => WalrusStoreBlob::Completed(CompletedBlob {
-                input_blob: self.input_blob,
-                result,
-            }),
-            Ok(store_op) => WalrusStoreBlob::Registered(RegisteredBlob {
-                input_blob: self.input_blob,
-                pairs: self.pairs,
-                metadata: self.metadata,
-                status: self.status,
-                operation: store_op,
-            }),
-            Err(error) => {
-                if WalrusStoreBlob::<'_, T>::should_fail_early(&error) {
-                    return Err(error);
-                }
-                let blob_id = *self.metadata.blob_id();
-                WalrusStoreBlob::Error(FailedBlob {
-                    input_blob: self.input_blob,
-                    blob_id: Some(blob_id),
-                    failure_phase: "register".to_string(),
-                    error,
-                })
-            }
-        };
-
-        new_state.log_state("with_register_result completed");
-
-        Ok(new_state)
-    }
-
-    fn with_get_certificate_result(
-        self,
-        certificate_result: ClientResult<ConfirmationCertificate>,
-    ) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        Err(invalid_operation_for_blob(
-            &self,
-            format!("with_get_certificate_result: {certificate_result:?}"),
-        ))
-    }
-
-    fn with_certify_and_extend_result(
-        self,
-        result: CertifyAndExtendBlobResult,
-        _price_computation: &PriceComputation,
-    ) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        Err(invalid_operation_for_blob(
-            &self,
-            format!("with_certify_and_extend_result: {result:?}"),
-        ))
-    }
-
-    fn complete_with(self, result: BlobStoreResult) -> WalrusStoreBlob<'a, T> {
-        WalrusStoreBlob::Completed(CompletedBlob {
-            input_blob: self.input_blob,
-            result,
-        })
-    }
-
-    fn with_error(self, error: ClientError) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        if WalrusStoreBlob::<'_, T>::should_fail_early(&error) {
-            return Err(error);
-        }
-
-        Ok(WalrusStoreBlob::Error(FailedBlob {
-            input_blob: self.input_blob,
-            blob_id: Some(*self.metadata.blob_id()),
-            failure_phase: "register".to_string(),
-            error,
-        }))
-    }
-}
-
-impl<T: Debug + Clone + Send + Sync> std::fmt::Debug for BlobWithStatus<'_, T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("BlobWithStatus")
-            .field("identifier", &self.input_blob.identifier)
-            .field("blob_id", &self.metadata.blob_id())
-            .field("status", &self.status)
-            .field("blob_len", &self.input_blob.blob.len())
-            .finish()
-    }
-}
-
-/// Registered blob.
-#[derive(Clone)]
-pub struct RegisteredBlob<'a, T: Debug + Clone + Send + Sync> {
-    /// The base unencoded blob.
-    pub input_blob: UnencodedBlob<'a, T>,
-    /// The encoded sliver pairs.
-    pub pairs: Arc<Vec<SliverPair>>,
-    /// The verified metadata associated with the blob.
-    pub metadata: Arc<VerifiedBlobMetadataWithId>,
-    /// The current status of the blob in the system.
-    pub status: BlobStatus,
-    /// The store operation to be performed.
-    pub operation: StoreOp,
-}
-
-impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for RegisteredBlob<'a, T> {
-    fn get_state(&self) -> &'static str {
-        "Registered"
-    }
-
-    fn get_blob(&self) -> &'a [u8] {
-        self.input_blob.blob
-    }
-
-    fn get_identifier(&self) -> &T {
-        &self.input_blob.identifier
-    }
-
-    fn unencoded_length(&self) -> usize {
-        self.input_blob.blob.len()
-    }
-
-    fn encoded_size(&self) -> Option<u64> {
-        self.metadata.metadata().encoded_size()
-    }
-
-    fn get_metadata(&self) -> Option<&VerifiedBlobMetadataWithId> {
-        Some(&self.metadata)
-    }
-
-    fn get_blob_id(&self) -> Option<BlobId> {
-        Some(*self.metadata.blob_id())
-    }
-
-    fn get_sliver_pairs(&self) -> Option<&Vec<SliverPair>> {
-        Some(&self.pairs)
-    }
-
-    fn get_status(&self) -> Option<&BlobStatus> {
-        Some(&self.status)
-    }
-
-    // TODO: Return the object ID from the blob.
-    fn get_object_id(&self) -> Option<ObjectID> {
-        let StoreOp::RegisterNew { blob, .. } = &self.operation else {
-            return None;
-        };
-
-        Some(blob.id)
-    }
-
-    fn get_operation(&self) -> Option<&StoreOp> {
-        Some(&self.operation)
-    }
-
-    fn get_error(&self) -> Option<&ClientError> {
-        None
-    }
-
-    fn get_result(&self) -> Option<BlobStoreResult> {
-        None
-    }
-
-    fn ready_to_store_to_nodes(&self) -> bool {
-        let StoreOp::RegisterNew { operation, blob } = &self.operation else {
-            return false;
-        };
-
-        match operation {
-            RegisterBlobOp::ReuseAndExtend { .. } => false,
-            RegisterBlobOp::ReuseRegistration { .. }
-            | RegisterBlobOp::RegisterFromScratch { .. }
-            | RegisterBlobOp::ReuseStorage { .. }
-            | RegisterBlobOp::ReuseAndExtendNonCertified { .. } => {
-                debug_assert!(blob.certified_epoch.is_none());
-                true
-            }
-        }
-    }
-
-    fn ready_to_extend(&self) -> bool {
-        let StoreOp::RegisterNew { operation, blob } = &self.operation else {
-            return false;
-        };
-
-        if blob.certified_epoch.is_none() {
-            return false;
-        }
-
-        matches!(operation, RegisterBlobOp::ReuseAndExtend { .. })
-    }
-
-    fn get_certify_and_extend_params(&self) -> ClientResult<CertifyAndExtendBlobParams<'_>> {
-        if let StoreOp::RegisterNew {
-            operation:
-                RegisterBlobOp::ReuseAndExtend {
-                    epochs_extended, ..
-                },
-            blob,
-        } = &self.operation
-        {
-            Ok(CertifyAndExtendBlobParams {
-                blob,
-                attribute: &self.input_blob.attribute,
-                certificate: None,
-                epochs_extended: Some(*epochs_extended),
-            })
-        } else {
-            Err(invalid_operation_for_blob(
-                &self,
-                format!("get_certify_and_extend_params: {:?}", self.operation),
-            ))
-        }
-    }
-
-    fn with_encode_result(
-        self,
-        result: Result<(Vec<SliverPair>, VerifiedBlobMetadataWithId), ClientError>,
-    ) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        Err(ClientError::store_blob_internal(format!(
-            "Invalid operation for blob {self:?}, result: {result:?}",
-        )))
-    }
-
-    fn with_status(
-        self,
-        status: Result<BlobStatus, ClientError>,
-    ) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        Err(ClientError::store_blob_internal(format!(
-            "Invalid operation for blob {self:?}, status: {status:?}",
-        )))
-    }
-
-    fn try_complete_if_certified_beyond_epoch(
-        self,
-        target_epoch: u32,
-    ) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        Err(ClientError::store_blob_internal(format!(
-            "Invalid operation for blob {self:?}, target_epoch: {target_epoch:?}",
-        )))
-    }
-
-    fn with_register_result(
-        self,
-        result: ClientResult<StoreOp>,
-    ) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        Err(invalid_operation_for_blob(
-            &self,
-            format!("with_register_result: {result:?}"),
-        ))
-    }
-
-    fn with_get_certificate_result(
-        self,
-        certificate_result: ClientResult<ConfirmationCertificate>,
-    ) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        self.input_blob.span.in_scope(|| {
-            tracing::event!(
-                BLOB_SPAN_LEVEL,
-                certificate_result_success = certificate_result.is_ok(),
-                "entering with_get_certificate_result",
-            );
-        });
-
-        let new_state = match certificate_result {
-            Ok(certificate) => WalrusStoreBlob::WithCertificate(BlobWithCertificate {
-                input_blob: self.input_blob,
-                pairs: self.pairs,
-                metadata: self.metadata,
-                status: self.status,
-                operation: self.operation,
-                certificate,
-            }),
-            Err(error) => {
-                if WalrusStoreBlob::<'_, T>::should_fail_early(&error) {
-                    return Err(error);
-                }
-                let blob_id = *self.metadata.blob_id();
-                WalrusStoreBlob::Error(FailedBlob {
-                    input_blob: self.input_blob,
-                    blob_id: Some(blob_id),
-                    failure_phase: "certificate".to_string(),
-                    error,
-                })
-            }
-        };
-
-        new_state.log_state("with_get_certificate_result completed");
-
-        Ok(new_state)
-    }
-
-    fn with_certify_and_extend_result(
-        self,
-        certify_and_extend_result: CertifyAndExtendBlobResult,
-        price_computation: &PriceComputation,
-    ) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        self.input_blob.span.in_scope(|| {
-            tracing::event!(
-                BLOB_SPAN_LEVEL,
-                ?certify_and_extend_result,
-                ?price_computation,
-                "entering with_certify_and_extend_result",
-            );
-        });
-
-        let StoreOp::RegisterNew { operation, blob } = &self.operation else {
-            return Err(invalid_operation_for_blob(
-                &self,
-                format!("with_certify_and_extend_result: {:?}", self.operation),
-            ));
-        };
-
-        if !matches!(operation, RegisterBlobOp::ReuseAndExtend { .. }) {
-            return Err(invalid_operation_for_blob(
-                &self,
-                format!("with_certify_and_extend_result: {:?}", self.operation),
-            ));
-        }
-
-        let resource_operation = operation.clone();
-        let blob_object = blob.clone();
-        let new_state = self.complete_with(BlobStoreResult::NewlyCreated {
-            cost: price_computation.operation_cost(&resource_operation),
-            blob_object,
-            resource_operation,
-            // TODO: pass error back to the caller.
-            shared_blob_object: certify_and_extend_result.shared_blob_object(),
-        });
-
-        new_state.log_state("with_certify_and_extend_result completed");
-
-        Ok(new_state)
-    }
-
-    fn complete_with(self, result: BlobStoreResult) -> WalrusStoreBlob<'a, T> {
-        WalrusStoreBlob::Completed(CompletedBlob {
-            input_blob: self.input_blob,
-            result,
-        })
-    }
-
-    fn with_error(self, error: ClientError) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        if WalrusStoreBlob::<'_, T>::should_fail_early(&error) {
-            Err(error)
-        } else {
-            Ok(WalrusStoreBlob::Error(FailedBlob {
-                input_blob: self.input_blob,
-                blob_id: Some(*self.metadata.blob_id()),
-                failure_phase: "error".to_string(),
-                error,
-            }))
-        }
-    }
-}
-
-impl<T: Debug + Clone + Send + Sync> std::fmt::Debug for RegisteredBlob<'_, T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("RegisteredBlob")
-            .field("identifier", &self.input_blob.identifier)
-            .field("blob_id", &self.metadata.blob_id())
-            .field("status", &self.status)
-            .field("operation", &self.operation)
-            .finish()
-    }
-}
-
-/// Blob with certificate
-#[derive(Clone)]
-pub struct BlobWithCertificate<'a, T: Debug + Clone + Send + Sync> {
-    /// The base unencoded blob.
-    pub input_blob: UnencodedBlob<'a, T>,
-    /// The encoded sliver pairs.
-    pub pairs: Arc<Vec<SliverPair>>,
-    /// The verified metadata associated with the blob.
-    pub metadata: Arc<VerifiedBlobMetadataWithId>,
-    /// The current status of the blob in the system.
-    pub status: BlobStatus,
-    /// The store operation to be performed.
-    pub operation: StoreOp,
-    /// The confirmation certificate for the blob.
-    pub certificate: ConfirmationCertificate,
-}
-
-impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for BlobWithCertificate<'a, T> {
-    fn get_state(&self) -> &'static str {
-        "WithCertificate"
-    }
-
-    fn get_blob(&self) -> &'a [u8] {
-        self.input_blob.blob
-    }
-
-    fn get_identifier(&self) -> &T {
-        &self.input_blob.identifier
-    }
-
-    fn unencoded_length(&self) -> usize {
-        self.input_blob.blob.len()
-    }
-
-    fn encoded_size(&self) -> Option<u64> {
-        self.metadata.metadata().encoded_size()
-    }
-
-    fn get_metadata(&self) -> Option<&VerifiedBlobMetadataWithId> {
-        Some(&self.metadata)
-    }
-
-    fn get_blob_id(&self) -> Option<BlobId> {
-        Some(*self.metadata.blob_id())
-    }
-
-    fn get_sliver_pairs(&self) -> Option<&Vec<SliverPair>> {
-        Some(&self.pairs)
-    }
-
-    fn get_status(&self) -> Option<&BlobStatus> {
-        Some(&self.status)
-    }
-
-    fn get_object_id(&self) -> Option<ObjectID> {
-        let StoreOp::RegisterNew { blob, .. } = &self.operation else {
-            return None;
-        };
-
-        Some(blob.id)
-    }
-
-    fn get_operation(&self) -> Option<&StoreOp> {
-        Some(&self.operation)
-    }
-
-    fn get_error(&self) -> Option<&ClientError> {
-        None
-    }
-
-    fn get_result(&self) -> Option<BlobStoreResult> {
-        None
-    }
-
-    fn ready_to_store_to_nodes(&self) -> bool {
-        false
-    }
-
-    fn ready_to_extend(&self) -> bool {
-        false
-    }
-
-    fn get_certify_and_extend_params(&self) -> ClientResult<CertifyAndExtendBlobParams<'_>> {
-        let StoreOp::RegisterNew { operation, blob } = &self.operation else {
-            return Err(invalid_operation_for_blob(
-                &self,
-                format!("get_certify_and_extend_params: {:?}", self.operation),
-            ));
-        };
-        match operation {
-            RegisterBlobOp::ReuseAndExtend { .. } => Err(invalid_operation_for_blob(
-                &self,
-                format!("get_certify_and_extend_params: {:?}", self.operation),
-            )),
-            RegisterBlobOp::ReuseAndExtendNonCertified {
-                epochs_extended, ..
-            } => Ok(CertifyAndExtendBlobParams {
-                blob,
-                attribute: &self.input_blob.attribute,
-                certificate: Some(self.certificate.clone()),
-                epochs_extended: Some(*epochs_extended),
-            }),
-            RegisterBlobOp::RegisterFromScratch { .. }
-            | RegisterBlobOp::ReuseStorage { .. }
-            | RegisterBlobOp::ReuseRegistration { .. } => Ok(CertifyAndExtendBlobParams {
-                blob,
-                attribute: &self.input_blob.attribute,
-                certificate: Some(self.certificate.clone()),
-                epochs_extended: None,
-            }),
-        }
-    }
-
-    fn with_encode_result(
-        self,
-        result: Result<(Vec<SliverPair>, VerifiedBlobMetadataWithId), ClientError>,
-    ) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        Err(invalid_operation_for_blob(
-            &self,
-            format!("with_encode_result: {result:?}"),
-        ))
-    }
-
-    fn with_status(
-        self,
-        status: Result<BlobStatus, ClientError>,
-    ) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        Err(invalid_operation_for_blob(
-            &self,
-            format!("with_status: {status:?}"),
-        ))
-    }
-
-    fn try_complete_if_certified_beyond_epoch(
-        self,
-        target_epoch: u32,
-    ) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        Err(invalid_operation_for_blob(
-            &self,
-            format!("try_complete_if_certified_beyond_epoch: {target_epoch:?}"),
-        ))
-    }
-
-    fn with_register_result(
-        self,
-        result: Result<StoreOp, ClientError>,
-    ) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        Err(invalid_operation_for_blob(
-            &self,
-            format!("with_register_result: {result:?}"),
-        ))
-    }
-
-    fn with_get_certificate_result(
-        self,
-        certificate_result: ClientResult<ConfirmationCertificate>,
-    ) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        Err(invalid_operation_for_blob(
-            &self,
-            format!("with_get_certificate_result: {certificate_result:?}"),
-        ))
-    }
-
-    fn with_certify_and_extend_result(
-        self,
-        certify_and_extend_result: CertifyAndExtendBlobResult,
-        price_computation: &PriceComputation,
-    ) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        self.input_blob.span.in_scope(|| {
-            tracing::event!(
-                BLOB_SPAN_LEVEL,
-                ?certify_and_extend_result,
-                ?price_computation,
-                "entering with_certify_and_extend_result",
-            );
-        });
-
-        let StoreOp::RegisterNew { operation, blob } = &self.operation else {
-            return Err(invalid_operation_for_blob(
-                &self,
-                format!("with_certify_and_extend_result: {certify_and_extend_result:?}"),
-            ));
-        };
-
-        let store_result = BlobStoreResult::NewlyCreated {
-            blob_object: blob.clone(),
-            resource_operation: operation.clone(),
-            cost: price_computation.operation_cost(operation),
-            shared_blob_object: certify_and_extend_result.shared_blob_object(),
-        };
-
-        let new_state = self.complete_with(store_result);
-
-        new_state.log_state("with_certify_and_extend_result completed");
-
-        Ok(new_state)
-    }
-
-    fn complete_with(self, result: BlobStoreResult) -> WalrusStoreBlob<'a, T> {
-        WalrusStoreBlob::Completed(CompletedBlob {
-            input_blob: self.input_blob,
-            result,
-        })
-    }
-
-    fn with_error(self, error: ClientError) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        if WalrusStoreBlob::<'_, T>::should_fail_early(&error) {
-            Err(error)
-        } else {
-            let blob_id = self.get_blob_id();
-            Ok(WalrusStoreBlob::Error(FailedBlob {
-                input_blob: self.input_blob,
-                blob_id,
-                failure_phase: "with_certificate".to_string(),
-                error,
-            }))
-        }
-    }
-}
-
-impl<T: Debug + Clone + Send + Sync> std::fmt::Debug for BlobWithCertificate<'_, T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("BlobWithCertificate")
-            .field("identifier", &self.input_blob.identifier)
-            .field("blob_id", &self.metadata.blob_id())
-            .field("status", &self.status)
-            .field("operation", &self.operation)
-            .finish()
-    }
-}
-
-/// Blob in completed state
-#[derive(Clone)]
-pub struct CompletedBlob<'a, T: Debug + Clone + Send + Sync> {
-    /// The base unencoded blob.
-    pub input_blob: UnencodedBlob<'a, T>,
-    /// The final result of the store operation.
-    pub result: BlobStoreResult,
-}
-
-impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for CompletedBlob<'a, T> {
-    fn get_state(&self) -> &'static str {
-        "Completed"
-    }
-
-    fn get_blob(&self) -> &'a [u8] {
-        self.input_blob.get_blob()
-    }
-
-    fn get_identifier(&self) -> &T {
-        self.input_blob.get_identifier()
-    }
-
-    fn unencoded_length(&self) -> usize {
-        self.input_blob.unencoded_length()
-    }
-
-    fn encoded_size(&self) -> Option<u64> {
-        None
-    }
-
-    fn get_metadata(&self) -> Option<&VerifiedBlobMetadataWithId> {
-        None
-    }
-
-    fn get_blob_id(&self) -> Option<BlobId> {
-        self.result.blob_id()
-    }
-
-    fn get_sliver_pairs(&self) -> Option<&Vec<SliverPair>> {
-        None
-    }
-
-    fn get_status(&self) -> Option<&BlobStatus> {
-        None
-    }
-
-    fn get_object_id(&self) -> Option<ObjectID> {
-        let BlobStoreResult::NewlyCreated { blob_object, .. } = &self.result else {
-            return None;
-        };
-
-        Some(blob_object.id)
-    }
-
-    fn get_operation(&self) -> Option<&StoreOp> {
-        None
-    }
-
-    fn get_error(&self) -> Option<&ClientError> {
-        None
-    }
-
-    fn get_result(&self) -> Option<BlobStoreResult> {
-        Some(self.result.clone())
-    }
-
-    fn ready_to_store_to_nodes(&self) -> bool {
-        false
-    }
-
-    fn ready_to_extend(&self) -> bool {
-        false
-    }
-
-    fn get_certify_and_extend_params(&self) -> ClientResult<CertifyAndExtendBlobParams<'_>> {
-        Err(invalid_operation_for_blob(
-            &self,
-            "get_certify_and_extend_params".to_string(),
-        ))
-    }
-
-    fn with_encode_result(
-        self,
-        result: Result<(Vec<SliverPair>, VerifiedBlobMetadataWithId), ClientError>,
-    ) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        Err(invalid_operation_for_blob(
-            &self,
-            format!("with_encode_result: {result:?}"),
-        ))
-    }
-
-    fn with_status(
-        self,
-        status: Result<BlobStatus, ClientError>,
-    ) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        Err(invalid_operation_for_blob(
-            &self,
-            format!("with_status: {status:?}"),
-        ))
-    }
-
-    fn try_complete_if_certified_beyond_epoch(
-        self,
-        target_epoch: u32,
-    ) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        Err(invalid_operation_for_blob(
-            &self,
-            format!("try_complete_if_certified_beyond_epoch: {target_epoch:?}"),
-        ))
-    }
-
-    fn with_register_result(
-        self,
-        result: Result<StoreOp, ClientError>,
-    ) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        Err(invalid_operation_for_blob(
-            &self,
-            format!("with_register_result: {result:?}"),
-        ))
-    }
-
-    fn with_get_certificate_result(
-        self,
-        certificate_result: ClientResult<ConfirmationCertificate>,
-    ) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        Err(invalid_operation_for_blob(
-            &self,
-            format!("with_get_certificate_result: {certificate_result:?}"),
-        ))
-    }
-
-    fn with_certify_and_extend_result(
-        self,
-        result: CertifyAndExtendBlobResult,
-        _price_computation: &PriceComputation,
-    ) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        Err(invalid_operation_for_blob(
-            &self,
-            format!("with_certify_and_extend_result: {result:?}"),
-        ))
-    }
-
-    fn complete_with(self, result: BlobStoreResult) -> WalrusStoreBlob<'a, T> {
-        WalrusStoreBlob::Completed(CompletedBlob {
-            input_blob: self.input_blob,
-            result,
-        })
-    }
-
-    fn with_error(self, error: ClientError) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        Err(invalid_operation_for_blob(
-            &self,
-            format!("with_error: {error:?}"),
-        ))
-    }
-}
-
-impl<T: Debug + Clone + Send + Sync> std::fmt::Debug for CompletedBlob<'_, T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("CompletedBlob")
-            .field("identifier", &self.input_blob.identifier)
-            .field("result", &self.result)
-            .finish()
-    }
-}
-
-/// Failure occurred during the blob lifecycle.
-pub struct FailedBlob<'a, T: Debug + Clone + Send + Sync> {
-    /// The base unencoded blob.
-    pub input_blob: UnencodedBlob<'a, T>,
-    /// The blob ID.
-    pub blob_id: Option<BlobId>,
-    /// The phase where the error occurred.
-    pub failure_phase: String,
-    /// The error.
-    pub error: ClientError,
-}
-
-impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for FailedBlob<'a, T> {
-    fn get_state(&self) -> &'static str {
-        "Error"
-    }
-
-    fn get_blob(&self) -> &'a [u8] {
-        self.input_blob.get_blob()
-    }
-
-    fn get_identifier(&self) -> &T {
-        &self.input_blob.identifier
-    }
-
-    fn unencoded_length(&self) -> usize {
-        self.input_blob.unencoded_length()
-    }
-
-    fn encoded_size(&self) -> Option<u64> {
-        None
-    }
-
-    fn get_metadata(&self) -> Option<&VerifiedBlobMetadataWithId> {
-        None
-    }
-
-    fn get_blob_id(&self) -> Option<BlobId> {
-        self.blob_id
-    }
-
-    fn get_sliver_pairs(&self) -> Option<&Vec<SliverPair>> {
-        None
-    }
-
-    fn get_status(&self) -> Option<&BlobStatus> {
-        None
-    }
-
-    fn get_object_id(&self) -> Option<ObjectID> {
-        None
-    }
-
-    fn get_operation(&self) -> Option<&StoreOp> {
-        None
-    }
-
-    fn get_error(&self) -> Option<&ClientError> {
-        Some(&self.error)
-    }
-
-    fn get_result(&self) -> Option<BlobStoreResult> {
-        Some(BlobStoreResult::Error {
-            blob_id: self.blob_id,
-            error_msg: self.error.to_string(),
-        })
-    }
-
-    fn ready_to_store_to_nodes(&self) -> bool {
-        false
-    }
-
-    fn ready_to_extend(&self) -> bool {
-        false
-    }
-
-    fn get_certify_and_extend_params(&self) -> Result<CertifyAndExtendBlobParams<'_>, ClientError> {
-        Err(ClientError::store_blob_internal(format!(
-            "Invalid operation for blob {self:?}",
-        )))
-    }
-
-    fn with_encode_result(
-        self,
-        result: Result<(Vec<SliverPair>, VerifiedBlobMetadataWithId), ClientError>,
-    ) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        Err(invalid_operation_for_blob(
-            &self,
-            format!("with_encode_result: {result:?}"),
-        ))
-    }
-
-    fn with_status(
-        self,
-        status: Result<BlobStatus, ClientError>,
-    ) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        Err(ClientError::store_blob_internal(format!(
-            "Invalid operation for blob {self:?}, status: {status:?}",
-        )))
-    }
-
-    fn try_complete_if_certified_beyond_epoch(
-        self,
-        target_epoch: u32,
-    ) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        Err(ClientError::store_blob_internal(format!(
-            "Invalid operation for blob {self:?}, target_epoch: {target_epoch:?}",
-        )))
-    }
-
-    fn with_register_result(
-        self,
-        result: Result<StoreOp, ClientError>,
-    ) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        Err(ClientError::store_blob_internal(format!(
-            "Invalid operation for blob {self:?}, result: {result:?}",
-        )))
-    }
-
-    fn with_get_certificate_result(
-        self,
-        certificate_result: ClientResult<ConfirmationCertificate>,
-    ) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        Err(ClientError::store_blob_internal(format!(
-            "Invalid operation for blob {self:?}, certificate_result: {certificate_result:?}",
-        )))
-    }
-
-    fn with_certify_and_extend_result(
-        self,
-        result: CertifyAndExtendBlobResult,
-        _price_computation: &PriceComputation,
-    ) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        Err(invalid_operation_for_blob(
-            &self,
-            format!("with_certify_and_extend_result: {result:?}"),
-        ))
-    }
-
-    fn complete_with(self, result: BlobStoreResult) -> WalrusStoreBlob<'a, T> {
-        WalrusStoreBlob::Completed(CompletedBlob {
-            input_blob: self.input_blob,
-            result,
-        })
-    }
-
-    fn with_error(self, error: ClientError) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        if WalrusStoreBlob::<'_, T>::should_fail_early(&error) {
-            Err(error)
-        } else {
-            let blob_id = self.get_blob_id();
-            Ok(WalrusStoreBlob::Error(FailedBlob {
-                input_blob: self.input_blob,
-                blob_id,
-                failure_phase: "with_certificate".to_string(),
-                error,
-            }))
-        }
-    }
-}
-
-impl<T: Debug + Clone + Send + Sync> Clone for FailedBlob<'_, T> {
-    fn clone(&self) -> Self {
-        panic!("FailedBlob should not be cloned");
-    }
-}
-
-impl<T: Debug + Clone + Send + Sync> std::fmt::Debug for FailedBlob<'_, T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("FailedBlob")
-            .field("identifier", &self.input_blob.identifier)
-            .field("blob_id", &self.blob_id)
-            .field("failure_phase", &self.failure_phase)
-            .field("error", &self.error.to_string())
-            .finish()
-    }
-}
-
-fn invalid_operation_for_blob<B: Debug>(blob: &B, operation: String) -> ClientError {
-    ClientError::store_blob_internal(format!(
-        "Invalid operation for blob {blob:?}, operation: {operation:?}",
-    ))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_enum_dispatch_for_walrus_store_blob() {
-        // Create a sample UnencodedBlob
-        let blob_data = b"sample data";
-        let identifier = "sample_id".to_string();
-
-        // Wrap it in the WalrusStoreBlob enum
-        let walrus_blob: WalrusStoreBlob<String> =
-            WalrusStoreBlob::new_unencoded(blob_data, identifier.clone(), BlobAttribute::default());
-
-        // Import the trait directly to bring the methods into scope
-        use super::WalrusStoreBlobApi;
-
-        // Now the methods will be available
-        assert_eq!(walrus_blob.get_identifier(), &identifier);
-        assert_eq!(walrus_blob.get_status(), None);
-        assert_eq!(walrus_blob.encoded_size(), None);
-        assert_eq!(walrus_blob.unencoded_length(), blob_data.len());
-
-        assert_eq!(walrus_blob.get_blob(), blob_data);
-    }
 }

@@ -140,7 +140,7 @@ impl ClientMultiplexer {
     #[tracing::instrument(err, skip_all)]
     pub async fn submit_write(
         &self,
-        blob: &[u8],
+        blob: Vec<u8>,
         encoding_type: Option<EncodingType>,
         epochs_ahead: EpochCount,
         store_optimizations: StoreOptimizations,
@@ -185,7 +185,7 @@ impl WalrusReadClient for ClientMultiplexer {
 impl WalrusWriteClient for ClientMultiplexer {
     async fn write_blob(
         &self,
-        blob: &[u8],
+        blob: Vec<u8>,
         encoding_type: Option<EncodingType>,
         epochs_ahead: EpochCount,
         store_optimizations: StoreOptimizations,

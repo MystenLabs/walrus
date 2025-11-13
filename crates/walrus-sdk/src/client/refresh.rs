@@ -139,7 +139,7 @@ impl<T: ReadClient> CommitteesRefresher<T> {
                         .into_reply_channel()
                         .send((
                             self.last_committees.clone(),
-                            self.last_price_computation.clone(),
+                            self.last_price_computation,
                         ))
                         .inspect_err(|_| {
                             // This may happen because the client was notified of a committee
