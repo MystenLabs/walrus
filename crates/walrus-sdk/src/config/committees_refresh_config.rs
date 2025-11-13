@@ -49,7 +49,6 @@ impl CommitteesRefreshConfig {
         sui_client: impl ReadClient + Clone + 'static,
     ) -> Result<CommitteesRefresherHandle> {
         let n_shards = sui_client
-            .clone()
             .n_shards()
             .await
             .context("failed to determine n_shards before starting refresher")?;
