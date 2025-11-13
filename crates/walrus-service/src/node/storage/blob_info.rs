@@ -1794,8 +1794,7 @@ impl Mergeable for BlobInfoV2 {
         // V2 can only be created from RegisterManaged.
         match operand {
             BlobInfoMergeOperand::ChangeStatus {
-                change_type:
-                    BlobStatusChangeType::RegisterManaged { blob_manager_id },
+                change_type: BlobStatusChangeType::RegisterManaged { blob_manager_id },
                 change_info,
             } => Some(Self::Valid(ValidBlobInfoV2::new(
                 blob_manager_id,
@@ -1962,7 +1961,9 @@ impl ManagedBlobInfo {
             registered: std::collections::HashSet::from([blob_manager_id]),
             registered_deletable_counts: if deletable { 1 } else { 0 },
             certified: std::collections::HashSet::new(),
-            certified_deletable_counts: if deletable { 1 } else { 0 },
+            // certified_deletable_counts should be 0 on registration,
+            // only increment on certification.
+            certified_deletable_counts: 0,
         }
     }
 
@@ -1984,7 +1985,7 @@ impl ManagedBlobInfo {
                 // Certify the managed blob for this BlobManager.
                 if !self.registered.contains(&blob_manager_id) {
                     tracing::error!(
-                        "attempted to certify a managed blob without having it registered: 
+                        "attempted to certify a managed blob without having it registered:
                         blob_id={:?}, blob_manager_id={:?}",
                         change_info.blob_id,
                         blob_manager_id
@@ -2089,7 +2090,7 @@ impl ValidBlobInfoV2 {
                 // Create ManagedBlobInfo if it doesn't exist.
                 let Some(ref mut managed_info) = self.managed_blob_info else {
                     tracing::error!(
-                        "attempted to update status of a managed blob without having it registered: 
+                        "attempted to update status of a managed blob without having it registered:
                         blob_id={:?}",
                         change_info.blob_id,
                     );
@@ -2098,13 +2099,10 @@ impl ValidBlobInfoV2 {
                 managed_info.update_status(change_type, &change_info);
             }
             BlobStatusChangeType::Register => {
-                let Some(ref mut regular_info) = self.regular_blob_info else {
-                    self.regular_blob_info = Some(ValidBlobInfoV1::default());
-                    return;
-                };
+                let regular_info = self.regular_blob_info.get_or_insert_with(Default::default);
                 regular_info.update_status(change_type, change_info);
             }
-            | BlobStatusChangeType::Certify
+            BlobStatusChangeType::Certify
             | BlobStatusChangeType::Extend
             | BlobStatusChangeType::Delete { .. } => {
                 // Regular blob operations update regular blob info using V1 logic.
@@ -2124,8 +2122,9 @@ impl ValidBlobInfoV2 {
             return None;
         }
 
-        // TODO: Query BlobManager objects to check which managed blobs are still valid at current_epoch.
-        // For now, we count all registered/certified managed blobs.
+        // TODO: Query BlobManager objects to check which managed blobs are still
+        // valid at current_epoch. For now, we count all registered/certified
+        // managed blobs.
         Some(ManagedBlobCounts {
             count_registered_total: managed_info.registered.len() as u32,
             count_certified_total: managed_info.certified.len() as u32,
@@ -2337,7 +2336,7 @@ impl Mergeable for BlobInfo {
         {
             return BlobInfoV2::merge_new(operand).map(Self::from);
         }
-        
+
         // Otherwise, create V1 entry.
         BlobInfoV1::merge_new(operand).map(Self::from)
     }
@@ -3571,44 +3570,6 @@ mod tests {
     }
 
     param_test! {
-        test_v2_merge_new_with_certify_managed: [
-            certify_managed: (
-                BlobInfoMergeOperand::ChangeStatus {
-                    change_type: BlobStatusChangeType::CertifyManaged {
-                        blob_manager_id: object_id_for_testing(1),
-                    },
-                    change_info: BlobStatusChangeInfo {
-                        epoch: 1,
-                        end_epoch: 10,
-                        deletable: true,
-                        status_event: event_id_for_testing(),
-                        blob_id: blob_id_for_testing(),
-                    },
-                },
-                BlobInfoV2::Valid(ValidBlobInfoV2 {
-                    regular_blob_info: None,
-                    managed_blob_info: Some(ManagedBlobInfo {
-                        is_metadata_stored: false,
-                        initial_certified_epoch: None,
-                        registered: Default::default(),
-                        registered_deletable_counts: 0,
-                        certified: Default::default(),
-                        certified_deletable_counts: 1,
-                    }),
-                }),
-            ),
-        ]
-    }
-    fn test_v2_merge_new_with_certify_managed(
-        operand: BlobInfoMergeOperand,
-        expected: BlobInfoV2,
-    ) {
-        let result =
-            BlobInfoV2::merge_new(operand).expect("should create V2 from CertifyManaged");
-        assert_eq!(result, expected);
-    }
-
-    param_test! {
         test_v2_mark_metadata_stored: [
             empty_v2: (
                 BlobInfoV2::Valid(ValidBlobInfoV2::default()),
@@ -3677,8 +3638,7 @@ mod tests {
                         registered: [object_id_for_testing(1)].into_iter().collect(),
                         registered_deletable_counts: 1,
                         certified: Default::default(),
-                        // NOTE: See comment in register_managed_deletable test case.
-                        certified_deletable_counts: 1,
+                        certified_deletable_counts: 0,
                     }),
                 }),
             ),
@@ -3743,7 +3703,7 @@ mod tests {
                         registered: [object_id_for_testing(1)].into_iter().collect(),
                         registered_deletable_counts: 1,
                         certified: Default::default(),
-                        certified_deletable_counts: 1,
+                        certified_deletable_counts: 0,
                     }),
                 }),
                 object_id_for_testing(1),
@@ -3820,14 +3780,7 @@ mod tests {
     param_test! {
         test_v2_regular_and_managed_coexist: [
             register_regular_then_managed: (
-                BlobInfoV2::Valid(ValidBlobInfoV2 {
-                    regular_blob_info: Some(ValidBlobInfoV1 {
-                        count_deletable_total: 1,
-                        latest_seen_deletable_registered_end_epoch: Some(10),
-                        ..Default::default()
-                    }),
-                    managed_blob_info: None,
-                }),
+                BlobInfoV2::Valid(ValidBlobInfoV2::default()),
                 object_id_for_testing(1),
                 BlobInfoV2::Valid(ValidBlobInfoV2 {
                     regular_blob_info: Some(ValidBlobInfoV1 {
@@ -3841,22 +3794,12 @@ mod tests {
                         registered: [object_id_for_testing(1)].into_iter().collect(),
                         registered_deletable_counts: 1,
                         certified: Default::default(),
-                        certified_deletable_counts: 1,
+                        certified_deletable_counts: 0,
                     }),
                 }),
             ),
             register_managed_then_regular: (
-                BlobInfoV2::Valid(ValidBlobInfoV2 {
-                    regular_blob_info: None,
-                    managed_blob_info: Some(ManagedBlobInfo {
-                        is_metadata_stored: false,
-                        initial_certified_epoch: None,
-                        registered: [object_id_for_testing(1)].into_iter().collect(),
-                        registered_deletable_counts: 0,
-                        certified: Default::default(),
-                        certified_deletable_counts: 1,
-                    }),
-                }),
+                BlobInfoV2::Valid(ValidBlobInfoV2::default()),
                 object_id_for_testing(1),
                 BlobInfoV2::Valid(ValidBlobInfoV2 {
                     regular_blob_info: Some(ValidBlobInfoV1 {
@@ -3868,9 +3811,9 @@ mod tests {
                         is_metadata_stored: false,
                         initial_certified_epoch: None,
                         registered: [object_id_for_testing(1)].into_iter().collect(),
-                        registered_deletable_counts: 0,
+                        registered_deletable_counts: 1,
                         certified: Default::default(),
-                        certified_deletable_counts: 1,
+                        certified_deletable_counts: 0,
                     }),
                 }),
             ),
