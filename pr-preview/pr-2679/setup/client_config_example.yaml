@@ -42,6 +42,7 @@ communication_config:
     max_permits: 2000
     secondary_weight: 0.5
     min_blob_size_bytes: 52428800
+  upload_mode: balanced
   registration_delay_millis: 200
   max_total_blob_size: 1073741824
   committee_change_backoff:

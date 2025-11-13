@@ -339,10 +339,7 @@ following configs to your node configuration:</p>
 </div>
 <div>
 <p>The following commands assume <code>walrus-node</code> is in your system's PATH. If it's not, replace
-<code>walrus-node</code> with the full path to the binary, for example:</p>
-<ul>
-<li><code>/opt/walrus/bin/walrus-node</code></li>
-</ul>
+<code>walrus-node</code> with the full path to the binary, for example <code>/opt/walrus/bin/walrus-node</code>.</p>
 </div>
 </div>
 <pre><code class="language-bash"># Basic backup command
@@ -364,10 +361,7 @@ initialized, the process continues independently even if the command-line interf
 </div>
 </div>
 <h2 id="list-available-backups"><a class="header" href="#list-available-backups">List Available Backups</a></h2>
-<pre><code class="language-bash">sudo -u walrus walrus-node local-admin \
-  --socket-path /opt/walrus/admin.socket \
-  checkpoint list \
-  --path /opt/walrus/checkpoints
+<pre><code class="language-bash">sudo -u walrus walrus-node list-db-checkpoint /opt/walrus/checkpoints
 </code></pre>
 <p><strong>Sample output:</strong></p>
 <pre><code class="language-console">Backups:

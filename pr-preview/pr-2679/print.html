@@ -1105,7 +1105,7 @@ curl -sSf https://install.wal.app | sh -s -- -f
 </code></pre>
 <p>Make sure that the <code>"$HOME"/.local/bin</code> directory is in your <code>$PATH</code>.</p>
 <p>Once this is done, you can run Walrus by using the <code>walrus</code> command in your terminal.</p>
-<pre><code class="language-bash">$ walrus --help
+<pre><code class="language-console">$ walrus --help
 Walrus client
 
 Usage: walrus [OPTIONS] &lt;COMMAND&gt;
@@ -1328,7 +1328,7 @@ don't have it yet),</p>
 <pre><code class="language-sh">sui client switch --env testnet
 </code></pre>
 <p>After this, you should get something like this (everything besides the <code>testnet</code> line is optional):</p>
-<pre><code class="language-terminal">$ sui client envs
+<pre><code class="language-console">$ sui client envs
 ╭──────────┬─────────────────────────────────────┬────────╮
 │ alias    │ url                                 │ active │
 ├──────────┼─────────────────────────────────────┼────────┤
@@ -1342,7 +1342,7 @@ don't have it yet),</p>
 <a href="https://faucet.sui.io/?network=testnet">Sui Testnet faucet</a> (you can find your address through the
 <code>sui client active-address</code> command).</p>
 <p>After some seconds, you should see your new SUI coins:</p>
-<pre><code class="language-terminal">$ sui client gas
+<pre><code class="language-console">$ sui client gas
 ╭─────────────────┬────────────────────┬──────────────────╮
 │ gasCoinId       │ mistBalance (MIST) │ suiBalance (SUI) │
 ├─────────────────┼────────────────────┼──────────────────┤
@@ -3809,10 +3809,7 @@ following configs to your node configuration:</p>
 </div>
 <div>
 <p>The following commands assume <code>walrus-node</code> is in your system's PATH. If it's not, replace
-<code>walrus-node</code> with the full path to the binary, for example:</p>
-<ul>
-<li><code>/opt/walrus/bin/walrus-node</code></li>
-</ul>
+<code>walrus-node</code> with the full path to the binary, for example <code>/opt/walrus/bin/walrus-node</code>.</p>
 </div>
 </div>
 <pre><code class="language-bash"># Basic backup command
@@ -3834,10 +3831,7 @@ initialized, the process continues independently even if the command-line interf
 </div>
 </div>
 <h2 id="list-available-backups"><a class="header" href="#list-available-backups">List Available Backups</a></h2>
-<pre><code class="language-bash">sudo -u walrus walrus-node local-admin \
-  --socket-path /opt/walrus/admin.socket \
-  checkpoint list \
-  --path /opt/walrus/checkpoints
+<pre><code class="language-bash">sudo -u walrus walrus-node list-db-checkpoint /opt/walrus/checkpoints
 </code></pre>
 <p><strong>Sample output:</strong></p>
 <pre><code class="language-console">Backups:
@@ -4414,7 +4408,7 @@ specify the path to the configuration file.</p>
 </div>
 </div>
 <p>Once this is done, you should be able to simply type <code>site-builder</code> in your terminal.</p>
-<pre><code class="language-terminal">$ site-builder
+<pre><code class="language-console">$ site-builder
 Usage: site-builder [OPTIONS] &lt;COMMAND&gt;
 
 Commands:
@@ -5503,7 +5497,7 @@ with the updated file.</p>
 <p>To use this feature:</p>
 <ol>
 <li>
-<p>Set <code>GITHUB_TOKEN: $</code> in your workflow</p>
+<p>Set <code>GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}</code> in your workflow</p>
 </li>
 <li>
 <p>Add these <a href="https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/controlling-permissions-for-github_token">permissions</a>
