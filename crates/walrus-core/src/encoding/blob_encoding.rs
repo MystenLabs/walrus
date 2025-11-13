@@ -30,24 +30,31 @@ use crate::{
     metadata::{SliverPairMetadata, VerifiedBlobMetadataWithId},
 };
 
+/// A wrapper around a blob that can be either owned (i.e., `Vec<u8>`) or borrowed (`&[u8]`).
 #[derive(Debug)]
 pub enum OwnedOrBorrowedBlob<'a> {
+    /// An owned blob.
     Owned(Vec<u8>),
+    /// A borrowed blob.
     Borrowed(&'a [u8]),
 }
 
 impl<'a> OwnedOrBorrowedBlob<'a> {
+    /// Creates a new `OwnedOrBorrowedBlob` from a borrowed blob.
     pub fn new(blob: &'a [u8]) -> Self {
         Self::Borrowed(blob)
     }
 
-    pub fn into_owned(self) -> Self {
-        match self {
-            Self::Borrowed(blob) => Self::Owned(blob.to_vec()),
-            Self::Owned(_) => self,
-        }
+    /// Converts the `OwnedOrBorrowedBlob` into an owned blob, copying the data if necessary.
+    pub fn into_owned(self) -> OwnedOrBorrowedBlob<'static> {
+        let blob = match self {
+            Self::Borrowed(blob) => blob.to_vec(),
+            Self::Owned(blob) => blob,
+        };
+        OwnedOrBorrowedBlob::Owned(blob)
     }
 
+    /// Returns the length of the blob.
     pub fn len(&self) -> usize {
         match self {
             Self::Borrowed(blob) => blob.len(),
@@ -55,12 +62,14 @@ impl<'a> OwnedOrBorrowedBlob<'a> {
         }
     }
 
+    /// Returns true if the blob is empty.
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
 }
 
 impl OwnedOrBorrowedBlob<'static> {
+    /// Creates a new `OwnedOrBorrowedBlob` from an owned blob.
     pub fn new_owned(blob: Vec<u8>) -> Self {
         Self::Owned(blob)
     }
@@ -140,10 +149,10 @@ impl BlobEncoderData {
             .collect()
     }
 
-    /// Computes the blob metadata from the provided leaf hashes.
+    /// Computes the blob metadata from the provided leaf hashes of all symbols.
     ///
     /// The provided slice *must* be of length `n_shards * n_shards`, where `n_shards` is the number
-    /// of shards.
+    /// of shards. The slice is interpreted as a matrix in row-major order.
     ///
     /// # Panics
     ///
@@ -271,7 +280,7 @@ impl<'a> BlobEncoder<'a> {
         let unencoded_length =
             u64::try_from(self.blob.len()).expect("any valid blob size fits into a `u64`");
 
-        // Only allocate empty systematic primary slivers upfront to limit memory usage.
+        // Only allocate empty systematic primary slivers upfront to limit peak memory usage.
         let mut primary_slivers = Vec::with_capacity(self.inner.n_shards_usize());
         primary_slivers.extend(
             self.inner

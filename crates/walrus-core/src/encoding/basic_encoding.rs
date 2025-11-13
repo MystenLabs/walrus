@@ -181,8 +181,7 @@ impl ReedSolomonEncoder {
     /// Returns an [`EncodeError::IncorrectDataLength`] if the length of the data is not equal to
     /// the product of the number of source symbols and the symbol size.
     pub fn encode_all_ref<'a>(&'a mut self, data: &'_ [u8]) -> Result<&'a Symbols, EncodeError> {
-        let mut result = self.take_or_create_encoded_symbols(self.n_shards.get().into());
-        self.encode_all_inner(&mut result, data)?;
+        let result = self.encode_all(data)?;
         Ok(self.set_and_return_encoded_symbols(result))
     }
 
@@ -195,7 +194,19 @@ impl ReedSolomonEncoder {
     /// the product of the number of source symbols and the symbol size.
     pub fn encode_all(&mut self, data: &[u8]) -> Result<Symbols, EncodeError> {
         let mut result = self.take_or_create_encoded_symbols(self.n_shards.get().into());
-        self.encode_all_inner(&mut result, data)?;
+        self.check_data_length(data)?;
+        assert_eq!(
+            result.symbol_size(),
+            self.symbol_size,
+            "result buffer must have the same symbol size as the encoder"
+        );
+        tracing::trace!("encoding all symbols");
+
+        result
+            .extend(data)
+            .expect("cannot fail as we have checked the length of the data");
+        self.encode_all_repair_symbols_inner(&mut result, data)?;
+
         Ok(result)
     }
 
@@ -212,27 +223,6 @@ impl ReedSolomonEncoder {
         );
         self.encode_all_repair_symbols_inner(&mut result, data)?;
         Ok(result)
-    }
-
-    fn encode_all_inner(
-        &mut self,
-        result_buffer: &mut Symbols,
-        data: &[u8],
-    ) -> Result<(), EncodeError> {
-        self.check_data_length(data)?;
-        assert_eq!(
-            result_buffer.symbol_size(),
-            self.symbol_size,
-            "result buffer must have the same symbol size as the encoder"
-        );
-        tracing::trace!("encoding all symbols");
-
-        result_buffer
-            .extend(data)
-            .expect("cannot fail as we have checked the length of the data");
-        self.encode_all_repair_symbols_inner(result_buffer, data)?;
-
-        Ok(())
     }
 
     fn encode_all_repair_symbols_inner(
