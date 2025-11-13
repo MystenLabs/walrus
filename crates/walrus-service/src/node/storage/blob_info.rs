@@ -161,14 +161,6 @@ impl BlobInfoTable {
         let operation = BlobInfoMergeOperand::from(event);
         tracing::debug!(?operation, "updating blob info");
 
-        // Skip NoOp operations.
-        if matches!(operation, BlobInfoMergeOperand::NoOp) {
-            tracing::debug!("skipping NoOp blob info update");
-            let mut batch = self.aggregate_blob_info.batch();
-            batch.insert_batch(&latest_handled_event_index, [(&(), event_index)])?;
-            return batch.write();
-        }
-
         let mut batch = self.aggregate_blob_info.batch();
 
         batch.partial_merge_batch(
@@ -797,8 +789,6 @@ pub(super) enum BlobInfoMergeOperand {
     PermanentExpired {
         was_certified: bool,
     },
-    /// No-op operand for events that don't require blob info updates.
-    NoOp,
 }
 
 impl ToBytes for BlobInfoMergeOperand {}
@@ -1657,9 +1647,6 @@ impl Mergeable for BlobInfoV1 {
                 Self::Valid(valid_blob_info),
                 BlobInfoMergeOperand::PermanentExpired { was_certified },
             ) => valid_blob_info.permanent_expired(was_certified),
-            (_, BlobInfoMergeOperand::NoOp) => {
-                // NoOp: do nothing.
-            }
         }
         self
     }
@@ -1710,10 +1697,6 @@ impl Mergeable for BlobInfoV1 {
                     "encountered an unexpected update for an untracked blob ID"
                 );
                 debug_assert!(false);
-                None
-            }
-            BlobInfoMergeOperand::NoOp => {
-                // NoOp: return None to not create a new blob info entry.
                 None
             }
         }
@@ -1803,7 +1786,6 @@ impl Mergeable for BlobInfoV2 {
                     info.permanent_total = None;
                 }
             }
-            (_, BlobInfoMergeOperand::NoOp) => (),
         }
         self
     }
@@ -1813,14 +1795,12 @@ impl Mergeable for BlobInfoV2 {
         match operand {
             BlobInfoMergeOperand::ChangeStatus {
                 change_type:
-                    ct @ (BlobStatusChangeType::RegisterManaged { .. }
-                    | BlobStatusChangeType::CertifyManaged { .. }),
+                    BlobStatusChangeType::RegisterManaged { blob_manager_id },
                 change_info,
-            } => {
-                let mut v2 = ValidBlobInfoV2::default();
-                v2.update_status(ct, change_info);
-                Some(Self::Valid(v2))
-            }
+            } => Some(Self::Valid(ValidBlobInfoV2::new(
+                blob_manager_id,
+                change_info.deletable,
+            ))),
             _ => None,
         }
     }
@@ -2083,7 +2063,7 @@ impl From<ValidBlobInfoV1> for ValidBlobInfoV2 {
 
 impl ValidBlobInfoV2 {
     /// Creates a new ValidBlobInfoV2 for a managed blob.
-    fn new_managed(blob_manager_id: ObjectID, deletable: bool) -> Self {
+    fn new(blob_manager_id: ObjectID, deletable: bool) -> Self {
         Self {
             regular_blob_info: None,
             managed_blob_info: Some(ManagedBlobInfo::new(blob_manager_id, deletable)),
@@ -2098,11 +2078,10 @@ impl ValidBlobInfoV2 {
         change_info: BlobStatusChangeInfo,
     ) {
         match change_type {
-            BlobStatusChangeType::RegisterManaged { blob_manager_id } => {
-                let Some(ref mut managed_info) = self.managed_blob_info else {
-                    self.managed_blob_info = Some(ManagedBlobInfo::new(blob_manager_id, change_info.deletable));
-                    return;
-                };
+            BlobStatusChangeType::RegisterManaged { .. } => {
+                let managed_info = self
+                    .managed_blob_info
+                    .get_or_insert_with(ManagedBlobInfo::default);
                 managed_info.update_status(change_type, &change_info);
             }
             BlobStatusChangeType::CertifyManaged { .. } => {
@@ -2334,9 +2313,7 @@ impl Mergeable for BlobInfo {
             (
                 Self::V1(BlobInfoV1::Valid(v1)),
                 BlobInfoMergeOperand::ChangeStatus {
-                    change_type:
-                        ct @ (BlobStatusChangeType::RegisterManaged { .. }
-                        | BlobStatusChangeType::CertifyManaged { .. }),
+                    change_type: ct @ BlobStatusChangeType::RegisterManaged { .. },
                     change_info,
                 },
             ) => {
@@ -2346,17 +2323,6 @@ impl Mergeable for BlobInfo {
                 v2.update_status(*ct, change_info.clone());
                 Self::V2(BlobInfoV2::Valid(v2))
             }
-            // V1 Invalid receiving RegisterManaged or CertifyManaged → stay Invalid (shouldn't happen).
-            (
-                Self::V1(BlobInfoV1::Invalid { epoch, event }),
-                BlobInfoMergeOperand::ChangeStatus {
-                    change_type:
-                        BlobStatusChangeType::RegisterManaged { .. }
-                        | BlobStatusChangeType::CertifyManaged { .. },
-                    ..
-                },
-            ) => Self::V1(BlobInfoV1::Invalid { epoch, event }),
-            // V2 receiving any operation → delegate to V2.
             (Self::V2(v2), _) => Self::V2(v2.merge_with(operand)),
             // V1 receiving V1 operation → stay V1.
             (Self::V1(v1), _) => Self::V1(v1.merge_with(operand)),
@@ -2365,15 +2331,11 @@ impl Mergeable for BlobInfo {
 
     fn merge_new(operand: Self::MergeOperand) -> Option<Self> {
         if let BlobInfoMergeOperand::ChangeStatus {
-            change_type: BlobStatusChangeType::RegisterManaged { blob_manager_id }
-            | BlobStatusChangeType::CertifyManaged { blob_manager_id },
-            change_info,
+            change_type: BlobStatusChangeType::RegisterManaged { .. },
+            ..
         } = &operand
         {
-            return Some(Self::V2(BlobInfoV2::Valid(ValidBlobInfoV2::new_managed(
-                *blob_manager_id,
-                change_info.deletable,
-            ))));
+            return BlobInfoV2::merge_new(operand).map(Self::from);
         }
         
         // Otherwise, create V1 entry.
@@ -3569,10 +3531,7 @@ mod tests {
                         registered: [object_id_for_testing(1)].into_iter().collect(),
                         registered_deletable_counts: 1,
                         certified: Default::default(),
-                        // NOTE: certified_deletable_counts is 1 due to current V2 implementation
-                        // which sets it in ManagedBlobInfo::new(). This should probably be 0
-                        // and only increment on CertifyManaged, but keeping existing behavior.
-                        certified_deletable_counts: 1,
+                        certified_deletable_counts: 0,
                     }),
                 }),
             ),
@@ -3597,7 +3556,7 @@ mod tests {
                         registered: [object_id_for_testing(2)].into_iter().collect(),
                         registered_deletable_counts: 0,
                         certified: Default::default(),
-                        certified_deletable_counts: 1,
+                        certified_deletable_counts: 0,
                     }),
                 }),
             ),
