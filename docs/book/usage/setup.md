@@ -53,7 +53,7 @@ Make sure that the `"$HOME"/.local/bin` directory is in your `$PATH`.
 
 Once this is done, you can run Walrus by using the `walrus` command in your terminal.
 
-```bash
+```console
 $ walrus --help
 Walrus client
 
