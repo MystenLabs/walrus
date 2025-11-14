@@ -468,7 +468,7 @@ async fn concat_blobs_impl<T: WalrusReadClient + Send + Sync + 'static>(
             .into_response();
     }
 
-    // Parse consistency check options
+    // Validate consistency check options
     let consistency_check =
         match consistency_check_type_from_flags(strict_consistency_check, skip_consistency_check) {
             Ok(check) => check,
