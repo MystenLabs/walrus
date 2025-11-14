@@ -79,15 +79,13 @@ impl ClientMultiplexer {
 
         // Start the refresher here, so that all the clients can share it.
         let refresh_handle = config
-            .refresh_config
             .build_refresher_and_run(sui_read_client.clone())
             .await?;
         let read_client = WalrusNodeClient::new_read_client(
             config.clone(),
             refresh_handle.clone(),
             sui_read_client.clone(),
-        )
-        .await?;
+        )?;
 
         let refiller = Refiller::new(
             contract_client,
@@ -390,8 +388,7 @@ impl<'a> SubClientLoader<'a> {
         sui_client.merge_coins().await?;
 
         let client =
-            WalrusNodeClient::new_contract_client(self.config.clone(), refresh_handle, sui_client)
-                .await?;
+            WalrusNodeClient::new_contract_client(self.config.clone(), refresh_handle, sui_client)?;
         Ok(client)
     }
 

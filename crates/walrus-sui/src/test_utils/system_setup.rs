@@ -98,6 +98,8 @@ pub struct SystemContext {
     pub walrus_subsidies_object: Option<ObjectID>,
     /// The ID of the walrus subsidies package.
     pub walrus_subsidies_pkg_id: Option<ObjectID>,
+    /// The number of shards in the system.
+    pub n_shards: NonZeroU16,
 }
 
 impl SystemContext {
@@ -127,6 +129,8 @@ impl SystemContext {
             staking_object: self.staking_object,
             credits_object: self.credits_object,
             walrus_subsidies_object: self.walrus_subsidies_object,
+            n_shards: Some(self.n_shards),
+            max_epochs_ahead: None,
             cache_ttl: DEFAULT_CACHE_TTL,
         }
     }
@@ -192,6 +196,7 @@ pub async fn create_and_init_system(
     gas_budget: Option<u64>,
 ) -> Result<(SystemContext, SuiContractClient)> {
     let init_system_params_cloned = init_system_params.clone();
+    let n_shards = init_system_params.n_shards;
     let PublishSystemPackageResult {
         walrus_pkg_id,
         init_cap_id,
@@ -284,6 +289,7 @@ pub async fn create_and_init_system(
             credits_pkg_id,
             walrus_subsidies_pkg_id,
             walrus_subsidies_object,
+            n_shards,
         },
         admin_contract_client,
     ))

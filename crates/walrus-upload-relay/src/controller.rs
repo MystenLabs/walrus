@@ -587,10 +587,13 @@ pub async fn get_client_with_config(
     let sui_read_client = client_config.new_read_client(retriable_sui_client).await?;
 
     let refresh_handle = client_config
-        .refresh_config
         .build_refresher_and_run(sui_read_client.clone())
         .await?;
-    Ok(WalrusNodeClient::new_read_client(client_config, refresh_handle, sui_read_client).await?)
+    Ok(WalrusNodeClient::new_read_client(
+        client_config,
+        refresh_handle,
+        sui_read_client,
+    )?)
 }
 
 #[cfg(test)]

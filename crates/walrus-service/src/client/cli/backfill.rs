@@ -260,10 +260,13 @@ async fn get_backfill_client(config: ClientConfig) -> Result<WalrusNodeClient<Su
     )?;
     let sui_read_client = config.new_read_client(retriable_sui_client).await?;
     let refresh_handle = config
-        .refresh_config
         .build_refresher_and_run(sui_read_client.clone())
         .await?;
-    Ok(WalrusNodeClient::new_read_client(config, refresh_handle, sui_read_client).await?)
+    Ok(WalrusNodeClient::new_read_client(
+        config,
+        refresh_handle,
+        sui_read_client,
+    )?)
 }
 
 /// Runs the blob backfill process.

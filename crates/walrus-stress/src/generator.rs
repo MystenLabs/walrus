@@ -9,7 +9,6 @@ use std::{
 };
 
 use blob::WriteBlobConfig;
-use futures::future::try_join_all;
 use rand::{Rng, thread_rng};
 use sui_sdk::types::base_types::SuiAddress;
 use tokio::{
@@ -81,19 +80,16 @@ impl LoadGenerator {
         let sui_read_client = client_config.new_read_client(sui_client.clone()).await?;
 
         let refresher_handle = client_config
-            .refresh_config
             .build_refresher_and_run(sui_read_client.clone())
             .await?;
-        for read_client in try_join_all((0..n_clients).map(|_| {
-            WalrusNodeClient::new_read_client(
-                client_config.clone(),
-                refresher_handle.clone(),
-                sui_read_client.clone(),
-            )
-        }))
-        .await?
-        {
-            read_client_pool_tx.send(read_client).await?;
+        for _ in 0..n_clients {
+            read_client_pool_tx
+                .send(WalrusNodeClient::new_read_client(
+                    client_config.clone(),
+                    refresher_handle.clone(),
+                    sui_read_client.clone(),
+                )?)
+                .await?;
         }
 
         // Set up write clients

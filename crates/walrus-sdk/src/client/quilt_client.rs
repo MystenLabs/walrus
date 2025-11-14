@@ -40,6 +40,7 @@ use walrus_utils::read_blob_from_file;
 use crate::{
     client::{
         StoreArgs,
+        StoreBlobsApi as _,
         WalrusNodeClient,
         client_types::StoredQuiltPatch,
         responses::QuiltStoreResult,

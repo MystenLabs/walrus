@@ -27,9 +27,10 @@ use tokio::{
 };
 use walrus_core::BlobId;
 use walrus_sdk::{
-    client::{StoreArgs, WalrusNodeClient, responses as sdk_responses},
+    client::{StoreArgs, responses as sdk_responses},
+    config::ClientConfig,
     store_optimizations::StoreOptimizations,
-    sui::client::{BlobPersistence, PostStoreAction, SuiContractClient},
+    sui::client::{BlobPersistence, PostStoreAction},
     uploader::{TailHandling, UploaderEvent},
     utils::styled_progress_bar_with_disabled_steady_tick,
 };
@@ -559,7 +560,7 @@ fn spawn_signal_forwarders(handle: ChildProcessHandle, mut cancel_rx: watch::Rec
 /// This is used to handle the upload of blobs in a separate child process.
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn maybe_spawn_child_upload_process<F>(
-    client: &WalrusNodeClient<SuiContractClient>,
+    client_config: &ClientConfig,
     child_process_uploads: bool,
     epoch_arg: &EpochArg,
     dry_run: bool,
@@ -575,7 +576,7 @@ pub(crate) async fn maybe_spawn_child_upload_process<F>(
 where
     F: FnOnce(&mut TokioCommand),
 {
-    let tail_handling = client.config().communication_config.tail_handling;
+    let tail_handling = client_config.communication_config.tail_handling;
     if !(child_process_uploads
         && matches!(tail_handling, TailHandling::Detached)
         && upload_relay.is_none()
@@ -596,7 +597,7 @@ where
 
     if let Err(e) = stdfs::write(
         &config_yaml_path,
-        serde_yaml::to_string(client.config()).context("serialize ClientConfig")?,
+        serde_yaml::to_string(client_config).context("serialize ClientConfig")?,
     ) {
         tracing::warn!(
             error = %e,
@@ -702,11 +703,7 @@ pub(crate) struct InternalRunContext {
 }
 
 impl InternalRunContext {
-    pub(crate) fn new(
-        internal_run: bool,
-        client: &WalrusNodeClient<SuiContractClient>,
-        num_items: usize,
-    ) -> Self {
+    pub(crate) fn new(internal_run: bool, client_config: &ClientConfig, num_items: usize) -> Self {
         if !internal_run {
             return Self::default();
         }
@@ -714,7 +711,7 @@ impl InternalRunContext {
         let collector = Arc::new(TokioMutex::new(Vec::new()));
         let (tx, rx) = mpsc_channel(num_items.max(1));
 
-        let communication_config = client.config().communication_config.clone();
+        let communication_config = client_config.communication_config.clone();
         let event_task = tokio::spawn(async move {
             let mut rx = rx;
             while let Some(event) = rx.recv().await {
