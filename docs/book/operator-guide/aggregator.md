@@ -106,7 +106,7 @@ In order to operate a high-performance and concurrency publisher, the following 
 might be of interest:
 
 - The `--n-clients <NUM>` option creates a number of separate wallets used to perform concurrent
-   Sui chain operations. Increase this to allow more parallel uploads. A higher number 
+   Sui chain operations. Increase this to allow more parallel uploads. A higher number
    requires more SUI and WAL coins initially to be distributed to more wallets.
 
 - The `--max-concurrent-requests <NUM>` determines how many concurrent requests can be handled,
