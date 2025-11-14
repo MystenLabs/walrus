@@ -2835,7 +2835,7 @@ async fn test_byte_range_read_client() -> TestResult {
     // Store the blob on walrus.
     let blob_read_result = client
         .reserve_and_store_blobs(
-            &[blobs[0].as_slice()],
+            blobs.clone(),
             &StoreArgs::default_with_epochs(5).with_encoding_type(DEFAULT_ENCODING),
         )
         .await?;
