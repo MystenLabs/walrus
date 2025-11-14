@@ -4,6 +4,7 @@
 use std::{
     collections::{HashMap, hash_map::Entry},
     sync::Arc,
+    time::Duration,
 };
 
 use futures::{StreamExt, stream::FuturesUnordered};
@@ -26,6 +27,9 @@ use super::{
     storage::{ShardStatus, ShardStorage, blob_info::BlobInfo},
 };
 use crate::node::{errors::ShardNotAssigned, storage::blob_info::CertifiedBlobInfoApi};
+
+/// The interval at which to sample high-frequency tracing logs related to shard sync operations.
+pub(crate) const SAMPLED_TRACING_INTERVAL: Duration = Duration::from_mins(10);
 
 /// The result of syncing a shard.
 enum SyncShardResult {
