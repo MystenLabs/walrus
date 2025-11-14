@@ -159,7 +159,7 @@ The setup and use of an authenticated publisher is covered in a [separate sectio
 As of Walrus `v1.38.0` the aggregator can perform concatenation of multiple blobs via the
 `/v1alpha/blobs/concat` endpoint. This endpoint enables delivery of very large files - which would
 otherwise be unsupported due to individual blob size restrictions. See
-[`walrus-store-sliced.sh`](docs/examples/shell/walrus-store-sliced.sh) for an example of how a very
+[`walrus-store-sliced.sh`](../../examples/shell/walrus-store-sliced.sh) for an example of how a very
 large file can be sliced and uploaded to Walrus. Once the slices are uploaded, the very large file
 can be read directly by your downstream users by `GET` URL construction (listing the blob slices in
 the query params), or via a `POST` request with a JSON body listing the ids. Details of this api are
