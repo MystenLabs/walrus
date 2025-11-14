@@ -98,7 +98,7 @@ mod tests {
         }
 
         // Continue running the workload for another 60 seconds.
-        let _ = tokio::time::timeout(Duration::from_secs(60), async {
+        let _ = tokio::time::timeout(Duration::from_mins(1), async {
             let mut blobs_written = HashSet::new();
             loop {
                 // TODO(#995): use stress client for better coverage of the workload.
@@ -242,7 +242,7 @@ mod tests {
             simtest_utils::start_background_workload(client_arc.clone(), false, None, None);
 
         // Running the workload for 60 seconds to get some data in the system.
-        tokio::time::sleep(Duration::from_secs(60)).await;
+        tokio::time::sleep(Duration::from_mins(1)).await;
 
         // Tracks if a crash has been triggered.
         let fail_triggered = Arc::new(AtomicBool::new(false));
@@ -255,7 +255,7 @@ mod tests {
             crash_target_node(
                 target_fail_node_id,
                 fail_triggered_clone.clone(),
-                Duration::from_secs(120),
+                Duration::from_mins(2),
             );
         });
 
@@ -405,7 +405,7 @@ mod tests {
 
         let next_fail_triggered = Arc::new(Mutex::new(Instant::now()));
         let next_fail_triggered_clone = next_fail_triggered.clone();
-        let crash_end_time = Instant::now() + Duration::from_secs(2 * 60);
+        let crash_end_time = Instant::now() + Duration::from_mins(2);
 
         sui_macros::register_fail_points(CRASH_NODE_FAIL_POINTS, move || {
             repeatedly_crash_target_node(
@@ -454,7 +454,7 @@ mod tests {
             .await
             .expect("stake with node pool should not fail");
 
-        tokio::time::sleep(Duration::from_secs(3 * 60)).await;
+        tokio::time::sleep(Duration::from_mins(3)).await;
 
         workload_handle.abort();
 
@@ -463,7 +463,7 @@ mod tests {
         let mut last_persisted_event_time = Instant::now();
         let start_time = Instant::now();
         loop {
-            if start_time.elapsed() > Duration::from_secs(1 * 60) {
+            if start_time.elapsed() > Duration::from_mins(1) {
                 break;
             }
             let node_health_info =
@@ -534,7 +534,7 @@ mod tests {
         let mut last_checkpoint_update_time = Instant::now();
         let start_time = Instant::now();
         loop {
-            if start_time.elapsed() > Duration::from_secs(60) {
+            if start_time.elapsed() > Duration::from_mins(1) {
                 break;
             }
             let node_health_info =
@@ -628,7 +628,7 @@ mod tests {
             simtest_utils::start_background_workload(client_arc.clone(), false, None, None);
 
         // Running the workload for 60 seconds to get some data in the system.
-        tokio::time::sleep(Duration::from_secs(60)).await;
+        tokio::time::sleep(Duration::from_mins(1)).await;
 
         // Tracks if a lagging event processing has been triggered.
         let fail_triggered = Arc::new(AtomicBool::new(false));

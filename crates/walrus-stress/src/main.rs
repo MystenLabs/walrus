@@ -3,6 +3,10 @@
 
 //! Load generators for stress testing the Walrus nodes.
 
+// This avoids the following error when running simtests:
+// error[E0275]: overflow evaluating the requirement `{coroutine ...}: std::marker::Send`
+#![recursion_limit = "256"]
+
 use std::{
     collections::{HashMap, HashSet},
     net::{IpAddr, Ipv4Addr, SocketAddr},

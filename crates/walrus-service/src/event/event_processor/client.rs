@@ -54,7 +54,7 @@ impl ClientManager {
     ///
     /// A Result containing either the new ClientManager instance or an
     /// error if initialization fails.
-    pub async fn new(
+    pub fn new(
         rest_urls: &[String],
         request_timeout: Duration,
         rpc_fallback_config: Option<&RpcFallbackConfig>,
@@ -77,8 +77,7 @@ impl ClientManager {
             rpc_fallback_config.cloned(),
             Some(metrics.clone()),
             sampled_tracing_interval,
-        )
-        .await?;
+        )?;
 
         let sui_client = RetriableSuiClient::new(
             rest_urls
@@ -86,8 +85,7 @@ impl ClientManager {
                 .map(|rpc_url| LazySuiClientBuilder::new(rpc_url, Some(request_timeout)))
                 .collect(),
             ExponentialBackoffConfig::default(),
-        )
-        .await?;
+        )?;
 
         Ok(Self {
             rpc_client: client,

@@ -63,8 +63,7 @@ available.
 Interacting with Walrus requires a valid Sui Testnet wallet with some amount of SUI tokens. The
 normal way to set this up is via the Sui CLI; see the [installation
 instructions](https://docs.sui.io/guides/developer/getting-started/sui-install) in the Sui
-documentation. If you do not want to install the Sui CLI, you can also generate a new Sui wallet for
-Testnet using `walrus generate-sui-wallet --network testnet`.
+documentation.
 
 After installing the Sui CLI, you need to set up a Testnet wallet by running `sui client`, which
 prompts you to set up a new configuration. Make sure to point it to Sui Testnet, you can use the
@@ -87,7 +86,7 @@ sui client switch --env testnet
 
 After this, you should get something like this (everything besides the `testnet` line is optional):
 
-```terminal
+```console
 $ sui client envs
 ╭──────────┬─────────────────────────────────────┬────────╮
 │ alias    │ url                                 │ active │
@@ -105,7 +104,7 @@ Finally, make sure you have at least one gas coin with at least 1 SUI. You can o
 
 After some seconds, you should see your new SUI coins:
 
-```terminal
+```console
 $ sui client gas
 ╭─────────────────┬────────────────────┬──────────────────╮
 │ gasCoinId       │ mistBalance (MIST) │ suiBalance (SUI) │

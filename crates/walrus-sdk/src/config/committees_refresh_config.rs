@@ -97,6 +97,6 @@ mod default {
     pub(crate) const REFRESH_GRACE_PERIOD: Duration = Duration::from_secs(10);
     pub(crate) const MAX_AUTO_REFRESH_INTERVAL: Duration = Duration::from_secs(30);
     pub(crate) const MIN_AUTO_REFRESH_INTERVAL: Duration = Duration::from_secs(5);
-    pub(crate) const EPOCH_CHANGE_DISTANCE_THRS: Duration = Duration::from_secs(300);
+    pub(crate) const EPOCH_CHANGE_DISTANCE_THRS: Duration = Duration::from_mins(5);
     pub const REFRESHER_CHANNEL_SIZE: usize = 100;
 }

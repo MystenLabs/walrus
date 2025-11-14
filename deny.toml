@@ -69,6 +69,7 @@ ignore = true
 multiple-versions = "deny"
 skip = [
   { name = "itertools", version = "<=12.1" },
+  { name = "petgraph", version = "0.6.5" },
   { name = "synstructure", version = "0.12.6" },
 ]
 skip-tree = [

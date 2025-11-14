@@ -49,7 +49,7 @@ use super::{
 use crate::common::config::SuiConfig;
 
 const MIN_BACKOFF: Duration = Duration::from_secs(1);
-const MAX_BACKOFF: Duration = Duration::from_secs(3600);
+const MAX_BACKOFF: Duration = Duration::from_hours(1);
 type UIntGaugeVec = GenericGaugeVec<AtomicU64>;
 
 enum ProtocolKeyAction {

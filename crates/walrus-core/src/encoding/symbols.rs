@@ -95,6 +95,19 @@ impl Symbols {
         }
     }
 
+    /// Reserves capacity for at least `additional` more symbols to be inserted in the given
+    /// [`Symbols`]. See [`Vec::reserve`] for more details on the behavior.
+    pub fn reserve(&mut self, additional: usize) {
+        self.data.reserve(additional * self.symbol_usize());
+    }
+
+    /// Reserves capacity for at least a total of `min_capacity` symbols.
+    pub fn set_min_capacity(&mut self, min_capacity: usize) {
+        let current_data_capacity = self.data.capacity();
+        self.data
+            .reserve((min_capacity * self.symbol_usize()).saturating_sub(current_data_capacity));
+    }
+
     /// Creates a new [`Symbols`] struct copying the provided slice of bytes.
     ///
     /// # Panics
@@ -781,7 +794,7 @@ mod tests {
         let config = EncodingConfig::new_for_test(f, 2 * f, n_shards);
         let blob = walrus_test_utils::random_data(257);
         let config_enum = config.get_for_type(encoding_type);
-        let (sliver_pairs, metadata) = config_enum.encode_with_metadata(&blob)?;
+        let (sliver_pairs, metadata) = config_enum.encode_with_metadata(blob)?;
 
         let sliver = sliver_pairs[0].secondary.clone();
         let source_index = SliverPairIndex(0).to_sliver_index::<Secondary>(config.n_shards);

@@ -350,7 +350,7 @@ impl EventBlobWriterFactory {
     }
 
     /// Create a new event blob writer factory.
-    pub async fn new(
+    pub fn new(
         root_dir_path: &Path,
         db_config: &DatabaseConfig,
         node: Arc<StorageNodeInner>,
@@ -1091,7 +1091,7 @@ impl EventBlobWriter {
     }
 
     /// Update the event blob writer with the initial state.
-    pub async fn update(&mut self, init_state: InitState) -> Result<()> {
+    pub fn update(&mut self, init_state: InitState) -> Result<()> {
         self.event_cursor = init_state.event_cursor;
         self.current_epoch = init_state.epoch;
         self.prev_certified_blob_id = init_state.prev_blob_id;
@@ -1240,7 +1240,7 @@ impl EventBlobWriter {
             .node
             .encoding_config()
             .get_for_type(DEFAULT_ENCODING)
-            .encode_with_metadata(&content)?;
+            .encode_with_metadata(content)?;
         self.node
             .storage()
             .put_verified_metadata_without_blob_info(&blob_metadata)
@@ -1301,7 +1301,7 @@ impl EventBlobWriter {
     /// Cuts the current blob and prepares for a new one.
     ///
     /// This method finalizes the current blob file and renames it to its final name.
-    async fn cut(&mut self) -> Result<()> {
+    fn cut(&mut self) -> Result<()> {
         self.finalize()?;
         self.rename_blob_file()?;
         Ok(())
@@ -1563,7 +1563,7 @@ impl EventBlobWriter {
         self.update_epoch(&element, &mut batch)?;
 
         if self.should_cut_new_blob(&element) {
-            self.cut_and_reset_blob(&mut batch, element_index).await?;
+            self.cut_and_reset_blob(&mut batch, element_index)?;
         }
 
         self.handle_event_blob_certification(&element, element_index, &mut batch)?;
@@ -1613,8 +1613,8 @@ impl EventBlobWriter {
     ///
     /// Returns an error if either `self.start.is_none()` or `self.end.is_none()` or the DB
     /// operation fails.
-    async fn cut_and_reset_blob(&mut self, batch: &mut DBBatch, element_index: u64) -> Result<()> {
-        self.cut().await?;
+    fn cut_and_reset_blob(&mut self, batch: &mut DBBatch, element_index: u64) -> Result<()> {
+        self.cut()?;
         let blob_metadata = PendingEventBlobMetadata::new(
             self.start.context("start is not set")?,
             self.end.context("end is not set")?,
@@ -1857,8 +1857,7 @@ mod tests {
             Some(10),
             None,
             None,
-        )
-        .await?;
+        )?;
         let mut blob_writer = blob_writer_factory.create().await?;
         let num_checkpoints: u64 = NUM_BLOBS * u64::from(blob_writer.num_checkpoints_per_blob());
 
@@ -1912,8 +1911,7 @@ mod tests {
             Some(10),
             None,
             None,
-        )
-        .await?;
+        )?;
         let mut blob_writer = blob_writer_factory.create().await?;
         let num_checkpoints: u64 = NUM_BLOBS * u64::from(blob_writer.num_checkpoints_per_blob());
 
@@ -1997,8 +1995,7 @@ mod tests {
             Some(10),
             None,
             None,
-        )
-        .await?;
+        )?;
         let mut blob_writer = blob_writer_factory.create().await?;
         let num_checkpoints: u64 = NUM_BLOBS * u64::from(blob_writer.num_checkpoints_per_blob());
 
@@ -2075,8 +2072,7 @@ mod tests {
             Some(10),
             None,
             None,
-        )
-        .await?;
+        )?;
         let mut blob_writer = blob_writer_factory.create().await?;
         let num_checkpoints: u64 = u64::from(blob_writer.num_checkpoints_per_blob());
 

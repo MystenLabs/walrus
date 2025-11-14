@@ -1077,8 +1077,7 @@ mod commands {
         let retriable_sui_client = RetriableSuiClient::new(
             vec![LazySuiClientBuilder::new(sui_rpc_url, None)],
             ExponentialBackoffConfig::default(),
-        )
-        .await?;
+        )?;
         let contract_config = ContractConfig::new(system_object_id, staking_object_id);
         let sui_read_client =
             SuiReadClient::new(retriable_sui_client.clone(), &contract_config).await?;
@@ -1121,8 +1120,7 @@ mod commands {
             &db_path,
             wal_path.as_deref(),
             checkpoint_id,
-        )
-        .await?;
+        )?;
 
         let target_checkpoint = checkpoint_id.map_or("latest".to_string(), |id| id.to_string());
         println!(
@@ -1549,7 +1547,7 @@ impl StorageNodeRuntime {
 }
 
 /// Handle log level commands from admin socket.
-async fn handle_log_level_command(level: String, args: &AdminArgs) -> AdminCommandResponse {
+fn handle_log_level_command(level: String, args: &AdminArgs) -> AdminCommandResponse {
     match args.tracing_handle.update_log(level.as_str()) {
         Ok(_) => AdminCommandResponse {
             success: true,
@@ -1624,7 +1622,7 @@ async fn handle_connection(stream: UnixStream, args: AdminArgs) {
             Ok(AdminCommands::Checkpoint { command }) => {
                 handle_checkpoint_command(command, &args).await
             }
-            Ok(AdminCommands::LogLevel { level }) => handle_log_level_command(level, &args).await,
+            Ok(AdminCommands::LogLevel { level }) => handle_log_level_command(level, &args),
             Err(e) => AdminCommandResponse {
                 success: false,
                 message: format!("Failed to parse command: {e}"),

@@ -250,7 +250,7 @@ mod tests {
     #[test]
     fn backoff_is_exponential() {
         let min = Duration::from_millis(500);
-        let max = Duration::from_secs(3600);
+        let max = Duration::from_hours(1);
 
         let expected: Vec<_> = (0u32..)
             .map(|i| min * 2u32.pow(i))

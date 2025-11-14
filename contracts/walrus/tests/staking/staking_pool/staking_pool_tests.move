@@ -820,3 +820,24 @@ fun staked_wal_join_different_activation_epochs() {
 
     abort 0
 }
+
+#[test]
+fun test_advance_pool_epoch_high_rewards() {
+    let mut test = context_runner();
+
+    // create pool with commission rate 100_00.
+    let (wctx, ctx) = test.current();
+    let mut pool = pool().commission_rate(100_00).build(&wctx, ctx);
+
+    let sw1 = pool.stake(mint_wal_balance(1000), &wctx, ctx);
+
+    let (_wctx, _ctx) = test.select_committee();
+    let (wctx, _) = test.next_epoch();
+    pool.advance_epoch(mint_wal_balance(0), &wctx);
+
+    let (wctx, _) = test.next_epoch();
+    pool.advance_epoch(mint_wal_balance(2_000_000), &wctx);
+
+    destroy(pool);
+    destroy(sw1);
+}

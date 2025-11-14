@@ -37,7 +37,7 @@ pub struct StoreArgs {
     /// The metrics to use for the blob.
     pub metrics: Option<Arc<ClientMetrics>>,
     /// The optional upload relay client, that allows to store the blob via the relay.
-    pub upload_relay_client: Option<UploadRelayClient>,
+    pub upload_relay_client: Option<Arc<UploadRelayClient>>,
     /// Tail handling preference for sliver uploads. `Detached` allows the caller to decide whether
     /// to await the tail uploads or hand them off.
     pub tail_handling: TailHandling,
@@ -95,7 +95,7 @@ impl StoreArgs {
 
     /// Sets the upload relay client.
     pub fn with_upload_relay_client(mut self, upload_relay_client: UploadRelayClient) -> Self {
-        self.upload_relay_client = Some(upload_relay_client);
+        self.upload_relay_client = Some(Arc::new(upload_relay_client));
         self
     }
 
@@ -123,7 +123,9 @@ impl StoreArgs {
 
     /// Returns a reference to the upload relay client if present.
     pub fn upload_relay_client_ref(&self) -> Option<&UploadRelayClient> {
-        self.upload_relay_client.as_ref()
+        self.upload_relay_client
+            .as_ref()
+            .map(|client| client.as_ref())
     }
 
     /// Sets the encoding type.

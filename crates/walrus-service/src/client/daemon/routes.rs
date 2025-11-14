@@ -677,7 +677,7 @@ pub(super) async fn put_blob<T: WalrusWriteClient>(
     tracing::debug!("starting to store received blob");
     match client
         .write_blob(
-            &blob[..],
+            blob.into(),
             query.encoding_type,
             query.epochs,
             query.optimizations(),
@@ -789,7 +789,7 @@ pub(super) fn daemon_cors_layer() -> CorsLayer {
     CorsLayer::new()
         .allow_origin(Any)
         .allow_methods(Any)
-        .max_age(Duration::from_secs(86400))
+        .max_age(Duration::from_hours(24))
         .allow_headers(Any)
 }
 

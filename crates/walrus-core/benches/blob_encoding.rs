@@ -20,7 +20,7 @@ const N_SHARDS: u16 = 1000;
 
 // The maximum symbol size is `u16::MAX`, which means a maximum blob size of ~13 GiB.
 // The blob size does not have to be a multiple of the number of symbols as we pad with 0s.
-const BLOB_SIZES: [(u64, &str); 5] = [
+const BLOB_SIZES: &[(u64, &str)] = &[
     (1, "1B"),
     (1 << 10, "1KiB"),
     (1 << 20, "1MiB"),
@@ -38,15 +38,18 @@ fn blob_encoding(c: &mut Criterion) {
     group.plot_config(PlotConfiguration::default().summary_scale(AxisScale::Logarithmic));
 
     for (blob_size, size_str) in BLOB_SIZES {
-        let blob = random_data(blob_size.try_into().unwrap());
-        group.throughput(criterion::Throughput::Bytes(blob_size));
+        let blob = random_data((*blob_size).try_into().unwrap());
+        group.throughput(criterion::Throughput::Bytes(*blob_size));
 
-        group.bench_with_input(BenchmarkId::new("encode", size_str), &(blob), |b, blob| {
-            b.iter(|| {
-                let encoder = config.get_blob_encoder(blob).unwrap();
-                let _sliver_pairs = encoder.encode();
-            });
-        });
+        group.bench_with_input(
+            BenchmarkId::new("compute_metadata", size_str),
+            &(blob),
+            |b, blob| {
+                b.iter(|| {
+                    let _metadata = config.compute_metadata(blob).unwrap();
+                });
+            },
+        );
 
         group.bench_with_input(
             BenchmarkId::new("encode_with_metadata", size_str),
@@ -54,7 +57,19 @@ fn blob_encoding(c: &mut Criterion) {
             |b, blob| {
                 b.iter(|| {
                     let encoder = config.get_blob_encoder(blob).unwrap();
-                    let (_sliver_pairs, _metadata) = encoder.encode_with_metadata();
+                    let _sliver_pairs = encoder.encode_with_metadata();
+                });
+            },
+        );
+
+        #[allow(deprecated)]
+        group.bench_with_input(
+            BenchmarkId::new("encode_with_metadata_legacy", size_str),
+            &(blob),
+            |b, blob| {
+                b.iter(|| {
+                    let encoder = config.get_blob_encoder(blob).unwrap();
+                    let (_sliver_pairs, _metadata) = encoder.encode_with_metadata_legacy();
                 });
             },
         );
@@ -69,9 +84,9 @@ fn blob_decoding(c: &mut Criterion) {
     group.plot_config(PlotConfiguration::default().summary_scale(AxisScale::Logarithmic));
 
     for (blob_size, size_str) in BLOB_SIZES {
-        let blob = random_data(blob_size.try_into().unwrap());
-        group.throughput(criterion::Throughput::Bytes(blob_size));
-        let (sliver_pairs, metadata) = config.encode_with_metadata(&blob).unwrap();
+        let blob = random_data((*blob_size).try_into().unwrap());
+        group.throughput(criterion::Throughput::Bytes(*blob_size));
+        let (sliver_pairs, metadata) = config.encode_with_metadata(blob.clone()).unwrap();
         let primary_slivers_for_decoding: Vec<_> = random_subset(
             sliver_pairs.into_iter().map(|p| p.primary),
             config.n_primary_source_symbols().get().into(),

@@ -161,6 +161,7 @@ impl Default for RayonThreadPool {
     fn default() -> Self {
         RayonThreadPool::new(
             RayonThreadPoolBuilder::new()
+                .thread_name(|i| format!("rayon-worker-{i}"))
                 .build()
                 .expect("non-argument thread-pool construction must succeed")
                 .into(),

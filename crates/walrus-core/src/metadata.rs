@@ -530,7 +530,7 @@ impl BlobMetadata {
 }
 
 /// Metadata about a blob, without its corresponding [`BlobId`].
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BlobMetadataV1 {
     /// The type of encoding used to erasure encode the blob.
     pub encoding_type: EncodingType,
@@ -538,6 +538,16 @@ pub struct BlobMetadataV1 {
     pub unencoded_length: u64,
     /// The hashes over the slivers of the blob.
     pub hashes: Vec<SliverPairMetadata>,
+}
+
+impl Debug for BlobMetadataV1 {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("BlobMetadataV1")
+            .field("encoding_type", &self.encoding_type)
+            .field("unencoded_length", &self.unencoded_length)
+            .field("hashes_count", &self.hashes.len())
+            .finish()
+    }
 }
 
 impl BlobMetadataApi for BlobMetadataV1 {

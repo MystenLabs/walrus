@@ -277,12 +277,14 @@ impl SuiNetwork {
                 rpc: sui_sdk::SUI_MAINNET_URL.into(),
                 ws: None,
                 basic_auth: None,
+                chain_id: None,
             },
             SuiNetwork::Custom { rpc, .. } => SuiEnv {
                 alias: "custom".to_owned(),
                 rpc: rpc.to_string(),
                 ws: None,
                 basic_auth: None,
+                chain_id: None,
             },
         }
     }
@@ -385,7 +387,7 @@ pub async fn request_sui_from_faucet(
     sui_client: &RetriableSuiClient,
 ) -> Result<()> {
     let mut backoff = Duration::from_millis(100);
-    let max_backoff = Duration::from_secs(300);
+    let max_backoff = Duration::from_mins(5);
     // Set of coins to allow checking if we have received a new coin from the faucet
     let coins = sui_coin_set(sui_client, address).await?;
 
@@ -426,7 +428,7 @@ pub async fn get_sui_from_wallet_or_faucet(
     let min_balance = sui_amount + 2 * one_sui;
     let sender = wallet.active_address()?;
     let rpc_urls = &[wallet.get_rpc_url()?];
-    let client = RetriableSuiClient::new_for_rpc_urls(rpc_urls, Default::default(), None).await?;
+    let client = RetriableSuiClient::new_for_rpc_urls(rpc_urls, Default::default(), None)?;
     let balance = client.get_balance(sender, None).await?;
     if balance.total_balance >= u128::from(min_balance) {
         let mut ptb = ProgrammableTransactionBuilder::new();

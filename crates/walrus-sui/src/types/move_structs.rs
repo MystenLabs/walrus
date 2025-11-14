@@ -101,6 +101,11 @@ impl Blob {
             BlobPersistenceType::Permanent
         }
     }
+
+    /// Returns true if the blob is certified.
+    pub fn is_certified(&self) -> bool {
+        self.certified_epoch.is_some()
+    }
 }
 
 /// Serialize as string to make sure that the json output uses the base64 encoding.

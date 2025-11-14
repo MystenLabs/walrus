@@ -94,7 +94,7 @@ impl<ClientT, BuilderT: LazyClientBuilder<ClientT> + std::fmt::Debug>
     const DEFAULT_RETRY_DELAY: Duration = Duration::from_millis(100);
 
     /// Creates a new failover wrapper.
-    pub async fn new(lazy_client_builders: Vec<BuilderT>) -> anyhow::Result<Self> {
+    pub fn new(lazy_client_builders: Vec<BuilderT>) -> anyhow::Result<Self> {
         if lazy_client_builders.is_empty() {
             return Err(anyhow::anyhow!("No clients available"));
         }
@@ -429,7 +429,7 @@ mod tests {
             }
         }
 
-        async fn operation(&self) -> Result<String, RetriableClientError> {
+        fn operation(&self) -> Result<String, RetriableClientError> {
             self.call_count
                 .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             if self.should_fail {
@@ -455,16 +455,14 @@ mod tests {
 
         let clients = vec![failing_client, succeeding_client];
 
-        let failover_wrapper = FailoverWrapper::new(clients)
-            .await
-            .expect("failed to create wrapper");
+        let failover_wrapper = FailoverWrapper::new(clients).expect("failed to create wrapper");
 
         // Execute operation that should failover from first to second client.
         let result = failover_wrapper
             .with_failover(
                 |client, _method| async move {
                     let client = client.as_ref();
-                    client.operation().await
+                    client.operation()
                 },
                 None,
                 "operation",
@@ -493,12 +491,12 @@ mod tests {
             Arc::new(MockClient::new(true)),
         ];
 
-        let failover_wrapper = FailoverWrapper::new(clients).await.unwrap();
+        let failover_wrapper = FailoverWrapper::new(clients).unwrap();
 
         // Execute operation that should try both clients and fail.
         let result = failover_wrapper
             .with_failover(
-                |client, _method| async move { client.operation().await },
+                |client, _method| async move { client.operation() },
                 None,
                 "operation",
             )

@@ -45,13 +45,13 @@ fn basic_encoding(c: &mut Criterion) {
                 &(symbol_count, data),
                 |b, (symbol_count, data)| {
                     b.iter(|| {
-                        let encoder = ReedSolomonEncoder::new(
-                            data,
+                        let mut encoder = ReedSolomonEncoder::new(
+                            symbol_size.try_into().unwrap(),
                             (*symbol_count).try_into().unwrap(),
                             N_SHARDS.try_into().unwrap(),
                         )
                         .unwrap();
-                        let _encoded_symbols = encoder.encode_all();
+                        let _encoded_symbols = encoder.encode_all_ref(data);
                     });
                 },
             );
@@ -72,18 +72,20 @@ fn basic_decoding(c: &mut Criterion) {
             group.throughput(criterion::Throughput::Bytes(
                 u64::try_from(data_length).unwrap(),
             ));
-            let encoder = ReedSolomonEncoder::new(
-                &data,
+            let mut encoder = ReedSolomonEncoder::new(
+                symbol_size.try_into().unwrap(),
                 symbol_count.try_into().unwrap(),
                 N_SHARDS.try_into().unwrap(),
             )
             .unwrap();
             let symbols: Vec<_> = random_subset(
                 encoder
-                    .encode_all()
+                    .encode_all_ref(&data)
                     .into_iter()
                     .enumerate()
-                    .map(|(i, s)| DecodingSymbol::<Primary>::new(i.try_into().unwrap(), s)),
+                    .map(|(i, s)| {
+                        DecodingSymbol::<Primary>::new(i.try_into().unwrap(), s.data().clone())
+                    }),
                 usize::from(symbol_count) + 1,
             )
             .collect();
@@ -189,12 +191,13 @@ fn merkle_tree(c: &mut Criterion) {
             let data_length = usize::from(symbol_size) * usize::from(symbol_count);
             let data = random_data(data_length);
             let encoded_symbols = ReedSolomonEncoder::new(
-                &data,
+                symbol_size.try_into().unwrap(),
                 symbol_count.try_into().unwrap(),
                 N_SHARDS.try_into().unwrap(),
             )
             .unwrap()
-            .encode_all();
+            .encode_all(&data)
+            .unwrap();
 
             group.throughput(criterion::Throughput::Bytes(
                 u64::try_from(data_length).unwrap(),
@@ -207,7 +210,7 @@ fn merkle_tree(c: &mut Criterion) {
                 &encoded_symbols,
                 |b, encoded_symbols| {
                     b.iter(|| {
-                        let _tree = MerkleTree::<Blake2b256>::build(encoded_symbols);
+                        let _tree = MerkleTree::<Blake2b256>::build(encoded_symbols.to_symbols());
                     });
                 },
             );

@@ -20,8 +20,8 @@
 
 # Usage
 
-- [Getting started](./usage/started.md)
-- [Setup](./usage/setup.md)
+- [Getting started with Walrus](./usage/started.md)
+- [Advanced Setup](./usage/setup.md)
   - [Available networks](./usage/networks.md)
 - [Interacting with Walrus](./usage/interacting.md)
   - [Using the client CLI](./usage/client-cli.md)

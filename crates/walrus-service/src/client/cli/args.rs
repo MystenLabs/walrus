@@ -28,7 +28,6 @@ use walrus_core::{
     encoding::{EncodingConfig, EncodingFactory},
     ensure,
 };
-use walrus_sdk::config::UploadMode;
 use walrus_sui::{
     client::{ExpirySelectionPolicy, ReadClient, SuiContractClient},
     types::{StorageNode, move_structs::Authorized},
@@ -635,8 +634,9 @@ pub enum CliCommands {
         #[command(subcommand)]
         command: NodeAdminCommands,
     },
-    /// Pull all blobs (filtered by optional prefix specifier) from Google Cloud Storage down into
-    /// the specified backfill_dir.
+    /// Pull all blobs (filtered by optional prefix specifier) from an archive of blobs in a Google
+    /// Cloud Storage bucket down into the specified directory.
+    #[command(hide = true)]
     PullArchiveBlobs {
         /// The Google Cloud Storage bucket to pull from.
         #[arg(long)]
@@ -658,11 +658,12 @@ pub enum CliCommands {
         pulled_state: PathBuf,
     },
     /// Upload blob slivers and metadata from a specified directory to the listed storage nodes.
+    #[command(hide = true)]
     BlobBackfill {
-        /// The subdirectory when blob-backfill can find blobs.
+        /// The directory where the blobs to backfill are stored.
         ///
-        /// Blobs in this directory must be named with their blob id. Any files that exist in this
-        /// directory that do not have a conforming blob id name will be skipped.
+        /// Blobs in this directory must be named with their blob ID. Any files that exist in this
+        /// directory that do not have a conforming blob ID name will be skipped.
         #[arg(long)]
         backfill_dir: PathBuf,
         /// The file where successfully pushed blob IDs will be stored.
@@ -1200,10 +1201,11 @@ pub struct CommonStoreOptions {
     #[arg(long, requires = "upload_relay")]
     #[serde(default)]
     pub skip_tip_confirmation: bool,
-    /// Preset upload mode to tune network concurrency and bytes-in-flight.
-    #[arg(long, value_enum)]
+    /// Spawn a helper process that continues detached tail uploads after quorum is reached.
+    /// This is only effective when tail handling is configured as `detached`.
+    #[arg(long)]
     #[serde(default)]
-    pub upload_mode: Option<UploadModeCli>,
+    pub child_process_uploads: bool,
     /// Internal flag to signal the process is running as a child for background uploads.
     #[arg(long, hide = true)]
     #[serde(default)]
@@ -1224,31 +1226,6 @@ pub struct FileOrBlobId {
     #[serde_as(as = "Option<DisplayFromStr>")]
     #[serde(default)]
     pub(crate) blob_id: Option<BlobId>,
-}
-
-/// CLI enum for selecting upload presets. Converted to SDK UploadMode at runtime.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, clap::ValueEnum)]
-#[serde(rename_all = "camelCase")]
-pub enum UploadModeCli {
-    Conservative,
-    Balanced,
-    Aggressive,
-}
-
-impl Default for UploadModeCli {
-    fn default() -> Self {
-        Self::Balanced
-    }
-}
-
-impl From<UploadModeCli> for UploadMode {
-    fn from(value: UploadModeCli) -> Self {
-        match value {
-            UploadModeCli::Conservative => UploadMode::Conservative,
-            UploadModeCli::Balanced => UploadMode::Balanced,
-            UploadModeCli::Aggressive => UploadMode::Aggressive,
-        }
-    }
 }
 
 impl FileOrBlobId {
@@ -1902,7 +1879,7 @@ pub(crate) mod default {
     }
 
     pub(crate) fn faucet_timeout() -> Duration {
-        Duration::from_secs(60)
+        Duration::from_mins(1)
     }
 
     pub(crate) fn allowed_headers() -> Vec<String> {
@@ -1974,7 +1951,7 @@ mod tests {
                 encoding_type: Default::default(),
                 upload_relay: None,
                 skip_tip_confirmation: false,
-                upload_mode: None,
+                child_process_uploads: false,
                 internal_run: false,
             },
         })

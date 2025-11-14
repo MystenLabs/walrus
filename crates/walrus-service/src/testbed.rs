@@ -378,8 +378,7 @@ pub async fn deploy_walrus_contract(
         let sui_client = RetriableSuiClient::new(
             vec![LazySuiClientBuilder::new(rpc_url, None)],
             Default::default(),
-        )
-        .await?;
+        )?;
         request_sui_from_faucet(admin_wallet.active_address()?, &sui_network, &sui_client).await?;
         admin_wallet
     };
@@ -534,7 +533,7 @@ pub async fn create_client_config(
 }
 
 /// Create the config for the walrus-backup node associated with a network.
-pub async fn create_backup_config(
+pub fn create_backup_config(
     system_ctx: &SystemContext,
     working_dir: &Path,
     database_url: &str,

@@ -371,10 +371,9 @@ impl Storage {
     ) -> Result<(), TypedStoreError> {
         let shard_map_lock = self.lock_shards().await;
         self.create_storage_for_shards_locked(shard_map_lock, new_shards)
-            .await
     }
 
-    pub(crate) async fn create_storage_for_shards_locked(
+    pub(crate) fn create_storage_for_shards_locked(
         &self,
         mut locked_map: StorageShardLock,
         new_shards: &[ShardIndex],

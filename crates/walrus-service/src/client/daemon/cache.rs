@@ -164,7 +164,7 @@ where
             tokio::select! {
                 request = self.query_rx.recv() => {
                     if let Some(request) = request {
-                        self.handle_request(request).await;
+                        self.handle_request(request);
                     } else {
                         tracing::info!("the channel is closed, stopping the cache");
                         break;
@@ -182,7 +182,7 @@ where
     }
 
     /// Handles a request to the cache.
-    async fn handle_request(&mut self, request: CacheRequest<T>) {
+    fn handle_request(&mut self, request: CacheRequest<T>) {
         let response = match request.kind {
             CacheRequestKind::Exists(key) => {
                 tracing::debug!(key=?key, "checking if element exists in the cache");

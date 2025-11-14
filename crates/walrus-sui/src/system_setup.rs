@@ -167,8 +167,7 @@ pub(crate) async fn publish_package(
     let retry_client = RetriableSuiClient::new(
         vec![LazySuiClientBuilder::new(wallet.get_rpc_url()?, None)],
         Default::default(),
-    )
-    .await?;
+    )?;
 
     let chain_id = retry_client.get_chain_identifier().await.ok();
 
@@ -489,8 +488,7 @@ pub async fn create_system_and_staking_objects(
     let retry_client = RetriableSuiClient::new(
         vec![LazySuiClientBuilder::new(wallet.get_rpc_url()?, None)],
         Default::default(),
-    )
-    .await?;
+    )?;
     let gas_price = retry_client.get_reference_gas_price().await?;
 
     let gas_budget = if let Some(gas_budget) = gas_budget {

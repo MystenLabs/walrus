@@ -90,8 +90,7 @@ Create on-demand backups using the `local-admin` command:
 
 ```admonish info
 The following commands assume `walrus-node` is in your system's PATH. If it's not, replace
-`walrus-node` with the full path to the binary, for example:
-- `/opt/walrus/bin/walrus-node`
+`walrus-node` with the full path to the binary, for example `/opt/walrus/bin/walrus-node`.
 ```
 
 ```bash
@@ -110,10 +109,7 @@ initialized, the process continues independently even if the command-line interf
 ## List Available Backups
 
 ```bash
-sudo -u walrus walrus-node local-admin \
-  --socket-path /opt/walrus/admin.socket \
-  checkpoint list \
-  --path /opt/walrus/checkpoints
+sudo -u walrus walrus-node list-db-checkpoint /opt/walrus/checkpoints
 ```
 
 **Sample output:**

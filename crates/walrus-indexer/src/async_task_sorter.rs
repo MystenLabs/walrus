@@ -491,6 +491,7 @@ mod tests {
     use crate::test_utils::{OrderedTestStore, TestTask};
 
     async_param_test! {
+        #[ignore = "ignore long-running test by default"]
         test_async_task_sorter_basic: [
             no_tasks: (3, 0, 2, 0),
             one_batch_catchup_no_drops: (3, 2, 2, 1),

@@ -26,13 +26,13 @@ use walrus_utils::backoff::ExponentialBackoffState;
 use super::contract_service::SystemContractService;
 
 /// Maximum number of seconds that an operation can be randomly delayed by.
-const MAX_SCHEDULE_JITTER: Duration = Duration::from_secs(180);
+const MAX_SCHEDULE_JITTER: Duration = Duration::from_mins(3);
 /// The minimum exponential backoff when performing retries.
 const MIN_BACKOFF: Duration = Duration::from_secs(5);
 /// The maximum exponential backoff when performing retries.
-const MAX_BACKOFF: Duration = Duration::from_secs(300);
+const MAX_BACKOFF: Duration = Duration::from_mins(5);
 /// The maximum amount of time before the epoch change that process subsidies is scheduled.
-const MAX_SUBSIDIES_TIME_BEFORE_EPOCH_CHANGE: Duration = Duration::from_secs(300);
+const MAX_SUBSIDIES_TIME_BEFORE_EPOCH_CHANGE: Duration = Duration::from_mins(5);
 
 /// Function returning the current time in Utc.
 type UtcNowFn = Arc<dyn Fn() -> DateTime<Utc> + Send + Sync>;

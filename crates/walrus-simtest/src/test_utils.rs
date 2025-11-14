@@ -135,6 +135,7 @@ pub mod simtest_utils {
             epochs"
         );
         let blob = walrus_test_utils::random_data(data_length);
+        let blobs = vec![blob.clone()];
 
         let mut retry_count = 0;
         let tail_handle_collector = Arc::new(tokio::sync::Mutex::new(vec![]));
@@ -153,7 +154,7 @@ pub mod simtest_utils {
             };
             let result = client
                 .as_ref()
-                .reserve_and_store_blobs_retry_committees(&[blob.as_slice()], &[], &store_args)
+                .reserve_and_store_blobs_retry_committees(blobs.clone(), vec![], &store_args)
                 .await;
             let mut handles = tail_handle_collector.lock().await;
             while let Some(handle) = handles.pop() {

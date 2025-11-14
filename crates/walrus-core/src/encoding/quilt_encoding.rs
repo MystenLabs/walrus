@@ -35,7 +35,7 @@ use crate::{
     encoding::{
         EncodingAxis,
         QuiltError,
-        blob_encoding::BlobEncoder,
+        blob_encoding::{BlobEncoder, OwnedOrBorrowedBlob},
         config::EncodingFactory as _,
     },
     metadata::{
@@ -218,12 +218,15 @@ pub trait QuiltApi<V: QuiltVersion> {
     /// Returns the data of the quilt.
     fn data(&self) -> &[u8];
 
+    /// Returns the data of the quilt by moving it out, consuming the Quilt.
+    fn into_data(self) -> Vec<u8>;
+
     /// Returns the symbol size of the quilt.
     fn symbol_size(&self) -> usize;
 }
 
 /// API for QuiltIndex.
-pub trait QuiltIndexApi<V: QuiltVersion>: Clone + Into<QuiltIndex> {
+pub trait QuiltIndexApi<V: QuiltVersion>: Clone + Into<QuiltIndex> + Send + Sync {
     /// Returns the quilt patches matching the given identifiers.
     ///
     /// If the quilt contains duplicate identifiers, the first matching patch is returned.
@@ -367,9 +370,6 @@ pub trait QuiltEncoderApi<V: QuiltVersion> {
     ///
     /// Note: This function returns an error if the blobs have duplicate identifiers.
     fn construct_quilt(&self) -> Result<V::Quilt, QuiltError>;
-
-    /// Encodes the blobs into a quilt and returns the slivers.
-    fn encode(&self) -> Result<Vec<SliverPair>, QuiltError>;
 
     /// Encodes the blobs into a quilt and returns the slivers and metadata.
     fn encode_with_metadata(&self) -> Result<(Vec<SliverPair>, QuiltMetadata), QuiltError>;
@@ -1029,6 +1029,10 @@ impl QuiltApi<QuiltVersionV1> for QuiltV1 {
         &self.data
     }
 
+    fn into_data(self) -> Vec<u8> {
+        self.data
+    }
+
     fn symbol_size(&self) -> usize {
         self.symbol_size
     }
@@ -1552,38 +1556,28 @@ impl QuiltEncoderApi<QuiltVersionV1> for QuiltEncoderV1<'_> {
         })
     }
 
-    /// Encodes the blobs into a quilt and returns the slivers.
-    fn encode(&self) -> Result<Vec<SliverPair>, QuiltError> {
-        let _guard = self.span.enter();
-        tracing::debug!("starting to encode quilt");
-
-        let quilt = self.construct_quilt()?;
-        let encoder = BlobEncoder::new(self.config, quilt.data()).map_err(|_| {
-            QuiltError::QuiltOversize(format!("quilt is too large: {}", quilt.data().len()))
-        })?;
-        assert_eq!(encoder.symbol_usize(), quilt.symbol_size());
-        Ok(encoder.encode())
-    }
-
     /// Encodes the blobs into a quilt and returns the slivers and metadata.
     fn encode_with_metadata(&self) -> Result<(Vec<SliverPair>, QuiltMetadata), QuiltError> {
         let _guard = self.span.enter();
         tracing::debug!("starting to encode quilt with metadata");
 
         let quilt = self.construct_quilt()?;
-        let encoder = BlobEncoder::new(self.config, quilt.data()).map_err(|_| {
-            QuiltError::QuiltOversize(format!("quilt is too large: {}", quilt.data.len()))
-        })?;
+        let quilt_symbol_size = quilt.symbol_size;
+        let quilt_patches = quilt.quilt_index()?.quilt_patches.clone();
+        let quilt_data = quilt.into_data();
+        let quilt_length = quilt_data.len();
+        let encoder = BlobEncoder::new(self.config, OwnedOrBorrowedBlob::new_owned(quilt_data))
+            .map_err(|_| {
+                QuiltError::QuiltOversize(format!("quilt is too large: {}", quilt_length))
+            })?;
 
-        assert_eq!(encoder.symbol_usize(), quilt.symbol_size);
+        assert_eq!(encoder.symbol_usize(), quilt_symbol_size);
 
         let (sliver_pairs, metadata) = encoder.encode_with_metadata();
         let quilt_metadata = QuiltMetadata::V1(QuiltMetadataV1 {
             quilt_id: *metadata.blob_id(),
             metadata: metadata.metadata().clone(),
-            index: QuiltIndexV1 {
-                quilt_patches: quilt.quilt_index()?.quilt_patches.clone(),
-            },
+            index: QuiltIndexV1 { quilt_patches },
         });
 
         Ok((sliver_pairs, quilt_metadata))

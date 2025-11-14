@@ -290,7 +290,7 @@ impl WalrusPtbBuilder {
         self.fill_wal_balance(price).await?;
 
         let reserve_arguments = vec![
-            self.credits_arg(SharedObjectMutability::Mutable).await?,
+            self.credits_arg(SharedObjectMutability::Mutable)?,
             self.system_arg(SharedObjectMutability::Mutable).await?,
             self.pt_builder.pure(encoded_size)?,
             self.pt_builder.pure(epochs_ahead)?,
@@ -381,7 +381,7 @@ impl WalrusPtbBuilder {
         let storage_resource_arg = self.argument_from_arg_or_obj(storage_resource).await?;
 
         let register_arguments = vec![
-            self.credits_arg(SharedObjectMutability::Mutable).await?,
+            self.credits_arg(SharedObjectMutability::Mutable)?,
             self.system_arg(SharedObjectMutability::Mutable).await?,
             storage_resource_arg,
             self.pt_builder.pure(blob_metadata.blob_id)?,
@@ -483,7 +483,7 @@ impl WalrusPtbBuilder {
     }
 
     /// Adds a call to create a new instance of Metadata and returns the result [`Argument`].
-    pub async fn new_metadata(&mut self) -> SuiClientResult<Argument> {
+    pub fn new_metadata(&mut self) -> SuiClientResult<Argument> {
         let result_arg = self.walrus_move_call(contracts::metadata::new, vec![])?;
         self.add_result_to_be_consumed(result_arg);
         Ok(result_arg)
@@ -513,7 +513,7 @@ impl WalrusPtbBuilder {
         blob_attribute: BlobAttribute,
     ) -> SuiClientResult<()> {
         // Create a new metadata object
-        let metadata_arg = self.new_metadata().await?;
+        let metadata_arg = self.new_metadata()?;
 
         // Iterate through the passed-in metadata and populate the move metadata
         for (key, value) in blob_attribute.iter() {
@@ -706,7 +706,7 @@ impl WalrusPtbBuilder {
         self.fill_wal_balance(price).await?;
 
         let args = vec![
-            self.credits_arg(SharedObjectMutability::Mutable).await?,
+            self.credits_arg(SharedObjectMutability::Mutable)?,
             self.system_arg(SharedObjectMutability::Mutable).await?,
             self.argument_from_arg_or_obj(blob_object).await?,
             self.pt_builder.pure(epochs_ahead)?,
@@ -874,8 +874,7 @@ impl WalrusPtbBuilder {
         let args = vec![
             self.pt_builder.obj(
                 self.read_client
-                    .object_arg_for_walrus_subsidies_obj(SharedObjectMutability::Mutable)
-                    .await?,
+                    .object_arg_for_walrus_subsidies_obj(SharedObjectMutability::Mutable)?,
             )?,
             split_coin,
         ];
@@ -945,8 +944,7 @@ impl WalrusPtbBuilder {
     /// Adds a call to `walrus_subsidies::process_subsidies` to the PTB.
     pub async fn process_subsidies(&mut self) -> SuiClientResult<()> {
         let args = vec![
-            self.walrus_subsidies_arg(SharedObjectMutability::Mutable)
-                .await?,
+            self.walrus_subsidies_arg(SharedObjectMutability::Mutable)?,
             self.staking_arg(SharedObjectMutability::Mutable).await?,
             self.system_arg(SharedObjectMutability::Mutable).await?,
             self.pt_builder.obj(CLOCK_OBJECT_ARG)?,
@@ -1027,7 +1025,7 @@ impl WalrusPtbBuilder {
         node_parameters: &NodeRegistrationParams,
         proof_of_possession: ProofOfPossession,
     ) -> SuiClientResult<Argument> {
-        let node_metadata_arg = self.create_node_metadata(&node_parameters.metadata).await?;
+        let node_metadata_arg = self.create_node_metadata(&node_parameters.metadata)?;
         let args = vec![
             self.staking_arg(SharedObjectMutability::Mutable).await?,
             self.pt_builder.pure(&node_parameters.name)?,
@@ -1051,7 +1049,7 @@ impl WalrusPtbBuilder {
     }
 
     /// Adds a call to `create_node_metadata` to the PTB and returns the result [`Argument`].
-    pub async fn create_node_metadata(
+    pub fn create_node_metadata(
         &mut self,
         node_metadata: &NodeMetadata,
     ) -> SuiClientResult<Argument> {
@@ -1073,7 +1071,7 @@ impl WalrusPtbBuilder {
         storage_node_cap: &ArgumentOrOwnedObject,
         node_metadata: &NodeMetadata,
     ) -> SuiClientResult<()> {
-        let metadata_arg = self.create_node_metadata(node_metadata).await?;
+        let metadata_arg = self.create_node_metadata(node_metadata)?;
         let args = vec![
             self.staking_arg(SharedObjectMutability::Mutable).await?,
             self.argument_from_arg_or_obj(*storage_node_cap).await?,
@@ -1723,20 +1721,19 @@ impl WalrusPtbBuilder {
             .obj(self.read_client.object_arg_for_staking_obj(mutable).await?)?)
     }
 
-    async fn credits_arg(&mut self, mutable: SharedObjectMutability) -> SuiClientResult<Argument> {
+    fn credits_arg(&mut self, mutable: SharedObjectMutability) -> SuiClientResult<Argument> {
         Ok(self
             .pt_builder
-            .obj(self.read_client.object_arg_for_credits_obj(mutable).await?)?)
+            .obj(self.read_client.object_arg_for_credits_obj(mutable)?)?)
     }
 
-    async fn walrus_subsidies_arg(
+    fn walrus_subsidies_arg(
         &mut self,
         mutable: SharedObjectMutability,
     ) -> SuiClientResult<Argument> {
         Ok(self.pt_builder.obj(
             self.read_client
-                .object_arg_for_walrus_subsidies_obj(mutable)
-                .await?,
+                .object_arg_for_walrus_subsidies_obj(mutable)?,
         )?)
     }
 

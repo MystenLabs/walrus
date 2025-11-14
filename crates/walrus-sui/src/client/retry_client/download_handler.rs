@@ -410,7 +410,7 @@ mod tests {
 
     #[test]
     fn assess_immediate_fallback_error() {
-        let config = test_config(5, Duration::from_secs(300), 3, Duration::from_secs(60));
+        let config = test_config(5, Duration::from_mins(5), 3, Duration::from_mins(1));
         let handler = CheckpointDownloadHandler::new(Some(config), None);
         let seq = 100;
         let err = rpc_error_pruned(seq);
@@ -425,7 +425,7 @@ mod tests {
     #[tokio::test]
     #[ignore = "ignore long-running test by default"]
     async fn assess_overall_window_exceeded_triggers_fallback_and_sets_skip() {
-        let skip_duration = Duration::from_secs(60);
+        let skip_duration = Duration::from_mins(1);
         let config = test_config(3, Duration::from_secs(10), 5, skip_duration);
         let handler = CheckpointDownloadHandler::new(Some(config), None);
         let seq = 100;
@@ -456,7 +456,7 @@ mod tests {
 
     #[test]
     fn assess_specific_consecutive_failure_triggers_fallback() {
-        let config = test_config(10, Duration::from_secs(300), 3, Duration::from_secs(60));
+        let config = test_config(10, Duration::from_mins(5), 3, Duration::from_mins(1));
         let handler = CheckpointDownloadHandler::new(Some(config.clone()), None);
         let seq = 100;
         let err = rpc_error_generic(seq);

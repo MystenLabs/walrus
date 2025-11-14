@@ -15,7 +15,7 @@ use crate::{
 };
 
 /// The kinds of tip that the proxy can choose to configure.
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, PartialEq)]
 #[serde(rename_all = "snake_case")]
 #[schema(examples(
         json!(TipKind::Const(31415)),
@@ -63,7 +63,7 @@ impl TipKind {
 }
 
 /// The configuration for the tips to the relay.
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum TipConfig {
     /// The publisher does not require tips.

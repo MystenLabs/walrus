@@ -58,7 +58,7 @@ impl StartEpochChangeFinisher {
         let handle = tokio::spawn(async move {
             let backoff = ExponentialBackoff::new_with_seed(
                 Duration::from_secs(10),
-                Duration::from_secs(300),
+                Duration::from_mins(5),
                 // Since this function is in charge of marking the event as completed, we have to
                 // keep retrying until success. Otherwise, the event process is blocked anyway.
                 None,

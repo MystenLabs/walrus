@@ -314,7 +314,7 @@ mod tests {
             let blob_data: Vec<_> = (0..255).chain(0..255).collect();
             let (pairs, metadata) = config
                 .get_for_type(EncodingType::RS2)
-                .encode_with_metadata(&blob_data)
+                .encode_with_metadata(blob_data)
                 .expect("encoding succeeds");
 
             Self {

@@ -84,11 +84,11 @@ impl BlobData {
 
     /// Returns a slice of the blob with a size `2^x`, where `x` is chosen uniformly at random
     /// between `min_size_log2` and `max_size_log2`.
-    pub fn random_size_slice(&self) -> &[u8] {
+    pub fn random_size_slice(&self) -> Vec<u8> {
         let blob_size_min = 2_usize.pow(u32::from(self.config.min_size_log2));
         let blob_size_max = 2_usize.pow(u32::from(self.config.max_size_log2));
         let blob_size = thread_rng().gen_range(blob_size_min..=blob_size_max);
-        &self.bytes[..blob_size]
+        self.bytes[..blob_size].to_vec()
     }
 }
 

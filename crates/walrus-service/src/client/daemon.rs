@@ -150,7 +150,7 @@ pub trait WalrusWriteClient: WalrusReadClient {
     /// Writes a blob to Walrus.
     fn write_blob(
         &self,
-        blob: &[u8],
+        blob: Vec<u8>,
         encoding_type: Option<EncodingType>,
         epochs_ahead: EpochCount,
         store_optimizations: StoreOptimizations,
@@ -255,7 +255,7 @@ impl WalrusWriteClient for WalrusNodeClient<SuiContractClient> {
     #[tracing::instrument(skip_all)]
     async fn write_blob(
         &self,
-        blob: &[u8],
+        blob: Vec<u8>,
         encoding_type: Option<EncodingType>,
         epochs_ahead: EpochCount,
         store_optimizations: StoreOptimizations,
@@ -263,16 +263,17 @@ impl WalrusWriteClient for WalrusNodeClient<SuiContractClient> {
         post_store: PostStoreAction,
     ) -> ClientResult<BlobStoreResult> {
         let encoding_type = encoding_type.unwrap_or(DEFAULT_ENCODING);
-
+        let tail_mode = self.config().communication_config.tail_handling;
         let store_args = StoreArgs::new(
             encoding_type,
             epochs_ahead,
             store_optimizations,
             persistence,
             post_store,
-        );
+        )
+        .with_tail_handling(tail_mode);
         let result = self
-            .reserve_and_store_blobs_retry_committees(&[blob], &[], &store_args)
+            .reserve_and_store_blobs_retry_committees(vec![blob], vec![], &store_args)
             .await?;
 
         Ok(result
@@ -291,7 +292,6 @@ impl WalrusWriteClient for WalrusNodeClient<SuiContractClient> {
         // TODO(WAL-927): Make QuiltConfig part of ClientConfig.
         self.quilt_client()
             .construct_quilt::<V>(blobs, encoding_type)
-            .await
     }
 
     async fn write_quilt<V: QuiltVersion>(
@@ -304,16 +304,17 @@ impl WalrusWriteClient for WalrusNodeClient<SuiContractClient> {
         post_store: PostStoreAction,
     ) -> ClientResult<QuiltStoreResult> {
         let encoding_type = encoding_type.unwrap_or(DEFAULT_ENCODING);
-
+        let tail_mode = self.config().communication_config.tail_handling;
         let store_args = StoreArgs::new(
             encoding_type,
             epochs_ahead,
             store_optimizations,
             persistence,
             post_store,
-        );
+        )
+        .with_tail_handling(tail_mode);
         self.quilt_client()
-            .reserve_and_store_quilt::<V>(&quilt, &store_args)
+            .reserve_and_store_quilt::<V>(quilt, &store_args)
             .await
     }
 
@@ -635,7 +636,7 @@ pub(crate) async fn auth_layer(
 /// Handles errors from Tower middleware layers for service endpoints.
 ///
 /// Returns HTTP 429 for overload errors, and HTTP 500 with error details for other errors.
-async fn handle_service_error(error: BoxError, service_name: &str) -> Response {
+fn handle_service_error(error: BoxError, service_name: &str) -> Response {
     if error.is::<Overloaded>() {
         (
             StatusCode::TOO_MANY_REQUESTS,
@@ -652,11 +653,11 @@ async fn handle_service_error(error: BoxError, service_name: &str) -> Response {
 }
 
 async fn handle_aggregator_error(error: BoxError) -> Response {
-    handle_service_error(error, "aggregator").await
+    handle_service_error(error, "aggregator")
 }
 
 async fn handle_publisher_error(error: BoxError) -> Response {
-    handle_service_error(error, "publisher").await
+    handle_service_error(error, "publisher")
 }
 
 #[cfg(test)]

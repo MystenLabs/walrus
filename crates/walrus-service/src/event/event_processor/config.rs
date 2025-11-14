@@ -130,16 +130,16 @@ pub struct EventProcessorConfig {
 impl Default for EventProcessorConfig {
     fn default() -> Self {
         Self {
-            pruning_interval: Duration::from_secs(3600),
-            checkpoint_request_timeout: Duration::from_secs(60),
+            pruning_interval: Duration::from_hours(1),
+            checkpoint_request_timeout: Duration::from_mins(1),
             adaptive_downloader_config: Default::default(),
             event_stream_catchup_min_checkpoint_lag: 20_000,
-            sampled_tracing_interval: Duration::from_secs(3600),
+            sampled_tracing_interval: Duration::from_hours(1),
             runtime_catchup_lag_threshold: 20_000,
-            runtime_lag_check_interval: Duration::from_secs(300),
+            runtime_lag_check_interval: Duration::from_mins(5),
             enable_runtime_catchup: true,
-            catchup_coordination_timeout: Duration::from_secs(3000),
-            catchup_processing_timeout: Duration::from_secs(3000),
+            catchup_coordination_timeout: Duration::from_mins(50),
+            catchup_processing_timeout: Duration::from_mins(50),
         }
     }
 }

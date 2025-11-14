@@ -23,7 +23,13 @@ use crate::{
     BlobId,
     EncodingType,
     bft,
-    encoding::{DecodeError, SliverData, common::ConsistencyCheckType},
+    encoding::{
+        DecodeError,
+        SliverData,
+        Symbols,
+        blob_encoding::OwnedOrBorrowedBlob,
+        common::ConsistencyCheckType,
+    },
     merkle::DIGEST_LEN,
     metadata::{BlobMetadataApi as _, VerifiedBlobMetadataWithId},
 };
@@ -44,14 +50,13 @@ pub trait EncodingFactory {
     }
 
     /// Returns a vector of all `n_shards` source and repair symbols for a single 1D encoding.
-    fn encode_all_symbols<E: EncodingAxis>(&self, data: &[u8])
-    -> Result<Vec<Vec<u8>>, EncodeError>;
+    fn encode_all_symbols<E: EncodingAxis>(&self, data: &[u8]) -> Result<Symbols, EncodeError>;
 
     /// Returns a vector of all repair symbols for a single 1D encoding.
     fn encode_all_repair_symbols<E: EncodingAxis>(
         &self,
         data: &[u8],
-    ) -> Result<Vec<Vec<u8>>, EncodeError>;
+    ) -> Result<Symbols, EncodeError>;
 
     /// Returns the symbol at the given index.
     ///
@@ -90,7 +95,7 @@ pub trait EncodingFactory {
     /// larger than roughly 800 MiB cannot be encoded on 32-bit architectures.
     fn encode_with_metadata(
         &self,
-        blob: &[u8],
+        blob: Vec<u8>,
     ) -> Result<(Vec<SliverPair>, VerifiedBlobMetadataWithId), DataTooLargeError>;
 
     /// Computes the metadata (blob ID, hashes) for the blob, without returning the slivers.
@@ -518,11 +523,15 @@ impl ReedSolomonEncodingConfig {
         )
     }
 
-    fn get_encoder<'a, E: EncodingAxis>(
+    pub(crate) fn get_encoder<E: EncodingAxis>(
         &self,
-        data: &'a [u8],
-    ) -> Result<ReedSolomonEncoder<'a>, EncodeError> {
-        ReedSolomonEncoder::new(data, self.n_source_symbols::<E>(), self.n_shards())
+        data_length: usize,
+    ) -> Result<ReedSolomonEncoder, EncodeError> {
+        let symbol_size = ReedSolomonEncoder::check_parameters_and_compute_symbol_size(
+            data_length,
+            self.n_source_symbols::<E>(),
+        )?;
+        ReedSolomonEncoder::new(symbol_size, self.n_source_symbols::<E>(), self.n_shards())
     }
 
     fn get_decoder<E: EncodingAxis>(
@@ -538,7 +547,16 @@ impl ReedSolomonEncodingConfig {
         &self,
         blob: &'a [u8],
     ) -> Result<BlobEncoder<'a>, DataTooLargeError> {
-        BlobEncoder::new((*self).into(), blob)
+        BlobEncoder::new((*self).into(), OwnedOrBorrowedBlob::new(blob))
+    }
+
+    /// Returns a [`BlobEncoder`] for the given blob.
+    #[tracing::instrument(level = "debug", skip_all)]
+    pub fn get_blob_encoder_owned(
+        &self,
+        blob: Vec<u8>,
+    ) -> Result<BlobEncoder<'static>, DataTooLargeError> {
+        BlobEncoder::new((*self).into(), OwnedOrBorrowedBlob::new_owned(blob))
     }
 
     /// Returns a [`BlobDecoder`] for the given `blob_size`.
@@ -573,9 +591,9 @@ impl EncodingFactory for ReedSolomonEncodingConfig {
 
     fn encode_with_metadata(
         &self,
-        blob: &[u8],
+        blob: Vec<u8>,
     ) -> Result<(Vec<SliverPair>, VerifiedBlobMetadataWithId), DataTooLargeError> {
-        Ok(self.get_blob_encoder(blob)?.encode_with_metadata())
+        Ok(self.get_blob_encoder_owned(blob)?.encode_with_metadata())
     }
 
     fn compute_metadata(
@@ -640,18 +658,16 @@ impl EncodingFactory for ReedSolomonEncodingConfig {
         Ok(decoded_blob)
     }
 
-    fn encode_all_symbols<E: EncodingAxis>(
-        &self,
-        data: &[u8],
-    ) -> Result<Vec<Vec<u8>>, EncodeError> {
-        Ok(self.get_encoder::<E>(data)?.encode_all())
+    fn encode_all_symbols<E: EncodingAxis>(&self, data: &[u8]) -> Result<Symbols, EncodeError> {
+        self.get_encoder::<E>(data.len())?.encode_all(data)
     }
 
     fn encode_all_repair_symbols<E: EncodingAxis>(
         &self,
         data: &[u8],
-    ) -> Result<Vec<Vec<u8>>, EncodeError> {
-        Ok(self.get_encoder::<E>(data)?.encode_all_repair_symbols())
+    ) -> Result<Symbols, EncodeError> {
+        self.get_encoder::<E>(data.len())?
+            .encode_all_repair_symbols(data)
     }
 
     /// Returns the symbol at the given index.
@@ -664,7 +680,7 @@ impl EncodingFactory for ReedSolomonEncodingConfig {
         index: u16,
     ) -> Result<Vec<u8>, EncodeError> {
         let symbol_size: usize = ReedSolomonEncoder::check_parameters_and_compute_symbol_size(
-            data,
+            data.len(),
             self.n_source_symbols::<E>(),
         )?
         .get()
@@ -673,7 +689,7 @@ impl EncodingFactory for ReedSolomonEncodingConfig {
             let symbol_start = usize::from(index) * symbol_size;
             Ok(data[symbol_start..symbol_start + symbol_size].to_vec())
         } else {
-            Ok(self.get_encoder::<E>(data)?.into_symbol(index))
+            Ok(self.get_encoder::<E>(data.len())?.get_symbol(data, index)?)
         }
     }
 

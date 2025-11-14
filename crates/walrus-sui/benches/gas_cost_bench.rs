@@ -142,7 +142,7 @@ async fn gas_cost_for_contract_calls(args: Args) -> anyhow::Result<()> {
 
     let (sui_cluster_handle, walrus_client, _, test_node_keys) =
         initialize_contract_and_wallet_for_testing(
-            Duration::from_secs(3600),
+            Duration::from_hours(1),
             args.with_credits,
             0,
             args.committee_size.get() as usize,
