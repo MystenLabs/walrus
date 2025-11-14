@@ -194,7 +194,7 @@ impl WalrusNodeClient<()> {
         config: ClientConfig,
         committees_handle: CommitteesRefresherHandle,
     ) -> ClientResult<Self> {
-        Self::new_inner(config, committees_handle, None, None).await
+        Self::new_inner(config, committees_handle, None, None)
     }
     /// Creates a new Walrus client without a Sui client.
     pub async fn new_with_max_blob_size(
@@ -202,7 +202,7 @@ impl WalrusNodeClient<()> {
         committees_handle: CommitteesRefresherHandle,
         max_blob_size: Option<u64>,
     ) -> ClientResult<Self> {
-        Self::new_inner(config, committees_handle, None, max_blob_size).await
+        Self::new_inner(config, committees_handle, None, max_blob_size)
     }
 
     /// Creates a new Walrus client without a Sui client, that records metrics to the provided
@@ -212,10 +212,10 @@ impl WalrusNodeClient<()> {
         committees_handle: CommitteesRefresherHandle,
         metrics_registry: Registry,
     ) -> ClientResult<Self> {
-        Self::new_inner(config, committees_handle, Some(metrics_registry), None).await
+        Self::new_inner(config, committees_handle, Some(metrics_registry), None)
     }
 
-    async fn new_inner(
+    fn new_inner(
         config: ClientConfig,
         committees_handle: CommitteesRefresherHandle,
         metrics_registry: Option<Registry>,
@@ -223,17 +223,9 @@ impl WalrusNodeClient<()> {
     ) -> ClientResult<Self> {
         tracing::debug!(?config, "running client");
 
-        // Request the committees and price computation from the cache.
-        let (committees, _) = committees_handle
-            .send_committees_and_price_request(RequestKind::Get)
-            .await
-            .map_err(ClientError::other)?;
-
-        let encoding_config = EncodingConfig::new(committees.n_shards());
+        let encoding_config = Arc::new(EncodingConfig::new(committees_handle.n_shards()));
         let communication_limits =
             CommunicationLimits::new(&config.communication_config, encoding_config.n_shards());
-
-        let encoding_config = Arc::new(encoding_config);
 
         Ok(Self {
             sui_client: (),
