@@ -331,6 +331,8 @@ pub type UnverifiedBlobMetadataWithId = BlobMetadataWithId<false>;
 ///
 /// Stores the [`BlobId`] as well as additional details such as the encoding type,
 /// unencoded length of the blob, and the hashes associated the slivers.
+/// See [`VerifiedBlobMetadataWithId`] and [`UnverifiedBlobMetadataWithId`] for the details
+/// about the V type variants.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BlobMetadataWithId<const V: bool = false> {
     blob_id: BlobId,

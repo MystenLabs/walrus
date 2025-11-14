@@ -30,7 +30,10 @@ use walrus_utils::{
     is_internal_run,
 };
 
-use crate::client::quilt_client::QuiltClientConfig;
+use crate::client::{
+    byte_range_read_client::ByteRangeReadClientConfig,
+    quilt_client::QuiltClientConfig,
+};
 
 mod committees_refresh_config;
 /// Communication configuration options.
@@ -113,6 +116,9 @@ pub struct ClientConfig {
     /// The configuration of the QuiltClient.
     #[serde(default)]
     pub quilt_client_config: QuiltClientConfig,
+    /// The configuration of the ByteRangeReadClient.
+    #[serde(default)]
+    pub byte_range_read_client_config: ByteRangeReadClientConfig,
 }
 
 impl ClientConfig {
@@ -127,6 +133,7 @@ impl ClientConfig {
             communication_config: Default::default(),
             refresh_config: Default::default(),
             quilt_client_config: Default::default(),
+            byte_range_read_client_config: Default::default(),
         }
     }
 
@@ -292,6 +299,7 @@ mod tests {
             communication_config: Default::default(),
             refresh_config: Default::default(),
             quilt_client_config: Default::default(),
+            byte_range_read_client_config: Default::default(),
         };
 
         walrus_test_utils::overwrite_file_and_fail_if_not_equal(

@@ -67,6 +67,7 @@ use crate::{
     active_committees::ActiveCommittees,
     client::{
         auto_tune::AutoTuneHandle,
+        byte_range_read_client::ByteRangeReadClient,
         client_types::{
             BlobAwaitingUpload,
             BlobData,
@@ -99,6 +100,7 @@ use crate::{
     },
 };
 
+pub mod byte_range_read_client;
 pub mod client_types;
 pub mod communication;
 pub use communication::NodeCommunicationFactory;
@@ -677,6 +679,8 @@ impl<T: ReadClient> WalrusNodeClient<T> {
     /// Only unique slivers are retrieved, duplicates sliver indices are ignored.
     /// This function will keep retrying until all requested slivers are received or the maximum
     /// number of attempts is reached or the timeout is reached.
+    ///
+    /// Returned slivers may not be in the same order as the sliver_indices.
     async fn retrieve_slivers_with_retry<E: EncodingAxis>(
         &self,
         metadata: &VerifiedBlobMetadataWithId,
@@ -1573,6 +1577,11 @@ impl<T> WalrusNodeClient<T> {
     /// Returns a [`QuiltClient`] for storing and retrieving quilts.
     pub fn quilt_client(&self) -> QuiltClient<'_, T> {
         QuiltClient::new(self, self.config.quilt_client_config.clone())
+    }
+
+    /// Returns a [`ByteRangeReadClient`] for reading byte ranges from blobs.
+    pub fn byte_range_read_client(&self) -> ByteRangeReadClient<'_, T> {
+        ByteRangeReadClient::new(self, self.config.byte_range_read_client_config.clone())
     }
 
     fn build_sliver_write_throttle(
