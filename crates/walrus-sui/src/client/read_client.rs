@@ -4,7 +4,7 @@
 //! Client to call Walrus move functions from rust.
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fmt::{self, Debug},
     future::Future,
     num::NonZeroU16,
@@ -39,7 +39,7 @@ use sui_types::{
 };
 use tokio::sync::{OnceCell, mpsc};
 use tokio_stream::{Stream, wrappers::ReceiverStream};
-use tracing::Instrument as _;
+use tracing::{Instrument as _, Level};
 use walrus_core::{Epoch, ensure};
 use walrus_utils::backoff::ExponentialBackoffConfig;
 
@@ -1086,37 +1086,25 @@ impl SuiReadClient {
         Ok(())
     }
 
-    async fn shard_assignment_to_committee(
+    fn shard_assignment_to_committee(
         &self,
         epoch: Epoch,
         n_shards: NonZeroU16,
         shard_assignment: &[(ObjectID, Vec<u16>)],
+        node_objects: &HashMap<ObjectID, StakingPool>,
     ) -> SuiClientResult<Committee> {
-        let mut node_object_responses = vec![];
-        for obj_id_batch in shard_assignment.chunks(MULTI_GET_OBJ_LIMIT) {
-            node_object_responses.extend(
-                self.sui_client
-                    .multi_get_object_with_options(
-                        obj_id_batch
-                            .iter()
-                            .map(|(obj_id, _shards)| *obj_id)
-                            .collect(),
-                        SuiObjectDataOptions::new().with_type().with_bcs(),
-                    )
-                    .await?,
-            );
-        }
-
         let nodes = shard_assignment
             .iter()
-            .zip(node_object_responses)
-            .map(|((obj_id, shards), obj_response)| {
-                let mut storage_node =
-                    get_sui_object_from_object_response::<StakingPool>(&obj_response)?.node_info;
+            .map(|(obj_id, shards)| {
+                let mut storage_node = node_objects
+                    .get(obj_id)
+                    .ok_or_else(|| anyhow!("the node object was not found in the RPC response"))?
+                    .node_info
+                    .clone();
                 storage_node.shard_ids = shards.iter().map(|index| index.into()).collect();
                 ensure!(
                     *obj_id == storage_node.node_id,
-                    anyhow!("the object id of the staking pool does not match the node id")
+                    anyhow!("the object ID of the staking pool does not match the node ID")
                 );
                 Ok::<StorageNode, anyhow::Error>(storage_node)
             })
@@ -1140,10 +1128,15 @@ impl SuiReadClient {
         };
 
         if let Some(shard_assignment) = committee {
-            Ok(Some(
-                self.shard_assignment_to_committee(committee_epoch, n_shards, &shard_assignment)
-                    .await?,
-            ))
+            let node_objects = self
+                .get_node_objects(shard_assignment.iter().map(|(node_id, _)| *node_id))
+                .await?;
+            Ok(Some(self.shard_assignment_to_committee(
+                committee_epoch,
+                n_shards,
+                &shard_assignment,
+                &node_objects,
+            )?))
         } else {
             Ok(None)
         }
@@ -1180,6 +1173,37 @@ impl SuiReadClient {
             .inner
             .ok_or_else(|| anyhow!("could not retrieve inner subsidies object"))?
             .last_subsidized)
+    }
+
+    #[tracing::instrument(skip_all, level = Level::DEBUG)]
+    async fn get_node_objects<I>(
+        &self,
+        node_ids: I,
+    ) -> SuiClientResult<HashMap<ObjectID, StakingPool>>
+    where
+        I: IntoIterator<Item = ObjectID>,
+    {
+        let node_ids = node_ids.into_iter().collect::<Vec<_>>();
+
+        futures::future::try_join_all(node_ids.chunks(MULTI_GET_OBJ_LIMIT).map(
+            |obj_id_batch| async move {
+                self.sui_client
+                    .multi_get_object_with_options(
+                        obj_id_batch,
+                        SuiObjectDataOptions::new().with_type().with_bcs(),
+                    )
+                    .await
+            },
+        ))
+        .await?
+        .into_iter()
+        .flat_map(|responses| {
+            responses
+                .into_iter()
+                .map(|response| get_sui_object_from_object_response::<StakingPool>(&response))
+        })
+        .map(|result| result.map(|pool| (pool.id, pool)))
+        .collect()
     }
 }
 
@@ -1360,33 +1384,52 @@ impl ReadClient for SuiReadClient {
             .map(|staking| staking.inner.epoch)
     }
 
+    #[tracing::instrument(level = Level::DEBUG, skip_all)]
     async fn get_committees_and_state(&self) -> SuiClientResult<CommitteesAndState> {
         let staking_object = self.get_staking_object().await?;
         let epoch = staking_object.inner.epoch;
         let n_shards = staking_object.inner.n_shards;
 
-        let current = self
-            .shard_assignment_to_committee(epoch, n_shards, &staking_object.inner.committee)
-            .await?;
+        let mut all_nodes = staking_object
+            .inner
+            .committee
+            .iter()
+            .chain(staking_object.inner.previous_committee.iter())
+            .map(|(node_id, _)| node_id)
+            .collect::<HashSet<_>>()
+            .into_iter()
+            .copied()
+            .collect::<Vec<_>>();
+        if let Some(next_committee) = &staking_object.inner.next_committee {
+            all_nodes.extend(next_committee.iter().map(|(node_id, _)| node_id));
+        }
+        let node_objects = self.get_node_objects(all_nodes).await?;
+
+        let current = self.shard_assignment_to_committee(
+            epoch,
+            n_shards,
+            &staking_object.inner.committee,
+            &node_objects,
+        )?;
         let previous = if epoch == 0 {
             // There is no previous epoch.
             None
         } else {
-            Some(
-                self.shard_assignment_to_committee(
-                    epoch - 1,
-                    n_shards,
-                    &staking_object.inner.previous_committee,
-                )
-                .await?,
-            )
+            Some(self.shard_assignment_to_committee(
+                epoch - 1,
+                n_shards,
+                &staking_object.inner.previous_committee,
+                &node_objects,
+            )?)
         };
         let epoch_state = staking_object.inner.epoch_state;
         let next = if let Some(next_committee_assignment) = staking_object.inner.next_committee {
-            Some(
-                self.shard_assignment_to_committee(epoch + 1, n_shards, &next_committee_assignment)
-                    .await?,
-            )
+            Some(self.shard_assignment_to_committee(
+                epoch + 1,
+                n_shards,
+                &next_committee_assignment,
+                &node_objects,
+            )?)
         } else {
             None
         };
