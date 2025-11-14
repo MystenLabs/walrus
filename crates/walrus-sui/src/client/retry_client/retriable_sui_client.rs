@@ -268,13 +268,13 @@ impl RetriableSuiClient {
         Ok(Self::new(failover_clients, backoff_config)?)
     }
 
-    // Reimplementation of the `SuiClient` methods.
+    // Re-implementation of the `SuiClient` methods.
 
     /// Return a list of coins for the given address, or an error upon failure.
     ///
     /// Reimplements the functionality of [`sui_sdk::apis::CoinReadApi::select_coins`] with the
     /// addition of retries on network errors.
-    #[tracing::instrument(level = Level::DEBUG, skip_all)]
+    #[tracing::instrument(skip(self, address, exclude), level = Level::DEBUG)]
     pub async fn select_coins(
         &self,
         address: SuiAddress,
@@ -563,7 +563,7 @@ impl RetriableSuiClient {
     /// Returns a [`SuiObjectResponse`] based on the provided [`ObjectID`].
     ///
     /// Calls [`sui_sdk::apis::ReadApi::get_object_with_options`] internally.
-    #[tracing::instrument(level = Level::DEBUG, skip_all)]
+    #[tracing::instrument(level = Level::DEBUG, skip(self))]
     pub async fn get_object_with_options(
         &self,
         object_id: ObjectID,
@@ -1048,6 +1048,7 @@ impl RetriableSuiClient {
     /// Calls a dry run with the transaction data to estimate the gas budget.
     ///
     /// This performs the same calculation as the Sui CLI and the TypeScript SDK.
+    #[tracing::instrument(skip_all, level = Level::DEBUG)]
     pub(crate) async fn estimate_gas_budget(
         &self,
         signer: SuiAddress,

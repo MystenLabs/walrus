@@ -30,7 +30,7 @@ use sui_types::{
         TransactionKind,
     },
 };
-use tracing::instrument;
+use tracing::{Level, instrument};
 use walrus_core::{
     Epoch,
     EpochCount,
@@ -1567,6 +1567,7 @@ impl WalrusPtbBuilder {
 
     /// Transfers all remaining outputs and returns the [`TransactionData`] containing
     /// the unsigned transaction. If no `gas_budget` is provided, the budget will be estimated.
+    #[tracing::instrument(skip_all, level = Level::DEBUG)]
     pub async fn build_transaction_data(
         self,
         gas_budget: Option<u64>,

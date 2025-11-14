@@ -60,6 +60,7 @@ use walrus_core::{
 use walrus_sdk::{
     client::{
         StoreArgs,
+        StoreBlobsApi as _,
         WalrusNodeClient,
         responses::{BlobStoreResult, QuiltStoreResult},
     },

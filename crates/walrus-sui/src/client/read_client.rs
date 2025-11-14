@@ -254,6 +254,9 @@ pub trait ReadClient: Send + Sync {
 
     /// Flushes any cached data to ensure that the next requests are not affected by stale data.
     fn flush_cache(&self) -> impl Future<Output = ()> + Send;
+
+    /// Returns a reference to the [`SuiReadClient`].
+    fn read_client(&self) -> &SuiReadClient;
 }
 
 /// Configuration and state for a shared object with a package ID that is not the walrus package.
@@ -323,13 +326,16 @@ const EVENT_CHANNEL_CAPACITY: usize = 1024;
 
 impl SuiReadClient {
     /// Constructor for `SuiReadClient`.
+    #[tracing::instrument(name = "SuiReadClient::new", skip_all, level = Level::DEBUG)]
     pub async fn new(
         sui_client: RetriableSuiClient,
         contract_config: &ContractConfig,
     ) -> SuiClientResult<Self> {
+        tracing::debug!("creating a new `SuiReadClient`");
         let walrus_package_id = sui_client
             .get_system_package_id_from_system_object(contract_config.system_object)
             .await?;
+        tracing::debug!("finished getting the system package ID");
         let (type_origin_map, wal_type) = tokio::try_join!(
             // Boxing the futures here to avoid making this future too large.
             sui_client
@@ -337,6 +343,7 @@ impl SuiReadClient {
                 .boxed(),
             sui_client.wal_type_from_package(walrus_package_id).boxed()
         )?;
+        tracing::debug!("finished getting the type origin map and WAL type");
 
         let client = Self {
             walrus_package_id: Arc::new(RwLock::new(walrus_package_id)),
@@ -364,14 +371,8 @@ impl SuiReadClient {
                 .boxed(),
         )?;
 
-        // Initialize the cache in a background task.
         if !contract_config.cache_ttl.is_zero() {
-            tokio::spawn({
-                let client = client.clone();
-                async move {
-                    let _ = client.init_cache().await;
-                }
-            });
+            client.init_cache().await?;
         }
 
         Ok(client)
@@ -394,11 +395,13 @@ impl SuiReadClient {
     }
 
     /// Fetches the system and staking objects and the fixed system parameters and caches them.
-    #[tracing::instrument(skip_all)]
+    #[tracing::instrument(skip_all, level = Level::DEBUG)]
     pub async fn init_cache(&self) -> SuiClientResult<()> {
+        tracing::debug!("initializing the cache");
         let _ = self.get_and_cache_system_and_staking_objects().await?;
         let _ = self.fixed_system_parameters().await?;
 
+        tracing::debug!("finished initializing the cache");
         Ok(())
     }
 
@@ -572,6 +575,8 @@ impl SuiReadClient {
                 .expect("mutex should not be poisoned")
                 .as_ref()
                 .map(|s| s.object_id),
+            n_shards: None,
+            max_epochs_ahead: None,
             cache_ttl: self.cache_ttl,
         }
     }
@@ -785,6 +790,7 @@ impl SuiReadClient {
     }
 
     /// Get the latest object reference given an [`ObjectID`].
+    #[tracing::instrument(skip(self), level = Level::DEBUG)]
     pub(crate) async fn get_object_ref(
         &self,
         object_id: ObjectID,
@@ -812,6 +818,7 @@ impl SuiReadClient {
     }
 
     /// Gets the current system object from the RPC node.
+    #[tracing::instrument(skip_all, level = Level::DEBUG)]
     async fn get_system_object_from_rpc(&self) -> SuiClientResult<SystemObject> {
         let SystemObjectForDeserialization {
             id,
@@ -841,6 +848,7 @@ impl SuiReadClient {
     }
 
     /// Gets the current staking object from the RPC node.
+    #[tracing::instrument(skip_all, level = Level::DEBUG)]
     async fn get_staking_object_from_rpc(&self) -> SuiClientResult<StakingObject> {
         let StakingObjectForDeserialization {
             id,
@@ -884,6 +892,7 @@ impl SuiReadClient {
     ///
     /// This does *not* overwrite existing cached objects if those are still valid; use
     /// [`Self::flush_cache`] to clear the cache.
+    #[tracing::instrument(skip_all, level = Level::DEBUG)]
     async fn get_and_cache_system_and_staking_objects(
         &self,
     ) -> SuiClientResult<(SystemObject, StakingObject)> {
@@ -928,6 +937,7 @@ impl SuiReadClient {
     /// If `self` contains cached Walrus objects that are not yet expired, the cached system object
     /// is returned. If not, the system and staking objects are fetched from the chain and cached,
     /// and the system object is returned.
+    #[tracing::instrument(skip_all, level = Level::DEBUG)]
     pub async fn get_system_object(&self) -> SuiClientResult<SystemObject> {
         if self.cache_ttl.is_zero() {
             // Don't perform any caching if the TTL is zero.
@@ -947,6 +957,7 @@ impl SuiReadClient {
     /// If `self` contains cached Walrus objects that are not yet expired, the cached staking object
     /// is returned. If not, the system and staking objects are fetched from the chain and cached,
     /// and the staking object is returned.
+    #[tracing::instrument(skip_all, level = Level::DEBUG)]
     pub async fn get_staking_object(&self) -> SuiClientResult<StakingObject> {
         if self.cache_ttl.is_zero() {
             // Don't perform any caching if the TTL is zero.
@@ -1086,6 +1097,7 @@ impl SuiReadClient {
         Ok(())
     }
 
+    #[tracing::instrument(skip_all, fields(epoch), level = Level::DEBUG)]
     fn shard_assignment_to_committee(
         &self,
         epoch: Epoch,
@@ -1514,6 +1526,10 @@ impl ReadClient for SuiReadClient {
 
     async fn flush_cache(&self) {
         self.flush_cache().await
+    }
+
+    fn read_client(&self) -> &SuiReadClient {
+        self
     }
 }
 
