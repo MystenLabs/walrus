@@ -62,7 +62,7 @@ use crate::{
             PostStoreAction,
             auth::{Claim, PublisherAuthError},
         },
-        utils::consistency_check_type_from_flags,
+        utils::{InvalidConsistencyCheck, consistency_check_type_from_flags},
     },
     common::api::{Binary, BlobIdString, QuiltPatchIdString, RestApiError},
 };
@@ -121,7 +121,6 @@ impl ReadOptions {
             self.strict_consistency_check,
             self.skip_consistency_check,
         )
-        .map_err(|_| InvalidConsistencyCheck)
     }
 }
 
@@ -402,16 +401,6 @@ impl From<ClientError> for GetBlobError {
     }
 }
 
-/// The consistency check options are invalid.
-#[derive(Debug, thiserror::Error, RestApiError)]
-#[error("cannot set both strict and skip consistency check options")]
-#[rest_api_error(
-    domain = ERROR_DOMAIN,
-    reason = "INVALID_CONSISTENCY_CHECK",
-    status = ApiStatusCode::InvalidArgument
-)]
-pub(crate) struct InvalidConsistencyCheck;
-
 /// Errors that can occur when concatenating blobs.
 #[derive(Debug, thiserror::Error, RestApiError)]
 #[rest_api_error(domain = ERROR_DOMAIN)]
@@ -459,7 +448,6 @@ async fn concat_blobs_impl<T: WalrusReadClient + Send + Sync + 'static>(
     request_headers: HeaderMap,
     response_header_config: Arc<AggregatorResponseHeaderConfig>,
 ) -> Response {
-    // Validate input
     if id_strings.is_empty() {
         return (
             StatusCode::BAD_REQUEST,
@@ -468,13 +456,12 @@ async fn concat_blobs_impl<T: WalrusReadClient + Send + Sync + 'static>(
             .into_response();
     }
 
-    // Validate consistency check options
     let consistency_check =
         match consistency_check_type_from_flags(strict_consistency_check, skip_consistency_check) {
             Ok(check) => check,
-            Err(_) => return InvalidConsistencyCheck.into_response(),
+            Err(e) => return e.into_response(),
         };
-    // Resolve all IDs to blob IDs upfront (fail fast)
+    // Resolve all IDs to blob IDs upfront (also fail fast)
     // Track the first blob's attribute for header population
     let mut blob_ids = Vec::new();
     let mut first_attribute: Option<BlobAttribute> = None;
