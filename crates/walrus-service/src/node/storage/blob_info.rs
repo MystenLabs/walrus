@@ -1159,8 +1159,12 @@ impl ValidBlobInfoV1 {
                 BlobStatusChangeType::RegisterManaged { .. }
                 | BlobStatusChangeType::CertifyManaged { .. }
                 | BlobStatusChangeType::DeleteManaged { .. } => {
-                    // Managed blobs are tracked separately.
-                    // TODO: Update aggregate info for managed blobs.
+                    tracing::error!(
+                        "attempt managed blob operation on V1 (regular blob): blob_id={:?}, change_type={:?}",
+                        change_info.blob_id,
+                        change_type,
+                    );
+                    return;
                 }
                 BlobStatusChangeType::Certify => {
                     if self.count_deletable_total <= self.count_deletable_certified {
@@ -1188,8 +1192,12 @@ impl ValidBlobInfoV1 {
                 BlobStatusChangeType::RegisterManaged { .. }
                 | BlobStatusChangeType::CertifyManaged { .. }
                 | BlobStatusChangeType::DeleteManaged { .. } => {
-                    // Managed blobs are tracked separately.
-                    // TODO: Update aggregate info for managed blobs.
+                    tracing::error!(
+                        "attempt managed blob operation on V1 (regular blob): blob_id={:?}, change_type={:?}",
+                        change_info.blob_id,
+                        change_type,
+                    );
+                    return;
                 }
                 BlobStatusChangeType::Certify => {
                     if !Self::certify_permanent(
@@ -2041,6 +2049,7 @@ impl ManagedBlobInfo {
                             change_info.blob_id,
                             blob_manager_id
                         );
+                        return;
                     }
                     if change_info.deletable {
                         self.certified_deletable_counts =
@@ -2149,8 +2158,8 @@ impl ValidBlobInfoV2 {
                     .get_or_insert_with(ManagedBlobInfo::default);
                 managed_info.update_status(change_type, &change_info);
             }
-            BlobStatusChangeType::CertifyManaged { .. }
-            | BlobStatusChangeType::DeleteManaged { .. } => {
+            BlobStatusChangeType::CertifyManaged { blob_manager_id }
+            | BlobStatusChangeType::DeleteManaged { blob_manager_id, .. } => {
                 // Managed blob operations update managed blob info.
                 // ManagedBlobInfo must exist for these operations.
                 let Some(ref mut managed_info) = self.managed_blob_info else {
@@ -2186,7 +2195,20 @@ impl ValidBlobInfoV2 {
                 // Regular blob operations update regular blob info using V1 logic.
                 // Create ValidBlobInfoV1 if it doesn't exist.
                 let regular_info = self.regular_blob_info.get_or_insert_with(Default::default);
-                regular_info.update_status(change_type, change_info);
+                regular_info.update_status(change_type, change_info.clone());
+
+                // If Delete operation resulted in empty regular blob info, set it to None.
+                if matches!(change_type, BlobStatusChangeType::Delete { .. }) {
+                    if let Some(info) = &self.regular_blob_info {
+                        if info.count_deletable_total == 0
+                            && info.count_deletable_certified == 0
+                            && info.permanent_total.is_none()
+                            && info.permanent_certified.is_none()
+                        {
+                            self.regular_blob_info = None;
+                        }
+                    }
+                }
             }
         }
     }
