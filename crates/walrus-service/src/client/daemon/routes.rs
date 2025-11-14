@@ -132,22 +132,9 @@ impl ReadOptions {
 pub struct ConcatQueryParams {
     /// Comma-separated list of blob IDs or object IDs to concatenate.
     pub ids: String,
-    /// Whether to perform a strict consistency check.
-    #[serde(default)]
-    pub strict_consistency_check: bool,
-    /// Whether to skip consistency checks entirely.
-    #[serde(default)]
-    pub skip_consistency_check: bool,
-}
-
-impl ConcatQueryParams {
-    pub fn consistency_check(&self) -> Result<ConsistencyCheckType, InvalidConsistencyCheck> {
-        consistency_check_type_from_flags(
-            self.strict_consistency_check,
-            self.skip_consistency_check,
-        )
-        .map_err(|_| InvalidConsistencyCheck)
-    }
+    /// Consistency check options for reading the blobs.
+    #[serde(flatten)]
+    pub read_options: ReadOptions,
 }
 
 /// The request body for concatenating multiple blobs via POST.
@@ -467,7 +454,8 @@ pub(crate) enum ConcatBlobError {
 async fn concat_blobs_impl<T: WalrusReadClient + Send + Sync + 'static>(
     client: Arc<T>,
     id_strings: Vec<String>,
-    consistency_check: ConsistencyCheckType,
+    strict_consistency_check: bool,
+    skip_consistency_check: bool,
     request_headers: HeaderMap,
     response_header_config: Arc<AggregatorResponseHeaderConfig>,
 ) -> Response {
@@ -480,6 +468,12 @@ async fn concat_blobs_impl<T: WalrusReadClient + Send + Sync + 'static>(
             .into_response();
     }
 
+    // Parse consistency check options
+    let consistency_check =
+        match consistency_check_type_from_flags(strict_consistency_check, skip_consistency_check) {
+            Ok(check) => check,
+            Err(_) => return InvalidConsistencyCheck.into_response(),
+        };
     // Resolve all IDs to blob IDs upfront (fail fast)
     // Track the first blob's attribute for header population
     let mut blob_ids = Vec::new();
@@ -532,13 +526,24 @@ async fn concat_blobs_impl<T: WalrusReadClient + Send + Sync + 'static>(
     let body = Body::from_stream(stream);
 
     // Build response with appropriate headers
-    let mut response = Response::builder()
+    let response_result = Response::builder()
         .status(StatusCode::OK)
         .header(CONTENT_TYPE, "application/octet-stream")
         .header(CACHE_CONTROL, "max-age=86400, stale-while-revalidate=3600")
         .header(X_CONTENT_TYPE_OPTIONS, "nosniff")
-        .body(body)
-        .expect("failed to build concatenated blob response");
+        .body(body);
+
+    let mut response = match response_result {
+        Ok(response) => response,
+        Err(error) => {
+            tracing::warn!(?error, "failed to build concatenated blob response");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "failed to build response",
+            )
+                .into_response();
+        }
+    };
 
     // Populate response headers with priority:
     // 1. Request header override (if Content-Type in request)
@@ -580,12 +585,6 @@ pub(super) async fn get_blobs_concat<T: WalrusReadClient + Send + Sync + 'static
     request_headers: HeaderMap,
     Query(params): Query<ConcatQueryParams>,
 ) -> Response {
-    // Parse consistency check options
-    let consistency_check = match params.consistency_check() {
-        Ok(check) => check,
-        Err(error) => return error.into_response(),
-    };
-
     // Parse comma-separated IDs
     let id_strings: Vec<String> = params
         .ids
@@ -597,7 +596,8 @@ pub(super) async fn get_blobs_concat<T: WalrusReadClient + Send + Sync + 'static
     concat_blobs_impl(
         client,
         id_strings,
-        consistency_check,
+        params.read_options.strict_consistency_check,
+        params.read_options.skip_consistency_check,
         request_headers,
         response_header_config,
     )
@@ -625,19 +625,11 @@ pub(super) async fn post_blobs_concat<T: WalrusReadClient + Send + Sync + 'stati
     request_headers: HeaderMap,
     Json(body): Json<ConcatRequestBody>,
 ) -> Response {
-    // Parse consistency check options
-    let consistency_check = match consistency_check_type_from_flags(
-        body.strict_consistency_check.unwrap_or(false),
-        body.skip_consistency_check.unwrap_or(false),
-    ) {
-        Ok(check) => check,
-        Err(_) => return InvalidConsistencyCheck.into_response(),
-    };
-
     concat_blobs_impl(
         client,
         body.ids,
-        consistency_check,
+        body.strict_consistency_check.unwrap_or(false),
+        body.skip_consistency_check.unwrap_or(false),
         request_headers,
         response_header_config,
     )

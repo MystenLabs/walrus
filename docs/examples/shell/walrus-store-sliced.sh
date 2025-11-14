@@ -18,28 +18,26 @@ die() {
 }
 
 usage() {
-  echo "Usage: $0 -f <file> -s <size> [-k] [-- <walrus store args>...]"
+  echo "Usage: $0 -f <file> -s <size> [-- <walrus store args>...]"
   echo ""
   echo "Split a file into chunks and store them using walrus store."
   echo ""
   echo "OPTIONS:"
   echo "  -f <file>             Input file to split (required)"
   echo "  -s <size>             Chunk size (e.g., 10M, 100K, 1G) (required)"
-  echo "  -k                    Keep chunks after successful completion (default: delete)"
   echo "  -h                    Print this usage message"
   echo "  --                    Delimiter for walrus store arguments"
   echo ""
   echo "EXAMPLES:"
   echo "  $0 -f large_file.txt -s 10M -- --epochs 5"
-  echo "  $0 -f video.mp4 -s 100M -k -- --epochs max --force"
+  echo "  $0 -f video.mp4 -s 100M -- --epochs max --force"
   echo ""
   echo "The chunks will be named: basename_0.ext, basename_1.ext, etc."
-  echo "Chunks are deleted on success by default, kept on failure for retry/idempotency."
+  echo "Chunks are automatically deleted when the script exits."
 }
 
 file=""
 chunk_size=""
-delete_on_success=true
 walrus_args=()
 
 # Parse arguments
@@ -52,10 +50,6 @@ while [[ $# -gt 0 ]]; do
     -s)
       chunk_size="$2"
       shift 2
-      ;;
-    -k)
-      delete_on_success=false
-      shift
       ;;
     -h)
       usage
@@ -105,6 +99,7 @@ fi
 
 # Create temp directory for chunks
 temp_dir=$(mktemp -d -t walrus-chunks-XXXXXX)
+trap 'rm -rf "'"$temp_dir"'" EXIT'
 note "splitting $file into chunks of size $chunk_size in $temp_dir..." >&2
 
 # Split the file into chunks with numeric suffixes
@@ -131,24 +126,18 @@ for chunk in "${chunk_files[@]}"; do
   note "  - $(basename "$chunk")"
 done
 
-# Call walrus store with all chunks
-note "running: walrus store ${walrus_args[*]} ${chunk_files[*]}"
+# Call walrus store for each chunk individually
+note "storing ${#chunk_files[@]} chunks..."
 
-if walrus store "${walrus_args[@]}" "${chunk_files[@]}"; then
-  note "✓ walrus store completed successfully"
+for chunk_file in "${chunk_files[@]}"; do
+  note "running: walrus store ${walrus_args[*]} $chunk_file"
 
-  if $delete_on_success; then
-    note "deleting chunks..."
-    rm -rf "$temp_dir"
-    note "✓ chunks deleted"
-  else
-    note "keeping chunks in: $temp_dir"
+  if ! walrus store "${walrus_args[@]}" "$chunk_file"; then
+    exit_code=$?
+    error "✗ walrus store failed with exit code: $exit_code"
+    note "failed to store entire file. please address issue above and try again."
+    exit $exit_code
   fi
+done
 
-  exit 0
-else
-  exit_code=$?
-  error "✗ walrus store failed with exit code: $exit_code"
-  error "keeping chunks for retry in: $temp_dir"
-  exit $exit_code
-fi
+note "✓ all chunks stored successfully"
