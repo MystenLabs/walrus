@@ -2145,12 +2145,22 @@ impl ValidBlobInfoV2 {
                 };
                 managed_info.update_status(change_type, &change_info);
 
-                // If DeleteManaged removed the last reference, remove the managed info.
-                if matches!(change_type, BlobStatusChangeType::DeleteManaged { .. })
-                    && managed_info.registered.is_empty()
-                    && managed_info.certified.is_empty()
-                {
-                    self.managed_blob_info = None;
+                // If DeleteManaged removed all references:
+                if matches!(change_type, BlobStatusChangeType::DeleteManaged { .. }) {
+                    // Unset initial_certified_epoch when all certified references are removed.
+                    if managed_info.certified.is_empty() {
+                        managed_info.initial_certified_epoch = None;
+                    }
+
+                    // If all managed references are gone AND we have regular blob info,
+                    // we can remove managed_blob_info since regular tracks the blob.
+                    // Otherwise keep it to track that the blob exists.
+                    if managed_info.registered.is_empty()
+                        && managed_info.certified.is_empty()
+                        && self.regular_blob_info.is_some()
+                    {
+                        self.managed_blob_info = None;
+                    }
                 }
             }
             BlobStatusChangeType::Register => {
@@ -4103,10 +4113,17 @@ mod tests {
                         blob_id: blob_id_for_testing(),
                     },
                 },
-                // V2 should be removed entirely when managed_blob_info becomes None and regular_blob_info is None.
+                // Keep managed_blob_info to track that blobs need to be deleted.
                 BlobInfoV2::Valid(ValidBlobInfoV2 {
                     regular_blob_info: None,
-                    managed_blob_info: None,
+                    managed_blob_info: Some(ManagedBlobInfo {
+                        is_metadata_stored: false,
+                        initial_certified_epoch: None,
+                        registered: Default::default(),
+                        registered_deletable_counts: 0,
+                        certified: Default::default(),
+                        certified_deletable_counts: 0,
+                    }),
                 }),
             ),
             delete_certified_managed: (
@@ -4136,7 +4153,14 @@ mod tests {
                 },
                 BlobInfoV2::Valid(ValidBlobInfoV2 {
                     regular_blob_info: None,
-                    managed_blob_info: None,
+                    managed_blob_info: Some(ManagedBlobInfo {
+                        is_metadata_stored: false,
+                        initial_certified_epoch: None,  // Unset after deleting all certified refs
+                        registered: Default::default(),
+                        registered_deletable_counts: 0,
+                        certified: Default::default(),
+                        certified_deletable_counts: 0,
+                    }),
                 }),
             ),
             delete_one_of_multiple_managed: (
@@ -4168,7 +4192,7 @@ mod tests {
                     regular_blob_info: None,
                     managed_blob_info: Some(ManagedBlobInfo {
                         is_metadata_stored: false,
-                        initial_certified_epoch: Some(3),
+                        initial_certified_epoch: None,  // Unset since no certified refs remain
                         registered: [object_id_for_testing(2)].into_iter().collect(),
                         registered_deletable_counts: 0,
                         certified: Default::default(),
