@@ -44,7 +44,7 @@ pub(crate) const ASSUMED_REQUEST_LATENCY: Duration = Duration::from_millis(10);
 
 /// Given [`ASSUMED_REQUEST_LATENCY`], the maximum amount of time for which we are okay with a
 /// task being queued. Used to calculate the default max number of in-flight requests for
-/// [`RayonThreadPool::bounded`].
+/// [`BlockingThreadPool::bounded`].
 pub(crate) const DEFAULT_MAX_WAIT_TIME: Duration = Duration::from_secs(1);
 
 /// The default number of workers for the tokio blocking pool.

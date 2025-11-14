@@ -108,7 +108,7 @@ pub struct ReadOptions {
     /// This was the default before `v1.37`. In `v1.37`, the default consistency was changed to a
     /// more performant one, which is sufficient for the majority of cases. This flag can be used to
     /// enable the previous strict consistency check. See
-    /// https://docs.wal.app/design/encoding.html#data-integrity-and-consistency for more details.
+    /// <https://docs.wal.app/design/encoding.html#data-integrity-and-consistency> for more details.
     #[serde(default)]
     pub strict_consistency_check: bool,
     /// Whether to skip consistency checks entirely.
@@ -1418,7 +1418,7 @@ async fn parse_multipart_quilt(
     Ok(res)
 }
 
-/// Custom deserializer for QuiltVersionEnum that uses From<String>.
+/// Custom deserializer for QuiltVersionEnum that uses `From<String>`.
 fn deserialize_quilt_version<'de, D>(deserializer: D) -> Result<Option<QuiltVersionEnum>, D::Error>
 where
     D: serde::Deserializer<'de>,

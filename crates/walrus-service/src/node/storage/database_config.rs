@@ -55,13 +55,15 @@ pub struct DatabaseTableOptions {
     #[serde(skip_serializing_if = "Option::is_none")]
     write_buffer_size: Option<usize>,
     /// The target file size for level-1 files in bytes.
-    /// Per https://github.com/facebook/rocksdb/wiki/RocksDB-Tuning-Guide, this is recommended to be
-    /// at least the same as write_buffer_size.
+    ///
+    /// Per <https://github.com/facebook/rocksdb/wiki/RocksDB-Tuning-Guide>, this is recommended to
+    /// be at least the same as write_buffer_size.
     #[serde(skip_serializing_if = "Option::is_none")]
     target_file_size_base: Option<u64>,
     /// The maximum total data size for level 1 in bytes.
-    /// Per https://github.com/facebook/rocksdb/wiki/RocksDB-Tuning-Guide, this is recommended to be
-    /// 10 times of target_file_size_base.
+    ///
+    /// Per <https://github.com/facebook/rocksdb/wiki/RocksDB-Tuning-Guide>, this is recommended to
+    /// be 10 times of target_file_size_base.
     #[serde(skip_serializing_if = "Option::is_none")]
     max_bytes_for_level_base: Option<u64>,
     /// Block cache size in bytes.

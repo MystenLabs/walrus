@@ -1,21 +1,21 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
+
 //! Services for communicating with Storage Nodes.
 //!
 //! This module defines the [`NodeService`] trait. It is a marker trait for a [`Clone`]-able
 //! [`tower::Service`] trait implementation on the defined [`Request`] and [`Response`] types.
 //!
-//! It also defines [`RemoteStorageNode`] which implements the trait for
-//! [`walrus_storage_node_client::client::Client`], and implements the trait for
-//! [`LocalStorageNode`], an alias to [`Arc<StorageNodeInner>`][StorageNodeInner].
+//! It also defines [`RemoteStorageNode`] which implements the trait for [`StorageNodeClient`].
 //!
 //! The use of [`tower::Service`] will allow us to add layers to monitor a given node's
 //! communication with all others, to monitor and disable nodes which fail frequently, and to later
 //! apply back-pressure.
-//
+
 // NB: Ideally we would *additionally* have a single service trait which would represent the
 // storage node. Both clients and servers would implement this trait. This would allow us to treat
 // the remote and storage local nodes the same.
+
 use std::{
     fmt::Debug,
     sync::Arc,
@@ -189,7 +189,7 @@ where
 
 pub(crate) type RemoteStorageNode = ConcurrencyLimit<UnboundedRemoteStorageNode>;
 
-/// A [`NodeService`] that is reachable via a [`walrus_storage_node_client::client::Client`].
+/// A [`NodeService`] that is reachable via a [`StorageNodeClient`].
 #[derive(Clone, Debug)]
 pub(crate) struct UnboundedRemoteStorageNode {
     client: StorageNodeClient,

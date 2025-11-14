@@ -1896,8 +1896,10 @@ impl<T> WalrusNodeClient<T> {
     ///
     /// This function _does not_ check that the received confirmations match the current epoch and
     /// blob ID, as it assumes that the storage confirmations were received through
-    /// [`NodeCommunication::store_metadata_and_pairs`], which internally verifies it to check the
-    /// blob ID, epoch, and blob persistence type.
+    /// [`NodeCommunication::get_confirmation_with_retries`][gcwr], which internally verifies them
+    /// to check the blob ID, epoch, and blob persistence type.
+    ///
+    /// [gcwr]: crate::client::communication::NodeCommunication::get_confirmation_with_retries
     fn confirmations_to_certificate<E: Display>(
         &self,
         confirmations: Vec<NodeResult<SignedStorageConfirmation, E>>,
