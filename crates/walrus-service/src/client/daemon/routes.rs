@@ -21,9 +21,14 @@ use axum_extra::{
     extract::Multipart,
     headers::{Authorization, authorization::Bearer},
 };
+use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+use fastcrypto::hash::{HashFunction, Sha256};
 use futures::stream::{self, StreamExt};
 use jsonwebtoken::{DecodingKey, Validation};
-use reqwest::header::{CACHE_CONTROL, CONTENT_TYPE, ETAG, X_CONTENT_TYPE_OPTIONS};
+use reqwest::{
+    Method,
+    header::{ACCEPT, CACHE_CONTROL, CONTENT_TYPE, ETAG, X_CONTENT_TYPE_OPTIONS},
+};
 use serde::{Deserialize, Serialize};
 use serde_with::{DisplayFromStr, serde_as};
 use sui_types::base_types::{ObjectID, SuiAddress};
@@ -194,6 +199,7 @@ async fn parse_and_resolve_id<T: WalrusReadClient>(
     ),
 )]
 pub(super) async fn get_blob<T: WalrusReadClient>(
+    request_method: Method,
     request_headers: HeaderMap,
     State(client): State<Arc<T>>,
     Path(BlobIdString(blob_id)): Path<BlobIdString>,
@@ -209,7 +215,12 @@ pub(super) async fn get_blob<T: WalrusReadClient>(
             tracing::debug!("successfully retrieved blob");
             let mut response = (StatusCode::OK, blob).into_response();
             let headers = response.headers_mut();
-            populate_response_headers_from_request(&request_headers, &blob_id.to_string(), headers);
+            populate_response_headers_from_request(
+                request_method,
+                &request_headers,
+                &blob_id.to_string(),
+                headers,
+            );
             response
         }
         Err(error) => {
@@ -229,6 +240,7 @@ pub(super) async fn get_blob<T: WalrusReadClient>(
 }
 
 fn populate_response_headers_from_request(
+    request_method: Method,
     request_headers: &HeaderMap,
     etag: &str,
     headers: &mut HeaderMap,
@@ -237,7 +249,7 @@ fn populate_response_headers_from_request(
     headers.insert(X_CONTENT_TYPE_OPTIONS, HeaderValue::from_static("nosniff"));
     // Insert headers that help caches distribute Walrus blobs.
     //
-    // Cache for 1 day, and allow refreshig on the client side. Refreshes use the ETag to
+    // Cache for 1 day, and allow refreshing on the client side. Refreshes use the ETag to
     // check if the content has changed. This allows invalidated blobs to be removed from
     // caches. `stale-while-revalidate` allows stale content to be served for 1 hour while
     // the browser tries to validate it (async revalidation).
@@ -245,14 +257,24 @@ fn populate_response_headers_from_request(
         CACHE_CONTROL,
         HeaderValue::from_static("public, max-age=86400, stale-while-revalidate=3600"),
     );
-    // The `ETag` is the blob ID itself.
+    // The `ETag` is some unique key to identify the body data.
     headers.insert(
         ETAG,
         HeaderValue::from_str(etag)
             .expect("the blob ID string only contains visible ASCII characters"),
     );
-    // Mirror the content type.
-    if let Some(content_type) = request_headers.get(CONTENT_TYPE) {
+    // Mirror the content type in various ways.
+    if let Some(accept) = request_headers.get(ACCEPT)
+        && !accept.as_bytes().contains(&b'*')
+    {
+        tracing::debug!(
+            ?accept,
+            "mirroring the request's accept header as our content type"
+        );
+        headers.insert(CONTENT_TYPE, accept.clone());
+    } else if request_method == Method::GET
+        && let Some(content_type) = request_headers.get(CONTENT_TYPE)
+    {
         tracing::debug!(?content_type, "mirroring the request's content type");
         headers.insert(CONTENT_TYPE, content_type.clone());
     } // Cache for 1 day, and allow refreshig on the client side. Refreshes use the ETag to
@@ -275,6 +297,10 @@ fn populate_response_headers_from_attributes(
             tracing::warn!("Invalid header value '{}' in blob attribute", value);
             continue;
         };
+        if headers.contains_key(key) {
+            // Do not overwrite existing headers
+            continue;
+        }
         if allowed_headers.is_none_or(|headers| headers.contains(&header_name)) {
             headers.insert(header_name, header_value);
         }
@@ -305,8 +331,9 @@ fn populate_response_headers_from_attributes(
     ),
 )]
 pub(super) async fn get_blob_by_object_id<T: WalrusReadClient>(
-    State((client, response_header_config)): State<(Arc<T>, Arc<AggregatorResponseHeaderConfig>)>,
+    request_method: Method,
     request_headers: HeaderMap,
+    State((client, response_header_config)): State<(Arc<T>, Arc<AggregatorResponseHeaderConfig>)>,
     Path(blob_object_id): Path<ObjectID>,
     read_options: Query<ReadOptions>,
 ) -> Response {
@@ -315,6 +342,7 @@ pub(super) async fn get_blob_by_object_id<T: WalrusReadClient>(
         Ok(BlobWithAttribute { blob, attribute }) => {
             // Get the blob data using the existing get_blob function
             let mut response = get_blob(
+                request_method,
                 request_headers.clone(),
                 State(client),
                 Path(BlobIdString(blob.blob_id)),
@@ -436,6 +464,28 @@ pub(crate) enum ConcatBlobError {
     BlobReadFailed { blob_id: String, message: String },
 }
 
+impl ConcatBlobError {
+    fn from_client_error(error: ClientError, blob_id: BlobId) -> Self {
+        // Map ClientError to appropriate ConcatBlobError
+        match error.kind() {
+            ClientErrorKind::BlobIdDoesNotExist => Self::BlobNotFound {
+                blob_id: blob_id.to_string(),
+            },
+            ClientErrorKind::BlobIdBlocked(_) => Self::BlobBlocked {
+                blob_id: blob_id.to_string(),
+            },
+            ClientErrorKind::BlobTooLarge(size) => Self::BlobTooLarge {
+                blob_id: blob_id.to_string(),
+                size: *size,
+            },
+            _ => Self::BlobReadFailed {
+                blob_id: blob_id.to_string(),
+                message: error.to_string(),
+            },
+        }
+    }
+}
+
 /// Shared implementation for concatenating and streaming multiple blobs.
 ///
 /// Takes a list of ID strings (blob IDs or object IDs), resolves them to blob IDs,
@@ -445,6 +495,7 @@ async fn concat_blobs_impl<T: WalrusReadClient + Send + Sync + 'static>(
     id_strings: Vec<String>,
     strict_consistency_check: bool,
     skip_consistency_check: bool,
+    request_method: Method,
     request_headers: HeaderMap,
     response_header_config: Arc<AggregatorResponseHeaderConfig>,
 ) -> Response {
@@ -461,6 +512,12 @@ async fn concat_blobs_impl<T: WalrusReadClient + Send + Sync + 'static>(
             Ok(check) => check,
             Err(e) => return e.into_response(),
         };
+
+    // There is an implicit trade-off here between performance and correctness. We use the list of
+    // ids as provided by the user, which means that if a different user indexed the same blobs
+    // using blob IDs instead of object IDs, the ETag will be different. However,
+    let etag = URL_SAFE_NO_PAD.encode(Sha256::digest(id_strings.join(",").as_bytes()).digest);
+
     // Resolve all IDs to blob IDs upfront (also fail fast)
     // Track the first blob's attribute for header population
     let mut blob_ids = Vec::new();
@@ -485,62 +542,16 @@ async fn concat_blobs_impl<T: WalrusReadClient + Send + Sync + 'static>(
         async move {
             match client.read_blob(&blob_id, consistency_check).await {
                 Ok(blob_data) => Ok(Bytes::from(blob_data)),
-                Err(error) => {
-                    // Map ClientError to appropriate ConcatBlobError
-                    let concat_error = match error.kind() {
-                        ClientErrorKind::BlobIdDoesNotExist => ConcatBlobError::BlobNotFound {
-                            blob_id: blob_id.to_string(),
-                        },
-                        ClientErrorKind::BlobIdBlocked(_) => ConcatBlobError::BlobBlocked {
-                            blob_id: blob_id.to_string(),
-                        },
-                        ClientErrorKind::BlobTooLarge(size) => ConcatBlobError::BlobTooLarge {
-                            blob_id: blob_id.to_string(),
-                            size: *size,
-                        },
-                        _ => ConcatBlobError::BlobReadFailed {
-                            blob_id: blob_id.to_string(),
-                            message: error.to_string(),
-                        },
-                    };
-                    Err(concat_error)
-                }
+                Err(error) => Err(ConcatBlobError::from_client_error(error, blob_id)),
             }
         }
     });
 
-    // Convert stream to body
-    let body = Body::from_stream(stream);
+    let mut response = (StatusCode::OK, Body::from_stream(stream)).into_response();
+    let headers = response.headers_mut();
+    populate_response_headers_from_request(request_method, &request_headers, &etag, headers);
 
-    // Build response with appropriate headers
-    let response_result = Response::builder()
-        .status(StatusCode::OK)
-        .header(CONTENT_TYPE, "application/octet-stream")
-        .header(CACHE_CONTROL, "max-age=86400, stale-while-revalidate=3600")
-        .header(X_CONTENT_TYPE_OPTIONS, "nosniff")
-        .body(body);
-
-    let mut response = match response_result {
-        Ok(response) => response,
-        Err(error) => {
-            tracing::warn!(?error, "failed to build concatenated blob response");
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "failed to build response",
-            )
-                .into_response();
-        }
-    };
-
-    // Populate response headers with priority:
-    // 1. Request header override (if Content-Type in request)
-    // 2. First blob's attributes (if available)
-    // 3. Default (already set above)
-    if let Some(content_type) = request_headers.get(CONTENT_TYPE) {
-        response
-            .headers_mut()
-            .insert(CONTENT_TYPE, content_type.clone());
-    } else if let Some(attribute) = first_attribute {
+    if let Some(attribute) = first_attribute {
         populate_response_headers_from_attributes(
             response.headers_mut(),
             &attribute,
@@ -579,12 +590,12 @@ pub(super) async fn get_blobs_concat<T: WalrusReadClient + Send + Sync + 'static
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
         .collect();
-
     concat_blobs_impl(
         client,
         id_strings,
         params.read_options.strict_consistency_check,
         params.read_options.skip_consistency_check,
+        Method::GET,
         request_headers,
         response_header_config,
     )
@@ -608,8 +619,9 @@ pub(super) async fn get_blobs_concat<T: WalrusReadClient + Send + Sync + 'static
     ),
 )]
 pub(super) async fn post_blobs_concat<T: WalrusReadClient + Send + Sync + 'static>(
-    State((client, response_header_config)): State<(Arc<T>, Arc<AggregatorResponseHeaderConfig>)>,
+    request_method: Method,
     request_headers: HeaderMap,
+    State((client, response_header_config)): State<(Arc<T>, Arc<AggregatorResponseHeaderConfig>)>,
     Json(body): Json<ConcatRequestBody>,
 ) -> Response {
     concat_blobs_impl(
@@ -617,6 +629,7 @@ pub(super) async fn post_blobs_concat<T: WalrusReadClient + Send + Sync + 'stati
         body.ids,
         body.strict_consistency_check.unwrap_or(false),
         body.skip_consistency_check.unwrap_or(false),
+        request_method,
         request_headers,
         response_header_config,
     )
@@ -826,6 +839,7 @@ pub(super) fn daemon_cors_layer() -> CorsLayer {
     ),
 )]
 pub(super) async fn get_patch_by_quilt_patch_id<T: WalrusReadClient>(
+    request_method: Method,
     request_headers: HeaderMap,
     State((client, response_header_config)): State<(Arc<T>, Arc<AggregatorResponseHeaderConfig>)>,
     Path(QuiltPatchIdString(quilt_patch_id)): Path<QuiltPatchIdString>,
@@ -840,6 +854,7 @@ pub(super) async fn get_patch_by_quilt_patch_id<T: WalrusReadClient>(
             if let Some(blob) = blobs.pop() {
                 build_quilt_patch_response(
                     blob,
+                    request_method,
                     &request_headers,
                     &quilt_id.to_string(),
                     &response_header_config,
@@ -883,6 +898,7 @@ pub(super) async fn get_patch_by_quilt_patch_id<T: WalrusReadClient>(
 /// Builds a response for a quilt patch.
 fn build_quilt_patch_response(
     blob: QuiltStoreBlob<'static>,
+    request_method: Method,
     request_headers: &HeaderMap,
     etag: &str,
     response_header_config: &AggregatorResponseHeaderConfig,
@@ -891,7 +907,12 @@ fn build_quilt_patch_response(
     let blob_attribute: BlobAttribute = blob.tags().clone().into();
     let blob_data = blob.into_data();
     let mut response = (StatusCode::OK, blob_data).into_response();
-    populate_response_headers_from_request(request_headers, etag, response.headers_mut());
+    populate_response_headers_from_request(
+        request_method,
+        request_headers,
+        etag,
+        response.headers_mut(),
+    );
     populate_response_headers_from_attributes(
         response.headers_mut(),
         &blob_attribute,
@@ -974,6 +995,7 @@ pub(super) async fn get_patch_by_quilt_id_and_identifier<T: WalrusReadClient>(
     {
         Ok(blob) => build_quilt_patch_response(
             blob,
+            Method::GET,
             &request_headers,
             &quilt_id.to_string(),
             &response_header_config,

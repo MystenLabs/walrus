@@ -99,7 +99,7 @@ fi
 
 # Create temp directory for chunks
 temp_dir=$(mktemp -d -t walrus-chunks-XXXXXX)
-trap 'rm -rf "'"$temp_dir"'" EXIT'
+trap 'rm -rf "'"$temp_dir" EXIT
 note "splitting $file into chunks of size $chunk_size in $temp_dir..." >&2
 
 # Split the file into chunks with numeric suffixes
