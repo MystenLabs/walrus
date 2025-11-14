@@ -2117,6 +2117,24 @@ impl ValidBlobInfoV2 {
         }
     }
 
+    /// Check if this ValidBlobInfoV2 is effectively empty and can be removed.
+    fn is_empty(&self) -> bool {
+        // Check if regular_blob_info is empty or None
+        let regular_empty = self.regular_blob_info.as_ref().map_or(true, |info| {
+            info.count_deletable_total == 0
+                && info.count_deletable_certified == 0
+                && info.permanent_total.is_none()
+                && info.permanent_certified.is_none()
+        });
+
+        // Check if managed_blob_info is empty or None
+        let managed_empty = self.managed_blob_info.as_ref().map_or(true, |info| {
+            info.registered.is_empty() && info.certified.is_empty()
+        });
+
+        regular_empty && managed_empty
+    }
+
     /// Updates the status based on a change.
     /// Handles both regular blob operations and managed blob operations.
     fn update_status(
@@ -2152,13 +2170,8 @@ impl ValidBlobInfoV2 {
                         managed_info.initial_certified_epoch = None;
                     }
 
-                    // If all managed references are gone AND we have regular blob info,
-                    // we can remove managed_blob_info since regular tracks the blob.
-                    // Otherwise keep it to track that the blob exists.
-                    if managed_info.registered.is_empty()
-                        && managed_info.certified.is_empty()
-                        && self.regular_blob_info.is_some()
-                    {
+                    // If all managed references are gone, remove managed_blob_info.
+                    if managed_info.registered.is_empty() && managed_info.certified.is_empty() {
                         self.managed_blob_info = None;
                     }
                 }
@@ -4113,17 +4126,10 @@ mod tests {
                         blob_id: blob_id_for_testing(),
                     },
                 },
-                // Keep managed_blob_info to track that blobs need to be deleted.
+                // Both regular and managed are None/empty - entry can be removed.
                 BlobInfoV2::Valid(ValidBlobInfoV2 {
                     regular_blob_info: None,
-                    managed_blob_info: Some(ManagedBlobInfo {
-                        is_metadata_stored: false,
-                        initial_certified_epoch: None,
-                        registered: Default::default(),
-                        registered_deletable_counts: 0,
-                        certified: Default::default(),
-                        certified_deletable_counts: 0,
-                    }),
+                    managed_blob_info: None,
                 }),
             ),
             delete_certified_managed: (
@@ -4153,14 +4159,7 @@ mod tests {
                 },
                 BlobInfoV2::Valid(ValidBlobInfoV2 {
                     regular_blob_info: None,
-                    managed_blob_info: Some(ManagedBlobInfo {
-                        is_metadata_stored: false,
-                        initial_certified_epoch: None,  // Unset after deleting all certified refs
-                        registered: Default::default(),
-                        registered_deletable_counts: 0,
-                        certified: Default::default(),
-                        certified_deletable_counts: 0,
-                    }),
+                    managed_blob_info: None,  // Removed since all references are gone
                 }),
             ),
             delete_one_of_multiple_managed: (
