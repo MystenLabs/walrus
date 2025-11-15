@@ -122,7 +122,7 @@ impl ClientOpGenerator {
         deletable: bool,
         rng: &mut R,
     ) -> WalrusNodeClientOp {
-        if rng.gen_bool(self.write_same_data_ratio) {
+        if !blob_pool.is_empty() && rng.gen_bool(self.write_same_data_ratio) {
             // Select a random blob from the pool to write again.
             let blob = blob_pool
                 .select_random_blob_data(rng)
