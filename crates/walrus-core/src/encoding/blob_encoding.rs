@@ -765,10 +765,8 @@ impl<'a> ExpandedMessageMatrix<'a> {
     ///
     /// This part is only necessary for the metadata but not for any of the slivers.
     ///
-    /// After this function is called, the functions [`get_metadata`][Self::get_metadata],
-    /// [`write_secondary_metadata`][Self::write_secondary_metadata], and
-    /// [`write_primary_metadata`][Self::write_primary_metadata] no longer produce meaningful
-    /// results.
+    /// After this function is called, the function [`get_metadata`][Self::get_metadata] no longer
+    /// produces meaningful results.
     #[tracing::instrument(level = "debug", skip_all)]
     fn drop_recovery_symbols(&mut self) {
         self.matrix
