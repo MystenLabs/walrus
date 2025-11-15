@@ -26,6 +26,10 @@ thiserror.workspace = true
 tracing.workspace = true
 utoipa = { workspace = true, optional = true }
 walrus-test-utils = { workspace = true, optional = true }
+memvec = "0.2"
+serde_bytes = "0.11"
+memmap2 = "0.9"
+tempfile = "3"
 
 [dev-dependencies]
 anyhow.workspace = true
