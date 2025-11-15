@@ -55,6 +55,7 @@ use crate::{
     common::config::{SuiConfig, SuiReaderConfig},
     node::{
         config::{
+            LiveUploadDeferralConfig,
             PathOrInPlace,
             StorageNodeConfig,
             defaults::{self, REST_API_PORT},
@@ -743,6 +744,7 @@ pub async fn create_storage_node_configs(
             thread_pool: Default::default(),
             consistency_check: StorageNodeConsistencyCheckConfig::default_for_test(),
             checkpoint_config: Default::default(),
+            live_upload_deferral: LiveUploadDeferralConfig::default_for_test(),
             admin_socket_path: Some(working_dir.join(format!("admin-{node_index}.sock"))),
             node_recovery_config: Default::default(),
             blob_event_processor_config: Default::default(),

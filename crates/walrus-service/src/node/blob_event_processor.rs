@@ -18,9 +18,12 @@ use walrus_sui::types::{BlobCertified, BlobDeleted, BlobEvent, InvalidBlobId};
 use walrus_utils::metrics::monitored_scope;
 
 use super::{StorageNodeInner, blob_sync::BlobSyncHandler, metrics, system_events::EventHandle};
-use crate::node::{
-    storage::blob_info::{BlobInfoApi, CertifiedBlobInfoApi},
-    system_events::CompletableHandle,
+use crate::{
+    event::events::CheckpointEventPosition,
+    node::{
+        storage::blob_info::{BlobInfoApi, CertifiedBlobInfoApi},
+        system_events::CompletableHandle,
+    },
 };
 
 // Poll interval for checking pending background events.
@@ -109,6 +112,7 @@ impl Drop for PendingEventGuard {
 struct TrackedEvent {
     event_handle: EventHandle,
     blob_event: BlobEvent,
+    checkpoint_position: CheckpointEventPosition,
     _guard: PendingEventGuard,
 }
 
@@ -146,16 +150,22 @@ impl BackgroundEventProcessor {
             )
             .dec();
 
-            // The guard will automatically decrement the counter when dropped
+            let TrackedEvent {
+                event_handle,
+                blob_event,
+                checkpoint_position,
+                _guard,
+            } = tracked_event;
+
+            // The guard will automatically decrement the counter when dropped.
             if let Err(error) = self
-                .process_event(tracked_event.event_handle, tracked_event.blob_event)
+                .process_event(event_handle, blob_event, checkpoint_position)
                 .await
             {
                 // TODO(WAL-874): to keep the same behavior as before BackgroundEventProcessor, we
                 // should propagate the error to the node and exit the process if necessary.
                 tracing::error!(?error, "error processing blob event");
             }
-            // Guard is dropped here, automatically decrementing the counter
         }
     }
 
@@ -164,11 +174,12 @@ impl BackgroundEventProcessor {
         &self,
         event_handle: EventHandle,
         blob_event: BlobEvent,
+        checkpoint_position: CheckpointEventPosition,
     ) -> anyhow::Result<()> {
         match blob_event {
             BlobEvent::Certified(event) => {
                 let _scope = monitored_scope::monitored_scope("ProcessEvent::BlobEvent::Certified");
-                self.process_blob_certified_event(event_handle, event)
+                self.process_blob_certified_event(event_handle, event, checkpoint_position)
                     .await?;
             }
             BlobEvent::Deleted(event) => {
@@ -198,6 +209,7 @@ impl BackgroundEventProcessor {
         &self,
         event_handle: EventHandle,
         event: BlobCertified,
+        checkpoint_position: CheckpointEventPosition,
     ) -> anyhow::Result<()> {
         let start = tokio::time::Instant::now();
 
@@ -246,6 +258,13 @@ impl BackgroundEventProcessor {
         }
 
         fail_point_async!("fail_point_process_blob_certified_event");
+
+        self.node
+            .maybe_apply_live_upload_deferral(
+                event.blob_id,
+                checkpoint_position.checkpoint_sequence_number,
+            )
+            .await;
 
         // Slivers and (possibly) metadata are not stored, so initiate blob sync.
         self.blob_sync_handler
@@ -413,6 +432,7 @@ impl BlobEventProcessor {
         &self,
         event_handle: EventHandle,
         blob_event: BlobEvent,
+        checkpoint_position: CheckpointEventPosition,
     ) -> anyhow::Result<()> {
         // Update the blob info based on the event.
         // This processing must be sequential and cannot be parallelized, since there is logical
@@ -444,7 +464,7 @@ impl BlobEventProcessor {
                     "sequential processor must be configured when no background \
                             workers are configured",
                 )
-                .process_event(event_handle, blob_event)
+                .process_event(event_handle, blob_event, checkpoint_position)
                 .await?;
         } else {
             // We send the event to one of the workers to process in parallel.
@@ -486,6 +506,7 @@ impl BlobEventProcessor {
             let tracked_event = TrackedEvent {
                 event_handle,
                 blob_event,
+                checkpoint_position,
                 _guard: guard,
             };
 
