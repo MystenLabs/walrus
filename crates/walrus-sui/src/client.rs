@@ -7,6 +7,7 @@ use core::fmt;
 use std::{
     collections::HashMap,
     future::Future,
+    num::NonZeroU16,
     path::PathBuf,
     str::FromStr,
     sync::Arc,
@@ -490,6 +491,7 @@ impl SuiContractClient {
         backoff_config: ExponentialBackoffConfig,
         gas_budget: Option<u64>,
     ) -> SuiClientResult<Self> {
+        tracing::debug!("creating a new `SuiContractClient`");
         let read_client = Arc::new(
             SuiReadClient::new(
                 RetriableSuiClient::new_for_rpc_urls(rpc_urls, backoff_config.clone(), None)?,
@@ -2978,6 +2980,10 @@ impl ReadClient for SuiContractClient {
             .await
     }
 
+    async fn n_shards(&self) -> SuiClientResult<NonZeroU16> {
+        self.read_client.n_shards().await
+    }
+
     async fn event_stream(
         &self,
         polling_interval: Duration,
@@ -3072,6 +3078,10 @@ impl ReadClient for SuiContractClient {
 
     async fn flush_cache(&self) {
         self.read_client.flush_cache().await;
+    }
+
+    fn read_client(&self) -> &SuiReadClient {
+        self.read_client.as_ref()
     }
 }
 
