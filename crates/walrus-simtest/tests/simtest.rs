@@ -29,7 +29,12 @@ mod tests {
     use tokio::sync::RwLock;
     use walrus_core::EpochCount;
     use walrus_proc_macros::walrus_simtest;
-    use walrus_sdk::client::{StoreArgs, WalrusNodeClient, metrics::ClientMetrics};
+    use walrus_sdk::client::{
+        StoreArgs,
+        StoreBlobsApi as _,
+        WalrusNodeClient,
+        metrics::ClientMetrics,
+    };
     use walrus_service::{
         client::ClientCommunicationConfig,
         event::event_processor::config::EventProcessorConfig,
