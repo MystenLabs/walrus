@@ -2307,13 +2307,16 @@ mod internal {
                 let start = Instant::now();
 
                 let upload_relay_client = store_args.upload_relay_client.clone();
-                let maybe_encoded_blobs = tokio::task::block_in_place(move || {
+                let encoding_event_tx = store_args.encoding_event_tx.clone();
+                let maybe_encoded_blobs = tokio::task::spawn_blocking(move || {
                     encode_blobs(
                         walrus_store_blobs,
                         upload_relay_client,
-                        store_args.encoding_event_tx.as_ref(),
+                        encoding_event_tx.as_ref(),
                     )
-                })?;
+                })
+                .await
+                .map_err(ClientError::other)??;
                 let (encoded_blobs, mut results) =
                     client_types::partition_unfinished_finished(maybe_encoded_blobs);
                 store_args.maybe_observe_encoding_latency(start.elapsed());

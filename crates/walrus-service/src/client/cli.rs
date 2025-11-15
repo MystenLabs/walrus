@@ -97,9 +97,11 @@ pub async fn get_contract_client(
         .build_refresher_and_run(sui_client.read_client().clone())
         .await
         .map_err(|e| ClientError::store_blob_internal(e.to_string()))?;
-    tokio::task::block_in_place(|| {
+    tokio::task::spawn_blocking(|| {
         WalrusNodeClient::new_contract_client(config, refresh_handle, sui_client)
     })
+    .await
+    .map_err(ClientError::other)?
 }
 
 /// Creates a [`SuiReadClient`] from the provided RPC URL or wallet.
