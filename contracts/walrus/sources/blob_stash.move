@@ -155,6 +155,26 @@ public fun add_blob(self: &mut BlobStashByObject, managed_blob: ManagedBlob) {
     self.total_unencoded_size = self.total_unencoded_size + size;
 }
 
+/// Removes a blob from the stash and returns it.
+public fun remove_blob(self: &mut BlobStashByObject, blob_id: u256, deletable: bool): ManagedBlob {
+    // Get the object_id for the blob.
+    let mut object_id_opt = self.get_blob_object_id(blob_id, deletable);
+    assert!(object_id_opt.is_some(), EBlobNotRegisteredInBlobManager);
+    let object_id = object_id_opt.extract();
+
+    // Remove the blob from blobs_by_object_id.
+    let managed_blob = self.blobs_by_object_id.remove(object_id);
+    let size = managed_blob::size(&managed_blob);
+
+    // Remove the blob_id -> object_id mapping.
+    self.blob_id_to_objects.remove(blob_id);
+
+    // Update total unencoded size.
+    self.total_unencoded_size = self.total_unencoded_size - size;
+
+    managed_blob
+}
+
 /// Returns the number of blobs.
 public fun blob_count(self: &BlobStashByObject): u64 {
     self.blobs_by_object_id.length()
@@ -219,6 +239,17 @@ public fun is_certified(self: &ManagedBlobInfo): bool {
 public fun add_blob_to_stash(self: &mut BlobStash, managed_blob: ManagedBlob) {
     match (self) {
         BlobStash::ObjectBased(s) => add_blob(s, managed_blob),
+    }
+}
+
+/// Removes a blob from the stash and returns it (dispatches to variant).
+public fun remove_blob_from_stash(
+    self: &mut BlobStash,
+    blob_id: u256,
+    deletable: bool,
+): ManagedBlob {
+    match (self) {
+        BlobStash::ObjectBased(s) => remove_blob(s, blob_id, deletable),
     }
 }
 

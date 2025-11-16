@@ -44,6 +44,18 @@ public fun allocate_storage(self: &mut BlobStorage, encoded_size: u64) {
     }
 }
 
+/// Releases storage back to the pool when a blob is deleted.
+/// This is accounting-only - increases available storage.
+public fun release_storage(self: &mut BlobStorage, encoded_size: u64) {
+    match (self) {
+        BlobStorage::Unified(unified) => {
+            unified.available_storage = unified.available_storage + encoded_size;
+            // Ensure we don't exceed total capacity (safety check).
+            assert!(unified.available_storage <= unified.total_capacity, 0);
+        },
+    }
+}
+
 /// Creates a Storage object from the pool for individual blobs.
 /// This decrements the available storage and creates a real Storage object.
 public fun prepare_storage_for_blob(

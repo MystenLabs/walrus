@@ -11,6 +11,7 @@ use walrus::{
     blob_stash::{Self, BlobStash},
     blob_storage::{Self, BlobStorage},
     encoding,
+    managed_blob::{Self, ManagedBlob},
     storage_resource::Storage,
     system::{Self, System}
 };
@@ -191,6 +192,40 @@ public fun certify_blob(
         signers_bitmap,
         message,
     );
+}
+
+/// Deletes a managed blob from the BlobManager.
+/// This removes the blob from storage tracking and emits a deletion event.
+/// The blob must be deletable and registered with this BlobManager.
+/// Requires a valid BlobManagerCap to prove write access.
+public fun delete_blob(
+    self: &mut BlobManager,
+    cap: &BlobManagerCap,
+    system: &System,
+    blob_id: u256,
+    deletable: bool,
+    _ctx: &mut TxContext,
+) {
+    // Verify the capability.
+    check_cap(self, cap);
+
+    // Get the current epoch from the system.
+    let epoch = system::epoch(system);
+
+    // Remove the blob from the stash and get the managed blob.
+    let managed_blob = self.blob_stash.remove_blob_from_stash(blob_id, deletable);
+
+    // Get blob info before deleting.
+    let blob_size = managed_blob::size(&managed_blob);
+    let encoding_type = managed_blob::encoding_type(&managed_blob);
+
+    // Delete the managed blob (this emits the ManagedBlobDeleted event).
+    managed_blob::delete(managed_blob, epoch);
+
+    // Release the storage back to the BlobManager.
+    let n_shards = system::n_shards(system);
+    let encoded_size = encoding::encoded_blob_length(blob_size, encoding_type, n_shards);
+    self.storage.release_storage(encoded_size);
 }
 
 // === Query Functions ===

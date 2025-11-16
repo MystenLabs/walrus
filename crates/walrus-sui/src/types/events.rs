@@ -213,6 +213,8 @@ pub struct ManagedBlobRegistered {
     pub blob_id: BlobId,
     /// The (unencoded) size of the blob.
     pub size: u64,
+    /// The end epoch of the associated storage resource (exclusive).
+    pub end_epoch: Epoch,
     /// The erasure coding type used for the blob.
     pub encoding_type: EncodingType,
     /// Marks the blob as deletable.
@@ -235,8 +237,8 @@ impl TryFrom<SuiEvent> for ManagedBlobRegistered {
     fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
         ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
 
-        let (epoch, blob_manager_id, blob_id, size, encoding_type, deletable, blob_type, object_id) =
-            bcs::from_bytes(sui_event.bcs.bytes())?;
+        let (epoch, blob_manager_id, blob_id, size, encoding_type, deletable, blob_type,
+            object_id) = bcs::from_bytes(sui_event.bcs.bytes())?;
 
         Ok(Self {
             epoch,
@@ -291,6 +293,50 @@ impl TryFrom<SuiEvent> for ManagedBlobCertified {
             deletable,
             blob_type,
             object_id,
+            event_id: sui_event.id,
+        })
+    }
+}
+
+/// Sui event that a managed blob has been deleted.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ManagedBlobDeleted {
+    /// The epoch in which the blob was deleted.
+    pub epoch: Epoch,
+    /// The ID of the BlobManager that manages this blob.
+    pub blob_manager_id: ObjectID,
+    /// The blob ID.
+    pub blob_id: BlobId,
+    /// The end epoch of the associated storage resource (exclusive).
+    pub end_epoch: Epoch,
+    /// The object id of the related `ManagedBlob` object.
+    pub object_id: ObjectID,
+    /// If the blob object was previously certified.
+    pub was_certified: bool,
+    /// The ID of the event.
+    pub event_id: EventID,
+}
+
+impl AssociatedSuiEvent for ManagedBlobDeleted {
+    const EVENT_STRUCT: StructTag<'static> = contracts::events::ManagedBlobDeleted;
+}
+
+impl TryFrom<SuiEvent> for ManagedBlobDeleted {
+    type Error = MoveConversionError;
+
+    fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
+        ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
+
+        let (epoch, blob_manager_id, blob_id, end_epoch, object_id, was_certified) =
+            bcs::from_bytes(sui_event.bcs.bytes())?;
+
+        Ok(Self {
+            epoch,
+            blob_manager_id,
+            blob_id,
+            end_epoch,
+            object_id,
+            was_certified,
             event_id: sui_event.id,
         })
     }
