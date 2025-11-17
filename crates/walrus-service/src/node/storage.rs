@@ -2196,4 +2196,50 @@ pub(crate) mod tests {
 
         Ok(())
     }
+
+    #[tokio::test]
+    async fn test_managed_blob_registered_creates_per_object_info() -> TestResult {
+        use blob_info::{CertifiedBlobInfoApi, PerObjectBlobInfoApi};
+        use walrus_sui::types::ManagedBlobRegistered;
+
+        let storage = empty_storage().await;
+        let blob_id = BlobId([7; 32]);
+        let blob_manager_id = ObjectID::from_bytes([1; 32]).unwrap();
+        let object_id = ObjectID::from_bytes([10; 32]).unwrap();
+
+        // Create a ManagedBlobRegistered event.
+        let event = ManagedBlobRegistered {
+            epoch: 1,
+            blob_manager_id,
+            blob_id,
+            size: 1024,
+            encoding_type: walrus_core::EncodingType::RS2,
+            deletable: true,
+            blob_type: 0,
+            end_epoch: 100,
+            object_id,
+            event_id: event_id_for_testing(),
+        };
+
+        // Update blob info with the event.
+        storage
+            .inner
+            .update_blob_info(1, &walrus_sui::types::BlobEvent::ManagedBlobRegistered(event.clone()))?;
+
+        // Verify that per-object blob info was created.
+        let per_object_info = storage.inner.get_per_object_info(&object_id)?;
+        assert!(per_object_info.is_some(), "PerObjectBlobInfo should be created for managed blob");
+
+        let info = per_object_info.unwrap();
+        assert_eq!(info.blob_id(), blob_id);
+        assert_eq!(info.is_deletable(), true);
+        assert!(!info.is_deleted());
+        assert_eq!(info.is_certified(1), false, "Blob should not be certified yet");
+
+        // Verify BlobInfoV2 was created with managed blob info.
+        let blob_info_result = storage.inner.get_blob_info(&blob_id)?;
+        assert!(blob_info_result.is_some(), "BlobInfo should be created");
+
+        Ok(())
+    }
 }

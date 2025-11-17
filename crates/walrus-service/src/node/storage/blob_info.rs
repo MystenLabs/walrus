@@ -952,6 +952,15 @@ impl From<&ManagedBlobRegistered> for BlobInfoMergeOperand {
             event_id,
             ..
         } = value;
+        tracing::debug!(
+            "Converting ManagedBlobRegistered event: blob_id={:?}, blob_manager_id={:?}, \
+             epoch={}, end_epoch={}, deletable={}",
+            blob_id,
+            blob_manager_id,
+            epoch,
+            end_epoch,
+            deletable
+        );
         Self::ChangeStatus {
             change_info: BlobStatusChangeInfo {
                 deletable: *deletable,
@@ -2024,6 +2033,14 @@ impl ManagedBlobInfo {
     ) {
         match change_type {
             BlobStatusChangeType::RegisterManaged { blob_manager_id } => {
+                tracing::debug!(
+                    "Registering managed blob: blob_id={:?}, blob_manager_id={:?}, \
+                     deletable={}, registered_count={}",
+                    change_info.blob_id,
+                    blob_manager_id,
+                    change_info.deletable,
+                    self.registered.len() + 1
+                );
                 self.registered.insert(blob_manager_id);
                 // Track deletable count.
                 if change_info.deletable {
