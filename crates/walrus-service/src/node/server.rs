@@ -392,13 +392,6 @@ where
                 get(routes::get_deletable_blob_confirmation),
             )
             .route(
-                routes::RECOVERY_ENDPOINT,
-                get(
-                    #[allow(deprecated)]
-                    routes::get_recovery_symbol,
-                ),
-            )
-            .route(
                 routes::RECOVERY_SYMBOL_ENDPOINT,
                 get(routes::get_recovery_symbol_by_id),
             )
@@ -526,7 +519,7 @@ mod tests {
         SliverPairIndex,
         SliverType,
         SymbolId,
-        encoding::{EncodingAxis, GeneralRecoverySymbol, Primary, Secondary},
+        encoding::{EncodingAxis, GeneralRecoverySymbol, Primary},
         inconsistency::{
             InconsistencyProof as InconsistencyProofInner,
             InconsistencyVerificationError,
@@ -1135,44 +1128,6 @@ mod tests {
 
         cancel_token.cancel();
         handle.await.unwrap().unwrap();
-    }
-
-    #[tokio::test]
-    async fn get_decoding_symbol() {
-        let (config, _handle) = start_rest_api_with_test_config().await;
-        let client = storage_node_client(config.as_ref());
-        let n_shards = walrus_core::test_utils::encoding_config().n_shards();
-
-        let blob_id = walrus_core::test_utils::random_blob_id();
-        // Triggers an valid response
-        let sliver_pair_at_remote = SliverIndex::new(0).to_pair_index::<Secondary>(n_shards);
-        let intersecting_pair_index = SliverPairIndex(0);
-
-        let _symbol = client
-            .get_recovery_symbol_legacy::<Primary>(
-                &blob_id,
-                sliver_pair_at_remote,
-                intersecting_pair_index,
-            )
-            .await
-            .expect("request should succeed");
-    }
-
-    #[tokio::test]
-    async fn decoding_symbol_not_found() {
-        let (config, _handle) = start_rest_api_with_test_config().await;
-        let client = storage_node_client(config.as_ref());
-
-        let sliver_pair_id = SliverPairIndex(1); // Triggers a not found response
-        let blob_id = walrus_core::test_utils::random_blob_id();
-        let Err(err) = client
-            .get_recovery_symbol_legacy::<Primary>(&blob_id, sliver_pair_id, SliverPairIndex(0))
-            .await
-        else {
-            panic!("must return an error for pair-id 1");
-        };
-
-        assert_eq!(err.http_status_code(), Some(StatusCode::NOT_FOUND));
     }
 
     mod tls {

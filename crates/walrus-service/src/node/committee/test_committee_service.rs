@@ -21,7 +21,6 @@ use walrus_core::{
     Epoch,
     InconsistencyProof,
     PublicKey,
-    RecoverySymbol,
     SliverIndex,
     SliverPairIndex,
     SliverType,
@@ -504,15 +503,6 @@ async fn recovers_slivers_across_epoch_change() -> TestResult {
         );
 
         service_map.insert_ready(node.public_key.clone(), move |request| match request {
-            Request::GetVerifiedRecoverySymbol {
-                sliver_pair_at_remote,
-                ..
-            } => {
-                assert_eq!(sliver_pair_at_remote, remote_pair_index);
-                Ok(Response::VerifiedRecoverySymbol(RecoverySymbol::Primary(
-                    symbol.clone(),
-                )))
-            }
             Request::ListVerifiedRecoverySymbols {
                 filter,
                 target_index,
