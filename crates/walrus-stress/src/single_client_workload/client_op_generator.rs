@@ -73,38 +73,22 @@ impl ClientOpGenerator {
     ) -> WalrusNodeClientOp {
         let request_type = self.request_type_distribution.sample(rng);
         match request_type {
-            RequestType::Read => {
-                if !blob_pool.is_empty() {
-                    self.generate_read_op(blob_pool, rng)
-                } else {
-                    self.generate_write_op(blob_pool, false, rng)
-                }
-            }
-            RequestType::WritePermanent => {
-                if blob_pool.is_full() {
-                    tracing::info!("pool is full, generating read op instead of write permanent");
-                    self.generate_read_op(blob_pool, rng)
-                } else {
-                    self.generate_write_op(blob_pool, false, rng)
-                }
-            }
-            RequestType::WriteDeletable => {
-                if blob_pool.is_full() {
-                    tracing::info!("pool is full, generating read op instead of write deletable");
-                    self.generate_read_op(blob_pool, rng)
-                } else {
-                    self.generate_write_op(blob_pool, true, rng)
-                }
-            }
+            RequestType::Read => self.generate_read_op(blob_pool, rng),
+            RequestType::WritePermanent => self.generate_write_op(blob_pool, false, rng),
+            RequestType::WriteDeletable => self.generate_write_op(blob_pool, true, rng),
             RequestType::Delete => self.generate_delete_op(blob_pool, rng),
             RequestType::Extend => self.generate_extend_op(blob_pool, rng),
         }
     }
 
     fn generate_read_op<R: Rng>(&self, blob_pool: &BlobPool, rng: &mut R) -> WalrusNodeClientOp {
-        let blob_id = blob_pool
-            .select_random_blob_id(rng)
-            .expect("blob must exist");
+        let blob_id = blob_pool.select_random_blob_id(rng);
+        if blob_id.is_none() {
+            tracing::info!("no blob found, generating none op");
+            return WalrusNodeClientOp::None;
+        }
+
+        let blob_id = blob_id.expect("blob must exist");
         let sliver_type = if rng.gen_bool(0.5) {
             SliverType::Primary
         } else {
@@ -124,9 +108,12 @@ impl ClientOpGenerator {
     ) -> WalrusNodeClientOp {
         if rng.gen_bool(self.write_same_data_ratio) {
             // Select a random blob from the pool to write again.
-            let blob = blob_pool
-                .select_random_blob_data(rng)
-                .expect("blob must exist");
+            let blob = blob_pool.select_random_blob_data(rng);
+            if blob.is_none() {
+                tracing::info!("no blob found, generating none op");
+                return WalrusNodeClientOp::None;
+            }
+            let blob = blob.expect("blob must exist");
             let store_epoch_ahead = self.epoch_length_generator.generate_epoch_length(rng);
             WalrusNodeClientOp::Write {
                 blob,
@@ -134,6 +121,16 @@ impl ClientOpGenerator {
                 store_epoch_ahead,
             }
         } else {
+            if blob_pool.is_full() {
+                tracing::info!(
+                    "pool is full, generating none op instead of write, deletable: {}, \
+                    pool size: {}",
+                    deletable,
+                    blob_pool.len(),
+                );
+                return WalrusNodeClientOp::None;
+            }
+
             let blob = self.blob_generator.generate_blob(rng);
             let store_epoch_ahead = self.epoch_length_generator.generate_epoch_length(rng);
             WalrusNodeClientOp::Write {

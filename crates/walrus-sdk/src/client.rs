@@ -2161,10 +2161,17 @@ impl<T> WalrusNodeClient<T> {
             };
 
             if peekable.peek().is_some() {
-                tracing::debug!(?delay, "fetching blob status failed; retrying after delay");
+                tracing::debug!(
+                    ?delay,
+                    latest_status = ?maybe_status,
+                    "fetching blob status failed; retrying after delay",
+                );
                 tokio::time::sleep(delay).await;
             } else {
-                tracing::warn!("fetching blob status failed; no more retries");
+                tracing::warn!(
+                    latest_status = ?maybe_status,
+                    "fetching blob status failed; no more retries",
+                );
             }
         }
 

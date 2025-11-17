@@ -56,7 +56,8 @@ pub struct SingleClientWorkload {
     target_requests_per_minute: u64,
     /// Whether to check the read result matches the record of writes.
     check_read_result: bool,
-    /// The percentage of write operations that will write the same data.
+    /// For each write operation, the probability of writing the same data as a previously written
+    /// blob.
     write_same_data_ratio: f64,
     /// The maximum number of blobs to keep in the blob pool.
     max_blobs_in_pool: usize,
