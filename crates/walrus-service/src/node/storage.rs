@@ -2221,19 +2221,27 @@ pub(crate) mod tests {
         };
 
         // Update blob info with the event.
-        storage
-            .inner
-            .update_blob_info(1, &walrus_sui::types::BlobEvent::ManagedBlobRegistered(event.clone()))?;
+        storage.inner.update_blob_info(
+            1,
+            &walrus_sui::types::BlobEvent::ManagedBlobRegistered(event.clone()),
+        )?;
 
         // Verify that per-object blob info was created.
         let per_object_info = storage.inner.get_per_object_info(&object_id)?;
-        assert!(per_object_info.is_some(), "PerObjectBlobInfo should be created for managed blob");
+        assert!(
+            per_object_info.is_some(),
+            "PerObjectBlobInfo should be created for managed blob"
+        );
 
         let info = per_object_info.unwrap();
         assert_eq!(info.blob_id(), blob_id);
         assert_eq!(info.is_deletable(), true);
         assert!(!info.is_deleted());
-        assert_eq!(info.is_certified(1), false, "Blob should not be certified yet");
+        assert_eq!(
+            info.is_certified(1),
+            false,
+            "Blob should not be certified yet"
+        );
 
         // Verify BlobInfoV2 was created with managed blob info.
         let blob_info_result = storage.inner.get_blob_info(&blob_id)?;
