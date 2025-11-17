@@ -140,8 +140,9 @@ resource corresponds to a quilt patch. This happens because the site-builder sto
 using quilts. This approach offers significant benefits: faster upload speeds and lower
 storage costs, especially when uploading many small files. The only disadvantage is that you cannot
 update a single file within a quilt - if even a tiny file changes, the entire quilt must be
-re-uploaded. Upcoming versions of the site-builder will introduce optimizations in the storage usage between updates.
-For a detailed overview of Quilts, visit this [section](https://docs.wal.app/usage/quilt.html) of the documentation.
+re-uploaded. Upcoming versions of the site-builder will introduce optimizations in the storage
+usage between updates. For a detailed overview of Quilts, visit this
+[section](https://docs.wal.app/usage/quilt.html) of the documentation.
 
 ```admonish note
 The wallet you are using must be the *owner* of the Walrus Site object to be able to update it.
