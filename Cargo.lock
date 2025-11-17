@@ -13119,6 +13119,7 @@ dependencies = [
  "axum 0.8.4",
  "axum-extra",
  "axum-server 0.7.2",
+ "base64 0.22.1",
  "bcs",
  "bincode",
  "byteorder",
