@@ -3,7 +3,7 @@
 
 //! Client for interacting with the StorageNode API.
 
-use std::{num::NonZeroU16, sync::Arc};
+use std::sync::Arc;
 
 use fastcrypto::traits::{EncodeDecodeBase64, KeyPair};
 use futures::TryFutureExt as _;
@@ -30,7 +30,6 @@ use walrus_core::{
         EncodingConfig,
         GeneralRecoverySymbol,
         Primary,
-        RecoverySymbol,
         Secondary,
         SliverData,
     },
@@ -68,8 +67,6 @@ const SLIVER_STATUS_TEMPLATE: &str =
 const PERMANENT_BLOB_CONFIRMATION_URL_TEMPLATE: &str = "/v1/blobs/:blob_id/confirmation/permanent";
 const DELETABLE_BLOB_CONFIRMATION_URL_TEMPLATE: &str =
     "/v1/blobs/:blob_id/confirmation/deletable/:object_id";
-const LEGACY_RECOVERY_URL_TEMPLATE: &str =
-    "/v1/blobs/:blob_id/slivers/:sliver_pair_index/:sliver_type/:target_pair_index";
 const RECOVERY_SYMBOL_URL_TEMPLATE: &str = "/v1/blobs/:blob_id/recoverySymbols/:symbol_id";
 const LIST_RECOVERY_SYMBOLS_URL_TEMPLATE: &str = "/v1/blobs/:blob_id/recoverySymbols";
 const INCONSISTENCY_PROOF_URL_TEMPLATE: &str = "/v1/blobs/:blob_id/inconsistencyProof/:sliver_type";
@@ -177,22 +174,6 @@ impl UrlEndpoints {
         (
             self.sliver_path::<A>(blob_id, sliver_pair_index, Some("status")),
             SLIVER_STATUS_TEMPLATE,
-        )
-    }
-
-    fn legacy_recovery_symbol<A: EncodingAxis>(
-        &self,
-        blob_id: &BlobId,
-        sliver_pair_at_remote: SliverPairIndex,
-        intersecting_pair_index: SliverPairIndex,
-    ) -> (Url, &'static str) {
-        (
-            self.sliver_path::<A>(
-                blob_id,
-                sliver_pair_at_remote,
-                Some(&intersecting_pair_index.0.to_string()),
-            ),
-            LEGACY_RECOVERY_URL_TEMPLATE,
         )
     }
 
@@ -560,34 +541,6 @@ impl StorageNodeClient {
         Ok(sliver)
     }
 
-    /// Gets the recovery symbol for a primary or secondary sliver.
-    ///
-    /// The symbol is identified by the (A, sliver_pair_at_remote, intersecting_pair_index) tuple.
-    #[tracing::instrument(
-        skip_all,
-        fields(
-            walrus.blob_id = %blob_id,
-            walrus.sliver.pair_index = %local_sliver_pair,
-            walrus.sliver.remote_pair_index = %remote_sliver_pair,
-            walrus.recovery.symbol_type = A::NAME,
-        ),
-        err(level = Level::DEBUG)
-    )]
-    pub async fn get_recovery_symbol_legacy<A: EncodingAxis>(
-        &self,
-        blob_id: &BlobId,
-        remote_sliver_pair: SliverPairIndex,
-        local_sliver_pair: SliverPairIndex,
-    ) -> Result<RecoverySymbol<A, MerkleProof>, NodeError> {
-        let (url, template) = self.endpoints.legacy_recovery_symbol::<A>(
-            blob_id,
-            remote_sliver_pair,
-            local_sliver_pair,
-        );
-        self.send_and_parse_bcs_response(Request::new(Method::GET, url), template)
-            .await
-    }
-
     /// Gets a recovery symbol that can be used to recover a sliver.
     #[tracing::instrument(
         skip_all,
@@ -686,46 +639,6 @@ impl StorageNodeClient {
         })
         .await
         .map_err(|_| NodeError::other(ListAndVerifyRecoverySymbolsError::BackgroundWorkerFailed))?
-    }
-
-    /// Gets the recovery symbol for a primary or secondary sliver.
-    ///
-    /// The symbol is identified by the (A, sliver_pair_at_remote, intersecting_pair_index) tuple.
-    #[tracing::instrument(
-        skip_all,
-        fields(
-            walrus.blob_id = %metadata.blob_id(),
-            walrus.sliver.pair_index = %local_sliver_pair,
-            walrus.sliver.remote_pair_index = %remote_sliver_pair,
-            walrus.recovery.symbol_type = A::NAME,
-        ),
-        err(level = Level::DEBUG)
-    )]
-    pub async fn get_and_verify_recovery_symbol<A: EncodingAxis>(
-        &self,
-        n_shards: NonZeroU16,
-        expected_symbol_size: usize,
-        metadata: &VerifiedBlobMetadataWithId,
-        remote_sliver_pair: SliverPairIndex,
-        local_sliver_pair: SliverPairIndex,
-    ) -> Result<RecoverySymbol<A, MerkleProof>, NodeError> {
-        let symbol = self
-            .get_recovery_symbol_legacy::<A>(
-                metadata.blob_id(),
-                remote_sliver_pair,
-                local_sliver_pair,
-            )
-            .await?;
-        symbol
-            .verify(
-                n_shards,
-                expected_symbol_size,
-                metadata.as_ref(),
-                local_sliver_pair.to_sliver_index::<A>(n_shards),
-            )
-            .map_err(NodeError::other)?;
-
-        Ok(symbol)
     }
 
     /// Stores the metadata on the node.
@@ -995,12 +908,6 @@ mod tests {
                 )
             ),
             sliver: (|e| e.sliver::<Primary>(&BLOB_ID, SliverPairIndex(1)).0, "slivers/1/primary"),
-            recovery_symbol: (
-                |e| e.legacy_recovery_symbol::<Primary>(
-                    &BLOB_ID, SliverPairIndex(1), SliverPairIndex(2)
-                ).0,
-                "slivers/1/primary/2"
-            ),
             inconsistency_proof: (
                 |e| e.inconsistency_proof::<Primary>(&BLOB_ID).0, "inconsistencyProof/primary"
             ),
