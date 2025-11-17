@@ -11,7 +11,6 @@ use walrus::{
     blob_stash::{Self, BlobStash},
     blob_storage::{Self, BlobStorage},
     encoding,
-    managed_blob::{Self, ManagedBlob},
     storage_resource::Storage,
     system::{Self, System}
 };
@@ -216,11 +215,11 @@ public fun delete_blob(
     let managed_blob = self.blob_stash.remove_blob_from_stash(blob_id, deletable);
 
     // Get blob info before deleting.
-    let blob_size = managed_blob::size(&managed_blob);
-    let encoding_type = managed_blob::encoding_type(&managed_blob);
+    let blob_size = managed_blob.size();
+    let encoding_type = managed_blob.encoding_type();
 
     // Delete the managed blob (this emits the ManagedBlobDeleted event).
-    managed_blob::delete(managed_blob, epoch);
+    managed_blob.delete(epoch);
 
     // Release the storage back to the BlobManager.
     let n_shards = system::n_shards(system);

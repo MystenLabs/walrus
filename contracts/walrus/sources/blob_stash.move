@@ -6,12 +6,10 @@
 module walrus::blob_stash;
 
 use sui::table::{Self as table, Table};
-use walrus::managed_blob::{Self, ManagedBlob};
+use walrus::managed_blob::ManagedBlob;
 
 // === Error Codes ===
 
-/// The blob is already certified (deduplication error).
-const EBlobAlreadyCertifiedInBlobManager: u64 = 4;
 /// The requested blob was not found.
 const EBlobAlreadyInStash: u64 = 2;
 /// The blob is not registered in BlobManager.
@@ -101,7 +99,7 @@ public(package) fun get_blob_object_id(
 
     // Check if deletable flag matches. If not, it's a permanency conflict.
     assert!(
-        managed_blob::is_deletable(existing_blob) == deletable,
+        existing_blob.is_deletable() == deletable,
         EBlobPermanencyConflict
     );
 
@@ -118,7 +116,7 @@ public fun find_blob_by_object_id_mut(
     // Get the blob_id from the ManagedBlob.
     let blob_id = {
         let managed_blob = self.blobs_by_object_id.borrow(object_id);
-        managed_blob::blob_id(managed_blob)
+        managed_blob.blob_id()
     };
 
     // Check that the blob_id exists in blob_id_to_objects and matches the object_id.
@@ -132,9 +130,9 @@ public fun find_blob_by_object_id_mut(
 
 /// Adds a new blob to the stash.
 public fun add_blob(self: &mut BlobStashByObject, managed_blob: ManagedBlob) {
-    let blob_id = managed_blob::blob_id(&managed_blob);
-    let object_id = managed_blob::object_id(&managed_blob);
-    let size = managed_blob::size(&managed_blob);
+    let blob_id = managed_blob.blob_id();
+    let object_id = managed_blob.object_id();
+    let size = managed_blob.size();
 
     assert!(
         self.find_blob_by_blob_id(blob_id, managed_blob.is_deletable()).is_none(),
@@ -164,7 +162,7 @@ public fun remove_blob(self: &mut BlobStashByObject, blob_id: u256, deletable: b
 
     // Remove the blob from blobs_by_object_id.
     let managed_blob = self.blobs_by_object_id.remove(object_id);
-    let size = managed_blob::size(&managed_blob);
+    let size = managed_blob.size();
 
     // Remove the blob_id -> object_id mapping.
     self.blob_id_to_objects.remove(blob_id);
