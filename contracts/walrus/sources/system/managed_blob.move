@@ -132,7 +132,6 @@ public fun derive_blob_id(root_hash: u256, encoding_type: u8, size: u64): u256 {
 /// Creates a new managed blob in `registered_epoch`.
 /// `size` is the size of the unencoded blob.
 /// The blob's storage is managed by the BlobManager identified by `blob_manager_id`.
-/// Note: end_epoch is not stored here as it's managed at the BlobManager level.
 public(package) fun new(
     blob_manager_id: ID,
     blob_id: u256,
@@ -141,6 +140,7 @@ public(package) fun new(
     encoding_type: u8,
     deletable: bool,
     blob_type: u8,
+    end_epoch: u32,
     registered_epoch: u32,
     ctx: &mut TxContext,
 ): ManagedBlob {
@@ -166,6 +166,7 @@ public(package) fun new(
         encoding_type,
         deletable,
         blob_type,
+        end_epoch,
         id.to_inner(),
     );
 
