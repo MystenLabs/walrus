@@ -395,7 +395,7 @@ impl ToTokens for DeriveRestApiErrorTrait<'_> {
             tokens.extend(error.write_errors());
         } else {
             tokens.extend(quote! {
-                impl RestApiError for #name {
+                impl crate::common::api::RestApiError for #name {
                     #status_method
                     #domain_method
                     #reason_method
