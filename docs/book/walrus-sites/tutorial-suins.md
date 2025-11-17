@@ -11,7 +11,7 @@ To browse walrus sites using the `wal.app` portal, please
 
 Walrus Sites require to use SuiNS names (this is like DNS for Sui) to assign a human-readable name
 to a Walrus Site. To do so, you simply have to get a SuiNS name you like, and point it to the
-object ID of the Walrus Site (as provided by the `publish` or `update` commands).
+object ID of the Walrus Site.
 
 Let's do this step by step.
 
