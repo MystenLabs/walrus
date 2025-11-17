@@ -632,10 +632,11 @@ struct ExpandedMessageMatrix<'a> {
 impl<'a> ExpandedMessageMatrix<'a> {
     fn new(config: EncodingConfigEnum, symbol_size: NonZeroU16, blob: &'a [u8]) -> Self {
         tracing::debug!("computing expanded message matrix");
-        let matrix = vec![
-            Symbols::zeros(config.n_shards_as_usize(), symbol_size);
-            config.n_shards_as_usize()
-        ];
+        let shard_count = config.n_shards_as_usize();
+        let mut matrix = Vec::with_capacity(shard_count);
+        for _ in 0..shard_count {
+            matrix.push(Symbols::zeros(shard_count, symbol_size));
+        }
         let mut expanded_matrix = Self {
             matrix,
             blob,
