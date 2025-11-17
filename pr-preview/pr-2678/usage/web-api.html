@@ -1,0 +1,1138 @@
+<!DOCTYPE HTML>
+<html lang="en" class="light" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>Using the client HTTP API - Walrus</title>
+
+
+        <!-- Custom HTML head -->
+        <script type="text/javascript">
+          // Hacky check to only load Amplitude in production since we don't have environments:
+          const localAddresses = ['localhost', '127.0.0.1', '[::1]'];
+          if (localAddresses.indexOf(document.location.hostname) === -1) {
+            !function(){"use strict";!function(e,t){var r=e.amplitude||{_q:[],_iq:{}};if(r.invoked)e.console&&console.error&&console.error("Amplitude snippet has been loaded.");else{var n=function(e,t){e.prototype[t]=function(){return this._q.push({name:t,args:Array.prototype.slice.call(arguments,0)}),this}},s=function(e,t,r){return function(n){e._q.push({name:t,args:Array.prototype.slice.call(r,0),resolve:n})}},o=function(e,t,r){e._q.push({name:t,args:Array.prototype.slice.call(r,0)})},i=function(e,t,r){e[t]=function(){if(r)return{promise:new Promise(s(e,t,Array.prototype.slice.call(arguments)))};o(e,t,Array.prototype.slice.call(arguments))}},a=function(e){for(var t=0;t<g.length;t++)i(e,g[t],!1);for(var r=0;r<m.length;r++)i(e,m[r],!0)};r.invoked=!0;var c=t.createElement("script");c.type="text/javascript",c.integrity="sha384-pY2pkwHaLM/6UIseFHVU3hOKr6oAvhLcdYkoRZyaMDWLjpM6B7nTxtOdE823WAOQ",c.crossOrigin="anonymous",c.async=!0,c.src="https://cdn.amplitude.com/libs/analytics-browser-2.11.0-min.js.gz",c.onload=function(){e.amplitude.runQueuedFunctions||console.log("[Amplitude] Error: could not load SDK")};var u=t.getElementsByTagName("script")[0];u.parentNode.insertBefore(c,u);for(var p=function(){return this._q=[],this},l=["add","append","clearAll","prepend","set","setOnce","unset","preInsert","postInsert","remove","getUserProperties"],d=0;d<l.length;d++)n(p,l[d]);r.Identify=p;for(var f=function(){return this._q=[],this},v=["getEventProperties","setProductId","setQuantity","setPrice","setRevenue","setRevenueType","setEventProperties"],y=0;y<v.length;y++)n(f,v[y]);r.Revenue=f;var g=["getDeviceId","setDeviceId","getSessionId","setSessionId","getUserId","setUserId","setOptOut","setTransport","reset","extendSession"],m=["init","add","remove","track","logEvent","identify","groupIdentify","setGroup","revenue","flush"];a(r),r.createInstance=function(e){return r._iq[e]={_q:[]},a(r._iq[e]),r._iq[e]},e.amplitude=r}}(window,document)}();
+            amplitude.init('f60df2d0d709d50faa2ffda153a84bc0', { identityStorage:'none', defaultTracking: true });
+          }
+        </script>
+        
+        <script>
+            function initAskCookbook() {
+              // It's a public API key, so it's safe to expose it here
+              const PUBLIC_API_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI2NzU4Y2YyODM4NTcxODU5MjU0MGIyMDciLCJpYXQiOjE3MzM4NzM0NDgsImV4cCI6MjA0OTQ0OTQ0OH0.Z3cv3HuMkYq3aYZYzCKkkYuM5LI3KG-kuA0R-GaSMV4";
+        
+              let cookbookContainer = document.getElementById("__cookbook");
+              if (!cookbookContainer) {
+                cookbookContainer = document.createElement("div");
+                cookbookContainer.id = "__cookbook";
+                cookbookContainer.dataset.apiKey = PUBLIC_API_KEY;
+                document.body.appendChild(cookbookContainer);
+              }
+        
+              let cookbookScript = document.getElementById("__cookbook-script");
+              if (!cookbookScript) {
+                cookbookScript = document.createElement("script");
+                cookbookScript.id = "__cookbook-script";
+                cookbookScript.src = "https://cdn.jsdelivr.net/npm/@cookbookdev/docsbot/dist/standalone/index.cjs.js";
+                cookbookScript.async = true;
+                document.head.appendChild(cookbookScript);
+              }
+        
+        
+              const keyPressPropagationBlocker = function (e) {
+                e.stopPropagation();
+              };
+              document.addEventListener("cookbook:modal:state:change", function (e) {
+                const isOpen = e.detail.isOpen;
+                if (isOpen) {
+                  document.body.addEventListener("keydown", keyPressPropagationBlocker, { capture: true });
+                } else {
+                  document.body.removeEventListener("keydown", keyPressPropagationBlocker, { capture: true });
+                }
+              });
+            }
+        
+            // Check if the document is already loaded and if so, initialize the script, otherwise wait for the load event
+            if (document.readyState === "complete") {
+              initAskCookbook();
+            } else {
+              window.addEventListener("load", initAskCookbook);
+            }
+          </script>
+        
+          <meta name="algolia-site-verification" content="BCA21DA2879818D2">
+
+        <meta name="description" content="">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="../favicon.svg">
+        <link rel="shortcut icon" href="../favicon.png">
+        <link rel="stylesheet" href="../css/variables.css">
+        <link rel="stylesheet" href="../css/general.css">
+        <link rel="stylesheet" href="../css/chrome.css">
+        <link rel="stylesheet" href="../css/print.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="../FontAwesome/css/font-awesome.css">
+        <link rel="stylesheet" href="../fonts/fonts.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" href="../highlight.css">
+        <link rel="stylesheet" href="../tomorrow-night.css">
+        <link rel="stylesheet" href="../ayu-highlight.css">
+
+        <!-- Custom theme stylesheets -->
+        <link rel="stylesheet" href="../docs/mdbook-admonish.css">
+        <link rel="stylesheet" href="../docs/theme/tabs.css">
+
+    </head>
+    <body class="sidebar-visible no-js">
+    <div id="body-container">
+        <!-- Provide site root to javascript -->
+        <script>
+            var path_to_root = "../";
+            var default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "navy" : "light";
+        </script>
+
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                var theme = localStorage.getItem('mdbook-theme');
+                var sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            var theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            var html = document.querySelector('html');
+            html.classList.remove('light')
+            html.classList.add(theme);
+            var body = document.querySelector('body');
+            body.classList.remove('no-js')
+            body.classList.add('js');
+        </script>
+
+        <input type="checkbox" id="sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            var body = document.querySelector('body');
+            var sidebar = null;
+            var sidebar_toggle = document.getElementById("sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+            }
+            sidebar_toggle.checked = sidebar === 'visible';
+            body.classList.remove('sidebar-visible');
+            body.classList.add("sidebar-" + sidebar);
+        </script>
+
+        <nav id="sidebar" class="sidebar" aria-label="Table of contents">
+            <div class="sidebar-scrollbox">
+                <ol class="chapter"><li class="chapter-item expanded affix "><a href="../index.html">Walrus</a></li><li class="chapter-item expanded affix "><li class="spacer"></li><li class="chapter-item expanded affix "><li class="part-title">Dev Blog</li><li class="chapter-item expanded "><a href="../blog/00_intro.html"><strong aria-hidden="true">1.</strong> Blog Preface</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../blog/01_announcing_walrus.html"><strong aria-hidden="true">1.1.</strong> Announcing Walrus</a></li><li class="chapter-item expanded "><a href="../blog/02_devnet_update.html"><strong aria-hidden="true">1.2.</strong> Devnet Update</a></li><li class="chapter-item expanded "><a href="../blog/03_whitepaper.html"><strong aria-hidden="true">1.3.</strong> Announcing the Walrus Whitepaper</a></li><li class="chapter-item expanded "><a href="../blog/04_testnet_update.html"><strong aria-hidden="true">1.4.</strong> Announcing Testnet</a></li><li class="chapter-item expanded "><a href="../blog/05_testnet_redeployment.html"><strong aria-hidden="true">1.5.</strong> Announcing Testnet v2</a></li><li class="chapter-item expanded "><a href="../blog/06_mainnet.html"><strong aria-hidden="true">1.6.</strong> Announcing Mainnet</a></li></ol></li><li class="chapter-item expanded "><li class="spacer"></li><li class="chapter-item expanded affix "><li class="part-title">Usage</li><li class="chapter-item expanded "><a href="../usage/started.html"><strong aria-hidden="true">2.</strong> Getting started with Walrus</a></li><li class="chapter-item expanded "><a href="../usage/setup.html"><strong aria-hidden="true">3.</strong> Advanced Setup</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../usage/networks.html"><strong aria-hidden="true">3.1.</strong> Available networks</a></li></ol></li><li class="chapter-item expanded "><a href="../usage/interacting.html"><strong aria-hidden="true">4.</strong> Interacting with Walrus</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../usage/client-cli.html"><strong aria-hidden="true">4.1.</strong> Using the client CLI</a></li><li class="chapter-item expanded "><a href="../usage/json-api.html"><strong aria-hidden="true">4.2.</strong> Using the client JSON API</a></li><li class="chapter-item expanded "><a href="../usage/web-api.html" class="active"><strong aria-hidden="true">4.3.</strong> Using the client HTTP API</a></li><li class="chapter-item expanded "><a href="../usage/sdks.html"><strong aria-hidden="true">4.4.</strong> SDKs and other tools</a></li></ol></li><li class="chapter-item expanded "><a href="../dev-guide/dev-guide.html"><strong aria-hidden="true">5.</strong> Developer guide</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../dev-guide/components.html"><strong aria-hidden="true">5.1.</strong> Components</a></li><li class="chapter-item expanded "><a href="../dev-guide/dev-operations.html"><strong aria-hidden="true">5.2.</strong> Operations</a></li><li class="chapter-item expanded "><a href="../dev-guide/costs.html"><strong aria-hidden="true">5.3.</strong> Storage costs</a></li><li class="chapter-item expanded "><a href="../dev-guide/sui-struct.html"><strong aria-hidden="true">5.4.</strong> Sui structures</a></li><li class="chapter-item expanded "><a href="../dev-guide/data-security.html"><strong aria-hidden="true">5.5.</strong> Data security</a></li><li class="chapter-item expanded "><a href="../usage/quilt.html"><strong aria-hidden="true">5.6.</strong> Quilt</a></li></ol></li><li class="chapter-item expanded "><a href="../operator-guide/operator-guide.html"><strong aria-hidden="true">6.</strong> Operator guide</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../operator-guide/aggregator.html"><strong aria-hidden="true">6.1.</strong> Operating an aggregator or publisher</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../operator-guide/auth-publisher.html"><strong aria-hidden="true">6.1.1.</strong> The authenticated publisher</a></li></ol></li><li class="chapter-item expanded "><a href="../operator-guide/storage-node.html"><strong aria-hidden="true">6.2.</strong> Operating a storage node</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../operator-guide/commission-governance.html"><strong aria-hidden="true">6.2.1.</strong> Commission and governance</a></li><li class="chapter-item expanded "><a href="../operator-guide/backup-restore-guide.html"><strong aria-hidden="true">6.2.2.</strong> Backup and restore</a></li></ol></li><li class="chapter-item expanded "><a href="../operator-guide/upload-relay.html"><strong aria-hidden="true">6.3.</strong> Upload relay: functioning and operation</a></li></ol></li><li class="chapter-item expanded "><a href="../usage/stake.html"><strong aria-hidden="true">7.</strong> Staking and unstaking</a></li><li class="chapter-item expanded "><a href="../usage/examples.html"><strong aria-hidden="true">8.</strong> Examples</a></li><li class="chapter-item expanded "><a href="../usage/troubleshooting.html"><strong aria-hidden="true">9.</strong> Troubleshooting</a></li><li class="chapter-item expanded affix "><li class="part-title">Sites</li><li class="chapter-item expanded "><a href="../walrus-sites/intro.html"><strong aria-hidden="true">10.</strong> Introduction to Walrus Sites</a></li><li class="chapter-item expanded "><a href="../walrus-sites/tutorial.html"><strong aria-hidden="true">11.</strong> Your first Walrus Site</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../walrus-sites/tutorial-install.html"><strong aria-hidden="true">11.1.</strong> Installing the site builder</a></li><li class="chapter-item expanded "><a href="../walrus-sites/tutorial-publish.html"><strong aria-hidden="true">11.2.</strong> Deploying a Walrus Site</a></li><li class="chapter-item expanded "><a href="../walrus-sites/tutorial-suins.html"><strong aria-hidden="true">11.3.</strong> Set a SuiNS name</a></li></ol></li><li class="chapter-item expanded "><a href="../walrus-sites/advanced.html"><strong aria-hidden="true">12.</strong> Advanced functionality</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../walrus-sites/commands.html"><strong aria-hidden="true">12.1.</strong> Site builder commands</a></li><li class="chapter-item expanded "><a href="../walrus-sites/builder-config.html"><strong aria-hidden="true">12.2.</strong> Advanced site-builder configuration</a></li><li class="chapter-item expanded "><a href="../walrus-sites/routing.html"><strong aria-hidden="true">12.3.</strong> Specifying headers, routing, and metadata</a></li><li class="chapter-item expanded "><a href="../walrus-sites/linking.html"><strong aria-hidden="true">12.4.</strong> Linking from and to Walrus Sites</a></li><li class="chapter-item expanded "><a href="../walrus-sites/redirects.html"><strong aria-hidden="true">12.5.</strong> Redirecting objects to Walrus Sites</a></li><li class="chapter-item expanded "><a href="../walrus-sites/ci-cd.html"><strong aria-hidden="true">12.6.</strong> CI/CD</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../walrus-sites/ci-cd-gh-secrets-vars.html"><strong aria-hidden="true">12.6.1.</strong> Setting up GitHub secrets and vars</a></li><li class="chapter-item expanded "><a href="../walrus-sites/ci-cd-gh-workflow.html"><strong aria-hidden="true">12.6.2.</strong> Creating GitHub workflow</a></li></ol></li></ol></li><li class="chapter-item expanded "><a href="../walrus-sites/overview.html"><strong aria-hidden="true">13.</strong> Technical overview</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../walrus-sites/portal.html"><strong aria-hidden="true">13.1.</strong> The Walrus Sites portal</a></li><li class="chapter-item expanded "><a href="../walrus-sites/bring-your-own-domain.html"><strong aria-hidden="true">13.2.</strong> Bring your own domain</a></li><li class="chapter-item expanded "><a href="../walrus-sites/authentication.html"><strong aria-hidden="true">13.3.</strong> Site data authentication</a></li><li class="chapter-item expanded "><a href="../walrus-sites/avoid-duplicate-content-seo.html"><strong aria-hidden="true">13.4.</strong> Avoiding Duplicate-Content SEO in Custom Portals</a></li><li class="chapter-item expanded "><a href="../walrus-sites/restrictions.html"><strong aria-hidden="true">13.5.</strong> Known restrictions</a></li></ol></li><li class="chapter-item expanded "><li class="spacer"></li><li class="chapter-item expanded affix "><li class="part-title">Design</li><li class="chapter-item expanded "><a href="../design/objectives_use_cases.html"><strong aria-hidden="true">14.</strong> Objectives and use cases</a></li><li class="chapter-item expanded "><a href="../design/overview.html"><strong aria-hidden="true">15.</strong> Overview</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../design/architecture.html"><strong aria-hidden="true">15.1.</strong> Architecture</a></li><li class="chapter-item expanded "><a href="../design/encoding.html"><strong aria-hidden="true">15.2.</strong> Encoding</a></li></ol></li><li class="chapter-item expanded "><a href="../design/operations.html"><strong aria-hidden="true">16.</strong> Operations</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../design/operations-sui.html"><strong aria-hidden="true">16.1.</strong> Sui operations</a></li><li class="chapter-item expanded "><a href="../design/operations-off-chain.html"><strong aria-hidden="true">16.2.</strong> Off-chain operations</a></li></ol></li><li class="chapter-item expanded "><a href="../design/properties.html"><strong aria-hidden="true">17.</strong> Properties</a></li><li class="chapter-item expanded "><a href="../design/future.html"><strong aria-hidden="true">18.</strong> Future discussion</a></li><li class="chapter-item expanded affix "><li class="spacer"></li><li class="chapter-item expanded affix "><a href="../glossary.html">Glossary</a></li><li class="chapter-item expanded affix "><a href="../legal/testnet_tos.html">Testnet terms of service</a></li><li class="chapter-item expanded affix "><a href="../legal/privacy.html">Privacy policy</a></li><li class="chapter-item expanded affix "><a href="../legal/walrus_general_tos.html">Walrus general terms of service</a></li></ol>
+            </div>
+            <div id="sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <!-- Track and set sidebar scroll position -->
+        <script>
+            var sidebarScrollbox = document.querySelector('#sidebar .sidebar-scrollbox');
+            sidebarScrollbox.addEventListener('click', function(e) {
+                if (e.target.tagName === 'A') {
+                    sessionStorage.setItem('sidebar-scroll', sidebarScrollbox.scrollTop);
+                }
+            }, { passive: true });
+            var sidebarScrollTop = sessionStorage.getItem('sidebar-scroll');
+            sessionStorage.removeItem('sidebar-scroll');
+            if (sidebarScrollTop) {
+                // preserve sidebar scroll position when navigating via links within sidebar
+                sidebarScrollbox.scrollTop = sidebarScrollTop;
+            } else {
+                // scroll sidebar to current active section when navigating via "next/previous chapter" buttons
+                var activeSection = document.querySelector('#sidebar .active');
+                if (activeSection) {
+                    activeSection.scrollIntoView({ block: 'center' });
+                }
+            }
+        </script>
+
+        <div id="page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                                <div id="menu-bar-hover-placeholder"></div>
+                <div id="menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="sidebar-toggle" class="icon-button" for="sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="sidebar">
+                            <i class="fa fa-bars"></i>
+                        </label>
+                        <button id="theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="theme-list">
+                            <i class="fa fa-paint-brush"></i>
+                        </button>
+                        <ul id="theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="ayu">Ayu</button></li>
+                        </ul>
+                        <button id="search-toggle" class="icon-button" type="button" title="Search. (Shortkey: s)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="S" aria-controls="searchbar">
+                            <i class="fa fa-search"></i>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">Walrus</h1>
+
+                    <div class="right-buttons">
+                        <a href="../print.html" title="Print this book" aria-label="Print this book">
+                            <i id="print-button" class="fa fa-print"></i>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="search-wrapper" class="hidden">
+                    <form id="searchbar-outer" class="searchbar-outer">
+                        <input type="search" id="searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="searchresults-outer" aria-describedby="searchresults-header">
+                    </form>
+                    <div id="searchresults-outer" class="searchresults-outer hidden">
+                        <div id="searchresults-header" class="searchresults-header"></div>
+                        <ul id="searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="content" class="content">
+                    <main>
+                        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.4/dist/katex.min.css">
+<h1 id="client-daemon-mode--http-api"><a class="header" href="#client-daemon-mode--http-api">Client Daemon mode &amp; HTTP API</a></h1>
+<p>In addition to the CLI and JSON modes, the Walrus client offers a <em>daemon mode</em>. In this mode, it
+runs a simple web server offering HTTP interfaces to store and read blobs in an <em>aggregator</em> and
+<em>publisher</em> role respectively. We also offer
+<a href="#public-services">public aggregator and publisher services</a> to try the Walrus HTTP APIs without
+the need to run a local client. See how to
+<a href="../operator-guide/aggregator.html">operate an aggregator or publisher</a> in the operator documentation.</p>
+<h2 id="http-api-usage"><a class="header" href="#http-api-usage">HTTP API Usage</a></h2>
+<p>For the following examples, we assume you set the <code>AGGREGATOR</code> and <code>PUBLISHER</code> environment variables
+to your desired aggregator and publisher, respectively. For example, the instances run by Mysten
+Labs on Walrus Testnet (see <a href="#public-services">below</a> for further public options):</p>
+<pre><code class="language-sh">AGGREGATOR=https://aggregator.walrus-testnet.walrus.space
+PUBLISHER=https://publisher.walrus-testnet.walrus.space
+</code></pre>
+<div id="admonition-api-specification" class="admonition admonish-tip" role="note" aria-labelledby="admonition-api-specification-title">
+<div class="admonition-title">
+<div id="admonition-api-specification-title">
+<p>API specification</p>
+</div>
+<a class="admonition-anchor-link" href="#admonition-api-specification"></a>
+</div>
+<div>
+<p>Walrus aggregators and publishers expose their API specifications at the path <code>/v1/api</code>. You can
+view this in the browser, for example, at <a href="https://aggregator.walrus-testnet.walrus.space/v1/api">https://aggregator.walrus-testnet.walrus.space/v1/api</a>.
+The latest version of these specifications are also available <a href="https://github.com/MystenLabs/walrus/tree/main/crates/walrus-service">on GitHub</a>
+in HTML and YAML format.</p>
+</div>
+</div>
+<h3 id="store"><a class="header" href="#store">Store</a></h3>
+<p>You can interact with the daemon through simple HTTP PUT requests. For example, with
+<a href="https://curl.se">cURL</a>, you can store blobs using a publisher or daemon as follows:</p>
+<pre><code class="language-sh"># store the string `some string` for 1 storage epoch
+curl -X PUT "$PUBLISHER/v1/blobs" -d "some string"
+# store file `some/file` for 1 storage epoch
+curl -X PUT "$PUBLISHER/v1/blobs" --upload-file "some/file"
+</code></pre>
+<p>You can control how the new blob should be created through several query parameters, which can be
+combined and are all documented in the <a href="#http-api-usage">OpenAPI specification mentioned above</a>:</p>
+<ul>
+<li>
+<p>The lifetime of the blob can be specified through the <code>epochs</code> parameter. If the parameter is
+omitted, blobs are stored for one epoch.</p>
+<pre><code class="language-sh"># store file `some/file` for 5 storage epochs
+curl -X PUT "$PUBLISHER/v1/blobs?epochs=5" --upload-file "some/file"
+</code></pre>
+</li>
+<li>
+<p>Similar to the CLI, the publisher API allows you to specify whether a blob should be stored as
+permanent or deletable through a query parameter <code>permanent=true</code> or <code>deletable=true</code>,
+respectively:</p>
+<pre><code class="language-sh"># store file `some/file` as a deletable blob
+curl -X PUT "$PUBLISHER/v1/blobs?deletable=true" --upload-file "some/file"
+# store file `some/file` as a permanent blob
+curl -X PUT "$PUBLISHER/v1/blobs?permanent=true" --upload-file "some/file"
+</code></pre>
+<div id="admonition-change-of-default-blob-persistence" class="admonition admonish-warning" role="note" aria-labelledby="admonition-change-of-default-blob-persistence-title">
+<div class="admonition-title">
+<div id="admonition-change-of-default-blob-persistence-title">
+<p>Change of default blob persistence</p>
+</div>
+<a class="admonition-anchor-link" href="#admonition-change-of-default-blob-persistence"></a>
+</div>
+<div>
+<p>Up to (including) version 1.32, the CLI and <a href="./web-api.html">publisher</a> store blobs as <em>permanent</em>
+by default, requiring the user to explicitly specify a blob to be deletable. Starting with version
+1.33, newly stored blobs are <em>deletable</em> by default. If you care about the blob persistence, make
+sure to use the appropriate flag.</p>
+</div>
+</div>
+</li>
+<li>
+<p>You can specify an address to which the resulting <code>Blob</code> object should be sent through the
+<code>send-object-to</code> parameter:</p>
+<pre><code class="language-sh"># store file `some/file` and send the blob object to $ADDRESS
+curl -X PUT "$PUBLISHER/v1/blobs?send_object_to=$ADDRESS" --upload-file "some/file"
+</code></pre>
+</li>
+</ul>
+<p>The store HTTP API end points return information about the blob stored in JSON format. When a blob
+is stored for the first time, a <code>newlyCreated</code> field contains information about the
+new blob:</p>
+<pre><code class="language-sh">$ curl -X PUT "$PUBLISHER/v1/blobs" -d "some other string"
+{
+  "newlyCreated": {
+    "blobObject": {
+      "id": "0xe91eee8c5b6f35b9a250cfc29e30f0d9e5463a21fd8d1ddb0fc22d44db4eac50",
+      "registeredEpoch": 34,
+      "blobId": "M4hsZGQ1oCktdzegB6HnI6Mi28S2nqOPHxK-W7_4BUk",
+      "size": 17,
+      "encodingType": "RS2",
+      "certifiedEpoch": 34,
+      "storage": {
+        "id": "0x4748cd83217b5ce7aa77e7f1ad6fc5f7f694e26a157381b9391ac65c47815faf",
+        "startEpoch": 34,
+        "endEpoch": 35,
+        "storageSize": 66034000
+      },
+      "deletable": false
+    },
+    "resourceOperation": {
+      "registerFromScratch": {
+        "encodedLength": 66034000,
+        "epochsAhead": 1
+      }
+    },
+    "cost": 132300
+  }
+}
+</code></pre>
+<p>The information returned is the content of the <a href="../dev-guide/sui-struct.html">Sui blob object</a>.</p>
+<p>When the publisher finds a certified blob with the same blob ID and a sufficient validity period,
+it returns a <code>alreadyCertified</code> JSON structure:</p>
+<pre><code class="language-sh">$ curl -X PUT "$PUBLISHER/v1/blobs" -d "some other string"
+{
+  "alreadyCertified": {
+    "blobId": "M4hsZGQ1oCktdzegB6HnI6Mi28S2nqOPHxK-W7_4BUk",
+    "event": {
+      "txDigest": "4XQHFa9S324wTzYHF3vsBSwpUZuLpmwTHYMFv9nsttSs",
+      "eventSeq": "0"
+    },
+    "endEpoch": 35
+  }
+}
+</code></pre>
+<p>The field <code>event</code> returns the <a href="../dev-guide/sui-struct.html">Sui event ID</a> that can be used to
+find the transaction that created the Sui Blob object on the Sui explorer or using a Sui SDK.</p>
+<h3 id="read"><a class="header" href="#read">Read</a></h3>
+<p>Blobs may be read from an aggregator or daemon using HTTP GET using their blob ID.
+For example, the following cURL command reads a blob and writes it to an output file:</p>
+<pre><code class="language-sh">curl "$AGGREGATOR/v1/blobs/&lt;some blob ID&gt;" -o &lt;some file name&gt;
+</code></pre>
+<p>Alternatively you may print the contents of a blob in the terminal with the cURL command:</p>
+<pre><code class="language-sh">curl "$AGGREGATOR/v1/blobs/&lt;some blob ID&gt;"
+</code></pre>
+<div id="admonition-content-sniffing" class="admonition admonish-tip" role="note" aria-labelledby="admonition-content-sniffing-title">
+<div class="admonition-title">
+<div id="admonition-content-sniffing-title">
+<p>Content sniffing</p>
+</div>
+<a class="admonition-anchor-link" href="#admonition-content-sniffing"></a>
+</div>
+<div>
+<p>Modern browsers will attempt to sniff the content type for such resources, and will generally do a
+good job of inferring content types for media. However, the aggregator on purpose prevents such
+sniffing from inferring dangerous executable types such as JavaScript or style sheet types.</p>
+</div>
+</div>
+<h4 id="reading-by-object-id"><a class="header" href="#reading-by-object-id">Reading by object ID</a></h4>
+<p>Blobs may also be read by using the object ID of a Sui blob object or a shared blob.
+For example the following
+cURL command downloads the blob corresponding to a Sui blob with a specific object ID:</p>
+<pre><code class="language-sh">curl "$AGGREGATOR/v1/blobs/by-object-id/&lt;object-id&gt;" -o &lt;some file name&gt;
+</code></pre>
+<p>Downloading blobs by object ID allows the use of attributes to set some HTTP headers.
+The aggregator recognizes the attribute keys <code>content-disposition</code>, <code>content-encoding</code>,
+<code>content-language</code>, <code>content-location</code>, <code>content-type</code>, and <code>link</code>, and when present returns
+the values in the corresponding HTTP headers.</p>
+<h4 id="consistency-checks"><a class="header" href="#consistency-checks">Consistency checks</a></h4>
+<p>The consistency checks performed by the aggregator are the same as the ones <a href="./client-cli.html#consistency-checks">performed by the CLI</a>.
+For special use cases, the <a href="../design/encoding.html#strict-consistency-check">strict consistency check</a>
+can be enabled by adding a query parameter <code>strict_consistency_check=true</code> (starting with <code>v1.35</code>).
+If the writer of the blob is known and trusted, the consistency check can be disabled by adding a
+query parameter <code>skip_consistency_check=true</code> (starting with <code>v1.36</code>).</p>
+<h3 id="quilt-http-apis"><a class="header" href="#quilt-http-apis">Quilt HTTP APIs</a></h3>
+<p>Walrus supports storing and retrieving multiple blobs as a single unit called a <a href="./quilt.html">quilt</a>.
+The publishers and aggregators support <em>quilt</em> related operations.</p>
+<p><strong>Note</strong> Quilt APIs are supported with Walrus <em>1.29</em> and higher.</p>
+<h4 id="storing-quilts"><a class="header" href="#storing-quilts">Storing quilts</a></h4>
+<div id="admonition-tip" class="admonition admonish-tip" role="note" aria-labelledby="admonition-tip-title">
+<div class="admonition-title">
+<div id="admonition-tip-title">
+<p>Tip</p>
+</div>
+<a class="admonition-anchor-link" href="#admonition-tip"></a>
+</div>
+<div>
+<p>All the query parameters available for storing regular blobs (see <a href="#store">Store</a> section above) can
+also be used when storing quilts.</p>
+</div>
+</div>
+<p>Use the following publisher API to store multiple blobs as a quilt:</p>
+<pre><code class="language-sh"># Store two files `document.pdf` and `image.png`, with custom identifiers `contract-v2` and
+# `logo-2024, respectively.
+curl -X PUT "$PUBLISHER/v1/quilts?epochs=5" \
+  -F "contract-v2=@document.pdf" \
+  -F "logo-2024=@image.png"
+
+# Store two files with Walrus-native metadata. The metadata are assigned to the blob with
+# the same identifier. Note: `_metadata` must be used as the field name for Walrus-native metadata.
+curl -X PUT "$PUBLISHER/v1/quilts?epochs=5" \
+  -F "quilt-manual=@document.pdf" \
+  -F "logo-2025=@image.png" \
+  -F '_metadata=[
+    {"identifier": "quilt-manual", "tags": {"creator": "walrus", "version": "1.0"}},
+    {"identifier": "logo-2025", "tags": {"type": "logo", "format": "png"}}
+  ]'
+</code></pre>
+<div id="admonition-warning" class="admonition admonish-warning" role="note" aria-labelledby="admonition-warning-title">
+<div class="admonition-title">
+<div id="admonition-warning-title">
+<p>Warning</p>
+</div>
+<a class="admonition-anchor-link" href="#admonition-warning"></a>
+</div>
+<div>
+<p>Identifiers must be unique within a quilt.</p>
+</div>
+</div>
+<div id="admonition-info" class="admonition admonish-info" role="note" aria-labelledby="admonition-info-title">
+<div class="admonition-title">
+<div id="admonition-info-title">
+<p>Info</p>
+</div>
+<a class="admonition-anchor-link" href="#admonition-info"></a>
+</div>
+<div>
+<p>Since identifiers cannot start with <code>_</code>, the field name <code>_metadata</code> is reserved for Walrus native
+metadata and won't conflict with user-defined identifiers. See
+<a href="./quilt.html">Quilt documentation</a> for complete identifier restrictions.</p>
+</div>
+</div>
+<p>The quilt store API returns a JSON response with information about the stored quilt, including
+the quilt ID (blobId) and individual blob patch IDs that can be used to retrieve specific blobs
+later. The following example shows the command and response (the actual JSON output is returned
+as a single line; it's formatted here for readability):</p>
+<pre><code class="language-console">$ curl -X PUT "http://127.0.0.1:31415/v1/quilts?epochs=1" \
+  -F "walrus.jpg=@./walrus-33.jpg" \
+  -F "another_walrus.jpg=@./walrus-46.jpg"
+{
+  "blobStoreResult": {
+    "newlyCreated": {
+      "blobObject": {
+        "id": "0xe6ac1e1ac08a603aef73a34328b0b623ffba6be6586e159a1d79c5ef0357bc02",
+        "registeredEpoch": 103,
+        "blobId": "6XUOE-Q5-nAXHRifN6n9nomVDtHZQbGuAkW3PjlBuKo",
+        "size": 1782224,
+        "encodingType": "RS2",
+        "certifiedEpoch": null,
+        "storage": {
+          "id": "0xbc8ff9b4071927689d59468f887f94a4a503d9c6c5ef4c4d97fcb475a257758f",
+          "startEpoch": 103,
+          "endEpoch": 104,
+          "storageSize": 72040000
+        },
+        "deletable": false
+      },
+      "resourceOperation": {
+        "registerFromScratch": {
+          "encodedLength": 72040000,
+          "epochsAhead": 1
+        }
+      },
+      "cost": 12075000
+    }
+  },
+  "storedQuiltBlobs": [
+    {
+      "identifier": "another_walrus.jpg",
+      "quiltPatchId": "6XUOE-Q5-nAXHRifN6n9nomVDtHZQbGuAkW3PjlBuKoBAQDQAA"
+    },
+    {
+      "identifier": "walrus.jpg",
+      "quiltPatchId": "6XUOE-Q5-nAXHRifN6n9nomVDtHZQbGuAkW3PjlBuKoB0AB7Ag"
+    }
+  ]
+}
+</code></pre>
+<h4 id="reading-quilts"><a class="header" href="#reading-quilts">Reading quilts</a></h4>
+<p>There are two ways to retrieve blobs from a quilt via the aggregator APIs:</p>
+<div id="admonition-info-1" class="admonition admonish-info" role="note" aria-labelledby="admonition-info-1-title">
+<div class="admonition-title">
+<div id="admonition-info-1-title">
+<p>Info</p>
+</div>
+<a class="admonition-anchor-link" href="#admonition-info-1"></a>
+</div>
+<div>
+<p>Currently, only one blob can be retrieved per request. Bulk retrieval of multiple blobs from a
+quilt in a single request is not yet supported.</p>
+</div>
+</div>
+<h5 id="by-quilt-patch-id"><a class="header" href="#by-quilt-patch-id">By quilt patch ID</a></h5>
+<p>Each blob in a quilt has a unique patch ID. You can retrieve a specific blob using its patch ID:</p>
+<pre><code class="language-sh"># Retrieve a blob using its quilt patch ID.
+curl "$AGGREGATOR/v1/blobs/by-quilt-patch-id/6XUOE-Q5-nAXHRifN6n9nomVDtHZQbGuAkW3PjlBuKoBAQDQAA" \
+</code></pre>
+<div id="admonition-tip-1" class="admonition admonish-tip" role="note" aria-labelledby="admonition-tip-1-title">
+<div class="admonition-title">
+<div id="admonition-tip-1-title">
+<p>Tip</p>
+</div>
+<a class="admonition-anchor-link" href="#admonition-tip-1"></a>
+</div>
+<div>
+<p>QuiltPatchIds can be obtained from the store quilt output (as shown above) or by using the
+<a href="./client-cli.html#batch-storing-blobs-with-quilt"><code>list-patches-in-quilt</code></a> CLI command.</p>
+</div>
+</div>
+<h5 id="by-quilt-id-and-identifier"><a class="header" href="#by-quilt-id-and-identifier">By quilt ID and identifier</a></h5>
+<p>You can also retrieve a blob using the quilt ID and the blob's identifier:</p>
+<pre><code class="language-sh"># Retrieve a blob with identifier `walrus.jpg` from the quilt.
+curl "$AGGREGATOR/v1/blobs/by-quilt-id/6XUOE-Q5-nAXHRifN6n9nomVDtHZQbGuAkW3PjlBuKo/walrus.jpg" \
+</code></pre>
+<p>Both methods return the raw blob bytes in the response body. Metadata such as the blob identifier
+and tags are returned as HTTP headers:</p>
+<ul>
+<li><code>X-Quilt-Patch-Identifier</code>: The identifier of the blob within the quilt</li>
+<li><code>ETag</code>: The patch ID or quilt ID for caching purposes</li>
+<li>Additional custom headers from blob tags (if configured)</li>
+</ul>
+<h2 id="public-services"><a class="header" href="#public-services">Using a public aggregator or publisher</a></h2>
+<p>For some use cases (e.g., a public website), or to just try out the HTTP API, a publicly accessible
+aggregator and/or publisher is required. On Walrus Testnet, many entities run public aggregators and
+publishers. On Mainnet, there are no public publishers without authentication, as they consume both
+SUI and WAL.</p>
+<p>See the following subsections for <a href="#mainnet">public aggregators on Mainnet</a> and public
+<a href="#aggregators-testnet">aggregators</a> and <a href="#publishers-testnet">publishers</a> on Testnet. We also
+provide the <a href="../assets/operators.json">operator lists in JSON format</a>.</p>
+<div id="admonition-tip-2" class="admonition admonish-tip" role="note" aria-labelledby="admonition-tip-2-title">
+<div class="admonition-title">
+<div id="admonition-tip-2-title">
+<p>Tip</p>
+</div>
+<a class="admonition-anchor-link" href="#admonition-tip-2"></a>
+</div>
+<div>
+<p>The operator list in JSON format includes additional info about aggregators, namely whether they are
+deployed with caching functionality and whether they are found to be functional. The list is updated
+once per week.</p>
+</div>
+</div>
+<!-- markdownlint-disable proper-names -->
+<h3 id="mainnet"><a class="header" href="#mainnet">Mainnet</a></h3>
+<p>The following is a list of known public aggregators on Walrus Mainnet; they are checked
+periodically, but each of them may still be temporarily unavailable:</p>
+<ul>
+<li>
+<p><code>http://67.220.194.10:9000</code></p>
+</li>
+<li>
+<p><code>http://walrus-aggregator.winsnip.site:9000</code></p>
+</li>
+<li>
+<p><code>http://walrus.equinoxdao.xyz:9000</code></p>
+</li>
+<li>
+<p><code>https://agg.walrus.eosusa.io</code></p>
+</li>
+<li>
+<p><code>https://aggregator.mainnet.walrus.mirai.cloud</code></p>
+</li>
+<li>
+<p><code>https://aggregator.suicore.com</code></p>
+</li>
+<li>
+<p><code>https://aggregator.walrus-mainnet.h2o-nodes.com</code></p>
+</li>
+<li>
+<p><code>https://aggregator.walrus-mainnet.tududes.com</code></p>
+</li>
+<li>
+<p><code>https://aggregator.walrus-mainnet.walrus.space</code></p>
+</li>
+<li>
+<p><code>https://aggregator.walrus.atalma.io</code></p>
+</li>
+<li>
+<p><code>https://aggregator.walrus.mainnet.mozcomputing.dev</code></p>
+</li>
+<li>
+<p><code>https://aggregator.walrus.silentvalidator.com</code></p>
+</li>
+<li>
+<p><code>https://mainnet-aggregator.hoh.zone</code></p>
+</li>
+<li>
+<p><code>https://mainnet-aggregator.walrus.graphyte.dev</code></p>
+</li>
+<li>
+<p><code>https://mainnet-walrus-aggregator.kiliglab.io</code></p>
+</li>
+<li>
+<p><code>https://sm1-walrus-mainnet-aggregator.stakesquid.com</code></p>
+</li>
+<li>
+<p><code>https://sui-walrus-mainnet-aggregator.bwarelabs.com</code></p>
+</li>
+<li>
+<p><code>https://suiftly.mhax.io</code></p>
+</li>
+<li>
+<p><code>https://wal-aggregator-mainnet.staketab.org</code></p>
+</li>
+<li>
+<p><code>https://walmain.agg.chainflow.io</code></p>
+</li>
+<li>
+<p><code>https://walrus-agg.mainnet.obelisk.sh</code></p>
+</li>
+<li>
+<p><code>https://walrus-aggregator-mainnet.chainode.tech:9002</code></p>
+</li>
+<li>
+<p><code>https://walrus-aggregator.brightlystake.com</code></p>
+</li>
+<li>
+<p><code>https://walrus-aggregator.chainbase.online</code></p>
+</li>
+<li>
+<p><code>https://walrus-aggregator.n1stake.com</code></p>
+</li>
+<li>
+<p><code>https://walrus-aggregator.natsai.xyz</code></p>
+</li>
+<li>
+<p><code>https://walrus-aggregator.rockfin.io</code></p>
+</li>
+<li>
+<p><code>https://walrus-aggregator.rubynodes.io</code></p>
+</li>
+<li>
+<p><code>https://walrus-aggregator.stakely.io</code></p>
+</li>
+<li>
+<p><code>https://walrus-aggregator.stakin-nodes.com</code></p>
+</li>
+<li>
+<p><code>https://walrus-aggregator.staking4all.org</code></p>
+</li>
+<li>
+<p><code>https://walrus-aggregator.starduststaking.com</code></p>
+</li>
+<li>
+<p><code>https://walrus-aggregator.talentum.id</code></p>
+</li>
+<li>
+<p><code>https://walrus-aggregator.thcloud.ai</code></p>
+</li>
+<li>
+<p><code>https://walrus-aggregator.thepassivetrust.com</code></p>
+</li>
+<li>
+<p><code>https://walrus-cache-mainnet.latitude.sh</code></p>
+</li>
+<li>
+<p><code>https://walrus-cache-mainnet.overclock.run</code></p>
+</li>
+<li>
+<p><code>https://walrus-main-aggregator.4everland.org</code></p>
+</li>
+<li>
+<p><code>https://walrus-mainnet-aggregator-1.zkv.xyz</code></p>
+</li>
+<li>
+<p><code>https://walrus-mainnet-aggregator.crouton.digital</code></p>
+</li>
+<li>
+<p><code>https://walrus-mainnet-aggregator.dzdaic.com</code></p>
+</li>
+<li>
+<p><code>https://walrus-mainnet-aggregator.everstake.one</code></p>
+</li>
+<li>
+<p><code>https://walrus-mainnet-aggregator.imperator.co</code></p>
+</li>
+<li>
+<p><code>https://walrus-mainnet-aggregator.luckyresearch.org</code></p>
+</li>
+<li>
+<p><code>https://walrus-mainnet-aggregator.nami.cloud</code></p>
+</li>
+<li>
+<p><code>https://walrus-mainnet-aggregator.nodeinfra.com</code></p>
+</li>
+<li>
+<p><code>https://walrus-mainnet-aggregator.redundex.com</code></p>
+</li>
+<li>
+<p><code>https://walrus-mainnet-aggregator.rpc101.org</code></p>
+</li>
+<li>
+<p><code>https://walrus-mainnet-aggregator.stakecraft.com</code></p>
+</li>
+<li>
+<p><code>https://walrus-mainnet-aggregator.stakeengine.co.uk</code></p>
+</li>
+<li>
+<p><code>https://walrus-mainnet-aggregator.stakingdefenseleague.com.</code></p>
+</li>
+<li>
+<p><code>https://walrus-mainnet-aggregator.trusted-point.com</code></p>
+</li>
+<li>
+<p><code>https://walrus.aggregator.stakepool.dev.br</code></p>
+</li>
+<li>
+<p><code>https://walrus.blockscope.net</code></p>
+</li>
+<li>
+<p><code>https://walrus.globalstake.io</code></p>
+</li>
+<li>
+<p><code>https://walrus.lakestake.io</code></p>
+</li>
+<li>
+<p><code>https://walrus.lionscraft.blockscape.network:9000</code></p>
+</li>
+<li>
+<p><code>https://walrus.prostaking.com:9443</code></p>
+</li>
+<li>
+<p><code>https://walrus.veera.com</code></p>
+</li>
+<li>
+<p><code>https://walrusagg.pops.one</code></p>
+</li>
+</ul>
+<h3 id="testnet"><a class="header" href="#testnet">Testnet</a></h3>
+<h4 id="aggregators-testnet"><a class="header" href="#aggregators-testnet">Aggregators</a></h4>
+<p>The following is a list of known public aggregators on Walrus Testnet; they are checked
+periodically, but each of them may still be temporarily unavailable:</p>
+<ul>
+<li>
+<p><code>http://cs74th801mmedkqu25ng.bdnodes.net:8443</code></p>
+</li>
+<li>
+<p><code>http://walrus-storage.testnet.nelrann.org:9000</code></p>
+</li>
+<li>
+<p><code>http://walrus-testnet.equinoxdao.xyz:9000</code></p>
+</li>
+<li>
+<p><code>http://walrus-testnet.suicore.com:9000</code></p>
+</li>
+<li>
+<p><code>https://agg.test.walrus.eosusa.io</code></p>
+</li>
+<li>
+<p><code>https://aggregator.testnet.walrus.atalma.io</code></p>
+</li>
+<li>
+<p><code>https://aggregator.testnet.walrus.mirai.cloud</code></p>
+</li>
+<li>
+<p><code>https://aggregator.walrus-01.tududes.com</code></p>
+</li>
+<li>
+<p><code>https://aggregator.walrus-testnet.h2o-nodes.com</code></p>
+</li>
+<li>
+<p><code>https://aggregator.walrus-testnet.walrus.space</code></p>
+</li>
+<li>
+<p><code>https://aggregator.walrus.banansen.dev</code></p>
+</li>
+<li>
+<p><code>https://aggregator.walrus.testnet.mozcomputing.dev</code></p>
+</li>
+<li>
+<p><code>https://sm1-walrus-testnet-aggregator.stakesquid.com</code></p>
+</li>
+<li>
+<p><code>https://sui-walrus-tn-aggregator.bwarelabs.com</code></p>
+</li>
+<li>
+<p><code>https://suiftly-testnet-agg.mhax.io</code></p>
+</li>
+<li>
+<p><code>https://testnet-aggregator-walrus.kiliglab.io</code></p>
+</li>
+<li>
+<p><code>https://testnet-aggregator.walrus.graphyte.dev</code></p>
+</li>
+<li>
+<p><code>https://testnet-walrus.globalstake.io</code></p>
+</li>
+<li>
+<p><code>https://testnet.aggregator.walrus.silentvalidator.com</code></p>
+</li>
+<li>
+<p><code>https://wal-aggregator-testnet.staketab.org</code></p>
+</li>
+<li>
+<p><code>https://walrus-agg-test.bucketprotocol.io</code></p>
+</li>
+<li>
+<p><code>https://walrus-agg-testnet.chainode.tech:9002</code></p>
+</li>
+<li>
+<p><code>https://walrus-agg.testnet.obelisk.sh</code></p>
+</li>
+<li>
+<p><code>https://walrus-aggregator-testnet.cetus.zone</code></p>
+</li>
+<li>
+<p><code>https://walrus-aggregator-testnet.haedal.xyz</code></p>
+</li>
+<li>
+<p><code>https://walrus-aggregator-testnet.n1stake.com</code></p>
+</li>
+<li>
+<p><code>https://walrus-aggregator-testnet.staking4all.org</code></p>
+</li>
+<li>
+<p><code>https://walrus-aggregator-testnet.suisec.tech</code></p>
+</li>
+<li>
+<p><code>https://walrus-aggregator.thcloud.dev</code></p>
+</li>
+<li>
+<p><code>https://walrus-test-aggregator.thepassivetrust.com</code></p>
+</li>
+<li>
+<p><code>https://walrus-testnet-aggregator-1.zkv.xyz</code></p>
+</li>
+<li>
+<p><code>https://walrus-testnet-aggregator.brightlystake.com</code></p>
+</li>
+<li>
+<p><code>https://walrus-testnet-aggregator.chainbase.online</code></p>
+</li>
+<li>
+<p><code>https://walrus-testnet-aggregator.chainflow.io</code></p>
+</li>
+<li>
+<p><code>https://walrus-testnet-aggregator.crouton.digital</code></p>
+</li>
+<li>
+<p><code>https://walrus-testnet-aggregator.dzdaic.com</code></p>
+</li>
+<li>
+<p><code>https://walrus-testnet-aggregator.everstake.one</code></p>
+</li>
+<li>
+<p><code>https://walrus-testnet-aggregator.luckyresearch.org</code></p>
+</li>
+<li>
+<p><code>https://walrus-testnet-aggregator.natsai.xyz</code></p>
+</li>
+<li>
+<p><code>https://walrus-testnet-aggregator.nodeinfra.com</code></p>
+</li>
+<li>
+<p><code>https://walrus-testnet-aggregator.nodes.guru</code></p>
+</li>
+<li>
+<p><code>https://walrus-testnet-aggregator.redundex.com</code></p>
+</li>
+<li>
+<p><code>https://walrus-testnet-aggregator.rpc101.org</code></p>
+</li>
+<li>
+<p><code>https://walrus-testnet-aggregator.rubynodes.io</code></p>
+</li>
+<li>
+<p><code>https://walrus-testnet-aggregator.stakecraft.com</code></p>
+</li>
+<li>
+<p><code>https://walrus-testnet-aggregator.stakeengine.co.uk</code></p>
+</li>
+<li>
+<p><code>https://walrus-testnet-aggregator.stakely.io</code></p>
+</li>
+<li>
+<p><code>https://walrus-testnet-aggregator.stakeme.pro</code></p>
+</li>
+<li>
+<p><code>https://walrus-testnet-aggregator.stakin-nodes.com</code></p>
+</li>
+<li>
+<p><code>https://walrus-testnet-aggregator.stakingdefenseleague.com.</code></p>
+</li>
+<li>
+<p><code>https://walrus-testnet-aggregator.starduststaking.com</code></p>
+</li>
+<li>
+<p><code>https://walrus-testnet-aggregator.talentum.id</code></p>
+</li>
+<li>
+<p><code>https://walrus-testnet-aggregator.trusted-point.com</code></p>
+</li>
+<li>
+<p><code>https://walrus-testnet.blockscope.net</code></p>
+</li>
+<li>
+<p><code>https://walrus-testnet.lionscraft.blockscape.network:9000</code></p>
+</li>
+<li>
+<p><code>https://walrus-testnet.validators.services.kyve.network/aggregate</code></p>
+</li>
+<li>
+<p><code>https://walrus-testnet.veera.com</code></p>
+</li>
+<li>
+<p><code>https://walrus-tn.juicystake.io:9443</code></p>
+</li>
+<li>
+<p><code>https://walrus.testnet.aggregator.stakepool.dev.br</code></p>
+</li>
+<li>
+<p><code>https://walrusagg.testnet.pops.one</code></p>
+</li>
+</ul>
+<h4 id="publishers-testnet"><a class="header" href="#publishers-testnet">Publishers</a></h4>
+<p>The following is a list of known public publishers on Walrus Testnet; they are checked
+periodically, but each of them may still be temporarily unavailable:</p>
+<ul>
+<li>
+<p><code>http://walrus-publisher-testnet.cetus.zone:9001</code></p>
+</li>
+<li>
+<p><code>http://walrus-publisher-testnet.haedal.xyz:9001</code></p>
+</li>
+<li>
+<p><code>http://walrus-publisher-testnet.suisec.tech:9001</code></p>
+</li>
+<li>
+<p><code>http://walrus-storage.testnet.nelrann.org:9001</code></p>
+</li>
+<li>
+<p><code>http://walrus-testnet.equinoxdao.xyz:9001</code></p>
+</li>
+<li>
+<p><code>http://walrus-testnet.suicore.com:9001</code></p>
+</li>
+<li>
+<p><code>http://walrus.testnet.pops.one:9001</code></p>
+</li>
+<li>
+<p><code>http://waltest.chainflow.io:9001</code></p>
+</li>
+<li>
+<p><code>https://publisher.testnet.walrus.atalma.io</code></p>
+</li>
+<li>
+<p><code>https://publisher.walrus-01.tududes.com</code></p>
+</li>
+<li>
+<p><code>https://publisher.walrus-testnet.h2o-nodes.com</code></p>
+</li>
+<li>
+<p><code>https://publisher.walrus-testnet.walrus.space</code></p>
+</li>
+<li>
+<p><code>https://publisher.walrus.banansen.dev</code></p>
+</li>
+<li>
+<p><code>https://sm1-walrus-testnet-publisher.stakesquid.com</code></p>
+</li>
+<li>
+<p><code>https://sui-walrus-testnet-publisher.bwarelabs.com</code></p>
+</li>
+<li>
+<p><code>https://suiftly-testnet-pub.mhax.io</code></p>
+</li>
+<li>
+<p><code>https://testnet-publisher-walrus.kiliglab.io</code></p>
+</li>
+<li>
+<p><code>https://testnet-publisher.walrus.graphyte.dev</code></p>
+</li>
+<li>
+<p><code>https://testnet.publisher.walrus.silentvalidator.com</code></p>
+</li>
+<li>
+<p><code>https://wal-publisher-testnet.staketab.org</code></p>
+</li>
+<li>
+<p><code>https://walrus-publish-testnet.chainode.tech:9003</code></p>
+</li>
+<li>
+<p><code>https://walrus-publisher-testnet.n1stake.com</code></p>
+</li>
+<li>
+<p><code>https://walrus-publisher-testnet.staking4all.org</code></p>
+</li>
+<li>
+<p><code>https://walrus-publisher.rubynodes.io</code></p>
+</li>
+<li>
+<p><code>https://walrus-publisher.thcloud.dev</code></p>
+</li>
+<li>
+<p><code>https://walrus-testnet-published.luckyresearch.org</code></p>
+</li>
+<li>
+<p><code>https://walrus-testnet-publisher-1.zkv.xyz</code></p>
+</li>
+<li>
+<p><code>https://walrus-testnet-publisher.chainbase.online</code></p>
+</li>
+<li>
+<p><code>https://walrus-testnet-publisher.crouton.digital</code></p>
+</li>
+<li>
+<p><code>https://walrus-testnet-publisher.dzdaic.com</code></p>
+</li>
+<li>
+<p><code>https://walrus-testnet-publisher.everstake.one</code></p>
+</li>
+<li>
+<p><code>https://walrus-testnet-publisher.nami.cloud</code></p>
+</li>
+<li>
+<p><code>https://walrus-testnet-publisher.natsai.xyz</code></p>
+</li>
+<li>
+<p><code>https://walrus-testnet-publisher.nodeinfra.com</code></p>
+</li>
+<li>
+<p><code>https://walrus-testnet-publisher.nodes.guru</code></p>
+</li>
+<li>
+<p><code>https://walrus-testnet-publisher.redundex.com</code></p>
+</li>
+<li>
+<p><code>https://walrus-testnet-publisher.rpc101.org</code></p>
+</li>
+<li>
+<p><code>https://walrus-testnet-publisher.stakecraft.com</code></p>
+</li>
+<li>
+<p><code>https://walrus-testnet-publisher.stakeengine.co.uk</code></p>
+</li>
+<li>
+<p><code>https://walrus-testnet-publisher.stakely.io</code></p>
+</li>
+<li>
+<p><code>https://walrus-testnet-publisher.stakeme.pro</code></p>
+</li>
+<li>
+<p><code>https://walrus-testnet-publisher.stakingdefenseleague.com.</code></p>
+</li>
+<li>
+<p><code>https://walrus-testnet-publisher.starduststaking.com</code></p>
+</li>
+<li>
+<p><code>https://walrus-testnet-publisher.trusted-point.com</code></p>
+</li>
+<li>
+<p><code>https://walrus-testnet.blockscope.net:11444</code></p>
+</li>
+<li>
+<p><code>https://walrus-testnet.validators.services.kyve.network/publish</code></p>
+</li>
+<li>
+<p><code>https://walrus.testnet.publisher.stakepool.dev.br</code></p>
+</li>
+</ul>
+<!-- markdownlint-enable proper-names -->
+<p>Most of these limit requests to 10 MiB by default. If you want to upload larger files, you need to
+<a href="../operator-guide/aggregator.html#local-daemon">run your own publisher</a> or use
+the <a href="./client-cli.html">CLI</a>.</p>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="../usage/json-api.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <i class="fa fa-angle-left"></i>
+                            </a>
+
+                            <a rel="next prefetch" href="../usage/sdks.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <i class="fa fa-angle-right"></i>
+                            </a>
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="../usage/json-api.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <i class="fa fa-angle-left"></i>
+                    </a>
+
+                    <a rel="next prefetch" href="../usage/sdks.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <i class="fa fa-angle-right"></i>
+                    </a>
+            </nav>
+
+        </div>
+
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="../elasticlunr.min.js"></script>
+        <script src="../mark.min.js"></script>
+        <script src="../searcher.js"></script>
+
+        <script src="../clipboard.min.js"></script>
+        <script src="../highlight.js"></script>
+        <script src="../book.js"></script>
+
+        <!-- Custom JS scripts -->
+        <script src="../docs/theme/tabs.js"></script>
+
+
+    </div>
+    </body>
+</html>
