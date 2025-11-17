@@ -238,7 +238,7 @@ impl TryFrom<SuiEvent> for ManagedBlobRegistered {
         ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
 
         let (epoch, blob_manager_id, blob_id, size, encoding_type, deletable, blob_type,
-            object_id) = bcs::from_bytes(sui_event.bcs.bytes())?;
+            end_epoch, object_id) = bcs::from_bytes(sui_event.bcs.bytes())?;
 
         Ok(Self {
             epoch,
@@ -248,6 +248,7 @@ impl TryFrom<SuiEvent> for ManagedBlobRegistered {
             encoding_type,
             deletable,
             blob_type,
+            end_epoch,
             object_id,
             event_id: sui_event.id,
         })
@@ -378,6 +379,8 @@ pub enum BlobEvent {
     ManagedBlobRegistered(ManagedBlobRegistered),
     /// A managed blob certified event.
     ManagedBlobCertified(ManagedBlobCertified),
+    /// A managed blob deleted event.
+    ManagedBlobDeleted(ManagedBlobDeleted),
 }
 
 impl From<BlobRegistered> for BlobEvent {
@@ -457,6 +460,7 @@ impl BlobEvent {
             BlobEvent::DenyListBlobDeleted(event) => event.blob_id,
             BlobEvent::ManagedBlobRegistered(event) => event.blob_id,
             BlobEvent::ManagedBlobCertified(event) => event.blob_id,
+            BlobEvent::ManagedBlobDeleted(event) => event.blob_id,
         }
     }
 
@@ -470,6 +474,7 @@ impl BlobEvent {
             BlobEvent::DenyListBlobDeleted(_) => None,
             BlobEvent::ManagedBlobRegistered(event) => Some(event.object_id),
             BlobEvent::ManagedBlobCertified(event) => Some(event.object_id),
+            BlobEvent::ManagedBlobDeleted(event) => Some(event.object_id),
         }
     }
 
@@ -483,6 +488,7 @@ impl BlobEvent {
             BlobEvent::DenyListBlobDeleted(event) => event.event_id,
             BlobEvent::ManagedBlobRegistered(event) => event.event_id,
             BlobEvent::ManagedBlobCertified(event) => event.event_id,
+            BlobEvent::ManagedBlobDeleted(event) => event.event_id,
         }
     }
 
@@ -505,6 +511,7 @@ impl BlobEvent {
             BlobEvent::DenyListBlobDeleted(event) => Some(event.epoch),
             BlobEvent::ManagedBlobRegistered(event) => Some(event.epoch),
             BlobEvent::ManagedBlobCertified(event) => Some(event.epoch),
+            BlobEvent::ManagedBlobDeleted(event) => Some(event.epoch),
         }
     }
 
@@ -518,6 +525,7 @@ impl BlobEvent {
             BlobEvent::DenyListBlobDeleted(_) => "DenyListBlobDeleted",
             BlobEvent::ManagedBlobRegistered(_) => "ManagedBlobRegistered",
             BlobEvent::ManagedBlobCertified(_) => "ManagedBlobCertified",
+            BlobEvent::ManagedBlobDeleted(_) => "ManagedBlobDeleted",
         }
     }
 

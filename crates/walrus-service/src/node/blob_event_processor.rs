@@ -187,7 +187,9 @@ impl BackgroundEventProcessor {
             BlobEvent::Registered(_) => {
                 unreachable!("registered event should be processed immediately");
             }
-            BlobEvent::ManagedBlobRegistered(_) | BlobEvent::ManagedBlobCertified(_) => {
+            BlobEvent::ManagedBlobRegistered(_)
+            | BlobEvent::ManagedBlobCertified(_)
+            | BlobEvent::ManagedBlobDeleted(_) => {
                 // Managed blob events are now handled through the standard blob info update path.
                 // The event conversion and merge logic is implemented in blob_info.rs.
                 event_handle.mark_as_complete();

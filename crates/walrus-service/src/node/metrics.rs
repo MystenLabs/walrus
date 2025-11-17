@@ -272,6 +272,7 @@ impl TelemetryLabel for BlobEvent {
             BlobEvent::DenyListBlobDeleted(_) => "deny-list-deleted",
             BlobEvent::ManagedBlobRegistered(_) => "managed-registered",
             BlobEvent::ManagedBlobCertified(_) => "managed-certified",
+            BlobEvent::ManagedBlobDeleted(_) => "managed-deleted",
         }
     }
 }

@@ -30,6 +30,7 @@ pub use events::{
     EpochParametersSelected,
     InvalidBlobId,
     ManagedBlobCertified,
+    ManagedBlobDeleted,
     ManagedBlobRegistered,
     PackageEvent,
     ProtocolEvent,

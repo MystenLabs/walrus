@@ -14,7 +14,7 @@ use walrus::{
     event_blob::{Self, EventBlobCertificationState, new_attestation},
     events,
     extended_field::{Self, ExtendedField},
-    managed_blob::{Self, BlobType},
+    managed_blob,
     messages,
     storage_accounting::{Self, FutureAccountingRingBuffer},
     storage_node::StorageNodeCap,
