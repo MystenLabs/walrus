@@ -12,43 +12,589 @@ use core::{
     slice::{Chunks, ChunksMut},
 };
 
-use serde::{Deserialize, Serialize};
-use serde_with::{Bytes, serde_as};
+use memmap2::{MmapMut, MmapOptions};
+use memvec::{MemVec, Memory, MmapAnon};
+use serde::{Deserialize, Serialize, Serializer, de::Deserializer, ser::SerializeStruct};
+use serde_bytes::Bytes as SerdeBytes;
+use serde_with::{Bytes as SerdeWithBytes, serde_as};
+use std::{env, fs::File, io, ptr, sync::OnceLock};
+use tempfile::{NamedTempFile, TempPath, tempfile};
 
 use super::{
-    EncodingAxis,
-    EncodingConfig,
-    Primary,
-    Secondary,
-    WrongSymbolSizeError,
+    EncodingAxis, EncodingConfig, Primary, Secondary, WrongSymbolSizeError,
     errors::SymbolVerificationError,
 };
 use crate::{
-    RecoverySymbol as EitherRecoverySymbol,
-    SliverIndex,
-    SliverType,
-    SymbolId,
-    WrongAxisError,
+    RecoverySymbol as EitherRecoverySymbol, SliverIndex, SliverType, SymbolId, WrongAxisError,
     by_axis::{self, ByAxis},
     ensure,
     merkle::{MerkleAuth, MerkleProof, MerkleProofError, Node},
     metadata::{BlobMetadata, BlobMetadataApi as _},
     utils,
 };
+use tracing::warn;
 
 /// A set of encoded symbols.
-#[serde_as]
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug)]
 pub struct Symbols {
     /// The encoded symbols.
-    // INV: The length of this vector is a multiple of `symbol_size`.
-    #[serde_as(as = "Bytes")]
-    data: Vec<u8>,
+    // INV: The length of this storage is a multiple of `symbol_size`.
+    data: SymbolStorage,
     /// The number of bytes for each symbol.
     symbol_size: NonZeroU16,
 }
 
+impl Clone for Symbols {
+    fn clone(&self) -> Self {
+        Self {
+            data: SymbolStorage::from_slice(self.data.as_slice()),
+            symbol_size: self.symbol_size,
+        }
+    }
+}
+
+impl PartialEq for Symbols {
+    fn eq(&self, other: &Self) -> bool {
+        self.symbol_size == other.symbol_size && self.data.as_slice() == other.data.as_slice()
+    }
+}
+
+impl Eq for Symbols {}
+
+impl Serialize for Symbols {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut state = serializer.serialize_struct("Symbols", 2)?;
+        state.serialize_field("data", &SerdeBytes::new(self.data.as_slice()))?;
+        state.serialize_field("symbol_size", &self.symbol_size)?;
+        state.end()
+    }
+}
+
+#[serde_as]
+#[derive(Deserialize)]
+struct SymbolsSerdeHelper {
+    #[serde_as(as = "SerdeWithBytes")]
+    data: Vec<u8>,
+    symbol_size: NonZeroU16,
+}
+
+impl<'de> Deserialize<'de> for Symbols {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let helper = SymbolsSerdeHelper::deserialize(deserializer)?;
+        Ok(Self::new(helper.data, helper.symbol_size))
+    }
+}
+
+const SYMBOLS_BACKEND_ENV: &str = "WALRUS_SYMBOLS_BACKEND";
+const SYMBOLS_MEMMAP_THRESHOLD_ENV: &str = "WALRUS_SYMBOLS_MEMMAP_THRESHOLD";
+const DEFAULT_MEMMAP_THRESHOLD_BYTES: usize = 100 * 1024 * 1024;
+
+type SymbolMemmapAnon = MemVec<'static, u8, MmapAnon>;
+type SymbolMemmapFile = MemVec<'static, u8, FileBackedMemory>;
+
+#[derive(Debug)]
+struct FileBackedMemory {
+    mmap: MmapMut,
+    file: File,
+    len: usize,
+    _temp_path: Option<TempPath>,
+}
+
+#[derive(Clone, Copy)]
+enum MemmapInit<'a> {
+    CopyFrom(&'a [u8]),
+    Zero(usize),
+    Empty,
+}
+
+fn init_memvec_from_slice<A: Memory>(mem: &mut MemVec<'static, u8, A>, data: &[u8]) {
+    if !data.is_empty() {
+        unsafe {
+            ptr::copy_nonoverlapping(data.as_ptr(), mem.as_mut_ptr(), data.len());
+        }
+    }
+    unsafe { mem.set_len(data.len()) };
+}
+
+fn zero_memvec<A: Memory>(mem: &mut MemVec<'static, u8, A>, len_bytes: usize) {
+    if len_bytes > 0 {
+        unsafe {
+            ptr::write_bytes(mem.as_mut_ptr(), 0, len_bytes);
+        }
+    }
+    unsafe { mem.set_len(len_bytes) };
+}
+
+fn initialize_memvec<A: Memory>(mem: &mut MemVec<'static, u8, A>, init: MemmapInit<'_>) {
+    match init {
+        MemmapInit::CopyFrom(data) => init_memvec_from_slice(mem, data),
+        MemmapInit::Zero(len) => zero_memvec(mem, len),
+        MemmapInit::Empty => unsafe { mem.set_len(0) },
+    }
+}
+
+impl FileBackedMemory {
+    fn new(file: File, temp_path: Option<TempPath>, capacity: usize) -> io::Result<Self> {
+        let map_len = capacity.max(1);
+        file.set_len(map_len.try_into().expect("capacity fits in u64"))?;
+        let mmap = unsafe { MmapOptions::new().len(map_len).map_mut(&file)? };
+        Ok(Self {
+            mmap,
+            file,
+            len: 0,
+            _temp_path: temp_path,
+        })
+    }
+
+    fn capacity(&self) -> usize {
+        self.mmap.len()
+    }
+
+    fn remap(&mut self, new_capacity: usize) -> io::Result<()> {
+        let new_cap = new_capacity.max(1);
+        self.file
+            .set_len(new_cap.try_into().expect("capacity fits in u64"))?;
+        let mut options = MmapOptions::new();
+        options.len(new_cap);
+        let mut new_mmap = unsafe { options.map_mut(&self.file)? };
+        let copy_len = self.len.min(new_cap);
+        new_mmap[..copy_len].copy_from_slice(&self.mmap[..copy_len]);
+        self.mmap = new_mmap;
+        if self.len > new_cap {
+            self.len = new_cap;
+        }
+        Ok(())
+    }
+}
+
+impl core::ops::Deref for FileBackedMemory {
+    type Target = [u8];
+
+    fn deref(&self) -> &Self::Target {
+        &self.mmap
+    }
+}
+
+impl core::ops::DerefMut for FileBackedMemory {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.mmap
+    }
+}
+
+impl Memory for FileBackedMemory {
+    type Error = io::Error;
+
+    fn as_ptr(&self) -> *const u8 {
+        self.mmap.as_ptr()
+    }
+
+    fn as_mut_ptr(&mut self) -> *mut u8 {
+        self.mmap.as_mut_ptr()
+    }
+
+    fn len(&self) -> usize {
+        self.len
+    }
+
+    fn len_mut(&mut self) -> &mut usize {
+        &mut self.len
+    }
+
+    fn reserve(&mut self, capacity: usize) -> io::Result<()> {
+        if capacity <= self.capacity() {
+            return Ok(());
+        }
+        self.remap(capacity)
+    }
+
+    fn shrink_to(&mut self, capacity: usize) -> io::Result<()> {
+        if capacity >= self.capacity() {
+            return Ok(());
+        }
+        self.remap(capacity)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum BackendPreference {
+    Auto,
+    Heap,
+    Memmap,
+}
+
+#[derive(Debug)]
+enum StorageBackend {
+    Heap,
+    Memmap { prefer_file: bool },
+}
+
+#[derive(Debug)]
+enum SymbolStorage {
+    Heap(Vec<u8>),
+    MemmapAnon(SymbolMemmapAnon),
+    MemmapFile(SymbolMemmapFile),
+}
+
+fn backend_preference() -> BackendPreference {
+    static PREF: OnceLock<BackendPreference> = OnceLock::new();
+    *PREF.get_or_init(|| match env::var(SYMBOLS_BACKEND_ENV) {
+        Ok(value) => parse_preference(&value).unwrap_or_else(|| {
+            warn!(
+                "Unknown {} value `{}`; falling back to auto backend selection",
+                SYMBOLS_BACKEND_ENV, value
+            );
+            BackendPreference::Auto
+        }),
+        Err(env::VarError::NotPresent) => BackendPreference::Auto,
+        Err(env::VarError::NotUnicode(value)) => {
+            warn!(
+                "{} contained invalid UTF-8 ({:?}); falling back to auto backend selection",
+                SYMBOLS_BACKEND_ENV, value
+            );
+            BackendPreference::Auto
+        }
+    })
+}
+
+fn parse_preference(value: &str) -> Option<BackendPreference> {
+    let norm = value.trim().to_ascii_lowercase();
+    match norm.as_str() {
+        "" | "auto" => Some(BackendPreference::Auto),
+        "heap" => Some(BackendPreference::Heap),
+        "memmap" | "mmap" => Some(BackendPreference::Memmap),
+        _ => None,
+    }
+}
+
+fn memmap_threshold_bytes() -> usize {
+    static THRESHOLD: OnceLock<usize> = OnceLock::new();
+    *THRESHOLD.get_or_init(|| match env::var(SYMBOLS_MEMMAP_THRESHOLD_ENV) {
+        Ok(value) => match value.trim().parse::<usize>() {
+            Ok(parsed) => parsed,
+            Err(error) => {
+                warn!(
+                    "Failed to parse {} value `{}`: {error}; using default threshold {} bytes",
+                    SYMBOLS_MEMMAP_THRESHOLD_ENV, value, DEFAULT_MEMMAP_THRESHOLD_BYTES
+                );
+                DEFAULT_MEMMAP_THRESHOLD_BYTES
+            }
+        },
+        Err(env::VarError::NotPresent) => DEFAULT_MEMMAP_THRESHOLD_BYTES,
+        Err(env::VarError::NotUnicode(value)) => {
+            warn!(
+                "{} contained invalid UTF-8 ({:?}); using default threshold {} bytes",
+                SYMBOLS_MEMMAP_THRESHOLD_ENV, value, DEFAULT_MEMMAP_THRESHOLD_BYTES
+            );
+            DEFAULT_MEMMAP_THRESHOLD_BYTES
+        }
+    })
+}
+
+fn memmap_supported() -> bool {
+    cfg!(any(unix, windows))
+}
+
+fn select_backend(len_bytes: usize) -> StorageBackend {
+    if len_bytes == 0 {
+        return StorageBackend::Heap;
+    }
+    match backend_preference() {
+        BackendPreference::Heap => StorageBackend::Heap,
+        BackendPreference::Memmap => {
+            if memmap_supported() {
+                StorageBackend::Memmap { prefer_file: true }
+            } else {
+                warn!(
+                    "{} requested memmap backend but the current platform does not support it; using heap storage",
+                    SYMBOLS_BACKEND_ENV
+                );
+                StorageBackend::Heap
+            }
+        }
+        BackendPreference::Auto => {
+            if memmap_supported() && len_bytes > memmap_threshold_bytes() {
+                StorageBackend::Memmap { prefer_file: true }
+            } else {
+                StorageBackend::Heap
+            }
+        }
+    }
+}
+
+enum MemmapChoice {
+    File,
+    Anon,
+}
+
+fn create_temp_backing_file() -> io::Result<(File, Option<TempPath>)> {
+    match tempfile() {
+        Ok(file) => Ok((file, None)),
+        Err(_) => {
+            let named = NamedTempFile::new()?;
+            let (file, path) = named.into_parts();
+            Ok((file, Some(path)))
+        }
+    }
+}
+
+fn create_file_memvec(capacity: usize) -> io::Result<SymbolMemmapFile> {
+    let (file, temp_path) = create_temp_backing_file()?;
+    let memory = FileBackedMemory::new(file, temp_path, capacity)?;
+    memvec_from_file_memory(memory)
+}
+
+fn create_anon_memvec(capacity: usize) -> io::Result<SymbolMemmapAnon> {
+    let mmap = MmapAnon::with_size(capacity.max(1))?;
+    memvec_from_mmap(mmap)
+}
+
+fn allocate_memmap(
+    len_bytes: usize,
+    prefer_file: bool,
+    init: MemmapInit<'_>,
+) -> io::Result<SymbolStorage> {
+    let order: [MemmapChoice; 2] = if prefer_file {
+        [MemmapChoice::File, MemmapChoice::Anon]
+    } else {
+        [MemmapChoice::Anon, MemmapChoice::File]
+    };
+    let mut last_error = None;
+    for choice in order {
+        match choice {
+            MemmapChoice::File => match create_file_memvec(len_bytes) {
+                Ok(mut mem) => {
+                    initialize_memvec(&mut mem, init);
+                    tracing::debug!("symbols backend: memmap file (len={} bytes)", len_bytes);
+                    return Ok(SymbolStorage::MemmapFile(mem));
+                }
+                Err(err) => last_error = Some(err),
+            },
+            MemmapChoice::Anon => match create_anon_memvec(len_bytes) {
+                Ok(mut mem) => {
+                    initialize_memvec(&mut mem, init);
+                    tracing::debug!("symbols backend: memmap anon (len={} bytes)", len_bytes);
+                    return Ok(SymbolStorage::MemmapAnon(mem));
+                }
+                Err(err) => last_error = Some(err),
+            },
+        }
+    }
+    Err(last_error.unwrap_or_else(|| {
+        io::Error::new(io::ErrorKind::Other, "failed to allocate memmap storage")
+    }))
+}
+
+impl SymbolStorage {
+    fn from_vec(data: Vec<u8>) -> Self {
+        let len = data.len();
+        if len == 0 {
+            return SymbolStorage::Heap(data);
+        }
+        match select_backend(len) {
+            StorageBackend::Heap => {
+                tracing::debug!("symbols backend: Heap (len={} bytes)", len);
+                SymbolStorage::Heap(data)
+            }
+            StorageBackend::Memmap { prefer_file } => {
+                match allocate_memmap(len, prefer_file, MemmapInit::CopyFrom(data.as_slice())) {
+                    Ok(storage) => storage,
+                    Err(error) => {
+                        warn!(
+                            "Failed to allocate memmap-backed symbols for {} bytes: {error}; using heap storage",
+                            len
+                        );
+                        SymbolStorage::Heap(data)
+                    }
+                }
+            }
+        }
+    }
+
+    fn from_slice(slice: &[u8]) -> Self {
+        if slice.is_empty() {
+            return SymbolStorage::Heap(Vec::new());
+        }
+        let len = slice.len();
+        match select_backend(len) {
+            StorageBackend::Heap => SymbolStorage::Heap(slice.to_vec()),
+            StorageBackend::Memmap { prefer_file } => {
+                match allocate_memmap(len, prefer_file, MemmapInit::CopyFrom(slice)) {
+                    Ok(storage) => storage,
+                    Err(error) => {
+                        warn!(
+                            "Failed to allocate memmap-backed symbols for {} bytes: {error}; using heap storage",
+                            len
+                        );
+                        SymbolStorage::Heap(slice.to_vec())
+                    }
+                }
+            }
+        }
+    }
+
+    fn zeros(len_bytes: usize) -> Self {
+        if len_bytes == 0 {
+            return SymbolStorage::Heap(Vec::new());
+        }
+        match select_backend(len_bytes) {
+            StorageBackend::Heap => SymbolStorage::Heap(vec![0; len_bytes]),
+            StorageBackend::Memmap { prefer_file } => {
+                match allocate_memmap(len_bytes, prefer_file, MemmapInit::Zero(len_bytes)) {
+                    Ok(storage) => storage,
+                    Err(error) => {
+                        warn!(
+                            "Failed to allocate zeroed memmap-backed symbols for {} bytes: {error}; using heap storage",
+                            len_bytes
+                        );
+                        SymbolStorage::Heap(vec![0; len_bytes])
+                    }
+                }
+            }
+        }
+    }
+
+    fn with_capacity(capacity_bytes: usize) -> Self {
+        if capacity_bytes == 0 {
+            return SymbolStorage::Heap(Vec::new());
+        }
+        match select_backend(capacity_bytes) {
+            StorageBackend::Heap => SymbolStorage::Heap(Vec::with_capacity(capacity_bytes)),
+            StorageBackend::Memmap { prefer_file } => {
+                match allocate_memmap(capacity_bytes, prefer_file, MemmapInit::Empty) {
+                    Ok(storage) => storage,
+                    Err(error) => {
+                        warn!(
+                            "Failed to allocate memmap capacity for {} bytes: {error}; using heap storage",
+                            capacity_bytes
+                        );
+                        SymbolStorage::Heap(Vec::with_capacity(capacity_bytes))
+                    }
+                }
+            }
+        }
+    }
+
+    fn len(&self) -> usize {
+        match self {
+            SymbolStorage::Heap(vec) => vec.len(),
+            SymbolStorage::MemmapAnon(mem) => mem.len(),
+            SymbolStorage::MemmapFile(mem) => mem.len(),
+        }
+    }
+
+    fn truncate(&mut self, len: usize) {
+        match self {
+            SymbolStorage::Heap(vec) => vec.truncate(len),
+            SymbolStorage::MemmapAnon(mem) => mem.truncate(len),
+            SymbolStorage::MemmapFile(mem) => mem.truncate(len),
+        }
+    }
+
+    fn as_slice(&self) -> &[u8] {
+        match self {
+            SymbolStorage::Heap(vec) => vec.as_slice(),
+            SymbolStorage::MemmapAnon(mem) => mem.as_ref(),
+            SymbolStorage::MemmapFile(mem) => mem.as_ref(),
+        }
+    }
+
+    fn as_mut_slice(&mut self) -> &mut [u8] {
+        match self {
+            SymbolStorage::Heap(vec) => vec.as_mut_slice(),
+            SymbolStorage::MemmapAnon(mem) => mem.as_mut(),
+            SymbolStorage::MemmapFile(mem) => mem.as_mut(),
+        }
+    }
+
+    fn extend_from_slice(&mut self, data: &[u8]) {
+        if data.is_empty() {
+            return;
+        }
+        match self {
+            SymbolStorage::Heap(vec) => vec.extend_from_slice(data),
+            SymbolStorage::MemmapAnon(memmap) => {
+                if let Err(error) = memmap.try_reserve(data.len()) {
+                    warn!(
+                        "Failed to grow memmap-backed symbols by {} bytes: {error}; falling back to heap storage",
+                        data.len()
+                    );
+                    let mut vec = Vec::with_capacity(memmap.len() + data.len());
+                    vec.extend_from_slice(memmap.as_ref());
+                    vec.extend_from_slice(data);
+                    *self = SymbolStorage::Heap(vec);
+                } else {
+                    let len = memmap.len();
+                    unsafe {
+                        ptr::copy_nonoverlapping(
+                            data.as_ptr(),
+                            memmap.as_mut_ptr().add(len),
+                            data.len(),
+                        );
+                        memmap.set_len(len + data.len());
+                    }
+                }
+            }
+            SymbolStorage::MemmapFile(memmap) => {
+                if let Err(error) = memmap.try_reserve(data.len()) {
+                    warn!(
+                        "Failed to grow memmap-backed symbols by {} bytes: {error}; falling back to heap storage",
+                        data.len()
+                    );
+                    let mut vec = Vec::with_capacity(memmap.len() + data.len());
+                    vec.extend_from_slice(memmap.as_ref());
+                    vec.extend_from_slice(data);
+                    *self = SymbolStorage::Heap(vec);
+                } else {
+                    let len = memmap.len();
+                    unsafe {
+                        ptr::copy_nonoverlapping(
+                            data.as_ptr(),
+                            memmap.as_mut_ptr().add(len),
+                            data.len(),
+                        );
+                        memmap.set_len(len + data.len());
+                    }
+                }
+            }
+        }
+    }
+
+    fn into_vec(self) -> Vec<u8> {
+        match self {
+            SymbolStorage::Heap(vec) => vec,
+            SymbolStorage::MemmapAnon(mem) => mem.as_ref().to_vec(),
+            SymbolStorage::MemmapFile(mem) => mem.as_ref().to_vec(),
+        }
+    }
+}
+
+fn memvec_from_mmap(mmap: MmapAnon) -> io::Result<SymbolMemmapAnon> {
+    match unsafe { MemVec::try_from_memory(mmap) } {
+        Ok(memvec) => Ok(memvec),
+        Err((_mmap, layout_error)) => Err(io::Error::new(io::ErrorKind::Other, layout_error)),
+    }
+}
+
+fn memvec_from_file_memory(memory: FileBackedMemory) -> io::Result<SymbolMemmapFile> {
+    match unsafe { MemVec::try_from_memory(memory) } {
+        Ok(memvec) => Ok(memvec),
+        Err((_mem, layout_error)) => Err(io::Error::new(io::ErrorKind::Other, layout_error)),
+    }
+}
+
 impl Symbols {
+    fn total_bytes(n_symbols: usize, symbol_size: NonZeroU16) -> usize {
+        n_symbols
+            .checked_mul(usize::from(symbol_size.get()))
+            .expect("symbol buffer size overflowed usize")
+    }
+
     /// Creates a new [`Symbols`] struct by taking ownership of a vector.
     ///
     /// # Panics
@@ -60,26 +606,29 @@ impl Symbols {
             data.len().is_multiple_of(usize::from(symbol_size.get())),
             "the provided data must contain complete symbols"
         );
-        Symbols { data, symbol_size }
+        Symbols {
+            data: SymbolStorage::from_vec(data),
+            symbol_size,
+        }
     }
 
     /// Shortens the `data` in [`Symbols`], keeping the first `len` symbols and dropping the
     /// rest. If `len` is greater or equal to the [`Symbols`]’ current number of symbols, this has
     /// no effect.
     pub fn truncate(&mut self, len: usize) {
-        self.data
-            .truncate(len * usize::from(self.symbol_size.get()));
+        self.data.truncate(Self::total_bytes(len, self.symbol_size));
     }
 
     /// Creates a new [`Symbols`] struct with zeroed-out data of length `n_symbols * symbol_size`.
     pub fn zeros(n_symbols: usize, symbol_size: NonZeroU16) -> Self {
         Symbols {
-            data: vec![0; n_symbols * usize::from(symbol_size.get())],
+            data: SymbolStorage::zeros(Self::total_bytes(n_symbols, symbol_size)),
             symbol_size,
         }
     }
 
-    /// Creates a new empty [`Symbols`] struct with an internal vector of provided capacity.
+    /// Creates a new empty [`Symbols`] struct with storage reserved for the provided number of
+    /// symbols.
     ///
     /// # Examples
     ///
@@ -90,7 +639,7 @@ impl Symbols {
     /// ```
     pub fn with_capacity(n_symbols: usize, symbol_size: NonZeroU16) -> Self {
         Symbols {
-            data: Vec::<u8>::with_capacity(n_symbols * usize::from(symbol_size.get())),
+            data: SymbolStorage::with_capacity(Self::total_bytes(n_symbols, symbol_size)),
             symbol_size,
         }
     }
@@ -127,7 +676,7 @@ impl Symbols {
     /// True iff it does not contain any symbols.
     #[inline]
     pub fn is_empty(&self) -> bool {
-        self.data.is_empty()
+        self.data.len() == 0
     }
 
     /// Obtain a reference to the symbol at `index`.
@@ -173,14 +722,14 @@ impl Symbols {
     /// Returns an iterator of references to symbols.
     #[inline]
     pub fn to_symbols(&self) -> Chunks<'_, u8> {
-        self.data.chunks(self.symbol_usize())
+        self.data.as_slice().chunks(self.symbol_usize())
     }
 
     /// Returns an iterator of mutable references to symbols.
     #[inline]
     pub fn to_symbols_mut(&mut self) -> ChunksMut<'_, u8> {
         let symbol_size = self.symbol_usize();
-        self.data.chunks_mut(symbol_size)
+        self.data.as_mut_slice().chunks_mut(symbol_size)
     }
 
     /// Returns an iterator of [`DecodingSymbol`s][DecodingSymbol].
@@ -209,7 +758,7 @@ impl Symbols {
         if !symbols.len().is_multiple_of(self.symbol_usize()) {
             return Err(WrongSymbolSizeError);
         }
-        self.data.extend(symbols);
+        self.data.extend_from_slice(symbols);
         Ok(())
     }
 
@@ -225,16 +774,16 @@ impl Symbols {
         self.symbol_size.get().into()
     }
 
-    /// Returns a reference to the inner vector of `data` representing the symbols.
+    /// Returns a reference to the underlying bytes representing the symbols.
     #[inline]
-    pub fn data(&self) -> &Vec<u8> {
-        &self.data
+    pub fn data(&self) -> &[u8] {
+        self.data.as_slice()
     }
 
-    /// Returns a mutable reference to the inner vector of `data` representing the symbols.
+    /// Returns a mutable reference to the underlying bytes representing the symbols.
     #[inline]
-    pub fn data_mut(&mut self) -> &mut Vec<u8> {
-        &mut self.data
+    pub fn data_mut(&mut self) -> &mut [u8] {
+        self.data.as_mut_slice()
     }
 
     /// Returns the range of the underlying byte vector that contains the symbols in the range.
@@ -246,7 +795,7 @@ impl Symbols {
     /// Returns the underlying byte vector as an owned object.
     #[inline]
     pub fn into_vec(self) -> Vec<u8> {
-        self.data
+        self.data.into_vec()
     }
 }
 
@@ -254,14 +803,14 @@ impl Index<usize> for Symbols {
     type Output = [u8];
 
     fn index(&self, index: usize) -> &Self::Output {
-        &self.data[self.symbol_range(index..index + 1)]
+        &self.data.as_slice()[self.symbol_range(index..index + 1)]
     }
 }
 
 impl IndexMut<usize> for Symbols {
     fn index_mut(&mut self, index: usize) -> &mut Self::Output {
         let range = self.symbol_range(index..index + 1);
-        &mut self.data[range]
+        &mut self.data.as_mut_slice()[range]
     }
 }
 
@@ -269,26 +818,26 @@ impl Index<Range<usize>> for Symbols {
     type Output = [u8];
 
     fn index(&self, index: Range<usize>) -> &Self::Output {
-        &self.data[self.symbol_range(index)]
+        &self.data.as_slice()[self.symbol_range(index)]
     }
 }
 
 impl IndexMut<Range<usize>> for Symbols {
     fn index_mut(&mut self, index: Range<usize>) -> &mut Self::Output {
         let range = self.symbol_range(index);
-        &mut self.data[range]
+        &mut self.data.as_mut_slice()[range]
     }
 }
 
 impl AsRef<[u8]> for Symbols {
     fn as_ref(&self) -> &[u8] {
-        &self.data
+        self.data.as_slice()
     }
 }
 
 impl AsMut<[u8]> for Symbols {
     fn as_mut(&mut self) -> &mut [u8] {
-        &mut self.data
+        self.data.as_mut_slice()
     }
 }
 
@@ -681,11 +1230,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        EncodingType,
-        SliverPairIndex,
-        SliverType,
-        encoding::EncodingFactory as _,
-        test_utils,
+        EncodingType, SliverPairIndex, SliverType, encoding::EncodingFactory as _, test_utils,
     };
 
     param_test! {
@@ -725,7 +1270,7 @@ mod tests {
     fn correct_symbols_from_slice(slice: &[u8], symbol_size: u16) {
         let symbol_size = symbol_size.try_into().unwrap();
         let symbols = Symbols::from_slice(slice, symbol_size);
-        assert_eq!(symbols.data, slice.to_vec());
+        assert_eq!(symbols.data(), slice);
         assert_eq!(symbols.symbol_size, symbol_size);
     }
 
@@ -741,7 +1286,7 @@ mod tests {
         let symbol_size = symbol_size.try_into().unwrap();
         let symbols = Symbols::zeros(n_symbols, symbol_size);
         assert_eq!(
-            symbols.data.len(),
+            symbols.data().len(),
             n_symbols * usize::from(symbol_size.get())
         );
         assert_eq!(symbols.symbol_size, symbol_size);
