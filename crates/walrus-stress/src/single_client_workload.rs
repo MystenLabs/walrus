@@ -56,7 +56,8 @@ pub struct SingleClientWorkload {
     target_requests_per_minute: u64,
     /// Whether to check the read result matches the record of writes.
     check_read_result: bool,
-    /// The percentage of write operations that will write the same data.
+    /// For each write operation, the probability of writing the same data as a previously written
+    /// blob.
     write_same_data_ratio: f64,
     /// The maximum number of blobs to keep in the blob pool.
     max_blobs_in_pool: usize,
@@ -126,7 +127,7 @@ impl SingleClientWorkload {
         for _ in 0..self.initial_blobs_in_pool {
             // Getting the current epoch in case epoch changed during the loop.
             let write_op = client_op_generator.generate_write_op_for_pool_initialization(&mut rng);
-            self.execute_client_op(&write_op, &mut blob_pool).await?;
+            self.execute_client_op(write_op, &mut blob_pool).await?;
         }
 
         tracing::info!(
@@ -147,16 +148,16 @@ impl SingleClientWorkload {
                 current_epoch = epoch;
             }
             let client_op = client_op_generator.generate_client_op(&blob_pool, &mut rng);
-            self.execute_client_op(&client_op, &mut blob_pool).await?;
+            self.execute_client_op(client_op, &mut blob_pool).await?;
         }
     }
 
     async fn execute_client_op(
         &self,
-        client_op: &WalrusNodeClientOp,
+        client_op: WalrusNodeClientOp,
         blob_pool: &mut BlobPool,
     ) -> anyhow::Result<()> {
-        match client_op {
+        match &client_op {
             WalrusNodeClientOp::Read {
                 blob_id,
                 sliver_type,
@@ -190,7 +191,11 @@ impl SingleClientWorkload {
                 store_args = store_args.with_metrics(self.metrics.clone());
                 let store_result = self
                     .client
-                    .reserve_and_store_blobs_retry_committees(&[blob.as_slice()], &[], &store_args)
+                    .reserve_and_store_blobs_retry_committees(
+                        vec![blob.clone()],
+                        vec![],
+                        &store_args,
+                    )
                     .await?;
                 self.metrics.observe_latency("store_blob", now.elapsed());
                 match &store_result[0] {
@@ -198,7 +203,7 @@ impl SingleClientWorkload {
                         blob_pool.update_blob_pool(
                             blob_object.blob_id,
                             Some(blob_object.id),
-                            client_op.clone(),
+                            client_op,
                         );
                     }
                     _ => {

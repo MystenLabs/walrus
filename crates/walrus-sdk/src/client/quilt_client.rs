@@ -206,7 +206,7 @@ where
     SliverData<V::SliverAxis>: TryFrom<Sliver>,
 {
     /// Creates a new QuiltReader.
-    pub async fn new(
+    pub fn new(
         client: &'a QuiltClient<'a, T>,
         config: QuiltClientConfig,
         quilt_index: Option<QuiltIndex>,
@@ -260,7 +260,7 @@ where
     }
 
     /// Retrieves a blob from the quilt by identifier.
-    pub async fn get_blobs_by_identifiers(
+    pub fn get_blobs_by_identifiers(
         &self,
         identifiers: &[&str],
     ) -> ClientResult<Vec<QuiltStoreBlob<'static>>> {
@@ -278,7 +278,7 @@ where
     }
 
     /// Retrieves blobs from the quilt matching the given tag.
-    pub async fn get_blobs_by_tag(
+    pub fn get_blobs_by_tag(
         &self,
         target_tag: &str,
         target_value: &str,
@@ -297,7 +297,7 @@ where
     }
 
     /// Retrieves blobs from the quilt matching the given patch internal ids.
-    pub async fn get_blobs_by_patch_internal_ids(
+    pub fn get_blobs_by_patch_internal_ids(
         &self,
         patch_internal_ids: &[&[u8]],
     ) -> ClientResult<Vec<QuiltStoreBlob<'static>>> {
@@ -536,8 +536,7 @@ impl<T: ReadClient> QuiltClient<'_, T> {
                     self,
                     self.config.clone(),
                     Some(metadata.index.clone().into()),
-                )
-                .await;
+                );
                 quilt_reader
                     .download_data(
                         &sliver_indices,
@@ -545,7 +544,7 @@ impl<T: ReadClient> QuiltClient<'_, T> {
                         certified_epoch,
                     )
                     .await?;
-                quilt_reader.get_blobs_by_identifiers(identifiers).await
+                quilt_reader.get_blobs_by_identifiers(identifiers)
             }
         }
     }
@@ -576,8 +575,7 @@ impl<T: ReadClient> QuiltClient<'_, T> {
                     self,
                     self.config.clone(),
                     Some(metadata.index.clone().into()),
-                )
-                .await;
+                );
                 quilt_reader
                     .download_data(
                         &sliver_indices,
@@ -585,9 +583,7 @@ impl<T: ReadClient> QuiltClient<'_, T> {
                         certified_epoch,
                     )
                     .await?;
-                quilt_reader
-                    .get_blobs_by_tag(target_tag, target_value)
-                    .await
+                quilt_reader.get_blobs_by_tag(target_tag, target_value)
             }
         }
     }
@@ -665,7 +661,7 @@ impl<T: ReadClient> QuiltClient<'_, T> {
         }
 
         let mut quilt_reader =
-            QuiltReader::<'_, QuiltVersionV1, T>::new(self, self.config.clone(), None).await;
+            QuiltReader::<'_, QuiltVersionV1, T>::new(self, self.config.clone(), None);
         quilt_reader
             .download_data(&sliver_indices, metadata, certified_epoch)
             .await?;
@@ -673,9 +669,7 @@ impl<T: ReadClient> QuiltClient<'_, T> {
             .iter()
             .map(|quilt_id| quilt_id.patch_id_bytes.as_slice())
             .collect::<Vec<_>>();
-        quilt_reader
-            .get_blobs_by_patch_internal_ids(&internal_ids)
-            .await
+        quilt_reader.get_blobs_by_patch_internal_ids(&internal_ids)
     }
 
     /// Retrieves all the blobs from the quilt.
@@ -693,7 +687,7 @@ impl<T: ReadClient> QuiltClient<'_, T> {
             .await?;
 
         let mut quilt_reader =
-            QuiltReader::<'_, QuiltVersionV1, T>::new(self, self.config.clone(), None).await;
+            QuiltReader::<'_, QuiltVersionV1, T>::new(self, self.config.clone(), None);
         quilt_reader.get_all_blobs(&metadata, certified_epoch).await
     }
 
@@ -726,7 +720,7 @@ impl<T: ReadClient> QuiltClient<'_, T> {
 /// Stores quilts.
 impl QuiltClient<'_, SuiContractClient> {
     /// Constructs a quilt from a list of blobs.
-    pub async fn construct_quilt<V: QuiltVersion>(
+    pub fn construct_quilt<V: QuiltVersion>(
         &self,
         blobs: &[QuiltStoreBlob<'_>],
         encoding_type: EncodingType,
@@ -746,7 +740,7 @@ impl QuiltClient<'_, SuiContractClient> {
     //
     /// The on-disk file names are used as identifiers for the quilt patches.
     /// If the file name is not valid UTF-8, it will be replaced with "unnamed-blob-index".
-    pub async fn construct_quilt_from_paths<V: QuiltVersion, P: AsRef<Path>>(
+    pub fn construct_quilt_from_paths<V: QuiltVersion, P: AsRef<Path>>(
         &self,
         paths: &[P],
         encoding_type: EncodingType,
@@ -761,7 +755,6 @@ impl QuiltClient<'_, SuiContractClient> {
         let quilt_store_blobs = assign_identifiers_with_paths(blobs_with_paths)?;
 
         self.construct_quilt::<V>(&quilt_store_blobs, encoding_type)
-            .await
     }
 
     /// Stores all blobs from a list of paths as a quilt.
@@ -771,12 +764,8 @@ impl QuiltClient<'_, SuiContractClient> {
         paths: &[P],
         store_args: &StoreArgs,
     ) -> ClientResult<QuiltStoreResult> {
-        let quilt = self
-            .construct_quilt_from_paths::<V, P>(paths, store_args.encoding_type)
-            .await?;
-        let result = self
-            .reserve_and_store_quilt::<V>(&quilt, store_args)
-            .await?;
+        let quilt = self.construct_quilt_from_paths::<V, P>(paths, store_args.encoding_type)?;
+        let result = self.reserve_and_store_quilt::<V>(quilt, store_args).await?;
 
         Ok(result)
     }
@@ -785,16 +774,21 @@ impl QuiltClient<'_, SuiContractClient> {
     #[tracing::instrument(skip_all, fields(blob_id))]
     pub async fn reserve_and_store_quilt<V: QuiltVersion>(
         &self,
-        quilt: &V::Quilt,
+        quilt: V::Quilt,
         store_args: &StoreArgs,
     ) -> ClientResult<QuiltStoreResult> {
         let attributes = vec![BlobAttribute::from([(
             BLOB_TYPE_ATTRIBUTE_KEY,
             QUILT_TYPE_VALUE,
         )])];
+        let quilt_index = quilt.quilt_index()?.clone();
         let result = self
             .client
-            .reserve_and_store_blobs_retry_committees(&[quilt.data()], &attributes, store_args)
+            .reserve_and_store_blobs_retry_committees(
+                vec![quilt.into_data()],
+                attributes,
+                store_args,
+            )
             .await?;
 
         let blob_store_result = result.first().expect("the first blob should exist").clone();
@@ -809,8 +803,7 @@ impl QuiltClient<'_, SuiContractClient> {
         let blob_id = blob_store_result
             .blob_id()
             .expect("the blob should have an id");
-        let stored_quilt_blobs = quilt
-            .quilt_index()?
+        let stored_quilt_blobs = quilt_index
             .patches()
             .iter()
             .map(|patch| {

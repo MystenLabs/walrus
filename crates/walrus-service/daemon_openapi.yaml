@@ -651,6 +651,128 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+  /v1alpha/blobs/concat:
+    get:
+      tags:
+      - routes
+      summary: Concatenate and stream multiple blobs via GET.
+      description: |-
+        Retrieves multiple blobs specified by comma-separated blob IDs or object IDs in the query
+        parameter, and streams them concatenated in the order specified. Each blob is loaded,
+        streamed, and then freed from memory before the next blob is processed.
+      operationId: get_blobs_concat
+      parameters:
+      - name: ids
+        in: query
+        description: Comma-separated list of blob IDs or object IDs to concatenate.
+        required: true
+        schema:
+          type: string
+        style: form
+      - name: read_options
+        in: query
+        description: Consistency check options for reading the blobs.
+        required: true
+        schema:
+          $ref: '#/components/schemas/ReadOptions'
+        style: form
+      responses:
+        '200':
+          description: Blobs concatenated and streamed successfully
+          content:
+            application/octet-stream:
+              schema:
+                type: array
+                items:
+                  type: integer
+                  format: int32
+                  minimum: 0
+        '400':
+          description: The consistency check options are invalid.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        '403':
+          description: One of the blobs exceeds the maximum allowed size.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        '404':
+          description: May be returned when (1) Failed to resolve an object ID to a blob ID. (2) One of the requested blobs was not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        '451':
+          description: One of the blobs is blocked.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        '500':
+          description: Failed to read a blob.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+    post:
+      tags:
+      - routes
+      summary: Concatenate and stream multiple blobs via POST.
+      description: |-
+        Retrieves multiple blobs specified in a JSON request body containing an array of blob IDs
+        or object IDs, and streams them concatenated in the order specified. Each blob is loaded,
+        streamed, and then freed from memory before the next blob is processed.
+      operationId: post_blobs_concat
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConcatRequestBody'
+        required: true
+      responses:
+        '200':
+          description: Blobs concatenated and streamed successfully
+          content:
+            application/octet-stream:
+              schema:
+                type: array
+                items:
+                  type: integer
+                  format: int32
+                  minimum: 0
+        '400':
+          description: The consistency check options are invalid.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        '403':
+          description: One of the blobs exceeds the maximum allowed size.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        '404':
+          description: May be returned when (1) Failed to resolve an object ID to a blob ID. (2) One of the requested blobs was not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        '451':
+          description: One of the blobs is blocked.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        '500':
+          description: Failed to read a blob.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
 components:
   schemas:
     Binary:
@@ -836,6 +958,7 @@ components:
             type: object
             description: Operation failed.
             required:
+            - failure_phase
             - error_msg
             properties:
               blob_id:
@@ -846,7 +969,44 @@ components:
               error_msg:
                 type: string
                 description: The error message.
+              failure_phase:
+                type: string
+                description: The phase after the error occurred.
       description: Result when attempting to store a blob.
+    ConcatQueryParams:
+      allOf:
+      - $ref: '#/components/schemas/ReadOptions'
+        description: Consistency check options for reading the blobs.
+      - type: object
+        required:
+        - ids
+        properties:
+          ids:
+            type: string
+            description: Comma-separated list of blob IDs or object IDs to concatenate.
+      description: The query parameters for concatenating multiple blobs.
+    ConcatRequestBody:
+      type: object
+      description: The request body for concatenating multiple blobs via POST.
+      required:
+      - ids
+      properties:
+        ids:
+          type: array
+          items:
+            type: string
+          description: List of blob IDs or object IDs to concatenate.
+        skip_consistency_check:
+          type:
+          - boolean
+          - 'null'
+          description: Whether to skip consistency checks entirely.
+        strict_consistency_check:
+          type:
+          - boolean
+          - 'null'
+          description: Whether to perform a strict consistency check.
+      additionalProperties: false
     EncodingType:
       type: string
       description: Supported Walrus encoding types.
@@ -958,6 +1118,28 @@ components:
           items:
             $ref: '#/components/schemas/StoredQuiltPatch'
           description: The structure of the quilt.
+    ReadOptions:
+      type: object
+      description: The query parameters for a read operation.
+      properties:
+        skip_consistency_check:
+          type: boolean
+          description: |-
+            Whether to skip consistency checks entirely.
+
+            When enabled, this flag bypasses all consistency verification during blob reading. This
+            should be used only when the writer of the blob is trusted. Does *not* affect any
+            authentication checks for data received from storage nodes, which are always performed.
+        strict_consistency_check:
+          type: boolean
+          description: |-
+            Whether to perform a strict consistency check.
+
+            This was the default before `v1.37`. In `v1.37`, the default consistency was changed to a
+            more performant one, which is sufficient for the majority of cases. This flag can be used to
+            enable the previous strict consistency check. See
+            https://docs.wal.app/design/encoding.html#data-integrity-and-consistency for more details.
+      additionalProperties: false
     RegisterBlobOp:
       oneOf:
       - type: object
@@ -999,13 +1181,13 @@ components:
                 description: The size of the encoded blob in bytes.
                 minimum: 0
       - type: object
-        description: A registration was already present.
+        description: A matching registration was already present in the wallet.
         required:
         - reuseRegistration
         properties:
           reuseRegistration:
             type: object
-            description: A registration was already present.
+            description: A matching registration was already present in the wallet.
             required:
             - encoded_length
             properties:

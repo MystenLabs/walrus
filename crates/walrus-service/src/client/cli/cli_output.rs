@@ -20,7 +20,7 @@ use walrus_core::{
 };
 use walrus_sdk::{
     client::{
-        client_types::{StoredQuiltPatch, get_stored_quilt_patches},
+        client_types::{self, StoredQuiltPatch},
         resource::RegisterBlobOp,
         responses::{BlobStoreResult, BlobStoreResultWithPath, QuiltStoreResult},
     },
@@ -264,12 +264,17 @@ impl CliOutput for BlobStoreResultWithPath {
                     format_event_id(event),
                 )
             }
-            BlobStoreResult::Error { blob_id, error_msg } => {
+            BlobStoreResult::Error {
+                blob_id,
+                error_msg,
+                failure_phase,
+            } => {
                 println!(
-                    "{} Error storing blob.\nPath: {}\nBlob ID: {:?}\nError: {}",
+                    "{} Storing blob failed during {}.\nPath: {}\nBlob ID: {}\nError: {}",
                     error(),
+                    failure_phase,
                     self.path.display(),
-                    blob_id,
+                    blob_id.map_or("unknown".to_string(), |id| id.to_string()),
                     error_msg,
                 )
             }
@@ -343,7 +348,7 @@ impl CliOutput for DryRunOutput {
 impl CliOutput for StoreQuiltDryRunOutput {
     fn print_cli_output(&self) {
         self.quilt_blob_output.print_cli_output();
-        construct_stored_quilt_patch_table(&get_stored_quilt_patches(
+        construct_stored_quilt_patch_table(&client_types::get_stored_quilt_patches(
             &self.quilt_index,
             self.quilt_blob_output.blob_id,
         ))
@@ -1268,7 +1273,7 @@ impl CliOutput for QuiltMetadataV1 {
             self.quilt_id
         );
 
-        construct_stored_quilt_patch_table(&get_stored_quilt_patches(
+        construct_stored_quilt_patch_table(&client_types::get_stored_quilt_patches(
             &self.index.clone().into(),
             self.quilt_id,
         ))

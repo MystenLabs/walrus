@@ -1,8 +1,6 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-use std::num::NonZeroU16;
-
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
@@ -17,7 +15,6 @@ use tracing::Level;
 use walrus_core::{
     BlobId,
     InconsistencyProof,
-    RecoverySymbol,
     Sliver,
     SliverIndex,
     SliverPairIndex,
@@ -58,7 +55,7 @@ use crate::{
         StoreMetadataError,
         StoreSliverError,
         SyncShardServiceError,
-        errors::{IndexOutOfRange, ListSymbolsError, Unavailable},
+        errors::{ListSymbolsError, Unavailable},
     },
 };
 
@@ -78,9 +75,6 @@ pub const PERMANENT_BLOB_CONFIRMATION_ENDPOINT: &str = "/v1/blobs/{blob_id}/conf
 /// The path to get blob confirmations for deletable blobs.
 pub const DELETABLE_BLOB_CONFIRMATION_ENDPOINT: &str =
     "/v1/blobs/{blob_id}/confirmation/deletable/{object_id}";
-/// The path to get recovery symbols.
-pub const RECOVERY_ENDPOINT: &str =
-    "/v1/blobs/{blob_id}/slivers/{sliver_pair_index}/{sliver_type}/{target_pair_index}";
 /// The path to get recovery symbols.
 pub const RECOVERY_SYMBOL_ENDPOINT: &str = "/v1/blobs/{blob_id}/recoverySymbols/{symbol_id}";
 /// The path to get multiple recovery symbols.
@@ -390,92 +384,6 @@ pub async fn get_deletable_blob_confirmation<S: SyncServiceState>(
         .await?;
 
     Ok(ApiSuccess::ok(confirmation))
-}
-
-/// Get recovery symbols.
-///
-/// Gets a symbol held by this storage node to aid in sliver recovery.
-///
-/// The `sliver_type` is the target type of the sliver that will be recovered.
-/// The `sliver_pair_index` is the index of the sliver pair that we want to access.
-/// The `target_pair_index` is the index of the target sliver.
-#[tracing::instrument(skip_all, err(level = Level::DEBUG), fields(
-    walrus.blob_id = %blob_id.0,
-    walrus.sliver.pair_index = %sliver_pair_index,
-    walrus.sliver.remote_pair_index = %target_pair_index,
-    walrus.recovery.symbol_type = %sliver_type
-))]
-#[utoipa::path(
-    get,
-    path = RECOVERY_ENDPOINT,
-    params(
-        ("blob_id" = BlobId,),
-        ("sliver_pair_index" = SliverPairIndex, ),
-        ("target_pair_index" = SliverPairIndex, ),
-        ("sliver_type" = SliverType, )
-    ),
-    responses(
-        (status = 200, description = "BCS encoded symbol", body = [u8]),
-        RetrieveSymbolError,
-    ),
-    tag = openapi::GROUP_RECOVERY
-)]
-#[deprecated = "use `get_recovery_symbol_by_id` instead"]
-pub async fn get_recovery_symbol<S: SyncServiceState>(
-    State(state): State<RestApiState<S>>,
-    Path((blob_id, sliver_pair_index, sliver_type, target_pair_index)): Path<(
-        BlobIdString,
-        SliverPairIndex,
-        SliverType,
-        SliverPairIndex,
-    )>,
-) -> Result<Response, RetrieveSymbolError> {
-    let blob_id = blob_id.0;
-    let n_shards = state.service.n_shards();
-    let _guard = limit_symbol_recovery_requests(state.recovery_symbols_limit.as_deref())?;
-
-    check_index(sliver_pair_index, n_shards)?;
-    check_index(target_pair_index, n_shards)?;
-
-    // The sliver type of the local sliver is orthogonal to the identified sliver type.
-    let (primary_index, secondary_index) = match sliver_type {
-        SliverType::Primary => {
-            // The target_pair_index is the primary sliver.
-            (
-                target_pair_index.to_sliver_index::<PrimaryEncoding>(n_shards),
-                sliver_pair_index.to_sliver_index::<SecondaryEncoding>(n_shards),
-            )
-        }
-        SliverType::Secondary => {
-            // The target_pair_index is the secondary sliver.
-            (
-                sliver_pair_index.to_sliver_index::<PrimaryEncoding>(n_shards),
-                target_pair_index.to_sliver_index::<SecondaryEncoding>(n_shards),
-            )
-        }
-    };
-    let symbol_id = SymbolId::new(primary_index, secondary_index);
-    let symbol = state
-        .service
-        .retrieve_recovery_symbol(&blob_id, symbol_id, Some(sliver_type))
-        .await?
-        .into();
-
-    match symbol {
-        RecoverySymbol::Primary(inner) => Ok(Bcs(inner).into_response()),
-        RecoverySymbol::Secondary(inner) => Ok(Bcs(inner).into_response()),
-    }
-}
-
-fn check_index(index: SliverPairIndex, n_shards: NonZeroU16) -> Result<(), IndexOutOfRange> {
-    if index.get() < n_shards.get() {
-        Ok(())
-    } else {
-        Err(IndexOutOfRange {
-            index: index.get(),
-            max: n_shards.get(),
-        })
-    }
 }
 
 /// Get a recovery symbol by its ID.

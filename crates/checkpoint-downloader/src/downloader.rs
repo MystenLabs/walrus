@@ -616,8 +616,7 @@ mod tests {
             None,
             None,
             Duration::from_secs(30),
-        )
-        .await?;
+        )?;
         let parallel_config = ParallelDownloaderConfig {
             retries: Some(0),
             initial_delay: Duration::from_millis(250),

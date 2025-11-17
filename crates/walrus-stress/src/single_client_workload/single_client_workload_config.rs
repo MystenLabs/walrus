@@ -6,7 +6,11 @@
 use rand::Rng;
 use walrus_sui::test_utils::system_setup::DEFAULT_MAX_EPOCHS_AHEAD;
 
-/// Configuration for request type distribution that can be used by the load generator
+/// Configuration for request type distribution that can be used by the load generator.
+/// These weights define the probability of each request type being generated when generating a
+/// client operation.
+/// Note that the weights are used if it allows a valid operation, e.g. if the blob pool is empty,
+/// no read or delete or extend operations will be generated.
 #[derive(Debug, Clone)]
 pub struct RequestTypeDistributionConfig {
     /// The weight for read requests.

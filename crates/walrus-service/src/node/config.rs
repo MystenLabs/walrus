@@ -578,7 +578,7 @@ impl Default for BlobRecoveryConfig {
             max_concurrent_sliver_syncs: 2_000,
             max_proof_cache_elements: 7_500,
             committee_service_config: CommitteeServiceConfig::default(),
-            monitor_interval: Duration::from_secs(60),
+            monitor_interval: Duration::from_mins(1),
         }
     }
 }
@@ -634,10 +634,10 @@ impl Default for CommitteeServiceConfig {
     fn default() -> Self {
         Self {
             retry_interval_min: Duration::from_secs(1),
-            retry_interval_max: Duration::from_secs(3600),
+            retry_interval_max: Duration::from_hours(1),
             metadata_request_timeout: Duration::from_secs(5),
             sliver_request_timeout: Duration::from_secs(45),
-            invalidity_sync_timeout: Duration::from_secs(300),
+            invalidity_sync_timeout: Duration::from_mins(5),
             max_concurrent_metadata_requests: NonZeroUsize::new(1).expect("1 is non-zero"),
             node_connect_timeout: Duration::from_secs(1),
             experimental_sliver_recovery_additional_symbols: 0,
@@ -688,13 +688,13 @@ impl Default for ShardSyncConfig {
     fn default() -> Self {
         Self {
             sliver_count_per_sync_request: 1000,
-            shard_sync_retry_min_backoff: Duration::from_secs(60),
-            shard_sync_retry_max_backoff: Duration::from_secs(600),
+            shard_sync_retry_min_backoff: Duration::from_mins(1),
+            shard_sync_retry_max_backoff: Duration::from_mins(10),
             max_concurrent_blob_recovery_during_shard_recovery: 100,
-            blob_certified_check_interval: Duration::from_secs(60),
+            blob_certified_check_interval: Duration::from_mins(1),
             max_concurrent_metadata_fetch: 100,
             shard_sync_concurrency: 10,
-            shard_sync_retry_switch_to_recovery_interval: Duration::from_secs(12 * 60 * 60), // 12hr
+            shard_sync_retry_switch_to_recovery_interval: Duration::from_hours(12),
             restart_shard_sync_always_retry_transfer_first: true,
             sst_ingestion_config: None,
         }
@@ -806,7 +806,7 @@ pub mod defaults {
     /// Default interval between config monitoring checks in seconds.
     pub const CONFIG_SYNCHRONIZER_INTERVAL_SECS: u64 = 900;
     /// Default frequency with which balance checks are performed.
-    pub const BALANCE_CHECK_FREQUENCY: Duration = Duration::from_secs(60 * 60);
+    pub const BALANCE_CHECK_FREQUENCY: Duration = Duration::from_hours(1);
     /// SUI MIST threshold under which balance checks log a warning.
     pub const BALANCE_CHECK_WARNING_THRESHOLD_MIST: u64 = 5_000_000_000;
     /// The default number of max concurrent streams for the rest API.
@@ -858,7 +858,7 @@ pub mod defaults {
 
     /// Configure the default push interval for metrics.
     pub fn push_interval() -> Duration {
-        Duration::from_secs(60)
+        Duration::from_mins(1)
     }
 
     /// Returns true if the `duration` is equal to the default push interval for metrics.

@@ -277,7 +277,7 @@ impl BlobSyncHandler {
         self.cancel_syncs(|(_, sync)| sync.cancel(), false).await
     }
 
-    async fn remove_sync_handle(&self, blob_id: &BlobId) {
+    fn remove_sync_handle(&self, blob_id: &BlobId) {
         self.blob_syncs_in_progress
             .lock()
             .expect("should be able to acquire lock")
@@ -440,7 +440,7 @@ impl BlobSyncHandler {
         };
 
         // We remove the blob handler regardless of the result.
-        self.remove_sync_handle(&blob_id).await;
+        self.remove_sync_handle(&blob_id);
 
         walrus_utils::with_label!(self.node.metrics.recover_blob_duration_seconds, label)
             .observe(start.elapsed().as_secs_f64());

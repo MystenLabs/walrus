@@ -15,7 +15,6 @@ use std::{
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use fastcrypto::encoding::Encoding;
-use indicatif::MultiProgress;
 use itertools::Itertools as _;
 use rand::seq::SliceRandom;
 use reqwest::Url;
@@ -55,7 +54,7 @@ use walrus_sdk::{
         responses as sdk_responses,
         upload_relay_client::UploadRelayClient,
     },
-    config::{UploadMode, UploadPreset, load_configuration},
+    config::load_configuration,
     error::ClientErrorKind,
     store_optimizations::StoreOptimizations,
     sui::{
@@ -158,20 +157,6 @@ use crate::{
     common::telemetry::TracingSubscriberBuilder,
     utils::{self, MetricsAndLoggingRuntime, generate_sui_wallet},
 };
-
-fn apply_upload_mode_to_config(
-    mut config: walrus_sdk::config::ClientConfig,
-    upload_mode: UploadMode,
-) -> walrus_sdk::config::ClientConfig {
-    // Use UploadPreset to apply tuning to the communication config
-    let preset = match upload_mode {
-        UploadMode::Conservative => UploadPreset::Conservative,
-        UploadMode::Balanced => UploadPreset::Balanced,
-        UploadMode::Aggressive => UploadPreset::Aggressive,
-    };
-    config.communication_config = preset.apply_to(config.communication_config.clone());
-    config
-}
 
 /// A helper struct to run commands for the Walrus client.
 #[allow(missing_debug_implementations)]
@@ -662,7 +647,7 @@ impl ClientCommandRunner {
         tracing::info!("retrieved {} blobs from quilt", retrieved_blobs.len());
 
         if let Some(out) = out.as_ref() {
-            Self::write_blobs_dedup(&mut retrieved_blobs, out).await?;
+            Self::write_blobs_dedup(&mut retrieved_blobs, out)?;
         }
 
         ReadQuiltOutput::new(out.clone(), retrieved_blobs).print_output(self.json)
@@ -699,7 +684,6 @@ impl ClientCommandRunner {
             encoding_type,
             upload_relay,
             confirmation,
-            upload_mode,
             child_process_uploads,
             internal_run,
         }: StoreOptions,
@@ -711,9 +695,7 @@ impl ClientCommandRunner {
             ));
         }
 
-        // Apply CLI upload preset to the in-memory config before building the client, if provided.
-        let mut config = self.config?;
-        config = apply_upload_mode_to_config(config, upload_mode.unwrap_or(UploadMode::Balanced));
+        let config = self.config?;
         let client = get_contract_client(config, self.wallet, self.gas_budget, &None).await?;
 
         let system_object = client.sui_client().read_client.get_system_object().await?;
@@ -749,7 +731,6 @@ impl ClientCommandRunner {
             &store_optimizations,
             persistence,
             post_store,
-            upload_mode,
             upload_relay.as_ref(),
             internal_run,
             "store",
@@ -821,8 +802,9 @@ impl ClientCommandRunner {
             }
         }
 
+        let blobs_len = blobs.len();
         let results = client
-            .reserve_and_store_blobs_retry_committees_with_path(&blobs, &store_args)
+            .reserve_and_store_blobs_retry_committees_with_path(blobs, &store_args)
             .await?;
 
         internal_run_ctx.finalize_after_store(&mut store_args).await;
@@ -839,7 +821,6 @@ impl ClientCommandRunner {
             }
         }
 
-        let blobs_len = blobs.len();
         if results.len() != blobs_len {
             let not_stored = results
                 .iter()
@@ -964,7 +945,7 @@ impl ClientCommandRunner {
         } else {
             tracing::info!(
                 duration = ?start_timer.elapsed(),
-                "{} out of {} blobs stored",
+                "finished storing blobs ({}/{})",
                 results.len(),
                 blobs_len
             );
@@ -987,8 +968,9 @@ impl ClientCommandRunner {
 
         for file in files {
             let blob = read_blob_from_file(&file)?;
-            let (_, metadata) =
-                client.encode_pairs_and_metadata(&blob, encoding_type, &MultiProgress::new())?;
+            let metadata = encoding_config
+                .get_for_type(encoding_type)
+                .compute_metadata(&blob)?;
             let unencoded_size = metadata.metadata().unencoded_length();
             let encoded_size = encoded_blob_length_for_n_shards(
                 encoding_config.n_shards(),
@@ -1028,7 +1010,6 @@ impl ClientCommandRunner {
             encoding_type,
             upload_relay,
             confirmation,
-            upload_mode,
             child_process_uploads,
             internal_run,
         }: StoreOptions,
@@ -1044,9 +1025,7 @@ impl ClientCommandRunner {
         }
 
         let encoding_type = encoding_type.unwrap_or(DEFAULT_ENCODING);
-        // Apply CLI upload preset to the in-memory config before building the client, if provided.
-        let mut config = self.config?;
-        config = apply_upload_mode_to_config(config, upload_mode.unwrap_or(UploadMode::Balanced));
+        let config = self.config?;
         let client = get_contract_client(config, self.wallet, self.gas_budget, &None).await?;
 
         let system_object = client.sui_client().read_client.get_system_object().await?;
@@ -1069,7 +1048,7 @@ impl ClientCommandRunner {
             )
         };
 
-        let quilt_store_blobs = Self::load_blobs_for_quilt(&paths, blobs).await?;
+        let quilt_store_blobs = Self::load_blobs_for_quilt(&paths, blobs)?;
 
         if dry_run {
             return Self::store_quilt_dry_run(
@@ -1090,7 +1069,6 @@ impl ClientCommandRunner {
             &store_optimizations,
             persistence,
             post_store,
-            upload_mode,
             upload_relay.as_ref(),
             internal_run,
             "store-quilt",
@@ -1117,8 +1095,7 @@ impl ClientCommandRunner {
         let start_timer = std::time::Instant::now();
         let quilt_write_client = client.quilt_client();
         let quilt = quilt_write_client
-            .construct_quilt::<QuiltVersionV1>(&quilt_store_blobs, encoding_type)
-            .await?;
+            .construct_quilt::<QuiltVersionV1>(&quilt_store_blobs, encoding_type)?;
         let base_store_args = StoreArgs::new(
             encoding_type,
             epochs_ahead,
@@ -1176,7 +1153,7 @@ impl ClientCommandRunner {
         }
 
         let result = quilt_write_client
-            .reserve_and_store_quilt::<QuiltVersionV1>(&quilt, &store_args)
+            .reserve_and_store_quilt::<QuiltVersionV1>(quilt, &store_args)
             .await?;
 
         internal_run_ctx.finalize_after_store(&mut store_args).await;
@@ -1307,7 +1284,7 @@ impl ClientCommandRunner {
         result.print_output(self.json)
     }
 
-    async fn load_blobs_for_quilt(
+    fn load_blobs_for_quilt(
         paths: &[PathBuf],
         blob_inputs: Vec<QuiltBlobInput>,
     ) -> Result<Vec<QuiltStoreBlob<'static>>> {
@@ -1356,11 +1333,11 @@ impl ClientCommandRunner {
         tracing::info!("performing dry-run for quilt from {} blobs", blobs.len());
 
         let quilt_client = client.quilt_client();
-        let quilt = quilt_client
-            .construct_quilt::<QuiltVersionV1>(blobs, encoding_type)
-            .await?;
-        let (_, metadata) =
-            client.encode_pairs_and_metadata(quilt.data(), encoding_type, &MultiProgress::new())?;
+        let quilt = quilt_client.construct_quilt::<QuiltVersionV1>(blobs, encoding_type)?;
+        let metadata = client
+            .encoding_config()
+            .get_for_type(encoding_type)
+            .compute_metadata(quilt.data())?;
         let unencoded_size = metadata.metadata().unencoded_length();
         let encoded_size = encoded_blob_length_for_n_shards(
             client.encoding_config().n_shards(),
@@ -1954,10 +1931,7 @@ impl ClientCommandRunner {
         Ok(())
     }
 
-    async fn write_blobs_dedup(
-        blobs: &mut [QuiltStoreBlob<'static>],
-        out_dir: &Path,
-    ) -> Result<()> {
+    fn write_blobs_dedup(blobs: &mut [QuiltStoreBlob<'static>], out_dir: &Path) -> Result<()> {
         let mut filename_counters = std::collections::HashMap::new();
 
         for blob in &mut *blobs {
@@ -2000,7 +1974,6 @@ struct StoreOptions {
     encoding_type: Option<EncodingType>,
     upload_relay: Option<Url>,
     confirmation: UserConfirmation,
-    upload_mode: Option<UploadMode>,
     child_process_uploads: bool,
     internal_run: bool,
 }
@@ -2020,7 +1993,6 @@ impl TryFrom<CommonStoreOptions> for StoreOptions {
             encoding_type,
             upload_relay,
             skip_tip_confirmation,
-            upload_mode,
             child_process_uploads,
             internal_run,
         }: CommonStoreOptions,
@@ -2039,7 +2011,6 @@ impl TryFrom<CommonStoreOptions> for StoreOptions {
             encoding_type,
             upload_relay,
             confirmation: skip_tip_confirmation.into(),
-            upload_mode: upload_mode.map(Into::into),
             child_process_uploads,
             internal_run,
         })

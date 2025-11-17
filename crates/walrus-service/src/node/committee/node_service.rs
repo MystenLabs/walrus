@@ -33,12 +33,11 @@ use walrus_core::{
     ShardIndex,
     Sliver,
     SliverIndex,
-    SliverPairIndex,
     SliverType,
     encoding::{EncodingConfig, GeneralRecoverySymbol, Primary, Secondary},
     keys::ProtocolKeyPair,
     messages::InvalidBlobIdAttestation,
-    metadata::{BlobMetadataApi as _, VerifiedBlobMetadataWithId},
+    metadata::VerifiedBlobMetadataWithId,
 };
 use walrus_storage_node_client::{
     ClientBuildError,
@@ -56,13 +55,6 @@ use crate::node::config::defaults::REST_HTTP2_MAX_CONCURRENT_STREAMS;
 #[derive(Debug, Clone)]
 pub(crate) enum Request {
     GetVerifiedMetadata(BlobId),
-    #[allow(unused)]
-    GetVerifiedRecoverySymbol {
-        sliver_type: SliverType,
-        metadata: Arc<VerifiedBlobMetadataWithId>,
-        sliver_pair_at_remote: SliverPairIndex,
-        intersecting_pair_index: SliverPairIndex,
-    },
     SubmitProofForInvalidBlobAttestation {
         blob_id: BlobId,
         proof: InconsistencyProofEnum,
@@ -222,44 +214,6 @@ impl Service<Request> for UnboundedRemoteStorageNode {
                     .get_and_verify_metadata(&blob_id, &encoding_config)
                     .await
                     .map(Response::VerifiedMetadata)?,
-
-                Request::GetVerifiedRecoverySymbol {
-                    sliver_type,
-                    metadata,
-                    sliver_pair_at_remote,
-                    intersecting_pair_index,
-                } => {
-                    let n_shards = encoding_config.n_shards();
-                    let symbol_size = metadata
-                        .metadata()
-                        .symbol_size(&encoding_config)
-                        .map_err(NodeError::other)?;
-
-                    let symbol = if sliver_type == SliverType::Primary {
-                        client
-                            .get_and_verify_recovery_symbol::<Primary>(
-                                n_shards,
-                                symbol_size.get().into(),
-                                &metadata,
-                                sliver_pair_at_remote,
-                                intersecting_pair_index,
-                            )
-                            .await
-                            .map(DefaultRecoverySymbol::Primary)
-                    } else {
-                        client
-                            .get_and_verify_recovery_symbol::<Secondary>(
-                                n_shards,
-                                symbol_size.get().into(),
-                                &metadata,
-                                sliver_pair_at_remote,
-                                intersecting_pair_index,
-                            )
-                            .await
-                            .map(DefaultRecoverySymbol::Secondary)
-                    };
-                    symbol.map(Response::VerifiedRecoverySymbol)?
-                }
 
                 Request::SubmitProofForInvalidBlobAttestation {
                     blob_id,

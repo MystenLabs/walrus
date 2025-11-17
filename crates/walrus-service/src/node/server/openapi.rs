@@ -28,7 +28,6 @@ pub(super) const GROUP_SYNC_SHARD: &str = "Sync Shard";
         routes::get_deletable_blob_confirmation,
         routes::get_metadata,
         routes::get_permanent_blob_confirmation,
-        routes::get_recovery_symbol,
         routes::get_sliver,
         routes::health_info,
         routes::inconsistency_proof,

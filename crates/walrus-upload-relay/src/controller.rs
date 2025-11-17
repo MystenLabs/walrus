@@ -175,7 +175,7 @@ impl Controller {
                     .encoding_type
                     .unwrap_or(walrus_sdk::core::DEFAULT_ENCODING),
             )
-            .encode_with_metadata(body.as_ref())?;
+            .encode_with_metadata(body.into())?;
         let duration = encode_start_timer.elapsed();
 
         tracing::debug!(
@@ -463,7 +463,7 @@ pub(crate) fn cors_layer() -> CorsLayer {
     CorsLayer::new()
         .allow_origin(Any)
         .allow_methods(Any)
-        .max_age(Duration::from_secs(86400))
+        .max_age(Duration::from_hours(24))
         .allow_headers(Any)
 }
 
@@ -581,8 +581,7 @@ pub async fn get_client_with_config(
         &client_config.rpc_urls,
         client_config.backoff_config().clone(),
         None,
-    )
-    .await?
+    )?
     .with_metrics(Some(Arc::new(SuiClientMetricSet::new(registry))));
 
     let sui_read_client = client_config.new_read_client(retriable_sui_client).await?;
@@ -614,7 +613,7 @@ mod tests {
                 address: SuiAddress::from_bytes([42; 32]).expect("valid bytes"),
                 kind: TipKind::Const(42),
             },
-            tx_freshness_threshold: Duration::from_secs(60 * 60 * 10), // 10 hours.
+            tx_freshness_threshold: Duration::from_hours(10),
             tx_max_future_threshold: Duration::from_secs(30),
         };
 

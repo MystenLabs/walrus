@@ -418,10 +418,10 @@ public(package) fun advance_epoch(
     assert!(rewards.value() == 0 || pool.wal_balance > 0, EIncorrectEpochAdvance);
 
     // Split the commission from the rewards.
-    let total_rewards = rewards.value();
-    let commission = rewards.split(
-        total_rewards * (pool.commission_rate as u64) / (N_BASIS_POINTS as u64),
-    );
+    let total_rewards = rewards.value() as u128;
+    let commission_value =
+        total_rewards * (pool.commission_rate as u128) / (N_BASIS_POINTS as u128);
+    let commission = rewards.split(commission_value as u64);
     pool.commission.join(commission);
 
     // Update the commission_rate for the new epoch if there's a pending value.

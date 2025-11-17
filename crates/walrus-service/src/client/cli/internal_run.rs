@@ -28,7 +28,6 @@ use tokio::{
 use walrus_core::BlobId;
 use walrus_sdk::{
     client::{StoreArgs, WalrusNodeClient, responses as sdk_responses},
-    config::UploadMode,
     store_optimizations::StoreOptimizations,
     sui::client::{BlobPersistence, PostStoreAction, SuiContractClient},
     uploader::{TailHandling, UploaderEvent},
@@ -422,7 +421,6 @@ fn apply_common_store_child_args(
     store_optimizations: &StoreOptimizations,
     persistence: BlobPersistence,
     post_store: PostStoreAction,
-    upload_mode: Option<UploadMode>,
 ) {
     if let Some(ref epochs) = epoch_arg.epochs {
         match epochs {
@@ -464,14 +462,6 @@ fn apply_common_store_child_args(
     if post_store == PostStoreAction::Share {
         cmd.arg("--share");
     }
-
-    if let Some(mode) = upload_mode {
-        cmd.arg("--upload-mode").arg(match mode {
-            UploadMode::Conservative => "conservative",
-            UploadMode::Balanced => "balanced",
-            UploadMode::Aggressive => "aggressive",
-        });
-    }
 }
 
 /// Spawns a task to forward signals to the child uploader process.
@@ -494,7 +484,7 @@ fn spawn_signal_forwarders(handle: ChildProcessHandle, cancel_rx: watch::Receive
                 tokio::spawn(async move {
                     tokio::select! {
                         _ = stream.recv() => {
-                            forward_unix_signal_to_child(handle_clone, signo, name).await;
+                            forward_unix_signal_to_child(handle_clone, signo, name);
                             // When not catching the signal, the process will exit with
                             // 128 + signo by default. But when catching the signal, we need
                             // to do it ourself.
@@ -517,7 +507,7 @@ fn spawn_signal_forwarders(handle: ChildProcessHandle, cancel_rx: watch::Receive
 /// Forwards a Unix signal to the child uploader process.
 /// This is used to forward the Unix signals from the parent process to the child process.
 #[cfg(unix)]
-async fn forward_unix_signal_to_child(
+fn forward_unix_signal_to_child(
     handle: ChildProcessHandle,
     signo: libc::c_int,
     signal_name: &'static str,
@@ -576,7 +566,6 @@ pub(crate) async fn maybe_spawn_child_upload_process<F>(
     store_optimizations: &StoreOptimizations,
     persistence: BlobPersistence,
     post_store: PostStoreAction,
-    upload_mode: Option<UploadMode>,
     upload_relay: Option<&Url>,
     internal_run: bool,
     command_name: &str,
@@ -631,7 +620,6 @@ where
         store_optimizations,
         persistence,
         post_store,
-        upload_mode,
     );
 
     add_command_args(&mut cmd);

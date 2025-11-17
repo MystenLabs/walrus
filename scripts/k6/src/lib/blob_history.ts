@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import redis from 'k6/experimental/redis';
+import { StoredQuiltPatch } from '../flows/publisher';
 
 /**
  * Enables storing and retrieving blob IDs that have been successfully stored.
@@ -51,11 +52,48 @@ export class BlobHistory {
     }
 
     /**
+     * Given the response from storing a quilt, records the quilt patch IDs of the patches.
+     */
+    async recordQuiltPatchesFromResponse(groupKey: string, response: any): Promise<number | null> {
+        if (response.status != 200 || this.client === undefined) {
+            return null;
+        }
+
+        const storedQuiltFiles: undefined | StoredQuiltPatch[] = response.json('storedQuiltBlobs');
+        if (!storedQuiltFiles) {
+            return null;
+        }
+        return await this.client.rpush(groupKey, ...storedQuiltFiles.map((s) => s.quiltPatchId));
+    }
+
+    /**
+     * Given the response from storing a quilt, records the quilt patch IDs of the patches.
+     */
+    async recordQuiltFileIdsFromResponse(groupKey: string, response: any): Promise<number | null> {
+        if (response.status != 200 || this.client === undefined) {
+            console.log("skipping redis");
+            return null;
+        }
+        const responseJson = response.json();
+        const blobId: undefined | string = responseJson
+            .blobStoreResult?.newlyCreated?.blobObject.blobId;
+        const storedQuiltFiles: undefined | StoredQuiltPatch[] = responseJson.storedQuiltBlobs;
+
+        if (!blobId || !storedQuiltFiles) {
+            return null;
+        }
+        return await this.client.rpush(
+            groupKey,
+            ...storedQuiltFiles.map((s) => `${blobId}/${s.identifier}`)
+        );
+    }
+
+    /**
      * Get the blob at a given index in the list pointed to by the key.
      *
      * @returns The blob ID or null if not connected to a redis instance.
      */
-    async blobIdAtIndex(groupKey: string, index: number): Promise<string | null> {
+    async index(groupKey: string, index: number): Promise<string | null> {
         if (this.client == undefined) {
             return null;
         } else {

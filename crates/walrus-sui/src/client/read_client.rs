@@ -381,8 +381,7 @@ impl SuiReadClient {
         contract_config: &ContractConfig,
         backoff_config: ExponentialBackoffConfig,
     ) -> SuiClientResult<Self> {
-        let client =
-            RetriableSuiClient::new_for_rpc_urls(rpc_addresses, backoff_config, None).await?;
+        let client = RetriableSuiClient::new_for_rpc_urls(rpc_addresses, backoff_config, None)?;
         Self::new(client, contract_config).await
     }
 
@@ -466,7 +465,7 @@ impl SuiReadClient {
         })
     }
 
-    pub(crate) async fn object_arg_for_credits_obj(
+    pub(crate) fn object_arg_for_credits_obj(
         &self,
         mutability: SharedObjectMutability,
     ) -> SuiClientResult<ObjectArg> {
@@ -482,7 +481,7 @@ impl SuiReadClient {
         })
     }
 
-    pub(crate) async fn object_arg_for_walrus_subsidies_obj(
+    pub(crate) fn object_arg_for_walrus_subsidies_obj(
         &self,
         mutability: SharedObjectMutability,
     ) -> SuiClientResult<ObjectArg> {
