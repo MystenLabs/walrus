@@ -672,7 +672,7 @@ impl SuiContractClient {
         &self,
         manager_id: ObjectID,
         manager_cap: ArgumentOrOwnedObject,
-        blobs_with_certificates: &[(&Blob, &ConfirmationCertificate)],
+        blobs_with_certificates: &[CertifyAndExtendBlobParams<'_>],
     ) -> SuiClientResult<()> {
         self.retry_on_wrong_version(|| async {
             self.inner
@@ -2130,7 +2130,7 @@ impl SuiContractClientInner {
         &mut self,
         manager_id: ObjectID,
         manager_cap: ArgumentOrOwnedObject,
-        blobs_with_certificates: &[(&Blob, &ConfirmationCertificate)],
+        blobs_with_certificates: &[CertifyAndExtendBlobParams<'_>],
     ) -> SuiClientResult<()> {
         if blobs_with_certificates.is_empty() {
             tracing::debug!("no blobs to certify in blob manager");
@@ -2139,10 +2139,10 @@ impl SuiContractClientInner {
 
         let mut pt_builder = self.transaction_builder()?;
 
-        for (i, (blob, certificate)) in blobs_with_certificates.iter().enumerate() {
+        for (i, blob_params) in blobs_with_certificates.iter().enumerate() {
             tracing::debug!(
                 count = format!("{}/{}", i + 1, blobs_with_certificates.len()),
-                blob_id = %blob.blob_id,
+                blob_id = %blob_params.blob.blob_id,
                 "certifying blob in blob manager"
             );
 
@@ -2150,8 +2150,11 @@ impl SuiContractClientInner {
                 .certify_blob_in_blob_manager(
                     manager_id,
                     manager_cap,
-                    ArgumentOrOwnedObject::Object(blob.id),
-                    certificate,
+                    ArgumentOrOwnedObject::Object(blob_params.blob.id),
+                    blob_params
+                        .certificate
+                        .as_ref()
+                        .expect("certificate is required"),
                 )
                 .await?;
         }
@@ -2201,7 +2204,7 @@ impl SuiContractClientInner {
         self.certify_blobs_in_blobmanager(
             manager_id,
             ArgumentOrOwnedObject::Object(manager_cap),
-            &blobs_with_certs,
+            &blobs_with_certificates,
         )
         .await?;
 

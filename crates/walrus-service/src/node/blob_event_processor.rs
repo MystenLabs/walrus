@@ -14,7 +14,13 @@ use tokio::{
     sync::mpsc::{self, UnboundedReceiver, UnboundedSender},
     task::JoinHandle,
 };
-use walrus_sui::types::{BlobCertified, BlobDeleted, BlobEvent, InvalidBlobId};
+use walrus_sui::types::{
+    BlobCertified,
+    BlobDeleted,
+    BlobEvent,
+    InvalidBlobId,
+    ManagedBlobCertified,
+};
 use walrus_utils::metrics::monitored_scope;
 
 use super::{StorageNodeInner, blob_sync::BlobSyncHandler, metrics, system_events::EventHandle};
@@ -184,14 +190,17 @@ impl BackgroundEventProcessor {
                 // TODO (WAL-424): Implement DenyListBlobDeleted event handling.
                 todo!("DenyListBlobDeleted event handling is not yet implemented");
             }
-            BlobEvent::Registered(_) => {
+            BlobEvent::Registered(_) | BlobEvent::ManagedBlobRegistered(_) => {
                 unreachable!("registered event should be processed immediately");
             }
-            BlobEvent::ManagedBlobRegistered(_)
-            | BlobEvent::ManagedBlobCertified(_)
-            | BlobEvent::ManagedBlobDeleted(_) => {
-                // Managed blob events are now handled through the standard blob info update path.
-                // The event conversion and merge logic is implemented in blob_info.rs.
+            BlobEvent::ManagedBlobCertified(event) => {
+                let _scope = monitored_scope::monitored_scope(
+                    "ProcessEvent::BlobEvent::ManagedBlobCertified",
+                );
+                self.process_managed_blob_certified_event(event_handle, event)
+                    .await?;
+            }
+            BlobEvent::ManagedBlobDeleted(_) => {
                 event_handle.mark_as_complete();
             }
         }
@@ -226,6 +235,7 @@ impl BackgroundEventProcessor {
         );
 
         if skip_blob_sync_in_test
+            // When the certify event arrives, it is already expired. So we don't need to sync it.
             || !self.node.is_blob_certified(&event.blob_id)?
             || self.node.storage.node_status()?.is_catching_up()
             || (current_event_epoch.is_some()
@@ -243,6 +253,65 @@ impl BackgroundEventProcessor {
                 %event.blob_id,
                 %event.epoch,
                 %event.is_extension,
+                "skipping syncing blob during certified event processing",
+            );
+
+            walrus_utils::with_label!(histogram_set, metrics::STATUS_SKIPPED)
+                .observe(start.elapsed().as_secs_f64());
+
+            return Ok(());
+        }
+
+        fail_point_async!("fail_point_process_blob_certified_event");
+
+        // Slivers and (possibly) metadata are not stored, so initiate blob sync.
+        self.blob_sync_handler
+            .start_sync(event.blob_id, event.epoch, Some(event_handle))
+            .await?;
+
+        walrus_utils::with_label!(histogram_set, metrics::STATUS_QUEUED)
+            .observe(start.elapsed().as_secs_f64());
+
+        Ok(())
+    }
+
+    /// Processes a managed blob certified event.
+    #[tracing::instrument(skip_all)]
+    async fn process_managed_blob_certified_event(
+        &self,
+        event_handle: EventHandle,
+        event: ManagedBlobCertified,
+    ) -> anyhow::Result<()> {
+        let start = tokio::time::Instant::now();
+
+        let histogram_set = self.node.metrics.recover_blob_duration_seconds.clone();
+
+        // Get the current event epoch to check if the blob is fully stored up to the shard
+        // assignment in this epoch. If the current event epoch is not set (the node may just
+        // started), we always start the blob sync.
+        let current_event_epoch = self.node.try_get_current_event_epoch();
+
+        // Note: ManagedBlobCertified doesn't have is_extension field (unlike BlobCertified).
+        // Managed blobs don't support extension operations.
+
+        if
+        // When the certify event arrives, it is already expired. So we don't need to sync it.
+        !self.node.is_blob_certified(&event.blob_id)?
+            || self.node.storage.node_status()?.is_catching_up()
+            || (current_event_epoch.is_some()
+                && self
+                    .node
+                    .is_stored_at_all_shards_at_epoch(
+                        &event.blob_id,
+                        current_event_epoch.expect("just checked that current event epoch is set"),
+                    )
+                    .await?)
+        {
+            event_handle.mark_as_complete();
+
+            tracing::debug!(
+                %event.blob_id,
+                %event.epoch,
                 "skipping syncing blob during certified event processing",
             );
 
@@ -428,7 +497,7 @@ impl BlobEventProcessor {
             .storage
             .update_blob_info(event_handle.index(), &blob_event)?;
 
-        if let BlobEvent::Registered(_) = &blob_event {
+        if let BlobEvent::Registered(_) | BlobEvent::ManagedBlobRegistered(_) = &blob_event {
             // Registered event is marked as complete immediately. We need to process registered
             // events as fast as possible to catch up to the latest event in order to not miss
             // blob sliver uploads.

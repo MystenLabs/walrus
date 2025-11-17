@@ -2207,10 +2207,8 @@ impl ValidBlobInfoV2 {
                     .get_or_insert_with(ManagedBlobInfo::default);
                 managed_info.update_status(change_type, &change_info);
             }
-            BlobStatusChangeType::CertifyManaged { blob_manager_id }
-            | BlobStatusChangeType::DeleteManaged {
-                blob_manager_id, ..
-            } => {
+            BlobStatusChangeType::CertifyManaged { .. }
+            | BlobStatusChangeType::DeleteManaged { .. } => {
                 // Managed blob operations update managed blob info.
                 // ManagedBlobInfo must exist for these operations.
                 let Some(ref mut managed_info) = self.managed_blob_info else {
