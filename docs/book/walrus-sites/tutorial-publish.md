@@ -137,11 +137,11 @@ Browsing to the provided URL should reflect the change. You've updated the site!
 Notice that all site resources are deleted (because they all belong to the same quilt), even those
 that haven't been modified. They then get re-uploaded together as a single quilt, where each
 resource corresponds to a quilt patch. This happens because the site-builder stores files on Walrus
-using quilts by default. This approach offers significant benefits: faster upload speeds and lower
+using quilts. This approach offers significant benefits: faster upload speeds and lower
 storage costs, especially when uploading many small files. The only disadvantage is that you cannot
-update a single file within a quilt—if even a tiny file changes, the entire quilt must be
-re-uploaded. If you want to tweak with the updates mechanism, you should check out the `--strategy`
-flag, but this is something to cover in a following section.
+update a single file within a quilt - if even a tiny file changes, the entire quilt must be
+re-uploaded. Upcoming versions of the site-builder will introduce optimizations in the storage usage between updates.
+For a detailed overview of Quilts, visit this [section](https://docs.wal.app/usage/quilt.html) of the documentation.
 
 ```admonish note
 The wallet you are using must be the *owner* of the Walrus Site object to be able to update it.
