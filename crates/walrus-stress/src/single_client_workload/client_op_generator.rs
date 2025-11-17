@@ -126,7 +126,7 @@ impl ClientOpGenerator {
                     "pool is full, generating none op instead of write, deletable: {}, \
                     pool size: {}",
                     deletable,
-                    blob_pool.size(),
+                    blob_pool.len(),
                 );
                 return WalrusNodeClientOp::None;
             }

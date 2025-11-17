@@ -211,7 +211,7 @@ impl BlobPool {
     }
 
     /// Returns the number of blobs in the pool.
-    pub fn size(&self) -> usize {
+    pub fn len(&self) -> usize {
         self.blobs.len()
     }
 
