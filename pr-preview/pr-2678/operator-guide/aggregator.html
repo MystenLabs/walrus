@@ -364,6 +364,19 @@ the <code>send_object_to</code> query parameter, if it is specified in the PUT r
 </ul>
 <h3 id="advanced-publisher-uses"><a class="header" href="#advanced-publisher-uses">Advanced publisher uses</a></h3>
 <p>The setup and use of an authenticated publisher is covered in a <a href="./auth-publisher.html">separate section</a>.</p>
+<h3 id="advanced-aggregator-uses"><a class="header" href="#advanced-aggregator-uses">Advanced aggregator uses</a></h3>
+<h4 id="large-file-support"><a class="header" href="#large-file-support">Large file support</a></h4>
+<p>As of Walrus <code>v1.38.0</code> the aggregator can perform concatenation of multiple blobs via the
+<code>/v1alpha/blobs/concat</code> endpoint. This endpoint enables delivery of very large files - which would
+otherwise be unsupported due to individual blob size restrictions. See
+<a href="../../examples/shell/walrus-store-sliced.sh"><code>walrus-store-sliced.sh</code></a> for an example of how a very
+large file can be sliced and uploaded to Walrus. Once the slices are uploaded, the very large file
+can be read directly by your downstream users by <code>GET</code> URL construction (listing the blob slices in
+the query params), or via a <code>POST</code> request with a JSON body listing the ids. Details of this api are
+available in the online aggregator docs. These can be found at <code>&lt;your-aggregator-url&gt;/v1/api</code>. Note
+that this endpoint is still under development and its specifications or behavior may change prior to
+becoming stable.</p>
+<p>For more information about maximum blob sizes, run <code>walrus info</code>.</p>
 
                     </main>
 

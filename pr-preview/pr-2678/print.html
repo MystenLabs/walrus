@@ -3383,6 +3383,19 @@ the <code>send_object_to</code> query parameter, if it is specified in the PUT r
 </ul>
 <h3 id="advanced-publisher-uses"><a class="header" href="#advanced-publisher-uses">Advanced publisher uses</a></h3>
 <p>The setup and use of an authenticated publisher is covered in a <a href="operator-guide/./auth-publisher.html">separate section</a>.</p>
+<h3 id="advanced-aggregator-uses"><a class="header" href="#advanced-aggregator-uses">Advanced aggregator uses</a></h3>
+<h4 id="large-file-support"><a class="header" href="#large-file-support">Large file support</a></h4>
+<p>As of Walrus <code>v1.38.0</code> the aggregator can perform concatenation of multiple blobs via the
+<code>/v1alpha/blobs/concat</code> endpoint. This endpoint enables delivery of very large files - which would
+otherwise be unsupported due to individual blob size restrictions. See
+<a href="operator-guide/../../examples/shell/walrus-store-sliced.sh"><code>walrus-store-sliced.sh</code></a> for an example of how a very
+large file can be sliced and uploaded to Walrus. Once the slices are uploaded, the very large file
+can be read directly by your downstream users by <code>GET</code> URL construction (listing the blob slices in
+the query params), or via a <code>POST</code> request with a JSON body listing the ids. Details of this api are
+available in the online aggregator docs. These can be found at <code>&lt;your-aggregator-url&gt;/v1/api</code>. Note
+that this endpoint is still under development and its specifications or behavior may change prior to
+becoming stable.</p>
+<p>For more information about maximum blob sizes, run <code>walrus info</code>.</p>
 <div style="break-before: page; page-break-before: always;"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.4/dist/katex.min.css">
 <h1 id="the-authenticated-publisher"><a class="header" href="#the-authenticated-publisher">The authenticated publisher</a></h1>
 <p>We now describe the authenticated publisher, which requires the HTTP request to store a blob to be
@@ -4636,8 +4649,9 @@ resource corresponds to a quilt patch. This happens because the site-builder sto
 using quilts. This approach offers significant benefits: faster upload speeds and lower
 storage costs, especially when uploading many small files. The only disadvantage is that you cannot
 update a single file within a quilt - if even a tiny file changes, the entire quilt must be
-re-uploaded. Upcoming versions of the site-builder will introduce optimizations in the storage usage between updates.
-For a detailed overview of Quilts, visit this <a href="https://docs.wal.app/usage/quilt.html">section</a> of the documentation.</p>
+re-uploaded. Upcoming versions of the site-builder will introduce optimizations in the storage
+usage between updates. For a detailed overview of Quilts, visit this
+<a href="https://docs.wal.app/usage/quilt.html">section</a> of the documentation.</p>
 <div id="admonition-note-1" class="admonition admonish-note" role="note" aria-labelledby="admonition-note-1-title">
 <div class="admonition-title">
 <div id="admonition-note-1-title">
