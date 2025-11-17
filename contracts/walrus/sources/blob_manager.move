@@ -203,7 +203,6 @@ public fun delete_blob(
     system: &System,
     blob_id: u256,
     deletable: bool,
-    _ctx: &mut TxContext,
 ) {
     // Verify the capability.
     check_cap(self, cap);
