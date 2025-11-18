@@ -98,6 +98,7 @@ pub struct IndexOutOfRange {
     pub max: u16,
 }
 
+/// Generic "service unavailable" error propagated to REST callers when a node-level limiter trips.
 #[derive(Debug, thiserror::Error, RestApiError)]
 #[error("the service is currently unavailable")]
 #[rest_api_error(
@@ -105,19 +106,35 @@ pub struct IndexOutOfRange {
 )]
 pub struct Unavailable;
 
+#[derive(Debug, thiserror::Error)]
+pub enum SetRecoveryDeferralError {
+    #[error("blob is not registered at this node")]
+    NotRegistered,
+    #[error("recovery deferral already exists for this blob")]
+    AlreadyExists,
+    #[error("blob is already fully stored on this node")]
+    AlreadyStored,
+    #[error("recovery deferral is not supported by this service")]
+    Unsupported,
+    #[error(transparent)]
+    Internal(#[from] InternalError),
+}
+
 #[derive(Debug, thiserror::Error, RestApiError)]
 #[rest_api_error(domain = ERROR_DOMAIN)]
 pub enum RetrieveMetadataError {
     /// The requested metadata could not be found at this storage node. It has either not been
     /// uploaded, does not exist, or has already been deleted.
     #[error("the requested metadata is unavailable")]
-    #[rest_api_error(reason = "METADATA_NOT_FOUND", status = ApiStatusCode::NotFound)]
+    #[rest_api_error(reason = "METADATA_NOT_FOUND",
+    status = ApiStatusCode::NotFound)]
     Unavailable,
 
     /// The metadata cannot be returned, as the associated blob has been
     /// blocked on this storage node.
     #[error("the requested metadata is blocked")]
-    #[rest_api_error(reason = "FORBIDDEN_BLOB", status = ApiStatusCode::UnavailableForLegalReasons)]
+    #[rest_api_error(reason = "FORBIDDEN_BLOB",
+    status = ApiStatusCode::UnavailableForLegalReasons)]
     Forbidden,
 
     #[error(transparent)]

@@ -4,6 +4,7 @@
 //! Walrus storage node.
 
 use std::{
+    collections::hash_map::Entry,
     future::Future,
     num::{NonZero, NonZeroU16},
     pin::Pin,
@@ -11,6 +12,7 @@ use std::{
         Arc,
         atomic::{AtomicBool, Ordering},
     },
+    time::Duration,
 };
 
 use anyhow::{Context, anyhow, bail};
@@ -41,7 +43,11 @@ use sui_macros::{fail_point_arg, fail_point_async};
 use sui_types::{base_types::ObjectID, event::EventID};
 use system_events::{CompletableHandle, EVENT_ID_FOR_CHECKPOINT_EVENTS, EventHandle};
 use thread_pool::{BoundedThreadPool, ThreadPoolBuilder};
-use tokio::{select, sync::watch, time::Instant};
+use tokio::{
+    select,
+    sync::{Notify, watch},
+    time::Instant,
+};
 use tokio_metrics::TaskMonitor;
 use tokio_util::sync::CancellationToken;
 use tower::{Service, ServiceExt};
@@ -135,6 +141,7 @@ use self::{
         RetrieveMetadataError,
         RetrieveSliverError,
         RetrieveSymbolError,
+        SetRecoveryDeferralError,
         ShardNotAssigned,
         StoreMetadataError,
         StoreSliverError,
@@ -168,7 +175,10 @@ use crate::{
             PositionedStreamEvent,
         },
     },
-    node::{config::GarbageCollectionConfig, event_blob_writer::EventBlobWriter},
+    node::{
+        config::{GarbageCollectionConfig, LiveUploadDeferralConfig},
+        event_blob_writer::EventBlobWriter,
+    },
     utils::ShardDiffCalculator,
 };
 
@@ -310,6 +320,15 @@ pub trait ServiceState {
         public_key: PublicKey,
         signed_request: SignedSyncShardRequest,
     ) -> impl Future<Output = Result<SyncShardResponse, SyncShardServiceError>> + Send;
+
+    /// Sets a deferral window for recovery for the specified blob ID.
+    fn set_recovery_deferral(
+        &self,
+        _blob_id: BlobId,
+        _defer_for: std::time::Duration,
+    ) -> impl Future<Output = Result<(), SetRecoveryDeferralError>> + Send {
+        async { Err(SetRecoveryDeferralError::Unsupported) }
+    }
 }
 
 /// Builder to construct a [`StorageNode`].
@@ -516,6 +535,13 @@ pub struct StorageNode {
     config_synchronizer: Option<Arc<ConfigSynchronizer>>,
 }
 
+type RecoveryDeferralEntry = (
+    std::time::Instant,
+    std::sync::Arc<tokio_util::sync::CancellationToken>,
+);
+type RecoveryDeferralMap = std::collections::HashMap<BlobId, RecoveryDeferralEntry>;
+type RecoveryDeferrals = std::sync::Arc<tokio::sync::RwLock<RecoveryDeferralMap>>;
+
 /// The internal state of a Walrus storage node.
 #[derive(Debug)]
 pub struct StorageNodeInner {
@@ -546,6 +572,10 @@ pub struct StorageNodeInner {
     consistency_check_config: StorageNodeConsistencyCheckConfig,
     checkpoint_manager: Option<Arc<DbCheckpointManager>>,
     garbage_collection_config: GarbageCollectionConfig,
+    recovery_deferrals: RecoveryDeferrals,
+    recovery_deferral_notify: Arc<Notify>,
+    recovery_deferral_cleanup_token: CancellationToken,
+    live_upload_deferral_config: LiveUploadDeferralConfig,
 }
 
 /// Parameters for configuring and initializing a node.
@@ -687,11 +717,16 @@ impl StorageNode {
             consistency_check_config: config.consistency_check.clone(),
             checkpoint_manager,
             garbage_collection_config: config.garbage_collection,
+            recovery_deferrals: std::sync::Arc::new(tokio::sync::RwLock::new(Default::default())),
+            recovery_deferral_notify: Arc::new(Notify::new()),
+            recovery_deferral_cleanup_token: CancellationToken::new(),
+            live_upload_deferral_config: config.live_upload_deferral.clone(),
         });
 
         blocklist.start_refresh_task();
 
         inner.init_gauges()?;
+        inner.start_recovery_deferral_cleanup_task();
 
         let blob_sync_handler = Arc::new(BlobSyncHandler::new(
             inner.clone(),
@@ -1372,9 +1407,11 @@ impl StorageNode {
         )
         .start_timer();
         fail_point_async!("before-process-event-impl");
+        let checkpoint_position = stream_element.checkpoint_event_position;
         match stream_element.element {
             EventStreamElement::ContractEvent(ContractEvent::BlobEvent(blob_event)) => {
-                self.process_blob_event(event_handle, blob_event).await?;
+                self.process_blob_event(event_handle, blob_event, checkpoint_position)
+                    .await?;
             }
             EventStreamElement::ContractEvent(ContractEvent::EpochChangeEvent(
                 epoch_change_event,
@@ -1408,12 +1445,13 @@ impl StorageNode {
         &self,
         event_handle: EventHandle,
         blob_event: BlobEvent,
+        checkpoint_position: CheckpointEventPosition,
     ) -> anyhow::Result<()> {
         let _scope = monitored_scope::monitored_scope("ProcessEvent::BlobEvent");
 
         tracing::debug!(?blob_event, "{} event received", blob_event.name());
         self.blob_event_processor
-            .process_event(event_handle, blob_event)
+            .process_event(event_handle, blob_event, checkpoint_position)
             .await?;
         Ok(())
     }
@@ -2230,8 +2268,149 @@ impl StorageNode {
 }
 
 impl StorageNodeInner {
+    /// Computes a deferral duration from the configured policy and a given unencoded size.
+    pub fn deferral_for_unencoded_size(&self, size_bytes: u64) -> Option<std::time::Duration> {
+        self.live_upload_deferral_config
+            .deferral_for_size(size_bytes)
+    }
+
+    /// Returns the latest checkpoint sequence number known to the node.
+    pub fn latest_checkpoint_sequence_number(&self) -> Option<u64> {
+        self.event_manager.latest_checkpoint_sequence_number()
+    }
+
+    /// Applies a recovery deferral if the node determines the blob is part of an in-flight upload.
+    #[tracing::instrument(skip(self))]
+    pub async fn maybe_apply_live_upload_deferral(
+        &self,
+        blob_id: BlobId,
+        checkpoint_sequence: u64,
+    ) {
+        if !self.live_upload_deferral_config.enabled {
+            return;
+        }
+
+        // The checkpoint number here is the one reported by the blob event that triggered this
+        // evaluation.
+        let Some(latest_checkpoint) = self.latest_checkpoint_sequence_number() else {
+            tracing::trace!("latest checkpoint unknown; skipping live-upload deferral");
+            return;
+        };
+
+        if checkpoint_sequence > latest_checkpoint {
+            // This can happen if the event stream pulls a checkpoint before we switch
+            // to a new fullnode which is not fully caught up.
+            tracing::trace!(
+                checkpoint_sequence,
+                latest_checkpoint,
+                "checkpoint sequence ahead of latest; skipping live-upload deferral"
+            );
+            return;
+        }
+
+        let lag = latest_checkpoint.saturating_sub(checkpoint_sequence);
+        if lag > self.live_upload_deferral_config.max_checkpoint_lag {
+            tracing::trace!(
+                lag,
+                threshold = self.live_upload_deferral_config.max_checkpoint_lag,
+                "checkpoint lag too high; skipping live-upload deferral"
+            );
+            return;
+        }
+
+        let deferral_from_size = match self.storage.get_metadata(&blob_id) {
+            Ok(Some(metadata)) => {
+                let size = metadata.as_ref().unencoded_length();
+                self.deferral_for_unencoded_size(size).inspect(|&duration| {
+                    tracing::trace!(size, ?duration, "applying size-based live-upload deferral");
+                })
+            }
+            Ok(None) => {
+                tracing::trace!(
+                    "metadata not yet stored, falling back to default live-upload deferral"
+                );
+                None
+            }
+            Err(error) => {
+                tracing::warn!(
+                    ?error,
+                    "database error while loading metadata while evaluating live-upload deferral"
+                );
+                return;
+            }
+        };
+
+        let Some(duration) = deferral_from_size.or_else(|| {
+            self.live_upload_deferral_config
+                .fallback_deferral()
+                .inspect(|duration| {
+                    tracing::trace!(?duration, "applying fallback live-upload deferral");
+                })
+        }) else {
+            tracing::trace!("no live-upload deferral configured for this blob");
+            return;
+        };
+
+        if duration.is_zero() {
+            tracing::trace!("configured deferral duration is zero; skipping live-upload deferral");
+            return;
+        }
+
+        if let Err(error) = self.set_recovery_deferral(blob_id, duration).await {
+            tracing::trace!(
+                ?error,
+                lag,
+                latest_checkpoint,
+                checkpoint_sequence,
+                "skipping live-upload recovery deferral"
+            );
+            return;
+        }
+
+        tracing::debug!(
+            ?duration,
+            lag,
+            latest_checkpoint,
+            checkpoint_sequence,
+            "applied live-upload recovery deferral"
+        );
+    }
+
     pub(crate) fn encoding_config(&self) -> &EncodingConfig {
         &self.encoding_config
+    }
+
+    /// Waits until the recovery deferral for the given blob ID expires
+    /// and cancels the recovery deferral upon timeout.
+    pub async fn wait_until_recovery_deferral_expires(
+        &self,
+        blob_id: &BlobId,
+    ) -> anyhow::Result<Arc<tokio_util::sync::CancellationToken>> {
+        let (until, token) = {
+            let map = self.recovery_deferrals.read().await;
+            if let Some((u, existing_token)) = map.get(blob_id).cloned() {
+                (Some(u), existing_token)
+            } else {
+                let t = Arc::new(tokio_util::sync::CancellationToken::new());
+                (None, t)
+            }
+        };
+
+        let mut waiter_metric_incremented = false;
+        if until.is_some() {
+            self.metrics.recovery_deferral_waiters.inc();
+            waiter_metric_incremented = true;
+        } else {
+            token.cancel();
+        }
+
+        token.cancelled().await;
+
+        if waiter_metric_incremented {
+            self.metrics.recovery_deferral_waiters.dec();
+        }
+
+        Ok(token)
     }
 
     /// Returns the node capability object ID.
@@ -2490,6 +2669,8 @@ impl StorageNodeInner {
 
         walrus_utils::with_label!(self.metrics.event_cursor_progress, "persisted").set(persisted);
         self.metrics.current_node_status.set(node_status.to_i64());
+        self.metrics.recovery_deferrals_active.set(0);
+        self.metrics.recovery_deferral_waiters.set(0);
 
         Ok(())
     }
@@ -2648,7 +2829,9 @@ impl StorageNodeInner {
     }
 
     fn shut_down(&self) {
-        self.is_shutting_down.store(true, Ordering::SeqCst)
+        self.is_shutting_down.store(true, Ordering::SeqCst);
+        self.recovery_deferral_cleanup_token.cancel();
+        self.recovery_deferral_notify.notify_waiters();
     }
 
     fn is_shutting_down(&self) -> bool {
@@ -2858,6 +3041,170 @@ impl StorageNodeInner {
             .now_or_never()
             .ok_or_else(|| Unavailable.into())
     }
+
+    /// Sets deferral for recovery for the blob for the specified duration (inherent method).
+    pub async fn set_recovery_deferral(
+        &self,
+        blob_id: BlobId,
+        defer_duration: std::time::Duration,
+    ) -> Result<(), SetRecoveryDeferralError> {
+        let is_registered = self.is_blob_registered(&blob_id).map_err(|error| {
+            tracing::warn!(
+                walrus.blob_id = %blob_id,
+                ?error,
+                "failed to check blob registration before scheduling recovery deferral"
+            );
+            SetRecoveryDeferralError::Internal(error)
+        })?;
+        if !is_registered {
+            tracing::trace!(
+                walrus.blob_id = %blob_id,
+                "skipping recovery deferral; blob is not registered at this node"
+            );
+            return Err(SetRecoveryDeferralError::NotRegistered);
+        }
+
+        if self
+            .is_stored_at_all_shards_at_latest_epoch(&blob_id)
+            .await
+            .map_err(|error| {
+                tracing::warn!(
+                    walrus.blob_id = %blob_id,
+                    ?error,
+                    "failed to check storage state before scheduling recovery deferral"
+                );
+                SetRecoveryDeferralError::Internal(error)
+            })?
+        {
+            tracing::trace!(
+                walrus.blob_id = %blob_id,
+                "skipping recovery deferral; blob already stored on all shards"
+            );
+            return Err(SetRecoveryDeferralError::AlreadyStored);
+        }
+
+        let until = std::time::Instant::now() + defer_duration;
+        let current_size = {
+            let mut map = self.recovery_deferrals.write().await;
+            match map.entry(blob_id) {
+                Entry::Occupied(mut entry) => {
+                    let (existing_until, _) = entry.get_mut();
+                    if until > *existing_until {
+                        tracing::trace!(
+                            walrus.blob_id = %blob_id,
+                            "extending recovery deferral deadline"
+                        );
+                        *existing_until = until;
+                    } else {
+                        tracing::trace!(
+                            walrus.blob_id = %blob_id,
+                            "existing recovery deferral already expires later"
+                        );
+                    }
+                    None
+                }
+                Entry::Vacant(entry) => {
+                    entry.insert((
+                        until,
+                        std::sync::Arc::new(tokio_util::sync::CancellationToken::new()),
+                    ));
+                    Some(map.len())
+                }
+            }
+        };
+        if let Some(size) = current_size {
+            self.update_recovery_deferral_size_metric(size);
+        }
+
+        self.recovery_deferral_notify.notify_one();
+
+        Ok(())
+    }
+
+    /// Removes any active recovery deferral for the specified blob.
+    pub async fn clear_recovery_deferral(&self, blob_id: &BlobId) {
+        let size = {
+            let mut map = self.recovery_deferrals.write().await;
+            if let Some((_, token)) = map.remove(blob_id) {
+                token.cancel();
+            }
+            map.len()
+        };
+        self.update_recovery_deferral_size_metric(size);
+        self.recovery_deferral_notify.notify_one();
+    }
+
+    fn update_recovery_deferral_size_metric(&self, size: usize) {
+        // Avoid potential wrap by saturating at i64::MAX on extremely large sizes.
+        let size_i64 = i64::try_from(size).unwrap_or(i64::MAX);
+        self.metrics.recovery_deferrals_active.set(size_i64);
+    }
+
+    fn start_recovery_deferral_cleanup_task(self: &Arc<Self>) {
+        let this = Arc::clone(self);
+        tokio::spawn(async move {
+            this.recovery_deferral_cleanup_task().await;
+        });
+    }
+
+    async fn recovery_deferral_cleanup_task(self: Arc<Self>) {
+        loop {
+            if self.recovery_deferral_cleanup_token.is_cancelled() {
+                break;
+            }
+
+            self.remove_expired_recovery_deferrals().await;
+
+            let sleep_duration = match self.next_recovery_deferral_deadline().await {
+                Some(deadline) => deadline.saturating_duration_since(std::time::Instant::now()),
+                None => Duration::from_secs(60),
+            };
+
+            // Any newly scheduled deferral notifies the waiters below, forcing us to recompute the
+            // minimum deadline so we never oversleep a shorter timeout.
+            tokio::select! {
+                _ = self.recovery_deferral_cleanup_token.cancelled() => break,
+                _ = self.recovery_deferral_notify.notified() => continue,
+                _ = tokio::time::sleep(sleep_duration) => {}
+            }
+        }
+
+        self.cancel_all_recovery_deferrals().await;
+    }
+
+    async fn next_recovery_deferral_deadline(&self) -> Option<std::time::Instant> {
+        let map = self.recovery_deferrals.read().await;
+        map.values().map(|(until, _)| *until).min()
+    }
+
+    async fn remove_expired_recovery_deferrals(&self) {
+        let now = std::time::Instant::now();
+        let mut removed_any = false;
+        let size = {
+            let mut map = self.recovery_deferrals.write().await;
+            map.retain(|_, (until, token)| {
+                if *until <= now {
+                    token.cancel();
+                    removed_any = true;
+                    false
+                } else {
+                    true
+                }
+            });
+            map.len()
+        };
+        if removed_any {
+            self.update_recovery_deferral_size_metric(size);
+        }
+    }
+
+    async fn cancel_all_recovery_deferrals(&self) {
+        let mut map = self.recovery_deferrals.write().await;
+        for (_, (_, token)) in map.drain() {
+            token.cancel();
+        }
+        self.update_recovery_deferral_size_metric(0);
+    }
 }
 
 fn api_status_from_shard_status(status: ShardStatus) -> ApiShardStatus {
@@ -3000,6 +3347,14 @@ impl ServiceState for StorageNode {
         signed_request: SignedSyncShardRequest,
     ) -> impl Future<Output = Result<SyncShardResponse, SyncShardServiceError>> + Send {
         self.inner.sync_shard(public_key, signed_request)
+    }
+
+    fn set_recovery_deferral(
+        &self,
+        blob_id: BlobId,
+        defer_duration: std::time::Duration,
+    ) -> impl Future<Output = Result<(), SetRecoveryDeferralError>> + Send {
+        self.inner.set_recovery_deferral(blob_id, defer_duration)
     }
 }
 
@@ -3454,7 +3809,8 @@ mod tests {
     use super::*;
     use crate::test_utils::{StorageNodeHandle, StorageNodeHandleTrait, TestCluster};
 
-    const TIMEOUT: Duration = Duration::from_secs(2);
+    // Allow a bit more slack now that live-upload deferrals can delay recovery.
+    const TIMEOUT: Duration = Duration::from_secs(5);
     const OTHER_BLOB_ID: BlobId = BlobId([247; 32]);
     const BLOB: &[u8] = &[
         0, 1, 255, 0, 2, 254, 0, 3, 253, 0, 4, 252, 0, 5, 251, 0, 6, 250, 0, 7, 249, 0, 8, 248,
@@ -4477,6 +4833,28 @@ mod tests {
             SliverType::Secondary => pair_to_sync.secondary.clone().into(),
         };
         assert_eq!(synced_sliver, expected);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn recovers_all_shards_for_multi_shard_node() -> TestResult {
+        let shards: &[&[u16]] = &[&[0, 1], &[2, 3]];
+
+        let (cluster, events, blob) =
+            cluster_with_partially_stored_blob(shards, BLOB, |shard, _| shard.get() >= 2).await?;
+        events.send(BlobCertified::for_testing(*blob.blob_id()).into())?;
+
+        let node_client = cluster.client(0);
+        for shard in [ShardIndex(0), ShardIndex(1)] {
+            let synced_sliver_pair =
+                expect_sliver_pair_stored_before_timeout(&blob, node_client, shard, TIMEOUT).await;
+            assert_eq!(
+                synced_sliver_pair,
+                *blob.assigned_sliver_pair(shard),
+                "invalid sliver pair for {shard}"
+            );
+        }
 
         Ok(())
     }

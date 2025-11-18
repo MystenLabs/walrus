@@ -85,6 +85,9 @@ pub struct StorageNodeConfig {
     /// Optional "config" to tune storage database.
     #[serde(default, skip_serializing_if = "defaults::is_default")]
     pub db_config: DatabaseConfig,
+    /// Configuration for deferring recovery while uploads are in progress.
+    #[serde(default, skip_serializing_if = "defaults::is_default")]
+    pub live_upload_deferral: LiveUploadDeferralConfig,
     /// Key pair used in Walrus protocol messages.
     // Important: this name should be in-sync with the name used in `rotate_protocol_key_pair()`
     #[serde_as(as = "PathOrInPlace<Base64>")]
@@ -203,6 +206,7 @@ impl Default for StorageNodeConfig {
             storage_path: PathBuf::from("/opt/walrus/db"),
             blocklist_path: Default::default(),
             db_config: Default::default(),
+            live_upload_deferral: Default::default(),
             protocol_key_pair: PathOrInPlace::from_path("/opt/walrus/config/protocol.key"),
             next_protocol_key_pair: None,
             network_key_pair: PathOrInPlace::from_path("/opt/walrus/config/network.key"),
@@ -788,6 +792,95 @@ impl GarbageCollectionConfig {
     }
 }
 
+/// Entry defining a size bucket and the corresponding deferral duration.
+#[serde_as]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+pub struct SizeDeferralEntry {
+    /// Maximum unencoded blob size (inclusive) in bytes for this bucket.
+    pub max_unencoded_bytes: u64,
+    /// Deferral duration to apply for this bucket.
+    #[serde_as(as = "DurationSeconds<u64>")]
+    #[serde(rename = "defer_secs")]
+    pub defer: Duration,
+}
+
+/// Configuration that controls deferring recovery when a live client upload is likely.
+#[serde_as]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct LiveUploadDeferralConfig {
+    /// Enables applying a deferral window based on blob size.
+    pub enabled: bool,
+    /// Lookup table from size upper-bounds to deferral durations. Earlier entries take precedence.
+    /// When empty, [`LiveUploadDeferralConfig::max_total_defer`] is applied uniformly
+    /// regardless of blob size.
+    #[serde(alias = "table")]
+    pub buckets: Vec<SizeDeferralEntry>,
+    /// Maximum total deferral to apply, acting as an upper bound.
+    #[serde_as(as = "DurationSeconds<u64>")]
+    #[serde(rename = "max_total_defer_secs")]
+    pub max_total_defer: Duration,
+    /// Maximum Sui checkpoint lag (inclusive) that still qualifies for a live-upload deferral.
+    #[serde(default = "default_max_checkpoint_lag")]
+    pub max_checkpoint_lag: u64,
+}
+
+const fn default_max_checkpoint_lag() -> u64 {
+    32
+}
+
+impl Default for LiveUploadDeferralConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            buckets: Vec::new(),
+            max_total_defer: Duration::from_secs(5 * 60),
+            max_checkpoint_lag: default_max_checkpoint_lag(),
+        }
+    }
+}
+
+impl LiveUploadDeferralConfig {
+    /// Computes the deferral for the provided unencoded blob size, if any.
+    pub fn deferral_for_size(&self, size_bytes: u64) -> Option<Duration> {
+        if !self.enabled {
+            return None;
+        }
+
+        for entry in &self.buckets {
+            if size_bytes <= entry.max_unencoded_bytes {
+                return Some(std::cmp::min(entry.defer, self.max_total_defer));
+            }
+        }
+
+        None
+    }
+
+    /// Fallback deferral to use when the blob size is unknown.
+    pub fn fallback_deferral(&self) -> Option<Duration> {
+        if !self.enabled {
+            return None;
+        }
+
+        let capped = self.max_total_defer;
+        (!capped.is_zero()).then_some(capped)
+    }
+
+    /// Returns a configuration that is convenient for tests.
+    #[cfg(any(test, feature = "test-utils", feature = "deploy"))]
+    pub fn default_for_test() -> Self {
+        Self {
+            enabled: true,
+            buckets: vec![SizeDeferralEntry {
+                max_unencoded_bytes: u64::MAX,
+                defer: Duration::from_millis(100),
+            }],
+            max_total_defer: Duration::from_millis(100),
+            max_checkpoint_lag: default_max_checkpoint_lag(),
+        }
+    }
+}
+
 /// Default values for the storage-node configuration.
 pub mod defaults {
     use std::net::Ipv4Addr;
@@ -1250,6 +1343,41 @@ mod tests {
             PathOrInPlace::from_path(path)
         );
         Ok(())
+    }
+
+    #[test]
+    fn live_upload_deferral_uses_first_matching_bucket() {
+        let config = LiveUploadDeferralConfig {
+            enabled: true,
+            buckets: vec![
+                SizeDeferralEntry {
+                    max_unencoded_bytes: 100,
+                    defer: Duration::from_secs(1),
+                },
+                SizeDeferralEntry {
+                    max_unencoded_bytes: 100,
+                    defer: Duration::from_secs(5),
+                },
+            ],
+            max_total_defer: Duration::from_secs(10),
+            max_checkpoint_lag: default_max_checkpoint_lag(),
+        };
+
+        assert_eq!(config.deferral_for_size(100), Some(Duration::from_secs(1)));
+    }
+
+    #[test]
+    fn live_upload_deferral_fallback_honors_enable_flag() {
+        let mut config = LiveUploadDeferralConfig {
+            enabled: true,
+            buckets: Vec::new(),
+            max_total_defer: Duration::from_secs(42),
+            max_checkpoint_lag: default_max_checkpoint_lag(),
+        };
+        assert_eq!(config.fallback_deferral(), Some(Duration::from_secs(42)));
+
+        config.enabled = false;
+        assert_eq!(config.fallback_deferral(), None);
     }
 
     #[test]

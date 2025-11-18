@@ -74,6 +74,9 @@ pub struct RestApiConfig {
 
     /// Limit on the number of active recovery symbol requests.
     pub max_active_recovery_symbols_requests: Option<usize>,
+
+    /// Live-upload based deferral policy.
+    pub live_upload_deferral: crate::node::config::LiveUploadDeferralConfig,
 }
 
 impl From<&StorageNodeConfig> for RestApiConfig {
@@ -115,6 +118,7 @@ impl From<&StorageNodeConfig> for RestApiConfig {
             max_active_recovery_symbols_requests: config
                 .rest_server
                 .experimental_max_active_recovery_symbols_requests,
+            live_upload_deferral: config.live_upload_deferral.clone(),
         }
     }
 }

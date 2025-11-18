@@ -108,6 +108,7 @@ use crate::{
             BlobRecoveryConfig,
             ConfigSynchronizerConfig,
             GarbageCollectionConfig,
+            LiveUploadDeferralConfig,
             NodeRecoveryConfig,
             ShardSyncConfig,
             StorageNodeConfig,
@@ -410,6 +411,11 @@ impl SimStorageNodeHandle {
         num_checkpoints_per_blob: Option<u32>,
         cancel_token: CancellationToken,
     ) -> sui_simulator::runtime::NodeHandle {
+        {
+            let mut cfg = config.write().await;
+            cfg.live_upload_deferral = LiveUploadDeferralConfig::default_for_test();
+        }
+
         let (startup_sender, mut startup_receiver) = tokio::sync::watch::channel(false);
 
         // Extract the IP address from the configuration.
@@ -3075,6 +3081,7 @@ pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
             // Uses smaller number of workers in tests to avoid overwhelming the tests.
             blob_event_processor_config: BlobEventProcessorConfig { num_workers: 3 },
             garbage_collection: GarbageCollectionConfig::default_for_test(),
+            live_upload_deferral: LiveUploadDeferralConfig::default_for_test(),
         },
         temp_dir,
     }

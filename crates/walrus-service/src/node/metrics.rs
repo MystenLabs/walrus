@@ -83,6 +83,12 @@ walrus_utils::metrics::define_metric_set! {
         #[help = "The total number of slivers stored"]
         slivers_stored_total: IntCounterVec["sliver_type"],
 
+        #[help = "The number of blobs with an active recovery deferral"]
+        recovery_deferrals_active: IntGauge[],
+
+        #[help = "The number of recovery tasks currently waiting for deferrals to expire"]
+        recovery_deferral_waiters: IntGauge[],
+
         #[help = "Total number of sliver instances returned"]
         slivers_retrieved_total: IntCounterVec["sliver_type"],
 
