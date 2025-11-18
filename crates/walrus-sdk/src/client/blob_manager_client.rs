@@ -6,18 +6,20 @@
 use std::fmt::Debug;
 
 use sui_types::{SUI_FRAMEWORK_ADDRESS, TypeTag, base_types::ObjectID};
-use walrus_core::{BlobId, EpochCount};
+use walrus_core::{BlobId, metadata::BlobMetadataApi as _};
 use walrus_sui::{
-    client::{BlobObjectMetadata, BlobPersistence, SuiContractClient},
+    client::{BlobPersistence, SuiContractClient},
     types::move_structs::ManagedBlob,
 };
 
 use crate::{
     client::{
         WalrusNodeClient,
-        WalrusStoreBlob,
-        client_types::WalrusStoreBlobApi,
-        resource::{RegisterBlobOp, StoreOp},
+        WalrusStoreBlobMaybeFinished,
+        WalrusStoreBlobUnfinished,
+
+        client_types::{BlobObject, BlobWithStatus, RegisteredBlob, WalrusStoreBlobFinished, BlobPendingCertifyAndExtend},
+        resource::{PriceComputation, RegisterBlobOp},
     },
     error::ClientResult,
 };
@@ -60,6 +62,51 @@ impl<'a> BlobManagerClient<'a, SuiContractClient> {
             blob_id_to_objects_table_id,
             blobs_by_object_id_table_id,
         })
+    }
+
+    /// Creates a new BlobManagerClient from a BlobManagerCap object ID.
+    /// Extracts the manager_id from the cap and initializes the client.
+    pub async fn from_cap(
+        client: &'a WalrusNodeClient<SuiContractClient>,
+        cap_id: ObjectID,
+    ) -> ClientResult<Self> {
+        use sui_sdk::rpc_types::{SuiObjectDataOptions, SuiParsedData, SuiMoveStruct, SuiMoveValue};
+
+        // Read the BlobManagerCap to get the manager_id.
+        let cap_response = client
+            .sui_client()
+            .retriable_sui_client()
+            .get_object_with_options(cap_id, SuiObjectDataOptions::new().with_content())
+            .await
+            .map_err(|e| Self::error(format!("Failed to read BlobManagerCap: {}", e)))?;
+
+        let cap_data = cap_response.data.ok_or_else(|| {
+            Self::error("BlobManagerCap object not found")
+        })?;
+
+        let content = cap_data.content.ok_or_else(|| {
+            Self::error("BlobManagerCap content not found")
+        })?;
+
+        let SuiParsedData::MoveObject(move_obj) = content else {
+            return Err(Self::error("BlobManagerCap is not a Move object"));
+        };
+
+        // Extract manager_id field directly from the Move object.
+        let SuiMoveStruct::WithFields(fields) = &move_obj.fields else {
+            return Err(Self::error("BlobManagerCap has no fields"));
+        };
+
+        let manager_id_value = fields.get("manager_id").ok_or_else(|| {
+            Self::error("manager_id field not found")
+        })?;
+
+        let SuiMoveValue::Address(manager_id) = manager_id_value else {
+            return Err(Self::error("manager_id is not an Address"));
+        };
+
+        // Create the BlobManagerClient using the manager_id from the cap.
+        Self::new(client, (*manager_id).into(), cap_id).await
     }
 
     /// Extracts a Table ObjectID from the BlobManager structure.
@@ -273,14 +320,23 @@ impl<'a> BlobManagerClient<'a, SuiContractClient> {
 impl BlobManagerClient<'_, SuiContractClient> {
     /// Reserve storage and register multiple blobs in the BlobManager.
     ///
-    /// Returns the ObjectIDs of registered blobs (blobs stay in BlobManager's table).
-    #[allow(dead_code)]
-    pub async fn reserve_and_register_blobs(
+    /// Returns WalrusStoreBlobMaybeFinished with RegisteredBlob state containing BlobObject::Managed.
+    pub async fn register_blobs(
         &self,
-        epochs_ahead: EpochCount,
-        blob_metadata_list: Vec<BlobObjectMetadata>,
+        blobs_with_status: Vec<WalrusStoreBlobUnfinished<BlobWithStatus>>,
         persistence: BlobPersistence,
-    ) -> ClientResult<Vec<ObjectID>> {
+    ) -> ClientResult<Vec<WalrusStoreBlobMaybeFinished<RegisteredBlob>>> {
+        use walrus_sui::client::BlobObjectMetadata;
+
+        // Extract BlobObjectMetadata from EncodedBlob.
+        let blob_metadata_list: Vec<BlobObjectMetadata> = blobs_with_status
+            .iter()
+            .map(|blob| {
+                BlobObjectMetadata::try_from(blob.state.encoded_blob.metadata.as_ref())
+                    .map_err(crate::error::ClientError::from)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
         tracing::info!(
             "BlobManager reserve_and_register: manager_id={:?}, manager_cap={:?}, num_blobs={}",
             self.manager_id,
@@ -288,145 +344,121 @@ impl BlobManagerClient<'_, SuiContractClient> {
             blob_metadata_list.len()
         );
 
+        // Register blobs in BlobManager.
         self.client
             .sui_client()
             .reserve_and_register_managed_blobs(
                 self.manager_id,
                 self.manager_cap,
-                epochs_ahead,
-                blob_metadata_list,
+                blob_metadata_list.clone(),
                 persistence,
             )
             .await
             .map_err(crate::error::ClientError::from)?;
 
-        // Note: register_blob doesn't return ManagedBlob objects - they are owned by BlobManager
-        // We can't extract ObjectIDs here. Callers should query BlobManager directly if needed.
-        // Return empty vec for now - this function may need to be refactored.
-        Ok(vec![])
-    }
+        // Construct MaybeFinished<RegisteredBlob> for each blob.
+        // We don't need the managed_blob_id for upload - BlobManager handles that.
+        let registered_blobs: Vec<WalrusStoreBlobMaybeFinished<RegisteredBlob>> =
+            blobs_with_status
+                .into_iter()
+                .zip(blob_metadata_list.iter())
+                .map(|(blob, metadata)| {
+                    let deletable = match persistence {
+                        BlobPersistence::Deletable => true,
+                        BlobPersistence::Permanent => false,
+                    };
 
-    /// Registers blobs with the BlobManager and returns WalrusStoreBlob results.
-    ///
-    /// DEPRECATED: This function is outdated and uses the old flow.
-    /// Use the ResourceManager::register_walrus_store_blobs() with blob_manager_id/cap instead.
-    #[allow(dead_code, deprecated, unused_variables, unreachable_code)]
-    #[deprecated]
-    pub async fn register_blobmanager_store_blobs<'a, T: Debug + Clone + Send + Sync>(
-        &self,
-        encoded_blobs_with_status: Vec<WalrusStoreBlob<'a, T>>,
-        epochs_ahead: EpochCount,
-        persistence: BlobPersistence,
-    ) -> ClientResult<Vec<WalrusStoreBlob<'a, T>>> {
-        // This function is deprecated and no longer works with the new ObjectID-based flow
-        unimplemented!("Deprecated. Use ResourceManager with blob_manager_id/cap.");
+                    blob.map_infallible(
+                        |blob_with_status| RegisteredBlob {
+                            encoded_blob: blob_with_status.encoded_blob.clone(),
+                            status: blob_with_status.status,
+                            blob_object: BlobObject::Managed {
+                                manager_id: self.manager_id,
+                                blob_id: metadata.blob_id,
+                                deletable,
+                                encoded_size: blob_with_status
+                                    .encoded_blob
+                                    .metadata
+                                    .metadata()
+                                    .encoded_size()
+                                    .expect("encoded blob should have valid encoded size"),
+                            },
+                            operation: RegisterBlobOp::RegisteredInBlobManager {
+                                encoded_length: blob_with_status
+                                    .encoded_blob
+                                    .metadata
+                                    .metadata()
+                                    .encoded_size()
+                                    .expect("encoded blob should have valid encoded size"),
+                                manager_id: self.manager_id,
+                            },
+                        },
+                        "register_managed_blob",
+                    )
+                    .into_maybe_finished()
+                })
+                .collect();
+
+        Ok(registered_blobs)
     }
 
     /// Certifies and completes blobs that were registered with the BlobManager.
+    /// Certifies managed blobs in the BlobManager.
     ///
-    /// Takes blobs with StoreOp::RegisteredInBlobManager, certifies them,
-    /// and returns completed blobs with BlobStoreResult::ManagedByBlobManager.
-    ///
-    /// This is the main certification workflow for BlobManager-registered blobs.
-    pub async fn certify_and_complete_blobs<'a, T: Debug + Clone + Send + Sync>(
+    /// Takes blobs that have been uploaded to storage nodes with certificates,
+    /// and certifies them in the BlobManager.
+    pub async fn certify_blobs(
         &self,
-        blobs_to_certify: Vec<WalrusStoreBlob<'a, T>>,
-    ) -> ClientResult<Vec<WalrusStoreBlob<'a, T>>> {
-        use walrus_sui::client::ArgumentOrOwnedObject;
-
-        use crate::client::responses::BlobStoreResult;
-
+        blobs_to_certify: Vec<WalrusStoreBlobUnfinished<BlobPendingCertifyAndExtend>>,
+        price_computation: PriceComputation,
+    ) -> ClientResult<Vec<WalrusStoreBlobFinished>> {
         if blobs_to_certify.is_empty() {
             return Ok(vec![]);
         }
 
-        // Extract Blob objects, operations and certificates from blobs
-        let mut blob_info: Vec<_> = Vec::new();
-        let mut certs_with_blobs: Vec<_> = Vec::new();
+        let cert_params: Vec<_> = blobs_to_certify
+            .iter()
+            .filter_map(|blob| {
+                match &blob.state.blob_object {
+                    BlobObject::Managed { blob_id, deletable, .. } => {
+                        blob.state.certificate.as_ref().map(|cert| {
+                            (*blob_id, *deletable, cert.as_ref())
+                        })
+                    }
+                    BlobObject::Regular(_) => {
+                        panic!("BlobManagerClient should only certify managed blobs")
+                    }
+                }
+            })
+            .collect();
 
-        for blob in &blobs_to_certify {
-            if let WalrusStoreBlob::WithCertificate(inner) = blob
-                && let StoreOp::RegisteredInBlobManager {
-                    blob: registered_blob,
-                    operation,
-                } = &inner.operation
-            {
-                blob_info.push((registered_blob.clone(), operation.clone()));
-                certs_with_blobs.push((registered_blob, &inner.certificate));
-            }
-        }
-
-        if blob_info.is_empty() {
-            return Ok(vec![]);
-        }
-
-        tracing::info!(
-            "BlobManager certify_and_complete_blobs: manager_id={:?}, num_blobs={}",
-            self.manager_id,
-            blob_info.len()
-        );
-
-        // Certify all blobs in a single batch transaction
         self.client
             .sui_client()
-            .certify_blobs_in_blobmanager(
+            .certify_managed_blobs_in_blobmanager(
                 self.manager_id,
-                ArgumentOrOwnedObject::Object(self.manager_cap),
-                &certs_with_blobs,
+                self.manager_cap,
+                &cert_params,
             )
-            .await?;
+            .await
+            .map_err(crate::error::ClientError::from)?;
 
-        tracing::info!(
-            "Successfully certified {} blobs in BlobManager",
-            certs_with_blobs.len()
-        );
+        // Convert all blobs to finished state with ManagedByBlobManager result
+        // For managed blobs, we don't need certify_and_extend_result or price_computation
+        let results = blobs_to_certify
+            .into_iter()
+            .map(|blob| {
+                blob.map_infallible(
+                    |blob_state| {
+                        blob_state.with_certify_and_extend_result(
+                            None, // Not needed for managed blobs
+                            &price_computation,
+                        )
+                    },
+                    "certify_managed_blob",
+                )
+            })
+            .collect();
 
-        // Get price computation and current epoch for cost/end_epoch calculation
-        let price_computation = self.client.get_price_computation().await?;
-        let current_epoch = self.client.get_committees().await?.epoch();
-
-        // Complete the blobs by creating BlobStoreResult::ManagedByBlobManager
-        let mut completed_blobs = Vec::new();
-        for (blob, (registered_blob, operation)) in
-            blobs_to_certify.into_iter().zip(blob_info.iter())
-        {
-            // Calculate cost from the operation
-            let cost = price_computation.operation_cost(operation);
-
-            // Calculate end_epoch from epochs_ahead in the operation
-            let end_epoch = match operation {
-                RegisterBlobOp::RegisterFromScratch { epochs_ahead, .. } => {
-                    current_epoch + *epochs_ahead
-                }
-                RegisterBlobOp::ReuseStorage { .. } | RegisterBlobOp::ReuseRegistration { .. } => {
-                    // For reuse operations, we don't extend epochs, so end_epoch stays the same
-                    // But we don't have the original blob's end_epoch here
-                    // Use current_epoch as a fallback (this is conservative)
-                    current_epoch
-                }
-                RegisterBlobOp::ReuseAndExtend {
-                    epochs_extended, ..
-                }
-                | RegisterBlobOp::ReuseAndExtendNonCertified {
-                    epochs_extended, ..
-                } => {
-                    // Extend from current epoch
-                    current_epoch + *epochs_extended
-                }
-            };
-
-            let result = BlobStoreResult::ManagedByBlobManager {
-                blob_id: registered_blob.blob_id,
-                blob_object_id: registered_blob.id, // Use ObjectID from the Blob object
-                resource_operation: operation.clone(),
-                cost,
-                end_epoch,
-            };
-
-            let completed = blob.complete_with(result);
-            completed_blobs.push(completed);
-        }
-
-        Ok(completed_blobs)
+        Ok(results)
     }
 }

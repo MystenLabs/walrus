@@ -1794,7 +1794,7 @@ impl WalrusPtbBuilder {
     /// Registers a blob with BlobManager and returns the result Argument to capture the Blob.
     /// Caller owns the Blob until certification, when ownership transfers to BlobManager.
     /// Returns the result Argument so the caller can extract the Blob object.
-    pub async fn register_blob_in_blob_manager(
+    pub async fn register_managed_blob(
         &mut self,
         manager: ObjectID,
         cap: ArgumentOrOwnedObject,
@@ -1851,24 +1851,30 @@ impl WalrusPtbBuilder {
         Ok(self.pt_builder.pure(())?)
     }
 
-    /// Certifies a blob in BlobManager and transfers ownership to BlobManager.
-    /// Takes the Blob object from the caller and certifies it.
-    pub async fn certify_blob_in_blob_manager(
+    /// Certifies a managed blob in BlobManager using blob_id and deletable flag.
+    /// This is the correct API for blobs already registered in the BlobManager.
+    pub async fn certify_managed_blob(
         &mut self,
         manager: ObjectID,
-        cap: ArgumentOrOwnedObject,
-        blob: ArgumentOrOwnedObject, // Blob object to be certified
+        cap: ObjectID,
+        blob_id: walrus_core::BlobId,
+        deletable: bool,
         certificate: &ConfirmationCertificate,
     ) -> SuiClientResult<()> {
-        let cap_arg = self.argument_from_arg_or_obj(cap).await?;
-        let blob_arg = self.argument_from_arg_or_obj(blob).await?;
-        let signers = self.signers_to_bitmap(&certificate.signers).await?;
-
-        // Get the initial shared version for the BlobManager
+        // Get the initial shared version for the BlobManager first
         let manager_initial_version = self
             .read_client
             .get_shared_object_initial_version(manager)
             .await?;
+
+        // Create the capability argument (cap is an owned object)
+        let cap_arg = self.argument_from_arg_or_obj(ArgumentOrOwnedObject::Object(cap)).await?;
+
+        // Get the signers bitmap
+        let signers = self.signers_to_bitmap(&certificate.signers).await?;
+
+        // Convert blob_id to u256 bytes
+        let blob_id_bytes = blob_id.as_ref();
 
         let certify_args = vec![
             self.pt_builder.obj(ObjectArg::SharedObject {
@@ -1878,14 +1884,14 @@ impl WalrusPtbBuilder {
             })?,
             cap_arg,
             self.system_arg(SharedObjectMutability::Immutable).await?,
-            blob_arg, // Pass the Blob object
+            self.pt_builder.pure(blob_id_bytes)?, // blob_id as u256
+            self.pt_builder.pure(deletable)?,      // deletable flag
             self.pt_builder.pure(certificate.signature.as_bytes())?,
             self.pt_builder.pure(&signers)?,
             self.pt_builder.pure(&certificate.serialized_message)?,
         ];
 
         self.blobmanager_move_call(contracts::blobmanager::certify_blob, certify_args)?;
-        self.mark_arg_as_consumed(&blob_arg);
         Ok(())
     }
 

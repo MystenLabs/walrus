@@ -109,6 +109,7 @@ pub mod resource;
 pub mod responses;
 pub mod store_args;
 pub use store_args::StoreArgs;
+pub mod blob_manager_client;
 pub mod upload_relay_client;
 
 mod auto_tune;
@@ -1167,15 +1168,22 @@ impl WalrusNodeClient<SuiContractClient> {
 
         let store_op_timer = Instant::now();
         // Register blobs if they are not registered, and get the store operations.
-        let registered_blobs = self
-            .resource_manager(&committees)
-            .register_walrus_store_blobs(
-                encoded_blobs_with_status,
-                store_args.epochs_ahead,
-                store_args.persistence,
-                store_args.store_optimizations,
-            )
-            .await?;
+        let registered_blobs = if let Some(blob_manager_cap) = store_args.blob_manager_cap {
+            self
+                .blob_manager(blob_manager_cap)
+                .await?
+                .register_blobs(encoded_blobs_with_status, store_args.persistence)
+                .await?
+        } else {
+            self.resource_manager(&committees)
+                .register_walrus_store_blobs(
+                    encoded_blobs_with_status,
+                    store_args.epochs_ahead,
+                    store_args.persistence,
+                    store_args.store_optimizations,
+                )
+                .await?
+        };
         debug_assert_eq!(
             registered_blobs.len(),
             blobs_count,
@@ -1344,7 +1352,7 @@ impl WalrusNodeClient<SuiContractClient> {
                 // If the blob is already certified on chain and there is no committee change in
                 // progress, all nodes already have the slivers.
                 self.get_certificate_standalone(
-                    &blob_object.blob_id,
+                    &blob_object.blob_id(),
                     certified_epoch,
                     &blob_object.blob_persistence_type(),
                 )
@@ -1355,8 +1363,12 @@ impl WalrusNodeClient<SuiContractClient> {
                 // epoch change we may need to store the slivers again for an already certified
                 // blob, as the current committee may not have synced them yet.
 
-                if (operation.is_registration() || operation.is_reuse_storage())
-                    && !blob_status.is_registered()
+                // TODO(heliu): Skip the wait when blob caching is enabled.
+                if (
+                    operation.is_registration()
+                        || operation.is_reuse_storage()
+                        || operation.is_registered_in_blob_manager()
+                ) && !blob_status.is_registered()
                 {
                     tracing::debug!(
                         delay=?self.config.communication_config.registration_delay,
@@ -1383,7 +1395,7 @@ impl WalrusNodeClient<SuiContractClient> {
                         .send_blob_data_and_get_certificate_with_relay(
                             &self.sui_client,
                             blob,
-                            blob_object.blob_id,
+                            blob_object.blob_id(),
                             store_args.encoding_type,
                             blob_object.blob_persistence_type(),
                         )
@@ -1423,6 +1435,16 @@ impl WalrusNodeClient<SuiContractClient> {
             .map(|blob| blob.get_certify_and_extend_params())
             .collect::<Vec<_>>();
 
+        if let Some(blob_manager_cap) = store_args.blob_manager_cap {
+            let blob_manager_client = self.blob_manager(blob_manager_cap).await?;
+            return Ok(blob_manager_client
+                .certify_blobs(
+                    blobs_to_certify_and_extend,
+                    self.get_price_computation().await?
+                )
+                .await?);
+        } 
+
         let cert_and_extend_results = self
             .sui_client
             .certify_and_extend_blobs(&certify_and_extend_parameters, store_args.post_store)
@@ -1455,7 +1477,13 @@ impl WalrusNodeClient<SuiContractClient> {
             .map(|blob| {
                 blob.map_infallible(
                     |blob| {
-                        let certify_and_extend_result = result_map.get(&blob.blob_object.id);
+                        let certify_and_extend_result = result_map
+                            .get(
+                                &blob
+                                    .blob_object
+                                    .object_id()
+                                    .expect("regular blobs should have an object ID"),
+                            );
                         blob.with_certify_and_extend_result(
                             certify_and_extend_result,
                             &price_computation,
@@ -1547,6 +1575,17 @@ impl WalrusNodeClient<SuiContractClient> {
                 .await
                 .map_err(ClientError::other)?,
         ))
+    }
+
+    /// Returns a [`BlobManagerClient`] for the given BlobManagerCap ID.
+    ///
+    /// This reads the BlobManagerCap object to get the manager_id, then initializes
+    /// the BlobManagerClient with the cached table IDs.
+    pub async fn blob_manager(
+        &self,
+        cap_id: ObjectID,
+    ) -> ClientResult<blob_manager_client::BlobManagerClient<'_, SuiContractClient>> {
+        blob_manager_client::BlobManagerClient::from_cap(self, cap_id).await
     }
 }
 

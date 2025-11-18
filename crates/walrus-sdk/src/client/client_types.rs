@@ -5,6 +5,7 @@
 
 use std::{fmt::Debug, sync::Arc};
 
+sui_types::base_types::ObjectID;
 use serde::{Deserialize, Serialize};
 use tracing::{Level, Span, field};
 use utoipa::ToSchema;
@@ -18,7 +19,7 @@ use walrus_core::{
         SliverPair,
         quilt_encoding::{QuiltIndexApi as _, QuiltPatchApi as _, QuiltPatchInternalIdApi},
     },
-    messages::ConfirmationCertificate,
+    messages::{BlobPersistenceType, ConfirmationCertificate},
     metadata::{QuiltIndex, VerifiedBlobMetadataWithId},
 };
 use walrus_storage_node_client::api::BlobStatus;
@@ -696,6 +697,73 @@ impl WalrusStoreBlobMaybeFinished<BlobWithStatus> {
     }
 }
 
+/// Enum to represent both regular Blob and ManagedBlob.
+#[derive(Debug, Clone, PartialEq)]
+pub enum BlobObject {
+    /// Regular blob owned by user.
+    Regular(Blob),
+    /// Blob managed by BlobManager.
+    Managed {
+        /// The BlobManager object ID.
+        manager_id: ObjectID,
+        /// The blob ID.
+        blob_id: BlobId,
+        /// Whether the blob is deletable.
+        deletable: bool,
+        /// The encoded size of the blob.
+        encoded_size: u64,
+    },
+}
+
+impl BlobObject {
+    /// Get the object ID - either the Blob object ID or placeholder for managed blobs.
+    /// For managed blobs, returns ZERO since we don't track individual object IDs.
+    pub fn object_id(&self) -> Option<ObjectID> {
+        match self {
+            BlobObject::Regular(blob) => Some(blob.id),
+            BlobObject::Managed { .. } => None, // Not tracked for managed blobs
+        }
+    }
+
+    /// Get the blob ID.
+    pub fn blob_id(&self) -> BlobId {
+        match self {
+            BlobObject::Regular(blob) => blob.blob_id,
+            BlobObject::Managed { blob_id, .. } => *blob_id,
+        }
+    }
+
+    /// Check if the blob is deletable.
+    pub fn deletable(&self) -> bool {
+        match self {
+            BlobObject::Regular(blob) => blob.deletable,
+            BlobObject::Managed { deletable, .. } => *deletable,
+        }
+    }
+
+    /// Check if this is a managed blob.
+    pub fn is_managed(&self) -> bool {
+        matches!(self, BlobObject::Managed { .. })
+    }
+
+    /// Get the manager ID if this is a managed blob.
+    pub fn manager_id(&self) -> Option<ObjectID> {
+        match self {
+            BlobObject::Regular(_) => None,
+            BlobObject::Managed { manager_id, .. } => Some(*manager_id),
+        }
+    }
+
+    /// Get the blob persistence type.
+    pub fn blob_persistence_type(&self) -> BlobPersistenceType {
+        if self.deletable() {
+            BlobPersistenceType::Deletable
+        } else {
+            BlobPersistenceType::Permanent
+        }
+    }
+}
+
 /// Registered blob.
 #[derive(Debug, Clone, PartialEq)]
 pub struct RegisteredBlob {
@@ -704,7 +772,7 @@ pub struct RegisteredBlob {
     /// The current status of the blob in the system.
     pub status: BlobStatus,
     /// The blob object that was registered.
-    pub blob_object: Blob,
+    pub blob_object: BlobObject,
     /// The operation that is performed to store the blob.
     pub operation: RegisterBlobOp,
 }
@@ -752,6 +820,7 @@ impl RegisteredBlob {
     }
 }
 
+
 /// A blob that needs to be certified.
 // INV: The operation is NOT `ReuseAndExtend`.
 // INV: The epochs_extended is `Some` iff the operation is `ReuseAndExtendNonCertified`.
@@ -762,7 +831,7 @@ pub struct BlobAwaitingUpload {
     /// The current status of the blob in the system.
     pub status: BlobStatus,
     /// The blob object that was registered.
-    pub blob_object: Blob,
+    pub blob_object: BlobObject,
     /// The operation that is performed to store the blob.
     pub operation: RegisterBlobOp,
     /// The number of epochs by which to extend the blob after certification.
@@ -806,7 +875,7 @@ impl WalrusStoreEncodedBlobApi for BlobAwaitingUpload {
 #[derive(Clone, PartialEq, Debug)]
 pub struct BlobPendingCertifyAndExtend {
     /// The blob object that was registered.
-    pub blob_object: Blob,
+    pub blob_object: BlobObject,
     /// The operation that is performed to store the blob.
     pub operation: RegisterBlobOp,
     /// The certificate for the blob.
@@ -819,18 +888,22 @@ impl WalrusStoreEncodedBlobApi for BlobPendingCertifyAndExtend {
     const STATE: &'static str = "PendingCertifyAndExtend";
 
     fn blob_id(&self) -> BlobId {
-        self.blob_object.blob_id
+        self.blob_object.blob_id()
     }
 }
 
 impl<'a> WalrusStoreBlobUnfinished<BlobPendingCertifyAndExtend> {
     /// Returns the parameters for the Sui transaction to certify and extend the blob.
-    pub fn get_certify_and_extend_params(&'a self) -> CertifyAndExtendBlobParams<'a> {
-        CertifyAndExtendBlobParams {
-            blob: &self.state.blob_object,
-            attribute: &self.common.attribute,
-            certificate: self.state.certificate.clone(),
-            epochs_extended: self.state.epochs_extended,
+    /// Only works for regular blobs, not managed blobs.
+    pub fn get_certify_and_extend_params(&'a self) -> Option<CertifyAndExtendBlobParams<'a>> {
+        match &self.state.blob_object {
+            BlobObject::Regular(blob) => Some(CertifyAndExtendBlobParams {
+                blob,
+                attribute: &self.common.attribute,
+                certificate: self.state.certificate.clone(),
+                epochs_extended: self.state.epochs_extended,
+            }),
+            BlobObject::Managed { .. } => None, // Managed blobs use different certification path
         }
     }
 }
@@ -838,27 +911,44 @@ impl<'a> WalrusStoreBlobUnfinished<BlobPendingCertifyAndExtend> {
 impl BlobPendingCertifyAndExtend {
     /// Converts the blob to a blob store result based on the given certify and extend result and
     /// price computation.
+    /// For managed blobs, certify_and_extend_result is not used and can be None.
     pub fn with_certify_and_extend_result(
         self,
         certify_and_extend_result: Option<&CertifyAndExtendBlobResult>,
         price_computation: &PriceComputation,
     ) -> BlobStoreResult {
-        let Some(certify_and_extend_result) = certify_and_extend_result else {
-            return BlobStoreResult::Error {
-                blob_id: Some(self.blob_object.blob_id),
-                failure_phase: "with_certify_and_extend_result".to_string(),
-                error_msg: "Sui transaction result did not contain a result for the blob"
-                    .to_string(),
-            };
-        };
+        match self.blob_object {
+            BlobObject::Regular(blob) => {
+                // For regular blobs, we need the certify_and_extend_result
+                let Some(certify_and_extend_result) = certify_and_extend_result else {
+                    return BlobStoreResult::Error {
+                        blob_id: Some(blob.blob_id),
+                        failure_phase: "with_certify_and_extend_result".to_string(),
+                        error_msg: "Sui transaction result did not contain a result for the blob"
+                            .to_string(),
+                    };
+                };
 
-        let cost = price_computation.operation_cost(&self.operation);
-        let shared_blob_object = certify_and_extend_result.shared_blob_object();
-        BlobStoreResult::NewlyCreated {
-            blob_object: self.blob_object,
-            resource_operation: self.operation,
-            cost,
-            shared_blob_object,
+                let cost = price_computation.operation_cost(&self.operation);
+                let shared_blob_object = certify_and_extend_result.shared_blob_object();
+                BlobStoreResult::NewlyCreated {
+                    blob_object: blob,
+                    resource_operation: self.operation,
+                    cost,
+                    shared_blob_object,
+                }
+            }
+            BlobObject::Managed { blob_id, manager_id, encoded_size, .. } => {
+                // For managed blobs, return the ManagedByBlobManager result.
+                // We don't need certify_and_extend_result since BlobManager handles everything.
+                BlobStoreResult::ManagedByBlobManager {
+                    blob_id,
+                    blob_manager_object_id: *manager_id,
+                    resource_operation: self.operation,
+                    cost: price_computation.operation_cost(&self.operation),
+                    end_epoch: walrus_core::Epoch::MAX, // BlobManager handles epochs
+                }
+            }
         }
     }
 }

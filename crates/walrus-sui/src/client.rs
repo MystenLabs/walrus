@@ -625,12 +625,11 @@ impl SuiContractClient {
 
     /// Reserves space and registers managed blobs in a BlobManager.
     ///
-    /// Returns `Ok(())` on success, or an error if registration failed.
+    /// Returns Ok(()) on success, or an error if registration failed.
     pub async fn reserve_and_register_managed_blobs(
         &self,
         manager_id: ObjectID,
         manager_cap: ObjectID,
-        epochs_ahead: EpochCount,
         blob_metadata_list: Vec<BlobObjectMetadata>,
         persistence: BlobPersistence,
     ) -> SuiClientResult<()> {
@@ -641,7 +640,6 @@ impl SuiContractClient {
                 .reserve_and_register_managed_blobs(
                     manager_id,
                     manager_cap,
-                    epochs_ahead,
                     blob_metadata_list.clone(),
                     persistence,
                 )
@@ -666,22 +664,52 @@ impl SuiContractClient {
         .await
     }
 
-    /// Certifies blobs that have been registered in a BlobManager.
-    /// Takes Blob objects and transfers ownership to BlobManager during certification.
-    pub async fn certify_blobs_in_blobmanager(
+    /// Certifies managed blobs in BlobManager using blob_id and deletable flag.
+    pub async fn certify_managed_blobs_in_blobmanager(
         &self,
         manager_id: ObjectID,
-        manager_cap: ArgumentOrOwnedObject,
-        blobs_with_certificates: &[CertifyAndExtendBlobParams<'_>],
+        manager_cap: ObjectID,
+        blobs_with_certificates: &[(BlobId, bool, &ConfirmationCertificate)],
     ) -> SuiClientResult<()> {
-        self.retry_on_wrong_version(|| async {
-            self.inner
-                .lock()
-                .await
-                .certify_blobs_in_blobmanager(manager_id, manager_cap, blobs_with_certificates)
-                .await
-        })
-        .await
+        let mut inner = self.inner.lock().await;
+
+        if blobs_with_certificates.is_empty() {
+            tracing::debug!("no blobs to certify in blob manager");
+            return Ok(());
+        }
+
+        let mut pt_builder = inner.transaction_builder()?;
+
+        for (i, (blob_id, deletable, certificate)) in blobs_with_certificates.iter().enumerate() {
+            tracing::debug!(
+                count = format!("{}/{}", i + 1, blobs_with_certificates.len()),
+                blob_id = %blob_id,
+                "certifying managed blob in blob manager"
+            );
+
+            pt_builder
+                .certify_managed_blob(
+                    manager_id,
+                    manager_cap,
+                    *blob_id,
+                    *deletable,
+                    certificate,
+                )
+                .await?;
+        }
+
+        let transaction = pt_builder.build_transaction_data(inner.gas_budget).await?;
+        let res = inner
+            .sign_and_send_transaction(transaction, "certify_managed_blobs_in_blobmanager")
+            .await?;
+
+        if !res.errors.is_empty() {
+            tracing::warn!(errors = ?res.errors, "failed to certify blobs in blob manager");
+            return Err(anyhow!("could not certify blobs: {:?}", res.errors).into());
+        }
+
+        tracing::debug!("successfully certified managed blobs in blob manager");
+        Ok(())
     }
 
     /// Certifies the specified blob on Sui, given a certificate that confirms its storage and
@@ -1924,12 +1952,11 @@ impl SuiContractClientInner {
 
     /// Reserves space and registers managed blobs in a BlobManager.
     ///
-    /// Returns `Ok(())` on success, or an error if registration failed.
+    /// Returns Ok(()) on success, or an error if registration failed.
     pub async fn reserve_and_register_managed_blobs(
         &mut self,
         manager_id: ObjectID,
         manager_cap: ObjectID,
-        _epochs_ahead: EpochCount,
         blob_metadata_list: Vec<BlobObjectMetadata>,
         persistence: BlobPersistence,
     ) -> SuiClientResult<()> {
@@ -1959,12 +1986,12 @@ impl SuiContractClientInner {
             );
 
             pt_builder
-                .register_blob_in_blob_manager(
+                .register_managed_blob(
                     manager_id,
                     manager_cap_arg,
                     metadata.clone(),
                     persistence,
-                    crate::types::BlobType::Regular, // Default to Regular for now
+                    crate::types::BlobType::Regular,
                 )
                 .await?;
         }
@@ -2124,102 +2151,8 @@ impl SuiContractClientInner {
         Ok((manager_id, cap_id))
     }
 
-    /// Certifies blobs that have been registered in a BlobManager.
-    /// Uses blob_id and deletable flag to identify each blob.
-    pub async fn certify_blobs_in_blobmanager(
-        &mut self,
-        manager_id: ObjectID,
-        manager_cap: ArgumentOrOwnedObject,
-        blobs_with_certificates: &[CertifyAndExtendBlobParams<'_>],
-    ) -> SuiClientResult<()> {
-        if blobs_with_certificates.is_empty() {
-            tracing::debug!("no blobs to certify in blob manager");
-            return Ok(());
-        }
 
-        let mut pt_builder = self.transaction_builder()?;
 
-        for (i, blob_params) in blobs_with_certificates.iter().enumerate() {
-            tracing::debug!(
-                count = format!("{}/{}", i + 1, blobs_with_certificates.len()),
-                blob_id = %blob_params.blob.blob_id,
-                "certifying blob in blob manager"
-            );
-
-            pt_builder
-                .certify_blob_in_blob_manager(
-                    manager_id,
-                    manager_cap,
-                    ArgumentOrOwnedObject::Object(blob_params.blob.id),
-                    blob_params
-                        .certificate
-                        .as_ref()
-                        .expect("certificate is required"),
-                )
-                .await?;
-        }
-
-        let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
-        let res = self
-            .sign_and_send_transaction(transaction, "certify_blobs_in_blobmanager")
-            .await?;
-
-        if !res.errors.is_empty() {
-            tracing::warn!(errors = ?res.errors, "failed to certify blobs in blob manager");
-            return Err(anyhow!("could not certify blobs: {:?}", res.errors).into());
-        }
-
-        tracing::debug!("successfully certified blobs in blob manager");
-        Ok(())
-    }
-
-    /// Certifies blobs through BlobManager using CertifyAndExtendBlobParams.
-    ///
-    /// This is a higher-level wrapper around certify_blobs_in_blobmanager() that
-    /// accepts CertifyAndExtendBlobParams and returns CertifyAndExtendBlobResult.
-    #[allow(dead_code)]
-    async fn certify_blobs_with_blobmanager(
-        &mut self,
-        manager_id: ObjectID,
-        manager_cap: ObjectID,
-        blobs_with_certificates: &[CertifyAndExtendBlobParams<'_>],
-        _post_store: PostStoreAction,
-    ) -> SuiClientResult<Vec<CertifyAndExtendBlobResult>> {
-        use crate::client::PostStoreActionResult;
-
-        if blobs_with_certificates.is_empty() {
-            return Ok(vec![]);
-        }
-
-        // Extract Blob objects and certificates for batch certification
-        let blobs_with_certs: Vec<_> = blobs_with_certificates
-            .iter()
-            .filter_map(|params| {
-                let certificate = params.certificate.as_ref()?;
-                Some((params.blob, certificate)) // params.blob is already &Blob
-            })
-            .collect();
-
-        // Certify all blobs in BlobManager
-        self.certify_blobs_in_blobmanager(
-            manager_id,
-            ArgumentOrOwnedObject::Object(manager_cap),
-            &blobs_with_certificates,
-        )
-        .await?;
-
-        // Build results - for now only supporting Keep action
-        // TODO: Support other PostStoreAction variants for BlobManager
-        let results = blobs_with_certificates
-            .iter()
-            .map(|params| CertifyAndExtendBlobResult {
-                blob_object_id: params.blob.id,
-                post_store_action_result: PostStoreActionResult::Kept,
-            })
-            .collect();
-
-        Ok(results)
-    }
 
     /// Registers a candidate node.
     pub async fn register_candidate(

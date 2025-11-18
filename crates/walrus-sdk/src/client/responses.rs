@@ -109,7 +109,7 @@ pub enum BlobStoreResult {
         /// The object ID of the blob in BlobManager's table.
         #[serde_as(as = "DisplayFromStr")]
         #[schema(value_type = ObjectIdSchema)]
-        blob_object_id: ObjectID,
+        blob_manager_object_id: ObjectID,
         /// The operation that created or reused the blob.
         resource_operation: RegisterBlobOp,
         /// The storage cost, excluding gas.

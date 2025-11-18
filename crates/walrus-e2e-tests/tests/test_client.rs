@@ -2847,113 +2847,99 @@ async fn test_blob_manager_basic() {
     // Wait a bit for the objects to be indexed
     tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
 
-    // Now test registering a blob through the BlobManager using resource_manager
+    // Use the new blob_manager() API to create the client
+    let blob_manager_client = client_ref
+        .blob_manager(cap_id)
+        .await
+        .expect("Failed to create BlobManagerClient");
+
+    tracing::info!("Successfully created BlobManagerClient");
+    tracing::info!("  Manager ID: {}", manager_id);
+    tracing::info!("  Manager Cap: {}", cap_id);
+
+    // Now test the blob registration and retrieval
     let test_blob = b"Hello, BlobManager! This is a test blob for registration.";
 
-    // Get committees for resource_manager
-    let committees = client_ref
-        .get_committees()
-        .await
-        .expect("committees should be available");
-
-    // Create WalrusStoreBlob from the test blob
-    use walrus_sui::types::move_structs::BlobAttribute;
-    let blob_identifier = "test-blob-01";
-    let unencoded_blobs = vec![WalrusStoreBlob::new_unencoded(
-        test_blob.as_ref(),
-        blob_identifier.to_string(),
-        BlobAttribute::default(),
-    )];
-
-    // Encode the blobs
+    // Create and encode a blob (following the pattern from reserve_and_store_blobs)
     use walrus_core::DEFAULT_ENCODING;
+    use walrus_sdk::client::client_types::{
+        BlobWithStatus,
+        WalrusStoreBlobUnfinished,
+        WalrusStoreEncodedBlobApi,
+        partition_unfinished_finished,
+    };
+    use walrus_sui::types::move_structs::BlobAttribute;
+
+    let unencoded_blob = WalrusStoreBlob::new_unencoded(
+        test_blob.to_vec(),
+        "test-blob".to_string(),
+        BlobAttribute::default(),
+        client_ref.encoding_config().get_for_type(DEFAULT_ENCODING),
+    );
+
+    // Encode the blob
     let encoded_blobs = client_ref
-        .encode_blobs(unencoded_blobs, DEFAULT_ENCODING)
-        .expect("Failed to encode blobs");
+        .encode_blobs(vec![unencoded_blob], None)
+        .expect("Failed to encode blob");
 
-    // Get blob statuses first (needed before register_walrus_store_blobs)
-    // We replicate what reserve_and_store_encoded_blobs does internally:
-    // 1. Get blob statuses for each encoded blob using get_blob_status_with_retries
-    // 2. Call register_walrus_store_blobs with the status-checked blobs
-    use walrus_sdk::store_optimizations::StoreOptimizations;
-    // Manually get status for each blob (replicating get_blob_statuses logic)
-    // For new blobs that don't exist yet, status is Nonexistent
-    use walrus_storage_node_client::api::BlobStatus;
+    // Get unfinished blobs
+    use walrus_sdk::client::client_types::EncodedBlob;
+    let (encoded_unfinished, _): (
+        Vec<WalrusStoreBlobUnfinished<EncodedBlob>>,
+        Vec<WalrusStoreBlob<BlobStoreResult>>,
+    ) = partition_unfinished_finished(encoded_blobs);
+    assert_eq!(
+        encoded_unfinished.len(),
+        1,
+        "Should have one unfinished blob"
+    );
+
+    let encoded_blob_unfinished = encoded_unfinished.into_iter().next().unwrap();
+    let blob_id = encoded_blob_unfinished.state.blob_id();
+
+    tracing::info!("Blob ID: {}", blob_id);
+
+    // Directly create BlobWithStatus using Nonexistent status
+    let blob_with_status = BlobWithStatus {
+        encoded_blob: encoded_blob_unfinished.state,
+        status: walrus_storage_node_client::api::BlobStatus::Nonexistent,
+    };
+
+    // Create WalrusStoreBlobUnfinished<BlobWithStatus> directly
+    let blob_unfinished_with_status = WalrusStoreBlobUnfinished {
+        common: encoded_blob_unfinished.common,
+        state: blob_with_status,
+    };
+
+    // Register the blob in the BlobManager
     use walrus_sui::client::BlobPersistence;
-    let encoded_blobs_with_status: Vec<_> = encoded_blobs
-        .into_iter()
-        .map(|blob| {
-            // For new blobs that don't exist yet, status is Nonexistent
-            blob.with_status(Ok(BlobStatus::Nonexistent))
-        })
-        .collect::<Result<Vec<_>, _>>()
-        .expect("Failed to get blob statuses");
-
-    // Register blobs using resource_manager with BlobManager
-    // Get blob_id before registration (it's available from encoded_blobs_with_status)
-    let blob_id = encoded_blobs_with_status[0]
-        .get_blob_id()
-        .expect("Encoded blob should have blob_id")
-        .clone();
-
-    // Register blob through resource_manager
-    let registered_blobs = client_ref
-        .resource_manager(&committees)
-        .await
-        .register_walrus_store_blobs(
-            encoded_blobs_with_status,
-            epochs_ahead,
+    let registered_blobs = blob_manager_client
+        .register_blobs(
+            vec![blob_unfinished_with_status],
             BlobPersistence::Permanent,
-            StoreOptimizations::none(),
-            Some(manager_id),
-            Some(cap_id),
         )
         .await
         .expect("Failed to register blob in BlobManager");
 
-    // Verify registration succeeded
     assert_eq!(registered_blobs.len(), 1, "Should have one registered blob");
-    let registered_blob = &registered_blobs[0];
+    tracing::info!("Successfully registered blob with ID: {}", blob_id);
 
-    // Verify it's a RegisteredManagedBlob
-    let WalrusStoreBlob::RegisteredManagedBlob(managed_blob) = registered_blob else {
-        panic!(
-            "Expected RegisteredManagedBlob, got {:?}",
-            registered_blob.get_state()
-        );
-    };
+    // Wait a moment for the registration to propagate
+    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
 
-    tracing::info!("Successfully registered blob through BlobManager");
-    tracing::info!("  Registered blob ID: {:?}", blob_id);
-    tracing::info!("  BlobManager ID: {:?}", managed_blob.blob_manager_id);
-
-    // Step 1: Verify registration and read ManagedBlob from BlobManager
-    // Verify the registered blob has correct fields
-    assert_eq!(
-        managed_blob.blob_id, blob_id,
-        "Registered blob should have matching blob_id"
-    );
-    assert_eq!(
-        managed_blob.blob_manager_id, manager_id,
-        "Registered blob should have matching manager_id"
-    );
-
-    // Use BlobManagerClient to read the managed blob
-    let blob_manager_client = client_ref
-        .blobmanager_client(manager_id, cap_id)
+    // Now try to read the ManagedBlob back from the BlobManager
+    let managed_blob = blob_manager_client
+        .get_managed_blob(blob_id, false) // false = permanent (not deletable)
         .await
-        .expect("Failed to create BlobManagerClient");
+        .expect("Failed to get ManagedBlob from BlobManager");
 
-    let read_managed_blob = blob_manager_client
-        .get_managed_blob(blob_id, false)
-        .await
-        .expect("Failed to get managed blob");
-    tracing::info!("Successfully read ManagedBlob: {:?}", read_managed_blob);
+    // Verify the managed blob
+    assert_eq!(managed_blob.blob_id, blob_id, "Blob ID should match");
+    assert_eq!(managed_blob.deletable, false, "Blob should be permanent");
+    tracing::info!("Successfully retrieved ManagedBlob from BlobManager");
+    tracing::info!("  Blob ID: {}", managed_blob.blob_id);
+    tracing::info!("  Deletable: {}", managed_blob.deletable);
+    tracing::info!("  Object ID: {}", managed_blob.id);
 
-    // Verify the read blob matches expectations
-    assert_eq!(read_managed_blob.blob_id, blob_id, "Blob ID should match");
-    assert_eq!(
-        read_managed_blob.blob_manager_id, manager_id,
-        "BlobManager ID should match"
-    );
+    tracing::info!("Test blob_manager_basic completed successfully");
 }

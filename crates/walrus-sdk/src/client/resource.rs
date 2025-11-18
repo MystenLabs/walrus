@@ -7,6 +7,8 @@ use std::{collections::HashMap, fmt::Debug};
 
 use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
+use serde_with::{DisplayFromStr, serde_as};
+use sui_types::base_types::ObjectID;
 use tracing::Level;
 use utoipa::ToSchema;
 use walrus_core::{
@@ -19,6 +21,7 @@ use walrus_sui::{
     client::{BlobPersistence, ExpirySelectionPolicy, SuiContractClient},
     types::Blob,
     utils::price_for_encoded_length,
+    ObjectIdSchema,
 };
 
 use super::{
@@ -72,6 +75,9 @@ impl PriceComputation {
                 encoded_length,
                 epochs_extended,
             } => self.storage_fee_for_encoded_length(*encoded_length, *epochs_extended),
+            RegisterBlobOp::RegisteredInBlobManager { encoded_length, .. } => {
+                self.write_fee_for_encoded_length(*encoded_length)
+            }
             _ => 0, // No cost for reusing registration or no-op.
         }
     }
@@ -89,6 +95,7 @@ impl PriceComputation {
 }
 
 /// The operation performed on blob and storage resources to register a blob.
+#[serde_as]
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, ToSchema, PartialEq)]
 #[serde(rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum RegisterBlobOp {
@@ -127,6 +134,15 @@ pub enum RegisterBlobOp {
         #[schema(value_type = u32)]
         epochs_extended: EpochCount,
     },
+    /// Blob is registered in a BlobManager.
+    RegisteredInBlobManager {
+        /// The size of the encoded blob in bytes.
+        encoded_length: u64,
+        /// The BlobManager object ID.
+        #[serde_as(as = "DisplayFromStr")]
+        #[schema(value_type = ObjectIdSchema)]
+        manager_id: ObjectID,
+    },
 }
 
 impl RegisterBlobOp {
@@ -137,7 +153,8 @@ impl RegisterBlobOp {
             | Self::ReuseStorage { encoded_length }
             | Self::ReuseRegistration { encoded_length, .. }
             | Self::ReuseAndExtend { encoded_length, .. }
-            | Self::ReuseAndExtendNonCertified { encoded_length, .. } => *encoded_length,
+            | Self::ReuseAndExtendNonCertified { encoded_length, .. }
+            | Self::RegisteredInBlobManager { encoded_length, .. } => *encoded_length,
         }
     }
 
@@ -164,6 +181,10 @@ impl RegisterBlobOp {
     /// Returns if the operation involved certifying and extending a non-certified blob.
     pub fn is_certify_and_extend(&self) -> bool {
         matches!(self, Self::ReuseAndExtendNonCertified { .. })
+    }
+
+    pub fn is_registered_in_blob_manager(&self) -> bool {
+        matches!(self, Self::RegisteredInBlobManager { .. })
     }
 
     /// Returns the number of epochs extended if the operation contains an extension.
@@ -215,7 +236,8 @@ impl StoreOp {
             RegisterBlobOp::RegisterFromScratch { .. }
             | RegisterBlobOp::ReuseStorage { .. }
             | RegisterBlobOp::ReuseAndExtend { .. }
-            | RegisterBlobOp::ReuseAndExtendNonCertified { .. } => StoreOp::RegisterNew {
+            | RegisterBlobOp::ReuseAndExtendNonCertified { .. }
+            | RegisterBlobOp::RegisteredInBlobManager { .. } => StoreOp::RegisterNew {
                 blob,
                 operation: register_op,
             },
