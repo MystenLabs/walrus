@@ -23,8 +23,17 @@ use typed_store::{
     rocks::{DBBatch, DBMap, ReadWriteOptions, RocksDB},
 };
 use walrus_core::{BlobId, Epoch};
-use walrus_storage_node_client::api::{BlobStatus, DeletableCounts};
-use walrus_sui::types::{BlobCertified, BlobDeleted, BlobEvent, BlobRegistered, InvalidBlobId};
+use walrus_storage_node_client::api::{BlobStatus, DeletableCounts, ManagedBlobCounts};
+use walrus_sui::types::{
+    BlobCertified,
+    BlobDeleted,
+    BlobEvent,
+    BlobRegistered,
+    InvalidBlobId,
+    ManagedBlobCertified,
+    ManagedBlobDeleted,
+    ManagedBlobRegistered,
+};
 
 use self::per_object_blob_info::PerObjectBlobInfoMergeOperand;
 pub(crate) use self::per_object_blob_info::{PerObjectBlobInfo, PerObjectBlobInfoApi};
@@ -206,7 +215,10 @@ impl BlobInfoTable {
             })
             | BlobEvent::Deleted(_)
             | BlobEvent::InvalidBlobID(_)
-            | BlobEvent::DenyListBlobDeleted(_) => {
+            | BlobEvent::DenyListBlobDeleted(_)
+            | BlobEvent::ManagedBlobRegistered(_)
+            | BlobEvent::ManagedBlobCertified(_)
+            | BlobEvent::ManagedBlobDeleted(_) => {
                 tracing::debug!("performing standard blob-info update for event");
                 return self.update_blob_info(event_index, event);
             }
@@ -784,7 +796,7 @@ pub(super) enum BlobInfoMergeOperand {
 impl ToBytes for BlobInfoMergeOperand {}
 
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq, Clone)]
-pub(super) struct BlobStatusChangeInfo {
+pub(crate) struct BlobStatusChangeInfo {
     pub(super) blob_id: BlobId,
     pub(super) deletable: bool,
     pub(super) epoch: Epoch,
@@ -798,7 +810,21 @@ pub(super) enum BlobStatusChangeType {
     Certify,
     // INV: Can only be applied to a certified blob.
     Extend,
-    Delete { was_certified: bool },
+    Delete {
+        was_certified: bool,
+    },
+    /// Register a managed blob (owned by BlobManager).
+    RegisterManaged {
+        blob_manager_id: ObjectID,
+    },
+    CertifyManaged {
+        blob_manager_id: ObjectID,
+    },
+    /// Delete a managed blob for a specific BlobManager.
+    DeleteManaged {
+        blob_manager_id: ObjectID,
+        was_certified: bool,
+    },
 }
 
 impl BlobInfoMergeOperand {
@@ -915,6 +941,93 @@ impl From<&InvalidBlobId> for BlobInfoMergeOperand {
     }
 }
 
+impl From<&ManagedBlobRegistered> for BlobInfoMergeOperand {
+    fn from(value: &ManagedBlobRegistered) -> Self {
+        let ManagedBlobRegistered {
+            epoch,
+            blob_manager_id,
+            blob_id,
+            end_epoch,
+            deletable,
+            event_id,
+            ..
+        } = value;
+        tracing::debug!(
+            "Converting ManagedBlobRegistered event: blob_id={:?}, blob_manager_id={:?}, \
+             epoch={}, end_epoch={}, deletable={}",
+            blob_id,
+            blob_manager_id,
+            epoch,
+            end_epoch,
+            deletable
+        );
+        Self::ChangeStatus {
+            change_info: BlobStatusChangeInfo {
+                deletable: *deletable,
+                epoch: *epoch,
+                end_epoch: *end_epoch,
+                status_event: *event_id,
+                blob_id: *blob_id,
+            },
+            change_type: BlobStatusChangeType::RegisterManaged {
+                blob_manager_id: *blob_manager_id,
+            },
+        }
+    }
+}
+
+impl From<&ManagedBlobCertified> for BlobInfoMergeOperand {
+    fn from(value: &ManagedBlobCertified) -> Self {
+        let ManagedBlobCertified {
+            epoch,
+            blob_manager_id,
+            blob_id,
+            deletable,
+            event_id,
+            ..
+        } = value;
+        Self::ChangeStatus {
+            change_info: BlobStatusChangeInfo {
+                deletable: *deletable,
+                epoch: *epoch,
+                end_epoch: 0, // Managed blobs don't have direct end_epoch.
+                status_event: *event_id,
+                blob_id: *blob_id,
+            },
+            change_type: BlobStatusChangeType::CertifyManaged {
+                blob_manager_id: *blob_manager_id,
+            },
+        }
+    }
+}
+
+impl From<&ManagedBlobDeleted> for BlobInfoMergeOperand {
+    fn from(value: &ManagedBlobDeleted) -> Self {
+        let ManagedBlobDeleted {
+            epoch,
+            blob_manager_id,
+            blob_id,
+            end_epoch,
+            was_certified,
+            event_id,
+            ..
+        } = value;
+        Self::ChangeStatus {
+            change_info: BlobStatusChangeInfo {
+                deletable: true, // Deleted blobs must have been deletable.
+                epoch: *epoch,
+                end_epoch: *end_epoch,
+                status_event: *event_id,
+                blob_id: *blob_id,
+            },
+            change_type: BlobStatusChangeType::DeleteManaged {
+                blob_manager_id: *blob_manager_id,
+                was_certified: *was_certified,
+            },
+        }
+    }
+}
+
 impl From<&BlobEvent> for BlobInfoMergeOperand {
     fn from(value: &BlobEvent) -> Self {
         match value {
@@ -929,6 +1042,9 @@ impl From<&BlobEvent> for BlobInfoMergeOperand {
                 // such event should be emitted.
                 todo!("DenyListBlobDeleted event handling is not yet implemented");
             }
+            BlobEvent::ManagedBlobRegistered(event) => event.into(),
+            BlobEvent::ManagedBlobCertified(event) => event.into(),
+            BlobEvent::ManagedBlobDeleted(event) => event.into(),
         }
     }
 }
@@ -1014,6 +1130,7 @@ impl ValidBlobInfoV1 {
                 status_event: *event,
                 deletable_counts,
                 initial_certified_epoch,
+                managed_blob_counts: ManagedBlobCounts::default(),
             };
         }
         if let Some(PermanentBlobInfoV1 {
@@ -1027,6 +1144,7 @@ impl ValidBlobInfoV1 {
                 status_event: *event,
                 deletable_counts,
                 initial_certified_epoch,
+                managed_blob_counts: ManagedBlobCounts::default(),
             };
         }
 
@@ -1034,6 +1152,7 @@ impl ValidBlobInfoV1 {
             BlobStatus::Deletable {
                 initial_certified_epoch,
                 deletable_counts,
+                managed_blob_counts: ManagedBlobCounts::default(),
             }
         } else {
             BlobStatus::Nonexistent
@@ -1076,6 +1195,17 @@ impl ValidBlobInfoV1 {
                     self.count_deletable_total += 1;
                     self.maybe_increase_latest_deletable_registered_epoch(change_info.end_epoch);
                 }
+                BlobStatusChangeType::RegisterManaged { .. }
+                | BlobStatusChangeType::CertifyManaged { .. }
+                | BlobStatusChangeType::DeleteManaged { .. } => {
+                    tracing::error!(
+                        "attempt managed blob operation on V1 (regular blob): \
+                         blob_id={:?}, change_type={:?}",
+                        change_info.blob_id,
+                        change_type,
+                    );
+                    return;
+                }
                 BlobStatusChangeType::Certify => {
                     if self.count_deletable_total <= self.count_deletable_certified {
                         tracing::error!(
@@ -1099,6 +1229,17 @@ impl ValidBlobInfoV1 {
                 BlobStatusChangeType::Register => {
                     Self::register_permanent(&mut self.permanent_total, &change_info);
                 }
+                BlobStatusChangeType::RegisterManaged { .. }
+                | BlobStatusChangeType::CertifyManaged { .. }
+                | BlobStatusChangeType::DeleteManaged { .. } => {
+                    tracing::error!(
+                        "attempt managed blob operation on V1 (regular blob): \
+                         blob_id={:?}, change_type={:?}",
+                        change_info.blob_id,
+                        change_type,
+                    );
+                    return;
+                }
                 BlobStatusChangeType::Certify => {
                     if !Self::certify_permanent(
                         &self.permanent_total,
@@ -1120,7 +1261,7 @@ impl ValidBlobInfoV1 {
             }
         }
 
-        // Update initial certified epoch.
+        // Update initial certified epoch for V1 operations only.
         match change_type {
             BlobStatusChangeType::Certify => {
                 self.update_initial_certified_epoch(change_info.epoch, !was_certified);
@@ -1130,6 +1271,10 @@ impl ValidBlobInfoV1 {
             }
             // Explicit matches to make sure we cover all cases.
             BlobStatusChangeType::Register | BlobStatusChangeType::Extend => (),
+            // Managed blob operations don't affect V1 initial_certified_epoch.
+            BlobStatusChangeType::RegisterManaged { .. }
+            | BlobStatusChangeType::CertifyManaged { .. }
+            | BlobStatusChangeType::DeleteManaged { .. } => (),
         }
     }
 
@@ -1206,7 +1351,7 @@ impl ValidBlobInfoV1 {
 
     /// Processes a register status change on the [`Option<PermanentBlobInfoV1>`] object
     /// representing all permanent blobs.
-    fn register_permanent(
+    pub(crate) fn register_permanent(
         permanent_total: &mut Option<PermanentBlobInfoV1>,
         change_info: &BlobStatusChangeInfo,
     ) {
@@ -1217,7 +1362,7 @@ impl ValidBlobInfoV1 {
     /// and the certified permanent blobs.
     ///
     /// Returns whether the update was successful.
-    fn certify_permanent(
+    pub(crate) fn certify_permanent(
         permanent_total: &Option<PermanentBlobInfoV1>,
         permanent_certified: &mut Option<PermanentBlobInfoV1>,
         change_info: &BlobStatusChangeInfo,
@@ -1616,6 +1761,615 @@ impl Mergeable for BlobInfoV1 {
     }
 }
 
+/// BlobInfoV2 extends V1 with support for managed blobs.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub(crate) enum BlobInfoV2 {
+    Invalid { epoch: Epoch, event: EventID },
+    Valid(ValidBlobInfoV2),
+}
+
+impl ToBytes for BlobInfoV2 {}
+
+impl Mergeable for BlobInfoV2 {
+    type MergeOperand = BlobInfoMergeOperand;
+    type Key = BlobId;
+
+    fn merge_with(mut self, operand: Self::MergeOperand) -> Self {
+        match (&mut self, operand) {
+            // If the blob is already marked as invalid, do not update the status.
+            (Self::Invalid { .. }, _) => (),
+            (
+                _,
+                BlobInfoMergeOperand::MarkInvalid {
+                    epoch,
+                    status_event,
+                },
+            ) => {
+                return Self::Invalid {
+                    epoch,
+                    event: status_event,
+                };
+            }
+            (
+                Self::Valid(ValidBlobInfoV2 {
+                    regular_blob_info,
+                    managed_blob_info,
+                }),
+                BlobInfoMergeOperand::MarkMetadataStored(new_is_metadata_stored),
+            ) => {
+                // Mark metadata stored for both regular and managed blobs if they exist.
+                if let Some(info) = regular_blob_info {
+                    info.is_metadata_stored = new_is_metadata_stored;
+                }
+                if let Some(info) = managed_blob_info {
+                    info.is_metadata_stored = new_is_metadata_stored;
+                }
+            }
+            (
+                Self::Valid(valid_blob_info),
+                BlobInfoMergeOperand::ChangeStatus {
+                    change_type,
+                    change_info,
+                },
+            ) => {
+                valid_blob_info.update_status(change_type, change_info);
+            }
+            (
+                Self::Valid(ValidBlobInfoV2 {
+                    regular_blob_info, ..
+                }),
+                BlobInfoMergeOperand::DeletableExpired { was_certified },
+            ) => {
+                // TODO(heliu): Revisit this.
+                // Apply the same logic as V1 for expired deletable blobs
+                if let Some(info) = regular_blob_info {
+                    if was_certified {
+                        info.count_deletable_certified =
+                            info.count_deletable_certified.saturating_sub(1);
+                    }
+                    info.count_deletable_total = info.count_deletable_total.saturating_sub(1);
+                }
+            }
+            (
+                Self::Valid(ValidBlobInfoV2 {
+                    regular_blob_info, ..
+                }),
+                BlobInfoMergeOperand::PermanentExpired { was_certified },
+            ) => {
+                // Apply the same logic as V1 for expired permanent blobs
+                if let Some(info) = regular_blob_info {
+                    if was_certified {
+                        info.permanent_certified = None;
+                    }
+                    info.permanent_total = None;
+                }
+            }
+        }
+        self
+    }
+
+    fn merge_new(operand: Self::MergeOperand) -> Option<Self> {
+        // V2 can only be created from RegisterManaged.
+        match operand {
+            BlobInfoMergeOperand::ChangeStatus {
+                change_type: BlobStatusChangeType::RegisterManaged { blob_manager_id },
+                change_info,
+            } => Some(Self::Valid(ValidBlobInfoV2::new(
+                blob_manager_id,
+                change_info.deletable,
+            ))),
+            _ => None,
+        }
+    }
+}
+
+impl CertifiedBlobInfoApi for BlobInfoV2 {
+    fn is_certified(&self, current_epoch: Epoch) -> bool {
+        if let Self::Valid(ValidBlobInfoV2 {
+            regular_blob_info,
+            managed_blob_info,
+        }) = self
+        {
+            regular_blob_info
+                .as_ref()
+                .is_some_and(|info| info.is_certified(current_epoch))
+                || managed_blob_info
+                    .as_ref()
+                    .is_some_and(|info| info.is_certified(current_epoch))
+        } else {
+            false
+        }
+    }
+
+    fn initial_certified_epoch(&self) -> Option<Epoch> {
+        if let Self::Valid(valid_blob_info) = self {
+            // Return the earliest initial_certified_epoch from regular or managed blobs.
+            let regular_epoch = valid_blob_info
+                .regular_blob_info
+                .as_ref()
+                .and_then(|info| info.initial_certified_epoch);
+            let managed_epoch = valid_blob_info
+                .managed_blob_info
+                .as_ref()
+                .and_then(|info| info.initial_certified_epoch);
+
+            match (regular_epoch, managed_epoch) {
+                (Some(regular), Some(managed)) => Some(regular.min(managed)),
+                (Some(epoch), None) | (None, Some(epoch)) => Some(epoch),
+                (None, None) => None,
+            }
+        } else {
+            None
+        }
+    }
+}
+
+impl BlobInfoApi for BlobInfoV2 {
+    fn is_metadata_stored(&self) -> bool {
+        match self {
+            Self::Invalid { .. } => false,
+            Self::Valid(ValidBlobInfoV2 {
+                regular_blob_info,
+                managed_blob_info,
+            }) => {
+                // Check both regular and managed blob metadata storage.
+                regular_blob_info
+                    .as_ref()
+                    .map(|info| info.is_metadata_stored)
+                    .unwrap_or(false)
+                    || managed_blob_info
+                        .as_ref()
+                        .map(|info| info.is_metadata_stored)
+                        .unwrap_or(false)
+            }
+        }
+    }
+
+    fn is_registered(&self, current_epoch: Epoch) -> bool {
+        match self {
+            Self::Invalid { .. } => false,
+            Self::Valid(ValidBlobInfoV2 {
+                regular_blob_info,
+                managed_blob_info,
+            }) => {
+                // Check both regular and managed blob registration.
+                regular_blob_info
+                    .as_ref()
+                    .map(|info| {
+                        let v1_blob_info = BlobInfoV1::Valid(info.clone());
+                        v1_blob_info.is_registered(current_epoch)
+                    })
+                    .unwrap_or(false)
+                    || managed_blob_info
+                        .as_ref()
+                        .map(|info| info.is_registered(current_epoch))
+                        .unwrap_or(false)
+            }
+        }
+    }
+
+    fn to_blob_status(&self, current_epoch: Epoch) -> BlobStatus {
+        match self {
+            Self::Invalid { .. } => BlobStatus::Nonexistent,
+            Self::Valid(valid_blob_info) => valid_blob_info.to_blob_status(current_epoch),
+        }
+    }
+
+    // TODO(heliu): Implement this.
+    fn can_blob_info_be_deleted(&self, current_epoch: Epoch) -> bool {
+        match self {
+            Self::Invalid { .. } => {
+                // We don't know whether there are any deletable blob objects for this blob ID.
+                false
+            }
+            Self::Valid(ValidBlobInfoV2 {
+                regular_blob_info,
+                managed_blob_info,
+            }) => {
+                // TODO: Check if managed blobs can be deleted.
+                // For now, if there are any managed blobs, consider it not deletable.
+                if let Some(managed_info) = managed_blob_info {
+                    if !managed_info.registered.is_empty() {
+                        return false;
+                    }
+                }
+                // Otherwise, use V1 logic for regular blobs if it exists.
+                if let Some(regular_info) = regular_blob_info {
+                    return regular_info.count_deletable_total == 0
+                        && regular_info
+                            .permanent_total
+                            .as_ref()
+                            .is_some_and(|p| p.end_epoch <= current_epoch);
+                }
+                // If both are None, it can be deleted.
+                true
+            }
+        }
+    }
+
+    fn invalidation_event(&self) -> Option<EventID> {
+        match self {
+            Self::Invalid { event, .. } => Some(*event),
+            Self::Valid(_) => None,
+        }
+    }
+}
+
+/// Tracks managed blobs by storing which BlobManagers have registered/certified them.
+/// This allows checking if any BlobManager still has this blob valid (not expired).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub(crate) struct ManagedBlobInfo {
+    /// Whether metadata is stored for this managed blob.
+    pub is_metadata_stored: bool,
+    /// The epoch when this managed blob was first certified.
+    pub initial_certified_epoch: Option<Epoch>,
+    /// BlobManagers that have registered this blob (deletable or permanent).
+    pub registered: std::collections::HashSet<ObjectID>,
+    pub registered_deletable_counts: u32,
+    /// BlobManagers that have certified this blob (deletable or permanent).
+    pub certified: std::collections::HashSet<ObjectID>,
+    pub certified_deletable_counts: u32,
+}
+
+impl ManagedBlobInfo {
+    fn new(blob_manager_id: ObjectID, deletable: bool) -> Self {
+        Self {
+            is_metadata_stored: false,
+            initial_certified_epoch: None,
+            registered: std::collections::HashSet::from([blob_manager_id]),
+            registered_deletable_counts: if deletable { 1 } else { 0 },
+            certified: std::collections::HashSet::new(),
+            // certified_deletable_counts should be 0 on registration,
+            // only increment on certification.
+            certified_deletable_counts: 0,
+        }
+    }
+
+    /// Updates the managed blob info based on status change.
+    fn update_status(
+        &mut self,
+        change_type: BlobStatusChangeType,
+        change_info: &BlobStatusChangeInfo,
+    ) {
+        match change_type {
+            BlobStatusChangeType::RegisterManaged { blob_manager_id } => {
+                tracing::debug!(
+                    "Registering managed blob: blob_id={:?}, blob_manager_id={:?}, \
+                     deletable={}, registered_count={}",
+                    change_info.blob_id,
+                    blob_manager_id,
+                    change_info.deletable,
+                    self.registered.len() + 1
+                );
+                self.registered.insert(blob_manager_id);
+                // Track deletable count.
+                if change_info.deletable {
+                    self.registered_deletable_counts += 1;
+                }
+            }
+            BlobStatusChangeType::CertifyManaged { blob_manager_id } => {
+                // Certify the managed blob for this BlobManager.
+                if !self.registered.contains(&blob_manager_id) {
+                    tracing::error!(
+                        "attempted to certify a managed blob without having it registered:
+                        blob_id={:?}, blob_manager_id={:?}",
+                        change_info.blob_id,
+                        blob_manager_id
+                    );
+                    return;
+                }
+                self.certified.insert(blob_manager_id);
+                // Track deletable count.
+                if change_info.deletable {
+                    self.certified_deletable_counts += 1;
+                }
+                // Update initial certified epoch.
+                if self.initial_certified_epoch.is_none() {
+                    self.initial_certified_epoch = Some(change_info.epoch);
+                }
+            }
+            BlobStatusChangeType::DeleteManaged {
+                blob_manager_id,
+                was_certified,
+            } => {
+                // Remove from registered set.
+                if !self.registered.remove(&blob_manager_id) {
+                    tracing::error!(
+                        "attempted to delete a managed blob that wasn't registered:
+                        blob_id={:?}, blob_manager_id={:?}",
+                        change_info.blob_id,
+                        blob_manager_id
+                    );
+                    return;
+                }
+
+                // Track deletable count.
+                if change_info.deletable {
+                    self.registered_deletable_counts =
+                        self.registered_deletable_counts.saturating_sub(1);
+                }
+
+                // If certified, also remove from certified set.
+                if was_certified {
+                    if !self.certified.remove(&blob_manager_id) {
+                        tracing::error!(
+                            "attempted to delete a certified managed blob that wasn't in \
+                            certified set: blob_id={:?}, blob_manager_id={:?}",
+                            change_info.blob_id,
+                            blob_manager_id
+                        );
+                        return;
+                    }
+                    if change_info.deletable {
+                        self.certified_deletable_counts =
+                            self.certified_deletable_counts.saturating_sub(1);
+                    }
+                }
+            }
+            BlobStatusChangeType::Register
+            | BlobStatusChangeType::Certify
+            | BlobStatusChangeType::Delete { .. }
+            | BlobStatusChangeType::Extend => {
+                // Regular blob operations shouldn't apply to managed blobs.
+                tracing::warn!(
+                    "{:?} operation applied to managed blob info for blob {}",
+                    change_type,
+                    change_info.blob_id
+                );
+            }
+        }
+    }
+
+    fn is_certified(&self, current_epoch: Epoch) -> bool {
+        !self.certified.is_empty()
+            && self
+                .initial_certified_epoch
+                .is_some_and(|epoch| epoch <= current_epoch)
+    }
+
+    /// Returns true if any BlobManager has registered this blob.
+    /// TODO: Check if any BlobManager in registered is still valid at current_epoch.
+    fn is_registered(&self, current_epoch: Epoch) -> bool {
+        !self.registered.is_empty()
+            && self
+                .initial_certified_epoch
+                .is_some_and(|epoch| epoch <= current_epoch)
+    }
+}
+
+/// ValidBlobInfoV2 with separate tracking for regular blobs (V1) and managed blobs.
+/// This isolates the two types completely.
+/// At least one of regular_blob_info or managed_blob_info must be Some.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub(crate) struct ValidBlobInfoV2 {
+    /// Information about regular blobs (V1-style with all V1 fields).
+    pub regular_blob_info: Option<ValidBlobInfoV1>,
+    /// Information about managed blobs (owned by BlobManagers).
+    pub managed_blob_info: Option<ManagedBlobInfo>,
+}
+
+impl Default for ValidBlobInfoV2 {
+    fn default() -> Self {
+        Self {
+            regular_blob_info: None,
+            managed_blob_info: None,
+        }
+    }
+}
+
+impl From<ValidBlobInfoV1> for ValidBlobInfoV2 {
+    fn from(v1: ValidBlobInfoV1) -> Self {
+        Self {
+            regular_blob_info: Some(v1),
+            managed_blob_info: None,
+        }
+    }
+}
+
+impl ValidBlobInfoV2 {
+    /// Creates a new ValidBlobInfoV2 for a managed blob.
+    fn new(blob_manager_id: ObjectID, deletable: bool) -> Self {
+        Self {
+            regular_blob_info: None,
+            managed_blob_info: Some(ManagedBlobInfo::new(blob_manager_id, deletable)),
+        }
+    }
+
+    /// Check if this ValidBlobInfoV2 is effectively empty and can be removed.
+    fn is_empty(&self) -> bool {
+        // Check if regular_blob_info is empty or None
+        let regular_empty = self.regular_blob_info.as_ref().map_or(true, |info| {
+            info.count_deletable_total == 0
+                && info.count_deletable_certified == 0
+                && info.permanent_total.is_none()
+                && info.permanent_certified.is_none()
+        });
+
+        // Check if managed_blob_info is empty or None
+        let managed_empty = self.managed_blob_info.as_ref().map_or(true, |info| {
+            info.registered.is_empty() && info.certified.is_empty()
+        });
+
+        regular_empty && managed_empty
+    }
+
+    /// Updates the status based on a change.
+    /// Handles both regular blob operations and managed blob operations.
+    fn update_status(
+        &mut self,
+        change_type: BlobStatusChangeType,
+        change_info: BlobStatusChangeInfo,
+    ) {
+        match change_type {
+            BlobStatusChangeType::RegisterManaged { .. } => {
+                let managed_info = self
+                    .managed_blob_info
+                    .get_or_insert_with(ManagedBlobInfo::default);
+                managed_info.update_status(change_type, &change_info);
+            }
+            BlobStatusChangeType::CertifyManaged { blob_manager_id }
+            | BlobStatusChangeType::DeleteManaged {
+                blob_manager_id, ..
+            } => {
+                // Managed blob operations update managed blob info.
+                // ManagedBlobInfo must exist for these operations.
+                let Some(ref mut managed_info) = self.managed_blob_info else {
+                    tracing::error!(
+                        "attempted to update status of a managed blob without having it registered:
+                        blob_id={:?}",
+                        change_info.blob_id,
+                    );
+                    return;
+                };
+                managed_info.update_status(change_type, &change_info);
+
+                // If DeleteManaged removed all references:
+                if matches!(change_type, BlobStatusChangeType::DeleteManaged { .. }) {
+                    // Unset initial_certified_epoch when all certified references are removed.
+                    if managed_info.certified.is_empty() {
+                        managed_info.initial_certified_epoch = None;
+                    }
+
+                    // If all managed references are gone, remove managed_blob_info.
+                    if managed_info.registered.is_empty() && managed_info.certified.is_empty() {
+                        self.managed_blob_info = None;
+                    }
+                }
+            }
+            BlobStatusChangeType::Register => {
+                let regular_info = self.regular_blob_info.get_or_insert_with(Default::default);
+                regular_info.update_status(change_type, change_info);
+            }
+            BlobStatusChangeType::Certify
+            | BlobStatusChangeType::Extend
+            | BlobStatusChangeType::Delete { .. } => {
+                // Regular blob operations update regular blob info using V1 logic.
+                // Create ValidBlobInfoV1 if it doesn't exist.
+                let regular_info = self.regular_blob_info.get_or_insert_with(Default::default);
+                regular_info.update_status(change_type, change_info.clone());
+
+                // If Delete operation resulted in empty regular blob info, set it to None.
+                if matches!(change_type, BlobStatusChangeType::Delete { .. }) {
+                    if let Some(info) = &self.regular_blob_info {
+                        if info.count_deletable_total == 0
+                            && info.count_deletable_certified == 0
+                            && info.permanent_total.is_none()
+                            && info.permanent_certified.is_none()
+                        {
+                            self.regular_blob_info = None;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Calculates ManagedBlobCounts for V2 managed blobs.
+    /// Returns None if there are no managed blobs.
+    fn managed_blob_counts(&self, _current_epoch: Epoch) -> Option<ManagedBlobCounts> {
+        let managed_info = self.managed_blob_info.as_ref()?;
+
+        if managed_info.certified.is_empty() && managed_info.registered.is_empty() {
+            return None;
+        }
+
+        // TODO: Query BlobManager objects to check which managed blobs are still
+        // valid at current_epoch. For now, we count all registered/certified
+        // managed blobs.
+        Some(ManagedBlobCounts {
+            count_registered_total: managed_info.registered.len() as u32,
+            count_certified_total: managed_info.certified.len() as u32,
+            count_registered_deletable: managed_info.registered_deletable_counts,
+            count_certified_deletable: managed_info.certified_deletable_counts,
+        })
+    }
+
+    /// Adds managed blob counts to the status with new ordering logic.
+    /// Ordering: Nonexistent < Deletable < Managed < Permanent < Invalid
+    /// Logic:
+    /// - If Permanent: add managed counts to Permanent
+    /// - Else if managed counts exist: return Managed with deletable counts
+    /// - Else: return Deletable (or original status)
+    fn add_managed_counts_to_status(
+        status: BlobStatus,
+        managed_counts: ManagedBlobCounts,
+    ) -> BlobStatus {
+        match status {
+            // If there is Permanent, add the managed counts.
+            BlobStatus::Permanent {
+                end_epoch,
+                is_certified,
+                status_event,
+                deletable_counts,
+                initial_certified_epoch,
+                ..
+            } => BlobStatus::Permanent {
+                end_epoch,
+                is_certified,
+                status_event,
+                deletable_counts,
+                initial_certified_epoch,
+                managed_blob_counts: managed_counts,
+            },
+            // If no Permanent but managed counts exist, use Managed variant.
+            BlobStatus::Deletable {
+                initial_certified_epoch,
+                deletable_counts,
+                ..
+            } if managed_counts != ManagedBlobCounts::default() => BlobStatus::Managed {
+                initial_certified_epoch,
+                unmanaged_deletable_counts: deletable_counts,
+                managed_blob_counts: managed_counts,
+            },
+            BlobStatus::Nonexistent if managed_counts != ManagedBlobCounts::default() => {
+                BlobStatus::Managed {
+                    initial_certified_epoch: None, // TODO: Set from managed blob info.
+                    unmanaged_deletable_counts: DeletableCounts::default(),
+                    managed_blob_counts: managed_counts,
+                }
+            }
+            // Otherwise, use the Deletable variant (or original status).
+            BlobStatus::Deletable {
+                initial_certified_epoch,
+                deletable_counts,
+                ..
+            } => BlobStatus::Deletable {
+                initial_certified_epoch,
+                deletable_counts,
+                managed_blob_counts: ManagedBlobCounts::default(),
+            },
+            BlobStatus::Invalid { event } => BlobStatus::Invalid { event },
+            BlobStatus::Nonexistent => BlobStatus::Nonexistent,
+            BlobStatus::Managed { .. } => {
+                // This shouldn't happen as V1 never returns Managed.
+                // But if it does, just pass through with updated counts.
+                BlobStatus::Managed {
+                    initial_certified_epoch: None,
+                    unmanaged_deletable_counts: DeletableCounts::default(),
+                    managed_blob_counts: managed_counts,
+                }
+            }
+        }
+    }
+
+    /// Converts to BlobStatus, checking both regular blobs and managed blobs.
+    /// For managed blobs, we need to check if any BlobManager in the certified set is still valid.
+    pub(crate) fn to_blob_status(&self, current_epoch: Epoch) -> BlobStatus {
+        // Get V1 status (regular blob status) if it exists.
+        let v1_status = self
+            .regular_blob_info
+            .as_ref()
+            .map(|info| info.to_blob_status(current_epoch))
+            .unwrap_or(BlobStatus::Nonexistent);
+
+        // Get managed blob counts.
+        let managed_counts = self.managed_blob_counts(current_epoch).unwrap_or_default();
+
+        // Add managed_blob_counts to the V1 status.
+        Self::add_managed_counts_to_status(v1_status, managed_counts)
+    }
+}
+
 /// Represents the status of a blob.
 ///
 /// Currently only used for testing.
@@ -1658,6 +2412,7 @@ impl Ord for BlobCertificationStatus {
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq, Clone)]
 pub(crate) enum BlobInfo {
     V1(BlobInfoV1),
+    V2(BlobInfoV2),
 }
 
 impl BlobInfo {
@@ -1703,12 +2458,37 @@ impl Mergeable for BlobInfo {
     type Key = BlobId;
 
     fn merge_with(self, operand: Self::MergeOperand) -> Self {
-        match self {
-            Self::V1(value) => Self::V1(value.merge_with(operand)),
+        match (self, &operand) {
+            // V1 receiving RegisterManaged or CertifyManaged → transition to V2.
+            (
+                Self::V1(BlobInfoV1::Valid(v1)),
+                BlobInfoMergeOperand::ChangeStatus {
+                    change_type: ct @ BlobStatusChangeType::RegisterManaged { .. },
+                    change_info,
+                },
+            ) => {
+                // Convert V1 to V2, preserving all V1 data.
+                let mut v2 = ValidBlobInfoV2::from(v1);
+                // Apply the managed blob operation.
+                v2.update_status(*ct, change_info.clone());
+                Self::V2(BlobInfoV2::Valid(v2))
+            }
+            (Self::V2(v2), _) => Self::V2(v2.merge_with(operand)),
+            // V1 receiving V1 operation → stay V1.
+            (Self::V1(v1), _) => Self::V1(v1.merge_with(operand)),
         }
     }
 
     fn merge_new(operand: Self::MergeOperand) -> Option<Self> {
+        if let BlobInfoMergeOperand::ChangeStatus {
+            change_type: BlobStatusChangeType::RegisterManaged { .. },
+            ..
+        } = &operand
+        {
+            return BlobInfoV2::merge_new(operand).map(Self::from);
+        }
+
+        // Otherwise, create V1 entry.
         BlobInfoV1::merge_new(operand).map(Self::from)
     }
 }
@@ -1763,6 +2543,7 @@ mod per_object_blob_info {
     #[derive(Debug, Deserialize, Serialize, PartialEq, Eq, Clone)]
     pub(crate) enum PerObjectBlobInfo {
         V1(PerObjectBlobInfoV1),
+        V2(PerObjectBlobInfoV2),
     }
 
     impl PerObjectBlobInfo {
@@ -1797,11 +2578,15 @@ mod per_object_blob_info {
         fn merge_with(self, operand: Self::MergeOperand) -> Self {
             match self {
                 Self::V1(value) => Self::V1(value.merge_with(operand)),
+                Self::V2(value) => Self::V2(value.merge_with(operand)),
             }
         }
 
         fn merge_new(operand: Self::MergeOperand) -> Option<Self> {
-            PerObjectBlobInfoV1::merge_new(operand).map(Self::from)
+            // Try V2 first (RegisterManaged), then fall back to V1 (Register).
+            PerObjectBlobInfoV2::merge_new(operand.clone())
+                .map(Self::from)
+                .or_else(|| PerObjectBlobInfoV1::merge_new(operand).map(Self::from))
         }
     }
 
@@ -1891,6 +2676,14 @@ mod per_object_blob_info {
                         self.blob_id
                     );
                 }
+                BlobStatusChangeType::RegisterManaged { .. }
+                | BlobStatusChangeType::CertifyManaged { .. }
+                | BlobStatusChangeType::DeleteManaged { .. } => {
+                    panic!(
+                        "cannot apply managed blob operations to V1 (regular blob) {}",
+                        self.blob_id
+                    );
+                }
                 BlobStatusChangeType::Certify => {
                     assert!(
                         self.certified_epoch.is_none(),
@@ -1941,6 +2734,167 @@ mod per_object_blob_info {
                 certified_epoch: None,
                 end_epoch,
                 deletable,
+                event: status_event,
+                deleted: false,
+            })
+        }
+    }
+
+    /// Per-object blob info for managed blobs (V2).
+    ///
+    /// Managed blobs are owned by a BlobManager and don't have a direct end_epoch.
+    /// Instead, their validity is determined by the BlobManager's storage end_epoch.
+    #[derive(Debug, Deserialize, Serialize, PartialEq, Eq, Clone)]
+    pub(crate) struct PerObjectBlobInfoV2 {
+        /// The blob ID.
+        pub blob_id: BlobId,
+        /// The epoch in which the blob has been registered.
+        pub registered_epoch: Epoch,
+        /// The epoch in which the blob was first certified, `None` if the blob is uncertified.
+        pub certified_epoch: Option<Epoch>,
+        /// The ID of the BlobManager that manages this blob.
+        pub blob_manager_id: ObjectID,
+        /// Whether the blob is deletable.
+        pub deletable: bool,
+        /// The end epoch of the storage for this managed blob.
+        pub end_epoch: Epoch,
+        /// The ID of the last blob event related to this object.
+        pub event: EventID,
+        /// Whether the blob has been deleted.
+        pub deleted: bool,
+    }
+
+    impl CertifiedBlobInfoApi for PerObjectBlobInfoV2 {
+        fn is_certified(&self, current_epoch: Epoch) -> bool {
+            self.is_registered(current_epoch)
+                && self
+                    .certified_epoch
+                    .is_some_and(|epoch| epoch <= current_epoch)
+        }
+
+        fn initial_certified_epoch(&self) -> Option<Epoch> {
+            self.certified_epoch
+        }
+    }
+
+    impl PerObjectBlobInfoApi for PerObjectBlobInfoV2 {
+        fn blob_id(&self) -> BlobId {
+            self.blob_id
+        }
+
+        fn is_deletable(&self) -> bool {
+            self.deletable
+        }
+
+        fn is_registered(&self, _current_epoch: Epoch) -> bool {
+            // For managed blobs, validity is determined by the BlobManager's end_epoch.
+            // For now, we consider them registered if not deleted.
+            // TODO: Query BlobManager's end_epoch to determine validity.
+            !self.deleted
+        }
+
+        fn is_deleted(&self) -> bool {
+            self.deleted
+        }
+    }
+
+    impl ToBytes for PerObjectBlobInfoV2 {}
+
+    impl Mergeable for PerObjectBlobInfoV2 {
+        type MergeOperand = PerObjectBlobInfoMergeOperand;
+        type Key = ObjectID;
+
+        fn merge_with(
+            mut self,
+            PerObjectBlobInfoMergeOperand {
+                change_type,
+                change_info,
+            }: PerObjectBlobInfoMergeOperand,
+        ) -> Self {
+            assert_eq!(
+                self.blob_id, change_info.blob_id,
+                "blob ID mismatch in merge operand"
+            );
+            assert_eq!(
+                self.deletable, change_info.deletable,
+                "deletable mismatch in merge operand"
+            );
+            assert!(
+                !self.deleted,
+                "attempt to update an already deleted blob {}",
+                self.blob_id
+            );
+            self.event = change_info.status_event;
+            match change_type {
+                BlobStatusChangeType::Register => {
+                    panic!(
+                        "cannot apply Register to V2 (managed blob) {}",
+                        self.blob_id
+                    );
+                }
+                BlobStatusChangeType::RegisterManaged { .. } => {
+                    panic!(
+                        "cannot register an already registered managed blob {}",
+                        self.blob_id
+                    );
+                }
+                BlobStatusChangeType::CertifyManaged { .. } => {
+                    assert!(
+                        self.certified_epoch.is_none(),
+                        "cannot certify an already certified managed blob {}",
+                        self.blob_id
+                    );
+                    self.certified_epoch = Some(change_info.epoch);
+                }
+                BlobStatusChangeType::Certify => {
+                    // Regular Certify shouldn't be applied to managed blobs.
+                    panic!(
+                        "cannot apply Certify to V2 (managed blob) {} - use CertifyManaged",
+                        self.blob_id
+                    );
+                }
+                BlobStatusChangeType::Extend => {
+                    // Managed blobs don't support extend operations.
+                    // Their lifetime is managed by the BlobManager.
+                    panic!(
+                        "cannot extend a managed blob {} - use BlobManager instead",
+                        self.blob_id
+                    );
+                }
+                BlobStatusChangeType::Delete { was_certified } => {
+                    assert_eq!(self.certified_epoch.is_some(), was_certified);
+                    self.deleted = true;
+                }
+                BlobStatusChangeType::DeleteManaged { was_certified, .. } => {
+                    assert_eq!(self.certified_epoch.is_some(), was_certified);
+                    self.deleted = true;
+                }
+            }
+            self
+        }
+
+        fn merge_new(operand: Self::MergeOperand) -> Option<Self> {
+            let PerObjectBlobInfoMergeOperand {
+                change_type: BlobStatusChangeType::RegisterManaged { blob_manager_id },
+                change_info:
+                    BlobStatusChangeInfo {
+                        blob_id,
+                        deletable,
+                        epoch,
+                        end_epoch,
+                        status_event,
+                    },
+            } = operand
+            else {
+                return None;
+            };
+            Some(Self {
+                blob_id,
+                registered_epoch: epoch,
+                certified_epoch: None,
+                blob_manager_id,
+                deletable,
+                end_epoch,
                 event: status_event,
                 deleted: false,
             })
@@ -2696,5 +3650,804 @@ mod tests {
             BlobInfoV1::Valid(blob_info).to_blob_status(epoch_expired),
             BlobStatus::Nonexistent,
         );
+    }
+
+    // ============================================================================
+    // V2 Merge Operation Tests
+    // ============================================================================
+
+    fn object_id_for_testing(n: u8) -> ObjectID {
+        ObjectID::from_bytes([n; 32]).unwrap()
+    }
+
+    fn blob_id_for_testing() -> BlobId {
+        use walrus_core::EncodingType;
+        // Create a dummy BlobId for testing.
+        BlobId::from_metadata([0u8; 32].into(), EncodingType::RS2, 0)
+    }
+
+    param_test! {
+        test_v2_merge_new_with_register_managed: [
+            register_managed_deletable: (
+                BlobInfoMergeOperand::ChangeStatus {
+                    change_type: BlobStatusChangeType::RegisterManaged {
+                        blob_manager_id: object_id_for_testing(1),
+                    },
+                    change_info: BlobStatusChangeInfo {
+                        epoch: 1,
+                        end_epoch: 10,
+                        deletable: true,
+                        status_event: event_id_for_testing(),
+                        blob_id: blob_id_for_testing(),
+                    },
+                },
+                BlobInfoV2::Valid(ValidBlobInfoV2 {
+                    regular_blob_info: None,
+                    managed_blob_info: Some(ManagedBlobInfo {
+                        is_metadata_stored: false,
+                        initial_certified_epoch: None,
+                        registered: [object_id_for_testing(1)].into_iter().collect(),
+                        registered_deletable_counts: 1,
+                        certified: Default::default(),
+                        certified_deletable_counts: 0,
+                    }),
+                }),
+            ),
+            register_managed_permanent: (
+                BlobInfoMergeOperand::ChangeStatus {
+                    change_type: BlobStatusChangeType::RegisterManaged {
+                        blob_manager_id: object_id_for_testing(2),
+                    },
+                    change_info: BlobStatusChangeInfo {
+                        epoch: 1,
+                        end_epoch: 10,
+                        deletable: false,
+                        status_event: event_id_for_testing(),
+                        blob_id: blob_id_for_testing(),
+                    },
+                },
+                BlobInfoV2::Valid(ValidBlobInfoV2 {
+                    regular_blob_info: None,
+                    managed_blob_info: Some(ManagedBlobInfo {
+                        is_metadata_stored: false,
+                        initial_certified_epoch: None,
+                        registered: [object_id_for_testing(2)].into_iter().collect(),
+                        registered_deletable_counts: 0,
+                        certified: Default::default(),
+                        certified_deletable_counts: 0,
+                    }),
+                }),
+            ),
+        ]
+    }
+    fn test_v2_merge_new_with_register_managed(
+        operand: BlobInfoMergeOperand,
+        expected: BlobInfoV2,
+    ) {
+        let result = BlobInfoV2::merge_new(operand).expect("should create V2 from RegisterManaged");
+        assert_eq!(result, expected);
+    }
+
+    param_test! {
+        test_v2_mark_metadata_stored: [
+            with_regular_blob: (
+                BlobInfoV2::Valid(ValidBlobInfoV2 {
+                    regular_blob_info: Some(ValidBlobInfoV1::default()),
+                    managed_blob_info: None,
+                }),
+                BlobInfoV2::Valid(ValidBlobInfoV2 {
+                    regular_blob_info: Some(ValidBlobInfoV1 {
+                        is_metadata_stored: true,
+                        ..Default::default()
+                    }),
+                    managed_blob_info: None,
+                }),
+            ),
+            with_managed_blob: (
+                BlobInfoV2::Valid(ValidBlobInfoV2 {
+                    regular_blob_info: None,
+                    managed_blob_info: Some(ManagedBlobInfo::default()),
+                }),
+                BlobInfoV2::Valid(ValidBlobInfoV2 {
+                    regular_blob_info: None,
+                    managed_blob_info: Some(ManagedBlobInfo {
+                        is_metadata_stored: true,
+                        ..Default::default()
+                    }),
+                }),
+            ),
+            with_both: (
+                BlobInfoV2::Valid(ValidBlobInfoV2 {
+                    regular_blob_info: Some(ValidBlobInfoV1::default()),
+                    managed_blob_info: Some(ManagedBlobInfo::default()),
+                }),
+                BlobInfoV2::Valid(ValidBlobInfoV2 {
+                    regular_blob_info: Some(ValidBlobInfoV1 {
+                        is_metadata_stored: true,
+                        ..Default::default()
+                    }),
+                    managed_blob_info: Some(ManagedBlobInfo {
+                        is_metadata_stored: true,
+                        ..Default::default()
+                    }),
+                }),
+            ),
+        ]
+    }
+    fn test_v2_mark_metadata_stored(preexisting: BlobInfoV2, expected: BlobInfoV2) {
+        let result = preexisting.merge_with(BlobInfoMergeOperand::MarkMetadataStored(true));
+        assert_eq!(result, expected);
+    }
+
+    param_test! {
+        test_v2_register_managed_blob: [
+            register_managed_on_existing_v1: (
+                BlobInfoV2::Valid(ValidBlobInfoV2 {
+                    regular_blob_info: Some(ValidBlobInfoV1 {
+                        count_deletable_total: 1,
+                        latest_seen_deletable_registered_end_epoch: Some(10),
+                        ..Default::default()
+                    }),
+                    managed_blob_info: None,
+                }),
+                BlobInfoMergeOperand::ChangeStatus {
+                    change_type: BlobStatusChangeType::RegisterManaged {
+                        blob_manager_id: object_id_for_testing(1),
+                    },
+                    change_info: BlobStatusChangeInfo {
+                        epoch: 1,
+                        end_epoch: 10,
+                        deletable: true,
+                        status_event: event_id_for_testing(),
+                        blob_id: blob_id_for_testing(),
+                    },
+                },
+                BlobInfoV2::Valid(ValidBlobInfoV2 {
+                    regular_blob_info: Some(ValidBlobInfoV1 {
+                        count_deletable_total: 1,
+                        latest_seen_deletable_registered_end_epoch: Some(10),
+                        ..Default::default()
+                    }),
+                    managed_blob_info: Some(ManagedBlobInfo {
+                        is_metadata_stored: false,
+                        initial_certified_epoch: None,
+                        registered: [object_id_for_testing(1)].into_iter().collect(),
+                        registered_deletable_counts: 1,
+                        certified: Default::default(),
+                        certified_deletable_counts: 0,
+                    }),
+                }),
+            ),
+            register_managed_on_existing_v2_managed: (
+                BlobInfoV2::Valid(ValidBlobInfoV2 {
+                    regular_blob_info: None,
+                    managed_blob_info: Some(ManagedBlobInfo {
+                        is_metadata_stored: false,
+                        initial_certified_epoch: None,
+                        registered: [object_id_for_testing(1)].into_iter().collect(),
+                        registered_deletable_counts: 1,
+                        certified: Default::default(),
+                        certified_deletable_counts: 0,
+                    }),
+                }),
+                BlobInfoMergeOperand::ChangeStatus {
+                    change_type: BlobStatusChangeType::RegisterManaged {
+                        blob_manager_id: object_id_for_testing(2),
+                    },
+                    change_info: BlobStatusChangeInfo {
+                        epoch: 1,
+                        end_epoch: 10,
+                        deletable: false,
+                        status_event: event_id_for_testing(),
+                        blob_id: blob_id_for_testing(),
+                    },
+                },
+                BlobInfoV2::Valid(ValidBlobInfoV2 {
+                    regular_blob_info: None,
+                    managed_blob_info: Some(ManagedBlobInfo {
+                        is_metadata_stored: false,
+                        initial_certified_epoch: None,
+                        registered: [object_id_for_testing(1), object_id_for_testing(2)]
+                            .into_iter()
+                            .collect(),
+                        registered_deletable_counts: 1,
+                        certified: Default::default(),
+                        certified_deletable_counts: 0,
+                    }),
+                }),
+            ),
+            register_managed_on_existing_v2_both: (
+                BlobInfoV2::Valid(ValidBlobInfoV2 {
+                    regular_blob_info: Some(ValidBlobInfoV1 {
+                        count_deletable_total: 2,
+                        count_deletable_certified: 1,
+                        latest_seen_deletable_registered_end_epoch: Some(10),
+                        latest_seen_deletable_certified_end_epoch: Some(10),
+                        ..Default::default()
+                    }),
+                    managed_blob_info: Some(ManagedBlobInfo {
+                        is_metadata_stored: false,
+                        initial_certified_epoch: None,
+                        registered: [object_id_for_testing(1)].into_iter().collect(),
+                        registered_deletable_counts: 1,
+                        certified: Default::default(),
+                        certified_deletable_counts: 0,
+                    }),
+                }),
+                BlobInfoMergeOperand::ChangeStatus {
+                    change_type: BlobStatusChangeType::RegisterManaged {
+                        blob_manager_id: object_id_for_testing(3),
+                    },
+                    change_info: BlobStatusChangeInfo {
+                        epoch: 1,
+                        end_epoch: 10,
+                        deletable: true,
+                        status_event: event_id_for_testing(),
+                        blob_id: blob_id_for_testing(),
+                    },
+                },
+                BlobInfoV2::Valid(ValidBlobInfoV2 {
+                    regular_blob_info: Some(ValidBlobInfoV1 {
+                        count_deletable_total: 2,
+                        count_deletable_certified: 1,
+                        latest_seen_deletable_registered_end_epoch: Some(10),
+                        latest_seen_deletable_certified_end_epoch: Some(10),
+                        ..Default::default()
+                    }),
+                    managed_blob_info: Some(ManagedBlobInfo {
+                        is_metadata_stored: false,
+                        initial_certified_epoch: None,
+                        registered: [object_id_for_testing(1), object_id_for_testing(3)]
+                            .into_iter()
+                            .collect(),
+                        registered_deletable_counts: 2,
+                        certified: Default::default(),
+                        certified_deletable_counts: 0,
+                    }),
+                }),
+            ),
+        ]
+    }
+    fn test_v2_register_managed_blob(
+        preexisting: BlobInfoV2,
+        operand: BlobInfoMergeOperand,
+        expected: BlobInfoV2,
+    ) {
+        let result = preexisting.merge_with(operand);
+        assert_eq!(result, expected);
+    }
+
+    param_test! {
+        test_v2_certify_managed_blob: [
+            certify_after_register: (
+                BlobInfoV2::Valid(ValidBlobInfoV2 {
+                    regular_blob_info: None,
+                    managed_blob_info: Some(ManagedBlobInfo {
+                        is_metadata_stored: false,
+                        initial_certified_epoch: None,
+                        registered: [object_id_for_testing(1)].into_iter().collect(),
+                        registered_deletable_counts: 1,
+                        certified: Default::default(),
+                        certified_deletable_counts: 0,
+                    }),
+                }),
+                object_id_for_testing(1),
+                1,
+                true,
+                BlobInfoV2::Valid(ValidBlobInfoV2 {
+                    regular_blob_info: None,
+                    managed_blob_info: Some(ManagedBlobInfo {
+                        is_metadata_stored: false,
+                        initial_certified_epoch: Some(1),
+                        registered: [object_id_for_testing(1)].into_iter().collect(),
+                        registered_deletable_counts: 1,
+                        certified: [object_id_for_testing(1)].into_iter().collect(),
+                        certified_deletable_counts: 1,
+                    }),
+                }),
+            ),
+            certify_second_manager: (
+                BlobInfoV2::Valid(ValidBlobInfoV2 {
+                    regular_blob_info: None,
+                    managed_blob_info: Some(ManagedBlobInfo {
+                        is_metadata_stored: false,
+                        initial_certified_epoch: Some(1),
+                        registered: [object_id_for_testing(1), object_id_for_testing(2)]
+                            .into_iter()
+                            .collect(),
+                        registered_deletable_counts: 1,
+                        certified: [object_id_for_testing(1)].into_iter().collect(),
+                        certified_deletable_counts: 1,
+                    }),
+                }),
+                object_id_for_testing(2),
+                2,
+                false,
+                BlobInfoV2::Valid(ValidBlobInfoV2 {
+                    regular_blob_info: None,
+                    managed_blob_info: Some(ManagedBlobInfo {
+                        is_metadata_stored: false,
+                        initial_certified_epoch: Some(1),
+                        registered: [object_id_for_testing(1), object_id_for_testing(2)]
+                            .into_iter()
+                            .collect(),
+                        registered_deletable_counts: 1,
+                        certified: [object_id_for_testing(1), object_id_for_testing(2)]
+                            .into_iter()
+                            .collect(),
+                        certified_deletable_counts: 1,
+                    }),
+                }),
+            ),
+        ]
+    }
+    fn test_v2_certify_managed_blob(
+        preexisting: BlobInfoV2,
+        blob_manager_id: ObjectID,
+        epoch: Epoch,
+        deletable: bool,
+        expected: BlobInfoV2,
+    ) {
+        let operand = BlobInfoMergeOperand::ChangeStatus {
+            change_type: BlobStatusChangeType::CertifyManaged { blob_manager_id },
+            change_info: BlobStatusChangeInfo {
+                epoch,
+                end_epoch: 10,
+                deletable,
+                status_event: event_id_for_testing(),
+                blob_id: blob_id_for_testing(),
+            },
+        };
+        let result = preexisting.merge_with(operand);
+        assert_eq!(result, expected);
+    }
+
+    param_test! {
+        test_v2_regular_and_managed_coexist: [
+            register_regular_then_managed: (
+                BlobInfoV2::Valid(ValidBlobInfoV2::default()),
+                object_id_for_testing(1),
+                BlobInfoV2::Valid(ValidBlobInfoV2 {
+                    regular_blob_info: Some(ValidBlobInfoV1 {
+                        count_deletable_total: 1,
+                        latest_seen_deletable_registered_end_epoch: Some(10),
+                        ..Default::default()
+                    }),
+                    managed_blob_info: Some(ManagedBlobInfo {
+                        is_metadata_stored: false,
+                        initial_certified_epoch: None,
+                        registered: [object_id_for_testing(1)].into_iter().collect(),
+                        registered_deletable_counts: 1,
+                        certified: Default::default(),
+                        certified_deletable_counts: 0,
+                    }),
+                }),
+            ),
+            register_managed_then_regular: (
+                BlobInfoV2::Valid(ValidBlobInfoV2::default()),
+                object_id_for_testing(1),
+                BlobInfoV2::Valid(ValidBlobInfoV2 {
+                    regular_blob_info: Some(ValidBlobInfoV1 {
+                        count_deletable_total: 1,
+                        latest_seen_deletable_registered_end_epoch: Some(10),
+                        ..Default::default()
+                    }),
+                    managed_blob_info: Some(ManagedBlobInfo {
+                        is_metadata_stored: false,
+                        initial_certified_epoch: None,
+                        registered: [object_id_for_testing(1)].into_iter().collect(),
+                        registered_deletable_counts: 1,
+                        certified: Default::default(),
+                        certified_deletable_counts: 0,
+                    }),
+                }),
+            ),
+        ]
+    }
+    fn test_v2_regular_and_managed_coexist(
+        mut preexisting: BlobInfoV2,
+        blob_manager_id: ObjectID,
+        expected: BlobInfoV2,
+    ) {
+        // First add managed blob.
+        let register_managed = BlobInfoMergeOperand::ChangeStatus {
+            change_type: BlobStatusChangeType::RegisterManaged { blob_manager_id },
+            change_info: BlobStatusChangeInfo {
+                epoch: 1,
+                end_epoch: 10,
+                deletable: true,
+                status_event: event_id_for_testing(),
+                blob_id: blob_id_for_testing(),
+            },
+        };
+        preexisting = preexisting.merge_with(register_managed);
+
+        // Then add regular blob.
+        let register_regular = BlobInfoMergeOperand::ChangeStatus {
+            change_type: BlobStatusChangeType::Register,
+            change_info: BlobStatusChangeInfo {
+                epoch: 1,
+                end_epoch: 10,
+                deletable: true,
+                status_event: event_id_for_testing(),
+                blob_id: blob_id_for_testing(),
+            },
+        };
+        let result = preexisting.merge_with(register_regular);
+        assert_eq!(result, expected);
+    }
+
+    param_test! {
+        test_v2_mark_invalid: [
+            empty_v2: (
+                BlobInfoV2::Valid(ValidBlobInfoV2::default()),
+                2,
+            ),
+            with_regular: (
+                BlobInfoV2::Valid(ValidBlobInfoV2 {
+                    regular_blob_info: Some(ValidBlobInfoV1 {
+                        count_deletable_total: 1,
+                        ..Default::default()
+                    }),
+                    managed_blob_info: None,
+                }),
+                3,
+            ),
+            with_managed: (
+                BlobInfoV2::Valid(ValidBlobInfoV2 {
+                    regular_blob_info: None,
+                    managed_blob_info: Some(ManagedBlobInfo {
+                        registered: [object_id_for_testing(1)].into_iter().collect(),
+                        ..Default::default()
+                    }),
+                }),
+                4,
+            ),
+            with_both: (
+                BlobInfoV2::Valid(ValidBlobInfoV2 {
+                    regular_blob_info: Some(ValidBlobInfoV1 {
+                        count_deletable_total: 1,
+                        ..Default::default()
+                    }),
+                    managed_blob_info: Some(ManagedBlobInfo {
+                        registered: [object_id_for_testing(1)].into_iter().collect(),
+                        ..Default::default()
+                    }),
+                }),
+                5,
+            ),
+        ]
+    }
+    fn test_v2_mark_invalid(preexisting: BlobInfoV2, epoch: Epoch) {
+        let event = event_id_for_testing();
+        let result = preexisting.merge_with(BlobInfoMergeOperand::MarkInvalid {
+            epoch,
+            status_event: event,
+        });
+        assert_eq!(result, BlobInfoV2::Invalid { epoch, event });
+    }
+
+    param_test! {
+        test_v2_invalid_status_not_changed: [
+            mark_metadata_stored: (BlobInfoMergeOperand::MarkMetadataStored(true)),
+            register_regular: (BlobInfoMergeOperand::ChangeStatus {
+                change_type: BlobStatusChangeType::Register,
+                change_info: BlobStatusChangeInfo {
+                    epoch: 1,
+                    end_epoch: 10,
+                    deletable: true,
+                    status_event: event_id_for_testing(),
+                    blob_id: blob_id_for_testing(),
+                },
+            }),
+            register_managed: (BlobInfoMergeOperand::ChangeStatus {
+                change_type: BlobStatusChangeType::RegisterManaged {
+                    blob_manager_id: object_id_for_testing(1),
+                },
+                change_info: BlobStatusChangeInfo {
+                    epoch: 1,
+                    end_epoch: 10,
+                    deletable: true,
+                    status_event: event_id_for_testing(),
+                    blob_id: blob_id_for_testing(),
+                },
+            }),
+            certify_managed: (BlobInfoMergeOperand::ChangeStatus {
+                change_type: BlobStatusChangeType::CertifyManaged {
+                    blob_manager_id: object_id_for_testing(1),
+                },
+                change_info: BlobStatusChangeInfo {
+                    epoch: 1,
+                    end_epoch: 10,
+                    deletable: true,
+                    status_event: event_id_for_testing(),
+                    blob_id: blob_id_for_testing(),
+                },
+            }),
+        ]
+    }
+    fn test_v2_invalid_status_not_changed(operand: BlobInfoMergeOperand) {
+        let invalid = BlobInfoV2::Invalid {
+            epoch: 42,
+            event: event_id_for_testing(),
+        };
+        let result = invalid.clone().merge_with(operand);
+        assert_eq!(result, invalid);
+    }
+
+    param_test! {
+        test_v2_delete_managed: [
+            delete_uncertified_managed: (
+                BlobInfoV2::Valid(ValidBlobInfoV2 {
+                    regular_blob_info: None,
+                    managed_blob_info: Some(ManagedBlobInfo {
+                        is_metadata_stored: false,
+                        initial_certified_epoch: None,
+                        registered: [object_id_for_testing(1)].into_iter().collect(),
+                        registered_deletable_counts: 1,
+                        certified: Default::default(),
+                        certified_deletable_counts: 0,
+                    }),
+                }),
+                BlobInfoMergeOperand::ChangeStatus {
+                    change_type: BlobStatusChangeType::DeleteManaged {
+                        blob_manager_id: object_id_for_testing(1),
+                        was_certified: false,
+                    },
+                    change_info: BlobStatusChangeInfo {
+                        epoch: 1,
+                        end_epoch: 10,
+                        deletable: true,
+                        status_event: event_id_for_testing(),
+                        blob_id: blob_id_for_testing(),
+                    },
+                },
+                // Both regular and managed are None/empty - entry can be removed.
+                BlobInfoV2::Valid(ValidBlobInfoV2 {
+                    regular_blob_info: None,
+                    managed_blob_info: None,
+                }),
+            ),
+            delete_certified_managed: (
+                BlobInfoV2::Valid(ValidBlobInfoV2 {
+                    regular_blob_info: None,
+                    managed_blob_info: Some(ManagedBlobInfo {
+                        is_metadata_stored: false,
+                        initial_certified_epoch: Some(5),
+                        registered: [object_id_for_testing(1)].into_iter().collect(),
+                        registered_deletable_counts: 1,
+                        certified: [object_id_for_testing(1)].into_iter().collect(),
+                        certified_deletable_counts: 1,
+                    }),
+                }),
+                BlobInfoMergeOperand::ChangeStatus {
+                    change_type: BlobStatusChangeType::DeleteManaged {
+                        blob_manager_id: object_id_for_testing(1),
+                        was_certified: true,
+                    },
+                    change_info: BlobStatusChangeInfo {
+                        epoch: 1,
+                        end_epoch: 10,
+                        deletable: true,
+                        status_event: event_id_for_testing(),
+                        blob_id: blob_id_for_testing(),
+                    },
+                },
+                BlobInfoV2::Valid(ValidBlobInfoV2 {
+                    regular_blob_info: None,
+                    managed_blob_info: None,  // Removed since all references are gone
+                }),
+            ),
+            delete_one_of_multiple_managed: (
+                BlobInfoV2::Valid(ValidBlobInfoV2 {
+                    regular_blob_info: None,
+                    managed_blob_info: Some(ManagedBlobInfo {
+                        is_metadata_stored: false,
+                        initial_certified_epoch: Some(3),
+                        registered: [object_id_for_testing(1), object_id_for_testing(2)]
+                            .into_iter().collect(),
+                        registered_deletable_counts: 1,
+                        certified: [object_id_for_testing(1)].into_iter().collect(),
+                        certified_deletable_counts: 1,
+                    }),
+                }),
+                BlobInfoMergeOperand::ChangeStatus {
+                    change_type: BlobStatusChangeType::DeleteManaged {
+                        blob_manager_id: object_id_for_testing(1),
+                        was_certified: true,
+                    },
+                    change_info: BlobStatusChangeInfo {
+                        epoch: 1,
+                        end_epoch: 10,
+                        deletable: true,
+                        status_event: event_id_for_testing(),
+                        blob_id: blob_id_for_testing(),
+                    },
+                },
+                BlobInfoV2::Valid(ValidBlobInfoV2 {
+                    regular_blob_info: None,
+                    managed_blob_info: Some(ManagedBlobInfo {
+                        is_metadata_stored: false,
+                        initial_certified_epoch: None,  // Unset since no certified refs remain
+                        registered: [object_id_for_testing(2)].into_iter().collect(),
+                        registered_deletable_counts: 0,
+                        certified: Default::default(),
+                        certified_deletable_counts: 0,
+                    }),
+                }),
+            ),
+            delete_managed_keep_regular: (
+                BlobInfoV2::Valid(ValidBlobInfoV2 {
+                    regular_blob_info: Some(ValidBlobInfoV1 {
+                        count_deletable_total: 2,
+                        count_deletable_certified: 1,
+                        latest_seen_deletable_registered_end_epoch: Some(10),
+                        latest_seen_deletable_certified_end_epoch: Some(10),
+                        ..Default::default()
+                    }),
+                    managed_blob_info: Some(ManagedBlobInfo {
+                        is_metadata_stored: false,
+                        initial_certified_epoch: None,
+                        registered: [object_id_for_testing(1)].into_iter().collect(),
+                        registered_deletable_counts: 1,
+                        certified: Default::default(),
+                        certified_deletable_counts: 0,
+                    }),
+                }),
+                BlobInfoMergeOperand::ChangeStatus {
+                    change_type: BlobStatusChangeType::DeleteManaged {
+                        blob_manager_id: object_id_for_testing(1),
+                        was_certified: false,
+                    },
+                    change_info: BlobStatusChangeInfo {
+                        epoch: 1,
+                        end_epoch: 10,
+                        deletable: true,
+                        status_event: event_id_for_testing(),
+                        blob_id: blob_id_for_testing(),
+                    },
+                },
+                BlobInfoV2::Valid(ValidBlobInfoV2 {
+                    regular_blob_info: Some(ValidBlobInfoV1 {
+                        count_deletable_total: 2,
+                        count_deletable_certified: 1,
+                        latest_seen_deletable_registered_end_epoch: Some(10),
+                        latest_seen_deletable_certified_end_epoch: Some(10),
+                        ..Default::default()
+                    }),
+                    managed_blob_info: None,
+                }),
+            ),
+            delete_permanent_managed: (
+                BlobInfoV2::Valid(ValidBlobInfoV2 {
+                    regular_blob_info: None,
+                    managed_blob_info: Some(ManagedBlobInfo {
+                        is_metadata_stored: false,
+                        initial_certified_epoch: None,
+                        registered: [object_id_for_testing(1), object_id_for_testing(2)]
+                            .into_iter().collect(),
+                        registered_deletable_counts: 0,
+                        certified: Default::default(),
+                        certified_deletable_counts: 0,
+                    }),
+                }),
+                BlobInfoMergeOperand::ChangeStatus {
+                    change_type: BlobStatusChangeType::DeleteManaged {
+                        blob_manager_id: object_id_for_testing(2),
+                        was_certified: false,
+                    },
+                    change_info: BlobStatusChangeInfo {
+                        epoch: 1,
+                        end_epoch: 10,
+                        deletable: false,
+                        status_event: event_id_for_testing(),
+                        blob_id: blob_id_for_testing(),
+                    },
+                },
+                BlobInfoV2::Valid(ValidBlobInfoV2 {
+                    regular_blob_info: None,
+                    managed_blob_info: Some(ManagedBlobInfo {
+                        is_metadata_stored: false,
+                        initial_certified_epoch: None,
+                        registered: [object_id_for_testing(1)].into_iter().collect(),
+                        registered_deletable_counts: 0,
+                        certified: Default::default(),
+                        certified_deletable_counts: 0,
+                    }),
+                }),
+            ),
+            delete_certified_managed_with_mixed_deletable: (
+                BlobInfoV2::Valid(ValidBlobInfoV2 {
+                    regular_blob_info: None,
+                    managed_blob_info: Some(ManagedBlobInfo {
+                        is_metadata_stored: false,
+                        initial_certified_epoch: Some(3),
+                        registered: [object_id_for_testing(1), object_id_for_testing(2), object_id_for_testing(3)]
+                            .into_iter().collect(),
+                        registered_deletable_counts: 2,
+                        certified: [object_id_for_testing(1), object_id_for_testing(2)]
+                            .into_iter().collect(),
+                        certified_deletable_counts: 1,
+                    }),
+                }),
+                BlobInfoMergeOperand::ChangeStatus {
+                    change_type: BlobStatusChangeType::DeleteManaged {
+                        blob_manager_id: object_id_for_testing(1),
+                        was_certified: true,
+                    },
+                    change_info: BlobStatusChangeInfo {
+                        epoch: 5,
+                        end_epoch: 15,
+                        deletable: true,
+                        status_event: event_id_for_testing(),
+                        blob_id: blob_id_for_testing(),
+                    },
+                },
+                BlobInfoV2::Valid(ValidBlobInfoV2 {
+                    regular_blob_info: None,
+                    managed_blob_info: Some(ManagedBlobInfo {
+                        is_metadata_stored: false,
+                        initial_certified_epoch: Some(3),
+                        registered: [object_id_for_testing(2), object_id_for_testing(3)]
+                            .into_iter().collect(),
+                        registered_deletable_counts: 1,
+                        certified: [object_id_for_testing(2)].into_iter().collect(),
+                        certified_deletable_counts: 0,
+                    }),
+                }),
+            ),
+            delete_managed_both_v1_and_v2_certified: (
+                BlobInfoV2::Valid(ValidBlobInfoV2 {
+                    regular_blob_info: Some(ValidBlobInfoV1 {
+                        count_deletable_total: 1,
+                        count_deletable_certified: 1,
+                        latest_seen_deletable_registered_end_epoch: Some(20),
+                        latest_seen_deletable_certified_end_epoch: Some(20),
+                        initial_certified_epoch: Some(2),
+                        ..Default::default()
+                    }),
+                    managed_blob_info: Some(ManagedBlobInfo {
+                        is_metadata_stored: false,
+                        initial_certified_epoch: Some(4),
+                        registered: [object_id_for_testing(1)].into_iter().collect(),
+                        registered_deletable_counts: 1,
+                        certified: [object_id_for_testing(1)].into_iter().collect(),
+                        certified_deletable_counts: 1,
+                    }),
+                }),
+                BlobInfoMergeOperand::ChangeStatus {
+                    change_type: BlobStatusChangeType::DeleteManaged {
+                        blob_manager_id: object_id_for_testing(1),
+                        was_certified: true,
+                    },
+                    change_info: BlobStatusChangeInfo {
+                        epoch: 10,
+                        end_epoch: 25,
+                        deletable: true,
+                        status_event: event_id_for_testing(),
+                        blob_id: blob_id_for_testing(),
+                    },
+                },
+                BlobInfoV2::Valid(ValidBlobInfoV2 {
+                    regular_blob_info: Some(ValidBlobInfoV1 {
+                        count_deletable_total: 1,
+                        count_deletable_certified: 1,
+                        latest_seen_deletable_registered_end_epoch: Some(20),
+                        latest_seen_deletable_certified_end_epoch: Some(20),
+                        initial_certified_epoch: Some(2),
+                        ..Default::default()
+                    }),
+                    managed_blob_info: None,
+                }),
+            ),
+        ]
+    }
+    fn test_v2_delete_managed(
+        preexisting: BlobInfoV2,
+        operand: BlobInfoMergeOperand,
+        expected: BlobInfoV2,
+    ) {
+        let result = preexisting.merge_with(operand);
+        assert_eq!(result, expected);
     }
 }

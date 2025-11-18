@@ -53,6 +53,7 @@ use super::{
 use crate::{
     contracts::{self, FunctionTag},
     types::{
+        BlobType,
         NetworkAddress,
         NodeRegistrationParams,
         NodeUpdateParams,
@@ -1768,6 +1769,135 @@ impl WalrusPtbBuilder {
                 self.wal_coin_arg = Some(arg);
             }
         }
+    }
+
+    // ===== BlobManager Methods =====
+
+    /// Creates a new shared BlobManager and returns the capability argument.
+    /// The BlobManager is automatically shared in the same transaction.
+    pub async fn create_blob_manager(
+        &mut self,
+        storage_resource: ArgumentOrOwnedObject,
+    ) -> SuiClientResult<Argument> {
+        let storage_arg = self.argument_from_arg_or_obj(storage_resource).await?;
+
+        let new_args = vec![storage_arg];
+
+        let result_arg =
+            self.blobmanager_move_call(contracts::blobmanager::new_with_unified_storage, new_args)?;
+
+        self.mark_arg_as_consumed(&storage_arg);
+        self.add_result_to_be_consumed(result_arg);
+        Ok(result_arg)
+    }
+
+    /// Registers a blob with BlobManager and returns the result Argument to capture the Blob.
+    /// Caller owns the Blob until certification, when ownership transfers to BlobManager.
+    /// Returns the result Argument so the caller can extract the Blob object.
+    pub async fn register_blob_in_blob_manager(
+        &mut self,
+        manager: ObjectID,
+        cap: ArgumentOrOwnedObject,
+        blob_metadata: BlobObjectMetadata,
+        persistence: BlobPersistence,
+        blob_type: BlobType,
+    ) -> SuiClientResult<Argument> {
+        let price = self
+            .write_price_for_encoded_length(blob_metadata.encoded_size, false)
+            .await?;
+        self.fill_wal_balance(price).await?;
+
+        let cap_arg = self.argument_from_arg_or_obj(cap).await?;
+
+        // Get the initial shared version for the BlobManager
+        let manager_initial_version = self
+            .read_client
+            .get_shared_object_initial_version(manager)
+            .await?;
+
+        // Convert BlobType enum to u8 (0 for Regular, 1 for Quilt)
+        // Move function accepts u8 blob_type instead of BlobType enum
+        let blob_type_u8 = match blob_type {
+            BlobType::Regular => 0u8,
+            BlobType::Quilt => 1u8,
+        };
+
+        let register_args = vec![
+            self.pt_builder.obj(ObjectArg::SharedObject {
+                id: manager,
+                initial_shared_version: manager_initial_version,
+                mutability: SharedObjectMutability::Mutable,
+            })?,
+            cap_arg,
+            self.system_arg(SharedObjectMutability::Mutable).await?,
+            self.pt_builder.pure(blob_metadata.blob_id)?,
+            self.pt_builder.pure(blob_metadata.root_hash.bytes())?,
+            self.pt_builder.pure(blob_metadata.unencoded_size)?,
+            self.pt_builder
+                .pure(u8::from(blob_metadata.encoding_type))?,
+            self.pt_builder.pure(persistence.is_deletable())?,
+            // Pass blob_type as u8 (0 = Regular, 1 = Quilt)
+            self.pt_builder.pure(blob_type_u8)?,
+            self.wal_coin_arg()?,
+        ];
+
+        // register_blob doesn't return anything - it creates ManagedBlob owned by BlobManager
+        // We call it as a statement, not expecting a return value
+        self.blobmanager_move_call(contracts::blobmanager::register_blob, register_args)?;
+
+        self.reduce_wal_balance(price)?;
+        // Return a dummy unit argument since the function signature requires an Argument
+        // but register_blob doesn't actually return anything
+        Ok(self.pt_builder.pure(())?)
+    }
+
+    /// Certifies a blob in BlobManager and transfers ownership to BlobManager.
+    /// Takes the Blob object from the caller and certifies it.
+    pub async fn certify_blob_in_blob_manager(
+        &mut self,
+        manager: ObjectID,
+        cap: ArgumentOrOwnedObject,
+        blob: ArgumentOrOwnedObject, // Blob object to be certified
+        certificate: &ConfirmationCertificate,
+    ) -> SuiClientResult<()> {
+        let cap_arg = self.argument_from_arg_or_obj(cap).await?;
+        let blob_arg = self.argument_from_arg_or_obj(blob).await?;
+        let signers = self.signers_to_bitmap(&certificate.signers).await?;
+
+        // Get the initial shared version for the BlobManager
+        let manager_initial_version = self
+            .read_client
+            .get_shared_object_initial_version(manager)
+            .await?;
+
+        let certify_args = vec![
+            self.pt_builder.obj(ObjectArg::SharedObject {
+                id: manager,
+                initial_shared_version: manager_initial_version,
+                mutability: SharedObjectMutability::Mutable,
+            })?,
+            cap_arg,
+            self.system_arg(SharedObjectMutability::Immutable).await?,
+            blob_arg, // Pass the Blob object
+            self.pt_builder.pure(certificate.signature.as_bytes())?,
+            self.pt_builder.pure(&signers)?,
+            self.pt_builder.pure(&certificate.serialized_message)?,
+        ];
+
+        self.blobmanager_move_call(contracts::blobmanager::certify_blob, certify_args)?;
+        self.mark_arg_as_consumed(&blob_arg);
+        Ok(())
+    }
+
+    /// Helper to make BlobManager move calls.
+    fn blobmanager_move_call<T: Into<FunctionTag<'static>>>(
+        &mut self,
+        function: T,
+        arguments: Vec<Argument>,
+    ) -> SuiClientResult<Argument> {
+        // Assuming BlobManager is in the same package as walrus for now
+        // TODO: Make this configurable
+        self.walrus_move_call(function.into(), arguments)
     }
 }
 

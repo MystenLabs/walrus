@@ -65,6 +65,9 @@ pub enum BlobStatus {
         deletable_counts: DeletableCounts,
         /// If the blob is certified, contains the epoch where it was initially certified.
         initial_certified_epoch: Option<Epoch>,
+        /// Counts of managed blobs (owned by BlobManager contracts).
+        #[schema(inline)]
+        managed_blob_counts: ManagedBlobCounts,
     },
     /// The blob exists within Walrus; but there is no related permanent object, so it may be
     /// deleted at any time.
@@ -75,6 +78,20 @@ pub enum BlobStatus {
         /// Counts of deletable `Blob` objects.
         #[schema(inline)]
         deletable_counts: DeletableCounts,
+        /// Counts of managed blobs (owned by BlobManager contracts).
+        #[schema(inline)]
+        managed_blob_counts: ManagedBlobCounts,
+    },
+    /// The blob is a managed blob (owned by a BlobManager contract).
+    Managed {
+        /// If the blob is certified, contains the epoch where it was initially certified.
+        initial_certified_epoch: Option<Epoch>,
+        /// Counts of unmanaged deletable `Blob` objects (non-managed deletable blobs).
+        #[schema(inline)]
+        unmanaged_deletable_counts: DeletableCounts,
+        /// Counts of all and certified managed blobs (owned by BlobManager contracts).
+        #[schema(inline)]
+        managed_blob_counts: ManagedBlobCounts,
     },
 }
 
@@ -129,6 +146,36 @@ impl Ord for DeletableCounts {
     }
 }
 
+/// Contains counts of all and certified managed blobs (owned by BlobManager contracts).
+#[derive(
+    Debug, Deserialize, Serialize, PartialEq, Eq, Clone, Copy, Default, Hash, utoipa::ToSchema,
+)]
+pub struct ManagedBlobCounts {
+    /// Total number of active managed blob registrations for the given blob ID.
+    pub count_registered_total: u32,
+    /// Number of certified managed blob registrations for the given blob ID.
+    pub count_certified_total: u32,
+    /// Number of registered deletable managed blobs for the given blob ID.
+    pub count_registered_deletable: u32,
+    /// Number of certified deletable managed blobs for the given blob ID.
+    pub count_certified_deletable: u32,
+}
+
+impl PartialOrd for ManagedBlobCounts {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for ManagedBlobCounts {
+    fn cmp(&self, other: &Self) -> Ordering {
+        // Tuples are compared using lexicographic ordering.
+        // Prioritize certified total, then registered total.
+        (self.count_certified_total, self.count_registered_total)
+            .cmp(&(other.count_certified_total, other.count_registered_total))
+    }
+}
+
 impl PartialOrd for BlobStatus {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
@@ -157,10 +204,12 @@ impl Ord for BlobStatus {
                 Deletable {
                     initial_certified_epoch,
                     deletable_counts,
+                    ..
                 },
                 Deletable {
                     initial_certified_epoch: initial_certified_epoch_other,
                     deletable_counts: deletable_counts_other,
+                    ..
                 },
             ) => (deletable_counts, Reverse(initial_certified_epoch)).cmp(&(
                 deletable_counts_other,
@@ -198,6 +247,33 @@ impl Ord for BlobStatus {
                         Reverse(initial_certified_epoch_other),
                     ))
             }
+            // Managed is between Deletable and Permanent in ordering.
+            (Managed { .. }, Permanent { .. }) => Ordering::Less,
+            (Permanent { .. }, Managed { .. }) => Ordering::Greater,
+            (Managed { .. }, Deletable { .. }) => Ordering::Greater,
+            (Deletable { .. }, Managed { .. }) => Ordering::Less,
+            // For Managed, compare managed_blob_counts, unmanaged_deletable_counts, and initial_certified_epoch.
+            (
+                Managed {
+                    initial_certified_epoch,
+                    unmanaged_deletable_counts,
+                    managed_blob_counts,
+                },
+                Managed {
+                    initial_certified_epoch: initial_certified_epoch_other,
+                    unmanaged_deletable_counts: unmanaged_deletable_counts_other,
+                    managed_blob_counts: managed_blob_counts_other,
+                },
+            ) => (
+                managed_blob_counts,
+                unmanaged_deletable_counts,
+                Reverse(initial_certified_epoch),
+            )
+                .cmp(&(
+                    managed_blob_counts_other,
+                    unmanaged_deletable_counts_other,
+                    Reverse(initial_certified_epoch_other),
+                )),
         }
     }
 }

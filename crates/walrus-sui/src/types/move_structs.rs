@@ -1103,3 +1103,91 @@ pub(crate) struct SubsidiesInnerKey {
 impl AssociatedContractStruct for SubsidiesInnerKey {
     const CONTRACT_STRUCT: StructTag<'static> = contracts::walrus_subsidies::SubsidiesInnerKey;
 }
+
+// ===== BlobManager Types =====
+
+/// Sui type for a `BlobManager` object.
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+pub struct BlobManager {
+    /// Object ID of the BlobManager.
+    #[cfg_attr(feature = "utoipa", schema(schema_with = object_id_schema))]
+    pub id: ObjectID,
+    // Note: The internal storage and blob_stash fields are not exposed
+    // as they use complex enum types that would require additional parsing
+}
+
+impl AssociatedContractStruct for BlobManager {
+    const CONTRACT_STRUCT: StructTag<'static> = contracts::blobmanager::BlobManager;
+}
+
+/// Sui type for a `BlobManagerCap` capability object.
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+pub struct BlobManagerCap {
+    /// Object ID of the capability.
+    #[cfg_attr(feature = "utoipa", schema(schema_with = object_id_schema))]
+    pub id: ObjectID,
+    /// The ID of the BlobManager this capability controls.
+    #[cfg_attr(feature = "utoipa", schema(schema_with = object_id_schema))]
+    pub manager_id: ObjectID,
+}
+
+impl AssociatedContractStruct for BlobManagerCap {
+    const CONTRACT_STRUCT: StructTag<'static> = contracts::blobmanager::BlobManagerCap;
+}
+
+// ===== ManagedBlob Types =====
+
+/// Type of blob: Regular or Quilt (composite blob).
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum BlobType {
+    /// Regular blob.
+    Regular,
+    /// Quilt (composite) blob.
+    Quilt,
+}
+
+impl BlobType {
+    /// Returns `true` if this is a Quilt blob.
+    pub fn is_quilt(&self) -> bool {
+        matches!(self, BlobType::Quilt)
+    }
+}
+
+/// Sui type for a `ManagedBlob` object.
+/// Represents a blob that has been registered with a BlobManager.
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+pub struct ManagedBlob {
+    /// Object ID of the ManagedBlob.
+    #[cfg_attr(feature = "utoipa", schema(schema_with = object_id_schema))]
+    pub id: ObjectID,
+    /// The epoch in which the blob has been registered.
+    pub registered_epoch: Epoch,
+    /// The blob ID.
+    #[serde(serialize_with = "serialize_blob_id")]
+    pub blob_id: BlobId,
+    /// The (unencoded) size of the blob.
+    pub size: u64,
+    /// The encoding type used for the blob.
+    pub encoding_type: EncodingType,
+    /// The epoch in which the blob was first certified, `None` if the blob is uncertified.
+    pub certified_epoch: Option<Epoch>,
+    /// The ID of the BlobManager that manages this blob's storage.
+    #[cfg_attr(feature = "utoipa", schema(schema_with = object_id_schema))]
+    pub blob_manager_id: ObjectID,
+    /// Marks if this blob can be deleted.
+    pub deletable: bool,
+    /// Type of blob: Regular or Quilt (composite blob).
+    #[cfg_attr(feature = "utoipa", schema(value_type = String))]
+    pub blob_type: BlobType,
+}
+
+impl AssociatedContractStruct for ManagedBlob {
+    const CONTRACT_STRUCT: StructTag<'static> = contracts::managed_blob::ManagedBlob;
+}
