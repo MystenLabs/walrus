@@ -379,8 +379,8 @@ impl RetriableSuiClient {
 
     /// Returns a stream of coins for the given address.
     ///
-    /// This is a reimplementation of the [`sui_sdk::apis::CoinReadApi:::get_coins_stream`] method
-    /// in the `SuiClient` struct. Unlike the original implementation, this version will retry
+    /// This is a re-implementation of the [`sui_sdk::apis::CoinReadApi::get_coins_stream`] method
+    /// in the [`SuiClient`] struct. Unlike the original implementation, this version will retry
     /// failed RPC calls.
     fn get_coins_stream_retry(
         &self,

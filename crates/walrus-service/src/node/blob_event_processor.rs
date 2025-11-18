@@ -29,8 +29,8 @@ use crate::{
 // Poll interval for checking pending background events.
 const PENDING_EVENTS_POLL_INTERVAL: Duration = Duration::from_millis(10);
 
-/// A utility struct that wraps an Arc<AtomicU32> for tracking pending events.
-/// Provides convenient inc() and dec() methods that return the new value.
+/// A utility struct that wraps an `Arc<AtomicU32>` for tracking pending events.
+/// Provides convenient `inc()` and `dec()` methods that return the new value.
 #[derive(Debug, Clone)]
 struct PendingEventCounter {
     inner: Arc<AtomicU32>,

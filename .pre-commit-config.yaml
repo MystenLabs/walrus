@@ -101,7 +101,7 @@ repos:
       - id: cargo-doc
         name: cargo-doc
         entry: env RUSTDOCFLAGS="-D warnings" cargo doc
-        args: ["--workspace", "--no-deps"]
+        args: ["--workspace", "--no-deps", "--document-private-items"]
         language: rust
         files: *rust-files-pattern
         pass_filenames: false

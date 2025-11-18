@@ -86,7 +86,7 @@ jobs:
       - name: Lint using clippy (w/ tests)
         run: cargo clippy --workspace --all-features --tests --no-deps -- -D warnings
       - name: Check documentation
-        run: cargo doc --workspace --no-deps
+        run: cargo doc --workspace --no-deps --document-private-items
 
   build:
     name: Build Rust code
