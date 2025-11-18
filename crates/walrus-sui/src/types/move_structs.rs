@@ -437,7 +437,8 @@ impl Display for Authorized {
 /// Represents a single staking pool.
 #[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
 pub struct StakingPool {
-    id: ObjectID,
+    /// The object ID of the staking pool, also known as the node ID.
+    pub id: ObjectID,
     /// The current state of the pool.
     state: PoolState,
     /// Current epoch's pool parameters.

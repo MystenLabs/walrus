@@ -633,26 +633,26 @@ impl RetriableSuiClient {
     #[tracing::instrument(level = Level::DEBUG, skip_all)]
     pub async fn multi_get_object_with_options(
         &self,
-        object_ids: Vec<ObjectID>,
+        object_ids: &[ObjectID],
         options: SuiObjectDataOptions,
     ) -> SuiClientResult<Vec<SuiObjectResponse>> {
         async fn make_request(
             client: Arc<SuiClient>,
-            object_ids: Vec<ObjectID>,
+            object_ids: &[ObjectID],
             options: SuiObjectDataOptions,
         ) -> SuiClientResult<Vec<SuiObjectResponse>> {
             Ok(client
                 .read_api()
-                .multi_get_object_with_options(object_ids.clone(), options.clone())
+                .multi_get_object_with_options(object_ids.to_vec(), options)
                 .await?)
         }
 
         let request = move |client: Arc<SuiClient>, method| {
-            let object_ids = object_ids.clone();
+            let object_ids = object_ids;
             let options = options.clone();
             retry_rpc_errors(
                 self.get_strategy(),
-                move || make_request(client.clone(), object_ids.clone(), options.clone()),
+                move || make_request(client.clone(), object_ids, options.clone()),
                 self.metrics.clone(),
                 method,
             )
@@ -816,7 +816,7 @@ impl RetriableSuiClient {
         for obj_id_batch in object_ids.chunks(MULTI_GET_OBJ_LIMIT) {
             responses.extend(
                 self.multi_get_object_with_options(
-                    obj_id_batch.to_vec(),
+                    obj_id_batch,
                     SuiObjectDataOptions::new().with_bcs().with_type(),
                 )
                 .await?,
