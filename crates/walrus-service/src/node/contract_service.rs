@@ -70,13 +70,13 @@ pub trait SystemContractService: std::fmt::Debug + Sync + Send {
     ) -> Result<(), SyncNodeConfigError>;
 
     /// Returns the current epoch and the state that the committee's state.
-    async fn get_epoch_and_state(&self) -> Result<(Epoch, EpochState), anyhow::Error>;
+    async fn get_epoch_and_state(&self) -> anyhow::Result<(Epoch, EpochState)>;
 
     /// Returns the current epoch.
     fn current_epoch(&self) -> Epoch;
 
     /// Returns the non-variable system parameters.
-    async fn fixed_system_parameters(&self) -> Result<FixedSystemParameters, anyhow::Error>;
+    fn fixed_system_parameters(&self) -> FixedSystemParameters;
 
     /// Submits a certificate that a blob is invalid to the contract.
     async fn invalidate_blob_id(&self, certificate: &InvalidBlobCertificate);
@@ -87,13 +87,13 @@ pub trait SystemContractService: std::fmt::Debug + Sync + Send {
     async fn epoch_sync_done(&self, epoch: Epoch, node_capability_object_id: ObjectID);
 
     /// Ends voting for the parameters of the next epoch.
-    async fn end_voting(&self) -> Result<(), anyhow::Error>;
+    async fn end_voting(&self) -> anyhow::Result<()>;
 
     /// Initiates epoch change.
-    async fn initiate_epoch_change(&self) -> Result<(), anyhow::Error>;
+    async fn initiate_epoch_change(&self) -> anyhow::Result<()>;
 
     /// Initiates subsidy distribution.
-    async fn process_subsidies(&self) -> Result<(), anyhow::Error>;
+    async fn process_subsidies(&self) -> anyhow::Result<()>;
 
     /// Returns the time at which process_subsidies was last called on the walrus subsidies object.
     async fn last_walrus_subsidies_call(&self) -> Result<DateTime<Utc>, SuiClientError>;
@@ -110,7 +110,7 @@ pub trait SystemContractService: std::fmt::Debug + Sync + Send {
     ) -> Result<(), SuiClientError>;
 
     /// Refreshes the contract package that the service is using.
-    async fn refresh_contract_package(&self) -> Result<(), anyhow::Error>;
+    async fn refresh_contract_package(&self) -> anyhow::Result<()>;
 
     /// Returns the node capability object.
     ///
@@ -125,9 +125,6 @@ pub trait SystemContractService: std::fmt::Debug + Sync + Send {
         &self,
         node_capability_object_id: Option<ObjectID>,
     ) -> Result<StorageNodeCap, SuiClientError>;
-
-    /// Returns the system object version.
-    async fn get_system_object_version(&self) -> Result<u64, SuiClientError>;
 
     /// Checks if subsidies are configured in the contract.
     fn is_subsidies_object_configured(&self) -> bool;
@@ -209,7 +206,7 @@ impl SuiSystemContractServiceBuilder {
         &mut self,
         config: &SuiConfig,
         committee_service: Arc<dyn CommitteeService>,
-    ) -> Result<SuiSystemContractService, anyhow::Error> {
+    ) -> anyhow::Result<SuiSystemContractService> {
         Ok(self.build(
             config
                 .new_contract_client(
@@ -273,7 +270,7 @@ impl SuiSystemContractService {
     pub async fn get_synced_node_config_set(
         &self,
         node_capability_object_id: ObjectID,
-    ) -> Result<SyncedNodeConfigSet, anyhow::Error> {
+    ) -> anyhow::Result<SyncedNodeConfigSet> {
         let node_capability = self
             .get_node_capability_object(Some(node_capability_object_id))
             .await?;
@@ -458,7 +455,7 @@ impl SystemContractService for SuiSystemContractService {
         self.committee_service.active_committees().epoch()
     }
 
-    async fn end_voting(&self) -> Result<(), anyhow::Error> {
+    async fn end_voting(&self) -> anyhow::Result<()> {
         self.contract_tx_client
             .lock()
             .await
@@ -557,7 +554,7 @@ impl SystemContractService for SuiSystemContractService {
         .await;
     }
 
-    async fn initiate_epoch_change(&self) -> Result<(), anyhow::Error> {
+    async fn initiate_epoch_change(&self) -> anyhow::Result<()> {
         self.contract_tx_client
             .lock()
             .await
@@ -570,7 +567,7 @@ impl SystemContractService for SuiSystemContractService {
         self.read_client.last_walrus_subsidies_call().await
     }
 
-    async fn process_subsidies(&self) -> Result<(), anyhow::Error> {
+    async fn process_subsidies(&self) -> anyhow::Result<()> {
         self.contract_tx_client
             .lock()
             .await
@@ -599,7 +596,7 @@ impl SystemContractService for SuiSystemContractService {
             .await
     }
 
-    async fn refresh_contract_package(&self) -> Result<(), anyhow::Error> {
+    async fn refresh_contract_package(&self) -> anyhow::Result<()> {
         self.contract_tx_client
             .lock()
             .await
@@ -611,16 +608,13 @@ impl SystemContractService for SuiSystemContractService {
     // Below are the methods that only read state from Sui, which do not require a lock on the
     // contract client.
 
-    async fn get_epoch_and_state(&self) -> Result<(Epoch, EpochState), anyhow::Error> {
+    async fn get_epoch_and_state(&self) -> anyhow::Result<(Epoch, EpochState)> {
         let committees = self.read_client.get_committees_and_state().await?;
         Ok((committees.current.epoch, committees.epoch_state))
     }
 
-    async fn fixed_system_parameters(&self) -> Result<FixedSystemParameters, anyhow::Error> {
-        self.read_client
-            .fixed_system_parameters()
-            .await
-            .context("failed to retrieve system parameters")
+    fn fixed_system_parameters(&self) -> FixedSystemParameters {
+        self.read_client.fixed_system_parameters()
     }
 
     async fn get_node_capability_object(
@@ -643,12 +637,8 @@ impl SystemContractService for SuiSystemContractService {
         Ok(node_capability)
     }
 
-    async fn get_system_object_version(&self) -> Result<u64, SuiClientError> {
-        self.read_client.system_object_version().await
-    }
-
     fn is_subsidies_object_configured(&self) -> bool {
-        self.read_client.get_walrus_subsidies_object_id().is_some()
+        self.read_client.walrus_subsidies_object_id().is_some()
     }
 
     async fn last_certified_event_blob(&self) -> Result<Option<EventBlob>, SuiClientError> {

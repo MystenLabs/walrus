@@ -79,6 +79,8 @@ pub const MAX_BURNS_PER_PTB: usize = 1000;
 pub enum ArgumentOrOwnedObject {
     /// An [`Argument`].
     Argument(Argument),
+    /// An [`ObjectArg`].
+    ObjectArg(ObjectArg),
     /// An [`ObjectID`].
     Object(ObjectID),
 }
@@ -92,6 +94,18 @@ impl From<Argument> for ArgumentOrOwnedObject {
 impl From<&Argument> for ArgumentOrOwnedObject {
     fn from(arg: &Argument) -> Self {
         Self::Argument(*arg)
+    }
+}
+
+impl From<ObjectArg> for ArgumentOrOwnedObject {
+    fn from(obj: ObjectArg) -> Self {
+        Self::ObjectArg(obj)
+    }
+}
+
+impl From<&ObjectArg> for ArgumentOrOwnedObject {
+    fn from(obj: &ObjectArg) -> Self {
+        Self::ObjectArg(*obj)
     }
 }
 
@@ -223,11 +237,7 @@ impl WalrusPtbBuilder {
         function: FunctionTag<'_>,
         arguments: Vec<Argument>,
     ) -> SuiClientResult<Argument> {
-        self.move_call(
-            self.read_client.get_system_package_id(),
-            function,
-            arguments,
-        )
+        self.move_call(self.read_client.walrus_package_id(), function, arguments)
     }
 
     /// Adds a move call to the PTB.
@@ -266,7 +276,7 @@ impl WalrusPtbBuilder {
         self.fill_wal_balance(price).await?;
 
         let reserve_arguments = vec![
-            self.system_arg(SharedObjectMutability::Mutable).await?,
+            self.system_arg(SharedObjectMutability::Mutable)?,
             self.pt_builder.pure(encoded_size)?,
             self.pt_builder.pure(epochs_ahead)?,
             self.wal_coin_arg()?,
@@ -291,12 +301,12 @@ impl WalrusPtbBuilder {
 
         let reserve_arguments = vec![
             self.credits_arg(SharedObjectMutability::Mutable)?,
-            self.system_arg(SharedObjectMutability::Mutable).await?,
+            self.system_arg(SharedObjectMutability::Mutable)?,
             self.pt_builder.pure(encoded_size)?,
             self.pt_builder.pure(epochs_ahead)?,
             self.wal_coin_arg()?,
         ];
-        let Some(credits_package_id) = self.read_client.get_credits_package_id() else {
+        let Some(credits_package_id) = self.read_client.credits_package_id() else {
             return Err(SuiClientError::CreditsNotEnabled);
         };
         let result_arg = self.move_call(
@@ -344,7 +354,7 @@ impl WalrusPtbBuilder {
         let storage_resource_arg = self.argument_from_arg_or_obj(storage_resource).await?;
 
         let register_arguments = vec![
-            self.system_arg(SharedObjectMutability::Mutable).await?,
+            self.system_arg(SharedObjectMutability::Mutable)?,
             storage_resource_arg,
             self.pt_builder.pure(blob_metadata.blob_id)?,
             self.pt_builder.pure(blob_metadata.root_hash.bytes())?,
@@ -370,7 +380,7 @@ impl WalrusPtbBuilder {
         blob_metadata: BlobObjectMetadata,
         persistence: BlobPersistence,
     ) -> SuiClientResult<Argument> {
-        let Some(credits_package_id) = self.read_client.get_credits_package_id() else {
+        let Some(credits_package_id) = self.read_client.credits_package_id() else {
             return Err(SuiClientError::CreditsNotEnabled);
         };
         let price = self
@@ -382,7 +392,7 @@ impl WalrusPtbBuilder {
 
         let register_arguments = vec![
             self.credits_arg(SharedObjectMutability::Mutable)?,
-            self.system_arg(SharedObjectMutability::Mutable).await?,
+            self.system_arg(SharedObjectMutability::Mutable)?,
             storage_resource_arg,
             self.pt_builder.pure(blob_metadata.blob_id)?,
             self.pt_builder.pure(blob_metadata.root_hash.bytes())?,
@@ -405,6 +415,7 @@ impl WalrusPtbBuilder {
     }
 
     /// Adds a call to `certify_blob` to the `pt_builder`.
+    #[tracing::instrument(skip(self, certificate), level = Level::DEBUG)]
     pub async fn certify_blob(
         &mut self,
         blob_object: ArgumentOrOwnedObject,
@@ -413,7 +424,7 @@ impl WalrusPtbBuilder {
         let signers = self.signers_to_bitmap(&certificate.signers).await?;
 
         let certify_args = vec![
-            self.system_arg(SharedObjectMutability::Immutable).await?,
+            self.system_arg(SharedObjectMutability::Immutable)?,
             self.argument_from_arg_or_obj(blob_object).await?,
             self.pt_builder.pure(certificate.signature.as_bytes())?,
             self.pt_builder.pure(&signers)?,
@@ -444,7 +455,7 @@ impl WalrusPtbBuilder {
         epoch: u32,
     ) -> SuiClientResult<()> {
         let arguments = vec![
-            self.system_arg(SharedObjectMutability::Mutable).await?,
+            self.system_arg(SharedObjectMutability::Mutable)?,
             self.argument_from_arg_or_obj(storage_node_cap).await?,
             self.pt_builder.pure(blob_metadata.blob_id)?,
             self.pt_builder.pure(blob_metadata.root_hash.bytes())?,
@@ -464,10 +475,7 @@ impl WalrusPtbBuilder {
         blob_object: ArgumentOrOwnedObject,
     ) -> SuiClientResult<Argument> {
         let blob_arg = self.argument_from_arg_or_obj(blob_object).await?;
-        let delete_arguments = vec![
-            self.system_arg(SharedObjectMutability::Mutable).await?,
-            blob_arg,
-        ];
+        let delete_arguments = vec![self.system_arg(SharedObjectMutability::Mutable)?, blob_arg];
         let result_arg = self.walrus_move_call(contracts::system::delete_blob, delete_arguments)?;
         self.mark_arg_as_consumed(&blob_arg);
         self.add_result_to_be_consumed(result_arg);
@@ -658,7 +666,7 @@ impl WalrusPtbBuilder {
         )?;
         let args = vec![
             shared_blob_arg,
-            self.system_arg(SharedObjectMutability::Mutable).await?,
+            self.system_arg(SharedObjectMutability::Mutable)?,
             self.pt_builder.pure(epochs_extended)?,
         ];
         self.walrus_move_call(contracts::shared_blob::extend, args)?;
@@ -679,7 +687,7 @@ impl WalrusPtbBuilder {
         self.fill_wal_balance(price).await?;
 
         let args = vec![
-            self.system_arg(SharedObjectMutability::Mutable).await?,
+            self.system_arg(SharedObjectMutability::Mutable)?,
             self.argument_from_arg_or_obj(blob_object).await?,
             self.pt_builder.pure(epochs_extended)?,
             self.wal_coin_arg()?,
@@ -696,7 +704,7 @@ impl WalrusPtbBuilder {
         epochs_ahead: EpochCount,
         encoded_size: u64,
     ) -> SuiClientResult<()> {
-        let Some(credits_package_id) = self.read_client.get_credits_package_id() else {
+        let Some(credits_package_id) = self.read_client.credits_package_id() else {
             return Err(SuiClientError::CreditsNotEnabled);
         };
         let price = self
@@ -707,7 +715,7 @@ impl WalrusPtbBuilder {
 
         let args = vec![
             self.credits_arg(SharedObjectMutability::Mutable)?,
-            self.system_arg(SharedObjectMutability::Mutable).await?,
+            self.system_arg(SharedObjectMutability::Mutable)?,
             self.argument_from_arg_or_obj(blob_object).await?,
             self.pt_builder.pure(epochs_ahead)?,
             self.wal_coin_arg()?,
@@ -718,6 +726,7 @@ impl WalrusPtbBuilder {
     }
 
     /// Adds a transfer to the PTB. If the recipient is `None`, the sender address is used.
+    #[tracing::instrument(level = Level::DEBUG, skip_all)]
     pub async fn transfer<I: IntoIterator<Item = ArgumentOrOwnedObject>>(
         &mut self,
         recipient: Option<SuiAddress>,
@@ -736,6 +745,7 @@ impl WalrusPtbBuilder {
     /// Transfers all outputs that have not been consumed yet by another command in the PTB.
     ///
     /// If the recipient is `None`, the sender address is used.
+    #[tracing::instrument(level = Level::DEBUG, skip_all)]
     pub async fn transfer_remaining_outputs(
         &mut self,
         recipient: Option<SuiAddress>,
@@ -837,7 +847,7 @@ impl WalrusPtbBuilder {
 
     /// Adds a call to create a new walrus subsidies object
     /// ([`contracts::walrus_subsidies::WalrusSubsidies`]) to the PTB.
-    pub async fn create_walrus_subsidies(
+    pub fn create_walrus_subsidies(
         &mut self,
         package_id: ObjectID,
         system_subsidy_rate: u32,
@@ -845,8 +855,8 @@ impl WalrusPtbBuilder {
         subsidy_per_shard: u64,
     ) -> SuiClientResult<Argument> {
         let args = vec![
-            self.system_arg(SharedObjectMutability::Immutable).await?,
-            self.staking_arg(SharedObjectMutability::Immutable).await?,
+            self.system_arg(SharedObjectMutability::Immutable)?,
+            self.staking_arg(SharedObjectMutability::Immutable)?,
             self.pt_builder.pure(system_subsidy_rate)?,
             self.pt_builder.pure(base_subsidy)?,
             self.pt_builder.pure(subsidy_per_shard)?,
@@ -860,8 +870,7 @@ impl WalrusPtbBuilder {
     /// ([`contracts::walrus_subsidies::WalrusSubsidies`]) to the PTB, if a walrus subsidies object
     /// is configured.
     pub async fn fund_walrus_subsidies(&mut self, amount: u64) -> SuiClientResult<()> {
-        let Some(walrus_subsidies_pkg_id) = self.read_client.get_walrus_subsidies_package_id()
-        else {
+        let Some(walrus_subsidies_pkg_id) = self.read_client.walrus_subsidies_package_id() else {
             return Err(SuiClientError::WalrusSubsidiesNotConfigured);
         };
         self.fill_wal_balance(amount).await?;
@@ -895,7 +904,7 @@ impl WalrusPtbBuilder {
         let signers = self.signers_to_bitmap(&certificate.signers).await?;
 
         let invalidate_args = vec![
-            self.system_arg(SharedObjectMutability::Immutable).await?,
+            self.system_arg(SharedObjectMutability::Immutable)?,
             self.pt_builder.pure(certificate.signature.as_bytes())?,
             self.pt_builder.pure(&signers)?,
             self.pt_builder.pure(&certificate.serialized_message)?,
@@ -911,7 +920,7 @@ impl WalrusPtbBuilder {
         epoch: Epoch,
     ) -> SuiClientResult<()> {
         let args = vec![
-            self.staking_arg(SharedObjectMutability::Mutable).await?,
+            self.staking_arg(SharedObjectMutability::Mutable)?,
             self.argument_from_arg_or_obj(storage_node_cap).await?,
             self.pt_builder.pure(epoch)?,
             self.pt_builder.obj(CLOCK_OBJECT_ARG)?,
@@ -921,10 +930,10 @@ impl WalrusPtbBuilder {
     }
 
     /// Adds a call to initiate epoch change to the PTB.
-    pub async fn initiate_epoch_change(&mut self) -> SuiClientResult<()> {
+    pub fn initiate_epoch_change(&mut self) -> SuiClientResult<()> {
         let args = vec![
-            self.staking_arg(SharedObjectMutability::Mutable).await?,
-            self.system_arg(SharedObjectMutability::Mutable).await?,
+            self.staking_arg(SharedObjectMutability::Mutable)?,
+            self.system_arg(SharedObjectMutability::Mutable)?,
             self.pt_builder.obj(CLOCK_OBJECT_ARG)?,
         ];
         self.walrus_move_call(contracts::staking::initiate_epoch_change, args)?;
@@ -932,9 +941,9 @@ impl WalrusPtbBuilder {
     }
 
     /// Adds a call to `voting_end` to the PTB.
-    pub async fn voting_end(&mut self) -> SuiClientResult<()> {
+    pub fn voting_end(&mut self) -> SuiClientResult<()> {
         let args = vec![
-            self.staking_arg(SharedObjectMutability::Mutable).await?,
+            self.staking_arg(SharedObjectMutability::Mutable)?,
             self.pt_builder.obj(CLOCK_OBJECT_ARG)?,
         ];
         self.walrus_move_call(contracts::staking::voting_end, args)?;
@@ -942,14 +951,14 @@ impl WalrusPtbBuilder {
     }
 
     /// Adds a call to `walrus_subsidies::process_subsidies` to the PTB.
-    pub async fn process_subsidies(&mut self) -> SuiClientResult<()> {
+    pub fn process_subsidies(&mut self) -> SuiClientResult<()> {
         let args = vec![
             self.walrus_subsidies_arg(SharedObjectMutability::Mutable)?,
-            self.staking_arg(SharedObjectMutability::Mutable).await?,
-            self.system_arg(SharedObjectMutability::Mutable).await?,
+            self.staking_arg(SharedObjectMutability::Mutable)?,
+            self.system_arg(SharedObjectMutability::Mutable)?,
             self.pt_builder.obj(CLOCK_OBJECT_ARG)?,
         ];
-        let Some(walrus_subsidies_package_id) = self.read_client.get_walrus_subsidies_package_id()
+        let Some(walrus_subsidies_package_id) = self.read_client.walrus_subsidies_package_id()
         else {
             return Err(SuiClientError::CreditsNotEnabled);
         };
@@ -964,7 +973,7 @@ impl WalrusPtbBuilder {
     /// Adds a call to `request_withdraw_stake` to the PTB.
     pub async fn request_withdraw_stake(&mut self, staked_wal_id: ObjectID) -> SuiClientResult<()> {
         let request_withdraw_stake_args = vec![
-            self.staking_arg(SharedObjectMutability::Mutable).await?,
+            self.staking_arg(SharedObjectMutability::Mutable)?,
             self.pt_builder.obj(
                 self.read_client
                     .object_arg_for_object(staked_wal_id)
@@ -981,7 +990,7 @@ impl WalrusPtbBuilder {
     /// Adds a call to `withdraw_stake` to the PTB.
     pub async fn withdraw_stake(&mut self, staked_wal_id: ObjectID) -> SuiClientResult<()> {
         let withdraw_stake_args = vec![
-            self.staking_arg(SharedObjectMutability::Mutable).await?,
+            self.staking_arg(SharedObjectMutability::Mutable)?,
             self.argument_from_arg_or_obj(ArgumentOrOwnedObject::from(staked_wal_id))
                 .await?,
         ];
@@ -1008,7 +1017,7 @@ impl WalrusPtbBuilder {
 
         // Stake the split coin.
         let staking_args = vec![
-            self.staking_arg(SharedObjectMutability::Mutable).await?,
+            self.staking_arg(SharedObjectMutability::Mutable)?,
             split_coin,
             self.pt_builder.pure(node_id)?,
         ];
@@ -1020,14 +1029,14 @@ impl WalrusPtbBuilder {
     }
 
     /// Adds a call to `register_candidate` to the PTB.
-    pub async fn register_candidate(
+    pub fn register_candidate(
         &mut self,
         node_parameters: &NodeRegistrationParams,
         proof_of_possession: ProofOfPossession,
     ) -> SuiClientResult<Argument> {
         let node_metadata_arg = self.create_node_metadata(&node_parameters.metadata)?;
         let args = vec![
-            self.staking_arg(SharedObjectMutability::Mutable).await?,
+            self.staking_arg(SharedObjectMutability::Mutable)?,
             self.pt_builder.pure(&node_parameters.name)?,
             self.pt_builder
                 .pure(node_parameters.network_address.to_string())?,
@@ -1073,7 +1082,7 @@ impl WalrusPtbBuilder {
     ) -> SuiClientResult<()> {
         let metadata_arg = self.create_node_metadata(node_metadata)?;
         let args = vec![
-            self.staking_arg(SharedObjectMutability::Mutable).await?,
+            self.staking_arg(SharedObjectMutability::Mutable)?,
             self.argument_from_arg_or_obj(*storage_node_cap).await?,
             metadata_arg,
         ];
@@ -1182,7 +1191,7 @@ impl WalrusPtbBuilder {
             .get_authenticated_arg_for_pool(node_id, PoolOperationWithAuthorization::Commission)
             .await?;
         let args = vec![
-            self.staking_arg(SharedObjectMutability::Mutable).await?,
+            self.staking_arg(SharedObjectMutability::Mutable)?,
             self.pt_builder.pure(node_id)?,
             authenticated,
             receiver,
@@ -1198,7 +1207,7 @@ impl WalrusPtbBuilder {
         rate: u16,
     ) -> SuiClientResult<()> {
         let args = vec![
-            self.staking_arg(SharedObjectMutability::Mutable).await?,
+            self.staking_arg(SharedObjectMutability::Mutable)?,
             self.argument_from_arg_or_obj(*storage_node_cap).await?,
             self.pt_builder.pure(rate)?,
         ];
@@ -1216,7 +1225,7 @@ impl WalrusPtbBuilder {
             .get_authenticated_arg_for_pool(node_id, PoolOperationWithAuthorization::Governance)
             .await?;
         let args = vec![
-            self.staking_arg(SharedObjectMutability::Mutable).await?,
+            self.staking_arg(SharedObjectMutability::Mutable)?,
             self.pt_builder.pure(node_id)?,
             authenticated,
             authorized,
@@ -1231,7 +1240,7 @@ impl WalrusPtbBuilder {
             .get_authenticated_arg_for_pool(node_id, PoolOperationWithAuthorization::Commission)
             .await?;
         let args = vec![
-            self.staking_arg(SharedObjectMutability::Mutable).await?,
+            self.staking_arg(SharedObjectMutability::Mutable)?,
             self.pt_builder.pure(node_id)?,
             authenticated,
         ];
@@ -1302,7 +1311,7 @@ impl WalrusPtbBuilder {
         name: String,
     ) -> SuiClientResult<()> {
         let args = vec![
-            self.staking_arg(SharedObjectMutability::Mutable).await?,
+            self.staking_arg(SharedObjectMutability::Mutable)?,
             self.argument_from_arg_or_obj(*storage_node_cap).await?,
             self.pt_builder.pure(name)?,
         ];
@@ -1317,7 +1326,7 @@ impl WalrusPtbBuilder {
         params: UpdatePublicKeyParams,
     ) -> SuiClientResult<()> {
         let args = vec![
-            self.staking_arg(SharedObjectMutability::Mutable).await?,
+            self.staking_arg(SharedObjectMutability::Mutable)?,
             self.argument_from_arg_or_obj(*storage_node_cap).await?,
             self.pt_builder.pure(params.next_public_key.as_bytes())?,
             self.pt_builder
@@ -1334,7 +1343,7 @@ impl WalrusPtbBuilder {
         network_public_key: NetworkPublicKey,
     ) -> SuiClientResult<()> {
         let args = vec![
-            self.staking_arg(SharedObjectMutability::Mutable).await?,
+            self.staking_arg(SharedObjectMutability::Mutable)?,
             self.argument_from_arg_or_obj(*storage_node_cap).await?,
             self.pt_builder.pure(network_public_key.as_bytes())?,
         ];
@@ -1349,7 +1358,7 @@ impl WalrusPtbBuilder {
         network_address: NetworkAddress,
     ) -> SuiClientResult<()> {
         let args = vec![
-            self.staking_arg(SharedObjectMutability::Mutable).await?,
+            self.staking_arg(SharedObjectMutability::Mutable)?,
             self.argument_from_arg_or_obj(*storage_node_cap).await?,
             self.pt_builder.pure(network_address.to_string())?,
         ];
@@ -1364,7 +1373,7 @@ impl WalrusPtbBuilder {
         storage_price: u64,
     ) -> SuiClientResult<()> {
         let args = vec![
-            self.staking_arg(SharedObjectMutability::Mutable).await?,
+            self.staking_arg(SharedObjectMutability::Mutable)?,
             self.argument_from_arg_or_obj(*storage_node_cap).await?,
             self.pt_builder.pure(storage_price)?,
         ];
@@ -1379,7 +1388,7 @@ impl WalrusPtbBuilder {
         write_price: u64,
     ) -> SuiClientResult<()> {
         let args = vec![
-            self.staking_arg(SharedObjectMutability::Mutable).await?,
+            self.staking_arg(SharedObjectMutability::Mutable)?,
             self.argument_from_arg_or_obj(*storage_node_cap).await?,
             self.pt_builder.pure(write_price)?,
         ];
@@ -1394,7 +1403,7 @@ impl WalrusPtbBuilder {
         node_capacity: u64,
     ) -> SuiClientResult<()> {
         let args = vec![
-            self.staking_arg(SharedObjectMutability::Mutable).await?,
+            self.staking_arg(SharedObjectMutability::Mutable)?,
             self.argument_from_arg_or_obj(*storage_node_cap).await?,
             self.pt_builder.pure(node_capacity)?,
         ];
@@ -1415,7 +1424,7 @@ impl WalrusPtbBuilder {
                     .object_arg_for_shared_obj(upgrade_manager, SharedObjectMutability::Mutable)
                     .await?,
             )?,
-            self.staking_arg(SharedObjectMutability::Mutable).await?,
+            self.staking_arg(SharedObjectMutability::Mutable)?,
             self.get_authenticated_arg_for_pool(
                 node_id,
                 PoolOperationWithAuthorization::Governance,
@@ -1442,7 +1451,7 @@ impl WalrusPtbBuilder {
                     .object_arg_for_shared_obj(upgrade_manager, SharedObjectMutability::Mutable)
                     .await?,
             )?,
-            self.staking_arg(SharedObjectMutability::Immutable).await?,
+            self.staking_arg(SharedObjectMutability::Immutable)?,
             self.pt_builder.pure(digest)?,
         ];
         self.walrus_move_call(contracts::upgrade::authorize_upgrade, args)
@@ -1479,8 +1488,8 @@ impl WalrusPtbBuilder {
                     .object_arg_for_shared_obj(upgrade_manager, SharedObjectMutability::Mutable)
                     .await?,
             )?,
-            self.staking_arg(SharedObjectMutability::Mutable).await?,
-            self.system_arg(SharedObjectMutability::Mutable).await?,
+            self.staking_arg(SharedObjectMutability::Mutable)?,
+            self.system_arg(SharedObjectMutability::Mutable)?,
             upgrade_receipt,
         ];
         self.walrus_move_call(contracts::upgrade::commit_upgrade, args)?;
@@ -1520,7 +1529,7 @@ impl WalrusPtbBuilder {
         // Execute the upgrade.
         let modules = compiled_package.get_package_bytes(false);
         let upgrade_receipt_arg = self.pt_builder.upgrade(
-            self.read_client.get_system_package_id(),
+            self.read_client.walrus_package_id(),
             upgrade_ticket_arg,
             compiled_package
                 .dependency_ids
@@ -1536,8 +1545,8 @@ impl WalrusPtbBuilder {
     }
 
     /// Sets the migration epoch on the staking object to the following epoch.
-    pub async fn set_migration_epoch(&mut self, new_package_id: ObjectID) -> SuiClientResult<()> {
-        let args = vec![self.staking_arg(SharedObjectMutability::Mutable).await?];
+    pub fn set_migration_epoch(&mut self, new_package_id: ObjectID) -> SuiClientResult<()> {
+        let args = vec![self.staking_arg(SharedObjectMutability::Mutable)?];
         self.move_call(
             new_package_id,
             contracts::staking::set_migration_epoch,
@@ -1546,11 +1555,11 @@ impl WalrusPtbBuilder {
         Ok(())
     }
 
-    /// Migrates the staking and system contracts to the new package id.
-    pub async fn migrate_contracts(&mut self, new_package_id: ObjectID) -> SuiClientResult<()> {
+    /// Migrates the staking and system contracts to the new package ID.
+    pub fn migrate_contracts(&mut self, new_package_id: ObjectID) -> SuiClientResult<()> {
         let args = vec![
-            self.staking_arg(SharedObjectMutability::Mutable).await?,
-            self.system_arg(SharedObjectMutability::Mutable).await?,
+            self.staking_arg(SharedObjectMutability::Mutable)?,
+            self.system_arg(SharedObjectMutability::Mutable)?,
         ];
         self.move_call(new_package_id, contracts::init::migrate, args)?;
         Ok(())
@@ -1587,11 +1596,9 @@ impl WalrusPtbBuilder {
     ) -> SuiClientResult<TransactionData> {
         self.transfer_remaining_outputs(None).await?;
         let programmable_transaction = self.pt_builder.finish();
-        let gas_price = self.read_client.get_reference_gas_price().await?;
 
         build_transaction_data_with_min_gas_balance(
             programmable_transaction,
-            gas_price,
             self.read_client.as_ref(),
             self.sender_address,
             gas_budget,
@@ -1652,7 +1659,7 @@ impl WalrusPtbBuilder {
             self.read_client.storage_price_per_unit_size().await?,
             epochs_ahead,
         );
-        let buyer_pays = match self.read_client.get_credits_object_id() {
+        let buyer_pays = match self.read_client.credits_object_id() {
             Some(credits_object_id) if with_credits => {
                 let credits_object = self
                     .read_client
@@ -1679,7 +1686,7 @@ impl WalrusPtbBuilder {
             encoded_size,
             self.read_client.write_price_per_unit_size().await?,
         );
-        let buyer_pays = match self.read_client.get_credits_object_id() {
+        let buyer_pays = match self.read_client.credits_object_id() {
             Some(credits_object_id) if with_credits => {
                 let buyer_subsidy_rate = self
                     .read_client
@@ -1698,28 +1705,30 @@ impl WalrusPtbBuilder {
         Ok(buyer_pays)
     }
 
+    #[tracing::instrument(skip_all, level = Level::DEBUG)]
     async fn argument_from_arg_or_obj(
         &mut self,
         arg_or_obj: ArgumentOrOwnedObject,
     ) -> SuiClientResult<Argument> {
         match arg_or_obj {
             ArgumentOrOwnedObject::Argument(arg) => Ok(arg),
+            ArgumentOrOwnedObject::ObjectArg(obj_arg) => Ok(self.pt_builder.obj(obj_arg)?),
             ArgumentOrOwnedObject::Object(obj) => Ok(self
                 .pt_builder
                 .obj(self.read_client.object_arg_for_object(obj).await?)?),
         }
     }
 
-    async fn system_arg(&mut self, mutable: SharedObjectMutability) -> SuiClientResult<Argument> {
+    fn system_arg(&mut self, mutable: SharedObjectMutability) -> SuiClientResult<Argument> {
         Ok(self
             .pt_builder
-            .obj(self.read_client.object_arg_for_system_obj(mutable).await?)?)
+            .obj(self.read_client.object_arg_for_system_obj(mutable))?)
     }
 
-    async fn staking_arg(&mut self, mutable: SharedObjectMutability) -> SuiClientResult<Argument> {
+    fn staking_arg(&mut self, mutable: SharedObjectMutability) -> SuiClientResult<Argument> {
         Ok(self
             .pt_builder
-            .obj(self.read_client.object_arg_for_staking_obj(mutable).await?)?)
+            .obj(self.read_client.object_arg_for_staking_obj(mutable))?)
     }
 
     fn credits_arg(&mut self, mutable: SharedObjectMutability) -> SuiClientResult<Argument> {
@@ -1779,7 +1788,6 @@ impl WalrusPtbBuilder {
 /// coins get merged.
 pub async fn build_transaction_data_with_min_gas_balance(
     programmable_transaction: ProgrammableTransaction,
-    gas_price: u64,
     read_client: &SuiReadClient,
     sender_address: SuiAddress,
     gas_budget: Option<u64>,
@@ -1787,15 +1795,14 @@ pub async fn build_transaction_data_with_min_gas_balance(
     tx_sui_cost: u64,
 ) -> SuiClientResult<TransactionData> {
     // Estimate the gas budget unless explicitly set.
-    let gas_budget = if let Some(budget) = gas_budget {
-        budget
-    } else {
-        let tx_kind = TransactionKind::ProgrammableTransaction(programmable_transaction.clone());
-        read_client
-            .retriable_sui_client()
-            .estimate_gas_budget(sender_address, tx_kind, gas_price)
-            .await?
-    };
+    let (gas_budget, gas_price) = read_client
+        .retriable_sui_client()
+        .gas_budget_and_price(
+            gas_budget,
+            sender_address,
+            TransactionKind::ProgrammableTransaction(programmable_transaction.clone()),
+        )
+        .await?;
 
     let minimum_gas_coin_balance = minimum_gas_coin_balance.max(gas_budget + tx_sui_cost);
 

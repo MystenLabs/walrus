@@ -1306,7 +1306,7 @@ async fn test_blob_operations_with_credits() -> TestResult {
     let credits_object_id = client
         .sui_client()
         .read_client()
-        .get_credits_object_id()
+        .credits_object_id()
         .expect("credits object ID should be set");
     let initial_credits_funds = client
         .sui_client()

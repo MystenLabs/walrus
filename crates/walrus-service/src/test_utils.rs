@@ -145,10 +145,7 @@ impl SystemEventProvider for DefaultSystemEventManager {
     > {
         self.event_provider.events(cursor).await
     }
-    async fn init_state(
-        &self,
-        _from: EventStreamCursor,
-    ) -> Result<Option<InitState>, anyhow::Error> {
+    async fn init_state(&self, _from: EventStreamCursor) -> anyhow::Result<Option<InitState>> {
         Ok(None)
     }
     fn as_event_processor(&self) -> Option<&EventProcessor> {
@@ -158,7 +155,7 @@ impl SystemEventProvider for DefaultSystemEventManager {
 
 #[async_trait]
 impl EventRetentionManager for DefaultSystemEventManager {
-    async fn drop_events_before(&self, _cursor: EventStreamCursor) -> Result<(), anyhow::Error> {
+    async fn drop_events_before(&self, _cursor: EventStreamCursor) -> anyhow::Result<()> {
         Ok(())
     }
 }
@@ -547,9 +544,9 @@ impl SimStorageNodeHandle {
         config_loader: Arc<dyn ConfigLoader>,
         cancel_token: CancellationToken,
     ) -> anyhow::Result<(
-        tokio::task::JoinHandle<Result<(), anyhow::Error>>,
-        tokio::task::JoinHandle<Result<(), anyhow::Error>>,
-        tokio::task::JoinHandle<Result<(), anyhow::Error>>,
+        tokio::task::JoinHandle<anyhow::Result<()>>,
+        tokio::task::JoinHandle<anyhow::Result<()>>,
+        tokio::task::JoinHandle<anyhow::Result<()>>,
     )> {
         // TODO(#996): extract the common code to start the code, and use it here as well as in
         // StorageNodeRuntime::start.
@@ -589,7 +586,7 @@ impl SimStorageNodeHandle {
             let system_config = SystemConfig {
                 system_object_id: sui_config.contract_config.system_object,
                 staking_object_id: sui_config.contract_config.staking_object,
-                system_pkg_id: sui_read_client.get_system_package_id(),
+                system_pkg_id: sui_read_client.walrus_package_id(),
             };
             Box::new(
                 EventProcessor::new(
@@ -614,7 +611,7 @@ impl SimStorageNodeHandle {
                     address = %config.rest_api_address)),
                 )
             } else {
-                tokio::spawn(async { std::future::pending::<Result<(), anyhow::Error>>().await })
+                tokio::spawn(async { std::future::pending::<anyhow::Result<()>>().await })
             };
 
         // Build storage node with the current configuration and event manager.
@@ -1478,7 +1475,7 @@ impl StubLookupServiceHandle {
 
 #[async_trait]
 impl CommitteeLookupService for StubLookupService {
-    async fn get_active_committees(&self) -> Result<ActiveCommittees, anyhow::Error> {
+    async fn get_active_committees(&self) -> anyhow::Result<ActiveCommittees> {
         Ok(self.committees.lock().unwrap().clone())
     }
 }
@@ -1579,7 +1576,7 @@ impl CommitteeService for StubCommitteeService {
         Ok(())
     }
 
-    async fn sync_committee_members(&self) -> Result<(), anyhow::Error> {
+    async fn sync_committee_members(&self) -> anyhow::Result<()> {
         Ok(())
     }
 }
@@ -1629,7 +1626,7 @@ impl SystemContractService for StubContractService {
 
     async fn epoch_sync_done(&self, _epoch: Epoch, _node_capability_object_id: ObjectID) {}
 
-    async fn get_epoch_and_state(&self) -> Result<(Epoch, EpochState), anyhow::Error> {
+    async fn get_epoch_and_state(&self) -> anyhow::Result<(Epoch, EpochState)> {
         anyhow::bail!("stub service does not store the epoch or state")
     }
 
@@ -1637,19 +1634,19 @@ impl SystemContractService for StubContractService {
         1
     }
 
-    async fn fixed_system_parameters(&self) -> Result<FixedSystemParameters, anyhow::Error> {
-        Ok(self.system_parameters)
+    fn fixed_system_parameters(&self) -> FixedSystemParameters {
+        self.system_parameters
     }
 
-    async fn end_voting(&self) -> Result<(), anyhow::Error> {
+    async fn end_voting(&self) -> anyhow::Result<()> {
         anyhow::bail!("stub service cannot end voting")
     }
 
-    async fn initiate_epoch_change(&self) -> Result<(), anyhow::Error> {
+    async fn initiate_epoch_change(&self) -> anyhow::Result<()> {
         anyhow::bail!("stub service cannot initiate epoch change")
     }
 
-    async fn process_subsidies(&self) -> Result<(), anyhow::Error> {
+    async fn process_subsidies(&self) -> anyhow::Result<()> {
         anyhow::bail!("stub service cannot initiate subsidy distribution")
     }
 
@@ -1668,7 +1665,7 @@ impl SystemContractService for StubContractService {
         Ok(())
     }
 
-    async fn refresh_contract_package(&self) -> Result<(), anyhow::Error> {
+    async fn refresh_contract_package(&self) -> anyhow::Result<()> {
         anyhow::bail!("stub service cannot refresh contract package")
     }
 
@@ -1677,10 +1674,6 @@ impl SystemContractService for StubContractService {
         _node_capability_object_id: Option<ObjectID>,
     ) -> Result<StorageNodeCap, SuiClientError> {
         Ok(self.node_capability_object.clone())
-    }
-
-    async fn get_system_object_version(&self) -> Result<u64, SuiClientError> {
-        Ok(1)
     }
 
     async fn last_certified_event_blob(&self) -> Result<Option<EventBlob>, SuiClientError> {
@@ -1766,8 +1759,7 @@ impl SystemEventProvider for Vec<ContractEvent> {
     async fn events(
         &self,
         _cursor: EventStreamCursor,
-    ) -> Result<Box<dyn Stream<Item = PositionedStreamEvent> + Send + Sync + 'life0>, anyhow::Error>
-    {
+    ) -> anyhow::Result<Box<dyn Stream<Item = PositionedStreamEvent> + Send + Sync + 'life0>> {
         Ok(Box::new(
             tokio_stream::iter(
                 self.clone()
@@ -1778,10 +1770,7 @@ impl SystemEventProvider for Vec<ContractEvent> {
         ))
     }
 
-    async fn init_state(
-        &self,
-        _from: EventStreamCursor,
-    ) -> Result<Option<InitState>, anyhow::Error> {
+    async fn init_state(&self, _from: EventStreamCursor) -> anyhow::Result<Option<InitState>> {
         Ok(None)
     }
 
@@ -1795,8 +1784,7 @@ impl SystemEventProvider for tokio::sync::broadcast::Sender<ContractEvent> {
     async fn events(
         &self,
         _cursor: EventStreamCursor,
-    ) -> Result<Box<dyn Stream<Item = PositionedStreamEvent> + Send + Sync + 'life0>, anyhow::Error>
-    {
+    ) -> anyhow::Result<Box<dyn Stream<Item = PositionedStreamEvent> + Send + Sync + 'life0>> {
         Ok(Box::new(BroadcastStream::new(self.subscribe()).map(
             |value| {
                 PositionedStreamEvent::new(
@@ -1807,10 +1795,7 @@ impl SystemEventProvider for tokio::sync::broadcast::Sender<ContractEvent> {
         )))
     }
 
-    async fn init_state(
-        &self,
-        _from: EventStreamCursor,
-    ) -> Result<Option<InitState>, anyhow::Error> {
+    async fn init_state(&self, _from: EventStreamCursor) -> anyhow::Result<Option<InitState>> {
         Ok(None)
     }
 
@@ -2421,7 +2406,7 @@ where
             .await
     }
 
-    async fn end_voting(&self) -> Result<(), anyhow::Error> {
+    async fn end_voting(&self) -> anyhow::Result<()> {
         self.as_ref().inner.end_voting().await
     }
 
@@ -2436,7 +2421,7 @@ where
             .await
     }
 
-    async fn get_epoch_and_state(&self) -> Result<(Epoch, EpochState), anyhow::Error> {
+    async fn get_epoch_and_state(&self) -> anyhow::Result<(Epoch, EpochState)> {
         self.as_ref().inner.get_epoch_and_state().await
     }
 
@@ -2444,15 +2429,15 @@ where
         self.as_ref().inner.current_epoch()
     }
 
-    async fn fixed_system_parameters(&self) -> Result<FixedSystemParameters, anyhow::Error> {
-        self.as_ref().inner.fixed_system_parameters().await
+    fn fixed_system_parameters(&self) -> FixedSystemParameters {
+        self.as_ref().inner.fixed_system_parameters()
     }
 
-    async fn initiate_epoch_change(&self) -> Result<(), anyhow::Error> {
+    async fn initiate_epoch_change(&self) -> anyhow::Result<()> {
         self.as_ref().inner.initiate_epoch_change().await
     }
 
-    async fn process_subsidies(&self) -> Result<(), anyhow::Error> {
+    async fn process_subsidies(&self) -> anyhow::Result<()> {
         self.as_ref().inner.process_subsidies().await
     }
 
@@ -2474,7 +2459,7 @@ where
             .await
     }
 
-    async fn refresh_contract_package(&self) -> Result<(), anyhow::Error> {
+    async fn refresh_contract_package(&self) -> anyhow::Result<()> {
         self.as_ref().inner.refresh_contract_package().await
     }
 
@@ -2486,10 +2471,6 @@ where
             .inner
             .get_node_capability_object(node_capability_object_id)
             .await
-    }
-
-    async fn get_system_object_version(&self) -> Result<u64, SuiClientError> {
-        self.as_ref().inner.get_system_object_version().await
     }
 
     async fn last_certified_event_blob(&self) -> Result<Option<EventBlob>, SuiClientError> {
@@ -2988,7 +2969,7 @@ pub mod test_cluster {
                 db_config: DatabaseConfig::default(),
             };
             let system_config = SystemConfig {
-                system_pkg_id: sui_read_client.get_system_package_id(),
+                system_pkg_id: sui_read_client.walrus_package_id(),
                 system_object_id,
                 staking_object_id,
             };

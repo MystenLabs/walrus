@@ -6,7 +6,7 @@
 //! Wraps the [`SuiClient`] to introduce retries.
 use std::{
     cmp::Reverse,
-    collections::{BTreeMap, BinaryHeap},
+    collections::{BTreeMap, BinaryHeap, HashMap},
     fmt,
     pin::pin,
     str::FromStr,
@@ -52,8 +52,9 @@ use sui_sdk::{
 use sui_types::transaction::TransactionDataAPI;
 use sui_types::{
     TypeTag,
-    base_types::{ObjectID, SequenceNumber, SuiAddress, TransactionDigest},
+    base_types::{ObjectID, ObjectRef, SequenceNumber, SuiAddress, TransactionDigest},
     dynamic_field::derive_dynamic_field_id,
+    event::EventID,
     object::Owner,
     quorum_driver_types::ExecuteTransactionRequestType::WaitForLocalExecution,
     sui_serde::BigInt,
@@ -75,12 +76,26 @@ use super::{
 use crate::{
     client::SuiClientMetricSet,
     contracts::{self, AssociatedContractStruct, TypeOriginMap},
-    types::move_structs::{Credits, Key, SuiDynamicField, SystemObjectForDeserialization},
+    types::{
+        BlobEvent,
+        move_structs::{
+            BlobAttribute,
+            Credits,
+            Key,
+            StakingPool,
+            StorageNode,
+            SuiDynamicField,
+            SystemObjectForDeserialization,
+        },
+    },
     utils::get_sui_object_from_object_response,
 };
 
 /// The maximum gas allowed in a transaction, in MIST (50 SUI). Used for gas budget estimation.
 const MAX_GAS_BUDGET: u64 = 50_000_000_000;
+/// A dummy gas price used in the dry-run for gas budget estimation when the actual gas price is not
+/// yet available.
+const DUMMY_GAS_PRICE: u64 = 1000;
 /// The maximum number of gas payment objects allowed in a transaction by the Sui protocol
 /// configuration
 /// [here](https://github.com/MystenLabs/sui/blob/main/crates/sui-protocol-config/src/lib.rs#L2089).
@@ -725,6 +740,7 @@ impl RetriableSuiClient {
     /// Returns the reference gas price.
     ///
     /// Calls [`sui_sdk::apis::ReadApi::get_reference_gas_price`] internally.
+    #[tracing::instrument(level = Level::DEBUG, skip_all)]
     pub async fn get_reference_gas_price(&self) -> SuiClientResult<u64> {
         async fn make_request(client: Arc<SuiClient>) -> SuiClientResult<u64> {
             Ok(client.read_api().get_reference_gas_price().await?)
@@ -855,20 +871,28 @@ impl RetriableSuiClient {
         &self,
         object_id: ObjectID,
     ) -> SuiClientResult<SequenceNumber> {
-        let Some(Owner::Shared {
+        self.get_initial_version_from_object_response(
+            &self
+                .get_object_with_options(object_id, SuiObjectDataOptions::new().with_owner())
+                .await?,
+        )
+    }
+
+    pub(crate) fn get_initial_version_from_object_response(
+        &self,
+        object_response: &SuiObjectResponse,
+    ) -> SuiClientResult<SequenceNumber> {
+        if let Some(Owner::Shared {
             initial_shared_version,
-        }) = self
-            .get_object_with_options(object_id, SuiObjectDataOptions::new().with_owner())
-            .await?
-            .owner()
-        else {
-            return Err(anyhow::anyhow!(
-                "trying to get the initial version of a non-shared object {}",
-                object_id
-            )
-            .into());
-        };
-        Ok(initial_shared_version)
+        }) = object_response.owner()
+        {
+            Ok(initial_shared_version)
+        } else {
+            Err(SuiClientError::Internal(anyhow::anyhow!(
+                "trying to get the initial version of a non-shared object; object_id: {:?}",
+                object_response.object_id(),
+            )))
+        }
     }
 
     pub(crate) async fn get_extended_field<V>(
@@ -1045,42 +1069,68 @@ impl RetriableSuiClient {
         Ok(wal_type)
     }
 
+    /// If the `gas_budget` is passed in, this returns the gas budget and the current gas price.
+    /// Otherwise, it estimates the gas budget and the gas price concurrently.
+    #[tracing::instrument(skip_all, level = Level::DEBUG)]
+    pub(crate) async fn gas_budget_and_price(
+        &self,
+        gas_budget: Option<u64>,
+        signer: SuiAddress,
+        transaction_kind: TransactionKind,
+    ) -> SuiClientResult<(u64, u64)> {
+        if let Some(gas_budget) = gas_budget {
+            Ok((gas_budget, self.get_reference_gas_price().await?))
+        } else {
+            self.estimate_gas_budget(signer, transaction_kind).await
+        }
+    }
+
     /// Calls a dry run with the transaction data to estimate the gas budget.
     ///
-    /// This performs the same calculation as the Sui CLI and the TypeScript SDK.
+    /// Returns the estimated gas budget and the current gas price.
+    ///
+    /// This performs the same calculation as the Sui CLI and the TypeScript SDK with the following
+    /// differences:
+    /// - uses a dummy gas price of [`DUMMY_GAS_PRICE`] to estimate the gas budget,
+    /// - requests the gas price concurrently, and
+    /// - scales the computation cost of the dry run accordingly.
     #[tracing::instrument(skip_all, level = Level::DEBUG)]
     pub(crate) async fn estimate_gas_budget(
         &self,
         signer: SuiAddress,
         kind: TransactionKind,
-        gas_price: u64,
-    ) -> SuiClientResult<u64> {
+    ) -> SuiClientResult<(u64, u64)> {
         let dry_run_tx_data = TransactionData::new_with_gas_coins_allow_sponsor(
             kind,
             signer,
             vec![],
             MAX_GAS_BUDGET,
-            gas_price,
+            DUMMY_GAS_PRICE,
             signer,
         );
-        let effects = self
-            .dry_run_transaction_block(dry_run_tx_data)
-            .await
-            .inspect_err(|error| {
-                tracing::debug!(%error, "transaction dry run failed");
-            })?
-            .effects;
-        let gas_cost_summary = effects.gas_cost_summary();
+        let dry_run_future = self.dry_run_transaction_block(dry_run_tx_data);
+
+        let (gas_price, dry_run_result) =
+            tokio::try_join!(self.get_reference_gas_price(), dry_run_future)?;
+        let gas_cost_summary = dry_run_result.effects.gas_cost_summary();
+        let computation_cost = if gas_price == DUMMY_GAS_PRICE {
+            gas_cost_summary.computation_cost
+        } else {
+            (gas_cost_summary.computation_cost * gas_price).div_ceil(DUMMY_GAS_PRICE)
+        };
 
         let safe_overhead = GAS_SAFE_OVERHEAD * gas_price;
-        let computation_cost_with_overhead = gas_cost_summary.computation_cost + safe_overhead;
+        let computation_cost_with_overhead = computation_cost + safe_overhead;
         let gas_usage_with_overhead = gas_cost_summary.net_gas_usage()
             + i64::try_from(safe_overhead).expect("this should always be smaller than i64::MAX");
-        Ok(computation_cost_with_overhead.max(
-            gas_usage_with_overhead
-                .max(0)
-                .try_into()
-                .expect("we just set any negative value to 0"),
+        Ok((
+            (computation_cost_with_overhead.max(
+                gas_usage_with_overhead
+                    .max(0)
+                    .try_into()
+                    .expect("we just set any negative value to 0"),
+            )),
+            gas_price,
         ))
     }
 
@@ -1151,6 +1201,86 @@ impl RetriableSuiClient {
                 "get_events",
             )
             .await
+    }
+
+    /// Get the latest object reference given an [`ObjectID`].
+    #[tracing::instrument(skip(self), level = Level::DEBUG)]
+    pub async fn get_object_ref(&self, object_id: ObjectID) -> Result<ObjectRef, anyhow::Error> {
+        Ok(self
+            .get_object_with_options(object_id, SuiObjectDataOptions::new())
+            .await?
+            .into_object()?
+            .object_ref())
+    }
+
+    /// Returns the node objects for the given node IDs.
+    #[tracing::instrument(skip_all, level = Level::DEBUG)]
+    pub async fn get_node_objects<I>(
+        &self,
+        node_ids: I,
+    ) -> SuiClientResult<HashMap<ObjectID, StakingPool>>
+    where
+        I: IntoIterator<Item = ObjectID>,
+    {
+        let node_ids = node_ids.into_iter().collect::<Vec<_>>();
+
+        futures::future::try_join_all(node_ids.chunks(MULTI_GET_OBJ_LIMIT).map(
+            |obj_id_batch| async move {
+                self.multi_get_object_with_options(
+                    obj_id_batch,
+                    SuiObjectDataOptions::new().with_type().with_bcs(),
+                )
+                .await
+            },
+        ))
+        .await?
+        .into_iter()
+        .flat_map(|responses| {
+            responses
+                .into_iter()
+                .map(|response| get_sui_object_from_object_response::<StakingPool>(&response))
+        })
+        .map(|result| result.map(|pool| (pool.id, pool)))
+        .collect()
+    }
+
+    /// Returns the blob event with the given Event ID.
+    pub async fn get_blob_event(&self, event_id: EventID) -> SuiClientResult<BlobEvent> {
+        self.get_events(event_id.tx_digest)
+            .await?
+            .into_iter()
+            .find(|e| e.id == event_id)
+            .and_then(|e| e.try_into().ok())
+            .ok_or(SuiClientError::NoCorrespondingBlobEvent(event_id))
+    }
+
+    /// Returns the storage nodes with the given IDs.
+    pub async fn get_storage_nodes_by_ids(
+        &self,
+        node_ids: &[ObjectID],
+    ) -> Result<Vec<StorageNode>, anyhow::Error> {
+        Ok(self
+            .get_sui_objects::<StakingPool>(node_ids)
+            .await
+            .context("one or multiple node IDs were not found")?
+            .into_iter()
+            .map(|pool| pool.node_info)
+            .collect())
+    }
+
+    /// Returns the metadata associated with a blob object.
+    pub async fn get_blob_attribute(
+        &self,
+        blob_object_id: &ObjectID,
+    ) -> SuiClientResult<Option<BlobAttribute>> {
+        self.get_dynamic_field::<Vec<u8>, BlobAttribute>(
+            *blob_object_id,
+            TypeTag::Vector(Box::new(TypeTag::U8)),
+            b"metadata".to_vec(),
+        )
+        .await
+        .map(Some)
+        .or_else(|_| Ok(None))
     }
 }
 

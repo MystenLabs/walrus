@@ -1369,10 +1369,10 @@ impl SuiContractClient {
                 | MoveExecutionError::WalrusSubsidies(WalrusSubsidiesError::EWrongVersion(_)),
             )) => {
                 // Store old package IDs
-                let old_package_id = self.read_client.get_system_package_id();
-                let old_credits_package_id = self.read_client.get_credits_package_id();
+                let old_package_id = self.read_client.walrus_package_id();
+                let old_credits_package_id = self.read_client.credits_package_id();
                 let old_walrus_subsidies_package_id =
-                    self.read_client.get_walrus_subsidies_package_id();
+                    self.read_client.walrus_subsidies_package_id();
 
                 self.read_client.refresh_package_id().await?;
                 self.read_client.refresh_credits_package_id().await?;
@@ -1381,9 +1381,9 @@ impl SuiContractClient {
                     .await?;
 
                 // Check if either package ID changed
-                if self.read_client.get_system_package_id() != old_package_id
-                    || self.read_client.get_credits_package_id() != old_credits_package_id
-                    || self.read_client.get_walrus_subsidies_package_id()
+                if self.read_client.walrus_package_id() != old_package_id
+                    || self.read_client.credits_package_id() != old_credits_package_id
+                    || self.read_client.walrus_subsidies_package_id()
                         != old_walrus_subsidies_package_id
                 {
                     f().await
@@ -1503,7 +1503,7 @@ impl SuiContractClientInner {
         encoded_size: u64,
         epochs_ahead: EpochCount,
     ) -> SuiClientResult<StorageResource> {
-        if self.read_client.get_credits_object_id().is_some() {
+        if self.read_client.credits_object_id().is_some() {
             match self
                 .reserve_space_with_credits(encoded_size, epochs_ahead)
                 .await
@@ -1602,7 +1602,7 @@ impl SuiContractClientInner {
             return Ok(vec![]);
         }
 
-        let with_credits = self.read_client.get_credits_object_id().is_some();
+        let with_credits = self.read_client.credits_object_id().is_some();
 
         let expected_num_blobs = blob_metadata_and_storage.len();
         tracing::debug!(num_blobs = expected_num_blobs, "starting to register blobs");
@@ -1652,7 +1652,7 @@ impl SuiContractClientInner {
         blob_metadata_list: Vec<BlobObjectMetadata>,
         persistence: BlobPersistence,
     ) -> SuiClientResult<Vec<Blob>> {
-        let with_credits = self.read_client.get_credits_object_id().is_some();
+        let with_credits = self.read_client.credits_object_id().is_some();
         if with_credits {
             match self
                 .reserve_and_register_blobs_inner(
@@ -1863,9 +1863,7 @@ impl SuiContractClientInner {
         proof_of_possession: ProofOfPossession,
     ) -> SuiClientResult<StorageNodeCap> {
         let mut pt_builder = self.transaction_builder()?;
-        pt_builder
-            .register_candidate(node_parameters, proof_of_possession)
-            .await?;
+        pt_builder.register_candidate(node_parameters, proof_of_possession)?;
         let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
         let res = self
             .sign_and_send_transaction(transaction, "register_candidate")
@@ -1905,9 +1903,7 @@ impl SuiContractClientInner {
         for (node_parameters, proof_of_possession, address) in
             registration_params_with_stake_amounts.into_iter()
         {
-            let cap = pt_builder
-                .register_candidate(&node_parameters, proof_of_possession)
-                .await?;
+            let cap = pt_builder.register_candidate(&node_parameters, proof_of_possession)?;
             pt_builder.transfer(Some(address), vec![cap.into()]).await?;
         }
         let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
@@ -2003,7 +1999,7 @@ impl SuiContractClientInner {
     /// Can be called once the voting period is over.
     pub async fn voting_end(&mut self) -> SuiClientResult<()> {
         let mut pt_builder = self.transaction_builder()?;
-        pt_builder.voting_end().await?;
+        pt_builder.voting_end()?;
         let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
         self.sign_and_send_transaction(transaction, "voting_end")
             .await?;
@@ -2015,7 +2011,7 @@ impl SuiContractClientInner {
     /// Can be called once the epoch duration is over.
     pub async fn initiate_epoch_change(&mut self) -> SuiClientResult<()> {
         let mut pt_builder = self.transaction_builder()?;
-        pt_builder.initiate_epoch_change().await?;
+        pt_builder.initiate_epoch_change()?;
         let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
         self.sign_and_send_transaction(transaction, "initiate_epoch_change")
             .await?;
@@ -2028,7 +2024,7 @@ impl SuiContractClientInner {
     pub async fn process_subsidies(&mut self) -> SuiClientResult<()> {
         tracing::debug!("sending transaction to call process_subsidies");
         let mut pt_builder = self.transaction_builder()?;
-        pt_builder.process_subsidies().await?;
+        pt_builder.process_subsidies()?;
         let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
         self.sign_and_send_transaction(transaction, "process_subsidies")
             .await?;
@@ -2126,7 +2122,7 @@ impl SuiContractClientInner {
     /// transaction.
     pub async fn set_migration_epoch(&mut self, new_package_id: ObjectID) -> SuiClientResult<()> {
         let mut pt_builder = self.transaction_builder()?;
-        pt_builder.set_migration_epoch(new_package_id).await?;
+        pt_builder.set_migration_epoch(new_package_id)?;
         let transaction: TransactionData =
             pt_builder.build_transaction_data(self.gas_budget).await?;
         self.sign_and_send_transaction(transaction, "set_migration_epoch")
@@ -2139,7 +2135,7 @@ impl SuiContractClientInner {
     /// This must be called in the new package after the migration epoch is set and has started.
     pub async fn migrate_contracts(&mut self, new_package_id: ObjectID) -> SuiClientResult<()> {
         let mut pt_builder = self.transaction_builder()?;
-        pt_builder.migrate_contracts(new_package_id).await?;
+        pt_builder.migrate_contracts(new_package_id)?;
         let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
         self.sign_and_send_transaction(transaction, "migrate_contracts")
             .await?;
@@ -2184,14 +2180,12 @@ impl SuiContractClientInner {
         tracing::info!("creating a new walrus subsidies object");
 
         let mut pt_builder = self.transaction_builder()?;
-        pt_builder
-            .create_walrus_subsidies(
-                package_id,
-                system_subsidy_rate,
-                base_subsidy,
-                subsidy_per_shard,
-            )
-            .await?;
+        pt_builder.create_walrus_subsidies(
+            package_id,
+            system_subsidy_rate,
+            base_subsidy,
+            subsidy_per_shard,
+        )?;
         let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
         let res = self
             .sign_and_send_transaction(transaction, "create_and_fund_walrus_subsidies")
@@ -2583,7 +2577,7 @@ impl SuiContractClientInner {
         blob_obj_id: ObjectID,
         epochs_extended: EpochCount,
     ) -> SuiClientResult<()> {
-        let with_credits = self.read_client.get_credits_package_id().is_some();
+        let with_credits = self.read_client.credits_package_id().is_some();
         if with_credits {
             match self
                 .extend_blob_with_credits(blob_obj_id, epochs_extended)
@@ -2689,7 +2683,7 @@ impl SuiContractClientInner {
         certify_and_extend_parameters: &[CertifyAndExtendBlobParams<'_>],
         post_store: PostStoreAction,
     ) -> SuiClientResult<Vec<CertifyAndExtendBlobResult>> {
-        let with_credits = self.read_client.get_credits_package_id().is_some();
+        let with_credits = self.read_client.credits_package_id().is_some();
         if with_credits {
             match self
                 .certify_and_extend_blobs_inner(certify_and_extend_parameters, post_store, true)
@@ -2724,18 +2718,30 @@ impl SuiContractClientInner {
             return Ok(vec![]);
         }
 
+        let object_args = futures::future::try_join_all(
+            certify_and_extend_parameters
+                .iter()
+                .map(|blob_params| self.read_client.object_arg_for_object(blob_params.blob.id)),
+        )
+        .await?;
+
         let mut pt_builder = self.transaction_builder()?;
 
-        for blob_params in certify_and_extend_parameters {
+        for (blob_params, object_arg) in certify_and_extend_parameters
+            .iter()
+            .zip(object_args.into_iter())
+        {
             let blob = blob_params.blob;
 
             if let Some(certificate) = blob_params.certificate.as_ref() {
-                pt_builder.certify_blob(blob.id.into(), certificate).await?;
+                pt_builder
+                    .certify_blob(object_arg.into(), certificate)
+                    .await?;
             }
 
             // Add attributes if provided.
             pt_builder
-                .insert_or_update_blob_attribute_pairs(blob.id.into(), blob_params.attribute)
+                .insert_or_update_blob_attribute_pairs(object_arg.into(), blob_params.attribute)
                 .await?;
 
             if let Some(epochs_extended) = blob_params.epochs_extended {
@@ -2743,14 +2749,18 @@ impl SuiContractClientInner {
                 if with_credits {
                     pt_builder
                         .extend_blob_with_credits(
-                            blob.id.into(),
+                            object_arg.into(),
                             epochs_extended,
                             blob.storage.storage_size,
                         )
                         .await?;
                 } else {
                     pt_builder
-                        .extend_blob(blob.id.into(), epochs_extended, blob.storage.storage_size)
+                        .extend_blob(
+                            object_arg.into(),
+                            epochs_extended,
+                            blob.storage.storage_size,
+                        )
                         .await?;
                 }
             }
@@ -3048,8 +3058,8 @@ impl ReadClient for SuiContractClient {
         self.read_client.get_committees_and_state().await
     }
 
-    async fn fixed_system_parameters(&self) -> SuiClientResult<FixedSystemParameters> {
-        self.read_client.fixed_system_parameters().await
+    fn fixed_system_parameters(&self) -> FixedSystemParameters {
+        self.read_client.fixed_system_parameters()
     }
 
     async fn stake_assignment(&self) -> SuiClientResult<HashMap<ObjectID, u64>> {
