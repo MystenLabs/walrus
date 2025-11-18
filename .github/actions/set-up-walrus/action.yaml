@@ -14,6 +14,14 @@ inputs:
   SUI_NETWORK:
     description: The Sui network to use
     default: mainnet
+  SITE_BUILDER_VERSION:
+    description: |
+      The major version of site-builder to use. Choose between 'v1' or 'v2'.
+      - v1: Automatically fetches the latest v1.x release from GitHub
+      - v2: Automatically fetches the latest v2.x release from GitHub
+      If not provided, uses the latest version from Google Cloud Storage.
+    required: false
+    default: ""
 
 runs:
   using: "composite"
@@ -60,8 +68,70 @@ runs:
 
     - name: Install and configure site-builder
       run: |
-        curl https://storage.googleapis.com/mysten-walrus-binaries/site-builder-${{ inputs.SUI_NETWORK }}-latest-ubuntu-x86_64 -o bin/site-builder
-        chmod +x bin/site-builder
+        if [[ -n "${{ inputs.SITE_BUILDER_VERSION }}" ]]; then
+          # Use specific version from GitHub releases
+          VERSION="${{ inputs.SITE_BUILDER_VERSION }}"
+
+          # Validate version input
+          if [[ "$VERSION" != "v1" && "$VERSION" != "v2" ]]; then
+            echo "❌ ERROR: Invalid SITE_BUILDER_VERSION. Must be 'v1' or 'v2'"
+            exit 1
+          fi
+
+          echo "🔍 Finding latest ${VERSION}.x release for ${{ inputs.SUI_NETWORK }}..."
+
+          # Fetch all releases from GitHub API
+          # Use -f to fail on HTTP errors and save to a file to avoid control character issues
+          if ! curl -sf https://api.github.com/repos/MystenLabs/walrus-sites/releases -o /tmp/releases.json; then
+            echo "❌ ERROR: Failed to fetch releases from GitHub API"
+            exit 1
+          fi
+
+          # Find the latest release tag matching the network and major version
+          VERSION_TAG=$(jq -r --arg network "${{ inputs.SUI_NETWORK }}" --arg version "$VERSION" \
+            '[.[] | select(.tag_name | startswith($network + "-" + $version + ".")) | .tag_name] |
+            map(split("-")[1]) |
+            sort_by(ltrimstr("v") | split(".") | map(tonumber)) |
+            last' /tmp/releases.json)
+
+          if [[ -z "$VERSION_TAG" || "$VERSION_TAG" == "null" ]]; then
+            echo "❌ ERROR: Could not find any ${VERSION}.x release for network ${{ inputs.SUI_NETWORK }}"
+            echo "Available releases:"
+            jq -r '.[].tag_name' /tmp/releases.json | grep "^${{ inputs.SUI_NETWORK }}-" | head -10 || echo "No releases found"
+            exit 1
+          fi
+
+          echo "Installing site-builder ${VERSION_TAG} for ${{ inputs.SUI_NETWORK }}..."
+
+          # Construct the download URL for GitHub release
+          DOWNLOAD_URL="https://github.com/MystenLabs/walrus-sites/releases/download/${{ inputs.SUI_NETWORK }}-${VERSION_TAG}/site-builder-${{ inputs.SUI_NETWORK }}-${VERSION_TAG}-ubuntu-x86_64.tgz"
+
+          echo "Downloading from: $DOWNLOAD_URL"
+
+          # Download and extract the archive
+          curl -L "$DOWNLOAD_URL" -o /tmp/site-builder.tgz
+
+          # Extract the binary
+          tar -xzf /tmp/site-builder.tgz -C /tmp/
+
+          # Find and move the extracted binary
+          if [[ -f /tmp/site-builder ]]; then
+            mv /tmp/site-builder bin/site-builder
+          elif [[ -f /tmp/site-builder-${{ inputs.SUI_NETWORK }}-${VERSION_TAG}-ubuntu-x86_64 ]]; then
+            mv /tmp/site-builder-${{ inputs.SUI_NETWORK }}-${VERSION_TAG}-ubuntu-x86_64 bin/site-builder
+          else
+            echo "❌ ERROR: Could not find site-builder binary in archive"
+            exit 1
+          fi
+
+          chmod +x bin/site-builder
+        else
+          # Use latest version from Google Cloud Storage
+          echo "Installing latest site-builder for ${{ inputs.SUI_NETWORK }}..."
+          curl https://storage.googleapis.com/mysten-walrus-binaries/site-builder-${{ inputs.SUI_NETWORK }}-latest-ubuntu-x86_64 -o bin/site-builder
+          chmod +x bin/site-builder
+        fi
+
         curl -L https://github.com/MystenLabs/walrus-sites/raw/refs/heads/${{ inputs.SUI_NETWORK }}/sites-config.yaml -o sites-config.yaml
         site-builder --version
       shell: bash
