@@ -27,11 +27,11 @@ use tokio::{
 };
 use walrus_core::BlobId;
 use walrus_sdk::{
-    client::{StoreArgs, WalrusNodeClient, responses as sdk_responses},
+    client::{EncodingProgressEvent, StoreArgs, WalrusNodeClient, responses as sdk_responses},
     store_optimizations::StoreOptimizations,
     sui::client::{BlobPersistence, PostStoreAction, SuiContractClient},
     uploader::{TailHandling, UploaderEvent},
-    utils::styled_progress_bar_with_disabled_steady_tick,
+    utils::{styled_progress_bar_with_disabled_steady_tick, styled_spinner},
 };
 
 use crate::client::cli::{
@@ -85,6 +85,14 @@ pub(crate) enum ChildUploaderEvent {
         elapsed_ms: u64,
         extra_ms: u64,
     },
+    EncodingStarted {
+        total: u64,
+    },
+    EncodingProgress {
+        completed: u64,
+        total: u64,
+    },
+    EncodingFinished,
     V1Certified {
         blob_id: String,
         object_id: String,
@@ -235,6 +243,7 @@ where
     let mut certified_count = 0;
     let multi = MultiProgress::new();
     let mut per_blob_bars: HashMap<String, ProgressBar> = HashMap::new();
+    let mut encoding_spinner: Option<ProgressBar> = None;
 
     while let Ok(Some(line)) = lines.next_line().await {
         match serde_json::from_str::<ChildUploaderEvent>(&line) {
@@ -273,6 +282,28 @@ where
                         on_quorum(blob_id, std::time::Duration::from_millis(extra_ms)).await;
                     } else {
                         tracing::warn!(blob_id, "child: failed to parse blob_id");
+                    }
+                }
+                ChildUploaderEvent::EncodingStarted { total } => {
+                    if total == 0 {
+                        continue;
+                    }
+                    let spinner =
+                        encoding_spinner.get_or_insert_with(|| multi.add(styled_spinner()));
+                    spinner.set_message(format!("encoded 0/{total} blobs"));
+                }
+                ChildUploaderEvent::EncodingProgress { completed, total } => {
+                    let spinner =
+                        encoding_spinner.get_or_insert_with(|| multi.add(styled_spinner()));
+                    spinner.set_message(format!("encoded {completed}/{total} blobs"));
+                    if completed >= total && total > 0 {
+                        spinner.finish_with_message("encoding complete");
+                        encoding_spinner = None;
+                    }
+                }
+                ChildUploaderEvent::EncodingFinished => {
+                    if let Some(spinner) = encoding_spinner.take() {
+                        spinner.finish_with_message("encoding complete");
                     }
                 }
                 ChildUploaderEvent::V1Certified {
@@ -696,9 +727,13 @@ pub(crate) struct InternalRunContext {
     /// A sender for the uploader events.
     /// This is used to send the uploader events to the child process.
     uploader_event_tx: Option<tokio::sync::mpsc::Sender<UploaderEvent>>,
+    /// A sender for encoding progress events.
+    encoding_event_tx: Option<tokio::sync::mpsc::UnboundedSender<EncodingProgressEvent>>,
     /// A task for the event forwarding.
     /// This is used to forward the events from the child process to the parent process.
     event_task: Option<tokio::task::JoinHandle<()>>,
+    /// A task for forwarding encoding events.
+    encoding_event_task: Option<tokio::task::JoinHandle<()>>,
 }
 
 impl InternalRunContext {
@@ -713,6 +748,7 @@ impl InternalRunContext {
 
         let collector = Arc::new(TokioMutex::new(Vec::new()));
         let (tx, rx) = mpsc_channel(num_items.max(1));
+        let (encoding_tx, mut encoding_rx) = tokio::sync::mpsc::unbounded_channel();
 
         let communication_config = client.config().communication_config.clone();
         let event_task = tokio::spawn(async move {
@@ -756,10 +792,40 @@ impl InternalRunContext {
             tracing::debug!("child: quorum forwarding task completed");
         });
 
+        let encoding_event_task = tokio::spawn(async move {
+            while let Some(event) = encoding_rx.recv().await {
+                match event {
+                    EncodingProgressEvent::Started { total } => {
+                        if let Err(err) = emit_child_event(&ChildUploaderEvent::EncodingStarted {
+                            total: total as u64,
+                        }) {
+                            tracing::warn!(%err, "failed to emit encoding start event");
+                        }
+                    }
+                    EncodingProgressEvent::BlobCompleted { completed, total } => {
+                        if let Err(err) = emit_child_event(&ChildUploaderEvent::EncodingProgress {
+                            completed: completed as u64,
+                            total: total as u64,
+                        }) {
+                            tracing::warn!(%err, "failed to emit encoding progress event");
+                        }
+                    }
+                    EncodingProgressEvent::Finished => {
+                        if let Err(err) = emit_child_event(&ChildUploaderEvent::EncodingFinished) {
+                            tracing::warn!(%err, "failed to emit encoding finish event");
+                        }
+                    }
+                }
+            }
+            tracing::debug!("child: encoding forwarding task completed");
+        });
+
         InternalRunContext {
             tail_handle_collector: Some(collector),
             uploader_event_tx: Some(tx),
+            encoding_event_tx: Some(encoding_tx),
             event_task: Some(event_task),
+            encoding_event_task: Some(encoding_event_task),
         }
     }
 
@@ -776,6 +842,9 @@ impl InternalRunContext {
         if let Some(tx) = self.uploader_event_tx.as_ref() {
             store_args = store_args.with_quorum_event_tx(tx.clone());
         }
+        if let Some(tx) = self.encoding_event_tx.as_ref() {
+            store_args = store_args.with_encoding_event_tx(tx.clone());
+        }
         if internal_run {
             store_args = store_args.with_tail_handling(TailHandling::Detached);
         }
@@ -788,14 +857,25 @@ impl InternalRunContext {
             tracing::debug!("child: closing uploader event channel");
             drop(tx);
         }
+        if let Some(tx) = self.encoding_event_tx.take() {
+            tracing::debug!("child: closing encoding event channel");
+            drop(tx);
+        }
 
         store_args.quorum_event_tx = None;
         store_args.tail_handle_collector = None;
+        store_args.encoding_event_tx = None;
 
         if let Some(task) = self.event_task.take() {
             tracing::debug!("child: awaiting quorum forwarding task");
             if let Err(err) = task.await {
                 tracing::warn!(?err, "uploader event task terminated with error");
+            }
+        }
+        if let Some(task) = self.encoding_event_task.take() {
+            tracing::debug!("child: awaiting encoding forwarding task");
+            if let Err(err) = task.await {
+                tracing::warn!(?err, "encoding event task terminated with error");
             }
         }
     }
