@@ -3,10 +3,11 @@
 
 use std::{sync::Arc, time::Duration};
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_with::{DurationSeconds, serde_as};
 use tokio::sync::{Notify, mpsc};
+use tracing::error;
 use walrus_sui::client::ReadClient;
 
 use crate::client::refresh::{CommitteesRefresher, CommitteesRefresherHandle};
@@ -47,36 +48,31 @@ impl CommitteesRefreshConfig {
         &self,
         sui_client: impl ReadClient + 'static,
     ) -> Result<CommitteesRefresherHandle> {
-        let (mut refresher, handle) = build_refresher_and_handle(sui_client, self.clone()).await?;
+        let n_shards = sui_client
+            .n_shards()
+            .await
+            .context("failed to determine n_shards before starting refresher")?;
+
+        let notify = Arc::new(Notify::new());
+        let (req_tx, req_rx) = mpsc::channel(self.refresher_channel_size);
+        let handle = CommitteesRefresherHandle::new(notify.clone(), req_tx, n_shards);
+        let config = self.clone();
 
         tokio::spawn(async move {
-            refresher.run().await;
+            if let Err(error) = async {
+                let mut refresher =
+                    CommitteesRefresher::new(config, sui_client, req_rx, notify).await?;
+                refresher.run().await;
+                Ok::<(), anyhow::Error>(())
+            }
+            .await
+            {
+                error!(%error, "failed to run committees refresher");
+            }
         });
 
         Ok(handle)
     }
-}
-
-#[tracing::instrument(skip_all)]
-async fn build_refresher_and_handle(
-    sui_client: impl ReadClient,
-    committees_refresh_config: CommitteesRefreshConfig,
-) -> Result<(
-    CommitteesRefresher<impl ReadClient>,
-    CommitteesRefresherHandle,
-)> {
-    let notify = Arc::new(Notify::new());
-    let (req_tx, req_rx) = mpsc::channel(committees_refresh_config.refresher_channel_size);
-
-    let refresher = CommitteesRefresher::new(
-        committees_refresh_config,
-        sui_client,
-        req_rx,
-        notify.clone(),
-    )
-    .await?;
-
-    Ok((refresher, CommitteesRefresherHandle::new(notify, req_tx)))
 }
 
 impl Default for CommitteesRefreshConfig {
