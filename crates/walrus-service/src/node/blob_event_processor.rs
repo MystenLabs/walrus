@@ -181,8 +181,8 @@ impl BackgroundEventProcessor {
                         .process_event(event_handle, blob_event, checkpoint_position)
                         .await
                     {
-                        // WAL-874: Propagate error to the node by triggering node-wide shutdown.
-                        // All event processing errors should cause the node to exit.
+                        // Propagate error to the node by triggering node-wide shutdown. All event
+                        // processing errors should cause the node to exit.
                         tracing::error!(
                             ?error,
                             worker_index = self.worker_index,
