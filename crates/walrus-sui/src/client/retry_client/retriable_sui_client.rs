@@ -676,6 +676,25 @@ impl RetriableSuiClient {
             .await
     }
 
+    /// Returns the Sui Objects with the provided [`ObjectID`]s calling
+    /// [`Self::multi_get_object_with_options`] in batches of the maximum number of objects allowed
+    /// in a single RPC call.
+    #[tracing::instrument(level = Level::DEBUG, skip_all)]
+    pub async fn multi_get_object_with_options_batched(
+        &self,
+        object_ids: &[ObjectID],
+        options: SuiObjectDataOptions,
+    ) -> SuiClientResult<Vec<SuiObjectResponse>> {
+        let mut responses = Vec::with_capacity(object_ids.len());
+        for obj_id_batch in object_ids.chunks(MULTI_GET_OBJ_LIMIT) {
+            responses.extend(
+                self.multi_get_object_with_options(obj_id_batch, options.clone())
+                    .await?,
+            );
+        }
+        Ok(responses)
+    }
+
     /// Returns a map consisting of the move package name and the normalized module.
     ///
     /// Calls [`sui_sdk::apis::ReadApi::get_normalized_move_modules_by_package`] internally.
@@ -827,21 +846,34 @@ impl RetriableSuiClient {
     where
         U: AssociatedContractStruct,
     {
-        let mut responses = vec![];
-        for obj_id_batch in object_ids.chunks(MULTI_GET_OBJ_LIMIT) {
-            responses.extend(
-                self.multi_get_object_with_options(
-                    obj_id_batch,
-                    SuiObjectDataOptions::new().with_bcs().with_type(),
-                )
-                .await?,
-            );
-        }
-
+        let responses = self
+            .multi_get_object_with_options_batched(
+                object_ids,
+                SuiObjectDataOptions::new().with_bcs().with_type(),
+            )
+            .await?;
         responses
-            .iter()
-            .map(|r| get_sui_object_from_object_response(r))
+            .into_iter()
+            .map(|r| get_sui_object_from_object_response(&r))
             .collect::<Result<Vec<_>, _>>()
+    }
+
+    /// Returns the [`ObjectRef`]s of the Sui Objects with the provided [`ObjectID`]s.
+    pub async fn get_object_refs(
+        &self,
+        object_ids: &[ObjectID],
+    ) -> SuiClientResult<Vec<ObjectRef>> {
+        let responses = self
+            .multi_get_object_with_options_batched(object_ids, SuiObjectDataOptions::new())
+            .await?;
+        responses
+            .into_iter()
+            .map(|r| {
+                Ok(r.into_object()
+                    .map_err(|e| SuiClientError::Internal(e.into()))?
+                    .object_ref())
+            })
+            .collect()
     }
 
     /// Returns the chain identifier.
@@ -1112,6 +1144,7 @@ impl RetriableSuiClient {
         let (gas_price, dry_run_result) =
             tokio::try_join!(self.get_reference_gas_price(), dry_run_future)?;
         let gas_cost_summary = dry_run_result.effects.gas_cost_summary();
+
         let computation_cost = if gas_price == DUMMY_GAS_PRICE {
             gas_cost_summary.computation_cost
         } else {
@@ -1119,18 +1152,11 @@ impl RetriableSuiClient {
         };
 
         let safe_overhead = GAS_SAFE_OVERHEAD * gas_price;
-        let computation_cost_with_overhead = computation_cost + safe_overhead;
-        let gas_usage_with_overhead = gas_cost_summary.net_gas_usage()
-            + i64::try_from(safe_overhead).expect("this should always be smaller than i64::MAX");
-        Ok((
-            (computation_cost_with_overhead.max(
-                gas_usage_with_overhead
-                    .max(0)
-                    .try_into()
-                    .expect("we just set any negative value to 0"),
-            )),
-            gas_price,
-        ))
+        let net_gas_usage_non_negative = (computation_cost + gas_cost_summary.storage_cost)
+            .saturating_sub(gas_cost_summary.storage_rebate);
+        let gas_budget = computation_cost.max(net_gas_usage_non_negative) + safe_overhead;
+
+        Ok((gas_budget, gas_price))
     }
 
     /// Executes a transaction.

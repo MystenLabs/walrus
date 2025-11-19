@@ -24,7 +24,12 @@ use sui_sdk::{
     rpc_types::{SuiExecutionStatus, SuiTransactionBlockEffectsAPI, SuiTransactionBlockResponse},
     types::base_types::ObjectID,
 };
-use sui_types::{TypeTag, base_types::SuiAddress, event::EventID, transaction::TransactionData};
+use sui_types::{
+    TypeTag,
+    base_types::SuiAddress,
+    event::EventID,
+    transaction::{ObjectArg, TransactionData},
+};
 use tokio::sync::Mutex;
 use tokio_stream::Stream;
 use tracing::Level;
@@ -2718,12 +2723,18 @@ impl SuiContractClientInner {
             return Ok(vec![]);
         }
 
-        let object_args = futures::future::try_join_all(
-            certify_and_extend_parameters
-                .iter()
-                .map(|blob_params| self.read_client.object_arg_for_object(blob_params.blob.id)),
-        )
-        .await?;
+        let object_args = self
+            .read_client
+            .retriable_sui_client()
+            .get_object_refs(
+                &certify_and_extend_parameters
+                    .iter()
+                    .map(|blob_params| blob_params.blob.id)
+                    .collect::<Vec<_>>(),
+            )
+            .await?
+            .into_iter()
+            .map(ObjectArg::ImmOrOwnedObject);
 
         let mut pt_builder = self.transaction_builder()?;
 
