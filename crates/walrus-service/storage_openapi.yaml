@@ -532,6 +532,7 @@ components:
                       - is_certified
                       - status_event
                       - deletable_counts
+                      - managed_blob_counts
                       properties:
                         deletable_counts:
                           oneOf:
@@ -565,6 +566,37 @@ components:
                         is_certified:
                           type: boolean
                           description: Whether the blob is certified (true) or only registered (false).
+                        managed_blob_counts:
+                          oneOf:
+                          - type: object
+                            description: Contains counts of all and certified managed blobs (owned by BlobManager contracts).
+                            required:
+                            - count_registered_total
+                            - count_certified_total
+                            - count_registered_deletable
+                            - count_certified_deletable
+                            properties:
+                              count_certified_deletable:
+                                type: integer
+                                format: int32
+                                description: Number of certified deletable managed blobs for the given blob ID.
+                                minimum: 0
+                              count_certified_total:
+                                type: integer
+                                format: int32
+                                description: Number of certified managed blob registrations for the given blob ID.
+                                minimum: 0
+                              count_registered_deletable:
+                                type: integer
+                                format: int32
+                                description: Number of registered deletable managed blobs for the given blob ID.
+                                minimum: 0
+                              count_registered_total:
+                                type: integer
+                                format: int32
+                                description: Total number of active managed blob registrations for the given blob ID.
+                                minimum: 0
+                          description: Counts of managed blobs (owned by BlobManager contracts).
                         status_event:
                           $ref: '#/components/schemas/EventID'
                 - type: object
@@ -581,6 +613,7 @@ components:
                         deleted at any time.
                       required:
                       - deletable_counts
+                      - managed_blob_counts
                       properties:
                         deletable_counts:
                           oneOf:
@@ -606,6 +639,104 @@ components:
                           - type: 'null'
                           - $ref: '#/components/schemas/u32'
                             description: If the blob is certified, contains the epoch where it was initially certified.
+                        managed_blob_counts:
+                          oneOf:
+                          - type: object
+                            description: Contains counts of all and certified managed blobs (owned by BlobManager contracts).
+                            required:
+                            - count_registered_total
+                            - count_certified_total
+                            - count_registered_deletable
+                            - count_certified_deletable
+                            properties:
+                              count_certified_deletable:
+                                type: integer
+                                format: int32
+                                description: Number of certified deletable managed blobs for the given blob ID.
+                                minimum: 0
+                              count_certified_total:
+                                type: integer
+                                format: int32
+                                description: Number of certified managed blob registrations for the given blob ID.
+                                minimum: 0
+                              count_registered_deletable:
+                                type: integer
+                                format: int32
+                                description: Number of registered deletable managed blobs for the given blob ID.
+                                minimum: 0
+                              count_registered_total:
+                                type: integer
+                                format: int32
+                                description: Total number of active managed blob registrations for the given blob ID.
+                                minimum: 0
+                          description: Counts of managed blobs (owned by BlobManager contracts).
+                - type: object
+                  description: The blob is a managed blob (owned by a BlobManager contract).
+                  required:
+                  - managed
+                  properties:
+                    managed:
+                      type: object
+                      description: The blob is a managed blob (owned by a BlobManager contract).
+                      required:
+                      - unmanaged_deletable_counts
+                      - managed_blob_counts
+                      properties:
+                        initial_certified_epoch:
+                          oneOf:
+                          - type: 'null'
+                          - $ref: '#/components/schemas/u32'
+                            description: If the blob is certified, contains the epoch where it was initially certified.
+                        managed_blob_counts:
+                          oneOf:
+                          - type: object
+                            description: Contains counts of all and certified managed blobs (owned by BlobManager contracts).
+                            required:
+                            - count_registered_total
+                            - count_certified_total
+                            - count_registered_deletable
+                            - count_certified_deletable
+                            properties:
+                              count_certified_deletable:
+                                type: integer
+                                format: int32
+                                description: Number of certified deletable managed blobs for the given blob ID.
+                                minimum: 0
+                              count_certified_total:
+                                type: integer
+                                format: int32
+                                description: Number of certified managed blob registrations for the given blob ID.
+                                minimum: 0
+                              count_registered_deletable:
+                                type: integer
+                                format: int32
+                                description: Number of registered deletable managed blobs for the given blob ID.
+                                minimum: 0
+                              count_registered_total:
+                                type: integer
+                                format: int32
+                                description: Total number of active managed blob registrations for the given blob ID.
+                                minimum: 0
+                          description: Counts of all and certified managed blobs (owned by BlobManager contracts).
+                        unmanaged_deletable_counts:
+                          oneOf:
+                          - type: object
+                            description: Contains counts of all and certified deletable `Blob` objects.
+                            required:
+                            - count_deletable_total
+                            - count_deletable_certified
+                            properties:
+                              count_deletable_certified:
+                                type: integer
+                                format: int32
+                                description: Number of certified deletable `Blob` objects for the given blob ID.
+                                minimum: 0
+                              count_deletable_total:
+                                type: integer
+                                format: int32
+                                description: Total number of active deletable `Blob` objects for the given blob ID.
+                                minimum: 0
+                          description: Counts of unmanaged deletable `Blob` objects (non-managed deletable blobs).
                 description: |-
                   Contains the certification status of a blob.
 
@@ -844,6 +975,7 @@ components:
             - is_certified
             - status_event
             - deletable_counts
+            - managed_blob_counts
             properties:
               deletable_counts:
                 oneOf:
@@ -877,6 +1009,37 @@ components:
               is_certified:
                 type: boolean
                 description: Whether the blob is certified (true) or only registered (false).
+              managed_blob_counts:
+                oneOf:
+                - type: object
+                  description: Contains counts of all and certified managed blobs (owned by BlobManager contracts).
+                  required:
+                  - count_registered_total
+                  - count_certified_total
+                  - count_registered_deletable
+                  - count_certified_deletable
+                  properties:
+                    count_certified_deletable:
+                      type: integer
+                      format: int32
+                      description: Number of certified deletable managed blobs for the given blob ID.
+                      minimum: 0
+                    count_certified_total:
+                      type: integer
+                      format: int32
+                      description: Number of certified managed blob registrations for the given blob ID.
+                      minimum: 0
+                    count_registered_deletable:
+                      type: integer
+                      format: int32
+                      description: Number of registered deletable managed blobs for the given blob ID.
+                      minimum: 0
+                    count_registered_total:
+                      type: integer
+                      format: int32
+                      description: Total number of active managed blob registrations for the given blob ID.
+                      minimum: 0
+                description: Counts of managed blobs (owned by BlobManager contracts).
               status_event:
                 $ref: '#/components/schemas/EventID'
       - type: object
@@ -893,6 +1056,7 @@ components:
               deleted at any time.
             required:
             - deletable_counts
+            - managed_blob_counts
             properties:
               deletable_counts:
                 oneOf:
@@ -918,6 +1082,104 @@ components:
                 - type: 'null'
                 - $ref: '#/components/schemas/u32'
                   description: If the blob is certified, contains the epoch where it was initially certified.
+              managed_blob_counts:
+                oneOf:
+                - type: object
+                  description: Contains counts of all and certified managed blobs (owned by BlobManager contracts).
+                  required:
+                  - count_registered_total
+                  - count_certified_total
+                  - count_registered_deletable
+                  - count_certified_deletable
+                  properties:
+                    count_certified_deletable:
+                      type: integer
+                      format: int32
+                      description: Number of certified deletable managed blobs for the given blob ID.
+                      minimum: 0
+                    count_certified_total:
+                      type: integer
+                      format: int32
+                      description: Number of certified managed blob registrations for the given blob ID.
+                      minimum: 0
+                    count_registered_deletable:
+                      type: integer
+                      format: int32
+                      description: Number of registered deletable managed blobs for the given blob ID.
+                      minimum: 0
+                    count_registered_total:
+                      type: integer
+                      format: int32
+                      description: Total number of active managed blob registrations for the given blob ID.
+                      minimum: 0
+                description: Counts of managed blobs (owned by BlobManager contracts).
+      - type: object
+        description: The blob is a managed blob (owned by a BlobManager contract).
+        required:
+        - managed
+        properties:
+          managed:
+            type: object
+            description: The blob is a managed blob (owned by a BlobManager contract).
+            required:
+            - unmanaged_deletable_counts
+            - managed_blob_counts
+            properties:
+              initial_certified_epoch:
+                oneOf:
+                - type: 'null'
+                - $ref: '#/components/schemas/u32'
+                  description: If the blob is certified, contains the epoch where it was initially certified.
+              managed_blob_counts:
+                oneOf:
+                - type: object
+                  description: Contains counts of all and certified managed blobs (owned by BlobManager contracts).
+                  required:
+                  - count_registered_total
+                  - count_certified_total
+                  - count_registered_deletable
+                  - count_certified_deletable
+                  properties:
+                    count_certified_deletable:
+                      type: integer
+                      format: int32
+                      description: Number of certified deletable managed blobs for the given blob ID.
+                      minimum: 0
+                    count_certified_total:
+                      type: integer
+                      format: int32
+                      description: Number of certified managed blob registrations for the given blob ID.
+                      minimum: 0
+                    count_registered_deletable:
+                      type: integer
+                      format: int32
+                      description: Number of registered deletable managed blobs for the given blob ID.
+                      minimum: 0
+                    count_registered_total:
+                      type: integer
+                      format: int32
+                      description: Total number of active managed blob registrations for the given blob ID.
+                      minimum: 0
+                description: Counts of all and certified managed blobs (owned by BlobManager contracts).
+              unmanaged_deletable_counts:
+                oneOf:
+                - type: object
+                  description: Contains counts of all and certified deletable `Blob` objects.
+                  required:
+                  - count_deletable_total
+                  - count_deletable_certified
+                  properties:
+                    count_deletable_certified:
+                      type: integer
+                      format: int32
+                      description: Number of certified deletable `Blob` objects for the given blob ID.
+                      minimum: 0
+                    count_deletable_total:
+                      type: integer
+                      format: int32
+                      description: Total number of active deletable `Blob` objects for the given blob ID.
+                      minimum: 0
+                description: Counts of unmanaged deletable `Blob` objects (non-managed deletable blobs).
       description: |-
         Contains the certification status of a blob.
 

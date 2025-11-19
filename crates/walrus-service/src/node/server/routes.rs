@@ -75,6 +75,9 @@ pub const PERMANENT_BLOB_CONFIRMATION_ENDPOINT: &str = "/v1/blobs/{blob_id}/conf
 /// The path to get blob confirmations for deletable blobs.
 pub const DELETABLE_BLOB_CONFIRMATION_ENDPOINT: &str =
     "/v1/blobs/{blob_id}/confirmation/deletable/{object_id}";
+/// The path to get blob confirmations for managed blobs.
+pub const MANAGED_BLOB_CONFIRMATION_ENDPOINT: &str =
+    "/v1/blobs/{blob_id}/confirmation/managed/{manager_id}/{deletable}";
 /// The path to get recovery symbols.
 pub const RECOVERY_SYMBOL_ENDPOINT: &str = "/v1/blobs/{blob_id}/recoverySymbols/{symbol_id}";
 /// The path to get multiple recovery symbols.
@@ -379,6 +382,45 @@ pub async fn get_deletable_blob_confirmation<S: SyncServiceState>(
             &blob_id,
             &BlobPersistenceType::Deletable {
                 object_id: object_id.into(),
+            },
+        )
+        .await?;
+
+    Ok(ApiSuccess::ok(confirmation))
+}
+
+/// Gets storage confirmation for a blob managed by a BlobManager.
+///
+/// Gets a signed storage confirmation from this storage node, indicating that all shards assigned
+/// to this storage node for the current epoch have stored their respective slivers.
+#[tracing::instrument(
+    skip_all,
+    fields(walrus.blob_id = %blob_id_string.0, walrus.manager_id = %manager_id, walrus.deletable = %deletable),
+    err(level = Level::DEBUG)
+)]
+#[utoipa::path(
+    get,
+    path = MANAGED_BLOB_CONFIRMATION_ENDPOINT,
+    params(("blob_id" = BlobId,), ("manager_id" = ObjectIdSchema,), ("deletable" = bool,)),
+    responses(
+        (status = 200, description = "A signed confirmation of storage",
+        body = ApiSuccess<StorageConfirmation>),
+        ComputeStorageConfirmationError,
+    ),
+    tag = openapi::GROUP_STORING_BLOBS
+)]
+pub async fn get_managed_blob_confirmation<S: SyncServiceState>(
+    State(state): State<RestApiState<S>>,
+    Path((blob_id_string, manager_id, deletable)): Path<(BlobIdString, ObjectID, bool)>,
+) -> Result<ApiSuccess<StorageConfirmation>, ComputeStorageConfirmationError> {
+    let blob_id = blob_id_string.0;
+    let confirmation = state
+        .service
+        .compute_storage_confirmation(
+            &blob_id,
+            &BlobPersistenceType::ManagedByBlobManager {
+                manager_id: manager_id.into(),
+                deletable,
             },
         )
         .await?;

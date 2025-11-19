@@ -451,7 +451,7 @@ components:
             description: The blob is managed by a BlobManager (BlobManager owns the blob object).
             required:
             - blob_id
-            - blob_object_id
+            - blob_manager_object_id
             - resource_operation
             - cost
             - end_epoch
@@ -459,7 +459,7 @@ components:
               blob_id:
                 $ref: '#/components/schemas/BlobId'
                 description: The blob ID.
-              blob_object_id:
+              blob_manager_object_id:
                 $ref: '#/components/schemas/ObjectID'
                 description: The object ID of the blob in BlobManager's table.
               cost:
@@ -671,6 +671,26 @@ components:
                 format: int32
                 description: The number of epochs extended wrt the original epoch end.
                 minimum: 0
+      - type: object
+        description: Blob is registered in a BlobManager.
+        required:
+        - registeredInBlobManager
+        properties:
+          registeredInBlobManager:
+            type: object
+            description: Blob is registered in a BlobManager.
+            required:
+            - encoded_length
+            - manager_id
+            properties:
+              encoded_length:
+                type: integer
+                format: int64
+                description: The size of the encoded blob in bytes.
+                minimum: 0
+              manager_id:
+                $ref: '#/components/schemas/ObjectID'
+                description: The BlobManager object ID.
       description: The operation performed on blob and storage resources to register a blob.
     Status:
       type: object

@@ -2864,10 +2864,10 @@ async fn test_blob_manager_basic() {
     use walrus_core::DEFAULT_ENCODING;
     use walrus_sdk::client::client_types::{
         BlobWithStatus,
-        WalrusStoreBlobUnfinished,
         WalrusStoreBlobMaybeFinished,
-        WalrusStoreEncodedBlobApi,
         WalrusStoreBlobState,
+        WalrusStoreBlobUnfinished,
+        WalrusStoreEncodedBlobApi,
         partition_unfinished_finished,
     };
     use walrus_sui::types::move_structs::BlobAttribute;
@@ -3000,11 +3000,7 @@ async fn test_blob_manager_store_and_read() {
     tracing::info!("Store result: {:?}", blob_result);
 
     let read_data = client_ref
-        .read_blob::<Primary>(
-            &blob_result
-                .blob_id()
-                .expect("blob ID should be present"),
-        )
+        .read_blob::<Primary>(&blob_result.blob_id().expect("blob ID should be present"))
         .await
         .expect("Failed to read blob");
     assert_eq!(read_data, test_data, "Read data should match original data");

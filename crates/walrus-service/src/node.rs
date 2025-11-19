@@ -3181,10 +3181,7 @@ impl ServiceState for StorageNodeInner {
             );
         }
 
-        tracing::debug!(
-            "blob_persistence_type: {:?}",
-            blob_persistence_type
-        );
+        tracing::debug!("blob_persistence_type: {:?}", blob_persistence_type);
 
         let confirmation = Confirmation::new(
             self.current_committee_epoch(),

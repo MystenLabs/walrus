@@ -107,6 +107,7 @@ fun check_cap(self: &BlobManager, cap: &BlobManagerCap) {
 /// Registers a new blob in the BlobManager.
 /// BlobManager owns the blob immediately upon registration.
 /// Requires a valid BlobManagerCap to prove write access.
+/// Returns the end_epoch of the storage when successful, or 0 if blob already exists.
 /// Returns ok status (no abort) when:
 ///   - A matching blob already exists (certified or uncertified) - reuses existing blob
 ///   - A new blob is successfully created
@@ -126,7 +127,7 @@ public fun register_blob(
     blob_type: u8,
     payment: &mut Coin<WAL>,
     ctx: &mut TxContext,
-) {
+): u32 {
     // Verify the capability.
     check_cap(self, cap);
 
@@ -139,8 +140,8 @@ public fun register_blob(
         );
     if (existing_blob.is_some()) {
         // Blob already exists (certified or uncertified) - reuse it, skip registration.
-        // Return ok status - no abort.
-        return
+        // Return 0 to indicate blob already exists.
+        return 0
     };
 
     // Step 2: Allocate storage and register managed blob.
@@ -170,6 +171,9 @@ public fun register_blob(
 
     // Add blob to stash (BlobManager now owns it).
     self.blob_stash.add_blob_to_stash(managed_blob);
+
+    // Return the end_epoch for client use.
+    end_epoch
 }
 
 /// Certifies a managed blob.

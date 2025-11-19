@@ -32,6 +32,13 @@ pub enum BlobPersistenceType {
         /// The object ID of the associated Sui object.
         object_id: SuiObjectId,
     },
+    /// The blob is managed by a BlobManager.
+    ManagedByBlobManager {
+        /// The object ID of the BlobManager.
+        manager_id: SuiObjectId,
+        /// Whether the blob is deletable within the manager.
+        deletable: bool,
+    },
 }
 
 /// The message body for a [`Confirmation`],

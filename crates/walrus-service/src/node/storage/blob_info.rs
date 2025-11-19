@@ -2484,10 +2484,7 @@ impl Mergeable for BlobInfo {
             ..
         } = &operand
         {
-            tracing::debug!(
-                "Merging new managed blob info: {:?}",
-                operand
-            );
+            tracing::debug!("Merging new managed blob info: {:?}", operand);
             return BlobInfoV2::merge_new(operand).map(Self::from);
         }
 

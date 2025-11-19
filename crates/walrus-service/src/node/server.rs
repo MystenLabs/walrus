@@ -392,6 +392,10 @@ where
                 get(routes::get_deletable_blob_confirmation),
             )
             .route(
+                routes::MANAGED_BLOB_CONFIRMATION_ENDPOINT,
+                get(routes::get_managed_blob_confirmation),
+            )
+            .route(
                 routes::RECOVERY_SYMBOL_ENDPOINT,
                 get(routes::get_recovery_symbol_by_id),
             )

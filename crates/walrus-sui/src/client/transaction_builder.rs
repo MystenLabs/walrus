@@ -1841,14 +1841,12 @@ impl WalrusPtbBuilder {
             self.wal_coin_arg()?,
         ];
 
-        // register_blob doesn't return anything - it creates ManagedBlob owned by BlobManager
-        // We call it as a statement, not expecting a return value
-        self.blobmanager_move_call(contracts::blobmanager::register_blob, register_args)?;
+        // register_blob returns the end_epoch (u32) or 0 if blob already exists
+        let end_epoch_arg = self.blobmanager_move_call(contracts::blobmanager::register_blob, register_args)?;
 
         self.reduce_wal_balance(price)?;
-        // Return a dummy unit argument since the function signature requires an Argument
-        // but register_blob doesn't actually return anything
-        Ok(self.pt_builder.pure(())?)
+        // Return the end_epoch argument from register_blob
+        Ok(end_epoch_arg)
     }
 
     /// Certifies a managed blob in BlobManager using blob_id and deletable flag.
