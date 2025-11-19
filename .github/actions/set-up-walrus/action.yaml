@@ -74,78 +74,93 @@ runs:
         walrus info # Ensure the walrus binary works
       shell: bash
 
-    - name: Install and configure site-builder
+    - name: Determine site-builder version
+      id: version
       env:
         INPUT_SUI_NETWORK: ${{ inputs.SUI_NETWORK }}
         INPUT_SITE_BUILDER_VERSION: ${{ inputs.SITE_BUILDER_VERSION }}
       run: |
         if [[ -n "${INPUT_SITE_BUILDER_VERSION}" ]]; then
-          # Use specific version from GitHub releases
-          VERSION="${INPUT_SITE_BUILDER_VERSION}"
-
           # Validate version input
-          if [[ "$VERSION" != "v1" && "$VERSION" != "v2" ]]; then
+          if [[ "${INPUT_SITE_BUILDER_VERSION}" != "v1" && "${INPUT_SITE_BUILDER_VERSION}" != "v2" ]]; then
             echo "❌ ERROR: Invalid SITE_BUILDER_VERSION. Must be 'v1' or 'v2'"
             exit 1
           fi
 
-          echo "🔍 Finding latest ${VERSION}.x release for ${INPUT_SUI_NETWORK}..."
+          echo "🔍 Finding latest ${INPUT_SITE_BUILDER_VERSION}.x release for ${INPUT_SUI_NETWORK}..."
 
           # Fetch all releases from GitHub API
-          # Use -f to fail on HTTP errors and save to a file to avoid control character issues
           if ! curl -sf https://api.github.com/repos/MystenLabs/walrus-sites/releases -o /tmp/releases.json; then
             echo "❌ ERROR: Failed to fetch releases from GitHub API"
             exit 1
           fi
 
           # Find the latest release tag matching the network and major version
-          VERSION_TAG=$(jq -r --arg network "${INPUT_SUI_NETWORK}" --arg version "$VERSION" \
+          VERSION_TAG=$(jq -r --arg network "${INPUT_SUI_NETWORK}" --arg version "${INPUT_SITE_BUILDER_VERSION}" \
             '[.[] | select(.tag_name | startswith($network + "-" + $version + ".")) | .tag_name] |
             map(split("-")[1]) |
             sort_by(ltrimstr("v") | split(".") | map(tonumber)) |
             last' /tmp/releases.json)
 
           if [[ -z "$VERSION_TAG" || "$VERSION_TAG" == "null" ]]; then
-            echo "❌ ERROR: Could not find any ${VERSION}.x release for network ${INPUT_SUI_NETWORK}"
+            echo "❌ ERROR: Could not find any ${INPUT_SITE_BUILDER_VERSION}.x release for network ${INPUT_SUI_NETWORK}"
             echo "Available releases:"
             jq -r '.[].tag_name' /tmp/releases.json | grep "^${INPUT_SUI_NETWORK}-" | head -10 || echo "No releases found"
             exit 1
           fi
 
-          echo "Installing site-builder ${VERSION_TAG} for ${INPUT_SUI_NETWORK}..."
-
-          # Construct the download URL for GitHub release
-          DOWNLOAD_URL="https://github.com/MystenLabs/walrus-sites/releases/download/${INPUT_SUI_NETWORK}-${VERSION_TAG}/site-builder-${INPUT_SUI_NETWORK}-${VERSION_TAG}-ubuntu-x86_64.tgz"
-
-          echo "Downloading from: $DOWNLOAD_URL"
-
-          # Download and extract the archive
-          curl -L "$DOWNLOAD_URL" -o /tmp/site-builder.tgz
-
-          # Extract the binary
-          mkdir -p /tmp/site-builder-extract
-          tar -xzf /tmp/site-builder.tgz -C /tmp/site-builder-extract
-
-          # Find and move the extracted binary
-          if [[ -f /tmp/site-builder-extract/site-builder ]]; then
-            mv /tmp/site-builder-extract/site-builder bin/site-builder
-          elif [[ -f /tmp/site-builder-extract/site-builder-${INPUT_SUI_NETWORK}-${VERSION_TAG}-ubuntu-x86_64 ]]; then
-            mv /tmp/site-builder-extract/site-builder-${INPUT_SUI_NETWORK}-${VERSION_TAG}-ubuntu-x86_64 bin/site-builder
-          else
-            echo "❌ ERROR: Could not find site-builder binary in archive"
-            echo "Contents of extraction directory:"
-            ls -la /tmp/site-builder-extract/
-            exit 1
-          fi
-
-          chmod +x bin/site-builder
+          echo "use_github=true" >> $GITHUB_OUTPUT
+          echo "version_tag=${VERSION_TAG}" >> $GITHUB_OUTPUT
         else
-          # Use latest version from Google Cloud Storage
-          echo "Installing latest site-builder for ${INPUT_SUI_NETWORK}..."
-          curl https://storage.googleapis.com/mysten-walrus-binaries/site-builder-${INPUT_SUI_NETWORK}-latest-ubuntu-x86_64 -o bin/site-builder
-          chmod +x bin/site-builder
+          echo "use_github=false" >> $GITHUB_OUTPUT
+        fi
+      shell: bash
+
+    - name: Install site-builder from GitHub releases
+      if: steps.version.outputs.use_github == 'true'
+      env:
+        INPUT_SUI_NETWORK: ${{ inputs.SUI_NETWORK }}
+        VERSION_TAG: ${{ steps.version.outputs.version_tag }}
+      run: |
+        echo "Installing site-builder ${VERSION_TAG} for ${INPUT_SUI_NETWORK}..."
+
+        DOWNLOAD_URL="https://github.com/MystenLabs/walrus-sites/releases/download/${INPUT_SUI_NETWORK}-${VERSION_TAG}/site-builder-${INPUT_SUI_NETWORK}-${VERSION_TAG}-ubuntu-x86_64.tgz"
+        echo "Downloading from: $DOWNLOAD_URL"
+
+        curl -L "$DOWNLOAD_URL" -o /tmp/site-builder.tgz
+
+        mkdir -p /tmp/site-builder-extract
+        tar -xzf /tmp/site-builder.tgz -C /tmp/site-builder-extract
+
+        # Find and move the extracted binary
+        if [[ -f /tmp/site-builder-extract/site-builder ]]; then
+          mv /tmp/site-builder-extract/site-builder bin/site-builder
+        elif [[ -f "/tmp/site-builder-extract/site-builder-${INPUT_SUI_NETWORK}-${VERSION_TAG}-ubuntu-x86_64" ]]; then
+          mv "/tmp/site-builder-extract/site-builder-${INPUT_SUI_NETWORK}-${VERSION_TAG}-ubuntu-x86_64" bin/site-builder
+        else
+          echo "❌ ERROR: Could not find site-builder binary in archive"
+          echo "Contents of extraction directory:"
+          ls -la /tmp/site-builder-extract/
+          exit 1
         fi
 
+        chmod +x bin/site-builder
+      shell: bash
+
+    - name: Install site-builder from Google Cloud Storage
+      if: steps.version.outputs.use_github == 'false'
+      env:
+        INPUT_SUI_NETWORK: ${{ inputs.SUI_NETWORK }}
+      run: |
+        echo "Installing latest site-builder for ${INPUT_SUI_NETWORK}..."
+        curl https://storage.googleapis.com/mysten-walrus-binaries/site-builder-${INPUT_SUI_NETWORK}-latest-ubuntu-x86_64 -o bin/site-builder
+        chmod +x bin/site-builder
+      shell: bash
+
+    - name: Download sites-config and verify installation
+      env:
+        INPUT_SUI_NETWORK: ${{ inputs.SUI_NETWORK }}
+      run: |
         curl -L https://github.com/MystenLabs/walrus-sites/raw/refs/heads/${INPUT_SUI_NETWORK}/sites-config.yaml -o sites-config.yaml
         site-builder --version
       shell: bash
