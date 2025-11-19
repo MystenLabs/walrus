@@ -17,7 +17,6 @@ use walrus_core::{
     BlobId,
     Epoch,
     InconsistencyProof as InconsistencyProofEnum,
-    NetworkPublicKey,
     PublicKey,
     ShardIndex,
     Sliver,
@@ -50,7 +49,7 @@ use walrus_core::{
 
 use crate::{
     api::{BlobStatus, ServiceHealthInfo, StoredOnNodeStatus},
-    error::{ClientBuildError, ListAndVerifyRecoverySymbolsError, NodeError},
+    error::{ListAndVerifyRecoverySymbolsError, NodeError},
     node_response::NodeResponse,
 };
 
@@ -336,23 +335,6 @@ impl StorageNodeClient {
         StorageNodeClientBuilder::default()
     }
 
-    /// Creates a new client for the storage node.
-    ///
-    /// The storage node is identified by the DNS name or socket address, and authenticated with
-    /// the provided public key.
-    ///
-    /// This method ensures that the storage node is authenticated: Only the storage node can
-    /// establish the connection using the self-signed certificate corresponding to the provided
-    /// identity and public key.
-    pub fn for_storage_node(
-        address: &str,
-        public_key: &NetworkPublicKey,
-    ) -> Result<StorageNodeClient, ClientBuildError> {
-        Self::builder()
-            .authenticate_with_public_key(public_key.clone())
-            .build(address)
-    }
-
     /// Converts this to the inner client.
     pub fn into_inner(self) -> ReqwestClient {
         self.inner.into_inner()
@@ -539,22 +521,6 @@ impl StorageNodeClient {
             .map_err(NodeError::other)?;
 
         Ok(sliver)
-    }
-
-    /// Gets a recovery symbol that can be used to recover a sliver.
-    #[tracing::instrument(
-        skip_all,
-        fields(walrus.blob_id = %blob_id, walrus.recovery.symbol_id = %symbol_id),
-        err(level = Level::DEBUG)
-    )]
-    pub async fn get_recovery_symbol(
-        &self,
-        blob_id: &BlobId,
-        symbol_id: SymbolId,
-    ) -> Result<GeneralRecoverySymbol, NodeError> {
-        let (url, template) = self.endpoints.recovery_symbol(blob_id, symbol_id);
-        self.send_and_parse_bcs_response(Request::new(Method::GET, url), template)
-            .await
     }
 
     /// Gets multiple recovery symbols.
