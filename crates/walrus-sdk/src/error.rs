@@ -260,4 +260,7 @@ pub enum ClientErrorKind {
     /// An error occurred while validating the input for byte range read.
     #[error("byte range read input error: {0}")]
     ByteRangeReadInputError(String),
+    /// The client could not retrieve enough symbols to decode the sliver.
+    #[error("could not retrieve enough symbols to decode the sliver")]
+    NotEnoughSymbols,
 }
