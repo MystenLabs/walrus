@@ -847,23 +847,11 @@ impl StorageNode {
             },
             _ = cancel_token.cancelled() => {
                 tracing::info!("external cancellation received, shutting down node");
-                if let Some(checkpoint_manager) = self.checkpoint_manager() {
-                    checkpoint_manager.shutdown();
-                }
-                self.inner.shut_down();
-                self.blob_event_processor.shutdown();
-                self.blob_sync_handler.cancel_all().await?;
-                self.blob_event_processor.wait_for_shutdown().await;
+                self.shut_down().await?;
             },
             _ = self.blob_processor_cancel_token.cancelled() => {
                 tracing::error!("blob event processor triggered shutdown due to error");
-                if let Some(checkpoint_manager) = self.checkpoint_manager() {
-                    checkpoint_manager.shutdown();
-                }
-                self.inner.shut_down();
-                self.blob_event_processor.shutdown();
-                self.blob_sync_handler.cancel_all().await?;
-                self.blob_event_processor.wait_for_shutdown().await;
+                self.shut_down().await?;
                 return Err(anyhow::anyhow!("blob event processor encountered fatal error"));
             },
             blob_sync_result = BlobSyncHandler::spawn_task_monitor(
@@ -895,6 +883,17 @@ impl StorageNode {
             }
         }
 
+        Ok(())
+    }
+
+    async fn shut_down(&self) -> anyhow::Result<()> {
+        if let Some(checkpoint_manager) = self.checkpoint_manager() {
+            checkpoint_manager.shutdown();
+        }
+        self.inner.shut_down();
+        self.blob_event_processor.shutdown();
+        self.blob_sync_handler.cancel_all().await?;
+        self.blob_event_processor.wait_for_shutdown().await;
         Ok(())
     }
 
