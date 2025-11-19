@@ -30,7 +30,7 @@ use sui_types::{
         TransactionKind,
     },
 };
-use tracing::{Level, instrument};
+use tracing::Level;
 use walrus_core::{
     Epoch,
     EpochCount,
@@ -1159,7 +1159,7 @@ impl WalrusPtbBuilder {
         Ok(result_arg)
     }
 
-    #[instrument(err, skip(self))]
+    #[tracing::instrument(err, skip(self))]
     /// Creates an `Authorized` Move type for the given address or object and returns it as result
     /// argument.
     pub fn authorized_address_or_object(

@@ -48,6 +48,7 @@ use walrus_sdk::{
         WalrusNodeClient,
         WalrusNodeClientCreatedInBackground,
         quilt_client::{
+            QuiltClient,
             assign_identifiers_with_paths,
             generate_identifier_from_path,
             read_blobs_from_paths,
@@ -674,6 +675,7 @@ impl ClientCommandRunner {
         Ok(())
     }
 
+    // TODO(WAL-1098): Refactor this function and reduce duplication with `store_quilt`.
     async fn store(
         self,
         files: Vec<PathBuf>,
@@ -1029,7 +1031,7 @@ impl ClientCommandRunner {
         outputs.print_output(json)
     }
 
-    // TODO(WAL-1098): Reduce duplication with `store`.
+    // TODO(WAL-1098): Refactor this function and reduce duplication with `store`.
     async fn store_quilt(
         self,
         paths: Vec<PathBuf>,
@@ -1133,13 +1135,12 @@ impl ClientCommandRunner {
             return Ok(());
         }
 
-        // TODO: Finish initializing the client after the encoding is done.
-        let client = client_created_in_bg.into_client().await?;
-
         let start_timer = std::time::Instant::now();
-        let quilt_write_client = client.quilt_client();
+        let quilt_write_client =
+            QuiltClient::new(&client_created_in_bg, config.quilt_client_config.clone());
         let quilt = quilt_write_client
-            .construct_quilt::<QuiltVersionV1>(&quilt_store_blobs, encoding_type)?;
+            .construct_quilt::<QuiltVersionV1>(&quilt_store_blobs, encoding_type)
+            .await?;
         let base_store_args = StoreArgs::new(
             encoding_type,
             epochs_ahead,
@@ -1154,7 +1155,7 @@ impl ClientCommandRunner {
             None;
         if !internal_run
             && matches!(
-                client.config().communication_config.tail_handling,
+                config.communication_config.tail_handling,
                 TailHandling::Detached
             )
         {
@@ -1172,19 +1173,20 @@ impl ClientCommandRunner {
         }
 
         if let Some(upload_relay) = upload_relay {
+            let n_shards = client_created_in_bg.encoding_config().await?.n_shards();
             let upload_relay_client = UploadRelayClient::new(
                 active_address,
-                client.encoding_config().n_shards(),
+                n_shards,
                 upload_relay,
                 self.gas_budget,
-                client.config().backoff_config().clone(),
+                config.backoff_config().clone(),
             )
             .await?;
             // Store operations will use the upload relay.
             store_args = store_args.with_upload_relay_client(upload_relay_client);
 
             let total_tip = store_args.compute_total_tip_amount(
-                client.encoding_config().n_shards(),
+                n_shards,
                 &quilt_store_blobs
                     .iter()
                     .map(|blob| blob.unencoded_length())
@@ -1377,7 +1379,9 @@ impl ClientCommandRunner {
         tracing::info!("performing dry-run for quilt from {} blobs", blobs.len());
 
         let quilt_client = client.quilt_client();
-        let quilt = quilt_client.construct_quilt::<QuiltVersionV1>(blobs, encoding_type)?;
+        let quilt = quilt_client
+            .construct_quilt::<QuiltVersionV1>(blobs, encoding_type)
+            .await?;
         let metadata = client
             .encoding_config()
             .get_for_type(encoding_type)

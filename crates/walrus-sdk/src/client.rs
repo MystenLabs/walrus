@@ -1377,7 +1377,7 @@ impl<T> WalrusNodeClient<T> {
     }
 
     /// Returns a [`QuiltClient`] for storing and retrieving quilts.
-    pub fn quilt_client(&self) -> QuiltClient<'_, T> {
+    pub fn quilt_client(&self) -> QuiltClient<'_, Self> {
         QuiltClient::new(self, self.config.quilt_client_config.clone())
     }
 
@@ -2352,7 +2352,7 @@ mod internal {
 }
 
 /// A trait containing functions to store blobs to Walrus.
-pub trait StoreBlobsApi: internal::StoreBlobApiInternal {
+pub trait StoreBlobsApi: internal::StoreBlobApiInternal + Sized {
     /// Returns the encoding config used by the client.
     fn encoding_config(&self) -> impl Future<Output = ClientResult<&EncodingConfig>> + Send;
 

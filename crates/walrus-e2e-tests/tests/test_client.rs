@@ -1100,8 +1100,9 @@ async fn test_store_quilt(blobs_to_create: u32) -> TestResult {
     let quilt_client = client
         .quilt_client()
         .with_config(QuiltClientConfig::new(6, Duration::from_mins(1)));
-    let quilt =
-        quilt_client.construct_quilt::<QuiltVersionV1>(&quilt_store_blobs, encoding_type)?;
+    let quilt = quilt_client
+        .construct_quilt::<QuiltVersionV1>(&quilt_store_blobs, encoding_type)
+        .await?;
     let quilt_index = quilt.quilt_index()?.clone();
     let store_args = StoreArgs::default_with_epochs(2)
         .with_encoding_type(encoding_type)

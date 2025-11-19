@@ -31,16 +31,13 @@ use walrus_core::{
     },
     metadata::{QuiltIndex, QuiltMetadata, QuiltMetadataV1, VerifiedBlobMetadataWithId},
 };
-use walrus_sui::{
-    client::{ReadClient, SuiContractClient},
-    types::move_structs::BlobAttribute,
-};
+use walrus_sui::{client::ReadClient, types::move_structs::BlobAttribute};
 use walrus_utils::read_blob_from_file;
 
 use crate::{
     client::{
         StoreArgs,
-        StoreBlobsApi as _,
+        StoreBlobsApi,
         WalrusNodeClient,
         client_types::StoredQuiltPatch,
         responses::QuiltStoreResult,
@@ -194,21 +191,21 @@ enum QuiltCacheReader<V: QuiltVersion> {
 /// A wrapper round different types of cached quilt readers.
 ///
 /// This hides the details of the source of the data required to read the quilt patches.
-struct QuiltReader<'a, V: QuiltVersion, T: ReadClient> {
+struct QuiltReader<'a, V: QuiltVersion, T> {
     pub reader: QuiltCacheReader<V>,
     pub client: &'a QuiltClient<'a, T>,
     pub config: QuiltClientConfig,
     pub quilt_index: Option<QuiltIndex>,
-    phantom: PhantomData<V>,
+    _version: PhantomData<V>,
 }
 
-impl<'a, V: QuiltVersion, T: ReadClient> QuiltReader<'a, V, T>
+impl<'a, V: QuiltVersion, T: ReadClient> QuiltReader<'a, V, WalrusNodeClient<T>>
 where
     SliverData<V::SliverAxis>: TryFrom<Sliver>,
 {
     /// Creates a new QuiltReader.
     pub fn new(
-        client: &'a QuiltClient<'a, T>,
+        client: &'a QuiltClient<'a, WalrusNodeClient<T>>,
         config: QuiltClientConfig,
         quilt_index: Option<QuiltIndex>,
     ) -> Self {
@@ -217,7 +214,7 @@ where
             client,
             config,
             quilt_index,
-            phantom: PhantomData,
+            _version: PhantomData,
         }
     }
 
@@ -379,24 +376,25 @@ impl Default for QuiltClientConfig {
 /// A facade for interacting with Walrus quilt.
 #[derive(Debug, Clone)]
 pub struct QuiltClient<'a, T> {
-    client: &'a WalrusNodeClient<T>,
+    client: &'a T,
     config: QuiltClientConfig,
 }
 
 impl<'a, T> QuiltClient<'a, T> {
     /// Creates a new QuiltClient.
-    pub fn new(client: &'a WalrusNodeClient<T>, config: QuiltClientConfig) -> Self {
+    pub fn new(client: &'a T, config: QuiltClientConfig) -> Self {
         Self { client, config }
     }
 
     /// Update quilt client config.
+    #[cfg(any(test, feature = "test-utils"))]
     pub fn with_config(mut self, config: QuiltClientConfig) -> Self {
         self.config = config;
         self
     }
 }
 
-impl<T: ReadClient> QuiltClient<'_, T> {
+impl<T: ReadClient> QuiltClient<'_, WalrusNodeClient<T>> {
     /// Retrieves the [`QuiltMetadata`].
     ///
     /// If not enough slivers can be retrieved for the quilt index, the entire blob will be read.
@@ -533,7 +531,7 @@ impl<T: ReadClient> QuiltClient<'_, T> {
                     .client
                     .get_blob_status_and_certified_epoch(quilt_id, None)
                     .await?;
-                let mut quilt_reader = QuiltReader::<'_, QuiltVersionV1, T>::new(
+                let mut quilt_reader = QuiltReader::<'_, QuiltVersionV1, _>::new(
                     self,
                     self.config.clone(),
                     Some(metadata.index.clone().into()),
@@ -572,7 +570,7 @@ impl<T: ReadClient> QuiltClient<'_, T> {
                     .client
                     .get_blob_status_and_certified_epoch(quilt_id, None)
                     .await?;
-                let mut quilt_reader = QuiltReader::<'_, QuiltVersionV1, T>::new(
+                let mut quilt_reader = QuiltReader::<'_, QuiltVersionV1, _>::new(
                     self,
                     self.config.clone(),
                     Some(metadata.index.clone().into()),
@@ -662,7 +660,7 @@ impl<T: ReadClient> QuiltClient<'_, T> {
         }
 
         let mut quilt_reader =
-            QuiltReader::<'_, QuiltVersionV1, T>::new(self, self.config.clone(), None);
+            QuiltReader::<'_, QuiltVersionV1, _>::new(self, self.config.clone(), None);
         quilt_reader
             .download_data(&sliver_indices, metadata, certified_epoch)
             .await?;
@@ -688,7 +686,7 @@ impl<T: ReadClient> QuiltClient<'_, T> {
             .await?;
 
         let mut quilt_reader =
-            QuiltReader::<'_, QuiltVersionV1, T>::new(self, self.config.clone(), None);
+            QuiltReader::<'_, QuiltVersionV1, _>::new(self, self.config.clone(), None);
         quilt_reader.get_all_blobs(&metadata, certified_epoch).await
     }
 
@@ -719,15 +717,18 @@ impl<T: ReadClient> QuiltClient<'_, T> {
 }
 
 /// Stores quilts.
-impl QuiltClient<'_, SuiContractClient> {
+impl<T: StoreBlobsApi> QuiltClient<'_, T> {
     /// Constructs a quilt from a list of blobs.
-    pub fn construct_quilt<V: QuiltVersion>(
+    pub async fn construct_quilt<V: QuiltVersion>(
         &self,
         blobs: &[QuiltStoreBlob<'_>],
         encoding_type: EncodingType,
     ) -> ClientResult<V::Quilt> {
         let encoder = V::QuiltConfig::get_encoder(
-            self.client.encoding_config().get_for_type(encoding_type),
+            self.client
+                .encoding_config()
+                .await?
+                .get_for_type(encoding_type),
             blobs,
         );
 
@@ -741,7 +742,7 @@ impl QuiltClient<'_, SuiContractClient> {
     //
     /// The on-disk file names are used as identifiers for the quilt patches.
     /// If the file name is not valid UTF-8, it will be replaced with "unnamed-blob-index".
-    pub fn construct_quilt_from_paths<V: QuiltVersion, P: AsRef<Path>>(
+    pub async fn construct_quilt_from_paths<V: QuiltVersion, P: AsRef<Path>>(
         &self,
         paths: &[P],
         encoding_type: EncodingType,
@@ -756,6 +757,7 @@ impl QuiltClient<'_, SuiContractClient> {
         let quilt_store_blobs = assign_identifiers_with_paths(blobs_with_paths)?;
 
         self.construct_quilt::<V>(&quilt_store_blobs, encoding_type)
+            .await
     }
 
     /// Stores all blobs from a list of paths as a quilt.
@@ -765,7 +767,9 @@ impl QuiltClient<'_, SuiContractClient> {
         paths: &[P],
         store_args: &StoreArgs,
     ) -> ClientResult<QuiltStoreResult> {
-        let quilt = self.construct_quilt_from_paths::<V, P>(paths, store_args.encoding_type)?;
+        let quilt = self
+            .construct_quilt_from_paths::<V, P>(paths, store_args.encoding_type)
+            .await?;
         let result = self.reserve_and_store_quilt::<V>(quilt, store_args).await?;
 
         Ok(result)
