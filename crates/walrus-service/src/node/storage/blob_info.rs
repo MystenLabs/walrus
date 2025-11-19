@@ -953,19 +953,17 @@ impl From<&ManagedBlobRegistered> for BlobInfoMergeOperand {
             epoch,
             blob_manager_id,
             blob_id,
-            end_epoch,
             deletable,
             event_id,
             object_id,
             ..
         } = value;
         tracing::debug!(
-            "Converting ManagedBlobRegistered event: blob_id={:?}, blob_manager_id={:?}, \
-             epoch={}, end_epoch={}, deletable={}, object_id={:?}",
+            "Converting ManagedBlobRegistered event: blob_id={:?}, blob_manager_id={:?}, epoch={}, \
+            deletable={}, object_id={:?}",
             blob_id,
             blob_manager_id,
             epoch,
-            end_epoch,
             deletable,
             object_id
         );
@@ -973,7 +971,7 @@ impl From<&ManagedBlobRegistered> for BlobInfoMergeOperand {
             change_info: BlobStatusChangeInfo {
                 deletable: *deletable,
                 epoch: *epoch,
-                end_epoch: *end_epoch,
+                end_epoch: 0, // Managed blobs don't have direct end_epoch.
                 status_event: *event_id,
                 blob_id: *blob_id,
             },
@@ -1015,7 +1013,6 @@ impl From<&ManagedBlobDeleted> for BlobInfoMergeOperand {
             epoch,
             blob_manager_id,
             blob_id,
-            end_epoch,
             was_certified,
             event_id,
             ..
@@ -1024,7 +1021,7 @@ impl From<&ManagedBlobDeleted> for BlobInfoMergeOperand {
             change_info: BlobStatusChangeInfo {
                 deletable: true, // Deleted blobs must have been deletable.
                 epoch: *epoch,
-                end_epoch: *end_epoch,
+                end_epoch: 0, // Managed blobs don't have direct end_epoch.
                 status_event: *event_id,
                 blob_id: *blob_id,
             },
@@ -1207,8 +1204,8 @@ impl ValidBlobInfoV1 {
                 | BlobStatusChangeType::CertifyManaged { .. }
                 | BlobStatusChangeType::DeleteManaged { .. } => {
                     tracing::error!(
-                        "attempt managed blob operation on V1 (regular blob): \
-                         blob_id={:?}, change_type={:?}",
+                        "attempt managed blob operation on V1 (regular blob): blob_id={:?}, \
+                        change_type={:?}",
                         change_info.blob_id,
                         change_type,
                     );
@@ -1241,8 +1238,8 @@ impl ValidBlobInfoV1 {
                 | BlobStatusChangeType::CertifyManaged { .. }
                 | BlobStatusChangeType::DeleteManaged { .. } => {
                     tracing::error!(
-                        "attempt managed blob operation on V1 (regular blob): \
-                         blob_id={:?}, change_type={:?}",
+                        "attempt managed blob operation on V1 (regular blob): blob_id={:?}, \
+                        change_type={:?}",
                         change_info.blob_id,
                         change_type,
                     );
@@ -2042,8 +2039,8 @@ impl ManagedBlobInfo {
         match change_type {
             BlobStatusChangeType::RegisterManaged { blob_manager_id } => {
                 tracing::debug!(
-                    "Registering managed blob: blob_id={:?}, blob_manager_id={:?}, \
-                     deletable={}, registered_count={}",
+                    "Registering managed blob: blob_id={:?}, blob_manager_id={:?}, deletable={}, \
+                    registered_count={}",
                     change_info.blob_id,
                     blob_manager_id,
                     change_info.deletable,
@@ -2771,8 +2768,6 @@ mod per_object_blob_info {
         pub blob_manager_id: ObjectID,
         /// Whether the blob is deletable.
         pub deletable: bool,
-        /// The end epoch of the storage for this managed blob.
-        pub end_epoch: Epoch,
         /// The ID of the last blob event related to this object.
         pub event: EventID,
         /// Whether the blob has been deleted.
@@ -2924,7 +2919,7 @@ mod per_object_blob_info {
                         blob_id,
                         deletable,
                         epoch,
-                        end_epoch,
+                        end_epoch: _,
                         status_event,
                     },
             } = operand
@@ -2937,7 +2932,6 @@ mod per_object_blob_info {
                 certified_epoch: None,
                 blob_manager_id,
                 deletable,
-                end_epoch,
                 event: status_event,
                 deleted: false,
             })
@@ -4405,8 +4399,13 @@ mod tests {
                     managed_blob_info: Some(ManagedBlobInfo {
                         is_metadata_stored: false,
                         initial_certified_epoch: Some(3),
-                        registered: [object_id_for_testing(1), object_id_for_testing(2), object_id_for_testing(3)]
-                            .into_iter().collect(),
+                        registered: [
+                            object_id_for_testing(1),
+                            object_id_for_testing(2),
+                            object_id_for_testing(3),
+                        ]
+                        .into_iter()
+                        .collect(),
                         registered_deletable_counts: 2,
                         certified: [object_id_for_testing(1), object_id_for_testing(2)]
                             .into_iter().collect(),

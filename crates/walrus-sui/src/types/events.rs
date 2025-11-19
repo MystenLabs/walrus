@@ -213,10 +213,6 @@ pub struct ManagedBlobRegistered {
     pub blob_id: BlobId,
     /// The (unencoded) size of the blob.
     pub size: u64,
-    /// The end epoch of the associated storage resource (exclusive) at registration.
-    /// Since the blob's end epoch is managed at the BlobManager level, this is the end epoch at registration.
-    /// The blob's end epoch is updated at the BlobManager level when the blob is certified.
-    pub end_epoch_at_registration: Epoch,
     /// The erasure coding type used for the blob.
     pub encoding_type: EncodingType,
     /// Marks the blob as deletable.
@@ -247,7 +243,6 @@ impl TryFrom<SuiEvent> for ManagedBlobRegistered {
             encoding_type,
             deletable,
             blob_type,
-            end_epoch,
             object_id,
         ) = bcs::from_bytes(sui_event.bcs.bytes())?;
 
@@ -259,7 +254,6 @@ impl TryFrom<SuiEvent> for ManagedBlobRegistered {
             encoding_type,
             deletable,
             blob_type,
-            end_epoch_at_registration,
             object_id,
             event_id: sui_event.id,
         })
@@ -319,8 +313,6 @@ pub struct ManagedBlobDeleted {
     pub blob_manager_id: ObjectID,
     /// The blob ID.
     pub blob_id: BlobId,
-    /// The end epoch of the associated storage resource (exclusive).
-    pub end_epoch: Epoch,
     /// The object id of the related `ManagedBlob` object.
     pub object_id: ObjectID,
     /// If the blob object was previously certified.
@@ -339,14 +331,13 @@ impl TryFrom<SuiEvent> for ManagedBlobDeleted {
     fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
         ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
 
-        let (epoch, blob_manager_id, blob_id, end_epoch, object_id, was_certified) =
+        let (epoch, blob_manager_id, blob_id, object_id, was_certified) =
             bcs::from_bytes(sui_event.bcs.bytes())?;
 
         Ok(Self {
             epoch,
             blob_manager_id,
             blob_id,
-            end_epoch,
             object_id,
             was_certified,
             event_id: sui_event.id,
@@ -480,6 +471,14 @@ impl BlobManagerEvent {
         match self {
             BlobManagerEvent::Created(event) => event.epoch,
             BlobManagerEvent::Extended(event) => event.epoch,
+        }
+    }
+
+    /// Returns the name of the event.
+    pub fn name(&self) -> &'static str {
+        match self {
+            BlobManagerEvent::Created(_) => "BlobManagerCreated",
+            BlobManagerEvent::Extended(_) => "BlobManagerExtended",
         }
     }
 }

@@ -54,7 +54,6 @@ public struct ManagedBlobRegistered has copy, drop {
     encoding_type: u8,
     deletable: bool,
     blob_type: u8,
-    end_epoch_at_registration: u32,
     // The object id of the related `ManagedBlob` object.
     object_id: ID,
 }
@@ -234,7 +233,6 @@ public(package) fun emit_managed_blob_registered(
     encoding_type: u8,
     deletable: bool,
     blob_type: u8,
-    end_epoch: u32,
     object_id: ID,
 ) {
     event::emit(ManagedBlobRegistered {
@@ -245,7 +243,6 @@ public(package) fun emit_managed_blob_registered(
         encoding_type,
         deletable,
         blob_type,
-        end_epoch,
         object_id,
     });
 }

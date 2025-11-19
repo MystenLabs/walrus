@@ -95,6 +95,7 @@ use walrus_sdk::{
         client::SuiReadClient,
         types::{
             BlobEvent,
+            BlobManagerEvent,
             ContractEvent,
             EpochChangeDone,
             EpochChangeEvent,
@@ -1376,6 +1377,12 @@ impl StorageNode {
             EventStreamElement::ContractEvent(ContractEvent::BlobEvent(blob_event)) => {
                 self.process_blob_event(event_handle, blob_event).await?;
             }
+            EventStreamElement::ContractEvent(ContractEvent::BlobManagerEvent(
+                blob_manager_event,
+            )) => {
+                self.process_blob_manager_event(event_handle, blob_manager_event)
+                    .await?;
+            }
             EventStreamElement::ContractEvent(ContractEvent::EpochChangeEvent(
                 epoch_change_event,
             )) => {
@@ -1415,6 +1422,26 @@ impl StorageNode {
         self.blob_event_processor
             .process_event(event_handle, blob_event)
             .await?;
+        Ok(())
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn process_blob_manager_event(
+        &self,
+        event_handle: EventHandle,
+        blob_manager_event: BlobManagerEvent,
+    ) -> anyhow::Result<()> {
+        let _scope = monitored_scope::monitored_scope("ProcessEvent::BlobManagerEvent");
+
+        tracing::debug!(
+            ?blob_manager_event,
+            "{} event received",
+            blob_manager_event.name()
+        );
+        self.inner
+            .storage
+            .process_blob_manager_event(&blob_manager_event)?;
+        event_handle.mark_as_complete();
         Ok(())
     }
 

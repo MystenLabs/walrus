@@ -351,7 +351,6 @@ public(package) fun register_managed_blob(
     encoding_type: u8,
     deletable: bool,
     blob_type: u8,
-    end_epoch: u32,
     write_payment_coin: &mut Coin<WAL>,
     ctx: &mut TxContext,
 ): managed_blob::ManagedBlob {
@@ -363,7 +362,6 @@ public(package) fun register_managed_blob(
         encoding_type,
         deletable,
         blob_type,
-        end_epoch,
         self.epoch(),
         ctx,
     );

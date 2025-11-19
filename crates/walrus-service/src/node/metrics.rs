@@ -15,6 +15,7 @@ use walrus_sdk::error::ClientErrorKind;
 use walrus_sui::types::{
     BlobCertified,
     BlobEvent,
+    BlobManagerEvent,
     ContractEvent,
     DenyListEvent,
     EpochChangeEvent,
@@ -277,6 +278,15 @@ impl TelemetryLabel for BlobEvent {
     }
 }
 
+impl TelemetryLabel for BlobManagerEvent {
+    fn label(&self) -> &'static str {
+        match self {
+            BlobManagerEvent::Created(_) => "blob-manager-created",
+            BlobManagerEvent::Extended(_) => "blob-manager-extended",
+        }
+    }
+}
+
 impl TelemetryLabel for EpochChangeEvent {
     fn label(&self) -> &'static str {
         match self {
@@ -321,6 +331,7 @@ impl TelemetryLabel for ContractEvent {
     fn label(&self) -> &'static str {
         match self {
             ContractEvent::BlobEvent(event) => event.label(),
+            ContractEvent::BlobManagerEvent(event) => event.label(),
             ContractEvent::EpochChangeEvent(event) => event.label(),
             ContractEvent::PackageEvent(event) => event.label(),
             ContractEvent::DenyListEvent(event) => event.label(),

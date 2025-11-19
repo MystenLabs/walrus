@@ -140,7 +140,6 @@ public(package) fun new(
     encoding_type: u8,
     deletable: bool,
     blob_type: u8,
-    end_epoch: u32,
     registered_epoch: u32,
     ctx: &mut TxContext,
 ): ManagedBlob {
@@ -166,7 +165,6 @@ public(package) fun new(
         encoding_type,
         deletable,
         blob_type,
-        end_epoch,
         id.to_inner(),
     );
 

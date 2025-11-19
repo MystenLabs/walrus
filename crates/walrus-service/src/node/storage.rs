@@ -2307,7 +2307,6 @@ pub(crate) mod tests {
             encoding_type: walrus_core::EncodingType::RS2,
             deletable: true,
             blob_type: 1,
-            end_epoch: 100,
             object_id,
             event_id: event_id_for_testing(),
         };

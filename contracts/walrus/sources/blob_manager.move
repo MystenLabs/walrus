@@ -167,7 +167,7 @@ public fun register_blob(
     self.storage.allocate_storage(encoded_size);
 
     // Get the end_epoch from the storage.
-    let (_start_epoch, end_epoch) = self.storage.storage_epochs();
+    let (_start_epoch, end_epoch_at_registration) = self.storage.storage_epochs();
 
     // Register managed blob with the system.
     let managed_blob = system.register_managed_blob(
@@ -178,7 +178,6 @@ public fun register_blob(
         encoding_type,
         deletable,
         blob_type,
-        end_epoch,
         payment,
         ctx,
     );
@@ -187,7 +186,7 @@ public fun register_blob(
     self.blob_stash.add_blob_to_stash(managed_blob);
 
     // Return the end_epoch for client use.
-    end_epoch
+    end_epoch_at_registration
 }
 
 /// Certifies a managed blob.
