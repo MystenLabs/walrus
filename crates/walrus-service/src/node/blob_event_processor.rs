@@ -4,6 +4,7 @@
 use std::{
     sync::{
         Arc,
+        Mutex,
         atomic::{AtomicU32, Ordering},
     },
     time::Duration,
@@ -14,6 +15,7 @@ use tokio::{
     sync::mpsc::{self, UnboundedReceiver, UnboundedSender},
     task::JoinHandle,
 };
+use tokio_util::sync::CancellationToken;
 use walrus_sui::types::{BlobCertified, BlobDeleted, BlobEvent, InvalidBlobId};
 use walrus_utils::metrics::monitored_scope;
 
@@ -124,6 +126,10 @@ struct BackgroundEventProcessor {
     blob_sync_handler: Arc<BlobSyncHandler>,
     event_receiver: UnboundedReceiver<TrackedEvent>,
     worker_index: usize,
+    /// Cancellation token to signal this processor to shut down gracefully.
+    cancel_token: CancellationToken,
+    /// Node-level cancellation token to trigger node-wide shutdown on errors.
+    node_cancel_token: CancellationToken,
 }
 
 impl BackgroundEventProcessor {
@@ -132,39 +138,68 @@ impl BackgroundEventProcessor {
         blob_sync_handler: Arc<BlobSyncHandler>,
         event_receiver: UnboundedReceiver<TrackedEvent>,
         worker_index: usize,
+        cancel_token: CancellationToken,
+        node_cancel_token: CancellationToken,
     ) -> Self {
         Self {
             node,
             blob_sync_handler,
             event_receiver,
             worker_index,
+            cancel_token,
+            node_cancel_token,
         }
     }
 
     /// Runs the background event processor.
     async fn run_background_event_processor(&mut self) {
-        while let Some(tracked_event) = self.event_receiver.recv().await {
-            walrus_utils::with_label!(
-                self.node.metrics.pending_processing_blob_event_in_queue,
-                &self.worker_index.to_string()
-            )
-            .dec();
+        loop {
+            tokio::select! {
+                _ = self.cancel_token.cancelled() => {
+                    tracing::info!(
+                        worker_index = self.worker_index,
+                        "background event processor shutting down gracefully"
+                    );
+                    break;
+                }
+                Some(tracked_event) = self.event_receiver.recv() => {
+                    walrus_utils::with_label!(
+                        self.node.metrics.pending_processing_blob_event_in_queue,
+                        &self.worker_index.to_string()
+                    )
+                    .dec();
 
-            let TrackedEvent {
-                event_handle,
-                blob_event,
-                checkpoint_position,
-                _guard,
-            } = tracked_event;
+                    let TrackedEvent {
+                        event_handle,
+                        blob_event,
+                        checkpoint_position,
+                        _guard,
+                    } = tracked_event;
 
-            // The guard will automatically decrement the counter when dropped.
-            if let Err(error) = self
-                .process_event(event_handle, blob_event, checkpoint_position)
-                .await
-            {
-                // TODO(WAL-874): to keep the same behavior as before BackgroundEventProcessor, we
-                // should propagate the error to the node and exit the process if necessary.
-                tracing::error!(?error, "error processing blob event");
+                    // The guard will automatically decrement the counter when dropped.
+                    if let Err(error) = self
+                        .process_event(event_handle, blob_event, checkpoint_position)
+                        .await
+                    {
+                        // WAL-874: Propagate error to the node by triggering node-wide shutdown.
+                        // All event processing errors should cause the node to exit.
+                        tracing::error!(
+                            ?error,
+                            worker_index = self.worker_index,
+                            "error processing blob event, triggering node shutdown"
+                        );
+                        self.node_cancel_token.cancel();
+                        break;
+                    }
+                }
+                else => {
+                    // Channel closed, exit gracefully
+                    tracing::info!(
+                        worker_index = self.worker_index,
+                        "background event processor channel closed, shutting down"
+                    );
+                    break;
+                }
             }
         }
     }
@@ -354,18 +389,22 @@ impl BackgroundEventProcessor {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 enum BlobEventProcessorImpl {
     // Background processors that process events in parallel.
     BackgroundProcessors {
         background_processor_senders: Vec<UnboundedSender<TrackedEvent>>,
-        _background_processors: Vec<Arc<JoinHandle<()>>>,
+        /// Join handles for background processors, wrapped in Mutex for shutdown access.
+        /// These are taken out during `wait_for_shutdown()`.
+        background_processors: Mutex<Option<Vec<JoinHandle<()>>>>,
         // The number of events that are pending to be processed in each background processor.
         // Each counter is shared with individual BackgroundEventProcessor.
         //
         // We use per background processor count to avoid high contention on the Atomic variable
         // when tracking the total number of pending events to be processed.
         background_per_processor_pending_event_count: Vec<PendingEventCounter>,
+        /// Cancellation token to signal all background processors to shut down.
+        cancel_token: CancellationToken,
     },
 
     // When there are no background workers, we use a sequential processor to process events using
@@ -387,8 +426,9 @@ impl BlobEventProcessorImpl {
         match self {
             BlobEventProcessorImpl::BackgroundProcessors {
                 background_processor_senders,
-                _background_processors,
+                background_processors: _,
                 background_per_processor_pending_event_count,
+                cancel_token: _,
             } => {
                 // We send the event to one of the workers to process in parallel.
                 // Note that in order to remain sequential processing for the same BlobID, we always
@@ -452,7 +492,7 @@ impl BlobEventProcessorImpl {
 }
 /// Blob event processor that processes blob events. It can be configured to process events
 /// sequentially or in parallel using background workers.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct BlobEventProcessor {
     node: Arc<StorageNodeInner>,
     blob_event_processor_impl: BlobEventProcessorImpl,
@@ -463,11 +503,14 @@ impl BlobEventProcessor {
         node: Arc<StorageNodeInner>,
         blob_sync_handler: Arc<BlobSyncHandler>,
         num_workers: usize,
+        node_cancel_token: CancellationToken,
     ) -> Self {
         let mut background_processor_senders = Vec::with_capacity(num_workers);
         let mut background_processors = Vec::with_capacity(num_workers);
         let mut background_per_processor_pending_event_count = Vec::with_capacity(num_workers);
         let blob_event_processor_impl = if num_workers > 0 {
+            // Create a cancellation token shared by all background processors.
+            let cancel_token = CancellationToken::new();
             for worker_index in 0..num_workers {
                 let (tx, rx) = mpsc::unbounded_channel();
                 background_processor_senders.push(tx);
@@ -478,28 +521,34 @@ impl BlobEventProcessor {
                     blob_sync_handler.clone(),
                     rx,
                     worker_index,
+                    cancel_token.clone(),
+                    node_cancel_token.clone(),
                 );
-                // TODO(WAL-876): gracefully shut down the background processor when the node is
-                // shutting down.
-                background_processors.push(Arc::new(tokio::spawn(async move {
+                background_processors.push(tokio::spawn(async move {
                     background_processor.run_background_event_processor().await;
-                })));
+                }));
             }
             BlobEventProcessorImpl::BackgroundProcessors {
                 background_processor_senders,
-                _background_processors: background_processors,
+                background_processors: Mutex::new(Some(background_processors)),
                 background_per_processor_pending_event_count,
+                cancel_token,
             }
         } else {
             let background_event_processor = {
                 // Create a sequential processor to process events sequentially if no background
                 // workers are configured.
                 let (_tx, rx) = mpsc::unbounded_channel();
+                // For sequential processor, create dummy cancellation tokens since the processor
+                // runs in the caller's context and doesn't need separate shutdown coordination.
+                let cancel_token = CancellationToken::new();
                 Arc::new(BackgroundEventProcessor::new(
                     node.clone(),
                     blob_sync_handler.clone(),
                     rx,
                     0, // worker_index for sequential processor
+                    cancel_token,
+                    node_cancel_token,
                 ))
             };
             BlobEventProcessorImpl::SequentialProcessor {
@@ -563,6 +612,59 @@ impl BlobEventProcessor {
                 {
                     tokio::time::sleep(PENDING_EVENTS_POLL_INTERVAL).await;
                 }
+            }
+        }
+    }
+
+    /// Triggers graceful shutdown of all background event processors.
+    /// This signals all processors to stop processing new events.
+    pub fn shutdown(&self) {
+        match &self.blob_event_processor_impl {
+            BlobEventProcessorImpl::BackgroundProcessors { cancel_token, .. } => {
+                tracing::info!("triggering shutdown of background event processors");
+                cancel_token.cancel();
+            }
+            BlobEventProcessorImpl::SequentialProcessor { .. } => {
+                // Sequential processor runs in the caller's context and doesn't need
+                // separate shutdown coordination.
+            }
+        }
+    }
+
+    /// Waits for all background event processors to finish after shutdown is triggered.
+    /// This method should be called after `shutdown()` to ensure all processors have exited.
+    pub async fn wait_for_shutdown(&self) {
+        match &self.blob_event_processor_impl {
+            BlobEventProcessorImpl::BackgroundProcessors {
+                background_processors,
+                ..
+            } => {
+                // Take the join handles out of the mutex
+                let handles = background_processors
+                    .lock()
+                    .expect("background_processors mutex poisoned")
+                    .take();
+
+                if let Some(handles) = handles {
+                    tracing::info!(
+                        num_processors = handles.len(),
+                        "waiting for background event processors to finish"
+                    );
+
+                    // Wait for all background processors to finish
+                    for handle in handles {
+                        if let Err(error) = handle.await {
+                            tracing::error!(?error, "background event processor task panicked");
+                        }
+                    }
+
+                    tracing::info!("all background event processors have finished");
+                } else {
+                    tracing::warn!("wait_for_shutdown called multiple times");
+                }
+            }
+            BlobEventProcessorImpl::SequentialProcessor { .. } => {
+                // Sequential processor runs in the caller's context, nothing to wait for.
             }
         }
     }
