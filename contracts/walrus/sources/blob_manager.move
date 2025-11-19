@@ -178,6 +178,7 @@ public fun register_blob(
         encoding_type,
         deletable,
         blob_type,
+        end_epoch_at_registration,
         payment,
         ctx,
     );
@@ -206,8 +207,12 @@ public fun certify_blob(
     let managed_blob = self.blob_stash.get_mut_blob_in_stash(blob_id, deletable);
     assert!(!managed_blob.certified_epoch().is_some(), EBlobAlreadyCertifiedInBlobManager);
 
+    // Get the current end_epoch from storage for the certification event.
+    let (_start_epoch, end_epoch_at_certify) = self.storage.storage_epochs();
+
     system.certify_managed_blob(
         managed_blob,
+        end_epoch_at_certify,
         signature,
         signers_bitmap,
         message,

@@ -140,6 +140,7 @@ public(package) fun new(
     encoding_type: u8,
     deletable: bool,
     blob_type: u8,
+    end_epoch_at_registration: u32,
     registered_epoch: u32,
     ctx: &mut TxContext,
 ): ManagedBlob {
@@ -165,6 +166,7 @@ public(package) fun new(
         encoding_type,
         deletable,
         blob_type,
+        end_epoch_at_registration,
         id.to_inner(),
     );
 
@@ -186,6 +188,7 @@ public(package) fun new(
 public fun certify_with_certified_msg(
     self: &mut ManagedBlob,
     current_epoch: u32,
+    end_epoch_at_certify: u32,
     message: CertifiedBlobMessage,
 ) {
     // Check that the blob is registered in the system
@@ -211,7 +214,7 @@ public fun certify_with_certified_msg(
     // Mark the blob as certified
     self.certified_epoch.fill(current_epoch);
 
-    self.emit_certified();
+    self.emit_certified(end_epoch_at_certify);
 }
 
 /// Deletes a deletable blob.
@@ -253,7 +256,7 @@ public fun burn(mut self: ManagedBlob) {
 }
 
 /// Emits a `ManagedBlobCertified` event for the given blob.
-public(package) fun emit_certified(self: &ManagedBlob) {
+public(package) fun emit_certified(self: &ManagedBlob, end_epoch_at_certify: u32) {
     // Emit certified event
     // Convert BlobType enum to u8 for event (event uses u8 for blob_type)
     let blob_type_u8 = match (self.blob_type) {
@@ -266,6 +269,7 @@ public(package) fun emit_certified(self: &ManagedBlob) {
         self.blob_id,
         self.deletable,
         blob_type_u8,
+        end_epoch_at_certify,
         self.id.to_inner(),
     );
 }
@@ -355,7 +359,8 @@ public fun remove_metadata_pair_if_exists(
 public fun certify_with_certified_msg_for_testing(
     blob: &mut ManagedBlob,
     current_epoch: u32,
+    end_epoch_at_certify: u32,
     message: CertifiedBlobMessage,
 ) {
-    certify_with_certified_msg(blob, current_epoch, message)
+    certify_with_certified_msg(blob, current_epoch, end_epoch_at_certify, message)
 }

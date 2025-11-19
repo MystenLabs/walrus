@@ -351,6 +351,7 @@ public(package) fun register_managed_blob(
     encoding_type: u8,
     deletable: bool,
     blob_type: u8,
+    end_epoch_at_registration: u32,
     write_payment_coin: &mut Coin<WAL>,
     ctx: &mut TxContext,
 ): managed_blob::ManagedBlob {
@@ -362,6 +363,7 @@ public(package) fun register_managed_blob(
         encoding_type,
         deletable,
         blob_type,
+        end_epoch_at_registration,
         self.epoch(),
         ctx,
     );
@@ -404,6 +406,7 @@ public(package) fun certify_blob(
 public(package) fun certify_managed_blob(
     self: &SystemStateInnerV1,
     managed_blob: &mut managed_blob::ManagedBlob,
+    end_epoch_at_certify: u32,
     signature: vector<u8>,
     signers_bitmap: vector<u8>,
     message: vector<u8>,
@@ -418,7 +421,7 @@ public(package) fun certify_managed_blob(
     assert!(certified_msg.cert_epoch() == self.epoch(), EInvalidIdEpoch);
 
     let certified_blob_msg = certified_msg.certify_blob_message();
-    managed_blob.certify_with_certified_msg(self.epoch(), certified_blob_msg);
+    managed_blob.certify_with_certified_msg(self.epoch(), end_epoch_at_certify, certified_blob_msg);
 }
 
 /// Deletes a deletable blob and returns the contained storage resource.

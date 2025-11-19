@@ -166,6 +166,7 @@ public fun register_managed_blob(
     encoding_type: u8,
     deletable: bool,
     blob_type: u8,
+    end_epoch_at_registration: u32,
     write_payment: &mut Coin<WAL>,
     ctx: &mut TxContext,
 ): ManagedBlob {
@@ -179,6 +180,7 @@ public fun register_managed_blob(
             encoding_type,
             deletable,
             blob_type,
+            end_epoch_at_registration,
             write_payment,
             ctx,
         )
@@ -202,11 +204,12 @@ public fun certify_blob(
 public fun certify_managed_blob(
     self: &System,
     managed_blob: &mut ManagedBlob,
+    end_epoch_at_certify: u32,
     signature: vector<u8>,
     signers_bitmap: vector<u8>,
     message: vector<u8>,
 ) {
-    self.inner().certify_managed_blob(managed_blob, signature, signers_bitmap, message);
+    self.inner().certify_managed_blob(managed_blob, end_epoch_at_certify, signature, signers_bitmap, message);
 }
 
 /// Deletes a deletable blob and returns the contained storage resource.

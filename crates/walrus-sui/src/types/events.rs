@@ -219,6 +219,8 @@ pub struct ManagedBlobRegistered {
     pub deletable: bool,
     /// The blob type (0 = Regular, 1 = Quilt).
     pub blob_type: u8,
+    /// The BlobManager's end_epoch at the time of registration.
+    pub end_epoch_at_registration: Epoch,
     /// The object ID of the related `ManagedBlob` object.
     pub object_id: ObjectID,
     /// The ID of the event.
@@ -243,6 +245,7 @@ impl TryFrom<SuiEvent> for ManagedBlobRegistered {
             encoding_type,
             deletable,
             blob_type,
+            end_epoch_at_registration,
             object_id,
         ) = bcs::from_bytes(sui_event.bcs.bytes())?;
 
@@ -254,6 +257,7 @@ impl TryFrom<SuiEvent> for ManagedBlobRegistered {
             encoding_type,
             deletable,
             blob_type,
+            end_epoch_at_registration,
             object_id,
             event_id: sui_event.id,
         })
@@ -273,6 +277,8 @@ pub struct ManagedBlobCertified {
     pub deletable: bool,
     /// The blob type (0 = Regular, 1 = Quilt).
     pub blob_type: u8,
+    /// The BlobManager's end_epoch at the time of certification.
+    pub end_epoch_at_certify: Epoch,
     /// The object ID of the related `ManagedBlob` object.
     pub object_id: ObjectID,
     /// The ID of the event.
@@ -289,7 +295,7 @@ impl TryFrom<SuiEvent> for ManagedBlobCertified {
     fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
         ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
 
-        let (epoch, blob_manager_id, blob_id, deletable, blob_type, object_id) =
+        let (epoch, blob_manager_id, blob_id, deletable, blob_type, end_epoch_at_certify, object_id) =
             bcs::from_bytes(sui_event.bcs.bytes())?;
 
         Ok(Self {
@@ -298,6 +304,7 @@ impl TryFrom<SuiEvent> for ManagedBlobCertified {
             blob_id,
             deletable,
             blob_type,
+            end_epoch_at_certify,
             object_id,
             event_id: sui_event.id,
         })

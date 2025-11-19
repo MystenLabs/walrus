@@ -49,6 +49,50 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+  /v1/blobs/{blob_id}/confirmation/managed/{manager_id}/{deletable}:
+    get:
+      tags:
+      - Writing Blobs
+      summary: Gets storage confirmation for a blob managed by a BlobManager.
+      description: |-
+        Gets a signed storage confirmation from this storage node, indicating that all shards assigned
+        to this storage node for the current epoch have stored their respective slivers.
+      operationId: get_managed_blob_confirmation
+      parameters:
+      - name: blob_id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/BlobId'
+      - name: manager_id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/ObjectID'
+      - name: deletable
+        in: path
+        required: true
+        schema:
+          type: boolean
+      responses:
+        '200':
+          description: A signed confirmation of storage
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiSuccess_StorageConfirmation'
+        '400':
+          description: May be returned when (1) The blob has not been registered or has already expired. (2) The storage node cannot produce a certificate, as it does not have the slivers for all of its shards. Complete the uploading of the slivers and then try again.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        '500':
+          description: An internal server error has occurred. Please report this error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
   /v1/blobs/{blob_id}/confirmation/permanent:
     get:
       tags:

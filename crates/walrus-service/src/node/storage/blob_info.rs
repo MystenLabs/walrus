@@ -954,16 +954,18 @@ impl From<&ManagedBlobRegistered> for BlobInfoMergeOperand {
             blob_manager_id,
             blob_id,
             deletable,
+            end_epoch_at_registration,
             event_id,
             object_id,
             ..
         } = value;
         tracing::debug!(
             "Converting ManagedBlobRegistered event: blob_id={:?}, blob_manager_id={:?}, epoch={}, \
-            deletable={}, object_id={:?}",
+            end_epoch_at_registration={}, deletable={}, object_id={:?}",
             blob_id,
             blob_manager_id,
             epoch,
+            end_epoch_at_registration,
             deletable,
             object_id
         );
@@ -971,7 +973,7 @@ impl From<&ManagedBlobRegistered> for BlobInfoMergeOperand {
             change_info: BlobStatusChangeInfo {
                 deletable: *deletable,
                 epoch: *epoch,
-                end_epoch: 0, // Managed blobs don't have direct end_epoch.
+                end_epoch: *end_epoch_at_registration,
                 status_event: *event_id,
                 blob_id: *blob_id,
             },
@@ -989,6 +991,7 @@ impl From<&ManagedBlobCertified> for BlobInfoMergeOperand {
             blob_manager_id,
             blob_id,
             deletable,
+            end_epoch_at_certify,
             event_id,
             ..
         } = value;
@@ -996,7 +999,7 @@ impl From<&ManagedBlobCertified> for BlobInfoMergeOperand {
             change_info: BlobStatusChangeInfo {
                 deletable: *deletable,
                 epoch: *epoch,
-                end_epoch: 0, // Managed blobs don't have direct end_epoch.
+                end_epoch: *end_epoch_at_certify,
                 status_event: *event_id,
                 blob_id: *blob_id,
             },
@@ -1021,7 +1024,7 @@ impl From<&ManagedBlobDeleted> for BlobInfoMergeOperand {
             change_info: BlobStatusChangeInfo {
                 deletable: true, // Deleted blobs must have been deletable.
                 epoch: *epoch,
-                end_epoch: 0, // Managed blobs don't have direct end_epoch.
+                end_epoch: 0, // Not tracked for deletion events.
                 status_event: *event_id,
                 blob_id: *blob_id,
             },

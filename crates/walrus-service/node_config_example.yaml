@@ -74,6 +74,7 @@ db_config:
   node_status: null
   blob_info: null
   per_object_blob_info: null
+  blob_managers: null
   event_cursor: null
   shard: null
   shard_status: null
