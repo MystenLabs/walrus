@@ -1868,13 +1868,12 @@ impl WalrusPtbBuilder {
             .await?;
 
         // Create the capability argument (cap is an owned object)
-        let cap_arg = self.argument_from_arg_or_obj(ArgumentOrOwnedObject::Object(cap)).await?;
+        let cap_arg = self
+            .argument_from_arg_or_obj(ArgumentOrOwnedObject::Object(cap))
+            .await?;
 
         // Get the signers bitmap
         let signers = self.signers_to_bitmap(&certificate.signers).await?;
-
-        // Convert blob_id to u256 bytes
-        let blob_id_bytes = blob_id.as_ref();
 
         let certify_args = vec![
             self.pt_builder.obj(ObjectArg::SharedObject {
@@ -1884,8 +1883,8 @@ impl WalrusPtbBuilder {
             })?,
             cap_arg,
             self.system_arg(SharedObjectMutability::Immutable).await?,
-            self.pt_builder.pure(blob_id_bytes)?, // blob_id as u256
-            self.pt_builder.pure(deletable)?,      // deletable flag
+            self.pt_builder.pure(blob_id)?,   // blob_id as u256
+            self.pt_builder.pure(deletable)?, // deletable flag
             self.pt_builder.pure(certificate.signature.as_bytes())?,
             self.pt_builder.pure(&signers)?,
             self.pt_builder.pure(&certificate.serialized_message)?,

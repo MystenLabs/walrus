@@ -179,7 +179,9 @@ impl BlobInfoTable {
         }
 
         batch.insert_batch(&latest_handled_event_index, [(&(), event_index)])?;
-        batch.write()
+        let result = batch.write();
+        tracing::debug!(?result, "finished updating blob info");
+        result
     }
 
     /// Updates the blob info for a blob based on the [`BlobEvent`] when the node is in recovery
@@ -950,16 +952,18 @@ impl From<&ManagedBlobRegistered> for BlobInfoMergeOperand {
             end_epoch,
             deletable,
             event_id,
+            object_id,
             ..
         } = value;
         tracing::debug!(
             "Converting ManagedBlobRegistered event: blob_id={:?}, blob_manager_id={:?}, \
-             epoch={}, end_epoch={}, deletable={}",
+             epoch={}, end_epoch={}, deletable={}, object_id={:?}",
             blob_id,
             blob_manager_id,
             epoch,
             end_epoch,
-            deletable
+            deletable,
+            object_id
         );
         Self::ChangeStatus {
             change_info: BlobStatusChangeInfo {
@@ -2131,9 +2135,6 @@ impl ManagedBlobInfo {
     /// TODO: Check if any BlobManager in registered is still valid at current_epoch.
     fn is_registered(&self, current_epoch: Epoch) -> bool {
         !self.registered.is_empty()
-            && self
-                .initial_certified_epoch
-                .is_some_and(|epoch| epoch <= current_epoch)
     }
 }
 
@@ -2483,6 +2484,10 @@ impl Mergeable for BlobInfo {
             ..
         } = &operand
         {
+            tracing::debug!(
+                "Merging new managed blob info: {:?}",
+                operand
+            );
             return BlobInfoV2::merge_new(operand).map(Self::from);
         }
 

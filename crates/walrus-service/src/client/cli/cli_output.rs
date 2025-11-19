@@ -114,7 +114,8 @@ impl CliOutput for Vec<BlobStoreResultWithPath> {
                     RegisterBlobOp::RegisterFromScratch { .. }
                     | RegisterBlobOp::ReuseAndExtendNonCertified { .. }
                     | RegisterBlobOp::ReuseStorage { .. }
-                    | RegisterBlobOp::ReuseRegistration { .. } => {
+                    | RegisterBlobOp::ReuseRegistration { .. }
+                    | RegisterBlobOp::RegisteredInBlobManager { .. } => {
                         newly_certified += 1;
                     }
                 }
@@ -197,6 +198,9 @@ impl CliOutput for BlobStoreResultWithPath {
                     RegisterBlobOp::ReuseAndExtendNonCertified { .. } => {
                         "(an existing registration was reused and extended)"
                     }
+                    RegisterBlobOp::RegisteredInBlobManager { .. } => {
+                        "(registered via BlobManager)"
+                    }
                 };
                 println!(
                     "{} {} blob stored successfully.\n\
@@ -229,12 +233,15 @@ impl CliOutput for BlobStoreResultWithPath {
             }
             BlobStoreResult::ManagedByBlobManager {
                 blob_id,
-                blob_object_id,
+                blob_manager_object_id,
                 resource_operation,
                 cost,
                 end_epoch,
             } => {
                 let operation_str = match resource_operation {
+                    RegisterBlobOp::RegisteredInBlobManager { .. } => {
+                        "(registered via BlobManager)"
+                    }
                     RegisterBlobOp::RegisterFromScratch { .. } => "(registered via BlobManager)",
                     _ => "(via BlobManager)",
                 };
@@ -242,13 +249,13 @@ impl CliOutput for BlobStoreResultWithPath {
                     "{} Blob managed by BlobManager and stored successfully.\n\
                     Path: {}\n\
                     Blob ID: {}\n\
-                    Blob object ID: {}\n\
+                    Blob Manager object ID: {}\n\
                     Cost (excluding gas): {} {} \n\
                     Expiry epoch (exclusive): {}\n",
                     success(),
                     self.path.display(),
                     blob_id,
-                    blob_object_id,
+                    blob_manager_object_id,
                     HumanReadableFrost::from(*cost),
                     operation_str,
                     end_epoch,
@@ -470,7 +477,8 @@ impl CliOutput for BlobStatusOutput {
                 };
                 println!(
                     "Blob ID {blob_str} is stored on Walrus as a managed blob:\n\
-                    Total number of certified managed registrations: {} (of {} registered{initial_certified_str})",
+                    Total number of certified managed registrations: {} (of {} \
+                    registered{initial_certified_str})",
                     managed_blob_counts.count_certified_total,
                     managed_blob_counts.count_registered_total
                 );

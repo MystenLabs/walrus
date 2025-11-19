@@ -5,8 +5,8 @@
 
 use std::{fmt::Debug, sync::Arc};
 
-sui_types::base_types::ObjectID;
 use serde::{Deserialize, Serialize};
+use sui_types::base_types::ObjectID;
 use tracing::{Level, Span, field};
 use utoipa::ToSchema;
 use walrus_core::{
@@ -37,7 +37,7 @@ use super::{
 use crate::{client::upload_relay_client::UploadRelayClient, utils::Either};
 
 /// The log level for all WalrusStoreBlob spans.
-const BLOB_SPAN_LEVEL: Level = Level::DEBUG;
+const BLOB_SPAN_LEVEL: Level = Level::INFO;
 
 /// The trait for the blob state to manage the state-dependent data.
 pub trait WalrusStoreBlobStateApi: Debug + Send + Sync + PartialEq {
@@ -326,6 +326,7 @@ impl<S: WalrusStoreBlobStateApi> WalrusStoreBlob<S> {
 
 /// A blob that is being stored in Walrus, representing its current phase in the lifecycle.
 #[derive(Debug, Clone, PartialEq)]
+#[allow(clippy::large_enum_variant)]
 pub enum WalrusStoreBlobState<S> {
     /// A blob in a specific state.
     Unfinished(S),
@@ -643,7 +644,7 @@ impl BlobWithStatus {
             WalrusStoreBlobState::Unfinished(RegisteredBlob {
                 encoded_blob: self.encoded_blob,
                 status: self.status,
-                blob_object,
+                blob_object: BlobObject::Regular(blob_object),
                 operation,
             })
         }
@@ -754,12 +755,36 @@ impl BlobObject {
         }
     }
 
+    /// Get the blob size.
+    pub fn size(&self) -> Option<u64> {
+        match self {
+            BlobObject::Regular(blob) => Some(blob.size),
+            BlobObject::Managed { encoded_size, .. } => Some(*encoded_size),
+        }
+    }
+
     /// Get the blob persistence type.
     pub fn blob_persistence_type(&self) -> BlobPersistenceType {
-        if self.deletable() {
-            BlobPersistenceType::Deletable
-        } else {
-            BlobPersistenceType::Permanent
+        match self {
+            BlobObject::Regular(blob) => {
+                if blob.deletable {
+                    BlobPersistenceType::Deletable {
+                        object_id: blob.id.into(),
+                    }
+                } else {
+                    BlobPersistenceType::Permanent
+                }
+            }
+            BlobObject::Managed { deletable, .. } => {
+                if *deletable {
+                    // Managed blobs don't have individual object IDs.
+                    BlobPersistenceType::Deletable {
+                        object_id: ObjectID::ZERO.into(),
+                    }
+                } else {
+                    BlobPersistenceType::Permanent
+                }
+            }
         }
     }
 }
@@ -819,7 +844,6 @@ impl RegisteredBlob {
         }
     }
 }
-
 
 /// A blob that needs to be certified.
 // INV: The operation is NOT `ReuseAndExtend`.
@@ -938,12 +962,16 @@ impl BlobPendingCertifyAndExtend {
                     shared_blob_object,
                 }
             }
-            BlobObject::Managed { blob_id, manager_id, encoded_size, .. } => {
+            BlobObject::Managed {
+                blob_id,
+                manager_id,
+                ..
+            } => {
                 // For managed blobs, return the ManagedByBlobManager result.
                 // We don't need certify_and_extend_result since BlobManager handles everything.
                 BlobStoreResult::ManagedByBlobManager {
                     blob_id,
-                    blob_manager_object_id: *manager_id,
+                    blob_manager_object_id: manager_id,
                     resource_operation: self.operation,
                     cost: price_computation.operation_cost(&self.operation),
                     end_epoch: walrus_core::Epoch::MAX, // BlobManager handles epochs

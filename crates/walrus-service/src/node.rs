@@ -3153,6 +3153,7 @@ impl ServiceState for StorageNodeInner {
             self.is_blob_registered(blob_id)?,
             ComputeStorageConfirmationError::NotCurrentlyRegistered,
         );
+        tracing::debug!("is_blob_registered: {:?}", self.is_blob_registered(blob_id));
 
         // Storage confirmation must use the last shard assignment, even though the node hasn't
         // processed to the latest epoch yet. This is because if the onchain committee has moved
@@ -3162,6 +3163,10 @@ impl ServiceState for StorageNodeInner {
                 .await
                 .context("database error when checking storage status")?,
             ComputeStorageConfirmationError::NotFullyStored,
+        );
+        tracing::debug!(
+            "is_blob_stored_at_all_shards_at_latest_epoch: {:?}",
+            self.is_stored_at_all_shards_at_latest_epoch(blob_id).await
         );
 
         if let BlobPersistenceType::Deletable { object_id } = blob_persistence_type {
@@ -3175,6 +3180,11 @@ impl ServiceState for StorageNodeInner {
                 ComputeStorageConfirmationError::NotCurrentlyRegistered,
             );
         }
+
+        tracing::debug!(
+            "blob_persistence_type: {:?}",
+            blob_persistence_type
+        );
 
         let confirmation = Confirmation::new(
             self.current_committee_epoch(),

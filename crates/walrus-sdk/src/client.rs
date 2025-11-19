@@ -1169,8 +1169,7 @@ impl WalrusNodeClient<SuiContractClient> {
         let store_op_timer = Instant::now();
         // Register blobs if they are not registered, and get the store operations.
         let registered_blobs = if let Some(blob_manager_cap) = store_args.blob_manager_cap {
-            self
-                .blob_manager(blob_manager_cap)
+            self.blob_manager(blob_manager_cap)
                 .await?
                 .register_blobs(encoded_blobs_with_status, store_args.persistence)
                 .await?
@@ -1364,11 +1363,10 @@ impl WalrusNodeClient<SuiContractClient> {
                 // blob, as the current committee may not have synced them yet.
 
                 // TODO(heliu): Skip the wait when blob caching is enabled.
-                if (
-                    operation.is_registration()
-                        || operation.is_reuse_storage()
-                        || operation.is_registered_in_blob_manager()
-                ) && !blob_status.is_registered()
+                if (operation.is_registration()
+                    || operation.is_reuse_storage()
+                    || operation.is_registered_in_blob_manager())
+                    && !blob_status.is_registered()
                 {
                     tracing::debug!(
                         delay=?self.config.communication_config.registration_delay,
@@ -1403,7 +1401,7 @@ impl WalrusNodeClient<SuiContractClient> {
                         .map_err(|error| ClientErrorKind::UploadRelayError(error).into()),
                 };
 
-                let blob_size = blob_object.size;
+                let blob_size = blob_object.size().unwrap_or(0);
                 if !walrus_utils::is_internal_run() {
                     tracing::debug!(
                         blob_id = %encoded_blob.blob_id(),
@@ -1430,20 +1428,22 @@ impl WalrusNodeClient<SuiContractClient> {
 
         let start = Instant::now();
 
-        let certify_and_extend_parameters = blobs_to_certify_and_extend
-            .iter()
-            .map(|blob| blob.get_certify_and_extend_params())
-            .collect::<Vec<_>>();
-
+        // Separate managed blobs from regular blobs
         if let Some(blob_manager_cap) = store_args.blob_manager_cap {
             let blob_manager_client = self.blob_manager(blob_manager_cap).await?;
-            return Ok(blob_manager_client
+            return blob_manager_client
                 .certify_blobs(
                     blobs_to_certify_and_extend,
-                    self.get_price_computation().await?
+                    self.get_price_computation().await?,
                 )
-                .await?);
-        } 
+                .await;
+        }
+
+        // For regular blobs, collect certification parameters
+        let certify_and_extend_parameters = blobs_to_certify_and_extend
+            .iter()
+            .filter_map(|blob| blob.get_certify_and_extend_params())
+            .collect::<Vec<_>>();
 
         let cert_and_extend_results = self
             .sui_client
@@ -1477,13 +1477,12 @@ impl WalrusNodeClient<SuiContractClient> {
             .map(|blob| {
                 blob.map_infallible(
                     |blob| {
-                        let certify_and_extend_result = result_map
-                            .get(
-                                &blob
-                                    .blob_object
-                                    .object_id()
-                                    .expect("regular blobs should have an object ID"),
-                            );
+                        let certify_and_extend_result = result_map.get(
+                            &blob
+                                .blob_object
+                                .object_id()
+                                .expect("regular blobs should have an object ID"),
+                        );
                         blob.with_certify_and_extend_result(
                             certify_and_extend_result,
                             &price_computation,
@@ -1577,7 +1576,7 @@ impl WalrusNodeClient<SuiContractClient> {
         ))
     }
 
-    /// Returns a [`BlobManagerClient`] for the given BlobManagerCap ID.
+    /// Returns a `BlobManagerClient` for the given BlobManagerCap ID.
     ///
     /// This reads the BlobManagerCap object to get the manager_id, then initializes
     /// the BlobManagerClient with the cached table IDs.

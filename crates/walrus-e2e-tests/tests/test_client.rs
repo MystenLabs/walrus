@@ -2865,7 +2865,9 @@ async fn test_blob_manager_basic() {
     use walrus_sdk::client::client_types::{
         BlobWithStatus,
         WalrusStoreBlobUnfinished,
+        WalrusStoreBlobMaybeFinished,
         WalrusStoreEncodedBlobApi,
+        WalrusStoreBlobState,
         partition_unfinished_finished,
     };
     use walrus_sui::types::move_structs::BlobAttribute;
@@ -2906,9 +2908,9 @@ async fn test_blob_manager_basic() {
     };
 
     // Create WalrusStoreBlobUnfinished<BlobWithStatus> directly
-    let blob_unfinished_with_status = WalrusStoreBlobUnfinished {
+    let blob_unfinished_with_status = WalrusStoreBlobMaybeFinished::<BlobWithStatus> {
         common: encoded_blob_unfinished.common,
-        state: blob_with_status,
+        state: WalrusStoreBlobState::Unfinished(blob_with_status),
     };
 
     // Register the blob in the BlobManager
@@ -2942,4 +2944,69 @@ async fn test_blob_manager_basic() {
     tracing::info!("  Object ID: {}", managed_blob.id);
 
     tracing::info!("Test blob_manager_basic completed successfully");
+}
+
+/// Tests the complete BlobManager flow: create manager, store blob, read blob back.
+#[ignore = "ignore E2E tests by default"]
+#[walrus_simtest]
+async fn test_blob_manager_store_and_read() {
+    walrus_test_utils::init_tracing();
+
+    let test_nodes_config = TestNodesConfig {
+        node_weights: vec![7, 7, 7, 7, 7],
+        ..Default::default()
+    };
+    let test_cluster_builder =
+        test_cluster::E2eTestSetupBuilder::new().with_test_nodes_config(test_nodes_config);
+    let (_sui_cluster_handle, _cluster, mut client, _) =
+        test_cluster_builder.build().await.unwrap();
+    let client_ref = client.as_mut();
+
+    // Create a BlobManager with 500MB capacity
+    let initial_capacity = 500 * 1024 * 1024; // 500MB
+    let epochs_ahead = 5;
+
+    let (manager_id, cap_id) = client_ref
+        .sui_client()
+        .create_blob_manager(initial_capacity, epochs_ahead)
+        .await
+        .expect("Failed to create BlobManager");
+
+    tracing::info!("Created BlobManager: {}", manager_id);
+    tracing::info!("BlobManagerCap: {}", cap_id);
+
+    // Wait for objects to be indexed
+    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+    // Create test blob data
+    let test_data = b"Hello, BlobManager! This is a comprehensive end-to-end test.";
+    tracing::info!("Test data size: {} bytes", test_data.len());
+
+    // Store the blob using BlobManager
+    use walrus_sdk::client::StoreArgs;
+
+    let store_args = StoreArgs::default_with_epochs(1)
+        .with_blob_manager_cap(cap_id)
+        .with_persistence(BlobPersistence::Permanent);
+
+    let results = client_ref
+        .reserve_and_store_blobs_retry_committees(vec![test_data.to_vec()], vec![], &store_args)
+        .await
+        .expect("Failed to store blob");
+
+    assert_eq!(results.len(), 1, "Should have one result");
+
+    let blob_result = &results[0];
+    tracing::info!("Store result: {:?}", blob_result);
+
+    let read_data = client_ref
+        .read_blob::<Primary>(
+            &blob_result
+                .blob_id()
+                .expect("blob ID should be present"),
+        )
+        .await
+        .expect("Failed to read blob");
+    assert_eq!(read_data, test_data, "Read data should match original data");
+    tracing::info!("Successfully read blob back! Data matches.");
 }

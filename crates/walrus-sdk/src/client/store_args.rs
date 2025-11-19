@@ -102,6 +102,12 @@ impl StoreArgs {
         }
     }
 
+    /// Sets the blob manager cap ID.
+    pub fn with_blob_manager_cap(mut self, blob_manager_cap: ObjectID) -> Self {
+        self.blob_manager_cap = Some(blob_manager_cap);
+        self
+    }
+
     /// Sets the upload relay client.
     pub fn with_upload_relay_client(mut self, upload_relay_client: UploadRelayClient) -> Self {
         self.upload_relay_client = Some(Arc::new(upload_relay_client));

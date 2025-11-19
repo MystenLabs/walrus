@@ -868,6 +868,9 @@ impl ClientCommandRunner {
                             RegisterBlobOp::ReuseRegistration { .. } => {
                                 "(existing registration reused)".to_string()
                             }
+                            RegisterBlobOp::RegisteredInBlobManager { .. } => {
+                                "(registered via BlobManager)".to_string()
+                            }
                         };
 
                         let event = ChildUploaderEvent::StoreDetailNewlyCreated {
@@ -926,7 +929,8 @@ impl ClientCommandRunner {
                         RegisterBlobOp::RegisterFromScratch { .. }
                         | RegisterBlobOp::ReuseAndExtendNonCertified { .. }
                         | RegisterBlobOp::ReuseStorage { .. }
-                        | RegisterBlobOp::ReuseRegistration { .. } => newly_certified += 1,
+                        | RegisterBlobOp::ReuseRegistration { .. }
+                        | RegisterBlobOp::RegisteredInBlobManager { .. } => newly_certified += 1,
                     }
                 }
             }
@@ -1209,6 +1213,9 @@ impl ClientCommandRunner {
                         RegisterBlobOp::ReuseRegistration { .. } => {
                             "(existing registration reused)".to_string()
                         }
+                        RegisterBlobOp::RegisteredInBlobManager { .. } => {
+                            "(registered via BlobManager)".to_string()
+                        }
                     };
 
                     let event = ChildUploaderEvent::StoreDetailNewlyCreated {
@@ -1260,7 +1267,8 @@ impl ClientCommandRunner {
                             RegisterBlobOp::RegisterFromScratch { .. }
                             | RegisterBlobOp::ReuseAndExtendNonCertified { .. }
                             | RegisterBlobOp::ReuseStorage { .. }
-                            | RegisterBlobOp::ReuseRegistration { .. } => (1, 0),
+                            | RegisterBlobOp::ReuseRegistration { .. }
+                            | RegisterBlobOp::RegisteredInBlobManager { .. } => (1, 0),
                         };
                         (encoded, cost, newly_certified, reuse_and_extend_count)
                     }

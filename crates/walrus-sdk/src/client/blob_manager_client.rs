@@ -17,8 +17,13 @@ use crate::{
         WalrusNodeClient,
         WalrusStoreBlobMaybeFinished,
         WalrusStoreBlobUnfinished,
-
-        client_types::{BlobObject, BlobWithStatus, RegisteredBlob, WalrusStoreBlobFinished, BlobPendingCertifyAndExtend},
+        client_types::{
+            BlobObject,
+            BlobPendingCertifyAndExtend,
+            BlobWithStatus,
+            RegisteredBlob,
+            WalrusStoreBlobFinished,
+        },
         resource::{PriceComputation, RegisterBlobOp},
     },
     error::ClientResult,
@@ -30,9 +35,9 @@ pub struct BlobManagerClient<'a, T> {
     client: &'a WalrusNodeClient<T>,
     manager_id: ObjectID,
     manager_cap: ObjectID,
-    /// Table ID for blob_id -> vector<ObjectID> mapping.
+    /// Table ID for `blob_id -> vector<ObjectID>` mapping.
     blob_id_to_objects_table_id: ObjectID,
-    /// Table ID for ObjectID -> ManagedBlob mapping.
+    /// Table ID for `ObjectID -> ManagedBlob` mapping.
     blobs_by_object_id_table_id: ObjectID,
 }
 
@@ -70,7 +75,12 @@ impl<'a> BlobManagerClient<'a, SuiContractClient> {
         client: &'a WalrusNodeClient<SuiContractClient>,
         cap_id: ObjectID,
     ) -> ClientResult<Self> {
-        use sui_sdk::rpc_types::{SuiObjectDataOptions, SuiParsedData, SuiMoveStruct, SuiMoveValue};
+        use sui_sdk::rpc_types::{
+            SuiMoveStruct,
+            SuiMoveValue,
+            SuiObjectDataOptions,
+            SuiParsedData,
+        };
 
         // Read the BlobManagerCap to get the manager_id.
         let cap_response = client
@@ -80,13 +90,13 @@ impl<'a> BlobManagerClient<'a, SuiContractClient> {
             .await
             .map_err(|e| Self::error(format!("Failed to read BlobManagerCap: {}", e)))?;
 
-        let cap_data = cap_response.data.ok_or_else(|| {
-            Self::error("BlobManagerCap object not found")
-        })?;
+        let cap_data = cap_response
+            .data
+            .ok_or_else(|| Self::error("BlobManagerCap object not found"))?;
 
-        let content = cap_data.content.ok_or_else(|| {
-            Self::error("BlobManagerCap content not found")
-        })?;
+        let content = cap_data
+            .content
+            .ok_or_else(|| Self::error("BlobManagerCap content not found"))?;
 
         let SuiParsedData::MoveObject(move_obj) = content else {
             return Err(Self::error("BlobManagerCap is not a Move object"));
@@ -97,9 +107,9 @@ impl<'a> BlobManagerClient<'a, SuiContractClient> {
             return Err(Self::error("BlobManagerCap has no fields"));
         };
 
-        let manager_id_value = fields.get("manager_id").ok_or_else(|| {
-            Self::error("manager_id field not found")
-        })?;
+        let manager_id_value = fields
+            .get("manager_id")
+            .ok_or_else(|| Self::error("manager_id field not found"))?;
 
         let SuiMoveValue::Address(manager_id) = manager_id_value else {
             return Err(Self::error("manager_id is not an Address"));
@@ -308,7 +318,8 @@ impl<'a> BlobManagerClient<'a, SuiContractClient> {
         // Step 3: Verify the deletable flag matches (contract enforces only one blob per blob_id).
         if managed_blob.deletable != deletable {
             return Err(Self::error(format!(
-                "Blob permanency conflict: blob_id {} exists with deletable={}, requested deletable={}",
+                "Blob permanency conflict: blob_id {} exists with deletable={}, requested \
+                deletable={}",
                 blob_id, managed_blob.deletable, deletable
             )));
         }
@@ -320,16 +331,34 @@ impl<'a> BlobManagerClient<'a, SuiContractClient> {
 impl BlobManagerClient<'_, SuiContractClient> {
     /// Reserve storage and register multiple blobs in the BlobManager.
     ///
-    /// Returns WalrusStoreBlobMaybeFinished with RegisteredBlob state containing BlobObject::Managed.
+    /// Returns WalrusStoreBlobMaybeFinished with RegisteredBlob state containing
+    /// BlobObject::Managed.
     pub async fn register_blobs(
         &self,
-        blobs_with_status: Vec<WalrusStoreBlobUnfinished<BlobWithStatus>>,
+        blobs_with_status: Vec<WalrusStoreBlobMaybeFinished<BlobWithStatus>>,
         persistence: BlobPersistence,
     ) -> ClientResult<Vec<WalrusStoreBlobMaybeFinished<RegisteredBlob>>> {
         use walrus_sui::client::BlobObjectMetadata;
 
-        // Extract BlobObjectMetadata from EncodedBlob.
-        let blob_metadata_list: Vec<BlobObjectMetadata> = blobs_with_status
+        let blobs_count = blobs_with_status.len();
+        let mut results = Vec::with_capacity(blobs_count);
+        let mut to_be_processed = Vec::new();
+
+        // Separate already finished blobs from those that need processing.
+        for blob in blobs_with_status {
+            match blob.try_finish() {
+                Ok(blob) => results.push(blob),
+                Err(blob) => to_be_processed.push(blob),
+            }
+        }
+
+        // If there are no blobs to be processed, return early.
+        if to_be_processed.is_empty() {
+            return Ok(results);
+        }
+
+        // Extract BlobObjectMetadata from EncodedBlob for unfinished blobs.
+        let blob_metadata_list: Vec<BlobObjectMetadata> = to_be_processed
             .iter()
             .map(|blob| {
                 BlobObjectMetadata::try_from(blob.state.encoded_blob.metadata.as_ref())
@@ -356,50 +385,49 @@ impl BlobManagerClient<'_, SuiContractClient> {
             .await
             .map_err(crate::error::ClientError::from)?;
 
+        let deletable = match persistence {
+            BlobPersistence::Deletable => true,
+            BlobPersistence::Permanent => false,
+        };
+
         // Construct MaybeFinished<RegisteredBlob> for each blob.
-        // We don't need the managed_blob_id for upload - BlobManager handles that.
-        let registered_blobs: Vec<WalrusStoreBlobMaybeFinished<RegisteredBlob>> =
-            blobs_with_status
-                .into_iter()
-                .zip(blob_metadata_list.iter())
-                .map(|(blob, metadata)| {
-                    let deletable = match persistence {
-                        BlobPersistence::Deletable => true,
-                        BlobPersistence::Permanent => false,
-                    };
-
-                    blob.map_infallible(
-                        |blob_with_status| RegisteredBlob {
-                            encoded_blob: blob_with_status.encoded_blob.clone(),
-                            status: blob_with_status.status,
-                            blob_object: BlobObject::Managed {
-                                manager_id: self.manager_id,
-                                blob_id: metadata.blob_id,
-                                deletable,
-                                encoded_size: blob_with_status
-                                    .encoded_blob
-                                    .metadata
-                                    .metadata()
-                                    .encoded_size()
-                                    .expect("encoded blob should have valid encoded size"),
-                            },
-                            operation: RegisterBlobOp::RegisteredInBlobManager {
-                                encoded_length: blob_with_status
-                                    .encoded_blob
-                                    .metadata
-                                    .metadata()
-                                    .encoded_size()
-                                    .expect("encoded blob should have valid encoded size"),
-                                manager_id: self.manager_id,
-                            },
+        let registered_blobs: Vec<WalrusStoreBlobMaybeFinished<RegisteredBlob>> = to_be_processed
+            .into_iter()
+            .zip(blob_metadata_list.iter())
+            .map(|(blob, metadata)| {
+                blob.map_infallible(
+                    |blob_with_status| RegisteredBlob {
+                        encoded_blob: blob_with_status.encoded_blob.clone(),
+                        status: blob_with_status.status,
+                        blob_object: BlobObject::Managed {
+                            manager_id: self.manager_id,
+                            blob_id: metadata.blob_id,
+                            deletable,
+                            encoded_size: blob_with_status
+                                .encoded_blob
+                                .metadata
+                                .metadata()
+                                .encoded_size()
+                                .expect("encoded blob should have valid encoded size"),
                         },
-                        "register_managed_blob",
-                    )
-                    .into_maybe_finished()
-                })
-                .collect();
+                        operation: RegisterBlobOp::RegisteredInBlobManager {
+                            encoded_length: blob_with_status
+                                .encoded_blob
+                                .metadata
+                                .metadata()
+                                .encoded_size()
+                                .expect("encoded blob should have valid encoded size"),
+                            manager_id: self.manager_id,
+                        },
+                    },
+                    "register_managed_blob",
+                )
+                .into_maybe_finished()
+            })
+            .collect();
 
-        Ok(registered_blobs)
+        results.extend(registered_blobs.into_iter());
+        Ok(results)
     }
 
     /// Certifies and completes blobs that were registered with the BlobManager.
@@ -418,27 +446,23 @@ impl BlobManagerClient<'_, SuiContractClient> {
 
         let cert_params: Vec<_> = blobs_to_certify
             .iter()
-            .filter_map(|blob| {
-                match &blob.state.blob_object {
-                    BlobObject::Managed { blob_id, deletable, .. } => {
-                        blob.state.certificate.as_ref().map(|cert| {
-                            (*blob_id, *deletable, cert.as_ref())
-                        })
-                    }
-                    BlobObject::Regular(_) => {
-                        panic!("BlobManagerClient should only certify managed blobs")
-                    }
+            .filter_map(|blob| match &blob.state.blob_object {
+                BlobObject::Managed {
+                    blob_id, deletable, ..
+                } => blob
+                    .state
+                    .certificate
+                    .as_ref()
+                    .map(|cert| (*blob_id, *deletable, cert.as_ref())),
+                BlobObject::Regular(_) => {
+                    panic!("BlobManagerClient should only certify managed blobs")
                 }
             })
             .collect();
 
         self.client
             .sui_client()
-            .certify_managed_blobs_in_blobmanager(
-                self.manager_id,
-                self.manager_cap,
-                &cert_params,
-            )
+            .certify_managed_blobs_in_blobmanager(self.manager_id, self.manager_cap, &cert_params)
             .await
             .map_err(crate::error::ClientError::from)?;
 

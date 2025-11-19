@@ -18,10 +18,10 @@ use walrus_core::{
     metadata::{BlobMetadataApi as _, VerifiedBlobMetadataWithId},
 };
 use walrus_sui::{
+    ObjectIdSchema,
     client::{BlobPersistence, ExpirySelectionPolicy, SuiContractClient},
     types::Blob,
     utils::price_for_encoded_length,
-    ObjectIdSchema,
 };
 
 use super::{
@@ -183,6 +183,7 @@ impl RegisterBlobOp {
         matches!(self, Self::ReuseAndExtendNonCertified { .. })
     }
 
+    /// Returns true if the operation is a RegisteredInBlobManager operation.
     pub fn is_registered_in_blob_manager(&self) -> bool {
         matches!(self, Self::RegisteredInBlobManager { .. })
     }

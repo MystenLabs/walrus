@@ -688,13 +688,7 @@ impl SuiContractClient {
             );
 
             pt_builder
-                .certify_managed_blob(
-                    manager_id,
-                    manager_cap,
-                    *blob_id,
-                    *deletable,
-                    certificate,
-                )
+                .certify_managed_blob(manager_id, manager_cap, *blob_id, *deletable, certificate)
                 .await?;
         }
 
@@ -2150,9 +2144,6 @@ impl SuiContractClientInner {
         tracing::debug!(%manager_id, %cap_id, "created blob manager");
         Ok((manager_id, cap_id))
     }
-
-
-
 
     /// Registers a candidate node.
     pub async fn register_candidate(
