@@ -1701,7 +1701,7 @@ impl StorageNode {
 
         // Perform database cleanup operations.
         self.garbage_collector
-            .perform_db_cleanup(event.epoch)
+            .start_garbage_collection_task(event.epoch)
             .await?;
 
         Ok(())

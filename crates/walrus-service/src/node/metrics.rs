@@ -208,6 +208,9 @@ walrus_utils::metrics::define_metric_set! {
 
         #[help = "The total number of blob data deletion attempts"]
         cleanup_blob_data_deletion_attempts_total: IntCounterVec["status"],
+
+        #[help = "The start time of the next cleanup task as a UNIX timestamp"]
+        cleanup_task_start_time: U64Gauge[],
     }
 }
 

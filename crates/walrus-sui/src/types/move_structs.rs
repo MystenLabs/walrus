@@ -662,6 +662,18 @@ impl EpochState {
     pub fn is_transitioning(&self) -> bool {
         matches!(self, Self::EpochChangeSync(_))
     }
+
+    /// Returns the start time of the current epoch if it is known.
+    ///
+    /// Returns `None` if the epoch change is in progress.
+    pub fn start_of_current_epoch(&self) -> Option<DateTime<Utc>> {
+        match self {
+            Self::EpochChangeDone(epoch_start) | Self::NextParamsSelected(epoch_start) => {
+                Some(*epoch_start)
+            }
+            Self::EpochChangeSync(_) => None,
+        }
+    }
 }
 
 /// The committee shard assignment.

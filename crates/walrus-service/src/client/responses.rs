@@ -46,7 +46,7 @@ use walrus_sdk::{
             NetworkAddress,
             StakedWal,
             StorageNode,
-            move_structs::{Blob, BlobAttribute, EpochState},
+            move_structs::{Blob, BlobAttribute},
         },
         utils::{BYTES_PER_UNIT_SIZE, price_for_encoded_length, storage_units_from_size},
     },
@@ -236,16 +236,15 @@ impl InfoEpochOutput {
         let epoch_duration = fixed_params.epoch_duration;
         let max_epochs_ahead = fixed_params.max_epochs_ahead;
         let epoch_state = sui_read_client.epoch_state().await?;
-        let start_of_current_epoch = match epoch_state {
-            EpochState::EpochChangeDone(epoch_start)
-            | EpochState::NextParamsSelected(epoch_start) => {
-                EpochTimeOrMessage::DateTime(epoch_start)
-            }
-            EpochState::EpochChangeSync(_) => EpochTimeOrMessage::Message(format!(
-                "Epoch change is currently in progress... Expected epoch end time is {}",
-                Utc::now() + epoch_duration
-            )),
-        };
+        let start_of_current_epoch = epoch_state.start_of_current_epoch().map_or_else(
+            || {
+                EpochTimeOrMessage::Message(format!(
+                    "Epoch change is currently in progress... Expected epoch end time is {}",
+                    Utc::now() + epoch_duration
+                ))
+            },
+            |epoch_start| EpochTimeOrMessage::DateTime(epoch_start),
+        );
 
         Ok(Self {
             current_epoch,
