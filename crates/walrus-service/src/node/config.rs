@@ -832,9 +832,9 @@ pub struct GarbageCollectionConfig {
 impl Default for GarbageCollectionConfig {
     fn default() -> Self {
         Self {
-            // TODO(WAL-1040): Enable this by default.
+            // TODO(WAL-1105): Enable this by default.
             enable_blob_info_cleanup: false,
-            // TODO(WAL-1040): Enable this by default.
+            // TODO(WAL-1105): Enable this by default.
             enable_data_deletion: false,
         }
     }

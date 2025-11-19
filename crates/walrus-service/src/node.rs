@@ -180,6 +180,7 @@ use crate::{
     node::{
         config::{GarbageCollectionConfig, LiveUploadDeferralConfig},
         event_blob_writer::EventBlobWriter,
+        garbage_collector::GarbageCollector,
     },
     utils::ShardDiffCalculator,
 };
@@ -201,6 +202,7 @@ mod blob_event_processor;
 mod blob_retirement_notifier;
 mod blob_sync;
 mod epoch_change_driver;
+mod garbage_collector;
 mod node_recovery;
 mod pending_metadata_cache;
 mod pending_sliver_cache;
@@ -215,7 +217,7 @@ mod storage;
 mod config_synchronizer;
 pub use config_synchronizer::{ConfigLoader, ConfigSynchronizer, StorageNodeConfigLoader};
 
-// The number of events are predonimently by the checkpoints, as we don't expect all checkpoints
+// The number of events are dominated by the checkpoints, as we don't expect all checkpoints
 // contain Walrus events. 20K events per recording is roughly 1 recording per 1.5 hours.
 #[cfg(not(msim))]
 const NUM_EVENTS_PER_DIGEST_RECORDING: u64 = 20_000;
@@ -563,6 +565,7 @@ pub struct StorageNode {
     start_epoch_change_finisher: StartEpochChangeFinisher,
     node_recovery_handler: NodeRecoveryHandler,
     blob_event_processor: BlobEventProcessor,
+    garbage_collector: GarbageCollector,
     event_blob_writer_factory: Option<EventBlobWriterFactory>,
     config_synchronizer: Option<Arc<ConfigSynchronizer>>,
 }
@@ -844,6 +847,9 @@ impl StorageNode {
             None
         };
 
+        let garbage_collector =
+            GarbageCollector::new(config.garbage_collection, inner.clone(), metrics);
+
         Ok(StorageNode {
             inner,
             blob_sync_handler,
@@ -852,6 +858,7 @@ impl StorageNode {
             start_epoch_change_finisher,
             node_recovery_handler,
             blob_event_processor,
+            garbage_collector,
             event_blob_writer_factory,
             config_synchronizer,
         })
@@ -1693,47 +1700,9 @@ impl StorageNode {
             .send(Some(event.epoch))?;
 
         // Perform database cleanup operations.
-        // TODO(WAL-1040): Move this to a background task.
-        self.perform_db_cleanup(event.epoch).await?;
-
-        Ok(())
-    }
-
-    /// Performs database cleanup operations including blob info cleanup and data deletion.
-    #[tracing::instrument(skip_all)]
-    async fn perform_db_cleanup(&self, epoch: Epoch) -> anyhow::Result<()> {
-        let garbage_collection_config = self.inner.garbage_collection_config;
-
-        if !garbage_collection_config.enable_blob_info_cleanup {
-            if garbage_collection_config.enable_data_deletion {
-                tracing::warn!(
-                    "data deletion is enabled, but requires blob info cleanup to be enabled; \
-                    skipping data deletion",
-                );
-            } else {
-                tracing::info!("garbage collection is disabled, skipping cleanup");
-            }
-            return Ok(());
-        }
-
-        // Disable DB compactions during cleanup to improve performance. DB compactions are
-        // automatically re-enabled when the guard is dropped.
-        let _guard = self.inner.storage.temporarily_disable_auto_compactions()?;
-
-        // The if condition is redundant, but it's kept in case we change the if condition above.
-        if garbage_collection_config.enable_blob_info_cleanup {
-            self.inner
-                .storage
-                .process_expired_blob_objects(epoch, &self.inner.metrics)
-                .await?;
-        }
-
-        if self.inner.garbage_collection_config.enable_data_deletion {
-            self.inner
-                .storage
-                .delete_expired_blob_data(epoch, &self.inner.metrics)
-                .await?;
-        }
+        self.garbage_collector
+            .perform_db_cleanup(event.epoch)
+            .await?;
 
         Ok(())
     }
