@@ -376,6 +376,80 @@ enum BlobEventProcessorImpl {
     },
 }
 
+impl BlobEventProcessorImpl {
+    async fn process_event_impl(
+        &self,
+        node: &Arc<StorageNodeInner>,
+        event_handle: EventHandle,
+        blob_event: BlobEvent,
+        checkpoint_position: CheckpointEventPosition,
+    ) -> Result<(), anyhow::Error> {
+        match self {
+            BlobEventProcessorImpl::BackgroundProcessors {
+                background_processor_senders,
+                _background_processors,
+                background_per_processor_pending_event_count,
+            } => {
+                // We send the event to one of the workers to process in parallel.
+                // Note that in order to remain sequential processing for the same BlobID, we always
+                // send events for the same BlobID to the same worker.
+                // Currently the number of workers is fixed through the lifetime of the node. But in
+                // case the node want to dynamically adjust the worker, we need to be careful to not
+                // break this requirement.
+                let processor_index = blob_event.blob_id().first_two_bytes() as usize
+                    % background_processor_senders.len();
+
+                walrus_utils::with_label!(
+                    node.metrics.pending_processing_blob_event_in_queue,
+                    &processor_index.to_string()
+                )
+                .inc();
+
+                let current_processor_pending_event_count =
+                    background_per_processor_pending_event_count[processor_index].clone();
+
+                // Increment the counter and create a guard that will decrement it when dropped
+                let current_pending_event_count = current_processor_pending_event_count.inc();
+                walrus_utils::with_label!(
+                    node.metrics
+                        .pending_processing_blob_event_in_background_processors,
+                    &processor_index.to_string()
+                )
+                .set(<i64 as From<u32>>::from(current_pending_event_count));
+
+                // Create the guard that will automatically decrement the counter when dropped
+                let guard = PendingEventGuard::new(
+                    current_processor_pending_event_count,
+                    processor_index,
+                    node.metrics.clone(),
+                );
+
+                // Send the wrapped event with the guard
+                let tracked_event = TrackedEvent {
+                    event_handle,
+                    blob_event,
+                    checkpoint_position,
+                    _guard: guard,
+                };
+
+                background_processor_senders[processor_index]
+                    .send(tracked_event)
+                    .map_err(|e| {
+                        anyhow::anyhow!("failed to send event to background processor: {}", e)
+                    })?;
+            }
+            BlobEventProcessorImpl::SequentialProcessor {
+                background_event_processor: sequential_processor,
+            } => {
+                sequential_processor
+                    .process_event(event_handle, blob_event, checkpoint_position)
+                    .await?;
+            }
+        }
+
+        Ok(())
+    }
+}
 /// Blob event processor that processes blob events. It can be configured to process events
 /// sequentially or in parallel using background workers.
 #[derive(Debug, Clone)]
@@ -466,70 +540,9 @@ impl BlobEventProcessor {
             return Ok(());
         }
 
-        match &self.blob_event_processor_impl {
-            BlobEventProcessorImpl::BackgroundProcessors {
-                background_processor_senders,
-                _background_processors,
-                background_per_processor_pending_event_count,
-            } => {
-                // We send the event to one of the workers to process in parallel.
-                // Note that in order to remain sequential processing for the same BlobID, we always
-                // send events for the same BlobID to the same worker.
-                // Currently the number of workers is fixed through the lifetime of the node. But in
-                // case the node want to dynamically adjust the worker, we need to be careful to not
-                // break this requirement.
-                let processor_index = blob_event.blob_id().first_two_bytes() as usize
-                    % background_processor_senders.len();
-
-                walrus_utils::with_label!(
-                    self.node.metrics.pending_processing_blob_event_in_queue,
-                    &processor_index.to_string()
-                )
-                .inc();
-
-                let current_processor_pending_event_count =
-                    background_per_processor_pending_event_count[processor_index].clone();
-
-                // Increment the counter and create a guard that will decrement it when dropped
-                let current_pending_event_count = current_processor_pending_event_count.inc();
-                walrus_utils::with_label!(
-                    self.node
-                        .metrics
-                        .pending_processing_blob_event_in_background_processors,
-                    &processor_index.to_string()
-                )
-                .set(<i64 as From<u32>>::from(current_pending_event_count));
-
-                // Create the guard that will automatically decrement the counter when dropped
-                let guard = PendingEventGuard::new(
-                    current_processor_pending_event_count,
-                    processor_index,
-                    self.node.metrics.clone(),
-                );
-
-                // Send the wrapped event with the guard
-                let tracked_event = TrackedEvent {
-                    event_handle,
-                    blob_event,
-                    checkpoint_position,
-                    _guard: guard,
-                };
-
-                background_processor_senders[processor_index]
-                    .send(tracked_event)
-                    .map_err(|e| {
-                        anyhow::anyhow!("failed to send event to background processor: {}", e)
-                    })?;
-            }
-            BlobEventProcessorImpl::SequentialProcessor {
-                background_event_processor: sequential_processor,
-            } => {
-                sequential_processor
-                    .process_event(event_handle, blob_event, checkpoint_position)
-                    .await?;
-            }
-        }
-        Ok(())
+        self.blob_event_processor_impl
+            .process_event_impl(&self.node, event_handle, blob_event, checkpoint_position)
+            .await
     }
 
     /// Waits for all events to be processed in the background processors.
