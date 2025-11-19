@@ -123,15 +123,18 @@ runs:
           curl -L "$DOWNLOAD_URL" -o /tmp/site-builder.tgz
 
           # Extract the binary
-          tar -xzf /tmp/site-builder.tgz -C /tmp/
+          mkdir -p /tmp/site-builder-extract
+          tar -xzf /tmp/site-builder.tgz -C /tmp/site-builder-extract
 
           # Find and move the extracted binary
-          if [[ -f /tmp/site-builder ]]; then
-            mv /tmp/site-builder bin/site-builder
-          elif [[ -f /tmp/site-builder-${INPUT_SUI_NETWORK}-${VERSION_TAG}-ubuntu-x86_64 ]]; then
-            mv /tmp/site-builder-${INPUT_SUI_NETWORK}-${VERSION_TAG}-ubuntu-x86_64 bin/site-builder
+          if [[ -f /tmp/site-builder-extract/site-builder ]]; then
+            mv /tmp/site-builder-extract/site-builder bin/site-builder
+          elif [[ -f /tmp/site-builder-extract/site-builder-${INPUT_SUI_NETWORK}-${VERSION_TAG}-ubuntu-x86_64 ]]; then
+            mv /tmp/site-builder-extract/site-builder-${INPUT_SUI_NETWORK}-${VERSION_TAG}-ubuntu-x86_64 bin/site-builder
           else
             echo "❌ ERROR: Could not find site-builder binary in archive"
+            echo "Contents of extraction directory:"
+            ls -la /tmp/site-builder-extract/
             exit 1
           fi
 
