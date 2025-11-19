@@ -662,6 +662,40 @@ impl Storage {
         }
     }
 
+    /// Processes BlobManager events to update the blob_managers table.
+    /// This should be called for BlobManagerCreated and BlobManagerExtended events.
+    #[tracing::instrument(skip_all)]
+    pub fn process_blob_manager_event(
+        &self,
+        event: &walrus_sui::types::BlobManagerEvent,
+    ) -> Result<(), TypedStoreError> {
+        use walrus_sui::types::BlobManagerEvent;
+
+        match event {
+            BlobManagerEvent::Created(e) => {
+                // When a BlobManager is created, store its initial end_epoch.
+                let info = StoredBlobManagerInfo::new(e.end_epoch);
+                self.blob_managers.insert(e.blob_manager_id, info)?;
+                tracing::debug!(
+                    blob_manager_id = %e.blob_manager_id,
+                    end_epoch = e.end_epoch,
+                    "Processed BlobManagerCreated event"
+                );
+            }
+            BlobManagerEvent::Extended(e) => {
+                // When a BlobManager is extended, update its end_epoch.
+                self.blob_managers
+                    .update_end_epoch(&e.blob_manager_id, e.new_end_epoch)?;
+                tracing::debug!(
+                    blob_manager_id = %e.blob_manager_id,
+                    new_end_epoch = e.new_end_epoch,
+                    "Processed BlobManagerExtended event"
+                );
+            }
+        }
+        Ok(())
+    }
+
     /// Processes blobs that are expired in the given epoch.
     ///
     /// This function is called during epoch change to clean up the blob info for blob objects that

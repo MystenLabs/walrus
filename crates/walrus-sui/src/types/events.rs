@@ -213,8 +213,10 @@ pub struct ManagedBlobRegistered {
     pub blob_id: BlobId,
     /// The (unencoded) size of the blob.
     pub size: u64,
-    /// The end epoch of the associated storage resource (exclusive).
-    pub end_epoch: Epoch,
+    /// The end epoch of the associated storage resource (exclusive) at registration.
+    /// Since the blob's end epoch is managed at the BlobManager level, this is the end epoch at registration.
+    /// The blob's end epoch is updated at the BlobManager level when the blob is certified.
+    pub end_epoch_at_registration: Epoch,
     /// The erasure coding type used for the blob.
     pub encoding_type: EncodingType,
     /// Marks the blob as deletable.
@@ -257,7 +259,7 @@ impl TryFrom<SuiEvent> for ManagedBlobRegistered {
             encoding_type,
             deletable,
             blob_type,
-            end_epoch,
+            end_epoch_at_registration,
             object_id,
             event_id: sui_event.id,
         })
@@ -368,6 +370,117 @@ impl TryFrom<SuiEvent> for DenyListBlobDeleted {
             blob_id,
             event_id: sui_event.id,
         })
+    }
+}
+
+/// Sui event that a BlobManager's storage has been extended.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BlobManagerExtended {
+    /// The epoch in which the extension occurred.
+    pub epoch: Epoch,
+    /// The ID of the BlobManager.
+    pub blob_manager_id: ObjectID,
+    /// The amount of additional storage added.
+    pub additional_storage: u64,
+    /// The new end epoch after extension.
+    pub new_end_epoch: Epoch,
+    /// The ID of the event.
+    pub event_id: EventID,
+}
+
+impl AssociatedSuiEvent for BlobManagerExtended {
+    const EVENT_STRUCT: StructTag<'static> = contracts::events::BlobManagerExtended;
+}
+
+impl TryFrom<SuiEvent> for BlobManagerExtended {
+    type Error = MoveConversionError;
+
+    fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
+        ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
+
+        let (epoch, blob_manager_id, additional_storage, new_end_epoch) =
+            bcs::from_bytes(sui_event.bcs.bytes())?;
+
+        Ok(Self {
+            epoch,
+            blob_manager_id,
+            additional_storage,
+            new_end_epoch,
+            event_id: sui_event.id,
+        })
+    }
+}
+
+/// Sui event that a new BlobManager has been created.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BlobManagerCreated {
+    /// The epoch in which the BlobManager was created.
+    pub epoch: Epoch,
+    /// The ID of the BlobManager.
+    pub blob_manager_id: ObjectID,
+    /// The end epoch of the BlobManager's initial storage.
+    pub end_epoch: Epoch,
+    /// The ID of the event.
+    pub event_id: EventID,
+}
+
+impl AssociatedSuiEvent for BlobManagerCreated {
+    const EVENT_STRUCT: StructTag<'static> = contracts::events::BlobManagerCreated;
+}
+
+impl TryFrom<SuiEvent> for BlobManagerCreated {
+    type Error = MoveConversionError;
+
+    fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
+        ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
+
+        let (epoch, blob_manager_id, end_epoch) = bcs::from_bytes(sui_event.bcs.bytes())?;
+
+        Ok(Self {
+            epoch,
+            blob_manager_id,
+            end_epoch,
+            event_id: sui_event.id,
+        })
+    }
+}
+
+/// Enum to wrap BlobManager events.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum BlobManagerEvent {
+    /// A BlobManager created event.
+    Created(BlobManagerCreated),
+    /// A BlobManager extended event.
+    Extended(BlobManagerExtended),
+}
+
+impl From<BlobManagerCreated> for BlobManagerEvent {
+    fn from(value: BlobManagerCreated) -> Self {
+        Self::Created(value)
+    }
+}
+
+impl From<BlobManagerExtended> for BlobManagerEvent {
+    fn from(value: BlobManagerExtended) -> Self {
+        Self::Extended(value)
+    }
+}
+
+impl BlobManagerEvent {
+    /// Returns the event ID of the wrapped event.
+    pub fn event_id(&self) -> EventID {
+        match self {
+            BlobManagerEvent::Created(event) => event.event_id,
+            BlobManagerEvent::Extended(event) => event.event_id,
+        }
+    }
+
+    /// Returns the epoch in which the event was issued.
+    pub fn event_epoch(&self) -> Epoch {
+        match self {
+            BlobManagerEvent::Created(event) => event.epoch,
+            BlobManagerEvent::Extended(event) => event.epoch,
+        }
     }
 }
 
@@ -1072,6 +1185,8 @@ impl ProtocolEvent {
 pub enum ContractEvent {
     /// Blob event.
     BlobEvent(BlobEvent),
+    /// BlobManager event.
+    BlobManagerEvent(BlobManagerEvent),
     /// Epoch change event.
     EpochChangeEvent(EpochChangeEvent),
     /// Events related to package maintenance.
@@ -1087,6 +1202,7 @@ impl ContractEvent {
     pub fn event_id(&self) -> EventID {
         match self {
             ContractEvent::BlobEvent(event) => event.event_id(),
+            ContractEvent::BlobManagerEvent(event) => event.event_id(),
             ContractEvent::EpochChangeEvent(event) => event.event_id(),
             ContractEvent::PackageEvent(event) => event.event_id(),
             ContractEvent::DenyListEvent(event) => event.event_id(),
@@ -1098,6 +1214,7 @@ impl ContractEvent {
     pub fn blob_id(&self) -> Option<BlobId> {
         match self {
             ContractEvent::BlobEvent(event) => Some(event.blob_id()),
+            ContractEvent::BlobManagerEvent(_) => None,
             ContractEvent::EpochChangeEvent(_) => None,
             ContractEvent::PackageEvent(_) => None,
             ContractEvent::DenyListEvent(_) => None,
@@ -1112,6 +1229,7 @@ impl ContractEvent {
     pub fn event_epoch(&self) -> Option<Epoch> {
         match self {
             ContractEvent::BlobEvent(event) => event.event_epoch(),
+            ContractEvent::BlobManagerEvent(event) => Some(event.event_epoch()),
             ContractEvent::EpochChangeEvent(event) => Some(event.event_epoch()),
             ContractEvent::PackageEvent(event) => Some(event.event_epoch()),
             ContractEvent::DenyListEvent(event) => Some(event.event_epoch()),
@@ -1123,6 +1241,7 @@ impl ContractEvent {
     pub fn is_blob_extension(&self) -> bool {
         match self {
             ContractEvent::BlobEvent(event) => event.is_blob_extension(),
+            ContractEvent::BlobManagerEvent(_) => false,
             ContractEvent::EpochChangeEvent(_) => false,
             ContractEvent::PackageEvent(_) => false,
             ContractEvent::DenyListEvent(_) => false,
@@ -1227,6 +1346,12 @@ impl TryFrom<SuiEvent> for ContractEvent {
                     managed_blob_event,
                 )))
             }
+            contracts::events::BlobManagerCreated => Ok(ContractEvent::BlobManagerEvent(
+                BlobManagerEvent::Created(value.try_into()?),
+            )),
+            contracts::events::BlobManagerExtended => Ok(ContractEvent::BlobManagerEvent(
+                BlobManagerEvent::Extended(value.try_into()?),
+            )),
             _ => unreachable!("Encountered unexpected unrecognized events {}", value),
         }
     }

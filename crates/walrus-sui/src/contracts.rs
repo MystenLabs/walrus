@@ -356,6 +356,8 @@ pub mod events {
     contract_ident!(struct events::ManagedBlobRegistered);
     contract_ident!(struct events::ManagedBlobCertified);
     contract_ident!(struct events::ManagedBlobDeleted);
+    contract_ident!(struct events::BlobManagerExtended);
+    contract_ident!(struct events::BlobManagerCreated);
     contract_ident!(struct events::InvalidBlobID);
     contract_ident!(struct events::EpochParametersSelected);
     contract_ident!(struct events::EpochChangeStart);

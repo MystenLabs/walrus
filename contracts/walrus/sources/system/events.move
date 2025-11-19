@@ -54,7 +54,7 @@ public struct ManagedBlobRegistered has copy, drop {
     encoding_type: u8,
     deletable: bool,
     blob_type: u8,
-    end_epoch: u32,
+    end_epoch_at_registration: u32,
     // The object id of the related `ManagedBlob` object.
     object_id: ID,
 }
@@ -88,6 +88,13 @@ public struct BlobManagerExtended has copy, drop {
     blob_manager_id: ID,
     additional_storage: u64,
     new_end_epoch: u32,
+}
+
+/// Signals that a new BlobManager has been created.
+public struct BlobManagerCreated has copy, drop {
+    epoch: u32,
+    blob_manager_id: ID,
+    end_epoch: u32,
 }
 
 /// Signals that a BlobID is invalid.
@@ -288,6 +295,14 @@ public(package) fun emit_blob_manager_extended(
         blob_manager_id,
         additional_storage,
         new_end_epoch,
+    });
+}
+
+public(package) fun emit_blob_manager_created(epoch: u32, blob_manager_id: ID, end_epoch: u32) {
+    event::emit(BlobManagerCreated {
+        epoch,
+        blob_manager_id,
+        end_epoch,
     });
 }
 

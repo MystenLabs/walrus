@@ -11,6 +11,7 @@ use walrus::{
     blob_stash::{Self, BlobStash},
     blob_storage::{Self, BlobStorage},
     encoding,
+    events,
     storage_resource::Storage,
     system::{Self, System}
 };
@@ -54,7 +55,12 @@ public struct BlobManagerCap has key, store {
 /// Creates a new shared BlobManager and returns its capability.
 /// The BlobManager is automatically shared in the same transaction.
 /// Requires minimum initial capacity of 100MB.
-public fun new_with_unified_storage(initial_storage: Storage, ctx: &mut TxContext): BlobManagerCap {
+/// Note: This function requires access to System to emit the creation event with proper epoch.
+public fun new_with_unified_storage(
+    initial_storage: Storage,
+    system: &System,
+    ctx: &mut TxContext,
+): BlobManagerCap {
     let manager_uid = object::new(ctx);
 
     // Check minimum capacity before consuming the storage.
@@ -69,11 +75,19 @@ public fun new_with_unified_storage(initial_storage: Storage, ctx: &mut TxContex
 
     // Get the ObjectID from the constructed manager object.
     let manager_object_id = object::id(&manager);
+    let end_epoch = blob_storage::end_epoch(&manager.storage);
 
     let cap = BlobManagerCap {
         id: object::new(ctx),
         manager_id: manager_object_id,
     };
+
+    // Emit creation event.
+    events::emit_blob_manager_created(
+        system::epoch(system),
+        manager_object_id,
+        end_epoch,
+    );
 
     // BlobManager is designed to be a shared object.
     transfer::share_object(manager);
