@@ -32,45 +32,56 @@ runs:
         echo "$(pwd)/bin" >> ${GITHUB_PATH}
       shell: bash
     - name: Define environment variables
+      env:
+        INPUT_SUI_ADDRESS: ${{ inputs.SUI_ADDRESS }}
       run: |
         echo "SUI_CONFIG_DIR=/home/runner/.sui/sui_config" >> $GITHUB_ENV
         echo "SUI_KEYSTORE_FILE=/home/runner/.sui/sui_config/sui.keystore" >> $GITHUB_ENV
         echo "SUI_CONFIG_FILE=/home/runner/.sui/sui_config/client.yaml" >> $GITHUB_ENV
-        echo "SUI_ADDRESS=${{ inputs.SUI_ADDRESS }}" >> $GITHUB_ENV
+        echo "SUI_ADDRESS=${INPUT_SUI_ADDRESS}" >> $GITHUB_ENV
       shell: bash
 
     - name: Set up Sui wallet
+      env:
+        INPUT_SUI_NETWORK: ${{ inputs.SUI_NETWORK }}
+        INPUT_SUI_KEYSTORE: ${{ inputs.SUI_KEYSTORE }}
       run: |
         mkdir -p $SUI_CONFIG_DIR
         CLIENT_CONF="---
         keystore:
           File: $SUI_KEYSTORE_FILE
         envs:
-          - alias: ${{ inputs.SUI_NETWORK }}
-            rpc: \"https://fullnode.${{ inputs.SUI_NETWORK }}.sui.io:443\"
-        active_env: ${{ inputs.SUI_NETWORK }}
+          - alias: ${INPUT_SUI_NETWORK}
+            rpc: \"https://fullnode.${INPUT_SUI_NETWORK}.sui.io:443\"
+        active_env: ${INPUT_SUI_NETWORK}
         active_address: \"$SUI_ADDRESS\""
         echo "$CLIENT_CONF" > $SUI_CONFIG_FILE
         cat $SUI_CONFIG_FILE
-        echo '${{ inputs.SUI_KEYSTORE }}' > $SUI_KEYSTORE_FILE
+        echo "${INPUT_SUI_KEYSTORE}" > $SUI_KEYSTORE_FILE
       shell: bash
 
     - name: Install and configure Walrus
+      env:
+        INPUT_SUI_NETWORK: ${{ inputs.SUI_NETWORK }}
+        INPUT_WALRUS_CONFIG: ${{ inputs.WALRUS_CONFIG }}
       run: |
         # The bin directory was already created and added to $PATH in the build-mdbook action
-        curl https://storage.googleapis.com/mysten-walrus-binaries/walrus-${{ inputs.SUI_NETWORK }}-latest-ubuntu-x86_64 -o bin/walrus
+        curl https://storage.googleapis.com/mysten-walrus-binaries/walrus-${INPUT_SUI_NETWORK}-latest-ubuntu-x86_64 -o bin/walrus
         chmod +x bin/walrus
         mkdir -p ~/.config/walrus
-        echo '${{ inputs.WALRUS_CONFIG }}' > ~/.config/walrus/client_config.yaml
+        echo "${INPUT_WALRUS_CONFIG}" > ~/.config/walrus/client_config.yaml
         walrus --version
         walrus info # Ensure the walrus binary works
       shell: bash
 
     - name: Install and configure site-builder
+      env:
+        INPUT_SUI_NETWORK: ${{ inputs.SUI_NETWORK }}
+        INPUT_SITE_BUILDER_VERSION: ${{ inputs.SITE_BUILDER_VERSION }}
       run: |
-        if [[ -n "${{ inputs.SITE_BUILDER_VERSION }}" ]]; then
+        if [[ -n "${INPUT_SITE_BUILDER_VERSION}" ]]; then
           # Use specific version from GitHub releases
-          VERSION="${{ inputs.SITE_BUILDER_VERSION }}"
+          VERSION="${INPUT_SITE_BUILDER_VERSION}"
 
           # Validate version input
           if [[ "$VERSION" != "v1" && "$VERSION" != "v2" ]]; then
@@ -78,7 +89,7 @@ runs:
             exit 1
           fi
 
-          echo "🔍 Finding latest ${VERSION}.x release for ${{ inputs.SUI_NETWORK }}..."
+          echo "🔍 Finding latest ${VERSION}.x release for ${INPUT_SUI_NETWORK}..."
 
           # Fetch all releases from GitHub API
           # Use -f to fail on HTTP errors and save to a file to avoid control character issues
@@ -88,23 +99,23 @@ runs:
           fi
 
           # Find the latest release tag matching the network and major version
-          VERSION_TAG=$(jq -r --arg network "${{ inputs.SUI_NETWORK }}" --arg version "$VERSION" \
+          VERSION_TAG=$(jq -r --arg network "${INPUT_SUI_NETWORK}" --arg version "$VERSION" \
             '[.[] | select(.tag_name | startswith($network + "-" + $version + ".")) | .tag_name] |
             map(split("-")[1]) |
             sort_by(ltrimstr("v") | split(".") | map(tonumber)) |
             last' /tmp/releases.json)
 
           if [[ -z "$VERSION_TAG" || "$VERSION_TAG" == "null" ]]; then
-            echo "❌ ERROR: Could not find any ${VERSION}.x release for network ${{ inputs.SUI_NETWORK }}"
+            echo "❌ ERROR: Could not find any ${VERSION}.x release for network ${INPUT_SUI_NETWORK}"
             echo "Available releases:"
-            jq -r '.[].tag_name' /tmp/releases.json | grep "^${{ inputs.SUI_NETWORK }}-" | head -10 || echo "No releases found"
+            jq -r '.[].tag_name' /tmp/releases.json | grep "^${INPUT_SUI_NETWORK}-" | head -10 || echo "No releases found"
             exit 1
           fi
 
-          echo "Installing site-builder ${VERSION_TAG} for ${{ inputs.SUI_NETWORK }}..."
+          echo "Installing site-builder ${VERSION_TAG} for ${INPUT_SUI_NETWORK}..."
 
           # Construct the download URL for GitHub release
-          DOWNLOAD_URL="https://github.com/MystenLabs/walrus-sites/releases/download/${{ inputs.SUI_NETWORK }}-${VERSION_TAG}/site-builder-${{ inputs.SUI_NETWORK }}-${VERSION_TAG}-ubuntu-x86_64.tgz"
+          DOWNLOAD_URL="https://github.com/MystenLabs/walrus-sites/releases/download/${INPUT_SUI_NETWORK}-${VERSION_TAG}/site-builder-${INPUT_SUI_NETWORK}-${VERSION_TAG}-ubuntu-x86_64.tgz"
 
           echo "Downloading from: $DOWNLOAD_URL"
 
@@ -117,8 +128,8 @@ runs:
           # Find and move the extracted binary
           if [[ -f /tmp/site-builder ]]; then
             mv /tmp/site-builder bin/site-builder
-          elif [[ -f /tmp/site-builder-${{ inputs.SUI_NETWORK }}-${VERSION_TAG}-ubuntu-x86_64 ]]; then
-            mv /tmp/site-builder-${{ inputs.SUI_NETWORK }}-${VERSION_TAG}-ubuntu-x86_64 bin/site-builder
+          elif [[ -f /tmp/site-builder-${INPUT_SUI_NETWORK}-${VERSION_TAG}-ubuntu-x86_64 ]]; then
+            mv /tmp/site-builder-${INPUT_SUI_NETWORK}-${VERSION_TAG}-ubuntu-x86_64 bin/site-builder
           else
             echo "❌ ERROR: Could not find site-builder binary in archive"
             exit 1
@@ -127,11 +138,11 @@ runs:
           chmod +x bin/site-builder
         else
           # Use latest version from Google Cloud Storage
-          echo "Installing latest site-builder for ${{ inputs.SUI_NETWORK }}..."
-          curl https://storage.googleapis.com/mysten-walrus-binaries/site-builder-${{ inputs.SUI_NETWORK }}-latest-ubuntu-x86_64 -o bin/site-builder
+          echo "Installing latest site-builder for ${INPUT_SUI_NETWORK}..."
+          curl https://storage.googleapis.com/mysten-walrus-binaries/site-builder-${INPUT_SUI_NETWORK}-latest-ubuntu-x86_64 -o bin/site-builder
           chmod +x bin/site-builder
         fi
 
-        curl -L https://github.com/MystenLabs/walrus-sites/raw/refs/heads/${{ inputs.SUI_NETWORK }}/sites-config.yaml -o sites-config.yaml
+        curl -L https://github.com/MystenLabs/walrus-sites/raw/refs/heads/${INPUT_SUI_NETWORK}/sites-config.yaml -o sites-config.yaml
         site-builder --version
       shell: bash
