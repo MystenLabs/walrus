@@ -2827,8 +2827,8 @@ async fn test_byte_range_read_client() -> TestResult {
     let (_sui_cluster_handle, _cluster, client, _) = test_cluster_builder.build().await?;
     let client = client.as_ref();
 
-    // Generate a random blob.
-    let blob_size = random::<usize>() % 1000000;
+    // Generate a non zero blob size.
+    let blob_size = thread_rng().gen_range(1..=1000000);
     tracing::info!("blob size: {blob_size}");
     let blobs = walrus_test_utils::random_data_list(blob_size, 1);
 

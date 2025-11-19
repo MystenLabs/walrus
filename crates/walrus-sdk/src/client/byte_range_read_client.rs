@@ -3,7 +3,7 @@
 
 //! Client for reading byte ranges from blobs.
 
-use std::time::Duration;
+use std::{num::NonZeroUsize, time::Duration};
 
 use serde::{Deserialize, Serialize};
 use tokio::time::Instant;
@@ -75,7 +75,7 @@ impl<T: ReadClient> ByteRangeReadClient<'_, T> {
         byte_length: usize,
     ) -> ClientResult<Vec<u8>> {
         tracing::debug!(
-            ?blob_id,
+            %blob_id,
             start_byte_position,
             byte_length,
             "start reading byte range"
@@ -84,6 +84,8 @@ impl<T: ReadClient> ByteRangeReadClient<'_, T> {
         if byte_length == 0 {
             return Ok(vec![]);
         }
+
+        let byte_length = NonZeroUsize::new(byte_length).expect("byte length must be non zero");
 
         // Validate blob ID
         self.client.check_blob_id(blob_id)?;
@@ -99,8 +101,12 @@ impl<T: ReadClient> ByteRangeReadClient<'_, T> {
             .client
             .retrieve_metadata(certified_epoch, blob_id)
             .await?;
-        let blob_size = usize::try_from(metadata.metadata().unencoded_length())
-            .expect("blob size should be valid");
+        let blob_size = usize::try_from(metadata.metadata().unencoded_length()).map_err(|_| {
+            ClientError::from(ClientErrorKind::ByteRangeReadError(format!(
+                "invalid blob size from metadata: {}",
+                metadata.metadata().unencoded_length()
+            )))
+        })?;
 
         // Makes sure that the byte range input is valid.
         calculate_and_validate_end_byte_position(start_byte_position, byte_length, blob_size)?;
@@ -113,12 +119,9 @@ impl<T: ReadClient> ByteRangeReadClient<'_, T> {
 
         // Retrieve the necessary slivers. Note that the returned slivers may not be in the same
         // order as the sliver_indices.
-        let mut slivers = self
+        let slivers = self
             .retrieve_slivers_for_range(&metadata, &sliver_indices, certified_epoch)
             .await?;
-
-        // Sort slivers by index to process them in order
-        slivers.sort_by_key(|s| s.index.get());
 
         construct_requested_data_from_slivers(&slivers, new_start_byte_position, byte_length)
     }
@@ -155,7 +158,7 @@ impl<T: ReadClient> ByteRangeReadClient<'_, T> {
     ) -> ClientResult<Vec<SliverData<Primary>>> {
         let start_time = Instant::now();
 
-        let slivers = self
+        let mut slivers = self
             .client
             .retrieve_slivers_retry_committees::<Primary>(
                 metadata,
@@ -169,6 +172,9 @@ impl<T: ReadClient> ByteRangeReadClient<'_, T> {
         let elapsed = start_time.elapsed();
         tracing::debug!("Retrieved {} slivers in {:?}", slivers.len(), elapsed);
 
+        // Sort slivers by index to process them in order
+        slivers.sort_by_key(|s| s.index.get());
+
         Ok(slivers)
     }
 }
@@ -177,11 +183,11 @@ impl<T: ReadClient> ByteRangeReadClient<'_, T> {
 /// bounds.
 fn calculate_and_validate_end_byte_position(
     start_byte_position: usize,
-    byte_length: usize,
+    byte_length: NonZeroUsize,
     blob_size: usize,
 ) -> ClientResult<usize> {
     let end_byte_position = start_byte_position
-        .checked_add(byte_length)
+        .checked_add(byte_length.get())
         .ok_or_else(|| {
             ClientError::from(ClientErrorKind::ByteRangeReadError(
                 "byte range overflow".to_string(),
@@ -207,11 +213,9 @@ fn calculate_and_validate_end_byte_position(
 fn calculate_sliver_indices(
     primary_sliver_size: usize,
     start_byte_position: usize,
-    byte_length: usize,
+    byte_length: NonZeroUsize,
 ) -> ClientResult<(usize, Vec<SliverIndex>)> {
     tracing::debug!("primary_sliver_size: {:?}", primary_sliver_size);
-
-    assert!(byte_length > 0, "byte_length must be greater than 0");
 
     // Calculate which slivers contain the byte range
 
@@ -221,7 +225,7 @@ fn calculate_sliver_indices(
     // Each systematic (primary) sliver contains primary_sliver_size bytes of the original blob
     // Note that we subtract 1 from the end byte position because we want to include the last
     // byte in the last sliver.
-    let end_byte_position = start_byte_position + byte_length - 1;
+    let end_byte_position = start_byte_position + byte_length.get() - 1;
 
     // Last sliver that contains end_byte_position
     let end_sliver_index = end_byte_position / primary_sliver_size;
@@ -251,12 +255,12 @@ fn calculate_sliver_indices(
 fn construct_requested_data_from_slivers(
     slivers: &[SliverData<Primary>],
     new_start_byte_position: usize,
-    byte_length: usize,
+    byte_length: NonZeroUsize,
 ) -> ClientResult<Vec<u8>> {
     // Copy data directly into the final result buffer, skipping unnecessary bytes
-    let mut result = Vec::with_capacity(byte_length);
+    let mut result = Vec::with_capacity(byte_length.get());
     let mut bytes_to_skip = new_start_byte_position;
-    let mut bytes_remaining = byte_length;
+    let mut bytes_remaining = byte_length.get();
 
     for sliver in slivers {
         let data = sliver.symbols.data();
@@ -289,6 +293,21 @@ fn construct_requested_data_from_slivers(
         if bytes_remaining == 0 {
             break;
         }
+    }
+
+    if bytes_remaining > 0 {
+        return Err(ClientError::from(ClientErrorKind::ByteRangeReadError(
+            format!(
+                "requested byte range is larger than the retrieved slivers: requested {}-{}, \
+                retrieved slivers size is {}",
+                new_start_byte_position,
+                new_start_byte_position + byte_length.get(),
+                slivers
+                    .iter()
+                    .map(|s| s.symbols.data().len())
+                    .sum::<usize>(),
+            ),
+        )));
     }
 
     Ok(result)
@@ -324,7 +343,11 @@ mod tests {
         expected_first_sliver_index: u16,
         expected_offset: usize,
     ) -> Result {
-        let (new_start, indices) = calculate_sliver_indices(sliver_size, start, length)?;
+        let (new_start, indices) = calculate_sliver_indices(
+            sliver_size,
+            start,
+            NonZeroUsize::new(length).expect("length must be non zero"),
+        )?;
 
         assert_eq!(indices.len(), expected_count, "sliver count mismatch");
         assert_eq!(
@@ -387,7 +410,11 @@ mod tests {
                 )
             })
             .collect();
-        let result = construct_requested_data_from_slivers(&slivers, offset, byte_length)?;
+        let result = construct_requested_data_from_slivers(
+            &slivers,
+            offset,
+            NonZeroUsize::new(byte_length).expect("byte length must be non zero"),
+        )?;
 
         assert_eq!(result.len(), byte_length);
         assert_eq!(result[0], expected_first_byte);
@@ -403,13 +430,43 @@ mod tests {
             create_sequential_sliver(1, 100, 100),
             create_sequential_sliver(2, 200, 100),
         ];
-        let result = construct_requested_data_from_slivers(&slivers, 50, 200)?;
+        let result = construct_requested_data_from_slivers(
+            &slivers,
+            50,
+            NonZeroUsize::new(200).expect("byte length must be non zero"),
+        )?;
 
         // Check continuity at boundaries
         assert_eq!(result[49], 99); // Last byte of first sliver
         assert_eq!(result[50], 100); // First byte of second sliver
         assert_eq!(result[149], 199); // Last byte of second sliver
         assert_eq!(result[150], 200); // First byte of third sliver
+        Ok(())
+    }
+
+    /// Tests that an error is returned if the requested byte range is larger than the retrieved \
+    /// slivers.
+    #[test]
+    fn test_construct_requested_data_from_slivers_error() -> Result {
+        let slivers = vec![
+            create_sequential_sliver(0, 0, 100),
+            create_sequential_sliver(1, 100, 100),
+            create_sequential_sliver(2, 200, 100),
+        ];
+        let result = construct_requested_data_from_slivers(
+            &slivers,
+            50,
+            NonZeroUsize::new(1000).expect("byte length must be non zero"),
+        );
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .kind()
+                .to_string()
+                .contains("requested byte range is larger than the retrieved slivers")
+        );
+
         Ok(())
     }
 }
