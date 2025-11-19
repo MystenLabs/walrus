@@ -1,7 +1,9 @@
 //! Garbage-collection functionality running in the background.
 
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
+use rand::Rng;
+use tokio::sync::Mutex;
 use walrus_core::Epoch;
 
 use crate::node::{StorageNodeInner, config::GarbageCollectionConfig, metrics::NodeMetricSet};
@@ -15,6 +17,8 @@ pub(super) struct GarbageCollector {
     node: Arc<StorageNodeInner>,
     /// The metrics for the garbage collector.
     metrics: Arc<NodeMetricSet>,
+    /// Handle to the background task performing database cleanup.
+    task_handle: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
 }
 
 impl GarbageCollector {
@@ -27,13 +31,40 @@ impl GarbageCollector {
             config,
             node,
             metrics,
+            task_handle: Arc::new(Mutex::new(None)),
         }
     }
 
-    // TODO(WAL-1040): Move this to a background task.
-    /// Performs database cleanup operations including blob info cleanup and data deletion.
+    /// Schedules database cleanup operations to run in a background task.
+    /// If a cleanup task is already running, it will be aborted and replaced with a new one.
+    /// The actual cleanup work starts after a random delay (0-60 seconds).
     #[tracing::instrument(skip_all)]
     pub async fn perform_db_cleanup(&self, epoch: Epoch) -> anyhow::Result<()> {
+        let mut task_handle = self.task_handle.lock().await;
+        let garbage_collector = self.clone();
+
+        // If there is an existing task, we need to abort it first before starting a new one.
+        if let Some(old_task) = task_handle.take() {
+            old_task.abort();
+        }
+
+        let new_task = tokio::spawn(async move {
+            // Wait for a random delay before starting the cleanup work.
+            let delay_seconds = rand::thread_rng().gen_range(0..60);
+            tokio::time::sleep(Duration::from_secs(delay_seconds)).await;
+
+            if let Err(err) = garbage_collector.perform_db_cleanup_task(epoch).await {
+                tracing::error!(?err, epoch = epoch, "garbage collection task failed");
+            }
+        });
+
+        *task_handle = Some(new_task);
+
+        Ok(())
+    }
+
+    /// Performs database cleanup operations including blob info cleanup and data deletion.
+    async fn perform_db_cleanup_task(&self, epoch: Epoch) -> anyhow::Result<()> {
         let garbage_collection_config = self.config;
 
         if !garbage_collection_config.enable_blob_info_cleanup {
