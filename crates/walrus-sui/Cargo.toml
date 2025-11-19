@@ -69,8 +69,11 @@ walrus-utils = { workspace = true, features = ["backoff", "config", "log", "metr
 clap.workspace = true
 indoc.workspace = true
 serde_yaml.workspace = true
+tempfile.workspace = true
+test-cluster.workspace = true
 tracing-subscriber.workspace = true
 walrus-core = { workspace = true, features = ["sui-types", "test-utils", "utoipa"] }
+walrus-test-utils.workspace = true
 
 [build-dependencies]
 inflections = "1.1.1"

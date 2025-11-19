@@ -319,6 +319,49 @@ pub struct SuiReadClient {
     walrus_subsidies: Arc<RwLock<Option<SharedObjectWithPkgConfig>>>,
 }
 
+impl Debug for SuiReadClient {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SuiReadClient")
+            .field("system_object_id", &self.system_object_id)
+            .field("staking_object_id", &self.staking_object_id)
+            .field(
+                "system_object_initial_version",
+                &self.system_object_initial_version,
+            )
+            .field(
+                "staking_object_initial_version",
+                &self.staking_object_initial_version,
+            )
+            .field("wal_type", &self.wal_type)
+            .field("fixed_system_parameters", &self.fixed_system_parameters)
+            .field("cache_ttl", &self.cache_ttl)
+            .field(
+                "walrus_package_id",
+                &self
+                    .walrus_package_id
+                    .read()
+                    .expect("mutex should not be poisoned"),
+            )
+            .field(
+                "credits",
+                &self
+                    .credits
+                    .read()
+                    .expect("mutex should not be poisoned")
+                    .is_some(),
+            )
+            .field(
+                "walrus_subsidies",
+                &self
+                    .walrus_subsidies
+                    .read()
+                    .expect("mutex should not be poisoned")
+                    .is_some(),
+            )
+            .finish()
+    }
+}
+
 const MAX_POLLING_INTERVAL: Duration = Duration::from_secs(5);
 const EVENT_CHANNEL_CAPACITY: usize = 1024;
 
@@ -1458,16 +1501,6 @@ impl ReadClient for SuiReadClient {
 
     fn read_client(&self) -> &SuiReadClient {
         self
-    }
-}
-
-impl fmt::Debug for SuiReadClient {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("SuiReadClient")
-            .field("system_pkg", &self.walrus_package_id)
-            .field("sui_client", &"<redacted>")
-            .field("system_object", &self.system_object_id)
-            .finish()
     }
 }
 

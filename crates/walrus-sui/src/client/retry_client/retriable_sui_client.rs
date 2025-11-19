@@ -237,8 +237,7 @@ impl LazyClientBuilder<SuiClient> for LazySuiClientBuilder {
 /// This retriable client wraps functions from the [`CoinReadApi`][sui_sdk::apis::CoinReadApi] and
 /// the [`ReadApi`][sui_sdk::apis::ReadApi] of the [`SuiClient`], and
 /// additionally provides some convenience methods.
-#[allow(missing_debug_implementations)]
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct RetriableSuiClient {
     failover_sui_client: FailoverWrapper<SuiClient, LazySuiClientBuilder>,
     backoff_config: ExponentialBackoffConfig,

@@ -453,6 +453,7 @@ pub async fn initialize_contract_and_wallet_for_testing(
         .await?;
     let system_context = result.inner.0.clone();
     let admin_contract_client = result.map(|(_, client)| client);
+    admin_contract_client.as_ref().flush_cache().await;
     let committee = admin_contract_client
         .as_ref()
         .read_client()
