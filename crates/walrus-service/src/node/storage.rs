@@ -43,6 +43,7 @@ use self::{
         PerObjectBlobInfo,
         PerObjectBlobInfoIterator,
     },
+    blob_manager_info::{BlobManagerTable, StoredBlobManagerInfo},
     constants::{
         metadata_cf_name,
         node_status_cf_name,
@@ -62,6 +63,7 @@ use super::{
 use crate::utils;
 
 pub(crate) mod blob_info;
+pub(crate) mod blob_manager_info;
 pub(crate) mod constants;
 
 mod database_config;
@@ -175,6 +177,7 @@ pub struct Storage {
     node_status: DBMap<(), NodeStatus>,
     metadata: DBMap<BlobId, BlobMetadata>,
     blob_info: BlobInfoTable,
+    blob_managers: BlobManagerTable,
     event_cursor: EventCursorTable,
     shards: Arc<RwLock<HashMap<ShardIndex, Arc<ShardStorage>>>>,
     db_table_opts_factory: DatabaseTableOptionsFactory,
@@ -253,6 +256,8 @@ impl Storage {
         let metadata_options = db_table_opts_factory.metadata();
         let metadata_cf_name = metadata_cf_name();
         let blob_info_column_families = BlobInfoTable::options(&db_table_opts_factory);
+        let blob_managers_cf_name = constants::blob_managers_cf_name();
+        let blob_managers_options = db_table_opts_factory.blob_managers();
         let (event_cursor_cf_name, event_cursor_options) =
             EventCursorTable::options(&db_table_opts_factory);
 
@@ -262,6 +267,7 @@ impl Storage {
             .chain([
                 (node_status_cf_name, node_status_options),
                 (metadata_cf_name, metadata_options),
+                (blob_managers_cf_name, blob_managers_options),
                 (event_cursor_cf_name, event_cursor_options),
             ])
             .chain(blob_info_column_families)
@@ -302,6 +308,7 @@ impl Storage {
 
         let event_cursor = EventCursorTable::reopen(&database)?;
         let blob_info = BlobInfoTable::reopen(&database)?;
+        let blob_managers = BlobManagerTable::reopen(&database)?;
         let shards = Arc::new(RwLock::new(
             existing_shards_ids
                 .into_iter()
@@ -323,6 +330,7 @@ impl Storage {
             node_status,
             metadata,
             blob_info,
+            blob_managers,
             event_cursor,
             shards,
             db_table_opts_factory,
@@ -351,6 +359,33 @@ impl Storage {
 
     pub(crate) fn clear_blob_info_table(&self) -> Result<(), TypedStoreError> {
         self.blob_info.clear()
+    }
+
+    /// Gets the info for a specific BlobManager.
+    pub(crate) fn get_blob_manager_info(
+        &self,
+        manager_id: &ObjectID,
+    ) -> Result<Option<StoredBlobManagerInfo>, TypedStoreError> {
+        self.blob_managers.get(manager_id)
+    }
+
+    /// Inserts or updates a BlobManager's info.
+    pub(crate) fn insert_blob_manager_info(
+        &self,
+        manager_id: ObjectID,
+        info: StoredBlobManagerInfo,
+    ) -> Result<(), TypedStoreError> {
+        self.blob_managers.insert(manager_id, info)
+    }
+
+    /// Updates the end_epoch for a BlobManager.
+    pub(crate) fn update_blob_manager_end_epoch(
+        &self,
+        manager_id: &ObjectID,
+        new_end_epoch: Epoch,
+    ) -> Result<(), TypedStoreError> {
+        self.blob_managers
+            .update_end_epoch(manager_id, new_end_epoch)
     }
 
     /// Returns lock write access to the shards map, and returns the underlying shard map.
@@ -571,6 +606,28 @@ impl Storage {
         self.blob_info.get_per_object_info(object_id)
     }
 
+    /// Checks if a managed blob is registered at the current epoch.
+    /// This method properly validates against the BlobManager's end_epoch.
+    pub(crate) fn is_managed_blob_registered(
+        &self,
+        object_id: &ObjectID,
+        current_epoch: Epoch,
+    ) -> Result<bool, TypedStoreError> {
+        use blob_info::ManagedBlobInfoApi;
+
+        let per_object_info = self.blob_info.get_per_object_info(object_id)?;
+        match per_object_info {
+            Some(blob_info::PerObjectBlobInfo::V2(v2_info)) => {
+                v2_info.is_registered_with_manager(current_epoch, &self.blob_managers)
+            }
+            Some(blob_info::PerObjectBlobInfo::V1(_)) => {
+                // V1 is for regular blobs, not managed blobs.
+                Ok(false)
+            }
+            None => Ok(false),
+        }
+    }
+
     /// Returns the current event cursor and the next event index.
     #[tracing::instrument(skip_all)]
     pub fn get_event_cursor_and_next_index(
@@ -590,6 +647,7 @@ impl Storage {
         event_index: u64,
         event: &BlobEvent,
     ) -> Result<(), TypedStoreError> {
+        // Continue with normal blob info updates.
         if let NodeStatus::RecoveryCatchUpWithIncompleteHistory { epoch_at_start, .. } =
             self.node_status()?
         {

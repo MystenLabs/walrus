@@ -906,7 +906,7 @@ impl RetriableSuiClient {
 
     /// Returns the value of a dynamic field.
     ///
-    /// Calls [`sui_sdk::apis::ReadApi::get_dynamic_field`] internally.
+    /// Calls `get_dynamic_field` internally on the ReadApi.
     pub async fn get_dynamic_field<K, V>(
         &self,
         parent: ObjectID,

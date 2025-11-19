@@ -3169,16 +3169,31 @@ impl ServiceState for StorageNodeInner {
             self.is_stored_at_all_shards_at_latest_epoch(blob_id).await
         );
 
-        if let BlobPersistenceType::Deletable { object_id } = blob_persistence_type {
-            let per_object_info = self
-                .storage
-                .get_per_object_info(&object_id.into())
-                .context("database error when checking per object info")?
-                .ok_or(ComputeStorageConfirmationError::NotCurrentlyRegistered)?;
-            ensure!(
-                per_object_info.is_registered(self.current_committee_epoch()),
-                ComputeStorageConfirmationError::NotCurrentlyRegistered,
-            );
+        match blob_persistence_type {
+            BlobPersistenceType::Deletable { object_id } => {
+                let per_object_info = self
+                    .storage
+                    .get_per_object_info(&object_id.into())
+                    .context("database error when checking per object info")?
+                    .ok_or(ComputeStorageConfirmationError::NotCurrentlyRegistered)?;
+                ensure!(
+                    per_object_info.is_registered(self.current_committee_epoch()),
+                    ComputeStorageConfirmationError::NotCurrentlyRegistered,
+                );
+            }
+            BlobPersistenceType::ManagedByBlobManager { manager_id, .. } => {
+                // Verify the BlobManager exists and is valid for the current epoch.
+                let manager_info = self
+                    .storage
+                    .get_blob_manager_info(&manager_id.into())
+                    .context("database error when checking blob manager info")?
+                    .ok_or(ComputeStorageConfirmationError::NotCurrentlyRegistered)?;
+                ensure!(
+                    manager_info.is_epoch_valid(self.current_committee_epoch()),
+                    ComputeStorageConfirmationError::NotCurrentlyRegistered,
+                );
+            }
+            BlobPersistenceType::Permanent => {}
         }
 
         tracing::debug!("blob_persistence_type: {:?}", blob_persistence_type);

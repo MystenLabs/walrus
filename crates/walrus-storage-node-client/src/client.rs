@@ -67,6 +67,8 @@ const SLIVER_STATUS_TEMPLATE: &str =
 const PERMANENT_BLOB_CONFIRMATION_URL_TEMPLATE: &str = "/v1/blobs/:blob_id/confirmation/permanent";
 const DELETABLE_BLOB_CONFIRMATION_URL_TEMPLATE: &str =
     "/v1/blobs/:blob_id/confirmation/deletable/:object_id";
+const MANAGED_BLOB_CONFIRMATION_URL_TEMPLATE: &str =
+    "/v1/blobs/:blob_id/confirmation/managed/:manager_id/:deletable";
 const RECOVERY_SYMBOL_URL_TEMPLATE: &str = "/v1/blobs/:blob_id/recoverySymbols/:symbol_id";
 const LIST_RECOVERY_SYMBOLS_URL_TEMPLATE: &str = "/v1/blobs/:blob_id/recoverySymbols";
 const INCONSISTENCY_PROOF_URL_TEMPLATE: &str = "/v1/blobs/:blob_id/inconsistencyProof/:sliver_type";
@@ -113,6 +115,10 @@ impl UrlEndpoints {
             BlobPersistenceType::Deletable { object_id } => {
                 self.deletable_blob_confirmation(blob_id, &object_id.into())
             }
+            BlobPersistenceType::ManagedByBlobManager {
+                manager_id,
+                deletable,
+            } => self.managed_blob_confirmation(blob_id, &manager_id.into(), *deletable),
         }
     }
 
@@ -131,6 +137,21 @@ impl UrlEndpoints {
         (
             self.blob_resource(blob_id, &format!("confirmation/deletable/{object_id}")),
             DELETABLE_BLOB_CONFIRMATION_URL_TEMPLATE,
+        )
+    }
+
+    fn managed_blob_confirmation(
+        &self,
+        blob_id: &BlobId,
+        manager_id: &ObjectID,
+        deletable: bool,
+    ) -> (Url, &'static str) {
+        (
+            self.blob_resource(
+                blob_id,
+                &format!("confirmation/managed/{manager_id}/{deletable}"),
+            ),
+            MANAGED_BLOB_CONFIRMATION_URL_TEMPLATE,
         )
     }
 

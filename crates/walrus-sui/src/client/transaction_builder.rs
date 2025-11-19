@@ -1842,7 +1842,8 @@ impl WalrusPtbBuilder {
         ];
 
         // register_blob returns the end_epoch (u32) or 0 if blob already exists
-        let end_epoch_arg = self.blobmanager_move_call(contracts::blobmanager::register_blob, register_args)?;
+        let end_epoch_arg =
+            self.blobmanager_move_call(contracts::blobmanager::register_blob, register_args)?;
 
         self.reduce_wal_balance(price)?;
         // Return the end_epoch argument from register_blob

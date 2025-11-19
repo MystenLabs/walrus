@@ -36,7 +36,11 @@ use walrus_sui::types::{
 };
 
 use self::per_object_blob_info::PerObjectBlobInfoMergeOperand;
-pub(crate) use self::per_object_blob_info::{PerObjectBlobInfo, PerObjectBlobInfoApi};
+pub(crate) use self::per_object_blob_info::{
+    ManagedBlobInfoApi,
+    PerObjectBlobInfo,
+    PerObjectBlobInfoApi,
+};
 use super::{DatabaseTableOptionsFactory, constants};
 use crate::node::metrics::NodeMetricSet;
 
@@ -2133,7 +2137,7 @@ impl ManagedBlobInfo {
 
     /// Returns true if any BlobManager has registered this blob.
     /// TODO: Check if any BlobManager in registered is still valid at current_epoch.
-    fn is_registered(&self, current_epoch: Epoch) -> bool {
+    fn is_registered(&self, _current_epoch: Epoch) -> bool {
         !self.registered.is_empty()
     }
 }
@@ -2494,7 +2498,7 @@ impl Mergeable for BlobInfo {
 }
 
 mod per_object_blob_info {
-    use super::*;
+    use super::{super::blob_manager_info::BlobManagerTable, *};
 
     #[derive(Debug, Deserialize, Serialize, PartialEq, Eq, Clone)]
     pub(crate) struct PerObjectBlobInfoMergeOperand {
@@ -2536,6 +2540,17 @@ mod per_object_blob_info {
         fn is_registered(&self, current_epoch: Epoch) -> bool;
         /// Returns true iff the object is already deleted.
         fn is_deleted(&self) -> bool;
+    }
+
+    /// Trait for managed blob info that requires BlobManager context for validation.
+    pub(crate) trait ManagedBlobInfoApi {
+        /// Returns true iff the managed blob is registered and valid at the current epoch.
+        /// This checks the BlobManager's end_epoch to determine validity.
+        fn is_registered_with_manager(
+            &self,
+            current_epoch: Epoch,
+            blob_managers: &BlobManagerTable,
+        ) -> Result<bool, TypedStoreError>;
     }
 
     #[enum_dispatch(CertifiedBlobInfoApi)]
@@ -2788,13 +2803,41 @@ mod per_object_blob_info {
 
         fn is_registered(&self, _current_epoch: Epoch) -> bool {
             // For managed blobs, validity is determined by the BlobManager's end_epoch.
-            // For now, we consider them registered if not deleted.
-            // TODO: Query BlobManager's end_epoch to determine validity.
+            // This is a fallback implementation that doesn't check BlobManager validity.
+            // Use is_registered_with_manager() for proper validation.
             !self.deleted
         }
 
         fn is_deleted(&self) -> bool {
             self.deleted
+        }
+    }
+
+    impl ManagedBlobInfoApi for PerObjectBlobInfoV2 {
+        fn is_registered_with_manager(
+            &self,
+            current_epoch: Epoch,
+            blob_managers: &BlobManagerTable,
+        ) -> Result<bool, TypedStoreError> {
+            // If the blob is deleted, it's not registered.
+            if self.deleted {
+                return Ok(false);
+            }
+
+            // Check if the BlobManager exists and is still valid.
+            let manager_info = blob_managers.get(&self.blob_manager_id)?;
+            match manager_info {
+                Some(info) => Ok(info.is_epoch_valid(current_epoch)),
+                None => {
+                    // BlobManager not found, blob is not considered registered.
+                    tracing::warn!(
+                        "BlobManager {:?} not found for blob {:?}",
+                        self.blob_manager_id,
+                        self.blob_id
+                    );
+                    Ok(false)
+                }
+            }
         }
     }
 
