@@ -1248,7 +1248,8 @@ impl EventBlobWriter {
         // TODO: Once shard assignment per storage node will be read from walrus
         // system object at the beginning of the walrus epoch, we can only store the blob for
         // shards that are locally assigned to this node. (#682)
-        let blob_metadata_clone = blob_metadata.clone();
+        let blob_metadata_arc = Arc::new(blob_metadata.clone());
+        let blob_metadata_clone = blob_metadata_arc.clone();
 
         try_join_all(sliver_pairs.iter().map(|sliver_pair| async {
             self.node
@@ -1272,7 +1273,7 @@ impl EventBlobWriter {
         .await
         .map(|_| ())?;
 
-        let blob_metadata_clone = blob_metadata.clone();
+        let blob_metadata_clone = blob_metadata_arc.clone();
 
         try_join_all(sliver_pairs.iter().map(|sliver_pair| async {
             self.node

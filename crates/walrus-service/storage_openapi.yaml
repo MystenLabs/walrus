@@ -207,6 +207,17 @@ paths:
         schema:
           type: boolean
         style: form
+      requestBody:
+        description: BCS-encoded metadata octet-stream
+        content:
+          application/octet-stream:
+            schema:
+              type: array
+              items:
+                type: integer
+                format: int32
+                minimum: 0
+        required: true
       responses:
         '200':
           description: Metadata is already stored

@@ -38,6 +38,9 @@ impl PendingMetadataCacheInner {
 
     fn evict_expired(&mut self, now: Instant) {
         if self.ttl.is_zero() {
+            if !self.entries.is_empty() {
+                self.entries.clear();
+            }
             return;
         }
         let ttl = self.ttl;
@@ -52,15 +55,22 @@ impl PendingMetadataCacheInner {
     }
 
     /// Inserts metadata into the cache.
+    /// Returns `true` if the entry was inserted, `false` if it
+    /// was already present.
     /// Returns `Err(())` when the cache is at capacity and the entry could not be stored after
     /// evicting expired items.
     fn insert(
         &mut self,
         blob_id: BlobId,
         metadata: Arc<VerifiedBlobMetadataWithId>,
-    ) -> Result<(), ()> {
+    ) -> Result<bool, ()> {
         let now = Instant::now();
         if self.max_entries == 0 {
+            return Err(());
+        }
+
+        if self.ttl.is_zero() {
+            self.entries.clear();
             return Err(());
         }
 
@@ -71,18 +81,17 @@ impl PendingMetadataCacheInner {
             }
         }
 
-        self.entries.insert(
+        let result = self.entries.insert(
             blob_id,
             CachedMetadata {
                 inserted_at: now,
                 metadata,
             },
         );
-        Ok(())
+        Ok(result.is_none())
     }
 
     fn remove(&mut self, blob_id: &BlobId) -> Option<Arc<VerifiedBlobMetadataWithId>> {
-        self.evict_expired(Instant::now());
         self.entries.remove(blob_id).map(|cached| cached.metadata)
     }
 
@@ -107,32 +116,30 @@ impl PendingMetadataCache {
     }
 
     pub async fn get(&self, blob_id: &BlobId) -> Option<Arc<VerifiedBlobMetadataWithId>> {
-        let inner = self.inner.read().await;
-        self.metrics
-            .pending_metadata_cache_entries
-            .set(i64::try_from(inner.len()).unwrap_or(i64::MAX));
-        inner.get(blob_id)
+        let mut inner = self.inner.write().await;
+        inner.evict_expired(Instant::now());
+        let result = inner.get(blob_id);
+        self.update_metrics(inner.len());
+        result
     }
 
     pub async fn insert(
         &self,
         blob_id: BlobId,
         metadata: Arc<VerifiedBlobMetadataWithId>,
-    ) -> Result<(), ()> {
+    ) -> Result<bool, ()> {
         let mut inner = self.inner.write().await;
+        inner.evict_expired(Instant::now());
         let result = inner.insert(blob_id, metadata);
-        self.metrics
-            .pending_metadata_cache_entries
-            .set(i64::try_from(inner.len()).unwrap_or(i64::MAX));
+        self.update_metrics(inner.len());
         result
     }
 
     pub async fn remove(&self, blob_id: &BlobId) -> Option<Arc<VerifiedBlobMetadataWithId>> {
         let mut inner = self.inner.write().await;
+        inner.evict_expired(Instant::now());
         let removed = inner.remove(blob_id);
-        self.metrics
-            .pending_metadata_cache_entries
-            .set(i64::try_from(inner.len()).unwrap_or(i64::MAX));
+        self.update_metrics(inner.len());
         removed
     }
 
@@ -141,5 +148,11 @@ impl PendingMetadataCache {
         let mut inner = self.inner.write().await;
         inner.evict_expired(Instant::now());
         inner.len()
+    }
+
+    fn update_metrics(&self, len: usize) {
+        self.metrics
+            .pending_metadata_cache_entries
+            .set(i64::try_from(len).unwrap_or(i64::MAX));
     }
 }

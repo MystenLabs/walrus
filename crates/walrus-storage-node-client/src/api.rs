@@ -211,6 +211,9 @@ pub enum StoredOnNodeStatus {
     /// The sliver or metadata does not exist on the storage node.
     #[default]
     Nonexistent,
+    /// The sliver or metadata has been accepted and is buffered in memory, waiting for
+    /// registration to complete before it is persisted.
+    Buffered,
     /// The sliver or metadata is stored on the storage node.
     Stored,
 }

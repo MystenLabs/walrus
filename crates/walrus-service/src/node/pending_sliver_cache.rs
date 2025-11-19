@@ -92,9 +92,11 @@ impl PendingSliverCacheInner {
 
     fn evict_expired(&mut self, now: Instant) {
         if self.ttl.is_zero() {
+            if !self.blobs.is_empty() {
+                self.clear_all();
+            }
             return;
         }
-
         let ttl = self.ttl;
         self.blobs.retain(|_, entry| {
             if now.saturating_duration_since(entry.inserted_at) < ttl {
@@ -105,6 +107,12 @@ impl PendingSliverCacheInner {
                 false
             }
         });
+    }
+
+    fn clear_all(&mut self) {
+        self.blobs.clear();
+        self.sliver_count = 0;
+        self.total_bytes = 0;
     }
 
     fn sliver_count(&self) -> usize {
@@ -163,6 +171,11 @@ impl PendingSliverCacheInner {
         }
 
         let now = Instant::now();
+        if self.ttl.is_zero() {
+            self.evict_expired(now);
+            return Err(PendingSliverCacheError::Saturated);
+        }
+
         let requires_capacity = self
             .blobs
             .get(&blob_id)
@@ -178,17 +191,11 @@ impl PendingSliverCacheInner {
                 entry.touch(now);
 
                 if let Some(existing) = entry.slivers.get_mut(&key) {
-                    let previous_len = existing.len();
-                    self.total_bytes = self
-                        .total_bytes
-                        .checked_sub(previous_len)
-                        .and_then(|bytes| bytes.checked_add(new_len))
-                        .ok_or(PendingSliverCacheError::Saturated)?;
-                    entry.total_bytes = entry
-                        .total_bytes
-                        .checked_sub(previous_len)
-                        .and_then(|bytes| bytes.checked_add(new_len))
-                        .ok_or(PendingSliverCacheError::Saturated)?;
+                    // We only ever write verified slivers to the cache, in which case their lengths
+                    // are always the same as the original sliver.
+                    if existing.len() != sliver.len() {
+                        return Err(PendingSliverCacheError::SliverTooLarge);
+                    }
                     *existing = sliver;
                     Ok(false)
                 } else {
@@ -240,25 +247,45 @@ impl PendingSliverCacheInner {
         Ok(true)
     }
 
-    fn contains(&mut self, blob_id: &BlobId, key: SliverCacheKey) -> bool {
-        self.evict_expired(Instant::now());
+    fn remove_blob_entry(&mut self, blob_id: &BlobId) -> Option<PendingBlobEntry> {
+        self.blobs.remove(blob_id).inspect(|entry| {
+            self.sliver_count = self.sliver_count.saturating_sub(entry.len());
+            self.total_bytes = self.total_bytes.saturating_sub(entry.bytes());
+        })
+    }
+
+    fn remove_if_expired(&mut self, blob_id: &BlobId, now: Instant) -> bool {
+        if self.ttl.is_zero() {
+            return self.remove_blob_entry(blob_id).is_some();
+        }
+
+        let is_expired = self
+            .blobs
+            .get(blob_id)
+            .is_some_and(|entry| now.saturating_duration_since(entry.inserted_at) >= self.ttl);
+        if is_expired {
+            self.remove_blob_entry(blob_id);
+        }
+        is_expired
+    }
+
+    fn contains(&self, blob_id: &BlobId, key: SliverCacheKey) -> bool {
         self.blobs
             .get(blob_id)
             .is_some_and(|entry| entry.slivers.contains_key(&key))
     }
 
-    fn has_blob(&mut self, blob_id: &BlobId) -> bool {
-        self.evict_expired(Instant::now());
+    fn has_blob(&self, blob_id: &BlobId) -> bool {
         self.blobs.contains_key(blob_id)
     }
 
     fn drain(&mut self, blob_id: &BlobId) -> Vec<CachedSliver> {
-        self.evict_expired(Instant::now());
-        self.blobs
-            .remove(blob_id)
+        let now = Instant::now();
+        if self.remove_if_expired(blob_id, now) {
+            return Vec::new();
+        }
+        self.remove_blob_entry(blob_id)
             .map(|entry| {
-                self.sliver_count = self.sliver_count.saturating_sub(entry.len());
-                self.total_bytes = self.total_bytes.saturating_sub(entry.bytes());
                 entry
                     .slivers
                     .into_iter()
@@ -276,6 +303,8 @@ impl PendingSliverCacheInner {
         blob_id: BlobId,
         slivers: Vec<CachedSliver>,
     ) -> Result<(), PendingSliverCacheError> {
+        let now = Instant::now();
+        self.remove_if_expired(&blob_id, now);
         for cached in slivers {
             let key = SliverCacheKey::new(cached.sliver_pair_index, cached.sliver.r#type());
             self.insert(blob_id, key, cached.sliver)?;
@@ -320,7 +349,7 @@ impl PendingSliverCache {
         sliver_pair_index: SliverPairIndex,
         sliver: Sliver,
     ) -> Result<bool, PendingSliverCacheError> {
-        if self.max_sliver_bytes == 0 || sliver.len() > self.max_sliver_bytes {
+        if sliver.len() > self.max_sliver_bytes {
             return Err(PendingSliverCacheError::SliverTooLarge);
         }
         let mut inner = self.inner.lock().await;
@@ -371,6 +400,7 @@ impl PendingSliverCache {
         sliver_type: SliverType,
     ) -> bool {
         let mut inner = self.inner.lock().await;
+        inner.evict_expired(Instant::now());
         let result = inner.contains(blob_id, SliverCacheKey::new(sliver_pair_index, sliver_type));
         self.update_metrics(&inner);
         result
@@ -378,6 +408,7 @@ impl PendingSliverCache {
 
     pub async fn has_blob(&self, blob_id: &BlobId) -> bool {
         let mut inner = self.inner.lock().await;
+        inner.evict_expired(Instant::now());
         let result = inner.has_blob(blob_id);
         self.update_metrics(&inner);
         result

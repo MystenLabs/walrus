@@ -3081,10 +3081,7 @@ pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
             admin_socket_path: None,
             node_recovery_config: Default::default(),
             // Uses smaller number of workers in tests to avoid overwhelming the tests.
-            blob_event_processor_config: BlobEventProcessorConfig {
-                num_workers: 3,
-                num_flush_workers: Some(2),
-            },
+            blob_event_processor_config: BlobEventProcessorConfig { num_workers: 3 },
             garbage_collection: GarbageCollectionConfig::default_for_test(),
             live_upload_deferral: LiveUploadDeferralConfig::default_for_test(),
             pending_metadata_cache: Default::default(),

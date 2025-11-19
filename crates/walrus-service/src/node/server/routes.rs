@@ -165,6 +165,10 @@ pub async fn get_metadata_status<S: SyncServiceState>(
     put,
     path = METADATA_ENDPOINT,
     params(("blob_id" = BlobId,), UploadIntentQuery),
+    request_body(
+        content = [u8],
+        description = "BCS-encoded metadata octet-stream"
+    ),
     responses(
         (status = CREATED, description = "Metadata successfully stored", body = ApiSuccess<String>),
         (

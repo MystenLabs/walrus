@@ -613,11 +613,12 @@ impl BlobRecoveryConfig {
 pub struct PendingSliverCacheConfig {
     /// Maximum number of slivers retained in memory while the blob registration is pending.
     pub max_cached_slivers: usize,
-    /// Maximum number of bytes retained in memory while the blob registration is pending.
+    /// Maximum aggregate size, in bytes, retained across all pending slivers.
     pub max_cached_bytes: usize,
     /// Maximum size of a single sliver retained in memory while the blob registration is pending.
     pub max_cached_sliver_bytes: usize,
     /// Duration after which pending uploads are evicted if the blob is still unregistered.
+    /// Set to 0 to disable caching entirely.
     #[serde_as(as = "DurationSeconds<u64>")]
     pub cache_ttl: Duration,
 }
@@ -642,6 +643,7 @@ pub struct PendingMetadataCacheConfig {
     /// pending.
     pub max_cached_entries: usize,
     /// Duration after which cached metadata is evicted if the blob is still unregistered.
+    /// Set to 0 to disable metadata caching.
     #[serde_as(as = "DurationSeconds<u64>")]
     pub cache_ttl: Duration,
 }
@@ -808,17 +810,11 @@ pub struct BlobEventProcessorConfig {
     /// The number of workers to process blob events in parallel.
     /// When set to 0, the node will process all blob events sequentially.
     pub num_workers: usize,
-    /// The number of workers handling best-effort cache flushes after registration.
-    /// If not set, defaults to 4.
-    pub num_flush_workers: Option<usize>,
 }
 
 impl Default for BlobEventProcessorConfig {
     fn default() -> Self {
-        Self {
-            num_workers: 10,
-            num_flush_workers: Some(4),
-        }
+        Self { num_workers: 10 }
     }
 }
 
@@ -976,10 +972,7 @@ pub mod defaults {
     /// Default time-to-live for pending uploads before eviction.
     pub const PENDING_SLIVER_CACHE_TTL: Duration = Duration::from_secs(10);
     /// Default capacity for the pending metadata cache (number of entries).
-    pub const PENDING_METADATA_CACHE_MAX_ENTRIES: usize = {
-        let value = PENDING_SLIVER_CACHE_MAX_SLIVERS / 8;
-        if value == 0 { 1 } else { value }
-    };
+    pub const PENDING_METADATA_CACHE_MAX_ENTRIES: usize = 512;
     /// Default time-to-live for pending metadata before eviction.
     pub const PENDING_METADATA_CACHE_TTL: Duration = PENDING_SLIVER_CACHE_TTL;
 
