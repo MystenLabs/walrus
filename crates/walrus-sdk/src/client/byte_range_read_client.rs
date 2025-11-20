@@ -85,12 +85,12 @@ impl<T: ReadClient> ByteRangeReadClient<'_, T> {
             "start reading byte range"
         );
 
+        // First, validate the blob ID and make sure it is valid.
+        self.client.check_blob_id(blob_id)?;
+
         let Some(byte_length) = NonZeroUsize::new(byte_length) else {
             return Ok(vec![]);
         };
-
-        // Validate blob ID
-        self.client.check_blob_id(blob_id)?;
 
         // Get blob status and certified epoch
         let (certified_epoch, _) = self
