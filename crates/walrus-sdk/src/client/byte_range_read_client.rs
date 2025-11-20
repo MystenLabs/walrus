@@ -74,6 +74,10 @@ impl<T: ReadClient> ByteRangeReadClient<'_, T> {
         start_byte_position: usize,
         byte_length: usize,
     ) -> ClientResult<Vec<u8>> {
+        // To read the byte range of the original blob file, we find the corresponding primary
+        // slivers that covers the byte range, and retrieve the slivers from the Walrus shards,
+        // and extract the requested data from the slivers.
+
         tracing::debug!(
             %blob_id,
             start_byte_position,
