@@ -14,7 +14,9 @@ use anyhow::{Error, Result, anyhow};
 use byteorder::{BigEndian, ReadBytesExt};
 use integer_encoding::{VarInt, VarIntReader};
 use sui_types::{
-    digests::TransactionDigest, event::EventID, messages_checkpoint::CheckpointSequenceNumber,
+    digests::TransactionDigest,
+    event::EventID,
+    messages_checkpoint::CheckpointSequenceNumber,
 };
 use walrus_core::{BlobId, Epoch};
 use walrus_sui::types::{ContractEvent, EpochChangeEvent};

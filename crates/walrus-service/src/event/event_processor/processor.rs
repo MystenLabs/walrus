@@ -8,7 +8,8 @@ use anyhow::{Result, anyhow, bail};
 use bincode::Options;
 use checkpoint_downloader::ParallelCheckpointDownloader;
 use sui_types::{
-    base_types::ObjectID, full_checkpoint_content::CheckpointData,
+    base_types::ObjectID,
+    full_checkpoint_content::CheckpointData,
     messages_checkpoint::VerifiedCheckpoint,
 };
 use tokio::{
@@ -26,7 +27,9 @@ use walrus_utils::{
 };
 
 use super::{
-    catchup, coordination::CatchupCoordinationState, metrics::EventProcessorMetrics,
+    catchup,
+    coordination::CatchupCoordinationState,
+    metrics::EventProcessorMetrics,
     package_store::LocalDBPackageStore,
 };
 use crate::event::{

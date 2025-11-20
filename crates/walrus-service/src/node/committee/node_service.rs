@@ -26,15 +26,24 @@ use std::{
 use futures::{FutureExt, future::BoxFuture};
 use tower::{Service, limit::ConcurrencyLimit};
 use walrus_core::{
-    BlobId, Epoch, InconsistencyProof as InconsistencyProofEnum, PublicKey, ShardIndex, Sliver,
-    SliverIndex, SliverType,
+    BlobId,
+    Epoch,
+    InconsistencyProof as InconsistencyProofEnum,
+    PublicKey,
+    ShardIndex,
+    Sliver,
+    SliverIndex,
+    SliverType,
     encoding::{EncodingConfig, GeneralRecoverySymbol, Primary, Secondary},
     keys::ProtocolKeyPair,
     messages::InvalidBlobIdAttestation,
     metadata::VerifiedBlobMetadataWithId,
 };
 use walrus_storage_node_client::{
-    ClientBuildError, NodeError, RecoverySymbolsFilter, StorageNodeClient,
+    ClientBuildError,
+    NodeError,
+    RecoverySymbolsFilter,
+    StorageNodeClient,
 };
 use walrus_sui::types::StorageNode as SuiStorageNode;
 use walrus_utils::metrics::Registry;

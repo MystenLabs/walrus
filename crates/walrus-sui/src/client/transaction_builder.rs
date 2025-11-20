@@ -15,28 +15,49 @@ use fastcrypto::traits::ToFromBytes;
 use sui_move_build::CompiledPackage;
 use sui_sdk::rpc_types::SuiObjectDataOptions;
 use sui_types::{
-    Identifier, SUI_CLOCK_OBJECT_ID, SUI_CLOCK_OBJECT_SHARED_VERSION,
+    Identifier,
+    SUI_CLOCK_OBJECT_ID,
+    SUI_CLOCK_OBJECT_SHARED_VERSION,
     base_types::{ObjectID, ObjectType, SuiAddress},
     programmable_transaction_builder::ProgrammableTransactionBuilder,
     transaction::{
-        Argument, Command, ObjectArg, ProgrammableTransaction, SharedObjectMutability,
-        TransactionData, TransactionKind,
+        Argument,
+        Command,
+        ObjectArg,
+        ProgrammableTransaction,
+        SharedObjectMutability,
+        TransactionData,
+        TransactionKind,
     },
 };
 use tracing::instrument;
 use walrus_core::{
-    Epoch, EpochCount, NetworkPublicKey, ensure,
+    Epoch,
+    EpochCount,
+    NetworkPublicKey,
+    ensure,
     messages::{ConfirmationCertificate, InvalidBlobCertificate, ProofOfPossession},
 };
 
 use super::{
-    BlobObjectMetadata, BlobPersistence, CoinType, PoolOperationWithAuthorization, ReadClient,
-    SuiClientError, SuiClientResult, SuiReadClient, UpgradeType,
+    BlobObjectMetadata,
+    BlobPersistence,
+    CoinType,
+    PoolOperationWithAuthorization,
+    ReadClient,
+    SuiClientError,
+    SuiClientResult,
+    SuiReadClient,
+    UpgradeType,
 };
 use crate::{
     contracts::{self, FunctionTag},
     types::{
-        BlobType, NetworkAddress, NodeRegistrationParams, NodeUpdateParams, SystemObject,
+        BlobType,
+        NetworkAddress,
+        NodeRegistrationParams,
+        NodeUpdateParams,
+        SystemObject,
         UpdatePublicKeyParams,
         move_structs::{Authorized, BlobAttribute, EmergencyUpgradeCap, NodeMetadata, WalExchange},
     },
@@ -1759,8 +1780,9 @@ impl WalrusPtbBuilder {
         storage_resource: ArgumentOrOwnedObject,
     ) -> SuiClientResult<Argument> {
         let storage_arg = self.argument_from_arg_or_obj(storage_resource).await?;
+        let system_arg = self.system_arg(SharedObjectMutability::Immutable).await?;
 
-        let new_args = vec![storage_arg];
+        let new_args = vec![storage_arg, system_arg];
 
         let result_arg =
             self.blobmanager_move_call(contracts::blobmanager::new_with_unified_storage, new_args)?;

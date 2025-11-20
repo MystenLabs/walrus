@@ -2,8 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::k6_tests::{
-    self, SAMPLE_SIZE_FAST, SAMPLE_SIZE_SLOW, SAMPLE_SIZE_VERY_SLOW, TestResult,
-    WALRUS_K6_ENVIRONMENT, common,
+    self,
+    SAMPLE_SIZE_FAST,
+    SAMPLE_SIZE_SLOW,
+    SAMPLE_SIZE_VERY_SLOW,
+    TestResult,
+    WALRUS_K6_ENVIRONMENT,
+    common,
     common::{byte_size::ByteSize, thresholds::BlobThresholds},
 };
 

@@ -9,7 +9,9 @@ use anyhow::Result;
 use walrus_sui::client::{
     SuiClientMetricSet,
     retry_client::{
-        RetriableRpcClient, RetriableSuiClient, retriable_rpc_client::LazyFallibleRpcClientBuilder,
+        RetriableRpcClient,
+        RetriableSuiClient,
+        retriable_rpc_client::LazyFallibleRpcClientBuilder,
         retriable_sui_client::LazySuiClientBuilder,
     },
     rpc_config::RpcFallbackConfig,

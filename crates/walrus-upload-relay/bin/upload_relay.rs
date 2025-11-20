@@ -7,7 +7,8 @@ use std::{env, net::SocketAddr, path::PathBuf};
 
 use clap::Parser;
 use walrus_sdk::core_utils::{
-    bin_version, load_from_yaml,
+    bin_version,
+    load_from_yaml,
     metrics::{Registry, monitored_scope},
 };
 use walrus_upload_relay::{

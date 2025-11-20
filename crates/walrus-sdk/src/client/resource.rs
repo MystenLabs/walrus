@@ -12,7 +12,9 @@ use sui_types::base_types::ObjectID;
 use tracing::Level;
 use utoipa::ToSchema;
 use walrus_core::{
-    BlobId, Epoch, EpochCount,
+    BlobId,
+    Epoch,
+    EpochCount,
     metadata::{BlobMetadataApi as _, VerifiedBlobMetadataWithId},
 };
 use walrus_sui::{
@@ -28,7 +30,10 @@ use super::{
 };
 use crate::{
     client::client_types::{
-        BlobWithStatus, RegisteredBlob, WalrusStoreBlobUnfinished, WalrusStoreEncodedBlobApi,
+        BlobWithStatus,
+        RegisteredBlob,
+        WalrusStoreBlobUnfinished,
+        WalrusStoreEncodedBlobApi,
     },
     error::{ClientError, ClientErrorKind, ClientResult},
     store_optimizations::StoreOptimizations,

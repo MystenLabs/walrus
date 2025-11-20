@@ -6,7 +6,8 @@
 use std::{collections::HashSet, fmt::Debug, net::SocketAddr, str::FromStr, sync::Arc};
 
 use axum::{
-    BoxError, Router,
+    BoxError,
+    Router,
     body::HttpBody,
     error_handling::HandleErrorLayer,
     extract::{DefaultBodyLimit, Query, Request, State},
@@ -22,9 +23,16 @@ use axum_extra::{
 use openapi::{AggregatorApiDoc, DaemonApiDoc, PublisherApiDoc};
 use reqwest::StatusCode;
 use routes::{
-    BLOB_CONCAT_ENDPOINT, BLOB_GET_ENDPOINT, BLOB_OBJECT_GET_ENDPOINT, BLOB_PUT_ENDPOINT,
-    LIST_PATCHES_IN_QUILT_ENDPOINT, QUILT_PATCH_BY_ID_GET_ENDPOINT,
-    QUILT_PATCH_BY_IDENTIFIER_GET_ENDPOINT, QUILT_PUT_ENDPOINT, STATUS_ENDPOINT, daemon_cors_layer,
+    BLOB_CONCAT_ENDPOINT,
+    BLOB_GET_ENDPOINT,
+    BLOB_OBJECT_GET_ENDPOINT,
+    BLOB_PUT_ENDPOINT,
+    LIST_PATCHES_IN_QUILT_ENDPOINT,
+    QUILT_PATCH_BY_ID_GET_ENDPOINT,
+    QUILT_PATCH_BY_IDENTIFIER_GET_ENDPOINT,
+    QUILT_PUT_ENDPOINT,
+    STATUS_ENDPOINT,
+    daemon_cors_layer,
 };
 pub use routes::{PublisherQuery, QuiltPatchItem};
 use sui_types::base_types::ObjectID;
@@ -38,15 +46,21 @@ use tower_http::trace::TraceLayer;
 use utoipa::OpenApi;
 use utoipa_redoc::{Redoc, Servable};
 use walrus_core::{
-    BlobId, DEFAULT_ENCODING, EncodingType, EpochCount, QuiltPatchId,
+    BlobId,
+    DEFAULT_ENCODING,
+    EncodingType,
+    EpochCount,
+    QuiltPatchId,
     encoding::{
-        ConsistencyCheckType, Primary,
+        ConsistencyCheckType,
+        Primary,
         quilt_encoding::{QuiltStoreBlob, QuiltVersion},
     },
 };
 use walrus_sdk::{
     client::{
-        StoreArgs, WalrusNodeClient,
+        StoreArgs,
+        WalrusNodeClient,
         responses::{BlobStoreResult, QuiltStoreResult},
     },
     error::{ClientError, ClientResult},

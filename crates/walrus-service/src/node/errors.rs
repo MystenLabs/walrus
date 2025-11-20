@@ -12,14 +12,22 @@ use tracing::Span;
 use tracing_opentelemetry::OpenTelemetrySpanExt as _;
 use typed_store::TypedStoreError;
 use walrus_core::{
-    EncodingType, Epoch, SUPPORTED_ENCODING_TYPES, ShardIndex, encoding::SliverVerificationError,
-    inconsistency::InconsistencyVerificationError, messages::MessageVerificationError,
+    EncodingType,
+    Epoch,
+    SUPPORTED_ENCODING_TYPES,
+    ShardIndex,
+    encoding::SliverVerificationError,
+    inconsistency::InconsistencyVerificationError,
+    messages::MessageVerificationError,
     metadata::VerificationError,
 };
 use walrus_proc_macros::RestApiError;
 use walrus_storage_node_client::{
     api::errors::{
-        DebugInfo, GLOBAL_ERROR_DOMAIN, STORAGE_NODE_ERROR_DOMAIN as ERROR_DOMAIN, Status,
+        DebugInfo,
+        GLOBAL_ERROR_DOMAIN,
+        STORAGE_NODE_ERROR_DOMAIN as ERROR_DOMAIN,
+        Status,
         StatusCode as ApiStatusCode,
     },
     error::NodeError,

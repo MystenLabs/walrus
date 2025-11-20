@@ -18,14 +18,21 @@ use sui_types::{base_types::ObjectID, event::EventID};
 use tokio::time::Instant;
 use tracing::Level;
 use typed_store::{
-    Map, TypedStoreError,
+    Map,
+    TypedStoreError,
     rocks::{DBBatch, DBMap, ReadWriteOptions, RocksDB},
 };
 use walrus_core::{BlobId, Epoch};
 use walrus_storage_node_client::api::{BlobStatus, DeletableCounts, ManagedBlobCounts};
 use walrus_sui::types::{
-    BlobCertified, BlobDeleted, BlobEvent, BlobRegistered, InvalidBlobId, ManagedBlobCertified,
-    ManagedBlobDeleted, ManagedBlobRegistered,
+    BlobCertified,
+    BlobDeleted,
+    BlobEvent,
+    BlobRegistered,
+    InvalidBlobId,
+    ManagedBlobCertified,
+    ManagedBlobDeleted,
+    ManagedBlobRegistered,
 };
 
 use self::per_object_blob_info::PerObjectBlobInfoMergeOperand;
@@ -395,26 +402,25 @@ impl BlobInfoTable {
     }
 
     /// Returns the blob info for `blob_id`.
-    /// For managed blobs, the end_epoch field is populated by looking up all associated BlobManagers
-    /// and taking the maximum end_epoch.
+    /// For managed blobs, the end_epoch field is populated by looking up all associated
+    /// BlobManagers and taking the maximum end_epoch.
     pub fn get(&self, blob_id: &BlobId) -> Result<Option<BlobInfo>, TypedStoreError> {
         let mut blob_info = self.aggregate_blob_info.get(blob_id)?;
 
         // Populate end_epoch for managed blobs.
-        if let Some(BlobInfo::V2(BlobInfoV2::Valid(ref mut valid_info))) = blob_info {
-            if let Some(ref mut managed_info) = valid_info.managed_blob_info {
-                // Find the maximum end_epoch from all registered BlobManagers.
-                let mut max_end_epoch: Option<Epoch> = None;
-                for manager_id in &managed_info.registered {
-                    if let Some(manager_info) = self.blob_managers.get(manager_id)? {
-                        max_end_epoch =
-                            Some(max_end_epoch.map_or(manager_info.end_epoch, |current| {
-                                std::cmp::max(current, manager_info.end_epoch)
-                            }));
-                    }
+        if let Some(BlobInfo::V2(BlobInfoV2::Valid(ref mut valid_info))) = blob_info
+            && let Some(ref mut managed_info) = valid_info.managed_blob_info
+        {
+            // Find the maximum end_epoch from all registered BlobManagers.
+            let mut max_end_epoch: Option<Epoch> = None;
+            for manager_id in &managed_info.registered {
+                if let Some(manager_info) = self.blob_managers.get(manager_id)? {
+                    max_end_epoch = Some(max_end_epoch.map_or(manager_info.end_epoch, |current| {
+                        std::cmp::max(current, manager_info.end_epoch)
+                    }));
                 }
-                managed_info.end_epoch = max_end_epoch;
             }
+            managed_info.end_epoch = max_end_epoch;
         }
 
         Ok(blob_info)
@@ -1797,6 +1803,7 @@ impl Mergeable for BlobInfoV1 {
 
 /// BlobInfoV2 extends V1 with support for managed blobs.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[allow(clippy::large_enum_variant)]
 pub(crate) enum BlobInfoV2 {
     Invalid { epoch: Epoch, event: EventID },
     Valid(ValidBlobInfoV2),
@@ -2002,10 +2009,10 @@ impl BlobInfoApi for BlobInfoV2 {
             }) => {
                 // TODO: Check if managed blobs can be deleted.
                 // For now, if there are any managed blobs, consider it not deletable.
-                if let Some(managed_info) = managed_blob_info {
-                    if !managed_info.registered.is_empty() {
-                        return false;
-                    }
+                if let Some(managed_info) = managed_blob_info
+                    && !managed_info.registered.is_empty()
+                {
+                    return false;
                 }
                 // Otherwise, use V1 logic for regular blobs if it exists.
                 if let Some(regular_info) = regular_blob_info {
@@ -2056,8 +2063,6 @@ impl ManagedBlobInfo {
             registered: std::collections::HashSet::from([blob_manager_id]),
             registered_deletable_counts: if deletable { 1 } else { 0 },
             certified: std::collections::HashSet::new(),
-            // certified_deletable_counts should be 0 on registration,
-            // only increment on certification.
             certified_deletable_counts: 0,
             end_epoch: None,
         }
@@ -2166,8 +2171,13 @@ impl ManagedBlobInfo {
     }
 
     /// Returns true if any BlobManager has registered this blob.
-    /// TODO: Check if any BlobManager in registered is still valid at current_epoch.
-    fn is_registered(&self, _current_epoch: Epoch) -> bool {
+    fn is_registered(&self, current_epoch: Epoch) -> bool {
+        let Some(end_epoch) = self.end_epoch else {
+            return false;
+        };
+        if current_epoch >= end_epoch {
+            return false;
+        }
         !self.registered.is_empty()
     }
 }
@@ -2175,21 +2185,12 @@ impl ManagedBlobInfo {
 /// ValidBlobInfoV2 with separate tracking for regular blobs (V1) and managed blobs.
 /// This isolates the two types completely.
 /// At least one of regular_blob_info or managed_blob_info must be Some.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub(crate) struct ValidBlobInfoV2 {
     /// Information about regular blobs (V1-style with all V1 fields).
     pub regular_blob_info: Option<ValidBlobInfoV1>,
     /// Information about managed blobs (owned by BlobManagers).
     pub managed_blob_info: Option<ManagedBlobInfo>,
-}
-
-impl Default for ValidBlobInfoV2 {
-    fn default() -> Self {
-        Self {
-            regular_blob_info: None,
-            managed_blob_info: None,
-        }
-    }
 }
 
 impl From<ValidBlobInfoV1> for ValidBlobInfoV2 {
@@ -2211,9 +2212,10 @@ impl ValidBlobInfoV2 {
     }
 
     /// Check if this ValidBlobInfoV2 is effectively empty and can be removed.
+    #[allow(dead_code)]
     fn is_empty(&self) -> bool {
         // Check if regular_blob_info is empty or None
-        let regular_empty = self.regular_blob_info.as_ref().map_or(true, |info| {
+        let regular_empty = self.regular_blob_info.as_ref().is_none_or(|info| {
             info.count_deletable_total == 0
                 && info.count_deletable_certified == 0
                 && info.permanent_total.is_none()
@@ -2221,9 +2223,10 @@ impl ValidBlobInfoV2 {
         });
 
         // Check if managed_blob_info is empty or None
-        let managed_empty = self.managed_blob_info.as_ref().map_or(true, |info| {
-            info.registered.is_empty() && info.certified.is_empty()
-        });
+        let managed_empty = self
+            .managed_blob_info
+            .as_ref()
+            .is_none_or(|info| info.registered.is_empty() && info.certified.is_empty());
 
         regular_empty && managed_empty
     }
@@ -2282,16 +2285,14 @@ impl ValidBlobInfoV2 {
                 regular_info.update_status(change_type, change_info.clone());
 
                 // If Delete operation resulted in empty regular blob info, set it to None.
-                if matches!(change_type, BlobStatusChangeType::Delete { .. }) {
-                    if let Some(info) = &self.regular_blob_info {
-                        if info.count_deletable_total == 0
-                            && info.count_deletable_certified == 0
-                            && info.permanent_total.is_none()
-                            && info.permanent_certified.is_none()
-                        {
-                            self.regular_blob_info = None;
-                        }
-                    }
+                if matches!(change_type, BlobStatusChangeType::Delete { .. })
+                    && let Some(info) = &self.regular_blob_info
+                    && info.count_deletable_total == 0
+                    && info.count_deletable_certified == 0
+                    && info.permanent_total.is_none()
+                    && info.permanent_certified.is_none()
+                {
+                    self.regular_blob_info = None;
                 }
             }
         }
@@ -2309,6 +2310,7 @@ impl ValidBlobInfoV2 {
         // TODO: Query BlobManager objects to check which managed blobs are still
         // valid at current_epoch. For now, we count all registered/certified
         // managed blobs.
+        #[allow(clippy::cast_possible_truncation)]
         Some(ManagedBlobCounts {
             count_registered_total: managed_info.registered.len() as u32,
             count_certified_total: managed_info.certified.len() as u32,
@@ -2821,39 +2823,16 @@ mod per_object_blob_info {
             self.deletable
         }
 
-        fn is_registered(&self, _current_epoch: Epoch) -> bool {
+        fn is_registered(&self, current_epoch: Epoch) -> bool {
             // For managed blobs, validity is determined by the BlobManager's end_epoch.
-            // This is a fallback implementation that doesn't check BlobManager validity.
-            // Use is_registered_with_manager() for proper validation.
             !self.deleted
+                && self
+                    .end_epoch
+                    .is_some_and(|end_epoch| end_epoch > current_epoch)
         }
 
         fn is_deleted(&self) -> bool {
             self.deleted
-        }
-    }
-
-    impl PerObjectBlobInfoV2 {
-        pub(crate) fn is_registered_with_manager(&self, current_epoch: Epoch) -> bool {
-            // If the blob is deleted, it's not registered.
-            if self.deleted {
-                return false;
-            }
-
-            // Check if the BlobManager's end_epoch is valid.
-            // end_epoch should have been populated by get_per_object_info().
-            match self.end_epoch {
-                Some(end_epoch) => current_epoch < end_epoch,
-                None => {
-                    // BlobManager not found or end_epoch not populated, blob is not considered registered.
-                    tracing::warn!(
-                        "BlobManager end_epoch not found for blob {:?} (manager: {:?})",
-                        self.blob_id,
-                        self.blob_manager_id
-                    );
-                    false
-                }
-            }
         }
     }
 

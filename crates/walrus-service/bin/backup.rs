@@ -8,8 +8,11 @@ use std::path::PathBuf;
 use clap::{Parser, Subcommand};
 use walrus_service::{
     backup::{
-        BackupConfig, run_backup_database_migrations, start_backup_fetcher,
-        start_backup_garbage_collector, start_backup_orchestrator,
+        BackupConfig,
+        run_backup_database_migrations,
+        start_backup_fetcher,
+        start_backup_garbage_collector,
+        start_backup_orchestrator,
     },
     common::utils::MetricsAndLoggingRuntime,
 };

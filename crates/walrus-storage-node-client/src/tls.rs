@@ -13,7 +13,8 @@ use std::{
 
 use p256::elliptic_curve::ALGORITHM_OID;
 use rustls::{
-    DigitallySignedStruct, RootCertStore,
+    DigitallySignedStruct,
+    RootCertStore,
     client::{
         WebPkiServerVerifier,
         danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier},
@@ -25,7 +26,9 @@ use x509_cert::{
     Version,
     certificate::{Certificate as X509Certificate, TbsCertificateInner},
     der::{
-        Decode, Encode, EncodePem as _,
+        Decode,
+        Encode,
+        EncodePem as _,
         asn1::{BitString, GeneralizedTime, Ia5String},
         pem::LineEnding,
     },

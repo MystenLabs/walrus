@@ -6,7 +6,11 @@
 use fastcrypto::hash::{HashFunction as _, Sha256};
 use sui_sdk::rpc_types::SuiTransactionBlockResponse;
 use sui_types::transaction::{
-    CallArg, SenderSignedData, TransactionData, TransactionDataV1, TransactionKind,
+    CallArg,
+    SenderSignedData,
+    TransactionData,
+    TransactionDataV1,
+    TransactionKind,
 };
 use walrus_sdk::{
     core::ensure,

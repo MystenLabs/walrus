@@ -8,5 +8,8 @@ pub(crate) mod node;
 
 pub use factory::NodeCommunicationFactory;
 pub(crate) use node::{
-    NodeCommunication, NodeReadCommunication, NodeResult, NodeWriteCommunication,
+    NodeCommunication,
+    NodeReadCommunication,
+    NodeResult,
+    NodeWriteCommunication,
 };

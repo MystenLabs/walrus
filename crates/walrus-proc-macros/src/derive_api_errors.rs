@@ -5,7 +5,11 @@
 //! See the [`crate::derive_rest_api_error`] for more details.
 
 use darling::{
-    Error, FromDeriveInput, FromMeta, FromVariant, Result,
+    Error,
+    FromDeriveInput,
+    FromMeta,
+    FromVariant,
+    Result,
     ast::{self, Data, Style},
     util::{Flag, Ignored, SpannedValue},
 };

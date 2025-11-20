@@ -6,11 +6,14 @@ use std::{path::Path, sync::Arc};
 
 use anyhow::Result;
 use sui_types::{
-    base_types::ObjectID, committee::Committee, messages_checkpoint::TrustedCheckpoint,
+    base_types::ObjectID,
+    committee::Committee,
+    messages_checkpoint::TrustedCheckpoint,
     object::Object,
 };
 use typed_store::{
-    Map, TypedStoreError,
+    Map,
+    TypedStoreError,
     rocks::{self, DBMap, MetricConf, ReadWriteOptions, RocksDB},
 };
 

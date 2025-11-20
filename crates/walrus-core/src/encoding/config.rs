@@ -7,13 +7,27 @@ use core::num::{NonZeroU16, NonZeroU32};
 use enum_dispatch::enum_dispatch;
 
 use super::{
-    BlobDecoder, BlobEncoder, DataTooLargeError, DecodingSymbol, EncodeError, EncodingAxis,
-    ReedSolomonDecoder, ReedSolomonEncoder, SliverPair, basic_encoding::Decoder as _, utils,
+    BlobDecoder,
+    BlobEncoder,
+    DataTooLargeError,
+    DecodingSymbol,
+    EncodeError,
+    EncodingAxis,
+    ReedSolomonDecoder,
+    ReedSolomonEncoder,
+    SliverPair,
+    basic_encoding::Decoder as _,
+    utils,
 };
 use crate::{
-    BlobId, EncodingType, bft,
+    BlobId,
+    EncodingType,
+    bft,
     encoding::{
-        DecodeError, SliverData, Symbols, blob_encoding::OwnedOrBorrowedBlob,
+        DecodeError,
+        SliverData,
+        Symbols,
+        blob_encoding::OwnedOrBorrowedBlob,
         common::ConsistencyCheckType,
     },
     merkle::DIGEST_LEN,

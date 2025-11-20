@@ -6,12 +6,16 @@ use std::{panic::Location, pin::Pin, sync::Arc, time::Duration};
 
 use anyhow::{Context, Result, bail};
 use diesel::{
-    Connection as _, QueryableByName,
+    Connection as _,
+    QueryableByName,
     result::{DatabaseErrorKind, Error},
     sql_types::{Bytea, Int4, Int8, Text},
 };
 use diesel_async::{
-    AsyncConnection as _, AsyncPgConnection, RunQueryDsl as _, scoped_futures::ScopedFutureExt,
+    AsyncConnection as _,
+    AsyncPgConnection,
+    RunQueryDsl as _,
+    scoped_futures::ScopedFutureExt,
 };
 use diesel_migrations::{EmbeddedMigrations, MigrationHarness, embed_migrations};
 use futures::{StreamExt, stream};

@@ -17,7 +17,8 @@ use std::{
 use anyhow::{anyhow, bail};
 use bimap::BiMap;
 use futures::{
-    Future, FutureExt,
+    Future,
+    FutureExt,
     future::{Either, select},
 };
 use indicatif::MultiProgress;
@@ -27,10 +28,24 @@ use sui_types::base_types::ObjectID;
 use tokio::{sync::Semaphore, time::Duration};
 use tracing::{Instrument as _, Level};
 use walrus_core::{
-    BlobId, DEFAULT_ENCODING, EncodingType, Epoch, ShardIndex, Sliver, SliverIndex, bft,
+    BlobId,
+    DEFAULT_ENCODING,
+    EncodingType,
+    Epoch,
+    ShardIndex,
+    Sliver,
+    SliverIndex,
+    bft,
     encoding::{
-        ConsistencyCheckType, DecodeError, EncodingAxis, EncodingConfig, EncodingConfigEnum,
-        EncodingFactory as _, RequiredCount, SliverData, SliverPair,
+        ConsistencyCheckType,
+        DecodeError,
+        EncodingAxis,
+        EncodingConfig,
+        EncodingConfigEnum,
+        EncodingFactory as _,
+        RequiredCount,
+        SliverData,
+        SliverPair,
     },
     ensure,
     messages::{BlobPersistenceType, ConfirmationCertificate, SignedStorageConfirmation},
@@ -40,7 +55,9 @@ use walrus_storage_node_client::api::BlobStatus;
 use walrus_sui::{
     client::{CertifyAndExtendBlobResult, ExpirySelectionPolicy, ReadClient, SuiContractClient},
     types::{
-        Blob, BlobEvent, StakedWal,
+        Blob,
+        BlobEvent,
+        StakedWal,
         move_structs::{BlobAttribute, BlobWithAttribute},
     },
 };
@@ -51,9 +68,16 @@ use crate::{
     client::{
         auto_tune::AutoTuneHandle,
         client_types::{
-            BlobAwaitingUpload, BlobData, BlobPendingCertifyAndExtend, BlobWithStatus, EncodedBlob,
-            UnencodedBlob, WalrusStoreBlobFinished, WalrusStoreBlobMaybeFinished,
-            WalrusStoreBlobUnfinished, WalrusStoreEncodedBlobApi as _,
+            BlobAwaitingUpload,
+            BlobData,
+            BlobPendingCertifyAndExtend,
+            BlobWithStatus,
+            EncodedBlob,
+            UnencodedBlob,
+            WalrusStoreBlobFinished,
+            WalrusStoreBlobMaybeFinished,
+            WalrusStoreBlobUnfinished,
+            WalrusStoreEncodedBlobApi as _,
         },
         communication::NodeResult,
         quilt_client::QuiltClient,
@@ -66,7 +90,11 @@ use crate::{
     error::{ClientError, ClientErrorKind, ClientResult, StoreError},
     uploader::{DistributedUploader, RunOutput, TailHandling, UploaderEvent},
     utils::{
-        self, CompletedReasonWeight, WeightedFutures, WeightedResult, styled_progress_bar,
+        self,
+        CompletedReasonWeight,
+        WeightedFutures,
+        WeightedResult,
+        styled_progress_bar,
         styled_spinner,
     },
 };

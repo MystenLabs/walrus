@@ -6,7 +6,8 @@
 use serde::{Deserialize, Serialize};
 
 use crate::config::communication_config::{
-    ClientCommunicationConfig, UploadMode as CommunicationUploadMode,
+    ClientCommunicationConfig,
+    UploadMode as CommunicationUploadMode,
 };
 
 /// Upload preset modes for tuning client concurrency and network usage.

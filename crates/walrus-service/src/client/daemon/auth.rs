@@ -5,7 +5,9 @@ use axum::{body::Body, extract::Query, http::Response};
 use axum_extra::headers::{Authorization, authorization::Bearer};
 use chrono::DateTime;
 use jsonwebtoken::{
-    DecodingKey, Validation, decode,
+    DecodingKey,
+    Validation,
+    decode,
     errors::{Error as JwtError, ErrorKind as JwtErrorKind},
 };
 use serde::{Deserialize, Serialize};

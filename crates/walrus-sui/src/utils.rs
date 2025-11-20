@@ -4,7 +4,12 @@
 //! Helper functions for the crate.
 
 use std::{
-    collections::HashSet, future::Future, num::NonZeroU16, path::Path, str::FromStr, time::Duration,
+    collections::HashSet,
+    future::Future,
+    num::NonZeroU16,
+    path::Path,
+    str::FromStr,
+    time::Duration,
 };
 
 use anyhow::{Result, anyhow};
@@ -13,7 +18,11 @@ use move_package::{BuildConfig as MoveBuildConfig, source_package::layout::Sourc
 use serde::{Deserialize, Serialize};
 use sui_config::{Config, SUI_KEYSTORE_FILENAME, sui_config_dir};
 use sui_keys::keystore::{
-    AccountKeystore as _, FileBasedKeystore, GenerateOptions, GeneratedKey, Keystore,
+    AccountKeystore as _,
+    FileBasedKeystore,
+    GenerateOptions,
+    GeneratedKey,
+    Keystore,
 };
 use sui_sdk::{
     rpc_types::{ObjectChange, Page, SuiObjectResponse, SuiTransactionBlockResponse},
@@ -21,11 +30,14 @@ use sui_sdk::{
     types::base_types::ObjectID,
 };
 use sui_types::{
-    base_types::SuiAddress, programmable_transaction_builder::ProgrammableTransactionBuilder,
+    base_types::SuiAddress,
+    programmable_transaction_builder::ProgrammableTransactionBuilder,
     transaction::TransactionData,
 };
 use walrus_core::{
-    EncodingType, Epoch, EpochCount,
+    EncodingType,
+    Epoch,
+    EpochCount,
     encoding::encoded_blob_length_for_n_shards,
     keys::ProtocolKeyPair,
     messages::{ProofOfPossessionMsg, SignedMessage},

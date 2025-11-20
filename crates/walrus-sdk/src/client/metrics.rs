@@ -6,8 +6,13 @@
 use std::time::Duration;
 
 use prometheus::{
-    CounterVec, Histogram, HistogramVec, IntCounter, register_counter_vec_with_registry,
-    register_histogram_vec_with_registry, register_histogram_with_registry,
+    CounterVec,
+    Histogram,
+    HistogramVec,
+    IntCounter,
+    register_counter_vec_with_registry,
+    register_histogram_vec_with_registry,
+    register_histogram_with_registry,
     register_int_counter_with_registry,
 };
 use walrus_utils::metrics::Registry;

@@ -8,7 +8,9 @@ use std::{
 };
 
 use futures::{
-    FutureExt as _, StreamExt, TryFutureExt,
+    FutureExt as _,
+    StreamExt,
+    TryFutureExt,
     future::{self, try_join_all},
     stream,
 };
@@ -23,7 +25,10 @@ use tokio_util::sync::CancellationToken;
 use tracing::{Instrument as _, Span, field};
 use typed_store::TypedStoreError;
 use walrus_core::{
-    BlobId, Epoch, InconsistencyProof, ShardIndex,
+    BlobId,
+    Epoch,
+    InconsistencyProof,
+    ShardIndex,
     encoding::{EncodingAxis, EncodingConfig, Primary, Secondary},
     metadata::VerifiedBlobMetadataWithId,
 };

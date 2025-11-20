@@ -13,7 +13,8 @@ use fastcrypto::{
 };
 use p256::pkcs8::{self, DecodePrivateKey, EncodePrivateKey, der::zeroize::Zeroizing};
 use serde::{
-    Deserialize, Serialize,
+    Deserialize,
+    Serialize,
     de::{Error, SeqAccess, Unexpected, Visitor},
     ser::SerializeTuple,
 };

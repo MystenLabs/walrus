@@ -2,7 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use diesel::{
-    ExpressionMethods, Insertable, OptionalExtension, QueryDsl, Queryable, QueryableByName,
+    ExpressionMethods,
+    Insertable,
+    OptionalExtension,
+    QueryDsl,
+    Queryable,
+    QueryableByName,
     Selectable,
 };
 use diesel_async::{AsyncPgConnection, RunQueryDsl};

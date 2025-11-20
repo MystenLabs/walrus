@@ -5,7 +5,9 @@
 use anyhow::{Result, anyhow};
 use sui_sdk::rpc_types::{SuiObjectDataOptions, SuiTransactionBlockResponseOptions};
 use sui_types::{
-    base_types::ObjectID, committee::Committee, messages_checkpoint::VerifiedCheckpoint,
+    base_types::ObjectID,
+    committee::Committee,
+    messages_checkpoint::VerifiedCheckpoint,
     sui_serde::BigInt,
 };
 use walrus_sui::client::retry_client::{RetriableRpcClient, RetriableSuiClient};

@@ -3,7 +3,11 @@
 
 use walrus_core::{EpochSchema, SliverPairIndex, SliverType, SymbolId, messages::SignedMessage};
 use walrus_storage_node_client::api::{
-    ServiceHealthInfo, ShardHealthInfo, ShardStatus, ShardStatusDetail, ShardStatusSummary,
+    ServiceHealthInfo,
+    ShardHealthInfo,
+    ShardStatus,
+    ShardStatusDetail,
+    ShardStatusSummary,
     errors::Status,
 };
 use walrus_sui::{EventIdSchema, ObjectIdSchema};

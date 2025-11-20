@@ -7,7 +7,10 @@ use std::{collections::HashMap, sync::Arc};
 use anyhow::Result;
 use move_core_types::account_address::AccountAddress;
 use sui_package_resolver::{
-    Package, PackageStore, PackageStoreWithLruCache, error::Error as PackageResolverError,
+    Package,
+    PackageStore,
+    PackageStoreWithLruCache,
+    error::Error as PackageResolverError,
 };
 use sui_types::{
     base_types::ObjectID,

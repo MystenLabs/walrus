@@ -14,7 +14,8 @@ use itertools::Itertools as _;
 use prettytable::{Table, format, row};
 use serde::Serialize;
 use walrus_core::{
-    BlobId, ShardIndex,
+    BlobId,
+    ShardIndex,
     metadata::{QuiltMetadata, QuiltMetadataV1},
 };
 use walrus_sdk::{
@@ -30,16 +31,44 @@ use walrus_sui::types::Blob;
 
 use crate::client::{
     cli::{
-        HumanReadableBytes, HumanReadableFrost, HumanReadableMist, WalrusColors, error, success,
-        thousands_separator, warning,
+        HumanReadableBytes,
+        HumanReadableFrost,
+        HumanReadableMist,
+        WalrusColors,
+        error,
+        success,
+        thousands_separator,
+        warning,
     },
     responses::{
-        BlobIdConversionOutput, BlobIdOutput, BlobStatusOutput, DeleteOutput, DryRunOutput,
-        EncodingDependentPriceInfo, EpochTimeOrMessage, ExampleBlobInfo, ExchangeOutput,
-        ExtendBlobOutput, FundSharedBlobOutput, GetBlobAttributeOutput, InfoBftOutput,
-        InfoCommitteeOutput, InfoEpochOutput, InfoOutput, InfoPriceOutput, InfoSizeOutput,
-        InfoStorageOutput, NodeHealthOutput, ReadOutput, ReadQuiltOutput, ServiceHealthInfoOutput,
-        ShareBlobOutput, StakeOutput, StorageNodeInfo, StoreQuiltDryRunOutput, WalletOutput,
+        BlobIdConversionOutput,
+        BlobIdOutput,
+        BlobStatusOutput,
+        DeleteOutput,
+        DryRunOutput,
+        EncodingDependentPriceInfo,
+        EpochTimeOrMessage,
+        ExampleBlobInfo,
+        ExchangeOutput,
+        ExtendBlobOutput,
+        FundSharedBlobOutput,
+        GetBlobAttributeOutput,
+        InfoBftOutput,
+        InfoCommitteeOutput,
+        InfoEpochOutput,
+        InfoOutput,
+        InfoPriceOutput,
+        InfoSizeOutput,
+        InfoStorageOutput,
+        NodeHealthOutput,
+        ReadOutput,
+        ReadQuiltOutput,
+        ServiceHealthInfoOutput,
+        ShareBlobOutput,
+        StakeOutput,
+        StorageNodeInfo,
+        StoreQuiltDryRunOutput,
+        WalletOutput,
     },
 };
 

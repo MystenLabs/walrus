@@ -17,17 +17,26 @@ use anyhow::{Context, anyhow};
 use p256::pkcs8::DecodePrivateKey;
 use serde::{Deserialize, Serialize};
 use serde_with::{
-    DeserializeAs, DurationSeconds, SerializeAs, base64::Base64, de::DeserializeAsWrap,
-    ser::SerializeAsWrap, serde_as,
+    DeserializeAs,
+    DurationSeconds,
+    SerializeAs,
+    base64::Base64,
+    de::DeserializeAsWrap,
+    ser::SerializeAsWrap,
+    serde_as,
 };
 use sui_types::base_types::{ObjectID, SuiAddress};
 use walrus_core::{
-    Epoch, NetworkPublicKey, PublicKey,
+    Epoch,
+    NetworkPublicKey,
+    PublicKey,
     keys::{KeyPairParseError, NetworkKeyPair, ProtocolKeyPair},
     messages::ProofOfPossession,
 };
 use walrus_sui::types::{
-    NetworkAddress, NodeRegistrationParams, NodeUpdateParams,
+    NetworkAddress,
+    NodeRegistrationParams,
+    NodeUpdateParams,
     move_structs::{NodeMetadata, VotingParams},
 };
 

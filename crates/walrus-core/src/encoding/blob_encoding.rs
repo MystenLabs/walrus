@@ -8,11 +8,22 @@ use fastcrypto::hash::Blake2b256;
 use tracing::{Level, Span};
 
 use super::{
-    DataTooLargeError, DecodeError, DecodingSymbol, EncodingAxis, EncodingConfigEnum, Primary,
-    Secondary, SliverData, SliverPair, Symbols, basic_encoding::Decoder, utils,
+    DataTooLargeError,
+    DecodeError,
+    DecodingSymbol,
+    EncodingAxis,
+    EncodingConfigEnum,
+    Primary,
+    Secondary,
+    SliverData,
+    SliverPair,
+    Symbols,
+    basic_encoding::Decoder,
+    utils,
 };
 use crate::{
-    SliverIndex, SliverPairIndex,
+    SliverIndex,
+    SliverPairIndex,
     encoding::{ReedSolomonEncoder, config::EncodingFactory as _},
     ensure,
     merkle::{MerkleTree, Node, leaf_hash},

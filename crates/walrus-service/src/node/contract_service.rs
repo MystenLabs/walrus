@@ -20,11 +20,18 @@ use tracing::Instrument as _;
 use walrus_core::{Epoch, PublicKey, messages::InvalidBlobCertificate};
 use walrus_sui::{
     client::{
-        BlobObjectMetadata, CoinType, FixedSystemParameters, ReadClient, SuiClientError,
-        SuiClientMetricSet, SuiContractClient, SuiReadClient,
+        BlobObjectMetadata,
+        CoinType,
+        FixedSystemParameters,
+        ReadClient,
+        SuiClientError,
+        SuiClientMetricSet,
+        SuiContractClient,
+        SuiReadClient,
     },
     types::{
-        StorageNodeCap, UpdatePublicKeyParams,
+        StorageNodeCap,
+        UpdatePublicKeyParams,
         move_errors::{MoveExecutionError, StakingInnerError},
         move_structs::{EpochState, EventBlob},
     },

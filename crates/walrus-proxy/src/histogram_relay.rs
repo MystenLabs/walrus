@@ -11,7 +11,10 @@ use anyhow::{Result, bail};
 use axum::{Router, extract::Extension, http::StatusCode, routing::get};
 use once_cell::sync::Lazy;
 use prometheus::{
-    CounterVec, HistogramOpts, HistogramVec, Opts,
+    CounterVec,
+    HistogramOpts,
+    HistogramVec,
+    Opts,
     proto::{Metric, MetricFamily},
 };
 use tower::ServiceBuilder;

@@ -11,7 +11,12 @@ use super::{DecodingSymbol, EncodingAxis, EncodingFactory};
 use crate::{
     EncodingType,
     encoding::{
-        DecodeError, EncodeError, InvalidDataSizeError, ReedSolomonEncodingConfig, Symbols, utils,
+        DecodeError,
+        EncodeError,
+        InvalidDataSizeError,
+        ReedSolomonEncodingConfig,
+        Symbols,
+        utils,
     },
 };
 

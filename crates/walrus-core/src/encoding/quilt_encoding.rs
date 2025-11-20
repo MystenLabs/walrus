@@ -30,14 +30,20 @@ use tracing::{Level, Span};
 
 use super::{EncodingConfigEnum, Primary, Secondary, SliverData, SliverPair};
 use crate::{
-    EncodingType, SliverIndex,
+    EncodingType,
+    SliverIndex,
     encoding::{
-        EncodingAxis, QuiltError,
+        EncodingAxis,
+        QuiltError,
         blob_encoding::{BlobEncoder, OwnedOrBorrowedBlob},
         config::EncodingFactory as _,
     },
     metadata::{
-        QuiltIndex, QuiltIndexV1, QuiltMetadata, QuiltMetadataV1, QuiltPatchInternalIdV1,
+        QuiltIndex,
+        QuiltIndexV1,
+        QuiltMetadata,
+        QuiltMetadataV1,
+        QuiltPatchInternalIdV1,
         QuiltPatchV1,
     },
 };

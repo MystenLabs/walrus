@@ -302,14 +302,20 @@ mod commands {
     use walrus_service::{
         client::cli::{HumanReadableFrost, success},
         testbed::{
-            DeployTestbedContractParameters, TestbedConfig, create_backup_config,
-            create_client_config, create_storage_node_configs, deploy_walrus_contract,
+            DeployTestbedContractParameters,
+            TestbedConfig,
+            create_backup_config,
+            create_client_config,
+            create_storage_node_configs,
+            deploy_walrus_contract,
         },
         utils,
     };
     use walrus_sui::{
         client::{
-            SuiContractClient, UpgradeType, contract_config::ContractConfig,
+            SuiContractClient,
+            UpgradeType,
+            contract_config::ContractConfig,
             transaction_builder::WalrusPtbBuilder,
         },
         config::load_wallet_context_from_path,

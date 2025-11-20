@@ -10,7 +10,9 @@ use alloc::vec::Vec;
 use core::{fmt::Debug, marker::PhantomData};
 
 use fastcrypto::{
-    bls12381::min_pk::BLS12381Signature, error::FastCryptoError, traits::VerifyingKey,
+    bls12381::min_pk::BLS12381Signature,
+    error::FastCryptoError,
+    traits::VerifyingKey,
 };
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
@@ -19,7 +21,10 @@ pub use proof_of_possession::{ProofOfPossession, ProofOfPossessionBody, ProofOfP
 
 mod storage_confirmation;
 pub use storage_confirmation::{
-    BlobPersistenceType, Confirmation, SignedStorageConfirmation, StorageConfirmation,
+    BlobPersistenceType,
+    Confirmation,
+    SignedStorageConfirmation,
+    StorageConfirmation,
 };
 
 mod invalid_blob_id;
@@ -30,7 +35,10 @@ pub use sync_shard::{SignedSyncShardRequest, SyncShardMsg, SyncShardRequest, Syn
 
 mod certificate;
 pub use certificate::{
-    CertificateError, ConfirmationCertificate, InvalidBlobCertificate, ProtocolMessageCertificate,
+    CertificateError,
+    ConfirmationCertificate,
+    InvalidBlobCertificate,
+    ProtocolMessageCertificate,
 };
 
 use crate::{Epoch, PublicKey, ensure, wrapped_uint};
@@ -238,7 +246,8 @@ mod tests {
 
     use super::*;
     use crate::{
-        BlobId, Epoch,
+        BlobId,
+        Epoch,
         messages::{IntentAppId, IntentVersion},
     };
 

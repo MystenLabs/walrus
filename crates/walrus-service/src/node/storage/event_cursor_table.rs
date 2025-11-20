@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::sync::{
-    Arc, Mutex,
+    Arc,
+    Mutex,
     atomic::{AtomicU64, Ordering},
 };
 
@@ -11,7 +12,8 @@ use serde::{Deserialize, Serialize};
 use sui_types::event::EventID;
 use tracing::Level;
 use typed_store::{
-    Map, TypedStoreError,
+    Map,
+    TypedStoreError,
     rocks::{DBMap, ReadWriteOptions, RocksDB},
 };
 

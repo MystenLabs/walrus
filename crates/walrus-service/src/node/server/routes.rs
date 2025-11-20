@@ -13,10 +13,19 @@ use sui_types::base_types::ObjectID;
 use tokio::sync::{Semaphore, SemaphorePermit, TryAcquireError};
 use tracing::Level;
 use walrus_core::{
-    BlobId, InconsistencyProof, Sliver, SliverIndex, SliverPairIndex, SliverType, SymbolId,
+    BlobId,
+    InconsistencyProof,
+    Sliver,
+    SliverIndex,
+    SliverPairIndex,
+    SliverType,
+    SymbolId,
     encoding::{GeneralRecoverySymbol, Primary as PrimaryEncoding, Secondary as SecondaryEncoding},
     messages::{
-        BlobPersistenceType, InvalidBlobIdAttestation, SignedMessage, SignedSyncShardRequest,
+        BlobPersistenceType,
+        InvalidBlobIdAttestation,
+        SignedMessage,
+        SignedSyncShardRequest,
         StorageConfirmation,
     },
     metadata::{BlobMetadata, UnverifiedBlobMetadataWithId, VerifiedBlobMetadataWithId},
@@ -36,9 +45,16 @@ use super::{
 use crate::{
     common::api::{ApiSuccess, BlobIdString},
     node::{
-        BlobStatusError, ComputeStorageConfirmationError, InconsistencyProofError,
-        RetrieveMetadataError, RetrieveSliverError, RetrieveSymbolError, ServiceState,
-        StoreMetadataError, StoreSliverError, SyncShardServiceError,
+        BlobStatusError,
+        ComputeStorageConfirmationError,
+        InconsistencyProofError,
+        RetrieveMetadataError,
+        RetrieveSliverError,
+        RetrieveSymbolError,
+        ServiceState,
+        StoreMetadataError,
+        StoreSliverError,
+        SyncShardServiceError,
         errors::{ListSymbolsError, Unavailable},
     },
 };
@@ -379,7 +395,11 @@ pub async fn get_deletable_blob_confirmation<S: SyncServiceState>(
 /// to this storage node for the current epoch have stored their respective slivers.
 #[tracing::instrument(
     skip_all,
-    fields(walrus.blob_id = %blob_id_string.0, walrus.manager_id = %manager_id, walrus.deletable = %deletable),
+    fields(
+        walrus.blob_id = %blob_id_string.0,
+        walrus.manager_id = %manager_id,
+        walrus.deletable = %deletable
+    ),
     err(level = Level::DEBUG)
 )]
 #[utoipa::path(

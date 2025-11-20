@@ -17,11 +17,21 @@ use rand::{
 use tokio::time;
 use tower::{ServiceExt as _, util::BoxCloneService};
 use walrus_core::{
-    DEFAULT_ENCODING, Epoch, InconsistencyProof, PublicKey, SliverIndex, SliverPairIndex,
-    SliverType, bft,
+    DEFAULT_ENCODING,
+    Epoch,
+    InconsistencyProof,
+    PublicKey,
+    SliverIndex,
+    SliverPairIndex,
+    SliverType,
+    bft,
     encoding::{
-        EncodingConfig, EncodingFactory as _, GeneralRecoverySymbol, Primary,
-        PrimaryRecoverySymbol, RequiredCount,
+        EncodingConfig,
+        EncodingFactory as _,
+        GeneralRecoverySymbol,
+        Primary,
+        PrimaryRecoverySymbol,
+        RequiredCount,
     },
     inconsistency::PrimaryInconsistencyProof,
     keys::ProtocolKeyPair,
@@ -38,7 +48,9 @@ use crate::{
     node::{
         self,
         committee::{
-            CommitteeLookupService, CommitteeService, NodeServiceFactory,
+            CommitteeLookupService,
+            CommitteeService,
+            NodeServiceFactory,
             committee_service::NodeCommitteeService,
             node_service::{NodeServiceError, Request, Response},
         },

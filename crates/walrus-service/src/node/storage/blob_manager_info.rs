@@ -82,16 +82,19 @@ impl BlobManagerTable {
     }
 
     /// Removes a BlobManager from the table.
+    #[allow(dead_code)]
     pub fn remove(&self, manager_id: &ObjectID) -> Result<(), TypedStoreError> {
         self.blob_managers.remove(manager_id)
     }
 
     /// Checks if a BlobManager exists.
+    #[allow(dead_code)]
     pub fn contains(&self, manager_id: &ObjectID) -> Result<bool, TypedStoreError> {
         self.blob_managers.contains_key(manager_id)
     }
 
     /// Returns the number of BlobManagers stored.
+    #[allow(dead_code)]
     pub fn count(&self) -> Result<usize, TypedStoreError> {
         Ok(self.blob_managers.safe_iter()?.count())
     }

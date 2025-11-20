@@ -13,9 +13,15 @@ use aws_sdk_ec2::{
     meta::PKG_VERSION,
     primitives::Blob,
     types::{
-        EphemeralNvmeSupport, Instance as AwsInstance, ResourceType, VolumeType,
+        EphemeralNvmeSupport,
+        Instance as AwsInstance,
+        ResourceType,
+        VolumeType,
         builders::{
-            BlockDeviceMappingBuilder, EbsBlockDeviceBuilder, FilterBuilder, TagBuilder,
+            BlockDeviceMappingBuilder,
+            EbsBlockDeviceBuilder,
+            FilterBuilder,
+            TagBuilder,
             TagSpecificationBuilder,
         },
     },

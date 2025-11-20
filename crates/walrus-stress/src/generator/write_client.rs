@@ -10,12 +10,20 @@ use indicatif::MultiProgress;
 use rand::{SeedableRng, rngs::StdRng, thread_rng};
 use sui_sdk::types::base_types::SuiAddress;
 use walrus_core::{
-    BlobId, DEFAULT_ENCODING, EpochCount, SliverPairIndex, encoding::EncodingFactory as _,
-    merkle::Node, metadata::VerifiedBlobMetadataWithId,
+    BlobId,
+    DEFAULT_ENCODING,
+    EpochCount,
+    SliverPairIndex,
+    encoding::EncodingFactory as _,
+    merkle::Node,
+    metadata::VerifiedBlobMetadataWithId,
 };
 use walrus_sdk::{
     client::{
-        StoreArgs, WalrusNodeClient, metrics::ClientMetrics, refresh::CommitteesRefresherHandle,
+        StoreArgs,
+        WalrusNodeClient,
+        metrics::ClientMetrics,
+        refresh::CommitteesRefresherHandle,
     },
     error::ClientError,
     store_optimizations::StoreOptimizations,
@@ -24,7 +32,10 @@ use walrus_sdk::{
 use walrus_service::client::{ClientConfig, Refiller};
 use walrus_sui::{
     client::{
-        BlobPersistence, PostStoreAction, ReadClient, SuiContractClient,
+        BlobPersistence,
+        PostStoreAction,
+        ReadClient,
+        SuiContractClient,
         retry_client::{RetriableSuiClient, retriable_sui_client::LazySuiClientBuilder},
     },
     test_utils::temp_dir_wallet,

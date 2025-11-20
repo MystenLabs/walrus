@@ -20,18 +20,26 @@ use rocksdb::Options;
 use serde::{Deserialize, Serialize};
 use sui_types::{event::EventID, messages_checkpoint::CheckpointSequenceNumber};
 use typed_store::{
-    Map, rocks,
+    Map,
+    rocks,
     rocks::{DBBatch, DBMap, MetricConf, ReadWriteOptions, errors::typed_store_err_from_rocks_err},
 };
 use walrus_core::{
-    BlobId, DEFAULT_ENCODING, Epoch, Sliver, encoding::EncodingFactory as _, ensure,
+    BlobId,
+    DEFAULT_ENCODING,
+    Epoch,
+    Sliver,
+    encoding::EncodingFactory as _,
+    ensure,
     metadata::VerifiedBlobMetadataWithId,
 };
 use walrus_sdk::active_committees::ActiveCommittees;
 use walrus_sui::{
     client::SuiClientError,
     types::{
-        BlobEvent, ContractEvent, EpochChangeEvent,
+        BlobEvent,
+        ContractEvent,
+        EpochChangeEvent,
         move_errors::{MoveExecutionError, SystemStateInnerError},
         move_structs::EventBlob as SuiEventBlob,
     },
@@ -44,7 +52,10 @@ use crate::{
         event_blob::{BlobEntry, EntryEncoding, EventBlob, SerializedEventID},
         event_blob_downloader::{EventBlobWithMetadata, LastCertifiedEventBlob},
         events::{
-            EventStreamCursor, EventStreamElement, IndexedStreamEvent, InitState,
+            EventStreamCursor,
+            EventStreamElement,
+            IndexedStreamEvent,
+            InitState,
             PositionedStreamEvent,
         },
     },

@@ -21,7 +21,8 @@ use typed_store::{
     rocks::MetricConf,
 };
 use walrus_core::{
-    BlobId, QuiltPatchId,
+    BlobId,
+    QuiltPatchId,
     encoding::quilt_encoding::{QuiltIndexApi, QuiltPatchApi, QuiltPatchInternalIdApi},
     metadata::QuiltIndex,
 };

@@ -17,12 +17,23 @@ use serde::Serialize;
 use serde_with::{DisplayFromStr, base64::Base64, serde_as};
 use sui_types::base_types::{ObjectID, SuiAddress};
 use walrus_core::{
-    BlobId, DEFAULT_ENCODING, EncodingType, Epoch, EpochCount, NetworkPublicKey, PublicKey,
-    ShardIndex, bft,
+    BlobId,
+    DEFAULT_ENCODING,
+    EncodingType,
+    Epoch,
+    EpochCount,
+    NetworkPublicKey,
+    PublicKey,
+    ShardIndex,
+    bft,
     encoding::{
-        encoded_blob_length_for_n_shards, encoded_slivers_length_for_n_shards,
-        max_blob_size_for_n_shards, max_sliver_size_for_n_secondary, metadata_length_for_n_shards,
-        quilt_encoding::QuiltStoreBlob, source_symbols_for_n_shards,
+        encoded_blob_length_for_n_shards,
+        encoded_slivers_length_for_n_shards,
+        max_blob_size_for_n_shards,
+        max_sliver_size_for_n_secondary,
+        metadata_length_for_n_shards,
+        quilt_encoding::QuiltStoreBlob,
+        source_symbols_for_n_shards,
     },
     metadata::{BlobMetadataApi as _, QuiltIndex, VerifiedBlobMetadataWithId},
 };
@@ -31,14 +42,18 @@ use walrus_sdk::{
     sui::{
         client::ReadClient,
         types::{
-            Committee, NetworkAddress, StakedWal, StorageNode,
+            Committee,
+            NetworkAddress,
+            StakedWal,
+            StorageNode,
             move_structs::{Blob, BlobAttribute, EpochState},
         },
         utils::{BYTES_PER_UNIT_SIZE, price_for_encoded_length, storage_units_from_size},
     },
 };
 use walrus_storage_node_client::{
-    ClientBuildError, NodeError,
+    ClientBuildError,
+    NodeError,
     api::{BlobStatus, ServiceHealthInfo},
 };
 

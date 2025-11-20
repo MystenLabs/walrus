@@ -12,7 +12,10 @@ use std::{
 use chrono::{DateTime, Utc};
 use fastcrypto::traits::ToFromBytes;
 use serde::{
-    Deserialize, Deserializer, Serialize, Serializer,
+    Deserialize,
+    Deserializer,
+    Serialize,
+    Serializer,
     de::{DeserializeOwned, Error},
 };
 pub use sui_types::base_types::ObjectID;
@@ -24,13 +27,21 @@ use sui_types::{
 #[cfg(feature = "utoipa")]
 use utoipa::openapi::schema;
 use walrus_core::{
-    BlobId, EncodingType, Epoch, NetworkPublicKey, PublicKey, ShardIndex,
+    BlobId,
+    EncodingType,
+    Epoch,
+    NetworkPublicKey,
+    PublicKey,
+    ShardIndex,
     messages::BlobPersistenceType,
 };
 
 use super::NetworkAddress;
 use crate::contracts::{
-    self, AssociatedContractStruct, AssociatedContractStructWithPkgId, StructTag,
+    self,
+    AssociatedContractStruct,
+    AssociatedContractStructWithPkgId,
+    StructTag,
 };
 
 /// Sui object for storage resources.

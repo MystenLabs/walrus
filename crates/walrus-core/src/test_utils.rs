@@ -20,16 +20,32 @@ use fastcrypto::traits::{KeyPair, Signer as _};
 use rand::{Rng, RngCore, SeedableRng, rngs::StdRng, seq::SliceRandom};
 
 use crate::{
-    BlobId, DEFAULT_ENCODING, RecoverySymbol, Sliver, SliverIndex, SliverPairIndex,
+    BlobId,
+    DEFAULT_ENCODING,
+    RecoverySymbol,
+    Sliver,
+    SliverIndex,
+    SliverPairIndex,
     encoding::{
-        self, EncodingConfig, EncodingFactory as _, Primary, PrimaryRecoverySymbol, PrimarySliver,
-        QuiltError, RequiredCount, SecondarySliver, quilt_encoding::QuiltStoreBlob,
+        self,
+        EncodingConfig,
+        EncodingFactory as _,
+        Primary,
+        PrimaryRecoverySymbol,
+        PrimarySliver,
+        QuiltError,
+        RequiredCount,
+        SecondarySliver,
+        quilt_encoding::QuiltStoreBlob,
     },
     keys::{NetworkKeyPair, ProtocolKeyPair},
     merkle::{MerkleProof, Node},
     messages::SignedMessage,
     metadata::{
-        BlobMetadata, SliverPairMetadata, UnverifiedBlobMetadataWithId, VerifiedBlobMetadataWithId,
+        BlobMetadata,
+        SliverPairMetadata,
+        UnverifiedBlobMetadataWithId,
+        VerifiedBlobMetadataWithId,
     },
 };
 

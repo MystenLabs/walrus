@@ -10,7 +10,8 @@ mod tests {
     use std::{
         collections::HashSet,
         sync::{
-            Arc, Mutex,
+            Arc,
+            Mutex,
             atomic::{AtomicBool, AtomicUsize},
         },
         time::{Duration, Instant},
@@ -24,7 +25,10 @@ mod tests {
         test_utils::{SimStorageNodeHandle, TestNodesConfig, test_cluster},
     };
     use walrus_simtest::test_utils::simtest_utils::{
-        self, BlobInfoConsistencyCheck, CRASH_NODE_FAIL_POINTS, NodeCrashConfig,
+        self,
+        BlobInfoConsistencyCheck,
+        CRASH_NODE_FAIL_POINTS,
+        NodeCrashConfig,
         repeatedly_crash_target_node,
     };
     use walrus_storage_node_client::api::ShardStatus;

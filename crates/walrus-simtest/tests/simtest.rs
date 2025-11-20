@@ -9,7 +9,8 @@ mod tests {
     use std::{
         collections::HashSet,
         sync::{
-            Arc, Mutex,
+            Arc,
+            Mutex,
             atomic::{AtomicBool, Ordering},
         },
         time::{Duration, Instant},
@@ -17,7 +18,10 @@ mod tests {
 
     use rand::{Rng, SeedableRng, seq::SliceRandom};
     use sui_macros::{
-        clear_fail_point, register_fail_point, register_fail_point_async, register_fail_points,
+        clear_fail_point,
+        register_fail_point,
+        register_fail_point_async,
+        register_fail_points,
     };
     use sui_protocol_config::ProtocolConfig;
     use sui_simulator::configs::{env_config, uniform_latency_ms};
@@ -33,14 +37,19 @@ mod tests {
         test_utils::{SimStorageNodeHandle, TestNodesConfig, test_cluster},
     };
     use walrus_simtest::test_utils::simtest_utils::{
-        self, BlobInfoConsistencyCheck, CRASH_NODE_FAIL_POINTS, NodeCrashConfig,
+        self,
+        BlobInfoConsistencyCheck,
+        CRASH_NODE_FAIL_POINTS,
+        NodeCrashConfig,
         repeatedly_crash_target_node,
     };
     use walrus_storage_node_client::api::ShardStatus;
     use walrus_stress::single_client_workload::{
         SingleClientWorkload,
         single_client_workload_config::{
-            RequestTypeDistributionConfig, SizeDistributionConfig, StoreLengthDistributionConfig,
+            RequestTypeDistributionConfig,
+            SizeDistributionConfig,
+            StoreLengthDistributionConfig,
         },
     };
     use walrus_sui::{

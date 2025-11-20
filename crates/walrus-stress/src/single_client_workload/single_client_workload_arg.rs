@@ -6,7 +6,9 @@
 use clap::Parser;
 
 use super::single_client_workload_config::{
-    RequestTypeDistributionConfig, SizeDistributionConfig, StoreLengthDistributionConfig,
+    RequestTypeDistributionConfig,
+    SizeDistributionConfig,
+    StoreLengthDistributionConfig,
 };
 
 /// Arguments for the single client workload.

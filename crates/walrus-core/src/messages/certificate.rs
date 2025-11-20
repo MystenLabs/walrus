@@ -5,7 +5,8 @@ use alloc::vec::Vec;
 use core::marker::PhantomData;
 
 use fastcrypto::{
-    bls12381::min_pk::BLS12381AggregateSignature, error::FastCryptoError,
+    bls12381::min_pk::BLS12381AggregateSignature,
+    error::FastCryptoError,
     traits::AggregateAuthenticator,
 };
 use serde::{Deserialize, Serialize};

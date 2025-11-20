@@ -11,19 +11,25 @@ use std::{io::Write, num::NonZeroU16, ops::Range, path::PathBuf, str::FromStr, t
 use anyhow::{anyhow, bail};
 use clap::Parser;
 use sui_sdk::rpc_types::{
-    SuiTransactionBlockDataAPI, SuiTransactionBlockEffectsAPI, SuiTransactionBlockResponseOptions,
+    SuiTransactionBlockDataAPI,
+    SuiTransactionBlockEffectsAPI,
+    SuiTransactionBlockResponseOptions,
     SuiTransactionBlockResponseQuery,
 };
 use sui_types::gas::GasCostSummary;
 use walrus_core::{
-    BlobId, EncodingType,
+    BlobId,
+    EncodingType,
     encoding::{EncodingConfig, EncodingFactory},
     ensure,
     merkle::Node,
 };
 use walrus_sui::{
     client::{
-        BlobObjectMetadata, BlobPersistence, CertifyAndExtendBlobParams, PostStoreAction,
+        BlobObjectMetadata,
+        BlobPersistence,
+        CertifyAndExtendBlobParams,
+        PostStoreAction,
         SuiContractClient,
     },
     test_utils::system_setup::initialize_contract_and_wallet_for_testing,
