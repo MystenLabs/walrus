@@ -229,7 +229,7 @@ impl<T: ReadClient> CommitteesRefresher<T> {
     fn next_epoch_start(&self) -> DateTime<Utc> {
         self.epoch_state
             .start_of_current_epoch()
-            .unwrap_or_else(|| Utc::now())
+            .unwrap_or_else(Utc::now)
             + self.epoch_duration
     }
 

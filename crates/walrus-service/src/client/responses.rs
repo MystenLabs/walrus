@@ -243,7 +243,7 @@ impl InfoEpochOutput {
                     Utc::now() + epoch_duration
                 ))
             },
-            |epoch_start| EpochTimeOrMessage::DateTime(epoch_start),
+            EpochTimeOrMessage::DateTime,
         );
 
         Ok(Self {

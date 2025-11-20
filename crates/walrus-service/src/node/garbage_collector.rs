@@ -1,3 +1,6 @@
+// Copyright (c) Walrus Foundation
+// SPDX-License-Identifier: Apache-2.0
+
 //! Garbage-collection functionality running in the background.
 
 use std::{
@@ -9,11 +12,50 @@ use std::{
 
 use chrono::{DateTime, Utc};
 use rand::{Rng, SeedableRng, rngs::StdRng};
+use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 use walrus_core::Epoch;
 use walrus_sui::types::GENESIS_EPOCH;
 
-use crate::node::{StorageNodeInner, config::GarbageCollectionConfig, metrics::NodeMetricSet};
+use crate::node::{StorageNodeInner, metrics::NodeMetricSet};
+
+/// Configuration for garbage collection and related tasks.
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq)]
+#[serde(default)]
+pub struct GarbageCollectionConfig {
+    /// Whether to enable the blob info cleanup at the beginning of each epoch.
+    pub enable_blob_info_cleanup: bool,
+    /// Whether to delete metadata and slivers of expired or deleted blobs.
+    pub enable_data_deletion: bool,
+    /// Whether to add a random delay before starting garbage collection.
+    /// The delay is deterministically computed based on the node's public key and epoch,
+    /// uniformly distributed between 0 and half the epoch duration.
+    pub enable_random_delay: bool,
+}
+
+impl Default for GarbageCollectionConfig {
+    fn default() -> Self {
+        Self {
+            // TODO(WAL-1105): Enable this by default.
+            enable_blob_info_cleanup: false,
+            // TODO(WAL-1105): Enable this by default.
+            enable_data_deletion: false,
+            enable_random_delay: true,
+        }
+    }
+}
+
+impl GarbageCollectionConfig {
+    /// Returns a default configuration for testing.
+    #[cfg(any(test, feature = "test-utils"))]
+    pub fn default_for_test() -> Self {
+        Self {
+            enable_blob_info_cleanup: true,
+            enable_data_deletion: true,
+            enable_random_delay: false,
+        }
+    }
+}
 
 /// Garbage collector running in the background.
 #[derive(Debug, Clone)]
@@ -46,12 +88,28 @@ impl GarbageCollector {
     ///
     /// If a cleanup task is already running, it will be aborted and replaced with a new one.
     ///
+    /// Must only be called *after* the epoch change for the provided epoch is complete.
+    ///
     /// The actual cleanup work starts after a deterministic delay based on the node's public key
     /// and epoch, uniformly distributed between 0 and half the epoch duration. This is to avoid
     /// multiple nodes performing cleanup operations at the same time, which could impact the
     /// performance of the network.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - The epoch is the genesis epoch.
+    /// - The garbage-collection task cannot be started.
     #[tracing::instrument(skip_all)]
-    pub async fn start_garbage_collection_task(&self, epoch: Epoch) -> anyhow::Result<()> {
+    pub async fn start_garbage_collection_task(
+        &self,
+        epoch: Epoch,
+        epoch_start: DateTime<Utc>,
+    ) -> anyhow::Result<()> {
+        if epoch == GENESIS_EPOCH {
+            anyhow::bail!("cannot start garbage collection for genesis epoch");
+        }
+
         let garbage_collection_config = self.config;
 
         if !garbage_collection_config.enable_blob_info_cleanup {
@@ -71,6 +129,7 @@ impl GarbageCollector {
 
         // If there is an existing task, we need to abort it first before starting a new one.
         if let Some(old_task) = task_handle.take() {
+            tracing::info!("aborting existing garbage-collection task before starting a new one");
             old_task.abort();
         }
 
@@ -80,13 +139,13 @@ impl GarbageCollector {
             .set_garbage_collector_last_started_epoch(epoch)?;
 
         // Calculate target time and update metric before spawning the background task.
-        let target_time = self.cleanup_target_time(epoch).await?;
+        let target_time = self.cleanup_target_time(epoch, epoch_start);
         self.metrics
             .cleanup_task_start_time
             .set(target_time.timestamp().try_into().unwrap_or_default());
 
         let new_task = tokio::spawn(async move {
-            // Sleep until the target time (relative to epoch start)
+            // Sleep until the target time.
             let sleep_duration = (target_time - Utc::now())
                 .to_std()
                 .unwrap_or(Duration::ZERO);
@@ -100,7 +159,7 @@ impl GarbageCollector {
             }
 
             if let Err(error) = garbage_collector.perform_db_cleanup_task(epoch).await {
-                tracing::error!(?error, epoch, "garbage collection task failed");
+                tracing::error!(?error, epoch, "garbage-collection task failed");
             }
         });
 
@@ -109,35 +168,16 @@ impl GarbageCollector {
         Ok(())
     }
 
-    /// Calculates the target time for cleanup.
+    /// Calculates the target time for cleanup by optionally adding a deterministic delay (based on
+    /// the node's public key and epoch) to the epoch start time.
     ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    /// - The epoch is the genesis epoch.
-    /// - The current epoch does not match the requested epoch.
-    /// - The epoch change is in progress.
-    async fn cleanup_target_time(&self, epoch: Epoch) -> anyhow::Result<DateTime<Utc>> {
-        anyhow::ensure!(
-            epoch != GENESIS_EPOCH,
-            "garbage collection cannot be performed in the genesis epoch"
-        );
-        let (current_epoch, state) = self.node.contract_service.get_epoch_and_state().await?;
-        anyhow::ensure!(
-            current_epoch == epoch,
-            "epoch mismatch while attempting to start garbage collection: current epoch is \
-            {current_epoch}, requested epoch is {epoch}",
-        );
+    /// The random delay is uniformly distributed between 0 and half the epoch duration. If random
+    /// delay is disabled, returns the epoch start time immediately.
+    fn cleanup_target_time(&self, epoch: Epoch, epoch_start: DateTime<Utc>) -> DateTime<Utc> {
+        if !self.config.enable_random_delay {
+            return epoch_start;
+        }
 
-        let epoch_start = state.start_of_current_epoch().ok_or(anyhow::anyhow!(
-            "cannot schedule garbage collection while epoch change is in progress"
-        ))?;
-        Ok(epoch_start + self.compute_deterministic_delay(epoch))
-    }
-
-    /// Computes a deterministic delay based on the node's public key and epoch.
-    /// The delay is uniformly distributed between 0 and half the epoch duration.
-    fn compute_deterministic_delay(&self, epoch: Epoch) -> Duration {
         let epoch_duration = self.node.system_parameters.epoch_duration;
         let max_delay = epoch_duration / 2;
         let public_key = self.node.protocol_key_pair.public();
@@ -151,8 +191,13 @@ impl GarbageCollector {
         let seed = hasher.finish();
 
         // Generate delay uniformly distributed between 0 and half the epoch duration
-        let max_delay_millis = max_delay.as_millis() as u64;
-        Duration::from_millis(StdRng::seed_from_u64(seed).gen_range(0..max_delay_millis))
+        let max_delay_millis = max_delay
+            .as_millis()
+            .try_into()
+            .expect("epoch duration is shorter than 500M years");
+
+        epoch_start
+            + Duration::from_millis(StdRng::seed_from_u64(seed).gen_range(0..max_delay_millis))
     }
 
     /// Performs database cleanup operations including blob info cleanup and data deletion.
@@ -179,8 +224,7 @@ impl GarbageCollector {
 
         self.node
             .storage
-            .process_expired_blob_objects(epoch, &self.metrics)
-            .await?;
+            .process_expired_blob_objects(epoch, &self.metrics)?;
 
         if self.config.enable_data_deletion {
             self.node
@@ -190,7 +234,7 @@ impl GarbageCollector {
         }
 
         // Update the last completed epoch after successful cleanup.
-        // TODO(mlegner): Should we do this even if data deletion is not enabled?
+        // TODO(WAL-1040): Should we do this even if data deletion is not enabled?
         self.node
             .storage
             .set_garbage_collector_last_completed_epoch(epoch)?;

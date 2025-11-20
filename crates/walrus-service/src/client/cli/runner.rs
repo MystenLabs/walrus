@@ -1452,7 +1452,7 @@ impl ClientCommandRunner {
 
             let estimated_start_of_current_epoch = epoch_state
                 .start_of_current_epoch()
-                .unwrap_or_else(|| Utc::now());
+                .unwrap_or_else(Utc::now);
 
             ensure!(
                 end_epoch > current_epoch,

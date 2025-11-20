@@ -674,14 +674,13 @@ impl Storage {
     ///
     /// This function is called during epoch change to clean up the blob info for blob objects that
     /// are no longer valid.
-    pub(crate) async fn process_expired_blob_objects(
+    pub(crate) fn process_expired_blob_objects(
         &self,
         current_epoch: Epoch,
         node_metrics: &NodeMetricSet,
     ) -> anyhow::Result<()> {
         self.blob_info
             .process_expired_blob_objects(current_epoch, node_metrics)
-            .await
     }
 
     /// Deletes the aggregate blob info, metadata, and slivers for blobs that are expired in the
@@ -709,13 +708,42 @@ impl Storage {
         };
 
         tracing::info!("starting to delete expired blob data");
-        let mut cleaned_up_blob_id_count = 0;
         let start_time = Instant::now();
 
         let shards = self
             .owned_shard_storages()
             .await
             .context("error while collecting shards for data deletion")?;
+
+        // TODO(WAL-1040): Should we run this with `spawn_blocking`? How can we interrupt it? Maybe
+        // spawn blocking threads for batches?
+        let cleaned_up_blob_id_count = self.iterate_and_delete_expired_blob_data(
+            &optimistic_handle,
+            current_epoch,
+            &shards,
+            node_metrics,
+        )?;
+
+        tracing::info!(
+            cleaned_up_blob_id_count,
+            duration_seconds = %start_time.elapsed().as_secs_f64(),
+            "finished deleting expired blob data",
+        );
+
+        Ok(())
+    }
+
+    /// Iterates over all aggregate blob info and attempts to delete expired blob data.
+    ///
+    /// Returns the number of blobs that were successfully cleaned up.
+    fn iterate_and_delete_expired_blob_data(
+        &self,
+        optimistic_handle: &OptimisticHandle<'_>,
+        current_epoch: Epoch,
+        shards: &[Arc<ShardStorage>],
+        node_metrics: &NodeMetricSet,
+    ) -> anyhow::Result<usize> {
+        let mut cleaned_up_blob_id_count = 0;
 
         for entry in self
             .blob_info
@@ -743,16 +771,13 @@ impl Storage {
 
             // At this point we know that the blob is no longer registered, and we can attempt to
             // delete the related data.
-            match self
-                .attempt_to_delete_blob_data_inner(
-                    &optimistic_handle,
-                    &blob_id,
-                    current_epoch,
-                    &shards,
-                    node_metrics,
-                )
-                .await
-            {
+            match self.attempt_to_delete_blob_data_inner(
+                optimistic_handle,
+                &blob_id,
+                current_epoch,
+                shards,
+                node_metrics,
+            ) {
                 Ok(true) => {
                     cleaned_up_blob_id_count += 1;
                 }
@@ -767,13 +792,7 @@ impl Storage {
             }
         }
 
-        tracing::info!(
-            cleaned_up_blob_id_count,
-            duration_seconds = %start_time.elapsed().as_secs_f64(),
-            "finished deleting expired blob data",
-        );
-
-        Ok(())
+        Ok(cleaned_up_blob_id_count)
     }
 
     pub(crate) async fn attempt_to_delete_blob_data(
@@ -797,7 +816,6 @@ impl Storage {
             &shards,
             node_metrics,
         )
-        .await
     }
 
     /// Attempts to delete the blob data for the given blob ID.
@@ -807,7 +825,7 @@ impl Storage {
         skip_all,
         fields(walrus.blob_id = %blob_id, walrus.current_epoch = %current_epoch),
     )]
-    async fn attempt_to_delete_blob_data_inner(
+    fn attempt_to_delete_blob_data_inner(
         &self,
         optimistic_handle: &OptimisticHandle<'_>,
         blob_id: &BlobId,

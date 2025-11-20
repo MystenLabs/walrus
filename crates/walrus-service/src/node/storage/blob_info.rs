@@ -411,7 +411,7 @@ impl BlobInfoTable {
     /// an end epoch equal to or less than the current epoch, and updating the aggregate blob info
     /// table in case of deletable blobs to reflect the new status of the blob objects.
     #[tracing::instrument(skip_all, fields(walrus.epoch = %current_epoch))]
-    pub(crate) async fn process_expired_blob_objects(
+    pub(crate) fn process_expired_blob_objects(
         &self,
         current_epoch: Epoch,
         node_metrics: &NodeMetricSet,

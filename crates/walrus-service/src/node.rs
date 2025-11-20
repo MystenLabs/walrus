@@ -18,6 +18,7 @@ use std::{
 use anyhow::{Context, anyhow, bail};
 use blob_event_processor::BlobEventProcessor;
 use blob_retirement_notifier::BlobRetirementNotifier;
+use chrono::Utc;
 use committee::{BeginCommitteeChangeError, EndCommitteeChangeError};
 use consistency_check::StorageNodeConsistencyCheckConfig;
 use epoch_change_driver::EpochChangeDriver;
@@ -1706,9 +1707,33 @@ impl StorageNode {
             .send(Some(event.epoch))?;
 
         // Perform database cleanup operations.
-        self.garbage_collector
-            .start_garbage_collection_task(event.epoch)
-            .await?;
+        // Try to get the epoch start time from the contract service. If the epoch state is not
+        // available (e.g., in tests), use the current time as the epoch start.
+        let epoch_start = self
+            .inner
+            .contract_service
+            .get_epoch_and_state()
+            .await
+            .ok()
+            .and_then(|(current_epoch, state)| {
+                if current_epoch == event.epoch {
+                    state.start_of_current_epoch()
+                } else {
+                    None
+                }
+            })
+            .unwrap_or_else(Utc::now);
+        if let Err(error) = self
+            .garbage_collector
+            .start_garbage_collection_task(event.epoch, epoch_start)
+            .await
+        {
+            tracing::error!(
+                ?error,
+                epoch = event.epoch,
+                "failed to start garbage-collection task"
+            );
+        }
 
         Ok(())
     }
@@ -1745,10 +1770,9 @@ impl StorageNode {
             return Ok(());
         }
 
-        assert!(
-            !state.is_transitioning(),
-            "no garbage-collection task should have been started during epoch change"
-        );
+        let epoch_start = state
+            .start_of_current_epoch()
+            .expect("no garbage-collection task should have been started during epoch change");
 
         tracing::info!(
             last_started_epoch,
@@ -1757,7 +1781,7 @@ impl StorageNode {
             "restarting unfinished garbage-collection task on startup"
         );
         self.garbage_collector
-            .start_garbage_collection_task(current_epoch)
+            .start_garbage_collection_task(current_epoch, epoch_start)
             .await
     }
 
@@ -5221,14 +5245,12 @@ mod tests {
                 end_epoch: blob_end_epoch,
                 ..BlobRegistered::for_testing_with_object_id(*blob_details.blob_id(), object_id)
             };
+            let blob_certified_event = blob_registration_event
+                .clone()
+                .into_corresponding_certified_event_for_testing();
             node_0_events.send(blob_registration_event.clone().into())?;
             all_other_node_events.send(blob_registration_event.into())?;
 
-            let blob_certified_event = BlobCertified {
-                deletable,
-                end_epoch: blob_end_epoch,
-                ..BlobCertified::for_testing_with_object_id(*blob_details.blob_id(), object_id)
-            };
             if blob_index_store_at_shard_0(i) {
                 store_at_shards(&blob_details, &cluster, |_, _| true).await?;
                 node_0_events.send(blob_certified_event.clone().into())?;
@@ -5374,6 +5396,7 @@ mod tests {
 
     #[tokio::test]
     async fn does_not_start_blob_sync_for_already_expired_blob() -> TestResult {
+        walrus_test_utils::init_tracing();
         let shards: &[&[u16]] = &[&[1], &[0, 2, 3, 4]];
 
         let (cluster, events) = cluster_at_epoch1_without_blobs(shards, None).await?;
@@ -5382,6 +5405,7 @@ mod tests {
         // Register and certify an already expired blob.
         let object_id = ObjectID::random();
         let event_id = event_id_for_testing();
+
         events.send(
             BlobRegistered {
                 epoch: 1,
@@ -5408,16 +5432,8 @@ mod tests {
             .into(),
         )?;
 
-        // Make sure the node actually saw and started processing the event.
-        retry_until_success_or_timeout(TIMEOUT, || async {
-            node.storage_node
-                .inner
-                .storage
-                .get_blob_info(&BLOB_ID)?
-                .ok_or(anyhow!("blob info not updated"))
-        })
-        .await?;
-
+        // Wait until the node has processed all events (2 epoch-change events + 2 blob events).
+        wait_until_events_processed_exact(node, 4).await?;
         assert_eq!(node.storage_node.blob_sync_handler.cancel_all().await?, 0);
 
         Ok(())
@@ -5542,6 +5558,25 @@ mod tests {
         for i in 0..blob_count {
             let (_blob_id, end_epoch) = blobs_with_end_epoch[i];
             advance_cluster_to_epoch(&cluster, &[&events], end_epoch).await?;
+
+            // Wait for garbage-collection task to complete for this epoch
+            retry_until_success_or_timeout(Duration::from_secs(5), || async {
+                let last_completed_epoch = node
+                    .inner
+                    .storage
+                    .garbage_collector_last_completed_epoch()
+                    .map_err(|e| anyhow::anyhow!("failed to get last completed epoch: {e}"))?;
+                if last_completed_epoch >= end_epoch {
+                    Ok(())
+                } else {
+                    bail!(
+                        "garbage collection not yet completed: last_completed_epoch=\
+                        {last_completed_epoch}, end_epoch={end_epoch}"
+                    )
+                }
+            })
+            .await?;
+
             let node_epoch = node.inner.current_committee_epoch();
 
             for (blob_id, end_epoch) in blobs_with_end_epoch[i..].iter() {
@@ -7640,9 +7675,13 @@ mod tests {
                     .send(InvalidBlobId::for_testing(*blob_details[i].blob_id()).into())?;
             }
             for i in deletable_blob_index {
-                event_senders
-                    .all_other_node_events
-                    .send(BlobDeleted::for_testing(*blob_details[i].blob_id()).into())?;
+                event_senders.all_other_node_events.send(
+                    BlobDeleted::for_testing_with_object_id(
+                        *blob_details[i].blob_id(),
+                        blob_details[i].object_id.unwrap(),
+                    )
+                    .into(),
+                )?;
             }
 
             // Make sure that blobs in `skip_stored_blob_index` are not certified in node 0.
