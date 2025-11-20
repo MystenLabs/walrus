@@ -124,7 +124,8 @@ runs:
       run: |
         echo "Installing site-builder ${VERSION_TAG} for ${INPUT_SUI_NETWORK}..."
 
-        DOWNLOAD_URL="https://github.com/MystenLabs/walrus-sites/releases/download/${INPUT_SUI_NETWORK}-${VERSION_TAG}/site-builder-${INPUT_SUI_NETWORK}-${VERSION_TAG}-ubuntu-x86_64.tgz"
+        BASE_URL="https://github.com/MystenLabs/walrus-sites/releases/download"
+        DOWNLOAD_URL="$BASE_URL/${INPUT_SUI_NETWORK}-${VERSION_TAG}/site-builder-${INPUT_SUI_NETWORK}-${VERSION_TAG}-ubuntu-x86_64.tgz"
         echo "Downloading from: $DOWNLOAD_URL"
 
         curl -L "$DOWNLOAD_URL" -o /tmp/site-builder.tgz
@@ -135,8 +136,6 @@ runs:
         # Find and move the extracted binary
         if [[ -f /tmp/site-builder-extract/site-builder ]]; then
           mv /tmp/site-builder-extract/site-builder bin/site-builder
-        elif [[ -f "/tmp/site-builder-extract/site-builder-${INPUT_SUI_NETWORK}-${VERSION_TAG}-ubuntu-x86_64" ]]; then
-          mv "/tmp/site-builder-extract/site-builder-${INPUT_SUI_NETWORK}-${VERSION_TAG}-ubuntu-x86_64" bin/site-builder
         else
           echo "❌ ERROR: Could not find site-builder binary in archive"
           echo "Contents of extraction directory:"
