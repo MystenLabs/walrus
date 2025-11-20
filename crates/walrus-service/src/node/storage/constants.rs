@@ -11,6 +11,9 @@ const METADATA_COLUMN_FAMILY_NAME: &str = "metadata";
 const EVENT_INDEX_COLUMN_FAMILY_NAME: &str = "latest_handled_event_index";
 const EVENT_CURSOR_COLUMN_FAMILY_NAME: &str = "event_cursor";
 const EVENT_CURSOR_KEY: [u8; 6] = *b"cursor";
+const GARBAGE_COLLECTOR_TABLE_COLUMN_FAMILY_NAME: &str = "garbage_collector_last_completed_epoch";
+const GARBAGE_COLLECTOR_LAST_STARTED_EPOCH_KEY: [u8; 9] = *b"started\0\0";
+const GARBAGE_COLLECTOR_LAST_COMPLETED_EPOCH_KEY: [u8; 9] = *b"completed";
 
 // Base name for shard-related column families
 const SHARD_BASE_COLUMN_FAMILY_NAME: &str = "shard";
@@ -57,6 +60,19 @@ pub fn event_cursor_cf_name() -> &'static str {
 
 pub fn event_cursor_key() -> &'static [u8; 6] {
     &EVENT_CURSOR_KEY
+}
+
+/// Returns the name of the garbage collector last completed epoch column family.
+pub fn garbage_collector_table_cf_name() -> &'static str {
+    GARBAGE_COLLECTOR_TABLE_COLUMN_FAMILY_NAME
+}
+
+pub fn garbage_collector_last_started_epoch_key() -> &'static [u8; 9] {
+    &GARBAGE_COLLECTOR_LAST_STARTED_EPOCH_KEY
+}
+
+pub fn garbage_collector_last_completed_epoch_key() -> &'static [u8; 9] {
+    &GARBAGE_COLLECTOR_LAST_COMPLETED_EPOCH_KEY
 }
 
 /// Returns the column family name for primary slivers of a shard.

@@ -330,10 +330,12 @@ pub struct DatabaseConfig {
     /// Default database table options used by metadata column family.
     pub(super) metadata: DatabaseTableOptions,
 
-    /// Below options overrides specific column families' options.
-    ///
+    // Below options overrides specific column families' options.
+    //
     /// Node status database options.
     pub(super) node_status: Option<DatabaseTableOptions>,
+    /// Garbage collector database options.
+    pub(super) garbage_collector: Option<DatabaseTableOptions>,
     /// Blob info database options.
     pub(super) blob_info: Option<DatabaseTableOptions>,
     /// Per object blob info database options.
@@ -418,6 +420,11 @@ impl DatabaseConfig {
     /// Returns the node status database option.
     pub fn node_status(&self) -> DatabaseTableOptions {
         Self::inherit_from_or_use_template(&self.node_status, self.standard())
+    }
+
+    /// Returns the garbage collector database option.
+    pub fn garbage_collector(&self) -> DatabaseTableOptions {
+        Self::inherit_from_or_use_template(&self.garbage_collector, self.standard())
     }
 
     /// Returns the metadata database option.
@@ -517,6 +524,7 @@ impl Default for DatabaseConfig {
             blob_info_template: DatabaseTableOptions::blob_info_template(),
             metadata: DatabaseTableOptions::metadata(),
             node_status: None,
+            garbage_collector: None,
             blob_info: None,
             per_object_blob_info: None,
             event_cursor: None,
@@ -684,6 +692,11 @@ impl DatabaseTableOptionsFactory {
     /// Returns the node status database option with shared cache.
     pub fn node_status(&self) -> Options {
         self.to_options(&self.config.node_status(), false)
+    }
+
+    /// Returns the garbage collector database option with shared cache.
+    pub fn garbage_collector(&self) -> Options {
+        self.to_options(&self.config.garbage_collector(), false)
     }
 
     /// Returns the metadata database option with shared cache.

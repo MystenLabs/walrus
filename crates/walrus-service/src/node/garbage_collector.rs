@@ -52,6 +52,20 @@ impl GarbageCollector {
     /// performance of the network.
     #[tracing::instrument(skip_all)]
     pub async fn start_garbage_collection_task(&self, epoch: Epoch) -> anyhow::Result<()> {
+        let garbage_collection_config = self.config;
+
+        if !garbage_collection_config.enable_blob_info_cleanup {
+            if garbage_collection_config.enable_data_deletion {
+                tracing::warn!(
+                    "data deletion is enabled, but requires blob info cleanup to be enabled; \
+                    skipping data deletion",
+                );
+            } else {
+                tracing::info!("garbage collection is disabled, skipping cleanup");
+            }
+            return Ok(());
+        }
+
         let mut task_handle = self.task_handle.lock().await;
         let garbage_collector = self.clone();
 
@@ -59,6 +73,11 @@ impl GarbageCollector {
         if let Some(old_task) = task_handle.take() {
             old_task.abort();
         }
+
+        // Store the current epoch in the DB before spawning the background task.
+        self.node
+            .storage
+            .set_garbage_collector_last_started_epoch(epoch)?;
 
         // Calculate target time and update metric before spawning the background task.
         let target_time = self.cleanup_target_time(epoch).await?;
@@ -137,40 +156,44 @@ impl GarbageCollector {
     }
 
     /// Performs database cleanup operations including blob info cleanup and data deletion.
+    ///
+    /// Must only be run if blob info cleanup is enabled.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if a DB operation fails or one of the cleanup tasks fails.
+    ///
+    /// # Panics
+    ///
+    /// Panics if blob info cleanup is not enabled.
     async fn perform_db_cleanup_task(&self, epoch: Epoch) -> anyhow::Result<()> {
-        let garbage_collection_config = self.config;
-
-        if !garbage_collection_config.enable_blob_info_cleanup {
-            if garbage_collection_config.enable_data_deletion {
-                tracing::warn!(
-                    "data deletion is enabled, but requires blob info cleanup to be enabled; \
-                    skipping data deletion",
-                );
-            } else {
-                tracing::info!("garbage collection is disabled, skipping cleanup");
-            }
-            return Ok(());
-        }
+        assert!(
+            self.config.enable_blob_info_cleanup,
+            "garbage-collection task must only be run if blob info cleanup is enabled"
+        );
 
         // Disable DB compactions during cleanup to improve performance. DB compactions are
         // automatically re-enabled when the guard is dropped.
         let _guard = self.node.storage.temporarily_disable_auto_compactions()?;
         tracing::info!("starting garbage collection");
 
-        // The if condition is redundant, but it's kept in case we change the if condition above.
-        if garbage_collection_config.enable_blob_info_cleanup {
-            self.node
-                .storage
-                .process_expired_blob_objects(epoch, &self.metrics)
-                .await?;
-        }
+        self.node
+            .storage
+            .process_expired_blob_objects(epoch, &self.metrics)
+            .await?;
 
-        if garbage_collection_config.enable_data_deletion {
+        if self.config.enable_data_deletion {
             self.node
                 .storage
                 .delete_expired_blob_data(epoch, &self.metrics)
                 .await?;
         }
+
+        // Update the last completed epoch after successful cleanup.
+        // TODO(mlegner): Should we do this even if data deletion is not enabled?
+        self.node
+            .storage
+            .set_garbage_collector_last_completed_epoch(epoch)?;
 
         Ok(())
     }

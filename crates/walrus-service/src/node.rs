@@ -880,6 +880,13 @@ impl StorageNode {
             tracing::warn!(?error, "unable to schedule epoch calls on startup")
         };
 
+        if let Err(error) = self.check_and_start_garbage_collection_on_startup().await {
+            tracing::warn!(
+                ?error,
+                "failed to check and start garbage collection on startup"
+            );
+        }
+
         select! {
             () = self.epoch_change_driver.run() => {
                 unreachable!("epoch change driver never completes");
@@ -1705,6 +1712,54 @@ impl StorageNode {
             .await?;
 
         Ok(())
+    }
+
+    /// Checks if garbage collection needs to be restarted on startup and starts it if needed.
+    ///
+    /// This method is intended to be run at startup to check if a garbage-collection task was
+    /// started but not completed. If this is the case and we are still in the same epoch, it
+    /// restarts the garbage-collection task.
+    async fn check_and_start_garbage_collection_on_startup(&self) -> anyhow::Result<()> {
+        let last_started_epoch = self.inner.storage.garbage_collector_last_started_epoch()?;
+        let last_completed_epoch = self
+            .inner
+            .storage
+            .garbage_collector_last_completed_epoch()?;
+        if last_completed_epoch == last_started_epoch {
+            tracing::debug!(
+                last_started_epoch,
+                last_completed_epoch,
+                "previous garbage-collection task already completed; skipping restart"
+            );
+            return Ok(());
+        }
+
+        let (current_epoch, state) = self.inner.contract_service.get_epoch_and_state().await?;
+
+        if current_epoch != last_started_epoch {
+            tracing::info!(
+                last_started_epoch,
+                current_epoch,
+                "the Walrus epoch has changed since the last garbage-collection task was started; \
+                skipping restart"
+            );
+            return Ok(());
+        }
+
+        assert!(
+            !state.is_transitioning(),
+            "no garbage-collection task should have been started during epoch change"
+        );
+
+        tracing::info!(
+            last_started_epoch,
+            last_completed_epoch,
+            current_epoch,
+            "restarting unfinished garbage-collection task on startup"
+        );
+        self.garbage_collector
+            .start_garbage_collection_task(current_epoch)
+            .await
     }
 
     /// Storage node execution of the epoch change start event, to bring the node state to the next
