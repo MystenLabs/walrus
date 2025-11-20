@@ -250,4 +250,7 @@ pub enum ClientErrorKind {
     /// The blob size exceeds the maximum allowed size.
     #[error("the blob size exceeds the maximum allowed size: {0}")]
     BlobTooLarge(u64),
+    /// An error occurred while reading a byte range from a blob.
+    #[error("byte range read error: {0}")]
+    ByteRangeReadError(String),
 }
