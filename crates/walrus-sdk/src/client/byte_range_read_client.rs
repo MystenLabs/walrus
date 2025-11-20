@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use tokio::time::Instant;
 use walrus_core::{
     BlobId,
+    EncodingType,
     Epoch,
     SliverIndex,
     encoding::{EncodingFactory, Primary, SliverData},
@@ -103,6 +104,16 @@ impl<T: ReadClient> ByteRangeReadClient<'_, T> {
             .client
             .retrieve_metadata(certified_epoch, blob_id)
             .await?;
+
+        if metadata.metadata().encoding_type() != EncodingType::RS2 {
+            return Err(ClientError::from(ClientErrorKind::ByteRangeReadError(
+                format!(
+                    "byte range read client only supports RS2 encoding, got {}",
+                    metadata.metadata().encoding_type()
+                ),
+            )));
+        }
+
         let blob_size = usize::try_from(metadata.metadata().unencoded_length()).map_err(|_| {
             ClientError::from(ClientErrorKind::ByteRangeReadError(format!(
                 "invalid blob size from metadata: {}",
