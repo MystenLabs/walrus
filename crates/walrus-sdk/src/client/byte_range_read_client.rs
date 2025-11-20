@@ -81,11 +81,9 @@ impl<T: ReadClient> ByteRangeReadClient<'_, T> {
             "start reading byte range"
         );
 
-        if byte_length == 0 {
+        let Some(byte_length) = NonZeroUsize::new(byte_length) else {
             return Ok(vec![]);
-        }
-
-        let byte_length = NonZeroUsize::new(byte_length).expect("byte length must be non zero");
+        };
 
         // Validate blob ID
         self.client.check_blob_id(blob_id)?;
@@ -209,13 +207,18 @@ fn calculate_and_validate_end_byte_position(
 /// Calculates the sliver indices that contain the byte range, and the start byte position of
 /// the first sliver that we need to read from.
 ///
-/// `byte_length` must be greater than 0.
+/// The input should be validated using `calculate_and_validate_end_byte_position` before calling
+/// this function.
 fn calculate_sliver_indices(
     primary_sliver_size: usize,
     start_byte_position: usize,
     byte_length: NonZeroUsize,
 ) -> ClientResult<(usize, Vec<SliverIndex>)> {
-    tracing::debug!("primary_sliver_size: {:?}", primary_sliver_size);
+    tracing::debug!(
+        %primary_sliver_size,
+        %start_byte_position,
+        %byte_length,
+        "calculating sliver indices");
 
     // Calculate which slivers contain the byte range
 
