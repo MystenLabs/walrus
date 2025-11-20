@@ -320,6 +320,11 @@ impl<T: ReadClient> WalrusNodeClient<T> {
         Ok(WalrusNodeClient::new(config, committees_handle)?.with_client(sui_read_client))
     }
 
+    /// Sets the maximum blob size for the client for testing purposes.
+    pub fn set_max_blob_size(&mut self, max_blob_size: Option<u64>) {
+        self.max_blob_size = max_blob_size;
+    }
+
     /// Reconstructs the blob by reading slivers from Walrus shards.
     ///
     /// The operation is retried if epoch it fails due to epoch change.
@@ -532,13 +537,7 @@ impl<T: ReadClient> WalrusNodeClient<T> {
         SliverData<U>: TryFrom<Sliver>,
     {
         let metadata = self.retrieve_metadata(certified_epoch, blob_id).await?;
-        if let Some(max_blob_size) = self.max_blob_size
-            && metadata.metadata().unencoded_length() > max_blob_size
-        {
-            return Err(ClientError::from(ClientErrorKind::BlobTooLarge(
-                max_blob_size,
-            )));
-        };
+        self.check_read_data_size(metadata.metadata().unencoded_length())?;
         let blob = self
             .request_slivers_and_decode::<U>(certified_epoch, &metadata, consistency_check)
             .await?;
@@ -688,6 +687,23 @@ impl<T: ReadClient> WalrusNodeClient<T> {
     where
         SliverData<E>: TryFrom<walrus_core::Sliver>,
     {
+        if metadata.metadata().unencoded_length() == 0 {
+            return Ok(Vec::new());
+        }
+
+        // Get the sliver size for the given encoding type.
+        let sliver_size = u64::from(
+            self.encoding_config()
+                .get_for_type(metadata.metadata().encoding_type())
+                .sliver_size_for_blob::<E>(metadata.metadata().unencoded_length())
+                .map_err(|e| ClientError::from(ClientErrorKind::Other(e.into())))?
+                .get(),
+        );
+        let read_total_sliver_size = sliver_size
+            .checked_mul(sliver_indices.len() as u64)
+            .ok_or(ClientError::from(ClientErrorKind::BlobTooLarge(u64::MAX)))?;
+        self.check_read_data_size(read_total_sliver_size)?;
+
         let mut sliver_selector =
             SliverSelector::<E>::new(sliver_indices, metadata.n_shards(), metadata.blob_id());
         let mut attempts = 0;
@@ -903,6 +919,18 @@ impl<T: ReadClient> WalrusNodeClient<T> {
         let results = futures::future::join_all(store_operations).await;
 
         Ok(results)
+    }
+
+    /// Checks if the data size is within the maximum allowed size.
+    fn check_read_data_size(&self, data_size: u64) -> ClientResult<()> {
+        if let Some(max_blob_size) = self.max_blob_size
+            && data_size > max_blob_size
+        {
+            return Err(ClientError::from(ClientErrorKind::BlobTooLarge(
+                max_blob_size,
+            )));
+        }
+        Ok(())
     }
 }
 
