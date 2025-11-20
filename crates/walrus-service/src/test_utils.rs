@@ -92,6 +92,7 @@ use crate::{
     },
     node::{
         DatabaseConfig,
+        GarbageCollectionConfig,
         Storage,
         StorageNode,
         committee::{
@@ -107,7 +108,6 @@ use crate::{
             BlobEventProcessorConfig,
             BlobRecoveryConfig,
             ConfigSynchronizerConfig,
-            GarbageCollectionConfig,
             LiveUploadDeferralConfig,
             NodeRecoveryConfig,
             ShardSyncConfig,

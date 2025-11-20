@@ -178,29 +178,30 @@ use crate::{
         },
     },
     node::{
-        config::{GarbageCollectionConfig, LiveUploadDeferralConfig},
+        config::LiveUploadDeferralConfig,
         event_blob_writer::EventBlobWriter,
         garbage_collector::GarbageCollector,
     },
     utils::ShardDiffCalculator,
 };
 
-pub(crate) mod db_checkpoint;
-
 pub mod committee;
 pub mod config;
-pub(crate) mod consistency_check;
 pub mod contract_service;
 pub mod dbtool;
 pub mod event_blob_writer;
 pub mod server;
 pub mod system_events;
 
+pub(crate) mod consistency_check;
+pub(crate) mod db_checkpoint;
+pub(crate) mod errors;
 pub(crate) mod metrics;
 
 mod blob_event_processor;
 mod blob_retirement_notifier;
 mod blob_sync;
+mod config_synchronizer;
 mod epoch_change_driver;
 mod garbage_collector;
 mod node_recovery;
@@ -209,13 +210,11 @@ mod pending_sliver_cache;
 mod recovery_symbol_service;
 mod shard_sync;
 mod start_epoch_change_finisher;
+mod storage;
 mod thread_pool;
 
-pub(crate) mod errors;
-mod storage;
-
-mod config_synchronizer;
 pub use config_synchronizer::{ConfigLoader, ConfigSynchronizer, StorageNodeConfigLoader};
+pub use garbage_collector::GarbageCollectionConfig;
 
 // The number of events are dominated by the checkpoints, as we don't expect all checkpoints
 // contain Walrus events. 20K events per recording is roughly 1 recording per 1.5 hours.
