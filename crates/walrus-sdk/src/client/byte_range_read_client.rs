@@ -87,7 +87,7 @@ impl<T: ReadClient> ByteRangeReadClient<'_, T> {
         );
 
         // First, validate the blob ID and make sure it is valid.
-        self.client.check_blob_id(blob_id)?;
+        self.client.check_blob_is_blocked(blob_id)?;
 
         let Some(byte_length) = NonZeroUsize::new(byte_length) else {
             return Ok(vec![]);
