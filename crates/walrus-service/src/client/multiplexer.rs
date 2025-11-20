@@ -172,6 +172,17 @@ impl WalrusReadClient for ClientMultiplexer {
         WalrusReadClient::read_blob(&self.read_client, blob_id, consistency_check).await
     }
 
+    async fn read_byte_range(
+        &self,
+        blob_id: &BlobId,
+        start_byte_position: usize,
+        byte_length: usize,
+    ) -> ClientResult<Vec<u8>> {
+        self.read_client
+            .read_byte_range(blob_id, start_byte_position, byte_length)
+            .await
+    }
+
     async fn get_blob_by_object_id(
         &self,
         blob_object_id: &ObjectID,

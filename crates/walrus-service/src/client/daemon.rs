@@ -23,6 +23,7 @@ use axum_extra::{
 use openapi::{AggregatorApiDoc, DaemonApiDoc, PublisherApiDoc};
 use reqwest::StatusCode;
 use routes::{
+    BLOB_BYTE_RANGE_GET_ENDPOINT,
     BLOB_CONCAT_ENDPOINT,
     BLOB_GET_ENDPOINT,
     BLOB_OBJECT_GET_ENDPOINT,
@@ -94,6 +95,14 @@ pub trait WalrusReadClient {
         &self,
         blob_id: &BlobId,
         consistency_check: ConsistencyCheckType,
+    ) -> impl std::future::Future<Output = ClientResult<Vec<u8>>> + Send;
+
+    /// Reads a specific byte range from a blob.
+    fn read_byte_range(
+        &self,
+        blob_id: &BlobId,
+        start_byte_position: usize,
+        byte_length: usize,
     ) -> impl std::future::Future<Output = ClientResult<Vec<u8>>> + Send;
 
     /// Returns the blob object and its associated attributes given the object ID of either
@@ -188,6 +197,17 @@ impl<T: ReadClient> WalrusReadClient for WalrusNodeClient<T> {
         consistency_check: ConsistencyCheckType,
     ) -> ClientResult<Vec<u8>> {
         self.read_blob_retry_committees::<Primary>(blob_id, consistency_check)
+            .await
+    }
+
+    async fn read_byte_range(
+        &self,
+        blob_id: &BlobId,
+        start_byte_position: usize,
+        byte_length: usize,
+    ) -> ClientResult<Vec<u8>> {
+        self.byte_range_read_client()
+            .read_byte_range(blob_id, start_byte_position, byte_length)
             .await
     }
 
@@ -430,6 +450,10 @@ impl<T: WalrusReadClient + Send + Sync + 'static> ClientDaemon<T> {
                 get(routes::get_blob_by_object_id)
                     .with_state((self.client.clone(), self.response_header_config.clone()))
                     .route_layer(aggregator_layers.clone()),
+            )
+            .route(
+                BLOB_BYTE_RANGE_GET_ENDPOINT,
+                get(routes::get_blob_byte_range).route_layer(aggregator_layers.clone()),
             )
             .route(
                 BLOB_CONCAT_ENDPOINT,
@@ -773,6 +797,15 @@ mod tests {
             &self,
             _blob_object_id: &ObjectID,
         ) -> ClientResult<walrus_sui::types::move_structs::BlobWithAttribute> {
+            unimplemented!("not needed for rate limit tests")
+        }
+
+        async fn read_byte_range(
+            &self,
+            _blob_id: &BlobId,
+            _start_byte_position: usize,
+            _byte_length: usize,
+        ) -> ClientResult<Vec<u8>> {
             unimplemented!("not needed for rate limit tests")
         }
     }

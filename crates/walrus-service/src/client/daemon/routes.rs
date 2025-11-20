@@ -93,6 +93,8 @@ pub const QUILT_PATCH_BY_IDENTIFIER_GET_ENDPOINT: &str =
     "/v1/blobs/by-quilt-id/{quilt_id}/{identifier}";
 /// The path to list patches in a quilt.
 pub const LIST_PATCHES_IN_QUILT_ENDPOINT: &str = "/v1/quilts/{quilt_id}/patches";
+/// The path to read a byte range from a blob.
+pub const BLOB_BYTE_RANGE_GET_ENDPOINT: &str = "/v1/blobs/{blob_id}/byte-range";
 /// Custom header for quilt patch identifier.
 const X_QUILT_PATCH_IDENTIFIER: &str = "X-Quilt-Patch-Identifier";
 
@@ -153,6 +155,17 @@ pub struct ConcatRequestBody {
     /// Whether to skip consistency checks entirely.
     #[serde(default)]
     pub skip_consistency_check: Option<bool>,
+}
+
+/// The query parameters for reading a byte range from a blob.
+#[derive(Debug, Deserialize, Serialize, IntoParams, utoipa::ToSchema, PartialEq, Eq)]
+#[into_params(parameter_in = Query, style = Form)]
+#[serde(deny_unknown_fields)]
+pub struct ByteRangeQueryParams {
+    /// The starting byte position (0-indexed, inclusive).
+    pub start: usize,
+    /// The number of bytes to read.
+    pub length: usize,
 }
 
 /// Helper function to parse an ID string and resolve it to a BlobId.
@@ -378,6 +391,149 @@ pub(super) async fn get_blob_by_object_id<T: WalrusReadClient>(
                 }
                 _ => (),
             }
+
+            error.to_response()
+        }
+    }
+}
+
+/// Errors that can occur when reading a byte range from a blob.
+#[derive(Debug, thiserror::Error, RestApiError)]
+#[rest_api_error(domain = ERROR_DOMAIN)]
+pub(crate) enum ByteRangeReadError {
+    /// The requested blob has not yet been stored on Walrus.
+    #[error("the requested blob ID does not exist on Walrus, ensure that it was entered correctly")]
+    #[rest_api_error(reason = "BLOB_NOT_FOUND", status = ApiStatusCode::NotFound)]
+    BlobNotFound,
+
+    /// The blob cannot be returned as it has been blocked.
+    #[error("the requested blob is blocked")]
+    #[rest_api_error(reason = "FORBIDDEN_BLOB", status = ApiStatusCode::UnavailableForLegalReasons)]
+    Blocked,
+
+    /// The byte range parameters are invalid.
+    #[error("invalid byte range parameters: {message}")]
+    #[rest_api_error(reason = "INVALID_BYTE_RANGE", status = ApiStatusCode::InvalidArgument)]
+    InvalidByteRange { message: String },
+
+    /// The blob size exceeds the maximum allowed size that was configured for this service.
+    #[error("the blob size exceeds the maximum allowed size: {0}")]
+    #[rest_api_error(reason = "BLOB_TOO_LARGE", status = ApiStatusCode::SizeExceeded)]
+    BlobTooLarge(u64),
+
+    #[error(transparent)]
+    #[rest_api_error(delegate)]
+    Internal(#[from] anyhow::Error),
+}
+
+impl From<ClientError> for ByteRangeReadError {
+    fn from(error: ClientError) -> Self {
+        match error.kind() {
+            ClientErrorKind::BlobIdDoesNotExist => Self::BlobNotFound,
+            ClientErrorKind::BlobIdBlocked(_) => Self::Blocked,
+            ClientErrorKind::BlobTooLarge(max_blob_size) => Self::BlobTooLarge(*max_blob_size),
+            ClientErrorKind::ByteRangeReadError(msg) => Self::InvalidByteRange {
+                message: msg.to_string(),
+            },
+            _ => anyhow::anyhow!(error).into(),
+        }
+    }
+}
+
+/// Retrieve a specific byte range from a Walrus blob.
+///
+/// Reads a specific portion of a blob identified by the blob ID, starting from a given byte
+/// position and reading a specified number of bytes. This is more efficient than retrieving the
+/// entire blob when only a portion is needed.
+///
+/// # Query Parameters
+/// - `start`: The starting byte position (0-indexed, inclusive)
+/// - `length`: The number of bytes to read
+///
+/// # Validation
+/// - `start` and `length` must not overflow when added together
+/// - The byte range `[start, start + length)` must be within the blob's size
+/// - `length` must be greater than 0
+///
+/// # Example
+/// ```bash
+/// # Read 1024 bytes starting from position 0
+/// curl "$AGGREGATOR/v1/blobs/{blob_id}/byte-range?start=0&length=1024"
+/// ```
+#[tracing::instrument(
+    level = Level::ERROR,
+    skip_all,
+    fields(
+        %blob_id,
+        start=%params.start,
+        length=%params.length,
+    ),
+)]
+#[utoipa::path(
+    get,
+    path = BLOB_BYTE_RANGE_GET_ENDPOINT,
+    params(
+        ("blob_id" = BlobId,),
+        ByteRangeQueryParams,
+    ),
+    responses(
+        (status = 200, description = "The byte range was read successfully", body = [u8]),
+        ByteRangeReadError,
+    ),
+)]
+pub(super) async fn get_blob_byte_range<T: WalrusReadClient>(
+    request_method: Method,
+    request_headers: HeaderMap,
+    State(client): State<Arc<T>>,
+    Path(BlobIdString(blob_id)): Path<BlobIdString>,
+    Query(params): Query<ByteRangeQueryParams>,
+) -> Response {
+    tracing::debug!(
+        "starting to read byte range from blob: start={}, length={}",
+        params.start,
+        params.length
+    );
+
+    // Validate parameters upfront
+    if params.length == 0 {
+        return ByteRangeReadError::InvalidByteRange {
+            message: "length must be greater than 0".to_string(),
+        }
+        .into_response();
+    }
+
+    // Check for overflow when adding start and length
+    if params.start.checked_add(params.length).is_none() {
+        return ByteRangeReadError::InvalidByteRange {
+            message: "start + length overflows".to_string(),
+        }
+        .into_response();
+    }
+
+    // Combine blob id and the query into etag.
+    let etag = format!("{}-{}-{}", blob_id, params.start, params.length);
+
+    // Perform the byte range read using the trait method
+    match client
+        .read_byte_range(&blob_id, params.start, params.length)
+        .await
+    {
+        Ok(data) => {
+            tracing::debug!("successfully retrieved byte range of {} bytes", data.len());
+            let mut response = (StatusCode::OK, data).into_response();
+            let headers = response.headers_mut();
+            populate_response_headers_from_request(
+                request_method,
+                &request_headers,
+                &etag,
+                headers,
+            );
+            response
+        }
+        Err(error) => {
+            let error = ByteRangeReadError::from(error);
+
+            tracing::debug!(?etag, ?error, "error retrieving byte range");
 
             error.to_response()
         }
