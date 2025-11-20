@@ -22,9 +22,7 @@ use epoch_change_driver::EpochChangeDriver;
 use errors::{ListSymbolsError, Unavailable};
 use fastcrypto::traits::KeyPair;
 use futures::{
-    FutureExt as _,
-    StreamExt,
-    TryFutureExt as _,
+    FutureExt as _, StreamExt, TryFutureExt as _,
     stream::{self, FuturesOrdered},
 };
 use itertools::Either;
@@ -48,42 +46,22 @@ use tower::{Service, ServiceExt};
 use tracing::{Instrument as _, Span, field};
 use typed_store::{TypedStoreError, rocks::MetricConf};
 use walrus_core::{
-    BlobId,
-    EncodingType,
-    Epoch,
-    InconsistencyProof,
-    PublicKey,
-    ShardIndex,
-    Sliver,
-    SliverPairIndex,
-    SliverType,
-    SymbolId,
+    BlobId, EncodingType, Epoch, InconsistencyProof, PublicKey, ShardIndex, Sliver,
+    SliverPairIndex, SliverType, SymbolId,
     by_axis::Axis,
     encoding::{
-        EncodingAxis,
-        EncodingConfig,
-        GeneralRecoverySymbol,
-        Primary,
-        RecoverySymbolError,
+        EncodingAxis, EncodingConfig, GeneralRecoverySymbol, Primary, RecoverySymbolError,
         Secondary,
     },
     ensure,
     keys::ProtocolKeyPair,
     messages::{
-        BlobPersistenceType,
-        Confirmation,
-        InvalidBlobIdAttestation,
-        InvalidBlobIdMsg,
-        ProtocolMessage,
-        SignedMessage,
-        SignedSyncShardRequest,
-        StorageConfirmation,
+        BlobPersistenceType, Confirmation, InvalidBlobIdAttestation, InvalidBlobIdMsg,
+        ProtocolMessage, SignedMessage, SignedSyncShardRequest, StorageConfirmation,
         SyncShardResponse,
     },
     metadata::{
-        BlobMetadataApi as _,
-        BlobMetadataWithId,
-        UnverifiedBlobMetadataWithId,
+        BlobMetadataApi as _, BlobMetadataWithId, UnverifiedBlobMetadataWithId,
         VerifiedBlobMetadataWithId,
     },
 };
@@ -94,28 +72,16 @@ use walrus_sdk::{
     sui::{
         client::SuiReadClient,
         types::{
-            BlobEvent,
-            BlobManagerEvent,
-            ContractEvent,
-            EpochChangeDone,
-            EpochChangeEvent,
-            EpochChangeStart,
-            GENESIS_EPOCH,
-            PackageEvent,
+            BlobEvent, BlobManagerEvent, ContractEvent, EpochChangeDone, EpochChangeEvent,
+            EpochChangeStart, GENESIS_EPOCH, PackageEvent,
         },
     },
 };
 use walrus_storage_node_client::{
-    RecoverySymbolsFilter,
-    SymbolIdFilter,
+    RecoverySymbolsFilter, SymbolIdFilter,
     api::{
-        BlobStatus,
-        ServiceHealthInfo,
-        ShardHealthInfo,
-        ShardStatus as ApiShardStatus,
-        ShardStatusDetail,
-        ShardStatusSummary,
-        StoredOnNodeStatus,
+        BlobStatus, ServiceHealthInfo, ShardHealthInfo, ShardStatus as ApiShardStatus,
+        ShardStatusDetail, ShardStatusSummary, StoredOnNodeStatus,
     },
 };
 use walrus_sui::client::FixedSystemParameters;
@@ -128,26 +94,16 @@ use self::{
     contract_service::{SuiSystemContractService, SystemContractService},
     db_checkpoint::DbCheckpointManager,
     errors::{
-        BlobStatusError,
-        ComputeStorageConfirmationError,
-        InconsistencyProofError,
-        IndexOutOfRange,
-        InvalidEpochError,
-        RetrieveMetadataError,
-        RetrieveSliverError,
-        RetrieveSymbolError,
-        ShardNotAssigned,
-        StoreMetadataError,
-        StoreSliverError,
-        SyncNodeConfigError,
+        BlobStatusError, ComputeStorageConfirmationError, InconsistencyProofError, IndexOutOfRange,
+        InvalidEpochError, RetrieveMetadataError, RetrieveSliverError, RetrieveSymbolError,
+        ShardNotAssigned, StoreMetadataError, StoreSliverError, SyncNodeConfigError,
         SyncShardServiceError,
     },
     event_blob_writer::EventBlobWriterFactory,
     metrics::{NodeMetricSet, STATUS_PENDING, STATUS_PERSISTED, TelemetryLabel as _},
     shard_sync::ShardSyncHandler,
     storage::{
-        ShardStatus,
-        ShardStorage,
+        ShardStatus, ShardStorage,
         blob_info::{BlobInfoApi, CertifiedBlobInfoApi},
     },
     system_events::{EventManager, SuiSystemEventProvider},
@@ -161,12 +117,8 @@ use crate::{
             processor::EventProcessor,
         },
         events::{
-            CheckpointEventPosition,
-            EventStreamCursor,
-            EventStreamElement,
-            EventStreamWithStartingIndices,
-            InitState,
-            PositionedStreamEvent,
+            CheckpointEventPosition, EventStreamCursor, EventStreamElement,
+            EventStreamWithStartingIndices, InitState, PositionedStreamEvent,
         },
     },
     node::{config::GarbageCollectionConfig, event_blob_writer::EventBlobWriter},
@@ -3490,11 +3442,7 @@ mod tests {
         client::FixedSystemParameters,
         test_utils::{EventForTesting, FIXED_OBJECT_ID, event_id_for_testing},
         types::{
-            BlobCertified,
-            BlobDeleted,
-            BlobRegistered,
-            InvalidBlobId,
-            StorageNodeCap,
+            BlobCertified, BlobDeleted, BlobRegistered, InvalidBlobId, StorageNodeCap,
             move_structs::EpochState,
         },
     };
@@ -4036,8 +3984,7 @@ mod tests {
 
         use fastcrypto::traits::VerifyingKey;
         use walrus_core::{
-            inconsistency::PrimaryInconsistencyProof,
-            merkle::Node,
+            inconsistency::PrimaryInconsistencyProof, merkle::Node,
             test_utils::generate_config_metadata_and_valid_recovery_symbols,
         };
 
@@ -5818,11 +5765,8 @@ mod tests {
     #[cfg(msim)]
     mod failure_injection_tests {
         use sui_macros::{
-            clear_fail_point,
-            register_fail_point,
-            register_fail_point_arg,
-            register_fail_point_async,
-            register_fail_point_if,
+            clear_fail_point, register_fail_point, register_fail_point_arg,
+            register_fail_point_async, register_fail_point_if,
         };
         use tokio::sync::Notify;
         use walrus_proc_macros::walrus_simtest;

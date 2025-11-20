@@ -295,8 +295,15 @@ impl TryFrom<SuiEvent> for ManagedBlobCertified {
     fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
         ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
 
-        let (epoch, blob_manager_id, blob_id, deletable, blob_type, end_epoch_at_certify, object_id) =
-            bcs::from_bytes(sui_event.bcs.bytes())?;
+        let (
+            epoch,
+            blob_manager_id,
+            blob_id,
+            deletable,
+            blob_type,
+            end_epoch_at_certify,
+            object_id,
+        ) = bcs::from_bytes(sui_event.bcs.bytes())?;
 
         Ok(Self {
             epoch,

@@ -12,23 +12,13 @@ use fastcrypto::hash::{Blake2b256, HashFunction};
 use serde::{Deserialize, Serialize};
 
 use super::{
-    DecodingSymbol,
-    EncodingAxis,
-    EncodingConfig,
-    EncodingConfigEnum,
-    EncodingFactory as _,
-    Primary,
-    RecoverySymbol,
-    RecoverySymbolError,
-    RecoverySymbolPair,
-    Secondary,
-    SliverRecoveryOrVerificationError,
-    Symbols,
+    DecodingSymbol, EncodingAxis, EncodingConfig, EncodingConfigEnum, EncodingFactory as _,
+    Primary, RecoverySymbol, RecoverySymbolError, RecoverySymbolPair, Secondary,
+    SliverRecoveryOrVerificationError, Symbols,
     errors::{SliverRecoveryError, SliverVerificationError},
 };
 use crate::{
-    SliverIndex,
-    SliverPairIndex,
+    SliverIndex, SliverPairIndex,
     encoding::{DecodeError, RequiredCount},
     ensure,
     inconsistency::{InconsistencyProof, SliverOrInconsistencyProof},

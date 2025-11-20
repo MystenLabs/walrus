@@ -18,30 +18,19 @@ use sui_types::{base_types::ObjectID, event::EventID};
 use tokio::time::Instant;
 use tracing::Level;
 use typed_store::{
-    Map,
-    TypedStoreError,
+    Map, TypedStoreError,
     rocks::{DBBatch, DBMap, ReadWriteOptions, RocksDB},
 };
 use walrus_core::{BlobId, Epoch};
 use walrus_storage_node_client::api::{BlobStatus, DeletableCounts, ManagedBlobCounts};
 use walrus_sui::types::{
-    BlobCertified,
-    BlobDeleted,
-    BlobEvent,
-    BlobRegistered,
-    InvalidBlobId,
-    ManagedBlobCertified,
-    ManagedBlobDeleted,
-    ManagedBlobRegistered,
+    BlobCertified, BlobDeleted, BlobEvent, BlobRegistered, InvalidBlobId, ManagedBlobCertified,
+    ManagedBlobDeleted, ManagedBlobRegistered,
 };
 
 use self::per_object_blob_info::PerObjectBlobInfoMergeOperand;
-pub(crate) use self::per_object_blob_info::{
-    ManagedBlobInfoApi,
-    PerObjectBlobInfo,
-    PerObjectBlobInfoApi,
-};
-use super::{DatabaseTableOptionsFactory, constants};
+pub(crate) use self::per_object_blob_info::{PerObjectBlobInfo, PerObjectBlobInfoApi};
+use super::{DatabaseTableOptionsFactory, blob_manager_info::BlobManagerTable, constants};
 use crate::node::metrics::NodeMetricSet;
 
 pub type BlobInfoIterator<'a> = BlobInfoIter<
@@ -61,6 +50,7 @@ pub(super) struct BlobInfoTable {
     aggregate_blob_info: DBMap<BlobId, BlobInfo>,
     per_object_blob_info: DBMap<ObjectID, PerObjectBlobInfo>,
     latest_handled_event_index: Arc<Mutex<DBMap<(), u64>>>,
+    blob_managers: BlobManagerTable,
 }
 
 /// Returns the options for the aggregate blob info column family.
@@ -86,7 +76,10 @@ pub(crate) fn per_object_blob_info_cf_options(
 }
 
 impl BlobInfoTable {
-    pub fn reopen(database: &Arc<RocksDB>) -> Result<Self, TypedStoreError> {
+    pub fn reopen(
+        database: &Arc<RocksDB>,
+        blob_managers: BlobManagerTable,
+    ) -> Result<Self, TypedStoreError> {
         let aggregate_blob_info = DBMap::reopen(
             database,
             Some(constants::aggregate_blob_info_cf_name()),
@@ -110,6 +103,7 @@ impl BlobInfoTable {
             aggregate_blob_info,
             per_object_blob_info,
             latest_handled_event_index,
+            blob_managers,
         })
     }
 
@@ -401,16 +395,48 @@ impl BlobInfoTable {
     }
 
     /// Returns the blob info for `blob_id`.
+    /// For managed blobs, the end_epoch field is populated by looking up all associated BlobManagers
+    /// and taking the maximum end_epoch.
     pub fn get(&self, blob_id: &BlobId) -> Result<Option<BlobInfo>, TypedStoreError> {
-        self.aggregate_blob_info.get(blob_id)
+        let mut blob_info = self.aggregate_blob_info.get(blob_id)?;
+
+        // Populate end_epoch for managed blobs.
+        if let Some(BlobInfo::V2(BlobInfoV2::Valid(ref mut valid_info))) = blob_info {
+            if let Some(ref mut managed_info) = valid_info.managed_blob_info {
+                // Find the maximum end_epoch from all registered BlobManagers.
+                let mut max_end_epoch: Option<Epoch> = None;
+                for manager_id in &managed_info.registered {
+                    if let Some(manager_info) = self.blob_managers.get(manager_id)? {
+                        max_end_epoch =
+                            Some(max_end_epoch.map_or(manager_info.end_epoch, |current| {
+                                std::cmp::max(current, manager_info.end_epoch)
+                            }));
+                    }
+                }
+                managed_info.end_epoch = max_end_epoch;
+            }
+        }
+
+        Ok(blob_info)
     }
 
     /// Returns the per-object blob info for `object_id`.
+    /// For managed blobs (V2), the end_epoch field is populated by looking up the BlobManager.
     pub fn get_per_object_info(
         &self,
         object_id: &ObjectID,
     ) -> Result<Option<PerObjectBlobInfo>, TypedStoreError> {
-        self.per_object_blob_info.get(object_id)
+        let mut per_object_info = self.per_object_blob_info.get(object_id)?;
+
+        // Populate end_epoch for managed blobs (V2 only).
+        if let Some(PerObjectBlobInfo::V2(ref mut v2_info)) = per_object_info {
+            // Look up the BlobManager to get its current end_epoch.
+            if let Some(manager_info) = self.blob_managers.get(&v2_info.blob_manager_id)? {
+                v2_info.end_epoch = Some(manager_info.end_epoch);
+            }
+        }
+
+        Ok(per_object_info)
     }
 
     /// Returns the latest event index that has been handled by the node.
@@ -2017,6 +2043,9 @@ pub(crate) struct ManagedBlobInfo {
     /// BlobManagers that have certified this blob (deletable or permanent).
     pub certified: std::collections::HashSet<ObjectID>,
     pub certified_deletable_counts: u32,
+    /// The current end_epoch from the BlobManager. Populated at read time, not serialized.
+    #[serde(skip)]
+    pub end_epoch: Option<Epoch>,
 }
 
 impl ManagedBlobInfo {
@@ -2030,6 +2059,7 @@ impl ManagedBlobInfo {
             // certified_deletable_counts should be 0 on registration,
             // only increment on certification.
             certified_deletable_counts: 0,
+            end_epoch: None,
         }
     }
 
@@ -2498,7 +2528,7 @@ impl Mergeable for BlobInfo {
 }
 
 mod per_object_blob_info {
-    use super::{super::blob_manager_info::BlobManagerTable, *};
+    use super::*;
 
     #[derive(Debug, Deserialize, Serialize, PartialEq, Eq, Clone)]
     pub(crate) struct PerObjectBlobInfoMergeOperand {
@@ -2540,17 +2570,6 @@ mod per_object_blob_info {
         fn is_registered(&self, current_epoch: Epoch) -> bool;
         /// Returns true iff the object is already deleted.
         fn is_deleted(&self) -> bool;
-    }
-
-    /// Trait for managed blob info that requires BlobManager context for validation.
-    pub(crate) trait ManagedBlobInfoApi {
-        /// Returns true iff the managed blob is registered and valid at the current epoch.
-        /// This checks the BlobManager's end_epoch to determine validity.
-        fn is_registered_with_manager(
-            &self,
-            current_epoch: Epoch,
-            blob_managers: &BlobManagerTable,
-        ) -> Result<bool, TypedStoreError>;
     }
 
     #[enum_dispatch(CertifiedBlobInfoApi)]
@@ -2775,6 +2794,9 @@ mod per_object_blob_info {
         pub event: EventID,
         /// Whether the blob has been deleted.
         pub deleted: bool,
+        /// The current end_epoch from the BlobManager. Populated at read time, not serialized.
+        #[serde(skip)]
+        pub end_epoch: Option<Epoch>,
     }
 
     impl CertifiedBlobInfoApi for PerObjectBlobInfoV2 {
@@ -2811,29 +2833,25 @@ mod per_object_blob_info {
         }
     }
 
-    impl ManagedBlobInfoApi for PerObjectBlobInfoV2 {
-        fn is_registered_with_manager(
-            &self,
-            current_epoch: Epoch,
-            blob_managers: &BlobManagerTable,
-        ) -> Result<bool, TypedStoreError> {
+    impl PerObjectBlobInfoV2 {
+        pub(crate) fn is_registered_with_manager(&self, current_epoch: Epoch) -> bool {
             // If the blob is deleted, it's not registered.
             if self.deleted {
-                return Ok(false);
+                return false;
             }
 
-            // Check if the BlobManager exists and is still valid.
-            let manager_info = blob_managers.get(&self.blob_manager_id)?;
-            match manager_info {
-                Some(info) => Ok(info.is_epoch_valid(current_epoch)),
+            // Check if the BlobManager's end_epoch is valid.
+            // end_epoch should have been populated by get_per_object_info().
+            match self.end_epoch {
+                Some(end_epoch) => current_epoch < end_epoch,
                 None => {
-                    // BlobManager not found, blob is not considered registered.
+                    // BlobManager not found or end_epoch not populated, blob is not considered registered.
                     tracing::warn!(
-                        "BlobManager {:?} not found for blob {:?}",
-                        self.blob_manager_id,
-                        self.blob_id
+                        "BlobManager end_epoch not found for blob {:?} (manager: {:?})",
+                        self.blob_id,
+                        self.blob_manager_id
                     );
-                    Ok(false)
+                    false
                 }
             }
         }
@@ -2937,6 +2955,7 @@ mod per_object_blob_info {
                 deletable,
                 event: status_event,
                 deleted: false,
+                end_epoch: None,
             })
         }
     }
@@ -3730,7 +3749,7 @@ mod tests {
                         registered_deletable_counts: 1,
                         certified: Default::default(),
                         certified_deletable_counts: 0,
-                    }),
+                        end_epoch: None,                    }),
                 }),
             ),
             register_managed_permanent: (
@@ -3755,7 +3774,7 @@ mod tests {
                         registered_deletable_counts: 0,
                         certified: Default::default(),
                         certified_deletable_counts: 0,
-                    }),
+                        end_epoch: None,                    }),
                 }),
             ),
         ]
@@ -3855,7 +3874,7 @@ mod tests {
                         registered_deletable_counts: 1,
                         certified: Default::default(),
                         certified_deletable_counts: 0,
-                    }),
+                        end_epoch: None,                    }),
                 }),
             ),
             register_managed_on_existing_v2_managed: (
@@ -3868,7 +3887,7 @@ mod tests {
                         registered_deletable_counts: 1,
                         certified: Default::default(),
                         certified_deletable_counts: 0,
-                    }),
+                        end_epoch: None,                    }),
                 }),
                 BlobInfoMergeOperand::ChangeStatus {
                     change_type: BlobStatusChangeType::RegisterManaged {
@@ -3893,7 +3912,7 @@ mod tests {
                         registered_deletable_counts: 1,
                         certified: Default::default(),
                         certified_deletable_counts: 0,
-                    }),
+                        end_epoch: None,                    }),
                 }),
             ),
             register_managed_on_existing_v2_both: (
@@ -3912,7 +3931,7 @@ mod tests {
                         registered_deletable_counts: 1,
                         certified: Default::default(),
                         certified_deletable_counts: 0,
-                    }),
+                        end_epoch: None,                    }),
                 }),
                 BlobInfoMergeOperand::ChangeStatus {
                     change_type: BlobStatusChangeType::RegisterManaged {
@@ -3943,7 +3962,7 @@ mod tests {
                         registered_deletable_counts: 2,
                         certified: Default::default(),
                         certified_deletable_counts: 0,
-                    }),
+                        end_epoch: None,                    }),
                 }),
             ),
         ]
@@ -3969,7 +3988,7 @@ mod tests {
                         registered_deletable_counts: 1,
                         certified: Default::default(),
                         certified_deletable_counts: 0,
-                    }),
+                        end_epoch: None,                    }),
                 }),
                 object_id_for_testing(1),
                 1,
@@ -3983,7 +4002,7 @@ mod tests {
                         registered_deletable_counts: 1,
                         certified: [object_id_for_testing(1)].into_iter().collect(),
                         certified_deletable_counts: 1,
-                    }),
+                        end_epoch: None,                    }),
                 }),
             ),
             certify_second_manager: (
@@ -3998,7 +4017,7 @@ mod tests {
                         registered_deletable_counts: 1,
                         certified: [object_id_for_testing(1)].into_iter().collect(),
                         certified_deletable_counts: 1,
-                    }),
+                        end_epoch: None,                    }),
                 }),
                 object_id_for_testing(2),
                 2,
@@ -4016,7 +4035,7 @@ mod tests {
                             .into_iter()
                             .collect(),
                         certified_deletable_counts: 1,
-                    }),
+                        end_epoch: None,                    }),
                 }),
             ),
         ]
@@ -4060,7 +4079,7 @@ mod tests {
                         registered_deletable_counts: 1,
                         certified: Default::default(),
                         certified_deletable_counts: 0,
-                    }),
+                        end_epoch: None,                    }),
                 }),
             ),
             register_managed_then_regular: (
@@ -4079,7 +4098,7 @@ mod tests {
                         registered_deletable_counts: 1,
                         certified: Default::default(),
                         certified_deletable_counts: 0,
-                    }),
+                        end_epoch: None,                    }),
                 }),
             ),
         ]
@@ -4227,7 +4246,7 @@ mod tests {
                         registered_deletable_counts: 1,
                         certified: Default::default(),
                         certified_deletable_counts: 0,
-                    }),
+                        end_epoch: None,                    }),
                 }),
                 BlobInfoMergeOperand::ChangeStatus {
                     change_type: BlobStatusChangeType::DeleteManaged {
@@ -4258,7 +4277,7 @@ mod tests {
                         registered_deletable_counts: 1,
                         certified: [object_id_for_testing(1)].into_iter().collect(),
                         certified_deletable_counts: 1,
-                    }),
+                        end_epoch: None,                    }),
                 }),
                 BlobInfoMergeOperand::ChangeStatus {
                     change_type: BlobStatusChangeType::DeleteManaged {
@@ -4289,7 +4308,7 @@ mod tests {
                         registered_deletable_counts: 1,
                         certified: [object_id_for_testing(1)].into_iter().collect(),
                         certified_deletable_counts: 1,
-                    }),
+                        end_epoch: None,                    }),
                 }),
                 BlobInfoMergeOperand::ChangeStatus {
                     change_type: BlobStatusChangeType::DeleteManaged {
@@ -4313,7 +4332,7 @@ mod tests {
                         registered_deletable_counts: 0,
                         certified: Default::default(),
                         certified_deletable_counts: 0,
-                    }),
+                        end_epoch: None,                    }),
                 }),
             ),
             delete_managed_keep_regular: (
@@ -4332,7 +4351,7 @@ mod tests {
                         registered_deletable_counts: 1,
                         certified: Default::default(),
                         certified_deletable_counts: 0,
-                    }),
+                        end_epoch: None,                    }),
                 }),
                 BlobInfoMergeOperand::ChangeStatus {
                     change_type: BlobStatusChangeType::DeleteManaged {
@@ -4369,7 +4388,7 @@ mod tests {
                         registered_deletable_counts: 0,
                         certified: Default::default(),
                         certified_deletable_counts: 0,
-                    }),
+                        end_epoch: None,                    }),
                 }),
                 BlobInfoMergeOperand::ChangeStatus {
                     change_type: BlobStatusChangeType::DeleteManaged {
@@ -4393,7 +4412,7 @@ mod tests {
                         registered_deletable_counts: 0,
                         certified: Default::default(),
                         certified_deletable_counts: 0,
-                    }),
+                        end_epoch: None,                    }),
                 }),
             ),
             delete_certified_managed_with_mixed_deletable: (
@@ -4413,7 +4432,7 @@ mod tests {
                         certified: [object_id_for_testing(1), object_id_for_testing(2)]
                             .into_iter().collect(),
                         certified_deletable_counts: 1,
-                    }),
+                        end_epoch: None,                    }),
                 }),
                 BlobInfoMergeOperand::ChangeStatus {
                     change_type: BlobStatusChangeType::DeleteManaged {
@@ -4438,7 +4457,7 @@ mod tests {
                         registered_deletable_counts: 1,
                         certified: [object_id_for_testing(2)].into_iter().collect(),
                         certified_deletable_counts: 0,
-                    }),
+                        end_epoch: None,                    }),
                 }),
             ),
             delete_managed_both_v1_and_v2_certified: (
@@ -4458,7 +4477,7 @@ mod tests {
                         registered_deletable_counts: 1,
                         certified: [object_id_for_testing(1)].into_iter().collect(),
                         certified_deletable_counts: 1,
-                    }),
+                        end_epoch: None,                    }),
                 }),
                 BlobInfoMergeOperand::ChangeStatus {
                     change_type: BlobStatusChangeType::DeleteManaged {

@@ -36,11 +36,7 @@ use tokio::task;
 use tracing::{Subscriber, level_filters::LevelFilter};
 use tracing_opentelemetry::OpenTelemetryLayer;
 use tracing_subscriber::{
-    EnvFilter,
-    Layer,
-    layer::SubscriberExt,
-    registry::LookupSpan,
-    util::SubscriberInitExt,
+    EnvFilter, Layer, layer::SubscriberExt, registry::LookupSpan, util::SubscriberInitExt,
 };
 
 use super::SubscriberGuard;

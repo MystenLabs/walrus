@@ -12,34 +12,22 @@ use anyhow::bail;
 use sui_types::base_types::SuiAddress;
 use tokio_stream::StreamExt;
 use walrus_core::{
-    self,
-    BlobId,
-    EncodingType,
-    ShardIndex,
+    self, BlobId, EncodingType, ShardIndex,
     encoding::{EncodingConfig, EncodingFactory as _},
     keys::{NetworkKeyPair, ProtocolKeyPair},
     merkle::Node,
 };
 use walrus_sui::{
     client::{
-        BlobObjectMetadata,
-        BlobPersistence,
-        CoinType,
-        PostStoreAction,
-        ReadClient,
+        BlobObjectMetadata, BlobPersistence, CoinType, PostStoreAction, ReadClient,
         SuiContractClient,
     },
     test_utils::{
-        TestClusterHandle,
-        TestNodeKeys,
-        new_contract_client_on_sui_test_cluster,
+        TestClusterHandle, TestNodeKeys, new_contract_client_on_sui_test_cluster,
         system_setup::{SystemContext, initialize_contract_and_wallet_for_testing},
     },
     types::{
-        BlobEvent,
-        ContractEvent,
-        EpochChangeEvent,
-        NodeRegistrationParams,
+        BlobEvent, ContractEvent, EpochChangeEvent, NodeRegistrationParams,
         move_structs::BlobWithAttribute,
     },
     utils,

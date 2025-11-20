@@ -16,13 +16,9 @@ use move_core_types::annotated_value::{MoveDatatypeLayout, MoveTypeLayout};
 use sui_package_resolver::Resolver;
 use sui_sdk::rpc_types::SuiEvent;
 use sui_types::{
-    SYSTEM_PACKAGE_ADDRESSES,
-    base_types::ObjectID,
-    committee::Committee,
-    effects::TransactionEffectsAPI,
-    full_checkpoint_content::CheckpointData,
-    message_envelope::Message,
-    messages_checkpoint::VerifiedCheckpoint,
+    SYSTEM_PACKAGE_ADDRESSES, base_types::ObjectID, committee::Committee,
+    effects::TransactionEffectsAPI, full_checkpoint_content::CheckpointData,
+    message_envelope::Message, messages_checkpoint::VerifiedCheckpoint,
 };
 use typed_store::Map;
 use walrus_sui::types::ContractEvent;

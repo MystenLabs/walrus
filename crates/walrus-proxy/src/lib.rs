@@ -95,11 +95,7 @@ mod tests {
     use fastcrypto::{
         secp256r1,
         traits::{
-            EncodeDecodeBase64,
-            KeyPair,
-            RecoverableSignature,
-            RecoverableSigner,
-            ToFromBytes,
+            EncodeDecodeBase64, KeyPair, RecoverableSignature, RecoverableSigner, ToFromBytes,
         },
     };
     use rand::thread_rng;

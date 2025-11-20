@@ -16,11 +16,7 @@ use http_body::Body as _;
 use opentelemetry::propagation::Injector;
 use prometheus::{HistogramVec, IntGauge, IntGaugeVec};
 use reqwest::{
-    Error,
-    Method,
-    Request,
-    Response,
-    StatusCode,
+    Error, Method, Request, Response, StatusCode,
     header::{HeaderMap, HeaderName, HeaderValue},
 };
 use tokio::time::Instant;

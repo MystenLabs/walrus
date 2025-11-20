@@ -4,13 +4,7 @@
 //! Internal-run related functionality for the Walrus client.
 
 use std::{
-    collections::HashMap,
-    env,
-    fs as stdfs,
-    path::PathBuf,
-    process::Stdio,
-    str::FromStr,
-    sync::Arc,
+    collections::HashMap, env, fs as stdfs, path::PathBuf, process::Stdio, str::FromStr, sync::Arc,
 };
 
 use anyhow::{Context, Result};
@@ -35,9 +29,7 @@ use walrus_sdk::{
 };
 
 use crate::client::cli::{
-    HumanReadableBytes,
-    HumanReadableFrost,
-    WalrusColors,
+    HumanReadableBytes, HumanReadableFrost, WalrusColors,
     args::{EpochArg, QuiltBlobInput},
 };
 

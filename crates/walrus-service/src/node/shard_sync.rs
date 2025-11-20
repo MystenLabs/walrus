@@ -19,8 +19,7 @@ use walrus_storage_node_client::error::ServiceError;
 use walrus_utils::backoff::{BackoffStrategy, ExponentialBackoff};
 
 use super::{
-    NodeStatus,
-    StorageNodeInner,
+    NodeStatus, StorageNodeInner,
     blob_retirement_notifier::ExecutionResultWithRetirementCheck,
     config::ShardSyncConfig,
     errors::SyncShardClientError,

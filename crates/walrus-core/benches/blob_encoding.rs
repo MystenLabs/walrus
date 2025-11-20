@@ -10,9 +10,7 @@ use core::{num::NonZeroU16, time::Duration};
 
 use criterion::{AxisScale, BatchSize, BenchmarkId, Criterion, PlotConfiguration};
 use walrus_core::encoding::{
-    ConsistencyCheckType,
-    EncodingFactory as _,
-    ReedSolomonEncodingConfig,
+    ConsistencyCheckType, EncodingFactory as _, ReedSolomonEncodingConfig,
 };
 use walrus_test_utils::{random_data, random_subset};
 

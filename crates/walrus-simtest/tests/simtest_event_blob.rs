@@ -23,8 +23,7 @@ mod tests {
     use walrus_sdk::{client::WalrusNodeClient, config::ClientCommunicationConfig};
     use walrus_service::{
         node::{
-            DatabaseConfig,
-            DatabaseTableOptionsFactory,
+            DatabaseConfig, DatabaseTableOptionsFactory,
             event_blob_writer::CertifiedEventBlobMetadata,
         },
         test_utils::{SimStorageNodeHandle, TestCluster, TestNodesConfig, test_cluster},

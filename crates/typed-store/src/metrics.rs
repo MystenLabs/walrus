@@ -13,22 +13,13 @@ use std::{
 
 use once_cell::sync::OnceCell;
 use prometheus::{
-    Histogram,
-    HistogramVec,
-    IntCounter,
-    IntCounterVec,
-    IntGaugeVec,
-    Registry,
-    register_histogram_vec_with_registry,
-    register_histogram_with_registry,
-    register_int_counter_vec_with_registry,
-    register_int_counter_with_registry,
+    Histogram, HistogramVec, IntCounter, IntCounterVec, IntGaugeVec, Registry,
+    register_histogram_vec_with_registry, register_histogram_with_registry,
+    register_int_counter_vec_with_registry, register_int_counter_with_registry,
     register_int_gauge_vec_with_registry,
 };
 use rocksdb::{
-    PerfContext,
-    PerfMetric,
-    PerfStatsLevel,
+    PerfContext, PerfMetric, PerfStatsLevel,
     perf::set_perf_stats,
     properties::{self, num_files_at_level},
     statistics::Ticker,

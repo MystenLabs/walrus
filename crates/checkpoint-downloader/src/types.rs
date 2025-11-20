@@ -5,8 +5,7 @@
 
 use anyhow::Result;
 use sui_types::{
-    full_checkpoint_content::CheckpointData,
-    messages_checkpoint::CheckpointSequenceNumber,
+    full_checkpoint_content::CheckpointData, messages_checkpoint::CheckpointSequenceNumber,
 };
 use tokio::sync::mpsc;
 

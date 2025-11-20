@@ -14,14 +14,9 @@ use walrus_sui::{
 
 use crate::{
     client::{
-        WalrusNodeClient,
-        WalrusStoreBlobMaybeFinished,
-        WalrusStoreBlobUnfinished,
+        WalrusNodeClient, WalrusStoreBlobMaybeFinished, WalrusStoreBlobUnfinished,
         client_types::{
-            BlobObject,
-            BlobPendingCertifyAndExtend,
-            BlobWithStatus,
-            RegisteredBlob,
+            BlobObject, BlobPendingCertifyAndExtend, BlobWithStatus, RegisteredBlob,
             WalrusStoreBlobFinished,
         },
         resource::{PriceComputation, RegisterBlobOp},
@@ -76,10 +71,7 @@ impl<'a> BlobManagerClient<'a, SuiContractClient> {
         cap_id: ObjectID,
     ) -> ClientResult<Self> {
         use sui_sdk::rpc_types::{
-            SuiMoveStruct,
-            SuiMoveValue,
-            SuiObjectDataOptions,
-            SuiParsedData,
+            SuiMoveStruct, SuiMoveValue, SuiObjectDataOptions, SuiParsedData,
         };
 
         // Read the BlobManagerCap to get the manager_id.

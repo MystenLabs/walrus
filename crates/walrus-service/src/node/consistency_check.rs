@@ -20,8 +20,7 @@ use walrus_core::{BlobId, Epoch};
 use walrus_utils::metrics::monitored_scope;
 
 use super::{
-    NodeStatus,
-    StorageNodeInner,
+    NodeStatus, StorageNodeInner,
     blob_sync::BlobSyncHandler,
     storage::blob_info::{BlobInfoIterator, PerObjectBlobInfoIterator},
 };

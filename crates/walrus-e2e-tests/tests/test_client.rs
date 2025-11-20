@@ -29,18 +29,9 @@ use sui_types::base_types::{SUI_ADDRESS_LENGTH, SuiAddress};
 use tokio::sync::Mutex;
 use tokio_stream::StreamExt;
 use walrus_core::{
-    BlobId,
-    DEFAULT_ENCODING,
-    EncodingType,
-    EpochCount,
-    QuiltPatchId,
-    ShardIndex,
-    SliverPairIndex,
+    BlobId, DEFAULT_ENCODING, EncodingType, EpochCount, QuiltPatchId, ShardIndex, SliverPairIndex,
     encoding::{
-        BLOB_TYPE_ATTRIBUTE_KEY,
-        EncodingFactory as _,
-        Primary,
-        QUILT_TYPE_VALUE,
+        BLOB_TYPE_ATTRIBUTE_KEY, EncodingFactory as _, Primary, QUILT_TYPE_VALUE,
         encoded_blob_length_for_n_shards,
         quilt_encoding::{QuiltApi, QuiltStoreBlob, QuiltVersionV1},
     },
@@ -51,9 +42,7 @@ use walrus_core::{
 use walrus_proc_macros::walrus_simtest;
 use walrus_sdk::{
     client::{
-        Blocklist,
-        StoreArgs,
-        WalrusNodeClient,
+        Blocklist, StoreArgs, WalrusNodeClient,
         client_types::WalrusStoreBlob,
         quilt_client::QuiltClientConfig,
         responses::{BlobStoreResult, QuiltStoreResult},
@@ -63,10 +52,7 @@ use walrus_sdk::{
     error::{
         ClientError,
         ClientErrorKind::{
-            self,
-            NoMetadataReceived,
-            NoValidStatusReceived,
-            NotEnoughConfirmations,
+            self, NoMetadataReceived, NoValidStatusReceived, NotEnoughConfirmations,
             NotEnoughSlivers,
         },
     },
@@ -75,28 +61,20 @@ use walrus_sdk::{
     uploader::TailHandling,
 };
 use walrus_service::test_utils::{
-    StorageNodeHandleTrait,
-    TestNodesConfig,
-    UnusedSocketAddress,
+    StorageNodeHandleTrait, TestNodesConfig, UnusedSocketAddress,
     test_cluster::{self, FROST_PER_NODE_WEIGHT},
 };
 use walrus_storage_node_client::api::BlobStatus;
 use walrus_sui::{
     client::{
-        BlobPersistence,
-        ExpirySelectionPolicy,
-        PostStoreAction,
-        ReadClient,
-        SuiClientError,
+        BlobPersistence, ExpirySelectionPolicy, PostStoreAction, ReadClient, SuiClientError,
         SuiContractClient,
         retry_client::{RetriableSuiClient, retriable_sui_client::LazySuiClientBuilder},
     },
     config::WalletConfig,
     test_utils::{self, fund_addresses, wallet_for_testing},
     types::{
-        Blob,
-        BlobEvent,
-        ContractEvent,
+        Blob, BlobEvent, ContractEvent,
         move_errors::{MoveExecutionError, RawMoveError},
         move_structs::{BlobAttribute, BlobWithAttribute, Credits, SharedBlob},
     },
@@ -2863,12 +2841,8 @@ async fn test_blob_manager_basic() {
     // Create and encode a blob (following the pattern from reserve_and_store_blobs)
     use walrus_core::DEFAULT_ENCODING;
     use walrus_sdk::client::client_types::{
-        BlobWithStatus,
-        WalrusStoreBlobMaybeFinished,
-        WalrusStoreBlobState,
-        WalrusStoreBlobUnfinished,
-        WalrusStoreEncodedBlobApi,
-        partition_unfinished_finished,
+        BlobWithStatus, WalrusStoreBlobMaybeFinished, WalrusStoreBlobState,
+        WalrusStoreBlobUnfinished, WalrusStoreEncodedBlobApi, partition_unfinished_finished,
     };
     use walrus_sui::types::move_structs::BlobAttribute;
 

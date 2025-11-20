@@ -10,8 +10,7 @@ pub(crate) mod safe_iter;
 use std::{
     borrow::Borrow,
     collections::HashSet,
-    env,
-    fmt,
+    env, fmt,
     marker::PhantomData,
     ops::{Bound, RangeBounds},
     path::{Path, PathBuf},
@@ -20,29 +19,11 @@ use std::{
 
 use bincode::Options;
 use rocksdb::{
-    AsColumnFamilyRef,
-    BlockBasedOptions,
-    BottommostLevelCompaction,
-    CStrLike,
-    Cache,
-    ColumnFamilyDescriptor,
-    CompactOptions,
-    DBPinnableSlice,
-    DBWithThreadMode,
-    Error,
-    IngestExternalFileOptions,
-    LiveFile,
-    MultiThreaded,
-    OptimisticTransactionDB,
-    OptimisticTransactionOptions,
-    ReadOptions,
-    SstFileWriter,
-    Transaction,
-    WriteBatch,
-    WriteBatchWithTransaction,
-    WriteOptions,
-    backup::BackupEngine,
-    checkpoint::Checkpoint,
+    AsColumnFamilyRef, BlockBasedOptions, BottommostLevelCompaction, CStrLike, Cache,
+    ColumnFamilyDescriptor, CompactOptions, DBPinnableSlice, DBWithThreadMode, Error,
+    IngestExternalFileOptions, LiveFile, MultiThreaded, OptimisticTransactionDB,
+    OptimisticTransactionOptions, ReadOptions, SstFileWriter, Transaction, WriteBatch,
+    WriteBatchWithTransaction, WriteOptions, backup::BackupEngine, checkpoint::Checkpoint,
 };
 use serde::{Serialize, de::DeserializeOwned};
 use tap::TapFallible;
@@ -53,8 +34,7 @@ use crate::{
     metrics::{DBMetrics, RocksDBPerfContext, SamplingInterval},
     rocks::{
         errors::{
-            typed_store_err_from_bcs_err,
-            typed_store_err_from_bincode_err,
+            typed_store_err_from_bcs_err, typed_store_err_from_bincode_err,
             typed_store_err_from_rocks_err,
         },
         safe_iter::{IterContext, SafeIter, SafeRevIter},

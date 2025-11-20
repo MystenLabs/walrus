@@ -13,9 +13,7 @@ use walrus_proxy::{
     admin,
     config::{ProxyConfig, load},
     consumer::Label,
-    histogram_relay,
-    metrics,
-    providers,
+    histogram_relay, metrics, providers,
 };
 
 // Define the `GIT_REVISION` and `VERSION` consts

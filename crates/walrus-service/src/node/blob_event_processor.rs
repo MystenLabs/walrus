@@ -15,11 +15,7 @@ use tokio::{
     task::JoinHandle,
 };
 use walrus_sui::types::{
-    BlobCertified,
-    BlobDeleted,
-    BlobEvent,
-    InvalidBlobId,
-    ManagedBlobCertified,
+    BlobCertified, BlobDeleted, BlobEvent, InvalidBlobId, ManagedBlobCertified,
 };
 use walrus_utils::metrics::monitored_scope;
 

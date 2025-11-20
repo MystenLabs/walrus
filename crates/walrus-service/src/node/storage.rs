@@ -20,14 +20,11 @@ use sui_sdk::types::event::EventID;
 use sui_types::base_types::ObjectID;
 use tokio::sync::{OwnedRwLockWriteGuard, RwLock};
 use typed_store::{
-    Map,
-    TypedStoreError,
+    Map, TypedStoreError,
     rocks::{self, DBBatch, DBMap, MetricConf, OptimisticHandle, ReadWriteOptions, RocksDB},
 };
 use walrus_core::{
-    BlobId,
-    Epoch,
-    ShardIndex,
+    BlobId, Epoch, ShardIndex,
     messages::{SyncShardRequest, SyncShardResponse},
     metadata::{BlobMetadata, VerifiedBlobMetadataWithId},
 };
@@ -36,22 +33,14 @@ use walrus_utils::metrics::Registry;
 
 use self::{
     blob_info::{
-        BlobInfo,
-        BlobInfoApi,
-        BlobInfoIterator,
-        BlobInfoTable,
-        PerObjectBlobInfo,
+        BlobInfo, BlobInfoApi, BlobInfoIterator, BlobInfoTable, PerObjectBlobInfo,
         PerObjectBlobInfoIterator,
     },
     blob_manager_info::{BlobManagerTable, StoredBlobManagerInfo},
     constants::{
-        metadata_cf_name,
-        node_status_cf_name,
-        pending_recover_slivers_column_family_name,
-        primary_slivers_column_family_name,
-        secondary_slivers_column_family_name,
-        shard_status_column_family_name,
-        shard_sync_progress_column_family_name,
+        metadata_cf_name, node_status_cf_name, pending_recover_slivers_column_family_name,
+        primary_slivers_column_family_name, secondary_slivers_column_family_name,
+        shard_status_column_family_name, shard_sync_progress_column_family_name,
     },
     event_cursor_table::{EventCursorTable, EventIdWithProgress},
     metrics::{CommonDatabaseMetrics, Labels, OperationType},
@@ -307,8 +296,8 @@ impl Storage {
         )?;
 
         let event_cursor = EventCursorTable::reopen(&database)?;
-        let blob_info = BlobInfoTable::reopen(&database)?;
         let blob_managers = BlobManagerTable::reopen(&database)?;
+        let blob_info = BlobInfoTable::reopen(&database, blob_managers.clone())?;
         let shards = Arc::new(RwLock::new(
             existing_shards_ids
                 .into_iter()
@@ -613,12 +602,11 @@ impl Storage {
         object_id: &ObjectID,
         current_epoch: Epoch,
     ) -> Result<bool, TypedStoreError> {
-        use blob_info::ManagedBlobInfoApi;
-
         let per_object_info = self.blob_info.get_per_object_info(object_id)?;
         match per_object_info {
             Some(blob_info::PerObjectBlobInfo::V2(v2_info)) => {
-                v2_info.is_registered_with_manager(current_epoch, &self.blob_managers)
+                // end_epoch is populated by get_per_object_info().
+                Ok(v2_info.is_registered_with_manager(current_epoch))
             }
             Some(blob_info::PerObjectBlobInfo::V1(_)) => {
                 // V1 is for regular blobs, not managed blobs.
@@ -1232,27 +1220,18 @@ pub(crate) mod tests {
     use std::ops::Bound::{Excluded, Unbounded};
 
     use blob_info::{
-        BlobCertificationStatus,
-        BlobInfoMergeOperand,
-        BlobInfoV1,
-        BlobStatusChangeType,
-        PermanentBlobInfoV1,
-        ValidBlobInfoV1,
+        BlobCertificationStatus, BlobInfoMergeOperand, BlobInfoV1, BlobStatusChangeType,
+        PermanentBlobInfoV1, ValidBlobInfoV1,
     };
     use constants::{
-        pending_recover_slivers_column_family_name,
-        primary_slivers_column_family_name,
-        secondary_slivers_column_family_name,
-        shard_status_column_family_name,
+        pending_recover_slivers_column_family_name, primary_slivers_column_family_name,
+        secondary_slivers_column_family_name, shard_status_column_family_name,
         shard_sync_progress_column_family_name,
     };
     use tempfile::TempDir;
     use tokio::runtime::Runtime;
     use walrus_core::{
-        Sliver,
-        SliverIndex,
-        SliverType,
-        SuiObjectId,
+        Sliver, SliverIndex, SliverType, SuiObjectId,
         encoding::{EncodingAxis, SliverData},
     };
     use walrus_sui::{

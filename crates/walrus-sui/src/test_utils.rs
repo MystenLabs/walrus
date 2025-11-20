@@ -40,18 +40,11 @@ use tokio::sync::Mutex;
 #[cfg(msim)]
 use tokio::sync::mpsc;
 use walrus_core::{
-    BlobId,
-    DEFAULT_ENCODING,
-    Epoch,
+    BlobId, DEFAULT_ENCODING, Epoch,
     keys::{NetworkKeyPair, ProtocolKeyPair},
     messages::{
-        BlobPersistenceType,
-        Confirmation,
-        ConfirmationCertificate,
-        InvalidBlobCertificate,
-        InvalidBlobIdMsg,
-        ProtocolMessage,
-        ProtocolMessageCertificate,
+        BlobPersistenceType, Confirmation, ConfirmationCertificate, InvalidBlobCertificate,
+        InvalidBlobIdMsg, ProtocolMessage, ProtocolMessageCertificate,
     },
 };
 use walrus_test_utils::WithTempDir;
@@ -60,12 +53,7 @@ use crate::{
     client::SuiContractClient,
     config::load_wallet_context_from_path,
     types::{
-        BlobCertified,
-        BlobDeleted,
-        BlobRegistered,
-        Committee,
-        InvalidBlobId,
-        NetworkAddress,
+        BlobCertified, BlobDeleted, BlobRegistered, Committee, InvalidBlobId, NetworkAddress,
         StorageNode,
     },
     utils::create_wallet,

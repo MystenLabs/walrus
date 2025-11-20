@@ -12,20 +12,16 @@ use blob_pool::BlobPool;
 use client_op_generator::{ClientOpGenerator, WalrusNodeClientOp};
 use rand::SeedableRng;
 use single_client_workload_config::{
-    RequestTypeDistributionConfig,
-    SizeDistributionConfig,
-    StoreLengthDistributionConfig,
+    RequestTypeDistributionConfig, SizeDistributionConfig, StoreLengthDistributionConfig,
 };
 use tokio::time::MissedTickBehavior;
 use walrus_core::{
-    DEFAULT_ENCODING,
-    SliverType,
+    DEFAULT_ENCODING, SliverType,
     encoding::{Primary, Secondary},
 };
 use walrus_sdk::{
     client::{
-        StoreArgs,
-        WalrusNodeClient,
+        StoreArgs, WalrusNodeClient,
         metrics::{self, ClientMetrics},
         responses::BlobStoreResult,
     },

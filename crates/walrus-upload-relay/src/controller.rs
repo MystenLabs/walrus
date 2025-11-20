@@ -37,8 +37,7 @@ use walrus_sdk::{
     client::WalrusNodeClient,
     config::{ClientConfig, load_configuration},
     core::{
-        BlobId,
-        EncodingType,
+        BlobId, EncodingType,
         encoding::EncodingFactory as _,
         messages::{BlobPersistenceType, ConfirmationCertificate},
     },
@@ -48,10 +47,7 @@ use walrus_sdk::{
         client::{SuiClientMetricSet, retry_client::RetriableSuiClient},
     },
     upload_relay::{
-        API_DOCS,
-        BLOB_UPLOAD_RELAY_ROUTE,
-        ResponseType,
-        TIP_CONFIG_ROUTE,
+        API_DOCS, BLOB_UPLOAD_RELAY_ROUTE, ResponseType, TIP_CONFIG_ROUTE,
         params::{DigestSchema, NONCE_LEN, Params, TransactionDigestSchema},
         tip_config::{TipConfig, TipKind},
     },

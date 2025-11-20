@@ -5,12 +5,7 @@
 
 use core::fmt;
 use std::{
-    collections::HashMap,
-    future::Future,
-    path::PathBuf,
-    str::FromStr,
-    sync::Arc,
-    time::Duration,
+    collections::HashMap, future::Future, path::PathBuf, str::FromStr, sync::Arc, time::Duration,
 };
 
 use anyhow::{Context, Result, anyhow};
@@ -34,11 +29,7 @@ use tokio_stream::Stream;
 use tracing::Level;
 use transaction_builder::{MAX_BURNS_PER_PTB, WalrusPtbBuilder};
 use walrus_core::{
-    BlobId,
-    EncodingType,
-    Epoch,
-    EpochCount,
-    ensure,
+    BlobId, EncodingType, Epoch, EpochCount, ensure,
     merkle::Node as MerkleNode,
     messages::{ConfirmationCertificate, InvalidBlobCertificate, ProofOfPossession},
     metadata::{BlobMetadataApi as _, BlobMetadataWithId},
@@ -49,30 +40,14 @@ use crate::{
     contracts,
     system_setup::compile_package,
     types::{
-        BlobEvent,
-        Committee,
-        ContractEvent,
-        NodeRegistrationParams,
-        NodeUpdateParams,
-        StakedWal,
-        StorageNodeCap,
-        StorageResource,
+        BlobEvent, Committee, ContractEvent, NodeRegistrationParams, NodeUpdateParams, StakedWal,
+        StorageNodeCap, StorageResource,
         move_errors::{
-            BlobError,
-            MoveExecutionError,
-            StakingError,
-            SubsidiesError,
-            SystemError,
+            BlobError, MoveExecutionError, StakingError, SubsidiesError, SystemError,
             WalrusSubsidiesError,
         },
         move_structs::{
-            Authorized,
-            Blob,
-            BlobAttribute,
-            BlobWithAttribute,
-            EpochState,
-            SharedBlob,
-            StorageNode,
+            Authorized, Blob, BlobAttribute, BlobWithAttribute, EpochState, SharedBlob, StorageNode,
         },
     },
     utils::get_created_sui_object_ids_by_type,
@@ -81,11 +56,7 @@ use crate::{
 
 mod read_client;
 pub use read_client::{
-    CoinType,
-    CommitteesAndState,
-    FixedSystemParameters,
-    ReadClient,
-    SharedObjectWithPkgConfig,
+    CoinType, CommitteesAndState, FixedSystemParameters, ReadClient, SharedObjectWithPkgConfig,
     SuiReadClient,
 };
 pub mod retry_client;

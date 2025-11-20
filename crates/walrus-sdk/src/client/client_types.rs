@@ -10,13 +10,9 @@ use sui_types::base_types::ObjectID;
 use tracing::{Level, Span, field};
 use utoipa::ToSchema;
 use walrus_core::{
-    BlobId,
-    EpochCount,
-    QuiltPatchId,
+    BlobId, EpochCount, QuiltPatchId,
     encoding::{
-        EncodingConfigEnum,
-        EncodingFactory as _,
-        SliverPair,
+        EncodingConfigEnum, EncodingFactory as _, SliverPair,
         quilt_encoding::{QuiltIndexApi as _, QuiltPatchApi as _, QuiltPatchInternalIdApi},
     },
     messages::{BlobPersistenceType, ConfirmationCertificate},
@@ -29,8 +25,7 @@ use walrus_sui::{
 };
 
 use super::{
-    ClientError,
-    ClientResult,
+    ClientError, ClientResult,
     resource::{PriceComputation, RegisterBlobOp},
     responses::{BlobStoreResult, EventOrObjectId},
 };

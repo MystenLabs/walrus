@@ -16,43 +16,24 @@ use rand::{Rng, SeedableRng, rngs::StdRng};
 use tokio::sync::{Mutex as TokioMutex, watch};
 use tower::ServiceExt as _;
 use walrus_core::{
-    BlobId,
-    Epoch,
-    InconsistencyProof as InconsistencyProofEnum,
-    PublicKey,
-    ShardIndex,
-    Sliver,
-    SliverPairIndex,
-    SliverType,
-    encoding::EncodingConfig,
-    ensure,
-    keys::ProtocolKeyPair,
-    merkle::MerkleProof,
-    messages::InvalidBlobCertificate,
-    metadata::VerifiedBlobMetadataWithId,
+    BlobId, Epoch, InconsistencyProof as InconsistencyProofEnum, PublicKey, ShardIndex, Sliver,
+    SliverPairIndex, SliverType, encoding::EncodingConfig, ensure, keys::ProtocolKeyPair,
+    merkle::MerkleProof, messages::InvalidBlobCertificate, metadata::VerifiedBlobMetadataWithId,
 };
 use walrus_sdk::active_committees::{
-    ActiveCommittees,
-    ChangeNotInProgress,
-    CommitteeTracker,
-    StartChangeError,
+    ActiveCommittees, ChangeNotInProgress, CommitteeTracker, StartChangeError,
 };
 use walrus_sui::types::Committee;
 use walrus_utils::metrics::Registry;
 
 use super::{
-    BeginCommitteeChangeError,
-    CommitteeLookupService,
-    CommitteeService,
-    DefaultNodeServiceFactory,
-    EndCommitteeChangeError,
-    NodeServiceFactory,
+    BeginCommitteeChangeError, CommitteeLookupService, CommitteeService, DefaultNodeServiceFactory,
+    EndCommitteeChangeError, NodeServiceFactory,
     node_service::{NodeService, NodeServiceError, RemoteStorageNode, Request, Response},
     request_futures::{GetAndVerifyMetadata, GetInvalidBlobCertificate, RecoverSliver},
 };
 use crate::node::{
-    config::CommitteeServiceConfig,
-    errors::SyncShardClientError,
+    config::CommitteeServiceConfig, errors::SyncShardClientError,
     metrics::CommitteeServiceMetricSet,
 };
 

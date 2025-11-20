@@ -26,10 +26,7 @@ use walrus_utils::backoff::ExponentialBackoffConfig;
 use super::{TestClusterHandle, TestNodeKeys, new_wallet_on_sui_test_cluster};
 use crate::{
     client::{
-        ReadClient,
-        SuiClientError,
-        SuiClientResult,
-        SuiContractClient,
+        ReadClient, SuiClientError, SuiClientResult, SuiContractClient,
         contract_config::{ContractConfig, DEFAULT_CACHE_TTL},
     },
     system_setup::{self, InitSystemParams, PublishSystemPackageResult},

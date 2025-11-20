@@ -12,23 +12,11 @@ use moka::sync::Cache;
 use prometheus::IntCounter;
 use tower::Service;
 use walrus_core::{
-    BlobId,
-    EncodingType,
-    Sliver,
-    SliverId,
-    SliverPairIndex,
+    BlobId, EncodingType, Sliver, SliverId, SliverPairIndex,
     by_axis::{self},
     encoding::{
-        DecodingSymbol,
-        EitherDecodingSymbol,
-        EncodingAxis,
-        EncodingConfig,
-        EncodingConfigEnum,
-        EncodingFactory,
-        GeneralRecoverySymbol,
-        RecoverySymbolError,
-        SliverData,
-        Symbols,
+        DecodingSymbol, EitherDecodingSymbol, EncodingAxis, EncodingConfig, EncodingConfigEnum,
+        EncodingFactory, GeneralRecoverySymbol, RecoverySymbolError, SliverData, Symbols,
     },
     merkle::MerkleTree,
 };
@@ -263,8 +251,7 @@ mod tests {
     use tokio_stream::StreamExt as _;
     use tower::ServiceExt as _;
     use walrus_core::{
-        SliverId,
-        SliverIndex,
+        SliverId, SliverIndex,
         encoding::{EncodingFactory, PrimarySliver, SliverPair},
         metadata::VerifiedBlobMetadataWithId,
     };

@@ -2,25 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use prometheus::{
-    GaugeVec,
-    Histogram,
-    HistogramVec,
-    IntCounter,
-    IntCounterVec,
-    IntGauge,
-    IntGaugeVec,
+    GaugeVec, Histogram, HistogramVec, IntCounter, IntCounterVec, IntGauge, IntGaugeVec,
     core::{AtomicU64, GenericGauge, GenericGaugeVec},
 };
 use walrus_sdk::error::ClientErrorKind;
 use walrus_sui::types::{
-    BlobCertified,
-    BlobEvent,
-    BlobManagerEvent,
-    ContractEvent,
-    DenyListEvent,
-    EpochChangeEvent,
-    PackageEvent,
-    ProtocolEvent,
+    BlobCertified, BlobEvent, BlobManagerEvent, ContractEvent, DenyListEvent, EpochChangeEvent,
+    PackageEvent, ProtocolEvent,
 };
 
 use crate::{

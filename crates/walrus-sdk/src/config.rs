@@ -15,19 +15,14 @@ use serde::{Deserialize, Serialize};
 use sui_types::base_types::ObjectID;
 use walrus_sui::{
     client::{
-        SuiClientError,
-        SuiContractClient,
-        SuiReadClient,
-        contract_config::ContractConfig,
+        SuiClientError, SuiContractClient, SuiReadClient, contract_config::ContractConfig,
         retry_client::RetriableSuiClient,
     },
     config::WalletConfig,
     wallet::Wallet,
 };
 use walrus_utils::{
-    backoff::ExponentialBackoffConfig,
-    config::path_or_defaults_if_exist,
-    is_internal_run,
+    backoff::ExponentialBackoffConfig, config::path_or_defaults_if_exist, is_internal_run,
 };
 
 use crate::client::quilt_client::QuiltClientConfig;

@@ -9,9 +9,7 @@ use walrus_sdk::client::{
 };
 use walrus_storage_node_client::api::errors::Status;
 use walrus_sui::{
-    EventIdSchema,
-    ObjectIdSchema,
-    SuiAddressSchema,
+    EventIdSchema, ObjectIdSchema, SuiAddressSchema,
     types::{Blob, StorageResource},
 };
 

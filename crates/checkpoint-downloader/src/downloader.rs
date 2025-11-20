@@ -16,9 +16,7 @@ use tokio::{sync::mpsc, time::Instant};
 use tokio_util::sync::CancellationToken;
 use typed_store::{Map, rocks::DBMap};
 use walrus_sui::client::retry_client::{
-    RetriableClientError,
-    RetriableRpcClient,
-    retriable_rpc_client::FallbackError,
+    RetriableClientError, RetriableRpcClient, retriable_rpc_client::FallbackError,
 };
 use walrus_utils::{
     backoff::ExponentialBackoff,

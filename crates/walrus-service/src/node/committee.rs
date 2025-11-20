@@ -7,19 +7,9 @@ use std::{num::NonZeroU16, sync::Arc, time::Duration};
 
 use async_trait::async_trait;
 use walrus_core::{
-    BlobId,
-    Epoch,
-    InconsistencyProof as InconsistencyProofEnum,
-    PublicKey,
-    ShardIndex,
-    Sliver,
-    SliverPairIndex,
-    SliverType,
-    encoding::EncodingConfig,
-    keys::ProtocolKeyPair,
-    merkle::MerkleProof,
-    messages::InvalidBlobCertificate,
-    metadata::VerifiedBlobMetadataWithId,
+    BlobId, Epoch, InconsistencyProof as InconsistencyProofEnum, PublicKey, ShardIndex, Sliver,
+    SliverPairIndex, SliverType, encoding::EncodingConfig, keys::ProtocolKeyPair,
+    merkle::MerkleProof, messages::InvalidBlobCertificate, metadata::VerifiedBlobMetadataWithId,
 };
 use walrus_sdk::active_committees::ActiveCommittees;
 use walrus_storage_node_client::error::ClientBuildError;
@@ -35,8 +25,7 @@ mod node_service;
 mod request_futures;
 
 pub(crate) use self::{
-    committee_service::NodeCommitteeService,
-    node_service::DefaultNodeServiceFactory,
+    committee_service::NodeCommitteeService, node_service::DefaultNodeServiceFactory,
 };
 use super::errors::SyncShardClientError;
 

@@ -51,15 +51,8 @@ use serde::{Deserialize, Serialize};
 use crate::{
     SliverIndex,
     encoding::{
-        EncodingAxis,
-        EncodingConfig,
-        EncodingFactory as _,
-        Primary,
-        RecoverySymbol,
-        RequiredCount,
-        Secondary,
-        SliverData,
-        SliverVerificationError,
+        EncodingAxis, EncodingConfig, EncodingFactory as _, Primary, RecoverySymbol, RequiredCount,
+        Secondary, SliverData, SliverVerificationError,
     },
     ensure,
     merkle::MerkleAuth,

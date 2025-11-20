@@ -20,8 +20,7 @@ use serde::{Deserialize, Serialize};
 use serde_with::base64::Base64;
 use sui_types::base_types::ObjectID;
 use walrus_core::{
-    EpochCount,
-    ShardIndex,
+    EpochCount, ShardIndex,
     keys::{NetworkKeyPair, ProtocolKeyPair},
 };
 use walrus_sdk::config::ClientCommunicationConfig;
@@ -34,14 +33,10 @@ use walrus_sui::{
     config::{WalletConfig, load_wallet_context_from_path},
     system_setup::InitSystemParams,
     test_utils::system_setup::{
-        SystemContext,
-        create_and_init_system,
-        end_epoch_zero,
-        register_committee_and_stake,
+        SystemContext, create_and_init_system, end_epoch_zero, register_committee_and_stake,
     },
     types::{
-        NetworkAddress,
-        NodeRegistrationParams,
+        NetworkAddress, NodeRegistrationParams,
         move_structs::{NodeMetadata, VotingParams},
     },
     utils::{SuiNetwork, create_wallet, get_sui_from_wallet_or_faucet, request_sui_from_faucet},
@@ -55,8 +50,7 @@ use crate::{
     common::config::{SuiConfig, SuiReaderConfig},
     node::{
         config::{
-            PathOrInPlace,
-            StorageNodeConfig,
+            PathOrInPlace, StorageNodeConfig,
             defaults::{self, REST_API_PORT},
         },
         consistency_check::StorageNodeConsistencyCheckConfig,
