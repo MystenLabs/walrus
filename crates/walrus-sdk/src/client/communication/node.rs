@@ -19,12 +19,13 @@ use walrus_core::{
     ShardIndex,
     Sliver,
     SliverPairIndex,
-    encoding::{EncodingAxis, EncodingConfig, SliverData, SliverPair},
+    encoding::{EncodingAxis, EncodingConfig, GeneralRecoverySymbol, SliverData, SliverPair},
     messages::{BlobPersistenceType, SignedStorageConfirmation},
     metadata::VerifiedBlobMetadataWithId,
 };
 use walrus_storage_node_client::{
     NodeError,
+    RecoverySymbolsFilter,
     StorageNodeClient,
     api::{BlobStatus, StoredOnNodeStatus},
 };
@@ -259,6 +260,33 @@ impl<W> NodeCommunication<W> {
 
         // Each sliver is in this case requested individually, so the weight is 1.
         self.to_node_result(1, sliver)
+    }
+
+    pub async fn retrieve_recovery_symbols<A: EncodingAxis>(
+        &self,
+        metadata: Arc<VerifiedBlobMetadataWithId>,
+        shard_index: ShardIndex,
+    ) -> NodeResult<Vec<GeneralRecoverySymbol>, NodeError> {
+        tracing::debug!(
+            walrus.shard_index = %shard_index,
+            sliver_type = A::NAME,
+            "retrieving recovery symbols"
+        );
+        let sliver_index = shard_index
+            .to_pair_index(self.n_shards(), metadata.blob_id())
+            .to_sliver_index::<A>(self.n_shards());
+        let filter = RecoverySymbolsFilter::recovers(sliver_index, A::sliver_type());
+        let result = self
+            .client
+            .list_and_verify_recovery_symbols(
+                filter,
+                metadata,
+                self.encoding_config.clone(),
+                sliver_index,
+                A::sliver_type(),
+            )
+            .await;
+        self.to_node_result_with_n_shards(result)
     }
 
     /// Requests the status for a blob ID from the node.

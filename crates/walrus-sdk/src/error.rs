@@ -250,4 +250,7 @@ pub enum ClientErrorKind {
     /// The blob size exceeds the maximum allowed size.
     #[error("the blob size exceeds the maximum allowed size: {0}")]
     BlobTooLarge(u64),
+    /// The client could not retrieve enough symbols to decode the sliver.
+    #[error("could not retrieve enough symbols to decode the sliver")]
+    NotEnoughSymbols,
 }
