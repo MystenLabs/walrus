@@ -20,8 +20,8 @@
   --color-wal-white-10:  hsl(var(--wal-white-100-hsl) / 10%);
   --color-wal-white-5:  hsl(var(--wal-white-100-hsl) / 5%);
   --color-wal-purple-light: hsl(275, 94%, 86%);
-  --color-wal-purple: hsl(275, 86%, 74%);
-  --color-wal-purple-dark: hsl(275, 68%, 49%);
+  --color-wal-purple: hsl(274, 86%, 74%);
+  --color-wal-purple-dark: hsl(265, 90%, 30%);
   --color-wal-link: hsl(211, 100%, 65%);
   --color-wal-link-hover: hsl(211, 96%, 56%);
   --color-wal-purple-link-dark: var(--color-wal-purple);
@@ -85,10 +85,10 @@
 
 @import "./fonts.css";
 
-@import "tailwindcss/theme.css" layer(theme);
-@import "tailwindcss/utilities.css" layer(utilities);
+@import "tailwindcss/theme" layer(theme);
+@import "tailwindcss/utilities" layer(utilities);
 
-@source "../src/**/*.{js,jsx,ts,tsx,mdx}";
+@source "../**/*.{js,jsx,ts,tsx,mdx}";
 @source "../../../content/**/*.{md,mdx}";
 @source "../../../blog/**/*.{md,mdx}";
 
@@ -119,6 +119,10 @@ body {
 
 html[data-theme='dark'] .navbar {
   @apply bg-wal-gray-100;
+}
+
+.theme-doc-sidebar-menu.menu__list {
+  @apply pb-8;
 }
 
 /** navbar search field **/

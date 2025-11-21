@@ -9,7 +9,7 @@ export default function ThemeToggle() {
   const location = useLocation();
   return (
     <div className="theme-toggle-wrapper max-[996px]:hidden">
-      {location.pathname !== "/" && <NavbarColorModeToggle />}
+      <NavbarColorModeToggle />
     </div>
   );
 }

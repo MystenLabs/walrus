@@ -65,6 +65,7 @@ function SearchLauncher() {
 
   return (
     <>
+    <div id="ask-cookbook-container" className="-mt-2"></div>
       <button
         type="button"
         className="DocSearch DocSearch-Button flex items-center cursor-pointer"

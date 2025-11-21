@@ -45,6 +45,7 @@ const config = {
     locales: ["en"],
   },
   plugins: [
+    "docusaurus-plugin-copy-page-button",
     "./src/plugins/tailwind-config.js",
     function docsAliasPlugin() {
       return {
@@ -151,6 +152,12 @@ const config = {
         darkTheme: prismThemes.dracula,
       },
     }),
+    customFields: {
+      pushFeedbackId: 'ilacd94goh',
+      github: 'MystenLabs/walrus',
+      twitterX: 'walrusprotocol',
+      discord: 'walrusprotocol',
+    },
 };
 
 export default config;
