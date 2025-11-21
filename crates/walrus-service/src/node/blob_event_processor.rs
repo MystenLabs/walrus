@@ -162,43 +162,47 @@ impl BackgroundEventProcessor {
                     );
                     break;
                 }
-                Some(tracked_event) = self.event_receiver.recv() => {
-                    walrus_utils::with_label!(
-                        self.node.metrics.pending_processing_blob_event_in_queue,
-                        &self.worker_index.to_string()
-                    )
-                    .dec();
+                tracked_event = self.event_receiver.recv() => {
+                    match tracked_event {
+                        Some(tracked_event) => {
+                            walrus_utils::with_label!(
+                                self.node.metrics.pending_processing_blob_event_in_queue,
+                                &self.worker_index.to_string()
+                            )
+                            .dec();
 
-                    let TrackedEvent {
-                        event_handle,
-                        blob_event,
-                        checkpoint_position,
-                        _guard,
-                    } = tracked_event;
+                            let TrackedEvent {
+                                event_handle,
+                                blob_event,
+                                checkpoint_position,
+                                _guard,
+                            } = tracked_event;
 
-                    // The guard will automatically decrement the counter when dropped.
-                    if let Err(error) = self
-                        .process_event(event_handle, blob_event, checkpoint_position)
-                        .await
-                    {
-                        // Propagate error to the node by triggering node-wide shutdown. All event
-                        // processing errors should cause the node to exit.
-                        tracing::error!(
-                            ?error,
-                            worker_index = self.worker_index,
-                            "error processing blob event, triggering node shutdown"
-                        );
-                        self.node_cancel_token.cancel();
-                        break;
+                            // The guard will automatically decrement the counter when dropped.
+                            if let Err(error) = self
+                                .process_event(event_handle, blob_event, checkpoint_position)
+                                .await
+                            {
+                                // Propagate error to the node by triggering node-wide shutdown.
+                                // All event processing errors should cause the node to exit.
+                                tracing::error!(
+                                    ?error,
+                                    worker_index = self.worker_index,
+                                    "error processing blob event, triggering node shutdown"
+                                );
+                                self.node_cancel_token.cancel();
+                                break;
+                            }
+                        }
+                        None => {
+                            // Channel closed, exit gracefully
+                            tracing::info!(
+                                worker_index = self.worker_index,
+                                "background event processor channel closed, shutting down"
+                            );
+                            break;
+                        }
                     }
-                }
-                else => {
-                    // Channel closed, exit gracefully
-                    tracing::info!(
-                        worker_index = self.worker_index,
-                        "background event processor channel closed, shutting down"
-                    );
-                    break;
                 }
             }
         }
