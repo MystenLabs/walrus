@@ -2040,6 +2040,8 @@ impl BlobInfoApi for BlobInfoV2 {
     }
 }
 
+/// TODO(heliu): from (Zhe): User another talbe to track the mapping from blob_id to blob_manager_id.
+/// TODO(heliu): from (Zhe): Use antithysis to test it with an workload.
 /// Tracks managed blobs by storing which BlobManagers have registered/certified them.
 /// This allows checking if any BlobManager still has this blob valid (not expired).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -2052,6 +2054,7 @@ pub(crate) struct ManagedBlobInfo {
     pub registered: std::collections::HashSet<ObjectID>,
     pub registered_deletable_counts: u32,
     /// BlobManagers that have certified this blob (deletable or permanent).
+    // TODO(heliu): shall we use a vector for the serialized bytes.
     pub certified: std::collections::HashSet<ObjectID>,
     pub certified_deletable_counts: u32,
     /// The current end_epoch from the BlobManager. Populated at read time, not serialized.
@@ -2175,6 +2178,8 @@ impl ManagedBlobInfo {
     }
 
     /// Returns true if any BlobManager has registered this blob.
+    // comments from Markus: 1. option to make it efficient, to avoid iterating over the registered set.
+    // 2. Store the encoding type, unencoded size (two options here, keep it in-place, or in the PerObjectBlobInfoV2), this is blob properties, in this table is good.
     fn is_registered(&self, current_epoch: Epoch) -> bool {
         let Some(end_epoch) = self.end_epoch else {
             return false;
@@ -2191,6 +2196,9 @@ impl ManagedBlobInfo {
 /// At least one of regular_blob_info or managed_blob_info must be Some.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub(crate) struct ValidBlobInfoV2 {
+    /// TODO(heliu): from (Markus): Add a bit field for the blob's metadata.
+    /// 
+    /// is_stored: bool,
     /// Information about regular blobs (V1-style with all V1 fields).
     pub regular_blob_info: Option<ValidBlobInfoV1>,
     /// Information about managed blobs (owned by BlobManagers).

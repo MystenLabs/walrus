@@ -61,6 +61,7 @@ public struct ManagedBlob has key, store {
     encoding_type: u8,
     // Stores the epoch first certified.
     certified_epoch: option::Option<u32>,
+    // TODO(heliu): Generic ownership.
     // The ID of the BlobManager that manages this blob's storage.
     blob_manager_id: ID,
     // Marks if this blob can be deleted.

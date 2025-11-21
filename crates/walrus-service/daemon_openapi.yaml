@@ -928,7 +928,6 @@ components:
             - blob_manager_object_id
             - resource_operation
             - cost
-            - end_epoch
             properties:
               blob_id:
                 $ref: '#/components/schemas/BlobId'
@@ -940,11 +939,6 @@ components:
                 type: integer
                 format: int64
                 description: The storage cost, excluding gas.
-                minimum: 0
-              end_epoch:
-                type: integer
-                format: int64
-                description: The epoch until which the blob is stored (exclusive).
                 minimum: 0
               resource_operation:
                 $ref: '#/components/schemas/RegisterBlobOp'
