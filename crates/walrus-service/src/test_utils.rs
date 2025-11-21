@@ -2864,6 +2864,7 @@ pub mod test_cluster {
                     .unwrap_or_else(ClientCommunicationConfig::default_for_test),
                 refresh_config: Default::default(),
                 quilt_client_config: Default::default(),
+                byte_range_read_client_config: Default::default(),
             };
 
             let client = admin_contract_client
