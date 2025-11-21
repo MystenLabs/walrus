@@ -859,7 +859,7 @@ impl<T: ReadClient> WalrusNodeClient<T> {
         let (pairs, metadata) = self
             .encoding_config
             .get_for_type(encoding_type)
-            .encode_with_metadata(blob)
+            .encode_with_metadata(&blob)
             .map_err(ClientError::other)?;
 
         if let Some(expected) = expected_blob_id {

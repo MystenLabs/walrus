@@ -452,7 +452,7 @@ fn recovery_symbols_by_shard(
 
     let encoding_config = EncodingConfig::new(n_shards);
     let encoding_config_enum = encoding_config.get_for_type(DEFAULT_ENCODING);
-    let (sliver_pairs, metadata) = encoding_config_enum.encode_with_metadata(blob)?;
+    let (sliver_pairs, metadata) = encoding_config_enum.encode_with_metadata(&blob)?;
 
     let RequiredCount::Exact(n_symbols_for_recovery) =
         encoding_config_enum.n_symbols_for_recovery::<Primary>();

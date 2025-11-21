@@ -484,7 +484,7 @@ mod tests {
         );
         let (pairs, metadata) = config
             .get_for_type(encoding_type)
-            .encode_with_metadata(blob)
+            .encode_with_metadata(&blob)
             .unwrap();
         (config, pairs, metadata.metadata().clone())
     }

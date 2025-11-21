@@ -527,7 +527,7 @@ impl UnencodedBlob {
             )
         } else {
             let (pairs, metadata) = encoding_config
-                .encode_with_metadata(self.unencoded_data)
+                .encode_with_metadata(&self.unencoded_data)
                 .map_err(ClientError::other)?;
             (metadata, BlobData::SliverPairs(Arc::new(pairs)))
         };

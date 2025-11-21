@@ -4962,7 +4962,7 @@ mod tests {
         fn new(blob: &[u8], config: EncodingConfig) -> Self {
             let (pairs, metadata) = config
                 .get_for_type(DEFAULT_ENCODING)
-                .encode_with_metadata(blob.to_vec())
+                .encode_with_metadata(blob)
                 .expect("must be able to get encoder");
 
             Self {

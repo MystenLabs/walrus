@@ -327,7 +327,7 @@ pub fn generate_config_metadata_and_valid_recovery_symbols()
     let blob = walrus_test_utils::random_data(314);
     let encoding_config = encoding_config();
     let config_enum = encoding_config.get_for_type(DEFAULT_ENCODING);
-    let (sliver_pairs, metadata) = config_enum.encode_with_metadata(blob)?;
+    let (sliver_pairs, metadata) = config_enum.encode_with_metadata(&blob)?;
     let target_sliver_index = SliverIndex(0);
     let RequiredCount::Exact(n_symbols_required) = config_enum.n_symbols_for_recovery::<Primary>();
     let recovery_symbols = walrus_test_utils::random_subset(

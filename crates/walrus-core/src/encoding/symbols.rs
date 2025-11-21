@@ -794,7 +794,7 @@ mod tests {
         let config = EncodingConfig::new_for_test(f, 2 * f, n_shards);
         let blob = walrus_test_utils::random_data(257);
         let config_enum = config.get_for_type(encoding_type);
-        let (sliver_pairs, metadata) = config_enum.encode_with_metadata(blob)?;
+        let (sliver_pairs, metadata) = config_enum.encode_with_metadata(&blob)?;
 
         let sliver = sliver_pairs[0].secondary.clone();
         let source_index = SliverPairIndex(0).to_sliver_index::<Secondary>(config.n_shards);

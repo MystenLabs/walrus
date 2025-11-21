@@ -624,7 +624,7 @@ impl<'a> QuiltStoreBlob<'a> {
     }
 
     /// Converts the blob to owned data if it isn't already.
-    pub fn into_owned(self) -> Self {
+    pub fn into_owned_(self) -> Self {
         match self.blob {
             Cow::Borrowed(_) => Self {
                 blob: Cow::Owned(self.blob.into_owned()),
@@ -1566,7 +1566,7 @@ impl QuiltEncoderApi<QuiltVersionV1> for QuiltEncoderV1<'_> {
         let quilt_patches = quilt.quilt_index()?.quilt_patches.clone();
         let quilt_data = quilt.into_data();
         let quilt_length = quilt_data.len();
-        let encoder = BlobEncoder::new(self.config, OwnedOrBorrowedBlob::new_owned(quilt_data))
+        let encoder = BlobEncoder::new(self.config, OwnedOrBorrowedBlob::new(&quilt_data))
             .map_err(|_| {
                 QuiltError::QuiltOversize(format!("quilt is too large: {}", quilt_length))
             })?;
