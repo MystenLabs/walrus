@@ -61,3 +61,6 @@ refresh_config:
 quilt_client_config:
   max_retrieve_slivers_attempts: 2
   timeout_secs: 10
+byte_range_read_client_config:
+  max_retrieve_slivers_attempts: 2
+  timeout_secs: 10
