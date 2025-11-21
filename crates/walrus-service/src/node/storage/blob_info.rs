@@ -407,6 +407,8 @@ impl BlobInfoTable {
     pub fn get(&self, blob_id: &BlobId) -> Result<Option<BlobInfo>, TypedStoreError> {
         let mut blob_info = self.aggregate_blob_info.get(blob_id)?;
 
+        tracing::info!("get_blob_info: {:?}", blob_info);
+
         // Populate end_epoch for managed blobs.
         if let Some(BlobInfo::V2(BlobInfoV2::Valid(ref mut valid_info))) = blob_info
             && let Some(ref mut managed_info) = valid_info.managed_blob_info
@@ -414,7 +416,9 @@ impl BlobInfoTable {
             // Find the maximum end_epoch from all registered BlobManagers.
             let mut max_end_epoch: Option<Epoch> = None;
             for manager_id in &managed_info.registered {
+                tracing::info!("manager_id: {:?}", manager_id);
                 if let Some(manager_info) = self.blob_managers.get(manager_id)? {
+                    tracing::info!("manager_info: {:?}", manager_info);
                     max_end_epoch = Some(max_end_epoch.map_or(manager_info.end_epoch, |current| {
                         std::cmp::max(current, manager_info.end_epoch)
                     }));

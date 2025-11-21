@@ -3072,6 +3072,8 @@ impl ServiceState for StorageNodeInner {
             return Err(StoreMetadataError::NotCurrentlyRegistered);
         };
 
+        tracing::info!("blob_info: {:?}", blob_info);
+
         if let Some(event) = blob_info.invalidation_event() {
             return Err(StoreMetadataError::InvalidBlob(event));
         }

@@ -616,6 +616,35 @@ async fn store_blob(
         .expect("blob ID should be present"))
 }
 
+/// Stores a blob using BlobManager with the given persistence and reads it back to verify.
+async fn store_and_read_blob_with_blob_manager(
+    client: &mut WalrusNodeClient<SuiContractClient>,
+    cap_id: sui_types::base_types::ObjectID,
+    test_data: &[u8],
+    persistence: BlobPersistence,
+) -> TestResult<BlobId> {
+    use walrus_sdk::client::StoreArgs;
+
+    let store_args = StoreArgs::default_with_epochs(1)
+        .with_blob_manager_cap(cap_id)
+        .with_persistence(persistence);
+
+    let results = client
+        .reserve_and_store_blobs_retry_committees(vec![test_data.to_vec()], vec![], &store_args)
+        .await?;
+
+    assert_eq!(results.len(), 1, "Should have one result");
+
+    let blob_result = &results[0];
+    let blob_id = blob_result.blob_id().expect("blob ID should be present");
+
+    // Read the blob back and verify the data matches
+    let read_data = client.read_blob::<Primary>(&blob_id).await?;
+    assert_eq!(read_data, test_data, "Read data should match original data");
+
+    Ok(blob_id)
+}
+
 /// Tests that the client can store and read duplicate blobs.
 #[ignore = "ignore E2E tests by default"]
 #[walrus_simtest]
@@ -2982,27 +3011,33 @@ async fn test_blob_manager_store_and_read() {
     let test_data = b"Hello, BlobManager! This is a comprehensive end-to-end test.";
     tracing::info!("Test data size: {} bytes", test_data.len());
 
-    // Store the blob using BlobManager
-    use walrus_sdk::client::StoreArgs;
+    // Store a deletable blob using BlobManager and read it back
+    let deletable_blob_id = store_and_read_blob_with_blob_manager(
+        client_ref,
+        cap_id,
+        test_data,
+        BlobPersistence::Deletable,
+    )
+    .await
+    .expect("Failed to store and read deletable blob");
 
-    let store_args = StoreArgs::default_with_epochs(1)
-        .with_blob_manager_cap(cap_id)
-        .with_persistence(BlobPersistence::Permanent);
+    tracing::info!(
+        "Successfully stored and read deletable blob! Blob ID: {}",
+        deletable_blob_id
+    );
 
-    let results = client_ref
-        .reserve_and_store_blobs_retry_committees(vec![test_data.to_vec()], vec![], &store_args)
-        .await
-        .expect("Failed to store blob");
+    // Store a permanent blob using BlobManager and read it back
+    let permanent_blob_id = store_and_read_blob_with_blob_manager(
+        client_ref,
+        cap_id,
+        test_data,
+        BlobPersistence::Permanent,
+    )
+    .await
+    .expect("Failed to store and read permanent blob");
 
-    assert_eq!(results.len(), 1, "Should have one result");
-
-    let blob_result = &results[0];
-    tracing::info!("Store result: {:?}", blob_result);
-
-    let read_data = client_ref
-        .read_blob::<Primary>(&blob_result.blob_id().expect("blob ID should be present"))
-        .await
-        .expect("Failed to read blob");
-    assert_eq!(read_data, test_data, "Read data should match original data");
-    tracing::info!("Successfully read blob back! Data matches.");
+    tracing::info!(
+        "Successfully stored and read permanent blob! Blob ID: {}",
+        permanent_blob_id
+    );
 }

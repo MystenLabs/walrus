@@ -236,7 +236,6 @@ impl CliOutput for BlobStoreResultWithPath {
                 blob_manager_object_id,
                 resource_operation,
                 cost,
-                end_epoch,
             } => {
                 let operation_str = match resource_operation {
                     RegisterBlobOp::RegisteredInBlobManager { .. } => {
@@ -250,15 +249,13 @@ impl CliOutput for BlobStoreResultWithPath {
                     Path: {}\n\
                     Blob ID: {}\n\
                     Blob Manager object ID: {}\n\
-                    Cost (excluding gas): {} {} \n\
-                    Expiry epoch (exclusive): {}\n",
+                    Cost (excluding gas): {} {} ",
                     success(),
                     self.path.display(),
                     blob_id,
                     blob_manager_object_id,
                     HumanReadableFrost::from(*cost),
                     operation_str,
-                    end_epoch,
                 )
             }
             BlobStoreResult::MarkedInvalid { blob_id, event } => {

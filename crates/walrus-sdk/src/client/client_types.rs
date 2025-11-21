@@ -775,16 +775,14 @@ impl BlobObject {
                     BlobPersistenceType::Permanent
                 }
             }
-            BlobObject::Managed { deletable, .. } => {
-                if *deletable {
-                    // Managed blobs don't have individual object IDs.
-                    BlobPersistenceType::Deletable {
-                        object_id: ObjectID::ZERO.into(),
-                    }
-                } else {
-                    BlobPersistenceType::Permanent
-                }
-            }
+            BlobObject::Managed {
+                deletable,
+                manager_id,
+                ..
+            } => BlobPersistenceType::ManagedByBlobManager {
+                manager_id: manager_id.into(),
+                deletable: *deletable,
+            },
         }
     }
 }
@@ -974,7 +972,6 @@ impl BlobPendingCertifyAndExtend {
                     blob_manager_object_id: manager_id,
                     resource_operation: self.operation,
                     cost: price_computation.operation_cost(&self.operation),
-                    end_epoch: walrus_core::Epoch::MAX, // BlobManager handles epochs
                 }
             }
         }

@@ -114,9 +114,6 @@ pub enum BlobStoreResult {
         resource_operation: RegisterBlobOp,
         /// The storage cost, excluding gas.
         cost: u64,
-        /// The epoch until which the blob is stored (exclusive).
-        #[schema(value_type = u64)]
-        end_epoch: Epoch,
     },
     /// Operation failed.
     Error {
@@ -150,7 +147,7 @@ impl BlobStoreResult {
         match self {
             Self::AlreadyCertified { end_epoch, .. } => Some(*end_epoch),
             Self::NewlyCreated { blob_object, .. } => Some(blob_object.storage.end_epoch),
-            Self::ManagedByBlobManager { end_epoch, .. } => Some(*end_epoch),
+            Self::ManagedByBlobManager { .. } => None,
             Self::MarkedInvalid { .. } => None,
             Self::Error { .. } => None,
         }
