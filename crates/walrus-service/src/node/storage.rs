@@ -868,7 +868,7 @@ impl Storage {
 
             // Record failed deletion in metrics.
             walrus_utils::with_label!(
-                node_metrics.cleanup_blob_data_deletion_attempts_total,
+                node_metrics.garbage_collection_blob_data_deletion_attempts_total,
                 STATUS_FAILURE
             )
             .inc();
@@ -880,7 +880,7 @@ impl Storage {
 
         // Record successful deletion in metrics.
         walrus_utils::with_label!(
-            node_metrics.cleanup_blob_data_deletion_attempts_total,
+            node_metrics.garbage_collection_blob_data_deletion_attempts_total,
             STATUS_SUCCESS
         )
         .inc();

@@ -478,7 +478,7 @@ impl BlobInfoTable {
 
             // Record the number of deleted objects in a metric.
             node_metrics
-                .cleanup_expired_blob_objects_deleted_total
+                .garbage_collection_expired_blob_objects_deleted_total
                 .inc();
             cleaned_up_objects_count += 1;
         }

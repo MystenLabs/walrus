@@ -1761,6 +1761,14 @@ impl StorageNode {
             .inner
             .storage
             .garbage_collector_last_completed_epoch()?;
+
+        // Set metrics based on DB entries during startup.
+        self.inner
+            .metrics
+            .set_garbage_collection_last_started_epoch(last_started_epoch);
+        self.inner
+            .metrics
+            .set_garbage_collection_last_completed_epoch(last_completed_epoch);
         if last_completed_epoch == last_started_epoch {
             tracing::debug!(
                 last_started_epoch,

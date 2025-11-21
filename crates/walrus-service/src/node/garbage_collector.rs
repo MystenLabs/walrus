@@ -131,11 +131,13 @@ impl GarbageCollector {
         self.node
             .storage
             .set_garbage_collector_last_started_epoch(epoch)?;
+        self.metrics
+            .set_garbage_collection_last_started_epoch(epoch);
 
         // Calculate target time and update metric before spawning the background task.
         let target_time = self.cleanup_target_time(epoch, epoch_start);
         self.metrics
-            .cleanup_task_start_time
+            .garbage_collection_task_start_time
             .set(target_time.timestamp().try_into().unwrap_or_default());
 
         let new_task = tokio::spawn(async move {
@@ -233,6 +235,8 @@ impl GarbageCollector {
         self.node
             .storage
             .set_garbage_collector_last_completed_epoch(epoch)?;
+        self.metrics
+            .set_garbage_collection_last_completed_epoch(epoch);
 
         Ok(())
     }
