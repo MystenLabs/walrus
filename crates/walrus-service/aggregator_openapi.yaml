@@ -235,7 +235,31 @@ paths:
       tags:
       - routes
       summary: Retrieve a Walrus blob.
-      description: Reconstructs the blob identified by the provided blob ID from Walrus and returns its raw data.
+      description: |-
+        Reconstructs the blob identified by the provided blob ID from Walrus and returns its raw data.
+
+        # HTTP Range Support
+
+        This endpoint also accepts the HTTP `Range` header to request only a portion of the blob.
+        When a `Range` header is provided with a specific byte range (e.g., `bytes=100-199`), the
+        endpoint returns HTTP 206 Partial Content with the requested byte range.
+
+        **Important**: When using byte range requests, only the consistency of the individual fetched
+        slivers is validated. The entire blob's consistency is NOT validated, which provides better
+        performance for partial reads but with reduced integrity guarantees compared to full blob reads.
+
+        # Range Header Format
+
+        - `bytes=start-end`: Returns bytes from start to end (inclusive)
+
+        # Examples
+
+        ```bash
+        # Get full blob
+        curl "$AGGREGATOR/v1/blobs/{blob_id}"
+
+        # Get first 1000 bytes
+        curl -H "Range: bytes=0-999" "$AGGREGATOR/v1/blobs/{blob_id}"
       operationId: get_blob
       parameters:
       - name: blob_id
