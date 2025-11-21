@@ -267,6 +267,8 @@ async fn parse_and_resolve_id<T: WalrusReadClient>(
 /// # Range Header Format
 ///
 /// - `bytes=start-end`: Returns bytes from start to end (inclusive)
+/// - `bytes=start-`: Not supported yet (TODO(WAL-1108))
+/// - `bytes=-end`: Not supported yet
 ///
 /// # Examples
 ///
@@ -309,6 +311,7 @@ pub(super) async fn get_blob<T: WalrusReadClient>(
             }
         };
 
+        // TODO(WAL-1107): support streaming the response sliver by sliver.
         match client.read_byte_range(&blob_id, start, length).await {
             Ok(blob) => (StatusCode::PARTIAL_CONTENT, blob).into_response(),
             Err(error) => {

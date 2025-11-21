@@ -383,6 +383,8 @@ paths:
         # Range Header Format
 
         - `bytes=start-end`: Returns bytes from start to end (inclusive)
+        - `bytes=start-`: Not supported yet (TODO(WAL-1108))
+        - `bytes=-end`: Not supported yet
 
         # Examples
 
