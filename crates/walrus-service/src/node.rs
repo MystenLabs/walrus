@@ -2354,6 +2354,11 @@ impl StorageNode {
         &self.inner
     }
 
+    #[cfg(any(test, feature = "test-utils"))]
+    pub(crate) fn inner_for_test(&self) -> &Arc<StorageNodeInner> {
+        &self.inner
+    }
+
     /// Test utility to get the shards that are live on the node.
     #[cfg(any(test, feature = "test-utils"))]
     pub async fn existing_shards_live(&self) -> Vec<ShardIndex> {
@@ -4248,7 +4253,12 @@ mod tests {
     use walrus_test_utils::{Result as TestResult, WithTempDir, async_param_test, random_data};
 
     use super::*;
-    use crate::test_utils::{StorageNodeHandle, StorageNodeHandleTrait, TestCluster};
+    use crate::test_utils::{
+        StorageNodeHandle,
+        StorageNodeHandleTrait,
+        TestCluster,
+        retry_until_success_or_timeout,
+    };
 
     // Allow a bit more slack now that live-upload deferrals can delay recovery.
     const TIMEOUT: Duration = Duration::from_secs(5);
@@ -5560,21 +5570,11 @@ mod tests {
             advance_cluster_to_epoch(&cluster, &[&events], end_epoch).await?;
 
             // Wait for garbage-collection task to complete for this epoch
-            retry_until_success_or_timeout(Duration::from_secs(5), || async {
-                let last_completed_epoch = node
-                    .inner
-                    .storage
-                    .garbage_collector_last_completed_epoch()
-                    .map_err(|e| anyhow::anyhow!("failed to get last completed epoch: {e}"))?;
-                if last_completed_epoch >= end_epoch {
-                    Ok(())
-                } else {
-                    bail!(
-                        "garbage collection not yet completed: last_completed_epoch=\
-                        {last_completed_epoch}, end_epoch={end_epoch}"
-                    )
-                }
-            })
+            crate::test_utils::wait_for_garbage_collection_to_complete(
+                &cluster.nodes[0..=0],
+                end_epoch,
+                Duration::from_secs(5),
+            )
             .await?;
 
             let node_epoch = node.inner.current_committee_epoch();
@@ -5862,31 +5862,6 @@ mod tests {
         })
         .await
         .expect("sliver should be available at some point after being certified")
-    }
-
-    /// Retries until success or a timeout, returning the last result.
-    async fn retry_until_success_or_timeout<F, Fut, T, E>(
-        duration: Duration,
-        mut func_to_retry: F,
-    ) -> Result<T, E>
-    where
-        F: FnMut() -> Fut,
-        Fut: Future<Output = Result<T, E>>,
-    {
-        let mut last_result = None;
-
-        let _ = tokio::time::timeout(duration, async {
-            loop {
-                last_result = Some(func_to_retry().await);
-                if last_result.as_ref().unwrap().is_ok() {
-                    return;
-                }
-                tokio::time::sleep(Duration::from_millis(5)).await;
-            }
-        })
-        .await;
-
-        last_result.expect("function to have completed at least once")
     }
 
     #[tokio::test]
