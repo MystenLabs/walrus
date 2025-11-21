@@ -11,7 +11,6 @@ export default function FeedbackWidget() {
     const { siteConfig } = useDocusaurusContext();
     const pushFeedbackId =
     (siteConfig.customFields as any)?.pushFeedbackId ?? 'yap67az1qz';
-    const projectId = {pushFeedbackId};
 
     useEffect(() => {
         if (typeof window !== 'undefined') {
@@ -26,7 +25,7 @@ export default function FeedbackWidget() {
             </div>
             <div className="flex">
             <span className="feedback-widget-positive">
-                <FeedbackButton project={projectId} rating="1" custom-font="True" button-style="default" modal-position="center">
+                <FeedbackButton project={pushFeedbackId} rating="1" custom-font="True" button-style="default" modal-position="center">
                     <button className="button button--outline button--primary button--sm !inline-flex items-center" title="Yes">
                         {buttonThumbsUp} 
                         <span className="pl-1">Yes</span>
@@ -34,7 +33,7 @@ export default function FeedbackWidget() {
                 </FeedbackButton>
             </span>
             <span className="feedback-widget-negative margin-left--sm">
-                <FeedbackButton project={projectId} rating="0" custom-font="True" button-style="default" modal-position="center">
+                <FeedbackButton project={pushFeedbackId} rating="0" custom-font="True" button-style="default" modal-position="center">
                     <button className="button button--outline button--primary button--sm !inline-flex items-center" title="No">
                         {buttonThumbsDown}
                         <span className="pl-1">No</span>

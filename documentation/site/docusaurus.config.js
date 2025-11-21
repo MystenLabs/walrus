@@ -44,6 +44,7 @@ const config = {
     defaultLocale: "en",
     locales: ["en"],
   },
+
   plugins: [
     "docusaurus-plugin-copy-page-button",
     "./src/plugins/tailwind-config.js",

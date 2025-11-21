@@ -69,7 +69,7 @@ const sidebars = {
       items: [
         {
           type: "category",
-          label: "Operating an aggregator or publisher",
+          label: "Operating an Aggregator or Publisher",
           link: {
             type: "doc",
             id: "operator-guide/aggregator",
@@ -80,7 +80,7 @@ const sidebars = {
         },
         {
           type: "category",
-          label: "Operating a storage node",
+          label: "Operating a Storage Node",
           link: {
             type: "doc",
             id: "operator-guide/storage-node",
@@ -99,7 +99,7 @@ const sidebars = {
     "walrus-sites/intro",
     {
       type: "category",
-      label: "Your first Walrus Site",
+      label: "Your First Walrus Site",
       link: {
         type: "doc",
         id: "walrus-sites/tutorial",
