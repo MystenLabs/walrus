@@ -3,12 +3,7 @@
 
 //! Garbage-collection functionality running in the background.
 
-use std::{
-    collections::hash_map::DefaultHasher,
-    hash::{Hash, Hasher},
-    sync::Arc,
-    time::Duration,
-};
+use std::{hash::Hasher as _, sync::Arc, time::Duration};
 
 use chrono::{DateTime, Utc};
 use rand::{Rng, SeedableRng, rngs::StdRng};
@@ -97,9 +92,7 @@ impl GarbageCollector {
     ///
     /// # Errors
     ///
-    /// Returns an error if:
-    /// - The epoch is the genesis epoch.
-    /// - The garbage-collection task cannot be started.
+    /// Returns an error if the garbage-collection task cannot be started.
     #[tracing::instrument(skip_all)]
     pub async fn start_garbage_collection_task(
         &self,
@@ -107,7 +100,8 @@ impl GarbageCollector {
         epoch_start: DateTime<Utc>,
     ) -> anyhow::Result<()> {
         if epoch == GENESIS_EPOCH {
-            anyhow::bail!("cannot start garbage collection for genesis epoch");
+            tracing::info!("garbage collection is not relevant in the genesis epoch");
+            return Ok(());
         }
 
         let garbage_collection_config = self.config;
@@ -185,10 +179,9 @@ impl GarbageCollector {
         // Create a deterministic seed from the public key bytes and epoch.
         // Use a hash function to combine them into a u64 seed.
         let public_key_bytes = bcs::to_bytes(public_key).unwrap_or_default();
-        let mut hasher = DefaultHasher::new();
-        public_key_bytes.hash(&mut hasher);
-        epoch.hash(&mut hasher);
-        let seed = hasher.finish();
+        let mut hasher = twox_hash::XxHash64::with_seed(u64::from(epoch));
+        hasher.write(public_key_bytes.as_ref());
+        let random_seed = hasher.finish();
 
         // Generate delay uniformly distributed between 0 and half the epoch duration
         let max_delay_millis = max_delay
@@ -197,7 +190,9 @@ impl GarbageCollector {
             .expect("epoch duration is shorter than 500M years");
 
         epoch_start
-            + Duration::from_millis(StdRng::seed_from_u64(seed).gen_range(0..max_delay_millis))
+            + Duration::from_millis(
+                StdRng::seed_from_u64(random_seed).gen_range(0..max_delay_millis),
+            )
     }
 
     /// Performs database cleanup operations including blob info cleanup and data deletion.

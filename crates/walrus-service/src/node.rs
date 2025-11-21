@@ -1706,7 +1706,24 @@ impl StorageNode {
             .latest_event_epoch_sender
             .send(Some(event.epoch))?;
 
-        // Perform database cleanup operations.
+        self.start_garbage_collection_task(event.epoch).await?;
+
+        Ok(())
+    }
+
+    /// Starts a background task to perform database cleanup operations if the node is active.
+    async fn start_garbage_collection_task(&self, epoch: Epoch) -> anyhow::Result<()> {
+        match self.inner.storage.node_status()? {
+            NodeStatus::Active => (),
+            status => {
+                tracing::info!(
+                    %status,
+                    "garbage collection is only performed when the node is active, skipping"
+                );
+                return Ok(());
+            }
+        };
+
         // Try to get the epoch start time from the contract service. If the epoch state is not
         // available (e.g., in tests), use the current time as the epoch start.
         let epoch_start = self
@@ -1716,7 +1733,7 @@ impl StorageNode {
             .await
             .ok()
             .and_then(|(current_epoch, state)| {
-                if current_epoch == event.epoch {
+                if current_epoch == epoch {
                     state.start_of_current_epoch()
                 } else {
                     None
@@ -1725,16 +1742,11 @@ impl StorageNode {
             .unwrap_or_else(Utc::now);
         if let Err(error) = self
             .garbage_collector
-            .start_garbage_collection_task(event.epoch, epoch_start)
+            .start_garbage_collection_task(epoch, epoch_start)
             .await
         {
-            tracing::error!(
-                ?error,
-                epoch = event.epoch,
-                "failed to start garbage-collection task"
-            );
+            tracing::error!(?error, epoch, "failed to start garbage-collection task");
         }
-
         Ok(())
     }
 
@@ -1769,6 +1781,15 @@ impl StorageNode {
             );
             return Ok(());
         }
+
+        // Here we know that a garbage-collection task was started and not completed. As it was only
+        // started by `Self::start_garbage_collection_task` if the node was active, and we are still
+        // in the same epoch, the node should still be active.
+        assert!(
+            self.inner.storage.node_status()?.is_active(),
+            "node status should not have changed since the last garbage-collection task was \
+            started if there was no epoch change"
+        );
 
         let epoch_start = state
             .start_of_current_epoch()

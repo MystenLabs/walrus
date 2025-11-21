@@ -131,6 +131,11 @@ impl NodeStatus {
         }
     }
 
+    /// Returns `true` if the node is active.
+    pub fn is_active(&self) -> bool {
+        matches!(self, NodeStatus::Active)
+    }
+
     /// Returns `true` if the node is catching up.
     pub fn is_catching_up(&self) -> bool {
         matches!(
@@ -694,17 +699,6 @@ impl Storage {
         let Some(optimistic_handle) = self.database.as_optimistic() else {
             tracing::warn!("data deletion is only possible when the DB supports transactions");
             return Ok(());
-        };
-
-        match self.node_status()? {
-            NodeStatus::Active => (),
-            status => {
-                tracing::info!(
-                    %status,
-                    "data deletion is only performed when the node is active, skipping"
-                );
-                return Ok(());
-            }
         };
 
         tracing::info!("starting to delete expired blob data");
