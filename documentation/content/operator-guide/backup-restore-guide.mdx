@@ -19,7 +19,7 @@ checkpoint-based solution is planned for a future release.
 - Unix/Linux operating system with support for Unix domain sockets
 - `walrus` user account with appropriate permissions
 
-### Local administration socket configuration
+### Local Administration Socket Configuration
 
 The backup system communicates with running storage nodes through a Unix domain socket. To enable
 this functionality:
@@ -52,7 +52,7 @@ Currently supported operations include:
 - **local-admin log-level**
 :::
 
-## Automated periodic backups
+## Automated Periodic Backups
 
 Storage nodes support scheduled automatic backups through checkpoint configuration. Add the
 following configs to your node configuration:
@@ -86,7 +86,7 @@ To disable automated backups, set `periodic_db_checkpoints: false` in your confi
 
 :::
 
-## Manual backup creation
+## Manual Backup Creation
 
 Create on-demand backups using the `local-admin` command:
 
@@ -130,7 +130,7 @@ Backup ID: 1, Size: 85.9 GB, Files: 1055, Created: 2025-07-02T00:25:48Z
 Backup ID: 2, Size: 86.2 GB, Files: 1058, Created: 2025-07-02T04:25:52Z
 ```
 
-## Restore from a backup
+## Restore from a Backup
 
 :::warning
 

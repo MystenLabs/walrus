@@ -12,7 +12,7 @@ of blobs is always stored off chain on Walrus storage nodes and caches. The stor
 do not have to overlap with any Sui infrastructure components (such as validators), and the storage
 epochs can be of different lengths and not have the same start/end times as Sui epochs.
 
-## Storage resource life cycle on Sui
+## Storage Resource Life Cycle on Sui
 
 A number of Sui smart contracts hold the metadata of the Walrus system and all its entities.
 
@@ -54,7 +54,7 @@ only to prove or verify emission of events. Nodes read
 the blockchain to get committee metadata only once per epoch, and then request slivers directly
 from storage nodes by blob ID to perform reads on Walrus resources.
 
-## Governance operations on Sui
+## Governance Operations on Sui
 
 Each Walrus storage epoch is represented by the Walrus system object that contains a storage
 committee and various metadata or storage nodes, like the mapping between shards and storage nodes,

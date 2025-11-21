@@ -43,7 +43,7 @@ This flow between clients and the upload relay is already implemented in the Wal
 and TS SDK, and therefore developers do not need to implement it themselves. For completeness, in
 the following we discuss how the service is implemented, paid for, and used by clients.
 
-### Upload relay operation
+### Upload Relay Operation
 
 The upload relay can be operated in two ways:
 
@@ -72,7 +72,7 @@ The configuration above specifies that every store operation requires a tip of `
 value), paid to the set address (`0x1234..`). Note that this configuration is provided even for free
 upload relays (returning `"no_tip"`).
 
-### Paying the tip
+### Paying the Tip
 
 This step is only necessary if the relay requires a tip.
 
@@ -96,7 +96,7 @@ Once the transaction is executed, the client keeps the transaction ID `tx_id` , 
 Note: the relay will enforce a freshness check on the transaction that paid the tip (currently 1h by
 default, but each relay can independently configure this).
 
-### Sending data to the upload relay
+### Sending Data to the Upload Relay
 
 See the full OpenAPI spec for the upload relay for the full details
 ([yaml](https://github.com/mystenlabs/walrus/tree/main/crates/walrus-upload-relay/upload_relay_openapi.yaml),
@@ -122,7 +122,7 @@ These additional parameters have to be specified in the URL’s query string:
 - **encoding_type** (optional): The encoding type to be used for the blob. The default value, and at
   the moment the only value, is `RS2`.
 
-## Receiving the certificate
+## Receiving the Certificate
 
 Once the relay is done storing the blob, it will collect the confirmation certificate from the
 storage nodes.
@@ -133,7 +133,7 @@ chain.
 
 ## Installation
 
-### Download the binary
+### Download the Binary
 
 If you'd like to download a pre-built binary in order manually run `walrus-upload-relay`, you'll
 need to download it from [the releases page](https://github.com/MystenLabs/walrus/releases). Note
@@ -149,7 +149,7 @@ The docker image for `walrus-upload-relay` is available on Docker Hub as
 $ docker run -it --rm mysten/walrus-upload-relay --help
 ```
 
-### Build from source
+### Build from Source
 
 Of course, if you'd like to build from sources, that is always an option, as well. The sources for
 the `walrus-upload-relay` are available on [GitHub](https://github.com/MystenLabs/walrus) in the
@@ -187,7 +187,7 @@ $ docker run \
       --relay-config /opt/walrus/walrus_upload_relay_config.yaml
 ```
 
-### Relay-specific configuration
+### Relay-Specific Configuration
 
 Here is an example of the `walrus-upload-relay` configuration file:
 

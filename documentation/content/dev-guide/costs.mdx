@@ -10,7 +10,7 @@ This document deals with costs of storage specifically. You can find a wider dis
 the [WAL tokenonmics](https://www.walrus.xyz/wal-token), and the role it plays in the
 [Walrus delegated proof of stake system](/walrus.pdf) elsewhere.
 
-## Understanding the 4 sources of cost
+## Understanding the 4 Sources of Cost
 
 The four sources of cost associated with Walrus Storage are acquiring storage resources, uploads,
 Sui transactions, and Sui objects on chain:
@@ -51,7 +51,7 @@ The Walrus CLI uses some strategies to lower costs but is not guaranteed to be o
 use-cases. For high volume or other cost sensitive users there may be strategies that further
 lower costs, which we discuss below.
 
-## Measuring costs
+## Measuring Costs
 
 The most accurate way to measure the costs of a store for a certain size is to perform a store
 for a blob of the same size, and observe the costs in SUI and WAL in a Sui explorer (or directly
@@ -83,7 +83,7 @@ transactions:
 - The `walrus store --dry-run ...` command outputs the encoded size that is used in calculations
   of WAL costs. The `--dry-run` parameter ensures no transactions are submitted on chain.
 
-## Managing and minimizing costs
+## Managing and Minimizing Costs
 
 There are multiple ways of acquiring storage resources, which impact their costs.
 
@@ -130,14 +130,14 @@ storage costs. This does not delete the blob on Walrus. Depending on the relativ
 WAL it might be cheaper to burn a long lived blob object, and subsequently re-registering and
 re-certifying them close to the end of its lifetime to extend it.
 
-### Reducing costs for small blobs
+### Reducing Costs for Small Blobs
 
 Walrus [Quilt](/usage/quilt.mdx) is a batch storage tool that reduces storage costs for small
 blobs. When multiple blobs are stored together, the metadata costs are amortized across the batch.
 Quilt can also significantly reduce Sui computation and storage costs, as detailed in the
 [Lower Cost](/usage/quilt.mdx#lower-cost) section.
 
-## The future
+## The Future
 
 The Walrus team has planned initiatives to reduce costs for all blob sizes by making metadata
 smaller, as well as further improving the efficiency of Quilt for small blob storage.

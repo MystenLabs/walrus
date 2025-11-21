@@ -19,9 +19,10 @@
 const sidebars = {
 
   docsSidebar: [
+    'usage/started',
     {
       type: "category",
-      label: "Setup",
+      label: "Advanced Setup",
       link: {
         type: "doc",
         id: "usage/setup",

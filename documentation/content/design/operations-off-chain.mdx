@@ -5,7 +5,7 @@ title: Off-chain operations
 While Walrus operations happen off Sui, they might interact with the blockchain flows defining the
 resource life cycle.
 
-## Write paths
+## Write Paths
 
 ![Write paths of Walrus](./images/WriteFlow.png)
 
@@ -46,14 +46,14 @@ shards return the sliver for a read. Because at most 1/3 of the storage nodes ca
 reconstruction if a reader requests slivers from all storage nodes. The full process can
 be mediated by a publisher that receives a blob and drives the process to completion.
 
-## Refresh availability
+## Refresh Availability
 
 Because no content data is required to refresh the duration of storage, refresh is conducted fully
 on chain within the protocol. To request an extension to the availability of a blob, a user provides
 an appropriate storage resource. Upon success this emits an event that storage nodes receive to
 extend the time for which each sliver is stored.
 
-## Inconsistent resource flow
+## Inconsistent Resource Flow
 
 When a correct storage node tries to reconstruct a sliver for a blob past [PoA](/design/properties.mdx),
 this may fail if the encoding of the blob was incorrect. In this case, the storage node can instead
@@ -87,7 +87,7 @@ partial reads for inconsistently encoded files. Thus, if consistency and availab
 important, dApps should do full reads rather than partial reads.
 :::
 
-## Read paths
+## Read Paths
 
 A user can read stored blobs either directly or through an aggregator/cache. The operations are the
 same for direct user access, for aggregators, and caches in case of cache misses. In practice, most
@@ -107,7 +107,7 @@ reads happen through caches for blobs that are hot and do not result in requests
   evicted from the cache. Requests for the blob to the cache return the blob contents, or a proof
   that the blob is inconsistently encoded.
 
-## Challenge mechanism for storage attestation
+## Challenge Mechanism for Storage Attestation
 
 During an epoch, a correct storage node challenges all shards to provide symbols for blob slivers
 past PoA:
