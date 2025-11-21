@@ -134,13 +134,13 @@ const config = {
             label: "Design",
             position: "right",
           },
+          { to: "/blog", label: "Blog", position: "right" },
           {
             href: "https://github.com/MystenLabs/walrus",
             position: "right",
             className: "header-github-link",
             "aria-label": "GitHub repository",
           },
-          { to: "/blog", label: "Blog", position: "right" },
         ],
       },
       footer: {

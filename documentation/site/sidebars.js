@@ -44,7 +44,7 @@ const sidebars = {
     },
     {
       type: "category",
-      label: "Builder Guide",
+      label: "Developer Guide",
       link: {
         type: "doc",
         id: "dev-guide/dev-guide",
@@ -52,7 +52,6 @@ const sidebars = {
       items: [
         "dev-guide/components",
         "dev-guide/dev-operations",
-        "dev-guide/sui-struct",
         "dev-guide/costs",
         "dev-guide/sui-struct",
         "dev-guide/data-security",

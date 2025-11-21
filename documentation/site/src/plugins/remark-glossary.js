@@ -96,6 +96,9 @@ function remarkGlossary(options = {}) {
   const MDX_SKIP = new Set(['mdxJsxTextElement', 'mdxJsxFlowElement']);
 
   return function transformer(tree) {
+    // Track which terms have been processed on this page (case-insensitive)
+    const processedTerms = new Set();
+    
     visit(tree, (node, _index, parent) => {
       // Only handle plain text nodes
       if (!node || node.type !== 'text' || !node.value) return;
@@ -126,21 +129,34 @@ function remarkGlossary(options = {}) {
 
         const key = String(term).toLowerCase();
         const entry = byKey.get(key);
+        
         if (!entry) {
           // No entry? Just emit the raw match and keep going
           nextChildren.push({type: 'text', value: term});
         } else {
-          // Emit <Term lookup="entry.label">term</Term> as mdxJsxTextElement
-          nextChildren.push({
-            type: 'mdxJsxTextElement',
-            name: 'Term',
-            attributes: [
-              {type: 'mdxJsxAttribute', name: 'lookup', value: entry.label},
-              // You can also add data attributes if you want:
-              // {type: 'mdxJsxAttribute', name: 'data-term', value: entry.label},
-            ],
-            children: [{type: 'text', value: term}],
-          });
+          // Check if this term (or any of its aliases) has already been processed
+          const termKeys = [entry.label.toLowerCase(), ...(entry.aliases || []).map(a => a.toLowerCase())];
+          const isFirstOccurrence = !termKeys.some(k => processedTerms.has(k));
+          
+          if (isFirstOccurrence) {
+            // Mark all variants of this term as processed
+            termKeys.forEach(k => processedTerms.add(k));
+            
+            // Emit <Term lookup="entry.label">term</Term> as mdxJsxTextElement
+            nextChildren.push({
+              type: 'mdxJsxTextElement',
+              name: 'Term',
+              attributes: [
+                {type: 'mdxJsxAttribute', name: 'lookup', value: entry.label},
+                // You can also add data attributes if you want:
+                // {type: 'mdxJsxAttribute', name: 'data-term', value: entry.label},
+              ],
+              children: [{type: 'text', value: term}],
+            });
+          } else {
+            // Not the first occurrence, just emit the plain text
+            nextChildren.push({type: 'text', value: term});
+          }
         }
         last = start + full.length;
       }
