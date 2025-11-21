@@ -23,6 +23,7 @@ use axum_extra::{
 use openapi::{AggregatorApiDoc, DaemonApiDoc, PublisherApiDoc};
 use reqwest::StatusCode;
 use routes::{
+    BLOB_BYTE_RANGE_GET_ENDPOINT,
     BLOB_CONCAT_ENDPOINT,
     BLOB_GET_ENDPOINT,
     BLOB_OBJECT_GET_ENDPOINT,
@@ -449,6 +450,10 @@ impl<T: WalrusReadClient + Send + Sync + 'static> ClientDaemon<T> {
                 get(routes::get_blob_by_object_id)
                     .with_state((self.client.clone(), self.response_header_config.clone()))
                     .route_layer(aggregator_layers.clone()),
+            )
+            .route(
+                BLOB_BYTE_RANGE_GET_ENDPOINT,
+                get(routes::get_blob_byte_range).route_layer(aggregator_layers.clone()),
             )
             .route(
                 BLOB_CONCAT_ENDPOINT,

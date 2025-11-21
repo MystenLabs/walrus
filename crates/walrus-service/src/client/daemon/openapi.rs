@@ -23,6 +23,7 @@ use crate::common::api::Binary;
     info(title = "Walrus Aggregator"),
     paths(
         routes::get_blob,
+        routes::get_blob_byte_range,
         routes::get_blob_by_object_id,
         routes::get_blobs_concat,
         routes::post_blobs_concat,
@@ -68,6 +69,7 @@ pub(super) struct PublisherApiDoc;
     info(title = "Walrus Daemon"),
     paths(
         routes::get_blob,
+        routes::get_blob_byte_range,
         routes::get_blob_by_object_id,
         routes::get_blobs_concat,
         routes::post_blobs_concat,
