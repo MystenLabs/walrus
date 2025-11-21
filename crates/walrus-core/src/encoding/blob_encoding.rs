@@ -33,8 +33,6 @@ use crate::{
 /// A wrapper around a blob that can be either owned (i.e., `Vec<u8>`) or borrowed (`&[u8]`).
 #[derive(Debug)]
 pub enum OwnedOrBorrowedBlob<'a> {
-    /// An owned blob.
-    Owned(Vec<u8>),
     /// A borrowed blob.
     Borrowed(&'a [u8]),
 }
@@ -46,19 +44,14 @@ impl<'a> OwnedOrBorrowedBlob<'a> {
     }
 
     /// Converts the `OwnedOrBorrowedBlob` into an owned blob, copying the data if necessary.
-    pub fn into_owned(self) -> OwnedOrBorrowedBlob<'static> {
-        let blob = match self {
-            Self::Borrowed(blob) => blob.to_vec(),
-            Self::Owned(blob) => blob,
-        };
-        OwnedOrBorrowedBlob::Owned(blob)
+    pub fn into_owned_(self) -> OwnedOrBorrowedBlob<'static> {
+        todo!()
     }
 
     /// Returns the length of the blob.
     pub fn len(&self) -> usize {
         match self {
             Self::Borrowed(blob) => blob.len(),
-            Self::Owned(blob) => blob.len(),
         }
     }
 
@@ -68,18 +61,10 @@ impl<'a> OwnedOrBorrowedBlob<'a> {
     }
 }
 
-impl OwnedOrBorrowedBlob<'static> {
-    /// Creates a new `OwnedOrBorrowedBlob` from an owned blob.
-    pub fn new_owned(blob: Vec<u8>) -> Self {
-        Self::Owned(blob)
-    }
-}
-
 impl<'a> AsRef<[u8]> for OwnedOrBorrowedBlob<'a> {
     fn as_ref(&self) -> &[u8] {
         match self {
             Self::Borrowed(blob) => blob,
-            Self::Owned(blob) => blob,
         }
     }
 }
@@ -301,7 +286,8 @@ impl<'a> BlobEncoder<'a> {
                 .for_each(|(dest, src)| dest[..src.len()].copy_from_slice(src))
         }
 
-        drop(self.blob);
+        // REVIEW: is this the point where the memory overhead was being saved?
+        // drop(self.blob);
 
         // Compute the remaining secondary slivers by encoding the rows (i.e., primary slivers)
         // using the secondary encoding.
@@ -1162,7 +1148,7 @@ mod tests {
         let (sliver_pairs_1, blob_metadata_1) = blob_encoder.encode_with_metadata_legacy();
         assert_eq!(blob_metadata_0, blob_metadata_1);
 
-        let (sliver_pairs_2, blob_metadata_2) = config_enum.encode_with_metadata(blob).unwrap();
+        let (sliver_pairs_2, blob_metadata_2) = config_enum.encode_with_metadata(&blob).unwrap();
         assert_eq!(sliver_pairs_1, sliver_pairs_2);
         assert_eq!(blob_metadata_1, blob_metadata_2);
 

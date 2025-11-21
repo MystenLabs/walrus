@@ -95,7 +95,7 @@ pub trait EncodingFactory {
     /// larger than roughly 800 MiB cannot be encoded on 32-bit architectures.
     fn encode_with_metadata(
         &self,
-        blob: Vec<u8>,
+        blob: &[u8],
     ) -> Result<(Vec<SliverPair>, VerifiedBlobMetadataWithId), DataTooLargeError>;
 
     /// Computes the metadata (blob ID, hashes) for the blob, without returning the slivers.
@@ -550,15 +550,6 @@ impl ReedSolomonEncodingConfig {
         BlobEncoder::new((*self).into(), OwnedOrBorrowedBlob::new(blob))
     }
 
-    /// Returns a [`BlobEncoder`] for the given blob.
-    #[tracing::instrument(level = "debug", skip_all)]
-    pub fn get_blob_encoder_owned(
-        &self,
-        blob: Vec<u8>,
-    ) -> Result<BlobEncoder<'static>, DataTooLargeError> {
-        BlobEncoder::new((*self).into(), OwnedOrBorrowedBlob::new_owned(blob))
-    }
-
     /// Returns a [`BlobDecoder`] for the given `blob_size`.
     pub fn get_blob_decoder<E: EncodingAxis>(
         &self,
@@ -591,9 +582,9 @@ impl EncodingFactory for ReedSolomonEncodingConfig {
 
     fn encode_with_metadata(
         &self,
-        blob: Vec<u8>,
+        blob: &[u8],
     ) -> Result<(Vec<SliverPair>, VerifiedBlobMetadataWithId), DataTooLargeError> {
-        Ok(self.get_blob_encoder_owned(blob)?.encode_with_metadata())
+        Ok(self.get_blob_encoder(blob)?.encode_with_metadata())
     }
 
     fn compute_metadata(
