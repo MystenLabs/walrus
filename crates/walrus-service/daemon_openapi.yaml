@@ -188,6 +188,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        '416':
+          description: The byte range parameters are invalid. This error is returned when the byte range parameters are invalid.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         '451':
           description: The blob cannot be returned as has been blocked.
           content:
@@ -263,6 +269,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        '416':
+          description: The byte range parameters are invalid. This error is returned when the byte range parameters are invalid.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         '451':
           description: The blob cannot be returned as has been blocked.
           content:
@@ -328,6 +340,12 @@ paths:
                 $ref: '#/components/schemas/Status'
         '404':
           description: May be returned when (1) The requested blob has not yet been stored on Walrus. (2) The requested quilt patch does not exist on Walrus.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        '416':
+          description: The byte range parameters are invalid. This error is returned when the byte range parameters are invalid.
           content:
             application/json:
               schema:
@@ -407,6 +425,12 @@ paths:
                 $ref: '#/components/schemas/Status'
         '404':
           description: May be returned when (1) The requested blob has not yet been stored on Walrus. (2) The requested quilt patch does not exist on Walrus.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        '416':
+          description: The byte range parameters are invalid. This error is returned when the byte range parameters are invalid.
           content:
             application/json:
               schema:
@@ -635,6 +659,12 @@ paths:
                 $ref: '#/components/schemas/Status'
         '404':
           description: May be returned when (1) The requested blob has not yet been stored on Walrus. (2) The requested quilt patch does not exist on Walrus.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        '416':
+          description: The byte range parameters are invalid. This error is returned when the byte range parameters are invalid.
           content:
             application/json:
               schema:

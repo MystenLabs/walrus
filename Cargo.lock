@@ -13158,6 +13158,7 @@ dependencies = [
  "hostname",
  "http-body 1.0.1",
  "http-body-util",
+ "http-range-header",
  "humantime",
  "indexmap 2.11.4",
  "indicatif",

@@ -24,10 +24,11 @@ use axum_extra::{
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use fastcrypto::hash::{HashFunction, Sha256};
 use futures::stream::{self, StreamExt};
+use http_range_header::{EndPosition, StartPosition};
 use jsonwebtoken::{DecodingKey, Validation};
 use reqwest::{
     Method,
-    header::{ACCEPT, CACHE_CONTROL, CONTENT_TYPE, ETAG, X_CONTENT_TYPE_OPTIONS},
+    header::{ACCEPT, CACHE_CONTROL, CONTENT_TYPE, ETAG, RANGE, X_CONTENT_TYPE_OPTIONS},
 };
 use serde::{Deserialize, Serialize};
 use serde_with::{DisplayFromStr, serde_as};
@@ -168,6 +169,58 @@ pub struct ByteRangeQueryParams {
     pub length: usize,
 }
 
+/// Parses an HTTP Range header value.
+/// Supports the format "bytes=start-end" for range to end.
+/// Returns (start_byte_position, byte_length) if valid, otherwise returns an error.
+fn parse_range_header(range_value: &HeaderValue) -> Result<(usize, usize), GetBlobError> {
+    let range_value = range_value
+        .to_str()
+        .map_err(|e| GetBlobError::InvalidByteRange {
+            message: format!("invalid range header format: {}", e),
+        })?
+        .trim();
+
+    let parsed_range = http_range_header::parse_range_header(range_value).map_err(|e| {
+        GetBlobError::InvalidByteRange {
+            message: format!("invalid range header format: {}", e),
+        }
+    })?;
+
+    if parsed_range.ranges.len() != 1 {
+        return Err(GetBlobError::InvalidByteRange {
+            message: "only support one range per request".to_string(),
+        });
+    }
+
+    let range = parsed_range.ranges[0];
+    let StartPosition::Index(start_index) = range.start else {
+        return Err(GetBlobError::InvalidByteRange {
+            message: "must provide start index".to_string(),
+        });
+    };
+    let EndPosition::Index(end_index) = range.end else {
+        return Err(GetBlobError::InvalidByteRange {
+            message: "must provide end index".to_string(),
+        });
+    };
+
+    if start_index > end_index {
+        return Err(GetBlobError::InvalidByteRange {
+            message: "start index must be less than end index".to_string(),
+        });
+    }
+
+    let length = end_index.saturating_sub(start_index).saturating_add(1);
+    Ok((
+        usize::try_from(start_index).map_err(|e| GetBlobError::InvalidByteRange {
+            message: format!("start index is too large to convert to usize: {}", e),
+        })?,
+        usize::try_from(length).map_err(|e| GetBlobError::InvalidByteRange {
+            message: format!("length is too large to convert to usize: {}", e),
+        })?,
+    ))
+}
+
 /// Helper function to parse an ID string and resolve it to a BlobId.
 /// Tries to parse as BlobId first, then as ObjectID if that fails.
 /// Returns the BlobId and optionally the BlobAttribute if the ID was an ObjectID.
@@ -223,33 +276,42 @@ pub(super) async fn get_blob<T: WalrusReadClient>(
         Ok(consistency_check) => consistency_check,
         Err(error) => return error.into_response(),
     };
-    match client.read_blob(&blob_id, consistency_check).await {
-        Ok(blob) => {
-            tracing::debug!("successfully retrieved blob");
-            let mut response = (StatusCode::OK, blob).into_response();
-            let headers = response.headers_mut();
-            populate_response_headers_from_request(
-                request_method,
-                &request_headers,
-                &blob_id.to_string(),
-                headers,
-            );
-            response
-        }
-        Err(error) => {
-            let error = GetBlobError::from(error);
 
-            match &error {
-                GetBlobError::BlobNotFound => {
-                    tracing::debug!(?blob_id, "the requested blob ID does not exist")
-                }
-                GetBlobError::Internal(error) => tracing::error!(?error, "error retrieving blob"),
-                _ => (),
+    let mut response = if let Some(range_header) = request_headers.get(RANGE) {
+        let (start, length) = match parse_range_header(range_header) {
+            Ok(v) => v,
+            Err(error) => {
+                tracing::debug!(?error, "invalid byte range header");
+                return error.to_response();
             }
+        };
 
-            error.to_response()
+        match client.read_byte_range(&blob_id, start, length).await {
+            Ok(blob) => (StatusCode::PARTIAL_CONTENT, blob).into_response(),
+            Err(error) => {
+                tracing::debug!(?error, "failed to read byte range");
+                return GetBlobError::from(error).to_response();
+            }
         }
-    }
+    } else {
+        match client.read_blob(&blob_id, consistency_check).await {
+            Ok(blob) => (StatusCode::OK, blob).into_response(),
+            Err(error) => {
+                tracing::debug!(?error, "failed to read blob");
+                return GetBlobError::from(error).to_response();
+            }
+        }
+    };
+
+    tracing::debug!("successfully retrieved blob");
+    let headers = response.headers_mut();
+    populate_response_headers_from_request(
+        request_method,
+        &request_headers,
+        &blob_id.to_string(),
+        headers,
+    );
+    response
 }
 
 fn populate_response_headers_from_request(
@@ -565,6 +627,13 @@ pub(crate) enum GetBlobError {
     #[error("the blob size exceeds the maximum allowed size: {0}")]
     #[rest_api_error(reason = "BLOB_TOO_LARGE", status = ApiStatusCode::SizeExceeded)]
     BlobTooLarge(u64),
+
+    /// The byte range parameters are invalid.
+    ///
+    /// This error is returned when the byte range parameters are invalid.
+    #[error("invalid byte range parameters: {message}")]
+    #[rest_api_error(reason = "INVALID_BYTE_RANGE", status = ApiStatusCode::RangeNotSatisfiable)]
+    InvalidByteRange { message: String },
 
     #[error(transparent)]
     #[rest_api_error(delegate)]
@@ -1585,7 +1654,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use axum::http::Uri;
+    use axum::http::{HeaderValue, Uri};
     use serde_test::{Token, assert_de_tokens};
     use walrus_test_utils::param_test;
 
@@ -1729,6 +1798,28 @@ mod tests {
                 )
             }
         }
+    }
+
+    #[test]
+    fn test_parse_range_header() {
+        // Test valid range with both start and end
+        let result = parse_range_header(&HeaderValue::from_static("bytes=0-499"));
+        assert_eq!(result.expect("should be ok"), (0, 500));
+
+        let result = parse_range_header(&HeaderValue::from_static("bytes=100-199"));
+        assert_eq!(result.expect("should be ok"), (100, 100));
+
+        // Test open-ended range (should return error since we require end value)
+        assert!(parse_range_header(&HeaderValue::from_static("bytes=500-")).is_err());
+
+        // Test invalid formats
+        assert!(parse_range_header(&HeaderValue::from_static("bytes=")).is_err());
+        assert!(parse_range_header(&HeaderValue::from_static("invalid")).is_err());
+        assert!(parse_range_header(&HeaderValue::from_static("bytes=100-50")).is_err());
+
+        // Test with spaces
+        let result = parse_range_header(&HeaderValue::from_static(" bytes=10-20 "));
+        assert_eq!(result.expect("should be ok"), (10, 11));
     }
 
     #[test]
