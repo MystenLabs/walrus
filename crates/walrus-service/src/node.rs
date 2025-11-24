@@ -824,7 +824,27 @@ impl StorageNode {
     }
 
     /// Run the walrus-node logic until cancelled using the provided cancellation token.
-    pub async fn run(&self, cancel_token: CancellationToken) -> anyhow::Result<()> {
+    pub async fn run_storage_node(&self, cancel_token: CancellationToken) -> anyhow::Result<()> {
+        let result = self.run_storage_node_core(cancel_token).await;
+
+        if let Err(ref error) = result {
+            tracing::error!(?error, "storage node shutting down due to error");
+        } else {
+            tracing::warn!("storage node shutting down");
+        }
+
+        if let Some(checkpoint_manager) = self.checkpoint_manager() {
+            checkpoint_manager.shutdown();
+        }
+        self.inner.shut_down();
+        self.blob_event_processor.shutdown();
+        self.blob_sync_handler.cancel_all().await?;
+        self.blob_event_processor.wait_for_shutdown().await;
+
+        result
+    }
+
+    async fn run_storage_node_core(&self, cancel_token: CancellationToken) -> anyhow::Result<()> {
         if let Err(error) = self
             .epoch_change_driver
             .schedule_relevant_calls_for_current_epoch()
@@ -847,11 +867,9 @@ impl StorageNode {
             },
             _ = cancel_token.cancelled() => {
                 tracing::info!("external cancellation received, shutting down node");
-                self.shut_down().await?;
             },
             _ = self.blob_processor_cancel_token.cancelled() => {
                 tracing::error!("blob event processor triggered shutdown due to error");
-                self.shut_down().await?;
                 return Err(anyhow::anyhow!("blob event processor encountered fatal error"));
             },
             blob_sync_result = BlobSyncHandler::spawn_task_monitor(
@@ -883,17 +901,6 @@ impl StorageNode {
             }
         }
 
-        Ok(())
-    }
-
-    async fn shut_down(&self) -> anyhow::Result<()> {
-        if let Some(checkpoint_manager) = self.checkpoint_manager() {
-            checkpoint_manager.shutdown();
-        }
-        self.inner.shut_down();
-        self.blob_event_processor.shutdown();
-        self.blob_sync_handler.cancel_all().await?;
-        self.blob_event_processor.wait_for_shutdown().await;
         Ok(())
     }
 

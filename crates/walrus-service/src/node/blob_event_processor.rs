@@ -190,7 +190,6 @@ impl BackgroundEventProcessor {
                                     worker_index = self.worker_index,
                                     "error processing blob event, triggering node shutdown"
                                 );
-                                self.node_cancel_token.cancel();
                                 break;
                             }
                         }
@@ -206,6 +205,9 @@ impl BackgroundEventProcessor {
                 }
             }
         }
+        // If any background event processor exits its loop, we should trigger cancellation to the
+        // entire node.
+        self.node_cancel_token.cancel();
     }
 
     /// Processes a blob event.

@@ -1409,7 +1409,9 @@ impl StorageNodeRuntime {
         let walrus_node_cancel_token = cancel_token.child_token();
         let walrus_node_handle = tokio::spawn(async move {
             let cancel_token = walrus_node_cancel_token.clone();
-            let result = walrus_node_clone.run(walrus_node_cancel_token).await;
+            let result = walrus_node_clone
+                .run_storage_node(walrus_node_cancel_token)
+                .await;
 
             if exit_notifier.send(()).is_err() && !cancel_token.is_cancelled() {
                 tracing::warn!(
