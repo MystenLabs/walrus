@@ -1070,7 +1070,7 @@ impl StorageNodeHandleBuilder {
 
             Some(tokio::task::spawn(
                 async move {
-                    let status = node.run(cancel_token).await;
+                    let status = node.run_storage_node(cancel_token).await;
                     if let Err(error) = status {
                         tracing::error!(?error, "node stopped with an error");
                         std::process::exit(1);

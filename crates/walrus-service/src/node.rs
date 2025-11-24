@@ -531,6 +531,9 @@ pub struct StorageNode {
     start_epoch_change_finisher: StartEpochChangeFinisher,
     node_recovery_handler: NodeRecoveryHandler,
     blob_event_processor: BlobEventProcessor,
+    /// Cancellation token for blob event processors. When this is cancelled (either by external
+    /// shutdown or internal error), the node should shut down.
+    blob_processor_cancel_token: CancellationToken,
     event_blob_writer_factory: Option<EventBlobWriterFactory>,
     config_synchronizer: Option<Arc<ConfigSynchronizer>>,
 }
@@ -755,10 +758,14 @@ impl StorageNode {
         );
         node_recovery_handler.restart_recovery().await?;
 
+        // Create a cancellation token for blob event processors. Background processors will
+        // trigger this token on errors, causing the node to shut down.
+        let blob_processor_cancel_token = CancellationToken::new();
         let blob_event_processor = BlobEventProcessor::new(
             inner.clone(),
             blob_sync_handler.clone(),
             config.blob_event_processor_config.num_workers,
+            blob_processor_cancel_token.clone(),
         );
 
         tracing::debug!(
@@ -805,6 +812,7 @@ impl StorageNode {
             start_epoch_change_finisher,
             node_recovery_handler,
             blob_event_processor,
+            blob_processor_cancel_token,
             event_blob_writer_factory,
             config_synchronizer,
         })
@@ -816,7 +824,27 @@ impl StorageNode {
     }
 
     /// Run the walrus-node logic until cancelled using the provided cancellation token.
-    pub async fn run(&self, cancel_token: CancellationToken) -> anyhow::Result<()> {
+    pub async fn run_storage_node(&self, cancel_token: CancellationToken) -> anyhow::Result<()> {
+        let result = self.run_storage_node_core(cancel_token).await;
+
+        if let Err(ref error) = result {
+            tracing::error!(?error, "storage node shutting down due to error");
+        } else {
+            tracing::warn!("storage node shutting down");
+        }
+
+        if let Some(checkpoint_manager) = self.checkpoint_manager() {
+            checkpoint_manager.shutdown();
+        }
+        self.inner.shut_down();
+        self.blob_event_processor.shutdown();
+        self.blob_sync_handler.cancel_all().await?;
+        self.blob_event_processor.wait_for_shutdown().await;
+
+        result
+    }
+
+    async fn run_storage_node_core(&self, cancel_token: CancellationToken) -> anyhow::Result<()> {
         if let Err(error) = self
             .epoch_change_driver
             .schedule_relevant_calls_for_current_epoch()
@@ -838,11 +866,11 @@ impl StorageNode {
                 }
             },
             _ = cancel_token.cancelled() => {
-                if let Some(checkpoint_manager) = self.checkpoint_manager() {
-                    checkpoint_manager.shutdown();
-                }
-                self.inner.shut_down();
-                self.blob_sync_handler.cancel_all().await?;
+                tracing::info!("external cancellation received, shutting down node");
+            },
+            _ = self.blob_processor_cancel_token.cancelled() => {
+                tracing::error!("blob event processor triggered shutdown due to error");
+                return Err(anyhow::anyhow!("blob event processor encountered fatal error"));
             },
             blob_sync_result = BlobSyncHandler::spawn_task_monitor(
                 self.blob_sync_handler.clone()
