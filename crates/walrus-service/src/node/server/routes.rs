@@ -19,6 +19,7 @@ use walrus_core::{
     SliverIndex,
     SliverPairIndex,
     SliverType,
+    SuiObjectId,
     SymbolId,
     encoding::{GeneralRecoverySymbol, Primary as PrimaryEncoding, Secondary as SecondaryEncoding},
     messages::{
@@ -418,15 +419,18 @@ pub async fn get_managed_blob_confirmation<S: SyncServiceState>(
     Path((blob_id_string, manager_id, deletable)): Path<(BlobIdString, ObjectID, bool)>,
 ) -> Result<ApiSuccess<StorageConfirmation>, ComputeStorageConfirmationError> {
     let blob_id = blob_id_string.0;
+
+    // For managed blobs, use the Managed variant.
+    // The actual ManagedBlob object_id will be looked up inside compute_storage_confirmation.
+    let blob_persistence_type = BlobPersistenceType::Managed {
+        blob_manager_id: manager_id.into(),
+        deletable,
+        blob_object_id: SuiObjectId::ZERO, // Will be populated by compute_storage_confirmation
+    };
+
     let confirmation = state
         .service
-        .compute_storage_confirmation(
-            &blob_id,
-            &BlobPersistenceType::ManagedByBlobManager {
-                manager_id: manager_id.into(),
-                deletable,
-            },
-        )
+        .compute_storage_confirmation(&blob_id, &blob_persistence_type)
         .await?;
 
     Ok(ApiSuccess::ok(confirmation))

@@ -259,7 +259,7 @@ impl UploadRelayClient {
         // Only add the nonce if we paid for the transaction.
         let nonce = tx_id.is_some().then_some(auth_package.nonce);
         let deletable_blob_object: Option<ObjectID> =
-            if let BlobPersistenceType::Deletable { object_id } = blob_persistence_type {
+            if let BlobPersistenceType::Deletable { object_id } = &blob_persistence_type {
                 Some(object_id.into())
             } else {
                 None

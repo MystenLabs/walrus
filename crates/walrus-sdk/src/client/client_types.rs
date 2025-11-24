@@ -13,6 +13,7 @@ use walrus_core::{
     BlobId,
     EpochCount,
     QuiltPatchId,
+    SuiObjectId,
     encoding::{
         EncodingConfigEnum,
         EncodingFactory as _,
@@ -779,10 +780,15 @@ impl BlobObject {
                 deletable,
                 manager_id,
                 ..
-            } => BlobPersistenceType::ManagedByBlobManager {
-                manager_id: manager_id.into(),
-                deletable: *deletable,
-            },
+            } => {
+                // For managed blobs, return the Managed variant.
+                // The client doesn't know the blob_object_id yet, so it's ZERO.
+                BlobPersistenceType::Managed {
+                    blob_manager_id: manager_id.into(),
+                    deletable: *deletable,
+                    blob_object_id: SuiObjectId::ZERO,
+                }
+            }
         }
     }
 }

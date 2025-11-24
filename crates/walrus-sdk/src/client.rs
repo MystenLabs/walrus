@@ -48,7 +48,11 @@ use walrus_core::{
         SliverPair,
     },
     ensure,
-    messages::{BlobPersistenceType, ConfirmationCertificate, SignedStorageConfirmation},
+    messages::{
+        BlobPersistenceType,
+        ConfirmationCertificate,
+        SignedStorageConfirmation,
+    },
     metadata::{BlobMetadataApi as _, VerifiedBlobMetadataWithId},
 };
 use walrus_storage_node_client::api::BlobStatus;

@@ -57,6 +57,7 @@ use walrus_core::{
     Sliver,
     SliverPairIndex,
     SliverType,
+    SuiObjectId,
     SymbolId,
     by_axis::Axis,
     encoding::{
@@ -3198,8 +3199,11 @@ impl ServiceState for StorageNodeInner {
             self.is_stored_at_all_shards_at_latest_epoch(blob_id).await
         );
 
-        match blob_persistence_type {
+        // Determine the BlobPersistenceType for the confirmation.
+        let blob_persistence_type = match blob_persistence_type {
+            BlobPersistenceType::Permanent => BlobPersistenceType::Permanent,
             BlobPersistenceType::Deletable { object_id } => {
+                // For regular deletable blobs, validate object registration.
                 let per_object_info = self
                     .storage
                     .get_per_object_info(&object_id.into())
@@ -3209,28 +3213,42 @@ impl ServiceState for StorageNodeInner {
                     per_object_info.is_registered(self.current_committee_epoch()),
                     ComputeStorageConfirmationError::NotCurrentlyRegistered,
                 );
+                BlobPersistenceType::Deletable {
+                    object_id: *object_id,
+                }
             }
-            BlobPersistenceType::ManagedByBlobManager { manager_id, .. } => {
-                // Verify the BlobManager exists and is valid for the current epoch.
-                let manager_info = self
-                    .storage
-                    .get_blob_manager_info(&manager_id.into())
-                    .context("database error when checking blob manager info")?
-                    .ok_or(ComputeStorageConfirmationError::NotCurrentlyRegistered)?;
-                ensure!(
-                    manager_info.is_epoch_valid(self.current_committee_epoch()),
-                    ComputeStorageConfirmationError::NotCurrentlyRegistered,
-                );
+            BlobPersistenceType::Managed {
+                blob_manager_id,
+                deletable,
+                blob_object_id: _,
+            } => {
+                // For managed blobs, populate the blob_object_id field.
+                let blob_object_id = if *deletable {
+                    // Managed deletable: look up the actual ManagedBlob object ID.
+                    let object_id = self
+                        .storage
+                        .get_managed_blob_object_id(blob_id, &blob_manager_id.into())
+                        .context("database error when looking up managed blob object ID")?
+                        .ok_or(ComputeStorageConfirmationError::NotCurrentlyRegistered)?;
+                    object_id.into()
+                } else {
+                    // Managed permanent: use ZERO object_id.
+                    SuiObjectId::ZERO
+                };
+                BlobPersistenceType::Managed {
+                    blob_manager_id: *blob_manager_id,
+                    deletable: *deletable,
+                    blob_object_id,
+                }
             }
-            BlobPersistenceType::Permanent => {}
-        }
+        };
 
         tracing::debug!("blob_persistence_type: {:?}", blob_persistence_type);
 
         let confirmation = Confirmation::new(
             self.current_committee_epoch(),
             *blob_id,
-            *blob_persistence_type,
+            blob_persistence_type,
         );
         let signed = sign_message(confirmation, self.protocol_key_pair.clone()).await?;
 

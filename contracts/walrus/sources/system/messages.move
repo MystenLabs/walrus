@@ -108,6 +108,11 @@ public struct CertifiedMessage has drop {
 public enum BlobPersistenceType has copy, drop {
     Permanent,
     Deletable { object_id: ID },
+    Managed {
+        blob_manager_id: ID,
+        deletable: bool,
+        blob_object_id: ID,
+    },
 }
 
 /// Message type for certifying a blob.
@@ -352,6 +357,7 @@ public(package) fun blob_id(self: &DenyListBlobDeleted): u256 {
 public(package) fun is_deletable(self: &BlobPersistenceType): bool {
     match (self) {
         BlobPersistenceType::Deletable { .. } => true,
+        BlobPersistenceType::Managed { deletable, .. } => *deletable,
         BlobPersistenceType::Permanent => false,
     }
 }
@@ -359,6 +365,7 @@ public(package) fun is_deletable(self: &BlobPersistenceType): bool {
 public(package) fun object_id(self: &BlobPersistenceType): ID {
     match (self) {
         BlobPersistenceType::Deletable { object_id } => *object_id,
+        BlobPersistenceType::Managed { blob_object_id, .. } => *blob_object_id,
         BlobPersistenceType::Permanent => abort ENotDeletable,
     }
 }
@@ -373,6 +380,12 @@ public(package) fun peel_blob_persistence_type(bcs: &mut BCS): BlobPersistenceTy
     if (type_id == 1) {
         let object_id = bcs.peel_address().to_id();
         return BlobPersistenceType::Deletable { object_id }
+    };
+    if (type_id == 2) {
+        let blob_manager_id = bcs.peel_address().to_id();
+        let deletable = bcs.peel_bool();
+        let blob_object_id = bcs.peel_address().to_id();
+        return BlobPersistenceType::Managed { blob_manager_id, deletable, blob_object_id }
     };
     abort EInvalidBlobPersistenceType
 }
@@ -433,6 +446,22 @@ public fun certified_deletable_message_bytes(epoch: u32, blob_id: u256, object_i
 }
 
 #[test_only]
+public fun certified_managed_message_bytes(
+    epoch: u32,
+    blob_id: u256,
+    blob_manager_id: ID,
+    deletable: bool,
+    blob_object_id: ID,
+): vector<u8> {
+    let blob_persistence_type = BlobPersistenceType::Managed {
+        blob_manager_id,
+        deletable,
+        blob_object_id,
+    };
+    certified_message_bytes(epoch, blob_id, blob_persistence_type)
+}
+
+#[test_only]
 public fun invalid_message_bytes(epoch: u32, blob_id: u256): vector<u8> {
     let mut message = vector<u8>[];
     message.push_back(INVALID_BLOB_ID_MSG_TYPE);
@@ -462,4 +491,35 @@ fun test_certified_deletable_blob_message() {
     assert!(cert_msg.blob_id == blob_id);
     assert!(cert_msg.blob_persistence_type().is_deletable());
     assert!(cert_msg.blob_persistence_type().object_id() == object_id);
+}
+
+#[test]
+fun test_certified_managed_blob_message_permanent() {
+    let epoch = 42;
+    let blob_id = 0xdeadbeefdeadbeefdeadbeefdeadbeef;
+    let blob_manager_id = object::id_from_address(@99);
+    let zero_id = object::id_from_address(@0);
+    let msg = certified_managed_message_bytes(epoch, blob_id, blob_manager_id, false, zero_id);
+    let cert_msg = new_certified_message(msg, epoch, 1).certify_blob_message();
+    assert!(cert_msg.blob_id == blob_id);
+    assert!(!cert_msg.blob_persistence_type().is_deletable());
+}
+
+#[test]
+fun test_certified_managed_blob_message_deletable() {
+    let epoch = 42;
+    let blob_id = 0xdeadbeefdeadbeefdeadbeefdeadbeef;
+    let blob_manager_id = object::id_from_address(@99);
+    let blob_object_id = object::id_from_address(@100);
+    let msg = certified_managed_message_bytes(
+        epoch,
+        blob_id,
+        blob_manager_id,
+        true,
+        blob_object_id,
+    );
+    let cert_msg = new_certified_message(msg, epoch, 1).certify_blob_message();
+    assert!(cert_msg.blob_id == blob_id);
+    assert!(cert_msg.blob_persistence_type().is_deletable());
+    assert!(cert_msg.blob_persistence_type().object_id() == blob_object_id);
 }

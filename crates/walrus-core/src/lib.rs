@@ -337,6 +337,9 @@ pub struct SuiObjectId(pub [u8; Self::LENGTH]);
 impl SuiObjectId {
     /// The length of a Sui object ID in bytes.
     pub const LENGTH: usize = 32;
+
+    /// A zero object ID (all zeros).
+    pub const ZERO: SuiObjectId = SuiObjectId([0u8; Self::LENGTH]);
 }
 
 #[cfg(feature = "sui-types")]

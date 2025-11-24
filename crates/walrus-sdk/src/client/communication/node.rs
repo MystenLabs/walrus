@@ -275,8 +275,14 @@ impl<W> NodeCommunication<W> {
         epoch: Epoch,
         blob_persistence_type: &BlobPersistenceType,
     ) -> Result<SignedStorageConfirmation, NodeError> {
+        // Extract blob_manager_id from Managed variant
+        let blob_manager_id = match blob_persistence_type {
+            BlobPersistenceType::Managed { blob_manager_id, .. } => Some(blob_manager_id.into()),
+            _ => None,
+        };
+
         let confirmation = backoff::retry(self.backoff_strategy(), || {
-            self.client.get_confirmation(blob_id, blob_persistence_type)
+            self.client.get_confirmation(blob_id, blob_persistence_type, blob_manager_id)
         })
         .await
         .map_err(|error| {
@@ -338,13 +344,9 @@ impl NodeWriteCommunication {
                 .await
                 .take_inner_result()?;
 
-            self.get_confirmation_with_retries_inner(
-                metadata.blob_id(),
-                self.committee_epoch,
-                blob_persistence_type,
-            )
-            .await
-            .map_err(StoreError::Confirmation)
+            self.get_confirmation_with_retries_inner(metadata.blob_id(), self.committee_epoch, blob_persistence_type)
+                .await
+                .map_err(StoreError::Confirmation)
         }
         .await;
         tracing::debug!(

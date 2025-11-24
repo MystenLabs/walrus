@@ -115,10 +115,14 @@ impl UrlEndpoints {
             BlobPersistenceType::Deletable { object_id } => {
                 self.deletable_blob_confirmation(blob_id, &object_id.into())
             }
-            BlobPersistenceType::ManagedByBlobManager {
-                manager_id,
+            BlobPersistenceType::Managed {
+                blob_manager_id,
                 deletable,
-            } => self.managed_blob_confirmation(blob_id, &manager_id.into(), *deletable),
+                ..
+            } => {
+                // For managed blobs, route to the managed endpoint
+                self.managed_blob_confirmation(blob_id, &blob_manager_id.into(), *deletable)
+            }
         }
     }
 
@@ -422,20 +426,26 @@ impl StorageNodeClient {
             .await
     }
 
-    /// Requests a storage confirmation from the node for the Blob specified by the given ID
+    /// Requests a storage confirmation from the node for the Blob specified by the given ID.
+    ///
+    /// For managed blobs, `blob_manager_id` should be provided to route to the managed blob
+    /// confirmation endpoint.
     #[tracing::instrument(skip_all, fields(walrus.blob_id = %blob_id), err(level = Level::DEBUG))]
     pub async fn get_confirmation(
         &self,
         blob_id: &BlobId,
         blob_persistence_type: &BlobPersistenceType,
     ) -> Result<SignedStorageConfirmation, NodeError> {
-        let (url, template) = self.endpoints.confirmation(blob_id, blob_persistence_type);
+        let (url, template) =
+            self.endpoints
+                .confirmation(blob_id, blob_persistence_type);
         // NOTE(giac): in the future additional values may be possible here.
         let StorageConfirmation::Signed(confirmation) = self
             .send_and_parse_service_response(Request::new(Method::GET, url), template)
             .await?;
         Ok(confirmation)
     }
+
 
     /// Requests a storage confirmation from the node for the Blob specified by the given ID
     #[tracing::instrument(
@@ -453,9 +463,10 @@ impl StorageNodeClient {
         epoch: Epoch,
         public_key: &PublicKey,
         blob_persistence_type: BlobPersistenceType,
+        blob_manager_id: Option<ObjectID>,
     ) -> Result<SignedStorageConfirmation, NodeError> {
         let confirmation = self
-            .get_confirmation(blob_id, &blob_persistence_type)
+            .get_confirmation(blob_id, &blob_persistence_type, blob_manager_id)
             .await?;
         let _ = confirmation
             .verify(public_key, epoch, *blob_id, blob_persistence_type)
@@ -915,13 +926,14 @@ mod tests {
             blob: (|e| e.blob_resource(&BLOB_ID, ""), ""),
             metadata: (|e| e.metadata(&BLOB_ID).0, "metadata"),
             permanent_confirmation: (
-                |e| e.confirmation(&BLOB_ID, &BlobPersistenceType::Permanent).0,
+                |e| e.confirmation(&BLOB_ID, &BlobPersistenceType::Permanent, None).0,
                 "confirmation/permanent"
             ),
             deletable_confirmation: (
                 |e| e.confirmation(
                     &BLOB_ID,
-                    &BlobPersistenceType::Deletable { object_id: SuiObjectId([42; 32]) }
+                    &BlobPersistenceType::Deletable { object_id: SuiObjectId([42; 32]) },
+                    None,
                 ).0,
                 concat!(
                     "confirmation/deletable/",

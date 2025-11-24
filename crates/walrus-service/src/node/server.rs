@@ -690,7 +690,7 @@ mod tests {
         async fn compute_storage_confirmation(
             &self,
             blob_id: &BlobId,
-            _blob_persistence_type: &BlobPersistenceType,
+            _blob_persistence_type: &walrus_core::messages::BlobPersistenceType,
         ) -> Result<StorageConfirmation, ComputeStorageConfirmationError> {
             if blob_id.0[0] == 0 {
                 let confirmation = walrus_core::test_utils::random_signed_message();
@@ -1051,7 +1051,7 @@ mod tests {
 
         let blob_id = blob_id_for_valid_response();
         let _confirmation = client
-            .get_confirmation(&blob_id, &BlobPersistenceType::Permanent)
+            .get_confirmation(&blob_id, &BlobPersistenceType::Permanent, None)
             .await
             .expect("should return a signed confirmation");
     }
@@ -1067,7 +1067,7 @@ mod tests {
         let client = storage_node_client(config.as_ref());
 
         let err = client
-            .get_confirmation(&blob_id, &BlobPersistenceType::Permanent)
+            .get_confirmation(&blob_id, &BlobPersistenceType::Permanent, None)
             .await
             .expect_err("confirmation request should fail");
 

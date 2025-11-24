@@ -3007,15 +3007,15 @@ async fn test_blob_manager_store_and_read() {
     // Wait for objects to be indexed
     tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
 
-    // Create test blob data
-    let test_data = b"Hello, BlobManager! This is a comprehensive end-to-end test.";
-    tracing::info!("Test data size: {} bytes", test_data.len());
+    // Create test blob data for deletable blob
+    let deletable_test_data = b"Hello, BlobManager! This is a deletable blob test.";
+    tracing::info!("Deletable test data size: {} bytes", deletable_test_data.len());
 
     // Store a deletable blob using BlobManager and read it back
     let deletable_blob_id = store_and_read_blob_with_blob_manager(
         client_ref,
         cap_id,
-        test_data,
+        deletable_test_data,
         BlobPersistence::Deletable,
     )
     .await
@@ -3026,11 +3026,15 @@ async fn test_blob_manager_store_and_read() {
         deletable_blob_id
     );
 
+    // Create different test blob data for permanent blob
+    let permanent_test_data = b"Hello, BlobManager! This is a permanent blob test.";
+    tracing::info!("Permanent test data size: {} bytes", permanent_test_data.len());
+
     // Store a permanent blob using BlobManager and read it back
     let permanent_blob_id = store_and_read_blob_with_blob_manager(
         client_ref,
         cap_id,
-        test_data,
+        permanent_test_data,
         BlobPersistence::Permanent,
     )
     .await

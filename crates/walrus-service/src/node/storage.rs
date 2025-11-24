@@ -608,6 +608,15 @@ impl Storage {
         self.blob_info.get_per_object_info(object_id)
     }
 
+    /// Returns the ManagedBlob ObjectID for a given (blob_id, blob_manager_id) pair.
+    pub(crate) fn get_managed_blob_object_id(
+        &self,
+        blob_id: &BlobId,
+        manager_id: &ObjectID,
+    ) -> Result<Option<ObjectID>, TypedStoreError> {
+        self.blob_info.get_managed_blob_object_id(blob_id, manager_id)
+    }
+
     /// Returns the current event cursor and the next event index.
     #[tracing::instrument(skip_all)]
     pub fn get_event_cursor_and_next_index(
