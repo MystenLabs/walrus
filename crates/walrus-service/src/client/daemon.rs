@@ -63,6 +63,7 @@ use walrus_sdk::{
         StoreArgs,
         StoreBlobsApi as _,
         WalrusNodeClient,
+        byte_range_read_client::ReadByteRangeResult,
         responses::{BlobStoreResult, QuiltStoreResult},
     },
     error::{ClientError, ClientResult},
@@ -101,9 +102,9 @@ pub trait WalrusReadClient {
     fn read_byte_range(
         &self,
         blob_id: &BlobId,
-        start_byte_position: usize,
-        byte_length: usize,
-    ) -> impl std::future::Future<Output = ClientResult<Vec<u8>>> + Send;
+        start_byte_position: u64,
+        byte_length: u64,
+    ) -> impl std::future::Future<Output = ClientResult<ReadByteRangeResult>> + Send;
 
     /// Returns the blob object and its associated attributes given the object ID of either
     /// a blob object or a shared blob.
@@ -203,9 +204,9 @@ impl<T: ReadClient> WalrusReadClient for WalrusNodeClient<T> {
     async fn read_byte_range(
         &self,
         blob_id: &BlobId,
-        start_byte_position: usize,
-        byte_length: usize,
-    ) -> ClientResult<Vec<u8>> {
+        start_byte_position: u64,
+        byte_length: u64,
+    ) -> ClientResult<ReadByteRangeResult> {
         self.byte_range_read_client()
             .read_byte_range(blob_id, start_byte_position, byte_length)
             .await
@@ -803,9 +804,9 @@ mod tests {
         async fn read_byte_range(
             &self,
             _blob_id: &BlobId,
-            _start_byte_position: usize,
-            _byte_length: usize,
-        ) -> ClientResult<Vec<u8>> {
+            _start_byte_position: u64,
+            _byte_length: u64,
+        ) -> ClientResult<ReadByteRangeResult> {
             unimplemented!("not needed for rate limit tests")
         }
     }

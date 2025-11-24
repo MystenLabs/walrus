@@ -24,6 +24,7 @@ use axum_extra::{
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use fastcrypto::hash::{HashFunction, Sha256};
 use futures::stream::{self, StreamExt};
+use headers::HeaderMapExt;
 use http_range_header::{EndPosition, StartPosition};
 use jsonwebtoken::{DecodingKey, Validation};
 use reqwest::{
@@ -164,15 +165,22 @@ pub struct ConcatRequestBody {
 #[serde(deny_unknown_fields)]
 pub struct ByteRangeQueryParams {
     /// The starting byte position (0-indexed, inclusive).
-    pub start: usize,
+    pub start: u64,
     /// The number of bytes to read.
-    pub length: usize,
+    pub length: u64,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct ParsedRangeHeader {
+    start: u64,
+    end: u64,
+    length: u64,
 }
 
 /// Parses an HTTP Range header value.
 /// Supports the format "bytes=start-end" for range to end.
 /// Returns (start_byte_position, byte_length) if valid, otherwise returns an error.
-fn parse_range_header(range_value: &HeaderValue) -> Result<(usize, usize), GetBlobError> {
+fn parse_range_header(range_value: &HeaderValue) -> Result<ParsedRangeHeader, GetBlobError> {
     let range_value = range_value
         .to_str()
         .map_err(|e| GetBlobError::InvalidByteRange {
@@ -211,14 +219,11 @@ fn parse_range_header(range_value: &HeaderValue) -> Result<(usize, usize), GetBl
     }
 
     let length = end_index.saturating_sub(start_index).saturating_add(1);
-    Ok((
-        usize::try_from(start_index).map_err(|e| GetBlobError::InvalidByteRange {
-            message: format!("start index is too large to convert to usize: {}", e),
-        })?,
-        usize::try_from(length).map_err(|e| GetBlobError::InvalidByteRange {
-            message: format!("length is too large to convert to usize: {}", e),
-        })?,
-    ))
+    Ok(ParsedRangeHeader {
+        start: start_index,
+        end: end_index,
+        length,
+    })
 }
 
 /// Helper function to parse an ID string and resolve it to a BlobId.
@@ -303,7 +308,7 @@ pub(super) async fn get_blob<T: WalrusReadClient>(
     };
 
     let mut response = if let Some(range_header) = request_headers.get(RANGE) {
-        let (start, length) = match parse_range_header(range_header) {
+        let ParsedRangeHeader { start, end, length } = match parse_range_header(range_header) {
             Ok(v) => v,
             Err(error) => {
                 tracing::debug!(?error, "invalid byte range header");
@@ -312,13 +317,32 @@ pub(super) async fn get_blob<T: WalrusReadClient>(
         };
 
         // TODO(WAL-1107): support streaming the response sliver by sliver.
-        match client.read_byte_range(&blob_id, start, length).await {
-            Ok(blob) => (StatusCode::PARTIAL_CONTENT, blob).into_response(),
+        let read_result = match client.read_byte_range(&blob_id, start, length).await {
+            Ok(read_result) => read_result,
             Err(error) => {
                 tracing::debug!(?error, "failed to read byte range");
                 return GetBlobError::from(error).to_response();
             }
-        }
+        };
+
+        let mut response = (StatusCode::PARTIAL_CONTENT, read_result.data).into_response();
+
+        // Create the Content-Range header: "bytes start-end/total"
+        let content_range_header =
+            match headers::ContentRange::bytes(start..=end, read_result.unencoded_blob_size) {
+                Ok(header) => header,
+                Err(error) => {
+                    return GetBlobError::InvalidByteRange {
+                        message: error.to_string(),
+                    }
+                    .to_response();
+                }
+            };
+        response.headers_mut().typed_insert(content_range_header);
+
+        let content_length_header = headers::ContentLength(length);
+        response.headers_mut().typed_insert(content_length_header);
+        response
     } else {
         match client.read_blob(&blob_id, consistency_check).await {
             Ok(blob) => (StatusCode::OK, blob).into_response(),
@@ -609,12 +633,15 @@ pub(super) async fn get_blob_byte_range<T: WalrusReadClient>(
         .read_byte_range(&blob_id, params.start, params.length)
         .await
     {
-        Ok(data) => {
-            tracing::debug!("successfully retrieved byte range of {} bytes", data.len());
+        Ok(result) => {
+            tracing::debug!(
+                "successfully retrieved byte range of {} bytes",
+                result.data.len()
+            );
 
             // Use StatusCode::OK instead of StatusCode::PARTIAL_CONTENT so that the response
             // can be cached by the CDN.
-            let mut response = (StatusCode::OK, data).into_response();
+            let mut response = (StatusCode::OK, result.data).into_response();
             let headers = response.headers_mut();
             populate_response_headers_from_request(
                 request_method,
@@ -681,6 +708,9 @@ impl From<ClientError> for GetBlobError {
                 Self::QuiltPatchNotFound
             }
             ClientErrorKind::BlobTooLarge(max_blob_size) => Self::BlobTooLarge(*max_blob_size),
+            ClientErrorKind::ByteRangeReadInputError(message) => Self::InvalidByteRange {
+                message: message.to_string(),
+            },
             _ => anyhow::anyhow!(error).into(),
         }
     }
@@ -1836,10 +1866,24 @@ mod tests {
     fn test_parse_range_header() {
         // Test valid range with both start and end
         let result = parse_range_header(&HeaderValue::from_static("bytes=0-499"));
-        assert_eq!(result.expect("should be ok"), (0, 500));
+        assert_eq!(
+            result.expect("should be ok"),
+            ParsedRangeHeader {
+                start: 0,
+                end: 499,
+                length: 500
+            }
+        );
 
         let result = parse_range_header(&HeaderValue::from_static("bytes=100-199"));
-        assert_eq!(result.expect("should be ok"), (100, 100));
+        assert_eq!(
+            result.expect("should be ok"),
+            ParsedRangeHeader {
+                start: 100,
+                end: 199,
+                length: 100
+            }
+        );
 
         // Test open-ended range (should return error since we require end value)
         assert!(parse_range_header(&HeaderValue::from_static("bytes=500-")).is_err());
@@ -1851,7 +1895,14 @@ mod tests {
 
         // Test with spaces
         let result = parse_range_header(&HeaderValue::from_static(" bytes=10-20 "));
-        assert_eq!(result.expect("should be ok"), (10, 11));
+        assert_eq!(
+            result.expect("should be ok"),
+            ParsedRangeHeader {
+                start: 10,
+                end: 20,
+                length: 11,
+            }
+        );
     }
 
     #[test]

@@ -257,4 +257,7 @@ pub enum ClientErrorKind {
     /// [`WalrusNodeClient`][crate::client::WalrusNodeClient] in the background task.
     #[error("error while initializing the Walrus client in the background task: {0}")]
     ClientInitializationError(String),
+    /// An error occurred while validating the input for byte range read.
+    #[error("byte range read input error: {0}")]
+    ByteRangeReadInputError(String),
 }

@@ -25,6 +25,7 @@ use walrus_core::{
 use walrus_sdk::{
     client::{
         WalrusNodeClient,
+        byte_range_read_client::ReadByteRangeResult,
         metrics::ClientMetrics,
         refresh::CommitteesRefresherHandle,
         responses::{BlobStoreResult, QuiltStoreResult},
@@ -175,9 +176,9 @@ impl WalrusReadClient for ClientMultiplexer {
     async fn read_byte_range(
         &self,
         blob_id: &BlobId,
-        start_byte_position: usize,
-        byte_length: usize,
-    ) -> ClientResult<Vec<u8>> {
+        start_byte_position: u64,
+        byte_length: u64,
+    ) -> ClientResult<ReadByteRangeResult> {
         self.read_client
             .read_byte_range(blob_id, start_byte_position, byte_length)
             .await

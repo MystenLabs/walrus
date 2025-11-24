@@ -13153,6 +13153,7 @@ dependencies = [
  "flate2",
  "futures",
  "futures-util",
+ "headers",
  "hex",
  "home",
  "hostname",

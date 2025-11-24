@@ -513,6 +513,7 @@ paths:
         required: true
         schema:
           type: integer
+          format: int64
           minimum: 0
         style: form
       - name: length
@@ -521,6 +522,7 @@ paths:
         required: true
         schema:
           type: integer
+          format: int64
           minimum: 0
         style: form
       responses:
