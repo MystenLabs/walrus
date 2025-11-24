@@ -2173,24 +2173,25 @@ impl<T> WalrusNodeClient<T> {
 // INV: either client is initialized xor the join handle is Some.
 // INV: if the encoding_config is not initialized, the join handle is Some.
 #[derive(Debug)]
-pub struct WalrusNodeClientCreatedInBackground<T, E> {
+pub struct WalrusNodeClientCreatedInBackground<T> {
     encoding_config: OnceLock<EncodingConfig>,
-    client: OnceLock<WalrusNodeClient<T>>,
+    /// Contains the result of the background task if was already completed. If it returned an
+    /// error, the error is stored as a string.
+    client: OnceLock<Result<WalrusNodeClient<T>, String>>,
     #[allow(clippy::type_complexity)]
-    join_handle: Mutex<Option<JoinHandle<Result<WalrusNodeClient<T>, E>>>>,
+    join_handle: Mutex<Option<JoinHandle<ClientResult<WalrusNodeClient<T>>>>>,
     start_time: Instant,
 }
 
-impl<T, E> WalrusNodeClientCreatedInBackground<T, E>
+impl<T> WalrusNodeClientCreatedInBackground<T>
 where
     T: Debug + Send + 'static,
-    E: Send + 'static,
 {
     /// Creates a new [`WalrusNodeClientCreatedInBackground`] that will create the
     /// [`WalrusNodeClient`] in a background task using the provided future.
     pub fn new<F>(create_future: F, maybe_n_shards: Option<NonZeroU16>) -> Self
     where
-        F: Future<Output = Result<WalrusNodeClient<T>, E>> + Send + 'static,
+        F: Future<Output = ClientResult<WalrusNodeClient<T>>> + Send + 'static,
     {
         let encoding_config = OnceLock::new();
         if let Some(n_shards) = maybe_n_shards {
@@ -2211,53 +2212,83 @@ where
     }
 
     /// Returns a reference to the encoding config.
-    pub async fn encoding_config(&self) -> Result<&EncodingConfig, E> {
+    pub async fn encoding_config(&self) -> ClientResult<&EncodingConfig> {
         if let Some(encoding_config) = self.encoding_config.get() {
             return Ok(encoding_config);
         }
         Ok(self.client().await?.encoding_config())
     }
 
-    /// Returns a reference to the [`WalrusNodeClient`]. If the [`WalrusNodeClient`] is not yet
-    /// created, this will wait for the background task to complete, replace the
-    /// [`WalrusNodeClientCreatedInBackground`] with the created [`WalrusNodeClient`] and return the
-    /// with the created [`WalrusNodeClient`] and return the [`WalrusNodeClient`].
+    /// Returns a reference to the [`WalrusNodeClient`].
+    ///
+    /// If the [`WalrusNodeClient`] is not yet created, this will wait for the background task to
+    /// complete, replace the [`WalrusNodeClientCreatedInBackground`] with the created
+    /// [`WalrusNodeClient`] and return the [`WalrusNodeClient`].
+    ///
+    /// # Errors
+    ///
+    /// If the background task returns an error, this will be returned on the first call to this
+    /// function or [`Self::into_client`]. On subsequent calls, the error will be returned wrapped
+    /// into a [`ClientError`] with [`ClientErrorKind::ClientInitializationError`].
     // INV: after calling this function, the join handle is None and the client is initialized.
     #[tracing::instrument(
         name = "WalrusNodeClientCreatedInBackground::client",
         skip_all,
         level = Level::DEBUG,
     )]
-    pub async fn client(&self) -> Result<&WalrusNodeClient<T>, E> {
-        if let Some(client) = self.client.get() {
-            return Ok(client);
+    pub async fn client(&self) -> ClientResult<&WalrusNodeClient<T>> {
+        if let Some(result) = self.client.get() {
+            return Self::convert_result_ref(result);
         }
         let start = Instant::now();
         let result = if let Some(join_handle) = self.join_handle.lock().await.take() {
-            let client = join_handle
+            match join_handle
                 .await
-                .expect("creating the WalrusNodeClient must not panic")?;
-            Ok(self.client.get_or_init(|| client))
+                .expect("creating the WalrusNodeClient must not panic")
+            {
+                Ok(client) => self.client.get_or_init(|| Ok(client)),
+                Err(e) => {
+                    let _ = self.client.get_or_init(|| Err(e.to_string()));
+                    return Err(e);
+                }
+            }
         } else {
-            Ok(self
-                .client
+            self.client
                 .get()
-                .expect("cell must have been initialized if the join handle is no longer set"))
+                .expect("cell must have been initialized if the join handle is no longer set")
         };
+        let client = Self::convert_result_ref(result)?;
         tracing::info!(
             total_duration = ?self.start_time.elapsed(),
             waiting_duration = ?start.elapsed(),
             "finished initializing the WalrusNodeClient"
         );
-        result
+        Ok(client)
     }
 
-    /// Returns the [`WalrusNodeClient`]. If the [`WalrusNodeClient`] is not yet created, this will
-    /// wait for the background task to complete.
+    fn convert_result_ref(
+        result: &Result<WalrusNodeClient<T>, String>,
+    ) -> ClientResult<&WalrusNodeClient<T>> {
+        result
+            .as_ref()
+            .map_err(|e| ClientErrorKind::ClientInitializationError(e.clone()).into())
+    }
+
+    /// Returns the [`WalrusNodeClient`].
+    ///
+    /// If the [`WalrusNodeClient`] is not yet created, this will wait for the background task to
+    /// complete.
+    ///
+    /// # Errors
+    ///
+    /// If the client is not yet initialized and the background task returns an error, this will be
+    /// returned on the first call to this function or [`Self::into_client`]. On subsequent calls,
+    /// the error will be returned wrapped into a [`ClientError`] with
+    /// [`ClientErrorKind::ClientInitializationError`].
     #[tracing::instrument(skip_all, level = Level::DEBUG)]
-    pub async fn into_client(self) -> Result<WalrusNodeClient<T>, E> {
+    pub async fn into_client(self) -> ClientResult<WalrusNodeClient<T>> {
         if let Some(client) = self.client.into_inner() {
-            return Ok(client);
+            return client.map_err(|e| ClientErrorKind::ClientInitializationError(e).into());
         }
         let start = Instant::now();
         let join_handle = self
@@ -2268,13 +2299,13 @@ where
             .expect("join handle must be Some if the client is not initialized");
         let client = join_handle
             .await
-            .expect("creating the WalrusNodeClient must not panic");
+            .expect("creating the WalrusNodeClient must not panic")?;
         tracing::info!(
             total_duration = ?self.start_time.elapsed(),
             waiting_duration = ?start.elapsed(),
             "finished initializing the WalrusNodeClient"
         );
-        client
+        Ok(client)
     }
 }
 
@@ -2444,14 +2475,12 @@ pub trait StoreBlobsApi: internal::StoreBlobApiInternal + Sized {
     }
 }
 
-impl internal::StoreBlobApiInternal
-    for WalrusNodeClientCreatedInBackground<SuiContractClient, ClientError>
-{
+impl internal::StoreBlobApiInternal for WalrusNodeClientCreatedInBackground<SuiContractClient> {
     async fn client(&self) -> ClientResult<&WalrusNodeClient<SuiContractClient>> {
         self.client().await
     }
 }
-impl StoreBlobsApi for WalrusNodeClientCreatedInBackground<SuiContractClient, ClientError> {
+impl StoreBlobsApi for WalrusNodeClientCreatedInBackground<SuiContractClient> {
     async fn encoding_config(&self) -> ClientResult<&EncodingConfig> {
         self.encoding_config()
             .await

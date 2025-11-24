@@ -2165,14 +2165,13 @@ async fn delete_blob(
 }
 
 #[tracing::instrument(skip_all)]
-async fn get_epochs_ahead<C, E>(
+async fn get_epochs_ahead<C>(
     epoch_arg: &EpochArg,
     max_epochs_ahead: Option<EpochCount>,
-    client_created_in_bg: &mut WalrusNodeClientCreatedInBackground<C, E>,
+    client_created_in_bg: &mut WalrusNodeClientCreatedInBackground<C>,
 ) -> anyhow::Result<EpochCount>
 where
     C: std::fmt::Debug + ReadClient + 'static,
-    E: Send + Sync + 'static + std::error::Error,
 {
     let max_epochs_ahead = if let Some(max_epochs_ahead) = max_epochs_ahead {
         max_epochs_ahead
