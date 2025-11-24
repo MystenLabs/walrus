@@ -57,7 +57,6 @@ use walrus_core::{
     Sliver,
     SliverPairIndex,
     SliverType,
-    SuiObjectId,
     SymbolId,
     by_axis::Axis,
     encoding::{
@@ -3222,19 +3221,14 @@ impl ServiceState for StorageNodeInner {
                 deletable,
                 blob_object_id: _,
             } => {
-                // For managed blobs, populate the blob_object_id field.
-                let blob_object_id = if *deletable {
-                    // Managed deletable: look up the actual ManagedBlob object ID.
-                    let object_id = self
-                        .storage
-                        .get_managed_blob_object_id(blob_id, &blob_manager_id.into())
-                        .context("database error when looking up managed blob object ID")?
-                        .ok_or(ComputeStorageConfirmationError::NotCurrentlyRegistered)?;
-                    object_id.into()
-                } else {
-                    // Managed permanent: use ZERO object_id.
-                    SuiObjectId::ZERO
-                };
+                // For all managed blobs (both deletable and permanent),
+                // look up the actual ManagedBlob object ID.
+                let object_id = self
+                    .storage
+                    .get_managed_blob_object_id(blob_id, &blob_manager_id.into())
+                    .context("database error when looking up managed blob object ID")?
+                    .ok_or(ComputeStorageConfirmationError::NotCurrentlyRegistered)?;
+                let blob_object_id = object_id.into();
                 BlobPersistenceType::Managed {
                     blob_manager_id: *blob_manager_id,
                     deletable: *deletable,

@@ -40,9 +40,9 @@ pub enum BlobPersistenceType {
         /// Whether the managed blob is deletable.
         deletable: bool,
         /// The object ID of the ManagedBlob.
-        /// - Zero/null ObjectID when client sends request (client doesn't know it yet)
-        /// - Actual object_id when server returns confirmation for deletable blobs
-        /// - Zero/null ObjectID for permanent managed blobs
+        /// - Zero/null ObjectID when client sends request (client doesn't know it yet).
+        /// - Actual ManagedBlob object_id when server returns confirmation
+        ///   (for both deletable and permanent).
         blob_object_id: SuiObjectId,
     },
 }
@@ -151,20 +151,12 @@ impl SignedStorageConfirmation {
                     server_deletable == client_deletable,
                     MessageVerificationError::MessageContent
                 );
-                // Verify blob_object_id is populated correctly.
-                if server_deletable {
-                    // For deletable managed blobs, blob_object_id should NOT be ZERO.
-                    ensure!(
-                        server_object_id != SuiObjectId::ZERO,
-                        MessageVerificationError::MessageContent
-                    );
-                } else {
-                    // For permanent managed blobs, blob_object_id should be ZERO.
-                    ensure!(
-                        server_object_id == SuiObjectId::ZERO,
-                        MessageVerificationError::MessageContent
-                    );
-                }
+                // Verify blob_object_id is populated for all managed blobs.
+                // Both deletable and permanent managed blobs have real ManagedBlob objects.
+                ensure!(
+                    server_object_id != SuiObjectId::ZERO,
+                    MessageVerificationError::MessageContent
+                );
             } else {
                 // Server returned non-Managed type when we expected Managed.
                 return Err(MessageVerificationError::MessageContent);
@@ -250,13 +242,14 @@ mod tests {
     fn confirmation_is_correctly_encoded_managed_permanent() {
         use std::println;
         let blob_manager_id = SuiObjectId([42; 32]);
+        let blob_object_id = SuiObjectId([99; 32]);
         let confirmation = Confirmation::new(
             EPOCH,
             BLOB_ID,
             BlobPersistenceType::Managed {
                 blob_manager_id,
                 deletable: false,
-                blob_object_id: SuiObjectId::ZERO,
+                blob_object_id,
             },
         );
         let encoded = bcs::to_bytes(&confirmation).expect("successful encoding");
@@ -288,10 +281,10 @@ mod tests {
         );
         // Followed by deletable bool.
         assert_eq!(encoded[72], 0u8); // false
-        // Followed by blob_object_id (zero).
+        // Followed by blob_object_id (real object ID, not zero).
         assert_eq!(
             encoded[73..105],
-            bcs::to_bytes(&SuiObjectId::ZERO).expect("successful encoding")
+            bcs::to_bytes(&blob_object_id).expect("successful encoding")
         );
         assert_eq!(encoded.len(), 105);
     }

@@ -436,16 +436,13 @@ impl StorageNodeClient {
         blob_id: &BlobId,
         blob_persistence_type: &BlobPersistenceType,
     ) -> Result<SignedStorageConfirmation, NodeError> {
-        let (url, template) =
-            self.endpoints
-                .confirmation(blob_id, blob_persistence_type);
+        let (url, template) = self.endpoints.confirmation(blob_id, blob_persistence_type);
         // NOTE(giac): in the future additional values may be possible here.
         let StorageConfirmation::Signed(confirmation) = self
             .send_and_parse_service_response(Request::new(Method::GET, url), template)
             .await?;
         Ok(confirmation)
     }
-
 
     /// Requests a storage confirmation from the node for the Blob specified by the given ID
     #[tracing::instrument(
@@ -463,10 +460,9 @@ impl StorageNodeClient {
         epoch: Epoch,
         public_key: &PublicKey,
         blob_persistence_type: BlobPersistenceType,
-        blob_manager_id: Option<ObjectID>,
     ) -> Result<SignedStorageConfirmation, NodeError> {
         let confirmation = self
-            .get_confirmation(blob_id, &blob_persistence_type, blob_manager_id)
+            .get_confirmation(blob_id, &blob_persistence_type)
             .await?;
         let _ = confirmation
             .verify(public_key, epoch, *blob_id, blob_persistence_type)
@@ -926,14 +922,13 @@ mod tests {
             blob: (|e| e.blob_resource(&BLOB_ID, ""), ""),
             metadata: (|e| e.metadata(&BLOB_ID).0, "metadata"),
             permanent_confirmation: (
-                |e| e.confirmation(&BLOB_ID, &BlobPersistenceType::Permanent, None).0,
+                |e| e.confirmation(&BLOB_ID, &BlobPersistenceType::Permanent).0,
                 "confirmation/permanent"
             ),
             deletable_confirmation: (
                 |e| e.confirmation(
                     &BLOB_ID,
                     &BlobPersistenceType::Deletable { object_id: SuiObjectId([42; 32]) },
-                    None,
                 ).0,
                 concat!(
                     "confirmation/deletable/",

@@ -30,6 +30,7 @@ impl StoredBlobManagerInfo {
     }
 
     /// Returns true if the given epoch is valid for this BlobManager.
+    #[allow(dead_code)]
     pub fn is_epoch_valid(&self, epoch: Epoch) -> bool {
         epoch < self.end_epoch
     }

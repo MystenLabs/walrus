@@ -362,6 +362,7 @@ impl Storage {
     }
 
     /// Gets the info for a specific BlobManager.
+    #[allow(dead_code)]
     pub(crate) fn get_blob_manager_info(
         &self,
         manager_id: &ObjectID,
@@ -614,7 +615,8 @@ impl Storage {
         blob_id: &BlobId,
         manager_id: &ObjectID,
     ) -> Result<Option<ObjectID>, TypedStoreError> {
-        self.blob_info.get_managed_blob_object_id(blob_id, manager_id)
+        self.blob_info
+            .get_managed_blob_object_id(blob_id, manager_id)
     }
 
     /// Returns the current event cursor and the next event index.

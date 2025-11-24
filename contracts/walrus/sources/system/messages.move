@@ -498,11 +498,18 @@ fun test_certified_managed_blob_message_permanent() {
     let epoch = 42;
     let blob_id = 0xdeadbeefdeadbeefdeadbeefdeadbeef;
     let blob_manager_id = object::id_from_address(@99);
-    let zero_id = object::id_from_address(@0);
-    let msg = certified_managed_message_bytes(epoch, blob_id, blob_manager_id, false, zero_id);
+    let blob_object_id = object::id_from_address(@200);
+    let msg = certified_managed_message_bytes(
+        epoch,
+        blob_id,
+        blob_manager_id,
+        false,
+        blob_object_id,
+    );
     let cert_msg = new_certified_message(msg, epoch, 1).certify_blob_message();
     assert!(cert_msg.blob_id == blob_id);
     assert!(!cert_msg.blob_persistence_type().is_deletable());
+    assert!(cert_msg.blob_persistence_type().object_id() == blob_object_id);
 }
 
 #[test]

@@ -421,7 +421,8 @@ pub async fn get_managed_blob_confirmation<S: SyncServiceState>(
     let blob_id = blob_id_string.0;
 
     // For managed blobs, use the Managed variant.
-    // The actual ManagedBlob object_id will be looked up inside compute_storage_confirmation.
+    // The actual ManagedBlob object_id will be looked up inside compute_storage_confirmation
+    // (for both deletable and permanent managed blobs).
     let blob_persistence_type = BlobPersistenceType::Managed {
         blob_manager_id: manager_id.into(),
         deletable,

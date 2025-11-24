@@ -783,6 +783,7 @@ impl BlobObject {
             } => {
                 // For managed blobs, return the Managed variant.
                 // The client doesn't know the blob_object_id yet, so it's ZERO.
+                // The server will populate the actual object_id in the confirmation.
                 BlobPersistenceType::Managed {
                     blob_manager_id: manager_id.into(),
                     deletable: *deletable,

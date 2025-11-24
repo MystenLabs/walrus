@@ -464,16 +464,12 @@ impl BlobInfoTable {
         let blob_info = self.aggregate_blob_info.get(blob_id)?;
 
         // Look up the ManagedBlob ObjectID in the HashMap using manager_id as key.
-        Ok(blob_info.and_then(|info| {
-            match info {
-                BlobInfo::V2(BlobInfoV2::Valid(valid_info)) => {
-                    valid_info
-                        .managed_blob_info
-                        .as_ref()
-                        .and_then(|managed_info| managed_info.registered.get(manager_id).copied())
-                }
-                _ => None,
-            }
+        Ok(blob_info.and_then(|info| match info {
+            BlobInfo::V2(BlobInfoV2::Valid(valid_info)) => valid_info
+                .managed_blob_info
+                .as_ref()
+                .and_then(|managed_info| managed_info.registered.get(manager_id).copied()),
+            _ => None,
         }))
     }
 
@@ -1927,7 +1923,11 @@ impl Mergeable for BlobInfoV2 {
         // V2 can only be created from RegisterManaged.
         match operand {
             BlobInfoMergeOperand::ChangeStatus {
-                change_type: BlobStatusChangeType::RegisterManaged { blob_manager_id, object_id },
+                change_type:
+                    BlobStatusChangeType::RegisterManaged {
+                        blob_manager_id,
+                        object_id,
+                    },
                 change_info,
             } => Some(Self::Valid(ValidBlobInfoV2::new(
                 blob_manager_id,
@@ -2071,7 +2071,7 @@ impl BlobInfoApi for BlobInfoV2 {
     }
 }
 
-/// TODO(heliu): from (Zhe): User another talbe to track the mapping from blob_id to blob_manager_id.
+/// TODO(heliu): from (Zhe): User another table to track the mapping from blob_id to blob_manager_id.
 /// TODO(heliu): from (Zhe): Use antithysis to test it with an workload.
 /// Tracks managed blobs by storing which BlobManagers have registered/certified them.
 /// This allows checking if any BlobManager still has this blob valid (not expired).
@@ -2114,7 +2114,10 @@ impl ManagedBlobInfo {
         change_info: &BlobStatusChangeInfo,
     ) {
         match change_type {
-            BlobStatusChangeType::RegisterManaged { blob_manager_id, object_id } => {
+            BlobStatusChangeType::RegisterManaged {
+                blob_manager_id,
+                object_id,
+            } => {
                 tracing::debug!(
                     "Registering managed blob: blob_id={:?}, blob_manager_id={:?}, object_id={:?}, deletable={}, \
                     registered_count={}",
@@ -2230,7 +2233,7 @@ impl ManagedBlobInfo {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub(crate) struct ValidBlobInfoV2 {
     /// TODO(heliu): from (Markus): Add a bit field for the blob's metadata.
-    /// 
+    ///
     /// is_stored: bool,
     /// Information about regular blobs (V1-style with all V1 fields).
     pub regular_blob_info: Option<ValidBlobInfoV1>,
@@ -2959,10 +2962,11 @@ mod per_object_blob_info {
 
         fn merge_new(operand: Self::MergeOperand) -> Option<Self> {
             let PerObjectBlobInfoMergeOperand {
-                change_type: BlobStatusChangeType::RegisterManaged {
-                    blob_manager_id,
-                    object_id: _,
-                },
+                change_type:
+                    BlobStatusChangeType::RegisterManaged {
+                        blob_manager_id,
+                        object_id: _,
+                    },
                 change_info:
                     BlobStatusChangeInfo {
                         blob_id,
