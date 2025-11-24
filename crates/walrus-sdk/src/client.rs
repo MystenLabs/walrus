@@ -12,6 +12,7 @@ use std::{
     pin::pin,
     sync::{
         Arc,
+        OnceLock,
         atomic::{AtomicUsize, Ordering},
     },
     time::Instant,
@@ -28,7 +29,11 @@ use indicatif::MultiProgress;
 use rand::{RngCore as _, rngs::ThreadRng};
 use rayon::{iter::IntoParallelIterator, prelude::*};
 use sui_types::base_types::ObjectID;
-use tokio::{sync::Semaphore, time::Duration};
+use tokio::{
+    sync::{Mutex, Semaphore},
+    task::JoinHandle,
+    time::Duration,
+};
 use tracing::{Instrument as _, Level};
 use walrus_core::{
     BlobId,
@@ -195,16 +200,15 @@ pub struct WalrusNodeClient<T> {
 
 impl WalrusNodeClient<()> {
     /// Creates a new Walrus client without a Sui client.
-    #[allow(clippy::unused_async)]
-    pub async fn new(
+    pub fn new(
         config: ClientConfig,
         committees_handle: CommitteesRefresherHandle,
     ) -> ClientResult<Self> {
         Self::new_inner(config, committees_handle, None, None)
     }
+
     /// Creates a new Walrus client without a Sui client.
-    #[allow(clippy::unused_async)]
-    pub async fn new_with_max_blob_size(
+    pub fn new_with_max_blob_size(
         config: ClientConfig,
         committees_handle: CommitteesRefresherHandle,
         max_blob_size: Option<u64>,
@@ -214,8 +218,7 @@ impl WalrusNodeClient<()> {
 
     /// Creates a new Walrus client without a Sui client, that records metrics to the provided
     /// registry.
-    #[allow(clippy::unused_async)]
-    pub async fn new_with_metrics(
+    pub fn new_with_metrics(
         config: ClientConfig,
         committees_handle: CommitteesRefresherHandle,
         metrics_registry: Registry,
@@ -278,26 +281,23 @@ impl WalrusNodeClient<()> {
 
 impl<T: ReadClient> WalrusNodeClient<T> {
     /// Creates a new read client starting from a config file.
-    pub async fn new_read_client(
+    pub fn new_read_client(
         config: ClientConfig,
         committees_handle: CommitteesRefresherHandle,
         sui_read_client: T,
     ) -> ClientResult<Self> {
-        Ok(WalrusNodeClient::new(config, committees_handle)
-            .await?
-            .with_client(sui_read_client))
+        Ok(WalrusNodeClient::new(config, committees_handle)?.with_client(sui_read_client))
     }
 
     /// Creates a new read client starting from a config file with an optional maximum blob size.
-    pub async fn new_read_client_with_max_blob_size(
+    pub fn new_read_client_with_max_blob_size(
         config: ClientConfig,
         committees_handle: CommitteesRefresherHandle,
         sui_read_client: T,
         max_blob_size: Option<u64>,
     ) -> ClientResult<Self> {
         Ok(
-            WalrusNodeClient::new_with_max_blob_size(config, committees_handle, max_blob_size)
-                .await?
+            WalrusNodeClient::new_with_max_blob_size(config, committees_handle, max_blob_size)?
                 .with_client(sui_read_client),
         )
     }
@@ -313,13 +313,10 @@ impl<T: ReadClient> WalrusNodeClient<T> {
         T: ReadClient + Clone + 'static,
     {
         let committees_handle = config
-            .refresh_config
             .build_refresher_and_run(sui_read_client.clone())
             .await
             .map_err(|e| ClientError::from(ClientErrorKind::Other(e.into())))?;
-        Ok(WalrusNodeClient::new(config, committees_handle)
-            .await?
-            .with_client(sui_read_client))
+        Ok(WalrusNodeClient::new(config, committees_handle)?.with_client(sui_read_client))
     }
 
     /// Reconstructs the blob by reading slivers from Walrus shards.
@@ -909,14 +906,12 @@ impl<T: ReadClient> WalrusNodeClient<T> {
 
 impl WalrusNodeClient<SuiContractClient> {
     /// Creates a new client starting from a config file.
-    pub async fn new_contract_client(
+    pub fn new_contract_client(
         config: ClientConfig,
         committees_handle: CommitteesRefresherHandle,
         sui_client: SuiContractClient,
     ) -> ClientResult<Self> {
-        Ok(WalrusNodeClient::new(config, committees_handle)
-            .await?
-            .with_client(sui_client))
+        Ok(WalrusNodeClient::new(config, committees_handle)?.with_client(sui_client))
     }
 
     /// Creates a new client, and starts a committees refresher process in the background.
@@ -927,246 +922,10 @@ impl WalrusNodeClient<SuiContractClient> {
         sui_client: SuiContractClient,
     ) -> ClientResult<Self> {
         let committees_handle = config
-            .refresh_config
             .build_refresher_and_run(sui_client.read_client().clone())
             .await
             .map_err(|e| ClientError::from(ClientErrorKind::Other(e.into())))?;
-        Ok(WalrusNodeClient::new(config, committees_handle)
-            .await?
-            .with_client(sui_client))
-    }
-
-    /// Stores a list of blobs to Walrus, retrying if it fails because of epoch change.
-    #[tracing::instrument(skip_all, fields(blob_id))]
-    pub async fn reserve_and_store_blobs_retry_committees(
-        &self,
-        blobs: Vec<Vec<u8>>,
-        attributes: Vec<BlobAttribute>,
-        store_args: &StoreArgs,
-    ) -> ClientResult<Vec<BlobStoreResult>> {
-        let walrus_store_blobs =
-            WalrusStoreBlobMaybeFinished::unencoded_blobs_with_default_identifiers(
-                blobs,
-                attributes,
-                self.encoding_config.get_for_type(store_args.encoding_type),
-            );
-
-        self.reserve_and_store_blobs_inner(walrus_store_blobs, store_args, true)
-            .await
-    }
-
-    /// Encodes the blobs, reserves & registers the space on chain, stores the slivers to the
-    /// storage nodes, and certifies the blobs.
-    ///
-    /// Returns a vector of [`BlobStoreResult`]s, in the same order as the input blobs. The length
-    /// of the output vector is the same as the input vector.
-    async fn reserve_and_store_blobs_inner(
-        &self,
-        walrus_store_blobs: Vec<WalrusStoreBlobMaybeFinished<UnencodedBlob>>,
-        store_args: &StoreArgs,
-        perform_retries: bool,
-    ) -> ClientResult<Vec<BlobStoreResult>> {
-        let blobs_count = walrus_store_blobs.len();
-        if blobs_count == 0 {
-            tracing::debug!("no blobs provided to store");
-            return Ok(vec![]);
-        }
-        let start = Instant::now();
-
-        let (encoded_blobs, mut results) =
-            client_types::partition_unfinished_finished(self.encode_blobs(
-                walrus_store_blobs,
-                store_args.upload_relay_client.clone(),
-                store_args.encoding_event_tx.as_ref(),
-            )?);
-        store_args.maybe_observe_encoding_latency(start.elapsed());
-
-        if !encoded_blobs.is_empty() {
-            let store_results = if perform_retries {
-                self.retry_if_error_epoch_change(|| {
-                    self.reserve_and_store_encoded_blobs(encoded_blobs.clone(), store_args)
-                })
-                .await?
-            } else {
-                self.reserve_and_store_encoded_blobs(encoded_blobs.clone(), store_args)
-                    .await?
-            };
-            results.extend(store_results);
-        }
-
-        debug_assert_eq!(results.len(), blobs_count);
-        // Make sure the output order is the same as the input order.
-        results.sort_by_key(|blob| blob.common.identifier.to_string());
-
-        Ok(results.into_iter().map(|blob| blob.state).collect())
-    }
-
-    /// Stores a list of blobs to Walrus, retrying if it fails because of epoch change.
-    /// Similar to `[Client::reserve_and_store_blobs_retry_committees]`, except the result
-    /// includes the corresponding path for blob.
-    #[tracing::instrument(skip_all, fields(blob_id))]
-    pub async fn reserve_and_store_blobs_retry_committees_with_path(
-        &self,
-        blobs_with_paths: Vec<(PathBuf, Vec<u8>)>,
-        store_args: &StoreArgs,
-    ) -> ClientResult<Vec<BlobStoreResultWithPath>> {
-        // Not using Path as identifier because it's not unique.
-        let (paths, blobs): (Vec<_>, Vec<_>) = blobs_with_paths.into_iter().unzip();
-        let walrus_store_blobs =
-            WalrusStoreBlobMaybeFinished::unencoded_blobs_with_default_identifiers(
-                blobs,
-                vec![],
-                self.encoding_config.get_for_type(store_args.encoding_type),
-            );
-
-        let completed_blobs = self
-            .reserve_and_store_blobs_inner(walrus_store_blobs, store_args, true)
-            .await?;
-
-        Ok(completed_blobs
-            .into_iter()
-            .zip(paths.into_iter())
-            .map(|(blob_store_result, path)| blob_store_result.with_path(path))
-            .collect())
-    }
-
-    /// Encodes the blob, reserves & registers the space on chain, and stores the slivers to the
-    /// storage nodes. Finally, the function aggregates the storage confirmations and posts the
-    /// [`ConfirmationCertificate`] on chain.
-    #[tracing::instrument(skip_all, fields(blob_id))]
-    pub async fn reserve_and_store_blobs(
-        &self,
-        blobs: Vec<Vec<u8>>,
-        store_args: &StoreArgs,
-    ) -> ClientResult<Vec<BlobStoreResult>> {
-        let walrus_store_blobs =
-            WalrusStoreBlobMaybeFinished::unencoded_blobs_with_default_identifiers(
-                blobs,
-                vec![],
-                self.encoding_config.get_for_type(store_args.encoding_type),
-            );
-        self.reserve_and_store_blobs_inner(walrus_store_blobs, store_args, false)
-            .await
-    }
-
-    /// Encodes multiple blobs.
-    ///
-    /// Returns a list of WalrusStoreBlob as the encoded result. The return list
-    /// is in the same order as the input list.
-    /// A WalrusStoreBlob::Encoded is returned if the blob is encoded successfully.
-    /// A WalrusStoreBlob::Failed is returned if the blob fails to encode.
-    #[tracing::instrument(skip_all, fields(count = walrus_store_blobs.len()))]
-    pub fn encode_blobs(
-        &self,
-        walrus_store_blobs: Vec<WalrusStoreBlobMaybeFinished<UnencodedBlob>>,
-        upload_relay_client: Option<Arc<UploadRelayClient>>,
-        encoding_event_tx: Option<&tokio::sync::mpsc::UnboundedSender<EncodingProgressEvent>>,
-    ) -> ClientResult<Vec<WalrusStoreBlobMaybeFinished<EncodedBlob>>> {
-        if walrus_store_blobs.is_empty() {
-            return Ok(Vec::new());
-        }
-
-        if walrus_store_blobs.len() > 1 {
-            let total_blob_size = walrus_store_blobs
-                .iter()
-                .map(|blob| blob.common.unencoded_length)
-                .sum::<usize>();
-            let max_total_blob_size = self.config().communication_config.max_total_blob_size;
-            if total_blob_size > max_total_blob_size {
-                return Err(ClientError::from(ClientErrorKind::Other(
-                    format!(
-                        "total blob size {total_blob_size} exceeds the maximum limit of \
-                        {max_total_blob_size}"
-                    )
-                    .into(),
-                )));
-            }
-        }
-
-        let multi_pb = Arc::new(MultiProgress::new());
-        let parent = tracing::span::Span::current();
-        let total = walrus_store_blobs.len();
-        let encoding_event_tx = encoding_event_tx.cloned();
-        if let Some(tx) = encoding_event_tx.as_ref()
-            && let Err(err) = tx.send(EncodingProgressEvent::Started { total })
-        {
-            tracing::warn!(%err, "failed to send encoding started event")
-        }
-        let completed = Arc::new(AtomicUsize::new(0));
-        let show_spinner = encoding_event_tx.is_none();
-
-        let results = walrus_store_blobs
-            .into_par_iter()
-            .map(|blob| {
-                let _entered =
-                    tracing::info_span!(parent: parent.clone(), "encode_blobs__par_iter").entered();
-                let encoding_type = blob.common.encoding_config.encoding_type();
-                let multi_pb = multi_pb.clone();
-                let upload_relay_client = upload_relay_client.clone();
-                let encoding_event_tx = encoding_event_tx.clone();
-                let completed = completed.clone();
-                let encode_result = blob.map(
-                    |blob| {
-                        self.encode_blob(
-                            blob,
-                            self.encoding_config.get_for_type(encoding_type),
-                            multi_pb.as_ref(),
-                            upload_relay_client.clone(),
-                            show_spinner,
-                        )
-                    },
-                    "encode",
-                );
-                if let Some(tx) = encoding_event_tx.as_ref() {
-                    let finished = completed.fetch_add(1, Ordering::SeqCst) + 1;
-                    if let Err(err) = tx.send(EncodingProgressEvent::BlobCompleted {
-                        completed: finished,
-                        total,
-                    }) {
-                        tracing::warn!(%err, "failed to send encoding blob completed event");
-                    }
-                }
-                encode_result
-            })
-            .collect::<ClientResult<Vec<_>>>()?;
-
-        if let Some(tx) = encoding_event_tx
-            && let Err(err) = tx.send(EncodingProgressEvent::Finished)
-        {
-            tracing::warn!(%err, "failed to send encoding finished event");
-        }
-
-        Ok(results)
-    }
-
-    fn encode_blob(
-        &self,
-        blob: UnencodedBlob,
-        encoding_config: EncodingConfigEnum,
-        multi_pb: &MultiProgress,
-        upload_relay_client: Option<Arc<UploadRelayClient>>,
-        show_spinner: bool,
-    ) -> ClientResult<EncodedBlob> {
-        let spinner = show_spinner.then(|| {
-            let spinner = multi_pb.add(styled_spinner());
-            spinner.set_message("encoding the blob");
-            spinner
-        });
-        let encode_start_timer = Instant::now();
-
-        let encoded_blob = blob.encode(encoding_config, upload_relay_client)?;
-
-        tracing::debug!(
-            ?encoded_blob,
-            duration = ?encode_start_timer.elapsed().as_millis(),
-            "blob encoded"
-        );
-        if let Some(spinner) = spinner {
-            spinner
-                .finish_with_message(format!("blob encoded; blob ID: {}", encoded_blob.blob_id()));
-        }
-
-        Ok(encoded_blob)
+        Ok(WalrusNodeClient::new(config, committees_handle)?.with_client(sui_client))
     }
 
     /// Stores the blobs on Walrus, reserving space or extending registered blobs, if necessary.
@@ -1192,6 +951,7 @@ impl WalrusNodeClient<SuiContractClient> {
         );
         let status_start_timer = Instant::now();
         let committees = self.get_committees().await?;
+        tracing::info!(duration = ?status_start_timer.elapsed(), "finished getting committees");
 
         // Retrieve the blob status, checking if the committee has changed in the meantime.
         // This operation can be safely interrupted as it does not require a wallet.
@@ -1617,7 +1377,7 @@ impl<T> WalrusNodeClient<T> {
     }
 
     /// Returns a [`QuiltClient`] for storing and retrieving quilts.
-    pub fn quilt_client(&self) -> QuiltClient<'_, T> {
+    pub fn quilt_client(&self) -> QuiltClient<'_, Self> {
         QuiltClient::new(self, self.config.quilt_client_config.clone())
     }
 
@@ -2369,6 +2129,7 @@ impl<T> WalrusNodeClient<T> {
     }
 
     /// Gets the current active committees and price computation from the cache.
+    #[tracing::instrument(skip_all, level = Level::DEBUG)]
     pub async fn get_committees_and_price(
         &self,
     ) -> ClientResult<(Arc<ActiveCommittees>, PriceComputation)> {
@@ -2406,6 +2167,439 @@ impl<T> WalrusNodeClient<T> {
         let (_, price_computation) = self.get_committees_and_price().await?;
         Ok(price_computation)
     }
+}
+
+/// A wrapper for a [`WalrusNodeClient`] that may be created in a background task.
+// INV: either client is initialized xor the join handle is Some.
+// INV: if the encoding_config is not initialized, the join handle is Some.
+#[derive(Debug)]
+pub struct WalrusNodeClientCreatedInBackground<T> {
+    encoding_config: OnceLock<EncodingConfig>,
+    /// Contains the result of the background task if was already completed. If it returned an
+    /// error, the error is stored as a string.
+    client: OnceLock<Result<WalrusNodeClient<T>, String>>,
+    #[allow(clippy::type_complexity)]
+    join_handle: Mutex<Option<JoinHandle<ClientResult<WalrusNodeClient<T>>>>>,
+    start_time: Instant,
+}
+
+impl<T> WalrusNodeClientCreatedInBackground<T>
+where
+    T: Debug + Send + 'static,
+{
+    /// Creates a new [`WalrusNodeClientCreatedInBackground`] that will create the
+    /// [`WalrusNodeClient`] in a background task using the provided future.
+    pub fn new<F>(create_future: F, maybe_n_shards: Option<NonZeroU16>) -> Self
+    where
+        F: Future<Output = ClientResult<WalrusNodeClient<T>>> + Send + 'static,
+    {
+        let encoding_config = OnceLock::new();
+        if let Some(n_shards) = maybe_n_shards {
+            encoding_config
+                .set(EncodingConfig::new(n_shards))
+                .expect("cell is not initialized yet");
+        }
+        let join_handle = tokio::task::spawn(async move {
+            tracing::debug!("starting to create the `WalrusNodeClient` in a background task");
+            create_future.await
+        });
+        Self {
+            encoding_config,
+            client: OnceLock::new(),
+            join_handle: Mutex::new(Some(join_handle)),
+            start_time: Instant::now(),
+        }
+    }
+
+    /// Returns a reference to the encoding config.
+    pub async fn encoding_config(&self) -> ClientResult<&EncodingConfig> {
+        if let Some(encoding_config) = self.encoding_config.get() {
+            return Ok(encoding_config);
+        }
+        Ok(self.client().await?.encoding_config())
+    }
+
+    /// Returns a reference to the [`WalrusNodeClient`].
+    ///
+    /// If the [`WalrusNodeClient`] is not yet created, this will wait for the background task to
+    /// complete, replace the [`WalrusNodeClientCreatedInBackground`] with the created
+    /// [`WalrusNodeClient`] and return the [`WalrusNodeClient`].
+    ///
+    /// # Errors
+    ///
+    /// If the background task returns an error, this will be returned on the first call to this
+    /// function or [`Self::into_client`]. On subsequent calls, the error will be returned wrapped
+    /// into a [`ClientError`] with [`ClientErrorKind::ClientInitializationError`].
+    // INV: after calling this function, the join handle is None and the client is initialized.
+    #[tracing::instrument(
+        name = "WalrusNodeClientCreatedInBackground::client",
+        skip_all,
+        level = Level::DEBUG,
+    )]
+    pub async fn client(&self) -> ClientResult<&WalrusNodeClient<T>> {
+        if let Some(result) = self.client.get() {
+            return Self::convert_result_ref(result);
+        }
+        let start = Instant::now();
+        let result = if let Some(join_handle) = self.join_handle.lock().await.take() {
+            match join_handle
+                .await
+                .expect("creating the WalrusNodeClient must not panic")
+            {
+                Ok(client) => self.client.get_or_init(|| Ok(client)),
+                Err(e) => {
+                    let _ = self.client.get_or_init(|| Err(e.to_string()));
+                    return Err(e);
+                }
+            }
+        } else {
+            self.client
+                .get()
+                .expect("cell must have been initialized if the join handle is no longer set")
+        };
+        let client = Self::convert_result_ref(result)?;
+        tracing::info!(
+            total_duration = ?self.start_time.elapsed(),
+            waiting_duration = ?start.elapsed(),
+            "finished initializing the WalrusNodeClient"
+        );
+        Ok(client)
+    }
+
+    fn convert_result_ref(
+        result: &Result<WalrusNodeClient<T>, String>,
+    ) -> ClientResult<&WalrusNodeClient<T>> {
+        result
+            .as_ref()
+            .map_err(|e| ClientErrorKind::ClientInitializationError(e.clone()).into())
+    }
+
+    /// Returns the [`WalrusNodeClient`].
+    ///
+    /// If the [`WalrusNodeClient`] is not yet created, this will wait for the background task to
+    /// complete.
+    ///
+    /// # Errors
+    ///
+    /// If the client is not yet initialized and the background task returns an error, this will be
+    /// returned on the first call to this function or [`Self::into_client`]. On subsequent calls,
+    /// the error will be returned wrapped into a [`ClientError`] with
+    /// [`ClientErrorKind::ClientInitializationError`].
+    #[tracing::instrument(skip_all, level = Level::DEBUG)]
+    pub async fn into_client(self) -> ClientResult<WalrusNodeClient<T>> {
+        if let Some(client) = self.client.into_inner() {
+            return client.map_err(|e| ClientErrorKind::ClientInitializationError(e).into());
+        }
+        let start = Instant::now();
+        let join_handle = self
+            .join_handle
+            .lock()
+            .await
+            .take()
+            .expect("join handle must be Some if the client is not initialized");
+        let client = join_handle
+            .await
+            .expect("creating the WalrusNodeClient must not panic")?;
+        tracing::info!(
+            total_duration = ?self.start_time.elapsed(),
+            waiting_duration = ?start.elapsed(),
+            "finished initializing the WalrusNodeClient"
+        );
+        Ok(client)
+    }
+}
+
+mod internal {
+    use super::*;
+
+    pub trait StoreBlobApiInternal: Sync {
+        /// Returns the [`WalrusNodeClient`].
+        fn client(
+            &self,
+        ) -> impl Future<Output = ClientResult<&WalrusNodeClient<SuiContractClient>>> + Send;
+
+        /// Encodes the blobs, reserves & registers the space on chain, stores the slivers to the
+        /// storage nodes, and certifies the blobs.
+        ///
+        /// Returns a vector of [`BlobStoreResult`]s, in the same order as the input blobs. The
+        /// length of the output vector is the same as the input vector.
+        fn reserve_and_store_blobs_inner(
+            &self,
+            walrus_store_blobs: Vec<WalrusStoreBlobMaybeFinished<UnencodedBlob>>,
+            store_args: &StoreArgs,
+            perform_retries: bool,
+        ) -> impl Future<Output = ClientResult<Vec<BlobStoreResult>>> + Send {
+            async move {
+                let blobs_count = walrus_store_blobs.len();
+                if blobs_count == 0 {
+                    tracing::debug!("no blobs provided to store");
+                    return Ok(vec![]);
+                }
+                let start = Instant::now();
+
+                let upload_relay_client = store_args.upload_relay_client.clone();
+                let encoding_event_tx = store_args.encoding_event_tx.clone();
+                let maybe_encoded_blobs = tokio::task::spawn_blocking(move || {
+                    encode_blobs(
+                        walrus_store_blobs,
+                        upload_relay_client,
+                        encoding_event_tx.as_ref(),
+                    )
+                })
+                .await
+                .map_err(ClientError::other)??;
+                let (encoded_blobs, mut results) =
+                    client_types::partition_unfinished_finished(maybe_encoded_blobs);
+                store_args.maybe_observe_encoding_latency(start.elapsed());
+
+                let client = self.client().await?;
+
+                if !encoded_blobs.is_empty() {
+                    let store_results = if perform_retries {
+                        client
+                            .retry_if_error_epoch_change(|| {
+                                client.reserve_and_store_encoded_blobs(
+                                    encoded_blobs.clone(),
+                                    store_args,
+                                )
+                            })
+                            .await?
+                    } else {
+                        client
+                            .reserve_and_store_encoded_blobs(encoded_blobs.clone(), store_args)
+                            .await?
+                    };
+                    results.extend(store_results);
+                }
+
+                debug_assert_eq!(results.len(), blobs_count);
+                // Make sure the output order is the same as the input order.
+                results.sort_by_key(|blob| blob.common.identifier.to_string());
+
+                Ok(results.into_iter().map(|blob| blob.state).collect())
+            }
+        }
+    }
+}
+
+/// A trait containing functions to store blobs to Walrus.
+pub trait StoreBlobsApi: internal::StoreBlobApiInternal + Sized {
+    /// Returns the encoding config used by the client.
+    fn encoding_config(&self) -> impl Future<Output = ClientResult<&EncodingConfig>> + Send;
+
+    /// Returns the [`WalrusNodeClient`]. If the [`WalrusNodeClient`] is not yet created, this will
+    /// wait for the background task to complete.
+    fn client(
+        &self,
+    ) -> impl Future<Output = ClientResult<&WalrusNodeClient<SuiContractClient>>> + Send {
+        internal::StoreBlobApiInternal::client(self)
+    }
+
+    /// Stores a list of blobs to Walrus, retrying if it fails because of epoch change.
+    #[tracing::instrument(skip_all, fields(blob_id))]
+    fn reserve_and_store_blobs_retry_committees(
+        &self,
+        blobs: Vec<Vec<u8>>,
+        attributes: Vec<BlobAttribute>,
+        store_args: &StoreArgs,
+    ) -> impl Future<Output = ClientResult<Vec<BlobStoreResult>>> + Send {
+        async {
+            let walrus_store_blobs =
+                WalrusStoreBlobMaybeFinished::unencoded_blobs_with_default_identifiers(
+                    blobs,
+                    attributes,
+                    self.encoding_config()
+                        .await?
+                        .get_for_type(store_args.encoding_type),
+                );
+
+            self.reserve_and_store_blobs_inner(walrus_store_blobs, store_args, true)
+                .await
+        }
+    }
+
+    /// Stores a list of blobs to Walrus, retrying if it fails because of epoch change.
+    /// Similar to `[Client::reserve_and_store_blobs_retry_committees]`, except the result
+    /// includes the corresponding path for blob.
+    #[tracing::instrument(skip_all, fields(blob_id))]
+    fn reserve_and_store_blobs_retry_committees_with_path(
+        &self,
+        blobs_with_paths: Vec<(PathBuf, Vec<u8>)>,
+        store_args: &StoreArgs,
+    ) -> impl Future<Output = ClientResult<Vec<BlobStoreResultWithPath>>> + Send {
+        async {
+            // Not using Path as identifier because it's not unique.
+            let (paths, blobs): (Vec<_>, Vec<_>) = blobs_with_paths.into_iter().unzip();
+            let walrus_store_blobs =
+                WalrusStoreBlobMaybeFinished::unencoded_blobs_with_default_identifiers(
+                    blobs,
+                    vec![],
+                    self.encoding_config()
+                        .await?
+                        .get_for_type(store_args.encoding_type),
+                );
+
+            let completed_blobs = self
+                .reserve_and_store_blobs_inner(walrus_store_blobs, store_args, true)
+                .await?;
+
+            Ok(completed_blobs
+                .into_iter()
+                .zip(paths.into_iter())
+                .map(|(blob_store_result, path)| blob_store_result.with_path(path))
+                .collect())
+        }
+    }
+
+    /// Encodes the blob, reserves & registers the space on chain, and stores the slivers to the
+    /// storage nodes. Finally, the function aggregates the storage confirmations and posts the
+    /// [`ConfirmationCertificate`] on chain.
+    #[tracing::instrument(skip_all, fields(blob_id))]
+    fn reserve_and_store_blobs(
+        &self,
+        blobs: Vec<Vec<u8>>,
+        store_args: &StoreArgs,
+    ) -> impl Future<Output = ClientResult<Vec<BlobStoreResult>>> + Send {
+        async {
+            let walrus_store_blobs =
+                WalrusStoreBlobMaybeFinished::unencoded_blobs_with_default_identifiers(
+                    blobs,
+                    vec![],
+                    self.encoding_config()
+                        .await?
+                        .get_for_type(store_args.encoding_type),
+                );
+            self.reserve_and_store_blobs_inner(walrus_store_blobs, store_args, false)
+                .await
+        }
+    }
+}
+
+impl internal::StoreBlobApiInternal for WalrusNodeClientCreatedInBackground<SuiContractClient> {
+    async fn client(&self) -> ClientResult<&WalrusNodeClient<SuiContractClient>> {
+        self.client().await
+    }
+}
+impl StoreBlobsApi for WalrusNodeClientCreatedInBackground<SuiContractClient> {
+    async fn encoding_config(&self) -> ClientResult<&EncodingConfig> {
+        self.encoding_config()
+            .await
+            .map_err(|e| ClientError::store_blob_internal(e.to_string()))
+    }
+}
+
+impl internal::StoreBlobApiInternal for WalrusNodeClient<SuiContractClient> {
+    async fn client(&self) -> ClientResult<&WalrusNodeClient<SuiContractClient>> {
+        Ok(self)
+    }
+}
+
+impl StoreBlobsApi for WalrusNodeClient<SuiContractClient> {
+    async fn encoding_config(&self) -> ClientResult<&EncodingConfig> {
+        Ok(&self.encoding_config)
+    }
+}
+
+/// Encodes multiple blobs.
+///
+/// Returns a list of WalrusStoreBlob as the encoded result. The return list
+/// is in the same order as the input list.
+/// A WalrusStoreBlob::Encoded is returned if the blob is encoded successfully.
+/// A WalrusStoreBlob::Failed is returned if the blob fails to encode.
+#[tracing::instrument(skip_all, fields(count = walrus_store_blobs.len()))]
+pub fn encode_blobs(
+    walrus_store_blobs: Vec<WalrusStoreBlobMaybeFinished<UnencodedBlob>>,
+    upload_relay_client: Option<Arc<UploadRelayClient>>,
+    encoding_event_tx: Option<&tokio::sync::mpsc::UnboundedSender<EncodingProgressEvent>>,
+) -> ClientResult<Vec<WalrusStoreBlobMaybeFinished<EncodedBlob>>> {
+    let total_blobs_count = walrus_store_blobs.len();
+    if total_blobs_count == 0 {
+        return Ok(Vec::new());
+    }
+
+    let multi_pb = Arc::new(MultiProgress::new());
+    let parent = tracing::span::Span::current();
+    let start = Instant::now();
+    let encoding_event_tx = encoding_event_tx.cloned();
+    if let Some(tx) = encoding_event_tx.as_ref()
+        && let Err(error) = tx.send(EncodingProgressEvent::Started {
+            total: total_blobs_count,
+        })
+    {
+        tracing::warn!(%error, "failed to send encoding started event")
+    }
+    let completed_blobs_count = Arc::new(AtomicUsize::new(0));
+    let show_spinner = encoding_event_tx.is_none();
+
+    // Encode each blob into sliver pairs and metadata. Filters out failed blobs and continue.
+    let blobs = walrus_store_blobs
+        .into_par_iter()
+        .map(|blob| {
+            let _entered =
+                tracing::info_span!(parent: parent.clone(), "encode_blobs__par_iter").entered();
+            let encoding_config = blob.common.encoding_config;
+            let encode_fn = |blob: UnencodedBlob| {
+                encode_blob(
+                    blob,
+                    encoding_config,
+                    multi_pb.as_ref(),
+                    upload_relay_client.clone(),
+                    show_spinner,
+                )
+            };
+            let encode_result = blob.map(encode_fn, "encode");
+
+            if let Some(tx) = encoding_event_tx.as_ref() {
+                let finished_blobs_count = completed_blobs_count.fetch_add(1, Ordering::SeqCst) + 1;
+                if let Err(err) = tx.send(EncodingProgressEvent::BlobCompleted {
+                    completed: finished_blobs_count,
+                    total: total_blobs_count,
+                }) {
+                    tracing::warn!(%err, "failed to send encoding blob completed event");
+                }
+            }
+            encode_result
+        })
+        .collect();
+
+    if let Some(tx) = encoding_event_tx
+        && let Err(error) = tx.send(EncodingProgressEvent::Finished)
+    {
+        tracing::warn!(%error, "failed to send encoding finished event");
+    }
+    tracing::info!(
+        duration = ?start.elapsed(),
+        "finished blob encoding",
+    );
+    blobs
+}
+
+fn encode_blob(
+    blob: UnencodedBlob,
+    encoding_config: EncodingConfigEnum,
+    multi_pb: &MultiProgress,
+    upload_relay_client: Option<Arc<UploadRelayClient>>,
+    show_spinner: bool,
+) -> ClientResult<EncodedBlob> {
+    let spinner = show_spinner.then(|| {
+        let spinner = multi_pb.add(styled_spinner());
+        spinner.set_message("encoding the blob");
+        spinner
+    });
+    let encode_start_timer = Instant::now();
+
+    let encoded_blob = blob.encode(encoding_config, upload_relay_client)?;
+
+    tracing::debug!(
+        ?encoded_blob,
+        duration = ?encode_start_timer.elapsed().as_millis(),
+        "blob encoded"
+    );
+    if let Some(spinner) = spinner {
+        spinner.finish_with_message(format!("blob encoded; blob ID: {}", encoded_blob.blob_id()));
+    }
+
+    Ok(encoded_blob)
 }
 
 /// Verifies the [`BlobStatus`] using the on-chain event.

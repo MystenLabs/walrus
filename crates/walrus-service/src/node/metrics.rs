@@ -378,6 +378,7 @@ impl TelemetryLabel for ClientErrorKind {
             ClientErrorKind::UploadRelayError(_) => "upload-relay-error",
             ClientErrorKind::BlobTooLarge(_) => "blob-too-large",
             ClientErrorKind::ByteRangeReadError(_) => "byte-range-read-error",
+            ClientErrorKind::ClientInitializationError(_) => "client-initialization-error",
         }
     }
 }

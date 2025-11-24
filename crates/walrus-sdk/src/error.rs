@@ -253,4 +253,8 @@ pub enum ClientErrorKind {
     /// An error occurred while reading a byte range from a blob.
     #[error("byte range read error: {0}")]
     ByteRangeReadError(String),
+    /// An error occurred while initializing the
+    /// [`WalrusNodeClient`][crate::client::WalrusNodeClient] in the background task.
+    #[error("error while initializing the Walrus client in the background task: {0}")]
+    ClientInitializationError(String),
 }

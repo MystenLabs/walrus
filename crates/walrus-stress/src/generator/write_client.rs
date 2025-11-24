@@ -21,6 +21,7 @@ use walrus_core::{
 use walrus_sdk::{
     client::{
         StoreArgs,
+        StoreBlobsApi as _,
         WalrusNodeClient,
         metrics::ClientMetrics,
         refresh::CommitteesRefresherHandle,
@@ -273,11 +274,9 @@ async fn new_client(
         SuiContractClient::new_with_read_client(wallet, gas_budget, Arc::new(sui_read_client))
     })?;
 
-    let client = sui_contract_client
-        .and_then_async(|contract_client| {
-            WalrusNodeClient::new_contract_client(config.clone(), refresher_handle, contract_client)
-        })
-        .await?;
+    let client = sui_contract_client.and_then(|contract_client| {
+        WalrusNodeClient::new_contract_client(config.clone(), refresher_handle, contract_client)
+    })?;
     Ok(client)
 }
 

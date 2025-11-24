@@ -3,11 +3,12 @@
 
 //! Module for the configuration of contract packages and shared objects.
 
-use std::time::Duration;
+use std::{num::NonZeroU16, time::Duration};
 
 use serde::{Deserialize, Serialize};
 use serde_with::{DurationSeconds, serde_as};
 use sui_types::base_types::ObjectID;
+use walrus_core::EpochCount;
 
 /// The default TTL for caching system and staking objects.
 ///
@@ -29,6 +30,12 @@ pub struct ContractConfig {
     /// Object ID of the walrus subsidies object.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub walrus_subsidies_object: Option<ObjectID>,
+    /// The number of shards to use for the client.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub n_shards: Option<NonZeroU16>,
+    /// The maximum number of epochs a blob can be stored for.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_epochs_ahead: Option<EpochCount>,
     /// The TTL for cached system and staking objects.
     #[serde(default = "defaults::default_cache_ttl", rename = "cache_ttl_secs")]
     #[serde_as(as = "DurationSeconds")]
@@ -43,6 +50,8 @@ impl ContractConfig {
             staking_object,
             credits_object: None,
             walrus_subsidies_object: None,
+            n_shards: None,
+            max_epochs_ahead: None,
             cache_ttl: DEFAULT_CACHE_TTL,
         }
     }

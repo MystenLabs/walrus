@@ -60,6 +60,7 @@ use walrus_core::{
 use walrus_sdk::{
     client::{
         StoreArgs,
+        StoreBlobsApi as _,
         WalrusNodeClient,
         responses::{BlobStoreResult, QuiltStoreResult},
     },
@@ -289,9 +290,9 @@ impl WalrusWriteClient for WalrusNodeClient<SuiContractClient> {
     ) -> ClientResult<V::Quilt> {
         let encoding_type = encoding_type.unwrap_or(DEFAULT_ENCODING);
 
-        // TODO(WAL-927): Make QuiltConfig part of ClientConfig.
         self.quilt_client()
             .construct_quilt::<V>(blobs, encoding_type)
+            .await
     }
 
     async fn write_quilt<V: QuiltVersion>(

@@ -30,7 +30,7 @@ use sui_types::{
         TransactionKind,
     },
 };
-use tracing::instrument;
+use tracing::Level;
 use walrus_core::{
     Epoch,
     EpochCount,
@@ -1159,7 +1159,7 @@ impl WalrusPtbBuilder {
         Ok(result_arg)
     }
 
-    #[instrument(err, skip(self))]
+    #[tracing::instrument(err, skip(self))]
     /// Creates an `Authorized` Move type for the given address or object and returns it as result
     /// argument.
     pub fn authorized_address_or_object(
@@ -1567,6 +1567,7 @@ impl WalrusPtbBuilder {
 
     /// Transfers all remaining outputs and returns the [`TransactionData`] containing
     /// the unsigned transaction. If no `gas_budget` is provided, the budget will be estimated.
+    #[tracing::instrument(skip_all, level = Level::DEBUG)]
     pub async fn build_transaction_data(
         self,
         gas_budget: Option<u64>,
