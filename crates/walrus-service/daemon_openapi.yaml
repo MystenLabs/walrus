@@ -188,6 +188,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        '416':
+          description: The byte range parameters are invalid. This error is returned when the byte range parameters are invalid.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         '451':
           description: The blob cannot be returned as has been blocked.
           content:
@@ -263,6 +269,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        '416':
+          description: The byte range parameters are invalid. This error is returned when the byte range parameters are invalid.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         '451':
           description: The blob cannot be returned as has been blocked.
           content:
@@ -332,6 +344,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        '416':
+          description: The byte range parameters are invalid. This error is returned when the byte range parameters are invalid.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         '451':
           description: The blob cannot be returned as has been blocked.
           content:
@@ -349,7 +367,33 @@ paths:
       tags:
       - routes
       summary: Retrieve a Walrus blob.
-      description: Reconstructs the blob identified by the provided blob ID from Walrus and returns its raw data.
+      description: |-
+        Reconstructs the blob identified by the provided blob ID from Walrus and returns its raw data.
+
+        # HTTP Range Support
+
+        This endpoint also accepts the HTTP `Range` header to request only a portion of the blob.
+        When a `Range` header is provided with a specific byte range (e.g., `bytes=100-199`), the
+        endpoint returns HTTP 206 Partial Content with the requested byte range.
+
+        **Important**: When using byte range requests, only the consistency of the individual fetched
+        slivers is validated. The entire blob's consistency is NOT validated, which provides better
+        performance for partial reads but with reduced integrity guarantees compared to full blob reads.
+
+        # Range Header Format
+
+        - `bytes=start-end`: Returns bytes from start to end (inclusive)
+        - `bytes=start-`: Not supported yet (TODO(WAL-1108))
+        - `bytes=-end`: Not supported yet
+
+        # Examples
+
+        ```bash
+        # Get full blob
+        curl "$AGGREGATOR/v1/blobs/{blob_id}"
+
+        # Get first 1000 bytes
+        curl -H "Range: bytes=0-999" "$AGGREGATOR/v1/blobs/{blob_id}"
       operationId: get_blob
       parameters:
       - name: blob_id
@@ -411,8 +455,107 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        '416':
+          description: The byte range parameters are invalid. This error is returned when the byte range parameters are invalid.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         '451':
           description: The blob cannot be returned as has been blocked.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        '500':
+          description: An internal server error has occurred. Please report this error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+  /v1/blobs/{blob_id}/byte-range:
+    get:
+      tags:
+      - routes
+      summary: Retrieve a specific byte range from a Walrus blob.
+      description: |-
+        Reads a specific portion of a blob identified by the blob ID, starting from a given byte
+        position and reading a specified number of bytes. This is more efficient than retrieving the
+        entire blob when only a portion is needed.
+
+        Note that this endpoint has reduced consistency guarantees compared to the full blob read
+        since it will only validate the consistency of individual fetched slivers.
+
+        # Query Parameters
+        - `start`: The starting byte position (0-indexed, inclusive)
+        - `length`: The number of bytes to read
+
+        # Validation
+        - `start` and `length` must not overflow when added together
+        - The byte range `[start, start + length)` must be within the blob's size
+        - `length` must be greater than 0
+
+        # Example
+        ```bash
+        # Read 1024 bytes starting from position 0
+        curl "$AGGREGATOR/v1/blobs/{blob_id}/byte-range?start=0&length=1024"
+        ```
+      operationId: get_blob_byte_range
+      parameters:
+      - name: blob_id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/BlobId'
+      - name: start
+        in: query
+        description: The starting byte position (0-indexed, inclusive).
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 0
+        style: form
+      - name: length
+        in: query
+        description: The number of bytes to read.
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 0
+        style: form
+      responses:
+        '200':
+          description: The byte range was read successfully
+          content:
+            application/octet-stream:
+              schema:
+                type: array
+                items:
+                  type: integer
+                  format: int32
+                  minimum: 0
+        '400':
+          description: The byte range parameters are invalid.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        '403':
+          description: The blob size exceeds the maximum allowed size that was configured for this service.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        '404':
+          description: The requested blob has not yet been stored on Walrus.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        '451':
+          description: The blob cannot be returned as it has been blocked.
           content:
             application/json:
               schema:
@@ -635,6 +778,12 @@ paths:
                 $ref: '#/components/schemas/Status'
         '404':
           description: May be returned when (1) The requested blob has not yet been stored on Walrus. (2) The requested quilt patch does not exist on Walrus.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        '416':
+          description: The byte range parameters are invalid. This error is returned when the byte range parameters are invalid.
           content:
             application/json:
               schema:

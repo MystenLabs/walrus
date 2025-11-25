@@ -2830,9 +2830,12 @@ async fn test_byte_range_read_client() -> TestResult {
     let client = client.as_ref();
 
     // Generate a non zero blob size.
-    let blob_size = thread_rng().gen_range(1..=1000000);
+    let blob_size: u64 = thread_rng().gen_range(1..=1000000);
     tracing::info!("blob size: {blob_size}");
-    let blobs = walrus_test_utils::random_data_list(blob_size, 1);
+    let blobs = walrus_test_utils::random_data_list(
+        usize::try_from(blob_size).expect("blob size should be valid"),
+        1,
+    );
 
     // Store the blob on walrus.
     let blob_read_result = client
@@ -2850,8 +2853,8 @@ async fn test_byte_range_read_client() -> TestResult {
     // verify that the data is correct.
     for _ in 0..20 {
         // Generate a random byte range.
-        let start_byte = random::<usize>() % blob_size;
-        let byte_length = random::<usize>() % (blob_size - start_byte);
+        let start_byte = random::<u64>() % blob_size;
+        let byte_length = random::<u64>() % (blob_size - start_byte) + 1;
         tracing::info!(
             "reading byte range {start_byte}-{end_byte} of blob {blob_id}",
             start_byte = start_byte,
@@ -2863,9 +2866,12 @@ async fn test_byte_range_read_client() -> TestResult {
             .read_byte_range(&blob_id, start_byte, byte_length)
             .await?;
         assert_eq!(
-            byte_range_data,
-            blobs[0][start_byte..start_byte + byte_length].to_vec()
+            byte_range_data.data,
+            blobs[0][usize::try_from(start_byte).expect("start byte should be valid")
+                ..usize::try_from(start_byte + byte_length).expect("end byte should be valid")]
+                .to_vec()
         );
+        assert_eq!(byte_range_data.unencoded_blob_size, blobs[0].len() as u64);
     }
 
     Ok(())

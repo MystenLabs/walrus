@@ -67,14 +67,23 @@ impl<'a, T> ByteRangeReadClient<'a, T> {
     }
 }
 
+/// Result of reading a byte range from a blob.
+#[derive(Debug)]
+pub struct ReadByteRangeResult {
+    /// The data of the requested byte range.
+    pub data: Vec<u8>,
+    /// The unencoded size of the blob.
+    pub unencoded_blob_size: u64,
+}
+
 impl<T: ReadClient> ByteRangeReadClient<'_, T> {
     /// Reads a specific byte range from a blob.
     pub async fn read_byte_range(
         &self,
         blob_id: &BlobId,
-        start_byte_position: usize,
-        byte_length: usize,
-    ) -> ClientResult<Vec<u8>> {
+        start_byte_position: u64,
+        byte_length: u64,
+    ) -> ClientResult<ReadByteRangeResult> {
         // To read the byte range of the original blob file, we find the corresponding primary
         // slivers that covers the byte range, and retrieve the slivers from the Walrus shards,
         // and extract the requested data from the slivers.
@@ -89,9 +98,24 @@ impl<T: ReadClient> ByteRangeReadClient<'_, T> {
         // First, validate the blob ID and make sure it is valid.
         self.client.check_blob_id(blob_id)?;
 
-        let Some(byte_length) = NonZeroUsize::new(byte_length) else {
-            return Ok(vec![]);
-        };
+        // Convert the request range from u64 to usize. If the request range cannot be represented
+        // as usize, this machine cannot handle such request given that the data will need to be
+        // hold and extracted from memory.
+        let start_byte_position = usize::try_from(start_byte_position).map_err(|_| {
+            ClientError::from(ClientErrorKind::ByteRangeReadInputError(
+                "start byte position is too large to convert to usize".to_string(),
+            ))
+        })?;
+        let byte_length = NonZeroUsize::new(usize::try_from(byte_length).map_err(|_| {
+            ClientError::from(ClientErrorKind::ByteRangeReadInputError(
+                "byte length is too large to convert to usize".to_string(),
+            ))
+        })?)
+        .ok_or_else(|| {
+            ClientError::from(ClientErrorKind::ByteRangeReadInputError(
+                "byte length cannot be zero".to_string(),
+            ))
+        })?;
 
         // Get blob status and certified epoch
         let (certified_epoch, _) = self
@@ -136,7 +160,13 @@ impl<T: ReadClient> ByteRangeReadClient<'_, T> {
             .retrieve_slivers_for_range(&metadata, &sliver_indices, certified_epoch)
             .await?;
 
-        construct_requested_data_from_slivers(&slivers, new_start_byte_position, byte_length)
+        let data =
+            construct_requested_data_from_slivers(&slivers, new_start_byte_position, byte_length)?;
+
+        Ok(ReadByteRangeResult {
+            data,
+            unencoded_blob_size: metadata.metadata().unencoded_length(),
+        })
     }
 
     // Gets the size of the primary sliver for the given blob size and metadata.
@@ -202,13 +232,13 @@ fn calculate_and_validate_end_byte_position(
     let end_byte_position = start_byte_position
         .checked_add(byte_length.get())
         .ok_or_else(|| {
-            ClientError::from(ClientErrorKind::ByteRangeReadError(
+            ClientError::from(ClientErrorKind::ByteRangeReadInputError(
                 "byte range overflow".to_string(),
             ))
         })?;
 
     if end_byte_position > blob_size {
-        return Err(ClientError::from(ClientErrorKind::ByteRangeReadError(
+        return Err(ClientError::from(ClientErrorKind::ByteRangeReadInputError(
             format!(
                 "byte range out of bounds: requested \
                     {start_byte_position}-{end_byte_position}, blob size is {blob_size}",
