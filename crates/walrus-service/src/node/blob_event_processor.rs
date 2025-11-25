@@ -183,6 +183,8 @@ impl BackgroundEventProcessor {
                     .await?
             }
             BackgroundTask::FlushPendingCaches { blob_id } => {
+                // Keep the worker busy until the flush completes so later events for this blob
+                // (which are routed to the same worker) never observe stale pending data.
                 self.node.flush_pending_caches_with_logging(blob_id).await
             }
         }
@@ -377,11 +379,17 @@ impl BackgroundEventProcessor {
 
 #[derive(Debug, Clone)]
 enum BlobEventProcessorImpl {
+    // Background processors that process events in parallel.
     BackgroundProcessors {
         background_processor_senders: Vec<UnboundedSender<TrackedBackgroundTask>>,
         _background_processors: Vec<Arc<JoinHandle<()>>>,
+        // The number of events pending in each background processor, shared with the corresponding
+        // `BackgroundEventProcessor`. Per-worker counters avoid contention on a single atomic when
+        // tracking pending events.
         background_per_processor_pending_event_count: Vec<PendingEventCounter>,
     },
+    // When there are no background workers, we process events sequentially to retain the previous
+    // behavior instead of parallelizing.
     SequentialProcessor {
         background_event_processor: Arc<BackgroundEventProcessor>,
     },
@@ -400,6 +408,12 @@ impl BlobEventProcessorImpl {
                 background_per_processor_pending_event_count,
                 ..
             } => {
+                // We send the event to one of the workers to process in parallel.
+                // Note that in order to remain sequential processing for the same BlobID, we always
+                // send events for the same BlobID to the same worker.
+                // Currently the number of workers is fixed through the lifetime of the node. But in
+                // case the node want to dynamically adjust the worker, we need to be careful to not
+                // break this requirement.
                 let processor_index =
                     blob_id.first_two_bytes() as usize % background_processor_senders.len();
 
@@ -411,6 +425,7 @@ impl BlobEventProcessorImpl {
 
                 let current_processor_pending_event_count =
                     background_per_processor_pending_event_count[processor_index].clone();
+                // Increment the counter and create a guard that will decrement it when dropped
                 let current_pending_event_count = current_processor_pending_event_count.inc();
                 walrus_utils::with_label!(
                     node.metrics
@@ -419,12 +434,15 @@ impl BlobEventProcessorImpl {
                 )
                 .set(<i64 as From<u32>>::from(current_pending_event_count));
 
+                // Create the guard that will automatically decrement the counter when dropped
                 let guard = PendingEventGuard::new(
                     current_processor_pending_event_count,
                     processor_index,
                     node.metrics.clone(),
                 );
 
+                // Wrap the task with the guard to track the pending event count
+                // and send it to the corresponding worker.
                 let tracked_task = TrackedBackgroundTask {
                     task,
                     _guard: guard,
@@ -577,7 +595,13 @@ impl BlobEventProcessor {
         event_handle: EventHandle,
         event: &BlobRegistered,
     ) -> anyhow::Result<()> {
-        // Registered events are marked as done immediately to keep up with registration lag.
+        // Registered event is marked as complete immediately. We need to process registered events
+        // as fast as possible to catch up to the latest event in order to not miss blob sliver
+        // uploads.
+        //
+        // If we want to do this in parallel, we shouldn't mix registered event processing with
+        // certified event processing, as certified events take longer and can block following
+        // registered events.
         let _scope = monitored_scope::monitored_scope("ProcessEvent::BlobEvent::Registered");
 
         if let Err(error) = self
@@ -615,5 +639,7 @@ impl BlobEventProcessor {
                 tokio::time::sleep(PENDING_EVENTS_POLL_INTERVAL).await;
             }
         }
+        // When using sequential processor, all events are processed in the same thread,
+        // so there are no pending events to wait for.
     }
 }

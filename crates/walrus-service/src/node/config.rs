@@ -969,12 +969,8 @@ pub mod defaults {
     pub const PENDING_SLIVER_CACHE_MAX_BYTES: usize = 512 * 1024 * 1024;
     /// Default maximum size for a single sliver buffered in the pending sliver cache (~4 MiB).
     pub const PENDING_SLIVER_CACHE_MAX_SLIVER_BYTES: usize = 4 * 1024 * 1024;
-    /// Default time-to-live for pending uploads before eviction.
-    pub const PENDING_SLIVER_CACHE_TTL: Duration = Duration::from_secs(10);
     /// Default capacity for the pending metadata cache (number of entries).
     pub const PENDING_METADATA_CACHE_MAX_ENTRIES: usize = 512;
-    /// Default time-to-live for pending metadata before eviction.
-    pub const PENDING_METADATA_CACHE_TTL: Duration = PENDING_SLIVER_CACHE_TTL;
 
     /// Returns the default metrics port.
     pub fn metrics_port() -> u16 {
@@ -1011,9 +1007,14 @@ pub mod defaults {
         PENDING_SLIVER_CACHE_MAX_SLIVER_BYTES
     }
 
-    /// Returns the default time-to-live for pending uploads.
-    pub const fn pending_sliver_cache_ttl() -> Duration {
-        PENDING_SLIVER_CACHE_TTL
+    /// Returns the default time-to-live for pending uploads. Defaults to 0 to keep cache rollout
+    /// gated; tests keep caching enabled to exercise the code paths.
+    pub fn pending_sliver_cache_ttl() -> Duration {
+        if cfg!(any(test, feature = "test-utils")) {
+            Duration::from_secs(10)
+        } else {
+            Duration::from_secs(0)
+        }
     }
 
     /// Returns the default maximum number of metadata entries retained in the cache.
@@ -1021,9 +1022,9 @@ pub mod defaults {
         PENDING_METADATA_CACHE_MAX_ENTRIES
     }
 
-    /// Returns the default time-to-live for pending metadata uploads.
-    pub const fn pending_metadata_cache_ttl() -> Duration {
-        PENDING_METADATA_CACHE_TTL
+    /// Returns the default time-to-live for pending metadata uploads (matches sliver cache TTL).
+    pub fn pending_metadata_cache_ttl() -> Duration {
+        pending_sliver_cache_ttl()
     }
 
     /// Returns the default network ([`SuiNetwork::Devnet`])

@@ -4704,6 +4704,8 @@ mod tests {
             .await?;
         assert_eq!(buffered_status, StoredOnNodeStatus::Buffered);
 
+        // This unit test bypasses the event processor, so flush manually. The registration-driven
+        // path is covered in `flush_after_registration`.
         storage_node
             .as_ref()
             .inner
@@ -8047,7 +8049,7 @@ mod tests {
             tokio::time::timeout(Duration::from_secs(5), flush_blocked.notified())
                 .await
                 .expect("cache flush should hit failpoint before certification runs");
-            tokio::time::timeout(Duration::from_millis(100), certify_started.notified())
+            tokio::time::timeout(Duration::from_secs(1), certify_started.notified())
                 .await
                 .expect_err(
                     "certified event processing should not start before pending caches are flushed",
@@ -8070,12 +8072,14 @@ mod tests {
                 .await
                 .expect("shard storage should exist");
 
-            assert!(
-                shard_storage
-                    .get_sliver(&blob_id, SliverType::Primary)
-                    .expect("sliver lookup should succeed")
-                    .is_some(),
-                "pending sliver should be flushed before certified handling"
+            let stored_sliver = shard_storage
+                .get_sliver(&blob_id, SliverType::Primary)
+                .expect("sliver lookup should succeed")
+                .expect("pending sliver should be flushed before certified handling");
+            assert_eq!(
+                stored_sliver,
+                Sliver::Primary(sliver_pair.primary.clone()),
+                "sliver contents should match the uploaded data"
             );
             assert!(
                 storage_node
