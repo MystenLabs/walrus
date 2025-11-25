@@ -232,6 +232,15 @@ impl LazyClientBuilder<SuiClient> for LazySuiClientBuilder {
     }
 }
 
+/// A struct that contains the gas price and gas budget.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct GasBudgetAndPrice {
+    /// The gas budget.
+    pub gas_budget: u64,
+    /// The gas price.
+    pub gas_price: u64,
+}
+
 /// A [`SuiClient`] that retries RPC calls with backoff in case of network errors.
 ///
 /// This retriable client wraps functions from the [`CoinReadApi`][sui_sdk::apis::CoinReadApi] and
@@ -685,14 +694,17 @@ impl RetriableSuiClient {
         object_ids: &[ObjectID],
         options: SuiObjectDataOptions,
     ) -> SuiClientResult<Vec<SuiObjectResponse>> {
-        let mut responses = Vec::with_capacity(object_ids.len());
-        for obj_id_batch in object_ids.chunks(MULTI_GET_OBJ_LIMIT) {
-            responses.extend(
-                self.multi_get_object_with_options(obj_id_batch, options.clone())
-                    .await?,
-            );
-        }
-        Ok(responses)
+        let results = futures::future::try_join_all(object_ids.chunks(MULTI_GET_OBJ_LIMIT).map(
+            move |obj_id_batch| {
+                let options = options.clone();
+                async move {
+                    self.multi_get_object_with_options(obj_id_batch, options)
+                        .await
+                }
+            },
+        ))
+        .await?;
+        Ok(results.into_iter().flatten().collect())
     }
 
     /// Returns a map consisting of the move package name and the normalized module.
@@ -1108,9 +1120,12 @@ impl RetriableSuiClient {
         gas_budget: Option<u64>,
         signer: SuiAddress,
         transaction_kind: TransactionKind,
-    ) -> SuiClientResult<(u64, u64)> {
+    ) -> SuiClientResult<GasBudgetAndPrice> {
         if let Some(gas_budget) = gas_budget {
-            Ok((gas_budget, self.get_reference_gas_price().await?))
+            Ok(GasBudgetAndPrice {
+                gas_budget,
+                gas_price: self.get_reference_gas_price().await?,
+            })
         } else {
             self.estimate_gas_budget(signer, transaction_kind).await
         }
@@ -1126,11 +1141,11 @@ impl RetriableSuiClient {
     /// - requests the gas price concurrently, and
     /// - scales the computation cost of the dry run accordingly.
     #[tracing::instrument(skip_all, level = Level::DEBUG)]
-    pub(crate) async fn estimate_gas_budget(
+    async fn estimate_gas_budget(
         &self,
         signer: SuiAddress,
         kind: TransactionKind,
-    ) -> SuiClientResult<(u64, u64)> {
+    ) -> SuiClientResult<GasBudgetAndPrice> {
         let dry_run_tx_data = TransactionData::new_with_gas_coins_allow_sponsor(
             kind,
             signer,
@@ -1145,18 +1160,17 @@ impl RetriableSuiClient {
             tokio::try_join!(self.get_reference_gas_price(), dry_run_future)?;
         let gas_cost_summary = dry_run_result.effects.gas_cost_summary();
 
-        let computation_cost = if gas_price == DUMMY_GAS_PRICE {
-            gas_cost_summary.computation_cost
-        } else {
-            (gas_cost_summary.computation_cost * gas_price).div_ceil(DUMMY_GAS_PRICE)
-        };
-
+        let computation_cost =
+            (gas_cost_summary.computation_cost * gas_price).div_ceil(DUMMY_GAS_PRICE);
         let safe_overhead = GAS_SAFE_OVERHEAD * gas_price;
         let net_gas_usage_non_negative = (computation_cost + gas_cost_summary.storage_cost)
             .saturating_sub(gas_cost_summary.storage_rebate);
         let gas_budget = computation_cost.max(net_gas_usage_non_negative) + safe_overhead;
 
-        Ok((gas_budget, gas_price))
+        Ok(GasBudgetAndPrice {
+            gas_budget,
+            gas_price,
+        })
     }
 
     /// Executes a transaction.

@@ -51,6 +51,7 @@ use super::{
     UpgradeType,
 };
 use crate::{
+    client::retry_client::retriable_sui_client::GasBudgetAndPrice,
     contracts::{self, FunctionTag},
     types::{
         NetworkAddress,
@@ -1795,7 +1796,10 @@ pub async fn build_transaction_data_with_min_gas_balance(
     tx_sui_cost: u64,
 ) -> SuiClientResult<TransactionData> {
     // Estimate the gas budget unless explicitly set.
-    let (gas_budget, gas_price) = read_client
+    let GasBudgetAndPrice {
+        gas_budget,
+        gas_price,
+    } = read_client
         .retriable_sui_client()
         .gas_budget_and_price(
             gas_budget,

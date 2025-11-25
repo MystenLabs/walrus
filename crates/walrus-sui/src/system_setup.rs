@@ -40,7 +40,10 @@ use walkdir::WalkDir;
 use walrus_core::{EpochCount, ensure};
 
 use crate::{
-    client::retry_client::{RetriableSuiClient, retriable_sui_client::LazySuiClientBuilder},
+    client::retry_client::{
+        RetriableSuiClient,
+        retriable_sui_client::{GasBudgetAndPrice, LazySuiClientBuilder},
+    },
     contracts::{self, StructTag},
     utils::{get_created_sui_object_ids_by_type, resolve_lock_file_path},
     wallet::Wallet,
@@ -194,7 +197,10 @@ pub(crate) async fn publish_package(
         )
         .await?;
 
-    let (gas_budget, gas_price) = retry_client
+    let GasBudgetAndPrice {
+        gas_budget,
+        gas_price,
+    } = retry_client
         .gas_budget_and_price(gas_budget, sender, transaction_kind.clone())
         .await?;
 
@@ -481,7 +487,10 @@ pub async fn create_system_and_staking_objects(
         Default::default(),
     )?;
 
-    let (gas_budget, gas_price) = retry_client
+    let GasBudgetAndPrice {
+        gas_budget,
+        gas_price,
+    } = retry_client
         .gas_budget_and_price(
             gas_budget,
             address,
