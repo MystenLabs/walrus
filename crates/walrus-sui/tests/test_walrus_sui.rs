@@ -401,6 +401,11 @@ async fn test_set_authorized() -> anyhow::Result<()> {
         walrus_client.inner.current_epoch().await?,
     );
 
+    tracing::info!(
+        ?registration_params,
+        ?proof_of_possession,
+        "registering candidate"
+    );
     let cap = walrus_client
         .inner
         .register_candidate(&registration_params, proof_of_possession.clone())

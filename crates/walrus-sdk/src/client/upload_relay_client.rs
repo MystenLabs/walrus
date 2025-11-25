@@ -214,10 +214,8 @@ impl UploadRelayClient {
         pt_builder.transfer_arg(relay_address, split_coin);
 
         // Sign and execute.
-        let gas_price = sui_client.read_client().get_reference_gas_price().await?;
         let transaction_data = build_transaction_data_with_min_gas_balance(
             pt_builder.finish(),
-            gas_price,
             sui_client.read_client(),
             self.user_address,
             self.gas_budget,

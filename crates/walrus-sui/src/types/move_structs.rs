@@ -800,6 +800,7 @@ pub(crate) struct SystemObjectForDeserialization {
     pub(crate) package_id: ObjectID,
     pub(crate) new_package_id: Option<ObjectID>,
 }
+
 impl AssociatedContractStruct for SystemObjectForDeserialization {
     const CONTRACT_STRUCT: StructTag<'static> = contracts::system::System;
 }

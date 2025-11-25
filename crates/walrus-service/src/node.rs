@@ -480,7 +480,7 @@ impl StorageNodeBuilder {
                     db_config: config.db_config.clone(),
                 };
                 let system_config = SystemConfig {
-                    system_pkg_id: read_client.get_system_package_id(),
+                    system_pkg_id: read_client.walrus_package_id(),
                     system_object_id: sui_config.contract_config.system_object,
                     staking_object_id: sui_config.contract_config.staking_object,
                 };
@@ -723,7 +723,7 @@ impl StorageNode {
                     None
                 }
             };
-        let system_parameters = contract_service.fixed_system_parameters().await?;
+        let system_parameters = contract_service.fixed_system_parameters();
         let (latest_event_epoch_sender, latest_event_epoch_watcher) = watch::channel(None);
         let inner = Arc::new(StorageNodeInner {
             protocol_key_pair: config
@@ -8309,13 +8309,11 @@ mod tests {
         contract_service.expect_epoch_sync_done().never();
         contract_service
             .expect_fixed_system_parameters()
-            .returning(|| {
-                Ok(FixedSystemParameters {
-                    n_shards: NonZeroU16::new(1000).expect("1000 > 0"),
-                    max_epochs_ahead: 200,
-                    epoch_duration: Duration::from_mins(10),
-                    epoch_zero_end: Utc::now() + Duration::from_mins(1),
-                })
+            .returning(|| FixedSystemParameters {
+                n_shards: NonZeroU16::new(1000).expect("1000 > 0"),
+                max_epochs_ahead: 200,
+                epoch_duration: Duration::from_mins(10),
+                epoch_zero_end: Utc::now() + Duration::from_mins(1),
             });
         contract_service
             .expect_get_node_capability_object()

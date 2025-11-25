@@ -1081,7 +1081,7 @@ mod commands {
         let contract_config = ContractConfig::new(system_object_id, staking_object_id);
         let sui_read_client =
             SuiReadClient::new(retriable_sui_client.clone(), &contract_config).await?;
-        let system_pkg_id = sui_read_client.get_system_package_id();
+        let system_pkg_id = sui_read_client.walrus_package_id();
 
         let system_config = SystemConfig::new(system_pkg_id, system_object_id, staking_object_id);
         let event_processor = EventProcessor::new(

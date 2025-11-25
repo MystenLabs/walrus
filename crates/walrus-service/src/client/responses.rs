@@ -232,7 +232,7 @@ pub(crate) struct InfoEpochOutput {
 impl InfoEpochOutput {
     pub async fn get_epoch_info(sui_read_client: &impl ReadClient) -> anyhow::Result<Self> {
         let current_epoch = sui_read_client.current_epoch().await?;
-        let fixed_params = sui_read_client.fixed_system_parameters().await?;
+        let fixed_params = sui_read_client.fixed_system_parameters();
         let epoch_duration = fixed_params.epoch_duration;
         let max_epochs_ahead = fixed_params.max_epochs_ahead;
         let epoch_state = sui_read_client.epoch_state().await?;
