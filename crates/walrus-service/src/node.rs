@@ -7702,7 +7702,7 @@ mod tests {
                     .get_blob_info(blob_id);
                 if deletable_blob_index.contains(&i) {
                     assert!(matches!(
-                        blob_info.unwrap().unwrap().to_blob_status(1),
+                        blob_info.unwrap().unwrap().to_blob_status(2),
                         BlobStatus::Deletable {
                             deletable_counts: walrus_storage_node_client::api::DeletableCounts {
                                 count_deletable_total: 1,
@@ -7712,7 +7712,7 @@ mod tests {
                         }
                     ));
                 } else {
-                    let blob_status = blob_info.unwrap().unwrap().to_blob_status(1);
+                    let blob_status = blob_info.unwrap().unwrap().to_blob_status(2);
                     if expired_blob_index.contains(&i) {
                         assert!(
                             matches!(blob_status, BlobStatus::Nonexistent),
