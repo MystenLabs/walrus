@@ -305,7 +305,6 @@ mod tests {
                 //.with_event_stream_catchup_min_checkpoint_lag(Some(u64::MAX))
                 .with_test_nodes_config(TestNodesConfig {
                     node_weights: vec![2, 2, 3, 3, 3],
-                    use_legacy_event_processor: false,
                     ..Default::default()
                 })
                 .with_communication_config(

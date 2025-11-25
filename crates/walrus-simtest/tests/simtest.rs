@@ -158,7 +158,6 @@ mod tests {
             .with_epoch_duration(Duration::from_secs(30))
             .with_test_nodes_config(TestNodesConfig {
                 node_weights: node_weights.clone(),
-                use_legacy_event_processor: false,
                 ..Default::default()
             })
             .with_communication_config(
@@ -665,7 +664,6 @@ mod tests {
             .with_epoch_duration(Duration::from_secs(30))
             .with_test_nodes_config(TestNodesConfig {
                 node_weights: vec![1, 2, 3, 3, 4],
-                use_legacy_event_processor: false,
                 node_recovery_config: Some(node_recovery_config),
                 ..Default::default()
             })
@@ -829,7 +827,6 @@ mod tests {
             .with_epoch_duration(Duration::from_secs(30))
             .with_test_nodes_config(TestNodesConfig {
                 node_weights: vec![1, 2, 3, 3, 4],
-                use_legacy_event_processor: false,
                 ..Default::default()
             })
             .with_communication_config(
