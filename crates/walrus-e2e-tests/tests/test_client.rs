@@ -2854,7 +2854,7 @@ async fn test_byte_range_read_client() -> TestResult {
     for _ in 0..20 {
         // Generate a random byte range.
         let start_byte = random::<u64>() % blob_size;
-        let byte_length = random::<u64>() % (blob_size - start_byte);
+        let byte_length = random::<u64>() % (blob_size - start_byte) + 1;
         tracing::info!(
             "reading byte range {start_byte}-{end_byte} of blob {blob_id}",
             start_byte = start_byte,

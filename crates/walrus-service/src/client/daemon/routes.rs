@@ -544,7 +544,7 @@ impl From<ClientError> for ByteRangeReadError {
             ClientErrorKind::BlobIdDoesNotExist => Self::BlobNotFound,
             ClientErrorKind::BlobIdBlocked(_) => Self::Blocked,
             ClientErrorKind::BlobTooLarge(max_blob_size) => Self::BlobTooLarge(*max_blob_size),
-            ClientErrorKind::ByteRangeReadError(msg) => Self::InvalidByteRange {
+            ClientErrorKind::ByteRangeReadInputError(msg) => Self::InvalidByteRange {
                 message: msg.to_string(),
             },
             _ => anyhow::anyhow!(error).into(),
