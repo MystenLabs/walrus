@@ -679,27 +679,34 @@ impl Storage {
     ///
     /// This function is called during epoch change to clean up the blob info for blob objects that
     /// are no longer valid.
-    pub(crate) fn process_expired_blob_objects(
+    pub(crate) async fn process_expired_blob_objects(
         &self,
         current_epoch: Epoch,
         node_metrics: &NodeMetricSet,
+        batch_size: usize,
     ) -> anyhow::Result<()> {
         self.blob_info
-            .process_expired_blob_objects(current_epoch, node_metrics)
+            .process_expired_blob_objects(current_epoch, node_metrics, batch_size)
+            .await
     }
 
     /// Deletes the aggregate blob info, metadata, and slivers for blobs that are expired in the
     /// `current_epoch`.
+    ///
+    /// Processing is done in batches using `spawn_blocking` to avoid blocking the async runtime
+    /// and make it possible to abort the task if the node is shutting down.
     #[tracing::instrument(skip_all, fields(walrus.epoch = %current_epoch))]
     pub(crate) async fn delete_expired_blob_data(
         &self,
         current_epoch: Epoch,
         node_metrics: &NodeMetricSet,
+        batch_size: usize,
     ) -> anyhow::Result<()> {
-        let Some(optimistic_handle) = self.database.as_optimistic() else {
+        if self.database.as_optimistic().is_none() {
+            // TODO(WAL-1040): We should not update the latest completed epoch in this case.
             tracing::warn!("data deletion is only possible when the DB supports transactions");
             return Ok(());
-        };
+        }
 
         tracing::info!("starting to delete expired blob data");
         let start_time = Instant::now();
@@ -709,52 +716,60 @@ impl Storage {
             .await
             .context("error while collecting shards for data deletion")?;
 
-        // TODO(WAL-1040): Should we run this with `spawn_blocking`? How can we interrupt it? Maybe
-        // spawn blocking threads for batches?
-        let cleaned_up_blob_id_count = self.iterate_and_delete_expired_blob_data(
-            &optimistic_handle,
-            current_epoch,
-            &shards,
-            node_metrics,
-        )?;
+        let iterator = self
+            .blob_info
+            .aggregate_blob_info_iter()
+            .context("DB error while attempting to iterate over aggregate blob info")?;
+
+        let cleaned_up_blob_id_count = crate::utils::process_items_in_batches(
+            iterator,
+            batch_size,
+            "a DB error occurred while iterating over aggregate blob info",
+            {
+                let this = self.clone();
+                let shards = shards.clone();
+                let node_metrics = node_metrics.clone();
+                move |batch_items| {
+                    // Get a new handle from the cloned database for this batch
+                    let optimistic_handle = this
+                        .database
+                        .as_optimistic()
+                        .expect("database supports transactions (checked at function start)");
+                    this.iterate_and_delete_expired_blob_data(
+                        &optimistic_handle,
+                        batch_items,
+                        current_epoch,
+                        &shards,
+                        &node_metrics,
+                    )
+                }
+            },
+        )
+        .await?;
 
         tracing::info!(
             cleaned_up_blob_id_count,
-            duration_seconds = %start_time.elapsed().as_secs_f64(),
+            duration = ?start_time.elapsed(),
             "finished deleting expired blob data",
         );
 
         Ok(())
     }
 
-    /// Iterates over all aggregate blob info and attempts to delete expired blob data.
+    /// Processes a batch of blob info entries and attempts to delete expired blob data.
     ///
     /// Returns the number of blobs that were successfully cleaned up.
     fn iterate_and_delete_expired_blob_data(
         &self,
         optimistic_handle: &OptimisticHandle<'_>,
+        batch_items: Vec<(BlobId, BlobInfo)>,
         current_epoch: Epoch,
         shards: &[Arc<ShardStorage>],
         node_metrics: &NodeMetricSet,
     ) -> anyhow::Result<usize> {
         let mut cleaned_up_blob_id_count = 0;
 
-        for entry in self
-            .blob_info
-            .aggregate_blob_info_iter()
-            .context("DB error while attempting to iterate over aggregate blob info")?
-        {
-            let (blob_id, blob_info) = match entry {
-                Ok(entry) => entry,
-                Err(error) => {
-                    tracing::warn!(
-                        ?error,
-                        "a DB error occurred while iterating over aggregate blob info"
-                    );
-                    continue;
-                }
-            };
-
+        for (blob_id, blob_info) in batch_items {
             if !blob_info.can_data_be_deleted(current_epoch) {
                 tracing::trace!(
                     %blob_id,

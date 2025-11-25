@@ -904,6 +904,7 @@ impl StorageNode {
                 }
                 self.inner.shut_down();
                 self.blob_sync_handler.cancel_all().await?;
+                self.garbage_collector.abort().await;
             },
             blob_sync_result = BlobSyncHandler::spawn_task_monitor(
                 self.blob_sync_handler.clone()
@@ -1713,6 +1714,7 @@ impl StorageNode {
 
     /// Starts a background task to perform database cleanup operations if the node is active.
     async fn start_garbage_collection_task(&self, epoch: Epoch) -> anyhow::Result<()> {
+        // TODO(WAL-1040): We should still do the blob-info cleanup even if the node is not active.
         match self.inner.storage.node_status()? {
             NodeStatus::Active => (),
             status => {
@@ -1789,6 +1791,8 @@ impl StorageNode {
             );
             return Ok(());
         }
+
+        // TODO(WAL-1040): Can we just call self.start_garbage_collection_task() here?
 
         // Here we know that a garbage-collection task was started and not completed. As it was only
         // started by `Self::start_garbage_collection_task` if the node was active, and we are still

@@ -26,6 +26,16 @@ pub struct GarbageCollectionConfig {
     /// The delay is deterministically computed based on the node's public key and epoch,
     /// uniformly distributed between 0 and half the epoch duration.
     pub enable_random_delay: bool,
+    /// The batch size for processing expired blob objects.
+    ///
+    /// Items are processed in batches using `spawn_blocking` to avoid blocking the async runtime
+    /// and make it possible to abort the task if the node is shutting down.
+    pub blob_objects_batch_size: usize,
+    /// The batch size for deleting expired blob data.
+    ///
+    /// Items are processed in batches using `spawn_blocking` to avoid blocking the async runtime
+    /// and make it possible to abort the task if the node is shutting down.
+    pub data_deletion_batch_size: usize,
 }
 
 impl Default for GarbageCollectionConfig {
@@ -36,6 +46,8 @@ impl Default for GarbageCollectionConfig {
             // TODO(WAL-1105): Enable this by default.
             enable_data_deletion: false,
             enable_random_delay: true,
+            blob_objects_batch_size: 10_000,
+            data_deletion_batch_size: 1000,
         }
     }
 }
@@ -48,6 +60,8 @@ impl GarbageCollectionConfig {
             enable_blob_info_cleanup: true,
             enable_data_deletion: true,
             enable_random_delay: false,
+            blob_objects_batch_size: 1000,
+            data_deletion_batch_size: 1000,
         }
     }
 }
@@ -164,6 +178,13 @@ impl GarbageCollector {
         Ok(())
     }
 
+    /// Aborts any running garbage-collection task.
+    pub(crate) async fn abort(&self) {
+        if let Some(task_handle) = self.task_handle.lock().await.take() {
+            task_handle.abort();
+        }
+    }
+
     /// Calculates the target time for cleanup by optionally adding a deterministic delay (based on
     /// the node's public key and epoch) to the epoch start time.
     ///
@@ -221,17 +242,24 @@ impl GarbageCollector {
 
         self.node
             .storage
-            .process_expired_blob_objects(epoch, &self.metrics)?;
+            .process_expired_blob_objects(epoch, &self.metrics, self.config.blob_objects_batch_size)
+            .await?;
 
         if self.config.enable_data_deletion {
             self.node
                 .storage
-                .delete_expired_blob_data(epoch, &self.metrics)
+                .delete_expired_blob_data(
+                    epoch,
+                    &self.metrics,
+                    self.config.data_deletion_batch_size,
+                )
                 .await?;
         }
 
         // Update the last completed epoch after successful cleanup.
-        // TODO(WAL-1040): Should we do this even if data deletion is not enabled?
+        // TODO(WAL-1040): We should either store multiple epochs for when we finish blob-info
+        // cleanup and data deletion, or we should only update it when both cleanup tasks finish
+        // successfully.
         self.node
             .storage
             .set_garbage_collector_last_completed_epoch(epoch)?;

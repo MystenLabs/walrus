@@ -29,7 +29,7 @@ use walrus_sui::types::{BlobCertified, BlobDeleted, BlobEvent, BlobRegistered, I
 use self::per_object_blob_info::PerObjectBlobInfoMergeOperand;
 pub(crate) use self::per_object_blob_info::{PerObjectBlobInfo, PerObjectBlobInfoApi};
 use super::{DatabaseTableOptionsFactory, constants};
-use crate::node::metrics::NodeMetricSet;
+use crate::{node::metrics::NodeMetricSet, utils::process_items_in_batches};
 
 pub type BlobInfoIterator<'a> = BlobInfoIter<
     BlobId,
@@ -410,28 +410,64 @@ impl BlobInfoTable {
     /// This function iterates over the per-object blob info table, deleting any entries that have
     /// an end epoch equal to or less than the current epoch, and updating the aggregate blob info
     /// table in case of deletable blobs to reflect the new status of the blob objects.
+    ///
+    /// Processing is done in batches using `spawn_blocking` to avoid blocking the async runtime
+    /// and make it possible to abort the task if the node is shutting down.
     #[tracing::instrument(skip_all, fields(walrus.epoch = %current_epoch))]
-    pub(crate) fn process_expired_blob_objects(
+    pub(crate) async fn process_expired_blob_objects(
         &self,
         current_epoch: Epoch,
         node_metrics: &NodeMetricSet,
+        batch_size: usize,
     ) -> anyhow::Result<()> {
         tracing::info!("starting to process expired blob objects");
-        let mut cleaned_up_objects_count = 0;
         let start_time = Instant::now();
 
-        for entry in self.per_object_blob_info.safe_iter()? {
-            let (object_id, per_object_blob_info) = match entry {
-                Ok(entry) => entry,
-                Err(error) => {
-                    tracing::warn!(
-                        ?error,
-                        "error encountered while iterating over per-object blob info"
-                    );
-                    break;
-                }
-            };
+        let iterator = self.per_object_blob_info.safe_iter()?;
 
+        let this = self.clone();
+        let current_epoch_clone = current_epoch;
+        let node_metrics_clone = node_metrics.clone();
+
+        let cleaned_up_objects_count = process_items_in_batches(
+            iterator,
+            batch_size,
+            "error encountered while iterating over per-object blob info",
+            move |batch_items| {
+                let this = this.clone();
+                this.process_expired_blob_objects_batch(
+                    batch_items,
+                    current_epoch_clone,
+                    &node_metrics_clone,
+                )
+            },
+        )
+        .await?;
+
+        tracing::info!(
+            cleaned_up_objects_count,
+            duration = ?start_time.elapsed(),
+            "finished processing expired blob objects",
+        );
+
+        Ok(())
+    }
+
+    /// Processes a batch of expired blob objects.
+    ///
+    /// This function processes a batch of expired blob objects, deleting entries and updating
+    /// the aggregate blob info table as needed.
+    ///
+    /// Returns the number of objects processed.
+    fn process_expired_blob_objects_batch(
+        &self,
+        batch_items: Vec<(ObjectID, PerObjectBlobInfo)>,
+        current_epoch: Epoch,
+        node_metrics: &NodeMetricSet,
+    ) -> anyhow::Result<usize> {
+        let mut processed_count = 0;
+
+        for (object_id, per_object_blob_info) in batch_items {
             if per_object_blob_info.is_registered(current_epoch) {
                 tracing::trace!(
                     %object_id,
@@ -480,16 +516,10 @@ impl BlobInfoTable {
             node_metrics
                 .garbage_collection_expired_blob_objects_deleted_total
                 .inc();
-            cleaned_up_objects_count += 1;
+            processed_count += 1;
         }
 
-        tracing::info!(
-            cleaned_up_objects_count,
-            duration_seconds = %start_time.elapsed().as_secs_f64(),
-            "finished processing expired blob objects",
-        );
-
-        Ok(())
+        Ok(processed_count)
     }
 
     /// Checks some internal invariants of the blob info table.

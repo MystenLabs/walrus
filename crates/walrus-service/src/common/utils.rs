@@ -23,7 +23,7 @@ use fastcrypto::{
     secp256r1::Secp256r1KeyPair,
     traits::{EncodeDecodeBase64, RecoverableSigner},
 };
-use futures::future::FusedFuture;
+use futures::{FutureExt as _, future::FusedFuture};
 use pin_project::pin_project;
 use prometheus::{Encoder, HistogramVec};
 use serde::{Deserialize, Deserializer, Serialize, de::Error};
@@ -33,7 +33,7 @@ use telemetry_subscribers::{TelemetryGuards, TracingHandle};
 use tokio::{
     runtime::{self, Runtime},
     sync::oneshot,
-    task::{JoinError, JoinHandle},
+    task::{JoinError, JoinHandle, spawn_blocking},
     time::Instant,
 };
 use tokio_util::sync::CancellationToken;
@@ -695,6 +695,75 @@ pub(crate) fn unwrap_or_resume_unwind<T, E: std::convert::From<tokio::task::Join
             }
         }
     }
+}
+
+/// Processes items from an iterator in batches using `spawn_blocking`.
+///
+/// This is a generic helper that handles the common pattern of
+/// - collecting batches from an iterator,
+/// - processing each batch in a blocking thread with the provided `process_function`, and
+/// - accumulating results.
+///
+/// # Arguments
+///
+/// - `iterator`: The iterator to process items from.
+/// - `batch_size`: The number of items to process per batch.
+/// - `error_message`: Message to log when encountering iterator errors.
+/// - `process_function`: Function that processes a batch and returns the count of processed items.
+pub(crate) async fn process_items_in_batches<T, E, F>(
+    mut iterator: impl Iterator<Item = Result<T, E>>,
+    batch_size: usize,
+    error_message: &'static str,
+    process_function: F,
+) -> anyhow::Result<usize>
+where
+    T: Send + 'static,
+    E: std::fmt::Debug + Send + 'static,
+    F: Fn(Vec<T>) -> anyhow::Result<usize> + Send + Sync + 'static,
+{
+    use std::sync::Arc;
+    let process_batch = Arc::new(process_function);
+    let mut total_count = 0;
+
+    loop {
+        // Collect a batch of items to process
+        let mut items_processed = false;
+        let batch_items: Vec<_> = iterator
+            .by_ref()
+            .take(batch_size)
+            .inspect(|_| items_processed = true)
+            .filter_map(|result| {
+                result
+                    .inspect_err(|error| {
+                        tracing::warn!(?error, "{}", error_message);
+                    })
+                    .ok()
+            })
+            .collect();
+
+        if !items_processed {
+            // There are no more items to process.
+            break;
+        }
+
+        if batch_items.is_empty() {
+            // Skip this iteration if all items in the batch had errors.
+            continue;
+        }
+
+        let processed_count = spawn_blocking({
+            let batch_items = batch_items;
+            let process_batch = Arc::clone(&process_batch);
+            move || process_batch(batch_items)
+        })
+        .map(unwrap_or_resume_unwind)
+        .await?;
+
+        tracing::debug!(processed_count, "processed batch");
+        total_count += processed_count;
+    }
+
+    Ok(total_count)
 }
 
 /// Creates a new Walrus client with a refresher using the provided configuration
