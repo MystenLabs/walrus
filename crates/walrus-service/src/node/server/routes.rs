@@ -12,6 +12,7 @@ use serde_with::{DisplayFromStr, OneOrMany, serde_as};
 use sui_types::base_types::ObjectID;
 use tokio::sync::{Semaphore, SemaphorePermit, TryAcquireError};
 use tracing::Level;
+use utoipa::IntoParams;
 use walrus_core::{
     BlobId,
     InconsistencyProof,
@@ -55,6 +56,7 @@ use crate::{
         StoreMetadataError,
         StoreSliverError,
         SyncShardServiceError,
+        UploadIntent,
         errors::{ListSymbolsError, Unavailable},
     },
 };
@@ -87,6 +89,21 @@ pub const BLOB_STATUS_ENDPOINT: &str = "/v1/blobs/{blob_id}/status";
 pub const HEALTH_ENDPOINT: &str = "/v1/health";
 pub const SYNC_SHARD_ENDPOINT: &str = "/v1/migrate/sync_shard";
 
+#[derive(Debug, Default, Deserialize, IntoParams, utoipa::ToSchema)]
+#[into_params(parameter_in = Query, style = Form)]
+#[serde(default, deny_unknown_fields)]
+pub(crate) struct UploadIntentQuery {
+    /// Set to true to buffer the payload until the blob is registered.
+    #[serde(default)]
+    pending: Option<bool>,
+}
+
+impl UploadIntentQuery {
+    fn intent(&self) -> UploadIntent {
+        UploadIntent::from_pending_flag(self.pending.unwrap_or(false))
+    }
+}
+
 /// Convenience trait to apply bounds on the ServiceState.
 pub(crate) trait SyncServiceState: ServiceState + Send + Sync + 'static {}
 impl<T: ServiceState + Send + Sync + 'static> SyncServiceState for T {}
@@ -98,7 +115,7 @@ impl<T: ServiceState + Send + Sync + 'static> SyncServiceState for T {}
 #[utoipa::path(
     get,
     path = METADATA_ENDPOINT,
-    params(("blob_id" = BlobId,)),
+    params(("blob_id" = BlobId, ), UploadIntentQuery),
     responses(
         (status = 200, description = "BCS encoded blob metadata", body = [u8]),
         RetrieveMetadataError
@@ -147,10 +164,18 @@ pub async fn get_metadata_status<S: SyncServiceState>(
 #[utoipa::path(
     put,
     path = METADATA_ENDPOINT,
-    params(("blob_id" = BlobId,)),
-    request_body(content = [u8], description = "BCS-encoded metadata octet-stream"),
+    params(("blob_id" = BlobId,), UploadIntentQuery),
+    request_body(
+        content = [u8],
+        description = "BCS-encoded metadata octet-stream"
+    ),
     responses(
         (status = CREATED, description = "Metadata successfully stored", body = ApiSuccess<String>),
+        (
+            status = ACCEPTED,
+            description = "Metadata buffered pending registration",
+            body = ApiSuccess<String>
+        ),
         (status = OK, description = "Metadata is already stored", body = ApiSuccess<String>),
         StoreMetadataError,
     ),
@@ -159,14 +184,24 @@ pub async fn get_metadata_status<S: SyncServiceState>(
 pub async fn put_metadata<S: SyncServiceState>(
     State(state): State<RestApiState<S>>,
     Path(BlobIdString(blob_id)): Path<BlobIdString>,
+    ExtraQuery(intent): ExtraQuery<UploadIntentQuery>,
     Bcs(metadata): Bcs<BlobMetadata>,
 ) -> Result<ApiSuccess<&'static str>, StoreMetadataError> {
-    let (code, message) = if state
+    let intent = intent.intent();
+    let newly_stored = state
         .service
-        .store_metadata(UnverifiedBlobMetadataWithId::new(blob_id, metadata))
-        .await?
-    {
-        (StatusCode::CREATED, "metadata successfully stored")
+        .store_metadata(UnverifiedBlobMetadataWithId::new(blob_id, metadata), intent)
+        .await?;
+
+    let (code, message) = if newly_stored {
+        if intent.is_pending() {
+            (
+                StatusCode::ACCEPTED,
+                "metadata buffered pending registration",
+            )
+        } else {
+            (StatusCode::CREATED, "metadata successfully stored")
+        }
     } else {
         (StatusCode::OK, "metadata already stored")
     };
@@ -233,11 +268,18 @@ pub async fn get_sliver<S: SyncServiceState>(
     params(
         ("blob_id" = BlobId, ),
         ("sliver_pair_index" = SliverPairIndex, ),
-        ("sliver_type" = SliverType, )
+        ("sliver_type" = SliverType, ),
+        UploadIntentQuery,
     ),
     request_body(content = [u8], description = "BCS-encoded sliver octet-stream"),
     responses(
-        (status = OK, description = "Sliver successfully stored", body = ApiSuccess<String>),
+        (status = CREATED, description = "Sliver successfully stored", body = ApiSuccess<String>),
+        (
+            status = ACCEPTED,
+            description = "Sliver buffered pending registration",
+            body = ApiSuccess<String>
+        ),
+        (status = OK, description = "Sliver already stored", body = ApiSuccess<String>),
         StoreSliverError,
     ),
     tag = openapi::GROUP_STORING_BLOBS,
@@ -249,6 +291,7 @@ pub async fn put_sliver<S: SyncServiceState>(
         SliverPairIndex,
         SliverType,
     )>,
+    ExtraQuery(intent): ExtraQuery<UploadIntentQuery>,
     body: axum::body::Bytes,
 ) -> Result<ApiSuccess<&'static str>, OrRejection<StoreSliverError>> {
     let blob_id = blob_id.0;
@@ -257,13 +300,23 @@ pub async fn put_sliver<S: SyncServiceState>(
         SliverType::Secondary => Sliver::Secondary(Bcs::from_bytes(&body)?.0),
     };
 
-    state
+    let intent = intent.intent();
+    let stored = state
         .service
-        .store_sliver(blob_id, sliver_pair_index, sliver)
+        .store_sliver(blob_id, sliver_pair_index, sliver, intent)
         .await?;
 
-    // TODO(WAL-253): Change to CREATED.
-    Ok(ApiSuccess::ok("sliver stored successfully"))
+    let (code, message) = if stored {
+        if intent.is_pending() {
+            (StatusCode::ACCEPTED, "sliver buffered pending registration")
+        } else {
+            (StatusCode::CREATED, "sliver stored successfully")
+        }
+    } else {
+        (StatusCode::OK, "sliver already stored")
+    };
+
+    Ok(ApiSuccess::new(code, message))
 }
 
 /// Check if the blob slivers are present.

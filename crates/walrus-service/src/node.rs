@@ -150,6 +150,8 @@ use self::{
     },
     event_blob_writer::EventBlobWriterFactory,
     metrics::{NodeMetricSet, STATUS_PENDING, STATUS_PERSISTED, TelemetryLabel as _},
+    pending_metadata_cache::PendingMetadataCache,
+    pending_sliver_cache::{PendingSliverCache, PendingSliverCacheError},
     shard_sync::ShardSyncHandler,
     storage::{
         ShardStatus,
@@ -200,6 +202,8 @@ mod blob_retirement_notifier;
 mod blob_sync;
 mod epoch_change_driver;
 mod node_recovery;
+mod pending_metadata_cache;
+mod pending_sliver_cache;
 mod recovery_symbol_service;
 mod shard_sync;
 mod start_epoch_change_finisher;
@@ -224,6 +228,32 @@ const NUM_EVENTS_PER_DIGEST_RECORDING: u64 = 1;
 const NUM_DIGEST_BUCKETS: u64 = 10;
 const CHECKPOINT_EVENT_POSITION_SCALE: u64 = 100;
 
+/// Indicates how the node should treat uploads.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum UploadIntent {
+    /// Store immediately; reject if the blob is not yet registered.
+    #[default]
+    Immediate,
+    /// Cache the upload until the blob registration is observed.
+    Pending,
+}
+
+impl UploadIntent {
+    /// Returns true if the upload should be cached until registration completes.
+    pub const fn is_pending(self) -> bool {
+        matches!(self, Self::Pending)
+    }
+
+    /// Builds an [`UploadIntent`] from the provided query flag.
+    pub const fn from_pending_flag(pending: bool) -> Self {
+        if pending {
+            Self::Pending
+        } else {
+            Self::Immediate
+        }
+    }
+}
+
 /// Trait for all functionality offered by a storage node.
 pub trait ServiceState {
     /// Retrieves the metadata associated with a blob.
@@ -238,6 +268,7 @@ pub trait ServiceState {
     fn store_metadata(
         &self,
         metadata: UnverifiedBlobMetadataWithId,
+        intent: UploadIntent,
     ) -> impl Future<Output = Result<bool, StoreMetadataError>> + Send;
 
     /// Returns whether the metadata is stored in the shard.
@@ -260,6 +291,7 @@ pub trait ServiceState {
         blob_id: BlobId,
         sliver_pair_index: SliverPairIndex,
         sliver: Sliver,
+        intent: UploadIntent,
     ) -> impl Future<Output = Result<bool, StoreSliverError>> + Send;
 
     /// Retrieves a signed confirmation over the identifiers of the shards storing their respective
@@ -561,6 +593,8 @@ pub struct StorageNodeInner {
     symbol_service: RecoverySymbolService,
     thread_pool: BoundedThreadPool,
     registry: Registry,
+    pending_metadata_cache: PendingMetadataCache,
+    pending_sliver_cache: PendingSliverCache,
     // Below tokio watch channel holds the current event epoch that the node is processing.
     // Storage node is a state machine processing events, and in many places, we need to use
     // the current event epoch which can be lagging behind the latest Walrus epoch on chain.
@@ -676,6 +710,11 @@ impl StorageNode {
             &config.blocklist_path,
             Some(registry),
         )?);
+        let pending_metadata_cache = PendingMetadataCache::new(
+            config.pending_metadata_cache.max_cached_entries,
+            config.pending_metadata_cache.cache_ttl,
+            metrics.clone(),
+        );
         let checkpoint_manager =
             match DbCheckpointManager::new(storage.get_db(), config.checkpoint_config.clone()) {
                 Ok(manager) => Some(Arc::new(manager)),
@@ -697,7 +736,7 @@ impl StorageNode {
             event_manager,
             contract_service: contract_service.clone(),
             committee_service,
-            metrics,
+            metrics: metrics.clone(),
             start_time,
             is_shutting_down: false.into(),
             blocklist: blocklist.clone(),
@@ -712,6 +751,14 @@ impl StorageNode {
             thread_pool,
             encoding_config,
             registry: registry.clone(),
+            pending_metadata_cache,
+            pending_sliver_cache: PendingSliverCache::new(
+                config.pending_sliver_cache.max_cached_slivers,
+                config.pending_sliver_cache.max_cached_bytes,
+                config.pending_sliver_cache.max_cached_sliver_bytes,
+                config.pending_sliver_cache.cache_ttl,
+                metrics.clone(),
+            ),
             latest_event_epoch_sender,
             latest_event_epoch_watcher,
             consistency_check_config: config.consistency_check.clone(),
@@ -2727,12 +2774,33 @@ impl StorageNodeInner {
         (summary, detail)
     }
 
-    pub(crate) async fn store_sliver_unchecked(
+    async fn verify_sliver_against_metadata(
         &self,
-        metadata: VerifiedBlobMetadataWithId,
+        metadata: Arc<VerifiedBlobMetadataWithId>,
+        sliver: Sliver,
+    ) -> Result<Sliver, StoreSliverError> {
+        let encoding_config = self.encoding_config.clone();
+        let metadata_for_verification = metadata.clone();
+        let result = self
+            .thread_pool
+            .clone()
+            .oneshot(move || {
+                sliver.verify(
+                    &encoding_config,
+                    metadata_for_verification.as_ref().as_ref(),
+                )?;
+                Result::<_, StoreSliverError>::Ok(sliver)
+            })
+            .await;
+        thread_pool::unwrap_or_resume_panic(result)
+    }
+
+    async fn prepare_sliver_for_storage(
+        &self,
+        metadata: Arc<VerifiedBlobMetadataWithId>,
         sliver_pair_index: SliverPairIndex,
         sliver: Sliver,
-    ) -> Result<bool, StoreSliverError> {
+    ) -> Result<Option<(Arc<ShardStorage>, Sliver)>, StoreSliverError> {
         let shard_storage = self
             .get_shard_for_sliver_pair(sliver_pair_index, metadata.blob_id())
             .await?;
@@ -2752,30 +2820,218 @@ impl StorageNodeInner {
             .is_sliver_type_stored(metadata.blob_id(), sliver.r#type())
             .context("database error when checking sliver existence")?
         {
-            return Ok(false);
+            return Ok(None);
         }
 
-        let encoding_config = self.encoding_config.clone();
-        let result = self
-            .thread_pool
-            .clone()
-            .oneshot(move || {
-                sliver.verify(&encoding_config, metadata.as_ref())?;
-                Result::<_, StoreSliverError>::Ok((metadata, sliver))
-            })
-            .await;
-        let (metadata, sliver) = thread_pool::unwrap_or_resume_panic(result)?;
-        let sliver_type = sliver.r#type();
+        let verified_sliver = self
+            .verify_sliver_against_metadata(metadata, sliver)
+            .await?;
 
-        // Finally store the sliver in the appropriate shard storage.
+        Ok(Some((shard_storage, verified_sliver)))
+    }
+
+    pub(crate) async fn store_sliver_unchecked(
+        &self,
+        metadata: Arc<VerifiedBlobMetadataWithId>,
+        sliver_pair_index: SliverPairIndex,
+        sliver: Sliver,
+    ) -> Result<bool, StoreSliverError> {
+        let Some((shard_storage, verified_sliver)) = self
+            .prepare_sliver_for_storage(metadata.clone(), sliver_pair_index, sliver)
+            .await?
+        else {
+            return Ok(false);
+        };
+
+        let sliver_type = verified_sliver.r#type();
+
         shard_storage
-            .put_sliver(*metadata.blob_id(), sliver)
+            .put_sliver(*metadata.blob_id(), verified_sliver)
             .await
             .context("unable to store sliver")?;
 
         walrus_utils::with_label!(self.metrics.slivers_stored_total, sliver_type).inc();
 
         Ok(true)
+    }
+
+    async fn persist_verified_metadata(
+        &self,
+        blob_id: &BlobId,
+        verified: Arc<VerifiedBlobMetadataWithId>,
+    ) -> Result<bool, StoreMetadataError> {
+        if self
+            .storage
+            .has_metadata(blob_id)
+            .context("could not check metadata existence")?
+        {
+            return Ok(false);
+        }
+
+        self.storage
+            .put_verified_metadata(&verified)
+            .await
+            .context("unable to store metadata")
+            .map_err(StoreMetadataError::Internal)?;
+
+        self.pending_metadata_cache.remove(blob_id).await;
+
+        self.metrics
+            .uploaded_metadata_unencoded_blob_bytes
+            .observe(verified.metadata().unencoded_length() as f64);
+        self.metrics.metadata_stored_total.inc();
+
+        Ok(true)
+    }
+
+    /// Resolves the metadata required to validate an incoming sliver.
+    ///
+    /// The returned tuple contains the metadata and a flag indicating whether that metadata has
+    /// already been persisted to durable storage (`true`) or is currently buffered in-memory
+    /// (`false`).
+    async fn resolve_metadata_for_sliver(
+        &self,
+        blob_id: &BlobId,
+        allow_pending: bool,
+    ) -> Result<(Arc<VerifiedBlobMetadataWithId>, bool), StoreSliverError> {
+        let persisted = self
+            .storage
+            .get_metadata(blob_id)
+            .context("database error when storing sliver")?;
+        if let Some(metadata) = persisted {
+            return Ok((Arc::new(metadata), true));
+        }
+
+        let pending = self.pending_metadata_cache.get(blob_id).await;
+        let is_registered = self.is_blob_registered(blob_id)?;
+
+        match (pending, is_registered, allow_pending) {
+            (Some(metadata), _, _) => Ok((metadata, false)),
+            (None, true, _) | (None, _, true) => Err(StoreSliverError::MissingMetadata),
+            (None, false, false) => Err(StoreSliverError::NotCurrentlyRegistered),
+        }
+    }
+
+    pub(crate) async fn flush_pending_metadata(
+        &self,
+        blob_id: &BlobId,
+    ) -> Result<(), StoreMetadataError> {
+        if self
+            .storage
+            .has_metadata(blob_id)
+            .context("could not check metadata existence")?
+        {
+            return Ok(());
+        }
+
+        if let Some(metadata) = self.pending_metadata_cache.remove(blob_id).await {
+            self.storage
+                .put_verified_metadata(&metadata)
+                .await
+                .context("unable to persist pending metadata")
+                .map_err(StoreMetadataError::Internal)?;
+
+            self.metrics
+                .uploaded_metadata_unencoded_blob_bytes
+                .observe(metadata.metadata().unencoded_length() as f64);
+            self.metrics.metadata_stored_total.inc();
+        }
+
+        Ok(())
+    }
+
+    pub(crate) async fn flush_pending_slivers(
+        &self,
+        blob_id: &BlobId,
+        metadata: Arc<VerifiedBlobMetadataWithId>,
+    ) -> Result<(), StoreSliverError> {
+        if !self.pending_sliver_cache.has_blob(blob_id).await {
+            return Ok(());
+        }
+
+        let mut pending = self.pending_sliver_cache.drain(blob_id).await;
+        if pending.is_empty() {
+            return Ok(());
+        }
+
+        while let Some(cached) = pending.pop() {
+            let sliver_for_storage = cached.sliver.clone();
+            match self
+                .store_sliver_unchecked(
+                    metadata.clone(),
+                    cached.sliver_pair_index,
+                    sliver_for_storage,
+                )
+                .await
+            {
+                Ok(_) => continue,
+                Err(error) => {
+                    pending.push(cached);
+                    self.pending_sliver_cache
+                        .insert_many(*blob_id, pending)
+                        .await;
+                    return Err(error);
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn flush_pending_caches(&self, blob_id: &BlobId) -> Result<(), PendingCacheError> {
+        if let Err(error) = self.flush_pending_metadata(blob_id).await {
+            match error {
+                StoreMetadataError::NotCurrentlyRegistered => (),
+                other => return Err(PendingCacheError::Metadata(other)),
+            }
+        }
+
+        if self.pending_sliver_cache.has_blob(blob_id).await {
+            let metadata = match self
+                .storage
+                .get_metadata(blob_id)
+                .context("unable to fetch metadata while flushing pending slivers")
+                .map_err(|error| PendingCacheError::Sliver(StoreSliverError::Internal(error)))?
+            {
+                Some(metadata) => Arc::new(metadata),
+                None => return Err(PendingCacheError::Sliver(StoreSliverError::MissingMetadata)),
+            };
+
+            if let Err(error) = self.flush_pending_slivers(blob_id, metadata).await
+                && !matches!(
+                    error,
+                    StoreSliverError::NotCurrentlyRegistered | StoreSliverError::MissingMetadata
+                )
+            {
+                return Err(PendingCacheError::Sliver(error));
+            }
+        }
+
+        Ok(())
+    }
+
+    pub(crate) async fn flush_pending_caches_with_logging(&self, blob_id: BlobId) {
+        #[cfg(msim)]
+        sui_macros::fail_point_async!("fail_point_flush_pending_caches_with_logging");
+
+        if let Err(error) = self.flush_pending_caches(&blob_id).await {
+            match error {
+                PendingCacheError::Metadata(metadata_error) => {
+                    tracing::warn!(
+                        ?metadata_error,
+                        blob_id = %blob_id,
+                        "failed to flush pending metadata after blob registration"
+                    );
+                }
+                PendingCacheError::Sliver(sliver_error) => {
+                    tracing::warn!(
+                        ?sliver_error,
+                        blob_id = %blob_id,
+                        "failed to flush pending slivers after blob registration"
+                    );
+                }
+            }
+        }
     }
 
     async fn create_storage_for_shards_in_background(
@@ -3252,8 +3508,9 @@ impl ServiceState for StorageNode {
     async fn store_metadata(
         &self,
         metadata: UnverifiedBlobMetadataWithId,
+        intent: UploadIntent,
     ) -> Result<bool, StoreMetadataError> {
-        self.inner.store_metadata(metadata).await
+        self.inner.store_metadata(metadata, intent).await
     }
 
     fn metadata_status(
@@ -3278,8 +3535,10 @@ impl ServiceState for StorageNode {
         blob_id: BlobId,
         sliver_pair_index: SliverPairIndex,
         sliver: Sliver,
+        intent: UploadIntent,
     ) -> impl Future<Output = Result<bool, StoreSliverError>> + Send {
-        self.inner.store_sliver(blob_id, sliver_pair_index, sliver)
+        self.inner
+            .store_sliver(blob_id, sliver_pair_index, sliver, intent)
     }
 
     fn compute_storage_confirmation(
@@ -3388,54 +3647,84 @@ impl ServiceState for StorageNodeInner {
             .inspect(|_| self.metrics.metadata_retrieved_total.inc())
     }
 
+    /// Stores metadata for a blob.
+    ///
+    /// Returns `Ok(true)` when the metadata was persisted to storage or cached for later
+    /// persistence, and `Ok(false)` when an identical copy is already present.
     async fn store_metadata(
         &self,
         metadata: UnverifiedBlobMetadataWithId,
+        intent: UploadIntent,
     ) -> Result<bool, StoreMetadataError> {
-        let Some(blob_info) = self
-            .storage
-            .get_blob_info(metadata.blob_id())
-            .context("could not retrieve blob info")?
-        else {
-            return Err(StoreMetadataError::NotCurrentlyRegistered);
-        };
+        let blob_id = *metadata.blob_id();
 
-        if let Some(event) = blob_info.invalidation_event() {
+        let blob_info = self
+            .storage
+            .get_blob_info(&blob_id)
+            .context("could not retrieve blob info")?;
+
+        if let Some(event) = blob_info
+            .as_ref()
+            .and_then(|info| info.invalidation_event())
+        {
             return Err(StoreMetadataError::InvalidBlob(event));
         }
 
-        ensure!(
-            blob_info.is_registered(self.current_committee_epoch()),
-            StoreMetadataError::NotCurrentlyRegistered,
-        );
-
-        if blob_info.is_metadata_stored() {
+        if self
+            .storage
+            .has_metadata(&blob_id)
+            .context("could not check metadata existence")?
+        {
             return Ok(false);
         }
 
-        // Check if encoding type is supported
         let encoding_type = metadata.metadata().encoding_type();
-        if !encoding_type.is_supported() {
-            return Err(StoreMetadataError::UnsupportedEncodingType(encoding_type));
-        }
+        ensure!(
+            encoding_type.is_supported(),
+            StoreMetadataError::UnsupportedEncodingType(encoding_type),
+        );
 
         let encoding_config = self.encoding_config.clone();
-        let verified_metadata_with_id = self
-            .thread_pool
-            .clone()
-            .oneshot(move || metadata.verify(&encoding_config))
-            .map(thread_pool::unwrap_or_resume_panic)
-            .await?;
+        let verified = Arc::new(
+            self.thread_pool
+                .clone()
+                .oneshot(move || metadata.verify(&encoding_config))
+                .map(thread_pool::unwrap_or_resume_panic)
+                .await?,
+        );
 
-        self.storage
-            .put_verified_metadata(&verified_metadata_with_id)
+        if blob_info
+            .as_ref()
+            .is_some_and(|info| info.is_registered(self.current_committee_epoch()))
+        {
+            return self.persist_verified_metadata(&blob_id, verified).await;
+        }
+
+        if !intent.is_pending() {
+            return Err(StoreMetadataError::NotCurrentlyRegistered);
+        }
+
+        let inserted = self
+            .pending_metadata_cache
+            .insert(blob_id, verified.clone())
             .await
-            .context("unable to store metadata")?;
+            .map_err(|_| StoreMetadataError::CacheSaturated)?;
 
-        self.metrics
-            .uploaded_metadata_unencoded_blob_bytes
-            .observe(verified_metadata_with_id.as_ref().unencoded_length() as f64);
-        self.metrics.metadata_stored_total.inc();
+        if !inserted {
+            return Ok(false);
+        }
+
+        if self.is_blob_registered(&blob_id)? {
+            // Read the blob info again because registration can race between the initial blob_info
+            // check and adding to the cache. Flush immediately in that case so the pending metadata
+            // doesn’t linger indefinitely.
+            if let Err(error) = self.flush_pending_caches(&blob_id).await {
+                return Err(match error {
+                    PendingCacheError::Metadata(inner) => inner,
+                    PendingCacheError::Sliver(inner) => map_sliver_error_to_metadata(inner),
+                });
+            }
+        }
 
         Ok(true)
     }
@@ -3474,29 +3763,60 @@ impl ServiceState for StorageNodeInner {
         blob_id: BlobId,
         sliver_pair_index: SliverPairIndex,
         sliver: Sliver,
+        intent: UploadIntent,
     ) -> Result<bool, StoreSliverError> {
         self.check_index(sliver_pair_index)?;
+        let (metadata_persisted, persisted) = self
+            .resolve_metadata_for_sliver(&blob_id, intent.is_pending())
+            .await?;
 
-        ensure!(
-            self.is_blob_registered(&blob_id)?,
-            StoreSliverError::NotCurrentlyRegistered,
-        );
-
-        // Get metadata first to check encoding type.
-        let metadata = self
-            .storage
-            .get_metadata(&blob_id)
-            .context("database error when storing sliver")?
-            .ok_or(StoreSliverError::MissingMetadata)?;
-
-        // Check if encoding type is supported
-        let encoding_type = metadata.metadata().encoding_type();
+        let encoding_type = metadata_persisted.metadata().encoding_type();
         if !encoding_type.is_supported() {
             return Err(StoreSliverError::UnsupportedEncodingType(encoding_type));
         }
 
-        self.store_sliver_unchecked(metadata, sliver_pair_index, sliver)
+        if persisted {
+            // Metadata is already persisted, so the sliver can be written directly because
+            // metadata is persisted after the blob is registered.
+            return self
+                .store_sliver_unchecked(metadata_persisted.clone(), sliver_pair_index, sliver)
+                .await;
+        }
+
+        let Some((_, verified_sliver)) = self
+            .prepare_sliver_for_storage(metadata_persisted.clone(), sliver_pair_index, sliver)
+            .await?
+        else {
+            return Ok(false);
+        };
+
+        match self
+            .pending_sliver_cache
+            .insert(blob_id, sliver_pair_index, verified_sliver)
             .await
+        {
+            Ok(inserted) => {
+                if self.is_blob_registered(&blob_id)? {
+                    // Registration may arrive between the initial registration check and the point
+                    // where we enqueue the sliver. If it does, flush everything immediately so the
+                    // data doesn’t stay buffered without another trigger.
+                    if let Err(error) = self.flush_pending_caches(&blob_id).await {
+                        return Err(match error {
+                            PendingCacheError::Sliver(inner) => inner,
+                            PendingCacheError::Metadata(inner) => {
+                                map_metadata_error_to_sliver(inner)
+                            }
+                        });
+                    }
+                }
+
+                Ok(inserted)
+            }
+            Err(PendingSliverCacheError::SliverTooLarge) => {
+                Err(StoreSliverError::NotCurrentlyRegistered)
+            }
+            Err(PendingSliverCacheError::Saturated) => Err(StoreSliverError::CacheSaturated),
+        }
     }
 
     async fn compute_storage_confirmation(
@@ -3508,6 +3828,10 @@ impl ServiceState for StorageNodeInner {
             self.is_blob_registered(blob_id)?,
             ComputeStorageConfirmationError::NotCurrentlyRegistered,
         );
+
+        if let Err(error) = self.flush_pending_caches(blob_id).await {
+            return Err(map_flush_error_to_confirmation(error));
+        }
 
         // Storage confirmation must use the last shard assignment, even though the node hasn't
         // processed to the latest epoch yet. This is because if the onchain committee has moved
@@ -3709,13 +4033,23 @@ impl ServiceState for StorageNodeInner {
         blob_id: &BlobId,
         sliver_pair_index: SliverPairIndex,
     ) -> Result<StoredOnNodeStatus, RetrieveSliverError> {
-        match self
+        let shard_storage = self
             .get_shard_for_sliver_pair(sliver_pair_index, blob_id)
-            .await?
-            .is_sliver_stored::<A>(blob_id)
-        {
+            .await?;
+
+        match shard_storage.is_sliver_stored::<A>(blob_id) {
             Ok(true) => Ok(StoredOnNodeStatus::Stored),
-            Ok(false) => Ok(StoredOnNodeStatus::Nonexistent),
+            Ok(false) => {
+                if self
+                    .pending_sliver_cache
+                    .contains(blob_id, sliver_pair_index, A::sliver_type())
+                    .await
+                {
+                    Ok(StoredOnNodeStatus::Buffered)
+                } else {
+                    Ok(StoredOnNodeStatus::Nonexistent)
+                }
+            }
             Err(err) => Err(RetrieveSliverError::Internal(err.into())),
         }
     }
@@ -3770,9 +4104,67 @@ where
     Ok(signed)
 }
 
+#[derive(Debug)]
+enum PendingCacheError {
+    Metadata(StoreMetadataError),
+    Sliver(StoreSliverError),
+}
+
+fn map_sliver_error_to_metadata(error: StoreSliverError) -> StoreMetadataError {
+    match error {
+        StoreSliverError::Internal(inner) => StoreMetadataError::Internal(inner),
+        StoreSliverError::NotCurrentlyRegistered | StoreSliverError::MissingMetadata => {
+            StoreMetadataError::NotCurrentlyRegistered
+        }
+        StoreSliverError::CacheSaturated => StoreMetadataError::CacheSaturated,
+        StoreSliverError::UnsupportedEncodingType(kind) => {
+            StoreMetadataError::UnsupportedEncodingType(kind)
+        }
+        StoreSliverError::SliverOutOfRange(_) | StoreSliverError::InvalidSliver(_) => {
+            StoreMetadataError::Internal(anyhow!("sliver cache flush failed: {error:?}"))
+        }
+        StoreSliverError::ShardNotAssigned(inner) => StoreMetadataError::Internal(inner.into()),
+    }
+}
+
+fn map_metadata_error_to_sliver(error: StoreMetadataError) -> StoreSliverError {
+    match error {
+        StoreMetadataError::NotCurrentlyRegistered => StoreSliverError::NotCurrentlyRegistered,
+        StoreMetadataError::CacheSaturated => StoreSliverError::CacheSaturated,
+        StoreMetadataError::UnsupportedEncodingType(kind) => {
+            StoreSliverError::UnsupportedEncodingType(kind)
+        }
+        StoreMetadataError::InvalidMetadata(err) => StoreSliverError::Internal(anyhow!(err)),
+        StoreMetadataError::InvalidBlob(event) => StoreSliverError::Internal(anyhow!(
+            "metadata associated with event {event:?} was invalid"
+        )),
+        StoreMetadataError::Internal(inner) => StoreSliverError::Internal(inner),
+    }
+}
+
+fn map_flush_error_to_confirmation(error: PendingCacheError) -> ComputeStorageConfirmationError {
+    match error {
+        PendingCacheError::Metadata(inner) => {
+            ComputeStorageConfirmationError::Internal(inner.into())
+        }
+        PendingCacheError::Sliver(inner) => match inner {
+            StoreSliverError::MissingMetadata => {
+                ComputeStorageConfirmationError::NotCurrentlyRegistered
+            }
+            StoreSliverError::ShardNotAssigned(inner) => {
+                ComputeStorageConfirmationError::Internal(inner.into())
+            }
+            other => ComputeStorageConfirmationError::Internal(other.into()),
+        },
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use std::{sync::OnceLock, time::Duration};
+    use std::{
+        sync::{Arc, OnceLock},
+        time::Duration,
+    };
 
     use chrono::Utc;
     use config::ShardSyncConfig;
@@ -3786,6 +4178,8 @@ mod tests {
     use tokio::sync::{Mutex, broadcast::Sender};
     use walrus_core::{
         DEFAULT_ENCODING,
+        Sliver,
+        SliverType,
         encoding::{EncodingFactory as _, Primary, Secondary, SliverData, SliverPair},
         messages::{SyncShardMsg, SyncShardRequest},
         test_utils::{generate_config_metadata_and_valid_recovery_symbols, random_blob_id},
@@ -4271,6 +4665,79 @@ mod tests {
         .await?;
         Ok(())
     }
+
+    #[tokio::test]
+    async fn reports_buffered_status_for_pending_slivers() -> TestResult {
+        let (cluster, _) = cluster_at_epoch1_without_blobs(&[&[0, 1, 2, 3]], None).await?;
+        let storage_node = cluster.nodes[0].storage_node.clone();
+        let encoding_config = storage_node.as_ref().inner.encoding_config.as_ref().clone();
+        let encoded = EncodedBlob::new(BLOB, encoding_config);
+        let blob_id = *encoded.blob_id();
+        let pair = encoded.assigned_sliver_pair(SHARD_INDEX);
+
+        assert!(
+            storage_node
+                .as_ref()
+                .store_metadata(
+                    encoded.metadata.clone().into_unverified(),
+                    UploadIntent::Pending
+                )
+                .await?
+        );
+
+        assert!(
+            storage_node
+                .as_ref()
+                .store_sliver(
+                    blob_id,
+                    pair.index(),
+                    Sliver::Primary(pair.primary.clone()),
+                    UploadIntent::Pending,
+                )
+                .await?
+        );
+
+        let buffered_status = storage_node
+            .as_ref()
+            .inner
+            .sliver_status::<Primary>(&blob_id, pair.index())
+            .await?;
+        assert_eq!(buffered_status, StoredOnNodeStatus::Buffered);
+
+        // This unit test bypasses the event processor, so flush manually. The registration-driven
+        // path is covered in `flush_after_registration`.
+        storage_node
+            .as_ref()
+            .inner
+            .storage
+            .update_blob_info(0, &BlobRegistered::for_testing(blob_id).into())?;
+        storage_node
+            .as_ref()
+            .inner
+            .flush_pending_metadata(&blob_id)
+            .await?;
+        let persisted_metadata = Arc::new(
+            storage_node
+                .as_ref()
+                .inner
+                .storage
+                .get_metadata(&blob_id)?
+                .expect("metadata should be persisted"),
+        );
+        storage_node
+            .as_ref()
+            .inner
+            .flush_pending_slivers(&blob_id, persisted_metadata)
+            .await?;
+
+        let stored_status = storage_node
+            .as_ref()
+            .inner
+            .sliver_status::<Primary>(&blob_id, pair.index())
+            .await?;
+        assert_eq!(stored_status, StoredOnNodeStatus::Stored);
+        Ok(())
+    }
     async fn check_sliver_status<A: EncodingAxis>(
         storage_node: &StorageNodeHandle,
         pair_index: SliverPairIndex,
@@ -4285,7 +4752,7 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
+    #[walrus_simtest]
     async fn returns_correct_metadata_status() -> TestResult {
         let (_ec, metadata, _idx, _rs) = generate_config_metadata_and_valid_recovery_symbols()?;
         let storage_node = set_up_node_with_metadata(metadata.clone().into_unverified()).await?;
@@ -4334,7 +4801,9 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(50)).await;
 
         // store the metadata in the storage node
-        node.as_ref().store_metadata(metadata).await?;
+        node.as_ref()
+            .store_metadata(metadata, UploadIntent::Immediate)
+            .await?;
 
         Ok(node)
     }
@@ -5369,7 +5838,7 @@ mod tests {
 
         let is_newly_stored = cluster.nodes[0]
             .storage_node
-            .store_metadata(blob.metadata.into_unverified())
+            .store_metadata(blob.metadata.into_unverified(), UploadIntent::Immediate)
             .await?;
 
         assert!(!is_newly_stored);
@@ -5377,7 +5846,129 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
+    #[walrus_simtest]
+    async fn caches_metadata_and_slivers_until_registration() -> TestResult {
+        let (cluster, _events) = cluster_at_epoch1_without_blobs(&[&[0, 1, 2, 3]], None).await?;
+        let storage_node = cluster.nodes[0].storage_node.clone();
+
+        let encoding_config = storage_node.as_ref().inner.encoding_config.as_ref().clone();
+        let encoded = EncodedBlob::new(BLOB, encoding_config);
+        let blob_id = *encoded.blob_id();
+        let pair = encoded.assigned_sliver_pair(SHARD_INDEX);
+
+        assert!(
+            storage_node
+                .as_ref()
+                .store_metadata(
+                    encoded.metadata.clone().into_unverified(),
+                    UploadIntent::Pending
+                )
+                .await?
+        );
+
+        assert!(
+            storage_node
+                .as_ref()
+                .store_sliver(
+                    blob_id,
+                    pair.index(),
+                    Sliver::Primary(pair.primary.clone()),
+                    UploadIntent::Pending,
+                )
+                .await?
+        );
+
+        assert_eq!(
+            storage_node
+                .as_ref()
+                .inner
+                .pending_metadata_cache
+                .entry_count()
+                .await,
+            1
+        );
+        assert_eq!(
+            storage_node
+                .as_ref()
+                .inner
+                .pending_sliver_cache
+                .sliver_count()
+                .await,
+            1
+        );
+
+        storage_node
+            .as_ref()
+            .inner
+            .storage
+            .update_blob_info(0, &BlobRegistered::for_testing(blob_id).into())?;
+
+        storage_node
+            .as_ref()
+            .inner
+            .flush_pending_metadata(&blob_id)
+            .await?;
+        let persisted_metadata = Arc::new(
+            storage_node
+                .as_ref()
+                .inner
+                .storage
+                .get_metadata(&blob_id)?
+                .expect("metadata should be persisted before flushing slivers"),
+        );
+        storage_node
+            .as_ref()
+            .inner
+            .flush_pending_slivers(&blob_id, persisted_metadata)
+            .await?;
+
+        assert!(
+            storage_node
+                .as_ref()
+                .inner
+                .storage
+                .get_metadata(&blob_id)?
+                .is_some()
+        );
+
+        let shard_storage = storage_node
+            .as_ref()
+            .inner
+            .storage
+            .shard_storage(SHARD_INDEX)
+            .await
+            .expect("shard storage must exist");
+
+        assert!(
+            shard_storage
+                .get_sliver(&blob_id, SliverType::Primary)
+                .context("sliver should be persisted after registration")?
+                .is_some()
+        );
+
+        assert_eq!(
+            storage_node
+                .as_ref()
+                .inner
+                .pending_metadata_cache
+                .entry_count()
+                .await,
+            0
+        );
+        assert_eq!(
+            storage_node
+                .as_ref()
+                .inner
+                .pending_sliver_cache
+                .sliver_count()
+                .await,
+            0
+        );
+
+        Ok(())
+    }
+
+    #[walrus_simtest]
     async fn skip_storing_sliver_if_already_stored() -> TestResult {
         let (cluster, _, blob) =
             cluster_with_partially_stored_blob(&[&[0, 1, 2, 3]], BLOB, |_, _| true).await?;
@@ -5389,6 +5980,7 @@ mod tests {
                 *blob.blob_id(),
                 assigned_sliver_pair.index(),
                 Sliver::Primary(assigned_sliver_pair.primary.clone()),
+                UploadIntent::Immediate,
             )
             .await?;
 
@@ -5631,6 +6223,7 @@ mod tests {
                     *blob.blob_id(),
                     assigned_sliver_pair.index(),
                     Sliver::Primary(assigned_sliver_pair.primary.clone()),
+                    UploadIntent::Immediate,
                 )
                 .await,
             Err(StoreSliverError::ShardNotAssigned(..))
@@ -6146,6 +6739,8 @@ mod tests {
     // seed-search on these tests since there is no test target.
     #[cfg(msim)]
     mod failure_injection_tests {
+        use std::sync::Arc;
+
         use sui_macros::{
             clear_fail_point,
             register_fail_point,
@@ -7395,6 +7990,109 @@ mod tests {
             .await
             .expect("wait for all events to be processed should succeed");
 
+            clear_fail_point("fail_point_process_blob_certified_event");
+            Ok(())
+        }
+
+        #[walrus_simtest]
+        async fn flush_after_registration() -> TestResult {
+            walrus_test_utils::init_tracing();
+
+            let flush_blocked = Arc::new(Notify::new());
+            let release_flush = Arc::new(Notify::new());
+            let flush_blocked_clone = flush_blocked.clone();
+            let release_flush_clone = release_flush.clone();
+            let certify_started = Arc::new(Notify::new());
+            let certify_started_clone = certify_started.clone();
+
+            register_fail_point_async("fail_point_flush_pending_caches_with_logging", move || {
+                let flush_blocked = flush_blocked_clone.clone();
+                let release_flush = release_flush_clone.clone();
+                async move {
+                    flush_blocked.notify_one();
+                    release_flush.notified().await;
+                }
+            });
+
+            register_fail_point_async("fail_point_process_blob_certified_event", move || {
+                let certify_started = certify_started_clone.clone();
+                async move {
+                    certify_started.notify_one();
+                }
+            });
+
+            let (cluster, events) = cluster_at_epoch1_without_blobs(&[&[0, 1, 2, 3]], None).await?;
+            let storage_node = cluster.nodes[0].storage_node.clone();
+
+            let encoded = EncodedBlob::new(BLOB, cluster.encoding_config());
+            let blob_id = *encoded.blob_id();
+            let sliver_pair = encoded.assigned_sliver_pair(SHARD_INDEX);
+
+            storage_node
+                .store_metadata(
+                    encoded.metadata.clone().into_unverified(),
+                    UploadIntent::Pending,
+                )
+                .await?;
+            storage_node
+                .store_sliver(
+                    blob_id,
+                    sliver_pair.index(),
+                    Sliver::Primary(sliver_pair.primary.clone()),
+                    UploadIntent::Pending,
+                )
+                .await?;
+
+            events.send(BlobRegistered::for_testing(blob_id).into())?;
+            events.send(BlobCertified::for_testing(blob_id).into())?;
+
+            tokio::time::timeout(Duration::from_secs(5), flush_blocked.notified())
+                .await
+                .expect("cache flush should hit failpoint before certification runs");
+            tokio::time::timeout(Duration::from_secs(1), certify_started.notified())
+                .await
+                .expect_err(
+                    "certified event processing should not start before pending caches are flushed",
+                );
+            release_flush.notify_one();
+            tokio::time::timeout(Duration::from_secs(5), certify_started.notified())
+                .await
+                .expect("certified event processing should start after flush completes");
+
+            storage_node
+                .blob_event_processor
+                .wait_for_all_events_to_be_processed()
+                .await;
+
+            let shard_storage = storage_node
+                .as_ref()
+                .inner
+                .storage
+                .shard_storage(SHARD_INDEX)
+                .await
+                .expect("shard storage should exist");
+
+            let stored_sliver = shard_storage
+                .get_sliver(&blob_id, SliverType::Primary)
+                .expect("sliver lookup should succeed")
+                .expect("pending sliver should be flushed before certified handling");
+            assert_eq!(
+                stored_sliver,
+                Sliver::Primary(sliver_pair.primary.clone()),
+                "sliver contents should match the uploaded data"
+            );
+            assert!(
+                storage_node
+                    .as_ref()
+                    .inner
+                    .storage
+                    .get_metadata(&blob_id)
+                    .expect("metadata lookup should succeed")
+                    .is_some(),
+                "pending metadata should be flushed before certified handling"
+            );
+
+            clear_fail_point("fail_point_flush_pending_caches_with_logging");
             clear_fail_point("fail_point_process_blob_certified_event");
             Ok(())
         }

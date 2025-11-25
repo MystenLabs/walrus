@@ -408,8 +408,8 @@ impl NodeWriteCommunication {
             .await?;
 
         match metadata_status {
-            StoredOnNodeStatus::Stored => {
-                tracing::debug!("the metadata is already stored on the node");
+            StoredOnNodeStatus::Stored | StoredOnNodeStatus::Buffered => {
+                tracing::debug!("the metadata is already stored or buffered on the node");
             }
             StoredOnNodeStatus::Nonexistent => {
                 self.retry_with_limits_and_backoff(|| self.client.store_metadata(metadata))

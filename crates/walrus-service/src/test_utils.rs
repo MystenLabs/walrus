@@ -1157,6 +1157,7 @@ impl StorageNodeHandleBuilder {
                 runtime_catchup_lag_threshold: 200,
                 ..Default::default()
             },
+            pending_sliver_cache: Default::default(),
             use_legacy_event_provider: false,
             disable_event_blob_writer,
             sui: Some(SuiConfig {
@@ -3057,6 +3058,7 @@ pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
                 ..Default::default()
             },
             event_processor_config: Default::default(),
+            pending_sliver_cache: Default::default(),
             use_legacy_event_provider: false,
             disable_event_blob_writer: false,
             commission_rate: 0,
@@ -3083,6 +3085,7 @@ pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
             blob_event_processor_config: BlobEventProcessorConfig { num_workers: 3 },
             garbage_collection: GarbageCollectionConfig::default_for_test(),
             live_upload_deferral: LiveUploadDeferralConfig::default_for_test(),
+            pending_metadata_cache: Default::default(),
         },
         temp_dir,
     }

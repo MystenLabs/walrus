@@ -728,6 +728,8 @@ pub async fn create_storage_node_configs(
             tls: Default::default(),
             shard_sync_config: Default::default(),
             event_processor_config: Default::default(),
+            pending_sliver_cache: Default::default(),
+            pending_metadata_cache: Default::default(),
             use_legacy_event_provider,
             disable_event_blob_writer,
             commission_rate: node.commission_rate,
