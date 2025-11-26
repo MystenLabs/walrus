@@ -15,7 +15,7 @@ use std::{
     default::Default,
     net::{SocketAddr, TcpStream},
     num::NonZeroU16,
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::Arc,
 };
 
@@ -201,29 +201,146 @@ pub trait StorageNodeHandleTrait {
     fn use_distinct_ip() -> bool;
 }
 
-/// Configuration for test node setup
+/// Minimum number of shards required for Reed-Solomon encoding when the event blob writer is
+/// enabled. With fewer shards, the recovery shard count becomes zero, which is unsupported.
+///
+/// With n_shards=4: max_n_faulty=1, source_symbols_primary=2, source_symbols_secondary=3,
+/// giving recovery counts of 2 and 1 respectively (both > 0).
+pub const MIN_SHARDS_FOR_EVENT_BLOB_WRITER: u16 = 4;
+
+/// Configuration for test node setup.
+///
+/// Use [`TestNodesConfig::builder()`] to create instances. The builder validates that
+/// configurations with the event blob writer enabled have at least
+/// [`MIN_SHARDS_FOR_EVENT_BLOB_WRITER`] shards.
 #[derive(Debug, Clone)]
 pub struct TestNodesConfig {
-    /// The weights of the nodes in the cluster.
-    pub node_weights: Vec<u16>,
-    /// Whether to disable the event blob writer.
-    pub disable_event_blob_writer: bool,
-    /// The directory to store the blocklist.
-    pub blocklist_dir: Option<PathBuf>,
-    /// Whether to enable the node config monitor.
-    pub enable_node_config_synchronizer: bool,
-    /// The node recovery config for the nodes.
-    pub node_recovery_config: Option<NodeRecoveryConfig>,
+    node_weights: Vec<u16>,
+    disable_event_blob_writer: bool,
+    blocklist_dir: Option<PathBuf>,
+    enable_node_config_synchronizer: bool,
+    node_recovery_config: Option<NodeRecoveryConfig>,
+}
+
+impl TestNodesConfig {
+    /// Returns the weights of the nodes in the cluster.
+    pub fn node_weights(&self) -> &[u16] {
+        &self.node_weights
+    }
+
+    /// Returns whether the event blob writer is disabled.
+    pub fn disable_event_blob_writer(&self) -> bool {
+        self.disable_event_blob_writer
+    }
+
+    /// Returns the directory to store the blocklist.
+    pub fn blocklist_dir(&self) -> Option<&Path> {
+        self.blocklist_dir.as_deref()
+    }
+
+    /// Returns whether the node config synchronizer is enabled.
+    pub fn enable_node_config_synchronizer(&self) -> bool {
+        self.enable_node_config_synchronizer
+    }
+
+    /// Returns the node recovery config.
+    pub fn node_recovery_config(&self) -> Option<&NodeRecoveryConfig> {
+        self.node_recovery_config.as_ref()
+    }
+
+    /// Creates a new builder for `TestNodesConfig`.
+    pub fn builder() -> TestNodesConfigBuilder {
+        TestNodesConfigBuilder::new()
+    }
 }
 
 impl Default for TestNodesConfig {
     fn default() -> Self {
+        TestNodesConfigBuilder::new().build()
+    }
+}
+
+/// Builder for [`TestNodesConfig`] that validates configuration constraints.
+#[derive(Debug, Clone)]
+pub struct TestNodesConfigBuilder {
+    node_weights: Vec<u16>,
+    disable_event_blob_writer: bool,
+    blocklist_dir: Option<PathBuf>,
+    enable_node_config_synchronizer: bool,
+    node_recovery_config: Option<NodeRecoveryConfig>,
+}
+
+impl Default for TestNodesConfigBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl TestNodesConfigBuilder {
+    /// Creates a new builder with default values.
+    pub fn new() -> Self {
         Self {
             node_weights: vec![1, 2, 3, 3, 4],
             disable_event_blob_writer: false,
             blocklist_dir: None,
             enable_node_config_synchronizer: false,
             node_recovery_config: None,
+        }
+    }
+
+    /// Sets the weights of the nodes in the cluster.
+    pub fn with_node_weights(mut self, weights: Vec<u16>) -> Self {
+        self.node_weights = weights;
+        self
+    }
+
+    /// Disables the event blob writer.
+    pub fn with_disable_event_blob_writer(mut self) -> Self {
+        self.disable_event_blob_writer = true;
+        self
+    }
+
+    /// Sets the directory to store the blocklist.
+    pub fn with_blocklist_dir(mut self, dir: PathBuf) -> Self {
+        self.blocklist_dir = Some(dir);
+        self
+    }
+
+    /// Enables the node config synchronizer.
+    pub fn with_enable_node_config_synchronizer(mut self) -> Self {
+        self.enable_node_config_synchronizer = true;
+        self
+    }
+
+    /// Sets the node recovery config.
+    pub fn with_node_recovery_config(mut self, config: NodeRecoveryConfig) -> Self {
+        self.node_recovery_config = Some(config);
+        self
+    }
+
+    /// Builds the [`TestNodesConfig`], validating constraints.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the event blob writer is enabled but the total number of shards
+    /// (sum of node_weights) is less than [`MIN_SHARDS_FOR_EVENT_BLOB_WRITER`].
+    pub fn build(self) -> TestNodesConfig {
+        let n_shards: u16 = self.node_weights.iter().sum();
+        if !self.disable_event_blob_writer && n_shards < MIN_SHARDS_FOR_EVENT_BLOB_WRITER {
+            panic!(
+                "TestNodesConfig: event blob writer requires at least {} shards for \
+                Reed-Solomon encoding, but node_weights {:?} sum to only {} shards. \
+                Either increase node_weights or call with_disable_event_blob_writer().",
+                MIN_SHARDS_FOR_EVENT_BLOB_WRITER, self.node_weights, n_shards
+            );
+        }
+
+        TestNodesConfig {
+            node_weights: self.node_weights,
+            disable_event_blob_writer: self.disable_event_blob_writer,
+            blocklist_dir: self.blocklist_dir,
+            enable_node_config_synchronizer: self.enable_node_config_synchronizer,
+            node_recovery_config: self.node_recovery_config,
         }
     }
 }

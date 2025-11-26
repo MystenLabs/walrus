@@ -1081,10 +1081,9 @@ async_param_test! {
 async fn test_store_quilt(blobs_to_create: u32) -> TestResult {
     walrus_test_utils::init_tracing();
 
-    let test_nodes_config = TestNodesConfig {
-        node_weights: vec![7, 7, 7, 7, 7],
-        ..Default::default()
-    };
+    let test_nodes_config = TestNodesConfig::builder()
+        .with_node_weights(vec![7, 7, 7, 7, 7])
+        .build();
     let test_cluster_builder =
         test_cluster::E2eTestSetupBuilder::new().with_test_nodes_config(test_nodes_config);
     let (_sui_cluster_handle, _cluster, client, _) = test_cluster_builder.build().await?;
@@ -1216,10 +1215,11 @@ async fn test_blocklist() -> TestResult {
     walrus_test_utils::init_tracing();
     let blocklist_dir = tempfile::tempdir().expect("temporary directory creation must succeed");
     let (_sui_cluster_handle, _cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
-        .with_test_nodes_config(TestNodesConfig {
-            blocklist_dir: Some(blocklist_dir.path().to_path_buf()),
-            ..Default::default()
-        })
+        .with_test_nodes_config(
+            TestNodesConfig::builder()
+                .with_blocklist_dir(blocklist_dir.path().to_path_buf())
+                .build(),
+        )
         .build()
         .await?;
 
@@ -1555,10 +1555,12 @@ async fn test_repeated_shard_move() -> TestResult {
     walrus_test_utils::init_tracing();
     let (_sui_cluster_handle, walrus_cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
         .with_epoch_duration(Duration::from_secs(20))
-        .with_test_nodes_config(TestNodesConfig {
-            node_weights: vec![1, 1],
-            ..Default::default()
-        })
+        .with_test_nodes_config(
+            TestNodesConfig::builder()
+                .with_node_weights(vec![1, 1])
+                .with_disable_event_blob_writer()
+                .build(),
+        )
         .build()
         .await?;
 
@@ -2298,10 +2300,12 @@ async fn test_shard_move_out_and_back_in_immediately() -> TestResult {
     walrus_test_utils::init_tracing();
     let (_sui_cluster_handle, walrus_cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
         .with_epoch_duration(Duration::from_secs(20))
-        .with_test_nodes_config(TestNodesConfig {
-            node_weights: vec![1, 1],
-            ..Default::default()
-        })
+        .with_test_nodes_config(
+            TestNodesConfig::builder()
+                .with_node_weights(vec![1, 1])
+                .with_disable_event_blob_writer()
+                .build(),
+        )
         .build()
         .await?;
 
@@ -2828,10 +2832,9 @@ async fn test_store_with_upload_relay_with_tip() {
 async fn test_byte_range_read_client() -> TestResult {
     walrus_test_utils::init_tracing();
 
-    let test_nodes_config = TestNodesConfig {
-        node_weights: vec![7, 7, 7, 7, 7],
-        ..Default::default()
-    };
+    let test_nodes_config = TestNodesConfig::builder()
+        .with_node_weights(vec![7, 7, 7, 7, 7])
+        .build();
     let test_cluster_builder =
         test_cluster::E2eTestSetupBuilder::new().with_test_nodes_config(test_nodes_config);
     let (_sui_cluster_handle, _cluster, client, _) = test_cluster_builder.build().await?;
