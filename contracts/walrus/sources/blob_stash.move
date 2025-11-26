@@ -47,7 +47,6 @@ public struct ManagedBlobInfo has drop {
 
 /// Finds a matching blob that is already stored in the managed table and checks if it's certified.
 /// Returns ManagedBlobInfo if found, otherwise Option::none().
-/// This function combines finding and certification check to avoid multiple table lookups.
 public fun find_blob_by_blob_id(
     self: &BlobStashByBlobId,
     blob_id: u256,
@@ -80,6 +79,16 @@ public fun get_mut_blob_by_blob_id(
     // Check if deletable flag matches. If not, it's a permanency conflict.
     assert!(existing_blob.is_deletable() == deletable, EBlobPermanencyConflict);
 
+    self.blobs.borrow_mut(blob_id)
+}
+
+/// Gets a mutable reference to a blob by blob_id without checking deletable flag.
+/// Use this when the permanency type doesn't matter for the operation.
+fun get_mut_blob_by_blob_id_unchecked(
+    self: &mut BlobStashByBlobId,
+    blob_id: u256,
+): &mut ManagedBlob {
+    assert!(self.blobs.contains(blob_id), EBlobNotRegisteredInBlobManager);
     self.blobs.borrow_mut(blob_id)
 }
 
@@ -181,6 +190,14 @@ public fun get_mut_blob_in_stash(
 ): &mut ManagedBlob {
     match (self) {
         BlobStash::BlobIdBased(s) => get_mut_blob_by_blob_id(s, blob_id, deletable),
+    }
+}
+
+/// Gets a mutable reference to a blob in the stash without checking deletable flag.
+/// Use this when the permanency type doesn't matter for the operation (e.g., attributes).
+public fun get_mut_blob_in_stash_unchecked(self: &mut BlobStash, blob_id: u256): &mut ManagedBlob {
+    match (self) {
+        BlobStash::BlobIdBased(s) => get_mut_blob_by_blob_id_unchecked(s, blob_id),
     }
 }
 

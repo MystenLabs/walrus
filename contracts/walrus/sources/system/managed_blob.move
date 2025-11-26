@@ -4,13 +4,12 @@
 module walrus::managed_blob;
 
 use std::string::String;
-use sui::{dynamic_field, vec_map::{Self, VecMap}};
+use sui::vec_map::{Self, VecMap};
 use walrus::{
     blob,
     encoding,
     events::{emit_managed_blob_registered, emit_managed_blob_certified, emit_managed_blob_deleted},
-    messages::CertifiedBlobMessage,
-    metadata::{Self, Metadata}
+    messages::CertifiedBlobMessage
 };
 
 // Error codes
@@ -28,10 +27,7 @@ const EResourceSize: u64 = 3;
 const EAlreadyCertified: u64 = 5;
 /// The blob ID is incorrect.
 const EInvalidBlobId: u64 = 6;
-/// The metadata field already exists.
-const EDuplicateMetadata: u64 = 7;
-/// The blob does not have any metadata.
-const EMissingMetadata: u64 = 8;
+// Error codes 7-8 are available.
 /// The blob persistence type of the blob does not match the certificate.
 const EInvalidBlobPersistenceType: u64 = 9;
 /// The blob object ID of a deletable blob does not match the ID in the certificate.
@@ -50,9 +46,6 @@ const MAX_ATTRIBUTES: u64 = 100;
 const MAX_ATTRIBUTE_KEY_LENGTH: u64 = 1024;
 /// Maximum length of an attribute value in bytes.
 const MAX_ATTRIBUTE_VALUE_LENGTH: u64 = 1024;
-
-// The fixed dynamic field name for metadata
-const METADATA_DF: vector<u8> = b"metadata";
 
 // === Blob Type ===
 
@@ -260,9 +253,7 @@ public fun certify_with_certified_msg(
 ///
 /// Emits a `ManagedBlobDeleted` event for the given epoch.
 /// Aborts if the ManagedBlob is not deletable.
-/// Also removes any metadata associated with the blob.
-public(package) fun delete(mut self: ManagedBlob, epoch: u32) {
-    dynamic_field::remove_if_exists<_, Metadata>(&mut self.id, METADATA_DF);
+public(package) fun delete(self: ManagedBlob, epoch: u32) {
     let ManagedBlob {
         id,
         blob_manager_id,
@@ -285,12 +276,9 @@ public(package) fun delete(mut self: ManagedBlob, epoch: u32) {
 
 /// Allow the owner of a managed blob object to destroy it.
 ///
-/// This function also burns any [`Metadata`] associated with the blob, if present.
 /// Note: This does not destroy the storage since it's managed by another object.
-public fun burn(mut self: ManagedBlob) {
-    dynamic_field::remove_if_exists<_, Metadata>(&mut self.id, METADATA_DF);
+public fun burn(self: ManagedBlob) {
     let ManagedBlob { id, .. } = self;
-
     id.delete();
 }
 
@@ -311,87 +299,6 @@ public(package) fun emit_certified(self: &ManagedBlob, end_epoch_at_certify: u32
         end_epoch_at_certify,
         self.id.to_inner(),
     );
-}
-
-// === Metadata ===
-
-/// Adds the metadata dynamic field to the ManagedBlob.
-///
-/// Aborts if the metadata is already present.
-public fun add_metadata(self: &mut ManagedBlob, metadata: Metadata) {
-    assert!(!dynamic_field::exists_(&self.id, METADATA_DF), EDuplicateMetadata);
-    dynamic_field::add(&mut self.id, METADATA_DF, metadata)
-}
-
-/// Adds the metadata dynamic field to the ManagedBlob, replacing the existing
-/// metadata if present.
-///
-/// Returns the replaced metadata if present.
-public fun add_or_replace_metadata(
-    self: &mut ManagedBlob,
-    metadata: Metadata,
-): option::Option<Metadata> {
-    let old_metadata = if (dynamic_field::exists_(&self.id, METADATA_DF)) {
-        option::some(self.take_metadata())
-    } else {
-        option::none()
-    };
-    self.add_metadata(metadata);
-    old_metadata
-}
-
-/// Removes the metadata dynamic field from the ManagedBlob, returning the
-/// contained `Metadata`.
-///
-/// Aborts if the metadata does not exist.
-public fun take_metadata(self: &mut ManagedBlob): Metadata {
-    assert!(dynamic_field::exists_(&self.id, METADATA_DF), EMissingMetadata);
-    dynamic_field::remove(&mut self.id, METADATA_DF)
-}
-
-/// Returns the metadata associated with the ManagedBlob.
-///
-/// Aborts if the metadata does not exist.
-fun metadata(self: &mut ManagedBlob): &mut Metadata {
-    assert!(dynamic_field::exists_(&self.id, METADATA_DF), EMissingMetadata);
-    dynamic_field::borrow_mut(&mut self.id, METADATA_DF)
-}
-
-/// Returns the metadata associated with the ManagedBlob, if it exists.
-///
-/// Creates new metadata if it does not exist.
-fun metadata_or_create(self: &mut ManagedBlob): &mut Metadata {
-    if (!dynamic_field::exists_(&self.id, METADATA_DF)) {
-        self.add_metadata(metadata::new());
-    };
-    dynamic_field::borrow_mut(&mut self.id, METADATA_DF)
-}
-
-/// Inserts a key-value pair into the metadata.
-///
-/// If the key is already present, the value is updated. Creates new metadata on
-/// the ManagedBlob object if it does not exist already.
-public fun insert_or_update_metadata_pair(self: &mut ManagedBlob, key: String, value: String) {
-    self.metadata_or_create().insert_or_update(key, value)
-}
-
-/// Removes the metadata associated with the given key.
-///
-/// Aborts if the metadata does not exist.
-public fun remove_metadata_pair(self: &mut ManagedBlob, key: &String): (String, String) {
-    self.metadata().remove(key)
-}
-
-/// Removes and returns the metadata associated with the given key, if it exists.
-public fun remove_metadata_pair_if_exists(
-    self: &mut ManagedBlob,
-    key: &String,
-): option::Option<String> {
-    if (!dynamic_field::exists_(&self.id, METADATA_DF)) {
-        option::none()
-    } else {
-        self.metadata().remove_if_exists(key)
-    }
 }
 
 // === Internal Attributes ===

@@ -754,13 +754,14 @@ impl SuiContractClient {
     pub async fn buy_storage_from_stash(
         &self,
         manager_id: ObjectID,
+        cap: ObjectID,
         storage_amount: u64,
         epochs_ahead: u32,
     ) -> SuiClientResult<()> {
         self.inner
             .lock()
             .await
-            .buy_storage_from_stash(manager_id, storage_amount, epochs_ahead)
+            .buy_storage_from_stash(manager_id, cap, storage_amount, epochs_ahead)
             .await
     }
 
@@ -818,6 +819,54 @@ impl SuiContractClient {
             .lock()
             .await
             .create_blob_manager_cap(manager_id, manager_cap, is_admin, fund_manager)
+            .await
+    }
+
+    /// Sets an attribute on a managed blob in the BlobManager.
+    /// Requires a valid BlobManagerCap.
+    pub async fn set_managed_blob_attribute(
+        &self,
+        manager_id: ObjectID,
+        manager_cap: ObjectID,
+        blob_id: BlobId,
+        key: String,
+        value: String,
+    ) -> SuiClientResult<()> {
+        self.inner
+            .lock()
+            .await
+            .set_managed_blob_attribute(manager_id, manager_cap, blob_id, key, value)
+            .await
+    }
+
+    /// Removes an attribute from a managed blob in the BlobManager.
+    /// Requires a valid BlobManagerCap.
+    pub async fn remove_managed_blob_attribute(
+        &self,
+        manager_id: ObjectID,
+        manager_cap: ObjectID,
+        blob_id: BlobId,
+        key: String,
+    ) -> SuiClientResult<()> {
+        self.inner
+            .lock()
+            .await
+            .remove_managed_blob_attribute(manager_id, manager_cap, blob_id, key)
+            .await
+    }
+
+    /// Clears all attributes from a managed blob in the BlobManager.
+    /// Requires a valid BlobManagerCap.
+    pub async fn clear_managed_blob_attributes(
+        &self,
+        manager_id: ObjectID,
+        manager_cap: ObjectID,
+        blob_id: BlobId,
+    ) -> SuiClientResult<()> {
+        self.inner
+            .lock()
+            .await
+            .clear_managed_blob_attributes(manager_id, manager_cap, blob_id)
             .await
     }
 
@@ -2213,11 +2262,13 @@ impl SuiContractClientInner {
     pub async fn buy_storage_from_stash(
         &mut self,
         manager_id: ObjectID,
+        cap: ObjectID,
         storage_amount: u64,
         epochs_ahead: u32,
     ) -> SuiClientResult<()> {
         tracing::debug!(
             manager_id = %manager_id,
+            cap = %cap,
             storage_amount = storage_amount,
             epochs_ahead = epochs_ahead,
             "buying storage from blob manager coin stash"
@@ -2226,7 +2277,7 @@ impl SuiContractClientInner {
         let mut pt_builder = self.transaction_builder()?;
 
         pt_builder
-            .buy_storage_from_stash(manager_id, storage_amount, epochs_ahead)
+            .buy_storage_from_stash(manager_id, cap, storage_amount, epochs_ahead)
             .await?;
 
         let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
@@ -2359,26 +2410,137 @@ impl SuiContractClientInner {
             return Err(anyhow!("could not create capability: {:?}", res.errors).into());
         }
 
-        // Extract the new capability ObjectID from the transaction response.
-        // Look for the created BlobManagerCap object in effects.
-        let new_cap_id = res
-            .effects
-            .as_ref()
-            .ok_or_else(|| anyhow!("no effects in response"))?
-            .created()
-            .iter()
-            .find(|obj| {
-                // Check if the object is owned by the sender (caps are owned objects).
-                matches!(obj.owner, sui_types::object::Owner::AddressOwner(_))
-            })
-            .map(|obj| obj.object_id())
-            .ok_or_else(|| anyhow!("could not find created capability object"))?;
+        // Extract the new capability ObjectID from the transaction response by type.
+        let cap_ids = get_created_sui_object_ids_by_type(
+            &res,
+            &contracts::blobmanager::BlobManagerCap
+                .to_move_struct_tag_with_type_map(&self.read_client.type_origin_map(), &[])?,
+        )?;
+
+        ensure!(
+            cap_ids.len() == 1,
+            "unexpected number of BlobManagerCap created: {}",
+            cap_ids.len()
+        );
+
+        let new_cap_id = cap_ids[0];
 
         tracing::debug!(
             "successfully created new blob manager capability: {}",
             new_cap_id
         );
         Ok(new_cap_id)
+    }
+
+    /// Sets an attribute on a managed blob in the BlobManager.
+    /// Requires a valid BlobManagerCap.
+    pub async fn set_managed_blob_attribute(
+        &mut self,
+        manager_id: ObjectID,
+        manager_cap: ObjectID,
+        blob_id: BlobId,
+        key: String,
+        value: String,
+    ) -> SuiClientResult<()> {
+        tracing::debug!(
+            manager_id = %manager_id,
+            blob_id = %blob_id,
+            key = %key,
+            "setting managed blob attribute"
+        );
+
+        let mut pt_builder = self.transaction_builder()?;
+
+        pt_builder
+            .set_managed_blob_attribute(manager_id, manager_cap, blob_id, key, value)
+            .await?;
+
+        let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
+        let res = self
+            .sign_and_send_transaction(transaction, "set_managed_blob_attribute")
+            .await?;
+
+        if !res.errors.is_empty() {
+            tracing::warn!(errors = ?res.errors, "failed to set managed blob attribute");
+            return Err(anyhow!("could not set managed blob attribute: {:?}", res.errors).into());
+        }
+
+        tracing::debug!("successfully set managed blob attribute");
+        Ok(())
+    }
+
+    /// Removes an attribute from a managed blob in the BlobManager.
+    /// Requires a valid BlobManagerCap.
+    pub async fn remove_managed_blob_attribute(
+        &mut self,
+        manager_id: ObjectID,
+        manager_cap: ObjectID,
+        blob_id: BlobId,
+        key: String,
+    ) -> SuiClientResult<()> {
+        tracing::debug!(
+            manager_id = %manager_id,
+            blob_id = %blob_id,
+            key = %key,
+            "removing managed blob attribute"
+        );
+
+        let mut pt_builder = self.transaction_builder()?;
+
+        pt_builder
+            .remove_managed_blob_attribute(manager_id, manager_cap, blob_id, key)
+            .await?;
+
+        let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
+        let res = self
+            .sign_and_send_transaction(transaction, "remove_managed_blob_attribute")
+            .await?;
+
+        if !res.errors.is_empty() {
+            tracing::warn!(errors = ?res.errors, "failed to remove managed blob attribute");
+            return Err(
+                anyhow!("could not remove managed blob attribute: {:?}", res.errors).into(),
+            );
+        }
+
+        tracing::debug!("successfully removed managed blob attribute");
+        Ok(())
+    }
+
+    /// Clears all attributes from a managed blob in the BlobManager.
+    /// Requires a valid BlobManagerCap.
+    pub async fn clear_managed_blob_attributes(
+        &mut self,
+        manager_id: ObjectID,
+        manager_cap: ObjectID,
+        blob_id: BlobId,
+    ) -> SuiClientResult<()> {
+        tracing::debug!(
+            manager_id = %manager_id,
+            blob_id = %blob_id,
+            "clearing managed blob attributes"
+        );
+
+        let mut pt_builder = self.transaction_builder()?;
+
+        pt_builder
+            .clear_managed_blob_attributes(manager_id, manager_cap, blob_id)
+            .await?;
+
+        let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
+        let res = self
+            .sign_and_send_transaction(transaction, "clear_managed_blob_attributes")
+            .await?;
+
+        if !res.errors.is_empty() {
+            tracing::warn!(errors = ?res.errors, "failed to clear managed blob attributes");
+            return Err(
+                anyhow!("could not clear managed blob attributes: {:?}", res.errors).into(),
+            );
+        }
+
+        tracing::debug!("successfully cleared managed blob attributes");
+        Ok(())
     }
 
     /// Extracts blob ObjectIDs from transaction response (legacy method for compatibility).

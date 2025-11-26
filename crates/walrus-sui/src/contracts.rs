@@ -487,7 +487,6 @@ pub mod blobmanager {
     contract_ident!(fn blobmanager::register_blob);
     contract_ident!(fn blobmanager::certify_blob);
     contract_ident!(fn blobmanager::delete_blob);
-    contract_ident!(fn blobmanager::duplicate_cap);
     contract_ident!(fn blobmanager::cap_manager_id);
     contract_ident!(fn blobmanager::manager_id);
     contract_ident!(fn blobmanager::capacity_info);
@@ -509,4 +508,8 @@ pub mod blobmanager {
     contract_ident!(fn blobmanager::create_cap);
     contract_ident!(fn blobmanager::is_admin_cap);
     contract_ident!(fn blobmanager::is_fund_manager_cap);
+    // Blob attribute operations.
+    contract_ident!(fn blobmanager::set_blob_attribute);
+    contract_ident!(fn blobmanager::remove_blob_attribute);
+    contract_ident!(fn blobmanager::clear_blob_attributes);
 }

@@ -846,15 +846,21 @@ impl BlobManagerClient<'_, SuiContractClient> {
         epochs_ahead: u32,
     ) -> ClientResult<()> {
         tracing::info!(
-            "BlobManager buy_storage: manager_id={:?}, amount={}, epochs={}",
+            "BlobManager buy_storage: manager_id={:?}, cap={:?}, amount={}, epochs={}",
             self.manager_id,
+            self.manager_cap,
             storage_amount,
             epochs_ahead
         );
 
         self.client
             .sui_client()
-            .buy_storage_from_stash(self.manager_id, storage_amount, epochs_ahead)
+            .buy_storage_from_stash(
+                self.manager_id,
+                self.manager_cap,
+                storage_amount,
+                epochs_ahead,
+            )
             .await
             .map_err(crate::error::ClientError::from)?;
 
@@ -940,6 +946,151 @@ impl BlobManagerClient<'_, SuiContractClient> {
         self.client
             .sui_client()
             .withdraw_all_sui_from_blob_manager(self.manager_id, self.manager_cap)
+            .await
+            .map_err(crate::error::ClientError::from)?;
+
+        Ok(())
+    }
+
+    // ===== Capability Management Methods =====
+
+    /// Creates a new capability for this BlobManager.
+    ///
+    /// Only accounts with admin capabilities can create new capabilities.
+    /// The new capability will be transferred to the transaction sender.
+    ///
+    /// # Arguments
+    ///
+    /// * `is_admin` - Whether the new capability should have admin permissions.
+    /// * `fund_manager` - Whether the new capability should have fund manager permissions.
+    ///   Note: Only capabilities with fund_manager permission can create new fund_manager caps.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(ObjectID)` - The ObjectID of the newly created capability.
+    /// * `Err(ClientError)` if:
+    ///   - The caller doesn't have admin permission.
+    ///   - The caller doesn't have fund_manager permission but tries to create a fund_manager cap.
+    ///   - The transaction fails.
+    pub async fn create_cap(&self, is_admin: bool, fund_manager: bool) -> ClientResult<ObjectID> {
+        tracing::info!(
+            "BlobManager create_cap: manager_id={:?}, cap={:?}, is_admin={}, fund_manager={}",
+            self.manager_id,
+            self.manager_cap,
+            is_admin,
+            fund_manager
+        );
+
+        let new_cap_id = self
+            .client
+            .sui_client()
+            .create_blob_manager_cap(self.manager_id, self.manager_cap, is_admin, fund_manager)
+            .await
+            .map_err(crate::error::ClientError::from)?;
+
+        Ok(new_cap_id)
+    }
+
+    // ===== Blob Attribute Management Methods =====
+
+    /// Sets an attribute on a managed blob.
+    ///
+    /// This adds or updates a key-value attribute on the specified blob.
+    /// If the key already exists, the value is updated.
+    ///
+    /// # Arguments
+    ///
+    /// * `blob_id` - The ID of the blob to set the attribute on.
+    /// * `key` - The attribute key (max 1024 bytes).
+    /// * `value` - The attribute value (max 1024 bytes).
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` if the attribute was successfully set.
+    /// * `Err(ClientError)` if:
+    ///   - The blob is not found in this BlobManager.
+    ///   - The key or value exceeds size limits.
+    ///   - Adding a new key would exceed the max attributes limit (100).
+    ///   - The transaction fails.
+    pub async fn set_attribute(
+        &self,
+        blob_id: BlobId,
+        key: String,
+        value: String,
+    ) -> ClientResult<()> {
+        tracing::info!(
+            "BlobManager set_attribute: manager_id={:?}, blob_id={}, key={}",
+            self.manager_id,
+            blob_id,
+            key
+        );
+
+        self.client
+            .sui_client()
+            .set_managed_blob_attribute(self.manager_id, self.manager_cap, blob_id, key, value)
+            .await
+            .map_err(crate::error::ClientError::from)?;
+
+        Ok(())
+    }
+
+    /// Removes an attribute from a managed blob.
+    ///
+    /// This removes a key-value attribute from the specified blob.
+    ///
+    /// # Arguments
+    ///
+    /// * `blob_id` - The ID of the blob to remove the attribute from.
+    /// * `key` - The attribute key to remove.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` if the attribute was successfully removed.
+    /// * `Err(ClientError)` if:
+    ///   - The blob is not found in this BlobManager.
+    ///   - The key does not exist on the blob.
+    ///   - The transaction fails.
+    pub async fn remove_attribute(&self, blob_id: BlobId, key: String) -> ClientResult<()> {
+        tracing::info!(
+            "BlobManager remove_attribute: manager_id={:?}, blob_id={}, key={}",
+            self.manager_id,
+            blob_id,
+            key
+        );
+
+        self.client
+            .sui_client()
+            .remove_managed_blob_attribute(self.manager_id, self.manager_cap, blob_id, key)
+            .await
+            .map_err(crate::error::ClientError::from)?;
+
+        Ok(())
+    }
+
+    /// Clears all attributes from a managed blob.
+    ///
+    /// This removes all key-value attributes from the specified blob.
+    ///
+    /// # Arguments
+    ///
+    /// * `blob_id` - The ID of the blob to clear attributes from.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` if the attributes were successfully cleared.
+    /// * `Err(ClientError)` if:
+    ///   - The blob is not found in this BlobManager.
+    ///   - The transaction fails.
+    pub async fn clear_attributes(&self, blob_id: BlobId) -> ClientResult<()> {
+        tracing::info!(
+            "BlobManager clear_attributes: manager_id={:?}, blob_id={}",
+            self.manager_id,
+            blob_id
+        );
+
+        self.client
+            .sui_client()
+            .clear_managed_blob_attributes(self.manager_id, self.manager_cap, blob_id)
             .await
             .map_err(crate::error::ClientError::from)?;
 

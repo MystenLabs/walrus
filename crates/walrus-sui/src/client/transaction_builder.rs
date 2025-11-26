@@ -32,6 +32,7 @@ use sui_types::{
 };
 use tracing::instrument;
 use walrus_core::{
+    BlobId,
     Epoch,
     EpochCount,
     NetworkPublicKey,
@@ -2090,6 +2091,7 @@ impl WalrusPtbBuilder {
     pub async fn buy_storage_from_stash(
         &mut self,
         manager: ObjectID,
+        cap: ObjectID,
         storage_amount: u64,
         epochs_ahead: u32,
     ) -> SuiClientResult<()> {
@@ -2105,6 +2107,9 @@ impl WalrusPtbBuilder {
                 initial_shared_version: manager_initial_version,
                 mutability: SharedObjectMutability::Mutable,
             })?,
+            self.pt_builder.obj(ObjectArg::ImmOrOwnedObject(
+                self.read_client.get_object_ref(cap).await?,
+            ))?,
             self.system_arg(SharedObjectMutability::Mutable).await?,
             self.pt_builder.pure(storage_amount)?, // storage amount in bytes.
             self.pt_builder.pure(epochs_ahead)?,   // epochs ahead.
@@ -2225,7 +2230,7 @@ impl WalrusPtbBuilder {
         cap: ObjectID,
         is_admin: bool,
         fund_manager: bool,
-    ) -> SuiClientResult<()> {
+    ) -> SuiClientResult<Argument> {
         // Get the initial shared version for the BlobManager.
         let manager_initial_version = self
             .read_client
@@ -2248,7 +2253,118 @@ impl WalrusPtbBuilder {
             self.pt_builder.pure(fund_manager)?,
         ];
 
-        self.blobmanager_move_call(contracts::blobmanager::create_cap, create_cap_args)?;
+        let result_arg =
+            self.blobmanager_move_call(contracts::blobmanager::create_cap, create_cap_args)?;
+
+        self.add_result_to_be_consumed(result_arg);
+        Ok(result_arg)
+    }
+
+    /// Sets an attribute on a managed blob in the BlobManager.
+    /// Requires a valid BlobManagerCap to prove write access.
+    pub async fn set_managed_blob_attribute(
+        &mut self,
+        manager: ObjectID,
+        cap: ObjectID,
+        blob_id: BlobId,
+        key: String,
+        value: String,
+    ) -> SuiClientResult<()> {
+        // Get the initial shared version for the BlobManager.
+        let manager_initial_version = self
+            .read_client
+            .get_shared_object_initial_version(manager)
+            .await?;
+
+        // Get the capability's ObjectRef.
+        let cap_ref = self.read_client.get_object_ref(cap).await?;
+        let cap_arg = self.pt_builder.obj(ObjectArg::ImmOrOwnedObject(cap_ref))?;
+
+        let set_attr_args = vec![
+            self.pt_builder.obj(ObjectArg::SharedObject {
+                id: manager,
+                initial_shared_version: manager_initial_version,
+                mutability: SharedObjectMutability::Mutable,
+            })?,
+            cap_arg,
+            self.pt_builder.pure(blob_id.0)?,
+            self.pt_builder.pure(key)?,
+            self.pt_builder.pure(value)?,
+        ];
+
+        self.blobmanager_move_call(contracts::blobmanager::set_blob_attribute, set_attr_args)?;
+        Ok(())
+    }
+
+    /// Removes an attribute from a managed blob in the BlobManager.
+    /// Requires a valid BlobManagerCap to prove write access.
+    pub async fn remove_managed_blob_attribute(
+        &mut self,
+        manager: ObjectID,
+        cap: ObjectID,
+        blob_id: BlobId,
+        key: String,
+    ) -> SuiClientResult<()> {
+        // Get the initial shared version for the BlobManager.
+        let manager_initial_version = self
+            .read_client
+            .get_shared_object_initial_version(manager)
+            .await?;
+
+        // Get the capability's ObjectRef.
+        let cap_ref = self.read_client.get_object_ref(cap).await?;
+        let cap_arg = self.pt_builder.obj(ObjectArg::ImmOrOwnedObject(cap_ref))?;
+
+        let remove_attr_args = vec![
+            self.pt_builder.obj(ObjectArg::SharedObject {
+                id: manager,
+                initial_shared_version: manager_initial_version,
+                mutability: SharedObjectMutability::Mutable,
+            })?,
+            cap_arg,
+            self.pt_builder.pure(blob_id.0)?,
+            self.pt_builder.pure(key)?,
+        ];
+
+        self.blobmanager_move_call(
+            contracts::blobmanager::remove_blob_attribute,
+            remove_attr_args,
+        )?;
+        Ok(())
+    }
+
+    /// Clears all attributes from a managed blob in the BlobManager.
+    /// Requires a valid BlobManagerCap to prove write access.
+    pub async fn clear_managed_blob_attributes(
+        &mut self,
+        manager: ObjectID,
+        cap: ObjectID,
+        blob_id: BlobId,
+    ) -> SuiClientResult<()> {
+        // Get the initial shared version for the BlobManager.
+        let manager_initial_version = self
+            .read_client
+            .get_shared_object_initial_version(manager)
+            .await?;
+
+        // Get the capability's ObjectRef.
+        let cap_ref = self.read_client.get_object_ref(cap).await?;
+        let cap_arg = self.pt_builder.obj(ObjectArg::ImmOrOwnedObject(cap_ref))?;
+
+        let clear_attr_args = vec![
+            self.pt_builder.obj(ObjectArg::SharedObject {
+                id: manager,
+                initial_shared_version: manager_initial_version,
+                mutability: SharedObjectMutability::Mutable,
+            })?,
+            cap_arg,
+            self.pt_builder.pure(blob_id.0)?,
+        ];
+
+        self.blobmanager_move_call(
+            contracts::blobmanager::clear_blob_attributes,
+            clear_attr_args,
+        )?;
         Ok(())
     }
 

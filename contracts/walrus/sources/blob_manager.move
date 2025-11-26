@@ -5,6 +5,7 @@
 /// This version provides only essential functionality: new, register, and certify.
 module walrus::blobmanager;
 
+use std::string::String;
 use sui::{coin::{Self, Coin}, sui::SUI};
 use wal::wal::WAL;
 use walrus::{
@@ -118,13 +119,14 @@ public fun new_with_unified_storage(
 /// Creates a new capability for the BlobManager.
 /// Only Admin capability can create new capabilities.
 /// If the creating cap has fund_manager = true, they can create new caps with fund_manager = true.
-public entry fun create_cap(
+/// Returns the newly created capability (caller/PTB handles transfer).
+public fun create_cap(
     self: &BlobManager,
     cap: &BlobManagerCap,
     is_admin: bool,
     fund_manager: bool,
     ctx: &mut TxContext,
-) {
+): BlobManagerCap {
     // Verify the capability matches this BlobManager.
     check_cap(self, cap);
 
@@ -134,14 +136,12 @@ public entry fun create_cap(
     // Only caps with fund_manager = true can create new fund_manager caps.
     assert!(!fund_manager || cap.fund_manager, ERequiresFundManager);
 
-    let new_cap = BlobManagerCap {
+    BlobManagerCap {
         id: object::new(ctx),
         manager_id: object::id(self),
         is_admin,
         fund_manager,
-    };
-
-    transfer::transfer(new_cap, ctx.sender());
+    }
 }
 
 /// Returns the manager ID from a capability.
@@ -327,11 +327,15 @@ public fun deposit_sui_to_coin_stash(self: &mut BlobManager, payment: Coin<SUI>)
 /// Returns true if successful, false if insufficient funds in stash.
 public fun buy_storage_from_stash(
     self: &mut BlobManager,
+    cap: &BlobManagerCap,
     system: &mut System,
     storage_amount: u64,
     epochs_ahead: u32,
     ctx: &mut TxContext,
 ): bool {
+    // Verify the capability, anyone with a cap can buy storage.
+    check_cap(self, cap);
+
     // Get available WAL balance from stash.
     let available_wal = self.coin_stash.wal_balance();
     if (available_wal == 0) {
@@ -505,4 +509,57 @@ public fun withdraw_all_sui(
 
     // Withdraw all SUI.
     self.coin_stash.withdraw_all_sui(ctx)
+}
+
+// === Blob Attribute Operations ===
+
+/// Sets an attribute on a managed blob.
+///
+/// If the key already exists, the value is updated.
+/// Aborts if the blob is not found or if attribute limits are exceeded.
+/// Requires a valid BlobManagerCap to prove write access.
+public fun set_blob_attribute(
+    self: &mut BlobManager,
+    cap: &BlobManagerCap,
+    blob_id: u256,
+    key: String,
+    value: String,
+) {
+    // Verify the capability.
+    check_cap(self, cap);
+
+    // Get the managed blob and set the attribute.
+    let managed_blob = self.blob_stash.get_mut_blob_in_stash_unchecked(blob_id);
+    managed_blob.set_attribute(key, value);
+}
+
+/// Removes an attribute from a managed blob.
+///
+/// Aborts if the blob is not found or if the attribute key doesn't exist.
+/// Requires a valid BlobManagerCap to prove write access.
+public fun remove_blob_attribute(
+    self: &mut BlobManager,
+    cap: &BlobManagerCap,
+    blob_id: u256,
+    key: String,
+) {
+    // Verify the capability.
+    check_cap(self, cap);
+
+    // Get the managed blob and remove the attribute.
+    let managed_blob = self.blob_stash.get_mut_blob_in_stash_unchecked(blob_id);
+    managed_blob.remove_attribute(&key);
+}
+
+/// Clears all attributes from a managed blob.
+///
+/// Aborts if the blob is not found.
+/// Requires a valid BlobManagerCap to prove write access.
+public fun clear_blob_attributes(self: &mut BlobManager, cap: &BlobManagerCap, blob_id: u256) {
+    // Verify the capability.
+    check_cap(self, cap);
+
+    // Get the managed blob and clear all attributes.
+    let managed_blob = self.blob_stash.get_mut_blob_in_stash_unchecked(blob_id);
+    managed_blob.clear_attributes();
 }

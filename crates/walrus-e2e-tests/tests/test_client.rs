@@ -3215,7 +3215,7 @@ async fn test_blob_manager_coin_stash_operations() {
 
     client_ref
         .sui_client()
-        .buy_storage_from_stash(manager_id, additional_storage, storage_epochs)
+        .buy_storage_from_stash(manager_id, cap_id, additional_storage, storage_epochs)
         .await
         .expect("Failed to buy storage from coin stash");
 
@@ -3528,4 +3528,349 @@ async fn test_blob_manager_capability_management() {
     );
 
     tracing::info!("All capability management tests completed successfully!");
+}
+
+/// Test capability permissions with different capability types.
+/// Tests that:
+/// - Admin caps with fund_manager can create any cap type.
+/// - Admin caps without fund_manager cannot create fund_manager caps.
+/// - Writer caps (non-admin) cannot create caps.
+/// - Fund_manager caps can withdraw funds but not create caps.
+#[tokio::test]
+#[ignore = "e2e test"]
+async fn test_blob_manager_capability_permissions() {
+    walrus_test_utils::init_tracing();
+
+    let test_nodes_config = TestNodesConfig {
+        node_weights: vec![7, 7, 7, 7, 7],
+        ..Default::default()
+    };
+    let test_cluster_builder =
+        test_cluster::E2eTestSetupBuilder::new().with_test_nodes_config(test_nodes_config);
+    let (_sui_cluster_handle, _cluster, mut client, _) =
+        test_cluster_builder.build().await.unwrap();
+    let client_ref = client.as_mut();
+
+    // Create a BlobManager.
+    let initial_capacity = 500 * 1024 * 1024; // 500MB.
+    let epochs_ahead = 5;
+
+    let (manager_id, admin_cap_id) = client_ref
+        .sui_client()
+        .create_blob_manager(initial_capacity, epochs_ahead)
+        .await
+        .expect("Failed to create BlobManager");
+
+    tracing::info!("Created BlobManager: {}", manager_id);
+
+    // Wait for objects to be indexed.
+    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+    // Create all capabilities using admin cap in a scope to release the borrow.
+    let (admin_fm_cap, admin_no_fm_cap, writer_cap, fm_cap) = {
+        let blob_manager_client = client_ref
+            .blob_manager(admin_cap_id)
+            .await
+            .expect("Failed to create BlobManagerClient");
+
+        // Test 1: Admin cap with fund_manager creates admin cap with fund_manager.
+        tracing::info!("Test 1: Admin+fund_manager creating admin+fund_manager cap");
+        let admin_fm_cap = blob_manager_client
+            .create_cap(true, true)
+            .await
+            .expect("Admin+fund_manager should create admin+fund_manager cap");
+        tracing::info!("Created admin+fund_manager cap: {}", admin_fm_cap);
+
+        // Test 2: Admin cap with fund_manager creates admin cap without fund_manager.
+        tracing::info!("Test 2: Admin+fund_manager creating admin cap without fund_manager");
+        let admin_no_fm_cap = blob_manager_client
+            .create_cap(true, false)
+            .await
+            .expect("Admin+fund_manager should create admin without fund_manager cap");
+        tracing::info!("Created admin (no fund_manager) cap: {}", admin_no_fm_cap);
+
+        // Test 3: Admin cap with fund_manager creates writer cap (non-admin, non-fund_manager).
+        tracing::info!("Test 3: Admin+fund_manager creating writer cap");
+        let writer_cap = blob_manager_client
+            .create_cap(false, false)
+            .await
+            .expect("Admin+fund_manager should create writer cap");
+        tracing::info!("Created writer cap: {}", writer_cap);
+
+        // Test 7 (create fm_cap here before we need mutable borrows).
+        tracing::info!("Creating fund_manager cap for later tests");
+        let fm_cap = blob_manager_client
+            .create_cap(false, true)
+            .await
+            .expect("Should create fund_manager cap");
+        tracing::info!("Created fund_manager cap: {}", fm_cap);
+
+        (admin_fm_cap, admin_no_fm_cap, writer_cap, fm_cap)
+    };
+
+    // Wait for caps to be indexed.
+    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+    // Test 4: Admin cap without fund_manager CANNOT create fund_manager cap.
+    tracing::info!("Test 4: Admin without fund_manager trying to create fund_manager cap");
+    {
+        let admin_no_fm_client = client_ref
+            .blob_manager(admin_no_fm_cap)
+            .await
+            .expect("Failed to create BlobManagerClient for admin_no_fm");
+
+        let result = admin_no_fm_client.create_cap(false, true).await;
+        assert!(
+            result.is_err(),
+            "Admin without fund_manager should NOT be able to create fund_manager cap"
+        );
+        tracing::info!(
+            "Correctly rejected: admin without fund_manager cannot create fund_manager cap"
+        );
+    }
+
+    // Test 5: Writer cap CANNOT create any caps.
+    tracing::info!("Test 5: Writer cap trying to create cap");
+    {
+        let writer_client = client_ref
+            .blob_manager(writer_cap)
+            .await
+            .expect("Failed to create BlobManagerClient for writer");
+
+        let result = writer_client.create_cap(false, false).await;
+        assert!(
+            result.is_err(),
+            "Writer cap (non-admin) should NOT be able to create caps"
+        );
+        tracing::info!("Correctly rejected: writer cap cannot create caps");
+    }
+
+    // Test 6: Writer cap CAN store blobs.
+    tracing::info!("Test 6: Writer cap storing blob");
+    let test_data = b"Writer capability test blob data";
+    let blob_id = store_and_read_blob_with_blob_manager(
+        client_ref,
+        writer_cap,
+        test_data,
+        BlobPersistence::Permanent,
+    )
+    .await
+    .expect("Writer cap should be able to store blobs");
+    tracing::info!("Writer cap stored blob: {}", blob_id);
+
+    // Test 7: Fund_manager cap (non-admin) CAN withdraw funds.
+    tracing::info!("Test 7: Testing fund_manager cap for fund operations");
+
+    // Deposit some WAL first.
+    client_ref
+        .sui_client()
+        .deposit_wal_to_blob_manager(manager_id, 100_000_000)
+        .await
+        .expect("Failed to deposit WAL");
+
+    // Fund_manager cap can withdraw.
+    client_ref
+        .sui_client()
+        .withdraw_all_wal_from_blob_manager(manager_id, fm_cap)
+        .await
+        .expect("Fund_manager cap should withdraw funds");
+    tracing::info!("Fund_manager cap withdrew funds successfully");
+
+    // Test 8: Fund_manager cap (non-admin) CANNOT create caps.
+    tracing::info!("Test 8: Fund_manager cap trying to create cap");
+    {
+        let fm_client = client_ref
+            .blob_manager(fm_cap)
+            .await
+            .expect("Failed to create BlobManagerClient for fund_manager");
+
+        let result = fm_client.create_cap(false, false).await;
+        assert!(
+            result.is_err(),
+            "Fund_manager cap (non-admin) should NOT be able to create caps"
+        );
+        tracing::info!("Correctly rejected: fund_manager cap (non-admin) cannot create caps");
+    }
+
+    // Suppress unused variable warning.
+    let _ = admin_fm_cap;
+
+    tracing::info!("All capability permission tests completed successfully!");
+}
+
+/// Test blob attribute operations on ManagedBlobs.
+/// Tests: set, read, update, remove, and clear attributes.
+#[tokio::test]
+#[ignore = "e2e test"]
+async fn test_blob_manager_attributes() {
+    walrus_test_utils::init_tracing();
+
+    let test_nodes_config = TestNodesConfig {
+        node_weights: vec![7, 7, 7, 7, 7],
+        ..Default::default()
+    };
+    let test_cluster_builder =
+        test_cluster::E2eTestSetupBuilder::new().with_test_nodes_config(test_nodes_config);
+    let (_sui_cluster_handle, _cluster, mut client, _) =
+        test_cluster_builder.build().await.unwrap();
+    let client_ref = client.as_mut();
+
+    // Create a BlobManager.
+    let initial_capacity = 500 * 1024 * 1024; // 500MB.
+    let epochs_ahead = 5;
+
+    let (_manager_id, admin_cap_id) = client_ref
+        .sui_client()
+        .create_blob_manager(initial_capacity, epochs_ahead)
+        .await
+        .expect("Failed to create BlobManager");
+
+    tracing::info!("Created BlobManager with cap: {}", admin_cap_id);
+
+    // Wait for objects to be indexed.
+    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+    // Store a test blob first (requires mutable borrow of client_ref).
+    let test_data = b"Test blob for attribute operations";
+    let blob_id = store_and_read_blob_with_blob_manager(
+        client_ref,
+        admin_cap_id,
+        test_data,
+        BlobPersistence::Permanent,
+    )
+    .await
+    .expect("Failed to store test blob");
+
+    tracing::info!("Stored test blob: {}", blob_id);
+
+    // Wait for blob to be indexed.
+    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+    // Create BlobManagerClient after storing blob (to avoid borrow conflicts).
+    let blob_manager_client = client_ref
+        .blob_manager(admin_cap_id)
+        .await
+        .expect("Failed to create BlobManagerClient");
+
+    // Test 1: Set first attribute.
+    tracing::info!("Test 1: Setting first attribute");
+    blob_manager_client
+        .set_attribute(blob_id, "key1".to_string(), "value1".to_string())
+        .await
+        .expect("Failed to set first attribute");
+
+    // Read and verify.
+    let managed_blob = blob_manager_client
+        .get_managed_blob(blob_id, false)
+        .await
+        .expect("Failed to get managed blob");
+
+    assert_eq!(managed_blob.attributes.contents.len(), 1);
+    let entry = &managed_blob.attributes.contents[0];
+    assert_eq!(entry.key, "key1");
+    assert_eq!(entry.value, "value1");
+    tracing::info!("Verified first attribute: key1=value1");
+
+    // Test 2: Add a second attribute.
+    tracing::info!("Test 2: Adding second attribute");
+    blob_manager_client
+        .set_attribute(blob_id, "key2".to_string(), "value2".to_string())
+        .await
+        .expect("Failed to set second attribute");
+
+    let managed_blob = blob_manager_client
+        .get_managed_blob(blob_id, false)
+        .await
+        .expect("Failed to get managed blob");
+
+    assert_eq!(managed_blob.attributes.contents.len(), 2);
+    tracing::info!("Verified two attributes present");
+
+    // Test 3: Update an existing attribute.
+    tracing::info!("Test 3: Updating first attribute");
+    blob_manager_client
+        .set_attribute(blob_id, "key1".to_string(), "updated_value1".to_string())
+        .await
+        .expect("Failed to update attribute");
+
+    let managed_blob = blob_manager_client
+        .get_managed_blob(blob_id, false)
+        .await
+        .expect("Failed to get managed blob");
+
+    // Still 2 attributes (updated, not added).
+    assert_eq!(managed_blob.attributes.contents.len(), 2);
+    // Find key1 and verify it's updated.
+    let key1_entry = managed_blob
+        .attributes
+        .contents
+        .iter()
+        .find(|e| e.key == "key1")
+        .expect("key1 should exist");
+    assert_eq!(key1_entry.value, "updated_value1");
+    tracing::info!("Verified attribute update: key1=updated_value1");
+
+    // Test 4: Remove one attribute.
+    tracing::info!("Test 4: Removing second attribute");
+    blob_manager_client
+        .remove_attribute(blob_id, "key2".to_string())
+        .await
+        .expect("Failed to remove attribute");
+
+    let managed_blob = blob_manager_client
+        .get_managed_blob(blob_id, false)
+        .await
+        .expect("Failed to get managed blob");
+
+    // Only 1 attribute left.
+    assert_eq!(managed_blob.attributes.contents.len(), 1);
+    assert_eq!(managed_blob.attributes.contents[0].key, "key1");
+    tracing::info!("Verified key2 removed, only key1 remains");
+
+    // Test 5: Try to remove non-existent attribute (should fail).
+    tracing::info!("Test 5: Trying to remove non-existent attribute");
+    let result = blob_manager_client
+        .remove_attribute(blob_id, "nonexistent".to_string())
+        .await;
+    assert!(
+        result.is_err(),
+        "Removing non-existent attribute should fail"
+    );
+    tracing::info!("Correctly rejected: cannot remove non-existent attribute");
+
+    // Test 6: Add more attributes then clear all.
+    tracing::info!("Test 6: Adding more attributes then clearing all");
+    blob_manager_client
+        .set_attribute(blob_id, "key3".to_string(), "value3".to_string())
+        .await
+        .expect("Failed to set key3");
+    blob_manager_client
+        .set_attribute(blob_id, "key4".to_string(), "value4".to_string())
+        .await
+        .expect("Failed to set key4");
+
+    let managed_blob = blob_manager_client
+        .get_managed_blob(blob_id, false)
+        .await
+        .expect("Failed to get managed blob");
+    assert_eq!(managed_blob.attributes.contents.len(), 3); // key1, key3, key4.
+    tracing::info!("Verified 3 attributes before clear");
+
+    // Clear all attributes.
+    blob_manager_client
+        .clear_attributes(blob_id)
+        .await
+        .expect("Failed to clear attributes");
+
+    let managed_blob = blob_manager_client
+        .get_managed_blob(blob_id, false)
+        .await
+        .expect("Failed to get managed blob");
+    assert!(
+        managed_blob.attributes.contents.is_empty(),
+        "Attributes should be empty after clear"
+    );
+    tracing::info!("Verified all attributes cleared");
+
+    tracing::info!("All attribute tests completed successfully!");
 }
