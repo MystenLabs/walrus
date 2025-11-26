@@ -140,6 +140,14 @@ public fun extend_storage(self: &mut BlobStorage, extension_storage: Storage) {
     }
 }
 
+/// Extends the storage period by consuming a Storage object.
+/// Similar to extend_storage but specifically for coin stash operations.
+public fun extend_managed_storage(self: &mut BlobStorage, extension_storage: Storage) {
+    // For now, just delegate to extend_storage.
+    // In the future, we might have different logic for coin stash extensions.
+    self.extend_storage(extension_storage);
+}
+
 /// Creates a new Unified BlobStorage instance by consuming a Storage object.
 /// The Storage is destroyed and only its capacity and end_epoch are tracked.
 public fun new_unified_blob_storage(initial_storage: Storage): BlobStorage {

@@ -706,6 +706,121 @@ impl SuiContractClient {
         Ok(())
     }
 
+    /// Deletes a deletable managed blob from the BlobManager.
+    ///
+    /// This removes the blob from storage tracking and returns allocated storage
+    /// back to the unified pool.
+    pub async fn delete_managed_blob(
+        &self,
+        manager_id: ObjectID,
+        manager_cap: ObjectID,
+        blob_id: BlobId,
+        deletable: bool,
+    ) -> SuiClientResult<()> {
+        self.inner
+            .lock()
+            .await
+            .delete_managed_blob(manager_id, manager_cap, blob_id, deletable)
+            .await
+    }
+
+    /// Deposits WAL coins to the BlobManager's coin stash.
+    pub async fn deposit_wal_to_blob_manager(
+        &self,
+        manager_id: ObjectID,
+        wal_amount: u64,
+    ) -> SuiClientResult<()> {
+        self.inner
+            .lock()
+            .await
+            .deposit_wal_to_blob_manager(manager_id, wal_amount)
+            .await
+    }
+
+    /// Deposits SUI coins to the BlobManager's coin stash.
+    pub async fn deposit_sui_to_blob_manager(
+        &self,
+        manager_id: ObjectID,
+        sui_amount: u64,
+    ) -> SuiClientResult<()> {
+        self.inner
+            .lock()
+            .await
+            .deposit_sui_to_blob_manager(manager_id, sui_amount)
+            .await
+    }
+
+    /// Buys additional storage using funds from the BlobManager's coin stash.
+    pub async fn buy_storage_from_stash(
+        &self,
+        manager_id: ObjectID,
+        storage_amount: u64,
+        epochs_ahead: u32,
+    ) -> SuiClientResult<()> {
+        self.inner
+            .lock()
+            .await
+            .buy_storage_from_stash(manager_id, storage_amount, epochs_ahead)
+            .await
+    }
+
+    /// Extends the storage period using funds from the BlobManager's coin stash.
+    pub async fn extend_storage_from_stash(
+        &self,
+        manager_id: ObjectID,
+        extension_epochs: u32,
+    ) -> SuiClientResult<()> {
+        self.inner
+            .lock()
+            .await
+            .extend_storage_from_stash(manager_id, extension_epochs)
+            .await
+    }
+
+    /// Withdraws all WAL funds from the BlobManager's coin stash.
+    /// Requires fund_manager permission.
+    pub async fn withdraw_all_wal_from_blob_manager(
+        &self,
+        manager_id: ObjectID,
+        manager_cap: ObjectID,
+    ) -> SuiClientResult<()> {
+        self.inner
+            .lock()
+            .await
+            .withdraw_all_wal_from_blob_manager(manager_id, manager_cap)
+            .await
+    }
+
+    /// Withdraws all SUI funds from the BlobManager's coin stash.
+    /// Requires fund_manager permission.
+    pub async fn withdraw_all_sui_from_blob_manager(
+        &self,
+        manager_id: ObjectID,
+        manager_cap: ObjectID,
+    ) -> SuiClientResult<()> {
+        self.inner
+            .lock()
+            .await
+            .withdraw_all_sui_from_blob_manager(manager_id, manager_cap)
+            .await
+    }
+
+    /// Creates a new capability for the BlobManager.
+    /// Requires admin permission on the creating capability.
+    pub async fn create_blob_manager_cap(
+        &self,
+        manager_id: ObjectID,
+        manager_cap: ObjectID,
+        is_admin: bool,
+        fund_manager: bool,
+    ) -> SuiClientResult<ObjectID> {
+        self.inner
+            .lock()
+            .await
+            .create_blob_manager_cap(manager_id, manager_cap, is_admin, fund_manager)
+            .await
+    }
+
     /// Certifies the specified blob on Sui, given a certificate that confirms its storage and
     /// returns the certified blob.
     ///
@@ -2002,6 +2117,268 @@ impl SuiContractClientInner {
 
         tracing::debug!("successfully registered blobs in blob manager");
         Ok(())
+    }
+
+    /// Deletes a deletable managed blob from the BlobManager.
+    ///
+    /// This removes the blob from storage tracking and returns allocated storage
+    /// back to the unified pool.
+    pub async fn delete_managed_blob(
+        &mut self,
+        manager_id: ObjectID,
+        manager_cap: ObjectID,
+        blob_id: BlobId,
+        deletable: bool,
+    ) -> SuiClientResult<()> {
+        tracing::debug!(
+            blob_id = %blob_id,
+            deletable = deletable,
+            manager_id = %manager_id,
+            "deleting managed blob from blob manager"
+        );
+
+        let mut pt_builder = self.transaction_builder()?;
+
+        pt_builder
+            .delete_managed_blob(manager_id, manager_cap, blob_id, deletable)
+            .await?;
+
+        let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
+        let res = self
+            .sign_and_send_transaction(transaction, "delete_managed_blob")
+            .await?;
+
+        if !res.errors.is_empty() {
+            tracing::warn!(errors = ?res.errors, "failed to delete managed blob");
+            return Err(anyhow!("could not delete managed blob: {:?}", res.errors).into());
+        }
+
+        tracing::debug!("successfully deleted managed blob from blob manager");
+        Ok(())
+    }
+
+    /// Deposits WAL coins to the BlobManager's coin stash.
+    pub async fn deposit_wal_to_blob_manager(
+        &mut self,
+        manager_id: ObjectID,
+        wal_amount: u64,
+    ) -> SuiClientResult<()> {
+        tracing::debug!(
+            manager_id = %manager_id,
+            wal_amount = wal_amount,
+            "depositing WAL to blob manager coin stash"
+        );
+
+        let mut pt_builder = self.transaction_builder()?;
+
+        pt_builder
+            .deposit_wal_to_blob_manager(manager_id, wal_amount)
+            .await?;
+
+        let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
+        self.sign_and_send_transaction(transaction, "deposit_wal_to_blob_manager")
+            .await?;
+
+        tracing::debug!("successfully deposited WAL to blob manager");
+        Ok(())
+    }
+
+    /// Deposits SUI coins to the BlobManager's coin stash.
+    pub async fn deposit_sui_to_blob_manager(
+        &mut self,
+        manager_id: ObjectID,
+        sui_amount: u64,
+    ) -> SuiClientResult<()> {
+        tracing::debug!(
+            manager_id = %manager_id,
+            sui_amount = sui_amount,
+            "depositing SUI to blob manager coin stash"
+        );
+
+        let mut pt_builder = self.transaction_builder()?;
+
+        pt_builder
+            .deposit_sui_to_blob_manager(manager_id, sui_amount)
+            .await?;
+
+        let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
+        self.sign_and_send_transaction(transaction, "deposit_sui_to_blob_manager")
+            .await?;
+
+        tracing::debug!("successfully deposited SUI to blob manager");
+        Ok(())
+    }
+
+    /// Buys additional storage using funds from the BlobManager's coin stash.
+    pub async fn buy_storage_from_stash(
+        &mut self,
+        manager_id: ObjectID,
+        storage_amount: u64,
+        epochs_ahead: u32,
+    ) -> SuiClientResult<()> {
+        tracing::debug!(
+            manager_id = %manager_id,
+            storage_amount = storage_amount,
+            epochs_ahead = epochs_ahead,
+            "buying storage from blob manager coin stash"
+        );
+
+        let mut pt_builder = self.transaction_builder()?;
+
+        pt_builder
+            .buy_storage_from_stash(manager_id, storage_amount, epochs_ahead)
+            .await?;
+
+        let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
+        let res = self
+            .sign_and_send_transaction(transaction, "buy_storage_from_stash")
+            .await?;
+
+        if !res.errors.is_empty() {
+            tracing::warn!(errors = ?res.errors, "failed to buy storage from stash");
+            return Err(anyhow!("could not buy storage: {:?}", res.errors).into());
+        }
+
+        tracing::debug!("successfully bought storage from coin stash");
+        Ok(())
+    }
+
+    /// Extends the storage period using funds from the BlobManager's coin stash.
+    pub async fn extend_storage_from_stash(
+        &mut self,
+        manager_id: ObjectID,
+        extension_epochs: u32,
+    ) -> SuiClientResult<()> {
+        tracing::debug!(
+            manager_id = %manager_id,
+            extension_epochs = extension_epochs,
+            "extending storage from blob manager coin stash"
+        );
+
+        let mut pt_builder = self.transaction_builder()?;
+
+        pt_builder
+            .extend_storage_from_stash(manager_id, extension_epochs)
+            .await?;
+
+        let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
+        let res = self
+            .sign_and_send_transaction(transaction, "extend_storage_from_stash")
+            .await?;
+
+        if !res.errors.is_empty() {
+            tracing::warn!(errors = ?res.errors, "failed to extend storage from stash");
+            return Err(anyhow!("could not extend storage: {:?}", res.errors).into());
+        }
+
+        tracing::debug!("successfully extended storage from coin stash");
+        Ok(())
+    }
+
+    /// Withdraws all WAL funds from the BlobManager's coin stash.
+    /// Requires fund_manager permission on the capability.
+    pub async fn withdraw_all_wal_from_blob_manager(
+        &mut self,
+        manager_id: ObjectID,
+        manager_cap: ObjectID,
+    ) -> SuiClientResult<()> {
+        tracing::debug!(
+            manager_id = %manager_id,
+            "withdrawing all WAL from blob manager coin stash"
+        );
+
+        let mut pt_builder = self.transaction_builder()?;
+
+        pt_builder
+            .withdraw_all_wal_from_blob_manager(manager_id, manager_cap)
+            .await?;
+
+        let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
+        self.sign_and_send_transaction(transaction, "withdraw_all_wal_from_blob_manager")
+            .await?;
+
+        tracing::debug!("successfully withdrew all WAL from blob manager");
+        Ok(())
+    }
+
+    /// Withdraws all SUI funds from the BlobManager's coin stash.
+    /// Requires fund_manager permission on the capability.
+    pub async fn withdraw_all_sui_from_blob_manager(
+        &mut self,
+        manager_id: ObjectID,
+        manager_cap: ObjectID,
+    ) -> SuiClientResult<()> {
+        tracing::debug!(
+            manager_id = %manager_id,
+            "withdrawing all SUI from blob manager coin stash"
+        );
+
+        let mut pt_builder = self.transaction_builder()?;
+
+        pt_builder
+            .withdraw_all_sui_from_blob_manager(manager_id, manager_cap)
+            .await?;
+
+        let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
+        self.sign_and_send_transaction(transaction, "withdraw_all_sui_from_blob_manager")
+            .await?;
+
+        tracing::debug!("successfully withdrew all SUI from blob manager");
+        Ok(())
+    }
+
+    /// Creates a new capability for the BlobManager.
+    /// Requires admin permission on the creating capability.
+    pub async fn create_blob_manager_cap(
+        &mut self,
+        manager_id: ObjectID,
+        manager_cap: ObjectID,
+        is_admin: bool,
+        fund_manager: bool,
+    ) -> SuiClientResult<ObjectID> {
+        tracing::debug!(
+            manager_id = %manager_id,
+            is_admin = is_admin,
+            fund_manager = fund_manager,
+            "creating new blob manager capability"
+        );
+
+        let mut pt_builder = self.transaction_builder()?;
+
+        pt_builder
+            .create_blob_manager_cap(manager_id, manager_cap, is_admin, fund_manager)
+            .await?;
+
+        let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
+        let res = self
+            .sign_and_send_transaction(transaction, "create_blob_manager_cap")
+            .await?;
+
+        if !res.errors.is_empty() {
+            tracing::warn!(errors = ?res.errors, "failed to create blob manager cap");
+            return Err(anyhow!("could not create capability: {:?}", res.errors).into());
+        }
+
+        // Extract the new capability ObjectID from the transaction response.
+        // Look for the created BlobManagerCap object in effects.
+        let new_cap_id = res
+            .effects
+            .as_ref()
+            .ok_or_else(|| anyhow!("no effects in response"))?
+            .created()
+            .iter()
+            .find(|obj| {
+                // Check if the object is owned by the sender (caps are owned objects).
+                matches!(obj.owner, sui_types::object::Owner::AddressOwner(_))
+            })
+            .map(|obj| obj.object_id())
+            .ok_or_else(|| anyhow!("could not find created capability object"))?;
+
+        tracing::debug!(
+            "successfully created new blob manager capability: {}",
+            new_cap_id
+        );
+        Ok(new_cap_id)
     }
 
     /// Extracts blob ObjectIDs from transaction response (legacy method for compatibility).

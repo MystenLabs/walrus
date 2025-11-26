@@ -115,6 +115,7 @@ pub struct WalrusPtbBuilder {
     tx_wal_balance: u64,
     tx_sui_cost: u64,
     used_wal_coins: BTreeSet<ObjectID>,
+    used_sui_coins: BTreeSet<ObjectID>,
     wal_coin_arg: Option<Argument>,
     sender_address: SuiAddress,
     args_to_consume: HashSet<Argument>,
@@ -127,6 +128,7 @@ impl Debug for WalrusPtbBuilder {
             .field("tx_wal_balance", &self.tx_wal_balance)
             .field("tx_sui_cost", &self.tx_sui_cost)
             .field("used_wal_coins", &self.used_wal_coins)
+            .field("used_sui_coins", &self.used_sui_coins)
             .field("wal_coin_arg", &self.wal_coin_arg)
             .field("sender_address", &self.sender_address)
             .field("args_to_consume", &self.args_to_consume)
@@ -143,6 +145,7 @@ impl WalrusPtbBuilder {
             tx_wal_balance: 0,
             tx_sui_cost: 0,
             used_wal_coins: BTreeSet::new(),
+            used_sui_coins: BTreeSet::new(),
             wal_coin_arg: None,
             sender_address,
             args_to_consume: HashSet::new(),
@@ -204,6 +207,75 @@ impl WalrusPtbBuilder {
         }
         self.tx_wal_balance += added_balance;
         Ok(())
+    }
+
+    /// Stages SUI coins for a specific amount by fetching and merging coins as needed.
+    ///
+    /// Unlike `fill_wal_balance`, this function doesn't maintain a running balance
+    /// since SUI deposits are typically one-time operations. It returns the exact
+    /// coin argument for the requested amount.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if no SUI coins with sufficient balance can be found.
+    async fn stage_sui_coins_for_amount(&mut self, amount: u64) -> SuiClientResult<Argument> {
+        // Get coins with the required total balance, excluding already used coins.
+        let coins = self
+            .read_client
+            .get_coins_with_total_balance(
+                self.sender_address,
+                CoinType::Sui,
+                amount,
+                self.used_sui_coins.iter().cloned().collect(),
+            )
+            .await?;
+
+        if coins.is_empty() {
+            return Err(SuiClientError::NoCompatibleGasCoins(Some(amount.into())));
+        }
+
+        // Track the total balance we're collecting.
+        let mut total_balance = 0u64;
+        let mut coin_args = Vec::new();
+
+        for coin in coins {
+            // Mark coins as used to avoid reusing them.
+            self.used_sui_coins.insert(coin.coin_object_id);
+            total_balance += coin.balance;
+            coin_args.push(self.pt_builder.input(coin.object_ref().into())?);
+        }
+
+        // If there's only one coin with exact amount, return it directly.
+        if coin_args.len() == 1 && total_balance == amount {
+            return Ok(coin_args[0]);
+        }
+
+        // If there's only one coin with more than needed, split the exact amount.
+        if coin_args.len() == 1 {
+            let amount_arg = self.pt_builder.pure(amount)?;
+            let split_result = self
+                .pt_builder
+                .command(Command::SplitCoins(coin_args[0], vec![amount_arg]));
+            return Ok(split_result);
+        }
+
+        // Multiple coins: merge them first.
+        let main_coin = coin_args[0];
+        let other_coins = coin_args[1..].to_vec();
+        self.pt_builder
+            .command(Command::MergeCoins(main_coin, other_coins));
+
+        // If total equals exact amount, return the merged coin.
+        if total_balance == amount {
+            return Ok(main_coin);
+        }
+
+        // Otherwise split the exact amount from the merged coin.
+        let amount_arg = self.pt_builder.pure(amount)?;
+        let split_result = self
+            .pt_builder
+            .command(Command::SplitCoins(main_coin, vec![amount_arg]));
+        Ok(split_result)
     }
 
     fn reduce_wal_balance(&mut self, amount: u64) -> SuiClientResult<()> {
@@ -1589,7 +1661,7 @@ impl WalrusPtbBuilder {
         let programmable_transaction = self.pt_builder.finish();
         let gas_price = self.read_client.get_reference_gas_price().await?;
 
-        build_transaction_data_with_min_gas_balance(
+        build_transaction_data_with_min_gas_balance_and_exclusions(
             programmable_transaction,
             gas_price,
             self.read_client.as_ref(),
@@ -1597,6 +1669,7 @@ impl WalrusPtbBuilder {
             gas_budget,
             minimum_gas_coin_balance,
             self.tx_sui_cost,
+            self.used_sui_coins.clone().into_iter().collect(),
         )
         .await
     }
@@ -1894,6 +1967,291 @@ impl WalrusPtbBuilder {
         Ok(())
     }
 
+    /// Deletes a deletable managed blob from the BlobManager.
+    pub async fn delete_managed_blob(
+        &mut self,
+        manager: ObjectID,
+        cap: ObjectID,
+        blob_id: walrus_core::BlobId,
+        deletable: bool,
+    ) -> SuiClientResult<()> {
+        // Get the initial shared version for the BlobManager first.
+        let manager_initial_version = self
+            .read_client
+            .get_shared_object_initial_version(manager)
+            .await?;
+
+        // Create the capability argument (cap is an owned object).
+        let cap_arg = self
+            .argument_from_arg_or_obj(ArgumentOrOwnedObject::Object(cap))
+            .await?;
+
+        let delete_args = vec![
+            self.pt_builder.obj(ObjectArg::SharedObject {
+                id: manager,
+                initial_shared_version: manager_initial_version,
+                mutability: SharedObjectMutability::Mutable,
+            })?,
+            cap_arg,
+            self.system_arg(SharedObjectMutability::Immutable).await?,
+            self.pt_builder.pure(blob_id)?,   // blob_id as u256.
+            self.pt_builder.pure(deletable)?, // deletable flag.
+        ];
+
+        self.blobmanager_move_call(contracts::blobmanager::delete_blob, delete_args)?;
+        Ok(())
+    }
+
+    /// Deposits WAL coins to the BlobManager's coin stash.
+    pub async fn deposit_wal_to_blob_manager(
+        &mut self,
+        manager: ObjectID,
+        wal_amount: u64,
+    ) -> SuiClientResult<()> {
+        // Fill WAL balance to ensure we have enough coins.
+        self.fill_wal_balance(wal_amount).await?;
+        assert!(
+            self.tx_wal_balance >= wal_amount,
+            "Insufficient WAL balance"
+        );
+
+        // Get the initial shared version for the BlobManager.
+        let manager_initial_version = self
+            .read_client
+            .get_shared_object_initial_version(manager)
+            .await?;
+
+        // Split the exact amount from the WAL coin arg.
+        let wal_coin = if self.tx_wal_balance > wal_amount {
+            // We have more than needed, split the exact amount.
+            let amount_arg = self.pt_builder.pure(wal_amount)?;
+            let wal_coin_arg = self.wal_coin_arg()?;
+            let split_result = self
+                .pt_builder
+                .command(Command::SplitCoins(wal_coin_arg, vec![amount_arg]));
+            self.reduce_wal_balance(wal_amount)?;
+            split_result
+        } else {
+            // Use the entire WAL coin.
+            let coin = self.wal_coin_arg()?;
+            self.tx_wal_balance = 0;
+            self.wal_coin_arg = None;
+            coin
+        };
+
+        let deposit_args = vec![
+            self.pt_builder.obj(ObjectArg::SharedObject {
+                id: manager,
+                initial_shared_version: manager_initial_version,
+                mutability: SharedObjectMutability::Mutable,
+            })?,
+            wal_coin,
+        ];
+
+        self.blobmanager_move_call(
+            contracts::blobmanager::deposit_wal_to_coin_stash,
+            deposit_args,
+        )?;
+        Ok(())
+    }
+
+    /// Deposits SUI coins to the BlobManager's coin stash.
+    pub async fn deposit_sui_to_blob_manager(
+        &mut self,
+        manager: ObjectID,
+        sui_amount: u64,
+    ) -> SuiClientResult<()> {
+        // Stage the exact amount of SUI coins needed.
+        let sui_coin = self.stage_sui_coins_for_amount(sui_amount).await?;
+
+        // Get the initial shared version for the BlobManager.
+        let manager_initial_version = self
+            .read_client
+            .get_shared_object_initial_version(manager)
+            .await?;
+
+        let deposit_args = vec![
+            self.pt_builder.obj(ObjectArg::SharedObject {
+                id: manager,
+                initial_shared_version: manager_initial_version,
+                mutability: SharedObjectMutability::Mutable,
+            })?,
+            sui_coin,
+        ];
+
+        self.blobmanager_move_call(
+            contracts::blobmanager::deposit_sui_to_coin_stash,
+            deposit_args,
+        )?;
+        Ok(())
+    }
+
+    /// Buys additional storage using funds from the BlobManager's coin stash.
+    pub async fn buy_storage_from_stash(
+        &mut self,
+        manager: ObjectID,
+        storage_amount: u64,
+        epochs_ahead: u32,
+    ) -> SuiClientResult<()> {
+        // Get the initial shared version for the BlobManager.
+        let manager_initial_version = self
+            .read_client
+            .get_shared_object_initial_version(manager)
+            .await?;
+
+        let buy_args = vec![
+            self.pt_builder.obj(ObjectArg::SharedObject {
+                id: manager,
+                initial_shared_version: manager_initial_version,
+                mutability: SharedObjectMutability::Mutable,
+            })?,
+            self.system_arg(SharedObjectMutability::Mutable).await?,
+            self.pt_builder.pure(storage_amount)?, // storage amount in bytes.
+            self.pt_builder.pure(epochs_ahead)?,   // epochs ahead.
+        ];
+
+        self.blobmanager_move_call(contracts::blobmanager::buy_storage_from_stash, buy_args)?;
+        Ok(())
+    }
+
+    /// Extends the storage period using funds from the BlobManager's coin stash.
+    pub async fn extend_storage_from_stash(
+        &mut self,
+        manager: ObjectID,
+        extension_epochs: u32,
+    ) -> SuiClientResult<()> {
+        // Get the initial shared version for the BlobManager.
+        let manager_initial_version = self
+            .read_client
+            .get_shared_object_initial_version(manager)
+            .await?;
+
+        let extend_args = vec![
+            self.pt_builder.obj(ObjectArg::SharedObject {
+                id: manager,
+                initial_shared_version: manager_initial_version,
+                mutability: SharedObjectMutability::Mutable,
+            })?,
+            self.system_arg(SharedObjectMutability::Mutable).await?,
+            self.pt_builder.pure(extension_epochs)?, // extension epochs.
+        ];
+
+        self.blobmanager_move_call(
+            contracts::blobmanager::extend_storage_from_stash,
+            extend_args,
+        )?;
+        Ok(())
+    }
+
+    /// Withdraws all WAL funds from the BlobManager's coin stash.
+    /// Requires fund_manager permission on the capability.
+    pub async fn withdraw_all_wal_from_blob_manager(
+        &mut self,
+        manager: ObjectID,
+        cap: ObjectID,
+    ) -> SuiClientResult<()> {
+        // Get the initial shared version for the BlobManager.
+        let manager_initial_version = self
+            .read_client
+            .get_shared_object_initial_version(manager)
+            .await?;
+
+        // Get the capability's ObjectRef.
+        let cap_ref = self.read_client.get_object_ref(cap).await?;
+        let cap_arg = self.pt_builder.obj(ObjectArg::ImmOrOwnedObject(cap_ref))?;
+
+        let withdraw_args = vec![
+            self.pt_builder.obj(ObjectArg::SharedObject {
+                id: manager,
+                initial_shared_version: manager_initial_version,
+                mutability: SharedObjectMutability::Mutable,
+            })?,
+            cap_arg,
+        ];
+
+        let coin =
+            self.blobmanager_move_call(contracts::blobmanager::withdraw_all_wal, withdraw_args)?;
+
+        // Transfer the withdrawn coin to the sender
+        let sender = self.pt_builder.pure(self.sender_address)?;
+        self.pt_builder
+            .command(Command::TransferObjects(vec![coin], sender));
+
+        Ok(())
+    }
+
+    /// Withdraws all SUI funds from the BlobManager's coin stash.
+    /// Requires fund_manager permission on the capability.
+    pub async fn withdraw_all_sui_from_blob_manager(
+        &mut self,
+        manager: ObjectID,
+        cap: ObjectID,
+    ) -> SuiClientResult<()> {
+        // Get the initial shared version for the BlobManager.
+        let manager_initial_version = self
+            .read_client
+            .get_shared_object_initial_version(manager)
+            .await?;
+
+        // Get the capability's ObjectRef.
+        let cap_ref = self.read_client.get_object_ref(cap).await?;
+        let cap_arg = self.pt_builder.obj(ObjectArg::ImmOrOwnedObject(cap_ref))?;
+
+        let withdraw_args = vec![
+            self.pt_builder.obj(ObjectArg::SharedObject {
+                id: manager,
+                initial_shared_version: manager_initial_version,
+                mutability: SharedObjectMutability::Mutable,
+            })?,
+            cap_arg,
+        ];
+
+        let coin =
+            self.blobmanager_move_call(contracts::blobmanager::withdraw_all_sui, withdraw_args)?;
+
+        // Transfer the withdrawn coin to the sender
+        let sender = self.pt_builder.pure(self.sender_address)?;
+        self.pt_builder
+            .command(Command::TransferObjects(vec![coin], sender));
+
+        Ok(())
+    }
+
+    /// Creates a new capability for the BlobManager.
+    /// Requires admin permission on the creating capability.
+    pub async fn create_blob_manager_cap(
+        &mut self,
+        manager: ObjectID,
+        cap: ObjectID,
+        is_admin: bool,
+        fund_manager: bool,
+    ) -> SuiClientResult<()> {
+        // Get the initial shared version for the BlobManager.
+        let manager_initial_version = self
+            .read_client
+            .get_shared_object_initial_version(manager)
+            .await?;
+
+        // Get the capability's ObjectRef.
+        let cap_ref = self.read_client.get_object_ref(cap).await?;
+        let cap_arg = self.pt_builder.obj(ObjectArg::ImmOrOwnedObject(cap_ref))?;
+
+        let create_cap_args = vec![
+            self.pt_builder.obj(ObjectArg::SharedObject {
+                id: manager,
+                initial_shared_version: manager_initial_version,
+                // BlobManager is immutable for this call.
+                mutability: SharedObjectMutability::Immutable,
+            })?,
+            cap_arg,
+            self.pt_builder.pure(is_admin)?,
+            self.pt_builder.pure(fund_manager)?,
+        ];
+
+        self.blobmanager_move_call(contracts::blobmanager::create_cap, create_cap_args)?;
+        Ok(())
+    }
+
     /// Helper to make BlobManager move calls.
     fn blobmanager_move_call<T: Into<FunctionTag<'static>>>(
         &mut self,
@@ -1920,6 +2278,36 @@ pub async fn build_transaction_data_with_min_gas_balance(
     minimum_gas_coin_balance: u64,
     tx_sui_cost: u64,
 ) -> SuiClientResult<TransactionData> {
+    build_transaction_data_with_min_gas_balance_and_exclusions(
+        programmable_transaction,
+        gas_price,
+        read_client,
+        sender_address,
+        gas_budget,
+        minimum_gas_coin_balance,
+        tx_sui_cost,
+        HashSet::new(),
+    )
+    .await
+}
+
+/// Returns the [`TransactionData`] containing the unsigned transaction, excluding specific coins.
+///
+/// If no `gas_budget` is provided, the budget will be estimated. The used gas coins will cover a
+/// balance of at least `minimum_gas_coin_balance`. This is useful, e.g.,  to make sure that all gas
+/// coins get merged. The `excluded_coins` parameter allows excluding coins that were already used
+/// in the transaction.
+#[allow(clippy::too_many_arguments)]
+pub async fn build_transaction_data_with_min_gas_balance_and_exclusions(
+    programmable_transaction: ProgrammableTransaction,
+    gas_price: u64,
+    read_client: &SuiReadClient,
+    sender_address: SuiAddress,
+    gas_budget: Option<u64>,
+    minimum_gas_coin_balance: u64,
+    tx_sui_cost: u64,
+    excluded_coins: HashSet<ObjectID>,
+) -> SuiClientResult<TransactionData> {
     // Estimate the gas budget unless explicitly set.
     let gas_budget = if let Some(budget) = gas_budget {
         budget
@@ -1933,12 +2321,23 @@ pub async fn build_transaction_data_with_min_gas_balance(
 
     let minimum_gas_coin_balance = minimum_gas_coin_balance.max(gas_budget + tx_sui_cost);
 
+    // Get gas coins with the required balance, excluding already used coins.
+    let gas_coins = read_client
+        .get_coins_with_total_balance(
+            sender_address,
+            CoinType::Sui,
+            minimum_gas_coin_balance,
+            excluded_coins.into_iter().collect(),
+        )
+        .await?
+        .iter()
+        .map(|coin| coin.object_ref())
+        .collect();
+
     // Construct the transaction with gas coins that meet the minimum balance requirement
     Ok(TransactionData::new_programmable(
         sender_address,
-        read_client
-            .get_compatible_gas_coins(sender_address, minimum_gas_coin_balance)
-            .await?,
+        gas_coins,
         programmable_transaction,
         gas_budget,
         gas_price,

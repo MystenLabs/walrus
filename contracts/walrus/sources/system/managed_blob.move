@@ -204,13 +204,7 @@ public fun certify_with_certified_msg(
         EInvalidBlobPersistenceType,
     );
 
-    // Check that the object id matches the message
-    if (self.deletable) {
-        assert!(
-            message.blob_persistence_type().object_id() == object::id(self),
-            EInvalidBlobObject,
-        );
-    };
+    assert!(message.blob_persistence_type().object_id() == object::id(self), EInvalidBlobObject);
 
     // Mark the blob as certified
     self.certified_epoch.fill(current_epoch);

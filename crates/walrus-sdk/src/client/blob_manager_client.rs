@@ -29,6 +29,28 @@ use crate::{
     error::ClientResult,
 };
 
+/// BlobManager storage information.
+#[derive(Debug, Clone)]
+pub struct BlobManagerStorageInfo {
+    /// Total storage capacity in bytes.
+    pub total_capacity: u64,
+    /// Used storage capacity in bytes.
+    pub used_capacity: u64,
+    /// Available storage capacity in bytes.
+    pub available_capacity: u64,
+    /// The epoch when the storage expires.
+    pub end_epoch: u32,
+}
+
+/// BlobManager coin stash balances.
+#[derive(Debug, Clone)]
+pub struct BlobManagerCoinStashBalances {
+    /// WAL token balance in the coin stash.
+    pub wal_balance: u64,
+    /// SUI token balance in the coin stash.
+    pub sui_balance: u64,
+}
+
 /// A facade for interacting with Walrus BlobManager.
 #[derive(Debug)]
 pub struct BlobManagerClient<'a, T> {
@@ -270,6 +292,274 @@ impl<'a> BlobManagerClient<'a, SuiContractClient> {
         self.manager_cap
     }
 
+    /// Fetches BlobManager info including storage and coin stash balances.
+    ///
+    /// This makes a single RPC call to fetch all BlobManager state at once,
+    /// which is more efficient than calling `get_storage_info` and
+    /// `get_coin_stash_balances` separately.
+    pub async fn get_blob_manager_info(
+        &self,
+    ) -> ClientResult<(BlobManagerStorageInfo, BlobManagerCoinStashBalances)> {
+        use sui_sdk::rpc_types::SuiObjectDataOptions;
+
+        // Fetch the BlobManager with parsed content.
+        let blob_manager_response = self
+            .client
+            .sui_client()
+            .retriable_sui_client()
+            .get_object_with_options(self.manager_id, SuiObjectDataOptions::new().with_content())
+            .await?;
+
+        let blob_manager_data = blob_manager_response
+            .data
+            .as_ref()
+            .ok_or_else(|| Self::error("BlobManager object data not found"))?;
+
+        let storage_info = Self::extract_storage_info_from_blob_manager(blob_manager_data)?;
+        let coin_stash_balances =
+            Self::extract_coin_stash_balances_from_blob_manager(blob_manager_data)?;
+
+        Ok((storage_info, coin_stash_balances))
+    }
+
+    /// Gets the storage information from the BlobManager.
+    ///
+    /// Returns storage capacity (total, used, available) and the end epoch.
+    pub async fn get_storage_info(&self) -> ClientResult<BlobManagerStorageInfo> {
+        use sui_sdk::rpc_types::SuiObjectDataOptions;
+
+        // Fetch the BlobManager with parsed content.
+        let blob_manager_response = self
+            .client
+            .sui_client()
+            .retriable_sui_client()
+            .get_object_with_options(self.manager_id, SuiObjectDataOptions::new().with_content())
+            .await?;
+
+        let blob_manager_data = blob_manager_response
+            .data
+            .as_ref()
+            .ok_or_else(|| Self::error("BlobManager object data not found"))?;
+
+        Self::extract_storage_info_from_blob_manager(blob_manager_data)
+    }
+
+    /// Gets the coin stash balances from the BlobManager.
+    ///
+    /// Returns the WAL and SUI balances in the coin stash.
+    pub async fn get_coin_stash_balances(&self) -> ClientResult<BlobManagerCoinStashBalances> {
+        use sui_sdk::rpc_types::SuiObjectDataOptions;
+
+        // Fetch the BlobManager with parsed content.
+        let blob_manager_response = self
+            .client
+            .sui_client()
+            .retriable_sui_client()
+            .get_object_with_options(self.manager_id, SuiObjectDataOptions::new().with_content())
+            .await?;
+
+        let blob_manager_data = blob_manager_response
+            .data
+            .as_ref()
+            .ok_or_else(|| Self::error("BlobManager object data not found"))?;
+
+        Self::extract_coin_stash_balances_from_blob_manager(blob_manager_data)
+    }
+
+    /// Extracts storage info from a fetched BlobManager object.
+    fn extract_storage_info_from_blob_manager(
+        blob_manager_data: &sui_sdk::rpc_types::SuiObjectData,
+    ) -> ClientResult<BlobManagerStorageInfo> {
+        use sui_sdk::rpc_types::{SuiMoveStruct, SuiMoveValue, SuiParsedData};
+
+        let content = blob_manager_data
+            .content
+            .as_ref()
+            .ok_or_else(|| Self::error("BlobManager content not found"))?;
+
+        let SuiParsedData::MoveObject(obj) = content else {
+            return Err(Self::error("BlobManager is not a MoveObject"));
+        };
+
+        // BlobManager struct can be represented as WithTypes or WithFields.
+        let fields = match &obj.fields {
+            SuiMoveStruct::WithTypes { fields, .. } => fields,
+            SuiMoveStruct::WithFields(fields) => fields,
+            _ => {
+                return Err(Self::error("BlobManager fields not found"));
+            }
+        };
+
+        // Navigate to BlobManager.storage (BlobStorage enum).
+        let storage_value = fields
+            .get("storage")
+            .ok_or_else(|| Self::error("storage field not found"))?;
+
+        let SuiMoveValue::Struct(storage_struct) = storage_value else {
+            return Err(Self::error("storage is not a Struct"));
+        };
+
+        // Extract the UnifiedStorage from the enum's pos0 field.
+        // Storage struct can be represented as WithTypes or WithFields.
+        let storage_fields = match storage_struct {
+            SuiMoveStruct::WithTypes { fields, .. } => fields,
+            SuiMoveStruct::WithFields(fields) => fields,
+            _ => {
+                return Err(Self::error("storage struct has unexpected format"));
+            }
+        };
+
+        let pos0_value = storage_fields
+            .get("pos0")
+            .ok_or_else(|| Self::error("pos0 field not found in storage"))?;
+
+        let SuiMoveValue::Struct(unified_struct) = pos0_value else {
+            return Err(Self::error("storage pos0 is not a Struct"));
+        };
+
+        // UnifiedStorage struct can be represented as WithTypes or WithFields.
+        let unified_fields = match unified_struct {
+            SuiMoveStruct::WithTypes { fields, .. } => fields,
+            SuiMoveStruct::WithFields(fields) => fields,
+            _ => {
+                return Err(Self::error("UnifiedStorage has unexpected format"));
+            }
+        };
+
+        // Extract the values from UnifiedStorage.
+        let total_capacity = Self::extract_u64_field(unified_fields, "total_capacity")?;
+        let available_storage = Self::extract_u64_field(unified_fields, "available_storage")?;
+        let end_epoch = Self::extract_u32_field(unified_fields, "end_epoch")?;
+
+        Ok(BlobManagerStorageInfo {
+            total_capacity,
+            used_capacity: total_capacity - available_storage,
+            available_capacity: available_storage,
+            end_epoch,
+        })
+    }
+
+    /// Extracts coin stash balances from a fetched BlobManager object.
+    fn extract_coin_stash_balances_from_blob_manager(
+        blob_manager_data: &sui_sdk::rpc_types::SuiObjectData,
+    ) -> ClientResult<BlobManagerCoinStashBalances> {
+        use sui_sdk::rpc_types::{SuiMoveStruct, SuiMoveValue, SuiParsedData};
+
+        let content = blob_manager_data
+            .content
+            .as_ref()
+            .ok_or_else(|| Self::error("BlobManager content not found"))?;
+
+        let SuiParsedData::MoveObject(obj) = content else {
+            return Err(Self::error("BlobManager is not a MoveObject"));
+        };
+
+        // BlobManager struct can be represented as WithTypes or WithFields.
+        let fields = match &obj.fields {
+            SuiMoveStruct::WithTypes { fields, .. } => fields,
+            SuiMoveStruct::WithFields(fields) => fields,
+            _ => {
+                return Err(Self::error("BlobManager fields not found"));
+            }
+        };
+
+        // Navigate to BlobManager.coin_stash (BlobManagerCoinStash).
+        let coin_stash_value = fields
+            .get("coin_stash")
+            .ok_or_else(|| Self::error("coin_stash field not found"))?;
+
+        let SuiMoveValue::Struct(coin_stash_struct) = coin_stash_value else {
+            return Err(Self::error("coin_stash is not a Struct"));
+        };
+
+        // coin_stash struct can be represented as WithTypes or WithFields.
+        let coin_stash_fields = match coin_stash_struct {
+            SuiMoveStruct::WithTypes { fields, .. } => fields,
+            SuiMoveStruct::WithFields(fields) => fields,
+            _ => {
+                return Err(Self::error("coin_stash struct has unexpected format"));
+            }
+        };
+
+        // Extract WAL balance from wal_balance field (Balance struct has a value field).
+        let wal_balance = Self::extract_balance_value(coin_stash_fields, "wal_balance")?;
+        let sui_balance = Self::extract_balance_value(coin_stash_fields, "sui_balance")?;
+
+        Ok(BlobManagerCoinStashBalances {
+            wal_balance,
+            sui_balance,
+        })
+    }
+
+    /// Helper to extract a u64 value from a field map.
+    fn extract_u64_field(
+        fields: &std::collections::BTreeMap<String, sui_sdk::rpc_types::SuiMoveValue>,
+        field_name: &str,
+    ) -> ClientResult<u64> {
+        use sui_sdk::rpc_types::SuiMoveValue;
+
+        let value = fields
+            .get(field_name)
+            .ok_or_else(|| Self::error(format!("{} field not found", field_name)))?;
+
+        match value {
+            SuiMoveValue::String(s) => s
+                .parse::<u64>()
+                .map_err(|e| Self::error(format!("Failed to parse {} as u64: {}", field_name, e))),
+            SuiMoveValue::Number(n) => Ok(u64::from(*n)),
+            _ => Err(Self::error(format!(
+                "{} is not a number or string",
+                field_name
+            ))),
+        }
+    }
+
+    /// Helper to extract a u32 value from a field map.
+    fn extract_u32_field(
+        fields: &std::collections::BTreeMap<String, sui_sdk::rpc_types::SuiMoveValue>,
+        field_name: &str,
+    ) -> ClientResult<u32> {
+        use sui_sdk::rpc_types::SuiMoveValue;
+
+        let value = fields
+            .get(field_name)
+            .ok_or_else(|| Self::error(format!("{} field not found", field_name)))?;
+
+        match value {
+            SuiMoveValue::String(s) => s
+                .parse::<u32>()
+                .map_err(|e| Self::error(format!("Failed to parse {} as u32: {}", field_name, e))),
+            SuiMoveValue::Number(n) => Ok(*n),
+            _ => Err(Self::error(format!(
+                "{} is not a number or string",
+                field_name
+            ))),
+        }
+    }
+
+    /// Helper to extract a Balance value.
+    /// Balance<T> is serialized as a String representing the u64 value.
+    fn extract_balance_value(
+        fields: &std::collections::BTreeMap<String, sui_sdk::rpc_types::SuiMoveValue>,
+        field_name: &str,
+    ) -> ClientResult<u64> {
+        use sui_sdk::rpc_types::SuiMoveValue;
+
+        let balance_value = fields
+            .get(field_name)
+            .ok_or_else(|| Self::error(format!("{} field not found", field_name)))?;
+
+        let SuiMoveValue::String(s) = balance_value else {
+            return Err(Self::error(format!(
+                "{} is not a String, got {:?}",
+                field_name, balance_value
+            )));
+        };
+
+        s.parse::<u64>()
+            .map_err(|e| Self::error(format!("Failed to parse {} as u64: {}", field_name, e)))
+    }
+
     /// Gets a ManagedBlob by blob_id and deletable flag.
     pub async fn get_managed_blob(
         &self,
@@ -484,5 +774,222 @@ impl BlobManagerClient<'_, SuiContractClient> {
             .collect();
 
         Ok(results)
+    }
+
+    /// Deletes a deletable managed blob from the BlobManager.
+    ///
+    /// This removes the blob from the BlobManager's storage tracking and returns
+    /// the allocated storage back to the storage pool.
+    ///
+    /// # Arguments
+    /// * `blob_id` - The ID of the blob to delete.
+    ///
+    /// # Errors
+    /// Returns an error if:
+    /// - The blob is not deletable (only deletable blobs can be deleted).
+    /// - The blob is not registered in this BlobManager.
+    /// - The transaction fails.
+    pub async fn delete_blob(&self, blob_id: BlobId) -> ClientResult<()> {
+        tracing::info!(
+            "BlobManager delete_blob: manager_id={:?}, manager_cap={:?}, blob_id={}",
+            self.manager_id,
+            self.manager_cap,
+            blob_id
+        );
+
+        // Call the Sui contract to delete the blob.
+        // The contract will handle all validation:
+        // - Check if the blob exists
+        // - Verify it's deletable (not permanent)
+        // - Ensure it belongs to this BlobManager
+        self.client
+            .sui_client()
+            .delete_managed_blob(self.manager_id, self.manager_cap, blob_id, true)
+            .await
+            .map_err(crate::error::ClientError::from)?;
+
+        Ok(())
+    }
+
+    // ===== Coin Stash Management Methods =====
+
+    /// Deposits WAL tokens to the BlobManager's coin stash.
+    ///
+    /// Anyone can deposit WAL tokens to the coin stash, which can then be used
+    /// by anyone for storage operations (buy storage, extend storage).
+    ///
+    /// # Arguments
+    ///
+    /// * `wal_amount` - The amount of WAL tokens to deposit (in MIST units).
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` if the deposit was successful.
+    /// * `Err(ClientError)` if the transaction fails.
+    pub async fn deposit_wal_to_coin_stash(&self, wal_amount: u64) -> ClientResult<()> {
+        tracing::info!(
+            "BlobManager deposit_wal: manager_id={:?}, amount={}",
+            self.manager_id,
+            wal_amount
+        );
+
+        self.client
+            .sui_client()
+            .deposit_wal_to_blob_manager(self.manager_id, wal_amount)
+            .await
+            .map_err(crate::error::ClientError::from)?;
+
+        Ok(())
+    }
+
+    /// Deposits SUI tokens to the BlobManager's coin stash.
+    ///
+    /// Anyone can deposit SUI tokens to the coin stash, which can then be used
+    /// by anyone for gas operations.
+    ///
+    /// # Arguments
+    ///
+    /// * `sui_amount` - The amount of SUI tokens to deposit (in MIST units).
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` if the deposit was successful.
+    /// * `Err(ClientError)` if the transaction fails.
+    pub async fn deposit_sui_to_coin_stash(&self, sui_amount: u64) -> ClientResult<()> {
+        tracing::info!(
+            "BlobManager deposit_sui: manager_id={:?}, amount={}",
+            self.manager_id,
+            sui_amount
+        );
+
+        self.client
+            .sui_client()
+            .deposit_sui_to_blob_manager(self.manager_id, sui_amount)
+            .await
+            .map_err(crate::error::ClientError::from)?;
+
+        Ok(())
+    }
+
+    /// Buys additional storage capacity using funds from the coin stash.
+    ///
+    /// This increases the BlobManager's storage capacity by purchasing more storage.
+    /// The funds are taken from the coin stash's WAL balance.
+    ///
+    /// # Arguments
+    ///
+    /// * `storage_amount` - The amount of storage to buy (in bytes).
+    /// * `epochs_ahead` - The number of epochs ahead to reserve the storage for.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` if the storage was successfully purchased.
+    /// * `Err(ClientError)` if:
+    ///   - The coin stash has insufficient WAL balance.
+    ///   - The transaction fails.
+    pub async fn buy_storage_from_stash(
+        &self,
+        storage_amount: u64,
+        epochs_ahead: u32,
+    ) -> ClientResult<()> {
+        tracing::info!(
+            "BlobManager buy_storage: manager_id={:?}, amount={}, epochs={}",
+            self.manager_id,
+            storage_amount,
+            epochs_ahead
+        );
+
+        self.client
+            .sui_client()
+            .buy_storage_from_stash(self.manager_id, storage_amount, epochs_ahead)
+            .await
+            .map_err(crate::error::ClientError::from)?;
+
+        Ok(())
+    }
+
+    /// Extends the storage period using funds from the coin stash.
+    ///
+    /// This extends the validity period of the BlobManager's existing storage.
+    /// The funds are taken from the coin stash's WAL balance.
+    ///
+    /// # Arguments
+    ///
+    /// * `extension_epochs` - The number of epochs to extend the storage for.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` if the storage period was successfully extended.
+    /// * `Err(ClientError)` if:
+    ///   - The coin stash has insufficient WAL balance.
+    ///   - The transaction fails.
+    pub async fn extend_storage_from_stash(&self, extension_epochs: u32) -> ClientResult<()> {
+        tracing::info!(
+            "BlobManager extend_storage: manager_id={:?}, epochs={}",
+            self.manager_id,
+            extension_epochs
+        );
+
+        self.client
+            .sui_client()
+            .extend_storage_from_stash(self.manager_id, extension_epochs)
+            .await
+            .map_err(crate::error::ClientError::from)?;
+
+        Ok(())
+    }
+
+    /// Withdraws all WAL funds from the coin stash.
+    ///
+    /// This method can only be called by someone with a fund_manager or admin capability.
+    /// It withdraws all available WAL tokens from the coin stash.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` if the withdrawal was successful.
+    /// * `Err(ClientError)` if:
+    ///   - The caller doesn't have fund_manager or admin permission.
+    ///   - The transaction fails.
+    pub async fn withdraw_all_wal(&self) -> ClientResult<()> {
+        tracing::info!(
+            "BlobManager withdraw_all_wal: manager_id={:?}, cap={:?}",
+            self.manager_id,
+            self.manager_cap
+        );
+
+        self.client
+            .sui_client()
+            .withdraw_all_wal_from_blob_manager(self.manager_id, self.manager_cap)
+            .await
+            .map_err(crate::error::ClientError::from)?;
+
+        Ok(())
+    }
+
+    /// Withdraws all SUI funds from the coin stash.
+    ///
+    /// This method can only be called by someone with a fund_manager or admin capability.
+    /// It withdraws all available SUI tokens from the coin stash.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` if the withdrawal was successful.
+    /// * `Err(ClientError)` if:
+    ///   - The caller doesn't have fund_manager or admin permission.
+    ///   - The transaction fails.
+    pub async fn withdraw_all_sui(&self) -> ClientResult<()> {
+        tracing::info!(
+            "BlobManager withdraw_all_sui: manager_id={:?}, cap={:?}",
+            self.manager_id,
+            self.manager_cap
+        );
+
+        self.client
+            .sui_client()
+            .withdraw_all_sui_from_blob_manager(self.manager_id, self.manager_cap)
+            .await
+            .map_err(crate::error::ClientError::from)?;
+
+        Ok(())
     }
 }

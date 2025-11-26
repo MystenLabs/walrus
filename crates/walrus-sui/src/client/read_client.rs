@@ -689,19 +689,6 @@ impl SuiReadClient {
         Ok(digest)
     }
 
-    pub(crate) async fn get_compatible_gas_coins(
-        &self,
-        sender_address: SuiAddress,
-        min_balance: u64,
-    ) -> SuiClientResult<Vec<ObjectRef>> {
-        Ok(self
-            .get_coins_with_total_balance(sender_address, CoinType::Sui, min_balance, vec![])
-            .await?
-            .iter()
-            .map(Coin::object_ref)
-            .collect())
-    }
-
     /// Get the reference gas price for the current epoch.
     pub async fn get_reference_gas_price(&self) -> SuiClientResult<u64> {
         self.sui_client.get_reference_gas_price().await

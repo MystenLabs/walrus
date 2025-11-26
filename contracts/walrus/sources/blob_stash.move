@@ -25,6 +25,7 @@ const EBlobPermanencyConflict: u64 = 7;
 
 /// Each blob is uniquely referenced by its ManagedBlob object.
 /// Only one blob per blob_id is allowed (either permanent or deletable, not both).
+/// TODO(heliu): do we need two table.
 public struct BlobStashByObject has store {
     /// Maps blob_id to ObjectID (one blob per blob_id).
     blob_id_to_objects: Table<u256, ID>,
@@ -98,10 +99,7 @@ public(package) fun get_blob_object_id(
     let existing_blob = self.blobs_by_object_id.borrow(obj_id);
 
     // Check if deletable flag matches. If not, it's a permanency conflict.
-    assert!(
-        existing_blob.is_deletable() == deletable,
-        EBlobPermanencyConflict
-    );
+    assert!(existing_blob.is_deletable() == deletable, EBlobPermanencyConflict);
 
     option::some(obj_id)
 }

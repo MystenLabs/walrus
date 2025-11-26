@@ -14,13 +14,8 @@ use tokio::{
     sync::mpsc::{self, UnboundedReceiver, UnboundedSender},
     task::JoinHandle,
 };
-use walrus_sui::types::{
-    BlobCertified,
-    BlobDeleted,
-    BlobEvent,
-    InvalidBlobId,
-    ManagedBlobCertified,
-};
+use walrus_core::{BlobId, Epoch};
+use walrus_sui::types::{BlobCertified, BlobEvent, InvalidBlobId, ManagedBlobCertified};
 use walrus_utils::metrics::monitored_scope;
 
 use super::{StorageNodeInner, blob_sync::BlobSyncHandler, metrics, system_events::EventHandle};
@@ -179,7 +174,8 @@ impl BackgroundEventProcessor {
             }
             BlobEvent::Deleted(event) => {
                 let _scope = monitored_scope::monitored_scope("ProcessEvent::BlobEvent::Deleted");
-                self.process_blob_deleted_event(event_handle, event).await?;
+                self.process_blob_deleted_event(event_handle, event.blob_id, event.epoch)
+                    .await?;
             }
             BlobEvent::InvalidBlobID(event) => {
                 let _scope =
@@ -200,8 +196,11 @@ impl BackgroundEventProcessor {
                 self.process_managed_blob_certified_event(event_handle, event)
                     .await?;
             }
-            BlobEvent::ManagedBlobDeleted(_) => {
-                event_handle.mark_as_complete();
+            BlobEvent::ManagedBlobDeleted(event) => {
+                let _scope =
+                    monitored_scope::monitored_scope("ProcessEvent::BlobEvent::ManagedBlobDeleted");
+                self.process_blob_deleted_event(event_handle, event.blob_id, event.epoch)
+                    .await?;
             }
         }
 
@@ -334,17 +333,17 @@ impl BackgroundEventProcessor {
         Ok(())
     }
 
-    /// Processes a blob deleted event.
+    /// Processes a blob deleted event (regular or managed).
     #[tracing::instrument(
         skip_all,
-        fields(walrus.blob_id = %event.blob_id, walrus.epoch = tracing::field::Empty),
+        fields(walrus.blob_id = %blob_id, walrus.epoch = tracing::field::Empty),
     )]
     async fn process_blob_deleted_event(
         &self,
         event_handle: EventHandle,
-        event: BlobDeleted,
+        blob_id: BlobId,
+        event_epoch: Epoch,
     ) -> anyhow::Result<()> {
-        let blob_id = event.blob_id;
         let current_epoch = self.node.current_committee_epoch();
         tracing::Span::current().record("walrus.epoch", current_epoch);
 
@@ -362,14 +361,14 @@ impl BackgroundEventProcessor {
             // now no longer registered.
             // *Important*: We use the event's epoch for this check (as opposed to the current
             // epoch) as subsequent certify or delete events may update the `blob_info`; so we
-            // cannot remove it even if it is no longer valid in the *current* epoch
-            if blob_info.can_data_be_deleted(event.epoch)
+            // cannot remove it even if it is no longer valid in the *current* epoch.
+            if blob_info.can_data_be_deleted(event_epoch)
                 && self.node.garbage_collection_config.enable_data_deletion
             {
                 tracing::debug!("deleting data for deleted blob");
                 self.node
                     .storage
-                    .attempt_to_delete_blob_data(&blob_id, event.epoch, &self.node.metrics)
+                    .attempt_to_delete_blob_data(&blob_id, event_epoch, &self.node.metrics)
                     .await?;
             }
         } else if self

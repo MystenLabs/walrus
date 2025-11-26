@@ -5,11 +5,12 @@
 /// This version provides only essential functionality: new, register, and certify.
 module walrus::blobmanager;
 
-use sui::coin::Coin;
+use sui::{coin::{Self, Coin}, sui::SUI};
 use wal::wal::WAL;
 use walrus::{
     blob_stash::{Self, BlobStash},
     blob_storage::{Self, BlobStorage},
+    coin_stash::{Self, BlobManagerCoinStash},
     encoding,
     events,
     storage_resource::Storage,
@@ -31,6 +32,10 @@ const EInitialBlobManagerCapacityTooSmall: u64 = 3;
 const EBlobAlreadyCertifiedInBlobManager: u64 = 4;
 /// The requested blob was not found in BlobManager.
 const EBlobNotRegisteredInBlobManager: u64 = 2;
+/// Operation requires Admin capability.
+const ERequiresAdminCap: u64 = 5;
+/// Operation requires fund_manager permission.
+const ERequiresFundManager: u64 = 6;
 
 // === Main Structures ===
 
@@ -41,13 +46,21 @@ public struct BlobManager has key, store {
     storage: BlobStorage,
     /// Blob stash strategy - handles both individual blobs and managed blobs.
     blob_stash: BlobStash,
+    /// Coin stash for community funding - embedded directly.
+    coin_stash: BlobManagerCoinStash,
 }
 
 /// A capability which represents the authority to manage blobs in the BlobManager.
+/// Admin can create new capabilities and perform all operations.
+/// Fund manager can withdraw funds from the coin stash.
 public struct BlobManagerCap has key, store {
     id: UID,
-    /// The ID of the BlobManager this cap controls.
+    /// The BlobManager this capability is for.
     manager_id: ID,
+    /// Whether this capability has admin permissions (can create new caps).
+    is_admin: bool,
+    /// Whether this capability has fund manager permissions (can withdraw funds).
+    fund_manager: bool,
 }
 
 // === Constructors ===
@@ -61,25 +74,30 @@ public fun new_with_unified_storage(
     system: &System,
     ctx: &mut TxContext,
 ): BlobManagerCap {
-    let manager_uid = object::new(ctx);
-
     // Check minimum capacity before consuming the storage.
     let capacity = initial_storage.size();
     assert!(capacity >= MIN_INITIAL_CAPACITY, EInitialBlobManagerCapacityTooSmall);
+
+    // Create the manager object.
+    let manager_uid = object::new(ctx);
 
     let manager = BlobManager {
         id: manager_uid,
         storage: blob_storage::new_unified_blob_storage(initial_storage),
         blob_stash: blob_stash::new_object_based_stash(ctx),
+        coin_stash: coin_stash::new(),
     };
 
     // Get the ObjectID from the constructed manager object.
     let manager_object_id = object::id(&manager);
     let end_epoch = blob_storage::end_epoch(&manager.storage);
 
+    // Create an Admin capability with fund_manager permissions.
     let cap = BlobManagerCap {
         id: object::new(ctx),
         manager_id: manager_object_id,
+        is_admin: true,
+        fund_manager: true,
     };
 
     // Emit creation event.
@@ -97,13 +115,33 @@ public fun new_with_unified_storage(
 
 // === Capability Operations ===
 
-/// Duplicates the given BlobManagerCap.
-/// Allows delegation of write access to other parties.
-public fun duplicate_cap(cap: &BlobManagerCap, ctx: &mut TxContext): BlobManagerCap {
-    BlobManagerCap {
+/// Creates a new capability for the BlobManager.
+/// Only Admin capability can create new capabilities.
+/// If the creating cap has fund_manager = true, they can create new caps with fund_manager = true.
+public entry fun create_cap(
+    self: &BlobManager,
+    cap: &BlobManagerCap,
+    is_admin: bool,
+    fund_manager: bool,
+    ctx: &mut TxContext,
+) {
+    // Verify the capability matches this BlobManager.
+    check_cap(self, cap);
+
+    // Ensure the caller has Admin capability.
+    ensure_admin(cap);
+
+    // Only caps with fund_manager = true can create new fund_manager caps.
+    assert!(!fund_manager || cap.fund_manager, ERequiresFundManager);
+
+    let new_cap = BlobManagerCap {
         id: object::new(ctx),
-        manager_id: cap.manager_id,
-    }
+        manager_id: object::id(self),
+        is_admin,
+        fund_manager,
+    };
+
+    transfer::transfer(new_cap, ctx.sender());
 }
 
 /// Returns the manager ID from a capability.
@@ -111,9 +149,25 @@ public fun cap_manager_id(cap: &BlobManagerCap): ID {
     cap.manager_id
 }
 
+/// Checks if the capability is an Admin capability.
+public fun is_admin_cap(cap: &BlobManagerCap): bool {
+    cap.is_admin
+}
+
+/// Checks if the capability has fund manager permissions.
+public fun is_fund_manager_cap(cap: &BlobManagerCap): bool {
+    cap.fund_manager
+}
+
 /// Checks that the given BlobManagerCap matches the BlobManager.
 fun check_cap(self: &BlobManager, cap: &BlobManagerCap) {
-    assert!(object::id(self) == cap.manager_id, EInvalidBlobManagerCap);
+    let manager_id = cap_manager_id(cap);
+    assert!(object::id(self) == manager_id, EInvalidBlobManagerCap);
+}
+
+/// Ensures the capability is an Admin capability.
+fun ensure_admin(cap: &BlobManagerCap) {
+    assert!(is_admin_cap(cap), ERequiresAdminCap);
 }
 
 // === Core Operations ===
@@ -252,6 +306,118 @@ public fun delete_blob(
     self.storage.release_storage(encoded_size);
 }
 
+// === Coin Stash Operations ===
+
+/// Deposits WAL coins to the BlobManager's coin stash.
+/// Anyone can deposit funds to support storage operations.
+public fun deposit_wal_to_coin_stash(self: &mut BlobManager, payment: Coin<WAL>) {
+    // Simply deposit to coin stash.
+    self.coin_stash.deposit_wal(payment);
+}
+
+/// Deposits SUI coins to the BlobManager's coin stash.
+/// Anyone can deposit funds to support gas operations.
+public fun deposit_sui_to_coin_stash(self: &mut BlobManager, payment: Coin<SUI>) {
+    // Simply deposit to coin stash.
+    self.coin_stash.deposit_sui(payment);
+}
+
+/// Buys additional storage using funds from the coin stash.
+/// Anyone can call this to extend the BlobManager's capacity.
+/// Returns true if successful, false if insufficient funds in stash.
+public fun buy_storage_from_stash(
+    self: &mut BlobManager,
+    system: &mut System,
+    storage_amount: u64,
+    epochs_ahead: u32,
+    ctx: &mut TxContext,
+): bool {
+    // Get available WAL balance from stash.
+    let available_wal = self.coin_stash.wal_balance();
+    if (available_wal == 0) {
+        return false
+    };
+
+    // Withdraw all available funds from stash for payment.
+    // The system will return any unused funds as change.
+    let mut payment = self.coin_stash.withdraw_wal_for_storage(available_wal, ctx);
+
+    // Purchase storage from system.
+    let new_storage = system::reserve_space(
+        system,
+        storage_amount,
+        epochs_ahead,
+        &mut payment,
+        ctx,
+    );
+
+    // Return any unused funds to the stash.
+    if (payment.value() > 0) {
+        self.coin_stash.deposit_wal(payment);
+    } else {
+        coin::destroy_zero(payment);
+    };
+
+    // Add the new storage to the BlobManager.
+    self.storage.add_storage(new_storage);
+
+    true
+}
+
+/// TODO(heliu): add policy about the extension and tips.
+/// TODO(heliu): optional permanent deletion.
+
+/// Extends the storage period using funds from the coin stash.
+/// Anyone can call this to extend the BlobManager's storage duration.
+/// Returns true if successful, false if insufficient funds in stash.
+public fun extend_storage_from_stash(
+    self: &mut BlobManager,
+    system: &mut System,
+    extension_epochs: u32,
+    ctx: &mut TxContext,
+): bool {
+    // Get available WAL balance from stash.
+    let available_wal = self.coin_stash.wal_balance();
+    if (available_wal == 0) {
+        return false
+    };
+
+    // Get current storage capacity.
+    let (total_capacity, _used, _available) = self.storage.capacity_info();
+
+    // Get current storage end epoch - extension starts from here.
+    let current_end_epoch = self.storage.end_epoch();
+    let new_end_epoch = current_end_epoch + extension_epochs;
+
+    // Withdraw all available funds from stash for payment.
+    // The system will return any unused funds as change.
+    let mut payment = self.coin_stash.withdraw_wal_for_storage(available_wal, ctx);
+
+    // Purchase extension storage from system.
+    // Use reserve_space_for_epochs to start from the current end epoch,
+    // similar to how extend_blob works.
+    let extension_storage = system::reserve_space_for_epochs(
+        system,
+        total_capacity,
+        current_end_epoch,
+        new_end_epoch,
+        &mut payment,
+        ctx,
+    );
+
+    // Return any unused funds to the stash.
+    if (payment.value() > 0) {
+        self.coin_stash.deposit_wal(payment);
+    } else {
+        coin::destroy_zero(payment);
+    };
+
+    // Apply the extension to the BlobManager's storage.
+    self.storage.extend_storage(extension_storage);
+
+    true
+}
+
 // === Query Functions ===
 
 /// Returns the ID of the BlobManager.
@@ -300,4 +466,43 @@ public fun get_blob_object_id_by_blob_id_and_deletable(
     assert!(blob_info_opt.is_some(), EBlobNotRegisteredInBlobManager);
     let blob_info = blob_info_opt.extract();
     blob_info.object_id()
+}
+
+/// Returns the coin stash balances: (WAL, SUI).
+public fun coin_stash_balances(self: &BlobManager): (u64, u64) {
+    self.coin_stash.balances()
+}
+
+// === Fund Manager Functions ===
+
+/// Withdraws all WAL funds from the coin stash.
+/// Requires fund_manager permission.
+public fun withdraw_all_wal(
+    self: &mut BlobManager,
+    cap: &BlobManagerCap,
+    ctx: &mut TxContext,
+): Coin<WAL> {
+    // Verify the capability.
+    check_cap(self, cap);
+    // Ensure the caller has fund_manager permission.
+    assert!(cap.fund_manager, ERequiresFundManager);
+
+    // Withdraw all WAL.
+    self.coin_stash.withdraw_all_wal(ctx)
+}
+
+/// Withdraws all SUI funds from the coin stash.
+/// Requires fund_manager permission.
+public fun withdraw_all_sui(
+    self: &mut BlobManager,
+    cap: &BlobManagerCap,
+    ctx: &mut TxContext,
+): Coin<SUI> {
+    // Verify the capability.
+    check_cap(self, cap);
+    // Ensure the caller has fund_manager permission.
+    assert!(cap.fund_manager, ERequiresFundManager);
+
+    // Withdraw all SUI.
+    self.coin_stash.withdraw_all_sui(ctx)
 }

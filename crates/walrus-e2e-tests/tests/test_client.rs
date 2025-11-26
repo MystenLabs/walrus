@@ -100,6 +100,7 @@ use walrus_sui::{
         move_errors::{MoveExecutionError, RawMoveError},
         move_structs::{BlobAttribute, BlobWithAttribute, Credits, SharedBlob},
     },
+    wallet::Wallet,
 };
 use walrus_test_utils::{Result as TestResult, WithTempDir, assert_unordered_eq, async_param_test};
 use walrus_upload_relay::{
@@ -701,6 +702,73 @@ pub async fn test_store_and_read_duplicate_blobs() -> TestResult {
         });
 
     Ok(())
+}
+
+/// Creates a test wallet funded with multiple small WAL coins for testing coin merging.
+///
+/// This helper:
+/// 1. Creates a new temporary wallet
+/// 2. Funds it with SUI for gas
+/// 3. Sends multiple small WAL coins to it
+/// 4. Returns a SuiContractClient configured with the test wallet
+async fn create_wallet_with_multiple_wal_coins(
+    cluster_wallet: &mut Wallet,
+    cluster_client: &WithTempDir<WalrusNodeClient<SuiContractClient>>,
+    num_coins: u32,
+    amount_per_coin: u64,
+) -> TestResult<SuiContractClient> {
+    let env = cluster_wallet.get_active_env()?.to_owned();
+    let mut test_wallet = test_utils::temp_dir_wallet(None, env)
+        .await
+        .expect("Failed to create test wallet");
+    let test_address = test_wallet.inner.active_address()?;
+
+    // Fund the test wallet with SUI for gas.
+    fund_addresses(cluster_wallet, vec![test_address], Some(10_000_000_000))
+        .await
+        .expect("Failed to fund test wallet with SUI");
+
+    tracing::info!(
+        num_coins,
+        amount_per_coin,
+        "Sending separate WAL coins to test wallet"
+    );
+
+    for i in 0..num_coins {
+        cluster_client
+            .inner
+            .sui_client()
+            .send_wal(amount_per_coin, test_address)
+            .await
+            .expect("Failed to send WAL to test wallet");
+        tracing::debug!("Sent WAL coin {} of {}", i + 1, num_coins);
+    }
+
+    // Wait for transactions to be processed.
+    tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+
+    // Create a SuiContractClient with the test wallet.
+    let config = cluster_client.inner.config().clone();
+    let test_sui_client = config
+        .new_contract_client(test_wallet.inner, None)
+        .await
+        .expect("Failed to create SuiContractClient for test wallet");
+
+    // Verify the test wallet has multiple WAL coins.
+    let wal_coin_type = test_sui_client.read_client.wal_coin_type().to_owned();
+    let wal_coins = test_sui_client
+        .retriable_sui_client()
+        .select_all_coins(test_address, Some(wal_coin_type))
+        .await
+        .expect("Failed to get WAL coins");
+
+    tracing::info!(
+        num_coins = wal_coins.len(),
+        total_balance = wal_coins.iter().map(|c| c.balance).sum::<u64>(),
+        "Test wallet WAL coins ready"
+    );
+
+    Ok(test_sui_client)
 }
 
 async_param_test! {
@@ -3050,4 +3118,414 @@ async fn test_blob_manager_store_and_read() {
         "Successfully stored and read permanent blob! Blob ID: {}",
         permanent_blob_id
     );
+
+    // Create blob_manager_client after storing blobs to avoid borrow conflicts
+    let blob_manager_client = client_ref
+        .blob_manager(cap_id)
+        .await
+        .expect("Failed to create BlobManagerClient");
+
+    assert!(
+        blob_manager_client
+            .delete_blob(deletable_blob_id)
+            .await
+            .is_ok()
+    );
+}
+
+/// Tests BlobManager coin stash operations: deposit, buy storage, extend storage, withdraw.
+#[ignore = "ignore E2E tests by default"]
+#[walrus_simtest]
+async fn test_blob_manager_coin_stash_operations() {
+    walrus_test_utils::init_tracing();
+
+    let test_nodes_config = TestNodesConfig {
+        node_weights: vec![7, 7, 7, 7, 7],
+        ..Default::default()
+    };
+    let test_cluster_builder =
+        test_cluster::E2eTestSetupBuilder::new().with_test_nodes_config(test_nodes_config);
+    let (_sui_cluster_handle, _cluster, mut client, _) =
+        test_cluster_builder.build().await.unwrap();
+    let client_ref = client.as_mut();
+
+    // Create a BlobManager with 100MB capacity (minimum required)
+    let initial_capacity = 500 * 1024 * 1024; // 500MB
+    let epochs_ahead = 2; // Start with just 2 epochs
+
+    let (manager_id, cap_id) = client_ref
+        .sui_client()
+        .create_blob_manager(initial_capacity, epochs_ahead)
+        .await
+        .expect("Failed to create BlobManager");
+
+    tracing::info!(?manager_id, ?cap_id, "BlobManager created");
+
+    let blob_manager_client = client_ref
+        .blob_manager(cap_id)
+        .await
+        .expect("Failed to create BlobManagerClient");
+
+    // Deposit 1 WAL to coin stash.
+    let deposit_amount_wal = 1_000_000_000;
+    blob_manager_client
+        .deposit_wal_to_coin_stash(deposit_amount_wal)
+        .await
+        .expect("Failed to deposit WAL to coin stash");
+
+    // Test 2: Deposit SUI to coin stash
+    // First create additional SUI coins to avoid conflict with gas coin
+    let deposit_amount_sui = 10_000_000; // 0.01 SUI
+    tracing::info!("Creating additional SUI coins to avoid gas conflict");
+
+    // Send some SUI to ourselves to create additional coin objects
+    // This creates separate coins that won't conflict with the gas coin
+    client_ref
+        .sui_client()
+        .send_sui(deposit_amount_sui * 2, client_ref.sui_client().address())
+        .await
+        .expect("Failed to split SUI coins");
+
+    // Wait for split transaction to be processed
+    tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+
+    tracing::info!("Testing SUI deposit of {} units", deposit_amount_sui);
+    client_ref
+        .sui_client()
+        .deposit_sui_to_blob_manager(manager_id, deposit_amount_sui)
+        .await
+        .expect("Failed to deposit SUI to coin stash");
+
+    tracing::info!(
+        "Successfully deposited {} SUI to coin stash",
+        deposit_amount_sui
+    );
+
+    // Wait a bit for transaction to be processed
+    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+    // Test 3: Buy additional storage using coin stash funds
+    let additional_storage = 100 * 1024 * 1024; // 100MB
+    let storage_epochs = 2;
+    tracing::info!(
+        "Testing buy storage: {} bytes for {} epochs",
+        additional_storage,
+        storage_epochs
+    );
+
+    client_ref
+        .sui_client()
+        .buy_storage_from_stash(manager_id, additional_storage, storage_epochs)
+        .await
+        .expect("Failed to buy storage from coin stash");
+
+    tracing::info!(
+        "Successfully bought {} MB of storage for {} epochs",
+        additional_storage / (1024 * 1024),
+        storage_epochs
+    );
+
+    // Test 4: Extend storage period using coin stash funds
+    let extension_epochs = 1;
+    tracing::info!("Testing storage extension by {} epochs", extension_epochs);
+
+    client_ref
+        .sui_client()
+        .extend_storage_from_stash(manager_id, extension_epochs)
+        .await
+        .expect("Failed to extend storage from coin stash");
+
+    tracing::info!(
+        "Successfully extended storage by {} epochs",
+        extension_epochs
+    );
+
+    // Test 5: Create a new capability with fund_manager permission
+    tracing::info!("Testing capability creation with fund_manager permission");
+
+    let new_cap_id = client_ref
+        .sui_client()
+        .create_blob_manager_cap(manager_id, cap_id, false, true) // not admin, but fund_manager
+        .await
+        .expect("Failed to create new capability");
+
+    tracing::info!(
+        "Successfully created new capability with fund_manager permission: {}",
+        new_cap_id
+    );
+
+    // Wait for the new capability to be indexed
+    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+    // Test 6: Withdraw all WAL using fund_manager capability
+    tracing::info!("Testing WAL withdrawal with fund_manager capability");
+
+    client_ref
+        .sui_client()
+        .withdraw_all_wal_from_blob_manager(manager_id, new_cap_id)
+        .await
+        .expect("Failed to withdraw WAL from coin stash");
+
+    tracing::info!("Successfully withdrew all WAL from coin stash");
+
+    // Test 7: Withdraw all SUI using fund_manager capability
+    tracing::info!("Testing SUI withdrawal with fund_manager capability");
+
+    client_ref
+        .sui_client()
+        .withdraw_all_sui_from_blob_manager(manager_id, new_cap_id)
+        .await
+        .expect("Failed to withdraw SUI from coin stash");
+
+    tracing::info!("Successfully withdrew all SUI from coin stash");
+
+    // Test 8: Store a blob to verify BlobManager still works after coin operations
+    let test_data = b"Testing blob storage after coin operations";
+    tracing::info!("Storing test blob to verify BlobManager functionality");
+
+    let blob_id = store_and_read_blob_with_blob_manager(
+        client_ref,
+        cap_id,
+        test_data,
+        BlobPersistence::Permanent,
+    )
+    .await
+    .expect("Failed to store and read blob after coin operations");
+
+    tracing::info!("Successfully stored and verified blob: {}", blob_id);
+    tracing::info!("All coin stash operations completed successfully!");
+}
+
+/// Tests that WAL deposit handles merging multiple small coins automatically.
+/// This tests the scenario where a wallet has many small WAL coins (e.g., 11 coins of 0.1 WAL)
+/// and needs to deposit a larger amount (e.g., 1 WAL) that requires merging them.
+#[ignore = "ignore E2E tests by default"]
+#[walrus_simtest]
+async fn test_blob_manager_deposit_wal_coin_merging() {
+    walrus_test_utils::init_tracing();
+
+    let test_nodes_config = TestNodesConfig {
+        node_weights: vec![7, 7, 7, 7, 7],
+        ..Default::default()
+    };
+    let test_cluster_builder =
+        test_cluster::E2eTestSetupBuilder::new().with_test_nodes_config(test_nodes_config);
+    let (sui_cluster_handle, _cluster, cluster_client, _) =
+        test_cluster_builder.build().await.unwrap();
+
+    // Create a new wallet for testing with multiple small WAL coins.
+    let mut cluster_wallet = walrus_sui::config::load_wallet_context_from_path(
+        Some(
+            sui_cluster_handle
+                .lock()
+                .await
+                .wallet_path()
+                .await
+                .as_path(),
+        ),
+        None,
+    )
+    .expect("Failed to load cluster wallet");
+
+    // Create test wallet with 11 small WAL coins (0.1 WAL each).
+    let num_coins = 11;
+    let small_amount = 100_000_000; // 0.1 WAL (assuming 9 decimals)
+    let test_sui_client = create_wallet_with_multiple_wal_coins(
+        &mut cluster_wallet,
+        &cluster_client,
+        num_coins,
+        small_amount,
+    )
+    .await
+    .expect("Failed to create test wallet with multiple WAL coins");
+
+    // Create a BlobManager using the test client.
+    let initial_capacity = 500 * 1024 * 1024; // 500MB
+    let epochs_ahead = 2;
+
+    let (manager_id, cap_id) = test_sui_client
+        .create_blob_manager(initial_capacity, epochs_ahead)
+        .await
+        .expect("Failed to create BlobManager");
+
+    tracing::info!(?manager_id, ?cap_id, "BlobManager created with test wallet");
+
+    // Wait for objects to be indexed.
+    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+    // Query initial BlobManager state - coin stash should be empty.
+    let blob_manager_client = cluster_client
+        .inner
+        .blob_manager(cap_id)
+        .await
+        .expect("Failed to create BlobManagerClient");
+
+    let initial_balances = blob_manager_client
+        .get_coin_stash_balances()
+        .await
+        .expect("Failed to get initial coin stash balances");
+
+    tracing::info!(
+        "Initial coin stash balances: WAL={}, SUI={}",
+        initial_balances.wal_balance,
+        initial_balances.sui_balance
+    );
+
+    assert_eq!(
+        initial_balances.wal_balance, 0,
+        "Expected initial WAL balance to be 0"
+    );
+
+    // Now try to deposit 1 WAL, which requires merging multiple coins.
+    let deposit_amount = 1_000_000_000; // 1 WAL
+    tracing::info!(
+        deposit_amount,
+        num_coins,
+        "Attempting to deposit WAL (requires merging coins)"
+    );
+
+    test_sui_client
+        .deposit_wal_to_blob_manager(manager_id, deposit_amount)
+        .await
+        .expect("Failed to deposit WAL - coin merging may have failed");
+
+    tracing::info!(
+        deposit_amount,
+        "Successfully deposited WAL by merging multiple coins"
+    );
+
+    // Verify the deposit was successful by querying the coin stash balance.
+    let final_balances = blob_manager_client
+        .get_coin_stash_balances()
+        .await
+        .expect("Failed to get final coin stash balances");
+
+    tracing::info!(
+        "Final coin stash balances: WAL={}, SUI={}",
+        final_balances.wal_balance,
+        final_balances.sui_balance
+    );
+
+    assert_eq!(
+        final_balances.wal_balance, deposit_amount,
+        "Expected WAL balance to be {} after deposit, got {}",
+        deposit_amount, final_balances.wal_balance
+    );
+}
+
+/// Tests BlobManager capability management: creating different types of capabilities.
+#[ignore = "ignore E2E tests by default"]
+#[walrus_simtest]
+async fn test_blob_manager_capability_management() {
+    walrus_test_utils::init_tracing();
+
+    let test_nodes_config = TestNodesConfig {
+        node_weights: vec![7, 7, 7, 7, 7],
+        ..Default::default()
+    };
+    let test_cluster_builder =
+        test_cluster::E2eTestSetupBuilder::new().with_test_nodes_config(test_nodes_config);
+    let (_sui_cluster_handle, _cluster, mut client, _) =
+        test_cluster_builder.build().await.unwrap();
+    let client_ref = client.as_mut();
+
+    // Create a BlobManager
+    let initial_capacity = 500 * 1024 * 1024; // 500MB
+    let epochs_ahead = 5;
+
+    let (manager_id, admin_cap_id) = client_ref
+        .sui_client()
+        .create_blob_manager(initial_capacity, epochs_ahead)
+        .await
+        .expect("Failed to create BlobManager");
+
+    tracing::info!("Created BlobManager: {}", manager_id);
+    tracing::info!("Admin Cap: {}", admin_cap_id);
+
+    // Wait for objects to be indexed
+    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+    // Test 1: Create a writer capability (no admin, no fund_manager)
+    tracing::info!("Creating writer capability");
+    let writer_cap_id = client_ref
+        .sui_client()
+        .create_blob_manager_cap(manager_id, admin_cap_id, false, false)
+        .await
+        .expect("Failed to create writer capability");
+
+    tracing::info!("Created writer capability: {}", writer_cap_id);
+
+    // Test 2: Create a fund_manager capability (no admin, yes fund_manager)
+    tracing::info!("Creating fund_manager capability");
+    let fund_manager_cap_id = client_ref
+        .sui_client()
+        .create_blob_manager_cap(manager_id, admin_cap_id, false, true)
+        .await
+        .expect("Failed to create fund_manager capability");
+
+    tracing::info!("Created fund_manager capability: {}", fund_manager_cap_id);
+
+    // Test 3: Create another admin capability (yes admin, yes fund_manager)
+    tracing::info!("Creating another admin capability");
+    let admin2_cap_id = client_ref
+        .sui_client()
+        .create_blob_manager_cap(manager_id, admin_cap_id, true, true)
+        .await
+        .expect("Failed to create second admin capability");
+
+    tracing::info!("Created second admin capability: {}", admin2_cap_id);
+
+    // Wait for capabilities to be indexed
+    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+    // Test 4: Verify writer cap can store blobs
+    tracing::info!("Testing writer capability for blob storage");
+    let test_data = b"Writer capability test blob";
+
+    // Store a blob using the writer cap via the main client
+    let blob_id = store_and_read_blob_with_blob_manager(
+        client_ref,
+        writer_cap_id,
+        test_data,
+        BlobPersistence::Permanent,
+    )
+    .await
+    .expect("Writer cap should be able to store blobs");
+
+    tracing::info!("Writer cap successfully stored blob: {}", blob_id);
+
+    // Test 5: Verify fund_manager cap can withdraw funds
+    tracing::info!("Testing fund_manager capability for fund operations");
+
+    // First deposit some WAL
+    client_ref
+        .sui_client()
+        .deposit_wal_to_blob_manager(manager_id, 100_000_000)
+        .await
+        .expect("Failed to deposit WAL");
+
+    // Then withdraw using fund_manager cap
+    client_ref
+        .sui_client()
+        .withdraw_all_wal_from_blob_manager(manager_id, fund_manager_cap_id)
+        .await
+        .expect("Fund manager cap should be able to withdraw funds");
+
+    tracing::info!("Fund manager cap successfully withdrew funds");
+
+    // Test 6: Verify admin2 cap can create new capabilities
+    tracing::info!("Testing second admin capability for creating new caps");
+
+    let new_cap_from_admin2 = client_ref
+        .sui_client()
+        .create_blob_manager_cap(manager_id, admin2_cap_id, false, false)
+        .await
+        .expect("Admin cap should be able to create new capabilities");
+
+    tracing::info!(
+        "Admin2 cap successfully created new capability: {}",
+        new_cap_from_admin2
+    );
+
+    tracing::info!("All capability management tests completed successfully!");
 }

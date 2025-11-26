@@ -1359,6 +1359,18 @@ impl TryFrom<SuiEvent> for ContractEvent {
                     managed_blob_event,
                 )))
             }
+            contracts::events::ManagedBlobDeleted => {
+                let managed_blob_event: ManagedBlobDeleted = value.try_into()?;
+                tracing::debug!(
+                    blob_id = %managed_blob_event.blob_id,
+                    blob_manager_id = %managed_blob_event.blob_manager_id,
+                    object_id = %managed_blob_event.object_id,
+                    "Processing ManagedBlobDeleted event"
+                );
+                Ok(ContractEvent::BlobEvent(BlobEvent::ManagedBlobDeleted(
+                    managed_blob_event,
+                )))
+            }
             contracts::events::BlobManagerCreated => Ok(ContractEvent::BlobManagerEvent(
                 BlobManagerEvent::Created(value.try_into()?),
             )),
