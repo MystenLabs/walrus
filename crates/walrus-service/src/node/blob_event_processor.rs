@@ -311,11 +311,11 @@ impl BackgroundEventProcessor {
         event: BlobDeleted,
     ) -> anyhow::Result<()> {
         let blob_id = event.blob_id;
-        let current_epoch = self.node.current_committee_epoch();
-        tracing::Span::current().record("walrus.epoch", current_epoch);
+        let current_committee_epoch = self.node.current_committee_epoch();
+        tracing::Span::current().record("walrus.epoch", current_committee_epoch);
 
         if let Some(blob_info) = self.node.storage.get_blob_info(&blob_id)? {
-            if !blob_info.is_certified(current_epoch) {
+            if !blob_info.is_certified(current_committee_epoch) {
                 self.node
                     .blob_retirement_notifier
                     .notify_blob_retirement(&blob_id);
