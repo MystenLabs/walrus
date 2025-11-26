@@ -84,7 +84,7 @@ public fun new_with_unified_storage(
     let manager = BlobManager {
         id: manager_uid,
         storage: blob_storage::new_unified_blob_storage(initial_storage),
-        blob_stash: blob_stash::new_object_based_stash(ctx),
+        blob_stash: blob_stash::new_blob_id_based_stash(ctx),
         coin_stash: coin_stash::new(),
     };
 
