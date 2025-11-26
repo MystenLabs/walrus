@@ -386,7 +386,26 @@ impl Storage {
         self.node_status.insert(&(), &status)
     }
 
+    /// Returns the last epochs for which garbage collection was started and completed.
+    pub(crate) fn garbage_collector_last_started_and_completed_epochs(
+        &self,
+    ) -> anyhow::Result<(Epoch, Epoch)> {
+        let &[last_started_epoch, last_completed_epoch] =
+            &self.garbage_collector_table.multi_get([
+                garbage_collector_last_started_epoch_key(),
+                garbage_collector_last_completed_epoch_key(),
+            ])?[..]
+        else {
+            anyhow::bail!("garbage collector last started and completed epochs not found");
+        };
+        Ok((
+            last_started_epoch.unwrap_or(GENESIS_EPOCH),
+            last_completed_epoch.unwrap_or(GENESIS_EPOCH),
+        ))
+    }
+
     /// Returns the last epoch for which garbage collection was started.
+    #[allow(unused)]
     pub(crate) fn garbage_collector_last_started_epoch(&self) -> Result<Epoch, TypedStoreError> {
         Ok(self
             .garbage_collector_table

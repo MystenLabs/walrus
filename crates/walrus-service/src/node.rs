@@ -1758,11 +1758,10 @@ impl StorageNode {
     /// started but not completed. If this is the case and we are still in the same epoch, it
     /// restarts the garbage-collection task.
     async fn check_and_start_garbage_collection_on_startup(&self) -> anyhow::Result<()> {
-        let last_started_epoch = self.inner.storage.garbage_collector_last_started_epoch()?;
-        let last_completed_epoch = self
+        let (last_started_epoch, last_completed_epoch) = self
             .inner
             .storage
-            .garbage_collector_last_completed_epoch()?;
+            .garbage_collector_last_started_and_completed_epochs()?;
 
         // Set metrics based on DB entries during startup.
         self.inner

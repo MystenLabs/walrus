@@ -721,7 +721,6 @@ where
     E: std::fmt::Debug + Send + 'static,
     F: Fn(Vec<T>) -> anyhow::Result<usize> + Send + Sync + 'static,
 {
-    use std::sync::Arc;
     let process_batch = Arc::new(process_function);
     let mut total_count = 0;
 
@@ -735,7 +734,7 @@ where
             .filter_map(|result| {
                 result
                     .inspect_err(|error| {
-                        tracing::warn!(?error, "{}", error_message);
+                        tracing::warn!(?error, "{error_message}");
                     })
                     .ok()
             })
@@ -752,7 +751,6 @@ where
         }
 
         let processed_count = spawn_blocking({
-            let batch_items = batch_items;
             let process_batch = Arc::clone(&process_batch);
             move || process_batch(batch_items)
         })

@@ -8,6 +8,7 @@ use std::{hash::Hasher as _, sync::Arc, time::Duration};
 use chrono::{DateTime, Utc};
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use serde::{Deserialize, Serialize};
+use serde_with::{DurationSeconds, serde_as};
 use tokio::sync::Mutex;
 use walrus_core::Epoch;
 use walrus_sui::types::GENESIS_EPOCH;
@@ -15,6 +16,7 @@ use walrus_sui::types::GENESIS_EPOCH;
 use crate::node::{StorageNodeInner, metrics::NodeMetricSet};
 
 /// Configuration for garbage collection and related tasks.
+#[serde_as]
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq)]
 #[serde(default)]
 pub struct GarbageCollectionConfig {
@@ -26,6 +28,13 @@ pub struct GarbageCollectionConfig {
     /// The delay is deterministically computed based on the node's public key and epoch,
     /// uniformly distributed between 0 and half the epoch duration.
     pub enable_random_delay: bool,
+    /// The time window for randomization of the garbage collection start time.
+    ///
+    /// Half the epoch duration is used if not specified or if this is larger than half the epoch
+    /// duration.
+    #[serde_as(as = "Option<DurationSeconds>")]
+    #[serde(rename = "randomization_time_window_secs")]
+    pub randomization_time_window: Option<Duration>,
     /// The batch size for processing expired blob objects.
     ///
     /// Items are processed in batches using `spawn_blocking` to avoid blocking the async runtime
@@ -46,6 +55,7 @@ impl Default for GarbageCollectionConfig {
             // TODO(WAL-1105): Enable this by default.
             enable_data_deletion: false,
             enable_random_delay: true,
+            randomization_time_window: None,
             blob_objects_batch_size: 10_000,
             data_deletion_batch_size: 1000,
         }
@@ -59,7 +69,8 @@ impl GarbageCollectionConfig {
         Self {
             enable_blob_info_cleanup: true,
             enable_data_deletion: true,
-            enable_random_delay: false,
+            enable_random_delay: true,
+            randomization_time_window: Some(Duration::from_secs(1)),
             blob_objects_batch_size: 1000,
             data_deletion_batch_size: 1000,
         }
@@ -99,8 +110,8 @@ impl GarbageCollector {
     ///
     /// Must only be called *after* the epoch change for the provided epoch is complete.
     ///
-    /// The actual cleanup work starts after a deterministic delay based on the node's public key
-    /// and epoch, uniformly distributed between 0 and half the epoch duration. This is to avoid
+    /// The actual cleanup work starts after a deterministic delay computed by
+    /// [`Self::cleanup_target_time`] based on the node's public key and epoch This is to avoid
     /// multiple nodes performing cleanup operations at the same time, which could impact the
     /// performance of the network.
     ///
@@ -188,15 +199,20 @@ impl GarbageCollector {
     /// Calculates the target time for cleanup by optionally adding a deterministic delay (based on
     /// the node's public key and epoch) to the epoch start time.
     ///
-    /// The random delay is uniformly distributed between 0 and half the epoch duration. If random
-    /// delay is disabled, returns the epoch start time immediately.
+    /// The random delay is uniformly distributed between 0 and half the epoch duration (or the
+    /// configured randomization time window if specified). If random delay is disabled, returns the
+    /// epoch start time immediately.
     fn cleanup_target_time(&self, epoch: Epoch, epoch_start: DateTime<Utc>) -> DateTime<Utc> {
         if !self.config.enable_random_delay {
             return epoch_start;
         }
 
-        let epoch_duration = self.node.system_parameters.epoch_duration;
-        let max_delay = epoch_duration / 2;
+        let half_epoch_duration = self.node.system_parameters.epoch_duration / 2;
+        let max_delay = self
+            .config
+            .randomization_time_window
+            .unwrap_or(half_epoch_duration)
+            .min(half_epoch_duration);
         let public_key = self.node.protocol_key_pair.public();
 
         // Create a deterministic seed from the public key bytes and epoch.
