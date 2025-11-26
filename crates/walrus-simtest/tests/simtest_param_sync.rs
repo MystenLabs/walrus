@@ -216,11 +216,12 @@ mod tests {
         let (_sui_cluster, mut walrus_cluster, client, _) =
             test_cluster::E2eTestSetupBuilder::new()
                 .with_epoch_duration(Duration::from_secs(30))
-                .with_test_nodes_config(TestNodesConfig {
-                    node_weights: vec![1, 2, 3, 3, 4, 0],
-                    enable_node_config_synchronizer: true,
-                    ..Default::default()
-                })
+                .with_test_nodes_config(
+                    TestNodesConfig::builder()
+                        .with_node_weights(vec![1, 2, 3, 3, 4, 0])
+                        .with_enable_node_config_synchronizer()
+                        .build(),
+                )
                 .with_communication_config(
                     ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
                         Duration::from_secs(2),
@@ -405,11 +406,12 @@ mod tests {
     async fn test_registered_node_update_protocol_key() {
         let (_sui_cluster, walrus_cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
             .with_epoch_duration(Duration::from_secs(10))
-            .with_test_nodes_config(TestNodesConfig {
-                node_weights: vec![1, 2, 3, 3, 4, 2],
-                enable_node_config_synchronizer: true,
-                ..Default::default()
-            })
+            .with_test_nodes_config(
+                TestNodesConfig::builder()
+                    .with_node_weights(vec![1, 2, 3, 3, 4, 2])
+                    .with_enable_node_config_synchronizer()
+                    .build(),
+            )
             .with_communication_config(
                 ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
                     Duration::from_secs(2),
@@ -484,11 +486,12 @@ mod tests {
         let (_sui_cluster, mut walrus_cluster, client, _) =
             test_cluster::E2eTestSetupBuilder::new()
                 .with_epoch_duration(Duration::from_secs(30))
-                .with_test_nodes_config(TestNodesConfig {
-                    node_weights: vec![1, 2, 3, 3, 4, 0],
-                    enable_node_config_synchronizer: true,
-                    ..Default::default()
-                })
+                .with_test_nodes_config(
+                    TestNodesConfig::builder()
+                        .with_node_weights(vec![1, 2, 3, 3, 4, 0])
+                        .with_enable_node_config_synchronizer()
+                        .build(),
+                )
                 .with_communication_config(
                     ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
                         Duration::from_secs(2),
@@ -728,11 +731,12 @@ mod tests {
     async fn test_sync_node_params(update_params: &TestUpdateParams) {
         let (_sui_cluster, walrus_cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
             .with_epoch_duration(Duration::from_secs(10))
-            .with_test_nodes_config(TestNodesConfig {
-                node_weights: vec![1, 2, 3, 3, 4, 2],
-                enable_node_config_synchronizer: true,
-                ..Default::default()
-            })
+            .with_test_nodes_config(
+                TestNodesConfig::builder()
+                    .with_node_weights(vec![1, 2, 3, 3, 4, 2])
+                    .with_enable_node_config_synchronizer()
+                    .build(),
+            )
             .with_communication_config(
                 ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
                     Duration::from_secs(2),

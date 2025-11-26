@@ -117,11 +117,7 @@ impl BlobEncoderData {
     }
 
     fn sliver_length<E: EncodingAxis>(&self) -> usize {
-        usize::from(
-            self.config
-                .n_source_symbols::<E::OrthogonalAxis>()
-                .get(),
-        ) * self.symbol_usize()
+        usize::from(self.config.n_source_symbols::<E::OrthogonalAxis>().get()) * self.symbol_usize()
     }
 
     fn empty_sliver<E: EncodingAxis>(&self, index: SliverIndex) -> SliverData<E> {

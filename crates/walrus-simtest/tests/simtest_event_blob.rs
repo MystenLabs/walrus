@@ -195,10 +195,11 @@ mod tests {
         let (_sui_cluster, mut walrus_cluster, client, _) =
             test_cluster::E2eTestSetupBuilder::new()
                 .with_epoch_duration(Duration::from_secs(15))
-                .with_test_nodes_config(TestNodesConfig {
-                    node_weights: vec![2, 2, 3, 3, 3],
-                    ..Default::default()
-                })
+                .with_test_nodes_config(
+                    TestNodesConfig::builder()
+                        .with_node_weights(vec![2, 2, 3, 3, 3])
+                        .build(),
+                )
                 .with_num_checkpoints_per_blob(20)
                 // Low event_stream_catchup_min_checkpoint_lag may cause reading latest event blob
                 // fail since the event blob's certified events have not been processed yet.
@@ -249,10 +250,11 @@ mod tests {
         let (_sui_cluster, mut walrus_cluster, client, _) =
             test_cluster::E2eTestSetupBuilder::new()
                 .with_epoch_duration(Duration::from_secs(15))
-                .with_test_nodes_config(TestNodesConfig {
-                    node_weights: vec![2, 2, 3, 3, 3],
-                    ..Default::default()
-                })
+                .with_test_nodes_config(
+                    TestNodesConfig::builder()
+                        .with_node_weights(vec![2, 2, 3, 3, 3])
+                        .build(),
+                )
                 .with_num_checkpoints_per_blob(20)
                 // Low event_stream_catchup_min_checkpoint_lag may cause reading latest event blob
                 // fail since the event blob's certified events have not been processed yet.
@@ -303,10 +305,11 @@ mod tests {
                 .with_epoch_duration(Duration::from_secs(15))
                 .with_num_checkpoints_per_blob(20)
                 //.with_event_stream_catchup_min_checkpoint_lag(Some(u64::MAX))
-                .with_test_nodes_config(TestNodesConfig {
-                    node_weights: vec![2, 2, 3, 3, 3],
-                    ..Default::default()
-                })
+                .with_test_nodes_config(
+                    TestNodesConfig::builder()
+                        .with_node_weights(vec![2, 2, 3, 3, 3])
+                        .build(),
+                )
                 .with_communication_config(
                     ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
                         Duration::from_secs(2),
