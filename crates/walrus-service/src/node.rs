@@ -862,6 +862,14 @@ impl StorageNode {
         StorageNodeBuilder::default()
     }
 
+    /// Signals that the storage node is shutting down.
+    ///
+    /// This sets an internal flag that allows event handles to be dropped without panicking.
+    /// Should be called before aborting the node's runtime to ensure clean shutdown.
+    pub fn shut_down(&self) {
+        self.inner.shut_down();
+    }
+
     /// Run the walrus-node logic until cancelled using the provided cancellation token.
     pub async fn run(&self, cancel_token: CancellationToken) -> anyhow::Result<()> {
         if let Err(error) = self

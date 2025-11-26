@@ -98,6 +98,7 @@ mod tests {
             .with_test_nodes_config(
                 TestNodesConfig::builder()
                     .with_node_weights(vec![1, 2, 3, 3, 4])
+                    .with_enable_event_blob_writer()
                     .build(),
             )
             .build_generic::<SimStorageNodeHandle>()
@@ -160,6 +161,7 @@ mod tests {
             .with_test_nodes_config(
                 TestNodesConfig::builder()
                     .with_node_weights(node_weights.clone())
+                    .with_enable_event_blob_writer()
                     .build(),
             )
             .with_communication_config(
@@ -282,6 +284,7 @@ mod tests {
                     TestNodesConfig::builder()
                         .with_node_weights(vec![1, 2, 3, 3, 4, 0])
                         .with_node_recovery_config(node_recovery_config)
+                        .with_enable_event_blob_writer()
                         .build(),
                 )
                 .with_communication_config(
@@ -965,6 +968,11 @@ mod tests {
                 .with_contract_directory(testnet_contract_dir().unwrap())
                 .with_epoch_duration(epoch_duration)
                 .with_num_checkpoints_per_blob(20)
+                .with_test_nodes_config(
+                    TestNodesConfig::builder()
+                        .with_enable_event_blob_writer()
+                        .build(),
+                )
                 .build_generic::<SimStorageNodeHandle>()
                 .await?;
         let client = Arc::new(client);

@@ -23,6 +23,7 @@ async fn test_event_blobs() -> anyhow::Result<()> {
         .with_test_nodes_config(
             TestNodesConfig::builder()
                 .with_node_weights(vec![2, 2])
+                .with_enable_event_blob_writer()
                 .build(),
         )
         .build()

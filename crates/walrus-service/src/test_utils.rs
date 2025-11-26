@@ -278,10 +278,14 @@ impl Default for TestNodesConfigBuilder {
 
 impl TestNodesConfigBuilder {
     /// Creates a new builder with default values.
+    ///
+    /// By default, the event blob writer is **disabled** to avoid interference with tests.
+    /// Use [`with_enable_event_blob_writer`](Self::with_enable_event_blob_writer) for tests
+    /// that specifically need event blob functionality.
     pub fn new() -> Self {
         Self {
             node_weights: vec![1, 2, 3, 3, 4],
-            disable_event_blob_writer: false,
+            disable_event_blob_writer: true, // Disabled by default to avoid test interference
             blocklist_dir: None,
             enable_node_config_synchronizer: false,
             node_recovery_config: None,
@@ -294,9 +298,18 @@ impl TestNodesConfigBuilder {
         self
     }
 
-    /// Disables the event blob writer.
+    /// Disables the event blob writer (this is the default).
     pub fn with_disable_event_blob_writer(mut self) -> Self {
         self.disable_event_blob_writer = true;
+        self
+    }
+
+    /// Enables the event blob writer.
+    ///
+    /// Use this for tests that specifically need event blob functionality.
+    /// Note: Requires at least [`MIN_SHARDS_FOR_EVENT_BLOB_WRITER`] shards.
+    pub fn with_enable_event_blob_writer(mut self) -> Self {
+        self.disable_event_blob_writer = false;
         self
     }
 
@@ -330,7 +343,7 @@ impl TestNodesConfigBuilder {
             panic!(
                 "TestNodesConfig: event blob writer requires at least {} shards for \
                 Reed-Solomon encoding, but node_weights {:?} sum to only {} shards. \
-                Either increase node_weights or call with_disable_event_blob_writer().",
+                Either increase node_weights or remove with_enable_event_blob_writer().",
                 MIN_SHARDS_FOR_EVENT_BLOB_WRITER, self.node_weights, n_shards
             );
         }
@@ -374,6 +387,8 @@ pub struct StorageNodeHandle {
 
 impl Drop for StorageNodeHandle {
     fn drop(&mut self) {
+        // Signal shutdown first so event handles know they can be dropped safely
+        self.storage_node.shut_down();
         self.cancel.cancel();
         if let Some(handle) = self.node_runtime_handle.take() {
             handle.abort();

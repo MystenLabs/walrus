@@ -198,6 +198,7 @@ mod tests {
                 .with_test_nodes_config(
                     TestNodesConfig::builder()
                         .with_node_weights(vec![2, 2, 3, 3, 3])
+                        .with_enable_event_blob_writer()
                         .build(),
                 )
                 .with_num_checkpoints_per_blob(20)
@@ -253,6 +254,7 @@ mod tests {
                 .with_test_nodes_config(
                     TestNodesConfig::builder()
                         .with_node_weights(vec![2, 2, 3, 3, 3])
+                        .with_enable_event_blob_writer()
                         .build(),
                 )
                 .with_num_checkpoints_per_blob(20)
@@ -308,6 +310,7 @@ mod tests {
                 .with_test_nodes_config(
                     TestNodesConfig::builder()
                         .with_node_weights(vec![2, 2, 3, 3, 3])
+                        .with_enable_event_blob_writer()
                         .build(),
                 )
                 .with_communication_config(

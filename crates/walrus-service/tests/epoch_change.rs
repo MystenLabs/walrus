@@ -20,7 +20,6 @@ async fn nodes_drive_epoch_change() -> walrus_test_utils::Result {
         .with_test_nodes_config(
             TestNodesConfig::builder()
                 .with_node_weights(vec![1, 1])
-                .with_disable_event_blob_writer()
                 .build(),
         )
         .with_default_num_checkpoints_per_blob()

@@ -1558,7 +1558,6 @@ async fn test_repeated_shard_move() -> TestResult {
         .with_test_nodes_config(
             TestNodesConfig::builder()
                 .with_node_weights(vec![1, 1])
-                .with_disable_event_blob_writer()
                 .build(),
         )
         .build()
@@ -2303,7 +2302,6 @@ async fn test_shard_move_out_and_back_in_immediately() -> TestResult {
         .with_test_nodes_config(
             TestNodesConfig::builder()
                 .with_node_weights(vec![1, 1])
-                .with_disable_event_blob_writer()
                 .build(),
         )
         .build()
