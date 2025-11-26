@@ -708,12 +708,12 @@ pub struct BatchProcessingResult<T> {
     pub last_processed_item: Option<T>,
 }
 
-/// Repeatedly executes a blocking batch processor until it reports that there are no more
-/// items to handle.
+/// Repeatedly executes a blocking batch processor until it reports that there are no more items to
+/// handle.
 ///
-/// The provided `process_function` is invoked on a blocking thread with the last processed item
-/// (if any) and must return a [`BatchProcessingResult`]. The helper accumulates the
-/// `modified_count` values until the processor reports that the batch was empty (`total_count == 0`).
+/// The provided `process_function` is invoked on a blocking thread with the last processed item (if
+/// any) and must return a [`BatchProcessingResult`]. The helper accumulates the `modified_count`
+/// values until the processor reports that the batch was empty (`total_count == 0`).
 pub(crate) async fn process_items_in_batches<T, F>(process_function: F) -> anyhow::Result<usize>
 where
     T: Clone + Send + 'static,

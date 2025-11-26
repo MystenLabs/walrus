@@ -150,6 +150,7 @@ impl GarbageCollector {
         if let Some(old_task) = task_handle.take() {
             tracing::info!("aborting existing garbage-collection task before starting a new one");
             old_task.abort();
+            let _ = old_task.await;
         }
 
         // Store the current epoch in the DB before spawning the background task.

@@ -1714,18 +1714,6 @@ impl StorageNode {
 
     /// Starts a background task to perform database cleanup operations if the node is active.
     async fn start_garbage_collection_task(&self, epoch: Epoch) -> anyhow::Result<()> {
-        // TODO(WAL-1040): We should still do the blob-info cleanup even if the node is not active.
-        match self.inner.storage.node_status()? {
-            NodeStatus::Active => (),
-            status => {
-                tracing::info!(
-                    %status,
-                    "garbage collection is only performed when the node is active, skipping"
-                );
-                return Ok(());
-            }
-        };
-
         // Try to get the epoch start time from the contract service. If the epoch state is not
         // available (e.g., in tests), use the current time as the epoch start.
         let epoch_start = self
@@ -1778,6 +1766,11 @@ impl StorageNode {
             );
             return Ok(());
         }
+
+        // TODO(WAL-1111): It is possible that blob-info cleanup is enabled but data deletion is
+        // disabled, in which case we never store the `last_completed_epoch` in the DB and therefore
+        // keep restarting the task. We could store the last completed epoch for the blob-info
+        // cleanup in addition.
 
         let (current_epoch, _) = self.inner.contract_service.get_epoch_and_state().await?;
 

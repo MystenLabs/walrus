@@ -735,6 +735,17 @@ impl Storage {
             return Ok(false);
         }
 
+        match self.node_status()? {
+            NodeStatus::Active => (),
+            status => {
+                tracing::info!(
+                    %status,
+                    "data deletion is only performed when the node is active, skipping"
+                );
+                return Ok(false);
+            }
+        };
+
         tracing::info!("starting to delete expired blob data");
         let start_time = Instant::now();
         let shards = Arc::new(
