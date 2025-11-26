@@ -11,6 +11,7 @@ use prometheus::{
     IntGaugeVec,
     core::{AtomicU64, GenericGauge, GenericGaugeVec},
 };
+use walrus_core::Epoch;
 use walrus_sdk::error::ClientErrorKind;
 use walrus_sui::types::{
     BlobCertified,
@@ -37,6 +38,7 @@ pub(crate) const STATUS_QUEUED: &str = "queued";
 pub(crate) const STATUS_PENDING: &str = "pending";
 pub(crate) const STATUS_PERSISTED: &str = "persisted";
 pub(crate) const STATUS_IN_PROGRESS: &str = "in-progress";
+pub(crate) const STATUS_STARTED: &str = "started";
 pub(crate) const STATUS_COMPLETED: &str = "completed";
 pub(crate) const STATUS_HIGHEST_FINISHED: &str = "highest_finished";
 
@@ -204,10 +206,16 @@ walrus_utils::metrics::define_metric_set! {
         event_position_sui_checkpoint_index: U64GaugeVec["state"],
 
         #[help = "The total number of expired blob objects deleted"]
-        cleanup_expired_blob_objects_deleted_total: IntCounter[],
+        garbage_collection_expired_blob_objects_deleted_total: IntCounter[],
 
         #[help = "The total number of blob data deletion attempts"]
-        cleanup_blob_data_deletion_attempts_total: IntCounterVec["status"],
+        garbage_collection_blob_data_deletion_attempts_total: IntCounterVec["status"],
+
+        #[help = "The start time of the next garbage-collection task as a UNIX timestamp"]
+        garbage_collection_task_start_time: U64Gauge[],
+
+        #[help = "The last epoch for which garbage collection was started or finished"]
+        garbage_collection_last_epoch: U64GaugeVec["status"],
     }
 }
 
@@ -225,6 +233,18 @@ impl NodeMetricSet {
             .set(position.checkpoint_sequence_number);
         walrus_utils::with_label!(self.event_position_sui_checkpoint_index, label)
             .set(position.counter);
+    }
+
+    /// Sets the last epoch for which garbage collection was started.
+    pub fn set_garbage_collection_last_started_epoch(&self, epoch: Epoch) {
+        walrus_utils::with_label!(self.garbage_collection_last_epoch, STATUS_STARTED)
+            .set(epoch.into());
+    }
+
+    /// Sets the last epoch for which garbage collection was finished.
+    pub fn set_garbage_collection_last_completed_epoch(&self, epoch: Epoch) {
+        walrus_utils::with_label!(self.garbage_collection_last_epoch, STATUS_COMPLETED)
+            .set(epoch.into());
     }
 }
 

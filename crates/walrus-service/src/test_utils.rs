@@ -92,6 +92,7 @@ use crate::{
     },
     node::{
         DatabaseConfig,
+        GarbageCollectionConfig,
         Storage,
         StorageNode,
         committee::{
@@ -107,7 +108,6 @@ use crate::{
             BlobEventProcessorConfig,
             BlobRecoveryConfig,
             ConfigSynchronizerConfig,
-            GarbageCollectionConfig,
             LiveUploadDeferralConfig,
             NodeRecoveryConfig,
             ShardSyncConfig,
@@ -1268,7 +1268,6 @@ impl Default for StorageNodeHandleBuilder {
     }
 }
 
-#[cfg(any(test, feature = "test-utils"))]
 fn randomize_sliver_recovery_additional_symbols(config: &mut StorageNodeConfig) {
     use rand::Rng;
 
@@ -1295,6 +1294,60 @@ async fn wait_for_rest_api_ready(client: &StorageNodeClient) -> anyhow::Result<(
         Ok(())
     })
     .await?
+}
+
+/// Retries until success or a timeout, returning the last result.
+pub(crate) async fn retry_until_success_or_timeout<F, Fut, T, E>(
+    duration: Duration,
+    mut func_to_retry: F,
+) -> Result<T, E>
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = Result<T, E>>,
+{
+    let mut last_result = None;
+
+    let _ = tokio::time::timeout(duration, async {
+        loop {
+            last_result = Some(func_to_retry().await);
+            if last_result.as_ref().unwrap().is_ok() {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await;
+
+    last_result.expect("function to have completed at least once")
+}
+
+/// Waits until garbage collection has completed for the specified epoch on all provided nodes.
+///
+/// This function polls each node's storage to check if the last completed garbage collection epoch
+/// is at least the specified epoch. It will retry until the condition is met on all nodes or the
+/// timeout is reached.
+pub async fn wait_for_garbage_collection_to_complete<T: StorageNodeHandleTrait>(
+    nodes: &[T],
+    epoch: Epoch,
+    timeout: Duration,
+) -> anyhow::Result<()> {
+    retry_until_success_or_timeout(timeout, || async {
+        for (i, node) in nodes.iter().enumerate() {
+            let last_completed_epoch = node
+                .storage_node()
+                .inner_for_test()
+                .storage()
+                .garbage_collector_last_completed_epoch()?;
+            if last_completed_epoch < epoch {
+                anyhow::bail!(
+                    "garbage collection for epoch {epoch} not yet completed on node {i}; \
+                    last completed epoch: {last_completed_epoch}"
+                );
+            }
+        }
+        Ok(())
+    })
+    .await
 }
 
 /// Returns with a test config for a storage node that would make a valid committee when paired

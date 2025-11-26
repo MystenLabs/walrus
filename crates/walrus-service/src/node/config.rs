@@ -40,7 +40,11 @@ use walrus_sui::types::{
     move_structs::{NodeMetadata, VotingParams},
 };
 
-use super::{consistency_check::StorageNodeConsistencyCheckConfig, storage::DatabaseConfig};
+use super::{
+    consistency_check::StorageNodeConsistencyCheckConfig,
+    garbage_collector::GarbageCollectionConfig,
+    storage::DatabaseConfig,
+};
 use crate::{
     common::{config::SuiConfig, utils},
     event::event_processor::config::EventProcessorConfig,
@@ -815,39 +819,6 @@ pub struct BlobEventProcessorConfig {
 impl Default for BlobEventProcessorConfig {
     fn default() -> Self {
         Self { num_workers: 10 }
-    }
-}
-
-/// Configuration for garbage collection and related tasks.
-#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq)]
-#[serde(default)]
-pub struct GarbageCollectionConfig {
-    /// Whether to enable the blob info cleanup at the beginning of each epoch.
-    pub enable_blob_info_cleanup: bool,
-    /// Whether to delete metadata and slivers of expired or deleted blobs.
-    pub enable_data_deletion: bool,
-}
-
-#[allow(clippy::derivable_impls)] // making the default explicit as a reminder for future changes
-impl Default for GarbageCollectionConfig {
-    fn default() -> Self {
-        Self {
-            // TODO(WAL-1040): Enable this by default.
-            enable_blob_info_cleanup: false,
-            // TODO(WAL-1040): Enable this by default.
-            enable_data_deletion: false,
-        }
-    }
-}
-
-impl GarbageCollectionConfig {
-    /// Returns a default configuration for testing.
-    #[cfg(any(test, feature = "test-utils"))]
-    pub fn default_for_test() -> Self {
-        Self {
-            enable_blob_info_cleanup: true,
-            enable_data_deletion: true,
-        }
     }
 }
 

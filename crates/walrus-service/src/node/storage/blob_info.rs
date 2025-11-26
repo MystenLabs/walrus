@@ -29,7 +29,10 @@ use walrus_sui::types::{BlobCertified, BlobDeleted, BlobEvent, BlobRegistered, I
 use self::per_object_blob_info::PerObjectBlobInfoMergeOperand;
 pub(crate) use self::per_object_blob_info::{PerObjectBlobInfo, PerObjectBlobInfoApi};
 use super::{DatabaseTableOptionsFactory, constants};
-use crate::node::metrics::NodeMetricSet;
+use crate::{
+    node::metrics::NodeMetricSet,
+    utils::{self, process_items_in_batches},
+};
 
 pub type BlobInfoIterator<'a> = BlobInfoIter<
     BlobId,
@@ -307,12 +310,16 @@ impl BlobInfoTable {
         )
     }
 
-    /// Returns an iterator over all entries in the aggregate blob info table.
-    pub fn aggregate_blob_info_iter(
+    /// Returns an iterator over all entries in the aggregate blob info table within the given
+    /// range.
+    pub fn aggregate_blob_info_range_iter(
         &self,
+        start_blob_id_bound: Bound<BlobId>,
+        end_blob_id_bound: Bound<BlobId>,
     ) -> Result<impl Iterator<Item = Result<(BlobId, BlobInfo), TypedStoreError>>, TypedStoreError>
     {
-        self.aggregate_blob_info.safe_iter()
+        self.aggregate_blob_info
+            .safe_range_iter((start_blob_id_bound, end_blob_id_bound))
     }
 
     /// Returns the column family handle for the aggregate blob info table.
@@ -410,86 +417,148 @@ impl BlobInfoTable {
     /// This function iterates over the per-object blob info table, deleting any entries that have
     /// an end epoch equal to or less than the current epoch, and updating the aggregate blob info
     /// table in case of deletable blobs to reflect the new status of the blob objects.
+    ///
+    /// Processing is done in batches using `spawn_blocking` to avoid blocking the async runtime
+    /// and make it possible to abort the task if the node is shutting down.
     #[tracing::instrument(skip_all, fields(walrus.epoch = %current_epoch))]
     pub(crate) async fn process_expired_blob_objects(
         &self,
         current_epoch: Epoch,
         node_metrics: &NodeMetricSet,
+        batch_size: usize,
     ) -> anyhow::Result<()> {
         tracing::info!("starting to process expired blob objects");
-        let mut cleaned_up_objects_count = 0;
         let start_time = Instant::now();
 
-        for entry in self.per_object_blob_info.safe_iter()? {
-            let (object_id, per_object_blob_info) = match entry {
-                Ok(entry) => entry,
+        let this = self.clone();
+        let node_metrics = node_metrics.clone();
+
+        let cleaned_up_objects_count = process_items_in_batches(move |last_processed_object_id| {
+            this.process_expired_blob_objects_batch(
+                last_processed_object_id,
+                batch_size,
+                current_epoch,
+                &node_metrics,
+            )
+        })
+        .await?;
+
+        tracing::info!(
+            cleaned_up_objects_count,
+            duration = ?start_time.elapsed(),
+            "finished processing expired blob objects",
+        );
+
+        Ok(())
+    }
+
+    /// Processes expired blob objects in batches.
+    ///
+    /// This is intended to be driven by [`utils::process_items_in_batches`].
+    fn process_expired_blob_objects_batch(
+        &self,
+        last_processed_object_id: Option<ObjectID>,
+        batch_size: usize,
+        current_epoch: Epoch,
+        node_metrics: &NodeMetricSet,
+    ) -> anyhow::Result<utils::BatchProcessingResult<ObjectID>> {
+        let mut modified_count = 0;
+        let mut total_count = 0;
+        let mut last_processed_object_id = last_processed_object_id;
+
+        let start_bound = last_processed_object_id.map_or(Bound::Unbounded, Bound::Excluded);
+
+        for result in self
+            .per_object_blob_info
+            .safe_range_iter((start_bound, Bound::Unbounded))?
+            .take(batch_size)
+        {
+            total_count += 1;
+            let (object_id, per_object_blob_info) = match result {
+                Ok(values) => values,
                 Err(error) => {
                     tracing::warn!(
                         ?error,
                         "error encountered while iterating over per-object blob info"
                     );
-                    break;
+                    continue;
                 }
             };
+            last_processed_object_id = Some(object_id);
 
-            if per_object_blob_info.is_registered(current_epoch) {
-                tracing::trace!(
-                    %object_id,
-                    ?per_object_blob_info,
-                    "skipping blob-info update for blob that is still active"
-                );
-                continue;
+            if self.process_maybe_expired_blob_object(
+                object_id,
+                per_object_blob_info,
+                current_epoch,
+                node_metrics,
+            )? {
+                modified_count += 1;
             }
-
-            let blob_id = per_object_blob_info.blob_id();
-            let was_certified = per_object_blob_info.initial_certified_epoch().is_some();
-            let deletable = per_object_blob_info.is_deletable();
-            let mut batch = self.per_object_blob_info.batch();
-            // Clean up all expired objects.
-            batch.delete_batch(&self.per_object_blob_info, [object_id])?;
-
-            // Only update the aggregate blob info if the blob is not already deleted (in which case
-            // it was already updated).
-            if !per_object_blob_info.is_deleted() {
-                tracing::debug!(
-                    %object_id,
-                    %blob_id,
-                    %was_certified,
-                    %deletable,
-                    "updating blob info for expired blob object"
-                );
-                let operand = if deletable {
-                    BlobInfoMergeOperand::DeletableExpired { was_certified }
-                } else {
-                    BlobInfoMergeOperand::PermanentExpired { was_certified }
-                };
-                batch.partial_merge_batch(
-                    &self.aggregate_blob_info,
-                    [(blob_id, &operand.to_bytes())],
-                )?;
-            } else {
-                tracing::debug!(
-                    %object_id,
-                    %blob_id,
-                    "deleting per-object blob info for expired permanent blob"
-                );
-            }
-            batch.write()?;
-
-            // Record the number of deleted objects in a metric.
-            node_metrics
-                .cleanup_expired_blob_objects_deleted_total
-                .inc();
-            cleaned_up_objects_count += 1;
         }
 
-        tracing::info!(
-            cleaned_up_objects_count,
-            duration_seconds = %start_time.elapsed().as_secs_f64(),
-            "finished processing expired blob objects",
-        );
+        Ok(utils::BatchProcessingResult {
+            total_count,
+            modified_count,
+            last_processed_item: last_processed_object_id,
+        })
+    }
 
-        Ok(())
+    /// Cleans up a single expired blob object and updates the aggregate blob info if needed.
+    fn process_maybe_expired_blob_object(
+        &self,
+        object_id: ObjectID,
+        per_object_blob_info: PerObjectBlobInfo,
+        current_epoch: Epoch,
+        node_metrics: &NodeMetricSet,
+    ) -> anyhow::Result<bool> {
+        if per_object_blob_info.is_registered(current_epoch) {
+            tracing::trace!(
+                %object_id,
+                ?per_object_blob_info,
+                "skipping blob-info update for blob that is still active"
+            );
+            return Ok(false);
+        }
+
+        let blob_id = per_object_blob_info.blob_id();
+        let was_certified = per_object_blob_info.initial_certified_epoch().is_some();
+        let deletable = per_object_blob_info.is_deletable();
+        let mut batch = self.per_object_blob_info.batch();
+        // Clean up all expired objects.
+        batch.delete_batch(&self.per_object_blob_info, [object_id])?;
+
+        // Only update the aggregate blob info if the blob is not already deleted (in which case
+        // it was already updated).
+        if !per_object_blob_info.is_deleted() {
+            tracing::debug!(
+                %object_id,
+                %blob_id,
+                %was_certified,
+                %deletable,
+                "updating blob info for expired blob object"
+            );
+            let operand = if deletable {
+                BlobInfoMergeOperand::DeletableExpired { was_certified }
+            } else {
+                BlobInfoMergeOperand::PermanentExpired { was_certified }
+            };
+            batch
+                .partial_merge_batch(&self.aggregate_blob_info, [(blob_id, &operand.to_bytes())])?;
+        } else {
+            tracing::debug!(
+                %object_id,
+                %blob_id,
+                "deleting per-object blob info for expired permanent blob"
+            );
+        }
+        batch.write()?;
+
+        // Record the number of deleted objects in a metric.
+        node_metrics
+            .garbage_collection_expired_blob_objects_deleted_total
+            .inc();
+
+        Ok(true)
     }
 
     /// Checks some internal invariants of the blob info table.

@@ -1450,11 +1450,8 @@ impl ClientCommandRunner {
             let epoch_state = staking_object.epoch_state();
             let current_epoch = staking_object.epoch();
 
-            let estimated_start_of_current_epoch = match epoch_state {
-                EpochState::EpochChangeDone(epoch_start)
-                | EpochState::NextParamsSelected(epoch_start) => *epoch_start,
-                EpochState::EpochChangeSync(_) => Utc::now(),
-            };
+            let estimated_start_of_current_epoch = epoch_state.earliest_start_of_current_epoch();
+
             ensure!(
                 end_epoch > current_epoch,
                 "end_epoch must be greater than the current epoch"

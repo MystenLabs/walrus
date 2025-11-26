@@ -227,13 +227,7 @@ impl<T: ReadClient> CommitteesRefresher<T> {
 
     /// Computes the start of the next epoch, based on current information.
     fn next_epoch_start(&self) -> DateTime<Utc> {
-        let estimated_start_of_current_epoch = match self.epoch_state {
-            EpochState::EpochChangeDone(epoch_start)
-            | EpochState::NextParamsSelected(epoch_start) => epoch_start,
-            EpochState::EpochChangeSync(_) => Utc::now(),
-        };
-
-        estimated_start_of_current_epoch + self.epoch_duration
+        self.epoch_state.earliest_start_of_current_epoch() + self.epoch_duration
     }
 
     /// Computes the time from now to the start of the next epoch.

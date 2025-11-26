@@ -1016,6 +1016,14 @@ async fn test_storage_nodes_do_not_serve_data_for_expired_deletable_blobs() -> T
     .await
     .expect("timed out waiting for nodes to reach end epoch of first blob");
 
+    // Wait for garbage collection to complete for this epoch on all nodes.
+    walrus_service::test_utils::wait_for_garbage_collection_to_complete(
+        &cluster.nodes,
+        early_end_epoch,
+        epoch_duration * 3,
+    )
+    .await?;
+
     check_that_blob_is_not_available(client, blob_id).await
 }
 

@@ -72,6 +72,7 @@ db_config:
     pin_l0_filter_and_index_blocks_in_block_cache: true
     hard_pending_compaction_bytes_limit: 0
   node_status: null
+  garbage_collector: null
   blob_info: null
   per_object_blob_info: null
   event_cursor: null
@@ -230,3 +231,7 @@ blob_event_processor_config:
 garbage_collection:
   enable_blob_info_cleanup: false
   enable_data_deletion: false
+  enable_random_delay: true
+  randomization_time_window_secs: null
+  blob_objects_batch_size: 10000
+  data_deletion_batch_size: 1000

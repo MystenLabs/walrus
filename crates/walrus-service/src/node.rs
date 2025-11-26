@@ -18,6 +18,7 @@ use std::{
 use anyhow::{Context, anyhow, bail};
 use blob_event_processor::BlobEventProcessor;
 use blob_retirement_notifier::BlobRetirementNotifier;
+use chrono::Utc;
 use committee::{BeginCommitteeChangeError, EndCommitteeChangeError};
 use consistency_check::StorageNodeConsistencyCheckConfig;
 use epoch_change_driver::EpochChangeDriver;
@@ -178,44 +179,45 @@ use crate::{
         },
     },
     node::{
-        config::{GarbageCollectionConfig, LiveUploadDeferralConfig},
+        config::LiveUploadDeferralConfig,
         event_blob_writer::EventBlobWriter,
+        garbage_collector::GarbageCollector,
     },
     utils::ShardDiffCalculator,
 };
 
-pub(crate) mod db_checkpoint;
-
 pub mod committee;
 pub mod config;
-pub(crate) mod consistency_check;
 pub mod contract_service;
 pub mod dbtool;
 pub mod event_blob_writer;
 pub mod server;
 pub mod system_events;
 
+pub(crate) mod consistency_check;
+pub(crate) mod db_checkpoint;
+pub(crate) mod errors;
 pub(crate) mod metrics;
 
 mod blob_event_processor;
 mod blob_retirement_notifier;
 mod blob_sync;
+mod config_synchronizer;
 mod epoch_change_driver;
+mod garbage_collector;
 mod node_recovery;
 mod pending_metadata_cache;
 mod pending_sliver_cache;
 mod recovery_symbol_service;
 mod shard_sync;
 mod start_epoch_change_finisher;
+mod storage;
 mod thread_pool;
 
-pub(crate) mod errors;
-mod storage;
-
-mod config_synchronizer;
 pub use config_synchronizer::{ConfigLoader, ConfigSynchronizer, StorageNodeConfigLoader};
+pub use garbage_collector::GarbageCollectionConfig;
 
-// The number of events are predonimently by the checkpoints, as we don't expect all checkpoints
+// The number of events are dominated by the checkpoints, as we don't expect all checkpoints
 // contain Walrus events. 20K events per recording is roughly 1 recording per 1.5 hours.
 #[cfg(not(msim))]
 const NUM_EVENTS_PER_DIGEST_RECORDING: u64 = 20_000;
@@ -563,6 +565,7 @@ pub struct StorageNode {
     start_epoch_change_finisher: StartEpochChangeFinisher,
     node_recovery_handler: NodeRecoveryHandler,
     blob_event_processor: BlobEventProcessor,
+    garbage_collector: GarbageCollector,
     event_blob_writer_factory: Option<EventBlobWriterFactory>,
     config_synchronizer: Option<Arc<ConfigSynchronizer>>,
 }
@@ -844,6 +847,9 @@ impl StorageNode {
             None
         };
 
+        let garbage_collector =
+            GarbageCollector::new(config.garbage_collection, inner.clone(), metrics);
+
         Ok(StorageNode {
             inner,
             blob_sync_handler,
@@ -852,6 +858,7 @@ impl StorageNode {
             start_epoch_change_finisher,
             node_recovery_handler,
             blob_event_processor,
+            garbage_collector,
             event_blob_writer_factory,
             config_synchronizer,
         })
@@ -873,6 +880,13 @@ impl StorageNode {
             tracing::warn!(?error, "unable to schedule epoch calls on startup")
         };
 
+        if let Err(error) = self.check_and_start_garbage_collection_on_startup().await {
+            tracing::warn!(
+                ?error,
+                "failed to check and start garbage collection on startup"
+            );
+        }
+
         select! {
             () = self.epoch_change_driver.run() => {
                 unreachable!("epoch change driver never completes");
@@ -890,6 +904,7 @@ impl StorageNode {
                 }
                 self.inner.shut_down();
                 self.blob_sync_handler.cancel_all().await?;
+                self.garbage_collector.abort().await;
             },
             blob_sync_result = BlobSyncHandler::spawn_task_monitor(
                 self.blob_sync_handler.clone()
@@ -1692,50 +1707,90 @@ impl StorageNode {
             .latest_event_epoch_sender
             .send(Some(event.epoch))?;
 
-        // Perform database cleanup operations.
-        // TODO(WAL-1040): Move this to a background task.
-        self.perform_db_cleanup(event.epoch).await?;
+        self.start_garbage_collection_task(event.epoch).await?;
 
         Ok(())
     }
 
-    /// Performs database cleanup operations including blob info cleanup and data deletion.
-    #[tracing::instrument(skip_all)]
-    async fn perform_db_cleanup(&self, epoch: Epoch) -> anyhow::Result<()> {
-        let garbage_collection_config = self.inner.garbage_collection_config;
+    /// Starts a background task to perform database cleanup operations if the node is active.
+    async fn start_garbage_collection_task(&self, epoch: Epoch) -> anyhow::Result<()> {
+        // Try to get the epoch start time from the contract service. If the epoch state is not
+        // available (e.g., in tests), use the current time as the epoch start.
+        let epoch_start = self
+            .inner
+            .contract_service
+            .get_epoch_and_state()
+            .await
+            .ok()
+            .and_then(|(current_epoch, state)| {
+                if current_epoch == epoch {
+                    Some(state.earliest_start_of_current_epoch())
+                } else {
+                    None
+                }
+            })
+            .unwrap_or_else(Utc::now);
+        if let Err(error) = self
+            .garbage_collector
+            .start_garbage_collection_task(epoch, epoch_start)
+            .await
+        {
+            tracing::error!(?error, epoch, "failed to start garbage-collection task");
+        }
+        Ok(())
+    }
 
-        if !garbage_collection_config.enable_blob_info_cleanup {
-            if garbage_collection_config.enable_data_deletion {
-                tracing::warn!(
-                    "data deletion is enabled, but requires blob info cleanup to be enabled; \
-                    skipping data deletion",
-                );
-            } else {
-                tracing::info!("garbage collection is disabled, skipping cleanup");
-            }
+    /// Checks if garbage collection needs to be restarted on startup and starts it if needed.
+    ///
+    /// This method is intended to be run at startup to check if a garbage-collection task was
+    /// started but not completed. If this is the case and we are still in the same epoch, it
+    /// restarts the garbage-collection task.
+    async fn check_and_start_garbage_collection_on_startup(&self) -> anyhow::Result<()> {
+        let (last_started_epoch, last_completed_epoch) = self
+            .inner
+            .storage
+            .garbage_collector_last_started_and_completed_epochs()?;
+
+        // Set metrics based on DB entries during startup.
+        self.inner
+            .metrics
+            .set_garbage_collection_last_started_epoch(last_started_epoch);
+        self.inner
+            .metrics
+            .set_garbage_collection_last_completed_epoch(last_completed_epoch);
+        if last_completed_epoch == last_started_epoch {
+            tracing::debug!(
+                last_started_epoch,
+                last_completed_epoch,
+                "previous garbage-collection task already completed; skipping restart"
+            );
             return Ok(());
         }
 
-        // Disable DB compactions during cleanup to improve performance. DB compactions are
-        // automatically re-enabled when the guard is dropped.
-        let _guard = self.inner.storage.temporarily_disable_auto_compactions()?;
+        // TODO(WAL-1111): It is possible that blob-info cleanup is enabled but data deletion is
+        // disabled, in which case we never store the `last_completed_epoch` in the DB and therefore
+        // keep restarting the task. We could store the last completed epoch for the blob-info
+        // cleanup in addition.
 
-        // The if condition is redundant, but it's kept in case we change the if condition above.
-        if garbage_collection_config.enable_blob_info_cleanup {
-            self.inner
-                .storage
-                .process_expired_blob_objects(epoch, &self.inner.metrics)
-                .await?;
+        let (current_epoch, _) = self.inner.contract_service.get_epoch_and_state().await?;
+
+        if current_epoch != last_started_epoch {
+            tracing::info!(
+                last_started_epoch,
+                current_epoch,
+                "the Walrus epoch has changed since the last garbage-collection task was started; \
+                skipping restart"
+            );
+            return Ok(());
         }
 
-        if self.inner.garbage_collection_config.enable_data_deletion {
-            self.inner
-                .storage
-                .delete_expired_blob_data(epoch, &self.inner.metrics)
-                .await?;
-        }
-
-        Ok(())
+        tracing::info!(
+            last_started_epoch,
+            last_completed_epoch,
+            current_epoch,
+            "restarting unfinished garbage-collection task on startup"
+        );
+        self.start_garbage_collection_task(current_epoch).await
     }
 
     /// Storage node execution of the epoch change start event, to bring the node state to the next
@@ -2304,6 +2359,11 @@ impl StorageNode {
 
     #[cfg(test)]
     pub(crate) fn inner(&self) -> &Arc<StorageNodeInner> {
+        &self.inner
+    }
+
+    #[cfg(any(test, feature = "test-utils"))]
+    pub(crate) fn inner_for_test(&self) -> &Arc<StorageNodeInner> {
         &self.inner
     }
 
@@ -4201,7 +4261,12 @@ mod tests {
     use walrus_test_utils::{Result as TestResult, WithTempDir, async_param_test, random_data};
 
     use super::*;
-    use crate::test_utils::{StorageNodeHandle, StorageNodeHandleTrait, TestCluster};
+    use crate::test_utils::{
+        StorageNodeHandle,
+        StorageNodeHandleTrait,
+        TestCluster,
+        retry_until_success_or_timeout,
+    };
 
     // Allow a bit more slack now that live-upload deferrals can delay recovery.
     const TIMEOUT: Duration = Duration::from_secs(5);
@@ -5198,14 +5263,12 @@ mod tests {
                 end_epoch: blob_end_epoch,
                 ..BlobRegistered::for_testing_with_object_id(*blob_details.blob_id(), object_id)
             };
+            let blob_certified_event = blob_registration_event
+                .clone()
+                .into_corresponding_certified_event_for_testing();
             node_0_events.send(blob_registration_event.clone().into())?;
             all_other_node_events.send(blob_registration_event.into())?;
 
-            let blob_certified_event = BlobCertified {
-                deletable,
-                end_epoch: blob_end_epoch,
-                ..BlobCertified::for_testing_with_object_id(*blob_details.blob_id(), object_id)
-            };
             if blob_index_store_at_shard_0(i) {
                 store_at_shards(&blob_details, &cluster, |_, _| true).await?;
                 node_0_events.send(blob_certified_event.clone().into())?;
@@ -5351,6 +5414,7 @@ mod tests {
 
     #[tokio::test]
     async fn does_not_start_blob_sync_for_already_expired_blob() -> TestResult {
+        walrus_test_utils::init_tracing();
         let shards: &[&[u16]] = &[&[1], &[0, 2, 3, 4]];
 
         let (cluster, events) = cluster_at_epoch1_without_blobs(shards, None).await?;
@@ -5359,6 +5423,7 @@ mod tests {
         // Register and certify an already expired blob.
         let object_id = ObjectID::random();
         let event_id = event_id_for_testing();
+
         events.send(
             BlobRegistered {
                 epoch: 1,
@@ -5385,16 +5450,8 @@ mod tests {
             .into(),
         )?;
 
-        // Make sure the node actually saw and started processing the event.
-        retry_until_success_or_timeout(TIMEOUT, || async {
-            node.storage_node
-                .inner
-                .storage
-                .get_blob_info(&BLOB_ID)?
-                .ok_or(anyhow!("blob info not updated"))
-        })
-        .await?;
-
+        // Wait until the node has processed all events (2 epoch-change events + 2 blob events).
+        wait_until_events_processed_exact(node, 4).await?;
         assert_eq!(node.storage_node.blob_sync_handler.cancel_all().await?, 0);
 
         Ok(())
@@ -5519,6 +5576,15 @@ mod tests {
         for i in 0..blob_count {
             let (_blob_id, end_epoch) = blobs_with_end_epoch[i];
             advance_cluster_to_epoch(&cluster, &[&events], end_epoch).await?;
+
+            // Wait for garbage-collection task to complete for this epoch
+            crate::test_utils::wait_for_garbage_collection_to_complete(
+                &cluster.nodes[0..=0],
+                end_epoch,
+                Duration::from_secs(5),
+            )
+            .await?;
+
             let node_epoch = node.inner.current_committee_epoch();
 
             for (blob_id, end_epoch) in blobs_with_end_epoch[i..].iter() {
@@ -5804,31 +5870,6 @@ mod tests {
         })
         .await
         .expect("sliver should be available at some point after being certified")
-    }
-
-    /// Retries until success or a timeout, returning the last result.
-    async fn retry_until_success_or_timeout<F, Fut, T, E>(
-        duration: Duration,
-        mut func_to_retry: F,
-    ) -> Result<T, E>
-    where
-        F: FnMut() -> Fut,
-        Fut: Future<Output = Result<T, E>>,
-    {
-        let mut last_result = None;
-
-        let _ = tokio::time::timeout(duration, async {
-            loop {
-                last_result = Some(func_to_retry().await);
-                if last_result.as_ref().unwrap().is_ok() {
-                    return;
-                }
-                tokio::time::sleep(Duration::from_millis(5)).await;
-            }
-        })
-        .await;
-
-        last_result.expect("function to have completed at least once")
     }
 
     #[tokio::test]
@@ -7617,9 +7658,13 @@ mod tests {
                     .send(InvalidBlobId::for_testing(*blob_details[i].blob_id()).into())?;
             }
             for i in deletable_blob_index {
-                event_senders
-                    .all_other_node_events
-                    .send(BlobDeleted::for_testing(*blob_details[i].blob_id()).into())?;
+                event_senders.all_other_node_events.send(
+                    BlobDeleted::for_testing_with_object_id(
+                        *blob_details[i].blob_id(),
+                        blob_details[i].object_id.unwrap(),
+                    )
+                    .into(),
+                )?;
             }
 
             // Make sure that blobs in `skip_stored_blob_index` are not certified in node 0.
@@ -7632,7 +7677,7 @@ mod tests {
                     .get_blob_info(blob_id);
                 if deletable_blob_index.contains(&i) {
                     assert!(matches!(
-                        blob_info.unwrap().unwrap().to_blob_status(1),
+                        blob_info.unwrap().unwrap().to_blob_status(2),
                         BlobStatus::Deletable {
                             deletable_counts: walrus_storage_node_client::api::DeletableCounts {
                                 count_deletable_total: 1,
@@ -7642,7 +7687,7 @@ mod tests {
                         }
                     ));
                 } else {
-                    let blob_status = blob_info.unwrap().unwrap().to_blob_status(1);
+                    let blob_status = blob_info.unwrap().unwrap().to_blob_status(2);
                     if expired_blob_index.contains(&i) {
                         assert!(
                             matches!(blob_status, BlobStatus::Nonexistent),
