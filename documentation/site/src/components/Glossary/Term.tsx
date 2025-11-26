@@ -1,7 +1,6 @@
 import React, {PropsWithChildren, useId, useMemo} from 'react';
 import {useGlossary} from './GlossaryProvider';
 import styles from './term.module.css';
-import Link from '@docusaurus/Link';
 
 type TermProps = PropsWithChildren<{
   /** If omitted, we use the child text as the lookup key */
@@ -42,7 +41,6 @@ export default function Term({children, lookup, definition, ariaLabel}: TermProp
       <span className={styles.tooltip} id={tooltipId} role="tooltip" aria-label={ariaLabel || entry.label}>
         <strong className={styles.tooltipTitle}>{entry.label}</strong>
         <span className={styles.tooltipBody}>{entry.definition}</span>
-        <span><Link to="user/glossary">Glossary</Link></span>
       </span>
     </span>
   );
