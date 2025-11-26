@@ -212,7 +212,7 @@ impl Storage {
         path: &Path,
         db_config: DatabaseConfig,
         metrics_config: MetricConf,
-        registry: Registry,
+        metrics_registry: Registry,
     ) -> Result<Self, anyhow::Error> {
         let mut db_opts = Options::from(&db_config.global);
         db_opts.create_missing_column_families(true);
@@ -347,14 +347,19 @@ impl Storage {
                         &database,
                         &db_table_opts_factory,
                         None,
-                        &registry,
+                        &metrics_registry,
                     )
                     .map(|shard| (id, Arc::new(shard)))
                 })
                 .collect::<Result<_, _>>()?,
         ));
 
-        Ok(Self {
+        let metrics = Arc::new(CommonDatabaseMetrics::new_with_id(
+            &metrics_registry,
+            "storage".to_owned(),
+        ));
+
+        let storage = Self {
             database,
             node_status,
             metadata,
@@ -363,12 +368,14 @@ impl Storage {
             garbage_collector_table,
             shards,
             db_table_opts_factory,
-            metrics: Arc::new(CommonDatabaseMetrics::new_with_id(
-                &registry,
-                "storage".to_owned(),
-            )),
-            metrics_registry: registry,
-        })
+            metrics,
+            metrics_registry,
+        };
+
+        // TODO(WAL-1111): Check if this is actually needed.
+        storage.enable_auto_compactions(true)?;
+
+        Ok(storage)
     }
 
     /// Returns a reference to the database.

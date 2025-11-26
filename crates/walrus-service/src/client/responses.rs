@@ -239,7 +239,7 @@ impl InfoEpochOutput {
         let start_of_current_epoch = epoch_state.start_of_current_epoch().map_or_else(
             || {
                 EpochTimeOrMessage::Message(format!(
-                    "Epoch change is currently in progress... Expected epoch end time is {}",
+                    "Epoch change is currently in progress... Earliest epoch end time is {}",
                     Utc::now() + epoch_duration
                 ))
             },

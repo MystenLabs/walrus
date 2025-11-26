@@ -1450,9 +1450,7 @@ impl ClientCommandRunner {
             let epoch_state = staking_object.epoch_state();
             let current_epoch = staking_object.epoch();
 
-            let estimated_start_of_current_epoch = epoch_state
-                .start_of_current_epoch()
-                .unwrap_or_else(Utc::now);
+            let estimated_start_of_current_epoch = epoch_state.earliest_start_of_current_epoch();
 
             ensure!(
                 end_epoch > current_epoch,

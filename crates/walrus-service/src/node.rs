@@ -1736,7 +1736,7 @@ impl StorageNode {
             .ok()
             .and_then(|(current_epoch, state)| {
                 if current_epoch == epoch {
-                    state.start_of_current_epoch()
+                    Some(state.earliest_start_of_current_epoch())
                 } else {
                     None
                 }
@@ -1779,7 +1779,7 @@ impl StorageNode {
             return Ok(());
         }
 
-        let (current_epoch, state) = self.inner.contract_service.get_epoch_and_state().await?;
+        let (current_epoch, _) = self.inner.contract_service.get_epoch_and_state().await?;
 
         if current_epoch != last_started_epoch {
             tracing::info!(
@@ -1791,30 +1791,13 @@ impl StorageNode {
             return Ok(());
         }
 
-        // TODO(WAL-1040): Can we just call self.start_garbage_collection_task() here?
-
-        // Here we know that a garbage-collection task was started and not completed. As it was only
-        // started by `Self::start_garbage_collection_task` if the node was active, and we are still
-        // in the same epoch, the node should still be active.
-        assert!(
-            self.inner.storage.node_status()?.is_active(),
-            "node status should not have changed since the last garbage-collection task was \
-            started if there was no epoch change"
-        );
-
-        let epoch_start = state
-            .start_of_current_epoch()
-            .expect("no garbage-collection task should have been started during epoch change");
-
         tracing::info!(
             last_started_epoch,
             last_completed_epoch,
             current_epoch,
             "restarting unfinished garbage-collection task on startup"
         );
-        self.garbage_collector
-            .start_garbage_collection_task(current_epoch, epoch_start)
-            .await
+        self.start_garbage_collection_task(current_epoch).await
     }
 
     /// Storage node execution of the epoch change start event, to bring the node state to the next

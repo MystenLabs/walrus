@@ -227,10 +227,7 @@ impl<T: ReadClient> CommitteesRefresher<T> {
 
     /// Computes the start of the next epoch, based on current information.
     fn next_epoch_start(&self) -> DateTime<Utc> {
-        self.epoch_state
-            .start_of_current_epoch()
-            .unwrap_or_else(Utc::now)
-            + self.epoch_duration
+        self.epoch_state.earliest_start_of_current_epoch() + self.epoch_duration
     }
 
     /// Computes the time from now to the start of the next epoch.

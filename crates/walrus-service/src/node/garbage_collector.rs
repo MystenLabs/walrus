@@ -262,25 +262,24 @@ impl GarbageCollector {
             .await?;
 
         if self.config.enable_data_deletion {
-            self.node
+            if self
+                .node
                 .storage
                 .delete_expired_blob_data(
                     epoch,
                     &self.metrics,
                     self.config.data_deletion_batch_size,
                 )
-                .await?;
+                .await?
+            {
+                // Update the last completed epoch after successful cleanup.
+                self.node
+                    .storage
+                    .set_garbage_collector_last_completed_epoch(epoch)?;
+                self.metrics
+                    .set_garbage_collection_last_completed_epoch(epoch);
+            }
         }
-
-        // Update the last completed epoch after successful cleanup.
-        // TODO(WAL-1040): We should either store multiple epochs for when we finish blob-info
-        // cleanup and data deletion, or we should only update it when both cleanup tasks finish
-        // successfully.
-        self.node
-            .storage
-            .set_garbage_collector_last_completed_epoch(epoch)?;
-        self.metrics
-            .set_garbage_collection_last_completed_epoch(epoch);
 
         Ok(())
     }

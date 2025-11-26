@@ -674,6 +674,14 @@ impl EpochState {
             Self::EpochChangeSync(_) => None,
         }
     }
+
+    /// Returns the earliest time at which the current epoch can start.
+    ///
+    /// If the state is [`EpochChangeSync`][Self::EpochChangeSync], returns the current time.
+    /// Otherwise, returns the start time of the current epoch ([`Self::start_of_current_epoch`]).
+    pub fn earliest_start_of_current_epoch(&self) -> DateTime<Utc> {
+        self.start_of_current_epoch().unwrap_or_else(Utc::now)
+    }
 }
 
 /// The committee shard assignment.
