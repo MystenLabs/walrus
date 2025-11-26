@@ -387,8 +387,6 @@ pub struct StorageNodeHandle {
 
 impl Drop for StorageNodeHandle {
     fn drop(&mut self) {
-        // Signal shutdown first so event handles know they can be dropped safely
-        self.storage_node.shut_down();
         self.cancel.cancel();
         if let Some(handle) = self.node_runtime_handle.take() {
             handle.abort();
