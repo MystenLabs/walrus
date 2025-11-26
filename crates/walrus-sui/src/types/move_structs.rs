@@ -1186,6 +1186,10 @@ pub struct ManagedBlob {
     /// Type of blob: Regular or Quilt (composite blob).
     #[cfg_attr(feature = "utoipa", schema(value_type = String))]
     pub blob_type: BlobType,
+    /// Internal attributes map for efficient single-read access.
+    /// Limits: max 100 entries, max 1KB per key, max 1KB per value.
+    #[cfg_attr(feature = "utoipa", schema(value_type = std::collections::HashMap<String, String>))]
+    pub attributes: VecMap<String, String>,
 }
 
 impl AssociatedContractStruct for ManagedBlob {

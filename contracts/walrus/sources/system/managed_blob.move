@@ -4,7 +4,7 @@
 module walrus::managed_blob;
 
 use std::string::String;
-use sui::{bcs, dynamic_field, hash, object};
+use sui::{dynamic_field, vec_map::{Self, VecMap}};
 use walrus::{
     blob,
     encoding,
@@ -36,6 +36,20 @@ const EMissingMetadata: u64 = 8;
 const EInvalidBlobPersistenceType: u64 = 9;
 /// The blob object ID of a deletable blob does not match the ID in the certificate.
 const EInvalidBlobObject: u64 = 10;
+/// Too many attributes (max 100).
+const ETooManyAttributes: u64 = 11;
+/// Attribute key too long (max 1024 bytes).
+const EAttributeKeyTooLong: u64 = 12;
+/// Attribute value too long (max 1024 bytes).
+const EAttributeValueTooLong: u64 = 13;
+
+// === Attribute Limits ===
+/// Maximum number of attributes per blob.
+const MAX_ATTRIBUTES: u64 = 100;
+/// Maximum length of an attribute key in bytes.
+const MAX_ATTRIBUTE_KEY_LENGTH: u64 = 1024;
+/// Maximum length of an attribute value in bytes.
+const MAX_ATTRIBUTE_VALUE_LENGTH: u64 = 1024;
 
 // The fixed dynamic field name for metadata
 const METADATA_DF: vector<u8> = b"metadata";
@@ -68,6 +82,9 @@ public struct ManagedBlob has key, store {
     deletable: bool,
     // Type of blob: Regular or Quilt (composite blob).
     blob_type: BlobType,
+    // Internal attributes map for efficient single-read access.
+    // Limits: max 100 entries, max 1KB per key, max 1KB per value.
+    attributes: VecMap<String, String>,
 }
 
 // === Accessors ===
@@ -109,6 +126,32 @@ public fun blob_type(self: &ManagedBlob): BlobType {
 }
 
 // Removed is_quilt() - use blob_type() and match on BlobType enum directly if needed
+
+/// Returns a reference to the internal attributes map.
+public fun attributes(self: &ManagedBlob): &VecMap<String, String> {
+    &self.attributes
+}
+
+/// Returns the number of attributes.
+public fun attributes_count(self: &ManagedBlob): u64 {
+    self.attributes.length()
+}
+
+/// Checks if an attribute key exists.
+public fun has_attribute(self: &ManagedBlob, key: &String): bool {
+    self.attributes.contains(key)
+}
+
+/// Gets the value for an attribute key, if it exists.
+public fun get_attribute(self: &ManagedBlob, key: &String): Option<String> {
+    if (self.attributes.contains(key)) {
+        let idx = self.attributes.get_idx(key);
+        let (_, value) = self.attributes.get_entry_by_idx(idx);
+        option::some(*value)
+    } else {
+        option::none()
+    }
+}
 
 public fun encoded_size(self: &ManagedBlob, n_shards: u16): u64 {
     encoding::encoded_blob_length(
@@ -181,6 +224,7 @@ public(package) fun new(
         blob_manager_id,
         deletable,
         blob_type: blob_type_enum,
+        attributes: vec_map::empty(),
     }
 }
 
@@ -347,6 +391,62 @@ public fun remove_metadata_pair_if_exists(
         option::none()
     } else {
         self.metadata().remove_if_exists(key)
+    }
+}
+
+// === Internal Attributes ===
+// These are stored directly in the ManagedBlob for efficient single-read access.
+// Limits: max 100 entries, max 1KB per key, max 1KB per value.
+
+/// Validates attribute key and value lengths.
+fun validate_attribute_lengths(key: &String, value: &String) {
+    assert!(key.length() <= MAX_ATTRIBUTE_KEY_LENGTH, EAttributeKeyTooLong);
+    assert!(value.length() <= MAX_ATTRIBUTE_VALUE_LENGTH, EAttributeValueTooLong);
+}
+
+/// Sets an attribute key-value pair.
+///
+/// If the key already exists, the value is updated.
+/// If the key doesn't exist and we're at the limit, aborts with ETooManyAttributes.
+/// Aborts if key or value exceeds size limits.
+public fun set_attribute(self: &mut ManagedBlob, key: String, value: String) {
+    validate_attribute_lengths(&key, &value);
+
+    if (self.attributes.contains(&key)) {
+        // Update existing - remove and re-insert.
+        self.attributes.remove(&key);
+        self.attributes.insert(key, value);
+    } else {
+        // Adding new - check count limit.
+        assert!(self.attributes.length() < MAX_ATTRIBUTES, ETooManyAttributes);
+        self.attributes.insert(key, value);
+    }
+}
+
+/// Removes an attribute by key.
+///
+/// Returns the removed key-value pair.
+/// Aborts if the key doesn't exist.
+public fun remove_attribute(self: &mut ManagedBlob, key: &String): (String, String) {
+    self.attributes.remove(key)
+}
+
+/// Removes an attribute by key if it exists.
+///
+/// Returns the removed value if the key existed, None otherwise.
+public fun remove_attribute_if_exists(self: &mut ManagedBlob, key: &String): Option<String> {
+    if (self.attributes.contains(key)) {
+        let (_, value) = self.attributes.remove(key);
+        option::some(value)
+    } else {
+        option::none()
+    }
+}
+
+/// Clears all attributes.
+public fun clear_attributes(self: &mut ManagedBlob) {
+    while (!self.attributes.is_empty()) {
+        self.attributes.pop();
     }
 }
 
