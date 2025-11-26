@@ -76,7 +76,7 @@ const config = {
           // Remove this to remove the "edit this page" links.
           editUrl:
             "https://github.com/MystenLabs/walrus/tree/main/documentation/",
-          remarkPlugins: [[remarkGlossary, { glossaryFile: "static/glossary.yaml" }]],
+          remarkPlugins: [[remarkGlossary, { glossaryFile: "static/glossary.json" }]],
         },
         blog: {
           path: "../blog",
@@ -96,7 +96,7 @@ const config = {
           onUntruncatedBlogPosts: "warn",
         },
         pages: {
-          remarkPlugins: [[remarkGlossary, { glossaryFile: "static/glossary.yaml" }]],
+          remarkPlugins: [[remarkGlossary, { glossaryFile: "static/glossary.json" }]],
         },
         theme: {
           customCss: path.resolve(__dirname, './src/css/custom.css'),

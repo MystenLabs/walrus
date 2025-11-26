@@ -1,5 +1,5 @@
 @layer theme, utilities;
-@custom-variant dark (:where(.dark, [data-theme="dark"]) &);
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
 
 @theme {
   --color-wal-black: hsl(229, 42%, 8%);
@@ -19,15 +19,19 @@
   --color-wal-white-20:  hsl(var(--wal-white-100-hsl) / 20%);
   --color-wal-white-10:  hsl(var(--wal-white-100-hsl) / 10%);
   --color-wal-white-5:  hsl(var(--wal-white-100-hsl) / 5%);
-  --color-wal-purple-light: hsl(275, 94%, 86%);
+  --color-wal-purple-lighter: hsl(274, 100%, 90%);
+  --color-wal-purple-light: hsl(274, 89%, 83%);
   --color-wal-purple: hsl(274, 86%, 74%);
-  --color-wal-purple-dark: hsl(265, 90%, 30%);
+  --color-wal-purple-dark: hsl(265, 82%, 69%);
+  --color-wal-purple-darker: hsl(265, 90%, 30%);
   --color-wal-link: hsl(211, 100%, 65%);
   --color-wal-link-hover: hsl(211, 96%, 56%);
   --color-wal-purple-link-dark: var(--color-wal-purple);
+  --color-wal-green-lighter: hsl(173, 75%, 95%);
   --color-wal-green-light: hsl(172, 83%, 89%);
   --color-wal-green: hsl(173, 75%, 77%);
-  --color-wal-green-dark: hsl(172, 92%, 36%);
+  --color-wal-green-dark: hsl(172, 56%, 49%);
+  --color-wal-green-darker: hsl(172, 90%, 30%);
   --color-wal-success: hsl(152, 93%, 35%);
 
   /* Base channel for wal gray; use alpha to derive shades */
@@ -100,7 +104,6 @@
   --ifm-link-hover-color: var(--color-wal-link-hover);
   --ifm-pagination-nav-color-hover: var(--color-wal-green-dark);
   --ifm-color-primary: var(--color-wal-link);
-  --ifm-navbar-link-hover-color: var(--color-wal-purple-dark);
 }
 
 body {
@@ -108,7 +111,7 @@ body {
 }
 
 .markdown header > h1 {
-  @apply text-wal-purple-dark font-light text-[2.5rem];
+  @apply text-wal-purple-darker dark:text-wal-purple-dark font-light text-[2.5rem];
 }
 
 .markdown h2 {
@@ -123,6 +126,10 @@ html[data-theme='dark'] .navbar {
 
 .theme-doc-sidebar-menu.menu__list {
   @apply pb-8;
+}
+
+.navbar__link--active {
+  @apply text-wal-purple-darker dark:text-wal-purple-dark
 }
 
 /** navbar search field **/
@@ -274,6 +281,12 @@ html[data-theme='dark'] .DocSearch-Search-Icon path {
   background: currentColor;
   -webkit-mask: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="%23000"><path d="M12 .5a11.5 11.5 0 0 0-3.64 22.42c.58.11.8-.25.8-.56v-2.01c-3.26.71-3.95-1.57-3.95-1.57-.53-1.35-1.29-1.7-1.29-1.7-1.06-.72.08-.71.08-.71 1.17.08 1.79 1.2 1.79 1.2 1.04 1.78 2.73 1.26 3.4.96.11-.76.41-1.26.74-1.55-2.6-.3-5.34-1.31-5.34-5.84 0-1.29.46-2.35 1.2-3.18-.12-.29-.52-1.47.11-3.06 0 0 .98-.31 3.2 1.21a11.12 11.12 0 0 1 5.82 0c2.22-1.52 3.2-1.21 3.2-1.21.63 1.59.23 2.77.11 3.06.75.83 1.2 1.89 1.2 3.18 0 4.54-2.74 5.53-5.36 5.82.42.36.8 1.07.8 2.15v3.19c0 .31.21.68.81.56A11.5 11.5 0 0 0 12 .5Z"/></svg>') no-repeat center / contain;
           mask: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="%23000"><path d="M12 .5a11.5 11.5 0 0 0-3.64 22.42c.58.11.8-.25.8-.56v-2.01c-3.26.71-3.95-1.57-3.95-1.57-.53-1.35-1.29-1.7-1.29-1.7-1.06-.72.08-.71.08-.71 1.17.08 1.79 1.2 1.79 1.2 1.04 1.78 2.73 1.26 3.4.96.11-.76.41-1.26.74-1.55-2.6-.3-5.34-1.31-5.34-5.84 0-1.29.46-2.35 1.2-3.18-.12-.29-.52-1.47.11-3.06 0 0 .98-.31 3.2 1.21a11.12 11.12 0 0 1 5.82 0c2.22-1.52 3.2-1.21 3.2-1.21.63 1.59.23 2.77.11 3.06.75.83 1.2 1.89 1.2 3.18 0 4.54-2.74 5.53-5.36 5.82.42.36.8 1.07.8 2.15v3.19c0 .31.21.68.81.56A11.5 11.5 0 0 0 12 .5Z"/></svg>') no-repeat center / contain;
+}
+
+/* Copy page button */
+
+#copy-page-button-container button {
+  @apply dark:text-wal-gray-80;
 }
 
 /* table in legal/privacy */

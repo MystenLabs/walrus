@@ -16,7 +16,7 @@ export default function Footer(): JSX.Element | null {
   const discord = `http://discord.gg/${(siteConfig.customFields as any)?.discord}`;
 
   return (
-    <footer className="bg-wal-purple-dark py-6 border-t border-wal-green-dark">
+    <footer className="bg-wal-purple-darker py-6 border-t border-wal-green-dark">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between items-center flex-wrap gap-2">
           {copyright && (
@@ -25,7 +25,7 @@ export default function Footer(): JSX.Element | null {
             </span>
           )}
           <div className='text-wal-white-70'>
-            <Link className='text-wal-white-70 hover:text-wal-white-100' to="/docs/legal/privacy">Privacy</Link> | <Link className='text-wal-white-70 hover:text-wal-white-100' to="/docs/legal/walrus_general_tos">TOS</Link> | <Link className='text-wal-white-70 hover:text-wal-white-100' to="/docs/legal/testnet_tos">Tesnet TOS</Link>
+            <Link className='text-wal-white-70 hover:text-wal-white-100' to="/docs/legal/privacy">Privacy</Link> &bull; <Link className='text-wal-white-70 hover:text-wal-white-100' to="/docs/legal/walrus_general_tos">TOS</Link> &bull; <Link className='text-wal-white-70 hover:text-wal-white-100' to="/docs/legal/testnet_tos">Tesnet TOS</Link>
           </div>
           <div className="flex gap-4">
           <a 

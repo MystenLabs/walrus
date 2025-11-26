@@ -74,7 +74,7 @@ function loadGlossary(glossaryPath) {
  * @param {{glossaryFile?: string}} options
  */
 function remarkGlossary(options = {}) {
-  const glossaryFile = options.glossaryFile || 'static/glossary.yaml'; // or .yml
+  const glossaryFile = options.glossaryFile || 'static/glossary.json';
   const absPath = path.isAbsolute(glossaryFile)
     ? glossaryFile
     : path.join(process.cwd(), glossaryFile);

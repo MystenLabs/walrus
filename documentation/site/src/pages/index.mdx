@@ -3,13 +3,11 @@ title: Walrus
 hide_table_of_contents: true
 ---
 
-# Walrus Documentation
-
 Walrus is a decentralized storage and data availability protocol designed specifically for large binary files, or blobs. Walrus focuses on providing a robust but affordable solution for storing unstructured content on decentralized storage nodes while ensuring high availability and reliability even in the presence of Byzantine faults.
 
 :::tip Fun fact
 
-If you are viewing this site at `<https://docs.walrus.site>`, you are fetching this from
+If you are viewing this site at https://docs.wal.app, you are fetching this from
 Walrus behind the scenes. See the [Walrus Sites chapter](/docs/walrus-sites/intro) for further
 details on how this works.
 
@@ -45,6 +43,14 @@ details on how this works.
   software development kits (SDKs), and web2 HTTP technologies. Walrus is designed to work well
   with traditional caches and content distribution networks (CDNs), while ensuring all operations
   can also be run using local tools to maximize decentralization.
+
+:::danger Public access
+
+**All blobs stored in Walrus are public and discoverable by all.** Therefore you must not use Walrus
+to store anything that contains secrets or private data without additional measures to protect
+confidentiality. Refer to [Data Security](/dev-guide/data-security.mdx) for such use cases.
+
+:::
 
 ## Architecture and operations
 

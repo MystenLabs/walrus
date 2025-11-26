@@ -1,6 +1,5 @@
 import React, {createContext, useContext, useEffect, useMemo, useState} from 'react';
 import useBaseUrl from '@docusaurus/useBaseUrl';
-import * as yaml from 'js-yaml';
 
 type GlossaryMap = Map<string, {label: string; definition: string; id?: string; aliases?: string[]}>;
 
@@ -8,18 +7,17 @@ const GlossaryContext = createContext<{map: GlossaryMap | null}>({map: null});
 
 export default function GlossaryProvider({children}: {children: React.ReactNode}) {
   const [map, setMap] = useState<GlossaryMap | null>(null);
-  const url = useBaseUrl('/glossary.yaml');
+  const url = useBaseUrl('/glossary.json');
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
         const res = await fetch(url);
-        const text = await res.text();
-        const data = yaml.load(text);
+        const data = (await res.json()) as unknown;
         const m: GlossaryMap = new Map();
 
-        // Accept two YAML shapes:
+        // Accept two JSON shapes:
         // 1) { "JSON API": "definition", ... }
         // 2) [ {label,id?,definition,aliases?}, ... ]
         if (Array.isArray(data)) {
@@ -42,7 +40,7 @@ export default function GlossaryProvider({children}: {children: React.ReactNode}
 
         if (!cancelled) setMap(m);
       } catch (e) {
-        console.error('Failed to load glossary.yml', e);
+        console.error('Failed to load glossary.json', e);
         if (!cancelled) setMap(new Map());
       }
     })();

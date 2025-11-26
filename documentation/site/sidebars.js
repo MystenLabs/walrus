@@ -93,7 +93,7 @@ const sidebars = {
         "operator-guide/upload-relay",
       ],
     },
-    "usage/stake", "usage/examples", "usage/troubleshooting",
+    "usage/stake", "usage/examples", "usage/troubleshooting", "usage/glossary",
   ],
   sitesSidebar: [
     "walrus-sites/intro",
