@@ -12,8 +12,8 @@ const EVENT_INDEX_COLUMN_FAMILY_NAME: &str = "latest_handled_event_index";
 const EVENT_CURSOR_COLUMN_FAMILY_NAME: &str = "event_cursor";
 const EVENT_CURSOR_KEY: [u8; 6] = *b"cursor";
 const GARBAGE_COLLECTOR_TABLE_COLUMN_FAMILY_NAME: &str = "garbage_collector_last_completed_epoch";
-const GARBAGE_COLLECTOR_LAST_STARTED_EPOCH_KEY: [u8; 9] = *b"started\0\0";
-const GARBAGE_COLLECTOR_LAST_COMPLETED_EPOCH_KEY: [u8; 9] = *b"completed";
+const GARBAGE_COLLECTOR_LAST_STARTED_EPOCH_KEY: &str = "started";
+const GARBAGE_COLLECTOR_LAST_COMPLETED_EPOCH_KEY: &str = "completed";
 
 // Base name for shard-related column families
 const SHARD_BASE_COLUMN_FAMILY_NAME: &str = "shard";
@@ -67,12 +67,12 @@ pub fn garbage_collector_table_cf_name() -> &'static str {
     GARBAGE_COLLECTOR_TABLE_COLUMN_FAMILY_NAME
 }
 
-pub fn garbage_collector_last_started_epoch_key() -> &'static [u8; 9] {
-    &GARBAGE_COLLECTOR_LAST_STARTED_EPOCH_KEY
+pub fn garbage_collector_last_started_epoch_key() -> String {
+    GARBAGE_COLLECTOR_LAST_STARTED_EPOCH_KEY.to_string()
 }
 
-pub fn garbage_collector_last_completed_epoch_key() -> &'static [u8; 9] {
-    &GARBAGE_COLLECTOR_LAST_COMPLETED_EPOCH_KEY
+pub fn garbage_collector_last_completed_epoch_key() -> String {
+    GARBAGE_COLLECTOR_LAST_COMPLETED_EPOCH_KEY.to_string()
 }
 
 /// Returns the column family name for primary slivers of a shard.

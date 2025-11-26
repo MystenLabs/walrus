@@ -184,7 +184,7 @@ pub struct Storage {
     metadata: DBMap<BlobId, BlobMetadata>,
     blob_info: BlobInfoTable,
     event_cursor: EventCursorTable,
-    garbage_collector_table: DBMap<[u8; 9], Epoch>,
+    garbage_collector_table: DBMap<String, Epoch>,
     shards: Arc<RwLock<HashMap<ShardIndex, Arc<ShardStorage>>>>,
     db_table_opts_factory: DatabaseTableOptionsFactory,
     metrics: Arc<CommonDatabaseMetrics>,
@@ -315,18 +315,20 @@ impl Storage {
             false,
         )?;
         if garbage_collector_table
-            .get(garbage_collector_last_started_epoch_key())?
+            .get(&garbage_collector_last_started_epoch_key())?
             .is_none()
         {
             garbage_collector_table
-                .insert(garbage_collector_last_started_epoch_key(), &GENESIS_EPOCH)?;
+                .insert(&garbage_collector_last_started_epoch_key(), &GENESIS_EPOCH)?;
         }
         if garbage_collector_table
-            .get(garbage_collector_last_completed_epoch_key())?
+            .get(&garbage_collector_last_completed_epoch_key())?
             .is_none()
         {
-            garbage_collector_table
-                .insert(garbage_collector_last_completed_epoch_key(), &GENESIS_EPOCH)?;
+            garbage_collector_table.insert(
+                &garbage_collector_last_completed_epoch_key(),
+                &GENESIS_EPOCH,
+            )?;
         }
 
         let metadata = DBMap::reopen(
@@ -398,7 +400,7 @@ impl Storage {
         &self,
     ) -> anyhow::Result<(Epoch, Epoch)> {
         let &[last_started_epoch, last_completed_epoch] =
-            &self.garbage_collector_table.multi_get([
+            &self.garbage_collector_table.multi_get(&[
                 garbage_collector_last_started_epoch_key(),
                 garbage_collector_last_completed_epoch_key(),
             ])?[..]
@@ -416,7 +418,7 @@ impl Storage {
     pub(crate) fn garbage_collector_last_started_epoch(&self) -> Result<Epoch, TypedStoreError> {
         Ok(self
             .garbage_collector_table
-            .get(garbage_collector_last_started_epoch_key())?
+            .get(&garbage_collector_last_started_epoch_key())?
             .unwrap_or(GENESIS_EPOCH))
     }
 
@@ -426,14 +428,14 @@ impl Storage {
         epoch: Epoch,
     ) -> Result<(), TypedStoreError> {
         self.garbage_collector_table
-            .insert(garbage_collector_last_started_epoch_key(), &epoch)
+            .insert(&garbage_collector_last_started_epoch_key(), &epoch)
     }
 
     /// Returns the highest epoch for which garbage collection was completed.
     pub(crate) fn garbage_collector_last_completed_epoch(&self) -> Result<Epoch, TypedStoreError> {
         Ok(self
             .garbage_collector_table
-            .get(garbage_collector_last_completed_epoch_key())?
+            .get(&garbage_collector_last_completed_epoch_key())?
             .unwrap_or(GENESIS_EPOCH))
     }
 
@@ -443,7 +445,7 @@ impl Storage {
         epoch: Epoch,
     ) -> Result<(), TypedStoreError> {
         self.garbage_collector_table
-            .insert(garbage_collector_last_completed_epoch_key(), &epoch)
+            .insert(&garbage_collector_last_completed_epoch_key(), &epoch)
     }
 
     pub(crate) fn clear_blob_info_table(&self) -> Result<(), TypedStoreError> {
