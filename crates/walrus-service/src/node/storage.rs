@@ -5,7 +5,7 @@ use core::fmt::{self, Display};
 use std::{
     collections::{HashMap, hash_map::Entry},
     fmt::Debug,
-    ops::Bound::{Excluded, Included},
+    ops::Bound::{self, Excluded, Included},
     path::Path,
     sync::Arc,
     time::Instant,
@@ -62,7 +62,7 @@ use super::{
     errors::{ShardNotAssigned, SyncShardServiceError},
     metrics::{NodeMetricSet, STATUS_FAILURE, STATUS_SUCCESS},
 };
-use crate::utils;
+use crate::utils::{self, BatchProcessingResult};
 
 pub(crate) mod blob_info;
 pub(crate) mod constants;
@@ -721,57 +721,42 @@ impl Storage {
     ///
     /// Processing is done in batches using `spawn_blocking` to avoid blocking the async runtime
     /// and make it possible to abort the task if the node is shutting down.
+    ///
+    /// Returns `true` if the processing was completed successfully, `false` otherwise.
     #[tracing::instrument(skip_all, fields(walrus.epoch = %current_epoch))]
     pub(crate) async fn delete_expired_blob_data(
         &self,
         current_epoch: Epoch,
         node_metrics: &NodeMetricSet,
         batch_size: usize,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<bool> {
         if self.database.as_optimistic().is_none() {
-            // TODO(WAL-1040): We should not update the latest completed epoch in this case.
             tracing::warn!("data deletion is only possible when the DB supports transactions");
-            return Ok(());
+            return Ok(false);
         }
 
         tracing::info!("starting to delete expired blob data");
         let start_time = Instant::now();
+        let shards = Arc::new(
+            self.owned_shard_storages()
+                .await
+                .context("error while collecting shards for data deletion")?,
+        );
 
-        let shards = self
-            .owned_shard_storages()
-            .await
-            .context("error while collecting shards for data deletion")?;
+        let this = self.clone();
+        let node_metrics = node_metrics.clone();
 
-        let iterator = self
-            .blob_info
-            .aggregate_blob_info_iter()
-            .context("DB error while attempting to iterate over aggregate blob info")?;
-
-        let cleaned_up_blob_id_count = crate::utils::process_items_in_batches(
-            iterator,
-            batch_size,
-            "a DB error occurred while iterating over aggregate blob info",
-            {
-                let this = self.clone();
-                let shards = shards.clone();
-                let node_metrics = node_metrics.clone();
-                move |batch_items| {
-                    // Get a new handle from the cloned database for this batch
-                    let optimistic_handle = this
-                        .database
-                        .as_optimistic()
-                        .expect("database supports transactions (checked at function start)");
-                    this.iterate_and_delete_expired_blob_data(
-                        &optimistic_handle,
-                        batch_items,
-                        current_epoch,
-                        &shards,
-                        &node_metrics,
-                    )
-                }
-            },
-        )
-        .await?;
+        let cleaned_up_blob_id_count =
+            utils::process_items_in_batches(move |last_processed_blob_id| {
+                this.iterate_and_delete_expired_blob_data(
+                    last_processed_blob_id,
+                    batch_size,
+                    current_epoch,
+                    shards.as_ref(),
+                    &node_metrics,
+                )
+            })
+            .await?;
 
         tracing::info!(
             cleaned_up_blob_id_count,
@@ -779,23 +764,51 @@ impl Storage {
             "finished deleting expired blob data",
         );
 
-        Ok(())
+        Ok(true)
     }
 
     /// Processes a batch of blob info entries and attempts to delete expired blob data.
     ///
     /// Returns the number of blobs that were successfully cleaned up.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the DB does not support transactions or a DB error occurs while
+    /// attempting to create an iterator over the blob info.
     fn iterate_and_delete_expired_blob_data(
         &self,
-        optimistic_handle: &OptimisticHandle<'_>,
-        batch_items: Vec<(BlobId, BlobInfo)>,
+        mut last_processed_blob_id: Option<BlobId>,
+        batch_size: usize,
         current_epoch: Epoch,
         shards: &[Arc<ShardStorage>],
         node_metrics: &NodeMetricSet,
-    ) -> anyhow::Result<usize> {
-        let mut cleaned_up_blob_id_count = 0;
+    ) -> anyhow::Result<utils::BatchProcessingResult<BlobId>> {
+        let optimistic_handle = self
+            .database
+            .as_optimistic()
+            .context("blob data deletion is only possible when the DB supports transactions")?;
+        let mut modified_count = 0;
+        let mut total_count = 0;
 
-        for (blob_id, blob_info) in batch_items {
+        let start_blob_id_bound = last_processed_blob_id.map_or(Bound::Unbounded, Bound::Excluded);
+        for result in self
+            .blob_info
+            .aggregate_blob_info_range_iter(start_blob_id_bound, Bound::Unbounded)?
+            .take(batch_size)
+        {
+            total_count += 1;
+            let (blob_id, blob_info) = match result {
+                Ok(values) => values,
+                Err(error) => {
+                    tracing::warn!(
+                        ?error,
+                        "encountered a DB error while attempting to delete blob data"
+                    );
+                    continue;
+                }
+            };
+            last_processed_blob_id = Some(blob_id);
+
             if !blob_info.can_data_be_deleted(current_epoch) {
                 tracing::trace!(
                     %blob_id,
@@ -807,14 +820,14 @@ impl Storage {
             // At this point we know that the blob is no longer registered, and we can attempt to
             // delete the related data.
             match self.attempt_to_delete_blob_data_inner(
-                optimistic_handle,
+                &optimistic_handle,
                 &blob_id,
                 current_epoch,
                 shards,
                 node_metrics,
             ) {
                 Ok(true) => {
-                    cleaned_up_blob_id_count += 1;
+                    modified_count += 1;
                 }
                 Ok(false) => (),
                 Err(error) => {
@@ -827,7 +840,11 @@ impl Storage {
             }
         }
 
-        Ok(cleaned_up_blob_id_count)
+        Ok(BatchProcessingResult {
+            total_count,
+            modified_count,
+            last_processed_item: last_processed_blob_id,
+        })
     }
 
     pub(crate) async fn attempt_to_delete_blob_data(

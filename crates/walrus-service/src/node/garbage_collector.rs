@@ -261,8 +261,8 @@ impl GarbageCollector {
             .process_expired_blob_objects(epoch, &self.metrics, self.config.blob_objects_batch_size)
             .await?;
 
-        if self.config.enable_data_deletion {
-            if self
+        if self.config.enable_data_deletion
+            && self
                 .node
                 .storage
                 .delete_expired_blob_data(
@@ -271,14 +271,13 @@ impl GarbageCollector {
                     self.config.data_deletion_batch_size,
                 )
                 .await?
-            {
-                // Update the last completed epoch after successful cleanup.
-                self.node
-                    .storage
-                    .set_garbage_collector_last_completed_epoch(epoch)?;
-                self.metrics
-                    .set_garbage_collection_last_completed_epoch(epoch);
-            }
+        {
+            // Update the last completed epoch after successful cleanup.
+            self.node
+                .storage
+                .set_garbage_collector_last_completed_epoch(epoch)?;
+            self.metrics
+                .set_garbage_collection_last_completed_epoch(epoch);
         }
 
         Ok(())

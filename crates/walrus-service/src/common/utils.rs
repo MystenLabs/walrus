@@ -697,71 +697,54 @@ pub(crate) fn unwrap_or_resume_unwind<T, E: std::convert::From<tokio::task::Join
     }
 }
 
-/// Processes items from an iterator in batches using `spawn_blocking`.
+/// Result returned by `process_items_in_batches` closures.
+#[derive(Debug)]
+pub struct BatchProcessingResult<T> {
+    /// Number of entries inspected in the batch.
+    pub total_count: usize,
+    /// Number of entries that resulted in a modification.
+    pub modified_count: usize,
+    /// Identifier of the last processed entry, used to resume iteration.
+    pub last_processed_item: Option<T>,
+}
+
+/// Repeatedly executes a blocking batch processor until it reports that there are no more
+/// items to handle.
 ///
-/// This is a generic helper that handles the common pattern of
-/// - collecting batches from an iterator,
-/// - processing each batch in a blocking thread with the provided `process_function`, and
-/// - accumulating results.
-///
-/// # Arguments
-///
-/// - `iterator`: The iterator to process items from.
-/// - `batch_size`: The number of items to process per batch.
-/// - `error_message`: Message to log when encountering iterator errors.
-/// - `process_function`: Function that processes a batch and returns the count of processed items.
-pub(crate) async fn process_items_in_batches<T, E, F>(
-    mut iterator: impl Iterator<Item = Result<T, E>>,
-    batch_size: usize,
-    error_message: &'static str,
-    process_function: F,
-) -> anyhow::Result<usize>
+/// The provided `process_function` is invoked on a blocking thread with the last processed item
+/// (if any) and must return a [`BatchProcessingResult`]. The helper accumulates the
+/// `modified_count` values until the processor reports that the batch was empty (`total_count == 0`).
+pub(crate) async fn process_items_in_batches<T, F>(process_function: F) -> anyhow::Result<usize>
 where
-    T: Send + 'static,
-    E: std::fmt::Debug + Send + 'static,
-    F: Fn(Vec<T>) -> anyhow::Result<usize> + Send + Sync + 'static,
+    T: Clone + Send + 'static,
+    F: Fn(Option<T>) -> anyhow::Result<BatchProcessingResult<T>> + Send + Sync + 'static,
 {
-    let process_batch = Arc::new(process_function);
-    let mut total_count = 0;
+    let process_function = Arc::new(process_function);
+    let mut last_processed_item: Option<T> = None;
+    let mut modified_total = 0;
 
     loop {
-        // Collect a batch of items to process
-        let mut items_processed = false;
-        let batch_items: Vec<_> = iterator
-            .by_ref()
-            .take(batch_size)
-            .inspect(|_| items_processed = true)
-            .filter_map(|result| {
-                result
-                    .inspect_err(|error| {
-                        tracing::warn!(?error, "{error_message}");
-                    })
-                    .ok()
-            })
-            .collect();
-
-        if !items_processed {
-            // There are no more items to process.
-            break;
-        }
-
-        if batch_items.is_empty() {
-            // Skip this iteration if all items in the batch had errors.
-            continue;
-        }
-
-        let processed_count = spawn_blocking({
-            let process_batch = Arc::clone(&process_batch);
-            move || process_batch(batch_items)
+        let BatchProcessingResult {
+            total_count,
+            modified_count,
+            last_processed_item: next_last_processed_item,
+        } = spawn_blocking({
+            let process_function = Arc::clone(&process_function);
+            let last_processed_item = last_processed_item.clone();
+            move || process_function(last_processed_item)
         })
         .map(unwrap_or_resume_unwind)
         .await?;
 
-        tracing::debug!(processed_count, "processed batch");
-        total_count += processed_count;
+        if total_count == 0 {
+            break;
+        }
+
+        last_processed_item = next_last_processed_item;
+        modified_total += modified_count;
     }
 
-    Ok(total_count)
+    Ok(modified_total)
 }
 
 /// Creates a new Walrus client with a refresher using the provided configuration
