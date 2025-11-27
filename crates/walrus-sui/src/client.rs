@@ -870,6 +870,71 @@ impl SuiContractClient {
             .await
     }
 
+    /// Extends the storage period using funds from the BlobManager's coin stash.
+    /// This is for fund managers and bypasses policy time/amount constraints.
+    /// Requires fund_manager permission on the capability.
+    pub async fn extend_storage_from_stash_fund_manager(
+        &self,
+        manager_id: ObjectID,
+        manager_cap: ObjectID,
+        extension_epochs: u32,
+    ) -> SuiClientResult<()> {
+        self.inner
+            .lock()
+            .await
+            .extend_storage_from_stash_fund_manager(manager_id, manager_cap, extension_epochs)
+            .await
+    }
+
+    /// Sets the extension policy to disabled (no one can extend).
+    /// Requires fund_manager permission on the capability.
+    pub async fn set_extension_policy_disabled(
+        &self,
+        manager_id: ObjectID,
+        manager_cap: ObjectID,
+    ) -> SuiClientResult<()> {
+        self.inner
+            .lock()
+            .await
+            .set_extension_policy_disabled(manager_id, manager_cap)
+            .await
+    }
+
+    /// Sets the extension policy to fund_manager only (only fund_manager can extend).
+    /// Requires fund_manager permission on the capability.
+    pub async fn set_extension_policy_fund_manager_only(
+        &self,
+        manager_id: ObjectID,
+        manager_cap: ObjectID,
+    ) -> SuiClientResult<()> {
+        self.inner
+            .lock()
+            .await
+            .set_extension_policy_fund_manager_only(manager_id, manager_cap)
+            .await
+    }
+
+    /// Sets the extension policy to constrained with the given parameters.
+    /// Requires fund_manager permission on the capability.
+    pub async fn set_extension_policy_constrained(
+        &self,
+        manager_id: ObjectID,
+        manager_cap: ObjectID,
+        expiry_threshold_epochs: u32,
+        max_extension_epochs: u32,
+    ) -> SuiClientResult<()> {
+        self.inner
+            .lock()
+            .await
+            .set_extension_policy_constrained(
+                manager_id,
+                manager_cap,
+                expiry_threshold_epochs,
+                max_extension_epochs,
+            )
+            .await
+    }
+
     /// Certifies the specified blob on Sui, given a certificate that confirms its storage and
     /// returns the certified blob.
     ///
@@ -2540,6 +2605,146 @@ impl SuiContractClientInner {
         }
 
         tracing::debug!("successfully cleared managed blob attributes");
+        Ok(())
+    }
+
+    /// Extends the storage period using funds from the BlobManager's coin stash.
+    /// This is for fund managers and bypasses policy time/amount constraints.
+    /// Requires fund_manager permission on the capability.
+    pub async fn extend_storage_from_stash_fund_manager(
+        &mut self,
+        manager_id: ObjectID,
+        manager_cap: ObjectID,
+        extension_epochs: u32,
+    ) -> SuiClientResult<()> {
+        tracing::debug!(
+            manager_id = %manager_id,
+            extension_epochs = extension_epochs,
+            "extending storage from blob manager coin stash (fund manager)"
+        );
+
+        let mut pt_builder = self.transaction_builder()?;
+
+        pt_builder
+            .extend_storage_from_stash_fund_manager(manager_id, manager_cap, extension_epochs)
+            .await?;
+
+        let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
+        let res = self
+            .sign_and_send_transaction(transaction, "extend_storage_from_stash_fund_manager")
+            .await?;
+
+        if !res.errors.is_empty() {
+            tracing::warn!(errors = ?res.errors, "failed to extend storage (fund manager)");
+            return Err(anyhow!("could not extend storage: {:?}", res.errors).into());
+        }
+
+        tracing::debug!("successfully extended storage from coin stash (fund manager)");
+        Ok(())
+    }
+
+    /// Sets the extension policy to disabled (no one can extend).
+    /// Requires fund_manager permission on the capability.
+    pub async fn set_extension_policy_disabled(
+        &mut self,
+        manager_id: ObjectID,
+        manager_cap: ObjectID,
+    ) -> SuiClientResult<()> {
+        tracing::debug!(
+            manager_id = %manager_id,
+            "setting extension policy to disabled"
+        );
+
+        let mut pt_builder = self.transaction_builder()?;
+
+        pt_builder
+            .set_extension_policy_disabled(manager_id, manager_cap)
+            .await?;
+
+        let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
+        let res = self
+            .sign_and_send_transaction(transaction, "set_extension_policy_disabled")
+            .await?;
+
+        if !res.errors.is_empty() {
+            tracing::warn!(errors = ?res.errors, "failed to set extension policy to disabled");
+            return Err(anyhow!("could not set extension policy: {:?}", res.errors).into());
+        }
+
+        tracing::debug!("successfully set extension policy to disabled");
+        Ok(())
+    }
+
+    /// Sets the extension policy to fund_manager only (only fund_manager can extend).
+    /// Requires fund_manager permission on the capability.
+    pub async fn set_extension_policy_fund_manager_only(
+        &mut self,
+        manager_id: ObjectID,
+        manager_cap: ObjectID,
+    ) -> SuiClientResult<()> {
+        tracing::debug!(
+            manager_id = %manager_id,
+            "setting extension policy to fund_manager only"
+        );
+
+        let mut pt_builder = self.transaction_builder()?;
+
+        pt_builder
+            .set_extension_policy_fund_manager_only(manager_id, manager_cap)
+            .await?;
+
+        let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
+        let res = self
+            .sign_and_send_transaction(transaction, "set_extension_policy_fund_manager_only")
+            .await?;
+
+        if !res.errors.is_empty() {
+            tracing::warn!(errors = ?res.errors, "failed to set policy to fund_manager only");
+            return Err(anyhow!("could not set extension policy: {:?}", res.errors).into());
+        }
+
+        tracing::debug!("successfully set extension policy to fund_manager only");
+        Ok(())
+    }
+
+    /// Sets the extension policy to constrained with the given parameters.
+    /// Requires fund_manager permission on the capability.
+    pub async fn set_extension_policy_constrained(
+        &mut self,
+        manager_id: ObjectID,
+        manager_cap: ObjectID,
+        expiry_threshold_epochs: u32,
+        max_extension_epochs: u32,
+    ) -> SuiClientResult<()> {
+        tracing::debug!(
+            manager_id = %manager_id,
+            expiry_threshold_epochs = expiry_threshold_epochs,
+            max_extension_epochs = max_extension_epochs,
+            "setting extension policy to constrained"
+        );
+
+        let mut pt_builder = self.transaction_builder()?;
+
+        pt_builder
+            .set_extension_policy_constrained(
+                manager_id,
+                manager_cap,
+                expiry_threshold_epochs,
+                max_extension_epochs,
+            )
+            .await?;
+
+        let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
+        let res = self
+            .sign_and_send_transaction(transaction, "set_extension_policy_constrained")
+            .await?;
+
+        if !res.errors.is_empty() {
+            tracing::warn!(errors = ?res.errors, "failed to set extension policy to constrained");
+            return Err(anyhow!("could not set extension policy: {:?}", res.errors).into());
+        }
+
+        tracing::debug!("successfully set extension policy to constrained");
         Ok(())
     }
 

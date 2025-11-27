@@ -512,4 +512,9 @@ pub mod blobmanager {
     contract_ident!(fn blobmanager::set_blob_attribute);
     contract_ident!(fn blobmanager::remove_blob_attribute);
     contract_ident!(fn blobmanager::clear_blob_attributes);
+    // Extension policy operations.
+    contract_ident!(fn blobmanager::extend_storage_from_stash_fund_manager);
+    contract_ident!(fn blobmanager::set_extension_policy_disabled);
+    contract_ident!(fn blobmanager::set_extension_policy_fund_manager_only);
+    contract_ident!(fn blobmanager::set_extension_policy_constrained);
 }

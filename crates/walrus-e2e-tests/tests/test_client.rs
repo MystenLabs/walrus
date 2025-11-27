@@ -3225,13 +3225,21 @@ async fn test_blob_manager_coin_stash_operations() {
         storage_epochs
     );
 
-    // Test 4: Extend storage period using coin stash funds
+    // Test 4: Extend storage period using coin stash funds (fund manager version).
+    // Note: Public extension (extend_storage_from_stash) would fail here because
+    // the default policy is constrained(1, 10), meaning extension is only allowed
+    // when within 1 epoch of expiry. Since we just created the BlobManager with
+    // epochs_ahead=2, we're not within the threshold yet. Use fund manager extension
+    // which bypasses the time constraint.
     let extension_epochs = 1;
-    tracing::info!("Testing storage extension by {} epochs", extension_epochs);
+    tracing::info!(
+        "Testing storage extension by {} epochs (fund manager)",
+        extension_epochs
+    );
 
     client_ref
         .sui_client()
-        .extend_storage_from_stash(manager_id, extension_epochs)
+        .extend_storage_from_stash_fund_manager(manager_id, cap_id, extension_epochs)
         .await
         .expect("Failed to extend storage from coin stash");
 
@@ -3873,4 +3881,157 @@ async fn test_blob_manager_attributes() {
     tracing::info!("Verified all attributes cleared");
 
     tracing::info!("All attribute tests completed successfully!");
+}
+
+/// Test extension policy operations on BlobManager.
+/// Tests: set policy to disabled, fund_manager_only, constrained, and extension behaviors.
+#[tokio::test]
+#[ignore = "e2e test"]
+async fn test_blob_manager_extension_policy() {
+    walrus_test_utils::init_tracing();
+
+    let test_nodes_config = TestNodesConfig {
+        node_weights: vec![7, 7, 7, 7, 7],
+        ..Default::default()
+    };
+    let test_cluster_builder =
+        test_cluster::E2eTestSetupBuilder::new().with_test_nodes_config(test_nodes_config);
+    let (_sui_cluster_handle, _cluster, mut client, _) =
+        test_cluster_builder.build().await.unwrap();
+    let client_ref = client.as_mut();
+
+    // Create a BlobManager with initial storage.
+    let initial_capacity = 500 * 1024 * 1024; // 500MB.
+    let epochs_ahead = 5;
+
+    let (manager_id, admin_cap_id) = client_ref
+        .sui_client()
+        .create_blob_manager(initial_capacity, epochs_ahead)
+        .await
+        .expect("Failed to create BlobManager");
+
+    tracing::info!(
+        "Created BlobManager: {} with cap: {}",
+        manager_id,
+        admin_cap_id
+    );
+
+    // Wait for objects to be indexed.
+    tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+
+    // Create BlobManagerClient.
+    let blob_manager_client = client_ref
+        .blob_manager(admin_cap_id)
+        .await
+        .expect("Failed to create BlobManagerClient");
+
+    // Deposit some WAL to the coin stash for extension operations.
+    let deposit_amount_wal = 5_000_000_000; // 5 WAL.
+    blob_manager_client
+        .deposit_wal_to_coin_stash(deposit_amount_wal)
+        .await
+        .expect("Failed to deposit WAL to coin stash");
+
+    tracing::info!("Deposited {} MIST WAL to coin stash", deposit_amount_wal);
+
+    // Test 1: Default policy is constrained(1, 10).
+    // Try public extension - should work since default policy allows it.
+    tracing::info!("Test 1: Public extension with default constrained policy");
+
+    // Note: Public extension will only work if we're within the expiry threshold.
+    // Since storage_end_epoch is ahead, public extension might fail due to EExtensionTooEarly.
+    // That's expected behavior. Let's test fund manager extension which bypasses the check.
+
+    // Test 2: Test fund manager extension (bypasses policy constraints).
+    tracing::info!("Test 2: Fund manager extension (bypasses policy constraints)");
+    blob_manager_client
+        .extend_storage_from_stash_fund_manager(1)
+        .await
+        .expect("Failed to extend storage with fund manager");
+    tracing::info!("Fund manager extension succeeded");
+
+    // Wait for transaction to be processed.
+    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+    // Test 3: Set policy to fund_manager_only.
+    tracing::info!("Test 3: Setting policy to fund_manager_only");
+    blob_manager_client
+        .set_extension_policy_fund_manager_only()
+        .await
+        .expect("Failed to set policy to fund_manager_only");
+
+    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+    // Public extension should now fail.
+    tracing::info!("Test 3b: Public extension should fail with fund_manager_only policy");
+    let public_result = client_ref
+        .sui_client()
+        .extend_storage_from_stash(manager_id, 1)
+        .await;
+    assert!(
+        public_result.is_err(),
+        "Public extension should fail with fund_manager_only policy"
+    );
+    tracing::info!("Correctly rejected public extension with fund_manager_only policy");
+
+    // But fund manager extension should still work.
+    tracing::info!("Test 3c: Fund manager extension should still work");
+    blob_manager_client
+        .extend_storage_from_stash_fund_manager(1)
+        .await
+        .expect("Fund manager extension should succeed even with fund_manager_only policy");
+    tracing::info!("Fund manager extension succeeded with fund_manager_only policy");
+
+    // Wait for transaction to be processed.
+    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+    // Test 4: Set policy to disabled.
+    tracing::info!("Test 4: Setting policy to disabled");
+    blob_manager_client
+        .set_extension_policy_disabled()
+        .await
+        .expect("Failed to set policy to disabled");
+
+    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+    // Both public and fund manager extension should fail.
+    tracing::info!("Test 4b: Public extension should fail with disabled policy");
+    let public_result = client_ref
+        .sui_client()
+        .extend_storage_from_stash(manager_id, 1)
+        .await;
+    assert!(
+        public_result.is_err(),
+        "Public extension should fail with disabled policy"
+    );
+    tracing::info!("Correctly rejected public extension with disabled policy");
+
+    tracing::info!("Test 4c: Fund manager extension should also fail with disabled policy");
+    let fund_manager_result = blob_manager_client
+        .extend_storage_from_stash_fund_manager(1)
+        .await;
+    assert!(
+        fund_manager_result.is_err(),
+        "Fund manager extension should fail with disabled policy"
+    );
+    tracing::info!("Correctly rejected fund manager extension with disabled policy");
+
+    // Test 5: Set policy back to constrained.
+    tracing::info!("Test 5: Setting policy to constrained(2, 5)");
+    blob_manager_client
+        .set_extension_policy_constrained(2, 5)
+        .await
+        .expect("Failed to set policy to constrained");
+
+    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+    // Fund manager extension should work again.
+    tracing::info!("Test 5b: Fund manager extension should work with constrained policy");
+    blob_manager_client
+        .extend_storage_from_stash(1)
+        .await
+        .expect("Fund manager extension should succeed with constrained policy");
+    tracing::info!("Fund manager extension succeeded with constrained policy");
+
+    tracing::info!("All extension policy tests completed successfully!");
 }

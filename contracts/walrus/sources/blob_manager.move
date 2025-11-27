@@ -14,6 +14,7 @@ use walrus::{
     coin_stash::{Self, BlobManagerCoinStash},
     encoding,
     events,
+    extension_policy::{Self, ExtensionPolicy},
     storage_resource::Storage,
     system::{Self, System}
 };
@@ -49,6 +50,8 @@ public struct BlobManager has key, store {
     blob_stash: BlobStash,
     /// Coin stash for community funding - embedded directly.
     coin_stash: BlobManagerCoinStash,
+    /// Extension policy controlling who can extend storage and under what conditions.
+    extension_policy: ExtensionPolicy,
 }
 
 /// A capability which represents the authority to manage blobs in the BlobManager.
@@ -87,6 +90,8 @@ public fun new_with_unified_storage(
         storage: blob_storage::new_unified_blob_storage(initial_storage),
         blob_stash: blob_stash::new_blob_id_based_stash(ctx),
         coin_stash: coin_stash::new(),
+        // Default policy: extend within 1 epoch of expiry, max 10 epochs per extension.
+        extension_policy: extension_policy::constrained(1, 10),
     };
 
     // Get the ObjectID from the constructed manager object.
@@ -368,42 +373,103 @@ public fun buy_storage_from_stash(
     true
 }
 
-/// TODO(heliu): add policy about the extension and tips.
 /// TODO(heliu): optional permanent deletion.
 
 /// Extends the storage period using funds from the coin stash.
-/// Anyone can call this to extend the BlobManager's storage duration.
-/// Returns true if successful, false if insufficient funds in stash.
+/// Public extension - must follow the extension policy constraints.
+/// Returns the actual extension epochs applied (may be less than requested due to caps).
+/// Returns 0 if extension is not possible (insufficient funds or no extension allowed).
 public fun extend_storage_from_stash(
     self: &mut BlobManager,
     system: &mut System,
     extension_epochs: u32,
     ctx: &mut TxContext,
-): bool {
+): u32 {
+    // Get current epoch and storage end epoch.
+    let current_epoch = system::epoch(system);
+    let storage_end_epoch = self.storage.end_epoch();
+    let system_max_epochs_ahead = system.future_accounting().max_epochs_ahead();
+
+    // Validate and cap extension based on policy (public extension).
+    let effective_extension = self
+        .extension_policy
+        .validate_and_cap_extension(
+            current_epoch,
+            storage_end_epoch,
+            extension_epochs,
+            system_max_epochs_ahead,
+        );
+
+    // Execute the extension with the effective epochs.
+    self.execute_extension(system, effective_extension, ctx)
+}
+
+/// Extends the storage period using funds from the coin stash.
+/// Fund manager extension - bypasses policy time/amount constraints.
+/// Returns the actual extension epochs applied (may be less than requested due to system cap).
+/// Returns 0 if extension is not possible (insufficient funds or policy disabled).
+public fun extend_storage_from_stash_fund_manager(
+    self: &mut BlobManager,
+    cap: &BlobManagerCap,
+    system: &mut System,
+    extension_epochs: u32,
+    ctx: &mut TxContext,
+): u32 {
+    // Verify the capability and fund_manager permission.
+    check_cap(self, cap);
+    assert!(cap.fund_manager, ERequiresFundManager);
+
+    // Get current epoch and storage end epoch.
+    let current_epoch = system::epoch(system);
+    let storage_end_epoch = self.storage.end_epoch();
+    let system_max_epochs_ahead = system.future_accounting().max_epochs_ahead();
+
+    // Validate and cap extension based on policy (fund_manager extension).
+    let effective_extension = self
+        .extension_policy
+        .validate_and_cap_extension_fund_manager(
+            current_epoch,
+            storage_end_epoch,
+            extension_epochs,
+            system_max_epochs_ahead,
+        );
+
+    // Execute the extension with the effective epochs.
+    self.execute_extension(system, effective_extension, ctx)
+}
+
+/// Internal helper to execute the storage extension.
+/// Returns the effective extension epochs, or 0 if no extension possible.
+fun execute_extension(
+    self: &mut BlobManager,
+    system: &mut System,
+    effective_extension: u32,
+    ctx: &mut TxContext,
+): u32 {
+    // If no extension possible after capping, return 0.
+    if (effective_extension == 0) {
+        return 0
+    };
+
     // Get available WAL balance from stash.
     let available_wal = self.coin_stash.wal_balance();
     if (available_wal == 0) {
-        return false
+        return 0
     };
 
-    // Get current storage capacity.
+    // Get current storage info.
     let (total_capacity, _used, _available) = self.storage.capacity_info();
-
-    // Get current storage end epoch - extension starts from here.
-    let current_end_epoch = self.storage.end_epoch();
-    let new_end_epoch = current_end_epoch + extension_epochs;
+    let storage_end_epoch = self.storage.end_epoch();
+    let new_end_epoch = storage_end_epoch + effective_extension;
 
     // Withdraw all available funds from stash for payment.
-    // The system will return any unused funds as change.
     let mut payment = self.coin_stash.withdraw_wal_for_storage(available_wal, ctx);
 
     // Purchase extension storage from system.
-    // Use reserve_space_for_epochs to start from the current end epoch,
-    // similar to how extend_blob works.
     let extension_storage = system::reserve_space_for_epochs(
         system,
         total_capacity,
-        current_end_epoch,
+        storage_end_epoch,
         new_end_epoch,
         &mut payment,
         ctx,
@@ -419,7 +485,7 @@ public fun extend_storage_from_stash(
     // Apply the extension to the BlobManager's storage.
     self.storage.extend_storage(extension_storage);
 
-    true
+    effective_extension
 }
 
 // === Query Functions ===
@@ -477,6 +543,11 @@ public fun coin_stash_balances(self: &BlobManager): (u64, u64) {
     self.coin_stash.balances()
 }
 
+/// Returns the current extension policy.
+public fun extension_policy(self: &BlobManager): &ExtensionPolicy {
+    &self.extension_policy
+}
+
 // === Fund Manager Functions ===
 
 /// Withdraws all WAL funds from the coin stash.
@@ -509,6 +580,39 @@ public fun withdraw_all_sui(
 
     // Withdraw all SUI.
     self.coin_stash.withdraw_all_sui(ctx)
+}
+
+/// Sets the extension policy to disabled (no one can extend).
+/// Requires fund_manager permission.
+public fun set_extension_policy_disabled(self: &mut BlobManager, cap: &BlobManagerCap) {
+    check_cap(self, cap);
+    assert!(cap.fund_manager, ERequiresFundManager);
+    self.extension_policy = extension_policy::disabled();
+}
+
+/// Sets the extension policy to fund_manager only.
+/// Requires fund_manager permission.
+public fun set_extension_policy_fund_manager_only(self: &mut BlobManager, cap: &BlobManagerCap) {
+    check_cap(self, cap);
+    assert!(cap.fund_manager, ERequiresFundManager);
+    self.extension_policy = extension_policy::fund_manager_only();
+}
+
+/// Sets the extension policy to constrained with the given parameters.
+/// Requires fund_manager permission.
+public fun set_extension_policy_constrained(
+    self: &mut BlobManager,
+    cap: &BlobManagerCap,
+    expiry_threshold_epochs: u32,
+    max_extension_epochs: u32,
+) {
+    check_cap(self, cap);
+    assert!(cap.fund_manager, ERequiresFundManager);
+    self.extension_policy =
+        extension_policy::constrained(
+            expiry_threshold_epochs,
+            max_extension_epochs,
+        );
 }
 
 // === Blob Attribute Operations ===

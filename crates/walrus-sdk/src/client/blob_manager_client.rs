@@ -952,6 +952,153 @@ impl BlobManagerClient<'_, SuiContractClient> {
         Ok(())
     }
 
+    /// Extends the storage period using funds from the coin stash (fund manager version).
+    ///
+    /// This extends the validity period of the BlobManager's existing storage.
+    /// Unlike `extend_storage_from_stash`, this method bypasses policy time/amount constraints.
+    /// It requires a capability with fund_manager permission.
+    ///
+    /// # Arguments
+    ///
+    /// * `extension_epochs` - The number of epochs to extend the storage for.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` if the storage period was successfully extended.
+    /// * `Err(ClientError)` if:
+    ///   - The caller doesn't have fund_manager permission.
+    ///   - The coin stash has insufficient WAL balance.
+    ///   - The transaction fails.
+    pub async fn extend_storage_from_stash_fund_manager(
+        &self,
+        extension_epochs: u32,
+    ) -> ClientResult<()> {
+        tracing::info!(
+            "BlobManager extend_storage_fund_manager: manager_id={:?}, cap={:?}, epochs={}",
+            self.manager_id,
+            self.manager_cap,
+            extension_epochs
+        );
+
+        self.client
+            .sui_client()
+            .extend_storage_from_stash_fund_manager(
+                self.manager_id,
+                self.manager_cap,
+                extension_epochs,
+            )
+            .await
+            .map_err(crate::error::ClientError::from)?;
+
+        Ok(())
+    }
+
+    // ===== Extension Policy Management Methods =====
+
+    /// Sets the extension policy to disabled.
+    ///
+    /// When disabled, no one (including fund managers) can extend storage.
+    /// This method requires a capability with fund_manager permission.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` if the policy was successfully set.
+    /// * `Err(ClientError)` if:
+    ///   - The caller doesn't have fund_manager permission.
+    ///   - The transaction fails.
+    pub async fn set_extension_policy_disabled(&self) -> ClientResult<()> {
+        tracing::info!(
+            "BlobManager set_extension_policy_disabled: manager_id={:?}, cap={:?}",
+            self.manager_id,
+            self.manager_cap
+        );
+
+        self.client
+            .sui_client()
+            .set_extension_policy_disabled(self.manager_id, self.manager_cap)
+            .await
+            .map_err(crate::error::ClientError::from)?;
+
+        Ok(())
+    }
+
+    /// Sets the extension policy to fund_manager only.
+    ///
+    /// When set to fund_manager only, only accounts with fund_manager capability
+    /// can extend storage using `extend_storage_from_stash_fund_manager`.
+    /// Public extensions via `extend_storage_from_stash` will be rejected.
+    /// This method requires a capability with fund_manager permission.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` if the policy was successfully set.
+    /// * `Err(ClientError)` if:
+    ///   - The caller doesn't have fund_manager permission.
+    ///   - The transaction fails.
+    pub async fn set_extension_policy_fund_manager_only(&self) -> ClientResult<()> {
+        tracing::info!(
+            "BlobManager set_extension_policy_fund_manager_only: manager_id={:?}, cap={:?}",
+            self.manager_id,
+            self.manager_cap
+        );
+
+        self.client
+            .sui_client()
+            .set_extension_policy_fund_manager_only(self.manager_id, self.manager_cap)
+            .await
+            .map_err(crate::error::ClientError::from)?;
+
+        Ok(())
+    }
+
+    /// Sets the extension policy to constrained with the given parameters.
+    ///
+    /// A constrained policy allows anyone to extend storage, subject to:
+    /// - Time constraint: Extension only allowed when within `expiry_threshold_epochs` of expiry.
+    /// - Amount constraint: Maximum epochs capped at `max_extension_epochs`.
+    ///
+    /// Fund managers can bypass these constraints using `extend_storage_from_stash_fund_manager`.
+    /// This method requires a capability with fund_manager permission.
+    ///
+    /// # Arguments
+    ///
+    /// * `expiry_threshold_epochs` - Extension only allowed when within this many epochs of expiry.
+    /// * `max_extension_epochs` - Maximum epochs that can be extended in a single call.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` if the policy was successfully set.
+    /// * `Err(ClientError)` if:
+    ///   - The caller doesn't have fund_manager permission.
+    ///   - The transaction fails.
+    pub async fn set_extension_policy_constrained(
+        &self,
+        expiry_threshold_epochs: u32,
+        max_extension_epochs: u32,
+    ) -> ClientResult<()> {
+        tracing::info!(
+            "BlobManager set_extension_policy_constrained: manager_id={:?}, cap={:?}, \
+            expiry_threshold={}, max_extension={}",
+            self.manager_id,
+            self.manager_cap,
+            expiry_threshold_epochs,
+            max_extension_epochs
+        );
+
+        self.client
+            .sui_client()
+            .set_extension_policy_constrained(
+                self.manager_id,
+                self.manager_cap,
+                expiry_threshold_epochs,
+                max_extension_epochs,
+            )
+            .await
+            .map_err(crate::error::ClientError::from)?;
+
+        Ok(())
+    }
+
     // ===== Capability Management Methods =====
 
     /// Creates a new capability for this BlobManager.

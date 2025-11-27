@@ -2368,6 +2368,146 @@ impl WalrusPtbBuilder {
         Ok(())
     }
 
+    /// Extends the storage period using funds from the BlobManager's coin stash.
+    /// This is for fund managers and bypasses policy time/amount constraints.
+    /// Requires fund_manager permission on the capability.
+    pub async fn extend_storage_from_stash_fund_manager(
+        &mut self,
+        manager: ObjectID,
+        cap: ObjectID,
+        extension_epochs: u32,
+    ) -> SuiClientResult<()> {
+        // Get the initial shared version for the BlobManager.
+        let manager_initial_version = self
+            .read_client
+            .get_shared_object_initial_version(manager)
+            .await?;
+
+        // Get the capability's ObjectRef.
+        let cap_ref = self.read_client.get_object_ref(cap).await?;
+        let cap_arg = self.pt_builder.obj(ObjectArg::ImmOrOwnedObject(cap_ref))?;
+
+        let extend_args = vec![
+            self.pt_builder.obj(ObjectArg::SharedObject {
+                id: manager,
+                initial_shared_version: manager_initial_version,
+                mutability: SharedObjectMutability::Mutable,
+            })?,
+            cap_arg,
+            self.system_arg(SharedObjectMutability::Mutable).await?,
+            self.pt_builder.pure(extension_epochs)?, // extension epochs.
+        ];
+
+        self.blobmanager_move_call(
+            contracts::blobmanager::extend_storage_from_stash_fund_manager,
+            extend_args,
+        )?;
+        Ok(())
+    }
+
+    /// Sets the extension policy to disabled (no one can extend).
+    /// Requires fund_manager permission on the capability.
+    pub async fn set_extension_policy_disabled(
+        &mut self,
+        manager: ObjectID,
+        cap: ObjectID,
+    ) -> SuiClientResult<()> {
+        // Get the initial shared version for the BlobManager.
+        let manager_initial_version = self
+            .read_client
+            .get_shared_object_initial_version(manager)
+            .await?;
+
+        // Get the capability's ObjectRef.
+        let cap_ref = self.read_client.get_object_ref(cap).await?;
+        let cap_arg = self.pt_builder.obj(ObjectArg::ImmOrOwnedObject(cap_ref))?;
+
+        let policy_args = vec![
+            self.pt_builder.obj(ObjectArg::SharedObject {
+                id: manager,
+                initial_shared_version: manager_initial_version,
+                mutability: SharedObjectMutability::Mutable,
+            })?,
+            cap_arg,
+        ];
+
+        self.blobmanager_move_call(
+            contracts::blobmanager::set_extension_policy_disabled,
+            policy_args,
+        )?;
+        Ok(())
+    }
+
+    /// Sets the extension policy to fund_manager only (only fund_manager can extend).
+    /// Requires fund_manager permission on the capability.
+    pub async fn set_extension_policy_fund_manager_only(
+        &mut self,
+        manager: ObjectID,
+        cap: ObjectID,
+    ) -> SuiClientResult<()> {
+        // Get the initial shared version for the BlobManager.
+        let manager_initial_version = self
+            .read_client
+            .get_shared_object_initial_version(manager)
+            .await?;
+
+        // Get the capability's ObjectRef.
+        let cap_ref = self.read_client.get_object_ref(cap).await?;
+        let cap_arg = self.pt_builder.obj(ObjectArg::ImmOrOwnedObject(cap_ref))?;
+
+        let policy_args = vec![
+            self.pt_builder.obj(ObjectArg::SharedObject {
+                id: manager,
+                initial_shared_version: manager_initial_version,
+                mutability: SharedObjectMutability::Mutable,
+            })?,
+            cap_arg,
+        ];
+
+        self.blobmanager_move_call(
+            contracts::blobmanager::set_extension_policy_fund_manager_only,
+            policy_args,
+        )?;
+        Ok(())
+    }
+
+    /// Sets the extension policy to constrained with the given parameters.
+    /// Requires fund_manager permission on the capability.
+    pub async fn set_extension_policy_constrained(
+        &mut self,
+        manager: ObjectID,
+        cap: ObjectID,
+        expiry_threshold_epochs: u32,
+        max_extension_epochs: u32,
+    ) -> SuiClientResult<()> {
+        // Get the initial shared version for the BlobManager.
+        let manager_initial_version = self
+            .read_client
+            .get_shared_object_initial_version(manager)
+            .await?;
+
+        // Get the capability's ObjectRef.
+        let cap_ref = self.read_client.get_object_ref(cap).await?;
+        let cap_arg = self.pt_builder.obj(ObjectArg::ImmOrOwnedObject(cap_ref))?;
+
+        let policy_args = vec![
+            self.pt_builder.obj(ObjectArg::SharedObject {
+                id: manager,
+                initial_shared_version: manager_initial_version,
+                mutability: SharedObjectMutability::Mutable,
+            })?,
+            cap_arg,
+            self.pt_builder.pure(expiry_threshold_epochs)?,
+            self.pt_builder.pure(max_extension_epochs)?,
+        ];
+
+        self.blobmanager_move_call(
+            contracts::blobmanager::set_extension_policy_constrained,
+            policy_args,
+        )?;
+        Ok(())
+    }
+
     /// Helper to make BlobManager move calls.
     fn blobmanager_move_call<T: Into<FunctionTag<'static>>>(
         &mut self,

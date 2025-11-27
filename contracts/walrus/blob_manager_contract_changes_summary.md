@@ -148,3 +148,75 @@
 - `register_managed_blob()` - System-level registration
 - `certify_managed_blob()` - System-level certification
 - Integration points for BlobManager operations
+
+---
+
+## 3. Extension Policy Module
+
+### 3.1 `extension_policy.move`
+**Purpose**: Controls when and how storage can be extended by anyone using the coin stash.
+
+**Key Components**:
+- **ExtensionPolicy enum**:
+  ```move
+  public enum ExtensionPolicy has store, copy, drop {
+      Disabled,
+      FundManagerOnly,
+      Constrained {
+          expiry_threshold_epochs: u32,
+          max_extension_epochs: u32,
+      },
+  }
+  ```
+
+- **Policy Variants**:
+  - `Disabled` - No one can extend storage (blocks everyone including fund managers)
+  - `FundManagerOnly` - Only fund managers can extend (public extension blocked)
+  - `Constrained` - Anyone can extend within constraints:
+    - `expiry_threshold_epochs` - Extension only allowed when within N epochs of expiry
+    - `max_extension_epochs` - Maximum epochs per extension call
+
+- **Validation Functions**:
+  - `validate_and_cap_extension()` - For public extension
+    - Enforces time threshold (current_epoch >= end_epoch - expiry_threshold)
+    - Caps to min(policy_max, system_max)
+    - Aborts if Disabled or FundManagerOnly
+  - `validate_and_cap_extension_fund_manager()` - For fund managers
+    - Bypasses time/amount constraints
+    - Still caps to system max epochs ahead
+    - Only aborts if Disabled
+
+- **Constructors**:
+  - `disabled()` - Creates disabled policy
+  - `fund_manager_only()` - Creates fund manager only policy
+  - `constrained(expiry_threshold_epochs, max_extension_epochs)` - Creates constrained policy
+
+### 3.2 BlobManager Extension Policy Integration
+**Updated in `blob_manager.move`**:
+
+- **New Field**:
+  ```move
+  struct BlobManager {
+      ...
+      extension_policy: ExtensionPolicy,  // Default: constrained(1, 10)
+  }
+  ```
+
+- **Extension Functions**:
+  - `extend_storage_from_stash()` - Public extension (follows policy)
+  - `extend_storage_from_stash_fund_manager()` - Fund manager extension (bypasses constraints)
+  - Both return actual epochs extended (may be less than requested due to caps)
+  - Both return 0 if extension not possible
+
+- **Policy Management** (require fund_manager permission):
+  - `set_extension_policy_disabled()` - Block all extension
+  - `set_extension_policy_fund_manager_only()` - Fund manager only mode
+  - `set_extension_policy_constrained(threshold, max)` - Set constrained policy
+  - `extension_policy()` - Query current policy
+
+- **Policy Behavior**:
+  | Policy | Public Extension | Fund Manager Extension |
+  |--------|------------------|------------------------|
+  | Disabled | ❌ Blocked | ❌ Blocked |
+  | FundManagerOnly | ❌ Blocked | ✅ System cap only |
+  | Constrained | ✅ Within threshold & max | ✅ System cap only |
