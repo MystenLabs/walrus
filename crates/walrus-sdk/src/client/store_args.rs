@@ -5,7 +5,6 @@
 
 use std::{num::NonZeroU16, sync::Arc, time::Duration};
 
-use sui_types::base_types::ObjectID;
 use tokio::{
     sync::{Mutex, mpsc::Sender as MpscSender},
     task::JoinHandle,
@@ -49,10 +48,9 @@ pub struct StoreArgs {
     /// ownership of the handles with the caller so they can decide when to await them. Without a
     /// collector, detached handles are awaited in a background task and only surfaced via logging.
     pub tail_handle_collector: Option<Arc<Mutex<Vec<JoinHandle<()>>>>>,
-    /// The blob manager ID to use for storing blobs.
-    pub blob_manager_id: Option<ObjectID>,
-    /// The blob manager capability to use for storing blobs.
-    pub blob_manager_cap: Option<ObjectID>,
+    /// Whether to use the blob manager for storing blobs.
+    /// Requires `init_blob_manager()` to be called on the client first.
+    pub with_blob_manager: bool,
 }
 
 impl StoreArgs {
@@ -75,8 +73,7 @@ impl StoreArgs {
             tail_handling: TailHandling::Blocking,
             quorum_event_tx: None,
             tail_handle_collector: None,
-            blob_manager_id: None,
-            blob_manager_cap: None,
+            with_blob_manager: false,
         }
     }
 
@@ -97,14 +94,14 @@ impl StoreArgs {
             tail_handling: TailHandling::Blocking,
             quorum_event_tx: None,
             tail_handle_collector: None,
-            blob_manager_id: None,
-            blob_manager_cap: None,
+            with_blob_manager: false,
         }
     }
 
-    /// Sets the blob manager cap ID.
-    pub fn with_blob_manager_cap(mut self, blob_manager_cap: ObjectID) -> Self {
-        self.blob_manager_cap = Some(blob_manager_cap);
+    /// Enables storing blobs via the blob manager.
+    /// Requires `init_blob_manager()` to be called on the client first.
+    pub fn with_blob_manager(mut self) -> Self {
+        self.with_blob_manager = true;
         self
     }
 

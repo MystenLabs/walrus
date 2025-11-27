@@ -250,4 +250,7 @@ pub enum ClientErrorKind {
     /// The blob size exceeds the maximum allowed size.
     #[error("the blob size exceeds the maximum allowed size: {0}")]
     BlobTooLarge(u64),
+    /// The blob manager has not been initialized.
+    #[error("blob manager not initialized: call init_blob_manager() first")]
+    BlobManagerNotInitialized,
 }

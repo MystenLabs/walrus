@@ -3,13 +3,13 @@
 
 //! Client for managing blobs through BlobManager.
 
-use std::fmt::Debug;
+use std::{fmt::Debug, sync::Arc};
 
 use sui_types::{TypeTag, base_types::ObjectID};
 use walrus_core::{BlobId, metadata::BlobMetadataApi as _};
 use walrus_sui::{
     client::{BlobPersistence, SuiContractClient},
-    types::move_structs::ManagedBlob,
+    types::move_structs::{BlobManagerCap, ManagedBlob},
 };
 
 use crate::{
@@ -51,14 +51,74 @@ pub struct BlobManagerCoinStashBalances {
     pub sui_balance: u64,
 }
 
+/// Cached BlobManager data for efficient reuse across operations.
+///
+/// This struct stores the essential data needed to create a `BlobManagerClient`:
+/// - The `BlobManagerCap` capability object.
+/// - The `blobs_table_id` for looking up managed blobs.
+///
+/// By caching this data in `WalrusNodeClient`, we avoid re-fetching it from the chain
+/// on each store operation.
+#[derive(Debug, Clone)]
+pub struct BlobManagerData {
+    /// The BlobManagerCap capability object.
+    cap: BlobManagerCap,
+    /// Table ID for `blob_id -> ManagedBlob` mapping.
+    blobs_table_id: ObjectID,
+}
+
+impl BlobManagerData {
+    /// Returns a reference to the BlobManagerCap.
+    pub fn cap(&self) -> &BlobManagerCap {
+        &self.cap
+    }
+
+    /// Returns the capability ID.
+    pub fn cap_id(&self) -> ObjectID {
+        self.cap.id
+    }
+
+    /// Returns the manager ID.
+    pub fn manager_id(&self) -> ObjectID {
+        self.cap.manager_id
+    }
+
+    /// Returns the blobs table ID.
+    pub fn blobs_table_id(&self) -> ObjectID {
+        self.blobs_table_id
+    }
+
+    /// Returns true if the capability has admin permissions.
+    pub fn is_admin(&self) -> bool {
+        self.cap.is_admin
+    }
+
+    /// Returns true if the capability has fund manager permissions.
+    pub fn is_fund_manager(&self) -> bool {
+        self.cap.fund_manager
+    }
+
+    /// Creates BlobManagerData by fetching the cap and table ID from the chain.
+    pub async fn from_cap_id(
+        client: &WalrusNodeClient<SuiContractClient>,
+        cap_id: ObjectID,
+    ) -> ClientResult<Self> {
+        let cap = BlobManagerClient::fetch_blob_manager_cap(client, cap_id).await?;
+        let blobs_table_id =
+            BlobManagerClient::extract_blobs_table_id(client, cap.manager_id).await?;
+        Ok(Self {
+            cap,
+            blobs_table_id,
+        })
+    }
+}
+
 /// A facade for interacting with Walrus BlobManager.
 #[derive(Debug)]
 pub struct BlobManagerClient<'a, T> {
     client: &'a WalrusNodeClient<T>,
-    manager_id: ObjectID,
-    manager_cap: ObjectID,
-    /// Table ID for `blob_id -> ManagedBlob` mapping (simplified single-table design).
-    blobs_table_id: ObjectID,
+    /// The cached BlobManager data (shared via Arc for efficiency).
+    data: Arc<BlobManagerData>,
 }
 
 impl<'a> BlobManagerClient<'a, SuiContractClient> {
@@ -70,29 +130,35 @@ impl<'a> BlobManagerClient<'a, SuiContractClient> {
         ))
     }
 
-    /// Creates a new BlobManagerClient by fetching and caching the table ID.
-    pub async fn new(
-        client: &'a WalrusNodeClient<SuiContractClient>,
-        manager_id: ObjectID,
-        manager_cap: ObjectID,
-    ) -> ClientResult<Self> {
-        // Fetch the table ID from the BlobManager structure.
-        let blobs_table_id = Self::extract_blobs_table_id(client, manager_id).await?;
-
-        Ok(Self {
-            client,
-            manager_id,
-            manager_cap,
-            blobs_table_id,
-        })
-    }
-
     /// Creates a new BlobManagerClient from a BlobManagerCap object ID.
-    /// Extracts the manager_id from the cap and initializes the client.
-    pub async fn from_cap(
+    ///
+    /// This method fetches the BlobManagerCap and table ID from the chain.
+    pub async fn from_cap_id(
         client: &'a WalrusNodeClient<SuiContractClient>,
         cap_id: ObjectID,
     ) -> ClientResult<Self> {
+        let data = BlobManagerData::from_cap_id(client, cap_id).await?;
+        Ok(Self {
+            client,
+            data: Arc::new(data),
+        })
+    }
+
+    /// Creates a new BlobManagerClient from cached BlobManagerData.
+    ///
+    /// This is the most efficient constructor as it uses pre-fetched data.
+    pub fn from_data(
+        client: &'a WalrusNodeClient<SuiContractClient>,
+        data: Arc<BlobManagerData>,
+    ) -> Self {
+        Self { client, data }
+    }
+
+    /// Fetches a BlobManagerCap from the chain by its object ID.
+    pub async fn fetch_blob_manager_cap(
+        client: &WalrusNodeClient<SuiContractClient>,
+        cap_id: ObjectID,
+    ) -> ClientResult<BlobManagerCap> {
         use sui_sdk::rpc_types::{
             SuiMoveStruct,
             SuiMoveValue,
@@ -100,7 +166,7 @@ impl<'a> BlobManagerClient<'a, SuiContractClient> {
             SuiParsedData,
         };
 
-        // Read the BlobManagerCap to get the manager_id.
+        // Read the BlobManagerCap object.
         let cap_response = client
             .sui_client()
             .retriable_sui_client()
@@ -120,11 +186,16 @@ impl<'a> BlobManagerClient<'a, SuiContractClient> {
             return Err(Self::error("BlobManagerCap is not a Move object"));
         };
 
-        // Extract manager_id field directly from the Move object.
-        let SuiMoveStruct::WithFields(fields) = &move_obj.fields else {
-            return Err(Self::error("BlobManagerCap has no fields"));
+        // Extract fields from the Move object (can be WithFields or WithTypes).
+        let fields = match &move_obj.fields {
+            SuiMoveStruct::WithFields(fields) => fields,
+            SuiMoveStruct::WithTypes { fields, .. } => fields,
+            _ => {
+                return Err(Self::error("BlobManagerCap has unexpected struct format"));
+            }
         };
 
+        // Extract manager_id field.
         let manager_id_value = fields
             .get("manager_id")
             .ok_or_else(|| Self::error("manager_id field not found"))?;
@@ -133,8 +204,30 @@ impl<'a> BlobManagerClient<'a, SuiContractClient> {
             return Err(Self::error("manager_id is not an Address"));
         };
 
-        // Create the BlobManagerClient using the manager_id from the cap.
-        Self::new(client, (*manager_id).into(), cap_id).await
+        // Extract is_admin field.
+        let is_admin_value = fields
+            .get("is_admin")
+            .ok_or_else(|| Self::error("is_admin field not found"))?;
+
+        let SuiMoveValue::Bool(is_admin) = is_admin_value else {
+            return Err(Self::error("is_admin is not a Bool"));
+        };
+
+        // Extract fund_manager field.
+        let fund_manager_value = fields
+            .get("fund_manager")
+            .ok_or_else(|| Self::error("fund_manager field not found"))?;
+
+        let SuiMoveValue::Bool(fund_manager) = fund_manager_value else {
+            return Err(Self::error("fund_manager is not a Bool"));
+        };
+
+        Ok(BlobManagerCap {
+            id: cap_id,
+            manager_id: (*manager_id).into(),
+            is_admin: *is_admin,
+            fund_manager: *fund_manager,
+        })
     }
 
     /// Extracts the blobs Table ObjectID from the BlobManager structure.
@@ -255,12 +348,32 @@ impl<'a> BlobManagerClient<'a, SuiContractClient> {
 
     /// Get the BlobManager object ID.
     pub fn manager_id(&self) -> ObjectID {
-        self.manager_id
+        self.data.manager_id()
     }
 
     /// Get the BlobManagerCap object ID.
-    pub fn manager_cap(&self) -> ObjectID {
-        self.manager_cap
+    pub fn cap_id(&self) -> ObjectID {
+        self.data.cap_id()
+    }
+
+    /// Get the BlobManagerCap.
+    pub fn cap(&self) -> &BlobManagerCap {
+        self.data.cap()
+    }
+
+    /// Get the cached BlobManagerData.
+    pub fn data(&self) -> &BlobManagerData {
+        &self.data
+    }
+
+    /// Returns true if this client has admin permissions.
+    pub fn is_admin(&self) -> bool {
+        self.data.is_admin()
+    }
+
+    /// Returns true if this client has fund manager permissions.
+    pub fn is_fund_manager(&self) -> bool {
+        self.data.is_fund_manager()
     }
 
     /// Fetches BlobManager info including storage and coin stash balances.
@@ -278,7 +391,10 @@ impl<'a> BlobManagerClient<'a, SuiContractClient> {
             .client
             .sui_client()
             .retriable_sui_client()
-            .get_object_with_options(self.manager_id, SuiObjectDataOptions::new().with_content())
+            .get_object_with_options(
+                self.data.manager_id(),
+                SuiObjectDataOptions::new().with_content(),
+            )
             .await?;
 
         let blob_manager_data = blob_manager_response
@@ -304,7 +420,10 @@ impl<'a> BlobManagerClient<'a, SuiContractClient> {
             .client
             .sui_client()
             .retriable_sui_client()
-            .get_object_with_options(self.manager_id, SuiObjectDataOptions::new().with_content())
+            .get_object_with_options(
+                self.data.manager_id(),
+                SuiObjectDataOptions::new().with_content(),
+            )
             .await?;
 
         let blob_manager_data = blob_manager_response
@@ -326,7 +445,10 @@ impl<'a> BlobManagerClient<'a, SuiContractClient> {
             .client
             .sui_client()
             .retriable_sui_client()
-            .get_object_with_options(self.manager_id, SuiObjectDataOptions::new().with_content())
+            .get_object_with_options(
+                self.data.manager_id(),
+                SuiObjectDataOptions::new().with_content(),
+            )
             .await?;
 
         let blob_manager_data = blob_manager_response
@@ -555,7 +677,7 @@ impl<'a> BlobManagerClient<'a, SuiContractClient> {
 
         // Single-step lookup: blob_id -> ManagedBlob directly from the blobs table.
         let managed_blob: ManagedBlob = sui_client
-            .get_dynamic_field(self.blobs_table_id, TypeTag::U256, blob_id_bytes)
+            .get_dynamic_field(self.data.blobs_table_id(), TypeTag::U256, blob_id_bytes)
             .await?;
 
         // Verify the deletable flag matches (contract enforces only one blob per blob_id).
@@ -611,8 +733,8 @@ impl BlobManagerClient<'_, SuiContractClient> {
 
         tracing::info!(
             "BlobManager reserve_and_register: manager_id={:?}, manager_cap={:?}, num_blobs={}",
-            self.manager_id,
-            self.manager_cap,
+            self.data.manager_id(),
+            self.data.cap_id(),
             blob_metadata_list.len()
         );
 
@@ -620,8 +742,8 @@ impl BlobManagerClient<'_, SuiContractClient> {
         self.client
             .sui_client()
             .reserve_and_register_managed_blobs(
-                self.manager_id,
-                self.manager_cap,
+                self.data.manager_id(),
+                self.data.cap_id(),
                 blob_metadata_list.clone(),
                 persistence,
             )
@@ -643,7 +765,7 @@ impl BlobManagerClient<'_, SuiContractClient> {
                         encoded_blob: blob_with_status.encoded_blob.clone(),
                         status: blob_with_status.status,
                         blob_object: BlobObject::Managed {
-                            manager_id: self.manager_id,
+                            manager_id: self.data.manager_id(),
                             blob_id: metadata.blob_id,
                             deletable,
                             encoded_size: blob_with_status
@@ -660,7 +782,7 @@ impl BlobManagerClient<'_, SuiContractClient> {
                                 .metadata()
                                 .encoded_size()
                                 .expect("encoded blob should have valid encoded size"),
-                            manager_id: self.manager_id,
+                            manager_id: self.data.manager_id(),
                         },
                     },
                     "register_managed_blob",
@@ -705,7 +827,11 @@ impl BlobManagerClient<'_, SuiContractClient> {
 
         self.client
             .sui_client()
-            .certify_managed_blobs_in_blobmanager(self.manager_id, self.manager_cap, &cert_params)
+            .certify_managed_blobs_in_blobmanager(
+                self.data.manager_id(),
+                self.data.cap_id(),
+                &cert_params,
+            )
             .await
             .map_err(crate::error::ClientError::from)?;
 
@@ -745,8 +871,8 @@ impl BlobManagerClient<'_, SuiContractClient> {
     pub async fn delete_blob(&self, blob_id: BlobId) -> ClientResult<()> {
         tracing::info!(
             "BlobManager delete_blob: manager_id={:?}, manager_cap={:?}, blob_id={}",
-            self.manager_id,
-            self.manager_cap,
+            self.data.manager_id(),
+            self.data.cap_id(),
             blob_id
         );
 
@@ -757,7 +883,7 @@ impl BlobManagerClient<'_, SuiContractClient> {
         // - Ensure it belongs to this BlobManager
         self.client
             .sui_client()
-            .delete_managed_blob(self.manager_id, self.manager_cap, blob_id, true)
+            .delete_managed_blob(self.data.manager_id(), self.data.cap_id(), blob_id, true)
             .await
             .map_err(crate::error::ClientError::from)?;
 
@@ -782,13 +908,13 @@ impl BlobManagerClient<'_, SuiContractClient> {
     pub async fn deposit_wal_to_coin_stash(&self, wal_amount: u64) -> ClientResult<()> {
         tracing::info!(
             "BlobManager deposit_wal: manager_id={:?}, amount={}",
-            self.manager_id,
+            self.data.manager_id(),
             wal_amount
         );
 
         self.client
             .sui_client()
-            .deposit_wal_to_blob_manager(self.manager_id, wal_amount)
+            .deposit_wal_to_blob_manager(self.data.manager_id(), wal_amount)
             .await
             .map_err(crate::error::ClientError::from)?;
 
@@ -811,13 +937,13 @@ impl BlobManagerClient<'_, SuiContractClient> {
     pub async fn deposit_sui_to_coin_stash(&self, sui_amount: u64) -> ClientResult<()> {
         tracing::info!(
             "BlobManager deposit_sui: manager_id={:?}, amount={}",
-            self.manager_id,
+            self.data.manager_id(),
             sui_amount
         );
 
         self.client
             .sui_client()
-            .deposit_sui_to_blob_manager(self.manager_id, sui_amount)
+            .deposit_sui_to_blob_manager(self.data.manager_id(), sui_amount)
             .await
             .map_err(crate::error::ClientError::from)?;
 
@@ -847,8 +973,8 @@ impl BlobManagerClient<'_, SuiContractClient> {
     ) -> ClientResult<()> {
         tracing::info!(
             "BlobManager buy_storage: manager_id={:?}, cap={:?}, amount={}, epochs={}",
-            self.manager_id,
-            self.manager_cap,
+            self.data.manager_id(),
+            self.data.cap_id(),
             storage_amount,
             epochs_ahead
         );
@@ -856,8 +982,8 @@ impl BlobManagerClient<'_, SuiContractClient> {
         self.client
             .sui_client()
             .buy_storage_from_stash(
-                self.manager_id,
-                self.manager_cap,
+                self.data.manager_id(),
+                self.data.cap_id(),
                 storage_amount,
                 epochs_ahead,
             )
@@ -885,13 +1011,13 @@ impl BlobManagerClient<'_, SuiContractClient> {
     pub async fn extend_storage_from_stash(&self, extension_epochs: u32) -> ClientResult<()> {
         tracing::info!(
             "BlobManager extend_storage: manager_id={:?}, epochs={}",
-            self.manager_id,
+            self.data.manager_id(),
             extension_epochs
         );
 
         self.client
             .sui_client()
-            .extend_storage_from_stash(self.manager_id, extension_epochs)
+            .extend_storage_from_stash(self.data.manager_id(), extension_epochs)
             .await
             .map_err(crate::error::ClientError::from)?;
 
@@ -912,13 +1038,13 @@ impl BlobManagerClient<'_, SuiContractClient> {
     pub async fn withdraw_all_wal(&self) -> ClientResult<()> {
         tracing::info!(
             "BlobManager withdraw_all_wal: manager_id={:?}, cap={:?}",
-            self.manager_id,
-            self.manager_cap
+            self.data.manager_id(),
+            self.data.cap_id()
         );
 
         self.client
             .sui_client()
-            .withdraw_all_wal_from_blob_manager(self.manager_id, self.manager_cap)
+            .withdraw_all_wal_from_blob_manager(self.data.manager_id(), self.data.cap_id())
             .await
             .map_err(crate::error::ClientError::from)?;
 
@@ -939,13 +1065,13 @@ impl BlobManagerClient<'_, SuiContractClient> {
     pub async fn withdraw_all_sui(&self) -> ClientResult<()> {
         tracing::info!(
             "BlobManager withdraw_all_sui: manager_id={:?}, cap={:?}",
-            self.manager_id,
-            self.manager_cap
+            self.data.manager_id(),
+            self.data.cap_id()
         );
 
         self.client
             .sui_client()
-            .withdraw_all_sui_from_blob_manager(self.manager_id, self.manager_cap)
+            .withdraw_all_sui_from_blob_manager(self.data.manager_id(), self.data.cap_id())
             .await
             .map_err(crate::error::ClientError::from)?;
 
@@ -975,16 +1101,16 @@ impl BlobManagerClient<'_, SuiContractClient> {
     ) -> ClientResult<()> {
         tracing::info!(
             "BlobManager extend_storage_fund_manager: manager_id={:?}, cap={:?}, epochs={}",
-            self.manager_id,
-            self.manager_cap,
+            self.data.manager_id(),
+            self.data.cap_id(),
             extension_epochs
         );
 
         self.client
             .sui_client()
             .extend_storage_from_stash_fund_manager(
-                self.manager_id,
-                self.manager_cap,
+                self.data.manager_id(),
+                self.data.cap_id(),
                 extension_epochs,
             )
             .await
@@ -1009,13 +1135,13 @@ impl BlobManagerClient<'_, SuiContractClient> {
     pub async fn set_extension_policy_disabled(&self) -> ClientResult<()> {
         tracing::info!(
             "BlobManager set_extension_policy_disabled: manager_id={:?}, cap={:?}",
-            self.manager_id,
-            self.manager_cap
+            self.data.manager_id(),
+            self.data.cap_id()
         );
 
         self.client
             .sui_client()
-            .set_extension_policy_disabled(self.manager_id, self.manager_cap)
+            .set_extension_policy_disabled(self.data.manager_id(), self.data.cap_id())
             .await
             .map_err(crate::error::ClientError::from)?;
 
@@ -1038,13 +1164,13 @@ impl BlobManagerClient<'_, SuiContractClient> {
     pub async fn set_extension_policy_fund_manager_only(&self) -> ClientResult<()> {
         tracing::info!(
             "BlobManager set_extension_policy_fund_manager_only: manager_id={:?}, cap={:?}",
-            self.manager_id,
-            self.manager_cap
+            self.data.manager_id(),
+            self.data.cap_id()
         );
 
         self.client
             .sui_client()
-            .set_extension_policy_fund_manager_only(self.manager_id, self.manager_cap)
+            .set_extension_policy_fund_manager_only(self.data.manager_id(), self.data.cap_id())
             .await
             .map_err(crate::error::ClientError::from)?;
 
@@ -1079,8 +1205,8 @@ impl BlobManagerClient<'_, SuiContractClient> {
         tracing::info!(
             "BlobManager set_extension_policy_constrained: manager_id={:?}, cap={:?}, \
             expiry_threshold={}, max_extension={}",
-            self.manager_id,
-            self.manager_cap,
+            self.data.manager_id(),
+            self.data.cap_id(),
             expiry_threshold_epochs,
             max_extension_epochs
         );
@@ -1088,8 +1214,8 @@ impl BlobManagerClient<'_, SuiContractClient> {
         self.client
             .sui_client()
             .set_extension_policy_constrained(
-                self.manager_id,
-                self.manager_cap,
+                self.data.manager_id(),
+                self.data.cap_id(),
                 expiry_threshold_epochs,
                 max_extension_epochs,
             )
@@ -1122,8 +1248,8 @@ impl BlobManagerClient<'_, SuiContractClient> {
     pub async fn create_cap(&self, is_admin: bool, fund_manager: bool) -> ClientResult<ObjectID> {
         tracing::info!(
             "BlobManager create_cap: manager_id={:?}, cap={:?}, is_admin={}, fund_manager={}",
-            self.manager_id,
-            self.manager_cap,
+            self.data.manager_id(),
+            self.data.cap_id(),
             is_admin,
             fund_manager
         );
@@ -1131,7 +1257,12 @@ impl BlobManagerClient<'_, SuiContractClient> {
         let new_cap_id = self
             .client
             .sui_client()
-            .create_blob_manager_cap(self.manager_id, self.manager_cap, is_admin, fund_manager)
+            .create_blob_manager_cap(
+                self.data.manager_id(),
+                self.data.cap_id(),
+                is_admin,
+                fund_manager,
+            )
             .await
             .map_err(crate::error::ClientError::from)?;
 
@@ -1167,14 +1298,20 @@ impl BlobManagerClient<'_, SuiContractClient> {
     ) -> ClientResult<()> {
         tracing::info!(
             "BlobManager set_attribute: manager_id={:?}, blob_id={}, key={}",
-            self.manager_id,
+            self.data.manager_id(),
             blob_id,
             key
         );
 
         self.client
             .sui_client()
-            .set_managed_blob_attribute(self.manager_id, self.manager_cap, blob_id, key, value)
+            .set_managed_blob_attribute(
+                self.data.manager_id(),
+                self.data.cap_id(),
+                blob_id,
+                key,
+                value,
+            )
             .await
             .map_err(crate::error::ClientError::from)?;
 
@@ -1200,14 +1337,14 @@ impl BlobManagerClient<'_, SuiContractClient> {
     pub async fn remove_attribute(&self, blob_id: BlobId, key: String) -> ClientResult<()> {
         tracing::info!(
             "BlobManager remove_attribute: manager_id={:?}, blob_id={}, key={}",
-            self.manager_id,
+            self.data.manager_id(),
             blob_id,
             key
         );
 
         self.client
             .sui_client()
-            .remove_managed_blob_attribute(self.manager_id, self.manager_cap, blob_id, key)
+            .remove_managed_blob_attribute(self.data.manager_id(), self.data.cap_id(), blob_id, key)
             .await
             .map_err(crate::error::ClientError::from)?;
 
@@ -1231,13 +1368,13 @@ impl BlobManagerClient<'_, SuiContractClient> {
     pub async fn clear_attributes(&self, blob_id: BlobId) -> ClientResult<()> {
         tracing::info!(
             "BlobManager clear_attributes: manager_id={:?}, blob_id={}",
-            self.manager_id,
+            self.data.manager_id(),
             blob_id
         );
 
         self.client
             .sui_client()
-            .clear_managed_blob_attributes(self.manager_id, self.manager_cap, blob_id)
+            .clear_managed_blob_attributes(self.data.manager_id(), self.data.cap_id(), blob_id)
             .await
             .map_err(crate::error::ClientError::from)?;
 

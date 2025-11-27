@@ -1133,6 +1133,10 @@ pub struct BlobManagerCap {
     /// The ID of the BlobManager this capability controls.
     #[cfg_attr(feature = "utoipa", schema(schema_with = object_id_schema))]
     pub manager_id: ObjectID,
+    /// Whether this capability has admin permissions.
+    pub is_admin: bool,
+    /// Whether this capability has fund manager permissions.
+    pub fund_manager: bool,
 }
 
 impl AssociatedContractStruct for BlobManagerCap {

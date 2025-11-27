@@ -626,8 +626,11 @@ async fn store_and_read_blob_with_blob_manager(
 ) -> TestResult<BlobId> {
     use walrus_sdk::client::StoreArgs;
 
+    // Initialize the blob manager with the capability.
+    client.init_blob_manager(cap_id).await?;
+
     let store_args = StoreArgs::default_with_epochs(1)
-        .with_blob_manager_cap(cap_id)
+        .with_blob_manager()
         .with_persistence(persistence);
 
     let results = client
@@ -4028,7 +4031,7 @@ async fn test_blob_manager_extension_policy() {
     // Fund manager extension should work again.
     tracing::info!("Test 5b: Fund manager extension should work with constrained policy");
     blob_manager_client
-        .extend_storage_from_stash(1)
+        .extend_storage_from_stash_fund_manager(1)
         .await
         .expect("Fund manager extension should succeed with constrained policy");
     tracing::info!("Fund manager extension succeeded with constrained policy");

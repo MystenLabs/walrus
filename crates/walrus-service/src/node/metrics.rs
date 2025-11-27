@@ -385,6 +385,7 @@ impl TelemetryLabel for ClientErrorKind {
             ClientErrorKind::QuiltError(_) => "quilt-error",
             ClientErrorKind::UploadRelayError(_) => "upload-relay-error",
             ClientErrorKind::BlobTooLarge(_) => "blob-too-large",
+            ClientErrorKind::BlobManagerNotInitialized => "blob-manager-not-initialized",
         }
     }
 }

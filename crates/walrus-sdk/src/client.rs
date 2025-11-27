@@ -187,6 +187,8 @@ pub struct WalrusNodeClient<T> {
     blocklist: Option<Blocklist>,
     communication_factory: NodeCommunicationFactory,
     max_blob_size: Option<u64>,
+    /// Cached BlobManager data for efficient blob manager operations.
+    blob_manager_data: Option<Arc<blob_manager_client::BlobManagerData>>,
 }
 
 impl WalrusNodeClient<()> {
@@ -249,6 +251,7 @@ impl WalrusNodeClient<()> {
             )?,
             config,
             max_blob_size,
+            blob_manager_data: None,
         })
     }
 
@@ -263,6 +266,7 @@ impl WalrusNodeClient<()> {
             blocklist,
             communication_factory: node_client_factory,
             max_blob_size,
+            blob_manager_data,
         } = self;
         WalrusNodeClient::<C> {
             config,
@@ -273,6 +277,7 @@ impl WalrusNodeClient<()> {
             blocklist,
             communication_factory: node_client_factory,
             max_blob_size,
+            blob_manager_data,
         }
     }
 }
@@ -1168,9 +1173,8 @@ impl WalrusNodeClient<SuiContractClient> {
 
         let store_op_timer = Instant::now();
         // Register blobs if they are not registered, and get the store operations.
-        let registered_blobs = if let Some(blob_manager_cap) = store_args.blob_manager_cap {
-            self.blob_manager(blob_manager_cap)
-                .await?
+        let registered_blobs = if store_args.with_blob_manager {
+            self.get_blob_manager_client()?
                 .register_blobs(encoded_blobs_with_status, store_args.persistence)
                 .await?
         } else {
@@ -1428,10 +1432,10 @@ impl WalrusNodeClient<SuiContractClient> {
 
         let start = Instant::now();
 
-        // Separate managed blobs from regular blobs
-        if let Some(blob_manager_cap) = store_args.blob_manager_cap {
-            let blob_manager_client = self.blob_manager(blob_manager_cap).await?;
-            return blob_manager_client
+        // Separate managed blobs from regular blobs.
+        if store_args.with_blob_manager {
+            return self
+                .get_blob_manager_client()?
                 .certify_blobs(
                     blobs_to_certify_and_extend,
                     self.get_price_computation().await?,
@@ -1580,11 +1584,68 @@ impl WalrusNodeClient<SuiContractClient> {
     ///
     /// This reads the BlobManagerCap object to get the manager_id, then initializes
     /// the BlobManagerClient with the cached table IDs.
+    ///
+    /// Note: Prefer using `init_blob_manager()` followed by `get_blob_manager_client()`
+    /// for better performance when making multiple blob manager operations.
     pub async fn blob_manager(
         &self,
         cap_id: ObjectID,
     ) -> ClientResult<blob_manager_client::BlobManagerClient<'_, SuiContractClient>> {
-        blob_manager_client::BlobManagerClient::from_cap(self, cap_id).await
+        blob_manager_client::BlobManagerClient::from_cap_id(self, cap_id).await
+    }
+
+    /// Initializes the blob manager with the given capability ID.
+    ///
+    /// This fetches the BlobManagerCap and table ID from the chain and caches them
+    /// for efficient subsequent operations.
+    pub async fn init_blob_manager(&mut self, cap_id: ObjectID) -> ClientResult<()> {
+        let data = blob_manager_client::BlobManagerData::from_cap_id(self, cap_id).await?;
+        self.blob_manager_data = Some(Arc::new(data));
+        Ok(())
+    }
+
+    /// Resets the blob manager with a new capability ID.
+    ///
+    /// This is equivalent to calling `init_blob_manager` but makes the intent
+    /// clearer when replacing an existing blob manager.
+    pub async fn reset_blob_manager(&mut self, cap_id: ObjectID) -> ClientResult<()> {
+        self.init_blob_manager(cap_id).await
+    }
+
+    /// Clears the cached blob manager data.
+    pub fn clear_blob_manager(&mut self) {
+        self.blob_manager_data = None;
+    }
+
+    /// Returns whether a blob manager is currently initialized.
+    pub fn has_blob_manager(&self) -> bool {
+        self.blob_manager_data.is_some()
+    }
+
+    /// Returns the cached BlobManagerData, if initialized.
+    pub fn blob_manager_data(&self) -> Option<&Arc<blob_manager_client::BlobManagerData>> {
+        self.blob_manager_data.as_ref()
+    }
+
+    /// Returns a BlobManagerClient using the cached data.
+    ///
+    /// This is more efficient than `blob_manager(cap_id)` when making multiple
+    /// blob manager operations, as it doesn't need to fetch data from the chain.
+    ///
+    /// # Errors
+    ///
+    /// Returns `BlobManagerNotInitialized` if `init_blob_manager()` was not called.
+    pub fn get_blob_manager_client(
+        &self,
+    ) -> ClientResult<blob_manager_client::BlobManagerClient<'_, SuiContractClient>> {
+        let data = self
+            .blob_manager_data
+            .as_ref()
+            .ok_or_else(|| ClientError::from(ClientErrorKind::BlobManagerNotInitialized))?;
+        Ok(blob_manager_client::BlobManagerClient::from_data(
+            self,
+            data.clone(),
+        ))
     }
 }
 

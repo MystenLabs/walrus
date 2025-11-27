@@ -47,6 +47,7 @@ public struct ManagedBlobInfo has drop {
 
 /// Finds a matching blob that is already stored in the managed table and checks if it's certified.
 /// Returns ManagedBlobInfo if found, otherwise Option::none().
+/// This function combines finding and certification check to avoid multiple table lookups.
 public fun find_blob_by_blob_id(
     self: &BlobStashByBlobId,
     blob_id: u256,
