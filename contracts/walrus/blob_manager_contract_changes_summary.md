@@ -16,17 +16,33 @@
 
 - **Attribute System**:
   - Limits: max 100 attributes, max 1KB per key, max 1KB per value
-  - `attributes()` - Read-only accessor
-  - `set_attribute(key, value)` - Add/update with validation
-  - `get_attribute(key)` - Get value by key
-  - `remove_attribute(key)` - Remove by key (aborts if not found)
-  - `remove_attribute_if_exists(key)` - Safe removal
-  - `clear_attributes()` - Remove all attributes
+  - `attributes()` - Returns reference to VecMap
+  - `attributes_count()` - Returns number of attributes
+  - `has_attribute(key)` - Checks if key exists
+  - `get_attribute(key)` - Get value by key (returns Option)
+  - `set_attribute(key, value)` - Add/update with validation (public)
+  - `remove_attribute(key)` - Remove by key (aborts if not found, public)
+  - `remove_attribute_if_exists(key)` - Safe removal (public)
+  - `clear_attributes()` - Remove all attributes (public)
+
+- **Accessors**:
+  - `object_id()` - Returns ManagedBlob's object ID
+  - `registered_epoch()` - Returns registration epoch
+  - `blob_id()` - Returns the blob ID
+  - `size()` - Returns unencoded size
+  - `encoding_type()` - Returns encoding type
+  - `certified_epoch()` - Returns certification epoch (Option)
+  - `blob_manager_id()` - Returns owning BlobManager ID
+  - `is_deletable()` - Returns deletable flag
+  - `blob_type()` - Returns BlobType enum (Regular or Quilt)
+  - `encoded_size(n_shards)` - Calculates encoded size
 
 - **Key Functions**:
-  - `new()` - Creates managed blob with BlobManager ownership
-  - `certify_with_certified_msg()` - Certification without ownership transfer
-  - `delete()` - Removes deletable blobs and emits event
+  - `new()` - Creates managed blob with BlobManager ownership (package visibility)
+  - `certify_with_certified_msg()` - Certification without ownership transfer (public)
+  - `delete()` - Removes deletable blobs and emits event (package visibility)
+  - `burn()` - Destroys managed blob without storage release (public)
+  - `derive_blob_id(root_hash, encoding_type, size)` - Derives blob ID (public)
 
 ### 1.2 `blob_stash.move`
 **Purpose**: Set of ManagedBlob objects within a BlobManager.
@@ -35,7 +51,8 @@
 - **BlobStashByBlobId struct** (simplified single-table design):
   - Single `Table<u256, ManagedBlob>` keyed by blob_id
   - Tracks `total_unencoded_size`
-  - Only one blob per blob_id (either permanent or deletable)
+  - Only one blob per blob_id (either permanent or deletable, not both)
+  - Permanency conflict error if attempting to register with different deletable flag
 
 - **BlobStash enum**:
   - `BlobIdBased(BlobStashByBlobId)` - Current variant
@@ -44,14 +61,19 @@
   - `object_id: ID` - The ManagedBlob's object ID
   - `is_certified: bool` - Certification status
 
-- **Key Functions**:
-  - `find_blob_in_stash(blob_id, deletable)` - Find blob and check certification
+- **Dispatch Functions** (dispatch to variant):
+  - `find_blob_in_stash(blob_id, deletable)` - Find blob and check certification, returns `Option<ManagedBlobInfo>`
   - `get_mut_blob_in_stash(blob_id, deletable)` - Get mutable ref with deletable check
-  - `get_mut_blob_in_stash_unchecked(blob_id)` - Get mutable ref (for attributes)
+  - `get_mut_blob_in_stash_unchecked(blob_id)` - Get mutable ref without deletable check (for attributes)
   - `add_blob_to_stash(managed_blob)` - Store new managed blob
   - `remove_blob_from_stash(blob_id, deletable)` - Delete and return blob
   - `has_blob_in_stash(blob_id)` - Check existence
+  - `get_blob_object_id_from_stash(blob_id)` - Get object ID for blob_id
   - `blob_count_in_stash()` / `total_blob_size_in_stash()` - Stats
+
+- **ManagedBlobInfo Accessors**:
+  - `object_id()` - Returns the object ID
+  - `is_certified()` - Returns certification status
 
 ### 1.3 `blob_storage.move`
 **Purpose**: Unified storage accounting for BlobManager's storage pool.
@@ -78,7 +100,8 @@
       id: UID,
       storage: BlobStorage,
       blob_stash: BlobStash,
-      coin_stash: CoinStash,
+      coin_stash: BlobManagerCoinStash,
+      extension_policy: ExtensionPolicy,
   }
   ```
 
@@ -94,7 +117,7 @@
 
 - **Capability Management**:
   - `create_cap(is_admin, fund_manager)` - Returns new cap (PTB handles transfer)
-  - `cap_manager_id()` / `cap_is_admin()` / `cap_fund_manager()` - Accessors
+  - `cap_manager_id()` / `is_admin_cap()` / `is_fund_manager_cap()` - Accessors
   - Permission rules:
     - Admin caps can create new caps
     - Only fund_manager caps can create new fund_manager caps
@@ -114,9 +137,22 @@
   - `deposit_wal_to_coin_stash()` - Add WAL tokens
   - `deposit_sui_to_coin_stash()` - Add SUI tokens
   - `buy_storage_from_stash()` - Purchase storage capacity
-  - `extend_storage_from_stash()` - Extend storage duration
-  - `withdraw_wal_from_coin_stash()` - Withdraw WAL (requires fund_manager)
-  - `withdraw_sui_from_coin_stash()` - Withdraw SUI (requires fund_manager)
+  - `extend_storage_from_stash()` - Extend storage duration (public, follows policy)
+  - `extend_storage_from_stash_fund_manager()` - Extend storage (fund_manager, bypasses constraints)
+  - `withdraw_all_wal()` - Withdraw all WAL (requires fund_manager)
+  - `withdraw_all_sui()` - Withdraw all SUI (requires fund_manager)
+
+- **Query Functions**:
+  - `manager_id()` - Returns BlobManager ID
+  - `capacity_info()` - Returns (total, used, available) capacity
+  - `storage_epochs()` - Returns (start, end) epochs
+  - `blob_count()` - Returns number of blobs
+  - `total_blob_size()` - Returns total unencoded size
+  - `has_blob(blob_id)` - Checks if blob exists
+  - `get_blob_object_id(blob_id)` - Returns object ID for blob_id
+  - `get_blob_object_id_by_blob_id_and_deletable(blob_id, deletable)` - Returns object ID with deletable check
+  - `coin_stash_balances()` - Returns (WAL, SUI) balances
+  - `extension_policy()` - Returns current extension policy
 
 ### 1.5 `coin_stash.move`
 **Purpose**: Community funding mechanism for BlobManager operations.
