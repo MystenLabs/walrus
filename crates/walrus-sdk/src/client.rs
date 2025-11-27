@@ -2466,8 +2466,14 @@ async fn verify_blob_status_event(
 ) -> Result<(), anyhow::Error> {
     let event = match status {
         BlobStatus::Invalid { event } => event,
-        BlobStatus::Permanent { status_event, .. } => status_event,
-        BlobStatus::Managed { .. } => return Ok(()),
+        BlobStatus::Permanent {
+            status_event: Some(event),
+            ..
+        } => event,
+        // Managed-only permanent blobs have no status_event.
+        BlobStatus::Permanent {
+            status_event: None, ..
+        } => return Ok(()),
         BlobStatus::Deletable { .. } => {
             bail!("deletable status cannot be verified with an on-chain event")
         }

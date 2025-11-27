@@ -3942,7 +3942,7 @@ mod tests {
         };
 
         assert!(!is_certified);
-        assert_eq!(status_event, blob_event.event_id);
+        assert_eq!(status_event, Some(blob_event.event_id));
         assert_eq!(end_epoch, blob_event.end_epoch);
 
         Ok(())

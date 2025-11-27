@@ -547,7 +547,6 @@ mod tests {
         api::{
             BlobStatus,
             DeletableCounts,
-            ManagedBlobCounts,
             ServiceHealthInfo,
             ShardStatusSummary,
             StoredOnNodeStatus,
@@ -708,14 +707,13 @@ mod tests {
             if blob_id.0[0] == 0 {
                 Ok(BlobStatus::Permanent {
                     end_epoch: 3,
-                    status_event: event_id_for_testing(),
+                    status_event: Some(event_id_for_testing()),
                     is_certified: true,
                     initial_certified_epoch: Some(1),
                     deletable_counts: DeletableCounts {
                         count_deletable_total: 0,
                         count_deletable_certified: 0,
                     },
-                    managed_blob_counts: ManagedBlobCounts::default(),
                 })
             } else if blob_id.0[0] == 1 {
                 Ok(BlobStatus::Nonexistent)

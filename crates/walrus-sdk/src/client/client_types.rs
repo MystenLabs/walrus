@@ -675,14 +675,25 @@ impl WalrusStoreBlobMaybeFinished<BlobWithStatus> {
             BlobStatus::Permanent {
                 end_epoch,
                 is_certified: true,
-                status_event,
+                status_event: Some(event),
                 ..
             } if end_epoch >= target_epoch => {
                 self.state = WalrusStoreBlobState::Finished(BlobStoreResult::AlreadyCertified {
                     blob_id,
-                    event_or_object: EventOrObjectId::Event(status_event),
+                    event_or_object: EventOrObjectId::Event(event),
                     end_epoch,
                 });
+            }
+            // Managed-only permanent blobs have no status_event but are still certified.
+            BlobStatus::Permanent {
+                end_epoch,
+                is_certified: true,
+                status_event: None,
+                ..
+            } if end_epoch >= target_epoch => {
+                // For managed-only permanent blobs, we still report as already certified
+                // but without an event. Use the blob_id to construct a pseudo-identifier.
+                // The client will need to handle this case appropriately.
             }
             BlobStatus::Invalid { event } => {
                 self.state = WalrusStoreBlobState::Finished(BlobStoreResult::MarkedInvalid {

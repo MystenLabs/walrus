@@ -426,7 +426,6 @@ impl CliOutput for BlobStatusOutput {
                         count_deletable_certified,
                         ..
                     },
-                ..
             } => {
                 let status = (if is_certified {
                     "certified"
@@ -439,13 +438,16 @@ impl CliOutput for BlobStatusOutput {
                 } else {
                     "".to_string()
                 };
+                let event_str = match &status_event {
+                    Some(event) => format!("\nRelated event: {}", format_event_id(event)),
+                    None => "".to_string(),
+                };
                 println!(
                     "There is a {status} permanent Blob object for blob ID {blob_str}.\n\
                         Expiry epoch: {end_epoch}\n\
                         {expiry_str}\
-                        Related event: {}\
+                        {event_str}\
                         {initial_certified_str}",
-                    format_event_id(&status_event)
                 );
                 match count_deletable_certified {
                     2.. => {
@@ -460,31 +462,6 @@ impl CliOutput for BlobStatusOutput {
                         )
                     }
                     0 => {}
-                }
-            }
-            BlobStatus::Managed {
-                initial_certified_epoch,
-                unmanaged_deletable_counts,
-                managed_blob_counts,
-            } => {
-                let initial_certified_str = if let Some(epoch) = initial_certified_epoch {
-                    format!(", initially certified in epoch {epoch}")
-                } else {
-                    "".to_string()
-                };
-                println!(
-                    "Blob ID {blob_str} is stored on Walrus as a managed blob:\n\
-                    Total number of certified managed registrations: {} (of {} \
-                    registered{initial_certified_str})",
-                    managed_blob_counts.count_certified_total,
-                    managed_blob_counts.count_registered_total
-                );
-                if unmanaged_deletable_counts.count_deletable_total > 0 {
-                    println!(
-                        "There are also {} unmanaged deletable Blob objects ({} certified).",
-                        unmanaged_deletable_counts.count_deletable_total,
-                        unmanaged_deletable_counts.count_deletable_certified
-                    );
                 }
             }
         }
@@ -894,12 +871,6 @@ fn removed_instance_string(blob_status: &BlobStatus) -> String {
                 "{} There are still one or more deletable instances ({}) available.",
                 STILL_AVAILABLE,
                 deletable_counts_summary(deletable_counts)
-            )
-        }
-        BlobStatus::Managed { .. } => {
-            format!(
-                "{} The blob is still available via managed BlobManager contracts.",
-                STILL_AVAILABLE
             )
         }
     }

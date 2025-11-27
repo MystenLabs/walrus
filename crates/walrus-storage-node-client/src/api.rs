@@ -34,8 +34,12 @@ pub enum ServiceResponse<T> {
 
 /// Contains the certification status of a blob.
 ///
-/// If the a permanent blob exists, it also contains its end epoch and the ID of the Sui event
-/// from which the latest status (registered or certified) resulted.
+/// If a permanent blob exists (regular or managed), it contains the end epoch and the ID of the
+/// Sui event from which the latest status (registered or certified) resulted.
+///
+/// Managed blobs are treated the same as regular blobs for status calculation:
+/// - Permanent managed blobs contribute to `Permanent` status with their `end_epoch`.
+/// - Deletable managed blobs contribute to `Deletable` status counts.
 #[derive(
     Debug, Deserialize, Serialize, PartialEq, Eq, Clone, Copy, Default, Hash, utoipa::ToSchema,
 )]
@@ -50,52 +54,41 @@ pub enum BlobStatus {
         #[schema(schema_with = event_id_schema)]
         event: EventID,
     },
-    /// The blob exists within Walrus in a permanent state.
+    /// The blob exists within Walrus in a permanent state (regular or managed).
     Permanent {
         /// The latest epoch at which the blob expires (non-inclusive).
+        /// This is the max end_epoch across all permanent blobs (regular and managed).
         #[schema(value_type = u64)]
         end_epoch: Epoch,
         /// Whether the blob is certified (true) or only registered (false).
         is_certified: bool,
         /// The ID of the Sui event that caused the status with the given `end_epoch`.
-        #[schema(schema_with = event_id_schema)]
-        status_event: EventID,
-        /// Counts of deletable `Blob` objects.
+        /// Only set for regular permanent blobs; None for managed-only permanent blobs.
+        #[schema(schema_with = option_event_id_schema)]
+        status_event: Option<EventID>,
+        /// Counts of deletable `Blob` objects (regular and managed combined).
         #[schema(inline)]
         deletable_counts: DeletableCounts,
         /// If the blob is certified, contains the epoch where it was initially certified.
         initial_certified_epoch: Option<Epoch>,
-        /// Counts of managed blobs (owned by BlobManager contracts).
-        #[schema(inline)]
-        managed_blob_counts: ManagedBlobCounts,
     },
     /// The blob exists within Walrus; but there is no related permanent object, so it may be
-    /// deleted at any time.
+    /// deleted at any time. Includes both regular and managed deletable blobs.
     Deletable {
         /// If the blob is certified, contains the epoch where it was initially certified.
         // INV: certified_epoch.is_some() == count_deletable_certified > 0
         initial_certified_epoch: Option<Epoch>,
-        /// Counts of deletable `Blob` objects.
+        /// Counts of deletable `Blob` objects (regular and managed combined).
         #[schema(inline)]
         deletable_counts: DeletableCounts,
-        /// Counts of managed blobs (owned by BlobManager contracts).
-        #[schema(inline)]
-        managed_blob_counts: ManagedBlobCounts,
-    },
-    /// The blob is a managed blob (owned by a BlobManager contract).
-    Managed {
-        /// If the blob is certified, contains the epoch where it was initially certified.
-        initial_certified_epoch: Option<Epoch>,
-        /// Counts of unmanaged deletable `Blob` objects (non-managed deletable blobs).
-        #[schema(inline)]
-        unmanaged_deletable_counts: DeletableCounts,
-        /// Counts of all and certified managed blobs (owned by BlobManager contracts).
-        #[schema(inline)]
-        managed_blob_counts: ManagedBlobCounts,
     },
 }
 
 fn event_id_schema() -> Ref {
+    Ref::new("#/components/schemas/EventID")
+}
+
+fn option_event_id_schema() -> Ref {
     Ref::new("#/components/schemas/EventID")
 }
 
@@ -204,12 +197,10 @@ impl Ord for BlobStatus {
                 Deletable {
                     initial_certified_epoch,
                     deletable_counts,
-                    ..
                 },
                 Deletable {
                     initial_certified_epoch: initial_certified_epoch_other,
                     deletable_counts: deletable_counts_other,
-                    ..
                 },
             ) => (deletable_counts, Reverse(initial_certified_epoch)).cmp(&(
                 deletable_counts_other,
@@ -247,33 +238,6 @@ impl Ord for BlobStatus {
                         Reverse(initial_certified_epoch_other),
                     ))
             }
-            // Managed is between Deletable and Permanent in ordering.
-            (Managed { .. }, Permanent { .. }) => Ordering::Less,
-            (Permanent { .. }, Managed { .. }) => Ordering::Greater,
-            (Managed { .. }, Deletable { .. }) => Ordering::Greater,
-            (Deletable { .. }, Managed { .. }) => Ordering::Less,
-            // For Managed, compare managed_blob_counts, unmanaged_deletable_counts, and initial_certified_epoch.
-            (
-                Managed {
-                    initial_certified_epoch,
-                    unmanaged_deletable_counts,
-                    managed_blob_counts,
-                },
-                Managed {
-                    initial_certified_epoch: initial_certified_epoch_other,
-                    unmanaged_deletable_counts: unmanaged_deletable_counts_other,
-                    managed_blob_counts: managed_blob_counts_other,
-                },
-            ) => (
-                managed_blob_counts,
-                unmanaged_deletable_counts,
-                Reverse(initial_certified_epoch),
-            )
-                .cmp(&(
-                    managed_blob_counts_other,
-                    unmanaged_deletable_counts_other,
-                    Reverse(initial_certified_epoch_other),
-                )),
         }
     }
 }
