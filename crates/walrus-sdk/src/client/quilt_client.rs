@@ -399,7 +399,7 @@ impl<T: ReadClient> QuiltClient<'_, WalrusNodeClient<T>> {
     ///
     /// If not enough slivers can be retrieved for the quilt index, the entire blob will be read.
     pub async fn get_quilt_metadata(&self, quilt_id: &BlobId) -> ClientResult<QuiltMetadata> {
-        self.client.check_blob_id(quilt_id)?;
+        self.client.check_blob_is_blocked(quilt_id)?;
         let (certified_epoch, _) = self
             .client
             .get_blob_status_and_certified_epoch(quilt_id, None)

@@ -484,7 +484,7 @@ impl<T: ReadClient> WalrusNodeClient<T> {
     {
         tracing::debug!("starting to read blob");
 
-        self.check_blob_id(blob_id)?;
+        self.check_blob_is_blocked(blob_id)?;
 
         let (certified_epoch, blob_status) = self
             .get_blob_status_and_certified_epoch(blob_id, blob_status)
@@ -768,7 +768,7 @@ impl<T: ReadClient> WalrusNodeClient<T> {
     {
         let blob_id = metadata.blob_id();
         tracing::info!("starting to retrieve slivers {:?}", sliver_selector);
-        self.check_blob_id(blob_id)?;
+        self.check_blob_is_blocked(blob_id)?;
 
         // Create a progress bar to track the progress of the sliver retrieval.
         let progress_bar: indicatif::ProgressBar =
@@ -1076,10 +1076,10 @@ impl WalrusNodeClient<SuiContractClient> {
     ) -> ClientResult<Vec<WalrusStoreBlobMaybeFinished<BlobWithStatus>>> {
         futures::future::try_join_all(encoded_blobs.into_iter().map(|encoded_blob| async move {
             let blob_id = encoded_blob.state.blob_id();
-            if let Err(e) = self.check_blob_id(&blob_id) {
+            if let Err(e) = self.check_blob_is_blocked(&blob_id) {
                 return Ok(encoded_blob
                     .into_maybe_finished()
-                    .fail_with(e, "check_blob_id"));
+                    .fail_with(e, "check_blob_is_blocked"));
             }
             let status_result = self
                 .get_blob_status_with_retries(&blob_id, &self.sui_client)
@@ -2058,7 +2058,7 @@ impl<T> WalrusNodeClient<T> {
 
     /// Returns a [`ClientError`] with [`ClientErrorKind::BlobIdBlocked`] if the provided blob ID is
     /// contained in the blocklist.
-    fn check_blob_id(&self, blob_id: &BlobId) -> ClientResult<()> {
+    fn check_blob_is_blocked(&self, blob_id: &BlobId) -> ClientResult<()> {
         if let Some(blocklist) = &self.blocklist
             && blocklist.is_blocked(blob_id)
         {

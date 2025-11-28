@@ -96,7 +96,7 @@ impl<T: ReadClient> ByteRangeReadClient<'_, T> {
         );
 
         // First, validate the blob ID and make sure it is valid.
-        self.client.check_blob_id(blob_id)?;
+        self.client.check_blob_is_blocked(blob_id)?;
 
         // Convert the request range from u64 to usize. If the request range cannot be represented
         // as usize, this machine cannot handle such request given that the data will need to be
