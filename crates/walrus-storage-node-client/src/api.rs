@@ -112,6 +112,133 @@ impl BlobStatus {
     pub fn is_registered(&self) -> bool {
         matches!(self, Self::Deletable { .. } | Self::Permanent { .. })
     }
+
+    /// Returns true if this status represents a permanent blob.
+    pub fn is_permanent(&self) -> bool {
+        matches!(self, Self::Permanent { .. })
+    }
+
+    /// Returns the end_epoch for permanent blobs, or `None` for other statuses.
+    pub fn end_epoch(&self) -> Option<Epoch> {
+        match self {
+            BlobStatus::Permanent { end_epoch, .. } => Some(*end_epoch),
+            _ => None,
+        }
+    }
+
+    /// Returns true if the blob is certified (has been fully stored).
+    pub fn is_certified(&self) -> bool {
+        match self {
+            BlobStatus::Permanent { is_certified, .. } => *is_certified,
+            BlobStatus::Deletable {
+                initial_certified_epoch,
+                ..
+            } => initial_certified_epoch.is_some(),
+            _ => false,
+        }
+    }
+
+    /// Returns the status event for permanent blobs, or `None` for other statuses.
+    pub fn status_event(&self) -> Option<EventID> {
+        match self {
+            BlobStatus::Permanent { status_event, .. } => *status_event,
+            _ => None,
+        }
+    }
+
+    /// Returns the deletable counts for the blob (default counts for non-registered statuses).
+    pub fn deletable_counts(&self) -> DeletableCounts {
+        match self {
+            BlobStatus::Permanent {
+                deletable_counts, ..
+            }
+            | BlobStatus::Deletable {
+                deletable_counts, ..
+            } => *deletable_counts,
+            _ => DeletableCounts::default(),
+        }
+    }
+
+    /// Returns the Invalid event ID, or `None` for other statuses.
+    pub fn invalid_event(&self) -> Option<EventID> {
+        match self {
+            BlobStatus::Invalid { event } => Some(*event),
+            _ => None,
+        }
+    }
+
+    /// Combines two BlobStatus values.
+    ///
+    /// The combination logic follows these rules:
+    /// 1. If either status is Invalid, the result is Invalid (using the first Invalid event).
+    /// 2. If either status is Permanent, the result is Permanent with combined counts.
+    /// 3. If either status is Deletable, the result is Deletable with combined counts.
+    /// 4. Otherwise, the result is Nonexistent.
+    ///
+    /// For Permanent status:
+    /// - `end_epoch` is the max of both end epochs.
+    /// - `is_certified` is true if either is certified.
+    /// - `status_event` is from the one with larger `end_epoch`.
+    /// - `initial_certified_epoch` is the min of both (earliest certification).
+    pub fn combine(self, other: Self) -> Self {
+        // Rule 1: Invalid takes priority.
+        if let Some(event) = self.invalid_event() {
+            return BlobStatus::Invalid { event };
+        }
+        if let Some(event) = other.invalid_event() {
+            return BlobStatus::Invalid { event };
+        }
+
+        // Combine deletable counts and initial_certified_epoch.
+        let combined_deletable = self.deletable_counts().combine(other.deletable_counts());
+        let combined_initial_certified = match (
+            self.initial_certified_epoch(),
+            other.initial_certified_epoch(),
+        ) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (a, b) => a.or(b),
+        };
+
+        // Rule 2: Permanent takes priority over Deletable.
+        if self.is_permanent() || other.is_permanent() {
+            // Determine end_epoch: max of both (if both have end_epoch).
+            let combined_end_epoch = match (self.end_epoch(), other.end_epoch()) {
+                (Some(a), Some(b)) => a.max(b),
+                (a, b) => a.or(b).expect("at least one must have end_epoch"),
+            };
+
+            // Determine is_certified: true if either is certified.
+            let combined_is_certified = self.is_certified() || other.is_certified();
+
+            // status_event: take from the one with larger end_epoch.
+            let combined_status_event = match (self.end_epoch(), other.end_epoch()) {
+                (Some(a), Some(b)) if a >= b => self.status_event().or(other.status_event()),
+                (Some(_), Some(_)) => other.status_event().or(self.status_event()),
+                (Some(_), None) => self.status_event(),
+                (None, Some(_)) => other.status_event(),
+                (None, None) => None,
+            };
+
+            return BlobStatus::Permanent {
+                end_epoch: combined_end_epoch,
+                is_certified: combined_is_certified,
+                status_event: combined_status_event,
+                deletable_counts: combined_deletable,
+                initial_certified_epoch: combined_initial_certified,
+            };
+        }
+
+        // Rule 3: Deletable if there are any deletable counts.
+        if combined_deletable.count_deletable_total > 0 {
+            return BlobStatus::Deletable {
+                initial_certified_epoch: combined_initial_certified,
+                deletable_counts: combined_deletable,
+            };
+        }
+
+        // Rule 4: Nonexistent.
+        BlobStatus::Nonexistent
+    }
 }
 
 /// Contains counts of all and certified deletable `Blob` objects.
@@ -136,6 +263,17 @@ impl Ord for DeletableCounts {
         // Tuples are compared using lexicographic ordering.
         (self.count_deletable_certified, self.count_deletable_total)
             .cmp(&(other.count_deletable_certified, other.count_deletable_total))
+    }
+}
+
+impl DeletableCounts {
+    /// Combines two DeletableCounts by adding their values.
+    pub fn combine(self, other: Self) -> Self {
+        Self {
+            count_deletable_total: self.count_deletable_total + other.count_deletable_total,
+            count_deletable_certified: self.count_deletable_certified
+                + other.count_deletable_certified,
+        }
     }
 }
 

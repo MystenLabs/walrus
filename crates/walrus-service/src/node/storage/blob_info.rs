@@ -2023,7 +2023,7 @@ impl BlobInfoApi for BlobInfoV2 {
 
     fn to_blob_status(&self, current_epoch: Epoch) -> BlobStatus {
         match self {
-            Self::Invalid { .. } => BlobStatus::Nonexistent,
+            Self::Invalid { event, .. } => BlobStatus::Invalid { event: *event },
             Self::Valid(valid_blob_info) => valid_blob_info.to_blob_status(current_epoch),
         }
     }
@@ -2347,30 +2347,27 @@ impl ValidBlobInfoV2 {
         }
     }
 
-    /// Calculates managed blob status info for combining with regular blob status.
-    /// Returns (has_permanent, end_epoch, initial_certified_epoch, deletable_counts).
-    /// - has_permanent: whether there are permanent managed blobs (certified or registered).
-    /// - end_epoch: the end_epoch from the BlobManager (only relevant for permanent).
-    /// - initial_certified_epoch: the epoch when first certified (if any).
-    /// - deletable_counts: combined counts from managed deletable blobs.
-    fn managed_blob_info_for_status(
-        &self,
-        _current_epoch: Epoch,
-    ) -> Option<(bool, Option<Epoch>, Option<Epoch>, DeletableCounts)> {
-        let managed_info = self.managed_blob_info.as_ref()?;
+    /// Converts managed blob info to a BlobStatus.
+    ///
+    /// Returns `BlobStatus::Nonexistent` if there are no managed blobs.
+    fn managed_blob_status(&self) -> BlobStatus {
+        let Some(managed_info) = self.managed_blob_info.as_ref() else {
+            return BlobStatus::Nonexistent;
+        };
 
         if managed_info.certified.is_empty() && managed_info.registered.is_empty() {
-            return None;
+            return BlobStatus::Nonexistent;
         }
 
         // Count permanent managed blobs (total registered minus deletable registered).
-        #[allow(clippy::cast_possible_truncation)]
-        let registered_permanent_count =
-            managed_info.registered.len() as u32 - managed_info.registered_deletable_counts;
-        #[allow(clippy::cast_possible_truncation)]
-        let certified_permanent_count =
-            managed_info.certified.len() as u32 - managed_info.certified_deletable_counts;
-        let has_permanent = registered_permanent_count > 0 || certified_permanent_count > 0;
+        let registered_permanent_count = u32::try_from(managed_info.registered.len())
+            .expect("registered count should fit in u32")
+            - managed_info.registered_deletable_counts;
+        let certified_permanent_count = u32::try_from(managed_info.certified.len())
+            .expect("certified count should fit in u32")
+            - managed_info.certified_deletable_counts;
+        assert!(registered_permanent_count >= certified_permanent_count);
+        let has_permanent = registered_permanent_count > 0;
 
         // Deletable managed blobs contribute to DeletableCounts.
         let deletable_counts = DeletableCounts {
@@ -2378,126 +2375,29 @@ impl ValidBlobInfoV2 {
             count_deletable_certified: managed_info.certified_deletable_counts,
         };
 
-        Some((
-            has_permanent,
-            managed_info.end_epoch,
-            managed_info.initial_certified_epoch,
-            deletable_counts,
-        ))
-    }
+        let initial_certified_epoch = managed_info.initial_certified_epoch;
 
-    /// Combines managed blob info into the existing status.
-    /// Managed blobs are treated the same as regular blobs:
-    /// - Permanent managed blobs contribute to `Permanent` status with their `end_epoch`.
-    /// - Deletable managed blobs contribute to `DeletableCounts`.
-    fn add_managed_counts_to_status(
-        status: BlobStatus,
-        managed_has_permanent: bool,
-        managed_end_epoch: Option<Epoch>,
-        managed_initial_certified_epoch: Option<Epoch>,
-        managed_deletable_counts: DeletableCounts,
-    ) -> BlobStatus {
-        match status {
-            // If there is already a Permanent status, combine with managed info.
+        if has_permanent {
+            // is_certified should reflect whether any permanent blob is certified,
+            // not whether any blob (including deletable) is certified.
+            // This matches the V1 logic which checks permanent_certified.is_some().
+            let is_certified = certified_permanent_count > 0;
             BlobStatus::Permanent {
-                end_epoch,
+                end_epoch: managed_info
+                    .end_epoch
+                    .expect("managed permanent should have end_epoch"),
                 is_certified,
-                status_event,
+                status_event: None, // Managed blobs have no status event.
                 deletable_counts,
                 initial_certified_epoch,
-            } => {
-                // Update end_epoch if managed permanent blob has later end_epoch.
-                let new_end_epoch = match managed_end_epoch {
-                    Some(managed_epoch) if managed_has_permanent => end_epoch.max(managed_epoch),
-                    _ => end_epoch,
-                };
-                // Combine deletable counts from managed blobs.
-                let combined_deletable = DeletableCounts {
-                    count_deletable_total: deletable_counts.count_deletable_total
-                        + managed_deletable_counts.count_deletable_total,
-                    count_deletable_certified: deletable_counts.count_deletable_certified
-                        + managed_deletable_counts.count_deletable_certified,
-                };
-                // Use earlier initial_certified_epoch.
-                let combined_initial_certified =
-                    match (initial_certified_epoch, managed_initial_certified_epoch) {
-                        (Some(a), Some(b)) => Some(a.min(b)),
-                        (a, b) => a.or(b),
-                    };
-                BlobStatus::Permanent {
-                    end_epoch: new_end_epoch,
-                    is_certified,
-                    status_event,
-                    deletable_counts: combined_deletable,
-                    initial_certified_epoch: combined_initial_certified,
-                }
             }
-            // If no Permanent but managed has permanent, create Permanent status.
+        } else if deletable_counts.count_deletable_total > 0 {
             BlobStatus::Deletable {
                 initial_certified_epoch,
                 deletable_counts,
-            } if managed_has_permanent => {
-                // Combine deletable counts.
-                let combined_deletable = DeletableCounts {
-                    count_deletable_total: deletable_counts.count_deletable_total
-                        + managed_deletable_counts.count_deletable_total,
-                    count_deletable_certified: deletable_counts.count_deletable_certified
-                        + managed_deletable_counts.count_deletable_certified,
-                };
-                // Use earlier initial_certified_epoch.
-                let combined_initial_certified =
-                    match (initial_certified_epoch, managed_initial_certified_epoch) {
-                        (Some(a), Some(b)) => Some(a.min(b)),
-                        (a, b) => a.or(b),
-                    };
-                BlobStatus::Permanent {
-                    end_epoch: managed_end_epoch.expect("managed permanent should have end_epoch"),
-                    is_certified: managed_initial_certified_epoch.is_some(),
-                    status_event: None, // Managed-only permanent has no event.
-                    deletable_counts: combined_deletable,
-                    initial_certified_epoch: combined_initial_certified,
-                }
             }
-            // If Nonexistent but managed has permanent, create Permanent status.
-            BlobStatus::Nonexistent if managed_has_permanent => BlobStatus::Permanent {
-                end_epoch: managed_end_epoch.expect("managed permanent should have end_epoch"),
-                is_certified: managed_initial_certified_epoch.is_some(),
-                status_event: None, // Managed-only permanent has no event.
-                deletable_counts: managed_deletable_counts,
-                initial_certified_epoch: managed_initial_certified_epoch,
-            },
-            // If Deletable without managed permanent, just add managed deletable counts.
-            BlobStatus::Deletable {
-                initial_certified_epoch,
-                deletable_counts,
-            } => {
-                let combined_deletable = DeletableCounts {
-                    count_deletable_total: deletable_counts.count_deletable_total
-                        + managed_deletable_counts.count_deletable_total,
-                    count_deletable_certified: deletable_counts.count_deletable_certified
-                        + managed_deletable_counts.count_deletable_certified,
-                };
-                let combined_initial_certified =
-                    match (initial_certified_epoch, managed_initial_certified_epoch) {
-                        (Some(a), Some(b)) => Some(a.min(b)),
-                        (a, b) => a.or(b),
-                    };
-                BlobStatus::Deletable {
-                    initial_certified_epoch: combined_initial_certified,
-                    deletable_counts: combined_deletable,
-                }
-            }
-            // If Nonexistent but has managed deletable counts, create Deletable status.
-            BlobStatus::Nonexistent if managed_deletable_counts.count_deletable_total > 0 => {
-                BlobStatus::Deletable {
-                    initial_certified_epoch: managed_initial_certified_epoch,
-                    deletable_counts: managed_deletable_counts,
-                }
-            }
-            // Invalid status stays Invalid.
-            BlobStatus::Invalid { event } => BlobStatus::Invalid { event },
-            // Nonexistent with no managed counts stays Nonexistent.
-            BlobStatus::Nonexistent => BlobStatus::Nonexistent,
+        } else {
+            BlobStatus::Nonexistent
         }
     }
 
@@ -2511,19 +2411,11 @@ impl ValidBlobInfoV2 {
             .map(|info| info.to_blob_status(current_epoch))
             .unwrap_or(BlobStatus::Nonexistent);
 
-        // Get managed blob info for combining with regular status.
-        let (has_permanent, managed_end_epoch, managed_initial_certified, managed_deletable) = self
-            .managed_blob_info_for_status(current_epoch)
-            .unwrap_or((false, None, None, DeletableCounts::default()));
+        // Get managed blob status.
+        let managed_status = self.managed_blob_status();
 
-        // Combine managed blob info into the V1 status.
-        Self::add_managed_counts_to_status(
-            v1_status,
-            has_permanent,
-            managed_end_epoch,
-            managed_initial_certified,
-            managed_deletable,
-        )
+        // Combine both statuses using BlobStatus::combine().
+        v1_status.combine(managed_status)
     }
 }
 
