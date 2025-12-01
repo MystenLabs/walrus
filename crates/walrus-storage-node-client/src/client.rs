@@ -651,6 +651,20 @@ impl StorageNodeClient {
         metadata: &VerifiedBlobMetadataWithId,
         intent: UploadIntent,
     ) -> Result<(), NodeError> {
+        self.store_metadata_with_intent(metadata, UploadIntent::Immediate)
+            .await
+    }
+
+    /// Stores the metadata on the node with the provided upload intent.
+    #[tracing::instrument(
+        skip_all, fields(walrus.blob_id = %metadata.blob_id(), walrus.intent = ?intent),
+        err(level = Level::DEBUG)
+    )]
+    pub async fn store_metadata_with_intent(
+        &self,
+        metadata: &VerifiedBlobMetadataWithId,
+        intent: UploadIntent,
+    ) -> Result<(), NodeError> {
         let (url, template) = self.endpoints.metadata(metadata.blob_id());
         let request = self.create_request_with_payload(
             Method::PUT,
@@ -680,6 +694,28 @@ impl StorageNodeClient {
         sliver: &SliverData<A>,
         intent: UploadIntent,
     ) -> Result<(), NodeError> {
+        self.store_sliver_with_intent(blob_id, pair_index, sliver, UploadIntent::Immediate)
+            .await
+    }
+
+    /// Stores a sliver on a node with the provided upload intent.
+    #[tracing::instrument(
+        skip_all,
+        fields(
+            walrus.blob_id = %blob_id,
+            walrus.sliver.pair_index = %pair_index,
+            walrus.sliver.type_ = %A::NAME,
+            walrus.intent = ?intent,
+        ),
+        err(level = Level::DEBUG)
+    )]
+    pub async fn store_sliver_with_intent<A: EncodingAxis>(
+        &self,
+        blob_id: &BlobId,
+        pair_index: SliverPairIndex,
+        sliver: &SliverData<A>,
+        intent: UploadIntent,
+    ) -> Result<(), NodeError> {
         tracing::trace!("starting to store sliver");
         let (url, template) = self.endpoints.sliver::<A>(blob_id, pair_index);
         let request =
@@ -693,6 +729,19 @@ impl StorageNodeClient {
     /// Stores a sliver on a node with the provided upload intent.
     #[tracing::instrument(skip_all, err(level = Level::DEBUG))]
     pub async fn store_sliver_by_type(
+        &self,
+        blob_id: &BlobId,
+        pair_index: SliverPairIndex,
+        sliver: &Sliver,
+        intent: UploadIntent,
+    ) -> Result<(), NodeError> {
+        self.store_sliver_by_type_with_intent(blob_id, pair_index, sliver, UploadIntent::Immediate)
+            .await
+    }
+
+    /// Stores a sliver on a node with the provided upload intent.
+    #[tracing::instrument(skip_all, err(level = Level::DEBUG))]
+    pub async fn store_sliver_by_type_with_intent(
         &self,
         blob_id: &BlobId,
         pair_index: SliverPairIndex,

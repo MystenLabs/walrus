@@ -332,6 +332,23 @@ impl NodeWriteCommunication {
         pairs: impl IntoIterator<Item = &SliverPair>,
         intent: UploadIntent,
     ) -> NodeResult<(), StoreError> {
+        self.store_metadata_and_pairs_without_confirmation_with_intent(
+            metadata,
+            pairs,
+            UploadIntent::Immediate,
+        )
+        .await
+    }
+
+    /// Stores metadata and sliver pairs on a node with the provided intent, but does _not_ request
+    /// a storage confirmation.
+    #[tracing::instrument(level = Level::TRACE, parent = &self.span, skip_all)]
+    pub async fn store_metadata_and_pairs_without_confirmation_with_intent(
+        &self,
+        metadata: &VerifiedBlobMetadataWithId,
+        pairs: impl IntoIterator<Item = &SliverPair>,
+        intent: UploadIntent,
+    ) -> NodeResult<(), StoreError> {
         tracing::debug!(blob_id = %metadata.blob_id(), "storing metadata and sliver pairs");
         let result = async {
             let metadata_status = self
@@ -387,6 +404,15 @@ impl NodeWriteCommunication {
             }
         }
         Ok(metadata_status)
+    }
+
+    #[allow(dead_code)]
+    async fn store_metadata_with_retries(
+        &self,
+        metadata: &VerifiedBlobMetadataWithId,
+    ) -> Result<StoredOnNodeStatus, NodeError> {
+        self.store_metadata_with_retries_intent(metadata, UploadIntent::Immediate)
+            .await
     }
 
     /// Stores the sliver pairs on the node.

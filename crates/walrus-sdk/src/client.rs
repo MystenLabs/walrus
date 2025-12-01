@@ -1587,8 +1587,8 @@ impl<T> WalrusNodeClient<T> {
             blobs,
             event_sender,
             tail_handling,
-            cancellation,
             None,
+            cancellation,
         )
         .await
     }
