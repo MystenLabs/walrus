@@ -86,4 +86,3 @@ jobs:
           site-builder
           update ${{ env.BUILD_DIR }} ${{ vars.WALRUS_SITE_OBJECT_DOCS }}
           --epochs ${{ env.EPOCHS }}
-          --check-extend
