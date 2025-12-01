@@ -942,14 +942,7 @@ async fn test_storage_nodes_do_not_serve_data_for_deleted_blobs() -> TestResult 
 
     // Wait for the deletion event to be processed by storage nodes.
     // The checkpoint-based event processor needs time to process the deletion.
-    tokio::time::timeout(
-        Duration::from_secs(30),
-        wait_for_blob_to_be_unavailable(client, blob_id),
-    )
-    .await
-    .expect("timed out waiting for blob to become unavailable")?;
-
-    Ok(())
+    wait_for_blob_to_be_unavailable(client, blob_id, Duration::from_secs(30)).await
 }
 
 /// Tests that nodes correctly update the blob info for expired deletable blobs and no longer serve
@@ -1039,29 +1032,38 @@ async fn test_storage_nodes_do_not_serve_data_for_expired_deletable_blobs() -> T
 async fn wait_for_blob_to_be_unavailable(
     client: &WalrusNodeClient<SuiContractClient>,
     blob_id: BlobId,
+    timeout: Duration,
 ) -> TestResult {
-    loop {
+    walrus_test_utils::retry_until_success_or_timeout(timeout, || async {
         let status_result = client
             .get_verified_blob_status(
                 &blob_id,
                 client.sui_client().read_client(),
                 Duration::from_secs(1),
             )
-            .await?;
+            .await
+            .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { Box::new(e) })?;
 
-        if matches!(status_result, BlobStatus::Nonexistent) {
-            // Also verify we can't read the blob.
-            let read_result = client.read_blob::<Primary>(&blob_id).await;
-            if matches!(
-                read_result.as_ref().map_err(|e| e.kind()),
-                Err(ClientErrorKind::BlobIdDoesNotExist)
-            ) {
-                return Ok(());
-            }
+        if !matches!(status_result, BlobStatus::Nonexistent) {
+            return Err(format!(
+                "blob status is still {:?}, expected Nonexistent",
+                status_result
+            )
+            .into());
         }
 
-        tokio::time::sleep(Duration::from_millis(100)).await;
-    }
+        // Also verify we can't read the blob.
+        let read_result = client.read_blob::<Primary>(&blob_id).await;
+        if !matches!(
+            read_result.as_ref().map_err(|e| e.kind()),
+            Err(ClientErrorKind::BlobIdDoesNotExist)
+        ) {
+            return Err("blob is still readable".into());
+        }
+
+        Ok(())
+    })
+    .await
 }
 
 async fn check_that_blob_is_not_available(

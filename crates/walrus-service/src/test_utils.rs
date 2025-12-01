@@ -1416,30 +1416,8 @@ async fn wait_for_rest_api_ready(client: &StorageNodeClient) -> anyhow::Result<(
     .await?
 }
 
-/// Retries until success or a timeout, returning the last result.
-pub(crate) async fn retry_until_success_or_timeout<F, Fut, T, E>(
-    duration: Duration,
-    mut func_to_retry: F,
-) -> Result<T, E>
-where
-    F: FnMut() -> Fut,
-    Fut: Future<Output = Result<T, E>>,
-{
-    let mut last_result = None;
-
-    let _ = tokio::time::timeout(duration, async {
-        loop {
-            last_result = Some(func_to_retry().await);
-            if last_result.as_ref().unwrap().is_ok() {
-                return;
-            }
-            tokio::time::sleep(Duration::from_millis(5)).await;
-        }
-    })
-    .await;
-
-    last_result.expect("function to have completed at least once")
-}
+// Re-export from walrus_test_utils for internal use.
+pub(crate) use walrus_test_utils::retry_until_success_or_timeout;
 
 /// Waits until garbage collection has completed for the specified epoch on all provided nodes.
 ///
