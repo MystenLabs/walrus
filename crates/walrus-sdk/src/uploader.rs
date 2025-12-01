@@ -8,7 +8,7 @@
 //! core upload logic, used by all parts of the client.
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -21,7 +21,7 @@ use walrus_core::{BlobId, encoding::SliverPair, metadata::VerifiedBlobMetadataWi
 
 use crate::{
     active_committees::ActiveCommittees,
-    client::communication::{NodeResult, NodeWriteCommunication},
+    client::communication::{NodeResult, NodeWriteCommunication, node::NodeIndex},
     config::SliverWriteExtraTime,
     error::ClientError,
     utils::WeightedFutures,
@@ -45,6 +45,20 @@ pub struct RunOutput<R, E> {
     pub results: Vec<NodeResult<R, E>>,
     /// The handle to the detached tail upload.
     pub tail_handle: Option<JoinHandle<()>>,
+}
+
+/// Returns the unique set of node indices that returned an error.
+pub fn failed_node_indices<R, E>(results: &[NodeResult<R, E>]) -> Vec<NodeIndex> {
+    let mut seen = HashSet::new();
+    let mut failed = Vec::new();
+
+    for result in results {
+        if result.result.is_err() && seen.insert(result.node) {
+            failed.push(result.node);
+        }
+    }
+
+    failed
 }
 
 /// A work item for the uploader, representing a set of sliver pairs for a single blob
@@ -201,6 +215,7 @@ impl DistributedUploader {
 
         let mut blobs_at_quorum = 0;
         let mut results: Vec<NodeResult<R, E>> = Vec::new();
+        let mut cancelled = false;
 
         while blobs_at_quorum < self.progress.len() {
             tokio::select! {
