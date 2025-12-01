@@ -744,7 +744,7 @@ impl StorageNode {
             is_shutting_down: false.into(),
             blocklist: blocklist.clone(),
             node_capability: node_capability.id,
-            blob_retirement_notifier: Arc::new(BlobRetirementNotifier::new()),
+            blob_retirement_notifier: Arc::new(BlobRetirementNotifier::new(metrics.clone())),
             symbol_service: RecoverySymbolService::new(
                 config.blob_recovery.max_proof_cache_elements,
                 encoding_config.clone(),

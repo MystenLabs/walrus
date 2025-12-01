@@ -216,6 +216,10 @@ walrus_utils::metrics::define_metric_set! {
 
         #[help = "The last epoch for which garbage collection was started or finished"]
         garbage_collection_last_epoch: U64GaugeVec["status"],
+
+        #[help = "The number of blobs registered to be notified when the blob expires/gets \
+        deleted/gets invalidated"]
+        blob_retirement_notifier_registered_blobs: IntGauge[],
     }
 }
 
