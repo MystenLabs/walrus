@@ -1020,7 +1020,12 @@ mod tests {
         let sliver_pair_id = SliverPairIndex(0); // Triggers an ok response
 
         client
-            .store_sliver_by_type(&blob_id, sliver_pair_id, &sliver)
+            .store_sliver_by_type(
+                &blob_id,
+                sliver_pair_id,
+                &sliver,
+                walrus_storage_node_client::UploadIntent::Immediate,
+            )
             .await
             .expect("sliver should be successfully stored");
     }
@@ -1035,7 +1040,12 @@ mod tests {
         let sliver_pair_id = SliverPairIndex(1); // Triggers an internal server error
 
         let err = client
-            .store_sliver_by_type(&blob_id, sliver_pair_id, &sliver)
+            .store_sliver_by_type(
+                &blob_id,
+                sliver_pair_id,
+                &sliver,
+                walrus_storage_node_client::UploadIntent::Immediate,
+            )
             .await
             .expect_err("store sliver should fail");
 

@@ -5015,7 +5015,10 @@ mod tests {
                     || store_at_shard(&shard, SliverType::Secondary))
             {
                 retry_until_success_or_timeout(TIMEOUT, || {
-                    node.client().store_metadata(&blob.metadata)
+                    node.client().store_metadata(
+                        &blob.metadata,
+                        walrus_storage_node_client::UploadIntent::Immediate,
+                    )
                 })
                 .await?;
                 metadata_stored.push(node.public_key());
@@ -5025,13 +5028,23 @@ mod tests {
 
             if store_at_shard(&shard, SliverType::Primary) {
                 node.client()
-                    .store_sliver(blob.blob_id(), sliver_pair.index(), &sliver_pair.primary)
+                    .store_sliver(
+                        blob.blob_id(),
+                        sliver_pair.index(),
+                        &sliver_pair.primary,
+                        walrus_storage_node_client::UploadIntent::Immediate,
+                    )
                     .await?;
             }
 
             if store_at_shard(&shard, SliverType::Secondary) {
                 node.client()
-                    .store_sliver(blob.blob_id(), sliver_pair.index(), &sliver_pair.secondary)
+                    .store_sliver(
+                        blob.blob_id(),
+                        sliver_pair.index(),
+                        &sliver_pair.secondary,
+                        walrus_storage_node_client::UploadIntent::Immediate,
+                    )
                     .await?;
             }
         }

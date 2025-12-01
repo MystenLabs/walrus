@@ -9,7 +9,13 @@ use fastcrypto::traits::ToFromBytes as _;
 use walrus_core::NetworkPublicKey;
 
 pub use self::{
-    client::{RecoverySymbolsFilter, StorageNodeClient, StorageNodeClientBuilder, SymbolIdFilter},
+    client::{
+        RecoverySymbolsFilter,
+        StorageNodeClient,
+        StorageNodeClientBuilder,
+        SymbolIdFilter,
+        UploadIntent,
+    },
     error::{ClientBuildError, NodeError},
 };
 
