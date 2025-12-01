@@ -31,7 +31,7 @@ public struct TreasuryCapKey has copy, drop, store {}
 ///
 /// After publishing this, the `UpgradeCap` must be burned to ensure that the supply
 /// of minted WAL cannot change.
-#[allow(lint(share_owned))]
+#[allow(lint(share_owned), deprecated_usage)]
 fun init(otw: WAL, ctx: &mut TxContext) {
     let (mut cap, metadata) = coin::create_currency(
         otw,
