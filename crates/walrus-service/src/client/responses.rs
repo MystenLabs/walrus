@@ -46,7 +46,7 @@ use walrus_sdk::{
             NetworkAddress,
             StakedWal,
             StorageNode,
-            move_structs::{Blob, BlobAttribute, EpochState},
+            move_structs::{Blob, BlobAttribute, EpochState, StorageResource},
         },
         utils::{BYTES_PER_UNIT_SIZE, price_for_encoded_length, storage_units_from_size},
     },
@@ -659,6 +659,101 @@ pub struct FundSharedBlobOutput {
 pub struct ExtendBlobOutput {
     /// The number of epochs extended by.
     pub epochs_extended: EpochCount,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// The output of the `walrus storage buy` command.
+pub struct BuyStorageOutput {
+    /// The storage resource that was purchased.
+    pub storage_resource: StorageResource,
+    /// The size of storage purchased in bytes.
+    pub size_bytes: u64,
+    /// The current epoch when the purchase was made.
+    pub current_epoch: Epoch,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// The output of the `walrus storage destroy` command.
+pub struct DestroyStorageOutput {
+    /// The object ID of the destroyed storage resource.
+    pub object_id: ObjectID,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// The output of the `walrus storage split` command.
+pub struct SplitStorageOutput {
+    /// The original storage resource object ID that was split.
+    pub original_object_id: ObjectID,
+    /// The list of resulting storage resource objects after splitting (should contain 2 objects).
+    pub resulting_storage_objects: Vec<StorageResource>,
+    /// Description of the split type that was performed.
+    pub split_type: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// The output of the `walrus storage fuse` command.
+pub struct FuseStorageOutput {
+    /// The original storage resource object IDs that were fused.
+    pub original_object_ids: Vec<ObjectID>,
+    /// The resulting fused storage resource object.
+    pub fused_storage_object: StorageResource,
+    /// Description of the fuse strategy that was used.
+    pub fuse_strategy: String,
+    /// Number of extensions performed during the fusion process.
+    pub extensions_performed: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// The output of the `walrus storage list` command.
+pub struct ListStorageOutput {
+    /// The list of storage resources owned by the wallet.
+    pub storage_resources: Vec<StorageResource>,
+    /// The current epoch.
+    pub current_epoch: Epoch,
+    /// The start time of the current epoch.
+    pub current_epoch_start_time: DateTime<Utc>,
+    /// The duration of each epoch.
+    pub epoch_duration: Duration,
+}
+
+impl ListStorageOutput {
+    /// Creates a new [`ListStorageOutput`] object.
+    ///
+    /// Sorts the storage resources either by size or by expiry, based on the sort_by_size flag.
+    pub fn new_sorted(
+        mut storage_resources: Vec<StorageResource>,
+        current_epoch: Epoch,
+        current_epoch_start_time: DateTime<Utc>,
+        epoch_duration: Duration,
+        sort_by_size: bool,
+    ) -> Self {
+        if sort_by_size {
+            // Sort by size (descending), then by expiry epoch (descending)
+            storage_resources.sort_by(|a, b| {
+                b.storage_size
+                    .cmp(&a.storage_size)
+                    .then_with(|| b.end_epoch.cmp(&a.end_epoch))
+            });
+        } else {
+            // Sort by expiry epoch (descending), then by size (descending)
+            storage_resources.sort_by(|a, b| {
+                b.end_epoch
+                    .cmp(&a.end_epoch)
+                    .then_with(|| b.storage_size.cmp(&a.storage_size))
+            });
+        }
+        Self {
+            storage_resources,
+            current_epoch,
+            current_epoch_start_time,
+            epoch_duration,
+        }
+    }
 }
 
 #[derive(Debug, Serialize)]

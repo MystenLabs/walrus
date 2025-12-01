@@ -29,6 +29,7 @@ fastcrypto.workspace = true
 futures.workspace = true
 home.workspace = true
 jsonrpsee.workspace = true
+itertools.workspace = true
 move-core-types.workspace = true
 move-package.workspace = true
 mysten-metrics.workspace = true

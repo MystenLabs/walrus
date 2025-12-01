@@ -92,6 +92,8 @@ use super::{
         UserConfirmation,
     },
     backfill::{pull_archive_blobs, run_blob_backfill},
+    storage::StorageManagerCli,
+    success,
 };
 use crate::{
     client::{
@@ -110,7 +112,6 @@ use crate::{
             get_contract_client,
             get_read_client,
             get_sui_read_client_from_rpc_node_or_wallet,
-            success,
             warning,
         },
         multiplexer::ClientMultiplexer,
@@ -301,6 +302,16 @@ impl ClientCommandRunner {
             CliCommands::ConvertBlobId { blob_id_decimal } => self.convert_blob_id(blob_id_decimal),
 
             CliCommands::ListBlobs { include_expired } => self.list_blobs(include_expired).await,
+
+            CliCommands::Storage { command } => {
+                let storage_cli = StorageManagerCli::new(
+                    self.config?
+                        .new_contract_client(self.wallet?, self.gas_budget)
+                        .await?,
+                    self.json,
+                );
+                storage_cli.run_storage_command(command).await
+            }
 
             CliCommands::Delete {
                 target,
@@ -676,8 +687,12 @@ impl ClientCommandRunner {
         let client = get_contract_client(self.config?, self.wallet, self.gas_budget, &None).await?;
 
         let system_object = client.sui_client().read_client.get_system_object().await?;
-        let epochs_ahead =
-            get_epochs_ahead(epoch_arg, system_object.max_epochs_ahead(), &client).await?;
+        let epochs_ahead = get_epochs_ahead(
+            epoch_arg,
+            system_object.max_epochs_ahead(),
+            &client.sui_client(),
+        )
+        .await?;
 
         if persistence.is_deletable() && post_store == PostStoreAction::Share {
             anyhow::bail!("deletable blobs cannot be shared");
@@ -826,8 +841,12 @@ impl ClientCommandRunner {
         let client = get_contract_client(self.config?, self.wallet, self.gas_budget, &None).await?;
 
         let system_object = client.sui_client().read_client.get_system_object().await?;
-        let epochs_ahead =
-            get_epochs_ahead(epoch_arg, system_object.max_epochs_ahead(), &client).await?;
+        let epochs_ahead = get_epochs_ahead(
+            epoch_arg,
+            system_object.max_epochs_ahead(),
+            &client.sui_client(),
+        )
+        .await?;
 
         let quilt_store_blobs = Self::load_blobs_for_quilt(&paths, blobs).await?;
 
@@ -1632,21 +1651,37 @@ async fn delete_blob(
     result
 }
 
-async fn get_epochs_ahead(
+/// Gets the number of epochs ahead based on the provided `epoch_arg`.
+pub(crate) async fn get_epochs_ahead(
     epoch_arg: EpochArg,
     max_epochs_ahead: EpochCount,
-    client: &Client<SuiContractClient>,
+    sui_client: &SuiContractClient,
 ) -> Result<u32, anyhow::Error> {
-    let epochs_ahead = match epoch_arg {
+    let (_, epochs_ahead) =
+        get_end_epoch_and_epochs_ahead(epoch_arg, max_epochs_ahead, sui_client).await?;
+    Ok(epochs_ahead)
+}
+
+/// Gets the end epoch and the number of epochs ahead based on the provided `epoch_arg`.
+pub(crate) async fn get_end_epoch_and_epochs_ahead(
+    epoch_arg: EpochArg,
+    max_epochs_ahead: EpochCount,
+    sui_client: &SuiContractClient,
+) -> Result<(u32, u32), anyhow::Error> {
+    let current_epoch = sui_client.current_epoch().await?;
+    let (end_epoch, epochs_ahead) = match epoch_arg {
         EpochArg {
             epochs: Some(epochs),
             ..
-        } => epochs.try_into_epoch_count(max_epochs_ahead)?,
+        } => {
+            let epochs_ahead = epochs.try_into_epoch_count(max_epochs_ahead)?;
+            (current_epoch + epochs_ahead, epochs_ahead)
+        }
         EpochArg {
             earliest_expiry_time: Some(earliest_expiry_time),
             ..
         } => {
-            let staking_object = client.sui_client().read_client.get_staking_object().await?;
+            let staking_object = sui_client.read_client.get_staking_object().await?;
             let epoch_state = staking_object.epoch_state();
             let estimated_start_of_current_epoch = match epoch_state {
                 EpochState::EpochChangeDone(epoch_start)
@@ -1662,20 +1697,20 @@ async fn get_epochs_ahead(
             );
             let delta =
                 (earliest_expiry_ts - estimated_start_of_current_epoch).num_milliseconds() as u64;
-            (delta / staking_object.epoch_duration() + 1)
+            let epochs_ahead = (delta / staking_object.epoch_duration() + 1)
                 .try_into()
-                .map_err(|_| anyhow::anyhow!("expiry time is too far in the future"))?
+                .map_err(|_| anyhow::anyhow!("expiry time is too far in the future"))?;
+            (current_epoch + epochs_ahead, epochs_ahead)
         }
         EpochArg {
             end_epoch: Some(end_epoch),
             ..
         } => {
-            let current_epoch = client.sui_client().current_epoch().await?;
             ensure!(
                 end_epoch > current_epoch,
                 "end_epoch must be greater than the current epoch"
             );
-            end_epoch - current_epoch
+            (end_epoch, end_epoch - current_epoch)
         }
         _ => {
             anyhow::bail!("either epochs or earliest_expiry_time or end_epoch must be provided")
@@ -1691,7 +1726,7 @@ async fn get_epochs_ahead(
         epochs_ahead
     );
 
-    Ok(epochs_ahead)
+    Ok((end_epoch, epochs_ahead))
 }
 
 pub fn ask_for_confirmation() -> Result<bool> {

@@ -29,13 +29,19 @@ use walrus_core::{
     ensure,
 };
 use walrus_sui::{
-    client::{ExpirySelectionPolicy, ReadClient, SuiContractClient},
+    client::{ExpirySelectionPolicy, FuseStorageOperation, ReadClient, SuiContractClient},
     types::{StorageNode, move_structs::Authorized},
     utils::SuiNetwork,
 };
 use walrus_utils::read_blob_from_file;
 
-use super::{BlobIdDecimal, HumanReadableBytes, parse_blob_id, parse_quilt_patch_id};
+use super::{
+    BlobIdDecimal,
+    HumanReadableBytes,
+    parse_blob_id,
+    parse_human_readable_bytes,
+    parse_quilt_patch_id,
+};
 use crate::client::{config::AuthConfig, daemon::CacheConfig};
 
 /// The command-line arguments for the Walrus client.
@@ -412,6 +418,12 @@ pub enum CliCommands {
         /// The output list of blobs will include expired blobs.
         include_expired: bool,
     },
+    /// Manage storage resources for the current wallet.
+    Storage {
+        /// The specific storage command to run.
+        #[command(subcommand)]
+        command: StorageCommands,
+    },
     /// Delete a blob from Walrus.
     ///
     /// This command is only available for blobs that are deletable.
@@ -633,6 +645,136 @@ pub enum CliCommands {
         pushed_state: PathBuf,
         /// The nodes to backfill with slivers and blob metadata.
         node_ids: Vec<ObjectID>,
+    },
+}
+
+/// Arguments for splitting a storage resource.
+#[derive(Debug, Clone, Args, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+#[group(required = true, multiple = false)]
+pub struct SplitBy {
+    /// The size at which to split the storage resource in human-readable format.
+    ///
+    /// The original object will be reduced to this size, and a new object
+    /// will be created for the remainder. Examples: "1GiB", "500MiB", "2TiB".
+    #[arg(long,
+        value_parser = parse_human_readable_bytes,
+        conflicts_with_all = ["epochs", "end_epoch", "earliest_expiry_time"]
+    )]
+    pub size: Option<u64>,
+    /// The epoch argument to specify the epoch at which to split the storage resource.
+    #[command(flatten)]
+    #[serde(flatten)]
+    pub epoch_arg: Option<EpochArg>,
+}
+
+/// Arguments for specifying the fusion strategy for storage resources.
+#[derive(Debug, Clone, Args, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+#[group(required = true, multiple = false)]
+pub struct WhichFuse {
+    /// Fuse by amounts: all objects must have the same start epoch.
+    ///
+    /// If end epochs differ, shorter ones will be extended before merging.
+    #[arg(long, conflicts_with = "by_periods")]
+    #[serde(default)]
+    pub by_amounts: bool,
+    /// Fuse by periods: objects will be sorted by start epoch and must be contiguous
+    ///
+    /// with the same size.
+    #[arg(long, conflicts_with = "by_amounts")]
+    #[serde(default)]
+    pub by_periods: bool,
+}
+
+impl TryInto<FuseStorageOperation> for WhichFuse {
+    type Error = anyhow::Error;
+
+    fn try_into(self) -> std::result::Result<FuseStorageOperation, Self::Error> {
+        anyhow::ensure!(
+            self.by_amounts ^ self.by_periods,
+            "cannot specify a fuse operation both 'by amounts' and 'by periods"
+        );
+
+        if self.by_amounts {
+            Ok(FuseStorageOperation::Amounts)
+        } else {
+            Ok(FuseStorageOperation::Periods)
+        }
+    }
+}
+
+/// Subcommands for the `storage` command.
+#[derive(Subcommand, Debug, Clone, Deserialize, PartialEq, Eq)]
+#[command(rename_all = "kebab-case")]
+#[serde(rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum StorageCommands {
+    /// List all storage resources for the current wallet.
+    List {
+        #[arg(long)]
+        #[serde(default)]
+        /// The output list of storage resources will include expired ones.
+        include_expired: bool,
+        #[arg(long)]
+        #[serde(default)]
+        /// Sort by storage size in descending order (default is to sort by expiry epoch).
+        sort_by_size: bool,
+    },
+    /// Buy storage for the current wallet.
+    Buy {
+        /// The epoch argument to specify either the number of epochs to buy storage for,
+        /// the end epoch, or the earliest expiry time in rfc3339 format.
+        #[command(flatten)]
+        #[serde(flatten)]
+        epoch_arg: EpochArg,
+        /// The size of storage to buy in human-readable format (e.g., "1GiB", "500MiB", "2TiB").
+        #[arg(long, value_parser = parse_human_readable_bytes)]
+        size: u64,
+    },
+    /// Destroy a storage resource object.
+    ///
+    /// This permanently destroys the storage resource object without any refund.
+    /// The storage space cannot be recovered after destruction.
+    Destroy {
+        /// The object ID of the storage resource to destroy.
+        #[arg(long)]
+        object_id: ObjectID,
+        /// Skip the confirmation prompt and proceed with destruction.
+        #[arg(long)]
+        #[serde(default)]
+        yes: bool,
+    },
+    /// Split a storage resource by size or epoch.
+    ///
+    /// This command splits a storage resource into two parts. You must specify either
+    /// a size split or an epoch split, but not both.
+    Split {
+        /// The object ID of the storage resource to split.
+        #[arg(long)]
+        object_id: ObjectID,
+        /// How to split the storage resource (by size or epoch).
+        #[command(flatten)]
+        #[serde(flatten)]
+        split_by: SplitBy,
+    },
+    /// Fuse multiple storage resources into a single resource.
+    ///
+    /// This command merges multiple storage resources. You must specify either
+    /// --by-amounts or --by-periods to determine the fusion strategy.
+    Fuse {
+        /// List of storage resource object IDs to fuse together.
+        #[arg(long, num_args = 1.., required = true)]
+        object_ids: Vec<ObjectID>,
+        /// How to fuse the storage resources (by amounts or periods).
+        #[command(flatten)]
+        #[serde(flatten)]
+        which_fuse: WhichFuse,
+        /// Strict mode: fail if any preconditions are not met.
+        ///
+        /// Without this flag, the command will attempt to adjust resources to meet requirements.
+        #[arg(long)]
+        #[serde(default)]
+        strict: bool,
     },
 }
 
@@ -1625,7 +1767,7 @@ impl EpochCountOrMax {
 #[serde_as]
 #[derive(Debug, Clone, Args, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
-#[group(required = true, multiple = false)]
+#[group(required = false, multiple = false)]
 pub struct EpochArg {
     /// The number of epochs the blob is stored for.
     ///

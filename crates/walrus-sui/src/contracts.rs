@@ -199,6 +199,7 @@ pub mod storage_resource {
     contract_ident!(fn storage_resource::fuse_periods);
     contract_ident!(fn storage_resource::fuse_amount);
     contract_ident!(fn storage_resource::fuse);
+    contract_ident!(fn storage_resource::destroy);
     contract_ident!(struct storage_resource::Storage);
 }
 
