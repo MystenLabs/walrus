@@ -36,6 +36,7 @@ use rocksdb::{
     OptimisticTransactionDB,
     OptimisticTransactionOptions,
     ReadOptions,
+    SnapshotWithThreadMode,
     SstFileWriter,
     Transaction,
     WriteBatch,
@@ -319,6 +320,16 @@ impl RocksDB {
         match self {
             RocksDB::DB(db) => Some(RangeDeleteHandle { inner: db }),
             RocksDB::OptimisticTransactionDB(_) => None,
+        }
+    }
+
+    /// Create a RocksDB snapshot capturing a consistent view of the database.
+    pub fn snapshot(&self) -> RocksDBSnapshot<'_> {
+        match self {
+            RocksDB::DB(db) => RocksDBSnapshot::DB(db.underlying.snapshot()),
+            RocksDB::OptimisticTransactionDB(db) => {
+                RocksDBSnapshot::OptimisticTransactionDB(db.underlying.snapshot())
+            }
         }
     }
 
@@ -1032,6 +1043,85 @@ impl<K, V> DBMap<K, V> {
             .ok_or_else(|| TypedStoreError::UnregisteredColumn(self.cf.clone()))
     }
 
+    fn read_value_with_metrics<'a>(
+        &self,
+        key_buf: Vec<u8>,
+        enable_perf_ctx_sampling: bool,
+        value: Option<DBPinnableSlice<'a>>,
+        start: std::time::Instant,
+    ) -> Result<Option<V>, TypedStoreError>
+    where
+        V: DeserializeOwned,
+    {
+        let perf_ctx = if enable_perf_ctx_sampling && self.get_sample_interval.sample() {
+            Some(RocksDBPerfContext)
+        } else {
+            None
+        };
+        let found = value.is_some();
+        let value_len = value
+            .as_ref()
+            .map(|buffer| buffer.len() as f64)
+            .unwrap_or(0.0);
+
+        self.db_metrics
+            .op_metrics
+            .rocksdb_get_latency_seconds
+            .with_label_values(&[&self.cf_class, &found.to_string()])
+            .observe(start.elapsed().as_secs_f64());
+        self.db_metrics
+            .op_metrics
+            .rocksdb_get_key_bytes
+            .with_label_values(&[&self.cf_class])
+            .observe(key_buf.len() as f64);
+        self.db_metrics
+            .op_metrics
+            .rocksdb_get_bytes
+            .with_label_values(&[&self.cf_class])
+            .observe(key_buf.len() as f64 + value_len);
+        self.db_metrics
+            .op_metrics
+            .rocksdb_get_value_bytes
+            .with_label_values(&[&self.cf_class])
+            .observe(value_len);
+
+        if perf_ctx.is_some() {
+            self.db_metrics
+                .read_perf_ctx_metrics
+                .report_metrics(&self.cf);
+        }
+
+        value
+            .map(|buffer| bcs::from_bytes(buffer.as_ref()).map_err(typed_store_err_from_bcs_err))
+            .transpose()
+    }
+
+    /// Fetch a value using a RocksDB snapshot instead of the latest view.
+    #[tracing::instrument(level = "trace", skip_all, err)]
+    pub fn get_with_snapshot(
+        &self,
+        snapshot: &RocksDBSnapshot<'_>,
+        key: &K,
+    ) -> Result<Option<V>, TypedStoreError>
+    where
+        K: Serialize,
+        V: DeserializeOwned,
+    {
+        let start = std::time::Instant::now();
+        let key_buf = be_fix_int_ser(key)?;
+        let cf_handle = self.cf()?;
+        let result = match snapshot {
+            RocksDBSnapshot::DB(snap) => {
+                snap.get_pinned_cf_opt(&cf_handle, &key_buf, self.opts.readopts())
+            }
+            RocksDBSnapshot::OptimisticTransactionDB(snap) => {
+                snap.get_pinned_cf_opt(&cf_handle, &key_buf, self.opts.readopts())
+            }
+        }
+        .map_err(typed_store_err_from_rocks_err)?;
+        self.read_value_with_metrics(key_buf, false, result, start)
+    }
+
     /// Flush the column family.
     pub fn flush(&self) -> Result<(), TypedStoreError> {
         self.rocksdb
@@ -1247,6 +1337,26 @@ impl<K, V> DBMap<K, V> {
             Some(self.db_metrics.clone()),
         );
         Ok(SafeRevIter::new(iter, upper_bound_key.transpose()?))
+    }
+
+    /// Creates a safe iterator pinned to the provided RocksDB snapshot.
+    pub fn safe_iter_with_snapshot<'a>(
+        &'a self,
+        snapshot: &'a RocksDBSnapshot<'a>,
+    ) -> Result<SafeIter<'a, K, V>, TypedStoreError>
+    where
+        K: Serialize + DeserializeOwned,
+        V: Serialize + DeserializeOwned,
+    {
+        let cf_handle = self.cf()?;
+        let db_iter = snapshot.raw_iterator_cf(&cf_handle, self.opts.readopts());
+        let iter_context = self.create_iter_context();
+        Ok(SafeIter::new(
+            self.cf.clone(),
+            db_iter,
+            iter_context,
+            Some(self.db_metrics.clone()),
+        ))
     }
 
     // Creates a RocksDB read option with lower and upper bounds set corresponding to `range`.
@@ -1627,6 +1737,41 @@ impl<'a> RocksDBRawIter<'a> {
     }
 }
 
+/// Snapshot handle covering both RocksDB engine variants.
+pub enum RocksDBSnapshot<'a> {
+    /// Snapshot for the standard RocksDB engine.
+    DB(SnapshotWithThreadMode<'a, DBWithThreadMode<MultiThreaded>>),
+    /// Snapshot for the optimistic transaction engine.
+    OptimisticTransactionDB(SnapshotWithThreadMode<'a, OptimisticTransactionDB<MultiThreaded>>),
+}
+
+impl<'a> RocksDBSnapshot<'a> {
+    fn raw_iterator_cf(
+        &'a self,
+        cf_handle: &impl AsColumnFamilyRef,
+        readopts: ReadOptions,
+    ) -> RocksDBRawIter<'a> {
+        match self {
+            Self::DB(snapshot) => {
+                RocksDBRawIter::DB(snapshot.raw_iterator_cf_opt(cf_handle, readopts))
+            }
+            Self::OptimisticTransactionDB(snapshot) => RocksDBRawIter::OptimisticTransactionDB(
+                snapshot.raw_iterator_cf_opt(cf_handle, readopts),
+            ),
+        }
+    }
+}
+
+impl<'a> fmt::Debug for RocksDBSnapshot<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::DB(_) => write!(f, "RocksDBSnapshot::DB(..)"),
+            Self::OptimisticTransactionDB(_) => {
+                write!(f, "RocksDBSnapshot::OptimisticTransactionDB(..)")
+            }
+        }
+    }
+}
 impl<'a, K, V> Map<'a, K, V> for DBMap<K, V>
 where
     K: Serialize + DeserializeOwned,
@@ -1691,48 +1836,13 @@ where
     #[tracing::instrument(level = "trace", skip_all, err)]
     fn get(&self, key: &K) -> Result<Option<V>, TypedStoreError> {
         let start = std::time::Instant::now();
-        let perf_ctx = if self.get_sample_interval.sample() {
-            Some(RocksDBPerfContext)
-        } else {
-            None
-        };
         let key_buf = be_fix_int_ser(key)?;
-        let res = self
+        let cf_handle = self.cf()?;
+        let result = self
             .rocksdb
-            .get_pinned_cf_opt(&self.cf()?, &key_buf, &self.opts.readopts())
+            .get_pinned_cf_opt(&cf_handle, &key_buf, &self.opts.readopts())
             .map_err(typed_store_err_from_rocks_err)?;
-        let found = res.is_some();
-        self.db_metrics
-            .op_metrics
-            .rocksdb_get_latency_seconds
-            .with_label_values(&[&self.cf_class, &found.to_string()])
-            .observe(start.elapsed().as_secs_f64());
-        self.db_metrics
-            .op_metrics
-            .rocksdb_get_key_bytes
-            .with_label_values(&[&self.cf_class])
-            .observe(key_buf.len() as f64);
-        self.db_metrics
-            .op_metrics
-            .rocksdb_get_bytes
-            .with_label_values(&[&self.cf_class])
-            .observe(key_buf.len() as f64 + res.as_ref().map_or(0.0, |v| v.len() as f64));
-        self.db_metrics
-            .op_metrics
-            .rocksdb_get_value_bytes
-            .with_label_values(&[&self.cf_class])
-            .observe(res.as_ref().map_or(0.0, |v| v.len() as f64));
-        if perf_ctx.is_some() {
-            self.db_metrics
-                .read_perf_ctx_metrics
-                .report_metrics(&self.cf);
-        }
-        match res {
-            Some(data) => Ok(Some(
-                bcs::from_bytes(&data).map_err(typed_store_err_from_bcs_err)?,
-            )),
-            None => Ok(None),
-        }
+        self.read_value_with_metrics(key_buf, true, result, start)
     }
 
     #[tracing::instrument(level = "trace", skip_all, err)]
