@@ -37,7 +37,7 @@ jobs:
           SUI_KEYSTORE: "${{ secrets.SUI_KEYSTORE }}"
           WALRUS_CONFIG: "${{ vars.WALRUS_CONFIG }}"
           SUI_NETWORK: mainnet
-          SITE_BUILDER_VERSION: v1 # use v1 temporarily
+          SITE_BUILDER_VERSION: v2
 
       - name: Create temporary directory
         run: "mkdir -p ${{ env.BUILD_DIR }}"
