@@ -1042,7 +1042,7 @@ async fn wait_for_blob_to_be_unavailable(
                 Duration::from_secs(1),
             )
             .await
-            .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { Box::new(e) })?;
+            .map_err(Box::new)?;
 
         if !matches!(status_result, BlobStatus::Nonexistent) {
             return Err(format!(
