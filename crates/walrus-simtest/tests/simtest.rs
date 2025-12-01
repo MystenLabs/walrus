@@ -97,7 +97,7 @@ mod tests {
         let (_sui_cluster, _cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
             .with_test_nodes_config(
                 TestNodesConfig::builder()
-                    .with_node_weights(vec![1, 2, 3, 3, 4])
+                    .with_node_weights(&[1, 2, 3, 3, 4])
                     .with_enable_event_blob_writer()
                     .build(),
             )
@@ -282,7 +282,7 @@ mod tests {
                 .with_epoch_duration(Duration::from_secs(30))
                 .with_test_nodes_config(
                     TestNodesConfig::builder()
-                        .with_node_weights(vec![1, 2, 3, 3, 4, 0])
+                        .with_node_weights(&[1, 2, 3, 3, 4, 0])
                         .with_node_recovery_config(node_recovery_config)
                         .with_enable_event_blob_writer()
                         .build(),
@@ -500,7 +500,7 @@ mod tests {
                 .with_max_epochs_ahead(MAX_EPOCHS_AHEAD)
                 .with_test_nodes_config(
                     TestNodesConfig::builder()
-                        .with_node_weights(vec![1, 2, 3, 3, 4, 0])
+                        .with_node_weights(&[1, 2, 3, 3, 4, 0])
                         .build(),
                 )
                 .with_communication_config(
@@ -671,7 +671,7 @@ mod tests {
             .with_epoch_duration(Duration::from_secs(30))
             .with_test_nodes_config(
                 TestNodesConfig::builder()
-                    .with_node_weights(vec![1, 2, 3, 3, 4])
+                    .with_node_weights(&[1, 2, 3, 3, 4])
                     .with_node_recovery_config(node_recovery_config)
                     .build(),
             )
@@ -771,7 +771,7 @@ mod tests {
         let (_sui_cluster, walrus_cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
             .with_test_nodes_config(
                 TestNodesConfig::builder()
-                    .with_node_weights(vec![1, 2, 3, 3, 4])
+                    .with_node_weights(&[1, 2, 3, 3, 4])
                     .build(),
             )
             .with_epoch_duration(Duration::from_secs(30))
@@ -836,7 +836,7 @@ mod tests {
             .with_epoch_duration(Duration::from_secs(30))
             .with_test_nodes_config(
                 TestNodesConfig::builder()
-                    .with_node_weights(vec![1, 2, 3, 3, 4])
+                    .with_node_weights(&[1, 2, 3, 3, 4])
                     .build(),
             )
             .with_communication_config(
@@ -1161,7 +1161,7 @@ mod tests {
         let (_sui_cluster, _cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
             .with_test_nodes_config(
                 TestNodesConfig::builder()
-                    .with_node_weights(vec![1, 2, 3, 3, 4])
+                    .with_node_weights(&[1, 2, 3, 3, 4])
                     .build(),
             )
             // Use a long epoch duration to avoid operation across epoch change.

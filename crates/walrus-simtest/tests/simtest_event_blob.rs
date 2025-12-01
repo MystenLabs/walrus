@@ -197,7 +197,7 @@ mod tests {
                 .with_epoch_duration(Duration::from_secs(15))
                 .with_test_nodes_config(
                     TestNodesConfig::builder()
-                        .with_node_weights(vec![2, 2, 3, 3, 3])
+                        .with_node_weights(&[2, 2, 3, 3, 3])
                         .with_enable_event_blob_writer()
                         .build(),
                 )
@@ -253,7 +253,7 @@ mod tests {
                 .with_epoch_duration(Duration::from_secs(15))
                 .with_test_nodes_config(
                     TestNodesConfig::builder()
-                        .with_node_weights(vec![2, 2, 3, 3, 3])
+                        .with_node_weights(&[2, 2, 3, 3, 3])
                         .with_enable_event_blob_writer()
                         .build(),
                 )
@@ -309,7 +309,7 @@ mod tests {
                 //.with_event_stream_catchup_min_checkpoint_lag(Some(u64::MAX))
                 .with_test_nodes_config(
                     TestNodesConfig::builder()
-                        .with_node_weights(vec![2, 2, 3, 3, 3])
+                        .with_node_weights(&[2, 2, 3, 3, 3])
                         .with_enable_event_blob_writer()
                         .build(),
                 )

@@ -1121,7 +1121,7 @@ async fn test_store_quilt(blobs_to_create: u32) -> TestResult {
     walrus_test_utils::init_tracing();
 
     let test_nodes_config = TestNodesConfig::builder()
-        .with_node_weights(vec![7, 7, 7, 7, 7])
+        .with_node_weights(&[7, 7, 7, 7, 7])
         .build();
     let test_cluster_builder =
         test_cluster::E2eTestSetupBuilder::new().with_test_nodes_config(test_nodes_config);
@@ -1596,7 +1596,7 @@ async fn test_repeated_shard_move() -> TestResult {
         .with_epoch_duration(Duration::from_secs(20))
         .with_test_nodes_config(
             TestNodesConfig::builder()
-                .with_node_weights(vec![1, 1])
+                .with_node_weights(&[1, 1])
                 .build(),
         )
         .build()
@@ -2340,7 +2340,7 @@ async fn test_shard_move_out_and_back_in_immediately() -> TestResult {
         .with_epoch_duration(Duration::from_secs(20))
         .with_test_nodes_config(
             TestNodesConfig::builder()
-                .with_node_weights(vec![1, 1])
+                .with_node_weights(&[1, 1])
                 .build(),
         )
         .build()
@@ -2870,7 +2870,7 @@ async fn test_byte_range_read_client() -> TestResult {
     walrus_test_utils::init_tracing();
 
     let test_nodes_config = TestNodesConfig::builder()
-        .with_node_weights(vec![7, 7, 7, 7, 7])
+        .with_node_weights(&[7, 7, 7, 7, 7])
         .build();
     let test_cluster_builder =
         test_cluster::E2eTestSetupBuilder::new().with_test_nodes_config(test_nodes_config);

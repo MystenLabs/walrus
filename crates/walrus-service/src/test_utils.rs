@@ -293,8 +293,8 @@ impl TestNodesConfigBuilder {
     }
 
     /// Sets the weights of the nodes in the cluster.
-    pub fn with_node_weights(mut self, weights: Vec<u16>) -> Self {
-        self.node_weights = weights;
+    pub fn with_node_weights(mut self, weights: &[u16]) -> Self {
+        self.node_weights = weights.to_vec();
         self
     }
 

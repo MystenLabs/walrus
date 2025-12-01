@@ -43,7 +43,7 @@ mod tests {
         let (sui_cluster, _walrus_cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
             .with_test_nodes_config(
                 TestNodesConfig::builder()
-                    .with_node_weights(vec![1, 2, 3, 3, 4])
+                    .with_node_weights(&[1, 2, 3, 3, 4])
                     .with_enable_event_blob_writer()
                     .build(),
             )
@@ -220,7 +220,7 @@ mod tests {
             .with_epoch_duration(Duration::from_secs(30))
             .with_test_nodes_config(
                 TestNodesConfig::builder()
-                    .with_node_weights(vec![1, 2, 3, 3, 4])
+                    .with_node_weights(&[1, 2, 3, 3, 4])
                     .with_node_recovery_config(node_recovery_config)
                     .build(),
             )
@@ -349,7 +349,7 @@ mod tests {
             .with_epoch_duration(Duration::from_secs(10))
             .with_test_nodes_config(
                 TestNodesConfig::builder()
-                    .with_node_weights(vec![2, 2, 3, 3, 3])
+                    .with_node_weights(&[2, 2, 3, 3, 3])
                     .build(),
             )
             .with_communication_config(
@@ -514,7 +514,7 @@ mod tests {
             .with_epoch_duration(Duration::from_secs(10))
             .with_test_nodes_config(
                 TestNodesConfig::builder()
-                    .with_node_weights(vec![2, 2, 3, 3, 3])
+                    .with_node_weights(&[2, 2, 3, 3, 3])
                     .build(),
             )
             .with_communication_config(
@@ -607,7 +607,7 @@ mod tests {
             .with_epoch_duration(Duration::from_secs(30))
             .with_test_nodes_config(
                 TestNodesConfig::builder()
-                    .with_node_weights(vec![1, 2, 3, 3, 4])
+                    .with_node_weights(&[1, 2, 3, 3, 4])
                     .build(),
             )
             .with_communication_config(
@@ -779,7 +779,7 @@ mod tests {
             .with_epoch_duration(Duration::from_secs(15))
             .with_test_nodes_config(
                 TestNodesConfig::builder()
-                    .with_node_weights(vec![2, 2, 3, 3, 3])
+                    .with_node_weights(&[2, 2, 3, 3, 3])
                     .with_enable_event_blob_writer()
                     .build(),
             )

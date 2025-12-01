@@ -218,7 +218,7 @@ mod tests {
                 .with_epoch_duration(Duration::from_secs(30))
                 .with_test_nodes_config(
                     TestNodesConfig::builder()
-                        .with_node_weights(vec![1, 2, 3, 3, 4, 0])
+                        .with_node_weights(&[1, 2, 3, 3, 4, 0])
                         .with_enable_node_config_synchronizer()
                         .build(),
                 )
@@ -408,7 +408,7 @@ mod tests {
             .with_epoch_duration(Duration::from_secs(10))
             .with_test_nodes_config(
                 TestNodesConfig::builder()
-                    .with_node_weights(vec![1, 2, 3, 3, 4, 2])
+                    .with_node_weights(&[1, 2, 3, 3, 4, 2])
                     .with_enable_node_config_synchronizer()
                     .build(),
             )
@@ -488,7 +488,7 @@ mod tests {
                 .with_epoch_duration(Duration::from_secs(30))
                 .with_test_nodes_config(
                     TestNodesConfig::builder()
-                        .with_node_weights(vec![1, 2, 3, 3, 4, 0])
+                        .with_node_weights(&[1, 2, 3, 3, 4, 0])
                         .with_enable_node_config_synchronizer()
                         .build(),
                 )
@@ -733,7 +733,7 @@ mod tests {
             .with_epoch_duration(Duration::from_secs(10))
             .with_test_nodes_config(
                 TestNodesConfig::builder()
-                    .with_node_weights(vec![1, 2, 3, 3, 4, 2])
+                    .with_node_weights(&[1, 2, 3, 3, 4, 2])
                     .with_enable_node_config_synchronizer()
                     .build(),
             )
