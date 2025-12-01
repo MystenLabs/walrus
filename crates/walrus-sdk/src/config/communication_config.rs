@@ -195,6 +195,9 @@ pub struct ClientCommunicationConfig {
     /// Optional preset that adjusts concurrency limits unless explicit overrides are provided.
     #[serde(default = "default_upload_mode")]
     pub upload_mode: Option<UploadMode>,
+    /// Allow pending (optimistic) uploads before registration is seen by storage nodes.
+    #[serde(default)]
+    pub pending_uploads_enabled: bool,
     /// The delay for which the client waits before storing data to ensure that storage nodes have
     /// seen the registration event.
     #[serde(rename = "registration_delay_millis")]
@@ -228,6 +231,7 @@ impl Default for ClientCommunicationConfig {
             tail_handling: TailHandling::Blocking,
             data_in_flight_auto_tune: Default::default(),
             upload_mode: default_upload_mode(),
+            pending_uploads_enabled: false,
             registration_delay: Duration::from_millis(200),
             max_total_blob_size: 1024 * 1024 * 1024, // 1GiB
             sliver_status_check_threshold: DEFAULT_SLIVER_STATUS_CHECK_THRESHOLD,
@@ -254,6 +258,7 @@ impl ClientCommunicationConfig {
         ClientCommunicationConfig {
             disable_proxy: true,
             disable_native_certs: true,
+            pending_uploads_enabled: true,
             request_rate_config: RequestRateConfig {
                 max_node_connections: 10,
                 backoff_config: ExponentialBackoffConfig {

@@ -378,6 +378,8 @@ async fn test_inconsistency(failed_nodes: &[usize]) -> TestResult {
             TailHandling::Blocking,
             None,
             None,
+            None,
+            None,
         )
         .await?;
 

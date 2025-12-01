@@ -136,13 +136,23 @@ impl DistributedUploader {
         committees: Arc<ActiveCommittees>,
         comms: Vec<NodeWriteCommunication>,
         sliver_write_extra_time: SliverWriteExtraTime,
+        initial_completed_weight: Option<&HashMap<BlobId, usize>>,
     ) -> Self {
         let mut work_items: HashMap<usize, Vec<UploadWorkItem>> = HashMap::new();
         let mut progress: HashMap<BlobId, BlobUploadProgress> = HashMap::new();
 
         for (metadata, pairs) in blobs {
             let blob_id = *metadata.blob_id();
-            progress.entry(blob_id).or_default();
+            let entry = progress.entry(blob_id).or_default();
+            if let Some(initial_weight) = initial_completed_weight.and_then(|m| m.get(&blob_id)) {
+                entry.completed_weight = *initial_weight;
+                if committees
+                    .write_committee()
+                    .is_at_least_min_n_correct(*initial_weight)
+                {
+                    entry.quorum_reached = true;
+                }
+            }
 
             let mut pairs_per_node: HashMap<usize, Vec<usize>> = HashMap::new();
             for (idx, pair) in pairs.iter().enumerate() {
@@ -213,7 +223,7 @@ impl DistributedUploader {
         let n_shards: usize = self.committees.n_shards().get().into();
         let cancel_token = cancellation.unwrap_or_default();
 
-        let mut blobs_at_quorum = 0;
+        let mut blobs_at_quorum = self.progress.values().filter(|p| p.quorum_reached).count();
         let mut results: Vec<NodeResult<R, E>> = Vec::new();
         let mut cancelled = false;
 
