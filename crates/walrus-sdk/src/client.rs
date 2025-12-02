@@ -1557,8 +1557,8 @@ impl<T> WalrusNodeClient<T> {
             blobs,
             event_sender,
             tail_handling,
-            cancellation,
             None,
+            cancellation,
         )
         .await
     }
@@ -1578,8 +1578,8 @@ impl<T> WalrusNodeClient<T> {
             blobs,
             event_sender,
             tail_handling,
-            cancellation,
             Some(node_indices),
+            cancellation,
         )
         .await
     }
@@ -1589,8 +1589,8 @@ impl<T> WalrusNodeClient<T> {
         blobs: &[(VerifiedBlobMetadataWithId, Arc<Vec<SliverPair>>)],
         event_sender: tokio::sync::mpsc::Sender<UploaderEvent>,
         tail_handling: TailHandling,
-        cancellation: Option<CancellationToken>,
         target_nodes: Option<&[NodeIndex]>,
+        cancellation: Option<tokio_util::sync::CancellationToken>,
     ) -> ClientResult<RunOutput<Vec<BlobId>, StoreError>> {
         if blobs.is_empty() {
             return Ok(RunOutput {
