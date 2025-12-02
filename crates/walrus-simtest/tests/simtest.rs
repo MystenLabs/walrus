@@ -952,6 +952,7 @@ mod tests {
     #[ignore = "ignore integration simtests by default"]
     #[walrus_simtest]
     async fn test_quorum_contract_upgrade() -> anyhow::Result<()> {
+        walrus_test_utils::init_tracing();
         let deploy_dir = tempfile::TempDir::new().unwrap();
         let epoch_duration = Duration::from_secs(30);
         let (_sui_cluster_handle, mut walrus_cluster, client, system_ctx) =
@@ -1067,6 +1068,8 @@ mod tests {
             .sui_client()
             .migrate_contracts(new_package_id)
             .await?;
+
+        client.as_ref().inner.sui_client().flush_cache().await;
 
         // Check the version
         assert_eq!(
