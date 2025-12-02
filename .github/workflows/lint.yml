@@ -13,7 +13,7 @@ jobs:
       contents: read
       pull-requests: read
     steps:
-      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # pin@v5.0.0
+      - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # pin@v6.0.0
         with:
           fetch-depth: 0
       - name: Check PR title
@@ -25,9 +25,9 @@ jobs:
     runs-on: ubuntu-latest
     name: Check formatting
     steps:
-      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # pin@v5.0.0
+      - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # pin@v6.0.0
       - name: Set up Python
-        uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # pin@v6.0.0
+        uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548 # pin@v6.1.0
         with:
           python-version: "3.x"
 
@@ -59,7 +59,7 @@ jobs:
         run: ./yamlfmt -lint
 
       - name: Lint all markdown files
-        uses: DavidAnson/markdownlint-cli2-action@992badcdf24e3b8eb7e87ff9287fe931bcb00c6e # pin@v20.0.0
+        uses: DavidAnson/markdownlint-cli2-action@30a0e04f1870d58f8d717450cc6134995f993c63 # pin@v21.0.0
         with:
           config: .markdownlint-cli2.yaml
           # Note: Keep globs in sync with .markdownlint-cli2.yaml.
@@ -72,7 +72,7 @@ jobs:
       run:
         working-directory: ./contracts
     steps:
-      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # pin@v5.0.0
+      - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # pin@v6.0.0
       - name: Use Node.js
         uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903 # pin@v6.0.0
       - run: npm install @mysten/prettier-plugin-move@0.3.0
@@ -82,14 +82,14 @@ jobs:
     runs-on: ubuntu-latest
     name: Check spelling
     steps:
-      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # pin@v5.0.0
-      - uses: crate-ci/typos@07d900b8fa1097806b8adb6391b0d3e0ac2fdea7 # pin@v1.39.0
+      - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # pin@v6.0.0
+      - uses: crate-ci/typos@2d0ce569feab1f8752f1dde43cc2f2aa53236e06 # pin@v1.40.0
 
   shellcheck:
     name: ShellCheck
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # pin@v5.0.0
+      - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # pin@v6.0.0
       - name: Run ShellCheck
         run: find . -type f -name "*.sh" -exec shellcheck --severity=error {} +
 
@@ -97,7 +97,7 @@ jobs:
     runs-on: ubuntu-latest
     name: Check license headers
     steps:
-      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # pin@v5.0.0
+      - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # pin@v6.0.0
       - name: Install licensesnip
         uses: taiki-e/install-action@970d55e3ce02a46d60ffae7b4fab3dedace6e769 # pin@v2.49.13
         with:

@@ -29,7 +29,7 @@ jobs:
     outputs:
       isReleaseNotesEligible: ${{ steps.diff.outputs.isReleaseNotesEligible }}
     steps:
-      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # pin@v5.0.0
+      - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # pin@v6.0.0
         with:
           ref: ${{ github.event.inputs.sui_repo_ref || github.ref }}
       - name: Detect Changes
@@ -45,10 +45,10 @@ jobs:
       pull-requests: read
     runs-on: [ubuntu-latest]
     steps:
-      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # pin@v5.0.0
+      - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # pin@v6.0.0
         with:
           ref: ${{ github.event.inputs.sui_repo_ref || github.ref }}
-      - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # pin@v6.0.0
+      - uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548 # pin@v6.1.0
         with:
           python-version: 3.10.10
       - name: Validate PR's release notes

@@ -26,7 +26,7 @@ jobs:
   build-with-linkcheck:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # pin@v5.0.0
+      - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # pin@v6.0.0
       - uses: ./.github/actions/build-mdbook
         if: github.event.action != 'closed'
 
@@ -34,12 +34,12 @@ jobs:
     runs-on: ubuntu-latest
     if: github.repository_owner == 'MystenLabs'
     steps:
-      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # pin@v5.0.0
+      - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # pin@v6.0.0
       - uses: ./.github/actions/build-mdbook
         with:
           with_linkcheck: "false"
         if: github.event.action != 'closed'
       - name: Deploy preview
-        uses: rossjrw/pr-preview-action@9f77b1d057b494e662c50b8ca40ecc63f21e0887 # pin@v1.6.2
+        uses: rossjrw/pr-preview-action@8ff09e486b4c23709012eedd3b42e9f0b95dd0c5 # pin@v1.6.3
         with:
           source-dir: docs/build/html
