@@ -136,6 +136,9 @@ pub enum TypedStoreError {
     /// A batch operation can't operate across databases
     #[error("a batch operation can't operate across databases")]
     CrossDBBatch,
+    /// A snapshot can't be used across databases
+    #[error("a snapshot can't be used across databases")]
+    CrossDBSnapshot,
     /// The metric reporting thread failed with error
     #[error("Metric reporting thread failed with error")]
     MetricsReporting,
