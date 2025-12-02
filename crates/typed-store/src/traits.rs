@@ -5,7 +5,7 @@ use std::{borrow::Borrow, error::Error, ops::RangeBounds};
 
 use serde::{Serialize, de::DeserializeOwned};
 
-use crate::TypedStoreError;
+use crate::{TypedStoreError, rocks::RocksDBSnapshot};
 
 /// The trait for the typed store to manage the map
 pub trait Map<'a, K, V>
@@ -36,6 +36,13 @@ where
 
     /// Returns the value for the given key from the map, if it exists.
     fn get(&self, key: &K) -> Result<Option<V>, Self::Error>;
+
+    /// Fetches a value using the provided snapshot instead of the latest view.
+    fn get_with_snapshot(
+        &self,
+        snapshot: &RocksDBSnapshot<'_>,
+        key: &K,
+    ) -> Result<Option<V>, Self::Error>;
 
     /// Inserts the given key-value pair into the map.
     fn insert(&self, key: &K, value: &V) -> Result<(), Self::Error>;

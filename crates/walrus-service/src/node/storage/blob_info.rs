@@ -565,14 +565,23 @@ impl BlobInfoTable {
     ///
     /// The checks are not exhaustive yet.
     pub fn check_invariants(&self) -> Result<(), anyhow::Error> {
-        for result in self.per_object_blob_info.safe_iter()? {
+        let snapshot = self.aggregate_blob_info.rocksdb.snapshot();
+
+        for result in self
+            .per_object_blob_info
+            .safe_iter_with_snapshot(&snapshot)
+            .context("failed to create per-object blob info snapshot iterator")?
+        {
             let Ok((object_id, PerObjectBlobInfo::V1(per_object_blob_info))) = result else {
                 return Err(anyhow::anyhow!(
                     "error encountered while iterating over per-object blob info: {result:?}"
                 ));
             };
             let blob_id = per_object_blob_info.blob_id();
-            let Some(blob_info) = self.aggregate_blob_info.get(&blob_id)? else {
+            let Some(blob_info) = self
+                .aggregate_blob_info
+                .get_with_snapshot(&snapshot, &blob_id)?
+            else {
                 return Err(anyhow::anyhow!(
                     "blob info not found for blob ID {blob_id}, even though a corresponding \
                     per-object blob info entry exists (object ID: {object_id})"
@@ -621,7 +630,11 @@ impl BlobInfoTable {
             }
         }
 
-        for result in self.aggregate_blob_info.safe_iter()? {
+        for result in self
+            .aggregate_blob_info
+            .safe_iter_with_snapshot(&snapshot)
+            .context("failed to create aggregate blob info snapshot iterator")?
+        {
             let Ok((blob_id, blob_info)) = result else {
                 return Err(anyhow::anyhow!(
                     "error encountered while iterating over aggregate blob info: {result:?}"
