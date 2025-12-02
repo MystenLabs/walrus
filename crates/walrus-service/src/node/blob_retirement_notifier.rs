@@ -224,6 +224,16 @@ impl Drop for BlobRetirementNotify {
                 self.blob_id,
                 *ref_count
             );
+
+            if *ref_count == 0 {
+                // This should not happen since the ref count should be at least 1 when there is
+                // BlobRetirementNotify instance.
+                tracing::error!(
+                    %self.blob_id,
+                    "BlobRetirementNotifier drop NotifyWrapper: ref count is 0",
+                );
+            }
+
             *ref_count = ref_count.checked_sub(1).unwrap_or(0);
             *ref_count
         };
