@@ -1046,18 +1046,13 @@ impl<K, V> DBMap<K, V> {
     fn read_value_with_metrics<'a>(
         &self,
         key_buf: Vec<u8>,
-        enable_perf_ctx_sampling: bool,
         value: Option<DBPinnableSlice<'a>>,
         start: std::time::Instant,
+        perf_ctx: Option<RocksDBPerfContext>,
     ) -> Result<Option<V>, TypedStoreError>
     where
         V: DeserializeOwned,
     {
-        let perf_ctx = if enable_perf_ctx_sampling && self.get_sample_interval.sample() {
-            Some(RocksDBPerfContext)
-        } else {
-            None
-        };
         let found = value.is_some();
         let value_len = value
             .as_ref()
@@ -1108,8 +1103,13 @@ impl<K, V> DBMap<K, V> {
         V: DeserializeOwned,
     {
         let start = std::time::Instant::now();
+        let perf_ctx = self
+            .get_sample_interval
+            .sample()
+            .then(|| RocksDBPerfContext);
         let key_buf = be_fix_int_ser(key)?;
         let cf_handle = self.cf()?;
+
         let result = match snapshot {
             RocksDBSnapshot::DB(snap) => {
                 snap.get_pinned_cf_opt(&cf_handle, &key_buf, self.opts.readopts())
@@ -1119,7 +1119,8 @@ impl<K, V> DBMap<K, V> {
             }
         }
         .map_err(typed_store_err_from_rocks_err)?;
-        self.read_value_with_metrics(key_buf, false, result, start)
+
+        self.read_value_with_metrics(key_buf, result, start, perf_ctx)
     }
 
     /// Flush the column family.
@@ -1836,13 +1837,19 @@ where
     #[tracing::instrument(level = "trace", skip_all, err)]
     fn get(&self, key: &K) -> Result<Option<V>, TypedStoreError> {
         let start = std::time::Instant::now();
+        let perf_ctx = self
+            .get_sample_interval
+            .sample()
+            .then(|| RocksDBPerfContext);
         let key_buf = be_fix_int_ser(key)?;
         let cf_handle = self.cf()?;
+
         let result = self
             .rocksdb
             .get_pinned_cf_opt(&cf_handle, &key_buf, &self.opts.readopts())
             .map_err(typed_store_err_from_rocks_err)?;
-        self.read_value_with_metrics(key_buf, true, result, start)
+
+        self.read_value_with_metrics(key_buf, result, start, perf_ctx)
     }
 
     #[tracing::instrument(level = "trace", skip_all, err)]
