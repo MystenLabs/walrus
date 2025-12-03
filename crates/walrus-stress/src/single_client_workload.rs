@@ -185,7 +185,7 @@ impl SingleClientWorkload {
                     DEFAULT_ENCODING,
                     *store_epoch_ahead,
                     StoreOptimizations::none(),
-                    BlobPersistence::from_deletable_and_permanent(*deletable, !deletable)?,
+                    BlobPersistence::from_deletable(*deletable),
                     // TODO(WAL-954): test more PostStoreAction.
                     PostStoreAction::Keep,
                 );
