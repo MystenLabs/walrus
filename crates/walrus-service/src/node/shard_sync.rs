@@ -4,6 +4,7 @@
 use std::{
     collections::{HashMap, hash_map::Entry},
     sync::Arc,
+    time::Duration,
 };
 
 use futures::{StreamExt, stream::FuturesUnordered};
@@ -26,6 +27,9 @@ use super::{
     storage::{ShardStatus, ShardStorage, blob_info::BlobInfo},
 };
 use crate::node::{errors::ShardNotAssigned, storage::blob_info::CertifiedBlobInfoApi};
+
+/// The interval at which to sample high-frequency tracing logs related to shard sync operations.
+pub(crate) const SAMPLED_TRACING_INTERVAL: Duration = Duration::from_mins(10);
 
 /// The result of syncing a shard.
 enum SyncShardResult {
@@ -320,12 +324,12 @@ impl ShardSyncHandler {
     async fn start_shard_sync_impl(&self, shard_storage: Arc<ShardStorage>) {
         // This epoch must be the same as the epoch in the committee we refreshed when processing
         // epoch start event, or when the node starts up.
-        let current_epoch = self.node.current_committee_epoch();
+        let current_committee_epoch = self.node.current_committee_epoch();
 
         tracing::info!(
             walrus.shard_index = %shard_storage.id(),
             "syncing shard to the beginning of epoch {}",
-            current_epoch
+            current_committee_epoch
         );
 
         let mut shard_sync_in_progress = self.shard_sync_in_progress.lock().await;
@@ -359,10 +363,14 @@ impl ShardSyncHandler {
                     shard_index=%shard_index,
                     ?directly_recover_shard,
                     "syncing shard to the beginning of epoch {}",
-                    current_epoch
+                    current_committee_epoch
                 );
                 match shard_sync_handler_clone
-                    .sync_shard_impl(shard_storage.clone(), current_epoch, directly_recover_shard)
+                    .sync_shard_impl(
+                        shard_storage.clone(),
+                        current_committee_epoch,
+                        directly_recover_shard,
+                    )
                     .await
                 {
                     SyncShardResult::Success => {
@@ -429,7 +437,7 @@ impl ShardSyncHandler {
                     .node
                     .contract_service
                     .epoch_sync_done(
-                        current_epoch,
+                        current_committee_epoch,
                         shard_sync_handler_clone.node.node_capability(),
                     )
                     .await;

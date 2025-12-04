@@ -15,6 +15,7 @@ use rustls::pki_types::CertificateDer;
 use rustls_native_certs::CertificateResult;
 use sui_types::base_types::ObjectID;
 use tokio::sync::Semaphore;
+use tracing::Level;
 use walrus_core::{Epoch, NetworkPublicKey, encoding::EncodingConfig};
 use walrus_storage_node_client::{ClientBuildError, StorageNodeClient, StorageNodeClientBuilder};
 use walrus_sui::types::{Committee, NetworkAddress, StorageNode};
@@ -41,13 +42,16 @@ pub struct NodeCommunicationFactory {
 /// Factory to create the vectors of `NodeCommunication` objects.
 impl NodeCommunicationFactory {
     /// Creates a new [`NodeCommunicationFactory`].
+    #[tracing::instrument(name = "NodeCommunicationFactory::new", skip_all, level = Level::DEBUG)]
     pub fn new(
         config: ClientCommunicationConfig,
         encoding_config: Arc<EncodingConfig>,
         metrics_registry: Option<Registry>,
     ) -> ClientResult<Self> {
         let native_certs = if !config.disable_native_certs {
+            tracing::debug!("loading native certs");
             let CertificateResult { certs, errors, .. } = rustls_native_certs::load_native_certs();
+            tracing::debug!("finished loading native certs");
             if certs.is_empty() {
                 return Err(ClientError::from(ClientErrorKind::FailedToLoadCerts(
                     errors,

@@ -3,4 +3,6 @@
 
 //! Stress testing for Walrus.
 
+#![recursion_limit = "256"]
+
 pub mod single_client_workload;

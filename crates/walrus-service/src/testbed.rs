@@ -55,6 +55,7 @@ use crate::{
     common::config::{SuiConfig, SuiReaderConfig},
     node::{
         config::{
+            LiveUploadDeferralConfig,
             PathOrInPlace,
             StorageNodeConfig,
             defaults::{self, REST_API_PORT},
@@ -378,8 +379,7 @@ pub async fn deploy_walrus_contract(
         let sui_client = RetriableSuiClient::new(
             vec![LazySuiClientBuilder::new(rpc_url, None)],
             Default::default(),
-        )
-        .await?;
+        )?;
         request_sui_from_faucet(admin_wallet.active_address()?, &sui_network, &sui_client).await?;
         admin_wallet
     };
@@ -528,13 +528,14 @@ pub async fn create_client_config(
         },
         refresh_config: Default::default(),
         quilt_client_config: Default::default(),
+        byte_range_read_client_config: Default::default(),
     };
 
     Ok(client_config)
 }
 
 /// Create the config for the walrus-backup node associated with a network.
-pub async fn create_backup_config(
+pub fn create_backup_config(
     system_ctx: &SystemContext,
     working_dir: &Path,
     database_url: &str,
@@ -727,6 +728,8 @@ pub async fn create_storage_node_configs(
             tls: Default::default(),
             shard_sync_config: Default::default(),
             event_processor_config: Default::default(),
+            pending_sliver_cache: Default::default(),
+            pending_metadata_cache: Default::default(),
             use_legacy_event_provider,
             disable_event_blob_writer,
             commission_rate: node.commission_rate,
@@ -744,6 +747,7 @@ pub async fn create_storage_node_configs(
             thread_pool: Default::default(),
             consistency_check: StorageNodeConsistencyCheckConfig::default_for_test(),
             checkpoint_config: Default::default(),
+            live_upload_deferral: LiveUploadDeferralConfig::default_for_test(),
             admin_socket_path: Some(working_dir.join(format!("admin-{node_index}.sock"))),
             node_recovery_config: Default::default(),
             blob_event_processor_config: Default::default(),

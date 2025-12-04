@@ -52,7 +52,7 @@ async fn initialize_contract_and_wallet_with_single_node() -> anyhow::Result<(
     SystemContext,
     TestNodeKeys,
 )> {
-    initialize_contract_and_wallet_for_testing(Duration::from_secs(3600), false, 0, 1).await
+    initialize_contract_and_wallet_for_testing(Duration::from_hours(1), false, 0, 1).await
 }
 
 async fn initialize_contract_and_wallet_with_credits_with_single_node() -> anyhow::Result<(
@@ -61,7 +61,7 @@ async fn initialize_contract_and_wallet_with_credits_with_single_node() -> anyho
     SystemContext,
     TestNodeKeys,
 )> {
-    initialize_contract_and_wallet_for_testing(Duration::from_secs(3600), true, 10_000, 1).await
+    initialize_contract_and_wallet_for_testing(Duration::from_hours(1), true, 10_000, 1).await
 }
 
 #[tokio::test]
@@ -401,6 +401,11 @@ async fn test_set_authorized() -> anyhow::Result<()> {
         walrus_client.inner.current_epoch().await?,
     );
 
+    tracing::info!(
+        ?registration_params,
+        ?proof_of_possession,
+        "registering candidate"
+    );
     let cap = walrus_client
         .inner
         .register_candidate(&registration_params, proof_of_possession.clone())

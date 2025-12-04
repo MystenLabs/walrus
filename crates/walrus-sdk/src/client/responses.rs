@@ -15,7 +15,7 @@ use walrus_sui::{EventIdSchema, ObjectIdSchema, types::move_structs::Blob};
 use super::{client_types::StoredQuiltPatch, resource::RegisterBlobOp};
 
 /// Either an event ID or an object ID.
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub enum EventOrObjectId {
     /// The variant representing an event ID.
@@ -55,7 +55,7 @@ pub struct BlobStoreResultWithPath {
 
 /// Result when attempting to store a blob.
 #[serde_as]
-#[derive(Debug, Clone, Serialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, ToSchema, PartialEq)]
 #[serde(rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum BlobStoreResult {
     /// The blob already exists within Walrus, was certified, and is stored for at least the
@@ -106,6 +106,8 @@ pub enum BlobStoreResult {
         /// The blob ID.
         #[serde_as(as = "Option<DisplayFromStr>")]
         blob_id: Option<BlobId>,
+        /// The phase after the error occurred.
+        failure_phase: String,
         /// The error message.
         error_msg: String,
     },
@@ -138,6 +140,14 @@ impl BlobStoreResult {
     /// Returns true if the blob is not stored.
     pub fn is_not_stored(&self) -> bool {
         matches!(self, Self::MarkedInvalid { .. } | Self::Error { .. })
+    }
+
+    /// Returns a [`BlobStoreResultWithPath`] with the given path.
+    pub fn with_path(self, path: PathBuf) -> BlobStoreResultWithPath {
+        BlobStoreResultWithPath {
+            path,
+            blob_store_result: self,
+        }
     }
 }
 

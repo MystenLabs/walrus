@@ -22,6 +22,8 @@ ignore = [
   "RUSTSEC-2024-0437",
   # fxhash is unmaintained; it is used in `sui-config`.
   "RUSTSEC-2025-0057",
+  # number_prefix is unmaintained; it is a dependency of many sui crates.
+  "RUSTSEC-2025-0119",
 ]
 
 
@@ -69,6 +71,7 @@ ignore = true
 multiple-versions = "deny"
 skip = [
   { name = "itertools", version = "<=12.1" },
+  { name = "petgraph", version = "0.6.5" },
   { name = "synstructure", version = "0.12.6" },
 ]
 skip-tree = [

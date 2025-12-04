@@ -23,7 +23,7 @@ use fastcrypto::{
     secp256r1::Secp256r1KeyPair,
     traits::{EncodeDecodeBase64, RecoverableSigner},
 };
-use futures::future::FusedFuture;
+use futures::{FutureExt as _, future::FusedFuture};
 use pin_project::pin_project;
 use prometheus::{Encoder, HistogramVec};
 use serde::{Deserialize, Deserializer, Serialize, de::Error};
@@ -33,7 +33,7 @@ use telemetry_subscribers::{TelemetryGuards, TracingHandle};
 use tokio::{
     runtime::{self, Runtime},
     sync::oneshot,
-    task::{JoinError, JoinHandle},
+    task::{JoinError, JoinHandle, spawn_blocking},
     time::Instant,
 };
 use tokio_util::sync::CancellationToken;
@@ -493,7 +493,7 @@ pub async fn generate_sui_wallet(
     );
     let mut wallet = walrus_sui::utils::create_wallet(path, sui_network.env(), None, None).await?;
     let rpc_urls = &[wallet.get_rpc_url()?];
-    let client = RetriableSuiClient::new_for_rpc_urls(rpc_urls, Default::default(), None).await?;
+    let client = RetriableSuiClient::new_for_rpc_urls(rpc_urls, Default::default(), None)?;
 
     let wallet_address = wallet.active_address()?;
     tracing::info!("generated a new Sui wallet; address: {wallet_address}");
@@ -695,6 +695,56 @@ pub(crate) fn unwrap_or_resume_unwind<T, E: std::convert::From<tokio::task::Join
             }
         }
     }
+}
+
+/// Result returned by `process_items_in_batches` closures.
+#[derive(Debug)]
+pub struct BatchProcessingResult<T> {
+    /// Number of entries inspected in the batch.
+    pub total_count: usize,
+    /// Number of entries that resulted in a modification.
+    pub modified_count: usize,
+    /// Identifier of the last processed entry, used to resume iteration.
+    pub last_processed_item: Option<T>,
+}
+
+/// Repeatedly executes a blocking batch processor until it reports that there are no more items to
+/// handle.
+///
+/// The provided `process_function` is invoked on a blocking thread with the last processed item (if
+/// any) and must return a [`BatchProcessingResult`]. The helper accumulates the `modified_count`
+/// values until the processor reports that the batch was empty (`total_count == 0`).
+pub(crate) async fn process_items_in_batches<T, F>(process_function: F) -> anyhow::Result<usize>
+where
+    T: Clone + Send + 'static,
+    F: Fn(Option<T>) -> anyhow::Result<BatchProcessingResult<T>> + Send + Sync + 'static,
+{
+    let process_function = Arc::new(process_function);
+    let mut last_processed_item: Option<T> = None;
+    let mut modified_total = 0;
+
+    loop {
+        let BatchProcessingResult {
+            total_count,
+            modified_count,
+            last_processed_item: next_last_processed_item,
+        } = spawn_blocking({
+            let process_function = Arc::clone(&process_function);
+            let last_processed_item = last_processed_item.clone();
+            move || process_function(last_processed_item)
+        })
+        .map(unwrap_or_resume_unwind)
+        .await?;
+
+        if total_count == 0 {
+            break;
+        }
+
+        last_processed_item = next_last_processed_item;
+        modified_total += modified_count;
+    }
+
+    Ok(modified_total)
 }
 
 /// Creates a new Walrus client with a refresher using the provided configuration

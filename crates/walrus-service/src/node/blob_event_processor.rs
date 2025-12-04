@@ -14,20 +14,24 @@ use tokio::{
     sync::mpsc::{self, UnboundedReceiver, UnboundedSender},
     task::JoinHandle,
 };
-use walrus_sui::types::{BlobCertified, BlobDeleted, BlobEvent, InvalidBlobId};
+use walrus_core::BlobId;
+use walrus_sui::types::{BlobCertified, BlobDeleted, BlobEvent, BlobRegistered, InvalidBlobId};
 use walrus_utils::metrics::monitored_scope;
 
 use super::{StorageNodeInner, blob_sync::BlobSyncHandler, metrics, system_events::EventHandle};
-use crate::node::{
-    storage::blob_info::{BlobInfoApi, CertifiedBlobInfoApi},
-    system_events::CompletableHandle,
+use crate::{
+    event::events::CheckpointEventPosition,
+    node::{
+        storage::blob_info::{BlobInfoApi, CertifiedBlobInfoApi},
+        system_events::CompletableHandle,
+    },
 };
 
 // Poll interval for checking pending background events.
 const PENDING_EVENTS_POLL_INTERVAL: Duration = Duration::from_millis(10);
 
-/// A utility struct that wraps an Arc<AtomicU32> for tracking pending events.
-/// Provides convenient inc() and dec() methods that return the new value.
+/// A utility struct that wraps an `Arc<AtomicU32>` for tracking pending events.
+/// Provides convenient `inc()` and `dec()` methods that return the new value.
 #[derive(Debug, Clone)]
 struct PendingEventCounter {
     inner: Arc<AtomicU32>,
@@ -103,12 +107,25 @@ impl Drop for PendingEventGuard {
     }
 }
 
-/// Wrapper for EventHandle and BlobEvent that includes a pending event guard.
-/// When this struct is dropped, the guard automatically decrements the counter.
+/// Work handled by the background processor. Flushing shares the same queue as event
+/// processing so that all operations for a blob are serialized.
 #[derive(Debug)]
-struct TrackedEvent {
-    event_handle: EventHandle,
-    blob_event: BlobEvent,
+enum BackgroundTask {
+    ProcessEvent {
+        event_handle: EventHandle,
+        blob_event: BlobEvent,
+        checkpoint_position: CheckpointEventPosition,
+    },
+    FlushPendingCaches {
+        blob_id: BlobId,
+    },
+}
+
+/// Wrapper for background work that includes a pending event guard. When this struct is dropped,
+/// the guard automatically decrements the counter.
+#[derive(Debug)]
+struct TrackedBackgroundTask {
+    task: BackgroundTask,
     _guard: PendingEventGuard,
 }
 
@@ -118,7 +135,7 @@ struct TrackedEvent {
 struct BackgroundEventProcessor {
     node: Arc<StorageNodeInner>,
     blob_sync_handler: Arc<BlobSyncHandler>,
-    event_receiver: UnboundedReceiver<TrackedEvent>,
+    event_receiver: UnboundedReceiver<TrackedBackgroundTask>,
     worker_index: usize,
 }
 
@@ -126,7 +143,7 @@ impl BackgroundEventProcessor {
     fn new(
         node: Arc<StorageNodeInner>,
         blob_sync_handler: Arc<BlobSyncHandler>,
-        event_receiver: UnboundedReceiver<TrackedEvent>,
+        event_receiver: UnboundedReceiver<TrackedBackgroundTask>,
         worker_index: usize,
     ) -> Self {
         Self {
@@ -139,7 +156,7 @@ impl BackgroundEventProcessor {
 
     /// Runs the background event processor.
     async fn run(&mut self) {
-        while let Some(tracked_event) = self.event_receiver.recv().await {
+        while let Some(tracked_task) = self.event_receiver.recv().await {
             walrus_utils::with_label!(
                 self.node.metrics.pending_processing_blob_event_in_queue,
                 &self.worker_index.to_string()
@@ -147,16 +164,32 @@ impl BackgroundEventProcessor {
             .dec();
 
             // The guard will automatically decrement the counter when dropped
-            if let Err(error) = self
-                .process_event(tracked_event.event_handle, tracked_event.blob_event)
-                .await
-            {
+            if let Err(error) = self.process_task(tracked_task.task).await {
                 // TODO(WAL-874): to keep the same behavior as before BackgroundEventProcessor, we
                 // should propagate the error to the node and exit the process if necessary.
                 tracing::error!(?error, "error processing blob event");
             }
-            // Guard is dropped here, automatically decrementing the counter
         }
+    }
+
+    async fn process_task(&self, task: BackgroundTask) -> anyhow::Result<()> {
+        match task {
+            BackgroundTask::ProcessEvent {
+                event_handle,
+                blob_event,
+                checkpoint_position,
+            } => {
+                self.process_event(event_handle, blob_event, checkpoint_position)
+                    .await?
+            }
+            BackgroundTask::FlushPendingCaches { blob_id } => {
+                // Keep the worker busy until the flush completes so later events for this blob
+                // (which are routed to the same worker) never observe stale pending data.
+                self.node.flush_pending_caches_with_logging(blob_id).await
+            }
+        }
+
+        Ok(())
     }
 
     /// Processes a blob event.
@@ -164,11 +197,12 @@ impl BackgroundEventProcessor {
         &self,
         event_handle: EventHandle,
         blob_event: BlobEvent,
+        checkpoint_position: CheckpointEventPosition,
     ) -> anyhow::Result<()> {
         match blob_event {
             BlobEvent::Certified(event) => {
                 let _scope = monitored_scope::monitored_scope("ProcessEvent::BlobEvent::Certified");
-                self.process_blob_certified_event(event_handle, event)
+                self.process_blob_certified_event(event_handle, event, checkpoint_position)
                     .await?;
             }
             BlobEvent::Deleted(event) => {
@@ -198,6 +232,7 @@ impl BackgroundEventProcessor {
         &self,
         event_handle: EventHandle,
         event: BlobCertified,
+        checkpoint_position: CheckpointEventPosition,
     ) -> anyhow::Result<()> {
         let start = tokio::time::Instant::now();
 
@@ -247,6 +282,13 @@ impl BackgroundEventProcessor {
 
         fail_point_async!("fail_point_process_blob_certified_event");
 
+        self.node
+            .maybe_apply_live_upload_deferral(
+                event.blob_id,
+                checkpoint_position.checkpoint_sequence_number,
+            )
+            .await;
+
         // Slivers and (possibly) metadata are not stored, so initiate blob sync.
         self.blob_sync_handler
             .start_sync(event.blob_id, event.epoch, Some(event_handle))
@@ -269,11 +311,11 @@ impl BackgroundEventProcessor {
         event: BlobDeleted,
     ) -> anyhow::Result<()> {
         let blob_id = event.blob_id;
-        let current_epoch = self.node.current_committee_epoch();
-        tracing::Span::current().record("walrus.epoch", current_epoch);
+        let current_committee_epoch = self.node.current_committee_epoch();
+        tracing::Span::current().record("walrus.epoch", current_committee_epoch);
 
         if let Some(blob_info) = self.node.storage.get_blob_info(&blob_id)? {
-            if !blob_info.is_certified(current_epoch) {
+            if !blob_info.is_certified(current_committee_epoch) {
                 self.node
                     .blob_retirement_notifier
                     .notify_blob_retirement(&blob_id);
@@ -335,27 +377,142 @@ impl BackgroundEventProcessor {
     }
 }
 
+#[derive(Debug, Clone)]
+enum BlobEventProcessorImpl {
+    // Background processors that process events in parallel.
+    BackgroundProcessors {
+        background_processor_senders: Vec<UnboundedSender<TrackedBackgroundTask>>,
+        _background_processors: Vec<Arc<JoinHandle<()>>>,
+        // The number of events pending in each background processor, shared with the corresponding
+        // `BackgroundEventProcessor`. Per-worker counters avoid contention on a single atomic when
+        // tracking pending events.
+        background_per_processor_pending_event_count: Vec<PendingEventCounter>,
+    },
+    // When there are no background workers, we process events sequentially to retain the previous
+    // behavior instead of parallelizing.
+    SequentialProcessor {
+        background_event_processor: Arc<BackgroundEventProcessor>,
+    },
+}
+
+impl BlobEventProcessorImpl {
+    async fn dispatch_task(
+        &self,
+        node: &Arc<StorageNodeInner>,
+        blob_id: BlobId,
+        task: BackgroundTask,
+    ) -> anyhow::Result<()> {
+        match self {
+            BlobEventProcessorImpl::BackgroundProcessors {
+                background_processor_senders,
+                background_per_processor_pending_event_count,
+                ..
+            } => {
+                // We send the event to one of the workers to process in parallel.
+                // Note that in order to remain sequential processing for the same BlobID, we always
+                // send events for the same BlobID to the same worker.
+                // Currently the number of workers is fixed through the lifetime of the node. But in
+                // case the node want to dynamically adjust the worker, we need to be careful to not
+                // break this requirement.
+                let processor_index =
+                    blob_id.first_two_bytes() as usize % background_processor_senders.len();
+
+                walrus_utils::with_label!(
+                    node.metrics.pending_processing_blob_event_in_queue,
+                    &processor_index.to_string()
+                )
+                .inc();
+
+                let current_processor_pending_event_count =
+                    background_per_processor_pending_event_count[processor_index].clone();
+                // Increment the counter and create a guard that will decrement it when dropped
+                let current_pending_event_count = current_processor_pending_event_count.inc();
+                walrus_utils::with_label!(
+                    node.metrics
+                        .pending_processing_blob_event_in_background_processors,
+                    &processor_index.to_string()
+                )
+                .set(<i64 as From<u32>>::from(current_pending_event_count));
+
+                // Create the guard that will automatically decrement the counter when dropped
+                let guard = PendingEventGuard::new(
+                    current_processor_pending_event_count,
+                    processor_index,
+                    node.metrics.clone(),
+                );
+
+                // Wrap the task with the guard to track the pending event count
+                // and send it to the corresponding worker.
+                let tracked_task = TrackedBackgroundTask {
+                    task,
+                    _guard: guard,
+                };
+                background_processor_senders[processor_index]
+                    .send(tracked_task)
+                    .map_err(|e| {
+                        anyhow::anyhow!("failed to send task to background processor: {}", e)
+                    })?
+            }
+            BlobEventProcessorImpl::SequentialProcessor {
+                background_event_processor,
+            } => {
+                background_event_processor.process_task(task).await?;
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn process_event_impl(
+        &self,
+        node: &Arc<StorageNodeInner>,
+        event_handle: EventHandle,
+        blob_event: BlobEvent,
+        checkpoint_position: CheckpointEventPosition,
+    ) -> anyhow::Result<()> {
+        match self {
+            BlobEventProcessorImpl::BackgroundProcessors { .. } => {
+                let blob_id = blob_event.blob_id();
+                self.dispatch_task(
+                    node,
+                    blob_id,
+                    BackgroundTask::ProcessEvent {
+                        event_handle,
+                        blob_event,
+                        checkpoint_position,
+                    },
+                )
+                .await?
+            }
+            BlobEventProcessorImpl::SequentialProcessor {
+                background_event_processor,
+            } => {
+                background_event_processor
+                    .process_event(event_handle, blob_event, checkpoint_position)
+                    .await?;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn background_pending_event_counts(&self) -> Option<&[PendingEventCounter]> {
+        match self {
+            BlobEventProcessorImpl::BackgroundProcessors {
+                background_per_processor_pending_event_count,
+                ..
+            } => Some(background_per_processor_pending_event_count),
+            BlobEventProcessorImpl::SequentialProcessor { .. } => None,
+        }
+    }
+}
+
 /// Blob event processor that processes blob events. It can be configured to process events
 /// sequentially or in parallel using background workers.
 #[derive(Debug, Clone)]
 pub struct BlobEventProcessor {
     node: Arc<StorageNodeInner>,
-
-    // Background processors that process events in parallel.
-    background_processor_senders: Vec<UnboundedSender<TrackedEvent>>,
-    _background_processors: Vec<Arc<JoinHandle<()>>>,
-
-    // When there are no background workers, we use a sequential processor to process events using
-    // this processor. This is to keep the same behavior as before BackgroundEventProcessor.
-    // INVARIANT: sequential_processor must be Some if background_processor_senders is empty.
-    sequential_processor: Option<Arc<BackgroundEventProcessor>>,
-
-    // The number of events that are pending to be processed in each background processor.
-    // Each counter is shared with individual BackgroundEventProcessor.
-    //
-    // We use per background processor count to avoid high contention on the Atomic variable when
-    // tracking the total number of pending events to be processed.
-    background_per_processor_pending_event_count: Vec<PendingEventCounter>,
+    blob_event_processor_impl: BlobEventProcessorImpl,
 }
 
 impl BlobEventProcessor {
@@ -364,47 +521,48 @@ impl BlobEventProcessor {
         blob_sync_handler: Arc<BlobSyncHandler>,
         num_workers: usize,
     ) -> Self {
-        let mut senders = Vec::with_capacity(num_workers);
-        let mut workers = Vec::with_capacity(num_workers);
-        let mut background_per_processor_pending_event_count = Vec::with_capacity(num_workers);
-        for worker_index in 0..num_workers {
-            let (tx, rx) = mpsc::unbounded_channel();
-            senders.push(tx);
-            let pending_event_count = PendingEventCounter::new();
-            background_per_processor_pending_event_count.push(pending_event_count);
-            let mut background_processor = BackgroundEventProcessor::new(
-                node.clone(),
-                blob_sync_handler.clone(),
-                rx,
-                worker_index,
-            );
-            // TODO(WAL-876): gracefully shut down the background processor when the node is
-            // shutting down.
-            workers.push(Arc::new(tokio::spawn(async move {
-                background_processor.run().await;
-            })));
-        }
+        let blob_event_processor_impl = if num_workers > 0 {
+            let mut background_processor_senders = Vec::with_capacity(num_workers);
+            let mut background_processors = Vec::with_capacity(num_workers);
+            let mut background_per_processor_pending_event_count = Vec::with_capacity(num_workers);
+            for worker_index in 0..num_workers {
+                let (tx, rx) = mpsc::unbounded_channel();
+                background_processor_senders.push(tx);
+                let pending_event_count = PendingEventCounter::new();
+                background_per_processor_pending_event_count.push(pending_event_count);
+                let mut background_processor = BackgroundEventProcessor::new(
+                    node.clone(),
+                    blob_sync_handler.clone(),
+                    rx,
+                    worker_index,
+                );
+                // TODO(WAL-876): gracefully shut down the background processor when the node is
+                // shutting down.
+                background_processors.push(Arc::new(tokio::spawn(async move {
+                    background_processor.run().await;
+                })));
+            }
 
-        let sequential_processor = if num_workers == 0 {
-            // Create a sequential processor to process events sequentially if no background workers
-            // are configured.
-            let (_tx, rx) = mpsc::unbounded_channel();
-            Some(Arc::new(BackgroundEventProcessor::new(
-                node.clone(),
-                blob_sync_handler.clone(),
-                rx,
-                0, // worker_index for sequential processor
-            )))
+            BlobEventProcessorImpl::BackgroundProcessors {
+                background_processor_senders,
+                _background_processors: background_processors,
+                background_per_processor_pending_event_count,
+            }
         } else {
-            None
+            let (_tx, rx) = mpsc::unbounded_channel();
+            BlobEventProcessorImpl::SequentialProcessor {
+                background_event_processor: Arc::new(BackgroundEventProcessor::new(
+                    node.clone(),
+                    blob_sync_handler.clone(),
+                    rx,
+                    0,
+                )),
+            }
         };
 
         Self {
             node,
-            background_processor_senders: senders,
-            _background_processors: workers,
-            sequential_processor,
-            background_per_processor_pending_event_count,
+            blob_event_processor_impl,
         }
     }
 
@@ -413,6 +571,7 @@ impl BlobEventProcessor {
         &self,
         event_handle: EventHandle,
         blob_event: BlobEvent,
+        checkpoint_position: CheckpointEventPosition,
     ) -> anyhow::Result<()> {
         // Update the blob info based on the event.
         // This processing must be sequential and cannot be parallelized, since there is logical
@@ -421,99 +580,66 @@ impl BlobEventProcessor {
             .storage
             .update_blob_info(event_handle.index(), &blob_event)?;
 
-        if let BlobEvent::Registered(_) = &blob_event {
-            // Registered event is marked as complete immediately. We need to process registered
-            // events as fast as possible to catch up to the latest event in order to not miss
-            // blob sliver uploads.
-            //
-            // If we want to do this in parallel, we shouldn't mix registered event processing with
-            // certified event processing, as certified events take longer and can block following
-            // registered events.
-            let _scope = monitored_scope::monitored_scope("ProcessEvent::BlobEvent::Registered");
-            event_handle.mark_as_complete();
+        if let BlobEvent::Registered(event) = &blob_event {
+            self.handle_registered_event(event_handle, event).await?;
             return Ok(());
         }
 
-        // If there are no background workers, we use a sequential processor to process events
-        // sequentially.
-        if self.background_processor_senders.is_empty() {
-            assert!(self.sequential_processor.is_some());
-            self.sequential_processor
-                .as_ref()
-                .expect(
-                    "sequential processor must be configured when no background \
-                            workers are configured",
-                )
-                .process_event(event_handle, blob_event)
-                .await?;
-        } else {
-            // We send the event to one of the workers to process in parallel.
-            // Note that in order to remain sequential processing for the same BlobID, we always
-            // send events for the same BlobID to the same worker.
-            // Currently the number of workers is fixed through the lifetime of the node. But in
-            // case the node want to dynamically adjust the worker, we need to be careful to not
-            // break this requirement.
-            let processor_index = blob_event.blob_id().first_two_bytes() as usize
-                % self.background_processor_senders.len();
+        self.blob_event_processor_impl
+            .process_event_impl(&self.node, event_handle, blob_event, checkpoint_position)
+            .await
+    }
 
-            walrus_utils::with_label!(
-                self.node.metrics.pending_processing_blob_event_in_queue,
-                &processor_index.to_string()
+    async fn handle_registered_event(
+        &self,
+        event_handle: EventHandle,
+        event: &BlobRegistered,
+    ) -> anyhow::Result<()> {
+        // Registered event is marked as complete immediately. We need to process registered events
+        // as fast as possible to catch up to the latest event in order to not miss blob sliver
+        // uploads.
+        //
+        // If we want to do this in parallel, we shouldn't mix registered event processing with
+        // certified event processing, as certified events take longer and can block following
+        // registered events.
+        let _scope = monitored_scope::monitored_scope("ProcessEvent::BlobEvent::Registered");
+
+        if let Err(error) = self
+            .blob_event_processor_impl
+            .dispatch_task(
+                &self.node,
+                event.blob_id,
+                BackgroundTask::FlushPendingCaches {
+                    blob_id: event.blob_id,
+                },
             )
-            .inc();
-
-            let current_processor_pending_event_count =
-                self.background_per_processor_pending_event_count[processor_index].clone();
-
-            // Increment the counter and create a guard that will decrement it when dropped
-            let current_pending_event_count = current_processor_pending_event_count.inc();
-            walrus_utils::with_label!(
-                self.node
-                    .metrics
-                    .pending_processing_blob_event_in_background_processors,
-                &processor_index.to_string()
-            )
-            .set(<i64 as From<u32>>::from(current_pending_event_count));
-
-            // Create the guard that will automatically decrement the counter when dropped
-            let guard = PendingEventGuard::new(
-                current_processor_pending_event_count,
-                processor_index,
-                self.node.metrics.clone(),
+            .await
+        {
+            tracing::error!(
+                blob_id = %event.blob_id,
+                ?error,
+                "failed to enqueue cache flush after registration, flushing inline",
             );
-
-            // Send the wrapped event with the guard
-            let tracked_event = TrackedEvent {
-                event_handle,
-                blob_event,
-                _guard: guard,
-            };
-
-            self.background_processor_senders[processor_index]
-                .send(tracked_event)
-                .map_err(|e| {
-                    anyhow::anyhow!("failed to send event to background processor: {}", e)
-                })?;
+            self.node
+                .flush_pending_caches_with_logging(event.blob_id)
+                .await;
         }
+
+        event_handle.mark_as_complete();
         Ok(())
     }
 
     /// Waits for all events to be processed in the background processors.
     pub async fn wait_for_all_events_to_be_processed(&self) {
-        if self.background_processor_senders.is_empty() {
-            // When there are no background workers, we use a sequential processor to process events
-            // sequentially in the same thread, and no events are processed in the background.
-            // Therefore, we don't need to wait, and can return immediately.
-            return;
-        }
-
-        // Check if any of the background processors still have pending events.
-        while self
-            .background_per_processor_pending_event_count
-            .iter()
-            .any(|c| c.get() > 0)
+        if let Some(counts) = self
+            .blob_event_processor_impl
+            .background_pending_event_counts()
         {
-            tokio::time::sleep(PENDING_EVENTS_POLL_INTERVAL).await;
+            while counts.iter().any(|c| c.get() > 0) {
+                tokio::time::sleep(PENDING_EVENTS_POLL_INTERVAL).await;
+            }
         }
+        // When using sequential processor, all events are processed in the same thread,
+        // so there are no pending events to wait for.
     }
 }

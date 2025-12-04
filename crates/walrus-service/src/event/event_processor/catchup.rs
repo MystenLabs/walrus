@@ -291,7 +291,7 @@ impl EventBlobCatchupManager {
             return Ok(());
         }
 
-        if let Err(e) = coordination_state.start_catchup_processing_phase().await {
+        if let Err(e) = coordination_state.start_catchup_processing_phase() {
             tracing::error!(
                 error = ?e,
                 "failed to send stop message to checkpoint tailing"
@@ -340,7 +340,7 @@ impl EventBlobCatchupManager {
             }
         }
 
-        if let Err(e) = coordination_state.complete_catchup().await {
+        if let Err(e) = coordination_state.complete_catchup() {
             tracing::error!(error = ?e, "failed to send restart message to checkpoint tailing");
             Err(CatchupError::NonRecoverable(anyhow::anyhow!(
                 "failed to send restart message to checkpoint tailing"
@@ -447,7 +447,7 @@ impl EventBlobCatchupManager {
         let mut next_event_index = next_event_index;
 
         for blob_id in blobs.iter().rev() {
-            let downloaded_blob = self.process_single_blob(blob_id, next_event_index).await?;
+            let downloaded_blob = self.process_single_blob(blob_id, next_event_index)?;
 
             tracing::debug!("processed event blob {:?}", downloaded_blob);
 
@@ -498,7 +498,7 @@ impl EventBlobCatchupManager {
         Ok(num_events_recovered)
     }
 
-    async fn process_single_blob(
+    fn process_single_blob(
         &self,
         blob_id: &BlobId,
         next_event_index: Option<u64>,
@@ -562,8 +562,7 @@ impl EventBlobCatchupManager {
             &downloaded_blob.prev_blob_id,
             downloaded_blob.prev_event_id,
             downloaded_blob.epoch,
-        )
-        .await?;
+        )?;
 
         batch.write()?;
 
@@ -623,7 +622,7 @@ impl EventBlobCatchupManager {
         }
     }
 
-    async fn update_init_state(
+    fn update_init_state(
         &self,
         batch: &mut DBBatch,
         first_event_index: u64,

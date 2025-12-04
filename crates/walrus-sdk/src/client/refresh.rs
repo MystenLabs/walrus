@@ -5,6 +5,7 @@
 //! when needed.
 
 use std::{
+    num::NonZeroU16,
     ops::ControlFlow,
     sync::Arc,
     time::{Duration, Instant},
@@ -13,6 +14,7 @@ use std::{
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use tokio::sync::{Notify, mpsc, oneshot};
+use tracing::Level;
 use walrus_sui::{client::ReadClient, types::move_structs::EpochState};
 
 use super::resource::PriceComputation;
@@ -71,6 +73,7 @@ pub struct CommitteesRefresher<T> {
 
 impl<T: ReadClient> CommitteesRefresher<T> {
     /// Creates a new refresher cache.
+    #[tracing::instrument(name = "CommitteesRefresher::new", skip_all, level = Level::DEBUG)]
     pub async fn new(
         config: CommitteesRefreshConfig,
         sui_client: T,
@@ -80,7 +83,7 @@ impl<T: ReadClient> CommitteesRefresher<T> {
         let (committees, last_price_computation, epoch_state) =
             Self::get_latest(&sui_client).await?;
         // Get the epoch duration, this time only.
-        let epoch_duration = sui_client.fixed_system_parameters().await?.epoch_duration;
+        let epoch_duration = sui_client.fixed_system_parameters().epoch_duration;
 
         Ok(Self {
             config,
@@ -123,9 +126,7 @@ impl<T: ReadClient> CommitteesRefresher<T> {
             }
             request = self.req_rx.recv() => {
                 if let Some(request) = request {
-                    tracing::trace!(
-                        "received a request"
-                    );
+                    tracing::debug!(?request, "received a request");
                     if request.is_refresh() {
                         let _ = self.refresh_if_stale().await.inspect_err(|error| {
                             tracing::warn!(
@@ -139,7 +140,7 @@ impl<T: ReadClient> CommitteesRefresher<T> {
                         .into_reply_channel()
                         .send((
                             self.last_committees.clone(),
-                            self.last_price_computation.clone(),
+                            self.last_price_computation,
                         ))
                         .inspect_err(|_| {
                             // This may happen because the client was notified of a committee
@@ -213,6 +214,7 @@ impl<T: ReadClient> CommitteesRefresher<T> {
     async fn get_latest(
         sui_client: &T,
     ) -> Result<(ActiveCommittees, PriceComputation, EpochState)> {
+        tracing::debug!("getting the latest active committees and price computation from chain");
         let committees_and_state = sui_client.get_committees_and_state().await?;
         let epoch_state = committees_and_state.epoch_state.clone();
         let committees = ActiveCommittees::from_committees_and_state(committees_and_state);
@@ -225,13 +227,7 @@ impl<T: ReadClient> CommitteesRefresher<T> {
 
     /// Computes the start of the next epoch, based on current information.
     fn next_epoch_start(&self) -> DateTime<Utc> {
-        let estimated_start_of_current_epoch = match self.epoch_state {
-            EpochState::EpochChangeDone(epoch_start)
-            | EpochState::NextParamsSelected(epoch_start) => epoch_start,
-            EpochState::EpochChangeSync(_) => Utc::now(),
-        };
-
-        estimated_start_of_current_epoch + self.epoch_duration
+        self.epoch_state.earliest_start_of_current_epoch() + self.epoch_duration
     }
 
     /// Computes the time from now to the start of the next epoch.
@@ -277,12 +273,21 @@ pub enum RefresherCommunicationError {
 pub struct CommitteesRefresherHandle {
     notify: Arc<Notify>,
     req_tx: mpsc::Sender<CommitteesRequest>,
+    n_shards: NonZeroU16,
 }
 
 impl CommitteesRefresherHandle {
     /// Creates a new handle to communicate with the refresher.
-    pub fn new(notify: Arc<Notify>, req_tx: mpsc::Sender<CommitteesRequest>) -> Self {
-        Self { notify, req_tx }
+    pub fn new(
+        notify: Arc<Notify>,
+        req_tx: mpsc::Sender<CommitteesRequest>,
+        n_shards: NonZeroU16,
+    ) -> Self {
+        Self {
+            notify,
+            req_tx,
+            n_shards,
+        }
     }
 
     /// Sends a request to the refresher to refresh and get the active committees and the price
@@ -291,15 +296,22 @@ impl CommitteesRefresherHandle {
         &self,
         kind: RequestKind,
     ) -> Result<(Arc<ActiveCommittees>, PriceComputation), RefresherCommunicationError> {
+        tracing::debug!(?kind, "sending a request to the refresher");
         let (tx, rx) = oneshot::channel();
         self.req_tx.send(CommitteesRequest { kind, tx }).await?;
         let (committees, price_computation) = rx.await?;
+        tracing::debug!("received the response from the refresher");
         Ok((committees, price_computation))
     }
 
     /// Awaits for a notification from the refresher that the active committee has changed.
     pub async fn change_notified(&self) {
         self.notify.notified().await
+    }
+
+    /// Returns the configured number of shards for the Walrus network.
+    pub fn n_shards(&self) -> NonZeroU16 {
+        self.n_shards
     }
 }
 

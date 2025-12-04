@@ -5,7 +5,7 @@ use core::fmt::{self, Display};
 use std::{
     collections::{HashMap, hash_map::Entry},
     fmt::Debug,
-    ops::Bound::{Excluded, Included},
+    ops::Bound::{self, Excluded, Included},
     path::Path,
     sync::Arc,
     time::Instant,
@@ -31,7 +31,7 @@ use walrus_core::{
     messages::{SyncShardRequest, SyncShardResponse},
     metadata::{BlobMetadata, VerifiedBlobMetadataWithId},
 };
-use walrus_sui::types::BlobEvent;
+use walrus_sui::types::{BlobEvent, GENESIS_EPOCH};
 use walrus_utils::metrics::Registry;
 
 use self::{
@@ -44,6 +44,9 @@ use self::{
         PerObjectBlobInfoIterator,
     },
     constants::{
+        garbage_collector_last_completed_epoch_key,
+        garbage_collector_last_started_epoch_key,
+        garbage_collector_table_cf_name,
         metadata_cf_name,
         node_status_cf_name,
         pending_recover_slivers_column_family_name,
@@ -59,7 +62,7 @@ use super::{
     errors::{ShardNotAssigned, SyncShardServiceError},
     metrics::{NodeMetricSet, STATUS_FAILURE, STATUS_SUCCESS},
 };
-use crate::utils;
+use crate::utils::{self, BatchProcessingResult};
 
 pub(crate) mod blob_info;
 pub(crate) mod constants;
@@ -128,6 +131,11 @@ impl NodeStatus {
         }
     }
 
+    /// Returns `true` if the node is active.
+    pub fn is_active(&self) -> bool {
+        matches!(self, NodeStatus::Active)
+    }
+
     /// Returns `true` if the node is catching up.
     pub fn is_catching_up(&self) -> bool {
         matches!(
@@ -176,6 +184,7 @@ pub struct Storage {
     metadata: DBMap<BlobId, BlobMetadata>,
     blob_info: BlobInfoTable,
     event_cursor: EventCursorTable,
+    garbage_collector_table: DBMap<String, Epoch>,
     shards: Arc<RwLock<HashMap<ShardIndex, Arc<ShardStorage>>>>,
     db_table_opts_factory: DatabaseTableOptionsFactory,
     metrics: Arc<CommonDatabaseMetrics>,
@@ -203,7 +212,7 @@ impl Storage {
         path: &Path,
         db_config: DatabaseConfig,
         metrics_config: MetricConf,
-        registry: Registry,
+        metrics_registry: Registry,
     ) -> Result<Self, anyhow::Error> {
         let mut db_opts = Options::from(&db_config.global);
         db_opts.create_missing_column_families(true);
@@ -255,6 +264,8 @@ impl Storage {
         let blob_info_column_families = BlobInfoTable::options(&db_table_opts_factory);
         let (event_cursor_cf_name, event_cursor_options) =
             EventCursorTable::options(&db_table_opts_factory);
+        let garbage_collector_table_cf_name = garbage_collector_table_cf_name();
+        let garbage_collector_table_options = db_table_opts_factory.garbage_collector();
 
         let expected_column_families: Vec<_> = shard_column_families
             .iter_mut()
@@ -263,6 +274,10 @@ impl Storage {
                 (node_status_cf_name, node_status_options),
                 (metadata_cf_name, metadata_options),
                 (event_cursor_cf_name, event_cursor_options),
+                (
+                    garbage_collector_table_cf_name,
+                    garbage_collector_table_options,
+                ),
             ])
             .chain(blob_info_column_families)
             .collect::<Vec<_>>();
@@ -293,6 +308,29 @@ impl Storage {
             node_status.insert(&(), &NodeStatus::Standby)?;
         }
 
+        let garbage_collector_table = DBMap::reopen(
+            &database,
+            Some(garbage_collector_table_cf_name),
+            &ReadWriteOptions::default(),
+            false,
+        )?;
+        if garbage_collector_table
+            .get(&garbage_collector_last_started_epoch_key())?
+            .is_none()
+        {
+            garbage_collector_table
+                .insert(&garbage_collector_last_started_epoch_key(), &GENESIS_EPOCH)?;
+        }
+        if garbage_collector_table
+            .get(&garbage_collector_last_completed_epoch_key())?
+            .is_none()
+        {
+            garbage_collector_table.insert(
+                &garbage_collector_last_completed_epoch_key(),
+                &GENESIS_EPOCH,
+            )?;
+        }
+
         let metadata = DBMap::reopen(
             &database,
             Some(metadata_cf_name),
@@ -311,27 +349,35 @@ impl Storage {
                         &database,
                         &db_table_opts_factory,
                         None,
-                        &registry,
+                        &metrics_registry,
                     )
                     .map(|shard| (id, Arc::new(shard)))
                 })
                 .collect::<Result<_, _>>()?,
         ));
 
-        Ok(Self {
+        let metrics = Arc::new(CommonDatabaseMetrics::new_with_id(
+            &metrics_registry,
+            "storage".to_owned(),
+        ));
+
+        let storage = Self {
             database,
             node_status,
             metadata,
             blob_info,
             event_cursor,
+            garbage_collector_table,
             shards,
             db_table_opts_factory,
-            metrics: Arc::new(CommonDatabaseMetrics::new_with_id(
-                &registry,
-                "storage".to_owned(),
-            )),
-            metrics_registry: registry,
-        })
+            metrics,
+            metrics_registry,
+        };
+
+        // TODO(WAL-1111): Check if this is actually needed.
+        storage.enable_auto_compactions(true)?;
+
+        Ok(storage)
     }
 
     /// Returns a reference to the database.
@@ -347,6 +393,59 @@ impl Storage {
 
     pub(super) fn set_node_status(&self, status: NodeStatus) -> Result<(), TypedStoreError> {
         self.node_status.insert(&(), &status)
+    }
+
+    /// Returns the last epochs for which garbage collection was started and completed.
+    pub(crate) fn garbage_collector_last_started_and_completed_epochs(
+        &self,
+    ) -> anyhow::Result<(Epoch, Epoch)> {
+        let &[last_started_epoch, last_completed_epoch] =
+            &self.garbage_collector_table.multi_get(&[
+                garbage_collector_last_started_epoch_key(),
+                garbage_collector_last_completed_epoch_key(),
+            ])?[..]
+        else {
+            anyhow::bail!("garbage collector last started and completed epochs not found");
+        };
+        Ok((
+            last_started_epoch.unwrap_or(GENESIS_EPOCH),
+            last_completed_epoch.unwrap_or(GENESIS_EPOCH),
+        ))
+    }
+
+    /// Returns the last epoch for which garbage collection was started.
+    #[allow(unused)]
+    pub(crate) fn garbage_collector_last_started_epoch(&self) -> Result<Epoch, TypedStoreError> {
+        Ok(self
+            .garbage_collector_table
+            .get(&garbage_collector_last_started_epoch_key())?
+            .unwrap_or(GENESIS_EPOCH))
+    }
+
+    /// Sets the last epoch for which garbage collection was started.
+    pub(crate) fn set_garbage_collector_last_started_epoch(
+        &self,
+        epoch: Epoch,
+    ) -> Result<(), TypedStoreError> {
+        self.garbage_collector_table
+            .insert(&garbage_collector_last_started_epoch_key(), &epoch)
+    }
+
+    /// Returns the highest epoch for which garbage collection was completed.
+    pub(crate) fn garbage_collector_last_completed_epoch(&self) -> Result<Epoch, TypedStoreError> {
+        Ok(self
+            .garbage_collector_table
+            .get(&garbage_collector_last_completed_epoch_key())?
+            .unwrap_or(GENESIS_EPOCH))
+    }
+
+    /// Sets the highest epoch for which garbage collection was completed.
+    pub(crate) fn set_garbage_collector_last_completed_epoch(
+        &self,
+        epoch: Epoch,
+    ) -> Result<(), TypedStoreError> {
+        self.garbage_collector_table
+            .insert(&garbage_collector_last_completed_epoch_key(), &epoch)
     }
 
     pub(crate) fn clear_blob_info_table(&self) -> Result<(), TypedStoreError> {
@@ -371,10 +470,9 @@ impl Storage {
     ) -> Result<(), TypedStoreError> {
         let shard_map_lock = self.lock_shards().await;
         self.create_storage_for_shards_locked(shard_map_lock, new_shards)
-            .await
     }
 
-    pub(crate) async fn create_storage_for_shards_locked(
+    pub(crate) fn create_storage_for_shards_locked(
         &self,
         mut locked_map: StorageShardLock,
         new_shards: &[ShardIndex],
@@ -613,24 +711,31 @@ impl Storage {
         &self,
         current_epoch: Epoch,
         node_metrics: &NodeMetricSet,
+        batch_size: usize,
     ) -> anyhow::Result<()> {
         self.blob_info
-            .process_expired_blob_objects(current_epoch, node_metrics)
+            .process_expired_blob_objects(current_epoch, node_metrics, batch_size)
             .await
     }
 
     /// Deletes the aggregate blob info, metadata, and slivers for blobs that are expired in the
     /// `current_epoch`.
+    ///
+    /// Processing is done in batches using `spawn_blocking` to avoid blocking the async runtime
+    /// and make it possible to abort the task if the node is shutting down.
+    ///
+    /// Returns `true` if the processing was completed successfully, `false` otherwise.
     #[tracing::instrument(skip_all, fields(walrus.epoch = %current_epoch))]
     pub(crate) async fn delete_expired_blob_data(
         &self,
         current_epoch: Epoch,
         node_metrics: &NodeMetricSet,
-    ) -> anyhow::Result<()> {
-        let Some(optimistic_handle) = self.database.as_optimistic() else {
+        batch_size: usize,
+    ) -> anyhow::Result<bool> {
+        if self.database.as_optimistic().is_none() {
             tracing::warn!("data deletion is only possible when the DB supports transactions");
-            return Ok(());
-        };
+            return Ok(false);
+        }
 
         match self.node_status()? {
             NodeStatus::Active => (),
@@ -639,57 +744,103 @@ impl Storage {
                     %status,
                     "data deletion is only performed when the node is active, skipping"
                 );
-                return Ok(());
+                return Ok(false);
             }
         };
 
         tracing::info!("starting to delete expired blob data");
-        let mut cleaned_up_blob_id_count = 0;
         let start_time = Instant::now();
+        let shards = Arc::new(
+            self.owned_shard_storages()
+                .await
+                .context("error while collecting shards for data deletion")?,
+        );
 
-        let shards = self
-            .owned_shard_storages()
-            .await
-            .context("error while collecting shards for data deletion")?;
+        let this = self.clone();
+        let node_metrics = node_metrics.clone();
 
-        for entry in self
+        let cleaned_up_blob_id_count =
+            utils::process_items_in_batches(move |last_processed_blob_id| {
+                this.iterate_and_delete_expired_blob_data(
+                    last_processed_blob_id,
+                    batch_size,
+                    current_epoch,
+                    shards.as_ref(),
+                    &node_metrics,
+                )
+            })
+            .await?;
+
+        tracing::info!(
+            cleaned_up_blob_id_count,
+            duration = ?start_time.elapsed(),
+            "finished deleting expired blob data",
+        );
+
+        Ok(true)
+    }
+
+    /// Processes a batch of blob info entries and attempts to delete expired blob data.
+    ///
+    /// Returns the number of blobs that were successfully cleaned up.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the DB does not support transactions or a DB error occurs while
+    /// attempting to create an iterator over the blob info.
+    fn iterate_and_delete_expired_blob_data(
+        &self,
+        mut last_processed_blob_id: Option<BlobId>,
+        batch_size: usize,
+        current_epoch: Epoch,
+        shards: &[Arc<ShardStorage>],
+        node_metrics: &NodeMetricSet,
+    ) -> anyhow::Result<utils::BatchProcessingResult<BlobId>> {
+        let optimistic_handle = self
+            .database
+            .as_optimistic()
+            .context("blob data deletion is only possible when the DB supports transactions")?;
+        let mut modified_count = 0;
+        let mut total_count = 0;
+
+        let start_blob_id_bound = last_processed_blob_id.map_or(Bound::Unbounded, Bound::Excluded);
+        for result in self
             .blob_info
-            .aggregate_blob_info_iter()
-            .context("DB error while attempting to iterate over aggregate blob info")?
+            .aggregate_blob_info_range_iter(start_blob_id_bound, Bound::Unbounded)?
+            .take(batch_size)
         {
-            let (blob_id, blob_info) = match entry {
-                Ok(entry) => entry,
+            total_count += 1;
+            let (blob_id, blob_info) = match result {
+                Ok(values) => values,
                 Err(error) => {
                     tracing::warn!(
                         ?error,
-                        "a DB error occurred while iterating over aggregate blob info"
+                        "encountered a DB error while attempting to delete blob data"
                     );
                     continue;
                 }
             };
+            last_processed_blob_id = Some(blob_id);
 
             if !blob_info.can_data_be_deleted(current_epoch) {
                 tracing::trace!(
                     %blob_id,
-                    "skipping blob that is still registered",
+                    "skipping blob that cannot be deleted (still registered)",
                 );
                 continue;
             }
 
             // At this point we know that the blob is no longer registered, and we can attempt to
             // delete the related data.
-            match self
-                .attempt_to_delete_blob_data_inner(
-                    &optimistic_handle,
-                    &blob_id,
-                    current_epoch,
-                    &shards,
-                    node_metrics,
-                )
-                .await
-            {
+            match self.attempt_to_delete_blob_data_inner(
+                &optimistic_handle,
+                &blob_id,
+                current_epoch,
+                shards,
+                node_metrics,
+            ) {
                 Ok(true) => {
-                    cleaned_up_blob_id_count += 1;
+                    modified_count += 1;
                 }
                 Ok(false) => (),
                 Err(error) => {
@@ -702,13 +853,11 @@ impl Storage {
             }
         }
 
-        tracing::info!(
-            cleaned_up_blob_id_count,
-            duration_seconds = %start_time.elapsed().as_secs_f64(),
-            "finished deleting expired blob data",
-        );
-
-        Ok(())
+        Ok(BatchProcessingResult {
+            total_count,
+            modified_count,
+            last_processed_item: last_processed_blob_id,
+        })
     }
 
     pub(crate) async fn attempt_to_delete_blob_data(
@@ -732,7 +881,6 @@ impl Storage {
             &shards,
             node_metrics,
         )
-        .await
     }
 
     /// Attempts to delete the blob data for the given blob ID.
@@ -742,7 +890,7 @@ impl Storage {
         skip_all,
         fields(walrus.blob_id = %blob_id, walrus.current_epoch = %current_epoch),
     )]
-    async fn attempt_to_delete_blob_data_inner(
+    fn attempt_to_delete_blob_data_inner(
         &self,
         optimistic_handle: &OptimisticHandle<'_>,
         blob_id: &BlobId,
@@ -759,7 +907,9 @@ impl Storage {
             return Ok(false);
         };
         if !blob_info.can_data_be_deleted(current_epoch) {
-            tracing::debug!("blob was reregistered before attempting to delete expired blob data");
+            tracing::debug!(
+                "attempting to delete expired blob data, but blob can no longer be deleted"
+            );
             return Ok(false);
         }
 
@@ -791,7 +941,7 @@ impl Storage {
 
             // Record failed deletion in metrics.
             walrus_utils::with_label!(
-                node_metrics.cleanup_blob_data_deletion_attempts_total,
+                node_metrics.garbage_collection_blob_data_deletion_attempts_total,
                 STATUS_FAILURE
             )
             .inc();
@@ -803,7 +953,7 @@ impl Storage {
 
         // Record successful deletion in metrics.
         walrus_utils::with_label!(
-            node_metrics.cleanup_blob_data_deletion_attempts_total,
+            node_metrics.garbage_collection_blob_data_deletion_attempts_total,
             STATUS_SUCCESS
         )
         .inc();

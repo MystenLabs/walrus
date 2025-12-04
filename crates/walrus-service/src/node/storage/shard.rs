@@ -41,7 +41,7 @@ use walrus_core::{
     by_axis::ByAxis,
     encoding::{EncodingAxis, Primary, PrimarySliver, Secondary, SecondarySliver},
 };
-use walrus_utils::metrics::Registry;
+use walrus_utils::{metrics::Registry, tracing_sampled};
 
 use super::{
     DatabaseTableOptionsFactory,
@@ -55,11 +55,16 @@ use crate::{
         blob_retirement_notifier::ExecutionResultWithRetirementCheck,
         config::ShardSyncConfig,
         errors::SyncShardClientError,
+        shard_sync,
     },
     utils,
 };
 
 type ShardMetrics = CommonDatabaseMetrics;
+
+// Type aliases to simplify complex return types flagged by clippy::type_complexity.
+type NextBlobInfo = Option<(BlobId, BlobInfo)>;
+type BatchFetchedSliversOutcome = Result<NextBlobInfo, SyncShardClientError>;
 
 /// A cache of the family names created for an instance of a shard, to avoid recomputing them for
 /// metrics.
@@ -1183,7 +1188,10 @@ impl ShardStorage {
 
     /// Helper function to add fetched slivers to the db batch and check for missing blobs.
     /// Advance `blob_info_iter`` to the next blob that is greater than the last fetched blob id,
-    /// which is the next expected blob to fetch, and return the next expected blob.
+    /// which is the next expected blob to fetch.
+    ///
+    /// Returns the updated iterator position together with the ids whose recovery deferrals can be
+    /// cleared.
     #[allow(clippy::too_many_arguments)]
     fn batch_fetched_slivers_and_check_missing_blobs(
         &self,
@@ -1191,11 +1199,12 @@ impl ShardStorage {
         _node: &Arc<StorageNodeInner>,
         fetched_slivers: &[(BlobId, Sliver)],
         sliver_type: SliverType,
-        mut next_blob_info: Option<(BlobId, BlobInfo)>,
+        mut next_blob_info: NextBlobInfo,
         blob_info_iter: &mut BlobInfoIterator,
         batch: &mut DBBatch,
         config: &crate::node::config::ShardSyncConfig,
-    ) -> Result<Option<(BlobId, BlobInfo)>, SyncShardClientError> {
+    ) -> BatchFetchedSliversOutcome {
+        let mut cleared_blob_ids = Vec::new();
         let use_sst = config.sst_ingestion_config.is_some();
         for (blob_id, sliver) in fetched_slivers.iter() {
             tracing::debug!(
@@ -1279,6 +1288,8 @@ impl ShardStorage {
                 sliver_type,
                 batch,
             )?;
+
+            cleared_blob_ids.push(*blob_id);
         }
         Ok(next_blob_info)
     }
@@ -1379,8 +1390,8 @@ impl ShardStorage {
                 // TODO: in test, check that we have recovered all the certified blobs.
                 break;
             }
-            tracing::warn!("recovering missing blobs still misses blobs. Retrying in 60 seconds.",);
-            tokio::time::sleep(Duration::from_secs(60)).await;
+            tracing::warn!("recovering missing blobs still misses blobs; retrying in 1 minute");
+            tokio::time::sleep(Duration::from_mins(1)).await;
         }
 
         Ok(())
@@ -1399,6 +1410,16 @@ impl ShardStorage {
         // many blobs are pending recovery.
         let mut total_blobs_pending_recovery = self.pending_recover_slivers.safe_iter()?.count();
         self.record_pending_recovery_metrics(&node, total_blobs_pending_recovery);
+
+        let maybe_log_error = |result: Result<_, _>| {
+            if let Err(error) = result {
+                tracing::error!(
+                    ?error,
+                    "error recovering missing blob sliver; \
+                    blob is not removed from pending_recover_slivers"
+                );
+            }
+        };
 
         for recover_blob in self.pending_recover_slivers.safe_iter()? {
             let ((sliver_type, blob_id), _) = recover_blob?;
@@ -1430,24 +1451,14 @@ impl ShardStorage {
 
             // Wait for some futures to complete if we reach the concurrent blob recovery limit
             if futures.len() >= config.max_concurrent_blob_recovery_during_shard_recovery
-                && let Some(Err(error)) = futures.next().await
+                && let Some(result) = futures.next().await
             {
-                tracing::error!(
-                    ?error,
-                    "error recovering missing blob sliver. \
-                        blob is not removed from pending_recover_slivers"
-                );
+                maybe_log_error(result);
             }
         }
 
         while let Some(result) = futures.next().await {
-            if let Err(error) = result {
-                tracing::error!(
-                    ?error,
-                    "error recovering missing blob sliver. \
-                    blob is not removed from pending_recover_slivers"
-                );
-            }
+            maybe_log_error(result);
         }
 
         Ok(())
@@ -1503,7 +1514,8 @@ impl ShardStorage {
         node: Arc<StorageNodeInner>,
         epoch: Epoch,
     ) -> Result<(), SyncShardClientError> {
-        tracing::info!(
+        tracing_sampled::info!(
+            shard_sync::SAMPLED_TRACING_INTERVAL,
             walrus.blob_id = %blob_id,
             walrus.shard_index = %self.id,
             "start recovering missing blob"

@@ -210,14 +210,20 @@ impl BlobPool {
         }
     }
 
-    /// Returns true if the blob pool is empty.
-    pub fn is_empty(&self) -> bool {
-        self.blobs.is_empty()
+    /// Returns the number of blobs in the pool.
+    pub fn len(&self) -> usize {
+        self.blobs.len()
     }
 
     /// Returns true if the blob pool is full.
     pub fn is_full(&self) -> bool {
         self.blobs.len() >= self.max_blobs_in_pool
+    }
+
+    /// Returns true if the blob pool is empty.
+    #[cfg(test)]
+    pub fn is_empty(&self) -> bool {
+        self.blobs.is_empty()
     }
 }
 

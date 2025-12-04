@@ -26,13 +26,13 @@ use walrus_utils::backoff::ExponentialBackoffState;
 use super::contract_service::SystemContractService;
 
 /// Maximum number of seconds that an operation can be randomly delayed by.
-const MAX_SCHEDULE_JITTER: Duration = Duration::from_secs(180);
+const MAX_SCHEDULE_JITTER: Duration = Duration::from_mins(3);
 /// The minimum exponential backoff when performing retries.
 const MIN_BACKOFF: Duration = Duration::from_secs(5);
 /// The maximum exponential backoff when performing retries.
-const MAX_BACKOFF: Duration = Duration::from_secs(300);
+const MAX_BACKOFF: Duration = Duration::from_mins(5);
 /// The maximum amount of time before the epoch change that process subsidies is scheduled.
-const MAX_SUBSIDIES_TIME_BEFORE_EPOCH_CHANGE: Duration = Duration::from_secs(300);
+const MAX_SUBSIDIES_TIME_BEFORE_EPOCH_CHANGE: Duration = Duration::from_mins(5);
 
 /// Function returning the current time in Utc.
 type UtcNowFn = Arc<dyn Fn() -> DateTime<Utc> + Send + Sync>;
@@ -136,8 +136,8 @@ impl EpochChangeDriver {
     /// Schedule a call to end voting for the next epoch that will be dispatched by
     /// [`run()`][Self::run].
     ///
-    /// Should be called after [`EpochChangeDone`] events. Subsequent calls to this
-    /// method cancel any earlier scheduled calls to end voting.
+    /// Should be called after [`EpochChangeDone`][walrus_sui::types::EpochChangeDone] events.
+    /// Subsequent calls to this method cancel any earlier scheduled calls to end voting.
     #[tracing::instrument(skip_all)]
     pub fn schedule_voting_end(&self, next_epoch: NonZero<Epoch>) {
         let mut inner = self.inner.lock().expect("thread did not panic with lock");
@@ -190,8 +190,9 @@ impl EpochChangeDriver {
     /// Schedules a call to start epoch change to the next epoch that will be dispatched by
     /// [`run()`][Self::run].
     ///
-    /// Should be called after [`NextParamsSelected`] events. Subsequent calls to this
-    /// method cancel any earlier scheduled calls.
+    /// Should be called after
+    /// [`EpochParametersSelected`][walrus_sui::types::EpochParametersSelected] events. Subsequent
+    /// calls to this method cancel any earlier scheduled calls.
     #[tracing::instrument(skip_all)]
     pub fn schedule_initiate_epoch_change(&self, next_epoch: NonZero<Epoch>) {
         let mut inner = self.inner.lock().expect("thread did not panic with lock");
@@ -248,8 +249,9 @@ impl EpochChangeDriver {
     /// Schedules a call to process subsidies for the next epoch that will be dispatched by
     /// [`run()`][Self::run] if subsidies are configured in the contract service.
     ///
-    /// Should be called after [`NextParamsSelected`] events. Subsequent calls to this
-    /// method cancel any earlier scheduled calls.
+    /// Should be called after
+    /// [`EpochParametersSelected`][walrus_sui::types::EpochParametersSelected] events. Subsequent
+    /// calls to this method cancel any earlier scheduled calls.
     #[tracing::instrument(skip_all)]
     pub fn schedule_process_subsidies(&self) {
         if !self.contract_service.is_subsidies_object_configured() {

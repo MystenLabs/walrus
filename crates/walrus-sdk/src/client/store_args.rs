@@ -6,7 +6,10 @@
 use std::{num::NonZeroU16, sync::Arc, time::Duration};
 
 use tokio::{
-    sync::{Mutex, mpsc::Sender as MpscSender},
+    sync::{
+        Mutex,
+        mpsc::{Sender as MpscSender, UnboundedSender},
+    },
     task::JoinHandle,
 };
 use walrus_core::{DEFAULT_ENCODING, EncodingType, EpochCount};
@@ -19,6 +22,25 @@ use crate::{
     upload_relay::tip_config::TipConfig,
     uploader::{TailHandling, UploaderEvent},
 };
+
+/// Events emitted while encoding blobs before upload.
+#[derive(Debug, Clone)]
+pub enum EncodingProgressEvent {
+    /// Encoding is starting with the given total number of blobs.
+    Started {
+        /// The total number of blobs that will be encoded.
+        total: usize,
+    },
+    /// A blob finished encoding.
+    BlobCompleted {
+        /// The number of blobs that have finished encoding so far (1-indexed).
+        completed: usize,
+        /// The total number of blobs scheduled for encoding.
+        total: usize,
+    },
+    /// Encoding finished (all blobs encoded).
+    Finished,
+}
 
 /// Arguments for store operations that are frequently passed together.
 // NOTE: In the future, if the struct grows larger, we may need to consider using a builder.
@@ -37,7 +59,7 @@ pub struct StoreArgs {
     /// The metrics to use for the blob.
     pub metrics: Option<Arc<ClientMetrics>>,
     /// The optional upload relay client, that allows to store the blob via the relay.
-    pub upload_relay_client: Option<UploadRelayClient>,
+    pub upload_relay_client: Option<Arc<UploadRelayClient>>,
     /// Tail handling preference for sliver uploads. `Detached` allows the caller to decide whether
     /// to await the tail uploads or hand them off.
     pub tail_handling: TailHandling,
@@ -48,6 +70,8 @@ pub struct StoreArgs {
     /// ownership of the handles with the caller so they can decide when to await them. Without a
     /// collector, detached handles are awaited in a background task and only surfaced via logging.
     pub tail_handle_collector: Option<Arc<Mutex<Vec<JoinHandle<()>>>>>,
+    /// Optional channel to forward encoding progress events to.
+    pub encoding_event_tx: Option<UnboundedSender<EncodingProgressEvent>>,
 }
 
 impl StoreArgs {
@@ -70,6 +94,7 @@ impl StoreArgs {
             tail_handling: TailHandling::Blocking,
             quorum_event_tx: None,
             tail_handle_collector: None,
+            encoding_event_tx: None,
         }
     }
 
@@ -90,12 +115,13 @@ impl StoreArgs {
             tail_handling: TailHandling::Blocking,
             quorum_event_tx: None,
             tail_handle_collector: None,
+            encoding_event_tx: None,
         }
     }
 
     /// Sets the upload relay client.
     pub fn with_upload_relay_client(mut self, upload_relay_client: UploadRelayClient) -> Self {
-        self.upload_relay_client = Some(upload_relay_client);
+        self.upload_relay_client = Some(Arc::new(upload_relay_client));
         self
     }
 
@@ -112,6 +138,12 @@ impl StoreArgs {
         self
     }
 
+    /// Sets the encoding event channel used to forward encoding progress.
+    pub fn with_encoding_event_tx(mut self, tx: UnboundedSender<EncodingProgressEvent>) -> Self {
+        self.encoding_event_tx = Some(tx);
+        self
+    }
+
     /// Sets the collector for detached tail handles so the caller can await them explicitly.
     pub fn with_tail_handle_collector(
         mut self,
@@ -123,7 +155,9 @@ impl StoreArgs {
 
     /// Returns a reference to the upload relay client if present.
     pub fn upload_relay_client_ref(&self) -> Option<&UploadRelayClient> {
-        self.upload_relay_client.as_ref()
+        self.upload_relay_client
+            .as_ref()
+            .map(|client| client.as_ref())
     }
 
     /// Sets the encoding type.

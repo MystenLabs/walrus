@@ -1,8 +1,8 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
-//! Implementation of the [`RestApiError`] derive macro.
-//!
-//! See the [`crate::derive_rest_api_error`] for more details.
+
+//! Implementation of the macro to derive the `RestApiError` trait defined in the `walrus-service`
+//! crate.
 
 use darling::{
     Error,
@@ -395,7 +395,7 @@ impl ToTokens for DeriveRestApiErrorTrait<'_> {
             tokens.extend(error.write_errors());
         } else {
             tokens.extend(quote! {
-                impl RestApiError for #name {
+                impl crate::common::api::RestApiError for #name {
                     #status_method
                     #domain_method
                     #reason_method

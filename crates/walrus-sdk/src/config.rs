@@ -6,6 +6,7 @@ use std::{
     collections::HashMap,
     iter::once,
     path::{Path, PathBuf},
+    sync::Arc,
 };
 
 use anyhow::{Context, Result, anyhow, bail};
@@ -13,8 +14,11 @@ use indexmap::IndexSet;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use sui_types::base_types::ObjectID;
+use tokio::sync::{Notify, mpsc};
+use tracing::Level;
 use walrus_sui::{
     client::{
+        ReadClient,
         SuiClientError,
         SuiContractClient,
         SuiReadClient,
@@ -30,7 +34,11 @@ use walrus_utils::{
     is_internal_run,
 };
 
-use crate::client::quilt_client::QuiltClientConfig;
+use crate::client::{
+    byte_range_read_client::ByteRangeReadClientConfig,
+    quilt_client::QuiltClientConfig,
+    refresh::{CommitteesRefresher, CommitteesRefresherHandle},
+};
 
 mod committees_refresh_config;
 /// Communication configuration options.
@@ -113,6 +121,9 @@ pub struct ClientConfig {
     /// The configuration of the QuiltClient.
     #[serde(default)]
     pub quilt_client_config: QuiltClientConfig,
+    /// The configuration of the ByteRangeReadClient.
+    #[serde(default)]
+    pub byte_range_read_client_config: ByteRangeReadClientConfig,
 }
 
 impl ClientConfig {
@@ -127,6 +138,15 @@ impl ClientConfig {
             communication_config: Default::default(),
             refresh_config: Default::default(),
             quilt_client_config: Default::default(),
+            byte_range_read_client_config: Default::default(),
+        }
+    }
+
+    fn apply_upload_mode_preset(&mut self) {
+        if let Some(mode) = self.communication_config.upload_mode {
+            let preset: UploadPreset = mode.into();
+            let communication_config = std::mem::take(&mut self.communication_config);
+            self.communication_config = preset.apply_to(communication_config);
         }
     }
 
@@ -138,7 +158,7 @@ impl ClientConfig {
     ) -> anyhow::Result<(Self, Option<String>)> {
         let path = path.as_ref();
         match walrus_utils::load_from_yaml(path) {
-            Ok(MultiClientConfig::SingletonConfig(config)) => {
+            Ok(MultiClientConfig::SingletonConfig(mut config)) => {
                 if let Some(context) = context {
                     bail!(
                         "cannot specify context when using a single-context configuration file \
@@ -147,6 +167,7 @@ impl ClientConfig {
                         context,
                     )
                 }
+                config.apply_upload_mode_preset();
                 Ok((config, None))
             }
             Ok(MultiClientConfig::MultiConfig {
@@ -154,18 +175,17 @@ impl ClientConfig {
                 default_context,
             }) => {
                 let target_context = context.unwrap_or(&default_context);
-                Ok((
-                    contexts.get(target_context).cloned().ok_or_else(|| {
-                        anyhow::anyhow!(
+                let mut config = contexts.get(target_context).cloned().ok_or_else(|| {
+                    anyhow::anyhow!(
                         "context '{}' not found in multi-config file '{}'. available context(s): \
                         [{}]",
                         target_context,
                         path.display(),
                         contexts.keys().map(|x| format!("'{x}'")).join(", ")
                     )
-                    })?,
-                    Some(target_context.to_string()),
-                ))
+                })?;
+                config.apply_upload_mode_preset();
+                Ok((config, Some(target_context.to_string())))
             }
             Err(e) => bail!(
                 "unable to parse the client config file: [config_filename='{}', error='{}']\n\
@@ -222,6 +242,46 @@ impl ClientConfig {
     pub fn backoff_config(&self) -> &ExponentialBackoffConfig {
         &self.communication_config.request_rate_config.backoff_config
     }
+
+    /// Builds a new [`CommitteesRefresher`], spawns it on a separate task, and
+    /// returns the [`CommitteesRefresherHandle`].
+    #[tracing::instrument(skip_all, level = Level::DEBUG)]
+    pub async fn build_refresher_and_run(
+        &self,
+        sui_client: impl ReadClient + 'static,
+    ) -> Result<CommitteesRefresherHandle> {
+        tracing::debug!("building a new committees refresher");
+        let n_shards = if let Some(n_shards) = self.contract_config.n_shards {
+            n_shards
+        } else {
+            sui_client
+                .n_shards()
+                .await
+                .context("failed to determine n_shards before starting refresher")?
+        };
+
+        let notify = Arc::new(Notify::new());
+        let (req_tx, req_rx) = mpsc::channel(self.refresh_config.refresher_channel_size);
+        let handle = CommitteesRefresherHandle::new(notify.clone(), req_tx, n_shards);
+        let config = self.refresh_config.clone();
+
+        tokio::spawn(async move {
+            if let Err(error) = async {
+                tracing::debug!("building the committees refresher in a background task");
+                let mut refresher =
+                    CommitteesRefresher::new(config, sui_client, req_rx, notify).await?;
+                tracing::debug!("running the committees refresher");
+                refresher.run().await;
+                Ok::<(), anyhow::Error>(())
+            }
+            .await
+            {
+                tracing::error!(?error, "error building or running the committees refresher");
+            }
+        });
+
+        Ok(handle)
+    }
 }
 
 /// Combines the main RPC URL with additional RPC endpoints, ensuring uniqueness of each URL string.
@@ -252,10 +312,15 @@ pub enum MultiClientConfig {
 
 #[cfg(test)]
 mod tests {
+    use std::num::NonZeroU16;
+
     use indoc::indoc;
     use rand::{SeedableRng as _, rngs::StdRng};
     use tempfile::TempDir;
-    use walrus_sui::client::contract_config::ContractConfig;
+    use walrus_sui::{
+        client::contract_config::ContractConfig,
+        test_utils::system_setup::DEFAULT_MAX_EPOCHS_AHEAD,
+    };
     use walrus_test_utils::{Result as TestResult, param_test};
 
     use super::*;
@@ -269,10 +334,14 @@ mod tests {
         const EXAMPLE_CONFIG_PATH: &str = "client_config_example.yaml";
 
         let mut rng = StdRng::seed_from_u64(42);
-        let contract_config = ContractConfig::new(
-            ObjectID::random_from_rng(&mut rng),
-            ObjectID::random_from_rng(&mut rng),
-        );
+        let contract_config = ContractConfig {
+            n_shards: Some(NonZeroU16::new(1000).expect("1000 is non-zero")),
+            max_epochs_ahead: Some(DEFAULT_MAX_EPOCHS_AHEAD),
+            ..ContractConfig::new(
+                ObjectID::random_from_rng(&mut rng),
+                ObjectID::random_from_rng(&mut rng),
+            )
+        };
         let config = ClientConfig {
             contract_config,
             exchange_objects: vec![
@@ -284,6 +353,7 @@ mod tests {
             communication_config: Default::default(),
             refresh_config: Default::default(),
             quilt_client_config: Default::default(),
+            byte_range_read_client_config: Default::default(),
         };
 
         walrus_test_utils::overwrite_file_and_fail_if_not_equal(

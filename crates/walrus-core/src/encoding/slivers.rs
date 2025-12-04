@@ -170,20 +170,11 @@ impl<T: EncodingAxis> SliverData<T> {
         &self,
         config: &EncodingConfigEnum,
     ) -> Result<Symbols, RecoverySymbolError> {
-        let symbol_list = config.encode_all_symbols::<T::OrthogonalAxis>(self.symbols.data())?;
-        assert!(!symbol_list.is_empty(), "must be at least 1 symbol");
-        assert!(!symbol_list[0].is_empty(), "symbols must have data");
+        let symbols = config.encode_all_symbols::<T::OrthogonalAxis>(self.symbols.data())?;
+        assert!(!symbols.is_empty(), "must be at least 1 symbol");
+        assert!(!symbols[0].is_empty(), "symbols must have data");
 
-        let symbol_size = self.symbols.symbol_size(); // Symbol size does not vary when re-encoding.
-        let data_length = symbol_list.len() * usize::from(symbol_size.get());
-
-        let mut flattened: Vec<u8> = Vec::with_capacity(data_length);
-        for symbol in symbol_list {
-            // Vec's specialize this to use a memcpy since symbol is `&[T: Copy]`.
-            flattened.extend_from_slice(&symbol);
-        }
-
-        Ok(Symbols::new(flattened, symbol_size))
+        Ok(symbols)
     }
 
     /// Gets the recovery symbol for a specific target sliver starting from the current sliver.
@@ -467,6 +458,8 @@ impl SliverPair {
 
 #[cfg(test)]
 mod tests {
+    use alloc::vec;
+
     use fastcrypto::hash::Blake2b256;
     use walrus_test_utils::{Result, param_test, random_subset};
 
@@ -482,7 +475,7 @@ mod tests {
         source_symbols_secondary: u16,
         n_shards: u16,
         encoding_type: EncodingType,
-        blob: &[u8],
+        blob: Vec<u8>,
     ) -> (EncodingConfig, Vec<SliverPair>, BlobMetadata) {
         let config = EncodingConfig::new_for_test(
             source_symbols_primary,
@@ -539,9 +532,9 @@ mod tests {
 
     param_test! {
         test_create_recovery_symbols -> Result: [
-            square_two_byte_symbol: (EncodingType::RS2, 2, 2, &[1,2,3,4,5,6,7,8]),
+            square_two_byte_symbol: (EncodingType::RS2, 2, 2, vec![1,2,3,4,5,6,7,8]),
             rectangle_two_byte_symbol: (
-                EncodingType::RS2, 2, 3, &[1,2,3,4,5,6,7,8,9,10,11,12]
+                EncodingType::RS2, 2, 3, vec![1,2,3,4,5,6,7,8,9,10,11,12]
             ),
         ]
     }
@@ -549,7 +542,7 @@ mod tests {
         encoding_type: EncodingType,
         source_symbols_primary: u16,
         source_symbols_secondary: u16,
-        blob: &[u8],
+        blob: Vec<u8>,
     ) -> Result {
         let n_shards = 3 * (source_symbols_primary + source_symbols_secondary);
         let (config, pairs, metadata) = create_config_and_encode_pairs_and_get_metadata(
@@ -617,16 +610,16 @@ mod tests {
 
     param_test! {
         test_recover_sliver_from_symbols -> Result: [
-            square_one_byte_symbol: (EncodingType::RS2, 2, 2, &[1,2,3,4]),
-            square_two_byte_symbol: (EncodingType::RS2, 2, 2, &[1,2,3,4,5,6,7,8]),
+            square_one_byte_symbol: (EncodingType::RS2, 2, 2, vec![1,2,3,4]),
+            square_two_byte_symbol: (EncodingType::RS2, 2, 2, vec![1,2,3,4,5,6,7,8]),
             rectangle_two_byte_symbol_1: (
-                EncodingType::RS2, 2, 3, &[1,2,3,4,5,6,7,8,9,10,11,12]
+                EncodingType::RS2, 2, 3, vec![1,2,3,4,5,6,7,8,9,10,11,12]
             ),
             rectangle_two_byte_symbol_2: (
-                EncodingType::RS2, 4, 2, &[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16]
+                EncodingType::RS2, 4, 2, vec![1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16]
             ),
             rectangle_two_byte_symbol_3: (
-                EncodingType::RS2, 4, 2, &[11,20,3,13,5,110,77,17,111,56,11,0,0,14,15,1]
+                EncodingType::RS2, 4, 2, vec![11,20,3,13,5,110,77,17,111,56,11,0,0,14,15,1]
             ),
         ]
     }
@@ -634,7 +627,7 @@ mod tests {
         encoding_type: EncodingType,
         source_symbols_primary: u16,
         source_symbols_secondary: u16,
-        blob: &[u8],
+        blob: Vec<u8>,
     ) -> Result {
         let n_shards = 3 * (source_symbols_primary + source_symbols_secondary);
         let (encoding_config, pairs, metadata) = create_config_and_encode_pairs_and_get_metadata(
@@ -699,13 +692,13 @@ mod tests {
 
     param_test! {
         test_recover_all_slivers_from_f_plus_1: [
-            recover_empty: (EncodingType::RS2, 3, &[]),
-            recover_single_byte: (EncodingType::RS2, 3, &[1]),
-            recover_one_byte_symbol: (EncodingType::RS2, 3, &[
+            recover_empty: (EncodingType::RS2, 3, vec![]),
+            recover_single_byte: (EncodingType::RS2, 3, vec![1]),
+            recover_one_byte_symbol: (EncodingType::RS2, 3, vec![
                 1,2,3,4,5,6,7,8,9,
                 1,2,3,4,5,6,7,8,9,
             ]),
-            recover_two_byte_symbol: (EncodingType::RS2, 3, &[
+            recover_two_byte_symbol: (EncodingType::RS2, 3, vec![
                 1,2,3,4,5,6,7,8,9,
                 1,2,3,4,5,6,7,8,9,
                 1,2,3,4,5,6,7,8,9,
@@ -713,7 +706,7 @@ mod tests {
             ]),
         ]
     }
-    fn test_recover_all_slivers_from_f_plus_1(encoding_type: EncodingType, f: u16, blob: &[u8]) {
+    fn test_recover_all_slivers_from_f_plus_1(encoding_type: EncodingType, f: u16, blob: Vec<u8>) {
         let n_shards = 3 * f + 1;
         let (encoding_config, pairs, metadata) = create_config_and_encode_pairs_and_get_metadata(
             f,

@@ -58,7 +58,7 @@ mod tests {
                 break;
             }
 
-            if start.elapsed() > Duration::from_secs(180) {
+            if start.elapsed() > Duration::from_mins(3) {
                 panic!("Timeout waiting for event blob to get stuck");
             }
 
@@ -322,11 +322,11 @@ mod tests {
         // Wait until all nodes have non zero latest checkpoint sequence number
         loop {
             let node_health_info =
-                simtest_utils::get_nodes_health_info(&walrus_cluster.nodes).await;
-            if node_health_info
-                .iter()
-                .all(|info| info.latest_checkpoint_sequence_number.unwrap() > 0)
-            {
+                simtest_utils::try_get_nodes_health_info(&walrus_cluster.nodes).await;
+            if node_health_info.iter().all(|info| {
+                info.as_ref()
+                    .is_ok_and(|info| info.latest_checkpoint_sequence_number.unwrap() > 0)
+            }) {
                 break;
             }
             tokio::time::sleep(Duration::from_secs(1)).await;

@@ -98,6 +98,7 @@ pub struct IndexOutOfRange {
     pub max: u16,
 }
 
+/// Generic "service unavailable" error propagated to REST callers when a node-level limiter trips.
 #[derive(Debug, thiserror::Error, RestApiError)]
 #[error("the service is currently unavailable")]
 #[rest_api_error(
@@ -105,19 +106,35 @@ pub struct IndexOutOfRange {
 )]
 pub struct Unavailable;
 
+#[derive(Debug, thiserror::Error)]
+pub enum SetRecoveryDeferralError {
+    #[error("blob is not registered at this node")]
+    NotRegistered,
+    #[error("recovery deferral already exists for this blob")]
+    AlreadyExists,
+    #[error("blob is already fully stored on this node")]
+    AlreadyStored,
+    #[error("recovery deferral is not supported by this service")]
+    Unsupported,
+    #[error(transparent)]
+    Internal(#[from] InternalError),
+}
+
 #[derive(Debug, thiserror::Error, RestApiError)]
 #[rest_api_error(domain = ERROR_DOMAIN)]
 pub enum RetrieveMetadataError {
     /// The requested metadata could not be found at this storage node. It has either not been
     /// uploaded, does not exist, or has already been deleted.
     #[error("the requested metadata is unavailable")]
-    #[rest_api_error(reason = "METADATA_NOT_FOUND", status = ApiStatusCode::NotFound)]
+    #[rest_api_error(reason = "METADATA_NOT_FOUND",
+    status = ApiStatusCode::NotFound)]
     Unavailable,
 
     /// The metadata cannot be returned, as the associated blob has been
     /// blocked on this storage node.
     #[error("the requested metadata is blocked")]
-    #[rest_api_error(reason = "FORBIDDEN_BLOB", status = ApiStatusCode::UnavailableForLegalReasons)]
+    #[rest_api_error(reason = "FORBIDDEN_BLOB",
+    status = ApiStatusCode::UnavailableForLegalReasons)]
     Forbidden,
 
     #[error(transparent)]
@@ -179,6 +196,11 @@ pub enum StoreMetadataError {
     #[error("the blob has not been registered or has already expired")]
     #[rest_api_error(reason = "NOT_REGISTERED", status = ApiStatusCode::FailedPrecondition)]
     NotCurrentlyRegistered,
+
+    /// The node refused the metadata upload because the pending cache is full.
+    #[error("pending upload cache is saturated; retry once the node catches up")]
+    #[rest_api_error(reason = "CACHE_SATURATED", status = ApiStatusCode::FailedPrecondition)]
+    CacheSaturated,
 
     /// The provided metadata is not valid for the blob.
     #[error("the provided metadata failed to verify: {0}")]
@@ -277,6 +299,11 @@ pub enum StoreSliverError {
     #[error("unsupported encoding type {0}, supported types are: {SUPPORTED_ENCODING_TYPES:?}")]
     #[rest_api_error(reason = "UNSUPPORTED_ENCODING_TYPE", status = ApiStatusCode::InvalidArgument)]
     UnsupportedEncodingType(EncodingType),
+
+    /// The node refused the sliver because the pending upload cache is full.
+    #[error("pending upload cache is saturated; retry once the node catches up")]
+    #[rest_api_error(reason = "CACHE_SATURATED", status = ApiStatusCode::FailedPrecondition)]
+    CacheSaturated,
 
     #[error(transparent)]
     #[rest_api_error(delegate)]

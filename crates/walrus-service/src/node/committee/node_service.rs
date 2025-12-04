@@ -1,21 +1,21 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
+
 //! Services for communicating with Storage Nodes.
 //!
 //! This module defines the [`NodeService`] trait. It is a marker trait for a [`Clone`]-able
 //! [`tower::Service`] trait implementation on the defined [`Request`] and [`Response`] types.
 //!
-//! It also defines [`RemoteStorageNode`] which implements the trait for
-//! [`walrus_storage_node_client::client::Client`], and implements the trait for
-//! [`LocalStorageNode`], an alias to [`Arc<StorageNodeInner>`][StorageNodeInner].
+//! It also defines [`RemoteStorageNode`] which implements the trait for [`StorageNodeClient`].
 //!
 //! The use of [`tower::Service`] will allow us to add layers to monitor a given node's
 //! communication with all others, to monitor and disable nodes which fail frequently, and to later
 //! apply back-pressure.
-//
+
 // NB: Ideally we would *additionally* have a single service trait which would represent the
 // storage node. Both clients and servers would implement this trait. This would allow us to treat
 // the remote and storage local nodes the same.
+
 use std::{
     fmt::Debug,
     sync::Arc,
@@ -33,12 +33,11 @@ use walrus_core::{
     ShardIndex,
     Sliver,
     SliverIndex,
-    SliverPairIndex,
     SliverType,
     encoding::{EncodingConfig, GeneralRecoverySymbol, Primary, Secondary},
     keys::ProtocolKeyPair,
     messages::InvalidBlobIdAttestation,
-    metadata::{BlobMetadataApi as _, VerifiedBlobMetadataWithId},
+    metadata::VerifiedBlobMetadataWithId,
 };
 use walrus_storage_node_client::{
     ClientBuildError,
@@ -56,13 +55,6 @@ use crate::node::config::defaults::REST_HTTP2_MAX_CONCURRENT_STREAMS;
 #[derive(Debug, Clone)]
 pub(crate) enum Request {
     GetVerifiedMetadata(BlobId),
-    #[allow(unused)]
-    GetVerifiedRecoverySymbol {
-        sliver_type: SliverType,
-        metadata: Arc<VerifiedBlobMetadataWithId>,
-        sliver_pair_at_remote: SliverPairIndex,
-        intersecting_pair_index: SliverPairIndex,
-    },
     SubmitProofForInvalidBlobAttestation {
         blob_id: BlobId,
         proof: InconsistencyProofEnum,
@@ -197,7 +189,7 @@ where
 
 pub(crate) type RemoteStorageNode = ConcurrencyLimit<UnboundedRemoteStorageNode>;
 
-/// A [`NodeService`] that is reachable via a [`walrus_storage_node_client::client::Client`].
+/// A [`NodeService`] that is reachable via a [`StorageNodeClient`].
 #[derive(Clone, Debug)]
 pub(crate) struct UnboundedRemoteStorageNode {
     client: StorageNodeClient,
@@ -222,44 +214,6 @@ impl Service<Request> for UnboundedRemoteStorageNode {
                     .get_and_verify_metadata(&blob_id, &encoding_config)
                     .await
                     .map(Response::VerifiedMetadata)?,
-
-                Request::GetVerifiedRecoverySymbol {
-                    sliver_type,
-                    metadata,
-                    sliver_pair_at_remote,
-                    intersecting_pair_index,
-                } => {
-                    let n_shards = encoding_config.n_shards();
-                    let symbol_size = metadata
-                        .metadata()
-                        .symbol_size(&encoding_config)
-                        .map_err(NodeError::other)?;
-
-                    let symbol = if sliver_type == SliverType::Primary {
-                        client
-                            .get_and_verify_recovery_symbol::<Primary>(
-                                n_shards,
-                                symbol_size.get().into(),
-                                &metadata,
-                                sliver_pair_at_remote,
-                                intersecting_pair_index,
-                            )
-                            .await
-                            .map(DefaultRecoverySymbol::Primary)
-                    } else {
-                        client
-                            .get_and_verify_recovery_symbol::<Secondary>(
-                                n_shards,
-                                symbol_size.get().into(),
-                                &metadata,
-                                sliver_pair_at_remote,
-                                intersecting_pair_index,
-                            )
-                            .await
-                            .map(DefaultRecoverySymbol::Secondary)
-                    };
-                    symbol.map(Response::VerifiedRecoverySymbol)?
-                }
 
                 Request::SubmitProofForInvalidBlobAttestation {
                     blob_id,

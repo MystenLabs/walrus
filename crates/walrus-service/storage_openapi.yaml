@@ -146,6 +146,13 @@ paths:
         required: true
         schema:
           $ref: '#/components/schemas/BlobId'
+      - name: pending
+        in: query
+        description: Set to true to buffer the payload until the blob is registered.
+        required: false
+        schema:
+          type: boolean
+        style: form
       responses:
         '200':
           description: BCS encoded blob metadata
@@ -193,6 +200,13 @@ paths:
         required: true
         schema:
           $ref: '#/components/schemas/BlobId'
+      - name: pending
+        in: query
+        description: Set to true to buffer the payload until the blob is registered.
+        required: false
+        schema:
+          type: boolean
+        style: form
       requestBody:
         description: BCS-encoded metadata octet-stream
         content:
@@ -217,8 +231,14 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ApiSuccess_String'
+        '202':
+          description: Metadata buffered pending registration
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiSuccess_String'
         '400':
-          description: May be returned when (1) Storing the metadata cannot be completed because the blob has been marked as invalid by the system. (2) The blob has not been registered or has already expired. (3) The provided metadata is not valid for the blob.
+          description: May be returned when (1) Storing the metadata cannot be completed because the blob has been marked as invalid by the system. (2) The blob has not been registered or has already expired. (3) The node refused the metadata upload because the pending cache is full. (4) The provided metadata is not valid for the blob.
           content:
             application/json:
               schema:
@@ -314,7 +334,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Status'
         '503':
-          description: ''
+          description: Generic "service unavailable" error propagated to REST callers when a node-level limiter trips.
           content:
             application/json:
               schema:
@@ -402,6 +422,13 @@ paths:
         required: true
         schema:
           $ref: '#/components/schemas/Axis'
+      - name: pending
+        in: query
+        description: Set to true to buffer the payload until the blob is registered.
+        required: false
+        schema:
+          type: boolean
+        style: form
       requestBody:
         description: BCS-encoded sliver octet-stream
         content:
@@ -415,13 +442,25 @@ paths:
         required: true
       responses:
         '200':
+          description: Sliver already stored
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiSuccess_String'
+        '201':
           description: Sliver successfully stored
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ApiSuccess_String'
+        '202':
+          description: Sliver buffered pending registration
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiSuccess_String'
         '400':
-          description: May be returned when (1) The blob has not been registered or has already expired. (2) The index identifying the resource is out-of-range for the system. (3) The metadata for the blob is required but missing. (4) The provided sliver failed verification against the previously uploaded metadata for that blob ID. (5) The shard associated with the operation is not assigned to this storage node.
+          description: May be returned when (1) The blob has not been registered or has already expired. (2) The index identifying the resource is out-of-range for the system. (3) The metadata for the blob is required but missing. (4) The node refused the sliver because the pending upload cache is full. (5) The provided sliver failed verification against the previously uploaded metadata for that blob ID. (6) The shard associated with the operation is not assigned to this storage node.
           content:
             application/json:
               schema:
@@ -432,81 +471,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
-  /v1/blobs/{blob_id}/slivers/{sliver_pair_index}/{sliver_type}/{target_pair_index}:
-    get:
-      tags:
-      - Recovery
-      summary: Get recovery symbols.
-      description: |-
-        Gets a symbol held by this storage node to aid in sliver recovery.
-
-        The `sliver_type` is the target type of the sliver that will be recovered.
-        The `sliver_pair_index` is the index of the sliver pair that we want to access.
-        The `target_pair_index` is the index of the target sliver.
-      operationId: get_recovery_symbol
-      parameters:
-      - name: blob_id
-        in: path
-        required: true
-        schema:
-          $ref: '#/components/schemas/BlobId'
-      - name: sliver_pair_index
-        in: path
-        required: true
-        schema:
-          $ref: '#/components/schemas/SliverPairIndex'
-      - name: target_pair_index
-        in: path
-        required: true
-        schema:
-          $ref: '#/components/schemas/SliverPairIndex'
-      - name: sliver_type
-        in: path
-        required: true
-        schema:
-          $ref: '#/components/schemas/Axis'
-      responses:
-        '200':
-          description: BCS encoded symbol
-          content:
-            application/octet-stream:
-              schema:
-                type: array
-                items:
-                  type: integer
-                  format: int32
-                  minimum: 0
-        '400':
-          description: May be returned when (1) The index identifying the resource is out-of-range for the system. (2) The shard associated with the operation is not assigned to this storage node.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Status'
-        '404':
-          description: The requested sliver could not be found at this storage node. It has either not been uploaded, does not exist, or has already been deleted.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Status'
-        '451':
-          description: The sliver cannot be returned, as the associated blob has been blocked on this storage node.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Status'
-        '500':
-          description: An internal server error has occurred. Please report this error.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Status'
-        '503':
-          description: ''
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Status'
-      deprecated: true
   /v1/blobs/{blob_id}/status:
     get:
       tags:

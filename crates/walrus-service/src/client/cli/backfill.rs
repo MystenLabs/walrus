@@ -50,7 +50,7 @@ use walrus_sdk::{ObjectID, client::WalrusNodeClient, config::ClientConfig};
 use walrus_sui::client::{SuiReadClient, retry_client::RetriableSuiClient};
 
 const TOMBSTONE_FILENAME: &str = "tombstone";
-const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(15 * 60);
+const DOWNLOAD_TIMEOUT: Duration = Duration::from_mins(15);
 
 // TODO: Possibly make this configurable.
 const DOWNLOAD_BATCH_SIZE: usize = 10;
@@ -257,14 +257,16 @@ async fn get_backfill_client(config: ClientConfig) -> Result<WalrusNodeClient<Su
         &config.rpc_urls,
         config.backoff_config().clone(),
         None,
-    )
-    .await?;
+    )?;
     let sui_read_client = config.new_read_client(retriable_sui_client).await?;
     let refresh_handle = config
-        .refresh_config
         .build_refresher_and_run(sui_read_client.clone())
         .await?;
-    Ok(WalrusNodeClient::new_read_client(config, refresh_handle, sui_read_client).await?)
+    Ok(WalrusNodeClient::new_read_client(
+        config,
+        refresh_handle,
+        sui_read_client,
+    )?)
 }
 
 /// Runs the blob backfill process.
@@ -388,7 +390,7 @@ async fn process_file_and_backfill(
     match std::fs::read(blob_filename) {
         Ok(blob) => {
             if let Ok(blob_id) = blob_id_from_path(blob_filename) {
-                let _ = backfill_blob(client, node_ids, blob_id, &blob, pushed_blobs, pushed_state)
+                let _ = backfill_blob(client, node_ids, blob_id, blob, pushed_blobs, pushed_state)
                     .await
                     .inspect(|_| {
                         tracing::debug!(?blob_id, ?blob_filename, "successfully pushed blob");
@@ -434,7 +436,7 @@ async fn backfill_blob(
     client: &WalrusNodeClient<SuiReadClient>,
     node_ids: &[ObjectID],
     blob_id: BlobId,
-    blob: &[u8],
+    blob: Vec<u8>,
     pushed_blobs: &mut HashSet<BlobId>,
     pushed_state: &mut File,
 ) -> Result<()> {

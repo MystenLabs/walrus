@@ -250,4 +250,14 @@ pub enum ClientErrorKind {
     /// The blob size exceeds the maximum allowed size.
     #[error("the blob size exceeds the maximum allowed size: {0}")]
     BlobTooLarge(u64),
+    /// An error occurred while reading a byte range from a blob.
+    #[error("byte range read error: {0}")]
+    ByteRangeReadError(String),
+    /// An error occurred while initializing the
+    /// [`WalrusNodeClient`][crate::client::WalrusNodeClient] in the background task.
+    #[error("error while initializing the Walrus client in the background task: {0}")]
+    ClientInitializationError(String),
+    /// An error occurred while validating the input for byte range read.
+    #[error("byte range read input error: {0}")]
+    ByteRangeReadInputError(String),
 }

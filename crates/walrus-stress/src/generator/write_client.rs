@@ -21,6 +21,7 @@ use walrus_core::{
 use walrus_sdk::{
     client::{
         StoreArgs,
+        StoreBlobsApi as _,
         WalrusNodeClient,
         metrics::ClientMetrics,
         refresh::CommitteesRefresherHandle,
@@ -86,12 +87,12 @@ impl WriteClient {
         self.client.as_mut().sui_client_mut().address()
     }
 
-    /// Stores a fresh consistent blob and returns the blob id and elapsed time.
+    /// Stores a fresh consistent blob and returns the blob ID and elapsed time.
     pub async fn write_fresh_blob(&mut self) -> Result<(BlobId, Duration), ClientError> {
         self.write_fresh_blob_with_epochs(None).await
     }
 
-    /// Stores a fresh blob and returns the blob id and elapsed time.
+    /// Stores a fresh blob and returns the blob ID and elapsed time.
     ///
     /// If `epochs_to_store` is not provided, the blob will be stored for the number of epochs
     /// randomly chosen between `min_epochs_to_store` and `max_epochs_to_store` specified in the
@@ -114,12 +115,12 @@ impl WriteClient {
             .client
             .as_ref()
             // TODO(giac): add also some deletable blobs in the mix (#800).
-            .reserve_and_store_blobs_retry_committees(&[blob], &[], &store_args)
+            .reserve_and_store_blobs_retry_committees(vec![blob], vec![], &store_args)
             .await?
             .first()
             .expect("should have one blob store result")
             .blob_id()
-            .expect("blob id should be present");
+            .expect("blob ID should be present");
 
         tracing::info!(
             duration = now.elapsed().as_secs(),
@@ -131,7 +132,7 @@ impl WriteClient {
     }
 
     /// Stores a fresh blob that is inconsistent in primary sliver 0 and returns
-    /// the blob id and elapsed time.
+    /// the blob ID and elapsed time.
     pub async fn write_fresh_inconsistent_blob(
         &mut self,
     ) -> Result<(BlobId, Duration), ClientError> {
@@ -151,7 +152,7 @@ impl WriteClient {
     /// node, if the shards are distributed equally and assigned sequentially.
     async fn reserve_and_store_inconsistent_blob(
         &self,
-        blob: &[u8],
+        blob: Vec<u8>,
         epochs_to_store: EpochCount,
     ) -> Result<BlobId, ClientError> {
         // Encode the blob with false metadata for one shard.
@@ -203,7 +204,6 @@ impl WriteClient {
             .client
             .as_ref()
             .resource_manager(&committees)
-            .await
             .get_existing_or_register(
                 &[&metadata],
                 epochs_to_store,
@@ -268,18 +268,15 @@ async fn new_client(
             })
             .collect(),
         Default::default(),
-    )
-    .await?;
+    )?;
     let sui_read_client = config.new_read_client(sui_client).await?;
     let sui_contract_client = wallet.and_then(|wallet| {
         SuiContractClient::new_with_read_client(wallet, gas_budget, Arc::new(sui_read_client))
     })?;
 
-    let client = sui_contract_client
-        .and_then_async(|contract_client| {
-            WalrusNodeClient::new_contract_client(config.clone(), refresher_handle, contract_client)
-        })
-        .await?;
+    let client = sui_contract_client.and_then(|contract_client| {
+        WalrusNodeClient::new_contract_client(config.clone(), refresher_handle, contract_client)
+    })?;
     Ok(client)
 }
 

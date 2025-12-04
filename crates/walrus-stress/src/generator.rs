@@ -9,7 +9,6 @@ use std::{
 };
 
 use blob::WriteBlobConfig;
-use futures::future::try_join_all;
 use rand::{Rng, thread_rng};
 use sui_sdk::types::base_types::SuiAddress;
 use tokio::{
@@ -76,25 +75,21 @@ impl LoadGenerator {
             client_config
                 .communication_config
                 .sui_client_request_timeout,
-        )
-        .await?;
+        )?;
 
         let sui_read_client = client_config.new_read_client(sui_client.clone()).await?;
 
         let refresher_handle = client_config
-            .refresh_config
             .build_refresher_and_run(sui_read_client.clone())
             .await?;
-        for read_client in try_join_all((0..n_clients).map(|_| {
-            WalrusNodeClient::new_read_client(
-                client_config.clone(),
-                refresher_handle.clone(),
-                sui_read_client.clone(),
-            )
-        }))
-        .await?
-        {
-            read_client_pool_tx.send(read_client).await?;
+        for _ in 0..n_clients {
+            read_client_pool_tx
+                .send(WalrusNodeClient::new_read_client(
+                    client_config.clone(),
+                    refresher_handle.clone(),
+                    sui_read_client.clone(),
+                )?)
+                .await?;
         }
 
         // Set up write clients
@@ -384,7 +379,7 @@ fn burst_load(load: u64) -> (u64, Interval) {
         // Set the interval to ~100 years. `Duration::MAX` causes an overflow in tokio.
         return (
             0,
-            tokio::time::interval(Duration::from_secs(100 * 365 * 24 * 60 * 60)),
+            tokio::time::interval(Duration::from_hours(100 * 365 * 24)),
         );
     }
     let duration_per_op = Duration::from_secs_f64(SECS_PER_LOAD_PERIOD as f64 / (load as f64));

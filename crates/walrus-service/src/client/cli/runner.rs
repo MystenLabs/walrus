@@ -15,7 +15,6 @@ use std::{
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use fastcrypto::encoding::Encoding;
-use indicatif::MultiProgress;
 use itertools::Itertools as _;
 use rand::seq::SliceRandom;
 use reqwest::Url;
@@ -45,8 +44,11 @@ use walrus_sdk::{
     client::{
         NodeCommunicationFactory,
         StoreArgs,
+        StoreBlobsApi as _,
         WalrusNodeClient,
+        WalrusNodeClientCreatedInBackground,
         quilt_client::{
+            QuiltClient,
             assign_identifiers_with_paths,
             generate_identifier_from_path,
             read_blobs_from_paths,
@@ -55,7 +57,7 @@ use walrus_sdk::{
         responses as sdk_responses,
         upload_relay_client::UploadRelayClient,
     },
-    config::{UploadMode, UploadPreset, load_configuration},
+    config::load_configuration,
     error::ClientErrorKind,
     store_optimizations::StoreOptimizations,
     sui::{
@@ -158,20 +160,6 @@ use crate::{
     common::telemetry::TracingSubscriberBuilder,
     utils::{self, MetricsAndLoggingRuntime, generate_sui_wallet},
 };
-
-fn apply_upload_mode_to_config(
-    mut config: walrus_sdk::config::ClientConfig,
-    upload_mode: UploadMode,
-) -> walrus_sdk::config::ClientConfig {
-    // Use UploadPreset to apply tuning to the communication config
-    let preset = match upload_mode {
-        UploadMode::Conservative => UploadPreset::Conservative,
-        UploadMode::Balanced => UploadPreset::Balanced,
-        UploadMode::Aggressive => UploadPreset::Aggressive,
-    };
-    config.communication_config = preset.apply_to(config.communication_config.clone());
-    config
-}
 
 /// A helper struct to run commands for the Walrus client.
 #[allow(missing_debug_implementations)]
@@ -662,7 +650,7 @@ impl ClientCommandRunner {
         tracing::info!("retrieved {} blobs from quilt", retrieved_blobs.len());
 
         if let Some(out) = out.as_ref() {
-            Self::write_blobs_dedup(&mut retrieved_blobs, out).await?;
+            Self::write_blobs_dedup(&mut retrieved_blobs, out)?;
         }
 
         ReadQuiltOutput::new(out.clone(), retrieved_blobs).print_output(self.json)
@@ -687,6 +675,7 @@ impl ClientCommandRunner {
         Ok(())
     }
 
+    // TODO(WAL-1098): Refactor this function and reduce duplication with `store_quilt`.
     async fn store(
         self,
         files: Vec<PathBuf>,
@@ -699,7 +688,6 @@ impl ClientCommandRunner {
             encoding_type,
             upload_relay,
             confirmation,
-            upload_mode,
             child_process_uploads,
             internal_run,
         }: StoreOptions,
@@ -711,27 +699,43 @@ impl ClientCommandRunner {
             ));
         }
 
-        // Apply CLI upload preset to the in-memory config before building the client, if provided.
-        let mut config = self.config?;
-        config = apply_upload_mode_to_config(config, upload_mode.unwrap_or(UploadMode::Balanced));
-        let client = get_contract_client(config, self.wallet, self.gas_budget, &None).await?;
-
-        let system_object = client.sui_client().read_client.get_system_object().await?;
-        let epochs_ahead =
-            get_epochs_ahead(&epoch_arg, system_object.max_epochs_ahead(), &client).await?;
-
         if persistence.is_deletable() && post_store == PostStoreAction::Share {
             anyhow::bail!("deletable blobs cannot be shared");
         }
 
         let encoding_type = encoding_type.unwrap_or(DEFAULT_ENCODING);
 
+        let config = self.config?;
+        let mut wallet = self.wallet?;
+        let active_address = wallet.active_address()?;
+        let mut client_created_in_bg = WalrusNodeClientCreatedInBackground::new(
+            get_contract_client(config.clone(), wallet, self.gas_budget),
+            config.contract_config.n_shards,
+        );
+        let epochs_ahead = get_epochs_ahead(
+            &epoch_arg,
+            config.contract_config.max_epochs_ahead,
+            &mut client_created_in_bg,
+        )
+        .await?;
+
         if dry_run {
-            return Self::store_dry_run(client, files, encoding_type, epochs_ahead, self.json)
-                .await;
+            return Self::store_dry_run(
+                client_created_in_bg.into_client().await?,
+                files,
+                encoding_type,
+                epochs_ahead,
+                self.json,
+            )
+            .await;
         }
 
-        tracing::info!("storing {} files as blobs on Walrus", files.len());
+        let file_count = files.len();
+        tracing::info!(
+            "storing {} file{} on Walrus",
+            file_count,
+            if file_count == 1 { "" } else { "s" }
+        );
         let start_timer = std::time::Instant::now();
 
         let blobs = tracing::info_span!("read_blobs").in_scope(|| {
@@ -741,15 +745,25 @@ impl ClientCommandRunner {
                 .collect::<Result<Vec<(PathBuf, Vec<u8>)>>>()
         })?;
 
+        if blobs.len() > 1 {
+            let max_total_blob_size = config.communication_config.max_total_blob_size;
+            let total_blob_size = blobs.iter().map(|(_, blob)| blob.len()).sum::<usize>();
+            if total_blob_size > max_total_blob_size {
+                anyhow::bail!(
+                    "total size of all blobs ({total_blob_size}) exceeds the maximum limit of \
+                    {max_total_blob_size}; you can change this limit in the client config"
+                );
+            }
+        }
+
         if let Some(()) = maybe_spawn_child_upload_process(
-            &client,
+            &config,
             child_process_uploads,
             &epoch_arg,
             dry_run,
             &store_optimizations,
             persistence,
             post_store,
-            upload_mode,
             upload_relay.as_ref(),
             internal_run,
             "store",
@@ -773,13 +787,13 @@ impl ClientCommandRunner {
             post_store,
         );
 
-        let mut internal_run_ctx = InternalRunContext::new(internal_run, &client, blobs.len());
+        let mut internal_run_ctx = InternalRunContext::new(internal_run, &config, blobs.len());
         let mut store_args = internal_run_ctx.configure_store_args(internal_run, base_store_args);
         let mut tail_handle_collector: Option<Arc<TokioMutex<Vec<tokio::task::JoinHandle<()>>>>> =
             None;
         if !internal_run
             && matches!(
-                client.config().communication_config.tail_handling,
+                config.communication_config.tail_handling,
                 TailHandling::Detached
             )
         {
@@ -797,19 +811,20 @@ impl ClientCommandRunner {
         }
 
         if let Some(upload_relay) = upload_relay {
+            let n_shards = client_created_in_bg.encoding_config().await?.n_shards();
             let upload_relay_client = UploadRelayClient::new(
-                client.sui_client().address(),
-                client.encoding_config().n_shards(),
+                active_address,
+                n_shards,
                 upload_relay,
                 self.gas_budget,
-                client.config().backoff_config().clone(),
+                config.backoff_config().clone(),
             )
             .await?;
             // Store operations will use the upload relay.
             store_args = store_args.with_upload_relay_client(upload_relay_client);
 
             let total_tip = store_args.compute_total_tip_amount(
-                client.encoding_config().n_shards(),
+                n_shards,
                 &blobs
                     .iter()
                     .map(|blob| blob.1.len().try_into().expect("32 or 64-bit arch"))
@@ -821,8 +836,9 @@ impl ClientCommandRunner {
             }
         }
 
-        let results = client
-            .reserve_and_store_blobs_retry_committees_with_path(&blobs, &store_args)
+        let blobs_len = blobs.len();
+        let results = client_created_in_bg
+            .reserve_and_store_blobs_retry_committees_with_path(blobs, &store_args)
             .await?;
 
         internal_run_ctx.finalize_after_store(&mut store_args).await;
@@ -839,7 +855,6 @@ impl ClientCommandRunner {
             }
         }
 
-        let blobs_len = blobs.len();
         if results.len() != blobs_len {
             let not_stored = results
                 .iter()
@@ -964,7 +979,7 @@ impl ClientCommandRunner {
         } else {
             tracing::info!(
                 duration = ?start_timer.elapsed(),
-                "{} out of {} blobs stored",
+                "finished storing blobs ({}/{})",
                 results.len(),
                 blobs_len
             );
@@ -975,7 +990,7 @@ impl ClientCommandRunner {
 
     #[tracing::instrument(skip_all)]
     async fn store_dry_run(
-        client: WalrusNodeClient<SuiContractClient>,
+        client: WalrusNodeClient<impl ReadClient>,
         files: Vec<PathBuf>,
         encoding_type: EncodingType,
         epochs_ahead: EpochCount,
@@ -987,8 +1002,9 @@ impl ClientCommandRunner {
 
         for file in files {
             let blob = read_blob_from_file(&file)?;
-            let (_, metadata) =
-                client.encode_pairs_and_metadata(&blob, encoding_type, &MultiProgress::new())?;
+            let metadata = encoding_config
+                .get_for_type(encoding_type)
+                .compute_metadata(&blob)?;
             let unencoded_size = metadata.metadata().unencoded_length();
             let encoded_size = encoded_blob_length_for_n_shards(
                 encoding_config.n_shards(),
@@ -1015,6 +1031,7 @@ impl ClientCommandRunner {
         outputs.print_output(json)
     }
 
+    // TODO(WAL-1098): Refactor this function and reduce duplication with `store`.
     async fn store_quilt(
         self,
         paths: Vec<PathBuf>,
@@ -1028,7 +1045,6 @@ impl ClientCommandRunner {
             encoding_type,
             upload_relay,
             confirmation,
-            upload_mode,
             child_process_uploads,
             internal_run,
         }: StoreOptions,
@@ -1044,14 +1060,20 @@ impl ClientCommandRunner {
         }
 
         let encoding_type = encoding_type.unwrap_or(DEFAULT_ENCODING);
-        // Apply CLI upload preset to the in-memory config before building the client, if provided.
-        let mut config = self.config?;
-        config = apply_upload_mode_to_config(config, upload_mode.unwrap_or(UploadMode::Balanced));
-        let client = get_contract_client(config, self.wallet, self.gas_budget, &None).await?;
+        let config = self.config?;
+        let mut wallet = self.wallet?;
+        let active_address = wallet.active_address()?;
+        let mut client_created_in_bg = WalrusNodeClientCreatedInBackground::new(
+            get_contract_client(config.clone(), wallet, self.gas_budget),
+            config.contract_config.n_shards,
+        );
 
-        let system_object = client.sui_client().read_client.get_system_object().await?;
-        let epochs_ahead =
-            get_epochs_ahead(&epoch_arg, system_object.max_epochs_ahead(), &client).await?;
+        let epochs_ahead = get_epochs_ahead(
+            &epoch_arg,
+            config.contract_config.max_epochs_ahead,
+            &mut client_created_in_bg,
+        )
+        .await?;
 
         let path_args_for_child = if paths.is_empty() {
             None
@@ -1069,11 +1091,11 @@ impl ClientCommandRunner {
             )
         };
 
-        let quilt_store_blobs = Self::load_blobs_for_quilt(&paths, blobs).await?;
+        let quilt_store_blobs = Self::load_blobs_for_quilt(&paths, blobs)?;
 
         if dry_run {
             return Self::store_quilt_dry_run(
-                client,
+                client_created_in_bg.into_client().await?,
                 &quilt_store_blobs,
                 encoding_type,
                 epochs_ahead,
@@ -1083,14 +1105,13 @@ impl ClientCommandRunner {
         }
 
         if let Some(()) = maybe_spawn_child_upload_process(
-            &client,
+            &config,
             child_process_uploads,
             &epoch_arg,
             dry_run,
             &store_optimizations,
             persistence,
             post_store,
-            upload_mode,
             upload_relay.as_ref(),
             internal_run,
             "store-quilt",
@@ -1115,7 +1136,8 @@ impl ClientCommandRunner {
         }
 
         let start_timer = std::time::Instant::now();
-        let quilt_write_client = client.quilt_client();
+        let quilt_write_client =
+            QuiltClient::new(&client_created_in_bg, config.quilt_client_config.clone());
         let quilt = quilt_write_client
             .construct_quilt::<QuiltVersionV1>(&quilt_store_blobs, encoding_type)
             .await?;
@@ -1127,13 +1149,13 @@ impl ClientCommandRunner {
             post_store,
         );
 
-        let mut internal_run_ctx = InternalRunContext::new(internal_run, &client, 1);
+        let mut internal_run_ctx = InternalRunContext::new(internal_run, &config, 1);
         let mut store_args = internal_run_ctx.configure_store_args(internal_run, base_store_args);
         let mut tail_handle_collector: Option<Arc<TokioMutex<Vec<tokio::task::JoinHandle<()>>>>> =
             None;
         if !internal_run
             && matches!(
-                client.config().communication_config.tail_handling,
+                config.communication_config.tail_handling,
                 TailHandling::Detached
             )
         {
@@ -1151,19 +1173,20 @@ impl ClientCommandRunner {
         }
 
         if let Some(upload_relay) = upload_relay {
+            let n_shards = client_created_in_bg.encoding_config().await?.n_shards();
             let upload_relay_client = UploadRelayClient::new(
-                client.sui_client().address(),
-                client.encoding_config().n_shards(),
+                active_address,
+                n_shards,
                 upload_relay,
                 self.gas_budget,
-                client.config().backoff_config().clone(),
+                config.backoff_config().clone(),
             )
             .await?;
             // Store operations will use the upload relay.
             store_args = store_args.with_upload_relay_client(upload_relay_client);
 
             let total_tip = store_args.compute_total_tip_amount(
-                client.encoding_config().n_shards(),
+                n_shards,
                 &quilt_store_blobs
                     .iter()
                     .map(|blob| blob.unencoded_length())
@@ -1176,7 +1199,7 @@ impl ClientCommandRunner {
         }
 
         let result = quilt_write_client
-            .reserve_and_store_quilt::<QuiltVersionV1>(&quilt, &store_args)
+            .reserve_and_store_quilt::<QuiltVersionV1>(quilt, &store_args)
             .await?;
 
         internal_run_ctx.finalize_after_store(&mut store_args).await;
@@ -1307,7 +1330,7 @@ impl ClientCommandRunner {
         result.print_output(self.json)
     }
 
-    async fn load_blobs_for_quilt(
+    fn load_blobs_for_quilt(
         paths: &[PathBuf],
         blob_inputs: Vec<QuiltBlobInput>,
     ) -> Result<Vec<QuiltStoreBlob<'static>>> {
@@ -1359,8 +1382,10 @@ impl ClientCommandRunner {
         let quilt = quilt_client
             .construct_quilt::<QuiltVersionV1>(blobs, encoding_type)
             .await?;
-        let (_, metadata) =
-            client.encode_pairs_and_metadata(quilt.data(), encoding_type, &MultiProgress::new())?;
+        let metadata = client
+            .encoding_config()
+            .get_for_type(encoding_type)
+            .compute_metadata(quilt.data())?;
         let unencoded_size = metadata.metadata().unencoded_length();
         let encoded_size = encoded_blob_length_for_n_shards(
             client.encoding_config().n_shards(),
@@ -1406,10 +1431,9 @@ impl ClientCommandRunner {
         let encoding_type = encoding_type.unwrap_or(DEFAULT_ENCODING);
 
         let refresher_handle = config
-            .refresh_config
             .build_refresher_and_run(sui_read_client.clone())
             .await?;
-        let client = WalrusNodeClient::new(config, refresher_handle).await?;
+        let client = WalrusNodeClient::new(config, refresher_handle)?;
 
         let file = file_or_blob_id.file.clone();
         let blob_id =
@@ -1426,11 +1450,8 @@ impl ClientCommandRunner {
             let epoch_state = staking_object.epoch_state();
             let current_epoch = staking_object.epoch();
 
-            let estimated_start_of_current_epoch = match epoch_state {
-                EpochState::EpochChangeDone(epoch_start)
-                | EpochState::NextParamsSelected(epoch_start) => *epoch_start,
-                EpochState::EpochChangeSync(_) => Utc::now(),
-            };
+            let estimated_start_of_current_epoch = epoch_state.earliest_start_of_current_epoch();
+
             ensure!(
                 end_epoch > current_epoch,
                 "end_epoch must be greater than the current epoch"
@@ -1697,16 +1718,15 @@ impl ClientCommandRunner {
         encoding_type: Option<EncodingType>,
     ) -> Result<()> {
         // Create client once to be reused
-        let client =
-            match get_contract_client(self.config?, self.wallet, self.gas_budget, &None).await {
-                Ok(client) => client,
-                Err(e) => {
-                    if !self.json {
-                        eprintln!("Error connecting to client: {e}");
-                    }
-                    return Err(e);
+        let client = match get_contract_client(self.config?, self.wallet?, self.gas_budget).await {
+            Ok(client) => client,
+            Err(e) => {
+                if !self.json {
+                    eprintln!("Error connecting to client: {e}");
                 }
-            };
+                anyhow::bail!(e);
+            }
+        };
 
         let mut delete_outputs = Vec::new();
 
@@ -1791,7 +1811,7 @@ impl ClientCommandRunner {
                 .zip(amounts.into_iter())
                 .collect::<Vec<_>>()
         };
-        let client = get_contract_client(self.config?, self.wallet, self.gas_budget, &None).await?;
+        let client = get_contract_client(self.config?, self.wallet?, self.gas_budget).await?;
         let staked_wal = client.stake_with_node_pools(&node_ids_with_amounts).await?;
         StakeOutput { staked_wal }.print_output(self.json)
     }
@@ -1826,7 +1846,7 @@ impl ClientCommandRunner {
                 or as a command-line argument.\n\
                 Note that this command is only available on Testnet.",
             )?;
-        let client = get_contract_client(config, self.wallet, self.gas_budget, &None).await?;
+        let client = get_contract_client(config, self.wallet?, self.gas_budget).await?;
         tracing::info!(
             "exchanging {} for WAL using exchange object {exchange_id}",
             HumanReadableMist::from(amount)
@@ -1954,10 +1974,7 @@ impl ClientCommandRunner {
         Ok(())
     }
 
-    async fn write_blobs_dedup(
-        blobs: &mut [QuiltStoreBlob<'static>],
-        out_dir: &Path,
-    ) -> Result<()> {
+    fn write_blobs_dedup(blobs: &mut [QuiltStoreBlob<'static>], out_dir: &Path) -> Result<()> {
         let mut filename_counters = std::collections::HashMap::new();
 
         for blob in &mut *blobs {
@@ -2000,7 +2017,6 @@ struct StoreOptions {
     encoding_type: Option<EncodingType>,
     upload_relay: Option<Url>,
     confirmation: UserConfirmation,
-    upload_mode: Option<UploadMode>,
     child_process_uploads: bool,
     internal_run: bool,
 }
@@ -2020,7 +2036,6 @@ impl TryFrom<CommonStoreOptions> for StoreOptions {
             encoding_type,
             upload_relay,
             skip_tip_confirmation,
-            upload_mode,
             child_process_uploads,
             internal_run,
         }: CommonStoreOptions,
@@ -2039,7 +2054,6 @@ impl TryFrom<CommonStoreOptions> for StoreOptions {
             encoding_type,
             upload_relay,
             confirmation: skip_tip_confirmation.into(),
-            upload_mode: upload_mode.map(Into::into),
             child_process_uploads,
             internal_run,
         })
@@ -2148,11 +2162,26 @@ async fn delete_blob(
 }
 
 #[tracing::instrument(skip_all)]
-async fn get_epochs_ahead(
+async fn get_epochs_ahead<C>(
     epoch_arg: &EpochArg,
-    max_epochs_ahead: EpochCount,
-    client: &WalrusNodeClient<SuiContractClient>,
-) -> Result<u32, anyhow::Error> {
+    max_epochs_ahead: Option<EpochCount>,
+    client_created_in_bg: &mut WalrusNodeClientCreatedInBackground<C>,
+) -> anyhow::Result<EpochCount>
+where
+    C: std::fmt::Debug + ReadClient + 'static,
+{
+    let max_epochs_ahead = if let Some(max_epochs_ahead) = max_epochs_ahead {
+        max_epochs_ahead
+    } else {
+        client_created_in_bg
+            .client()
+            .await?
+            .sui_client()
+            .read_client()
+            .get_system_object()
+            .await?
+            .max_epochs_ahead()
+    };
     let epochs_ahead = match epoch_arg {
         EpochArg {
             epochs: Some(epochs),
@@ -2162,7 +2191,13 @@ async fn get_epochs_ahead(
             earliest_expiry_time: Some(earliest_expiry_time),
             ..
         } => {
-            let staking_object = client.sui_client().read_client.get_staking_object().await?;
+            let staking_object = client_created_in_bg
+                .client()
+                .await?
+                .sui_client()
+                .read_client()
+                .get_staking_object()
+                .await?;
             let epoch_state = staking_object.epoch_state();
             let estimated_start_of_current_epoch = match epoch_state {
                 EpochState::EpochChangeDone(epoch_start)
@@ -2186,7 +2221,12 @@ async fn get_epochs_ahead(
             end_epoch: Some(end_epoch),
             ..
         } => {
-            let current_epoch = client.sui_client().current_epoch().await?;
+            let current_epoch = client_created_in_bg
+                .client()
+                .await?
+                .sui_client()
+                .current_epoch()
+                .await?;
             ensure!(
                 *end_epoch > current_epoch,
                 "end_epoch must be greater than the current epoch"

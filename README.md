@@ -6,20 +6,10 @@ governance.
 ## Documentation
 
 Our main documentation is available [as a Walrus Site](https://docs.wal.app) (see [the
-documentation](https://docs.wal.app/walrus-sites/intro.html) for further information on what
-this means) and on [GitHub Pages](https://mystenlabs.github.io/walrus); it is generated using
-[mdBook](https://rust-lang.github.io/mdBook/) from source files in the [`docs/book`](./docs/book)
-directory.
-
-You can also build the documentation locally (assuming you have Rust installed):
-
-```sh
-cargo install mdbook mdbook-admonish mdbook-katex mdbook-linkcheck mdbook-tabs --locked
-cargo install --git https://github.com/MystenLabs/mdbook-template --locked
-mdbook serve
-```
-
-After this, you can browse the documentation at <http://localhost:3000>.
+documentation](https://docs.wal.app/walrus-sites/intro.html) for further information on what this
+means) and on [GitHub Pages](https://mystenlabs.github.io/walrus). For information to build and
+modify the documentation, see [the corresponding section in the CONTRIBUTING.md
+file](./CONTRIBUTING.md#documentation).
 
 There are some additional documentation resources:
 

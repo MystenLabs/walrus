@@ -72,6 +72,7 @@ db_config:
     pin_l0_filter_and_index_blocks_in_block_cache: true
     hard_pending_compaction_bytes_limit: 0
   node_status: null
+  garbage_collector: null
   blob_info: null
   per_object_blob_info: null
   event_cursor: null
@@ -89,6 +90,11 @@ db_config:
   event_store: null
   init_state: null
   shared_shard_storage_block_cache_config: null
+live_upload_deferral:
+  enabled: false
+  buckets: []
+  max_total_defer_secs: 300
+  max_checkpoint_lag: 32
 protocol_key_pair:
   path: /opt/walrus/config/protocol.key
 next_protocol_key_pair: null
@@ -172,6 +178,14 @@ event_processor_config:
   runtime_lag_check_interval_secs: 300
   catchup_coordination_timeout_secs: 3000
   catchup_processing_timeout_secs: 3000
+pending_sliver_cache:
+  max_cached_slivers: 4096
+  max_cached_bytes: 536870912
+  max_cached_sliver_bytes: 4194304
+  cache_ttl: 10
+pending_metadata_cache:
+  max_cached_entries: 512
+  cache_ttl: 10
 use_legacy_event_provider: false
 disable_event_blob_writer: false
 commission_rate: 6000
@@ -217,3 +231,7 @@ blob_event_processor_config:
 garbage_collection:
   enable_blob_info_cleanup: false
   enable_data_deletion: false
+  enable_random_delay: true
+  randomization_time_window_secs: null
+  blob_objects_batch_size: 10000
+  data_deletion_batch_size: 1000

@@ -7,6 +7,7 @@ use core::fmt;
 use std::{
     collections::HashMap,
     future::Future,
+    num::NonZeroU16,
     path::PathBuf,
     str::FromStr,
     sync::Arc,
@@ -23,7 +24,12 @@ use sui_sdk::{
     rpc_types::{SuiExecutionStatus, SuiTransactionBlockEffectsAPI, SuiTransactionBlockResponse},
     types::base_types::ObjectID,
 };
-use sui_types::{TypeTag, base_types::SuiAddress, event::EventID, transaction::TransactionData};
+use sui_types::{
+    TypeTag,
+    base_types::SuiAddress,
+    event::EventID,
+    transaction::{ObjectArg, TransactionData},
+};
 use tokio::sync::Mutex;
 use tokio_stream::Stream;
 use tracing::Level;
@@ -230,20 +236,20 @@ impl SuiClientError {
 /// When certificate is present, the blob will be certified on Sui.
 /// When epochs_ahead is present, the blob will be extended on Sui.
 /// These two operations are allowed to be present at the same time.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct CertifyAndExtendBlobParams<'a> {
     /// The ID of the blob.
     pub blob: &'a Blob,
     /// The attribute of the blob.
     pub attribute: &'a BlobAttribute,
-    /// The certificate for the blob.
-    pub certificate: Option<ConfirmationCertificate>,
-    /// The number of epochs by which to extend the blob.
+    /// The certificate for the blob (if it needs to be certified).
+    pub certificate: Option<Arc<ConfirmationCertificate>>,
+    /// The number of epochs by which to extend the blob (if it needs to be extended).
     pub epochs_extended: Option<EpochCount>,
 }
 
 /// Result of certifying and extending a blob.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct CertifyAndExtendBlobResult {
     /// The blob.
     pub blob_object_id: ObjectID,
@@ -398,7 +404,7 @@ impl PostStoreAction {
 }
 
 /// Result of getting the shared blob object ID.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum GetSharedBlobResult {
     /// The blob was found.
     Success(ObjectID),
@@ -407,7 +413,7 @@ pub enum GetSharedBlobResult {
 }
 
 /// Result of the post store action.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum PostStoreActionResult {
     /// The blob was burned.
     Burned,
@@ -490,10 +496,10 @@ impl SuiContractClient {
         backoff_config: ExponentialBackoffConfig,
         gas_budget: Option<u64>,
     ) -> SuiClientResult<Self> {
+        tracing::debug!("creating a new `SuiContractClient`");
         let read_client = Arc::new(
             SuiReadClient::new(
-                RetriableSuiClient::new_for_rpc_urls(rpc_urls, backoff_config.clone(), None)
-                    .await?,
+                RetriableSuiClient::new_for_rpc_urls(rpc_urls, backoff_config.clone(), None)?,
                 contract_config,
             )
             .await?,
@@ -512,8 +518,7 @@ impl SuiContractClient {
     ) -> SuiClientResult<Self> {
         let read_client = Arc::new(
             SuiReadClient::new(
-                RetriableSuiClient::new_for_rpc_urls(rpc_urls, backoff_config.clone(), None)
-                    .await?
+                RetriableSuiClient::new_for_rpc_urls(rpc_urls, backoff_config.clone(), None)?
                     .with_metrics(Some(metrics)),
                 contract_config,
             )
@@ -1315,14 +1320,14 @@ impl SuiContractClient {
     #[tracing::instrument(level = Level::DEBUG, skip_all)]
     pub async fn certify_and_extend_blobs(
         &self,
-        blobs_with_certificates: &[CertifyAndExtendBlobParams<'_>],
+        certify_and_extend_parameters: &[CertifyAndExtendBlobParams<'_>],
         post_store: PostStoreAction,
     ) -> SuiClientResult<Vec<CertifyAndExtendBlobResult>> {
         self.retry_on_wrong_version(|| async {
             self.inner
                 .lock()
                 .await
-                .certify_and_extend_blobs(blobs_with_certificates, post_store)
+                .certify_and_extend_blobs(certify_and_extend_parameters, post_store)
                 .await
         })
         .await
@@ -1369,10 +1374,10 @@ impl SuiContractClient {
                 | MoveExecutionError::WalrusSubsidies(WalrusSubsidiesError::EWrongVersion(_)),
             )) => {
                 // Store old package IDs
-                let old_package_id = self.read_client.get_system_package_id();
-                let old_credits_package_id = self.read_client.get_credits_package_id();
+                let old_package_id = self.read_client.walrus_package_id();
+                let old_credits_package_id = self.read_client.credits_package_id();
                 let old_walrus_subsidies_package_id =
-                    self.read_client.get_walrus_subsidies_package_id();
+                    self.read_client.walrus_subsidies_package_id();
 
                 self.read_client.refresh_package_id().await?;
                 self.read_client.refresh_credits_package_id().await?;
@@ -1381,9 +1386,9 @@ impl SuiContractClient {
                     .await?;
 
                 // Check if either package ID changed
-                if self.read_client.get_system_package_id() != old_package_id
-                    || self.read_client.get_credits_package_id() != old_credits_package_id
-                    || self.read_client.get_walrus_subsidies_package_id()
+                if self.read_client.walrus_package_id() != old_package_id
+                    || self.read_client.credits_package_id() != old_credits_package_id
+                    || self.read_client.walrus_subsidies_package_id()
                         != old_walrus_subsidies_package_id
                 {
                     f().await
@@ -1503,7 +1508,7 @@ impl SuiContractClientInner {
         encoded_size: u64,
         epochs_ahead: EpochCount,
     ) -> SuiClientResult<StorageResource> {
-        if self.read_client.get_credits_object_id().is_some() {
+        if self.read_client.credits_object_id().is_some() {
             match self
                 .reserve_space_with_credits(encoded_size, epochs_ahead)
                 .await
@@ -1602,7 +1607,7 @@ impl SuiContractClientInner {
             return Ok(vec![]);
         }
 
-        let with_credits = self.read_client.get_credits_object_id().is_some();
+        let with_credits = self.read_client.credits_object_id().is_some();
 
         let expected_num_blobs = blob_metadata_and_storage.len();
         tracing::debug!(num_blobs = expected_num_blobs, "starting to register blobs");
@@ -1652,7 +1657,7 @@ impl SuiContractClientInner {
         blob_metadata_list: Vec<BlobObjectMetadata>,
         persistence: BlobPersistence,
     ) -> SuiClientResult<Vec<Blob>> {
-        let with_credits = self.read_client.get_credits_object_id().is_some();
+        let with_credits = self.read_client.credits_object_id().is_some();
         if with_credits {
             match self
                 .reserve_and_register_blobs_inner(
@@ -1863,9 +1868,7 @@ impl SuiContractClientInner {
         proof_of_possession: ProofOfPossession,
     ) -> SuiClientResult<StorageNodeCap> {
         let mut pt_builder = self.transaction_builder()?;
-        pt_builder
-            .register_candidate(node_parameters, proof_of_possession)
-            .await?;
+        pt_builder.register_candidate(node_parameters, proof_of_possession)?;
         let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
         let res = self
             .sign_and_send_transaction(transaction, "register_candidate")
@@ -1905,9 +1908,7 @@ impl SuiContractClientInner {
         for (node_parameters, proof_of_possession, address) in
             registration_params_with_stake_amounts.into_iter()
         {
-            let cap = pt_builder
-                .register_candidate(&node_parameters, proof_of_possession)
-                .await?;
+            let cap = pt_builder.register_candidate(&node_parameters, proof_of_possession)?;
             pt_builder.transfer(Some(address), vec![cap.into()]).await?;
         }
         let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
@@ -2003,7 +2004,7 @@ impl SuiContractClientInner {
     /// Can be called once the voting period is over.
     pub async fn voting_end(&mut self) -> SuiClientResult<()> {
         let mut pt_builder = self.transaction_builder()?;
-        pt_builder.voting_end().await?;
+        pt_builder.voting_end()?;
         let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
         self.sign_and_send_transaction(transaction, "voting_end")
             .await?;
@@ -2015,7 +2016,7 @@ impl SuiContractClientInner {
     /// Can be called once the epoch duration is over.
     pub async fn initiate_epoch_change(&mut self) -> SuiClientResult<()> {
         let mut pt_builder = self.transaction_builder()?;
-        pt_builder.initiate_epoch_change().await?;
+        pt_builder.initiate_epoch_change()?;
         let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
         self.sign_and_send_transaction(transaction, "initiate_epoch_change")
             .await?;
@@ -2028,7 +2029,7 @@ impl SuiContractClientInner {
     pub async fn process_subsidies(&mut self) -> SuiClientResult<()> {
         tracing::debug!("sending transaction to call process_subsidies");
         let mut pt_builder = self.transaction_builder()?;
-        pt_builder.process_subsidies().await?;
+        pt_builder.process_subsidies()?;
         let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
         self.sign_and_send_transaction(transaction, "process_subsidies")
             .await?;
@@ -2126,7 +2127,7 @@ impl SuiContractClientInner {
     /// transaction.
     pub async fn set_migration_epoch(&mut self, new_package_id: ObjectID) -> SuiClientResult<()> {
         let mut pt_builder = self.transaction_builder()?;
-        pt_builder.set_migration_epoch(new_package_id).await?;
+        pt_builder.set_migration_epoch(new_package_id)?;
         let transaction: TransactionData =
             pt_builder.build_transaction_data(self.gas_budget).await?;
         self.sign_and_send_transaction(transaction, "set_migration_epoch")
@@ -2139,7 +2140,7 @@ impl SuiContractClientInner {
     /// This must be called in the new package after the migration epoch is set and has started.
     pub async fn migrate_contracts(&mut self, new_package_id: ObjectID) -> SuiClientResult<()> {
         let mut pt_builder = self.transaction_builder()?;
-        pt_builder.migrate_contracts(new_package_id).await?;
+        pt_builder.migrate_contracts(new_package_id)?;
         let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
         self.sign_and_send_transaction(transaction, "migrate_contracts")
             .await?;
@@ -2184,14 +2185,12 @@ impl SuiContractClientInner {
         tracing::info!("creating a new walrus subsidies object");
 
         let mut pt_builder = self.transaction_builder()?;
-        pt_builder
-            .create_walrus_subsidies(
-                package_id,
-                system_subsidy_rate,
-                base_subsidy,
-                subsidy_per_shard,
-            )
-            .await?;
+        pt_builder.create_walrus_subsidies(
+            package_id,
+            system_subsidy_rate,
+            base_subsidy,
+            subsidy_per_shard,
+        )?;
         let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
         let res = self
             .sign_and_send_transaction(transaction, "create_and_fund_walrus_subsidies")
@@ -2583,7 +2582,7 @@ impl SuiContractClientInner {
         blob_obj_id: ObjectID,
         epochs_extended: EpochCount,
     ) -> SuiClientResult<()> {
-        let with_credits = self.read_client.get_credits_package_id().is_some();
+        let with_credits = self.read_client.credits_package_id().is_some();
         if with_credits {
             match self
                 .extend_blob_with_credits(blob_obj_id, epochs_extended)
@@ -2686,13 +2685,13 @@ impl SuiContractClientInner {
     /// Returns the shared blob object ID if the post store action is Share.
     pub async fn certify_and_extend_blobs(
         &mut self,
-        blobs_with_certificates: &[CertifyAndExtendBlobParams<'_>],
+        certify_and_extend_parameters: &[CertifyAndExtendBlobParams<'_>],
         post_store: PostStoreAction,
     ) -> SuiClientResult<Vec<CertifyAndExtendBlobResult>> {
-        let with_credits = self.read_client.get_credits_package_id().is_some();
+        let with_credits = self.read_client.credits_package_id().is_some();
         if with_credits {
             match self
-                .certify_and_extend_blobs_inner(blobs_with_certificates, post_store, true)
+                .certify_and_extend_blobs_inner(certify_and_extend_parameters, post_store, true)
                 .await
             {
                 Ok(result) => return Ok(result),
@@ -2709,33 +2708,51 @@ impl SuiContractClientInner {
             }
         }
 
-        self.certify_and_extend_blobs_inner(blobs_with_certificates, post_store, false)
+        self.certify_and_extend_blobs_inner(certify_and_extend_parameters, post_store, false)
             .await
     }
 
     /// Common implementation for certifying and extending blobs with different extension strategies
     async fn certify_and_extend_blobs_inner<'b>(
         &mut self,
-        blobs_with_certificates: &[CertifyAndExtendBlobParams<'b>],
+        certify_and_extend_parameters: &[CertifyAndExtendBlobParams<'b>],
         post_store: PostStoreAction,
         with_credits: bool,
     ) -> SuiClientResult<Vec<CertifyAndExtendBlobResult>> {
-        if blobs_with_certificates.is_empty() {
+        if certify_and_extend_parameters.is_empty() {
             return Ok(vec![]);
         }
 
+        let object_args = self
+            .read_client
+            .retriable_sui_client()
+            .get_object_refs(
+                &certify_and_extend_parameters
+                    .iter()
+                    .map(|blob_params| blob_params.blob.id)
+                    .collect::<Vec<_>>(),
+            )
+            .await?
+            .into_iter()
+            .map(ObjectArg::ImmOrOwnedObject);
+
         let mut pt_builder = self.transaction_builder()?;
 
-        for blob_params in blobs_with_certificates {
+        for (blob_params, object_arg) in certify_and_extend_parameters
+            .iter()
+            .zip(object_args.into_iter())
+        {
             let blob = blob_params.blob;
 
             if let Some(certificate) = blob_params.certificate.as_ref() {
-                pt_builder.certify_blob(blob.id.into(), certificate).await?;
+                pt_builder
+                    .certify_blob(object_arg.into(), certificate)
+                    .await?;
             }
 
             // Add attributes if provided.
             pt_builder
-                .insert_or_update_blob_attribute_pairs(blob.id.into(), blob_params.attribute)
+                .insert_or_update_blob_attribute_pairs(object_arg.into(), blob_params.attribute)
                 .await?;
 
             if let Some(epochs_extended) = blob_params.epochs_extended {
@@ -2743,14 +2760,18 @@ impl SuiContractClientInner {
                 if with_credits {
                     pt_builder
                         .extend_blob_with_credits(
-                            blob.id.into(),
+                            object_arg.into(),
                             epochs_extended,
                             blob.storage.storage_size,
                         )
                         .await?;
                 } else {
                     pt_builder
-                        .extend_blob(blob.id.into(), epochs_extended, blob.storage.storage_size)
+                        .extend_blob(
+                            object_arg.into(),
+                            epochs_extended,
+                            blob.storage.storage_size,
+                        )
                         .await?;
                 }
             }
@@ -2770,7 +2791,7 @@ impl SuiContractClientInner {
         }
 
         let post_store_action_results = self
-            .get_post_store_action_results(&res, blobs_with_certificates, &post_store)
+            .get_post_store_action_results(&res, certify_and_extend_parameters, &post_store)
             .await
             .map_err(|e| {
                 tracing::warn!(error = ?e, "failed to get post store action results");
@@ -2780,7 +2801,7 @@ impl SuiContractClientInner {
                 )
             })?;
 
-        let results = blobs_with_certificates
+        let results = certify_and_extend_parameters
             .iter()
             .zip(post_store_action_results.into_iter())
             .map(|(blob_params, r)| CertifyAndExtendBlobResult {
@@ -2796,14 +2817,14 @@ impl SuiContractClientInner {
     async fn get_post_store_action_results(
         &self,
         res: &SuiTransactionBlockResponse,
-        cert_and_extend_params: &[CertifyAndExtendBlobParams<'_>],
+        certify_and_extend_parameters: &[CertifyAndExtendBlobParams<'_>],
         post_store: &PostStoreAction,
     ) -> SuiClientResult<Vec<PostStoreActionResult>> {
         if *post_store == PostStoreAction::Share {
-            self.get_share_blob_result(cert_and_extend_params, res)
+            self.get_share_blob_result(certify_and_extend_parameters, res)
                 .await
         } else {
-            Ok(cert_and_extend_params
+            Ok(certify_and_extend_parameters
                 .iter()
                 .map(|_| PostStoreActionResult::new(post_store, None))
                 .collect())
@@ -2812,17 +2833,17 @@ impl SuiContractClientInner {
 
     async fn get_share_blob_result(
         &self,
-        cert_and_extend_params: &[CertifyAndExtendBlobParams<'_>],
+        certify_and_extend_parameters: &[CertifyAndExtendBlobParams<'_>],
         res: &SuiTransactionBlockResponse,
     ) -> SuiClientResult<Vec<PostStoreActionResult>> {
         // Try to get the shared blob mapping
         match self
-            .get_shared_blob_mapping(cert_and_extend_params, res)
+            .get_shared_blob_mapping(certify_and_extend_parameters, res)
             .await
         {
             Ok(shared_mapping) => {
                 // Create results with successful ID mappings
-                let results = cert_and_extend_params
+                let results = certify_and_extend_parameters
                     .iter()
                     .map(|param| {
                         let shared_result = match shared_mapping.get(&param.blob.id) {
@@ -2838,7 +2859,7 @@ impl SuiContractClientInner {
             }
             Err(err) => {
                 // Create results with error for all params
-                let results = cert_and_extend_params
+                let results = certify_and_extend_parameters
                     .iter()
                     .map(|_| {
                         PostStoreActionResult::Shared(GetSharedBlobResult::Failed(err.to_string()))
@@ -2980,6 +3001,10 @@ impl ReadClient for SuiContractClient {
             .await
     }
 
+    async fn n_shards(&self) -> SuiClientResult<NonZeroU16> {
+        self.read_client.n_shards().await
+    }
+
     async fn event_stream(
         &self,
         polling_interval: Duration,
@@ -3044,8 +3069,8 @@ impl ReadClient for SuiContractClient {
         self.read_client.get_committees_and_state().await
     }
 
-    async fn fixed_system_parameters(&self) -> SuiClientResult<FixedSystemParameters> {
-        self.read_client.fixed_system_parameters().await
+    fn fixed_system_parameters(&self) -> FixedSystemParameters {
+        self.read_client.fixed_system_parameters()
     }
 
     async fn stake_assignment(&self) -> SuiClientResult<HashMap<ObjectID, u64>> {
@@ -3074,6 +3099,10 @@ impl ReadClient for SuiContractClient {
 
     async fn flush_cache(&self) {
         self.read_client.flush_cache().await;
+    }
+
+    fn read_client(&self) -> &SuiReadClient {
+        self.read_client.as_ref()
     }
 }
 

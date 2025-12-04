@@ -6,7 +6,7 @@
 //! Wraps the [`SuiClient`] to introduce retries.
 use std::{
     cmp::Reverse,
-    collections::{BTreeMap, BinaryHeap},
+    collections::{BTreeMap, BinaryHeap, HashMap},
     fmt,
     pin::pin,
     str::FromStr,
@@ -52,8 +52,9 @@ use sui_sdk::{
 use sui_types::transaction::TransactionDataAPI;
 use sui_types::{
     TypeTag,
-    base_types::{ObjectID, SequenceNumber, SuiAddress, TransactionDigest},
+    base_types::{ObjectID, ObjectRef, SequenceNumber, SuiAddress, TransactionDigest},
     dynamic_field::derive_dynamic_field_id,
+    event::EventID,
     object::Owner,
     quorum_driver_types::ExecuteTransactionRequestType::WaitForLocalExecution,
     sui_serde::BigInt,
@@ -75,12 +76,26 @@ use super::{
 use crate::{
     client::SuiClientMetricSet,
     contracts::{self, AssociatedContractStruct, TypeOriginMap},
-    types::move_structs::{Credits, Key, SuiDynamicField, SystemObjectForDeserialization},
+    types::{
+        BlobEvent,
+        move_structs::{
+            BlobAttribute,
+            Credits,
+            Key,
+            StakingPool,
+            StorageNode,
+            SuiDynamicField,
+            SystemObjectForDeserialization,
+        },
+    },
     utils::get_sui_object_from_object_response,
 };
 
 /// The maximum gas allowed in a transaction, in MIST (50 SUI). Used for gas budget estimation.
 const MAX_GAS_BUDGET: u64 = 50_000_000_000;
+/// A dummy gas price used in the dry-run for gas budget estimation when the actual gas price is not
+/// yet available.
+const DUMMY_GAS_PRICE: u64 = 1000;
 /// The maximum number of gas payment objects allowed in a transaction by the Sui protocol
 /// configuration
 /// [here](https://github.com/MystenLabs/sui/blob/main/crates/sui-protocol-config/src/lib.rs#L2089).
@@ -217,13 +232,21 @@ impl LazyClientBuilder<SuiClient> for LazySuiClientBuilder {
     }
 }
 
+/// A struct that contains the gas price and gas budget.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct GasBudgetAndPrice {
+    /// The gas budget.
+    pub gas_budget: u64,
+    /// The gas price.
+    pub gas_price: u64,
+}
+
 /// A [`SuiClient`] that retries RPC calls with backoff in case of network errors.
 ///
 /// This retriable client wraps functions from the [`CoinReadApi`][sui_sdk::apis::CoinReadApi] and
 /// the [`ReadApi`][sui_sdk::apis::ReadApi] of the [`SuiClient`], and
 /// additionally provides some convenience methods.
-#[allow(missing_debug_implementations)]
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct RetriableSuiClient {
     failover_sui_client: FailoverWrapper<SuiClient, LazySuiClientBuilder>,
     backoff_config: ExponentialBackoffConfig,
@@ -232,13 +255,12 @@ pub struct RetriableSuiClient {
 
 impl RetriableSuiClient {
     /// Creates a new retriable client.
-    pub async fn new(
+    pub fn new(
         lazy_client_builders: Vec<LazySuiClientBuilder>,
         backoff_config: ExponentialBackoffConfig,
     ) -> anyhow::Result<Self> {
         Ok(RetriableSuiClient {
             failover_sui_client: FailoverWrapper::new(lazy_client_builders)
-                .await
                 .context("creating failover wrapper")?,
             backoff_config,
             metrics: None,
@@ -257,7 +279,7 @@ impl RetriableSuiClient {
     }
 
     /// Creates a new retriable client from an RCP address.
-    pub async fn new_for_rpc_urls<S: AsRef<str>>(
+    pub fn new_for_rpc_urls<S: AsRef<str>>(
         rpc_addresses: &[S],
         backoff_config: ExponentialBackoffConfig,
         request_timeout: Option<Duration>,
@@ -266,16 +288,16 @@ impl RetriableSuiClient {
             .iter()
             .map(|rpc_url| LazySuiClientBuilder::new(rpc_url, request_timeout))
             .collect::<Vec<_>>();
-        Ok(Self::new(failover_clients, backoff_config).await?)
+        Ok(Self::new(failover_clients, backoff_config)?)
     }
 
-    // Reimplementation of the `SuiClient` methods.
+    // Re-implementation of the `SuiClient` methods.
 
     /// Return a list of coins for the given address, or an error upon failure.
     ///
     /// Reimplements the functionality of [`sui_sdk::apis::CoinReadApi::select_coins`] with the
     /// addition of retries on network errors.
-    #[tracing::instrument(level = Level::DEBUG, skip_all)]
+    #[tracing::instrument(skip(self, address, exclude), level = Level::DEBUG)]
     pub async fn select_coins(
         &self,
         address: SuiAddress,
@@ -380,8 +402,8 @@ impl RetriableSuiClient {
 
     /// Returns a stream of coins for the given address.
     ///
-    /// This is a reimplementation of the [`sui_sdk::apis::CoinReadApi:::get_coins_stream`] method
-    /// in the `SuiClient` struct. Unlike the original implementation, this version will retry
+    /// This is a re-implementation of the [`sui_sdk::apis::CoinReadApi::get_coins_stream`] method
+    /// in the [`SuiClient`] struct. Unlike the original implementation, this version will retry
     /// failed RPC calls.
     fn get_coins_stream_retry(
         &self,
@@ -564,7 +586,7 @@ impl RetriableSuiClient {
     /// Returns a [`SuiObjectResponse`] based on the provided [`ObjectID`].
     ///
     /// Calls [`sui_sdk::apis::ReadApi::get_object_with_options`] internally.
-    #[tracing::instrument(level = Level::DEBUG, skip_all)]
+    #[tracing::instrument(level = Level::DEBUG, skip(self))]
     pub async fn get_object_with_options(
         &self,
         object_id: ObjectID,
@@ -634,26 +656,26 @@ impl RetriableSuiClient {
     #[tracing::instrument(level = Level::DEBUG, skip_all)]
     pub async fn multi_get_object_with_options(
         &self,
-        object_ids: Vec<ObjectID>,
+        object_ids: &[ObjectID],
         options: SuiObjectDataOptions,
     ) -> SuiClientResult<Vec<SuiObjectResponse>> {
         async fn make_request(
             client: Arc<SuiClient>,
-            object_ids: Vec<ObjectID>,
+            object_ids: &[ObjectID],
             options: SuiObjectDataOptions,
         ) -> SuiClientResult<Vec<SuiObjectResponse>> {
             Ok(client
                 .read_api()
-                .multi_get_object_with_options(object_ids.clone(), options.clone())
+                .multi_get_object_with_options(object_ids.to_vec(), options)
                 .await?)
         }
 
         let request = move |client: Arc<SuiClient>, method| {
-            let object_ids = object_ids.clone();
+            let object_ids = object_ids;
             let options = options.clone();
             retry_rpc_errors(
                 self.get_strategy(),
-                move || make_request(client.clone(), object_ids.clone(), options.clone()),
+                move || make_request(client.clone(), object_ids, options.clone()),
                 self.metrics.clone(),
                 method,
             )
@@ -661,6 +683,28 @@ impl RetriableSuiClient {
         self.failover_sui_client
             .with_failover(request, None, "multi_get_object")
             .await
+    }
+
+    /// Returns the Sui Objects with the provided [`ObjectID`]s calling
+    /// [`Self::multi_get_object_with_options`] in batches of the maximum number of objects allowed
+    /// in a single RPC call.
+    #[tracing::instrument(level = Level::DEBUG, skip_all)]
+    pub async fn multi_get_object_with_options_batched(
+        &self,
+        object_ids: &[ObjectID],
+        options: SuiObjectDataOptions,
+    ) -> SuiClientResult<Vec<SuiObjectResponse>> {
+        let results = futures::future::try_join_all(object_ids.chunks(MULTI_GET_OBJ_LIMIT).map(
+            move |obj_id_batch| {
+                let options = options.clone();
+                async move {
+                    self.multi_get_object_with_options(obj_id_batch, options)
+                        .await
+                }
+            },
+        ))
+        .await?;
+        Ok(results.into_iter().flatten().collect())
     }
 
     /// Returns a map consisting of the move package name and the normalized module.
@@ -726,6 +770,7 @@ impl RetriableSuiClient {
     /// Returns the reference gas price.
     ///
     /// Calls [`sui_sdk::apis::ReadApi::get_reference_gas_price`] internally.
+    #[tracing::instrument(level = Level::DEBUG, skip_all)]
     pub async fn get_reference_gas_price(&self) -> SuiClientResult<u64> {
         async fn make_request(client: Arc<SuiClient>) -> SuiClientResult<u64> {
             Ok(client.read_api().get_reference_gas_price().await?)
@@ -813,21 +858,34 @@ impl RetriableSuiClient {
     where
         U: AssociatedContractStruct,
     {
-        let mut responses = vec![];
-        for obj_id_batch in object_ids.chunks(MULTI_GET_OBJ_LIMIT) {
-            responses.extend(
-                self.multi_get_object_with_options(
-                    obj_id_batch.to_vec(),
-                    SuiObjectDataOptions::new().with_bcs().with_type(),
-                )
-                .await?,
-            );
-        }
-
+        let responses = self
+            .multi_get_object_with_options_batched(
+                object_ids,
+                SuiObjectDataOptions::new().with_bcs().with_type(),
+            )
+            .await?;
         responses
-            .iter()
-            .map(|r| get_sui_object_from_object_response(r))
+            .into_iter()
+            .map(|r| get_sui_object_from_object_response(&r))
             .collect::<Result<Vec<_>, _>>()
+    }
+
+    /// Returns the [`ObjectRef`]s of the Sui Objects with the provided [`ObjectID`]s.
+    pub async fn get_object_refs(
+        &self,
+        object_ids: &[ObjectID],
+    ) -> SuiClientResult<Vec<ObjectRef>> {
+        let responses = self
+            .multi_get_object_with_options_batched(object_ids, SuiObjectDataOptions::new())
+            .await?;
+        responses
+            .into_iter()
+            .map(|r| {
+                Ok(r.into_object()
+                    .map_err(|e| SuiClientError::Internal(e.into()))?
+                    .object_ref())
+            })
+            .collect()
     }
 
     /// Returns the chain identifier.
@@ -856,20 +914,28 @@ impl RetriableSuiClient {
         &self,
         object_id: ObjectID,
     ) -> SuiClientResult<SequenceNumber> {
-        let Some(Owner::Shared {
+        self.get_initial_version_from_object_response(
+            &self
+                .get_object_with_options(object_id, SuiObjectDataOptions::new().with_owner())
+                .await?,
+        )
+    }
+
+    pub(crate) fn get_initial_version_from_object_response(
+        &self,
+        object_response: &SuiObjectResponse,
+    ) -> SuiClientResult<SequenceNumber> {
+        if let Some(Owner::Shared {
             initial_shared_version,
-        }) = self
-            .get_object_with_options(object_id, SuiObjectDataOptions::new().with_owner())
-            .await?
-            .owner()
-        else {
-            return Err(anyhow::anyhow!(
-                "trying to get the initial version of a non-shared object {}",
-                object_id
-            )
-            .into());
-        };
-        Ok(initial_shared_version)
+        }) = object_response.owner()
+        {
+            Ok(initial_shared_version)
+        } else {
+            Err(SuiClientError::Internal(anyhow::anyhow!(
+                "trying to get the initial version of a non-shared object; object_id: {:?}",
+                object_response.object_id(),
+            )))
+        }
     }
 
     pub(crate) async fn get_extended_field<V>(
@@ -1046,42 +1112,65 @@ impl RetriableSuiClient {
         Ok(wal_type)
     }
 
+    /// If the `gas_budget` is passed in, this returns the gas budget and the current gas price.
+    /// Otherwise, it estimates the gas budget and the gas price concurrently.
+    #[tracing::instrument(skip_all, level = Level::DEBUG)]
+    pub(crate) async fn gas_budget_and_price(
+        &self,
+        gas_budget: Option<u64>,
+        signer: SuiAddress,
+        transaction_kind: TransactionKind,
+    ) -> SuiClientResult<GasBudgetAndPrice> {
+        if let Some(gas_budget) = gas_budget {
+            Ok(GasBudgetAndPrice {
+                gas_budget,
+                gas_price: self.get_reference_gas_price().await?,
+            })
+        } else {
+            self.estimate_gas_budget(signer, transaction_kind).await
+        }
+    }
+
     /// Calls a dry run with the transaction data to estimate the gas budget.
     ///
-    /// This performs the same calculation as the Sui CLI and the TypeScript SDK.
-    pub(crate) async fn estimate_gas_budget(
+    /// Returns the estimated gas budget and the current gas price.
+    ///
+    /// This performs the same calculation as the Sui CLI and the TypeScript SDK with the following
+    /// differences:
+    /// - uses a dummy gas price of [`DUMMY_GAS_PRICE`] to estimate the gas budget,
+    /// - requests the gas price concurrently, and
+    /// - scales the computation cost of the dry run accordingly.
+    #[tracing::instrument(skip_all, level = Level::DEBUG)]
+    async fn estimate_gas_budget(
         &self,
         signer: SuiAddress,
         kind: TransactionKind,
-        gas_price: u64,
-    ) -> SuiClientResult<u64> {
+    ) -> SuiClientResult<GasBudgetAndPrice> {
         let dry_run_tx_data = TransactionData::new_with_gas_coins_allow_sponsor(
             kind,
             signer,
             vec![],
             MAX_GAS_BUDGET,
-            gas_price,
+            DUMMY_GAS_PRICE,
             signer,
         );
-        let effects = self
-            .dry_run_transaction_block(dry_run_tx_data)
-            .await
-            .inspect_err(|error| {
-                tracing::debug!(%error, "transaction dry run failed");
-            })?
-            .effects;
-        let gas_cost_summary = effects.gas_cost_summary();
+        let dry_run_future = self.dry_run_transaction_block(dry_run_tx_data);
 
+        let (gas_price, dry_run_result) =
+            tokio::try_join!(self.get_reference_gas_price(), dry_run_future)?;
+        let gas_cost_summary = dry_run_result.effects.gas_cost_summary();
+
+        let computation_cost =
+            (gas_cost_summary.computation_cost * gas_price).div_ceil(DUMMY_GAS_PRICE);
         let safe_overhead = GAS_SAFE_OVERHEAD * gas_price;
-        let computation_cost_with_overhead = gas_cost_summary.computation_cost + safe_overhead;
-        let gas_usage_with_overhead = gas_cost_summary.net_gas_usage()
-            + i64::try_from(safe_overhead).expect("this should always be smaller than i64::MAX");
-        Ok(computation_cost_with_overhead.max(
-            gas_usage_with_overhead
-                .max(0)
-                .try_into()
-                .expect("we just set any negative value to 0"),
-        ))
+        let net_gas_usage_non_negative = (computation_cost + gas_cost_summary.storage_cost)
+            .saturating_sub(gas_cost_summary.storage_rebate);
+        let gas_budget = computation_cost.max(net_gas_usage_non_negative) + safe_overhead;
+
+        Ok(GasBudgetAndPrice {
+            gas_budget,
+            gas_price,
+        })
     }
 
     /// Executes a transaction.
@@ -1151,6 +1240,86 @@ impl RetriableSuiClient {
                 "get_events",
             )
             .await
+    }
+
+    /// Get the latest object reference given an [`ObjectID`].
+    #[tracing::instrument(skip(self), level = Level::DEBUG)]
+    pub async fn get_object_ref(&self, object_id: ObjectID) -> Result<ObjectRef, anyhow::Error> {
+        Ok(self
+            .get_object_with_options(object_id, SuiObjectDataOptions::new())
+            .await?
+            .into_object()?
+            .object_ref())
+    }
+
+    /// Returns the node objects for the given node IDs.
+    #[tracing::instrument(skip_all, level = Level::DEBUG)]
+    pub async fn get_node_objects<I>(
+        &self,
+        node_ids: I,
+    ) -> SuiClientResult<HashMap<ObjectID, StakingPool>>
+    where
+        I: IntoIterator<Item = ObjectID>,
+    {
+        let node_ids = node_ids.into_iter().collect::<Vec<_>>();
+
+        futures::future::try_join_all(node_ids.chunks(MULTI_GET_OBJ_LIMIT).map(
+            |obj_id_batch| async move {
+                self.multi_get_object_with_options(
+                    obj_id_batch,
+                    SuiObjectDataOptions::new().with_type().with_bcs(),
+                )
+                .await
+            },
+        ))
+        .await?
+        .into_iter()
+        .flat_map(|responses| {
+            responses
+                .into_iter()
+                .map(|response| get_sui_object_from_object_response::<StakingPool>(&response))
+        })
+        .map(|result| result.map(|pool| (pool.id, pool)))
+        .collect()
+    }
+
+    /// Returns the blob event with the given Event ID.
+    pub async fn get_blob_event(&self, event_id: EventID) -> SuiClientResult<BlobEvent> {
+        self.get_events(event_id.tx_digest)
+            .await?
+            .into_iter()
+            .find(|e| e.id == event_id)
+            .and_then(|e| e.try_into().ok())
+            .ok_or(SuiClientError::NoCorrespondingBlobEvent(event_id))
+    }
+
+    /// Returns the storage nodes with the given IDs.
+    pub async fn get_storage_nodes_by_ids(
+        &self,
+        node_ids: &[ObjectID],
+    ) -> Result<Vec<StorageNode>, anyhow::Error> {
+        Ok(self
+            .get_sui_objects::<StakingPool>(node_ids)
+            .await
+            .context("one or multiple node IDs were not found")?
+            .into_iter()
+            .map(|pool| pool.node_info)
+            .collect())
+    }
+
+    /// Returns the metadata associated with a blob object.
+    pub async fn get_blob_attribute(
+        &self,
+        blob_object_id: &ObjectID,
+    ) -> SuiClientResult<Option<BlobAttribute>> {
+        self.get_dynamic_field::<Vec<u8>, BlobAttribute>(
+            *blob_object_id,
+            TypeTag::Vector(Box::new(TypeTag::U8)),
+            b"metadata".to_vec(),
+        )
+        .await
+        .map(Some)
+        .or_else(|_| Ok(None))
     }
 }
 

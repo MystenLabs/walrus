@@ -56,7 +56,7 @@ impl EventProcessorRuntime {
             system_pkg_id: sui_reader_config
                 .new_read_client()
                 .await?
-                .get_system_package_id(),
+                .walrus_package_id(),
             system_object_id: sui_reader_config.contract_config.system_object,
             staking_object_id: sui_reader_config.contract_config.staking_object,
         };

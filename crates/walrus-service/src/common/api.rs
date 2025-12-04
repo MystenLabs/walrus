@@ -135,7 +135,7 @@ pub(crate) trait RestApiError: Sized + std::fmt::Display {
 ///
 /// When creating response descriptions, several errors may have the same HTTP error code. Make each
 /// code unique by appending a numerical suffix (1), (2), etc. to it, so that it can be stored in
-/// the map required by the [`IntoResponses`] trait.
+/// the map required by the [`IntoResponses`][utoipa::IntoResponses] trait.
 pub(crate) fn ensure_unique_responses(
     responses: Vec<(String, RefOr<OpenApiResponse>)>,
 ) -> BTreeMap<String, RefOr<OpenApiResponse>> {

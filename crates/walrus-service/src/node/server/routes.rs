@@ -1,8 +1,6 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-use std::num::NonZeroU16;
-
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
@@ -14,10 +12,10 @@ use serde_with::{DisplayFromStr, OneOrMany, serde_as};
 use sui_types::base_types::ObjectID;
 use tokio::sync::{Semaphore, SemaphorePermit, TryAcquireError};
 use tracing::Level;
+use utoipa::IntoParams;
 use walrus_core::{
     BlobId,
     InconsistencyProof,
-    RecoverySymbol,
     Sliver,
     SliverIndex,
     SliverPairIndex,
@@ -58,7 +56,8 @@ use crate::{
         StoreMetadataError,
         StoreSliverError,
         SyncShardServiceError,
-        errors::{IndexOutOfRange, ListSymbolsError, Unavailable},
+        UploadIntent,
+        errors::{ListSymbolsError, Unavailable},
     },
 };
 
@@ -79,9 +78,6 @@ pub const PERMANENT_BLOB_CONFIRMATION_ENDPOINT: &str = "/v1/blobs/{blob_id}/conf
 pub const DELETABLE_BLOB_CONFIRMATION_ENDPOINT: &str =
     "/v1/blobs/{blob_id}/confirmation/deletable/{object_id}";
 /// The path to get recovery symbols.
-pub const RECOVERY_ENDPOINT: &str =
-    "/v1/blobs/{blob_id}/slivers/{sliver_pair_index}/{sliver_type}/{target_pair_index}";
-/// The path to get recovery symbols.
 pub const RECOVERY_SYMBOL_ENDPOINT: &str = "/v1/blobs/{blob_id}/recoverySymbols/{symbol_id}";
 /// The path to get multiple recovery symbols.
 pub const RECOVERY_SYMBOL_LIST_ENDPOINT: &str = "/v1/blobs/{blob_id}/recoverySymbols";
@@ -92,6 +88,21 @@ pub const INCONSISTENCY_PROOF_ENDPOINT: &str =
 pub const BLOB_STATUS_ENDPOINT: &str = "/v1/blobs/{blob_id}/status";
 pub const HEALTH_ENDPOINT: &str = "/v1/health";
 pub const SYNC_SHARD_ENDPOINT: &str = "/v1/migrate/sync_shard";
+
+#[derive(Debug, Default, Deserialize, IntoParams, utoipa::ToSchema)]
+#[into_params(parameter_in = Query, style = Form)]
+#[serde(default, deny_unknown_fields)]
+pub(crate) struct UploadIntentQuery {
+    /// Set to true to buffer the payload until the blob is registered.
+    #[serde(default)]
+    pending: Option<bool>,
+}
+
+impl UploadIntentQuery {
+    fn intent(&self) -> UploadIntent {
+        UploadIntent::from_pending_flag(self.pending.unwrap_or(false))
+    }
+}
 
 /// Convenience trait to apply bounds on the ServiceState.
 pub(crate) trait SyncServiceState: ServiceState + Send + Sync + 'static {}
@@ -104,7 +115,7 @@ impl<T: ServiceState + Send + Sync + 'static> SyncServiceState for T {}
 #[utoipa::path(
     get,
     path = METADATA_ENDPOINT,
-    params(("blob_id" = BlobId,)),
+    params(("blob_id" = BlobId, ), UploadIntentQuery),
     responses(
         (status = 200, description = "BCS encoded blob metadata", body = [u8]),
         RetrieveMetadataError
@@ -153,10 +164,18 @@ pub async fn get_metadata_status<S: SyncServiceState>(
 #[utoipa::path(
     put,
     path = METADATA_ENDPOINT,
-    params(("blob_id" = BlobId,)),
-    request_body(content = [u8], description = "BCS-encoded metadata octet-stream"),
+    params(("blob_id" = BlobId,), UploadIntentQuery),
+    request_body(
+        content = [u8],
+        description = "BCS-encoded metadata octet-stream"
+    ),
     responses(
         (status = CREATED, description = "Metadata successfully stored", body = ApiSuccess<String>),
+        (
+            status = ACCEPTED,
+            description = "Metadata buffered pending registration",
+            body = ApiSuccess<String>
+        ),
         (status = OK, description = "Metadata is already stored", body = ApiSuccess<String>),
         StoreMetadataError,
     ),
@@ -165,14 +184,24 @@ pub async fn get_metadata_status<S: SyncServiceState>(
 pub async fn put_metadata<S: SyncServiceState>(
     State(state): State<RestApiState<S>>,
     Path(BlobIdString(blob_id)): Path<BlobIdString>,
+    ExtraQuery(intent): ExtraQuery<UploadIntentQuery>,
     Bcs(metadata): Bcs<BlobMetadata>,
 ) -> Result<ApiSuccess<&'static str>, StoreMetadataError> {
-    let (code, message) = if state
+    let intent = intent.intent();
+    let newly_stored = state
         .service
-        .store_metadata(UnverifiedBlobMetadataWithId::new(blob_id, metadata))
-        .await?
-    {
-        (StatusCode::CREATED, "metadata successfully stored")
+        .store_metadata(UnverifiedBlobMetadataWithId::new(blob_id, metadata), intent)
+        .await?;
+
+    let (code, message) = if newly_stored {
+        if intent.is_pending() {
+            (
+                StatusCode::ACCEPTED,
+                "metadata buffered pending registration",
+            )
+        } else {
+            (StatusCode::CREATED, "metadata successfully stored")
+        }
     } else {
         (StatusCode::OK, "metadata already stored")
     };
@@ -239,11 +268,18 @@ pub async fn get_sliver<S: SyncServiceState>(
     params(
         ("blob_id" = BlobId, ),
         ("sliver_pair_index" = SliverPairIndex, ),
-        ("sliver_type" = SliverType, )
+        ("sliver_type" = SliverType, ),
+        UploadIntentQuery,
     ),
     request_body(content = [u8], description = "BCS-encoded sliver octet-stream"),
     responses(
-        (status = OK, description = "Sliver successfully stored", body = ApiSuccess<String>),
+        (status = CREATED, description = "Sliver successfully stored", body = ApiSuccess<String>),
+        (
+            status = ACCEPTED,
+            description = "Sliver buffered pending registration",
+            body = ApiSuccess<String>
+        ),
+        (status = OK, description = "Sliver already stored", body = ApiSuccess<String>),
         StoreSliverError,
     ),
     tag = openapi::GROUP_STORING_BLOBS,
@@ -255,6 +291,7 @@ pub async fn put_sliver<S: SyncServiceState>(
         SliverPairIndex,
         SliverType,
     )>,
+    ExtraQuery(intent): ExtraQuery<UploadIntentQuery>,
     body: axum::body::Bytes,
 ) -> Result<ApiSuccess<&'static str>, OrRejection<StoreSliverError>> {
     let blob_id = blob_id.0;
@@ -263,13 +300,23 @@ pub async fn put_sliver<S: SyncServiceState>(
         SliverType::Secondary => Sliver::Secondary(Bcs::from_bytes(&body)?.0),
     };
 
-    state
+    let intent = intent.intent();
+    let stored = state
         .service
-        .store_sliver(blob_id, sliver_pair_index, sliver)
+        .store_sliver(blob_id, sliver_pair_index, sliver, intent)
         .await?;
 
-    // TODO(WAL-253): Change to CREATED.
-    Ok(ApiSuccess::ok("sliver stored successfully"))
+    let (code, message) = if stored {
+        if intent.is_pending() {
+            (StatusCode::ACCEPTED, "sliver buffered pending registration")
+        } else {
+            (StatusCode::CREATED, "sliver stored successfully")
+        }
+    } else {
+        (StatusCode::OK, "sliver already stored")
+    };
+
+    Ok(ApiSuccess::new(code, message))
 }
 
 /// Check if the blob slivers are present.
@@ -390,92 +437,6 @@ pub async fn get_deletable_blob_confirmation<S: SyncServiceState>(
         .await?;
 
     Ok(ApiSuccess::ok(confirmation))
-}
-
-/// Get recovery symbols.
-///
-/// Gets a symbol held by this storage node to aid in sliver recovery.
-///
-/// The `sliver_type` is the target type of the sliver that will be recovered.
-/// The `sliver_pair_index` is the index of the sliver pair that we want to access.
-/// The `target_pair_index` is the index of the target sliver.
-#[tracing::instrument(skip_all, err(level = Level::DEBUG), fields(
-    walrus.blob_id = %blob_id.0,
-    walrus.sliver.pair_index = %sliver_pair_index,
-    walrus.sliver.remote_pair_index = %target_pair_index,
-    walrus.recovery.symbol_type = %sliver_type
-))]
-#[utoipa::path(
-    get,
-    path = RECOVERY_ENDPOINT,
-    params(
-        ("blob_id" = BlobId,),
-        ("sliver_pair_index" = SliverPairIndex, ),
-        ("target_pair_index" = SliverPairIndex, ),
-        ("sliver_type" = SliverType, )
-    ),
-    responses(
-        (status = 200, description = "BCS encoded symbol", body = [u8]),
-        RetrieveSymbolError,
-    ),
-    tag = openapi::GROUP_RECOVERY
-)]
-#[deprecated = "use `get_recovery_symbol_by_id` instead"]
-pub async fn get_recovery_symbol<S: SyncServiceState>(
-    State(state): State<RestApiState<S>>,
-    Path((blob_id, sliver_pair_index, sliver_type, target_pair_index)): Path<(
-        BlobIdString,
-        SliverPairIndex,
-        SliverType,
-        SliverPairIndex,
-    )>,
-) -> Result<Response, RetrieveSymbolError> {
-    let blob_id = blob_id.0;
-    let n_shards = state.service.n_shards();
-    let _guard = limit_symbol_recovery_requests(state.recovery_symbols_limit.as_deref())?;
-
-    check_index(sliver_pair_index, n_shards)?;
-    check_index(target_pair_index, n_shards)?;
-
-    // The sliver type of the local sliver is orthogonal to the identified sliver type.
-    let (primary_index, secondary_index) = match sliver_type {
-        SliverType::Primary => {
-            // The target_pair_index is the primary sliver.
-            (
-                target_pair_index.to_sliver_index::<PrimaryEncoding>(n_shards),
-                sliver_pair_index.to_sliver_index::<SecondaryEncoding>(n_shards),
-            )
-        }
-        SliverType::Secondary => {
-            // The target_pair_index is the secondary sliver.
-            (
-                sliver_pair_index.to_sliver_index::<PrimaryEncoding>(n_shards),
-                target_pair_index.to_sliver_index::<SecondaryEncoding>(n_shards),
-            )
-        }
-    };
-    let symbol_id = SymbolId::new(primary_index, secondary_index);
-    let symbol = state
-        .service
-        .retrieve_recovery_symbol(&blob_id, symbol_id, Some(sliver_type))
-        .await?
-        .into();
-
-    match symbol {
-        RecoverySymbol::Primary(inner) => Ok(Bcs(inner).into_response()),
-        RecoverySymbol::Secondary(inner) => Ok(Bcs(inner).into_response()),
-    }
-}
-
-fn check_index(index: SliverPairIndex, n_shards: NonZeroU16) -> Result<(), IndexOutOfRange> {
-    if index.get() < n_shards.get() {
-        Ok(())
-    } else {
-        Err(IndexOutOfRange {
-            index: index.get(),
-            max: n_shards.get(),
-        })
-    }
 }
 
 /// Get a recovery symbol by its ID.

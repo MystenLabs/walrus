@@ -40,7 +40,11 @@ use walrus_sui::types::{
     move_structs::{NodeMetadata, VotingParams},
 };
 
-use super::{consistency_check::StorageNodeConsistencyCheckConfig, storage::DatabaseConfig};
+use super::{
+    consistency_check::StorageNodeConsistencyCheckConfig,
+    garbage_collector::GarbageCollectionConfig,
+    storage::DatabaseConfig,
+};
 use crate::{
     common::{config::SuiConfig, utils},
     event::event_processor::config::EventProcessorConfig,
@@ -85,6 +89,9 @@ pub struct StorageNodeConfig {
     /// Optional "config" to tune storage database.
     #[serde(default, skip_serializing_if = "defaults::is_default")]
     pub db_config: DatabaseConfig,
+    /// Configuration for deferring recovery while uploads are in progress.
+    #[serde(default, skip_serializing_if = "defaults::is_default")]
+    pub live_upload_deferral: LiveUploadDeferralConfig,
     /// Key pair used in Walrus protocol messages.
     // Important: this name should be in-sync with the name used in `rotate_protocol_key_pair()`
     #[serde_as(as = "PathOrInPlace<Base64>")]
@@ -137,6 +144,12 @@ pub struct StorageNodeConfig {
     /// This is ignored if `use_legacy_event_provider` is set to `true`.
     #[serde(default, skip_serializing_if = "defaults::is_default")]
     pub event_processor_config: EventProcessorConfig,
+    /// Configuration for the pending sliver cache.
+    #[serde(default, skip_serializing_if = "defaults::is_default")]
+    pub pending_sliver_cache: PendingSliverCacheConfig,
+    /// Configuration for the pending metadata cache.
+    #[serde(default, skip_serializing_if = "defaults::is_default")]
+    pub pending_metadata_cache: PendingMetadataCacheConfig,
     /// Use the legacy event provider.
     ///
     /// This is deprecated and will be removed in the future.
@@ -203,6 +216,7 @@ impl Default for StorageNodeConfig {
             storage_path: PathBuf::from("/opt/walrus/db"),
             blocklist_path: Default::default(),
             db_config: Default::default(),
+            live_upload_deferral: Default::default(),
             protocol_key_pair: PathOrInPlace::from_path("/opt/walrus/config/protocol.key"),
             next_protocol_key_pair: None,
             network_key_pair: PathOrInPlace::from_path("/opt/walrus/config/network.key"),
@@ -217,6 +231,8 @@ impl Default for StorageNodeConfig {
             tls: Default::default(),
             shard_sync_config: Default::default(),
             event_processor_config: Default::default(),
+            pending_sliver_cache: Default::default(),
+            pending_metadata_cache: Default::default(),
             use_legacy_event_provider: false,
             disable_event_blob_writer: Default::default(),
             commission_rate: defaults::commission_rate(),
@@ -578,7 +594,7 @@ impl Default for BlobRecoveryConfig {
             max_concurrent_sliver_syncs: 2_000,
             max_proof_cache_elements: 7_500,
             committee_service_config: CommitteeServiceConfig::default(),
-            monitor_interval: Duration::from_secs(60),
+            monitor_interval: Duration::from_mins(1),
         }
     }
 }
@@ -590,6 +606,57 @@ impl BlobRecoveryConfig {
         Self {
             monitor_interval: Duration::from_secs(5),
             ..Default::default()
+        }
+    }
+}
+
+/// Configuration for the pending sliver cache.
+#[serde_as]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct PendingSliverCacheConfig {
+    /// Maximum number of slivers retained in memory while the blob registration is pending.
+    pub max_cached_slivers: usize,
+    /// Maximum aggregate size, in bytes, retained across all pending slivers.
+    pub max_cached_bytes: usize,
+    /// Maximum size of a single sliver retained in memory while the blob registration is pending.
+    pub max_cached_sliver_bytes: usize,
+    /// Duration after which pending uploads are evicted if the blob is still unregistered.
+    /// Set to 0 to disable caching entirely.
+    #[serde_as(as = "DurationSeconds<u64>")]
+    pub cache_ttl: Duration,
+}
+
+impl Default for PendingSliverCacheConfig {
+    fn default() -> Self {
+        Self {
+            max_cached_slivers: defaults::pending_sliver_cache_max_cached_slivers(),
+            max_cached_bytes: defaults::pending_sliver_cache_max_cached_bytes(),
+            max_cached_sliver_bytes: defaults::pending_sliver_cache_max_cached_sliver_bytes(),
+            cache_ttl: defaults::pending_sliver_cache_ttl(),
+        }
+    }
+}
+
+/// Configuration for the pending metadata cache.
+#[serde_as]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct PendingMetadataCacheConfig {
+    /// Maximum number of metadata entries retained in memory while the blob registration is
+    /// pending.
+    pub max_cached_entries: usize,
+    /// Duration after which cached metadata is evicted if the blob is still unregistered.
+    /// Set to 0 to disable metadata caching.
+    #[serde_as(as = "DurationSeconds<u64>")]
+    pub cache_ttl: Duration,
+}
+
+impl Default for PendingMetadataCacheConfig {
+    fn default() -> Self {
+        Self {
+            max_cached_entries: defaults::pending_metadata_cache_max_cached_entries(),
+            cache_ttl: defaults::pending_metadata_cache_ttl(),
         }
     }
 }
@@ -634,10 +701,10 @@ impl Default for CommitteeServiceConfig {
     fn default() -> Self {
         Self {
             retry_interval_min: Duration::from_secs(1),
-            retry_interval_max: Duration::from_secs(3600),
+            retry_interval_max: Duration::from_hours(1),
             metadata_request_timeout: Duration::from_secs(5),
             sliver_request_timeout: Duration::from_secs(45),
-            invalidity_sync_timeout: Duration::from_secs(300),
+            invalidity_sync_timeout: Duration::from_mins(5),
             max_concurrent_metadata_requests: NonZeroUsize::new(1).expect("1 is non-zero"),
             node_connect_timeout: Duration::from_secs(1),
             experimental_sliver_recovery_additional_symbols: 0,
@@ -688,13 +755,13 @@ impl Default for ShardSyncConfig {
     fn default() -> Self {
         Self {
             sliver_count_per_sync_request: 1000,
-            shard_sync_retry_min_backoff: Duration::from_secs(60),
-            shard_sync_retry_max_backoff: Duration::from_secs(600),
+            shard_sync_retry_min_backoff: Duration::from_mins(1),
+            shard_sync_retry_max_backoff: Duration::from_mins(10),
             max_concurrent_blob_recovery_during_shard_recovery: 100,
-            blob_certified_check_interval: Duration::from_secs(60),
+            blob_certified_check_interval: Duration::from_mins(1),
             max_concurrent_metadata_fetch: 100,
             shard_sync_concurrency: 10,
-            shard_sync_retry_switch_to_recovery_interval: Duration::from_secs(12 * 60 * 60), // 12hr
+            shard_sync_retry_switch_to_recovery_interval: Duration::from_hours(12),
             restart_shard_sync_always_retry_transfer_first: true,
             sst_ingestion_config: None,
         }
@@ -755,35 +822,91 @@ impl Default for BlobEventProcessorConfig {
     }
 }
 
-/// Configuration for garbage collection and related tasks.
-#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq)]
-#[serde(default)]
-pub struct GarbageCollectionConfig {
-    /// Whether to enable the blob info cleanup at the beginning of each epoch.
-    pub enable_blob_info_cleanup: bool,
-    /// Whether to delete metadata and slivers of expired or deleted blobs.
-    pub enable_data_deletion: bool,
+/// Entry defining a size bucket and the corresponding deferral duration.
+#[serde_as]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+pub struct SizeDeferralEntry {
+    /// Maximum unencoded blob size (inclusive) in bytes for this bucket.
+    pub max_unencoded_bytes: u64,
+    /// Deferral duration to apply for this bucket.
+    #[serde_as(as = "DurationSeconds<u64>")]
+    #[serde(rename = "defer_secs")]
+    pub defer: Duration,
 }
 
-#[allow(clippy::derivable_impls)] // making the default explicit as a reminder for future changes
-impl Default for GarbageCollectionConfig {
+/// Configuration that controls deferring recovery when a live client upload is likely.
+#[serde_as]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct LiveUploadDeferralConfig {
+    /// Enables applying a deferral window based on blob size.
+    pub enabled: bool,
+    /// Lookup table from size upper-bounds to deferral durations. Earlier entries take precedence.
+    /// When empty, [`LiveUploadDeferralConfig::max_total_defer`] is applied uniformly
+    /// regardless of blob size.
+    #[serde(alias = "table")]
+    pub buckets: Vec<SizeDeferralEntry>,
+    /// Maximum total deferral to apply, acting as an upper bound.
+    #[serde_as(as = "DurationSeconds<u64>")]
+    #[serde(rename = "max_total_defer_secs")]
+    pub max_total_defer: Duration,
+    /// Maximum Sui checkpoint lag (inclusive) that still qualifies for a live-upload deferral.
+    #[serde(default = "default_max_checkpoint_lag")]
+    pub max_checkpoint_lag: u64,
+}
+
+const fn default_max_checkpoint_lag() -> u64 {
+    32
+}
+
+impl Default for LiveUploadDeferralConfig {
     fn default() -> Self {
         Self {
-            // TODO(WAL-1040): Enable this by default.
-            enable_blob_info_cleanup: false,
-            // TODO(WAL-1040): Enable this by default.
-            enable_data_deletion: false,
+            enabled: false,
+            buckets: Vec::new(),
+            max_total_defer: Duration::from_secs(5 * 60),
+            max_checkpoint_lag: default_max_checkpoint_lag(),
         }
     }
 }
 
-impl GarbageCollectionConfig {
-    /// Returns a default configuration for testing.
-    #[cfg(any(test, feature = "test-utils"))]
+impl LiveUploadDeferralConfig {
+    /// Computes the deferral for the provided unencoded blob size, if any.
+    pub fn deferral_for_size(&self, size_bytes: u64) -> Option<Duration> {
+        if !self.enabled {
+            return None;
+        }
+
+        for entry in &self.buckets {
+            if size_bytes <= entry.max_unencoded_bytes {
+                return Some(std::cmp::min(entry.defer, self.max_total_defer));
+            }
+        }
+
+        None
+    }
+
+    /// Fallback deferral to use when the blob size is unknown.
+    pub fn fallback_deferral(&self) -> Option<Duration> {
+        if !self.enabled {
+            return None;
+        }
+
+        let capped = self.max_total_defer;
+        (!capped.is_zero()).then_some(capped)
+    }
+
+    /// Returns a configuration that is convenient for tests.
+    #[cfg(any(test, feature = "test-utils", feature = "deploy"))]
     pub fn default_for_test() -> Self {
         Self {
-            enable_blob_info_cleanup: true,
-            enable_data_deletion: true,
+            enabled: true,
+            buckets: vec![SizeDeferralEntry {
+                max_unencoded_bytes: u64::MAX,
+                defer: Duration::from_millis(100),
+            }],
+            max_total_defer: Duration::from_millis(100),
+            max_checkpoint_lag: default_max_checkpoint_lag(),
         }
     }
 }
@@ -806,11 +929,19 @@ pub mod defaults {
     /// Default interval between config monitoring checks in seconds.
     pub const CONFIG_SYNCHRONIZER_INTERVAL_SECS: u64 = 900;
     /// Default frequency with which balance checks are performed.
-    pub const BALANCE_CHECK_FREQUENCY: Duration = Duration::from_secs(60 * 60);
+    pub const BALANCE_CHECK_FREQUENCY: Duration = Duration::from_hours(1);
     /// SUI MIST threshold under which balance checks log a warning.
     pub const BALANCE_CHECK_WARNING_THRESHOLD_MIST: u64 = 5_000_000_000;
     /// The default number of max concurrent streams for the rest API.
     pub const REST_HTTP2_MAX_CONCURRENT_STREAMS: u32 = 1000;
+    /// Default capacity for the pending sliver cache (number of slivers).
+    pub const PENDING_SLIVER_CACHE_MAX_SLIVERS: usize = 4_096;
+    /// Default byte capacity for the pending sliver cache (~512 MiB).
+    pub const PENDING_SLIVER_CACHE_MAX_BYTES: usize = 512 * 1024 * 1024;
+    /// Default maximum size for a single sliver buffered in the pending sliver cache (~4 MiB).
+    pub const PENDING_SLIVER_CACHE_MAX_SLIVER_BYTES: usize = 4 * 1024 * 1024;
+    /// Default capacity for the pending metadata cache (number of entries).
+    pub const PENDING_METADATA_CACHE_MAX_ENTRIES: usize = 512;
 
     /// Returns the default metrics port.
     pub fn metrics_port() -> u16 {
@@ -830,6 +961,41 @@ pub mod defaults {
     /// Returns the default REST API address.
     pub fn rest_api_address() -> SocketAddr {
         (Ipv4Addr::UNSPECIFIED, REST_API_PORT).into()
+    }
+
+    /// Returns the default maximum number of slivers retained in the pending sliver cache.
+    pub const fn pending_sliver_cache_max_cached_slivers() -> usize {
+        PENDING_SLIVER_CACHE_MAX_SLIVERS
+    }
+
+    /// Returns the default maximum number of bytes retained in the pending sliver cache.
+    pub const fn pending_sliver_cache_max_cached_bytes() -> usize {
+        PENDING_SLIVER_CACHE_MAX_BYTES
+    }
+
+    /// Returns the default maximum size for a single sliver retained in the pending sliver cache.
+    pub const fn pending_sliver_cache_max_cached_sliver_bytes() -> usize {
+        PENDING_SLIVER_CACHE_MAX_SLIVER_BYTES
+    }
+
+    /// Returns the default time-to-live for pending uploads. Defaults to 0 to keep cache rollout
+    /// gated; tests keep caching enabled to exercise the code paths.
+    pub fn pending_sliver_cache_ttl() -> Duration {
+        if cfg!(any(test, feature = "test-utils")) {
+            Duration::from_secs(10)
+        } else {
+            Duration::from_secs(0)
+        }
+    }
+
+    /// Returns the default maximum number of metadata entries retained in the cache.
+    pub const fn pending_metadata_cache_max_cached_entries() -> usize {
+        PENDING_METADATA_CACHE_MAX_ENTRIES
+    }
+
+    /// Returns the default time-to-live for pending metadata uploads (matches sliver cache TTL).
+    pub fn pending_metadata_cache_ttl() -> Duration {
+        pending_sliver_cache_ttl()
     }
 
     /// Returns the default network ([`SuiNetwork::Devnet`])
@@ -858,7 +1024,7 @@ pub mod defaults {
 
     /// Configure the default push interval for metrics.
     pub fn push_interval() -> Duration {
-        Duration::from_secs(60)
+        Duration::from_mins(1)
     }
 
     /// Returns true if the `duration` is equal to the default push interval for metrics.
@@ -1250,6 +1416,41 @@ mod tests {
             PathOrInPlace::from_path(path)
         );
         Ok(())
+    }
+
+    #[test]
+    fn live_upload_deferral_uses_first_matching_bucket() {
+        let config = LiveUploadDeferralConfig {
+            enabled: true,
+            buckets: vec![
+                SizeDeferralEntry {
+                    max_unencoded_bytes: 100,
+                    defer: Duration::from_secs(1),
+                },
+                SizeDeferralEntry {
+                    max_unencoded_bytes: 100,
+                    defer: Duration::from_secs(5),
+                },
+            ],
+            max_total_defer: Duration::from_secs(10),
+            max_checkpoint_lag: default_max_checkpoint_lag(),
+        };
+
+        assert_eq!(config.deferral_for_size(100), Some(Duration::from_secs(1)));
+    }
+
+    #[test]
+    fn live_upload_deferral_fallback_honors_enable_flag() {
+        let mut config = LiveUploadDeferralConfig {
+            enabled: true,
+            buckets: Vec::new(),
+            max_total_defer: Duration::from_secs(42),
+            max_checkpoint_lag: default_max_checkpoint_lag(),
+        };
+        assert_eq!(config.fallback_deferral(), Some(Duration::from_secs(42)));
+
+        config.enabled = false;
+        assert_eq!(config.fallback_deferral(), None);
     }
 
     #[test]

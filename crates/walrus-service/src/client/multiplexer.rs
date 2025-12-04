@@ -25,6 +25,7 @@ use walrus_core::{
 use walrus_sdk::{
     client::{
         WalrusNodeClient,
+        byte_range_read_client::ReadByteRangeResult,
         metrics::ClientMetrics,
         refresh::CommitteesRefresherHandle,
         responses::{BlobStoreResult, QuiltStoreResult},
@@ -79,15 +80,13 @@ impl ClientMultiplexer {
 
         // Start the refresher here, so that all the clients can share it.
         let refresh_handle = config
-            .refresh_config
             .build_refresher_and_run(sui_read_client.clone())
             .await?;
         let read_client = WalrusNodeClient::new_read_client(
             config.clone(),
             refresh_handle.clone(),
             sui_read_client.clone(),
-        )
-        .await?;
+        )?;
 
         let refiller = Refiller::new(
             contract_client,
@@ -140,14 +139,14 @@ impl ClientMultiplexer {
     #[tracing::instrument(err, skip_all)]
     pub async fn submit_write(
         &self,
-        blob: &[u8],
+        blob: Vec<u8>,
         encoding_type: Option<EncodingType>,
         epochs_ahead: EpochCount,
         store_optimizations: StoreOptimizations,
         persistence: BlobPersistence,
         post_store: PostStoreAction,
     ) -> ClientResult<BlobStoreResult> {
-        let client = self.client_pool.next_client().await;
+        let client = self.client_pool.next_client();
         tracing::debug!("submitting write request to client in pool");
 
         let result = client
@@ -174,6 +173,17 @@ impl WalrusReadClient for ClientMultiplexer {
         WalrusReadClient::read_blob(&self.read_client, blob_id, consistency_check).await
     }
 
+    async fn read_byte_range(
+        &self,
+        blob_id: &BlobId,
+        start_byte_position: u64,
+        byte_length: u64,
+    ) -> ClientResult<ReadByteRangeResult> {
+        self.read_client
+            .read_byte_range(blob_id, start_byte_position, byte_length)
+            .await
+    }
+
     async fn get_blob_by_object_id(
         &self,
         blob_object_id: &ObjectID,
@@ -185,7 +195,7 @@ impl WalrusReadClient for ClientMultiplexer {
 impl WalrusWriteClient for ClientMultiplexer {
     async fn write_blob(
         &self,
-        blob: &[u8],
+        blob: Vec<u8>,
         encoding_type: Option<EncodingType>,
         epochs_ahead: EpochCount,
         store_optimizations: StoreOptimizations,
@@ -208,7 +218,7 @@ impl WalrusWriteClient for ClientMultiplexer {
         blobs: &[QuiltStoreBlob<'_>],
         encoding_type: Option<EncodingType>,
     ) -> ClientResult<V::Quilt> {
-        let client = self.client_pool.next_client().await;
+        let client = self.client_pool.next_client();
         tracing::debug!("submitting construct quilt request to client in pool");
 
         let result = client.construct_quilt::<V>(blobs, encoding_type).await?;
@@ -224,7 +234,7 @@ impl WalrusWriteClient for ClientMultiplexer {
         persistence: BlobPersistence,
         post_store: PostStoreAction,
     ) -> ClientResult<QuiltStoreResult> {
-        let client = self.client_pool.next_client().await;
+        let client = self.client_pool.next_client();
         tracing::debug!("submitting write quilt request to client in pool");
 
         let result = client
@@ -315,7 +325,7 @@ impl WriteClientPool {
     }
 
     /// Returns the next client in the pool.
-    pub async fn next_client(&self) -> Arc<WalrusNodeClient<SuiContractClient>> {
+    pub fn next_client(&self) -> Arc<WalrusNodeClient<SuiContractClient>> {
         let cur_idx = self.cur_idx.fetch_add(1, Ordering::Relaxed) % self.pool.len();
 
         self.pool
@@ -390,8 +400,7 @@ impl<'a> SubClientLoader<'a> {
         sui_client.merge_coins().await?;
 
         let client =
-            WalrusNodeClient::new_contract_client(self.config.clone(), refresh_handle, sui_client)
-                .await?;
+            WalrusNodeClient::new_contract_client(self.config.clone(), refresh_handle, sui_client)?;
         Ok(client)
     }
 
@@ -442,8 +451,7 @@ impl<'a> SubClientLoader<'a> {
             rpc_urls,
             self.config.backoff_config().clone(),
             self.config.communication_config.sui_client_request_timeout,
-        )
-        .await?;
+        )?;
 
         if should_refill(&sui_client, address, None, min_balance).await {
             self.refiller.send_gas_request(address).await?;

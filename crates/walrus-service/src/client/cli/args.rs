@@ -28,7 +28,6 @@ use walrus_core::{
     encoding::{EncodingConfig, EncodingFactory},
     ensure,
 };
-use walrus_sdk::config::UploadMode;
 use walrus_sui::{
     client::{ExpirySelectionPolicy, ReadClient, SuiContractClient},
     types::{StorageNode, move_structs::Authorized},
@@ -1202,10 +1201,6 @@ pub struct CommonStoreOptions {
     #[arg(long, requires = "upload_relay")]
     #[serde(default)]
     pub skip_tip_confirmation: bool,
-    /// Preset upload mode to tune network concurrency and bytes-in-flight.
-    #[arg(long, value_enum)]
-    #[serde(default)]
-    pub upload_mode: Option<UploadModeCli>,
     /// Spawn a helper process that continues detached tail uploads after quorum is reached.
     /// This is only effective when tail handling is configured as `detached`.
     #[arg(long)]
@@ -1231,31 +1226,6 @@ pub struct FileOrBlobId {
     #[serde_as(as = "Option<DisplayFromStr>")]
     #[serde(default)]
     pub(crate) blob_id: Option<BlobId>,
-}
-
-/// CLI enum for selecting upload presets. Converted to SDK UploadMode at runtime.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, clap::ValueEnum)]
-#[serde(rename_all = "camelCase")]
-pub enum UploadModeCli {
-    Conservative,
-    Balanced,
-    Aggressive,
-}
-
-impl Default for UploadModeCli {
-    fn default() -> Self {
-        Self::Balanced
-    }
-}
-
-impl From<UploadModeCli> for UploadMode {
-    fn from(value: UploadModeCli) -> Self {
-        match value {
-            UploadModeCli::Conservative => UploadMode::Conservative,
-            UploadModeCli::Balanced => UploadMode::Balanced,
-            UploadModeCli::Aggressive => UploadMode::Aggressive,
-        }
-    }
 }
 
 impl FileOrBlobId {
@@ -1909,7 +1879,7 @@ pub(crate) mod default {
     }
 
     pub(crate) fn faucet_timeout() -> Duration {
-        Duration::from_secs(60)
+        Duration::from_mins(1)
     }
 
     pub(crate) fn allowed_headers() -> Vec<String> {
@@ -1981,7 +1951,6 @@ mod tests {
                 encoding_type: Default::default(),
                 upload_relay: None,
                 skip_tip_confirmation: false,
-                upload_mode: None,
                 child_process_uploads: false,
                 internal_run: false,
             },

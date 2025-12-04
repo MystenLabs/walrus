@@ -18,6 +18,7 @@ use walrus_sdk::{
     blocklist::Blocklist,
     client::WalrusNodeClient,
     config::ClientConfig,
+    error::{ClientError, ClientResult},
     sui::client::{SuiContractClient, SuiReadClient, retry_client::RetriableSuiClient},
 };
 use walrus_sui::wallet::Wallet;
@@ -66,7 +67,6 @@ pub async fn get_read_client(
         get_sui_read_client_from_rpc_node_or_wallet(&config, rpc_url, wallet).await?;
 
     let refresh_handle = config
-        .refresh_config
         .build_refresher_and_run(sui_read_client.clone())
         .await?;
     let client = WalrusNodeClient::new_read_client_with_max_blob_size(
@@ -74,8 +74,7 @@ pub async fn get_read_client(
         refresh_handle,
         sui_read_client,
         max_blob_size,
-    )
-    .await?;
+    )?;
 
     if blocklist_path.is_some() {
         Ok(client.with_blocklist(Blocklist::new(blocklist_path)?))
@@ -89,23 +88,20 @@ pub async fn get_read_client(
 #[tracing::instrument(skip_all)]
 pub async fn get_contract_client(
     config: ClientConfig,
-    wallet: Result<Wallet>,
+    wallet: Wallet,
     gas_budget: Option<u64>,
-    blocklist_path: &Option<PathBuf>,
-) -> Result<WalrusNodeClient<SuiContractClient>> {
-    let sui_client = config.new_contract_client(wallet?, gas_budget).await?;
+) -> ClientResult<WalrusNodeClient<SuiContractClient>> {
+    let sui_client = config.new_contract_client(wallet, gas_budget).await?;
 
     let refresh_handle = config
-        .refresh_config
         .build_refresher_and_run(sui_client.read_client().clone())
-        .await?;
-    let client = WalrusNodeClient::new_contract_client(config, refresh_handle, sui_client).await?;
-
-    if blocklist_path.is_some() {
-        Ok(client.with_blocklist(Blocklist::new(blocklist_path)?))
-    } else {
-        Ok(client)
-    }
+        .await
+        .map_err(|e| ClientError::store_blob_internal(e.to_string()))?;
+    tokio::task::spawn_blocking(|| {
+        WalrusNodeClient::new_contract_client(config, refresh_handle, sui_client)
+    })
+    .await
+    .map_err(ClientError::other)?
 }
 
 /// Creates a [`SuiReadClient`] from the provided RPC URL or wallet.
@@ -161,7 +157,6 @@ pub async fn get_sui_read_client_from_rpc_node_or_wallet(
         backoff_config,
         config.communication_config.sui_client_request_timeout,
     )
-    .await
     .context(format!(
         "cannot connect to Sui RPC nodes at {}",
         rpc_urls.join(", ")

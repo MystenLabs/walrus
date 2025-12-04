@@ -40,7 +40,10 @@ use walkdir::WalkDir;
 use walrus_core::{EpochCount, ensure};
 
 use crate::{
-    client::retry_client::{RetriableSuiClient, retriable_sui_client::LazySuiClientBuilder},
+    client::retry_client::{
+        RetriableSuiClient,
+        retriable_sui_client::{GasBudgetAndPrice, LazySuiClientBuilder},
+    },
     contracts::{self, StructTag},
     utils::{get_created_sui_object_ids_by_type, resolve_lock_file_path},
     wallet::Wallet,
@@ -167,8 +170,7 @@ pub(crate) async fn publish_package(
     let retry_client = RetriableSuiClient::new(
         vec![LazySuiClientBuilder::new(wallet.get_rpc_url()?, None)],
         Default::default(),
-    )
-    .await?;
+    )?;
 
     let chain_id = retry_client.get_chain_identifier().await.ok();
 
@@ -195,14 +197,12 @@ pub(crate) async fn publish_package(
         )
         .await?;
 
-    let gas_budget = if let Some(gas_budget) = gas_budget {
-        gas_budget
-    } else {
-        let gas_price = retry_client.get_reference_gas_price().await?;
-        retry_client
-            .estimate_gas_budget(sender, transaction_kind.clone(), gas_price)
-            .await?
-    };
+    let GasBudgetAndPrice {
+        gas_budget,
+        gas_price,
+    } = retry_client
+        .gas_budget_and_price(gas_budget, sender, transaction_kind.clone())
+        .await?;
 
     let gas_coins = retry_client
         .select_coins(sender, None, u128::from(gas_budget), vec![])
@@ -210,10 +210,6 @@ pub(crate) async fn publish_package(
         .into_iter()
         .map(|coin| coin.object_ref())
         .collect::<Vec<_>>();
-
-    // TODO: WAL-778 support `gas_price` with failover mechanics.
-    #[allow(deprecated)]
-    let gas_price = wallet.get_reference_gas_price().await?;
 
     let tx_data = TransactionData::new_with_gas_coins_allow_sponsor(
         transaction_kind,
@@ -489,21 +485,18 @@ pub async fn create_system_and_staking_objects(
     let retry_client = RetriableSuiClient::new(
         vec![LazySuiClientBuilder::new(wallet.get_rpc_url()?, None)],
         Default::default(),
-    )
-    .await?;
-    let gas_price = retry_client.get_reference_gas_price().await?;
+    )?;
 
-    let gas_budget = if let Some(gas_budget) = gas_budget {
-        gas_budget
-    } else {
-        retry_client
-            .estimate_gas_budget(
-                address,
-                TransactionKind::ProgrammableTransaction(ptb.clone()),
-                gas_price,
-            )
-            .await?
-    };
+    let GasBudgetAndPrice {
+        gas_budget,
+        gas_price,
+    } = retry_client
+        .gas_budget_and_price(
+            gas_budget,
+            address,
+            TransactionKind::ProgrammableTransaction(ptb.clone()),
+        )
+        .await?;
 
     let gas_coins = retry_client
         .select_coins(address, None, u128::from(gas_budget), vec![])

@@ -11,6 +11,7 @@ use prometheus::{
     IntGaugeVec,
     core::{AtomicU64, GenericGauge, GenericGaugeVec},
 };
+use walrus_core::Epoch;
 use walrus_sdk::error::ClientErrorKind;
 use walrus_sui::types::{
     BlobCertified,
@@ -37,6 +38,7 @@ pub(crate) const STATUS_QUEUED: &str = "queued";
 pub(crate) const STATUS_PENDING: &str = "pending";
 pub(crate) const STATUS_PERSISTED: &str = "persisted";
 pub(crate) const STATUS_IN_PROGRESS: &str = "in-progress";
+pub(crate) const STATUS_STARTED: &str = "started";
 pub(crate) const STATUS_COMPLETED: &str = "completed";
 pub(crate) const STATUS_HIGHEST_FINISHED: &str = "highest_finished";
 
@@ -83,8 +85,26 @@ walrus_utils::metrics::define_metric_set! {
         #[help = "The total number of slivers stored"]
         slivers_stored_total: IntCounterVec["sliver_type"],
 
+        #[help = "The number of blobs with an active recovery deferral"]
+        recovery_deferrals_active: IntGauge[],
+
+        #[help = "The number of recovery tasks currently waiting for deferrals to expire"]
+        recovery_deferral_waiters: IntGauge[],
+
         #[help = "Total number of sliver instances returned"]
         slivers_retrieved_total: IntCounterVec["sliver_type"],
+
+        #[help = "Number of slivers buffered in the pending sliver cache"]
+        pending_sliver_cache_slivers: IntGauge[],
+
+        #[help = "Number of blobs currently represented in the pending sliver cache"]
+        pending_sliver_cache_blobs: IntGauge[],
+
+        #[help = "Total bytes buffered in the pending sliver cache"]
+        pending_sliver_cache_bytes: IntGauge[],
+
+        #[help = "Number of metadata records buffered prior to registration"]
+        pending_metadata_cache_entries: IntGauge[],
 
         #[help = "The number of Walrus events processed"]
         event_cursor_progress: U64GaugeVec["state"],
@@ -186,10 +206,20 @@ walrus_utils::metrics::define_metric_set! {
         event_position_sui_checkpoint_index: U64GaugeVec["state"],
 
         #[help = "The total number of expired blob objects deleted"]
-        cleanup_expired_blob_objects_deleted_total: IntCounter[],
+        garbage_collection_expired_blob_objects_deleted_total: IntCounter[],
 
         #[help = "The total number of blob data deletion attempts"]
-        cleanup_blob_data_deletion_attempts_total: IntCounterVec["status"],
+        garbage_collection_blob_data_deletion_attempts_total: IntCounterVec["status"],
+
+        #[help = "The start time of the next garbage-collection task as a UNIX timestamp"]
+        garbage_collection_task_start_time: U64Gauge[],
+
+        #[help = "The last epoch for which garbage collection was started or finished"]
+        garbage_collection_last_epoch: U64GaugeVec["status"],
+
+        #[help = "The number of blobs registered to be notified when the blob expires/gets \
+        deleted/gets invalidated"]
+        blob_retirement_notifier_registered_blobs: IntGauge[],
     }
 }
 
@@ -207,6 +237,18 @@ impl NodeMetricSet {
             .set(position.checkpoint_sequence_number);
         walrus_utils::with_label!(self.event_position_sui_checkpoint_index, label)
             .set(position.counter);
+    }
+
+    /// Sets the last epoch for which garbage collection was started.
+    pub fn set_garbage_collection_last_started_epoch(&self, epoch: Epoch) {
+        walrus_utils::with_label!(self.garbage_collection_last_epoch, STATUS_STARTED)
+            .set(epoch.into());
+    }
+
+    /// Sets the last epoch for which garbage collection was finished.
+    pub fn set_garbage_collection_last_completed_epoch(&self, epoch: Epoch) {
+        walrus_utils::with_label!(self.garbage_collection_last_epoch, STATUS_COMPLETED)
+            .set(epoch.into());
     }
 }
 
@@ -371,6 +413,9 @@ impl TelemetryLabel for ClientErrorKind {
             ClientErrorKind::QuiltError(_) => "quilt-error",
             ClientErrorKind::UploadRelayError(_) => "upload-relay-error",
             ClientErrorKind::BlobTooLarge(_) => "blob-too-large",
+            ClientErrorKind::ByteRangeReadError(_) => "byte-range-read-error",
+            ClientErrorKind::ClientInitializationError(_) => "client-initialization-error",
+            ClientErrorKind::ByteRangeReadInputError(_) => "byte-range-read-input-error",
         }
     }
 }

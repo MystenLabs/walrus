@@ -188,6 +188,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        '416':
+          description: The byte range parameters are invalid. This error is returned when the byte range parameters are invalid.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         '451':
           description: The blob cannot be returned as has been blocked.
           content:
@@ -263,6 +269,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        '416':
+          description: The byte range parameters are invalid. This error is returned when the byte range parameters are invalid.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         '451':
           description: The blob cannot be returned as has been blocked.
           content:
@@ -332,6 +344,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        '416':
+          description: The byte range parameters are invalid. This error is returned when the byte range parameters are invalid.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         '451':
           description: The blob cannot be returned as has been blocked.
           content:
@@ -349,7 +367,33 @@ paths:
       tags:
       - routes
       summary: Retrieve a Walrus blob.
-      description: Reconstructs the blob identified by the provided blob ID from Walrus and returns its raw data.
+      description: |-
+        Reconstructs the blob identified by the provided blob ID from Walrus and returns its raw data.
+
+        # HTTP Range Support
+
+        This endpoint also accepts the HTTP `Range` header to request only a portion of the blob.
+        When a `Range` header is provided with a specific byte range (e.g., `bytes=100-199`), the
+        endpoint returns HTTP 206 Partial Content with the requested byte range.
+
+        **Important**: When using byte range requests, only the consistency of the individual fetched
+        slivers is validated. The entire blob's consistency is NOT validated, which provides better
+        performance for partial reads but with reduced integrity guarantees compared to full blob reads.
+
+        # Range Header Format
+
+        - `bytes=start-end`: Returns bytes from start to end (inclusive)
+        - `bytes=start-`: Not supported yet (TODO(WAL-1108))
+        - `bytes=-end`: Not supported yet
+
+        # Examples
+
+        ```bash
+        # Get full blob
+        curl "$AGGREGATOR/v1/blobs/{blob_id}"
+
+        # Get first 1000 bytes
+        curl -H "Range: bytes=0-999" "$AGGREGATOR/v1/blobs/{blob_id}"
       operationId: get_blob
       parameters:
       - name: blob_id
@@ -365,7 +409,7 @@ paths:
           This was the default before `v1.37`. In `v1.37`, the default consistency was changed to a
           more performant one, which is sufficient for the majority of cases. This flag can be used to
           enable the previous strict consistency check. See
-          https://docs.wal.app/design/encoding.html#data-integrity-and-consistency for more details.
+          <https://docs.wal.app/design/encoding.html#data-integrity-and-consistency> for more details.
         required: false
         schema:
           type: boolean
@@ -411,8 +455,107 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        '416':
+          description: The byte range parameters are invalid. This error is returned when the byte range parameters are invalid.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         '451':
           description: The blob cannot be returned as has been blocked.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        '500':
+          description: An internal server error has occurred. Please report this error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+  /v1/blobs/{blob_id}/byte-range:
+    get:
+      tags:
+      - routes
+      summary: Retrieve a specific byte range from a Walrus blob.
+      description: |-
+        Reads a specific portion of a blob identified by the blob ID, starting from a given byte
+        position and reading a specified number of bytes. This is more efficient than retrieving the
+        entire blob when only a portion is needed.
+
+        Note that this endpoint has reduced consistency guarantees compared to the full blob read
+        since it will only validate the consistency of individual fetched slivers.
+
+        # Query Parameters
+        - `start`: The starting byte position (0-indexed, inclusive)
+        - `length`: The number of bytes to read
+
+        # Validation
+        - `start` and `length` must not overflow when added together
+        - The byte range `[start, start + length)` must be within the blob's size
+        - `length` must be greater than 0
+
+        # Example
+        ```bash
+        # Read 1024 bytes starting from position 0
+        curl "$AGGREGATOR/v1/blobs/{blob_id}/byte-range?start=0&length=1024"
+        ```
+      operationId: get_blob_byte_range
+      parameters:
+      - name: blob_id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/BlobId'
+      - name: start
+        in: query
+        description: The starting byte position (0-indexed, inclusive).
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 0
+        style: form
+      - name: length
+        in: query
+        description: The number of bytes to read.
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 0
+        style: form
+      responses:
+        '200':
+          description: The byte range was read successfully
+          content:
+            application/octet-stream:
+              schema:
+                type: array
+                items:
+                  type: integer
+                  format: int32
+                  minimum: 0
+        '400':
+          description: The byte range parameters are invalid.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        '403':
+          description: The blob size exceeds the maximum allowed size that was configured for this service.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        '404':
+          description: The requested blob has not yet been stored on Walrus.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        '451':
+          description: The blob cannot be returned as it has been blocked.
           content:
             application/json:
               schema:
@@ -639,6 +782,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        '416':
+          description: The byte range parameters are invalid. This error is returned when the byte range parameters are invalid.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         '451':
           description: The blob cannot be returned as has been blocked.
           content:
@@ -647,6 +796,128 @@ paths:
                 $ref: '#/components/schemas/Status'
         '500':
           description: An internal server error has occurred. Please report this error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+  /v1alpha/blobs/concat:
+    get:
+      tags:
+      - routes
+      summary: Concatenate and stream multiple blobs via GET.
+      description: |-
+        Retrieves multiple blobs specified by comma-separated blob IDs or object IDs in the query
+        parameter, and streams them concatenated in the order specified. Each blob is loaded,
+        streamed, and then freed from memory before the next blob is processed.
+      operationId: get_blobs_concat
+      parameters:
+      - name: ids
+        in: query
+        description: Comma-separated list of blob IDs or object IDs to concatenate.
+        required: true
+        schema:
+          type: string
+        style: form
+      - name: read_options
+        in: query
+        description: Consistency check options for reading the blobs.
+        required: true
+        schema:
+          $ref: '#/components/schemas/ReadOptions'
+        style: form
+      responses:
+        '200':
+          description: Blobs concatenated and streamed successfully
+          content:
+            application/octet-stream:
+              schema:
+                type: array
+                items:
+                  type: integer
+                  format: int32
+                  minimum: 0
+        '400':
+          description: The consistency check options are invalid.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        '403':
+          description: One of the blobs exceeds the maximum allowed size.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        '404':
+          description: May be returned when (1) Failed to resolve an object ID to a blob ID. (2) One of the requested blobs was not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        '451':
+          description: One of the blobs is blocked.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        '500':
+          description: Failed to read a blob.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+    post:
+      tags:
+      - routes
+      summary: Concatenate and stream multiple blobs via POST.
+      description: |-
+        Retrieves multiple blobs specified in a JSON request body containing an array of blob IDs
+        or object IDs, and streams them concatenated in the order specified. Each blob is loaded,
+        streamed, and then freed from memory before the next blob is processed.
+      operationId: post_blobs_concat
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConcatRequestBody'
+        required: true
+      responses:
+        '200':
+          description: Blobs concatenated and streamed successfully
+          content:
+            application/octet-stream:
+              schema:
+                type: array
+                items:
+                  type: integer
+                  format: int32
+                  minimum: 0
+        '400':
+          description: The consistency check options are invalid.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        '403':
+          description: One of the blobs exceeds the maximum allowed size.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        '404':
+          description: May be returned when (1) Failed to resolve an object ID to a blob ID. (2) One of the requested blobs was not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        '451':
+          description: One of the blobs is blocked.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        '500':
+          description: Failed to read a blob.
           content:
             application/json:
               schema:
@@ -802,6 +1073,7 @@ components:
             type: object
             description: Operation failed.
             required:
+            - failure_phase
             - error_msg
             properties:
               blob_id:
@@ -812,7 +1084,44 @@ components:
               error_msg:
                 type: string
                 description: The error message.
+              failure_phase:
+                type: string
+                description: The phase after the error occurred.
       description: Result when attempting to store a blob.
+    ConcatQueryParams:
+      allOf:
+      - $ref: '#/components/schemas/ReadOptions'
+        description: Consistency check options for reading the blobs.
+      - type: object
+        required:
+        - ids
+        properties:
+          ids:
+            type: string
+            description: Comma-separated list of blob IDs or object IDs to concatenate.
+      description: The query parameters for concatenating multiple blobs.
+    ConcatRequestBody:
+      type: object
+      description: The request body for concatenating multiple blobs via POST.
+      required:
+      - ids
+      properties:
+        ids:
+          type: array
+          items:
+            type: string
+          description: List of blob IDs or object IDs to concatenate.
+        skip_consistency_check:
+          type:
+          - boolean
+          - 'null'
+          description: Whether to skip consistency checks entirely.
+        strict_consistency_check:
+          type:
+          - boolean
+          - 'null'
+          description: Whether to perform a strict consistency check.
+      additionalProperties: false
     EncodingType:
       type: string
       description: Supported Walrus encoding types.
@@ -924,6 +1233,28 @@ components:
           items:
             $ref: '#/components/schemas/StoredQuiltPatch'
           description: The structure of the quilt.
+    ReadOptions:
+      type: object
+      description: The query parameters for a read operation.
+      properties:
+        skip_consistency_check:
+          type: boolean
+          description: |-
+            Whether to skip consistency checks entirely.
+
+            When enabled, this flag bypasses all consistency verification during blob reading. This
+            should be used only when the writer of the blob is trusted. Does *not* affect any
+            authentication checks for data received from storage nodes, which are always performed.
+        strict_consistency_check:
+          type: boolean
+          description: |-
+            Whether to perform a strict consistency check.
+
+            This was the default before `v1.37`. In `v1.37`, the default consistency was changed to a
+            more performant one, which is sufficient for the majority of cases. This flag can be used to
+            enable the previous strict consistency check. See
+            <https://docs.wal.app/design/encoding.html#data-integrity-and-consistency> for more details.
+      additionalProperties: false
     RegisterBlobOp:
       oneOf:
       - type: object
@@ -965,13 +1296,13 @@ components:
                 description: The size of the encoded blob in bytes.
                 minimum: 0
       - type: object
-        description: A registration was already present.
+        description: A matching registration was already present in the wallet.
         required:
         - reuseRegistration
         properties:
           reuseRegistration:
             type: object
-            description: A registration was already present.
+            description: A matching registration was already present in the wallet.
             required:
             - encoded_length
             properties:

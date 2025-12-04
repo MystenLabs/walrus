@@ -4,7 +4,7 @@
 //! Client to call Walrus move functions from rust.
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fmt::{self, Debug},
     future::Future,
     num::NonZeroU16,
@@ -37,9 +37,9 @@ use sui_types::{
     event::EventID,
     transaction::{ObjectArg, SharedObjectMutability},
 };
-use tokio::sync::{OnceCell, mpsc};
+use tokio::sync::mpsc;
 use tokio_stream::{Stream, wrappers::ReceiverStream};
-use tracing::Instrument as _;
+use tracing::{Instrument as _, Level};
 use walrus_core::{Epoch, ensure};
 use walrus_utils::backoff::ExponentialBackoffConfig;
 
@@ -47,11 +47,11 @@ use super::{
     SuiClientError,
     SuiClientResult,
     contract_config::ContractConfig,
-    retry_client::{MULTI_GET_OBJ_LIMIT, RetriableSuiClient},
+    retry_client::RetriableSuiClient,
 };
 use crate::{
     contracts::{self, AssociatedContractStruct, AssociatedContractStructWithPkgId, TypeOriginMap},
-    system_setup::compile_package,
+    system_setup,
     types::{
         BlobEvent,
         Committee,
@@ -137,6 +137,9 @@ pub trait ReadClient: Send + Sync {
         &self,
     ) -> impl Future<Output = SuiClientResult<(u64, u64)>> + Send;
 
+    /// Returns the configured number of shards for the Walrus network.
+    fn n_shards(&self) -> impl Future<Output = SuiClientResult<NonZeroU16>> + Send;
+
     /// Returns a stream of new blob events.
     ///
     /// The `polling_interval` defines how often the connected full node is polled for events.
@@ -215,9 +218,7 @@ pub trait ReadClient: Send + Sync {
     ///
     /// These include the number of shards, epoch duration, and the time at which epoch zero ends
     /// and epoch 1 can start.
-    fn fixed_system_parameters(
-        &self,
-    ) -> impl Future<Output = SuiClientResult<FixedSystemParameters>> + Send;
+    fn fixed_system_parameters(&self) -> FixedSystemParameters;
 
     /// Returns the mapping between node IDs and stake in the staking object.
     fn stake_assignment(
@@ -251,6 +252,9 @@ pub trait ReadClient: Send + Sync {
 
     /// Flushes any cached data to ensure that the next requests are not affected by stale data.
     fn flush_cache(&self) -> impl Future<Output = ()> + Send;
+
+    /// Returns a reference to the [`SuiReadClient`].
+    fn read_client(&self) -> &SuiReadClient;
 }
 
 /// Configuration and state for a shared object with a package ID that is not the walrus package.
@@ -299,20 +303,63 @@ impl CachedObjects {
 /// Client implementation for reading data related to the Walrus smart contracts.
 #[derive(Clone)]
 pub struct SuiReadClient {
-    walrus_package_id: Arc<RwLock<ObjectID>>,
     sui_client: RetriableSuiClient,
     system_object_id: ObjectID,
     staking_object_id: ObjectID,
-    type_origin_map: Arc<RwLock<TypeOriginMap>>,
-    sys_obj_initial_version: OnceCell<SequenceNumber>,
-    staking_obj_initial_version: OnceCell<SequenceNumber>,
-    fixed_system_parameters: OnceCell<FixedSystemParameters>,
-    credits: Arc<RwLock<Option<SharedObjectWithPkgConfig>>>,
-    walrus_subsidies: Arc<RwLock<Option<SharedObjectWithPkgConfig>>>,
+    system_object_initial_version: SequenceNumber,
+    staking_object_initial_version: SequenceNumber,
     wal_type: String,
+    fixed_system_parameters: FixedSystemParameters,
     cache_ttl: Duration,
+    walrus_package_id: Arc<RwLock<ObjectID>>,
     // Using a tokio RwLock here as the guard is held across an `await` point.
     cached_walrus_objects: Arc<tokio::sync::RwLock<Option<CachedObjects>>>,
+    type_origin_map: Arc<RwLock<TypeOriginMap>>,
+    credits: Arc<RwLock<Option<SharedObjectWithPkgConfig>>>,
+    walrus_subsidies: Arc<RwLock<Option<SharedObjectWithPkgConfig>>>,
+}
+
+impl Debug for SuiReadClient {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SuiReadClient")
+            .field("system_object_id", &self.system_object_id)
+            .field("staking_object_id", &self.staking_object_id)
+            .field(
+                "system_object_initial_version",
+                &self.system_object_initial_version,
+            )
+            .field(
+                "staking_object_initial_version",
+                &self.staking_object_initial_version,
+            )
+            .field("wal_type", &self.wal_type)
+            .field("fixed_system_parameters", &self.fixed_system_parameters)
+            .field("cache_ttl", &self.cache_ttl)
+            .field(
+                "walrus_package_id",
+                &self
+                    .walrus_package_id
+                    .read()
+                    .expect("mutex should not be poisoned"),
+            )
+            .field(
+                "credits",
+                &self
+                    .credits
+                    .read()
+                    .expect("mutex should not be poisoned")
+                    .is_some(),
+            )
+            .field(
+                "walrus_subsidies",
+                &self
+                    .walrus_subsidies
+                    .read()
+                    .expect("mutex should not be poisoned")
+                    .is_some(),
+            )
+            .finish()
+    }
 }
 
 const MAX_POLLING_INTERVAL: Duration = Duration::from_secs(5);
@@ -320,35 +367,81 @@ const EVENT_CHANNEL_CAPACITY: usize = 1024;
 
 impl SuiReadClient {
     /// Constructor for `SuiReadClient`.
+    #[tracing::instrument(name = "SuiReadClient::new", skip_all, level = Level::DEBUG)]
     pub async fn new(
         sui_client: RetriableSuiClient,
         contract_config: &ContractConfig,
     ) -> SuiClientResult<Self> {
-        let walrus_package_id = sui_client
-            .get_system_package_id_from_system_object(contract_config.system_object)
+        tracing::debug!("creating a new `SuiReadClient`");
+
+        let system_object_id = contract_config.system_object;
+        let staking_object_id = contract_config.staking_object;
+
+        let object_responses = sui_client
+            .multi_get_object_with_options(
+                &[system_object_id, staking_object_id],
+                SuiObjectDataOptions::new()
+                    .with_owner()
+                    .with_bcs()
+                    .with_type(),
+            )
             .await?;
-        let (type_origin_map, wal_type) = tokio::try_join!(
+        let [system_object_response, staking_object_response] = object_responses.as_slice() else {
+            return Err(SuiClientError::Internal(anyhow::anyhow!(
+                "received an unexpected response when getting the system and staking objects",
+            )));
+        };
+
+        let system_object_for_deserialization: SystemObjectForDeserialization =
+            get_sui_object_from_object_response(system_object_response)?;
+        let walrus_package_id = system_object_for_deserialization.package_id;
+        let system_object_initial_version =
+            sui_client.get_initial_version_from_object_response(system_object_response)?;
+        let staking_object_for_deserialization: StakingObjectForDeserialization =
+            get_sui_object_from_object_response(staking_object_response)?;
+        let staking_object_initial_version =
+            sui_client.get_initial_version_from_object_response(staking_object_response)?;
+
+        let (system_object, staking_object, type_origin_map, wal_type) = tokio::try_join!(
             // Boxing the futures here to avoid making this future too large.
+            Self::get_full_system_object(&sui_client, system_object_for_deserialization).boxed(),
+            Self::get_full_staking_object(&sui_client, staking_object_for_deserialization).boxed(),
             sui_client
                 .type_origin_map_for_package(walrus_package_id)
                 .boxed(),
             sui_client.wal_type_from_package(walrus_package_id).boxed()
         )?;
 
+        let fixed_system_parameters =
+            Self::compute_fixed_system_parameters(&staking_object, &system_object)?;
+        let walrus_package_id = Arc::new(RwLock::new(system_object.package_id));
+
+        let cached_walrus_objects = Arc::new(tokio::sync::RwLock::new(
+            if !contract_config.cache_ttl.is_zero() {
+                Some(CachedObjects::new(
+                    system_object,
+                    staking_object,
+                    SystemTime::now() + contract_config.cache_ttl,
+                ))
+            } else {
+                None
+            },
+        ));
+
         let client = Self {
-            walrus_package_id: Arc::new(RwLock::new(walrus_package_id)),
             sui_client,
-            system_object_id: contract_config.system_object,
-            staking_object_id: contract_config.staking_object,
-            type_origin_map: Arc::new(RwLock::new(type_origin_map)),
-            sys_obj_initial_version: OnceCell::new(),
-            staking_obj_initial_version: OnceCell::new(),
-            fixed_system_parameters: OnceCell::new(),
-            credits: Arc::new(RwLock::new(None)),
-            walrus_subsidies: Arc::new(RwLock::new(None)),
+            system_object_id,
+            staking_object_id,
+            system_object_initial_version,
+            staking_object_initial_version,
             wal_type,
+            fixed_system_parameters,
             cache_ttl: contract_config.cache_ttl,
-            cached_walrus_objects: Arc::new(tokio::sync::RwLock::new(None)),
+            walrus_package_id,
+            cached_walrus_objects,
+            type_origin_map: Arc::new(RwLock::new(type_origin_map)),
+            credits: Default::default(),
+            walrus_subsidies: Default::default(),
         };
 
         tokio::try_join!(
@@ -361,16 +454,6 @@ impl SuiReadClient {
                 .boxed(),
         )?;
 
-        // Initialize the cache in a background task.
-        if !contract_config.cache_ttl.is_zero() {
-            tokio::spawn({
-                let client = client.clone();
-                async move {
-                    let _ = client.init_cache().await;
-                }
-            });
-        }
-
         Ok(client)
     }
 
@@ -381,23 +464,31 @@ impl SuiReadClient {
         contract_config: &ContractConfig,
         backoff_config: ExponentialBackoffConfig,
     ) -> SuiClientResult<Self> {
-        let client =
-            RetriableSuiClient::new_for_rpc_urls(rpc_addresses, backoff_config, None).await?;
+        let client = RetriableSuiClient::new_for_rpc_urls(rpc_addresses, backoff_config, None)?;
         Self::new(client, contract_config).await
+    }
+
+    fn compute_fixed_system_parameters(
+        staking_object: &StakingObject,
+        system_object: &SystemObject,
+    ) -> SuiClientResult<FixedSystemParameters> {
+        Ok(FixedSystemParameters {
+            n_shards: staking_object.inner.n_shards,
+            max_epochs_ahead: system_object.future_accounting().length(),
+            epoch_duration: staking_object.epoch_duration(),
+            epoch_zero_end: DateTime::<Utc>::from_timestamp_millis(
+                i64::try_from(staking_object.inner.first_epoch_start)
+                    .context("first-epoch start time should fit into an i64")?,
+            )
+            .ok_or_else(|| {
+                anyhow!("invalid first_epoch_start timestamp received from contracts")
+            })?,
+        })
     }
 
     /// Gets the [`RetriableSuiClient`] from the associated read client.
     pub fn retriable_sui_client(&self) -> &RetriableSuiClient {
         &self.sui_client
-    }
-
-    /// Fetches the system and staking objects and the fixed system parameters and caches them.
-    #[tracing::instrument(skip_all)]
-    pub async fn init_cache(&self) -> SuiClientResult<()> {
-        let _ = self.get_and_cache_system_and_staking_objects().await?;
-        let _ = self.fixed_system_parameters().await?;
-
-        Ok(())
     }
 
     /// Flushes the cached system and staking objects.
@@ -421,42 +512,29 @@ impl SuiReadClient {
         })
     }
 
-    pub(crate) async fn object_arg_for_system_obj(
+    pub(crate) fn object_arg_for_system_obj(
         &self,
         mutability: SharedObjectMutability,
-    ) -> SuiClientResult<ObjectArg> {
-        let initial_shared_version = self.system_object_initial_version().await?;
-        Ok(ObjectArg::SharedObject {
+    ) -> ObjectArg {
+        ObjectArg::SharedObject {
             id: self.system_object_id,
-            initial_shared_version,
+            initial_shared_version: self.system_object_initial_version,
             mutability,
-        })
+        }
     }
 
-    async fn system_object_initial_version(&self) -> SuiClientResult<SequenceNumber> {
-        let initial_shared_version = self
-            .sys_obj_initial_version
-            .get_or_try_init(|| {
-                self.sui_client
-                    .get_shared_object_initial_version(self.system_object_id)
-            })
-            .await?;
-        Ok(*initial_shared_version)
-    }
-
-    pub(crate) async fn object_arg_for_staking_obj(
+    pub(crate) fn object_arg_for_staking_obj(
         &self,
         mutability: SharedObjectMutability,
-    ) -> SuiClientResult<ObjectArg> {
-        let initial_shared_version = self.staking_object_initial_version().await?;
-        Ok(ObjectArg::SharedObject {
+    ) -> ObjectArg {
+        ObjectArg::SharedObject {
             id: self.staking_object_id,
-            initial_shared_version,
+            initial_shared_version: self.staking_object_initial_version,
             mutability,
-        })
+        }
     }
 
-    pub(crate) async fn object_arg_for_credits_obj(
+    pub(crate) fn object_arg_for_credits_obj(
         &self,
         mutability: SharedObjectMutability,
     ) -> SuiClientResult<ObjectArg> {
@@ -472,7 +550,7 @@ impl SuiReadClient {
         })
     }
 
-    pub(crate) async fn object_arg_for_walrus_subsidies_obj(
+    pub(crate) fn object_arg_for_walrus_subsidies_obj(
         &self,
         mutability: SharedObjectMutability,
     ) -> SuiClientResult<ObjectArg> {
@@ -491,24 +569,8 @@ impl SuiReadClient {
         })
     }
 
-    async fn staking_object_initial_version(&self) -> SuiClientResult<SequenceNumber> {
-        let initial_shared_version = self
-            .staking_obj_initial_version
-            .get_or_try_init(|| {
-                self.sui_client
-                    .get_shared_object_initial_version(self.staking_object_id)
-            })
-            .await?;
-        Ok(*initial_shared_version)
-    }
-
-    /// Returns the system package ID.
-    pub fn get_system_package_id(&self) -> ObjectID {
-        *self.walrus_package_id()
-    }
-
     /// Returns the credits package ID.
-    pub fn get_credits_package_id(&self) -> Option<ObjectID> {
+    pub fn credits_package_id(&self) -> Option<ObjectID> {
         self.credits
             .read()
             .expect("mutex should not be poisoned")
@@ -517,7 +579,7 @@ impl SuiReadClient {
     }
 
     /// Returns the walrus subsidies package ID.
-    pub fn get_walrus_subsidies_package_id(&self) -> Option<ObjectID> {
+    pub fn walrus_subsidies_package_id(&self) -> Option<ObjectID> {
         self.walrus_subsidies
             .read()
             .expect("mutex should not be poisoned")
@@ -526,17 +588,17 @@ impl SuiReadClient {
     }
 
     /// Returns the system object ID.
-    pub fn get_system_object_id(&self) -> ObjectID {
+    pub fn system_object_id(&self) -> ObjectID {
         self.system_object_id
     }
 
     /// Returns the staking object ID.
-    pub fn get_staking_object_id(&self) -> ObjectID {
+    pub fn staking_object_id(&self) -> ObjectID {
         self.staking_object_id
     }
 
     /// Returns the credits object ID.
-    pub fn get_credits_object_id(&self) -> Option<ObjectID> {
+    pub fn credits_object_id(&self) -> Option<ObjectID> {
         self.credits
             .read()
             .expect("mutex should not be poisoned")
@@ -545,7 +607,7 @@ impl SuiReadClient {
     }
 
     /// Returns the walrus subsidies object ID.
-    pub fn get_walrus_subsidies_object_id(&self) -> Option<ObjectID> {
+    pub fn walrus_subsidies_object_id(&self) -> Option<ObjectID> {
         self.walrus_subsidies
             .read()
             .expect("mutex should not be poisoned")
@@ -570,6 +632,8 @@ impl SuiReadClient {
                 .expect("mutex should not be poisoned")
                 .as_ref()
                 .map(|s| s.object_id),
+            n_shards: None,
+            max_epochs_ahead: None,
             cache_ttl: self.cache_ttl,
         }
     }
@@ -579,8 +643,10 @@ impl SuiReadClient {
         self.sui_client.get_sui_object(node_id).await
     }
 
-    fn walrus_package_id(&self) -> RwLockReadGuard<'_, ObjectID> {
-        self.walrus_package_id
+    /// Returns the system package ID.
+    pub fn walrus_package_id(&self) -> ObjectID {
+        *self
+            .walrus_package_id
             .read()
             .expect("mutex should not be poisoned")
     }
@@ -675,7 +741,7 @@ impl SuiReadClient {
             .ok();
         tracing::info!(?chain_id, "chain identifier");
         let (compiled_package, _build_config) =
-            compile_package(package_path, Default::default(), chain_id).await?;
+            system_setup::compile_package(package_path, Default::default(), chain_id).await?;
         let digest = compiled_package.get_package_digest(false);
         Ok(digest)
     }
@@ -691,11 +757,6 @@ impl SuiReadClient {
             .iter()
             .map(Coin::object_ref)
             .collect())
-    }
-
-    /// Get the reference gas price for the current epoch.
-    pub async fn get_reference_gas_price(&self) -> SuiClientResult<u64> {
-        self.sui_client.get_reference_gas_price().await
     }
 
     /// Get the [`StorageNodeCap`] object associated with the address.
@@ -782,25 +843,12 @@ impl SuiReadClient {
         }))
     }
 
-    /// Get the latest object reference given an [`ObjectID`].
-    pub(crate) async fn get_object_ref(
-        &self,
-        object_id: ObjectID,
-    ) -> Result<ObjectRef, anyhow::Error> {
-        Ok(self
-            .sui_client
-            .get_object_with_options(object_id, SuiObjectDataOptions::new())
-            .await?
-            .into_object()?
-            .object_ref())
-    }
-
     pub(crate) async fn object_arg_for_object(
         &self,
         object_id: ObjectID,
     ) -> SuiClientResult<ObjectArg> {
         Ok(ObjectArg::ImmOrOwnedObject(
-            self.get_object_ref(object_id).await?,
+            self.sui_client.get_object_ref(object_id).await?,
         ))
     }
 
@@ -810,24 +858,32 @@ impl SuiReadClient {
     }
 
     /// Gets the current system object from the RPC node.
+    #[tracing::instrument(skip_all, level = Level::DEBUG)]
     async fn get_system_object_from_rpc(&self) -> SuiClientResult<SystemObject> {
-        let SystemObjectForDeserialization {
+        let system_object_for_deserialization: SystemObjectForDeserialization = self
+            .sui_client
+            .get_sui_object(self.system_object_id)
+            .await?;
+        let package_id = system_object_for_deserialization.package_id;
+        // Refresh the package ID if it is different from the current package ID.
+        if package_id != self.walrus_package_id() {
+            self.refresh_package_id_with_id(package_id).await?;
+        }
+
+        Self::get_full_system_object(&self.sui_client, system_object_for_deserialization).await
+    }
+
+    async fn get_full_system_object(
+        sui_client: &RetriableSuiClient,
+        SystemObjectForDeserialization {
             id,
             version,
             package_id,
             new_package_id,
-        } = self.system_object_for_deserialization().await?;
-        // Refresh the package ID if it is different from the current package ID.
-        if package_id != *self.walrus_package_id() {
-            self.refresh_package_id_with_id(package_id).await?;
-        }
-        let inner = self
-            .sui_client
-            .get_dynamic_field::<u64, SystemStateInnerV1>(
-                self.system_object_id,
-                TypeTag::U64,
-                version,
-            )
+        }: SystemObjectForDeserialization,
+    ) -> SuiClientResult<SystemObject> {
+        let inner = sui_client
+            .get_dynamic_field::<u64, SystemStateInnerV1>(id, TypeTag::U64, version)
             .await?;
         Ok(SystemObject {
             id,
@@ -839,32 +895,40 @@ impl SuiReadClient {
     }
 
     /// Gets the current staking object from the RPC node.
+    #[tracing::instrument(skip_all, level = Level::DEBUG)]
     async fn get_staking_object_from_rpc(&self) -> SuiClientResult<StakingObject> {
-        let StakingObjectForDeserialization {
+        let staking_object_for_deserialization: StakingObjectForDeserialization = self
+            .sui_client
+            .get_sui_object(self.staking_object_id)
+            .await?;
+        let package_id = staking_object_for_deserialization.package_id;
+        // Refresh the package ID if it is different from the current package ID.
+        if package_id != self.walrus_package_id() {
+            self.refresh_package_id_with_id(package_id).await?;
+        }
+
+        Self::get_full_staking_object(&self.sui_client, staking_object_for_deserialization).await
+    }
+
+    async fn get_full_staking_object(
+        sui_client: &RetriableSuiClient,
+        StakingObjectForDeserialization {
             id,
             version,
             package_id,
             new_package_id,
-        } = self
-            .sui_client
-            .get_sui_object(self.staking_object_id)
+        }: StakingObjectForDeserialization,
+    ) -> SuiClientResult<StakingObject> {
+        let inner = sui_client
+            .get_dynamic_field::<u64, StakingInnerV1>(id, TypeTag::U64, version)
             .await?;
-        // Refresh the package ID if it is different from the current package ID.
-        if package_id != *self.walrus_package_id() {
-            self.refresh_package_id_with_id(package_id).await?;
-        }
-        let inner = self
-            .sui_client
-            .get_dynamic_field::<u64, StakingInnerV1>(self.staking_object_id, TypeTag::U64, version)
-            .await?;
-        let staking_object = StakingObject {
+        Ok(StakingObject {
             id,
             version,
             package_id,
             new_package_id,
             inner,
-        };
-        Ok(staking_object)
+        })
     }
 
     /// Gets the current system and staking objects from the RPC node.
@@ -882,6 +946,7 @@ impl SuiReadClient {
     ///
     /// This does *not* overwrite existing cached objects if those are still valid; use
     /// [`Self::flush_cache`] to clear the cache.
+    #[tracing::instrument(skip_all, level = Level::DEBUG)]
     async fn get_and_cache_system_and_staking_objects(
         &self,
     ) -> SuiClientResult<(SystemObject, StakingObject)> {
@@ -926,6 +991,7 @@ impl SuiReadClient {
     /// If `self` contains cached Walrus objects that are not yet expired, the cached system object
     /// is returned. If not, the system and staking objects are fetched from the chain and cached,
     /// and the system object is returned.
+    #[tracing::instrument(skip_all, level = Level::DEBUG)]
     pub async fn get_system_object(&self) -> SuiClientResult<SystemObject> {
         if self.cache_ttl.is_zero() {
             // Don't perform any caching if the TTL is zero.
@@ -945,6 +1011,7 @@ impl SuiReadClient {
     /// If `self` contains cached Walrus objects that are not yet expired, the cached staking object
     /// is returned. If not, the system and staking objects are fetched from the chain and cached,
     /// and the staking object is returned.
+    #[tracing::instrument(skip_all, level = Level::DEBUG)]
     pub async fn get_staking_object(&self) -> SuiClientResult<StakingObject> {
         if self.cache_ttl.is_zero() {
             // Don't perform any caching if the TTL is zero.
@@ -1084,37 +1151,26 @@ impl SuiReadClient {
         Ok(())
     }
 
-    async fn shard_assignment_to_committee(
+    #[tracing::instrument(skip_all, fields(epoch), level = Level::DEBUG)]
+    fn shard_assignment_to_committee(
         &self,
         epoch: Epoch,
         n_shards: NonZeroU16,
         shard_assignment: &[(ObjectID, Vec<u16>)],
+        node_objects: &HashMap<ObjectID, StakingPool>,
     ) -> SuiClientResult<Committee> {
-        let mut node_object_responses = vec![];
-        for obj_id_batch in shard_assignment.chunks(MULTI_GET_OBJ_LIMIT) {
-            node_object_responses.extend(
-                self.sui_client
-                    .multi_get_object_with_options(
-                        obj_id_batch
-                            .iter()
-                            .map(|(obj_id, _shards)| *obj_id)
-                            .collect(),
-                        SuiObjectDataOptions::new().with_type().with_bcs(),
-                    )
-                    .await?,
-            );
-        }
-
         let nodes = shard_assignment
             .iter()
-            .zip(node_object_responses)
-            .map(|((obj_id, shards), obj_response)| {
-                let mut storage_node =
-                    get_sui_object_from_object_response::<StakingPool>(&obj_response)?.node_info;
+            .map(|(obj_id, shards)| {
+                let mut storage_node = node_objects
+                    .get(obj_id)
+                    .ok_or_else(|| anyhow!("the node object was not found in the RPC response"))?
+                    .node_info
+                    .clone();
                 storage_node.shard_ids = shards.iter().map(|index| index.into()).collect();
                 ensure!(
                     *obj_id == storage_node.node_id,
-                    anyhow!("the object id of the staking pool does not match the node id")
+                    anyhow!("the object ID of the staking pool does not match the node ID")
                 );
                 Ok::<StorageNode, anyhow::Error>(storage_node)
             })
@@ -1138,10 +1194,16 @@ impl SuiReadClient {
         };
 
         if let Some(shard_assignment) = committee {
-            Ok(Some(
-                self.shard_assignment_to_committee(committee_epoch, n_shards, &shard_assignment)
-                    .await?,
-            ))
+            let node_objects = self
+                .sui_client
+                .get_node_objects(shard_assignment.iter().map(|(node_id, _)| *node_id))
+                .await?;
+            Ok(Some(self.shard_assignment_to_committee(
+                committee_epoch,
+                n_shards,
+                &shard_assignment,
+                &node_objects,
+            )?))
         } else {
             Ok(None)
         }
@@ -1161,13 +1223,6 @@ impl SuiReadClient {
             .get_extended_field::<NodeMetadata>(metadata_id, &type_map)
             .await?;
         Ok(metadata)
-    }
-
-    /// Returns the system object for deserialization without querying the dynamic inner field.
-    async fn system_object_for_deserialization(
-        &self,
-    ) -> SuiClientResult<SystemObjectForDeserialization> {
-        self.sui_client.get_sui_object(self.system_object_id).await
     }
 
     /// Returns the time at which process_subsidies was last called on the walrus subsidies object.
@@ -1208,6 +1263,10 @@ impl ReadClient for SuiReadClient {
         ))
     }
 
+    async fn n_shards(&self) -> SuiClientResult<NonZeroU16> {
+        Ok(self.get_staking_object().await?.inner.n_shards)
+    }
+
     async fn event_stream(
         &self,
         polling_interval: Duration,
@@ -1246,13 +1305,7 @@ impl ReadClient for SuiReadClient {
     }
 
     async fn get_blob_event(&self, event_id: EventID) -> SuiClientResult<BlobEvent> {
-        self.sui_client
-            .get_events(event_id.tx_digest)
-            .await?
-            .into_iter()
-            .find(|e| e.id == event_id)
-            .and_then(|e| e.try_into().ok())
-            .ok_or(SuiClientError::NoCorrespondingBlobEvent(event_id))
+        self.sui_client.get_blob_event(event_id).await
     }
 
     async fn current_committee(&self) -> SuiClientResult<Committee> {
@@ -1289,29 +1342,14 @@ impl ReadClient for SuiReadClient {
     }
 
     async fn get_storage_nodes_by_ids(&self, node_ids: &[ObjectID]) -> Result<Vec<StorageNode>> {
-        Ok(self
-            .sui_client
-            .get_sui_objects::<StakingPool>(node_ids)
-            .await
-            .context("one or multiple node IDs were not found")?
-            .into_iter()
-            .map(|pool| pool.node_info)
-            .collect())
+        self.sui_client.get_storage_nodes_by_ids(node_ids).await
     }
 
     async fn get_blob_attribute(
         &self,
         blob_object_id: &ObjectID,
     ) -> SuiClientResult<Option<BlobAttribute>> {
-        self.sui_client
-            .get_dynamic_field::<Vec<u8>, BlobAttribute>(
-                *blob_object_id,
-                TypeTag::Vector(Box::new(TypeTag::U8)),
-                b"metadata".to_vec(),
-            )
-            .await
-            .map(Some)
-            .or_else(|_| Ok(None))
+        self.sui_client.get_blob_attribute(blob_object_id).await
     }
 
     async fn get_blob_by_object_id(
@@ -1354,33 +1392,52 @@ impl ReadClient for SuiReadClient {
             .map(|staking| staking.inner.epoch)
     }
 
+    #[tracing::instrument(level = Level::DEBUG, skip_all)]
     async fn get_committees_and_state(&self) -> SuiClientResult<CommitteesAndState> {
         let staking_object = self.get_staking_object().await?;
         let epoch = staking_object.inner.epoch;
         let n_shards = staking_object.inner.n_shards;
 
-        let current = self
-            .shard_assignment_to_committee(epoch, n_shards, &staking_object.inner.committee)
-            .await?;
+        let mut all_nodes = staking_object
+            .inner
+            .committee
+            .iter()
+            .chain(staking_object.inner.previous_committee.iter())
+            .map(|(node_id, _)| node_id)
+            .collect::<HashSet<_>>()
+            .into_iter()
+            .copied()
+            .collect::<Vec<_>>();
+        if let Some(next_committee) = &staking_object.inner.next_committee {
+            all_nodes.extend(next_committee.iter().map(|(node_id, _)| node_id));
+        }
+        let node_objects = self.sui_client.get_node_objects(all_nodes).await?;
+
+        let current = self.shard_assignment_to_committee(
+            epoch,
+            n_shards,
+            &staking_object.inner.committee,
+            &node_objects,
+        )?;
         let previous = if epoch == 0 {
             // There is no previous epoch.
             None
         } else {
-            Some(
-                self.shard_assignment_to_committee(
-                    epoch - 1,
-                    n_shards,
-                    &staking_object.inner.previous_committee,
-                )
-                .await?,
-            )
+            Some(self.shard_assignment_to_committee(
+                epoch - 1,
+                n_shards,
+                &staking_object.inner.previous_committee,
+                &node_objects,
+            )?)
         };
         let epoch_state = staking_object.inner.epoch_state;
         let next = if let Some(next_committee_assignment) = staking_object.inner.next_committee {
-            Some(
-                self.shard_assignment_to_committee(epoch + 1, n_shards, &next_committee_assignment)
-                    .await?,
-            )
+            Some(self.shard_assignment_to_committee(
+                epoch + 1,
+                n_shards,
+                &next_committee_assignment,
+                &node_objects,
+            )?)
         } else {
             None
         };
@@ -1393,33 +1450,8 @@ impl ReadClient for SuiReadClient {
         })
     }
 
-    async fn fixed_system_parameters(&self) -> SuiClientResult<FixedSystemParameters> {
-        if let Some(fixed_system_parameters) = self.fixed_system_parameters.get() {
-            // Return the cached value.
-            return Ok(*fixed_system_parameters);
-        }
-
-        let staking_object = self.get_staking_object().await?.inner;
-        let first_epoch_start = i64::try_from(staking_object.first_epoch_start)
-            .context("first-epoch start time should fit into an i64")?;
-        let n_shards = staking_object.n_shards;
-        let epoch_duration = staking_object.epoch_duration();
-        // Make sure we don't hold too much data across the await point.
-        drop(staking_object);
-
-        let system_object = self.get_system_object().await?;
-
-        let fixed_system_parameters = FixedSystemParameters {
-            n_shards,
-            max_epochs_ahead: system_object.future_accounting().length(),
-            epoch_duration,
-            epoch_zero_end: DateTime::<Utc>::from_timestamp_millis(first_epoch_start).ok_or_else(
-                || anyhow!("invalid first_epoch_start timestamp received from contracts"),
-            )?,
-        };
-        // We don't care if the value is already set.
-        let _ = self.fixed_system_parameters.set(fixed_system_parameters);
-        Ok(fixed_system_parameters)
+    fn fixed_system_parameters(&self) -> FixedSystemParameters {
+        self.fixed_system_parameters
     }
 
     async fn stake_assignment(&self) -> SuiClientResult<HashMap<ObjectID, u64>> {
@@ -1445,14 +1477,14 @@ impl ReadClient for SuiReadClient {
     }
 
     async fn refresh_credits_package_id(&self) -> SuiClientResult<()> {
-        if let Some(credits_object_id) = self.get_credits_object_id() {
+        if let Some(credits_object_id) = self.credits_object_id() {
             self.set_credits_object(Some(credits_object_id)).await?;
         }
         Ok(())
     }
 
     async fn refresh_walrus_subsidies_package_id(&self) -> SuiClientResult<()> {
-        if let Some(walrus_subsidies_object_id) = self.get_walrus_subsidies_object_id() {
+        if let Some(walrus_subsidies_object_id) = self.walrus_subsidies_object_id() {
             self.set_walrus_subsidies_object(Some(walrus_subsidies_object_id))
                 .await?;
         }
@@ -1460,21 +1492,15 @@ impl ReadClient for SuiReadClient {
     }
 
     async fn system_object_version(&self) -> SuiClientResult<u64> {
-        Ok(self.system_object_for_deserialization().await?.version)
+        Ok(self.get_system_object().await?.version)
     }
 
     async fn flush_cache(&self) {
         self.flush_cache().await
     }
-}
 
-impl fmt::Debug for SuiReadClient {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("SuiReadClient")
-            .field("system_pkg", &self.walrus_package_id)
-            .field("sui_client", &"<redacted>")
-            .field("system_object", &self.system_object_id)
-            .finish()
+    fn read_client(&self) -> &SuiReadClient {
+        self
     }
 }
 

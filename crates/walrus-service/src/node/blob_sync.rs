@@ -277,7 +277,7 @@ impl BlobSyncHandler {
         self.cancel_syncs(|(_, sync)| sync.cancel(), false).await
     }
 
-    async fn remove_sync_handle(&self, blob_id: &BlobId) {
+    fn remove_sync_handle(&self, blob_id: &BlobId) {
         self.blob_syncs_in_progress
             .lock()
             .expect("should be able to acquire lock")
@@ -416,6 +416,8 @@ impl BlobSyncHandler {
                     },
 
                     guard = async {
+                        synchronizer.wait_for_recovery_window().await;
+
                         // Await claiming the permit inside this async closure, to enable
                         // cancellation to also cancel waiting for the permit.
                         let _permit = permits
@@ -440,7 +442,7 @@ impl BlobSyncHandler {
         };
 
         // We remove the blob handler regardless of the result.
-        self.remove_sync_handle(&blob_id).await;
+        self.remove_sync_handle(&blob_id);
 
         walrus_utils::with_label!(self.node.metrics.recover_blob_duration_seconds, label)
             .observe(start.elapsed().as_secs_f64());
@@ -531,11 +533,41 @@ impl BlobSynchronizer {
         &self.node.metrics
     }
 
+    async fn wait_for_recovery_window(&self) {
+        match self
+            .node
+            .wait_until_recovery_deferral_expires(&self.blob_id)
+            .await
+        {
+            Ok(_token) => {
+                self.node.clear_recovery_deferral(&self.blob_id).await;
+            }
+            Err(err) => tracing::warn!(?err, "failed to wait out recovery deferral"),
+        }
+    }
+
     /// Runs the synchronizer until blob sync is complete.
     #[tracing::instrument(skip_all)]
     async fn run(self, sliver_permits: Arc<Semaphore>) {
         let this = Arc::new(self);
         let histograms = &this.metrics().recover_blob_part_duration_seconds;
+
+        let current_epoch = this
+            .node
+            .current_event_epoch()
+            .await
+            .expect("current event epoch should be set");
+        if this
+            .node
+            .is_stored_at_all_shards_at_epoch(&this.blob_id, current_epoch)
+            .await
+            .unwrap_or(false)
+        {
+            tracing::debug!(
+                "blob already stored at all owned shards for current epoch, skipping recovery"
+            );
+            return;
+        }
 
         let shared_metadata = this
             .clone()
@@ -564,6 +596,8 @@ impl BlobSynchronizer {
             );
             tokio::time::sleep(backoff_duration).await;
         }
+
+        this.node.clear_recovery_deferral(&this.blob_id).await;
     }
 
     /// Starts the task that syncs all the missing slivers for a blob.

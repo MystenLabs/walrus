@@ -11,7 +11,7 @@ use std::{
 use anyhow::anyhow;
 use axum::{
     Json,
-    body::Bytes,
+    body::{Body, Bytes},
     extract::{Path, Query, State},
     http::{HeaderMap, HeaderName, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
@@ -21,8 +21,16 @@ use axum_extra::{
     extract::Multipart,
     headers::{Authorization, authorization::Bearer},
 };
+use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+use fastcrypto::hash::{HashFunction, Sha256};
+use futures::stream::{self, StreamExt};
+use headers::HeaderMapExt;
+use http_range_header::{EndPosition, StartPosition};
 use jsonwebtoken::{DecodingKey, Validation};
-use reqwest::header::{CACHE_CONTROL, CONTENT_TYPE, ETAG, X_CONTENT_TYPE_OPTIONS};
+use reqwest::{
+    Method,
+    header::{ACCEPT, CACHE_CONTROL, CONTENT_TYPE, ETAG, RANGE, X_CONTENT_TYPE_OPTIONS},
+};
 use serde::{Deserialize, Serialize};
 use serde_with::{DisplayFromStr, serde_as};
 use sui_types::base_types::{ObjectID, SuiAddress};
@@ -56,9 +64,12 @@ use walrus_sui::{
 
 use super::{AggregatorResponseHeaderConfig, WalrusReadClient, WalrusWriteClient};
 use crate::{
-    client::daemon::{
-        PostStoreAction,
-        auth::{Claim, PublisherAuthError},
+    client::{
+        daemon::{
+            PostStoreAction,
+            auth::{Claim, PublisherAuthError},
+        },
+        utils::{InvalidConsistencyCheck, consistency_check_type_from_flags},
     },
     common::api::{Binary, BlobIdString, QuiltPatchIdString, RestApiError},
 };
@@ -69,6 +80,8 @@ pub const STATUS_ENDPOINT: &str = "/status";
 pub const API_DOCS: &str = "/v1/api";
 /// The path to get the blob with the given blob ID.
 pub const BLOB_GET_ENDPOINT: &str = "/v1/blobs/{blob_id}";
+/// The path to get and concatenate multiple blobs by their IDs or blob IDs.
+pub const BLOB_CONCAT_ENDPOINT: &str = "/v1alpha/blobs/concat";
 /// The path to get the blob and its attribute with the given object ID.
 pub const BLOB_OBJECT_GET_ENDPOINT: &str = "/v1/blobs/by-object-id/{blob_object_id}";
 /// The path to store a blob.
@@ -82,6 +95,8 @@ pub const QUILT_PATCH_BY_IDENTIFIER_GET_ENDPOINT: &str =
     "/v1/blobs/by-quilt-id/{quilt_id}/{identifier}";
 /// The path to list patches in a quilt.
 pub const LIST_PATCHES_IN_QUILT_ENDPOINT: &str = "/v1/quilts/{quilt_id}/patches";
+/// The path to read a byte range from a blob.
+pub const BLOB_BYTE_RANGE_GET_ENDPOINT: &str = "/v1/blobs/{blob_id}/byte-range";
 /// Custom header for quilt patch identifier.
 const X_QUILT_PATCH_IDENTIFIER: &str = "X-Quilt-Patch-Identifier";
 
@@ -97,7 +112,7 @@ pub struct ReadOptions {
     /// This was the default before `v1.37`. In `v1.37`, the default consistency was changed to a
     /// more performant one, which is sufficient for the majority of cases. This flag can be used to
     /// enable the previous strict consistency check. See
-    /// https://docs.wal.app/design/encoding.html#data-integrity-and-consistency for more details.
+    /// <https://docs.wal.app/design/encoding.html#data-integrity-and-consistency> for more details.
     #[serde(default)]
     pub strict_consistency_check: bool,
     /// Whether to skip consistency checks entirely.
@@ -111,17 +126,163 @@ pub struct ReadOptions {
 
 impl ReadOptions {
     pub fn consistency_check(&self) -> Result<ConsistencyCheckType, InvalidConsistencyCheck> {
-        crate::client::utils::consistency_check_type_from_flags(
+        consistency_check_type_from_flags(
             self.strict_consistency_check,
             self.skip_consistency_check,
         )
-        .map_err(|_| InvalidConsistencyCheck)
     }
+}
+
+/// The query parameters for concatenating multiple blobs.
+#[derive(Debug, Deserialize, Serialize, IntoParams, utoipa::ToSchema, PartialEq, Eq)]
+#[into_params(parameter_in = Query, style = Form)]
+#[serde(deny_unknown_fields)]
+pub struct ConcatQueryParams {
+    /// Comma-separated list of blob IDs or object IDs to concatenate.
+    pub ids: String,
+    /// Consistency check options for reading the blobs.
+    #[serde(flatten)]
+    pub read_options: ReadOptions,
+}
+
+/// The request body for concatenating multiple blobs via POST.
+#[derive(Debug, Deserialize, Serialize, utoipa::ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ConcatRequestBody {
+    /// List of blob IDs or object IDs to concatenate.
+    pub ids: Vec<String>,
+    /// Whether to perform a strict consistency check.
+    #[serde(default)]
+    pub strict_consistency_check: Option<bool>,
+    /// Whether to skip consistency checks entirely.
+    #[serde(default)]
+    pub skip_consistency_check: Option<bool>,
+}
+
+/// The query parameters for reading a byte range from a blob.
+#[derive(Debug, Deserialize, Serialize, IntoParams, utoipa::ToSchema, PartialEq, Eq)]
+#[into_params(parameter_in = Query, style = Form)]
+#[serde(deny_unknown_fields)]
+pub struct ByteRangeQueryParams {
+    /// The starting byte position (0-indexed, inclusive).
+    pub start: u64,
+    /// The number of bytes to read.
+    pub length: u64,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct ParsedRangeHeader {
+    start: u64,
+    end: u64,
+    length: u64,
+}
+
+/// Parses an HTTP Range header value.
+/// Supports the format "bytes=start-end" for range to end.
+/// Returns (start_byte_position, byte_length) if valid, otherwise returns an error.
+fn parse_range_header(range_value: &HeaderValue) -> Result<ParsedRangeHeader, GetBlobError> {
+    let range_value = range_value
+        .to_str()
+        .map_err(|e| GetBlobError::InvalidByteRange {
+            message: format!("invalid range header format: {}", e),
+        })?
+        .trim();
+
+    let parsed_range = http_range_header::parse_range_header(range_value).map_err(|e| {
+        GetBlobError::InvalidByteRange {
+            message: format!("invalid range header format: {}", e),
+        }
+    })?;
+
+    if parsed_range.ranges.len() != 1 {
+        return Err(GetBlobError::InvalidByteRange {
+            message: "only support one range per request".to_string(),
+        });
+    }
+
+    let range = parsed_range.ranges[0];
+    let StartPosition::Index(start_index) = range.start else {
+        return Err(GetBlobError::InvalidByteRange {
+            message: "must provide start index".to_string(),
+        });
+    };
+    let EndPosition::Index(end_index) = range.end else {
+        return Err(GetBlobError::InvalidByteRange {
+            message: "must provide end index".to_string(),
+        });
+    };
+
+    if start_index > end_index {
+        return Err(GetBlobError::InvalidByteRange {
+            message: "start index must be less than end index".to_string(),
+        });
+    }
+
+    let length = end_index.saturating_sub(start_index).saturating_add(1);
+    Ok(ParsedRangeHeader {
+        start: start_index,
+        end: end_index,
+        length,
+    })
+}
+
+/// Helper function to parse an ID string and resolve it to a BlobId.
+/// Tries to parse as BlobId first, then as ObjectID if that fails.
+/// Returns the BlobId and optionally the BlobAttribute if the ID was an ObjectID.
+async fn parse_and_resolve_id<T: WalrusReadClient>(
+    id_str: &str,
+    client: &T,
+) -> Result<(BlobId, Option<BlobAttribute>), ConcatBlobError> {
+    // Try parsing as BlobId first
+    if let Ok(blob_id) = BlobId::from_str(id_str) {
+        return Ok((blob_id, None));
+    }
+
+    // Try parsing as ObjectID
+    if let Ok(object_id) = ObjectID::from_str(id_str) {
+        let blob_info = client
+            .get_blob_by_object_id(&object_id)
+            .await
+            .map_err(|e| ConcatBlobError::ObjectIdResolutionFailed {
+                object_id: object_id.to_string(),
+                message: e.to_string(),
+            })?;
+        return Ok((blob_info.blob.blob_id, blob_info.attribute));
+    }
+
+    Err(ConcatBlobError::InvalidId {
+        id: id_str.to_string(),
+    })
 }
 
 /// Retrieve a Walrus blob.
 ///
 /// Reconstructs the blob identified by the provided blob ID from Walrus and returns its raw data.
+///
+/// # HTTP Range Support
+///
+/// This endpoint also accepts the HTTP `Range` header to request only a portion of the blob.
+/// When a `Range` header is provided with a specific byte range (e.g., `bytes=100-199`), the
+/// endpoint returns HTTP 206 Partial Content with the requested byte range.
+///
+/// **Important**: When using byte range requests, only the consistency of the individual fetched
+/// slivers is validated. The entire blob's consistency is NOT validated, which provides better
+/// performance for partial reads but with reduced integrity guarantees compared to full blob reads.
+///
+/// # Range Header Format
+///
+/// - `bytes=start-end`: Returns bytes from start to end (inclusive)
+/// - `bytes=start-`: Not supported yet (TODO(WAL-1108))
+/// - `bytes=-end`: Not supported yet
+///
+/// # Examples
+///
+/// ```bash
+/// # Get full blob
+/// curl "$AGGREGATOR/v1/blobs/{blob_id}"
+///
+/// # Get first 1000 bytes
+/// curl -H "Range: bytes=0-999" "$AGGREGATOR/v1/blobs/{blob_id}"
 #[tracing::instrument(level = Level::ERROR, skip_all, fields(%blob_id))]
 #[utoipa::path(
     get,
@@ -134,6 +295,7 @@ impl ReadOptions {
     ),
 )]
 pub(super) async fn get_blob<T: WalrusReadClient>(
+    request_method: Method,
     request_headers: HeaderMap,
     State(client): State<Arc<T>>,
     Path(BlobIdString(blob_id)): Path<BlobIdString>,
@@ -144,31 +306,66 @@ pub(super) async fn get_blob<T: WalrusReadClient>(
         Ok(consistency_check) => consistency_check,
         Err(error) => return error.into_response(),
     };
-    match client.read_blob(&blob_id, consistency_check).await {
-        Ok(blob) => {
-            tracing::debug!("successfully retrieved blob");
-            let mut response = (StatusCode::OK, blob).into_response();
-            let headers = response.headers_mut();
-            populate_response_headers_from_request(&request_headers, &blob_id.to_string(), headers);
-            response
-        }
-        Err(error) => {
-            let error = GetBlobError::from(error);
 
-            match &error {
-                GetBlobError::BlobNotFound => {
-                    tracing::debug!(?blob_id, "the requested blob ID does not exist")
-                }
-                GetBlobError::Internal(error) => tracing::error!(?error, "error retrieving blob"),
-                _ => (),
+    let mut response = if let Some(range_header) = request_headers.get(RANGE) {
+        let ParsedRangeHeader { start, end, length } = match parse_range_header(range_header) {
+            Ok(v) => v,
+            Err(error) => {
+                tracing::debug!(?error, "invalid byte range header");
+                return error.to_response();
             }
+        };
 
-            error.to_response()
+        // TODO(WAL-1107): support streaming the response sliver by sliver.
+        let read_result = match client.read_byte_range(&blob_id, start, length).await {
+            Ok(read_result) => read_result,
+            Err(error) => {
+                tracing::debug!(?error, "failed to read byte range");
+                return GetBlobError::from(error).to_response();
+            }
+        };
+
+        let mut response = (StatusCode::PARTIAL_CONTENT, read_result.data).into_response();
+
+        // Create the Content-Range header: "bytes start-end/total"
+        let content_range_header =
+            match headers::ContentRange::bytes(start..=end, read_result.unencoded_blob_size) {
+                Ok(header) => header,
+                Err(error) => {
+                    return GetBlobError::InvalidByteRange {
+                        message: error.to_string(),
+                    }
+                    .to_response();
+                }
+            };
+        response.headers_mut().typed_insert(content_range_header);
+
+        let content_length_header = headers::ContentLength(length);
+        response.headers_mut().typed_insert(content_length_header);
+        response
+    } else {
+        match client.read_blob(&blob_id, consistency_check).await {
+            Ok(blob) => (StatusCode::OK, blob).into_response(),
+            Err(error) => {
+                tracing::debug!(?error, "failed to read blob");
+                return GetBlobError::from(error).to_response();
+            }
         }
-    }
+    };
+
+    tracing::debug!("successfully retrieved blob");
+    let headers = response.headers_mut();
+    populate_response_headers_from_request(
+        request_method,
+        &request_headers,
+        &blob_id.to_string(),
+        headers,
+    );
+    response
 }
 
 fn populate_response_headers_from_request(
+    request_method: Method,
     request_headers: &HeaderMap,
     etag: &str,
     headers: &mut HeaderMap,
@@ -177,7 +374,7 @@ fn populate_response_headers_from_request(
     headers.insert(X_CONTENT_TYPE_OPTIONS, HeaderValue::from_static("nosniff"));
     // Insert headers that help caches distribute Walrus blobs.
     //
-    // Cache for 1 day, and allow refreshig on the client side. Refreshes use the ETag to
+    // Cache for 1 day, and allow refreshing on the client side. Refreshes use the ETag to
     // check if the content has changed. This allows invalidated blobs to be removed from
     // caches. `stale-while-revalidate` allows stale content to be served for 1 hour while
     // the browser tries to validate it (async revalidation).
@@ -185,14 +382,24 @@ fn populate_response_headers_from_request(
         CACHE_CONTROL,
         HeaderValue::from_static("public, max-age=86400, stale-while-revalidate=3600"),
     );
-    // The `ETag` is the blob ID itself.
+    // The `ETag` is some unique key to identify the body data.
     headers.insert(
         ETAG,
         HeaderValue::from_str(etag)
             .expect("the blob ID string only contains visible ASCII characters"),
     );
-    // Mirror the content type.
-    if let Some(content_type) = request_headers.get(CONTENT_TYPE) {
+    // Mirror the content type in various ways.
+    if let Some(accept) = request_headers.get(ACCEPT)
+        && !accept.as_bytes().contains(&b'*')
+    {
+        tracing::debug!(
+            ?accept,
+            "mirroring the request's accept header as our content type"
+        );
+        headers.insert(CONTENT_TYPE, accept.clone());
+    } else if request_method == Method::GET
+        && let Some(content_type) = request_headers.get(CONTENT_TYPE)
+    {
         tracing::debug!(?content_type, "mirroring the request's content type");
         headers.insert(CONTENT_TYPE, content_type.clone());
     } // Cache for 1 day, and allow refreshig on the client side. Refreshes use the ETag to
@@ -215,6 +422,10 @@ fn populate_response_headers_from_attributes(
             tracing::warn!("Invalid header value '{}' in blob attribute", value);
             continue;
         };
+        if headers.contains_key(key) {
+            // Do not overwrite existing headers
+            continue;
+        }
         if allowed_headers.is_none_or(|headers| headers.contains(&header_name)) {
             headers.insert(header_name, header_value);
         }
@@ -245,8 +456,9 @@ fn populate_response_headers_from_attributes(
     ),
 )]
 pub(super) async fn get_blob_by_object_id<T: WalrusReadClient>(
-    State((client, response_header_config)): State<(Arc<T>, Arc<AggregatorResponseHeaderConfig>)>,
+    request_method: Method,
     request_headers: HeaderMap,
+    State((client, response_header_config)): State<(Arc<T>, Arc<AggregatorResponseHeaderConfig>)>,
     Path(blob_object_id): Path<ObjectID>,
     read_options: Query<ReadOptions>,
 ) -> Response {
@@ -255,6 +467,7 @@ pub(super) async fn get_blob_by_object_id<T: WalrusReadClient>(
         Ok(BlobWithAttribute { blob, attribute }) => {
             // Get the blob data using the existing get_blob function
             let mut response = get_blob(
+                request_method,
                 request_headers.clone(),
                 State(client),
                 Path(BlobIdString(blob.blob_id)),
@@ -296,6 +509,158 @@ pub(super) async fn get_blob_by_object_id<T: WalrusReadClient>(
     }
 }
 
+/// Errors that can occur when reading a byte range from a blob.
+#[derive(Debug, thiserror::Error, RestApiError)]
+#[rest_api_error(domain = ERROR_DOMAIN)]
+pub(crate) enum ByteRangeReadError {
+    /// The requested blob has not yet been stored on Walrus.
+    #[error("the requested blob ID does not exist on Walrus, ensure that it was entered correctly")]
+    #[rest_api_error(reason = "BLOB_NOT_FOUND", status = ApiStatusCode::NotFound)]
+    BlobNotFound,
+
+    /// The blob cannot be returned as it has been blocked.
+    #[error("the requested blob is blocked")]
+    #[rest_api_error(reason = "FORBIDDEN_BLOB", status = ApiStatusCode::UnavailableForLegalReasons)]
+    Blocked,
+
+    /// The byte range parameters are invalid.
+    #[error("invalid byte range parameters: {message}")]
+    #[rest_api_error(reason = "INVALID_BYTE_RANGE", status = ApiStatusCode::InvalidArgument)]
+    InvalidByteRange { message: String },
+
+    /// The blob size exceeds the maximum allowed size that was configured for this service.
+    #[error("the blob size exceeds the maximum allowed size: {0}")]
+    #[rest_api_error(reason = "BLOB_TOO_LARGE", status = ApiStatusCode::SizeExceeded)]
+    BlobTooLarge(u64),
+
+    #[error(transparent)]
+    #[rest_api_error(delegate)]
+    Internal(#[from] anyhow::Error),
+}
+
+impl From<ClientError> for ByteRangeReadError {
+    fn from(error: ClientError) -> Self {
+        match error.kind() {
+            ClientErrorKind::BlobIdDoesNotExist => Self::BlobNotFound,
+            ClientErrorKind::BlobIdBlocked(_) => Self::Blocked,
+            ClientErrorKind::BlobTooLarge(max_blob_size) => Self::BlobTooLarge(*max_blob_size),
+            ClientErrorKind::ByteRangeReadInputError(msg) => Self::InvalidByteRange {
+                message: msg.to_string(),
+            },
+            _ => anyhow::anyhow!(error).into(),
+        }
+    }
+}
+
+/// Retrieve a specific byte range from a Walrus blob.
+///
+/// Reads a specific portion of a blob identified by the blob ID, starting from a given byte
+/// position and reading a specified number of bytes. This is more efficient than retrieving the
+/// entire blob when only a portion is needed.
+///
+/// Note that this endpoint has reduced consistency guarantees compared to the full blob read
+/// since it will only validate the consistency of individual fetched slivers.
+///
+/// # Query Parameters
+/// - `start`: The starting byte position (0-indexed, inclusive)
+/// - `length`: The number of bytes to read
+///
+/// # Validation
+/// - `start` and `length` must not overflow when added together
+/// - The byte range `[start, start + length)` must be within the blob's size
+/// - `length` must be greater than 0
+///
+/// # Example
+/// ```bash
+/// # Read 1024 bytes starting from position 0
+/// curl "$AGGREGATOR/v1/blobs/{blob_id}/byte-range?start=0&length=1024"
+/// ```
+#[tracing::instrument(
+    level = Level::ERROR,
+    skip_all,
+    fields(
+        %blob_id,
+        start=%params.start,
+        length=%params.length,
+    ),
+)]
+#[utoipa::path(
+    get,
+    path = BLOB_BYTE_RANGE_GET_ENDPOINT,
+    params(
+        ("blob_id" = BlobId,),
+        ByteRangeQueryParams,
+    ),
+    responses(
+        (status = 200, description = "The byte range was read successfully", body = [u8]),
+        ByteRangeReadError,
+    ),
+)]
+pub(super) async fn get_blob_byte_range<T: WalrusReadClient>(
+    request_method: Method,
+    request_headers: HeaderMap,
+    State(client): State<Arc<T>>,
+    Path(BlobIdString(blob_id)): Path<BlobIdString>,
+    Query(params): Query<ByteRangeQueryParams>,
+) -> Response {
+    tracing::debug!(
+        "starting to read byte range from blob: start={}, length={}",
+        params.start,
+        params.length
+    );
+
+    // Validate parameters upfront
+    if params.length == 0 {
+        return ByteRangeReadError::InvalidByteRange {
+            message: "length must be greater than 0".to_string(),
+        }
+        .into_response();
+    }
+
+    // Check for overflow when adding start and length
+    if params.start.checked_add(params.length).is_none() {
+        return ByteRangeReadError::InvalidByteRange {
+            message: "start + length overflows".to_string(),
+        }
+        .into_response();
+    }
+
+    // Combine blob id and the query into etag.
+    let etag = format!("{}-{}-{}", blob_id, params.start, params.length);
+
+    // Perform the byte range read using the trait method
+    match client
+        .read_byte_range(&blob_id, params.start, params.length)
+        .await
+    {
+        Ok(result) => {
+            tracing::debug!(
+                "successfully retrieved byte range of {} bytes",
+                result.data.len()
+            );
+
+            // Use StatusCode::OK instead of StatusCode::PARTIAL_CONTENT so that the response
+            // can be cached by the CDN.
+            let mut response = (StatusCode::OK, result.data).into_response();
+            let headers = response.headers_mut();
+            populate_response_headers_from_request(
+                request_method,
+                &request_headers,
+                &etag,
+                headers,
+            );
+            response
+        }
+        Err(error) => {
+            let error = ByteRangeReadError::from(error);
+
+            tracing::debug!(?etag, ?error, "error retrieving byte range");
+
+            error.to_response()
+        }
+    }
+}
+
 #[derive(Debug, thiserror::Error, RestApiError)]
 #[rest_api_error(domain = ERROR_DOMAIN)]
 pub(crate) enum GetBlobError {
@@ -322,6 +687,13 @@ pub(crate) enum GetBlobError {
     #[rest_api_error(reason = "BLOB_TOO_LARGE", status = ApiStatusCode::SizeExceeded)]
     BlobTooLarge(u64),
 
+    /// The byte range parameters are invalid.
+    ///
+    /// This error is returned when the byte range parameters are invalid.
+    #[error("invalid byte range parameters: {message}")]
+    #[rest_api_error(reason = "INVALID_BYTE_RANGE", status = ApiStatusCode::RangeNotSatisfiable)]
+    InvalidByteRange { message: String },
+
     #[error(transparent)]
     #[rest_api_error(delegate)]
     Internal(#[from] anyhow::Error),
@@ -336,20 +708,220 @@ impl From<ClientError> for GetBlobError {
                 Self::QuiltPatchNotFound
             }
             ClientErrorKind::BlobTooLarge(max_blob_size) => Self::BlobTooLarge(*max_blob_size),
+            ClientErrorKind::ByteRangeReadInputError(message) => Self::InvalidByteRange {
+                message: message.to_string(),
+            },
             _ => anyhow::anyhow!(error).into(),
         }
     }
 }
 
-/// The consistency check options are invalid.
+/// Errors that can occur when concatenating blobs.
 #[derive(Debug, thiserror::Error, RestApiError)]
-#[error("cannot set both strict and skip consistency check options")]
-#[rest_api_error(
-    domain = ERROR_DOMAIN,
-    reason = "INVALID_CONSISTENCY_CHECK",
-    status = ApiStatusCode::InvalidArgument
+#[rest_api_error(domain = ERROR_DOMAIN)]
+pub(crate) enum ConcatBlobError {
+    /// The provided ID string is neither a valid blob ID nor a valid object ID.
+    #[error("invalid ID format: {id}")]
+    #[rest_api_error(reason = "INVALID_ID_FORMAT", status = ApiStatusCode::InvalidArgument)]
+    InvalidId { id: String },
+
+    /// Failed to resolve an object ID to a blob ID.
+    #[error("failed to resolve object ID {object_id}: {message}")]
+    #[rest_api_error(reason = "OBJECT_ID_RESOLUTION_FAILED", status = ApiStatusCode::NotFound)]
+    ObjectIdResolutionFailed { object_id: String, message: String },
+
+    /// One of the requested blobs was not found.
+    #[error("blob not found: {blob_id}")]
+    #[rest_api_error(reason = "BLOB_NOT_FOUND", status = ApiStatusCode::NotFound)]
+    BlobNotFound { blob_id: String },
+
+    /// One of the blobs is blocked.
+    #[error("blob is blocked: {blob_id}")]
+    #[rest_api_error(reason = "FORBIDDEN_BLOB", status = ApiStatusCode::UnavailableForLegalReasons)]
+    BlobBlocked { blob_id: String },
+
+    /// One of the blobs exceeds the maximum allowed size.
+    #[error("blob exceeds maximum size: {blob_id} (size: {size})")]
+    #[rest_api_error(reason = "BLOB_TOO_LARGE", status = ApiStatusCode::SizeExceeded)]
+    BlobTooLarge { blob_id: String, size: u64 },
+
+    /// Failed to read a blob.
+    #[error("failed to read blob {blob_id}: {message}")]
+    #[rest_api_error(reason = "BLOB_READ_FAILED", status = ApiStatusCode::Internal)]
+    BlobReadFailed { blob_id: String, message: String },
+}
+
+impl ConcatBlobError {
+    fn from_client_error(error: ClientError, blob_id: BlobId) -> Self {
+        // Map ClientError to appropriate ConcatBlobError
+        match error.kind() {
+            ClientErrorKind::BlobIdDoesNotExist => Self::BlobNotFound {
+                blob_id: blob_id.to_string(),
+            },
+            ClientErrorKind::BlobIdBlocked(_) => Self::BlobBlocked {
+                blob_id: blob_id.to_string(),
+            },
+            ClientErrorKind::BlobTooLarge(size) => Self::BlobTooLarge {
+                blob_id: blob_id.to_string(),
+                size: *size,
+            },
+            _ => Self::BlobReadFailed {
+                blob_id: blob_id.to_string(),
+                message: error.to_string(),
+            },
+        }
+    }
+}
+
+/// Shared implementation for concatenating and streaming multiple blobs.
+///
+/// Takes a list of ID strings (blob IDs or object IDs), resolves them to blob IDs,
+/// and returns a streaming response with the concatenated blob data.
+async fn concat_blobs_impl<T: WalrusReadClient + Send + Sync + 'static>(
+    client: Arc<T>,
+    id_strings: Vec<String>,
+    strict_consistency_check: bool,
+    skip_consistency_check: bool,
+    request_method: Method,
+    request_headers: HeaderMap,
+    response_header_config: Arc<AggregatorResponseHeaderConfig>,
+) -> Response {
+    if id_strings.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            "at least one blob ID or object ID must be provided",
+        )
+            .into_response();
+    }
+
+    let consistency_check =
+        match consistency_check_type_from_flags(strict_consistency_check, skip_consistency_check) {
+            Ok(check) => check,
+            Err(e) => return e.into_response(),
+        };
+
+    // There is an implicit trade-off here between performance and correctness. We use the list of
+    // ids as provided by the user, which means that if a different user indexed the same blobs
+    // using blob IDs instead of object IDs, the ETag will be different. However,
+    let etag = URL_SAFE_NO_PAD.encode(Sha256::digest(id_strings.join(",").as_bytes()).digest);
+
+    // Resolve all IDs to blob IDs upfront (also fail fast)
+    // Track the first blob's attribute for header population
+    let mut blob_ids = Vec::new();
+    let mut first_attribute: Option<BlobAttribute> = None;
+    for (index, id_str) in id_strings.iter().enumerate() {
+        match parse_and_resolve_id(id_str.as_str(), client.as_ref()).await {
+            Ok((blob_id, attribute)) => {
+                blob_ids.push(blob_id);
+                // Only capture the first blob's attribute
+                if index == 0 {
+                    first_attribute = attribute;
+                }
+            }
+            Err(error) => return error.into_response(),
+        }
+    }
+
+    // Create streaming response
+    let client_clone = client.clone();
+    let stream = stream::iter(blob_ids).then(move |blob_id| {
+        let client = client_clone.clone();
+        async move {
+            match client.read_blob(&blob_id, consistency_check).await {
+                Ok(blob_data) => Ok(Bytes::from(blob_data)),
+                Err(error) => Err(ConcatBlobError::from_client_error(error, blob_id)),
+            }
+        }
+    });
+
+    let mut response = (StatusCode::OK, Body::from_stream(stream)).into_response();
+    let headers = response.headers_mut();
+    populate_response_headers_from_request(request_method, &request_headers, &etag, headers);
+
+    if let Some(attribute) = first_attribute {
+        populate_response_headers_from_attributes(
+            response.headers_mut(),
+            &attribute,
+            Some(&response_header_config.allowed_headers),
+        );
+    }
+
+    response
+}
+
+/// Concatenate and stream multiple blobs via GET.
+///
+/// Retrieves multiple blobs specified by comma-separated blob IDs or object IDs in the query
+/// parameter, and streams them concatenated in the order specified. Each blob is loaded,
+/// streamed, and then freed from memory before the next blob is processed.
+#[tracing::instrument(level = Level::ERROR, skip_all)]
+#[utoipa::path(
+    get,
+    path = BLOB_CONCAT_ENDPOINT,
+    params(ConcatQueryParams),
+    responses(
+        (status = 200, description = "Blobs concatenated and streamed successfully", body = [u8]),
+        ConcatBlobError,
+        InvalidConsistencyCheck,
+    ),
 )]
-pub(crate) struct InvalidConsistencyCheck;
+pub(super) async fn get_blobs_concat<T: WalrusReadClient + Send + Sync + 'static>(
+    State((client, response_header_config)): State<(Arc<T>, Arc<AggregatorResponseHeaderConfig>)>,
+    request_headers: HeaderMap,
+    Query(params): Query<ConcatQueryParams>,
+) -> Response {
+    // Parse comma-separated IDs
+    let id_strings: Vec<String> = params
+        .ids
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+    concat_blobs_impl(
+        client,
+        id_strings,
+        params.read_options.strict_consistency_check,
+        params.read_options.skip_consistency_check,
+        Method::GET,
+        request_headers,
+        response_header_config,
+    )
+    .await
+}
+
+/// Concatenate and stream multiple blobs via POST.
+///
+/// Retrieves multiple blobs specified in a JSON request body containing an array of blob IDs
+/// or object IDs, and streams them concatenated in the order specified. Each blob is loaded,
+/// streamed, and then freed from memory before the next blob is processed.
+#[tracing::instrument(level = Level::ERROR, skip_all)]
+#[utoipa::path(
+    post,
+    path = BLOB_CONCAT_ENDPOINT,
+    request_body = ConcatRequestBody,
+    responses(
+        (status = 200, description = "Blobs concatenated and streamed successfully", body = [u8]),
+        ConcatBlobError,
+        InvalidConsistencyCheck,
+    ),
+)]
+pub(super) async fn post_blobs_concat<T: WalrusReadClient + Send + Sync + 'static>(
+    request_method: Method,
+    request_headers: HeaderMap,
+    State((client, response_header_config)): State<(Arc<T>, Arc<AggregatorResponseHeaderConfig>)>,
+    Json(body): Json<ConcatRequestBody>,
+) -> Response {
+    concat_blobs_impl(
+        client,
+        body.ids,
+        body.strict_consistency_check.unwrap_or(false),
+        body.skip_consistency_check.unwrap_or(false),
+        request_method,
+        request_headers,
+        response_header_config,
+    )
+    .await
+}
 
 /// Store a blob on Walrus.
 ///
@@ -392,7 +964,7 @@ pub(super) async fn put_blob<T: WalrusWriteClient>(
     tracing::debug!("starting to store received blob");
     match client
         .write_blob(
-            &blob[..],
+            blob.into(),
             query.encoding_type,
             query.epochs,
             query.optimizations(),
@@ -504,7 +1076,7 @@ pub(super) fn daemon_cors_layer() -> CorsLayer {
     CorsLayer::new()
         .allow_origin(Any)
         .allow_methods(Any)
-        .max_age(Duration::from_secs(86400))
+        .max_age(Duration::from_hours(24))
         .allow_headers(Any)
 }
 
@@ -554,6 +1126,7 @@ pub(super) fn daemon_cors_layer() -> CorsLayer {
     ),
 )]
 pub(super) async fn get_patch_by_quilt_patch_id<T: WalrusReadClient>(
+    request_method: Method,
     request_headers: HeaderMap,
     State((client, response_header_config)): State<(Arc<T>, Arc<AggregatorResponseHeaderConfig>)>,
     Path(QuiltPatchIdString(quilt_patch_id)): Path<QuiltPatchIdString>,
@@ -568,6 +1141,7 @@ pub(super) async fn get_patch_by_quilt_patch_id<T: WalrusReadClient>(
             if let Some(blob) = blobs.pop() {
                 build_quilt_patch_response(
                     blob,
+                    request_method,
                     &request_headers,
                     &quilt_id.to_string(),
                     &response_header_config,
@@ -611,6 +1185,7 @@ pub(super) async fn get_patch_by_quilt_patch_id<T: WalrusReadClient>(
 /// Builds a response for a quilt patch.
 fn build_quilt_patch_response(
     blob: QuiltStoreBlob<'static>,
+    request_method: Method,
     request_headers: &HeaderMap,
     etag: &str,
     response_header_config: &AggregatorResponseHeaderConfig,
@@ -619,7 +1194,12 @@ fn build_quilt_patch_response(
     let blob_attribute: BlobAttribute = blob.tags().clone().into();
     let blob_data = blob.into_data();
     let mut response = (StatusCode::OK, blob_data).into_response();
-    populate_response_headers_from_request(request_headers, etag, response.headers_mut());
+    populate_response_headers_from_request(
+        request_method,
+        request_headers,
+        etag,
+        response.headers_mut(),
+    );
     populate_response_headers_from_attributes(
         response.headers_mut(),
         &blob_attribute,
@@ -702,6 +1282,7 @@ pub(super) async fn get_patch_by_quilt_id_and_identifier<T: WalrusReadClient>(
     {
         Ok(blob) => build_quilt_patch_response(
             blob,
+            Method::GET,
             &request_headers,
             &quilt_id.to_string(),
             &response_header_config,
@@ -1124,7 +1705,7 @@ async fn parse_multipart_quilt(
     Ok(res)
 }
 
-/// Custom deserializer for QuiltVersionEnum that uses From<String>.
+/// Custom deserializer for QuiltVersionEnum that uses `From<String>`.
 fn deserialize_quilt_version<'de, D>(deserializer: D) -> Result<Option<QuiltVersionEnum>, D::Error>
 where
     D: serde::Deserializer<'de>,
@@ -1135,7 +1716,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use axum::http::Uri;
+    use axum::http::{HeaderValue, Uri};
     use serde_test::{Token, assert_de_tokens};
     use walrus_test_utils::param_test;
 
@@ -1279,6 +1860,49 @@ mod tests {
                 )
             }
         }
+    }
+
+    #[test]
+    fn test_parse_range_header() {
+        // Test valid range with both start and end
+        let result = parse_range_header(&HeaderValue::from_static("bytes=0-499"));
+        assert_eq!(
+            result.expect("should be ok"),
+            ParsedRangeHeader {
+                start: 0,
+                end: 499,
+                length: 500
+            }
+        );
+
+        let result = parse_range_header(&HeaderValue::from_static("bytes=100-199"));
+        assert_eq!(
+            result.expect("should be ok"),
+            ParsedRangeHeader {
+                start: 100,
+                end: 199,
+                length: 100
+            }
+        );
+
+        // Test open-ended range (should return error since we require end value)
+        assert!(parse_range_header(&HeaderValue::from_static("bytes=500-")).is_err());
+
+        // Test invalid formats
+        assert!(parse_range_header(&HeaderValue::from_static("bytes=")).is_err());
+        assert!(parse_range_header(&HeaderValue::from_static("invalid")).is_err());
+        assert!(parse_range_header(&HeaderValue::from_static("bytes=100-50")).is_err());
+
+        // Test with spaces
+        let result = parse_range_header(&HeaderValue::from_static(" bytes=10-20 "));
+        assert_eq!(
+            result.expect("should be ok"),
+            ParsedRangeHeader {
+                start: 10,
+                end: 20,
+                length: 11,
+            }
+        );
     }
 
     #[test]

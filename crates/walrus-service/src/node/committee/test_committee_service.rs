@@ -21,7 +21,6 @@ use walrus_core::{
     Epoch,
     InconsistencyProof,
     PublicKey,
-    RecoverySymbol,
     SliverIndex,
     SliverPairIndex,
     SliverType,
@@ -227,7 +226,7 @@ macro_rules! assert_timeout {
         time::timeout($duration, $future).await.expect_err($msg)
     };
     ($future:expr, $msg:expr) => {
-        assert_timeout!(Duration::from_secs(60), $future, $msg)
+        assert_timeout!(Duration::from_mins(1), $future, $msg)
     };
 }
 
@@ -265,7 +264,7 @@ async fn metadata_request_succeeds_if_available(
         .await?;
 
     let returned_metadata = time::timeout(
-        Duration::from_secs(60),
+        Duration::from_mins(1),
         committee_service.get_and_verify_metadata(*expected_metadata.blob_id(), 1),
     )
     .await?;
@@ -318,7 +317,7 @@ async fn new_committee_unavailable_for_reads_until_transition_completes() -> Tes
     committee_handle.finish_transition();
     committee_service.end_committee_change(new_epoch)?;
 
-    let returned_metadata = time::timeout(Duration::from_secs(60), &mut pending_request)
+    let returned_metadata = time::timeout(Duration::from_mins(1), &mut pending_request)
         .await
         .expect("request must succeed since new committee has metadata");
 
@@ -396,7 +395,7 @@ async fn requests_for_metadata_are_dispatched_to_correct_committee(
         .await?;
 
     let returned_metadata = time::timeout(
-        Duration::from_secs(60),
+        Duration::from_mins(1),
         committee_service.get_and_verify_metadata(*expected_metadata.blob_id(), certified_epoch),
     )
     .await
@@ -453,7 +452,7 @@ fn recovery_symbols_by_shard(
 
     let encoding_config = EncodingConfig::new(n_shards);
     let encoding_config_enum = encoding_config.get_for_type(DEFAULT_ENCODING);
-    let (sliver_pairs, metadata) = encoding_config_enum.encode_with_metadata(&blob)?;
+    let (sliver_pairs, metadata) = encoding_config_enum.encode_with_metadata(blob)?;
 
     let RequiredCount::Exact(n_symbols_for_recovery) =
         encoding_config_enum.n_symbols_for_recovery::<Primary>();
@@ -504,15 +503,6 @@ async fn recovers_slivers_across_epoch_change() -> TestResult {
         );
 
         service_map.insert_ready(node.public_key.clone(), move |request| match request {
-            Request::GetVerifiedRecoverySymbol {
-                sliver_pair_at_remote,
-                ..
-            } => {
-                assert_eq!(sliver_pair_at_remote, remote_pair_index);
-                Ok(Response::VerifiedRecoverySymbol(RecoverySymbol::Primary(
-                    symbol.clone(),
-                )))
-            }
             Request::ListVerifiedRecoverySymbols {
                 filter,
                 target_index,
@@ -563,7 +553,7 @@ async fn recovers_slivers_across_epoch_change() -> TestResult {
     committee_handle.finish_transition();
     committee_service.end_committee_change(new_epoch)?;
 
-    let _sliver = time::timeout(Duration::from_secs(60), &mut pending_request)
+    let _sliver = time::timeout(Duration::from_mins(1), &mut pending_request)
         .await
         .expect("request must succeed since new committee has remaining recovery symbols");
 
@@ -693,7 +683,7 @@ async fn collects_inconsistency_proof_despite_epoch_change() -> TestResult {
     committee_handle.begin_transition_to(next_committee);
     committee_service.begin_committee_change(new_epoch).await?;
 
-    let _ = time::timeout(Duration::from_secs(60), &mut pending_request)
+    let _ = time::timeout(Duration::from_mins(1), &mut pending_request)
         .await
         .expect("request must succeed since new committee has sufficient responses");
 

@@ -101,6 +101,11 @@ impl Blob {
             BlobPersistenceType::Permanent
         }
     }
+
+    /// Returns true if the blob is certified.
+    pub fn is_certified(&self) -> bool {
+        self.certified_epoch.is_some()
+    }
 }
 
 /// Serialize as string to make sure that the json output uses the base64 encoding.
@@ -432,7 +437,8 @@ impl Display for Authorized {
 /// Represents a single staking pool.
 #[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
 pub struct StakingPool {
-    id: ObjectID,
+    /// The object ID of the staking pool, also known as the node ID.
+    pub id: ObjectID,
     /// The current state of the pool.
     state: PoolState,
     /// Current epoch's pool parameters.
@@ -656,6 +662,26 @@ impl EpochState {
     pub fn is_transitioning(&self) -> bool {
         matches!(self, Self::EpochChangeSync(_))
     }
+
+    /// Returns the start time of the current epoch if it is known.
+    ///
+    /// Returns `None` if the epoch change is in progress.
+    pub fn start_of_current_epoch(&self) -> Option<DateTime<Utc>> {
+        match self {
+            Self::EpochChangeDone(epoch_start) | Self::NextParamsSelected(epoch_start) => {
+                Some(*epoch_start)
+            }
+            Self::EpochChangeSync(_) => None,
+        }
+    }
+
+    /// Returns the earliest time at which the current epoch can start.
+    ///
+    /// If the state is [`EpochChangeSync`][Self::EpochChangeSync], returns the current time.
+    /// Otherwise, returns the start time of the current epoch ([`Self::start_of_current_epoch`]).
+    pub fn earliest_start_of_current_epoch(&self) -> DateTime<Utc> {
+        self.start_of_current_epoch().unwrap_or_else(Utc::now)
+    }
 }
 
 /// The committee shard assignment.
@@ -794,6 +820,7 @@ pub(crate) struct SystemObjectForDeserialization {
     pub(crate) package_id: ObjectID,
     pub(crate) new_package_id: Option<ObjectID>,
 }
+
 impl AssociatedContractStruct for SystemObjectForDeserialization {
     const CONTRACT_STRUCT: StructTag<'static> = contracts::system::System;
 }

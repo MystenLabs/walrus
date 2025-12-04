@@ -438,6 +438,7 @@ pub fn init_tracing() {
 }
 
 #[cfg(test)]
+#[allow(clippy::unused_async)]
 mod tests {
     use std::error::Error;
 
