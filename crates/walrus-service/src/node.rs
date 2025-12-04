@@ -863,6 +863,10 @@ impl StorageNode {
         })
     }
 
+    pub fn as_service_state(&self) -> Arc<StorageNodeInner> {
+        self.inner.clone()
+    }
+
     /// Creates a new [`StorageNodeBuilder`] for constructing a `StorageNode`.
     pub fn builder() -> StorageNodeBuilder {
         StorageNodeBuilder::default()
@@ -3572,6 +3576,7 @@ fn increment_shard_summary(
     }
 }
 
+/*
 impl ServiceState for StorageNode {
     fn retrieve_metadata(
         &self,
@@ -3691,6 +3696,7 @@ impl ServiceState for StorageNode {
         self.inner.set_recovery_deferral(blob_id, defer_duration)
     }
 }
+*/
 
 impl ServiceState for StorageNodeInner {
     fn retrieve_metadata(

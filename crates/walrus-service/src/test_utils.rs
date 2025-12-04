@@ -236,7 +236,7 @@ impl Default for TestNodesConfig {
 #[derive(Debug)]
 pub struct StorageNodeHandle {
     /// The wrapped storage node.
-    pub storage_node: Arc<StorageNode>,
+    // pub storage_node: Arc<StorageNode>,
     /// The temporary directory containing the node's storage.
     pub storage_directory: TempDir,
     /// The node's protocol public key.
@@ -1036,10 +1036,9 @@ impl StorageNodeHandleBuilder {
             .with_system_contract_service(contract_service)
             .build(&config, metrics_registry.clone())
             .await?;
-        let node = Arc::new(node);
 
         let rest_api = Arc::new(RestApiServer::new(
-            node.clone(),
+            node.as_service_state(),
             cancel_token.clone(),
             RestApiConfig::from(&config),
             &metrics_registry,
