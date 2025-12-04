@@ -111,8 +111,8 @@ To operate a high-performance and concurrency publisher, the following options
 might be of interest:
 
 - The `--n-clients <NUM>` option creates a number of separate wallets used to perform concurrent
-   Sui chain operations. Increase this to allow more parallel uploads. A higher number
-   requires more SUI and WAL coins initially to be distributed to more wallets.
+    Sui chain operations. Increase this to allow more parallel uploads. A higher number
+    requires more SUI and WAL coins initially to be distributed to more wallets.
 
 - The `--max-concurrent-requests <NUM>` determines how many concurrent requests can be handled,
   including Sui operations (limited by number of clients) but also uploads. After this is exceeded,
@@ -217,27 +217,27 @@ walrus_args=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -f)
-      file="$2"
-      shift 2
-      ;;
+    file="$2"
+    shift 2
+    ;;
     -s)
-      chunk_size="$2"
-      shift 2
-      ;;
+    chunk_size="$2"
+    shift 2
+    ;;
     -h)
-      usage
-      exit 0
-      ;;
+    usage
+    exit 0
+    ;;
     --)
-      shift
-      walrus_args=("$@")
-      break
-      ;;
+    shift
+    walrus_args=("$@")
+    break
+    ;;
     *)
-      error "Unknown option: $1"
-      usage
-      exit 1
-      ;;
+    error "Unknown option: $1"
+    usage
+    exit 1
+    ;;
   esac
 done
 

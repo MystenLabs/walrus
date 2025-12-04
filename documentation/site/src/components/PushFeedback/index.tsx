@@ -27,7 +27,7 @@ export default function FeedbackWidget() {
             <span className="feedback-widget-positive">
                 <FeedbackButton project={pushFeedbackId} rating="1" custom-font="True" button-style="default" modal-position="center">
                     <button className="button button--outline button--primary button--sm !inline-flex items-center" title="Yes">
-                        {buttonThumbsUp} 
+                        {buttonThumbsUp}
                         <span className="pl-1">Yes</span>
                     </button>
                 </FeedbackButton>

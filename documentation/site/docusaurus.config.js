@@ -49,115 +49,115 @@ const config = {
     "docusaurus-plugin-copy-page-button",
     "./src/plugins/tailwind-config.js",
     function docsAliasPlugin() {
-      return {
+    return {
         name: "docs-alias-plugin",
         configureWebpack() {
-          return {
+        return {
             resolve: {
-              alias: {
+            alias: {
                 "@docs": path.resolve(__dirname, "../content"),
-              },
             },
-          };
+            },
+        };
         },
-      };
+    };
     },
     path.resolve(__dirname, `./src/plugins/askcookbook/index.js`),
   ],
   presets: [
     [
-      "classic",
-      /** @type {import('@docusaurus/preset-classic').Options} */
-      ({
+    "classic",
+    /** @type {import('@docusaurus/preset-classic').Options} */
+    ({
         docs: {
-          path: "../content",
-          sidebarPath: "./sidebars.js",
-          // Please change this to your repo.
-          // Remove this to remove the "edit this page" links.
-          editUrl:
+        path: "../content",
+        sidebarPath: "./sidebars.js",
+        // Please change this to your repo.
+        // Remove this to remove the "edit this page" links.
+        editUrl:
             "https://github.com/MystenLabs/walrus/tree/main/documentation/",
-          remarkPlugins: [[remarkGlossary, { glossaryFile: "static/glossary.json" }]],
+        remarkPlugins: [[remarkGlossary, { glossaryFile: "static/glossary.json" }]],
         },
         blog: {
-          path: "../blog",
-          postsPerPage: "ALL",
-          blogSidebarTitle: 'All posts',
-          blogSidebarCount: 'ALL',
-          showReadingTime: true,
-          feedOptions: {
+        path: "../blog",
+        postsPerPage: "ALL",
+        blogSidebarTitle: 'All posts',
+        blogSidebarCount: 'ALL',
+        showReadingTime: true,
+        feedOptions: {
             type: ["rss", "atom"],
             xslt: true,
-          },
-          // Remove this to remove the "edit this page" links.
-          // editUrl: "https://github.com/MystenLabs/walrus/tree/main/documentation",
-          // Useful options to enforce blogging best practices
-          onInlineTags: "warn",
-          onInlineAuthors: "warn",
-          onUntruncatedBlogPosts: "warn",
+        },
+        // Remove this to remove the "edit this page" links.
+        // editUrl: "https://github.com/MystenLabs/walrus/tree/main/documentation",
+        // Useful options to enforce blogging best practices
+        onInlineTags: "warn",
+        onInlineAuthors: "warn",
+        onUntruncatedBlogPosts: "warn",
         },
         pages: {
-          remarkPlugins: [[remarkGlossary, { glossaryFile: "static/glossary.json" }]],
+        remarkPlugins: [[remarkGlossary, { glossaryFile: "static/glossary.json" }]],
         },
         theme: {
-          customCss: path.resolve(__dirname, './src/css/custom.css'),
+        customCss: path.resolve(__dirname, './src/css/custom.css'),
         },
-      }),
+    }),
     ],
   ],
 
   themeConfig:
     /** @type {import('@docusaurus/preset-classic').ThemeConfig} */
     ({
-      // Replace with your project's social card
-      image: "img/docusaurus-social-card.jpg",
-      navbar: {
+    // Replace with your project's social card
+    image: "img/docusaurus-social-card.jpg",
+    navbar: {
         title: "Walrus Docs",
         logo: {
-          alt: "Walrus",
-          src: "img/logo.svg",
+        alt: "Walrus",
+        src: "img/logo.svg",
         },
         items: [
-          {
+        {
             type: "docSidebar",
             sidebarId: "docsSidebar",
             position: "right",
             label: "Docs",
-          },
-          {
+        },
+        {
             type: "docSidebar",
             sidebarId: "sitesSidebar",
             label: "Sites",
             position: "right",
-          },
-          {
+        },
+        {
             type: "docSidebar",
             sidebarId: "designSidebar",
             label: "Design",
             position: "right",
-          },
-          { to: "/blog", label: "Blog", position: "right" },
-          {
+        },
+        { to: "/blog", label: "Blog", position: "right" },
+        {
             href: "https://github.com/MystenLabs/walrus",
             position: "right",
             className: "header-github-link",
             "aria-label": "GitHub repository",
-          },
+        },
         ],
-      },
-      footer: {
+    },
+    footer: {
         style: "dark",
         copyright: `Copyright © ${new Date().getFullYear()} Walrus Foundation. All rights reserved.`,
-      },
-      prism: {
+    },
+    prism: {
         theme: prismThemes.github,
         darkTheme: prismThemes.dracula,
-      },
+    },
     }),
     customFields: {
-      pushFeedbackId: 'ilacd94goh',
-      github: 'MystenLabs/walrus',
-      twitterX: 'walrusprotocol',
-      discord: 'walrusprotocol',
+    pushFeedbackId: 'ilacd94goh',
+    github: 'MystenLabs/walrus',
+    twitterX: 'walrusprotocol',
+    discord: 'walrusprotocol',
     },
 };
 

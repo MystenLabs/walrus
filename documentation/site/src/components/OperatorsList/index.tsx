@@ -29,19 +29,19 @@ const OperatorsList: React.FC = () => {
 
   useEffect(() => {
     const fetchOperators = async () => {
-      try {
+    try {
         const response = await fetch('/operators.json');
         if (!response.ok) {
-          throw new Error('Failed to fetch operators data');
+        throw new Error('Failed to fetch operators data');
         }
-        
+
         const data: OperatorsData = await response.json();
         setOperatorsData(data);
         setLoading(false);
-      } catch (err) {
+    } catch (err) {
         setError(err instanceof Error ? err.message : 'Unknown error occurred');
         setLoading(false);
-      }
+    }
     };
 
     fetchOperators();
@@ -49,40 +49,40 @@ const OperatorsList: React.FC = () => {
 
   const transformOperators = (group: OperatorGroup): Operator[] => {
     const operators: Operator[] = [];
-    
+
     if (group.aggregators) {
-      Object.entries(group.aggregators).forEach(([url, info]) => {
+    Object.entries(group.aggregators).forEach(([url, info]) => {
         operators.push({
-          url,
-          operator: info.operator,
-          cache: info.cache,
-          functional: info.functional,
-          type: 'aggregator',
+        url,
+        operator: info.operator,
+        cache: info.cache,
+        functional: info.functional,
+        type: 'aggregator',
         });
-      });
+    });
     }
-    
+
     if (group.publishers) {
-      Object.entries(group.publishers).forEach(([url, info]) => {
+    Object.entries(group.publishers).forEach(([url, info]) => {
         operators.push({
-          url,
-          operator: info.operator,
-          cache: info.cache,
-          functional: info.functional,
-          type: 'publisher',
+        url,
+        operator: info.operator,
+        cache: info.cache,
+        functional: info.functional,
+        type: 'publisher',
         });
-      });
+    });
     }
-    
+
     return operators.sort((a, b) => a.operator.localeCompare(b.operator));
   };
 
   const filterOperators = (operators: Operator[], searchTerm: string): Operator[] => {
     if (!searchTerm.trim()) return operators;
-    
+
     const lowercaseSearch = searchTerm.toLowerCase();
     return operators.filter(
-      (op) =>
+    (op) =>
         op.operator.toLowerCase().includes(lowercaseSearch) ||
         op.url.toLowerCase().includes(lowercaseSearch) ||
         op.type.toLowerCase().includes(lowercaseSearch)
@@ -109,52 +109,52 @@ const OperatorsList: React.FC = () => {
 
   const renderOperatorList = (operators: Operator[]) => {
     if (operators.length === 0) {
-      return (
+    return (
         <div className={styles.empty}>
-          {searchTerm ? 'No operators match your search criteria' : 'No operators available'}
+        {searchTerm ? 'No operators match your search criteria' : 'No operators available'}
         </div>
-      );
+    );
     }
 
     return (
-      <ul className={styles.operatorsList}>
+    <ul className={styles.operatorsList}>
         {operators.map((operator) => (
-          <li key={operator.url} className={styles.operatorItem}>
+        <li key={operator.url} className={styles.operatorItem}>
             <div className={styles.operatorContent}>
-              <div className={styles.operatorHeader}>
+            <div className={styles.operatorHeader}>
                 <a
-                  href={operator.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className={styles.operatorUrl}
+                href={operator.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={styles.operatorUrl}
                 >
-                  {operator.url}
+                {operator.url}
                 </a>
                 <span className={`${styles.operatorType} ${styles[operator.type]}`}>
-                  {operator.type}
+                {operator.type}
                 </span>
-              </div>
-              <div className={styles.operatorDetails}>
+            </div>
+            <div className={styles.operatorDetails}>
                 <span className={styles.operatorName}>
-                  Operated by: {operator.operator}
+                Operated by: {operator.operator}
                 </span>
                 <div className={styles.operatorFlags}>
-                  {operator.cache !== undefined && (
+                {operator.cache !== undefined && (
                     <span className={`${styles.flag} ${operator.cache ? styles.positive : styles.negative}`}>
-                      Cache: {operator.cache ? 'Yes' : 'No'}
+                    Cache: {operator.cache ? 'Yes' : 'No'}
                     </span>
-                  )}
-                  {operator.functional !== undefined && (
+                )}
+                {operator.functional !== undefined && (
                     <span className={`${styles.flag} ${operator.functional ? styles.positive : styles.negative}`}>
-                      Functional: {operator.functional ? 'Yes' : 'No'}
+                    Functional: {operator.functional ? 'Yes' : 'No'}
                     </span>
-                  )}
+                )}
                 </div>
-              </div>
             </div>
-          </li>
+            </div>
+        </li>
         ))}
-      </ul>
+    </ul>
     );
   };
 
@@ -168,36 +168,36 @@ const OperatorsList: React.FC = () => {
 
   return (
     <div className={styles.container}>
-      <h3 className={styles.title}>Walrus Operators</h3>
-      
-      <div className={styles.searchContainer}>
-        <input
-          type="text"
-          placeholder="Search by operator name, URL, or type..."
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          className={styles.searchInput}
-        />
-      </div>
+    <h3 className={styles.title}>Walrus Operators</h3>
 
-      <Tabs>
+    <div className={styles.searchContainer}>
+        <input
+        type="text"
+        placeholder="Search by operator name, URL, or type..."
+        value={searchTerm}
+        onChange={(e) => setSearchTerm(e.target.value)}
+        className={styles.searchInput}
+        />
+    </div>
+
+    <Tabs>
         <TabItem value="mainnet" label="Mainnet" default>
-          <div className={styles.tabContent}>
+        <div className={styles.tabContent}>
             <p className={styles.tabDescription}>
-              Mainnet operators ({filteredMainnetOperators.length} results)
+            Mainnet operators ({filteredMainnetOperators.length} results)
             </p>
             {renderOperatorList(filteredMainnetOperators)}
-          </div>
+        </div>
         </TabItem>
         <TabItem value="testnet" label="Testnet">
-          <div className={styles.tabContent}>
+        <div className={styles.tabContent}>
             <p className={styles.tabDescription}>
-              Testnet operators ({filteredTestnetOperators.length} results)
+            Testnet operators ({filteredTestnetOperators.length} results)
             </p>
             {renderOperatorList(filteredTestnetOperators)}
-          </div>
+        </div>
         </TabItem>
-      </Tabs>
+    </Tabs>
     </div>
   );
 };

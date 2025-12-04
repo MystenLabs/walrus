@@ -11,11 +11,11 @@ import styles from "./styles.module.css";
 const Pre = React.forwardRef((props, ref) => {
   return (
     <pre
-      ref={ref}
-      /* eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex */
-      tabIndex={0}
-      {...props}
-      className={clsx(props.className, styles.codeBlock, "thin-scrollbar")}
+    ref={ref}
+    /* eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex */
+    tabIndex={0}
+    {...props}
+    className={clsx(props.className, styles.codeBlock, "thin-scrollbar")}
     />
   );
 });
@@ -23,20 +23,20 @@ function Code(props) {
   const { metadata } = useCodeBlockContext();
   return (
     <code
-      {...props}
-      className={clsx(
+    {...props}
+    className={clsx(
         props.className,
         styles.codeBlockLines,
         metadata.lineNumbersStart !== undefined &&
-          styles.codeBlockLinesWithNumbering,
-      )}
-      style={{
+        styles.codeBlockLinesWithNumbering,
+    )}
+    style={{
         ...props.style,
         counterReset:
-          metadata.lineNumbersStart === undefined
+        metadata.lineNumbersStart === undefined
             ? undefined
             : `line-count ${metadata.lineNumbersStart - 1}`,
-      }}
+    }}
     />
   );
 }
@@ -47,13 +47,13 @@ const applyTransforms = (lines) => {
     let tokens = lines[i];
 
     if (tokens[0]?.content?.startsWith("$ ")) {
-      const promptToken = {
+    const promptToken = {
         types: ["select-none", "opacity-40", "text-lg"],
         content: "$ ",
-      };
-      const first = tokens[0];
-      const restOfFirst = { ...first, content: first.content.slice(2) };
-      tokens = [promptToken, restOfFirst, ...tokens.slice(1)];
+    };
+    const first = tokens[0];
+    const restOfFirst = { ...first, content: first.content.slice(2) };
+    tokens = [promptToken, restOfFirst, ...tokens.slice(1)];
     }
 
     out.push(tokens);
@@ -67,35 +67,35 @@ export default function CodeBlockContent({ className: classNameProp }) {
   const { code, language, lineNumbersStart, lineClassNames } = metadata;
   return (
     <Highlight theme={prismTheme} code={code} language={language}>
-      {({
+    {({
         className,
         style,
         tokens: rawLines,
         getLineProps,
         getTokenProps,
-      }) => {
+    }) => {
         const lines = applyTransforms(rawLines);
         return (
-          <Pre
+        <Pre
             ref={wordWrap.codeBlockRef}
             className={clsx(classNameProp, className, "!pt-[14px]")}
             style={style}
-          >
+        >
             <Code>
-              {lines.map((line, i) => (
+            {lines.map((line, i) => (
                 <Line
-                  key={i}
-                  line={line}
-                  getLineProps={getLineProps}
-                  getTokenProps={getTokenProps}
-                  classNames={lineClassNames[i]}
-                  showLineNumbers={lineNumbersStart !== undefined}
+                key={i}
+                line={line}
+                getLineProps={getLineProps}
+                getTokenProps={getTokenProps}
+                classNames={lineClassNames[i]}
+                showLineNumbers={lineNumbersStart !== undefined}
                 />
-              ))}
+            ))}
             </Code>
-          </Pre>
+        </Pre>
         );
-      }}
+    }}
     </Highlight>
   );
 }

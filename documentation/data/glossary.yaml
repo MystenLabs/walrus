@@ -21,11 +21,11 @@
   definition: (Disjoint) Subset of erasure-encoded data of all blobs; at every point in time, a shard is assigned to and stored on a single storage node.
 
 - id: redstuff
-  label: RedStuff 
+  label: RedStuff
   definition: Erasure-encoding approach, which uses two different encodings (primary and secondary) to enable shard recovery; details are available in the [whitepaper](./walrus.pdf).
 
 - id: sliver
-  label: Sliver 
+  label: Sliver
   definition: Erasure-encoded data of one shard corresponding to a single blob for one of the two encodings; this contains several erasure-encoded symbols of that blob but not the blob metadata.
 
 - id: sliver-pair
@@ -34,7 +34,7 @@
 
 - id: blob-id
   label: Blob ID
-  definition: Cryptographic ID computed from a blob's slivers.                        
+  definition: Cryptographic ID computed from a blob's slivers.
 
 - id: blob-metadata
   label: Blob metadata
@@ -60,10 +60,10 @@
 - id: walrus-client
   label: Client
   definition: Entity interacting directly with the storage nodes; this can be an aggregator or cache, a publisher, or an end user.
-  aliases: ["Walrus client"] 
+  aliases: ["Walrus client"]
 
 - id: blob-reconstruction
-  label: Reconstruction 
+  label: Reconstruction
   definition: Decoding of the primary slivers to obtain the blob; includes re-encoding the blob and checking the Merkle proofs.
   aliases: ["blob reconstruction"]
 
@@ -81,7 +81,7 @@
   definition: A blob ID with signatures of storage nodes holding at least \(2f+1\) shards in a specific epoch.
   aliases: ["certificate of availability (CoA)", "CoA"]
 
-- id: point-of-availability 
+- id: point-of-availability
   label: Point of availability
   definition: Point in time when a certificate of availability is submitted to Sui and the corresponding blob is guaranteed to be available until its expiration.
   aliases: ["point of availability (PoA)", "PoA"]

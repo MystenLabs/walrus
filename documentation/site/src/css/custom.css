@@ -68,7 +68,7 @@
   --color-wal-grey-1:  var(--color-wal-gray-1);
 
   --color-docu-dark: hsl(240, 4%, 11%);
-  
+
   /* Dark surface gradient: solid on edges, translucent middle */
   --wal-surface-gradient-dark: linear-gradient(
     to bottom,
@@ -234,7 +234,7 @@ html[data-theme='dark'] .DocSearch-Search-Icon path {
 
 .group:hover .tooltip-delay {
   @apply opacity-100;
-  transition-delay: 700ms; 
+  transition-delay: 700ms;
 }
 
 .sui-search mark {

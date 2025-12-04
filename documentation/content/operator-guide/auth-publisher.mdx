@@ -20,21 +20,21 @@ The authenticated publishing flow occurs, at a high level, as follows:
 1. **Publisher setup**: The publisher operator:
     - Funds the publisher's wallet with sufficient `SUI` and `WAL`;
     - Configures the publisher to only accept authenticated requests. This entails setting the
-      algorithm to authenticate JWTs, the expiration time for JWTs, and the JWT authentication
-      secret.
+    algorithm to authenticate JWTs, the expiration time for JWTs, and the JWT authentication
+    secret.
 1. **Authentication channel setup**: The publisher operator sets up a channel through which users
-   can obtain the JWT tokens. This step can be performed in any way that produces a valid JWT, and
-   is not provided in this implementation.
+    can obtain the JWT tokens. This step can be performed in any way that produces a valid JWT, and
+    is not provided in this implementation.
 1. **Client authentication**: The client obtains a JWT token from the channel set up in the previous
-   step. The JWT token can specify Walrus-relevant constraints, such as the maximum number of epochs
-   the JWT can be used to store for, and the maximum size of the blobs being stored.
+    step. The JWT token can specify Walrus-relevant constraints, such as the maximum number of epochs
+    the JWT can be used to store for, and the maximum size of the blobs being stored.
 1. **Publish request**: The client requests to store a blob using the publisher. This is done
-   through an HTTP PUT request containing the JWT in an Authorization Bearer HTTP header.
+    through an HTTP PUT request containing the JWT in an Authorization Bearer HTTP header.
 1. **Store to Walrus**: The publisher checks the JWT, and checks that the store request is compliant
-   with the constraints specified in the JWT (e.g., the blob being stored is smaller than the
-   authorized max size).
+    with the constraints specified in the JWT (e.g., the blob being stored is smaller than the
+    authorized max size).
 1. (Optional) **Asset return:**: If so specified, the publisher returns the newly-created `Blob`
-   object to the Sui Address set in the request.
+    object to the Sui Address set in the request.
 
 ### Request Authentication Flow
 

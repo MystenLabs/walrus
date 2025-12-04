@@ -17,16 +17,16 @@ export default function TabbedIndex({
 }) {
   return (
     <Index indexName={indexName}>
-      <VirtualSearchBox query={query} />
-      <div className="grid grid-cols-12 gap-4">
+    <VirtualSearchBox query={query} />
+    <div className="grid grid-cols-12 gap-4">
         <RefinementSection />
         <div className="col-span-12 md:col-span-8 xl:col-span-9">
-          <CustomHitsContent name={indexName} />
+        <CustomHitsContent name={indexName} />
         </div>
         <div className="col-span-12">
-          <ConditionalPagination />
+        <ConditionalPagination />
         </div>
-      </div>
+    </div>
     </Index>
   );
 }

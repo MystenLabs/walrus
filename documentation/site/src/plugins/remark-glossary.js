@@ -25,8 +25,8 @@ function buildMatcher(entries) {
   for (const t of terms) {
     const key = t.toLowerCase();
     if (!seen.has(key)) {
-      seen.add(key);
-      unique.push(t);
+    seen.add(key);
+    unique.push(t);
     }
   }
 
@@ -53,17 +53,17 @@ function loadGlossary(glossaryPath) {
 
   if (Array.isArray(data)) {
     for (const item of data) {
-      if (!item?.label || !item?.definition) continue;
-      entries.push({
+    if (!item?.label || !item?.definition) continue;
+    entries.push({
         label: String(item.label),
         definition: String(item.definition),
         id: item.id ? String(item.id) : undefined,
         aliases: Array.isArray(item.aliases) ? item.aliases.map(String) : [],
-      });
+    });
     }
   } else if (data && typeof data === 'object') {
     for (const [label, def] of Object.entries(data)) {
-      entries.push({label, definition: String(def)});
+    entries.push({label, definition: String(def)});
     }
   }
   return entries;
@@ -98,30 +98,30 @@ function remarkGlossary(options = {}) {
   return function transformer(tree) {
     // Track which terms have been processed on this page (case-insensitive)
     const processedTerms = new Set();
-    
-    visit(tree, (node, _index, parent) => {
-      // Only handle plain text nodes
-      if (!node || node.type !== 'text' || !node.value) return;
 
-      // Skip if inside code/pre/inlineCode/link/mdx Term
-      if (parent) {
+    visit(tree, (node, _index, parent) => {
+    // Only handle plain text nodes
+    if (!node || node.type !== 'text' || !node.value) return;
+
+    // Skip if inside code/pre/inlineCode/link/mdx Term
+    if (parent) {
         if (BLOCK_SKIP.has(parent.type) || INLINE_SKIP.has(parent.type)) return;
         if (
-          (parent.type === 'mdxJsxTextElement' || parent.type === 'mdxJsxFlowElement') &&
-          parent.name === 'Term'
+        (parent.type === 'mdxJsxTextElement' || parent.type === 'mdxJsxFlowElement') &&
+        parent.name === 'Term'
         ) {
-          return;
+        return;
         }
-      }
+    }
 
-      const value = node.value;
-      let m;
-      let last = 0;
-      /** @type {any[]} */
-      const nextChildren = [];
+    const value = node.value;
+    let m;
+    let last = 0;
+    /** @type {any[]} */
+    const nextChildren = [];
 
-      // Iterate all matches while preserving unmatched segments
-      while ((m = regex.exec(value)) !== null) {
+    // Iterate all matches while preserving unmatched segments
+    while ((m = regex.exec(value)) !== null) {
         const [full, leftBoundary, term] = m;
         const start = m.index;
         const before = value.slice(last, start);
@@ -129,49 +129,49 @@ function remarkGlossary(options = {}) {
 
         const key = String(term).toLowerCase();
         const entry = byKey.get(key);
-        
+
         if (!entry) {
-          // No entry? Just emit the raw match and keep going
-          nextChildren.push({type: 'text', value: term});
+        // No entry? Just emit the raw match and keep going
+        nextChildren.push({type: 'text', value: term});
         } else {
-          // Check if this term (or any of its aliases) has already been processed
-          const termKeys = [entry.label.toLowerCase(), ...(entry.aliases || []).map(a => a.toLowerCase())];
-          const isFirstOccurrence = !termKeys.some(k => processedTerms.has(k));
-          
-          if (isFirstOccurrence) {
+        // Check if this term (or any of its aliases) has already been processed
+        const termKeys = [entry.label.toLowerCase(), ...(entry.aliases || []).map(a => a.toLowerCase())];
+        const isFirstOccurrence = !termKeys.some(k => processedTerms.has(k));
+
+        if (isFirstOccurrence) {
             // Mark all variants of this term as processed
             termKeys.forEach(k => processedTerms.add(k));
-            
+
             // Emit <Term lookup="entry.label">term</Term> as mdxJsxTextElement
             nextChildren.push({
-              type: 'mdxJsxTextElement',
-              name: 'Term',
-              attributes: [
+            type: 'mdxJsxTextElement',
+            name: 'Term',
+            attributes: [
                 {type: 'mdxJsxAttribute', name: 'lookup', value: entry.label},
                 // You can also add data attributes if you want:
                 // {type: 'mdxJsxAttribute', name: 'data-term', value: entry.label},
-              ],
-              children: [{type: 'text', value: term}],
+            ],
+            children: [{type: 'text', value: term}],
             });
-          } else {
+        } else {
             // Not the first occurrence, just emit the plain text
             nextChildren.push({type: 'text', value: term});
-          }
+        }
         }
         last = start + full.length;
-      }
+    }
 
-      if (last === 0) return; // no matches, keep node as-is
+    if (last === 0) return; // no matches, keep node as-is
 
-      const tail = value.slice(last);
-      if (tail) nextChildren.push({type: 'text', value: tail});
+    const tail = value.slice(last);
+    if (tail) nextChildren.push({type: 'text', value: tail});
 
-      // Replace the original text node with the new sequence
-      // by splicing into parent.children
-      if (parent && Array.isArray(parent.children)) {
+    // Replace the original text node with the new sequence
+    // by splicing into parent.children
+    if (parent && Array.isArray(parent.children)) {
         const idx = parent.children.indexOf(node);
         parent.children.splice(idx, 1, ...nextChildren);
-      }
+    }
     });
   };
 }

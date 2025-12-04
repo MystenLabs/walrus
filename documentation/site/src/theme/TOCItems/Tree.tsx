@@ -15,24 +15,24 @@ function TOCItemTree({
   }
   return (
     <ul className={isChild ? undefined : className}>
-      {toc.map((heading) => (
+    {toc.map((heading) => (
         <li key={heading.id}>
-          <Link
+        <Link
             to={`#${heading.id}`}
             className={linkClassName ?? undefined}
             // Developer provided the HTML, so assume it's safe.
             dangerouslySetInnerHTML={{__html: heading.value}}
-          />
-          <TOCItemTree
+        />
+        <TOCItemTree
             isChild
             toc={heading.children}
             className={className}
             linkClassName={linkClassName}
-          />
+        />
         </li>
-      ))}
-      { !isChild && <li className="border border-solid border-transparent !mt-4 border-t-suins-gray-20 dark:border-t-suins-white-20">
-              <PushFeedback /> 
+    ))}
+    { !isChild && <li className="border border-solid border-transparent !mt-4 border-t-suins-gray-20 dark:border-t-suins-white-20">
+            <PushFeedback />
             </li>
             }
     </ul>

@@ -19,7 +19,7 @@ export default function Term({children, lookup, definition, ariaLabel}: TermProp
     if (typeof children === 'string') return children.trim();
     // Fallback: try to extract text content if children are nested
     if (Array.isArray(children)) {
-      return children.map((c: any) => (typeof c === 'string' ? c : '')).join('').trim();
+    return children.map((c: any) => (typeof c === 'string' ? c : '')).join('').trim();
     }
     return '';
   }, [children]);
@@ -37,11 +37,11 @@ export default function Term({children, lookup, definition, ariaLabel}: TermProp
   const tooltipId = `term-tip-${id}`;
   return (
     <span className={styles.term} aria-describedby={tooltipId} role="definition">
-      {children}
-      <span className={styles.tooltip} id={tooltipId} role="tooltip" aria-label={ariaLabel || entry.label}>
+    {children}
+    <span className={styles.tooltip} id={tooltipId} role="tooltip" aria-label={ariaLabel || entry.label}>
         <strong className={styles.tooltipTitle}>{entry.label}</strong>
         <span className={styles.tooltipBody}>{entry.definition}</span>
-      </span>
+    </span>
     </span>
   );
 }

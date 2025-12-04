@@ -19,10 +19,10 @@ function getNearestCodeText(start: HTMLElement | null): string | null {
   while (el) {
     // Try common code selectors within a code block
     const codeEl = el.querySelector?.(
-      "pre code, code, pre",
+    "pre code, code, pre",
     ) as HTMLElement | null;
     if (codeEl && codeEl.innerText) {
-      return codeEl.innerText;
+    return codeEl.innerText;
     }
     el = el.parentElement;
   }
@@ -43,12 +43,12 @@ function ariaLabel(isCopied: boolean) {
         id: "theme.CodeBlock.copied",
         message: "Copied",
         description: "The copied button label on code blocks",
-      })
+    })
     : translate({
         id: "theme.CodeBlock.copyButtonAriaLabel",
         message: "Copy code to clipboard",
         description: "The ARIA label for copy code blocks button",
-      });
+    });
 }
 
 function useCopyButton(buttonRef: React.RefObject<HTMLElement>) {
@@ -62,7 +62,7 @@ function useCopyButton(buttonRef: React.RefObject<HTMLElement>) {
     copy(cleaned);
     setIsCopied(true);
     copyTimeout.current = window.setTimeout(() => {
-      setIsCopied(false);
+    setIsCopied(false);
     }, 2000);
   }, [buttonRef]);
 
@@ -77,27 +77,27 @@ export default function CopyButton({ className }: Props): ReactNode {
 
   return (
     <span ref={buttonRef}>
-      <Button
+    <Button
         aria-label={ariaLabel(isCopied)}
         title={title()}
         className={clsx(
-          className,
-          "!opacity-50 !hover:opacity-100 text-xs p-0 w-24 justify-center",
-          isCopied && "block",
+        className,
+        "!opacity-50 !hover:opacity-100 text-xs p-0 w-24 justify-center",
+        isCopied && "block",
         )}
         onClick={copyCode}
-      >
+    >
         <span className="">
-          <span className={`${isCopied ? "hidden" : "block"} opacity-100 p-1`}>
+        <span className={`${isCopied ? "hidden" : "block"} opacity-100 p-1`}>
             <FontAwesomeIcon icon={['fas', 'copy']} /> Copy
-          </span>
-          <span
-            className={`${isCopied ? "block dark:text-wal-green text-wal-success p-1" : "hidden"}`}
-          >
-            <FontAwesomeIcon icon={['fas', 'thumbs-up']} /> Copied
-          </span>
         </span>
-      </Button>
+        <span
+            className={`${isCopied ? "block dark:text-wal-green text-wal-success p-1" : "hidden"}`}
+        >
+            <FontAwesomeIcon icon={['fas', 'thumbs-up']} /> Copied
+        </span>
+        </span>
+    </Button>
     </span>
   );
 }

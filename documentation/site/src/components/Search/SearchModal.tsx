@@ -22,16 +22,16 @@ const searchClient = {
   ...baseSearchClient,
   search(requests: any[]) {
     const hasValidQuery = requests.some(
-      (req) => req.params?.query?.length >= 3,
+    (req) => req.params?.query?.length >= 3,
     );
     if (!hasValidQuery) {
-      return Promise.resolve({
+    return Promise.resolve({
         results: requests.map(() => ({
-          hits: [],
-          nbHits: 0,
-          processingTimeMS: 0,
+        hits: [],
+        nbHits: 0,
+        processingTimeMS: 0,
         })),
-      });
+    });
     }
     return baseSearchClient.search(requests);
   },
@@ -55,28 +55,28 @@ function HitItem({ hit }: { hit: any }) {
   }
   return (
     <div className="modal-result">
-      <a
+    <a
         href={hit.url}
         className="text-blue-600 dark:text-wal-green dark:hover:text-wal-green-light font-medium"
-      >
+    >
         {hit.title}
-      </a>
-      <a
+    </a>
+    <a
         href={hit.url}
         target="_blank"
         rel="noopener noreferrer"
         className="text-base text-blue-600 dark:text-wal-green dark:hover:text-wal-green-light underline pb-2"
-      >
+    >
         {sectionTitle}
-      </a>
-      <p
+    </a>
+    <p
         className="text-sm text-wal-gray-60 dark:text-wal-white-80"
         dangerouslySetInnerHTML={{
-          __html: hit.content
+        __html: hit.content
             ? truncateAtWord(hit._highlightResult.content.value, 100)
             : "",
         }}
-      ></p>
+    ></p>
     </div>
   );
 }
@@ -93,10 +93,10 @@ function HitsList({
     if (!el) return;
 
     const handleScroll = () => {
-      const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 1;
-      if (atBottom && !isLastPage) {
+    const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 1;
+    if (atBottom && !isLastPage) {
         showMore();
-      }
+    }
     };
 
     el.addEventListener("scroll", handleScroll);
@@ -105,9 +105,9 @@ function HitsList({
 
   return (
     <div>
-      {hits.map((hit) => (
+    {hits.map((hit) => (
         <HitItem key={hit.objectID} hit={hit} />
-      ))}
+    ))}
     </div>
   );
 }
@@ -116,9 +116,9 @@ function EmptyState({ label }: { label: string }) {
   const { results } = useInstantSearch();
   if (results?.hits?.length === 0) {
     return (
-      <p className="text-sm text-wal-gray-50 dark:text-wal-gray-50">
+    <p className="text-sm text-wal-gray-50 dark:text-wal-gray-50">
         No results in {label}
-      </p>
+    </p>
     );
   }
   return null;
@@ -135,8 +135,8 @@ function ResultsUpdater({
   const previousHitsRef = React.useRef<number | null>(null);
   useEffect(() => {
     if (results && results.nbHits !== previousHitsRef.current) {
-      previousHitsRef.current = results.nbHits;
-      onUpdate(indexName, results.nbHits);
+    previousHitsRef.current = results.nbHits;
+    onUpdate(indexName, results.nbHits);
     }
   }, [results?.nbHits, indexName, onUpdate, results]);
   return null;
@@ -158,17 +158,17 @@ export default function MultiIndexSearchModal({
   const searchBoxRef = React.useRef<HTMLInputElement>(null);
   useEffect(() => {
     if (isOpen) {
-      document.body.style.overflow = "hidden";
-      console.log('SearchModal theme =', document.documentElement.getAttribute('data-theme'));
-      // Focus the search input when modal opens
-      setTimeout(() => {
+    document.body.style.overflow = "hidden";
+    console.log('SearchModal theme =', document.documentElement.getAttribute('data-theme'));
+    // Focus the search input when modal opens
+    setTimeout(() => {
         searchBoxRef.current?.focus();
-      }, 300);
+    }, 300);
     } else {
-      document.body.style.overflow = "";
+    document.body.style.overflow = "";
     }
     return () => {
-      document.body.style.overflow = "";
+    document.body.style.overflow = "";
     };
   }, [isOpen]);
 
@@ -177,8 +177,8 @@ export default function MultiIndexSearchModal({
     sui_docs: { label: "Sui Docs", url: "https://docs.sui.io" },
     suins_docs: { label: "SuiNS Docs", url: "https://docs.suins.io" },
     move_book: {
-      label: "The Move Book",
-      url: "https://move-book.com/",
+    label: "The Move Book",
+    url: "https://move-book.com/",
     },
     sui_sdks: { label: "SDK Docs", url: "https://sdk.mystenlabs.com" },
   }[activeIndex];
@@ -186,76 +186,76 @@ export default function MultiIndexSearchModal({
   if (!isOpen) return null;
   return (
     <div className="fixed inset-0 bg-wal-gray-70 dark:bg-wal-gray-90/80 z-50 flex justify-center p-4">
-      <div className="bg-white dark:bg-[var(--ifm-background-color)] w-full max-w-3xl px-6 rounded-lg shadow-md max-h-[600px] flex flex-col">
+    <div className="bg-white dark:bg-[var(--ifm-background-color)] w-full max-w-3xl px-6 rounded-lg shadow-md max-h-[600px] flex flex-col">
         <div ref={scrollContainerRef} className="flex-1 overflow-y-auto">
-          <InstantSearch searchClient={searchClient} indexName={activeIndex}>
+        <InstantSearch searchClient={searchClient} indexName={activeIndex}>
             <div className="bg-white dark:bg-[var(--ifm-background-color)] rounded-t sticky top-0 z-10">
-              <div className="bg-white dark:bg-[var(--ifm-background-color)] h-8 flex justify-end">
+            <div className="bg-white dark:bg-[var(--ifm-background-color)] h-8 flex justify-end">
                 <button
-                  onClick={onClose}
-                  className="bg-transparent border-none outline-none text-sm underline cursor-pointer"
+                onClick={onClose}
+                className="bg-transparent border-none outline-none text-sm underline cursor-pointer"
                 >
-                  Close
+                Close
                 </button>
-              </div>
-              <ControlledSearchBox
+            </div>
+            <ControlledSearchBox
                 placeholder={`Search`}
                 query={query}
                 onChange={setQuery}
                 inputRef={searchBoxRef}
-              />
-              {query.length < 3 && (
+            />
+            {query.length < 3 && (
                 <p className="text-sm text-wal-gray-50 dark:text-wal-gray-50 pl-4 mb-2 -mt-6">
-                  Three characters initiates search...
+                Three characters initiates search...
                 </p>
-              )}
-              <TabbedResults
+            )}
+            <TabbedResults
                 activeTab={activeIndex}
                 onChange={setActiveIndex}
                 showTooltips={false}
                 tabs={indices.map((tab) => ({
-                  ...tab,
-                  count: tabCounts[tab.indexName] || 0,
+                ...tab,
+                count: tabCounts[tab.indexName] || 0,
                 }))}
-              />
+            />
             </div>
             {indices.map((index) => (
-              <Index indexName={index.indexName} key={index.indexName}>
+            <Index indexName={index.indexName} key={index.indexName}>
                 <ResultsUpdater
-                  indexName={index.indexName}
-                  onUpdate={(indexName, count) =>
+                indexName={index.indexName}
+                onUpdate={(indexName, count) =>
                     setTabCounts((prev) => ({ ...prev, [indexName]: count }))
-                  }
+                }
                 />
                 {index.indexName === activeIndex && (
-                  <>
+                <>
                     <HitsList scrollContainerRef={scrollContainerRef} />
                     <EmptyState label={index.label} />
-                  </>
+                </>
                 )}
-              </Index>
+            </Index>
             ))}
-          </InstantSearch>
+        </InstantSearch>
         </div>
         <div className="h-14 bg-[var(--ifm-background-color)] flex items-center justify-between text-sm border-t border-solid border-wal-gray-50 border-b-transparent border-l-transparent border-r-transparent">
-          <a
+        <a
             href={`/search?q=${encodeURIComponent(query)}`}
             className="wal-link-hover dark:text-wal-link dark:hover:text-wal-green underline"
-          >
+        >
             Go to full search page
-          </a>
-          {activeMeta && (
+        </a>
+        {activeMeta && (
             <a
-              href={activeMeta.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-wal-link dark:text-wal-link-hover dark:hover:text-wal-green underline"
+            href={activeMeta.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-wal-link dark:text-wal-link-hover dark:hover:text-wal-green underline"
             >
-              Visit {activeMeta.label} →
+            Visit {activeMeta.label} →
             </a>
-          )}
+        )}
         </div>
-      </div>
+    </div>
     </div>
   );
 }

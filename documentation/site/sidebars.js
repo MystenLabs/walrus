@@ -21,163 +21,163 @@ const sidebars = {
   docsSidebar: [
     'usage/started',
     {
-      type: "category",
-      label: "Advanced Setup",
-      link: {
+    type: "category",
+    label: "Advanced Setup",
+    link: {
         type: "doc",
         id: "usage/setup",
-      },
-      items: ["usage/networks"],
+    },
+    items: ["usage/networks"],
     },
     {
-      type: "category",
-      label: "Interacting with Walrus",
-      link: {
+    type: "category",
+    label: "Interacting with Walrus",
+    link: {
         type: "doc",
         id: "usage/interacting",
-      },
-      items: [
+    },
+    items: [
         "usage/client-cli",
         "usage/json-api",
         "usage/web-api",
         "usage/sdks",
-      ],
+    ],
     },
     {
-      type: "category",
-      label: "Developer Guide",
-      link: {
+    type: "category",
+    label: "Developer Guide",
+    link: {
         type: "doc",
         id: "dev-guide/dev-guide",
-      },
-      items: [
+    },
+    items: [
         "dev-guide/components",
         "dev-guide/dev-operations",
         "dev-guide/costs",
         "dev-guide/sui-struct",
         "dev-guide/data-security",
         "usage/quilt",
-      ],
+    ],
     },
     {
-      type: "category",
-      label: "Operator Guide",
-      link: {
+    type: "category",
+    label: "Operator Guide",
+    link: {
         type: "doc",
         id: "operator-guide/operator-guide",
-      },
-      items: [
+    },
+    items: [
         {
-          type: "category",
-          label: "Operating an Aggregator or Publisher",
-          link: {
+        type: "category",
+        label: "Operating an Aggregator or Publisher",
+        link: {
             type: "doc",
             id: "operator-guide/aggregator",
-          },
-          items: [
+        },
+        items: [
             "operator-guide/auth-publisher",
-          ],
+        ],
         },
         {
-          type: "category",
-          label: "Operating a Storage Node",
-          link: {
+        type: "category",
+        label: "Operating a Storage Node",
+        link: {
             type: "doc",
             id: "operator-guide/storage-node",
-          },
-          items: [
+        },
+        items: [
             "operator-guide/commission-governance",
             "operator-guide/backup-restore-guide"
-          ],
+        ],
         },
         "operator-guide/upload-relay",
-      ],
+    ],
     },
     "usage/stake", "usage/examples", "usage/troubleshooting", "usage/glossary",
   ],
   sitesSidebar: [
     "walrus-sites/intro",
     {
-      type: "category",
-      label: "Your First Walrus Site",
-      link: {
+    type: "category",
+    label: "Your First Walrus Site",
+    link: {
         type: "doc",
         id: "walrus-sites/tutorial",
-      },
-      items: [
+    },
+    items: [
         "walrus-sites/tutorial-install",
         "walrus-sites/tutorial-publish",
         "walrus-sites/tutorial-suins",
-      ],
+    ],
     },
     {
-      type: "category",
-      label: "Advanced Functionality",
-      link: {
+    type: "category",
+    label: "Advanced Functionality",
+    link: {
         type: "doc",
         id: "walrus-sites/advanced",
-      },
-      items: [
+    },
+    items: [
         "walrus-sites/commands",
         "walrus-sites/builder-config",
         "walrus-sites/routing",
         "walrus-sites/linking",
         "walrus-sites/redirects",
         {
-          type: "category",
-          label: "CI/CD",
-          link: {
+        type: "category",
+        label: "CI/CD",
+        link: {
             type: "doc",
             id: "walrus-sites/ci-cd",
-          },
-          items: [
+        },
+        items: [
             "walrus-sites/ci-cd-gh-secrets-vars",
             "walrus-sites/ci-cd-gh-workflow",
-          ],
+        ],
         },
         {
-          type: "category",
-          label: "Technical Overview",
-          link: {
+        type: "category",
+        label: "Technical Overview",
+        link: {
             type: "doc",
             id: "walrus-sites/overview",
-          },
-          items: [
+        },
+        items: [
             "walrus-sites/portal",
             "walrus-sites/bring-your-own-domain",
             "walrus-sites/authentication",
             "walrus-sites/avoid-duplicate-content-seo",
             "walrus-sites/restrictions",
-          ],
+        ],
         },
-      ],
+    ],
     },
   ],
   designSidebar: [
     "design/objectives_use_cases",
     {
-      type: "category",
-      label: "Overview",
-      link: {
+    type: "category",
+    label: "Overview",
+    link: {
         type: "doc",
         id: "design/overview",
-      },
-      items: [
+    },
+    items: [
         "design/architecture",
         "design/encoding",
-      ],
+    ],
     },
     {
-      type: "category",
-      label: "Operations",
-      link: {
+    type: "category",
+    label: "Operations",
+    link: {
         type: "doc",
         id: "design/operations",
-      },
-      items: [
+    },
+    items: [
         "design/operations-sui",
         "design/operations-off-chain",
-      ],
+    ],
     },
     "design/properties",
     "design/future",
@@ -189,12 +189,12 @@ const sidebars = {
     'intro',
     'hello',
     {
-      type: 'category',
-      label: 'Tutorial',
-      items: ['tutorial-basics/create-a-document'],
+    type: 'category',
+    label: 'Tutorial',
+    items: ['tutorial-basics/create-a-document'],
     },
   ],
-   */
+    */
 };
 
 export default sidebars;

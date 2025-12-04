@@ -113,13 +113,13 @@ A mandatory CLI argument must be set to specify the lifetime for the blob. There
 ways for this:
 
 1. The `--epochs <EPOCHS>` option indicates the number of epochs the blob should be stored for.
-   There is an upper limit on the number of epochs a blob can be stored for, which is 53, corresponding
-   to two years. In addition to a positive integer, you can also use `--epochs max` to store the blob
-   for the maximum number of epochs. Note that the end epoch is defined as the current epoch plus the
-   specified number of epochs.
+    There is an upper limit on the number of epochs a blob can be stored for, which is 53, corresponding
+    to two years. In addition to a positive integer, you can also use `--epochs max` to store the blob
+    for the maximum number of epochs. Note that the end epoch is defined as the current epoch plus the
+    specified number of epochs.
 1. The `--earliest-expiry-time <EARLIEST_EXPIRY_TIME>` option takes a date in RFC3339 format
-   (e.g., "2024-03-20T15:00:00Z") or a more relaxed format (e.g., "2024-03-20 15:00:00") and ensures
-   the blob expires after that date if possible.
+    (e.g., "2024-03-20T15:00:00Z") or a more relaxed format (e.g., "2024-03-20 15:00:00") and ensures
+    the blob expires after that date if possible.
 1. The `--end-epoch <END_EPOCH>` option takes a specific end epoch for the blob.
 
 :::warning End epoch

@@ -48,13 +48,13 @@ To use this feature:
 
 1. Set `GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}` in your workflow
 1. Add these [permissions](https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/controlling-permissions-for-github_token)
-   to your workflow:
+    to your workflow:
 
-   ```yaml
-   permissions:
-     contents: write
-     pull-requests: write
-   ```
+    ```yaml
+    permissions:
+    contents: write
+    pull-requests: write
+    ```
 
 :::note
 If you don't provide the `GITHUB_TOKEN`, the action will still deploy your site successfully but
@@ -98,11 +98,11 @@ on how to set this up.
 1. Create `.github/workflows/deploy-site.yml` in your repository
 1. Add checkout step to get your repository files
 1. If your site needs building, add build steps:
-   - Add build environment setup (Node.js, etc.)
-   - Add build commands
+    - Add build environment setup (Node.js, etc.)
+    - Add build commands
 1. Set your `DIST` path:
-   - For sites requiring build: Point to your build output directory (e.g., `dist/`, `build/`)
-   - For static sites: Point directly to your static files directory
+    - For sites requiring build: Point to your build output directory (e.g., `dist/`, `build/`)
+    - For static sites: Point directly to your static files directory
 1. Add the Deploy Walrus Site action with your configured secrets and variables
 
 The key is ensuring your `DIST` path points to a directory containing the final, deployable static

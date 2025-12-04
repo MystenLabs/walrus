@@ -1,4 +1,4 @@
-Documentation update to Docusaurus. This content would eventually replace the content in `docs`. 
+Documentation update to Docusaurus. This content would eventually replace the content in `docs`.
 
 ## blog
 

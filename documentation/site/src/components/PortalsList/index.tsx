@@ -17,26 +17,26 @@ const PortalsList: React.FC = () => {
 
   useEffect(() => {
     const fetchPortals = async () => {
-      try {
+    try {
         const response = await fetch('/portals.json');
         if (!response.ok) {
-          throw new Error('Failed to fetch portals data');
+        throw new Error('Failed to fetch portals data');
         }
-        
+
         const data: PortalsData = await response.json();
-        
+
         // Transform the data into an array of Portal objects
         const portalsList: Portal[] = Object.entries(data.portals).map(([url, info]) => ({
-          url,
-          operator: info.operator,
+        url,
+        operator: info.operator,
         }));
-        
+
         setPortals(portalsList);
         setLoading(false);
-      } catch (err) {
+    } catch (err) {
         setError(err instanceof Error ? err.message : 'Unknown error occurred');
         setLoading(false);
-      }
+    }
     };
 
     fetchPortals();
@@ -56,26 +56,26 @@ const PortalsList: React.FC = () => {
 
   return (
     <div className={styles.container}>
-      <h3 className={styles.title}>Available Portals</h3>
-      <ul className={styles.portalsList}>
+    <h3 className={styles.title}>Available Portals</h3>
+    <ul className={styles.portalsList}>
         {portals.map((portal) => (
-          <li key={portal.url} className={styles.portalItem}>
+        <li key={portal.url} className={styles.portalItem}>
             <div className={styles.portalContent}>
-              <a 
-                href={portal.url} 
-                target="_blank" 
+            <a
+                href={portal.url}
+                target="_blank"
                 rel="noopener noreferrer"
                 className={styles.portalUrl}
-              >
+            >
                 {portal.url}
-              </a>
-              <span className={styles.portalOperator}>
+            </a>
+            <span className={styles.portalOperator}>
                 Operated by: {portal.operator}
-              </span>
+            </span>
             </div>
-          </li>
+        </li>
         ))}
-      </ul>
+    </ul>
     </div>
   );
 };

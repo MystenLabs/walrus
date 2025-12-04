@@ -17,17 +17,17 @@ export default function WordWrapButton({ className }) {
     id: "theme.CodeBlock.wordWrapToggle",
     message: "Toggle word wrap",
     description:
-      "The title attribute for toggle word wrapping button of code block lines",
+    "The title attribute for toggle word wrapping button of code block lines",
   });
   return (
     <Button
-      onClick={() => wordWrap.toggle()}
-      className={clsx(className, "text-xs !opacity-40 p-0 w-24 justify-center")}
-      aria-label={title}
-      title={title}
+    onClick={() => wordWrap.toggle()}
+    className={clsx(className, "text-xs !opacity-40 p-0 w-24 justify-center")}
+    aria-label={title}
+    title={title}
     >
-      <FontAwesomeIcon icon={['fas', 'chart-bar']} />
-      {wordWrap.isEnabled ? "No wrap" : "Wrap"}
+    <FontAwesomeIcon icon={['fas', 'chart-bar']} />
+    {wordWrap.isEnabled ? "No wrap" : "Wrap"}
     </Button>
   );
 }

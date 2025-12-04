@@ -28,87 +28,87 @@ export default function CustomHitsContent({ name }) {
 
   if (items.length === 0) {
     return (
-      <>
+    <>
         <p>No results found.</p>
         <p
-          dangerouslySetInnerHTML={{
+        dangerouslySetInnerHTML={{
             __html: `${siteToVisit}`,
-          }}
+        }}
         />
-      </>
+    </>
     );
   }
 
   const grouped = items.reduce(
     (acc, hit) => {
-      const key = hit.url_without_anchor;
-      if (!acc[key]) acc[key] = [];
-      acc[key].push(hit);
-      return acc;
+    const key = hit.url_without_anchor;
+    if (!acc[key]) acc[key] = [];
+    acc[key].push(hit);
+    return acc;
     },
     {} as Record<string, typeof items>,
   );
 
   return (
     <>
-      {Object.entries(grouped).map(([key, group], index) => {
+    {Object.entries(grouped).map(([key, group], index) => {
         return (
-          <div
+        <div
             className="p-6 pb-[40px] mb-6 bg-wal-gray-5 dark:bg-wal-white-10 rounded-[20px]"
             key={index}
-          >
+        >
             <div className="text-xl text-wal-purple-dark dark:text-wal-purple font-semibold mb-4">
-              {group[0].hierarchy?.lvl1 ||
+            {group[0].hierarchy?.lvl1 ||
                 group[0].hierarchy?.lvl0 ||
                 "[no title]"}
             </div>
             <div className="">
-              {group.map((hit, i) => {
+            {group.map((hit, i) => {
                 const level = hit.type;
                 let sectionTitle = hit.lvl0;
                 if (level === "content") {
-                  sectionTitle = getDeepestHierarchyLabel(hit.hierarchy);
+                sectionTitle = getDeepestHierarchyLabel(hit.hierarchy);
                 } else {
-                  sectionTitle = hit.hierarchy?.[level] || level;
+                sectionTitle = hit.hierarchy?.[level] || level;
                 }
 
                 const hitHost = new URL(hit.url).host;
                 const isInternal = hitHost === currentHost;
 
                 return (
-                  <div key={i} className="mb-2">
+                <div key={i} className="mb-2">
                     {isInternal ? (
-                      <button
+                    <button
                         onClick={() => history.push(new URL(hit.url).pathname)}
                         className="text-base text-blue-600 hover:text-wal-green-dark underline text-left bg-transparent border-0 pl-0 cursor-pointer font-[Inter]"
-                      >
+                    >
                         {sectionTitle}
-                      </button>
+                    </button>
                     ) : (
-                      <a
+                    <a
                         href={hit.url}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="text-base text-wal-link underline pb-2"
-                      >
+                    >
                         {sectionTitle}
-                      </a>
+                    </a>
                     )}
                     <p
-                      className="font-normal text-base text-wal-gray-50 dark:text-wal-white-80"
-                      dangerouslySetInnerHTML={{
+                    className="font-normal text-base text-wal-gray-50 dark:text-wal-white-80"
+                    dangerouslySetInnerHTML={{
                         __html: hit.content
-                          ? truncateAtWord(hit._highlightResult.content.value)
-                          : "",
-                      }}
+                        ? truncateAtWord(hit._highlightResult.content.value)
+                        : "",
+                    }}
                     />
-                  </div>
+                </div>
                 );
-              })}
+            })}
             </div>
-          </div>
+        </div>
         );
-      })}
+    })}
     </>
   );
 }

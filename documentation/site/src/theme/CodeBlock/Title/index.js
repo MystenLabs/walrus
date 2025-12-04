@@ -19,7 +19,7 @@ export default function CodeBlockTitle({ children }) {
   }
   return (
     <a href={link} target="_blank" rel="noreferrer">
-      {children}
+    {children}
     </a>
   );
 }

@@ -64,7 +64,7 @@ configuration. For example:
   "send_tip": {
     "address": "0x1234...",
     "kind": {
-      "const": 105
+    "const": 105
     }
   }
 }
@@ -183,10 +183,10 @@ $ docker run \
     -v $HOME/.config/walrus/walrus_upload_relay_config.yaml:/opt/walrus/walrus_upload_relay_config.yaml \
     -v $HOME/.config/walrus/client_config.yaml:/opt/walrus/client_config.yaml \
     mysten/walrus-upload-relay \
-      --context testnet \
-      --walrus-config /opt/walrus/client_config.yaml \
-      --server-address 0.0.0.0:3000 \
-      --relay-config /opt/walrus/walrus_upload_relay_config.yaml
+    --context testnet \
+    --walrus-config /opt/walrus/client_config.yaml \
+    --server-address 0.0.0.0:3000 \
+    --relay-config /opt/walrus/walrus_upload_relay_config.yaml
 ```
 
 ### Relay-Specific Configuration

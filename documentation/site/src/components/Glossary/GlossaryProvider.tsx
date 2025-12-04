@@ -12,7 +12,7 @@ export default function GlossaryProvider({children}: {children: React.ReactNode}
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      try {
+    try {
         const res = await fetch(url);
         const data = (await res.json()) as unknown;
         const m: GlossaryMap = new Map();
@@ -21,7 +21,7 @@ export default function GlossaryProvider({children}: {children: React.ReactNode}
         // 1) { "JSON API": "definition", ... }
         // 2) [ {label,id?,definition,aliases?}, ... ]
         if (Array.isArray(data)) {
-          for (const item of data as any[]) {
+        for (const item of data as any[]) {
             if (!item?.label || !item?.definition) continue;
             const label: string = String(item.label);
             const def: string = String(item.definition);
@@ -30,19 +30,19 @@ export default function GlossaryProvider({children}: {children: React.ReactNode}
             const entry = {label, definition: def, id, aliases};
             const keys = [label, ...(id ? [id] : []), ...aliases];
             for (const k of keys) m.set(k.toLowerCase(), entry);
-          }
+        }
         } else if (data && typeof data === 'object') {
-          for (const [label, def] of Object.entries(data as Record<string, any>)) {
+        for (const [label, def] of Object.entries(data as Record<string, any>)) {
             const entry = {label, definition: String(def)};
             m.set(label.toLowerCase(), entry);
-          }
+        }
         }
 
         if (!cancelled) setMap(m);
-      } catch (e) {
+    } catch (e) {
         console.error('Failed to load glossary.json', e);
         if (!cancelled) setMap(new Map());
-      }
+    }
     })();
     return () => { cancelled = true; };
   }, [url]);

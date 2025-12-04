@@ -46,28 +46,28 @@ function normalizeRepoRel(src) {
 // Custom recursive file finder to replace glob
 function findFiles(dir, extensions) {
   const files = [];
-  
+
   function walk(currentPath) {
     try {
-      const items = fs.readdirSync(currentPath);
-      for (const item of items) {
+    const items = fs.readdirSync(currentPath);
+    for (const item of items) {
         const fullPath = path.join(currentPath, item);
         const stat = fs.statSync(fullPath);
-        
+
         if (stat.isDirectory()) {
-          walk(fullPath);
+        walk(fullPath);
         } else if (stat.isFile()) {
-          const ext = path.extname(item).toLowerCase();
-          if (extensions.includes(ext)) {
+        const ext = path.extname(item).toLowerCase();
+        if (extensions.includes(ext)) {
             files.push(fullPath);
-          }
         }
-      }
+        }
+    }
     } catch (err) {
-      // Skip directories we can't read
+    // Skip directories we can't read
     }
   }
-  
+
   walk(dir);
   return files;
 }
@@ -86,9 +86,9 @@ for (const mdxPath of mdxFiles) {
     const rel = normalizeRepoRel(raw);
     const [root] = rel.split("/");
     if (!ALLOWED_ROOTS.has(root)) {
-      // Skip unknown roots
-      console.warn(`[skip] Unsupported root "${root}" in ${mdxPath}: ${rel}`);
-      continue;
+    // Skip unknown roots
+    console.warn(`[skip] Unsupported root "${root}" in ${mdxPath}: ${rel}`);
+    continue;
     }
     wanted.add(rel);
   }

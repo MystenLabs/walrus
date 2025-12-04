@@ -37,63 +37,63 @@ export default function Search() {
 
   const handleVisibility = React.useCallback(
     (indexName: string, nbHits: number) => {
-      setTabCounts((prev) => ({ ...prev, [indexName]: nbHits }));
+    setTabCounts((prev) => ({ ...prev, [indexName]: nbHits }));
     },
     [],
   );
 
   return (
     <InstantSearch
-      searchClient={searchClient}
-      indexName="walrus_docs"
-      future={{ preserveSharedStateOnUnmount: true }}
-      initialUiState={{
+    searchClient={searchClient}
+    indexName="walrus_docs"
+    future={{ preserveSharedStateOnUnmount: true }}
+    initialUiState={{
         walrus_docs: { query: queryParam },
         sui_docs: { query: queryParam },
         suins_docs: { query: queryParam },
         move_book: { query: queryParam },
         sui_sdks: { query: queryParam },
-      }}
+    }}
     >
-      {/* Preload tab visibility */}
-      {tabs.map((tab) => (
+    {/* Preload tab visibility */}
+    {tabs.map((tab) => (
         <Index indexName={tab.indexName} key={`stat-${tab.indexName}`}>
-          <IndexStatsCollector
+        <IndexStatsCollector
             indexName={tab.indexName}
             onUpdate={handleVisibility}
-          />
+        />
         </Index>
-      ))}
+    ))}
 
-      <div className="grid grid-cols-12 gap-4 sui-search">
+    <div className="grid grid-cols-12 gap-4 sui-search">
         <div className="col-span-12 pt-4 sticky top-[60px] bg-white dark:bg-docu-dark z-20">
-          <ControlledSearchBox
+        <ControlledSearchBox
             placeholder={`Search`}
             query={query}
             onChange={setQuery}
-          />
+        />
         </div>
         <div className="col-span-12 sticky top-[116px] z-20">
-          <TabbedResults
+        <TabbedResults
             activeTab={activeTab}
             onChange={setActiveTab}
             tabs={tabs.map((tab) => ({
-              ...tab,
-              count: tabCounts[tab.indexName] || 0,
+            ...tab,
+            count: tabCounts[tab.indexName] || 0,
             }))}
-          />
+        />
         </div>
         <div className="col-span-12">
-          {tabs.map((tab) => (
+        {tabs.map((tab) => (
             <div
-              key={tab.indexName}
-              className={`flex ${activeTab === tab.indexName ? "block" : "hidden"}`}
+            key={tab.indexName}
+            className={`flex ${activeTab === tab.indexName ? "block" : "hidden"}`}
             >
-              <TabbedIndex indexName={tab.indexName} query={query} />
+            <TabbedIndex indexName={tab.indexName} query={query} />
             </div>
-          ))}
+        ))}
         </div>
-      </div>
+    </div>
     </InstantSearch>
   );
 }

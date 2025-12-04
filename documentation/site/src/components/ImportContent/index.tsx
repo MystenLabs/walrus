@@ -101,10 +101,10 @@ export default function ImportContent({
   React.useEffect(() => {
     let cancelled = false;
     async function run() {
-      if (!isGitHub) return;
-      setGhLoading(true);
-      setGhErr(null);
-      try {
+    if (!isGitHub) return;
+    setGhLoading(true);
+    setGhErr(null);
+    try {
         const branch = ref || "main";
         const path = String(source || "").replace(/^\.\/?/, "");
         const url = `https://raw.githubusercontent.com/${org}/${repo}/${branch}/${path}`;
@@ -114,32 +114,32 @@ export default function ImportContent({
         if (!res.ok) throw new Error(`GitHub fetch failed: ${res.status}`);
         const text = await res.text();
         if (!cancelled) setGhText(text);
-      } catch (e: any) {
+    } catch (e: any) {
         if (!cancelled) setGhErr(e?.message || "Failed to fetch from GitHub");
-      } finally {
+    } finally {
         if (!cancelled) setGhLoading(false);
-      }
+    }
     }
     run();
     return () => {
-      cancelled = true;
+    cancelled = true;
     };
   }, [isGitHub, org, repo, ref, source]);
 
   if (mode === "snippet") {
     const normalized = source.replace(/^\.\//, "");
     const Comp =
-      SNIPPET_MAP[normalized] ||
-      SNIPPET_MAP[normalized.replace(/\.mdx?$/, "")] ||
-      SNIPPET_MAP[`${normalized}.mdx`] ||
-      SNIPPET_MAP[`${normalized}.md`];
+    SNIPPET_MAP[normalized] ||
+    SNIPPET_MAP[normalized.replace(/\.mdx?$/, "")] ||
+    SNIPPET_MAP[`${normalized}.mdx`] ||
+    SNIPPET_MAP[`${normalized}.md`];
 
     if (!Comp) {
-      return (
+    return (
         <div className="alert alert--warning" role="alert">
-          Missing or invalid snippet: <code>{source}</code>
+        Missing or invalid snippet: <code>{source}</code>
         </div>
-      );
+    );
     }
     return <Comp />;
   }
@@ -154,28 +154,28 @@ export default function ImportContent({
   // If language is not explicitly set, use extension
   if (!language) {
     switch (ext) {
-      case "lock":
+    case "lock":
         language = "toml";
         break;
-      case "sh":
+    case "sh":
         language = "shell";
         break;
-      case "mdx":
+    case "mdx":
         language = "markdown";
         break;
-      case "tsx":
+    case "tsx":
         language = "ts";
         break;
-      case "rs":
+    case "rs":
         language = "rust";
         break;
-      case "move":
+    case "move":
         language = "move";
         break;
-      case "prisma":
+    case "prisma":
         language = "ts";
         break;
-      default:
+    default:
         language = ext || "text";
     }
   }
@@ -194,22 +194,22 @@ export default function ImportContent({
 
   if (content == null) {
     return (
-      <div className="alert alert--warning" role="alert">
+    <div className="alert alert--warning" role="alert">
         File not found in manifest: <code>{cleaned}</code>. You probably need to
         run `pnpm prebuild` and restart the site.
-      </div>
+    </div>
     );
   }
 
   let out = content
     .replace(
-      /^\/\/\s*Copyright.*Mysten Labs.*\n\/\/\s*SPDX-License.*?\n?$/gim,
-      "",
+    /^\/\/\s*Copyright.*Mysten Labs.*\n\/\/\s*SPDX-License.*?\n?$/gim,
+    "",
     )
 
     .replace(
-      /\[dependencies\]\nsui\s?=\s?{\s?local\s?=.*sui-framework.*\n/i,
-      "[dependencies]",
+    /\[dependencies\]\nsui\s?=\s?{\s?local\s?=.*sui-framework.*\n/i,
+    "[dependencies]",
     );
 
   if (tag) {
@@ -293,16 +293,16 @@ export default function ImportContent({
   if (/^m(?:d|arkdown)$/i.test(style)) {
     const html = md.render(out);
     return (
-      <div
+    <div
         className="import-content--nofence mdx-content"
         dangerouslySetInnerHTML={{ __html: html }}
-      />
+    />
     );
   }
 
   return (
     <CodeBlock language={language} metastring={meta}>
-      {out}
+    {out}
     </CodeBlock>
   );
 }

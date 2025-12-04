@@ -17,7 +17,7 @@ export function getDeepestHierarchyLabel(hierarchy) {
   for (const lvl of levels) {
     const value = hierarchy[lvl];
     if (value == null) {
-      break;
+    break;
     }
     lastValue = value;
   }
