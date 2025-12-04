@@ -138,7 +138,6 @@ struct TrackedBackgroundTask {
 struct BackgroundEventProcessor {
     node: Arc<StorageNodeInner>,
     blob_sync_handler: Arc<BlobSyncHandler>,
-    event_receiver: UnboundedReceiver<TrackedBackgroundTask>,
     worker_index: usize,
 }
 
@@ -146,20 +145,18 @@ impl BackgroundEventProcessor {
     fn new(
         node: Arc<StorageNodeInner>,
         blob_sync_handler: Arc<BlobSyncHandler>,
-        event_receiver: UnboundedReceiver<TrackedBackgroundTask>,
         worker_index: usize,
     ) -> Self {
         Self {
             node,
             blob_sync_handler,
-            event_receiver,
             worker_index,
         }
     }
 
     /// Runs the background event processor.
-    async fn run(&mut self) {
-        while let Some(tracked_task) = self.event_receiver.recv().await {
+    async fn run(&self, mut event_receiver: UnboundedReceiver<TrackedBackgroundTask>) {
+        while let Some(tracked_task) = event_receiver.recv().await {
             walrus_utils::with_label!(
                 self.node.metrics.pending_processing_blob_event_in_queue,
                 &self.worker_index.to_string()
@@ -171,6 +168,9 @@ impl BackgroundEventProcessor {
                 // TODO(WAL-874): to keep the same behavior as before BackgroundEventProcessor, we
                 // should propagate the error to the node and exit the process if necessary.
                 tracing::error!(?error, "error processing blob event");
+
+                // Break the loop to exit the background processor.
+                break;
             }
         }
     }
@@ -385,7 +385,7 @@ enum BlobEventProcessorImpl {
     // Background processors that process events in parallel.
     BackgroundProcessors {
         background_processor_senders: Vec<UnboundedSender<TrackedBackgroundTask>>,
-        background_processors: Mutex<JoinSet<()>>,
+        _background_processors: JoinSet<()>,
         // The number of events pending in each background processor, shared with the corresponding
         // `BackgroundEventProcessor`. Per-worker counters avoid contention on a single atomic when
         // tracking pending events.
@@ -533,29 +533,26 @@ impl BlobEventProcessor {
                 background_processor_senders.push(tx);
                 let pending_event_count = PendingEventCounter::new();
                 background_per_processor_pending_event_count.push(pending_event_count);
-                let mut background_processor = BackgroundEventProcessor::new(
+                let background_processor = BackgroundEventProcessor::new(
                     node.clone(),
                     blob_sync_handler.clone(),
-                    rx,
                     worker_index,
                 );
                 // TODO(WAL-876): gracefully shut down the background processor when the node is
                 // shutting down.
-                background_processors.spawn(async move { background_processor.run().await });
+                background_processors.spawn(async move { background_processor.run(rx).await });
             }
 
             BlobEventProcessorImpl::BackgroundProcessors {
                 background_processor_senders,
-                background_processors: Mutex::new(background_processors),
+                _background_processors: background_processors,
                 background_per_processor_pending_event_count,
             }
         } else {
-            let (_tx, rx) = mpsc::unbounded_channel();
             BlobEventProcessorImpl::SequentialProcessor {
                 background_event_processor: Arc::new(BackgroundEventProcessor::new(
                     node.clone(),
                     blob_sync_handler.clone(),
-                    rx,
                     0,
                 )),
             }
@@ -564,22 +561,6 @@ impl BlobEventProcessor {
         Self {
             node,
             blob_event_processor_impl,
-        }
-    }
-
-    pub async fn wait_for_any_background_processor_to_stop(&self) -> Result<(), JoinError> {
-        if let BlobEventProcessorImpl::BackgroundProcessors {
-            background_processors,
-            ..
-        } = &self.blob_event_processor_impl
-        {
-            let mut background_processors = background_processors.lock().await;
-            if let Some(result) = background_processors.join_next().await {
-                return result;
-            }
-            Ok(())
-        } else {
-            std::future::pending::<Result<(), JoinError>>().await
         }
     }
 
