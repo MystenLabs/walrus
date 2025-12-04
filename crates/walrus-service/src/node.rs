@@ -898,6 +898,10 @@ impl StorageNode {
                     return Err(err);
                 }
             },
+            result = self.blob_event_processor.wait_for_any_background_processor_to_stop() => {
+                tracing::error!(?result, "blob event processor terminated with an error");
+                bail!("blob event processor terminated unexpectedly");
+            },
             _ = cancel_token.cancelled() => {
                 if let Some(checkpoint_manager) = self.checkpoint_manager() {
                     checkpoint_manager.shutdown();
