@@ -11,7 +11,10 @@ use std::{
 
 use sui_macros::fail_point_async;
 use tokio::{
-    sync::mpsc::{self, UnboundedReceiver, UnboundedSender},
+    sync::{
+        Mutex,
+        mpsc::{self, UnboundedReceiver, UnboundedSender},
+    },
     task::JoinSet,
 };
 use walrus_core::BlobId;
@@ -384,6 +387,7 @@ enum BlobEventProcessorImpl {
     // Background processors that process events in parallel.
     BackgroundProcessors {
         background_processor_senders: Vec<UnboundedSender<TrackedBackgroundTask>>,
+        background_processors: Vec<BackgroundEventProcessor>,
         // The number of events pending in each background processor, shared with the corresponding
         // `BackgroundEventProcessor`. Per-worker counters avoid contention on a single atomic when
         // tracking pending events.
@@ -397,6 +401,31 @@ enum BlobEventProcessorImpl {
 }
 
 impl BlobEventProcessorImpl {
+    async fn run_background_processors(&self) -> anyhow::Result<()> {
+        match self {
+            BlobEventProcessorImpl::BackgroundProcessors {
+                background_processors,
+                ..
+            } => {
+                let mut join_set = JoinSet::new();
+                for processor in background_processors.iter().cloned() {
+                    join_set.spawn(async move {
+                        processor.lock().await.run().await?;
+                        Ok::<(), anyhow::Error>(())
+                    });
+                }
+
+                while let Some(res) = join_set.join_next().await {
+                    res??;
+                }
+            }
+            BlobEventProcessorImpl::SequentialProcessor { .. } => {
+                // No background processors to run.
+            }
+        }
+
+        Ok(())
+    }
     async fn dispatch_task(
         &self,
         node: &Arc<StorageNodeInner>,
@@ -521,28 +550,27 @@ impl BlobEventProcessor {
         node: Arc<StorageNodeInner>,
         blob_sync_handler: Arc<BlobSyncHandler>,
         num_workers: usize,
-    ) -> (Self, JoinSet<anyhow::Result<()>>) {
-        let mut background_processor_join_set = JoinSet::new();
+    ) -> Self {
         let blob_event_processor_impl = if num_workers > 0 {
             let mut background_processor_senders = Vec::with_capacity(num_workers);
             let mut background_per_processor_pending_event_count = Vec::with_capacity(num_workers);
+            let mut background_processors = Vec::with_capacity(num_workers);
             for worker_index in 0..num_workers {
                 let (tx, rx) = mpsc::unbounded_channel();
                 background_processor_senders.push(tx);
                 let pending_event_count = PendingEventCounter::new();
                 background_per_processor_pending_event_count.push(pending_event_count);
-                let mut background_processor = BackgroundEventProcessor::new(
+                background_processors.push(BackgroundEventProcessor::new(
                     node.clone(),
                     blob_sync_handler.clone(),
                     rx,
                     worker_index,
-                );
-                background_processor_join_set
-                    .spawn(async move { background_processor.run().await });
+                ));
             }
 
             BlobEventProcessorImpl::BackgroundProcessors {
                 background_processor_senders,
+                background_processors,
                 background_per_processor_pending_event_count,
             }
         } else {
@@ -557,13 +585,17 @@ impl BlobEventProcessor {
             }
         };
 
-        (
-            Self {
-                node,
-                blob_event_processor_impl,
-            },
-            background_processor_join_set,
-        )
+        Self {
+            node,
+            blob_event_processor_impl,
+        }
+    }
+
+    /// Runs the background processors.
+    pub async fn run_background_processors(&self) -> anyhow::Result<()> {
+        self.blob_event_processor_impl
+            .run_background_processors()
+            .await
     }
 
     /// Processes a blob event.

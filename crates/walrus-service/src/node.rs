@@ -47,7 +47,6 @@ use thread_pool::{BoundedThreadPool, ThreadPoolBuilder};
 use tokio::{
     select,
     sync::{Notify, watch},
-    task::JoinSet,
     time::Instant,
 };
 use tokio_metrics::TaskMonitor;
@@ -565,7 +564,7 @@ pub struct StorageNode {
     epoch_change_driver: EpochChangeDriver,
     start_epoch_change_finisher: StartEpochChangeFinisher,
     node_recovery_handler: NodeRecoveryHandler,
-    num_blob_event_processor_workers: usize,
+    blob_event_processor: BlobEventProcessor,
     garbage_collector: GarbageCollector,
     event_blob_writer_factory: Option<EventBlobWriterFactory>,
     config_synchronizer: Option<Arc<ConfigSynchronizer>>,
@@ -806,6 +805,11 @@ impl StorageNode {
         );
         node_recovery_handler.restart_recovery().await?;
 
+        let blob_event_processor = BlobEventProcessor::new(
+            inner.clone(),
+            blob_sync_handler.clone(),
+            config.blob_event_processor_config.num_workers,
+        );
         tracing::debug!(
             "num_checkpoints_per_blob for event blobs: {:?}",
             node_params.num_checkpoints_per_blob
@@ -852,7 +856,7 @@ impl StorageNode {
             epoch_change_driver,
             start_epoch_change_finisher,
             node_recovery_handler,
-            num_blob_event_processor_workers: config.blob_event_processor_config.num_workers,
+            blob_event_processor,
             garbage_collector,
             event_blob_writer_factory,
             config_synchronizer,
@@ -876,13 +880,10 @@ impl StorageNode {
     }
 
     /// Run the walrus-node logic until cancelled using the provided cancellation token.
-    pub async fn run_storage_node(&self, cancel_token: CancellationToken) -> anyhow::Result<()> {
-        let (blob_event_processor, mut join_set) = BlobEventProcessor::new(
-            self.inner.clone(),
-            self.blob_sync_handler.clone(),
-            self.num_blob_event_processor_workers,
-        );
-
+    pub async fn run_storage_node(
+        &mut self,
+        cancel_token: CancellationToken,
+    ) -> anyhow::Result<()> {
         if let Err(error) = self
             .epoch_change_driver
             .schedule_relevant_calls_for_current_epoch()
@@ -904,7 +905,7 @@ impl StorageNode {
             () = self.epoch_change_driver.run() => {
                 unreachable!("epoch change driver never completes");
             },
-            result = self.process_events(&blob_event_processor) => match result {
+            result = self.process_events() => match result {
                 Ok(()) => unreachable!("process_events should never return successfully"),
                 Err(err) => {
                     tracing::error!("event processing terminated with an error: {:?}", err);
@@ -914,12 +915,10 @@ impl StorageNode {
             _ = cancel_token.cancelled() => {
                 self.shut_down().await?;
             },
-            Some(result) = join_set.join_next() => {
-                // Tasks within the infinite_join_set should never complete.
-                tracing::error!("infinite_join_set task ended: {:?}", result);
+            result = self.blob_event_processor.run_background_processors() => {
                 self.shut_down().await?;
                 return Err(anyhow::anyhow!(
-                    "infinite_join_set task ended: {:?}", result
+                    "background blob event processors ended: {:?}", result
                 ));
             },
             blob_sync_result = BlobSyncHandler::spawn_task_monitor(
@@ -1201,10 +1200,7 @@ impl StorageNode {
         Ok(cursor)
     }
 
-    async fn process_events(
-        &self,
-        blob_event_processor: &BlobEventProcessor,
-    ) -> anyhow::Result<()> {
+    async fn process_events(&self) -> anyhow::Result<()> {
         let writer_cursor = match self.event_blob_writer_factory {
             Some(ref factory) => factory.event_cursor().unwrap_or_default(),
             None => EventStreamCursor::new(None, u64::MAX),
@@ -1268,7 +1264,6 @@ impl StorageNode {
                         stream_element.clone(),
                         element_index,
                         &mut maybe_epoch_at_start,
-                        blob_event_processor,
                     )
                     .await?;
                     sui_macros::fail_point!("process-event-after");
@@ -1341,7 +1336,6 @@ impl StorageNode {
         stream_element: PositionedStreamEvent,
         element_index: u64,
         maybe_epoch_at_start: &mut Option<Epoch>,
-        blob_event_processor: &BlobEventProcessor,
     ) -> anyhow::Result<()> {
         sui_macros::fail_point!("fail_point_process_event");
         let _scope = monitored_scope::monitored_scope("ProcessEvent");
@@ -1403,7 +1397,7 @@ impl StorageNode {
             return Ok(());
         }
 
-        self.process_event_impl(event_handle, stream_element.clone(), blob_event_processor)
+        self.process_event_impl(event_handle, stream_element.clone())
             .inspect_err(|err| {
                 let span = tracing::Span::current();
                 span.record("otel.status_code", "error");
@@ -1481,7 +1475,6 @@ impl StorageNode {
         &self,
         event_handle: EventHandle,
         stream_element: PositionedStreamEvent,
-        blob_event_processor: &BlobEventProcessor,
     ) -> anyhow::Result<()> {
         let _scope = monitored_scope::monitored_scope("ProcessEvent::Impl");
 
@@ -1494,23 +1487,14 @@ impl StorageNode {
         let checkpoint_position = stream_element.checkpoint_event_position;
         match stream_element.element {
             EventStreamElement::ContractEvent(ContractEvent::BlobEvent(blob_event)) => {
-                self.process_blob_event(
-                    event_handle,
-                    blob_event,
-                    checkpoint_position,
-                    blob_event_processor,
-                )
-                .await?;
+                self.process_blob_event(event_handle, blob_event, checkpoint_position)
+                    .await?;
             }
             EventStreamElement::ContractEvent(ContractEvent::EpochChangeEvent(
                 epoch_change_event,
             )) => {
-                self.process_epoch_change_event(
-                    event_handle,
-                    epoch_change_event,
-                    blob_event_processor,
-                )
-                .await?;
+                self.process_epoch_change_event(event_handle, epoch_change_event)
+                    .await?;
             }
             EventStreamElement::ContractEvent(ContractEvent::PackageEvent(package_event)) => {
                 self.process_package_event(event_handle, package_event)
@@ -1539,12 +1523,11 @@ impl StorageNode {
         event_handle: EventHandle,
         blob_event: BlobEvent,
         checkpoint_position: CheckpointEventPosition,
-        blob_event_processor: &BlobEventProcessor,
     ) -> anyhow::Result<()> {
         let _scope = monitored_scope::monitored_scope("ProcessEvent::BlobEvent");
 
         tracing::debug!(?blob_event, "{} event received", blob_event.name());
-        blob_event_processor
+        self.blob_event_processor
             .process_event(event_handle, blob_event, checkpoint_position)
             .await?;
         Ok(())
@@ -1555,7 +1538,6 @@ impl StorageNode {
         &self,
         event_handle: EventHandle,
         epoch_change_event: EpochChangeEvent,
-        blob_event_processor: &BlobEventProcessor,
     ) -> anyhow::Result<()> {
         let _scope = monitored_scope::monitored_scope("ProcessEvent::EpochChangeEvent");
 
@@ -1593,7 +1575,7 @@ impl StorageNode {
                     "ProcessEvent::EpochChangeEvent::EpochChangeStart",
                 );
                 fail_point_async!("epoch_change_start_entry");
-                self.process_epoch_change_start_event(event_handle, &event, blob_event_processor)
+                self.process_epoch_change_start_event(event_handle, &event)
                     .await?;
             }
             EpochChangeEvent::EpochChangeDone(event) => {
@@ -1669,7 +1651,6 @@ impl StorageNode {
         &self,
         event_handle: EventHandle,
         event: &EpochChangeStart,
-        blob_event_processor: &BlobEventProcessor,
     ) -> anyhow::Result<()> {
         // There shouldn't be an epoch change event for the genesis epoch.
         assert!(event.epoch != GENESIS_EPOCH);
@@ -1696,7 +1677,7 @@ impl StorageNode {
         // the current epoch to be processed (note that this does not include waiting for all
         // pending blob syncs to finish). This is to make sure that the node is in a consistent
         // state before processing the epoch change start event.
-        blob_event_processor
+        self.blob_event_processor
             .wait_for_all_events_to_be_processed()
             .await;
 

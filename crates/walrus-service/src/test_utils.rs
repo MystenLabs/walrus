@@ -1027,7 +1027,7 @@ impl StorageNodeHandleBuilder {
         if let Some(num_checkpoints_per_blob) = self.num_checkpoints_per_blob {
             builder = builder.with_num_checkpoints_per_blob(num_checkpoints_per_blob);
         };
-        let (node, join_set) = builder
+        let node = builder
             .with_storage(storage)
             .with_system_event_manager(Box::new(DefaultSystemEventManager::new(
                 self.event_provider,
@@ -1068,7 +1068,7 @@ impl StorageNodeHandleBuilder {
 
             Some(tokio::task::spawn(
                 async move {
-                    let status = node.run_storage_node(cancel_token, join_set).await;
+                    let status = node.run_storage_node(cancel_token).await;
                     if let Err(error) = status {
                         tracing::error!(?error, "node stopped with an error");
                         std::process::exit(1);
