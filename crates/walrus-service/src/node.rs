@@ -441,7 +441,7 @@ impl StorageNodeBuilder {
         self,
         config: &StorageNodeConfig,
         metrics_registry: Registry,
-    ) -> Result<StorageNode, anyhow::Error> {
+    ) -> anyhow::Result<StorageNode> {
         let protocol_key_pair = config
             .protocol_key_pair
             .get()
@@ -810,7 +810,6 @@ impl StorageNode {
             blob_sync_handler.clone(),
             config.blob_event_processor_config.num_workers,
         );
-
         tracing::debug!(
             "num_checkpoints_per_blob for event blobs: {:?}",
             node_params.num_checkpoints_per_blob
@@ -864,13 +863,31 @@ impl StorageNode {
         })
     }
 
+    pub fn as_service_state(&self) -> Arc<StorageNodeInner> {
+        self.inner.clone()
+    }
+
     /// Creates a new [`StorageNodeBuilder`] for constructing a `StorageNode`.
     pub fn builder() -> StorageNodeBuilder {
         StorageNodeBuilder::default()
     }
 
+    /// Shuts down the storage node.
+    pub async fn shut_down(&self) -> anyhow::Result<()> {
+        if let Some(checkpoint_manager) = self.checkpoint_manager() {
+            checkpoint_manager.shutdown();
+        }
+        self.inner.shut_down();
+        self.blob_sync_handler.cancel_all().await?;
+        self.garbage_collector.abort().await;
+        Ok(())
+    }
+
     /// Run the walrus-node logic until cancelled using the provided cancellation token.
-    pub async fn run(&self, cancel_token: CancellationToken) -> anyhow::Result<()> {
+    pub async fn run_storage_node(
+        &mut self,
+        cancel_token: CancellationToken,
+    ) -> anyhow::Result<()> {
         if let Err(error) = self
             .epoch_change_driver
             .schedule_relevant_calls_for_current_epoch()
@@ -887,6 +904,7 @@ impl StorageNode {
             );
         }
 
+        let _cancel_drop_guard = cancel_token.clone().drop_guard();
         select! {
             () = self.epoch_change_driver.run() => {
                 unreachable!("epoch change driver never completes");
@@ -899,12 +917,13 @@ impl StorageNode {
                 }
             },
             _ = cancel_token.cancelled() => {
-                if let Some(checkpoint_manager) = self.checkpoint_manager() {
-                    checkpoint_manager.shutdown();
-                }
-                self.inner.shut_down();
-                self.blob_sync_handler.cancel_all().await?;
-                self.garbage_collector.abort().await;
+                self.shut_down().await?;
+            },
+            result = self.blob_event_processor.run_background_processors() => {
+                self.shut_down().await?;
+                return Err(anyhow::anyhow!(
+                    "background blob event processors ended: {:?}", result
+                ));
             },
             blob_sync_result = BlobSyncHandler::spawn_task_monitor(
                 self.blob_sync_handler.clone()
@@ -3557,6 +3576,7 @@ fn increment_shard_summary(
     }
 }
 
+/*
 impl ServiceState for StorageNode {
     fn retrieve_metadata(
         &self,
@@ -3676,6 +3696,7 @@ impl ServiceState for StorageNode {
         self.inner.set_recovery_deferral(blob_id, defer_duration)
     }
 }
+*/
 
 impl ServiceState for StorageNodeInner {
     fn retrieve_metadata(

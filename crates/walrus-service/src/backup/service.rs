@@ -332,7 +332,7 @@ pub async fn start_backup_orchestrator(
         config.event_processor_config.clone(),
         &config.backup_storage_path,
         &metrics_runtime.registry,
-        cancel_token.child_token(),
+        cancel_token,
         &DatabaseConfig::default(),
     )
     .await?;

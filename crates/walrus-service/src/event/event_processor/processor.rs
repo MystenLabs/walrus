@@ -15,7 +15,7 @@ use sui_types::{
 use tokio::{
     select,
     sync::{Mutex, mpsc},
-    task::JoinHandle,
+    task::{JoinHandle, JoinSet},
     time::sleep,
 };
 use tokio_util::sync::CancellationToken;
@@ -290,43 +290,44 @@ impl EventProcessor {
                 .update_cached_latest_checkpoint_seq_number(*verified_checkpoint.sequence_number());
         }
 
-        let pruning_task = self.start_pruning_events(cancellation_token.clone());
-        let tailing_task = self.start_tailing_checkpoints_with_restart_support(
-            cancellation_token.clone(),
-            coordination_state.clone(),
-            coordination_rx,
-        );
+        let mut join_set = JoinSet::new();
+        join_set.spawn({
+            let self_clone = self.clone();
+            let cancellation_token = cancellation_token.clone();
+            async move { self_clone.start_pruning_events(cancellation_token).await }
+        });
+        join_set.spawn({
+            let self_clone = self.clone();
+            let cancellation_token = cancellation_token.clone();
+            let coordination_state = coordination_state.clone();
+            async move {
+                self_clone
+                    .start_tailing_checkpoints_with_restart_support(
+                        cancellation_token,
+                        coordination_state,
+                        coordination_rx,
+                    )
+                    .await
+            }
+        });
         if self.config.enable_runtime_catchup {
-            let catchup_task = self.start_runtime_catchup_monitoring(
-                cancellation_token.clone(),
-                coordination_state.clone(),
-            );
-            select! {
-                pruning_result = pruning_task => {
-                    cancellation_token.cancel();
-                    pruning_result
+            join_set.spawn({
+                let self_clone = self.clone();
+                let cancellation_token = cancellation_token.clone();
+                let coordination_state = coordination_state.clone();
+                async move {
+                    self_clone
+                        .start_runtime_catchup_monitoring(cancellation_token, coordination_state)
+                        .await
                 }
-                tailing_result = tailing_task => {
-                    cancellation_token.cancel();
-                    tailing_result
-                }
-                catchup_result = catchup_task => {
-                    cancellation_token.cancel();
-                    catchup_result
-                }
-            }
-        } else {
-            select! {
-                pruning_result = pruning_task => {
-                    cancellation_token.cancel();
-                    pruning_result
-                }
-                tailing_result = tailing_task => {
-                    cancellation_token.cancel();
-                    tailing_result
-                }
-            }
+            });
         }
+
+        let _cancel_guard = cancellation_token.clone().drop_guard();
+        join_set
+            .join_next()
+            .await
+            .ok_or(anyhow!("error unwrapping task result"))??
     }
 
     /// Tails the full node for new checkpoints and processes them. This method will run until the

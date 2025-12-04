@@ -287,6 +287,7 @@ impl DbCheckpointManager {
             create_dir_all(db_checkpoint_dir).map_err(|e| DbCheckpointError::Other(e.into()))?;
         }
 
+        // REVIEW: why are we creating a new CancellationToken here instead of passing one in?
         let cancel_token = CancellationToken::new();
         let db_clone = db.clone();
         let config_clone = config.clone();

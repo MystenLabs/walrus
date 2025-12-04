@@ -309,6 +309,7 @@ impl ParallelCheckpointDownloaderInner {
         let mut last_scale = Instant::now();
         let mut consecutive_failures = 0;
         let average_workers = (downloader_config.min_workers + downloader_config.max_workers) / 2;
+        let _cancel_guard = cancellation_token.clone().drop_guard();
 
         loop {
             tokio::select! {
