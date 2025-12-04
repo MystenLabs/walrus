@@ -37,8 +37,8 @@
     "prism-react-renderer": "^2.3.0",
     "pushfeedback": "^0.1.79",
     "pushfeedback-react": "^0.1.76",
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0",
+    "react": "^19.2.1",
+    "react-dom": "^19.2.1",
     "react-instantsearch": "^7.17.0",
     "unist-util-visit": "^5.0.0"
   },
