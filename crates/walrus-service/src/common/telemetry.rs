@@ -245,14 +245,7 @@ impl MakeHttpSpan {
     }
 
     fn record_network_protocol_version<B>(&self, request: &Request<B>, span: &Span) {
-        let version = match request.version() {
-            Version::HTTP_09 => "0.9",
-            Version::HTTP_10 => "1.0",
-            Version::HTTP_11 => "1.1",
-            Version::HTTP_2 => "2.0",
-            Version::HTTP_3 => "3.0",
-            _ => return,
-        };
+        let version = http_version(request);
         span.record("network.protocol.version", version);
     }
 
