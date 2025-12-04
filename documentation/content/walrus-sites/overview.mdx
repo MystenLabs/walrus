@@ -1,5 +1,7 @@
 ---
 title: Technical Overview
+description: "Technical deep dive into Walrus Sites architecture, Sui objects, resource storage, and site rendering pathways."
+keywords: ["walrus sites", "technical overview", "sui objects", "dynamic fields", "site rendering", "portal architecture", "site builder", "domain isolation"]
 ---
 
 In the following sections, we delve deeper in the technical specification of Walrus Sites.
@@ -55,7 +57,7 @@ To see this in action, look at [a Walrus Site in the
 explorer](https://suiscan.xyz/testnet/object/0xd20b90149409ba5d005d4a2cd981db9494bc3cdb2f04c47ca1af98dd8f71610a),
 and check its dynamic fields.
 
-### The site rendering path
+### The Site Rendering Path
 
 Given the Sui object ID of a Walrus Site, it is easy to look up the resources that compose it
 by looking at the dynamic fields, and then fetch these resources from Walrus using the blob ID
@@ -76,7 +78,7 @@ gateways, for example), and have trade-offs.
 
 Currently, we provide the server-side and the service-worker based approaches.
 
-### Browsing and domain isolation
+### Browsing and Domain Isolation
 
 We must ensure that, when browsing multiple sites through a portal, for example the one hosted at
 https://wal.app, these sites are isolated. Isolation is necessary for security, and to ensure
@@ -121,7 +123,7 @@ We now show in greater detail how a Walrus Site is rendered in a client's browse
 portal. Depending on the different type of portal, some details may differ, but the general picture
 remains unchanged.
 
-### The end-to-end resolution of a Walrus Site
+### The End-to-End Resolution of a Walrus Site
 
 The steps below all reference the following figure:
 
@@ -145,7 +147,7 @@ The steps below all reference the following figure:
 These steps are executed for all resources the browser may query thereafter (for example, if
 `/index.html` points to `assets/cat.png`).
 
-## The site builder
+## The Site Builder
 
 To facilitate the creation of Walrus Sites, we provide the "site builder" tool. The site builder
 takes care of creating Walrus Sites object on Sui, with the correct structure, and stores the site

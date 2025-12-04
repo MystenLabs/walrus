@@ -43,7 +43,7 @@
       },
       "https://mainnet-aggregator.walrus.graphyte.dev": {
         "operator": "Graphyte Labs",
-        "cache": true
+        "functional": false
       },
       "https://mainnet-walrus-aggregator.kiliglab.io": {
         "operator": "KiligLab",
@@ -71,7 +71,7 @@
       },
       "https://walrus-agg.mainnet.obelisk.sh": {
         "operator": "Obelisk",
-        "functional": false
+        "cache": false
       },
       "https://walrus-aggregator-mainnet.chainode.tech:9002": {
         "operator": "ChainodeTech",
@@ -187,7 +187,7 @@
       },
       "https://walrus-mainnet-aggregator.stakeengine.co.uk": {
         "operator": "Stake Engine",
-        "cache": true
+        "functional": false
       },
       "https://walrus-mainnet-aggregator.stakingdefenseleague.com.": {
         "operator": "Staking Defense League",
@@ -195,7 +195,7 @@
       },
       "https://walrus-mainnet-aggregator.trusted-point.com": {
         "operator": "TrustedPoint",
-        "functional": false
+        "cache": true
       },
       "https://walrus.aggregator.stakepool.dev.br": {
         "operator": "StakePool",
@@ -207,7 +207,7 @@
       },
       "https://walrus.globalstake.io": {
         "operator": "GlobalStake",
-        "cache": false
+        "cache": true
       },
       "https://walrus.lakestake.io": {
         "operator": "LakeStake.io Walrus Mainnet",
@@ -255,15 +255,15 @@
       },
       "https://aggregator.testnet.walrus.atalma.io": {
         "operator": "atalma.io",
-        "cache": false
+        "cache": true
       },
       "https://aggregator.testnet.walrus.mirai.cloud": {
         "operator": "Studio Mirai",
-        "cache": true
+        "cache": false
       },
       "https://aggregator.walrus-01.tududes.com": {
         "operator": "TuDudes",
-        "cache": false
+        "cache": true
       },
       "https://aggregator.walrus-testnet.walrus.space": {
         "operator": "Mysten Labs",
@@ -315,11 +315,11 @@
       },
       "https://walrus-agg-testnet.chainode.tech:9002": {
         "operator": "ChainodeTech",
-        "cache": false
+        "cache": true
       },
       "https://walrus-agg.testnet.obelisk.sh": {
         "operator": "Obelisk",
-        "functional": false
+        "cache": false
       },
       "https://walrus-aggregator-testnet.cetus.zone": {
         "operator": "Cetus",
@@ -367,7 +367,7 @@
       },
       "https://walrus-testnet-aggregator.crouton.digital": {
         "operator": "CroutonDigital",
-        "cache": true
+        "functional": false
       },
       "https://walrus-testnet-aggregator.dzdaic.com": {
         "operator": "DAIC Infra (Coinage x DAIC)",
@@ -379,7 +379,7 @@
       },
       "https://walrus-testnet-aggregator.luckyresearch.org": {
         "operator": "LuckyResearch Labs",
-        "cache": false
+        "cache": true
       },
       "https://walrus-testnet-aggregator.natsai.xyz": {
         "operator": "Natsai",
@@ -391,7 +391,7 @@
       },
       "https://walrus-testnet-aggregator.nodes.guru": {
         "operator": "Nodes.Guru",
-        "cache": false
+        "cache": true
       },
       "https://walrus-testnet-aggregator.redundex.com": {
         "operator": "Redundex",
@@ -403,7 +403,7 @@
       },
       "https://walrus-testnet-aggregator.rubynodes.io": {
         "operator": "Ruby Nodes",
-        "cache": false
+        "cache": true
       },
       "https://walrus-testnet-aggregator.stakecraft.com": {
         "operator": "StakeCraft",
@@ -435,7 +435,7 @@
       },
       "https://walrus-testnet-aggregator.talentum.id": {
         "operator": "Talentum",
-        "cache": false
+        "cache": true
       },
       "https://walrus-testnet-aggregator.trusted-point.com": {
         "operator": "TrustedPoint",
@@ -459,7 +459,7 @@
       },
       "https://walrus-tn.juicystake.io:9443": {
         "operator": "ProStaking",
-        "cache": true
+        "functional": false
       },
       "https://walrus.testnet.aggregator.stakepool.dev.br": {
         "operator": "StakePool",
@@ -475,15 +475,15 @@
       },
       "http://walrus-storage.testnet.nelrann.org:9000": {
         "operator": "Nelrann",
-        "cache": false
+        "cache": true
       },
       "http://walrus-testnet.equinoxdao.xyz:9000": {
         "operator": "EquinoxDao",
-        "cache": false
+        "cache": true
       },
       "http://walrus-testnet.suicore.com:9000": {
         "operator": "Suicore",
-        "cache": false
+        "cache": true
       }
     },
     "publishers": {

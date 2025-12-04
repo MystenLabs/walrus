@@ -32,7 +32,7 @@ mainnet:
       cache: true
     "https://mainnet-aggregator.walrus.graphyte.dev":
       operator: "Graphyte Labs"
-      cache: true
+      functional: false
     "https://mainnet-walrus-aggregator.kiliglab.io":
       operator: "KiligLab"
       cache: true
@@ -53,7 +53,7 @@ mainnet:
       cache: true
     "https://walrus-agg.mainnet.obelisk.sh":
       operator: "Obelisk"
-      functional: false
+      cache: false
     "https://walrus-aggregator-mainnet.chainode.tech:9002":
       operator: "ChainodeTech"
       functional: false
@@ -140,13 +140,13 @@ mainnet:
       cache: true
     "https://walrus-mainnet-aggregator.stakeengine.co.uk":
       operator: "Stake Engine"
-      cache: true
+      functional: false
     "https://walrus-mainnet-aggregator.stakingdefenseleague.com.":
       operator: "Staking Defense League"
       cache: true
     "https://walrus-mainnet-aggregator.trusted-point.com":
       operator: "TrustedPoint"
-      functional: false
+      cache: true
     "https://walrus.aggregator.stakepool.dev.br":
       operator: "StakePool"
       cache: true
@@ -155,7 +155,7 @@ mainnet:
       cache: true
     "https://walrus.globalstake.io":
       operator: "GlobalStake"
-      cache: false
+      cache: true
     "https://walrus.lakestake.io":
       operator: "LakeStake.io Walrus Mainnet"
       cache: true
@@ -191,13 +191,13 @@ testnet:
       functional: false
     "https://aggregator.testnet.walrus.atalma.io":
       operator: "atalma.io"
-      cache: false
+      cache: true
     "https://aggregator.testnet.walrus.mirai.cloud":
       operator: "Studio Mirai"
-      cache: true
+      cache: false
     "https://aggregator.walrus-01.tududes.com":
       operator: "TuDudes"
-      cache: false
+      cache: true
     "https://aggregator.walrus-testnet.walrus.space":
       operator: "Mysten Labs"
       cache: true
@@ -236,10 +236,10 @@ testnet:
       cache: true
     "https://walrus-agg-testnet.chainode.tech:9002":
       operator: "ChainodeTech"
-      cache: false
+      cache: true
     "https://walrus-agg.testnet.obelisk.sh":
       operator: "Obelisk"
-      functional: false
+      cache: false
     "https://walrus-aggregator-testnet.cetus.zone":
       operator: "Cetus"
       cache: true
@@ -275,7 +275,7 @@ testnet:
       cache: true
     "https://walrus-testnet-aggregator.crouton.digital":
       operator: "CroutonDigital"
-      cache: true
+      functional: false
     "https://walrus-testnet-aggregator.dzdaic.com":
       operator: "DAIC Infra (Coinage x DAIC)"
       cache: true
@@ -284,7 +284,7 @@ testnet:
       functional: false
     "https://walrus-testnet-aggregator.luckyresearch.org":
       operator: "LuckyResearch Labs"
-      cache: false
+      cache: true
     "https://walrus-testnet-aggregator.natsai.xyz":
       operator: "Natsai"
       cache: true
@@ -293,7 +293,7 @@ testnet:
       cache: true
     "https://walrus-testnet-aggregator.nodes.guru":
       operator: "Nodes.Guru"
-      cache: false
+      cache: true
     "https://walrus-testnet-aggregator.redundex.com":
       operator: "Redundex"
       cache: true
@@ -302,7 +302,7 @@ testnet:
       cache: true
     "https://walrus-testnet-aggregator.rubynodes.io":
       operator: "Ruby Nodes"
-      cache: false
+      cache: true
     "https://walrus-testnet-aggregator.stakecraft.com":
       operator: "StakeCraft"
       cache: true
@@ -326,7 +326,7 @@ testnet:
       cache: true
     "https://walrus-testnet-aggregator.talentum.id":
       operator: "Talentum"
-      cache: false
+      cache: true
     "https://walrus-testnet-aggregator.trusted-point.com":
       operator: "TrustedPoint"
       cache: true
@@ -344,7 +344,7 @@ testnet:
       cache: true
     "https://walrus-tn.juicystake.io:9443":
       operator: "ProStaking"
-      cache: true
+      functional: false
     "https://walrus.testnet.aggregator.stakepool.dev.br":
       operator: "StakePool"
       cache: true
@@ -356,13 +356,13 @@ testnet:
       functional: false
     "http://walrus-storage.testnet.nelrann.org:9000":
       operator: "Nelrann"
-      cache: false
+      cache: true
     "http://walrus-testnet.equinoxdao.xyz:9000":
       operator: "EquinoxDao"
-      cache: false
+      cache: true
     "http://walrus-testnet.suicore.com:9000":
       operator: "Suicore"
-      cache: false
+      cache: true
   publishers:
     "https://publisher.walrus-testnet.h2o-nodes.com":
       operator: "H2O Nodes"

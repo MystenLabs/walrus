@@ -1,5 +1,7 @@
 ---
 title: The Authenticated Publisher
+description: "Guide to setting up and using authenticated Walrus publishers with JWT authentication for controlled blob storage access."
+keywords: ["walrus", "authenticated publisher", "jwt", "authentication", "access control", "mainnet", "security", "token verification"]
 ---
 
 We now describe the authenticated publisher, which requires the HTTP request to store a blob to be
@@ -79,7 +81,7 @@ The publisher is configured at startup using the following command line argument
 
 Additional details follow.
 
-### The JWT decode secret
+### The JWT Decode Secret
 
 The secret can be hex string, starting with `0x`. If this parameter is not specified, the
 authentication will be disabled.
@@ -89,7 +91,7 @@ is used for replay suppression, i.e., to avoid malicious users storing multiple 
 JWT. Therefore, the JWT creator must ensure that this value is unique among all requests to the
 publisher. We recommend using large nonces to avoid collisions.
 
-### Authentication algorithm
+### Authentication Algorithm
 
 The following algorithms are supported: "HS256", "HS384", "HS512", "ES256", "ES384", "RS256",
 "RS384", "PS256", "PS384", "PS512", "RS512", "EdDSA". The default JWT authentication algorithm will
@@ -161,7 +163,7 @@ Importanlty, the JWT (at the moment) can only encode information on the size and
 to store, and not on the "amount of SUI and WAL" the user is allowed to consume. This should be done
 on the backend, before issuing the JWT.
 
-### Creating a valid JWT in the backend[
+### Creating a Valid JWT in the Backend
 
 We provide here a few examples on how to create JWTs that can be consumed by the authenticated
 publisher.

@@ -1,5 +1,7 @@
 ---
 title: Using the Walrus Client
+description: "Comprehensive guide to using the Walrus CLI for storing, reading, and managing blobs with detailed command examples."
+keywords: ["walrus", "cli", "client", "command line", "store", "read", "delete", "extend", "blob management", "quilt", "batch storage"]
 ---
 
 The `walrus` binary can be used to interact with Walrus as a client. See the [setup
@@ -248,7 +250,7 @@ the majority of cases. The strict consistency check can be enabled through the f
 Consistency checks can be disabled completely through the flag `--skip-consistency-check` (added in
 `v1.36`). This should only be used if the writer of the blob is known and trusted.
 
-## Extending the lifetime of a blob
+## Extending the Lifetime of a Blob
 
 Recall that when you stored your blob, it was necessary to specify its [end epoch](#storing-blobs).
 By specifying the end epoch you ensured that the blob would be available via `walrus read` (or other
@@ -323,7 +325,7 @@ Shared blobs can only contain permanent blobs and as such cannot be deleted befo
 
 See [this section](#extending-the-lifetime-of-a-blob) for more on blob extension.
 
-## Batch-storing blobs with quilts {#batch-store}
+## Batch-Storing Blobs with Quilts {#batch-store}
 
  **Note:** The *quilt* feature is only available in Walrus version *v1.29* or higher.
 
@@ -414,7 +416,7 @@ $ walrus read-quilt --out <download dir> \
   GRSuRSQ_hLYR9nyo7mlBlS7MLQVSSXRrfPVOxF6n6XcBwgHHAQ
 ```
 
-### List patches in a Quilt
+### List Patches in a Quilt
 
 To see all the patches contained within a quilt, along with their identifiers and QuiltPatchIds, use
 the `list-patches-in-quilt` command.
@@ -423,7 +425,7 @@ the `list-patches-in-quilt` command.
 $ walrus list-patches-in-quilt 057MX9PAaUIQLliItM_khR_cp5jPHzJWf-CuJr1z1ik
 ```
 
-## Blob object and blob ID utilities
+## Blob Object and Blob ID Utilities
 
 The command `walrus blob-id <FILE>` may be used to derive the blob ID of any file. The blob ID is a
 commitment to the file, and any blob with the same ID will decode to the same content. The blob
@@ -471,7 +473,7 @@ Note that attributes are associated with blob object IDs on Sui, rather than the
 Walrus. This means that the gas for storage is reclaimed by deleting attributes. And also that the
 same blob contents may have different attributes for different blob objects for the same blob ID.
 
-## Changing the default configuration
+## Changing the Default Configuration
 
 Use the `--config` option to specify a custom path to the
 [configuration location](/usage/setup.mdx#configuration).
@@ -480,7 +482,7 @@ The `--wallet <WALLET>` argument may be used to specify a non-standard Sui walle
 file. And a `--gas-budget <GAS_BUDGET>` argument may be used to change the maximum amount of Sui (in
 MIST) that the command is allowed to use.
 
-## Logging and metrics
+## Logging and Metrics
 
 The `walrus` CLI allows for multiple levels of logging, which can be turned on via an env variable:
 

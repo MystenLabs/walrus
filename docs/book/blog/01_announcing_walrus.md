@@ -2,12 +2,10 @@
 
 Published on: 2024-06-18
 
-:::warning
-
+```admonish warning
 This blog post is shown in its original form and may contain information that is no longer accurate.
 Some broken links may have been updated or removed.
-
-:::
+```
 
 Walrus is an innovative decentralized storage network for blockchain apps and autonomous agents. The
 Walrus storage system is being released today as a developer preview for Sui builders in order to

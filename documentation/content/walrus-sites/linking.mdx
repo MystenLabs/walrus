@@ -1,5 +1,7 @@
 ---
 title: Linking from and to Walrus Sites
+description: "Guide to creating links within Walrus Sites including relative links, external links, and cross-site linking."
+keywords: ["walrus sites", "linking", "navigation", "cross-site links", "relative links", "external links", "portals"]
 ---
 
 ::: warning Walrus Sites links are currently unavailable
@@ -13,16 +15,16 @@ We are working on enabling this feature. Stay tuned!
 
 Links in Walrus Sites work *almost* as you would expect in a regular website. We specify here a few of the details.
 
-## Linking to resources within the same site
+## Linking to Resources within the Same Site
 
 Relative and absolute links (`href="/path/to/resource.html"`) work as usual.
 
-## Linking to resources on the web
+## Linking to Resources on the Web
 
 Linking to a resource on the web (`href="https://some.cdn.example.com/stylesheet.css"`) also works
 as usual.
 
-## Linking to resources in other Walrus Sites
+## Linking to Resources in Other Walrus Sites
 
 Here is the part that is a bit different. Assume there is some image that you can browse at
 `https://gallery.wal.app/walrus_arctic.webp`, and you want to link it from your own Walrus Site.
@@ -32,7 +34,7 @@ resource is browsable from a local portal (`http://gallery.localhost:8080/walrus
 Therefore, how can you link the resource in a *portal-independent way*? This is important for
 interoperability, availability, and respecting the user's choice of portal.
 
-### The solution: Walrus Sites links
+### The Solution: Walrus Sites Links
 
 :::warning
 

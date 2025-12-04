@@ -1,5 +1,7 @@
 ---
 title: Specifying Headers, Routing, and Metadata
+description: "Guide to configuring custom headers, client-side routing, and metadata for Walrus Sites using ws-resources.json."
+keywords: ["walrus sites", "headers", "routing", "metadata", "ws-resources", "configuration", "client-side routing", "spa"]
 ---
 
 In its base configuration, Walrus Sites serves static assets through a portal. However, many modern
@@ -52,7 +54,7 @@ The `ws-resources.json` file, expects the field names to be in `snake_case`
 We now describe in detail six sections of the configuration file: `headers`, `routes`,
 `metadata`, `site_name`, `object_id` and the `ignore` section.
 
-## Specifying HTTP response headers
+## Specifying HTTP Response Headers
 
 The `headers` section allows you to specify custom HTTP response headers for specific resources.
 The keys in the `headers` object are the paths of the resources, and the values are lists of
@@ -69,7 +71,7 @@ encoding, and content types.
 The resource path is always represented as starting from the root `/`.
 :::
 
-### Default headers
+### Default Headers
 
 By default, no headers need to be specified, and the `ws-resources.json` file can be omitted. The
 site-builder will automatically try to infer the `Content-Type` header based on the file extension,
@@ -80,7 +82,7 @@ In case the content type cannot be inferred, the `Content-Type` will be set to
 
 These defaults will be overridden by any headers specified in the `ws-resources.json` file.
 
-## Specifying client-side routing
+## Specifying Client-Side Routing
 
 The `routes` section allows you to specify client-side routing rules for your site. This is useful
 when you want to use a single-page application (SPA) framework, such as React or Angular.

@@ -1,5 +1,7 @@
 ---
 title: Installing the Site Builder
+description: "Step-by-step guide to installing and setting up the Walrus Sites site-builder tool for development."
+keywords: ["walrus sites", "installation", "site builder", "setup", "prerequisites", "binaries", "configuration"]
 ---
 
 This section describes the steps necessary to setup the Walrus Sites' `site-builder` tool and
@@ -55,17 +57,30 @@ $ chmod +x site-builder
 
 ### Testnet curl request
 
-```sh
+``` sh
 $ SYSTEM= # set this to your system: ubuntu-x86_64, ubuntu-x86_64-generic, macos-x86_64, macos-arm64, windows-x86_64.exe
 $ curl https://storage.googleapis.com/mysten-walrus-binaries/site-builder-testnet-latest-$SYSTEM -o site-builder
 $ chmod +x site-builder
 ```
 
-To be able to run it simply as `site-builder`, move the binary to any directory included in your
+As an alternative, you can also use the `suiup` tool which enables you to install different
+versions of the site-builder seamlessly.
+
+```sh
+$ curl -sSfL \
+  https://raw.githubusercontent.com/Mystenlabs/suiup/main/install.sh \
+  | sh
+```
+
+Then, install the `site-builder`:
+
+```sh
+$ suiup install site-builder@mainnet
+```
+
+To be able to run it just as `site-builder`, move the binary to any directory included in your
 `$PATH` environment variable. Standard locations are `/usr/local/bin/`, `$HOME/bin/`, or
 `$HOME/.local/bin/`.
-
-### Default configuration locations
 
 :::note
 

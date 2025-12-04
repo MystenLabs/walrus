@@ -1,5 +1,7 @@
 ---
 title: Client Daemon Mode & HTTP API
+description: "Complete guide to Walrus HTTP API including daemon mode, public services, store/read operations, and quilt management."
+keywords: ["walrus", "http api", "daemon mode", "aggregator", "publisher", "rest api", "web service", "public services", "quilt api"]
 ---
 
 In addition to the CLI and JSON modes, the Walrus client offers a *daemon mode*. In this mode, it
@@ -37,7 +39,7 @@ You can interact with the daemon through simple HTTP PUT requests. For example, 
 # store the string `some string` for 1 storage epoch
 $ curl -X PUT "$PUBLISHER/v1/blobs" -d "some string"
 # store file `some/file` for 1 storage epoch
-$ curl -X PUT "$PUBLISHER/v1/blobs?epochs=5" --upload-file "some/file"
+$ curl -X PUT "$PUBLISHER/v1/blobs" --upload-file "some/file"
 ```
 
 You can control how the new blob should be created through several query parameters, which can be

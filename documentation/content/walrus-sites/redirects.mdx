@@ -1,18 +1,20 @@
 ---
 title: Redirecting Objects to Walrus Sites
+description: "Guide to creating personalized Walrus Sites for NFTs and objects using redirect links and Display properties."
+keywords: ["walrus sites", "redirects", "nft", "sui objects", "display properties", "object-specific sites", "move contracts"]
 ---
 
 We have seen in the [overview](/walrus-sites/overview.mdx) how a Walrus Site object on Sui looks like. We will
 discuss now how you can create ensure that a *set of arbitrary objects* can all be tied to a
 specific, and possibly unique, Walrus Site.
 
-## The goal
+## The Goal
 
 Consider a collection of NFTs, such as the one published by https://flatland.wal.app. As we
 show there, each minted NFT has its own Walrus Site, which can be personalized based on the contents
 (e.g., the color) of the NFT itself. How can we achieve this?
 
-## Redirect links
+## Redirect Links
 
 The solution is simple: We add a "redirect" in the NFT's
 [`Display`](https://docs.sui.io/standards/display#sui-utility-objects) property. Each time an NFT's
@@ -32,7 +34,7 @@ display.add(b"walrus site address".to_string(), VISUALIZATION_SITE.to_string());
 ...
 ```
 
-### How to change the site based on the NFT?
+### How to Change the Site Based on the NFT?
 
 The code above will only open the specified Walrus Site when browsing the object ID of the NFT. How
 do we ensure that the properties of the NFT can be used to personalize the site?

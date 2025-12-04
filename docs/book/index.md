@@ -5,13 +5,11 @@ for the AI era. Walrus focuses on providing a robust but affordable solution for
 unstructured content on decentralized storage nodes while ensuring high availability and
 reliability even in the presence of Byzantine faults.
 
-:::tip Fun fact
-
+```admonish tip title="Fun fact"
 If you are viewing this site at <https://docs.wal.app>, you are fetching this from
 Walrus behind the scenes. See the [Walrus Sites chapter](./walrus-sites/intro.md) for further
 details on how this works.
-
-:::
+```
 
 ## Features
 
@@ -44,13 +42,11 @@ details on how this works.
   with traditional caches and content distribution networks (CDNs), while ensuring all operations
   can also be run using local tools to maximize decentralization.
 
-:::danger Public access
-
+```admonish danger title="Public access"
 **All blobs stored in Walrus are public and discoverable by all.** Therefore you must not use Walrus
 to store anything that contains secrets or private data without additional measures to protect
 confidentiality. Refer to [Data Security](./dev-guide/data-security.md) for such use cases.
-
-:::
+```
 
 ## Architecture and operations
 
