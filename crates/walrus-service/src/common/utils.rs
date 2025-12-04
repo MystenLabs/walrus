@@ -32,7 +32,6 @@ use sui_types::base_types::{ObjectID, SuiAddress};
 use telemetry_subscribers::{TelemetryGuards, TracingHandle};
 use tokio::{
     runtime::{self, Runtime},
-    sync::oneshot,
     task::{JoinError, JoinHandle, spawn_blocking},
     time::Instant,
 };
@@ -629,7 +628,7 @@ pub fn init_scoped_tracing_subscriber() -> Result<SubscriberGuard> {
 
 /// Wait for SIGINT and SIGTERM (unix only).
 #[tracing::instrument(skip_all)]
-pub async fn wait_until_terminated(mut exit_listener: oneshot::Receiver<()>) {
+pub async fn wait_until_terminated(cancel_token: CancellationToken) {
     #[cfg(not(unix))]
     async fn wait_for_other_signals() {
         // Disables this branch in the select statement.
@@ -651,11 +650,9 @@ pub async fn wait_until_terminated(mut exit_listener: oneshot::Receiver<()>) {
         biased;
         _ = wait_for_other_signals() => (),
         _ = tokio::signal::ctrl_c() => tracing::info!("received SIGINT"),
-        exit_or_dropped = &mut exit_listener => match exit_or_dropped {
-            Err(_) => tracing::info!("exit notification sender was dropped"),
-            Ok(_) => tracing::info!("exit notification received"),
-        }
+        _ = cancel_token.cancelled() => tracing::info!("cancellation requested"),
     }
+    cancel_token.cancel();
 }
 
 /// Clone a service and return the original instance.

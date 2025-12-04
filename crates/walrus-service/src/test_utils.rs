@@ -620,7 +620,7 @@ impl SimStorageNodeHandle {
             builder = builder.with_num_checkpoints_per_blob(num_checkpoints_per_blob);
         };
         builder = builder.with_config_loader(Some(config_loader));
-        let node = builder
+        let (node, join_set) = builder
             .with_system_event_manager(event_provider)
             .build(&config, metrics_registry.clone())
             .await?;
@@ -638,10 +638,11 @@ impl SimStorageNodeHandle {
             tracing::info_span!("cluster-rest-api", address = %config.rest_api_address),
         ));
 
-        let node_handle =
-            tokio::task::spawn(async move { node.run(cancel_token).await }.instrument(
+        let node_handle = tokio::task::spawn(
+            async move { node.run_storage_node(cancel_token, join_set).await }.instrument(
                 tracing::info_span!("cluster-node", address = %config.rest_api_address),
-            ));
+            ),
+        );
 
         Ok((rest_api_handle, node_handle, event_processor_handle))
     }
@@ -1026,7 +1027,7 @@ impl StorageNodeHandleBuilder {
         if let Some(num_checkpoints_per_blob) = self.num_checkpoints_per_blob {
             builder = builder.with_num_checkpoints_per_blob(num_checkpoints_per_blob);
         };
-        let node = builder
+        let (node, join_set) = builder
             .with_storage(storage)
             .with_system_event_manager(Box::new(DefaultSystemEventManager::new(
                 self.event_provider,
@@ -1067,7 +1068,7 @@ impl StorageNodeHandleBuilder {
 
             Some(tokio::task::spawn(
                 async move {
-                    let status = node.run(cancel_token).await;
+                    let status = node.run_storage_node(cancel_token, join_set).await;
                     if let Err(error) = status {
                         tracing::error!(?error, "node stopped with an error");
                         std::process::exit(1);
@@ -1381,12 +1382,12 @@ fn committee_partner(node_config: &StorageNodeTestConfig) -> Option<StorageNodeT
 #[cfg(not(msim))]
 fn spawn_event_processor(
     event_processor: EventProcessor,
-    cancellation_token: CancellationToken,
+    cancel_token: CancellationToken,
     rest_api_address: String,
 ) -> JoinHandle<()> {
     get_runtime().spawn(
         async move {
-            let status = event_processor.start(cancellation_token).await;
+            let status = event_processor.start(cancel_token).await;
             if let Err(error) = status {
                 tracing::error!(?error, "event processor stopped with anerror");
                 std::process::exit(1);

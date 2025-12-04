@@ -27,7 +27,6 @@ use tokio::net::{UnixListener, UnixStream};
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
     runtime::{self, Runtime},
-    sync::oneshot,
     task::JoinHandle,
 };
 use tokio_util::sync::CancellationToken;
@@ -673,7 +672,6 @@ mod commands {
         }
 
         let cancel_token = CancellationToken::new();
-        let (exit_notifier, exit_listener) = oneshot::channel::<()>();
 
         let metrics_push_registry_clone = metrics_runtime.registry.clone();
         let metrics_push_runtime = match config.metrics_push.take() {
@@ -704,16 +702,15 @@ mod commands {
             config.use_legacy_event_provider,
             &config.storage_path,
             &metrics_runtime.registry,
-            cancel_token.child_token(),
+            cancel_token.clone(),
             &config.db_config,
         )?;
 
-        let node_runtime = StorageNodeRuntime::start(
+        let node_runtime = StorageNodeRuntime::start_storage_node(
             &config,
             metrics_runtime,
-            exit_notifier,
             event_manager,
-            cancel_token.child_token(),
+            cancel_token.clone(),
             Some(config_loader),
         )?;
 
@@ -721,7 +718,6 @@ mod commands {
             node_runtime,
             event_processor_runtime,
             metrics_push_runtime,
-            exit_listener,
             cancel_token,
         )?;
 
@@ -733,7 +729,6 @@ mod commands {
         mut node_runtime: StorageNodeRuntime,
         mut event_processor_runtime: EventProcessorRuntime,
         metrics_push_runtime: Option<MetricPushRuntime>,
-        exit_listener: oneshot::Receiver<()>,
         cancel_token: CancellationToken,
     ) -> anyhow::Result<()> {
         let monitor_runtime = Runtime::new()?;
@@ -746,7 +741,7 @@ mod commands {
                     set.spawn_blocking(move || metrics_push_runtime.join());
                 }
                 tokio::select! {
-                    _ = wait_until_terminated(exit_listener) => {
+                    _ = wait_until_terminated(cancel_token.clone()) => {
                         tracing::info!("received termination signal, shutting down...");
                     }
                     _ = set.join_next() => {
@@ -770,15 +765,10 @@ mod commands {
         mut node_runtime: StorageNodeRuntime,
         mut event_processor_runtime: EventProcessorRuntime,
         metrics_push_runtime: Option<MetricPushRuntime>,
-        exit_listener: oneshot::Receiver<()>,
         cancel_token: CancellationToken,
     ) -> anyhow::Result<()> {
         let monitor_runtime = Runtime::new()?;
-        monitor_runtime.block_on(async {
-            tokio::spawn(async move { wait_until_terminated(exit_listener).await }).await
-        })?;
-        // Cancel the node runtime, if it is still executing.
-        cancel_token.cancel();
+        monitor_runtime.block_on(wait_until_terminated(cancel_token))?;
         event_processor_runtime.join()?;
         // Wait for the node runtime to complete, may take a moment as
         // the REST-API waits for open connections to close before exiting.
@@ -1380,10 +1370,9 @@ struct StorageNodeRuntime {
 }
 
 impl StorageNodeRuntime {
-    fn start(
+    fn start_storage_node(
         node_config: &StorageNodeConfig,
         metrics_runtime: MetricsAndLoggingRuntime,
-        exit_notifier: oneshot::Sender<()>,
         event_manager: Box<dyn EventManager>,
         cancel_token: CancellationToken,
         config_loader: Option<Arc<dyn ConfigLoader>>,
@@ -1396,57 +1385,55 @@ impl StorageNodeRuntime {
             .expect("walrus-node runtime creation must succeed");
         let _guard = runtime.enter();
         let tracing_handle = WalrusTracingHandle(metrics_runtime.tracing_handle.clone());
-        let walrus_node = Arc::new(
-            runtime.block_on(
-                StorageNode::builder()
-                    .with_system_event_manager(event_manager)
-                    .with_config_loader(config_loader)
-                    .build(node_config, metrics_runtime.registry.clone()),
-            )?,
-        );
-
+        let (walrus_node, join_set) = runtime.block_on(
+            StorageNode::builder()
+                .with_system_event_manager(event_manager)
+                .with_config_loader(config_loader)
+                .build(node_config, metrics_runtime.registry.clone()),
+        )?;
+        let walrus_node = Arc::new(walrus_node);
         let walrus_node_clone = walrus_node.clone();
-        let walrus_node_cancel_token = cancel_token.child_token();
-        let walrus_node_handle = tokio::spawn(async move {
-            let cancel_token = walrus_node_cancel_token.clone();
-            let result = walrus_node_clone.run(walrus_node_cancel_token).await;
 
-            if exit_notifier.send(()).is_err() && !cancel_token.is_cancelled() {
-                tracing::warn!(
-                    "unable to notify that the node has exited, but shutdown is not in progress?"
-                )
-            }
-            if let Err(ref error) = result
-                && error.downcast_ref::<SyncNodeConfigError>().is_none()
-            {
-                // Only log an error if it is not due to to the config sync (as those are handled
-                // separately).
-                tracing::error!(?error, "storage node exited with an error");
-            }
+        let walrus_node_handle = tokio::spawn({
+            let cancel_token = cancel_token.clone();
+            async move {
+                let _cancel_guard = cancel_token.clone().drop_guard();
 
-            result
+                let result = walrus_node_clone
+                    .run_storage_node(cancel_token, join_set)
+                    .await;
+
+                if let Err(ref error) = result
+                    && error.downcast_ref::<SyncNodeConfigError>().is_none()
+                {
+                    // Only log an error if it is not due to to the config sync (as those are
+                    // handled separately).
+                    tracing::error!(?error, "storage node exited with an error");
+                }
+
+                result
+            }
         });
 
         let checkpoint_manager = walrus_node.checkpoint_manager();
-        let admin_cancel_token = cancel_token.child_token();
         let rest_api = RestApiServer::new(
             walrus_node,
-            cancel_token.child_token(),
+            cancel_token.clone(),
             RestApiConfig::from(node_config),
             &metrics_runtime.registry,
         );
-        let rest_api_handle = tokio::spawn(async move {
-            let result = rest_api
-                .run()
-                .await
-                .inspect_err(|error| tracing::error!(?error, "REST API exited with an error"));
+        let rest_api_handle = tokio::spawn({
+            let cancel_token = cancel_token.clone();
+            async move {
+                let _cancel_guard = cancel_token.drop_guard();
+                let result = rest_api
+                    .run()
+                    .await
+                    .inspect_err(|error| tracing::error!(?error, "REST API exited with an error"));
 
-            if !cancel_token.is_cancelled() {
                 tracing::info!("signalling the storage node to shutdown");
-                cancel_token.cancel();
+                result
             }
-
-            result
         });
         tracing::info!("started REST API on {}", node_config.rest_api_address);
 
@@ -1456,7 +1443,7 @@ impl StorageNodeRuntime {
                 admin_socket_path: node_config.admin_socket_path.clone(),
                 tracing_handle,
             },
-            admin_cancel_token,
+            cancel_token,
         )?;
 
         Ok(Self {
@@ -1469,6 +1456,7 @@ impl StorageNodeRuntime {
     }
 
     fn join(&mut self) -> Result<(), anyhow::Error> {
+        // REVIEW: why is this not async?
         tracing::debug!("waiting for the REST API to shutdown...");
         let _ = self.runtime.block_on(&mut self.rest_api_handle)?;
         tracing::debug!("waiting for the storage node to shutdown...");
@@ -1511,6 +1499,8 @@ impl StorageNodeRuntime {
         std::fs::set_permissions(&socket_path, std::fs::Permissions::from_mode(0o600))?;
 
         let handle = tokio::spawn(async move {
+            let _cancel_guard = cancel_token.clone().drop_guard();
+
             tracing::info!("local admin socket listening on {}", socket_path.display());
 
             loop {

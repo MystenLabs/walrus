@@ -12,7 +12,7 @@ use std::{
 use sui_macros::fail_point_async;
 use tokio::{
     sync::mpsc::{self, UnboundedReceiver, UnboundedSender},
-    task::JoinHandle,
+    task::JoinSet,
 };
 use walrus_core::BlobId;
 use walrus_sui::types::{BlobCertified, BlobDeleted, BlobEvent, BlobRegistered, InvalidBlobId};
@@ -155,7 +155,7 @@ impl BackgroundEventProcessor {
     }
 
     /// Runs the background event processor.
-    async fn run(&mut self) {
+    async fn run(&mut self) -> anyhow::Result<()> {
         while let Some(tracked_task) = self.event_receiver.recv().await {
             walrus_utils::with_label!(
                 self.node.metrics.pending_processing_blob_event_in_queue,
@@ -168,8 +168,10 @@ impl BackgroundEventProcessor {
                 // TODO(WAL-874): to keep the same behavior as before BackgroundEventProcessor, we
                 // should propagate the error to the node and exit the process if necessary.
                 tracing::error!(?error, "error processing blob event");
+                return Err(error);
             }
         }
+        Ok(())
     }
 
     async fn process_task(&self, task: BackgroundTask) -> anyhow::Result<()> {
@@ -382,7 +384,6 @@ enum BlobEventProcessorImpl {
     // Background processors that process events in parallel.
     BackgroundProcessors {
         background_processor_senders: Vec<UnboundedSender<TrackedBackgroundTask>>,
-        _background_processors: Vec<Arc<JoinHandle<()>>>,
         // The number of events pending in each background processor, shared with the corresponding
         // `BackgroundEventProcessor`. Per-worker counters avoid contention on a single atomic when
         // tracking pending events.
@@ -520,10 +521,10 @@ impl BlobEventProcessor {
         node: Arc<StorageNodeInner>,
         blob_sync_handler: Arc<BlobSyncHandler>,
         num_workers: usize,
-    ) -> Self {
+    ) -> (Self, JoinSet<anyhow::Result<()>>) {
+        let mut background_processor_join_set = JoinSet::new();
         let blob_event_processor_impl = if num_workers > 0 {
             let mut background_processor_senders = Vec::with_capacity(num_workers);
-            let mut background_processors = Vec::with_capacity(num_workers);
             let mut background_per_processor_pending_event_count = Vec::with_capacity(num_workers);
             for worker_index in 0..num_workers {
                 let (tx, rx) = mpsc::unbounded_channel();
@@ -536,16 +537,12 @@ impl BlobEventProcessor {
                     rx,
                     worker_index,
                 );
-                // TODO(WAL-876): gracefully shut down the background processor when the node is
-                // shutting down.
-                background_processors.push(Arc::new(tokio::spawn(async move {
-                    background_processor.run().await;
-                })));
+                background_processor_join_set
+                    .spawn(async move { background_processor.run().await });
             }
 
             BlobEventProcessorImpl::BackgroundProcessors {
                 background_processor_senders,
-                _background_processors: background_processors,
                 background_per_processor_pending_event_count,
             }
         } else {
@@ -560,10 +557,13 @@ impl BlobEventProcessor {
             }
         };
 
-        Self {
-            node,
-            blob_event_processor_impl,
-        }
+        (
+            Self {
+                node,
+                blob_event_processor_impl,
+            },
+            background_processor_join_set,
+        )
     }
 
     /// Processes a blob event.
