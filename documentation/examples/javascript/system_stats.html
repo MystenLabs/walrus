@@ -1,0 +1,76 @@
+<!--
+  Copyright (c) Walrus Foundation
+  SPDX-License-Identifier: Apache-2.0
+-->
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Walrus System Object Data</title>
+    <script>
+        async function fetchSuiObject() {
+            const endpoint = 'https://fullnode.mainnet.sui.io';
+            const objectId = '0xc5e430c7c517e99da14e67928b360f3260de47cb61f55338cdd9119f519c282c';
+
+            const payload = {
+                jsonrpc: '2.0',
+                id: 1,
+                method: 'sui_getObject',
+                params: [
+                    objectId,
+                    { showContent: true }
+                ]
+            };
+
+            try {
+                const response = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                const data = await response.json();
+                const data_results =
+                    data.result.data.content.fields.value
+                    .fields.future_accounting.fields.ring_buffer;
+
+                data_results.sort((a, b) => a.fields.epoch - b.fields.epoch);
+
+                let totalRewards = 0;
+
+                let table = '<table border=\"1\" cellspacing=\"0\" cellpadding=\"5\">' +
+                  '<thead><tr><th>Epoch</th><th>Rewards to Distribute (WAL)</th><th>Used Capacity (GiB)</th></tr></thead>' +
+                  '<tbody>';
+                data_results.forEach(item => {
+                    const rewardsWal = parseInt(item.fields.rewards_to_distribute) / 1e9;
+                    const usedCapacityGib = parseInt(item.fields.used_capacity) / (1<<30);
+                    totalRewards += rewardsWal;
+
+                    table += `<tr>` +
+                      `<td style="text-align:right;">${item.fields.epoch}</td>` +
+                      `<td style="text-align:right;">${rewardsWal.toLocaleString(undefined, {maximumFractionDigits: 0})}</td>` +
+                      `<td style="text-align:right;">${usedCapacityGib.toLocaleString(undefined, {maximumFractionDigits: 0})}</td>` +
+                      `</tr>`;
+                });
+                table += `<tr>` +
+                  `<td><strong>Total</strong></td>` +
+                  `<td style="text-align:right;"><strong>${totalRewards.toLocaleString(undefined, {maximumFractionDigits: 0})}</strong></td>` +
+                  `<td></td></tr>` +
+                  '</tbody></table>';
+
+                document.getElementById('result').innerHTML = table;
+            } catch (error) {
+                document.getElementById('result').textContent = 'Error: ' + error.message;
+            }
+        }
+
+        window.onload = fetchSuiObject;
+    </script>
+</head>
+<body>
+    <h2>Walrus System Object Data</h2>
+    <pre id="result">Loading...</pre>
+</body>
+</html>
