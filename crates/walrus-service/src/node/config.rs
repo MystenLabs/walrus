@@ -140,8 +140,6 @@ pub struct StorageNodeConfig {
     #[serde(default, skip_serializing_if = "defaults::is_default")]
     pub shard_sync_config: ShardSyncConfig,
     /// Configuration for the event processor.
-    ///
-    /// This is ignored if `use_legacy_event_provider` is set to `true`.
     #[serde(default, skip_serializing_if = "defaults::is_default")]
     pub event_processor_config: EventProcessorConfig,
     /// Configuration for the pending sliver cache.
@@ -150,11 +148,6 @@ pub struct StorageNodeConfig {
     /// Configuration for the pending metadata cache.
     #[serde(default, skip_serializing_if = "defaults::is_default")]
     pub pending_metadata_cache: PendingMetadataCacheConfig,
-    /// Use the legacy event provider.
-    ///
-    /// This is deprecated and will be removed in the future.
-    #[serde(default, skip_serializing_if = "defaults::is_default")]
-    pub use_legacy_event_provider: bool,
     /// Disable the event-blob writer
     #[serde(default, skip_serializing_if = "defaults::is_default")]
     pub disable_event_blob_writer: bool,
@@ -233,7 +226,6 @@ impl Default for StorageNodeConfig {
             event_processor_config: Default::default(),
             pending_sliver_cache: Default::default(),
             pending_metadata_cache: Default::default(),
-            use_legacy_event_provider: false,
             disable_event_blob_writer: Default::default(),
             commission_rate: defaults::commission_rate(),
             voting_params: VotingParams {

@@ -3,7 +3,7 @@
 
 //! Test utilities shared between various crates.
 
-use std::{fs, future::Future, path::Path};
+use std::{fs, future::Future, path::Path, time::Duration};
 
 use anyhow::ensure;
 use once_cell::sync::Lazy;
@@ -415,6 +415,36 @@ pub fn overwrite_file_and_fail_if_not_equal(
         path.display()
     );
     Ok(())
+}
+
+/// Retries a function until it succeeds or a timeout is reached.
+///
+/// This function repeatedly calls `func_to_retry` until it returns `Ok`, or until `duration` has
+/// elapsed. Between each call, it sleeps for 5ms to avoid busy-waiting.
+///
+/// Returns the result of the last call to `func_to_retry`.
+pub async fn retry_until_success_or_timeout<F, Fut, T, E>(
+    duration: Duration,
+    mut func_to_retry: F,
+) -> std::result::Result<T, E>
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = std::result::Result<T, E>>,
+{
+    let mut last_result = None;
+
+    let _ = tokio::time::timeout(duration, async {
+        loop {
+            last_result = Some(func_to_retry().await);
+            if last_result.as_ref().expect("value just set").is_ok() {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await;
+
+    last_result.expect("function to have completed at least once")
 }
 
 /// Globally sets a tracing subscriber suitable for testing environments.

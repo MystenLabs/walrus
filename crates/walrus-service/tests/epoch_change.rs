@@ -17,10 +17,11 @@ async fn nodes_drive_epoch_change() -> walrus_test_utils::Result {
     let epoch_duration = Duration::from_secs(5);
     let (_sui, storage_nodes, _, _) = test_cluster::E2eTestSetupBuilder::new()
         .with_epoch_duration(epoch_duration)
-        .with_test_nodes_config(TestNodesConfig {
-            node_weights: vec![1, 1],
-            ..Default::default()
-        })
+        .with_test_nodes_config(
+            TestNodesConfig::builder()
+                .with_node_weights(&[1, 1])
+                .build(),
+        )
         .with_default_num_checkpoints_per_blob()
         .build()
         .await?;

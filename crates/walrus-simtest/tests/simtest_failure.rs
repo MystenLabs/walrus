@@ -41,10 +41,12 @@ mod tests {
     #[walrus_simtest]
     async fn test_walrus_with_single_node_crash_and_restart() {
         let (sui_cluster, _walrus_cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
-            .with_test_nodes_config(TestNodesConfig {
-                node_weights: vec![1, 2, 3, 3, 4],
-                ..Default::default()
-            })
+            .with_test_nodes_config(
+                TestNodesConfig::builder()
+                    .with_node_weights(&[1, 2, 3, 3, 4])
+                    .with_enable_event_blob_writer()
+                    .build(),
+            )
             .build_generic::<SimStorageNodeHandle>()
             .await
             .unwrap();
@@ -216,12 +218,12 @@ mod tests {
 
         let (_sui_cluster, walrus_cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
             .with_epoch_duration(Duration::from_secs(30))
-            .with_test_nodes_config(TestNodesConfig {
-                node_weights: vec![1, 2, 3, 3, 4],
-                use_legacy_event_processor: false,
-                node_recovery_config: Some(node_recovery_config),
-                ..Default::default()
-            })
+            .with_test_nodes_config(
+                TestNodesConfig::builder()
+                    .with_node_weights(&[1, 2, 3, 3, 4])
+                    .with_node_recovery_config(node_recovery_config)
+                    .build(),
+            )
             .with_communication_config(
                 ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
                     Duration::from_secs(2),
@@ -345,11 +347,11 @@ mod tests {
         // changes in the test.
         let (_sui_cluster, walrus_cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
             .with_epoch_duration(Duration::from_secs(10))
-            .with_test_nodes_config(TestNodesConfig {
-                node_weights: vec![2, 2, 3, 3, 3],
-                use_legacy_event_processor: false,
-                ..Default::default()
-            })
+            .with_test_nodes_config(
+                TestNodesConfig::builder()
+                    .with_node_weights(&[2, 2, 3, 3, 3])
+                    .build(),
+            )
             .with_communication_config(
                 ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
                     Duration::from_secs(1),
@@ -510,11 +512,11 @@ mod tests {
         // changes in the test.
         let (_sui_cluster, walrus_cluster, _, _) = test_cluster::E2eTestSetupBuilder::new()
             .with_epoch_duration(Duration::from_secs(10))
-            .with_test_nodes_config(TestNodesConfig {
-                node_weights: vec![2, 2, 3, 3, 3],
-                use_legacy_event_processor: false,
-                ..Default::default()
-            })
+            .with_test_nodes_config(
+                TestNodesConfig::builder()
+                    .with_node_weights(&[2, 2, 3, 3, 3])
+                    .build(),
+            )
             .with_communication_config(
                 ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
                     Duration::from_secs(1),
@@ -603,11 +605,11 @@ mod tests {
 
         let (_sui_cluster, walrus_cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
             .with_epoch_duration(Duration::from_secs(30))
-            .with_test_nodes_config(TestNodesConfig {
-                node_weights: vec![1, 2, 3, 3, 4],
-                use_legacy_event_processor: false,
-                ..Default::default()
-            })
+            .with_test_nodes_config(
+                TestNodesConfig::builder()
+                    .with_node_weights(&[1, 2, 3, 3, 4])
+                    .build(),
+            )
             .with_communication_config(
                 ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
                     Duration::from_secs(2),
@@ -775,10 +777,12 @@ mod tests {
         let checkpoints_per_event_blob = 20;
         let (sui_cluster, mut walrus_cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
             .with_epoch_duration(Duration::from_secs(15))
-            .with_test_nodes_config(TestNodesConfig {
-                node_weights: vec![2, 2, 3, 3, 3],
-                ..Default::default()
-            })
+            .with_test_nodes_config(
+                TestNodesConfig::builder()
+                    .with_node_weights(&[2, 2, 3, 3, 3])
+                    .with_enable_event_blob_writer()
+                    .build(),
+            )
             .with_num_checkpoints_per_blob(checkpoints_per_event_blob)
             .with_communication_config(
                 ClientCommunicationConfig::default_for_test_with_reqwest_timeout(

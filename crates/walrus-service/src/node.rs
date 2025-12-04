@@ -159,7 +159,7 @@ use self::{
         ShardStorage,
         blob_info::{BlobInfoApi, CertifiedBlobInfoApi},
     },
-    system_events::{EventManager, SuiSystemEventProvider},
+    system_events::EventManager,
 };
 use crate::{
     common::config::SuiConfig,
@@ -466,36 +466,29 @@ impl StorageNodeBuilder {
                 .as_ref()
                 .expect("this is always created if self.event_manager.is_none()");
 
-            if config.use_legacy_event_provider {
-                Box::new(SuiSystemEventProvider::new(
-                    read_client.clone(),
-                    sui_config.event_polling_interval,
-                ))
-            } else {
-                let rpc_addresses =
-                    combine_rpc_urls(&sui_config.rpc, &sui_config.additional_rpc_endpoints);
-                let processor_config = EventProcessorRuntimeConfig {
-                    rpc_addresses,
-                    event_polling_interval: sui_config.event_polling_interval,
-                    db_path: config.storage_path.join("events"),
-                    rpc_fallback_config: sui_config.rpc_fallback_config.clone(),
-                    db_config: config.db_config.clone(),
-                };
-                let system_config = SystemConfig {
-                    system_pkg_id: read_client.walrus_package_id(),
-                    system_object_id: sui_config.contract_config.system_object,
-                    staking_object_id: sui_config.contract_config.staking_object,
-                };
-                Box::new(
-                    EventProcessor::new(
-                        &config.event_processor_config,
-                        processor_config,
-                        system_config,
-                        &metrics_registry,
-                    )
-                    .await?,
+            let rpc_addresses =
+                combine_rpc_urls(&sui_config.rpc, &sui_config.additional_rpc_endpoints);
+            let processor_config = EventProcessorRuntimeConfig {
+                rpc_addresses,
+                event_polling_interval: sui_config.event_polling_interval,
+                db_path: config.storage_path.join("events"),
+                rpc_fallback_config: sui_config.rpc_fallback_config.clone(),
+                db_config: config.db_config.clone(),
+            };
+            let system_config = SystemConfig {
+                system_pkg_id: read_client.walrus_package_id(),
+                system_object_id: sui_config.contract_config.system_object,
+                staking_object_id: sui_config.contract_config.staking_object,
+            };
+            Box::new(
+                EventProcessor::new(
+                    &config.event_processor_config,
+                    processor_config,
+                    system_config,
+                    &metrics_registry,
                 )
-            }
+                .await?,
+            )
         };
 
         let committee_service: Arc<dyn CommitteeService> =

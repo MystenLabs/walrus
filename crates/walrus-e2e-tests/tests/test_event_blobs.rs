@@ -20,11 +20,12 @@ use walrus_sui::client::ReadClient;
 #[ignore = "ignore E2E tests by default"]
 async fn test_event_blobs() -> anyhow::Result<()> {
     let (_sui_cluster, _cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
-        .with_test_nodes_config(TestNodesConfig {
-            node_weights: vec![2, 2],
-            use_legacy_event_processor: false,
-            ..Default::default()
-        })
+        .with_test_nodes_config(
+            TestNodesConfig::builder()
+                .with_node_weights(&[2, 2])
+                .with_enable_event_blob_writer()
+                .build(),
+        )
         .build()
         .await?;
 
@@ -80,12 +81,12 @@ async fn test_event_blobs() -> anyhow::Result<()> {
 #[ignore = "ignore E2E tests by default"]
 async fn test_disabled_event_blob_writer() -> anyhow::Result<()> {
     let (_sui_cluster, _cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
-        .with_test_nodes_config(TestNodesConfig {
-            node_weights: vec![1, 1],
-            use_legacy_event_processor: false,
-            disable_event_blob_writer: true,
-            ..Default::default()
-        })
+        .with_test_nodes_config(
+            TestNodesConfig::builder()
+                .with_node_weights(&[1, 1])
+                .with_disable_event_blob_writer()
+                .build(),
+        )
         .build()
         .await?;
 
