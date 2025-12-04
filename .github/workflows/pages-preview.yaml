@@ -8,12 +8,7 @@ on:
       - synchronize
       - closed
     paths:
-      - "book.toml"
-      - "docs/book/**"
-      - "docs/theme/**"
-      - "docs/mdbook-admonish.css"
-      - "setup/**"
-      - ".github/actions/build-mdbook/action.yaml"
+      - "documentation/site/**"
       - ".github/workflows/pages-preview.yaml"
 
 concurrency: preview-${{ github.ref }}
@@ -27,7 +22,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
-      - uses: ./.github/actions/build-mdbook
+      - name: Setup Node.js
+        uses: actions/setup-node@1e60f620b9541d16bece96c5465dc8ee9832be0b # pin@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: documentation/site/package-lock.json
+        if: github.event.action != 'closed'
+      - name: Install dependencies
+        run: cd documentation/site && npm ci
+        if: github.event.action != 'closed'
+      - name: Build site
+        run: cd documentation/site && npm run build
         if: github.event.action != 'closed'
 
   preview:
@@ -35,11 +41,20 @@ jobs:
     if: github.repository_owner == 'MystenLabs'
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
-      - uses: ./.github/actions/build-mdbook
+      - name: Setup Node.js
+        uses: actions/setup-node@1e60f620b9541d16bece96c5465dc8ee9832be0b # pin@v4
         with:
-          with_linkcheck: "false"
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: documentation/site/package-lock.json
+        if: github.event.action != 'closed'
+      - name: Install dependencies
+        run: cd documentation/site && npm ci
+        if: github.event.action != 'closed'
+      - name: Build site
+        run: cd documentation/site && npm run build
         if: github.event.action != 'closed'
       - name: Deploy preview
         uses: rossjrw/pr-preview-action@9f77b1d057b494e662c50b8ca40ecc63f21e0887 # pin@v1.6.2
         with:
-          source-dir: docs/build/html
+          source-dir: documentation/site/build

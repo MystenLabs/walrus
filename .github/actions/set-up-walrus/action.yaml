@@ -49,7 +49,6 @@ runs:
 
     - name: Install and configure Walrus
       run: |
-        # The bin directory was already created and added to $PATH in the build-mdbook action
         curl https://storage.googleapis.com/mysten-walrus-binaries/walrus-${{ inputs.SUI_NETWORK }}-latest-ubuntu-x86_64 -o bin/walrus
         chmod +x bin/walrus
         mkdir -p ~/.config/walrus

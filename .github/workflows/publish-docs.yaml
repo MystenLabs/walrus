@@ -5,12 +5,7 @@ on:
     branches:
       - "main"
     paths:
-      - "book.toml"
-      - "docs/book/**"
-      - "docs/theme/**"
-      - "docs/mdbook-admonish.css"
-      - "setup/**"
-      - ".github/actions/build-mdbook/action.yaml"
+      - "documentation/site/**"
       - ".github/workflows/publish-docs.yaml"
   workflow_dispatch:
     inputs:
@@ -42,13 +37,20 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
-      - uses: ./.github/actions/build-mdbook
+      - name: Setup Node.js
+        uses: actions/setup-node@1e60f620b9541d16bece96c5465dc8ee9832be0b # pin@v4
         with:
-          with_linkcheck: "false"
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: documentation/site/package-lock.json
+      - name: Install dependencies
+        run: cd documentation/site && npm ci
+      - name: Build site
+        run: cd documentation/site && npm run build
       - name: Update GitHub Pages
         uses: JamesIves/github-pages-deploy-action@6c2d9db40f9296374acc17b90404b6e8864128c8 # pin@v4.7.3
         with:
-          folder: docs/build/html
+          folder: documentation/site/build
           clean-exclude: pr-preview/
           force: false
 
@@ -64,15 +66,22 @@ jobs:
       NO_COLOR: 1
       RUST_LOG: info
       EPOCHS: 10
-      BUILD_DIR: docs/build/html
+      BUILD_DIR: documentation/site/build
     concurrency:
       group: sui-wallet-operations
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
-      - uses: ./.github/actions/build-mdbook
+      - name: Setup Node.js
+        uses: actions/setup-node@1e60f620b9541d16bece96c5465dc8ee9832be0b # pin@v4
         with:
-          with_linkcheck: "false"
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: documentation/site/package-lock.json
+      - name: Install dependencies
+        run: cd documentation/site && npm ci
+      - name: Build site
+        run: cd documentation/site && npm run build
       - uses: ./.github/actions/set-up-walrus
         with:
           SUI_ADDRESS: "${{ vars.SUI_ADDRESS }}"
