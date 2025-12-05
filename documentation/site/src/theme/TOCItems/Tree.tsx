@@ -1,3 +1,6 @@
+// Copyright (c) Walrus Foundation
+// SPDX-License-Identifier: Apache-2.0
+
 import React, {type ReactNode} from 'react';
 import Link from '@docusaurus/Link';
 import type {Props} from '@theme/TOCItems/Tree';

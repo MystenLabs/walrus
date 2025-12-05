@@ -1,3 +1,6 @@
+// Copyright (c) Walrus Foundation
+// SPDX-License-Identifier: Apache-2.0
+
 // plugins/remark-glossary.js
 // Auto-wraps glossary terms with <Term>…</Term> in MDX content.
 //

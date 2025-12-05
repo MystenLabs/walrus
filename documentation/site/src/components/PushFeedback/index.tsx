@@ -1,3 +1,6 @@
+// Copyright (c) Walrus Foundation
+// SPDX-License-Identifier: Apache-2.0
+
 import React, {useEffect} from 'react';
 
 import { FeedbackButton } from 'pushfeedback-react';

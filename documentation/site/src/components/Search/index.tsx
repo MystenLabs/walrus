@@ -1,3 +1,6 @@
+// Copyright (c) Walrus Foundation
+// SPDX-License-Identifier: Apache-2.0
+
 import React from "react";
 import { liteClient as algoliasearch } from "algoliasearch/lite";
 import { InstantSearch, Index } from "react-instantsearch";

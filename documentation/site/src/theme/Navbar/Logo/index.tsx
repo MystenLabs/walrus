@@ -1,3 +1,6 @@
+// Copyright (c) Walrus Foundation
+// SPDX-License-Identifier: Apache-2.0
+
 import React, {type ReactNode} from 'react';
 import Logo from '@theme/Logo';
 

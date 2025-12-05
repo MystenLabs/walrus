@@ -1,3 +1,6 @@
+// Copyright (c) Walrus Foundation
+// SPDX-License-Identifier: Apache-2.0
+
 import React, { useState, useEffect, useMemo } from 'react';
 import Tabs from '@theme/Tabs';
 import TabItem from '@theme/TabItem';

@@ -1,3 +1,6 @@
+// Copyright (c) Walrus Foundation
+// SPDX-License-Identifier: Apache-2.0
+
 import { useThemeConfig } from '@docusaurus/theme-common';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faGithub, faDiscord, faXTwitter } from '@fortawesome/free-brands-svg-icons';
