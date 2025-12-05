@@ -1683,8 +1683,21 @@ impl Mergeable for BlobInfoV1 {
                 epoch,
                 event: status_event,
             }),
+            BlobInfoMergeOperand::MarkMetadataStored(is_metadata_stored) => {
+                tracing::info!(
+                    is_metadata_stored,
+                    "marking metadata stored for an untracked blob ID; blob info will be removed \
+                    during the next garbage collection"
+                );
+                Some(
+                    ValidBlobInfoV1 {
+                        is_metadata_stored,
+                        ..Default::default()
+                    }
+                    .into(),
+                )
+            }
             BlobInfoMergeOperand::ChangeStatus { .. }
-            | BlobInfoMergeOperand::MarkMetadataStored(_)
             | BlobInfoMergeOperand::DeletableExpired { .. }
             | BlobInfoMergeOperand::PermanentExpired { .. } => {
                 tracing::error!(
@@ -2097,8 +2110,6 @@ mod tests {
 
     param_test! {
         test_merge_new_expected_failure_cases: [
-            #[should_panic] metadata_true: (BlobInfoMergeOperand::MarkMetadataStored(true)),
-            #[should_panic] metadata_false: (BlobInfoMergeOperand::MarkMetadataStored(false)),
             #[should_panic] certify_permanent: (BlobInfoMergeOperand::new_change_for_testing(
                 BlobStatusChangeType::Certify,false, 42, 314, event_id_for_testing()
             )),
@@ -2140,6 +2151,8 @@ mod tests {
                 epoch: 0,
                 status_event: event_id_for_testing()
             }),
+            metadata_true: (BlobInfoMergeOperand::MarkMetadataStored(true)),
+            metadata_false: (BlobInfoMergeOperand::MarkMetadataStored(false)),
         ]
     }
     fn test_merge_new_expected_success_cases_invariants(operand: BlobInfoMergeOperand) {
