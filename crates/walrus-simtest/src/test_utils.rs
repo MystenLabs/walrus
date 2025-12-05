@@ -148,9 +148,7 @@ pub mod simtest_utils {
                 } else {
                     base
                 };
-                base.with_persistence(BlobPersistence::from_deletable_and_permanent(
-                    deletable, !deletable,
-                )?)
+                base.with_persistence(BlobPersistence::from_deletable(deletable))
             };
             let result = client
                 .as_ref()
