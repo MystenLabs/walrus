@@ -682,7 +682,7 @@ mod commands {
                 mc.set_role_label(ServiceRole::StorageNode);
                 let network_key_pair = network_key_pair.0.clone();
                 let mp_config = EnableMetricsPush {
-                    cancel: cancel_token.child_token(),
+                    cancel: cancel_token.clone(),
                     network_key_pair,
                     config: mc,
                 };
@@ -704,7 +704,7 @@ mod commands {
             config.use_legacy_event_provider,
             &config.storage_path,
             &metrics_runtime.registry,
-            cancel_token.child_token(),
+            cancel_token.clone(),
             &config.db_config,
         )?;
 
@@ -713,7 +713,7 @@ mod commands {
             metrics_runtime,
             exit_notifier,
             event_manager,
-            cancel_token.child_token(),
+            cancel_token.clone(),
             Some(config_loader),
         )?;
 
@@ -1406,7 +1406,7 @@ impl StorageNodeRuntime {
         );
 
         let walrus_node_clone = walrus_node.clone();
-        let walrus_node_cancel_token = cancel_token.child_token();
+        let walrus_node_cancel_token = cancel_token.clone();
         let walrus_node_handle = tokio::spawn(async move {
             let cancel_token = walrus_node_cancel_token.clone();
             let result = walrus_node_clone.run(walrus_node_cancel_token).await;
@@ -1428,25 +1428,27 @@ impl StorageNodeRuntime {
         });
 
         let checkpoint_manager = walrus_node.checkpoint_manager();
-        let admin_cancel_token = cancel_token.child_token();
         let rest_api = RestApiServer::new(
             walrus_node,
-            cancel_token.child_token(),
+            cancel_token.clone(),
             RestApiConfig::from(node_config),
             &metrics_runtime.registry,
         );
-        let rest_api_handle = tokio::spawn(async move {
-            let result = rest_api
-                .run()
-                .await
-                .inspect_err(|error| tracing::error!(?error, "REST API exited with an error"));
+        let rest_api_handle = tokio::spawn({
+            let cancel_token = cancel_token.clone();
+            async move {
+                let result = rest_api
+                    .run()
+                    .await
+                    .inspect_err(|error| tracing::error!(?error, "REST API exited with an error"));
 
-            if !cancel_token.is_cancelled() {
-                tracing::info!("signalling the storage node to shutdown");
-                cancel_token.cancel();
+                if !cancel_token.is_cancelled() {
+                    tracing::info!("signalling the storage node to shutdown");
+                    cancel_token.cancel();
+                }
+
+                result
             }
-
-            result
         });
         tracing::info!("started REST API on {}", node_config.rest_api_address);
 
@@ -1456,7 +1458,7 @@ impl StorageNodeRuntime {
                 admin_socket_path: node_config.admin_socket_path.clone(),
                 tracing_handle,
             },
-            admin_cancel_token,
+            cancel_token.clone(),
         )?;
 
         Ok(Self {
