@@ -77,8 +77,6 @@ pub const PERMANENT_BLOB_CONFIRMATION_ENDPOINT: &str = "/v1/blobs/{blob_id}/conf
 /// The path to get blob confirmations for deletable blobs.
 pub const DELETABLE_BLOB_CONFIRMATION_ENDPOINT: &str =
     "/v1/blobs/{blob_id}/confirmation/deletable/{object_id}";
-/// The path to get recovery symbols.
-pub const RECOVERY_SYMBOL_ENDPOINT: &str = "/v1/blobs/{blob_id}/recoverySymbols/{symbol_id}";
 /// The path to get multiple recovery symbols.
 pub const RECOVERY_SYMBOL_LIST_ENDPOINT: &str = "/v1/blobs/{blob_id}/recoverySymbols";
 /// The path to push inconsistency proofs.
@@ -437,35 +435,6 @@ pub async fn get_deletable_blob_confirmation<S: SyncServiceState>(
         .await?;
 
     Ok(ApiSuccess::ok(confirmation))
-}
-
-/// Get a recovery symbol by its ID.
-#[tracing::instrument(skip_all, err(level = Level::DEBUG), fields(
-    walrus.blob_id = %blob_id.0,
-    walrus.recovery.symbol_id = %symbol_id
-))]
-#[utoipa::path(
-    get,
-    path = RECOVERY_SYMBOL_ENDPOINT,
-    params(("blob_id" = BlobId,), ("symbol_id" = SymbolId, ),),
-    responses(
-        (status = 200, description = "BCS-encoded primary/secondary recovery symbol", body = [u8]),
-        RetrieveSymbolError,
-    ),
-    tag = openapi::GROUP_RECOVERY
-)]
-pub async fn get_recovery_symbol_by_id<S: SyncServiceState>(
-    State(state): State<RestApiState<S>>,
-    Path((blob_id, symbol_id)): Path<(BlobIdString, SymbolId)>,
-) -> Result<Response, RetrieveSymbolError> {
-    let _guard = limit_symbol_recovery_requests(state.recovery_symbols_limit.as_deref())?;
-
-    let symbol = state
-        .service
-        .retrieve_recovery_symbol(&blob_id.0, symbol_id, None)
-        .await?;
-
-    Ok(Bcs(symbol).into_response())
 }
 
 /// Specifies the set of recovery symbols to be returned.
