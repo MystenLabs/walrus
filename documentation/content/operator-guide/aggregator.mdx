@@ -97,7 +97,7 @@ Restart=always
 LimitNOFILE=65536
 ```
 
-## Publisher operation and configuration
+## Publisher Operation and Configuration
 
 This section lists a few important details on how the publisher deals with funds and
 objects on Sui.
@@ -130,7 +130,7 @@ To tweak how refills are handled, you can use the `--refill-interval <REFILL_INT
 `--gas-refill-amount <GAS_REFILL_AMOUNT>`, `--wal-refill-amount <WAL_REFILL_AMOUNT>`,
 and `--sub-wallets-min-balance <SUB_WALLETS_MIN_BALANCE>` arguments.
 
-### Lifecycle of created `Blob` on-chain objects
+### Lifecycle of Created `Blob` On-Chain Objects
 
 Each store operation in Walrus creates a `Blob` object on Sui. This blob object represents the
 (partial) ownership over the associated data, and allows certain data management operations

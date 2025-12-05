@@ -47,7 +47,7 @@ We now offer a pre-built binary also for Windows. However, most of the remaining
 
 You can download the latest build from our Google Cloud Storage (GCS) bucket (correctly setting the `$SYSTEM` variable):
 
-### Mainnet curl request
+### Mainnet Curl Request
 
 ```sh
 $ SYSTEM= # set this to your system: ubuntu-x86_64, ubuntu-x86_64-generic, macos-x86_64, macos-arm64, windows-x86_64.exe
@@ -55,7 +55,7 @@ $ curl https://storage.googleapis.com/mysten-walrus-binaries/site-builder-mainne
 $ chmod +x site-builder
 ```
 
-### Testnet curl request
+### Testnet Curl Request
 
 ``` sh
 $ SYSTEM= # set this to your system: ubuntu-x86_64, ubuntu-x86_64-generic, macos-x86_64, macos-arm64, windows-x86_64.exe
@@ -172,7 +172,7 @@ $ site-builder --config /path/to/sites-config.yaml publish <build-directory-of-a
 ```
 
 However, if are not a fan of repeating the same flags over and over, it's always easier to have the
-configuration file in one of the [default locations](#default-configuration-locations).
+configuration file in one of the [default locations](#configuration).
 
 Download the `sites-config.yaml` file from the repository, and place it in one of the aforementioned
 default locations. To illustrate, we will use the `~/.config/walrus` directory, like so:
