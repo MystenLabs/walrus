@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import React, { useState, useEffect } from "react";
+import useBaseUrl from "@docusaurus/useBaseUrl";
 import styles from "./styles.module.css";
 
 interface Portal {
@@ -17,11 +18,12 @@ const PortalsList: React.FC = () => {
     const [portals, setPortals] = useState<Portal[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const portalsUrl = useBaseUrl("/portals.json");
 
     useEffect(() => {
         const fetchPortals = async () => {
             try {
-                const response = await fetch("/portals.json");
+                const response = await fetch(portalsUrl);
                 if (!response.ok) {
                     throw new Error("Failed to fetch portals data");
                 }

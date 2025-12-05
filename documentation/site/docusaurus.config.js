@@ -66,6 +66,7 @@ const config = {
             };
         },
         path.resolve(__dirname, `./src/plugins/askcookbook/index.js`),
+        path.resolve(__dirname, `./src/plugins/descriptions`),
     ],
     presets: [
         [

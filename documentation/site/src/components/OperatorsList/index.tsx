@@ -4,6 +4,7 @@
 import React, { useState, useEffect, useMemo } from "react";
 import Tabs from "@theme/Tabs";
 import TabItem from "@theme/TabItem";
+import useBaseUrl from "@docusaurus/useBaseUrl";
 import styles from "./styles.module.css";
 
 interface Operator {
@@ -29,11 +30,12 @@ const OperatorsList: React.FC = () => {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [searchTerm, setSearchTerm] = useState("");
+    const operatorsUrl = useBaseUrl("/operators.json");
 
     useEffect(() => {
         const fetchOperators = async () => {
             try {
-                const response = await fetch("/operators.json");
+                const response = await fetch(operatorsUrl);
                 if (!response.ok) {
                     throw new Error("Failed to fetch operators data");
                 }
