@@ -374,6 +374,15 @@ impl BlobPersistence {
             (true, true) => Err(InvalidBlobPersistenceError),
         }
     }
+
+    /// Constructs [`Self`] based on the value of a `deletable` flag.
+    pub fn from_deletable(deletable: bool) -> Self {
+        if deletable {
+            Self::Deletable
+        } else {
+            Self::Permanent
+        }
+    }
 }
 
 /// Error returned when a blob is defined as both deletable and permanent.
