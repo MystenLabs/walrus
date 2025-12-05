@@ -282,7 +282,7 @@ impl TelemetryLabel for BlobManagerEvent {
     fn label(&self) -> &'static str {
         match self {
             BlobManagerEvent::Created(_) => "blob-manager-created",
-            BlobManagerEvent::Extended(_) => "blob-manager-extended",
+            BlobManagerEvent::Updated(_) => "blob-manager-updated",
         }
     }
 }

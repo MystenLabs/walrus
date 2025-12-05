@@ -21,7 +21,7 @@ pub use events::{
     BlobEvent,
     BlobManagerCreated,
     BlobManagerEvent,
-    BlobManagerExtended,
+    BlobManagerUpdated,
     BlobRegistered,
     ContractEvent,
     ContractUpgradedEvent,

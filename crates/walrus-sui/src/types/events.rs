@@ -378,39 +378,39 @@ impl TryFrom<SuiEvent> for DenyListBlobDeleted {
     }
 }
 
-/// Sui event that a BlobManager's storage has been extended.
+/// Sui event that a BlobManager's configuration has been updated.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct BlobManagerExtended {
-    /// The epoch in which the extension occurred.
+pub struct BlobManagerUpdated {
+    /// The epoch in which the update occurred.
     pub epoch: Epoch,
     /// The ID of the BlobManager.
     pub blob_manager_id: ObjectID,
-    /// The amount of additional storage added.
-    pub additional_storage: u64,
-    /// The new end epoch after extension.
+    /// The new end epoch after update.
     pub new_end_epoch: Epoch,
+    /// Grace period in epochs after storage expiry before blobs become eligible for GC.
+    pub grace_period_epochs: Epoch,
     /// The ID of the event.
     pub event_id: EventID,
 }
 
-impl AssociatedSuiEvent for BlobManagerExtended {
-    const EVENT_STRUCT: StructTag<'static> = contracts::events::BlobManagerExtended;
+impl AssociatedSuiEvent for BlobManagerUpdated {
+    const EVENT_STRUCT: StructTag<'static> = contracts::events::BlobManagerUpdated;
 }
 
-impl TryFrom<SuiEvent> for BlobManagerExtended {
+impl TryFrom<SuiEvent> for BlobManagerUpdated {
     type Error = MoveConversionError;
 
     fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
         ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
 
-        let (epoch, blob_manager_id, additional_storage, new_end_epoch) =
+        let (epoch, blob_manager_id, new_end_epoch, grace_period_epochs) =
             bcs::from_bytes(sui_event.bcs.bytes())?;
 
         Ok(Self {
             epoch,
             blob_manager_id,
-            additional_storage,
             new_end_epoch,
+            grace_period_epochs,
             event_id: sui_event.id,
         })
     }
@@ -425,6 +425,8 @@ pub struct BlobManagerCreated {
     pub blob_manager_id: ObjectID,
     /// The end epoch of the BlobManager's initial storage.
     pub end_epoch: Epoch,
+    /// Grace period in epochs after storage expiry before blobs become eligible for GC.
+    pub grace_period_epochs: Epoch,
     /// The ID of the event.
     pub event_id: EventID,
 }
@@ -439,12 +441,14 @@ impl TryFrom<SuiEvent> for BlobManagerCreated {
     fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
         ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
 
-        let (epoch, blob_manager_id, end_epoch) = bcs::from_bytes(sui_event.bcs.bytes())?;
+        let (epoch, blob_manager_id, end_epoch, grace_period_epochs) =
+            bcs::from_bytes(sui_event.bcs.bytes())?;
 
         Ok(Self {
             epoch,
             blob_manager_id,
             end_epoch,
+            grace_period_epochs,
             event_id: sui_event.id,
         })
     }
@@ -455,8 +459,8 @@ impl TryFrom<SuiEvent> for BlobManagerCreated {
 pub enum BlobManagerEvent {
     /// A BlobManager created event.
     Created(BlobManagerCreated),
-    /// A BlobManager extended event.
-    Extended(BlobManagerExtended),
+    /// A BlobManager updated event.
+    Updated(BlobManagerUpdated),
 }
 
 impl From<BlobManagerCreated> for BlobManagerEvent {
@@ -465,9 +469,9 @@ impl From<BlobManagerCreated> for BlobManagerEvent {
     }
 }
 
-impl From<BlobManagerExtended> for BlobManagerEvent {
-    fn from(value: BlobManagerExtended) -> Self {
-        Self::Extended(value)
+impl From<BlobManagerUpdated> for BlobManagerEvent {
+    fn from(value: BlobManagerUpdated) -> Self {
+        Self::Updated(value)
     }
 }
 
@@ -476,7 +480,7 @@ impl BlobManagerEvent {
     pub fn event_id(&self) -> EventID {
         match self {
             BlobManagerEvent::Created(event) => event.event_id,
-            BlobManagerEvent::Extended(event) => event.event_id,
+            BlobManagerEvent::Updated(event) => event.event_id,
         }
     }
 
@@ -484,7 +488,7 @@ impl BlobManagerEvent {
     pub fn event_epoch(&self) -> Epoch {
         match self {
             BlobManagerEvent::Created(event) => event.epoch,
-            BlobManagerEvent::Extended(event) => event.epoch,
+            BlobManagerEvent::Updated(event) => event.epoch,
         }
     }
 
@@ -492,7 +496,31 @@ impl BlobManagerEvent {
     pub fn name(&self) -> &'static str {
         match self {
             BlobManagerEvent::Created(_) => "BlobManagerCreated",
-            BlobManagerEvent::Extended(_) => "BlobManagerExtended",
+            BlobManagerEvent::Updated(_) => "BlobManagerUpdated",
+        }
+    }
+
+    /// Returns the BlobManager ID.
+    pub fn blob_manager_id(&self) -> ObjectID {
+        match self {
+            BlobManagerEvent::Created(event) => event.blob_manager_id,
+            BlobManagerEvent::Updated(event) => event.blob_manager_id,
+        }
+    }
+
+    /// Returns the end epoch of the BlobManager's storage.
+    pub fn end_epoch(&self) -> Epoch {
+        match self {
+            BlobManagerEvent::Created(event) => event.end_epoch,
+            BlobManagerEvent::Updated(event) => event.new_end_epoch,
+        }
+    }
+
+    /// Returns the grace period in epochs after storage expiry before blobs become eligible for GC.
+    pub fn grace_period_epochs(&self) -> Epoch {
+        match self {
+            BlobManagerEvent::Created(event) => event.grace_period_epochs,
+            BlobManagerEvent::Updated(event) => event.grace_period_epochs,
         }
     }
 }
@@ -611,6 +639,16 @@ impl BlobEvent {
             BlobEvent::ManagedBlobCertified(event) => Some(event.object_id),
             BlobEvent::ManagedBlobDeleted(event) => Some(event.object_id),
         }
+    }
+
+    /// Returns true if this is a managed blob event.
+    pub fn is_managed_blob(&self) -> bool {
+        matches!(
+            self,
+            BlobEvent::ManagedBlobRegistered(_)
+                | BlobEvent::ManagedBlobCertified(_)
+                | BlobEvent::ManagedBlobDeleted(_)
+        )
     }
 
     /// Returns the event ID of the wrapped event.
@@ -1374,8 +1412,8 @@ impl TryFrom<SuiEvent> for ContractEvent {
             contracts::events::BlobManagerCreated => Ok(ContractEvent::BlobManagerEvent(
                 BlobManagerEvent::Created(value.try_into()?),
             )),
-            contracts::events::BlobManagerExtended => Ok(ContractEvent::BlobManagerEvent(
-                BlobManagerEvent::Extended(value.try_into()?),
+            contracts::events::BlobManagerUpdated => Ok(ContractEvent::BlobManagerEvent(
+                BlobManagerEvent::Updated(value.try_into()?),
             )),
             _ => unreachable!("Encountered unexpected unrecognized events {}", value),
         }

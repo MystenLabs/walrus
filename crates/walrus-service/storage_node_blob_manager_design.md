@@ -17,8 +17,15 @@ A simple key-value table that stores the current state of each BlobManager:
 struct StoredBlobManagerInfo {
     // The epoch starting from which the blobs won't be available for reads.
     end_epoch: Epoch,
-    // The epoch at which the blob data will be deleted: gc_epoch = end_epoch + grace_period.
-    gc_epoch: Epoch,
+    // The number of epochs after end_epoch before managed blobs become eligible for GC.
+    grace_period_epochs: Epoch,
+}
+
+impl StoredBlobManagerInfo {
+    // Returns the epoch at which managed blobs become eligible for GC.
+    fn gc_eligible_epoch(&self) -> Epoch {
+        self.end_epoch + self.grace_period_epochs
+    }
 }
 
 struct BlobManagerTable {
@@ -27,9 +34,8 @@ struct BlobManagerTable {
 ```
 
 The table is updated when:
-- `BlobManagerCreated` event: Insert new entry with initial `end_epoch`.
-- `BlobManagerExtended` event: Update `end_epoch` to `new_end_epoch`.
-- (TODO): `BlobManagerUpdated` event: Update other blob manager configs, like gc_epoch.
+- `BlobManagerCreated` event: Insert new entry with initial `end_epoch` and `grace_period_epochs`.
+- `BlobManagerUpdated` event: Update `end_epoch` and/or `grace_period_epochs`.
 
 ### Aggregate Blob Info (BlobInfo)
 
@@ -60,91 +66,105 @@ functions return an aggregation over both.
 ### ManagedBlobInfo
 
 Tracks a single blob (by blob_id) across multiple BlobManagers. A blob can be registered by
-multiple BlobManagers independently, each as either deletable or permanent.
+multiple BlobManagers independently, each as either deletable or permanent. All per-blob info
+is embedded directly in this struct (no separate per-object table for managed blobs).
 
 ```rust
+/// Info for a registered (but not yet certified) managed blob.
+struct RegisteredManagedBlobInfo {
+    blob_object_id: ObjectID,
+    registered_epoch: Epoch,
+    event: EventID,
+}
+
+/// Info for a certified managed blob.
+struct CertifiedManagedBlobInfo {
+    blob_object_id: ObjectID,
+    certified_epoch: Epoch,
+    event: EventID,
+}
+
 struct ManagedBlobInfo {
-    // These two members are duplicates as ValidBlobInfoV1, and this is to make sure minimal
-    // changes to the existing data structures and reuse of the APIs.
     is_metadata_stored: bool,
     initial_certified_epoch: Option<Epoch>,
 
-    // Maps BlobManager ObjectID to ManagedBlob ObjectID.
-    registered_deletable: HashMap<ObjectID, ObjectID>,
-    registered_permanent: HashMap<ObjectID, ObjectID>,
+    // Registered blobs (not yet certified). Key: BlobManager ObjectID.
+    registered_deletable: HashMap<ObjectID, RegisteredManagedBlobInfo>,
+    registered_permanent: HashMap<ObjectID, RegisteredManagedBlobInfo>,
 
-    // BlobManagers that have certified this blob.
-    certified_deletable: HashSet<ObjectID>,
-    certified_permanent: HashSet<ObjectID>,
+    // Certified blobs (moved from registered_* on certification). Key: BlobManager ObjectID.
+    certified_deletable: HashMap<ObjectID, CertifiedManagedBlobInfo>,
+    certified_permanent: HashMap<ObjectID, CertifiedManagedBlobInfo>,
 
     // Populated at read time, NOT serialized.
     #[serde(skip)]
     deletable_end_epoch: Option<Epoch>,
     #[serde(skip)]
     permanent_end_epoch: Option<Epoch>,
+    #[serde(skip)]
+    deletable_gc_eligible_epoch: Option<Epoch>,
+    #[serde(skip)]
+    permanent_gc_eligible_epoch: Option<Epoch>,
 }
 ```
 
-The `end_epoch` fields are not stored in the database. They are computed on-demand by querying
-the BlobManagerTable when a blob is read.
+**Key design: Move-on-certify pattern.** When a blob is certified, its entry is moved from
+`registered_*` to `certified_*` map. This saves space since a blob is only in one map at a time
+per BlobManager.
+
+The `end_epoch` and `gc_eligible_epoch` fields are not stored in the database. They are computed
+on-demand by querying the BlobManagerTable when a blob is read or during GC iteration.
 
 ### Per-Object Blob Info (PerObjectBlobInfo)
 
-A new variant `V2` is added to the existing `PerObjectBlobInfo` enum. Each entry in the table is
-either a regular blob (V1) or a managed blob (V2), so existing logic for regular blobs remains
-unchanged.
-
-This info is separate from ManagedBlobInfo due to the following considerations:
-
-1. Minimal changes to the existing code.
-2. If this info were stored inside ManagedBlobInfo, the struct's size could become large when many
-   blob managers store the same blob.
+**Managed blobs do NOT use the per-object table.** The `PerObjectBlobInfo` table is only used for
+regular blobs (V1). All managed blob info is embedded directly in `ManagedBlobInfo` within the
+aggregate `BlobInfo`.
 
 ```rust
 enum PerObjectBlobInfo {
-    V1(PerObjectBlobInfoV1),  // Existing: regular blobs
-    V2(PerObjectBlobInfoV2),  // New: managed blobs
-}
-
-struct PerObjectBlobInfoV2 {
-    blob_id: BlobId,
-    registered_epoch: Epoch,
-    certified_epoch: Option<Epoch>,
-    blob_manager_id: ObjectID,
-    deletable: bool,
-    event: EventID,
-    deleted: bool,
-
-    // Populated at read time, NOT serialized.
-    #[serde(skip)]
-    end_epoch: Option<Epoch>,
+    V1(PerObjectBlobInfoV1),  // Regular blobs only
 }
 ```
 
+This consolidation eliminates the need for two table lookups and two GC passes for managed blobs.
+
 ## End Epoch Population
 
-The `end_epoch` fields are populated dynamically when reading blob info, not stored in the database.
-This design avoids bulk updates when a BlobManager's storage is extended.
+The `end_epoch` and `gc_eligible_epoch` fields are populated dynamically when reading blob info,
+not stored in the database. This design avoids bulk updates when a BlobManager's storage is
+extended.
 
 **For aggregate blob info** (`get()` method):
 1. Read the stored `ManagedBlobInfo` from the database.
-2. For each BlobManager in `registered_deletable`, look up its `end_epoch` from `BlobManagerTable`.
-3. Set `deletable_end_epoch` to the maximum across all deletable registrations.
-4. Repeat for `registered_permanent` to compute `permanent_end_epoch`.
+2. Call `populate_epochs(&BlobManagerTable)` which:
+   - For each BlobManager in all 4 maps, looks up its info from `BlobManagerTable`.
+   - Sets `deletable_end_epoch` and `deletable_gc_eligible_epoch` to the max across deletable maps.
+   - Sets `permanent_end_epoch` and `permanent_gc_eligible_epoch` to the max across permanent maps.
 
-**For per-object blob info** (`get_per_object_info()` method):
-1. Read the stored `PerObjectBlobInfoV2` from the database.
-2. Look up the BlobManager's `end_epoch` from `BlobManagerTable`.
-3. Set `end_epoch` on the returned struct.
+```rust
+impl ManagedBlobInfo {
+    fn populate_epochs(&mut self, blob_managers: &BlobManagerTable) -> Result<(), TypedStoreError> {
+        // Find max end_epoch and gc_eligible_epoch from deletable BlobManagers.
+        for manager_id in self.registered_deletable.keys().chain(self.certified_deletable.keys()) {
+            if let Some(manager_info) = blob_managers.get(manager_id)? {
+                self.deletable_end_epoch = max(self.deletable_end_epoch, manager_info.end_epoch);
+                self.deletable_gc_eligible_epoch = max(
+                    self.deletable_gc_eligible_epoch,
+                    manager_info.gc_eligible_epoch()
+                );
+            }
+        }
+        // Similar for permanent maps...
+        Ok(())
+    }
+}
+```
 
 This approach ensures:
 - Storage extension affects all managed blobs immediately without database writes.
 - Queries always return the current `end_epoch` state.
 - No synchronization issues between blob records and BlobManager state.
-
-**Optimization**: To avoid frequent reads on the BlobManagerTable, an in-memory LRU cache stores
-the blob manager's metadata. For example, a cache of 1 million blob managers can be bounded by
-approximately 100MB.
 
 ## Event Processing
 
@@ -156,18 +176,19 @@ Processed via `process_blob_manager_event()`:
 
 | Event | Action |
 |-------|--------|
-| `BlobManagerCreated` | Insert `(manager_id, end_epoch)` into BlobManagerTable |
-| `BlobManagerExtended` | Update `end_epoch` in BlobManagerTable |
+| `BlobManagerCreated` | Insert `(manager_id, end_epoch, grace_period_epochs)` into BlobManagerTable |
+| `BlobManagerUpdated` | Update `end_epoch` and/or `grace_period_epochs` in BlobManagerTable |
 
 ### Managed Blob Events
 
-Processed via `update_blob_info()`:
+Processed via `update_blob_info()`. **Only the aggregate table is updated** (no per-object table
+writes for managed blobs).
 
-| Event | Aggregate Update | Per-Object Update |
-|-------|------------------|-------------------|
-| `ManagedBlobRegistered` | Add to `registered_deletable` or `registered_permanent` | Create new V2 entry |
-| `ManagedBlobCertified` | Add to `certified_deletable` or `certified_permanent` | Set `certified_epoch` |
-| `ManagedBlobDeleted` | Remove from all maps/sets | Set `deleted = true` |
+| Event | Action |
+|-------|--------|
+| `ManagedBlobRegistered` | Add `RegisteredManagedBlobInfo` to `registered_deletable` or `registered_permanent` |
+| `ManagedBlobCertified` | Move entry from `registered_*` to `certified_*` (with `CertifiedManagedBlobInfo`) |
+| `ManagedBlobDeleted` | Remove entry from the appropriate map (registered or certified) |
 
 ### Status Change Types
 
@@ -181,10 +202,25 @@ enum BlobStatusChangeType {
 
     // V2 (managed blobs)
     RegisterManaged { blob_manager_id: ObjectID, object_id: ObjectID },
-    CertifyManaged { blob_manager_id: ObjectID },
+    CertifyManaged { blob_manager_id: ObjectID, object_id: ObjectID },
     DeleteManaged { blob_manager_id: ObjectID, was_certified: bool },
 }
 ```
+
+### Merge Operators
+
+Atomic updates to `BlobInfo` are performed via RocksDB merge operators:
+
+```rust
+enum BlobInfoMergeOperand {
+    ChangeStatus { change_type: BlobStatusChangeType, change_info: BlobStatusChangeInfo },
+    // ... other variants ...
+    RemoveExpiredBlobManagers { expired_blob_manager_ids: Vec<ObjectID> },
+}
+```
+
+The `RemoveExpiredBlobManagers` operand is used during GC to atomically remove expired BlobManagers
+from all 4 maps.
 
 ## Status Computation
 
@@ -192,7 +228,7 @@ enum BlobStatusChangeType {
 
 The `managed_blob_status()` function computes status from `ManagedBlobInfo`:
 
-1. If all registration and certification maps are empty → `Nonexistent`.
+1. If all 4 maps are empty → `Nonexistent`.
 2. Count permanent and deletable registrations/certifications.
 3. If any permanent registrations exist:
    - Return `Permanent` with `end_epoch = permanent_end_epoch`.
@@ -223,10 +259,23 @@ The `combine()` method prioritizes `Permanent` over `Deletable`, and merges dele
 
 ### is_registered() for Managed Blobs
 
-For per-object blob info:
 ```rust
-fn is_registered(&self, current_epoch: Epoch) -> bool {
-    !self.deleted && self.end_epoch.is_some_and(|e| e > current_epoch)
+impl ManagedBlobInfo {
+    fn is_registered(&self, current_epoch: Epoch) -> bool {
+        // Check all 4 maps since blobs move from registered_* to certified_* on certification.
+        let has_deletable = !self.registered_deletable.is_empty()
+            || !self.certified_deletable.is_empty();
+        let has_permanent = !self.registered_permanent.is_empty()
+            || !self.certified_permanent.is_empty();
+
+        // Check if end_epoch is populated and not expired.
+        let deletable_registered = self.deletable_end_epoch
+            .is_some_and(|e| current_epoch < e && has_deletable);
+        let permanent_registered = self.permanent_end_epoch
+            .is_some_and(|e| current_epoch < e && has_permanent);
+
+        deletable_registered || permanent_registered
+    }
 }
 ```
 
@@ -236,37 +285,141 @@ For aggregate blob info, `is_registered()` checks both V1 and V2 registrations.
 
 ```rust
 fn is_certified(&self, current_epoch: Epoch) -> bool {
-    self.is_registered(current_epoch)
-        && self.certified_epoch.is_some_and(|e| e <= current_epoch)
+    let has_certified = !self.certified_deletable.is_empty()
+        || !self.certified_permanent.is_empty();
+    has_certified && self.initial_certified_epoch.is_some_and(|e| e <= current_epoch)
 }
 ```
 
 ## Garbage Collection
 
-The GC process iterates over blob info and checks expiration status. For managed blobs, the
-`end_epoch` must be populated from the BlobManagerTable during iteration, and a grace period
-is applied before deletion.
+GC for managed blobs happens in the `delete_expired_blob_data()` function. The key insight is that
+expired BlobManagers are removed from the maps via atomic merge operators, and blob data is only
+deleted when all maps are empty.
 
-Flow:
-1. Iterate over aggregate blob info.
-2. For managed blobs, look up BlobManager info to populate `end_epoch` and `gc_eligible_epoch`.
-3. Check `can_data_be_deleted(current_epoch)` which respects the grace period.
-4. Only delete blob data after the grace period has passed.
+### GC Flow
 
-The grace period allows users to extend storage after expiration without losing data.
+```rust
+fn delete_expired_blob_data(&self, current_epoch: Epoch) {
+    for (blob_id, mut blob_info) in self.blob_info.aggregate_blob_info_iter() {
+        // For managed blobs, find and remove expired BlobManagers.
+        if let Some(managed_info) = blob_info.managed_blob_info_mut() {
+            // Find all BlobManagers that have passed their gc_eligible_epoch.
+            let expired_blob_manager_ids: Vec<ObjectID> = managed_info
+                .all_blob_manager_ids()
+                .filter(|manager_id| {
+                    self.get_blob_manager_gc_eligible_epoch(manager_id)
+                        .is_some_and(|gc_epoch| current_epoch >= gc_epoch)
+                })
+                .cloned()
+                .collect();
+
+            if !expired_blob_manager_ids.is_empty() {
+                // Update local in-memory copy.
+                managed_info.remove_blob_managers(&expired_blob_manager_ids);
+
+                // Submit atomic merge operator to database.
+                self.blob_info.remove_expired_blob_managers(&blob_id, expired_blob_manager_ids);
+            }
+        }
+
+        // Check if blob data can be deleted (using updated local copy).
+        if blob_info.can_data_be_deleted(current_epoch) {
+            self.attempt_to_delete_blob_data(&blob_id, current_epoch);
+        }
+    }
+}
+```
+
+### can_data_be_deleted()
+
+```rust
+impl ManagedBlobInfo {
+    // Returns true if all 4 maps are empty.
+    fn can_data_be_deleted(&self, _current_epoch: Epoch) -> bool {
+        self.registered_deletable.is_empty()
+            && self.registered_permanent.is_empty()
+            && self.certified_deletable.is_empty()
+            && self.certified_permanent.is_empty()
+    }
+}
+
+impl BlobInfoV2 {
+    fn can_data_be_deleted(&self, current_epoch: Epoch) -> bool {
+        // For regular blobs, use the default is_registered check.
+        let regular_can_delete = self.regular_blob_info
+            .map(|info| !info.is_registered(current_epoch))
+            .unwrap_or(true);
+
+        // For managed blobs, check if all maps are empty.
+        let managed_can_delete = self.managed_blob_info
+            .map(|info| info.can_data_be_deleted(current_epoch))
+            .unwrap_or(true);
+
+        // Both must be deletable for the data to be deleted.
+        regular_can_delete && managed_can_delete
+    }
+}
+```
+
+### Helper Methods for GC
+
+```rust
+impl ManagedBlobInfo {
+    /// Returns all BlobManager IDs from all 4 maps.
+    fn all_blob_manager_ids(&self) -> impl Iterator<Item = &ObjectID> {
+        self.registered_deletable.keys()
+            .chain(self.registered_permanent.keys())
+            .chain(self.certified_deletable.keys())
+            .chain(self.certified_permanent.keys())
+    }
+
+    /// Removes the specified BlobManagers from all 4 maps.
+    fn remove_blob_managers(&mut self, blob_manager_ids: &[ObjectID]) {
+        for manager_id in blob_manager_ids {
+            self.registered_deletable.remove(manager_id);
+            self.registered_permanent.remove(manager_id);
+            self.certified_deletable.remove(manager_id);
+            self.certified_permanent.remove(manager_id);
+        }
+    }
+
+    /// Returns true if all 4 maps are empty.
+    fn is_empty(&self) -> bool {
+        self.registered_deletable.is_empty()
+            && self.registered_permanent.is_empty()
+            && self.certified_deletable.is_empty()
+            && self.certified_permanent.is_empty()
+    }
+}
+```
 
 ## Key Design Decisions
 
-1. **Lazy end_epoch population**: Avoids O(n) database updates when storage is extended.
+1. **Single-table for managed blobs**: All managed blob info is in `ManagedBlobInfo` within the
+   aggregate table. No per-object table entries for managed blobs.
 
-2. **Separate tracking for deletable vs permanent**: Allows accurate status reporting based on
-   registration type.
+2. **Move-on-certify pattern**: When certified, entries move from `registered_*` to `certified_*`
+   maps, saving space.
 
-3. **Combined V1/V2 status**: When a blob exists as both regular and managed, query functions
+3. **Lazy end_epoch population**: Avoids O(n) database updates when storage is extended.
+
+4. **Atomic GC with merge operators**: The `RemoveExpiredBlobManagers` merge operator ensures
+   atomic removal of expired BlobManagers from all maps.
+
+5. **In-memory simulation for GC decisions**: Update local copy before deciding on deletion to
+   avoid re-reading from database.
+
+6. **Grace period for GC**: BlobManager's `gc_eligible_epoch = end_epoch + grace_period_epochs`
+   allows users to extend storage after expiration without losing data.
+
+7. **Combined V1/V2 status**: When a blob exists as both regular and managed, query functions
    return an aggregation over both.
 
 ## Files
 
 - `blob_manager_info.rs`: `BlobManagerTable` and `StoredBlobManagerInfo`.
-- `blob_info.rs`: `ManagedBlobInfo`, `PerObjectBlobInfoV2`, `ValidBlobInfoV2`, status computation.
-- `storage.rs`: Event processing via `process_blob_manager_event()` and `update_blob_info()`.
+- `blob_info.rs`: `ManagedBlobInfo`, `RegisteredManagedBlobInfo`, `CertifiedManagedBlobInfo`,
+  `ValidBlobInfoV2`, merge operators, status computation.
+- `storage.rs`: Event processing via `process_blob_manager_event()` and `update_blob_info()`,
+  GC via `delete_expired_blob_data()`.

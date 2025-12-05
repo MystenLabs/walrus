@@ -380,15 +380,15 @@ impl Storage {
         self.blob_managers.insert(manager_id, info)
     }
 
-    /// Updates the end_epoch for a BlobManager.
-    #[allow(dead_code)]
-    pub(crate) fn update_blob_manager_end_epoch(
+    /// Returns the gc_eligible_epoch for a BlobManager, if it exists.
+    pub(crate) fn get_blob_manager_gc_eligible_epoch(
         &self,
         manager_id: &ObjectID,
-        new_end_epoch: Epoch,
-    ) -> Result<(), TypedStoreError> {
-        self.blob_managers
-            .update_end_epoch(manager_id, new_end_epoch)
+    ) -> Result<Option<Epoch>, TypedStoreError> {
+        Ok(self
+            .blob_managers
+            .get(manager_id)?
+            .map(|info| info.gc_eligible_epoch()))
     }
 
     /// Returns lock write access to the shards map, and returns the underlying shard map.
@@ -654,7 +654,7 @@ impl Storage {
     }
 
     /// Processes BlobManager events to update the blob_managers table.
-    /// This should be called for BlobManagerCreated and BlobManagerExtended events.
+    /// This should be called for BlobManagerCreated and BlobManagerUpdated events.
     #[tracing::instrument(skip_all)]
     pub fn process_blob_manager_event(
         &self,
@@ -664,23 +664,28 @@ impl Storage {
 
         match event {
             BlobManagerEvent::Created(e) => {
-                // When a BlobManager is created, store its initial end_epoch.
-                let info = StoredBlobManagerInfo::new(e.end_epoch);
+                // When a BlobManager is created, store its initial end_epoch and gc_eligible_epoch.
+                let info = StoredBlobManagerInfo::new(e.end_epoch, e.grace_period_epochs);
                 self.blob_managers.insert(e.blob_manager_id, info)?;
                 tracing::debug!(
                     blob_manager_id = %e.blob_manager_id,
                     end_epoch = e.end_epoch,
+                    grace_period_epochs = e.grace_period_epochs,
                     "Processed BlobManagerCreated event"
                 );
             }
-            BlobManagerEvent::Extended(e) => {
-                // When a BlobManager is extended, update its end_epoch.
-                self.blob_managers
-                    .update_end_epoch(&e.blob_manager_id, e.new_end_epoch)?;
+            BlobManagerEvent::Updated(e) => {
+                // When a BlobManager is updated, update its end_epoch and/or grace_period_epochs.
+                self.blob_managers.update_blob_manager_info(
+                    &e.blob_manager_id,
+                    e.new_end_epoch,
+                    e.grace_period_epochs,
+                )?;
                 tracing::debug!(
                     blob_manager_id = %e.blob_manager_id,
                     new_end_epoch = e.new_end_epoch,
-                    "Processed BlobManagerExtended event"
+                    grace_period_epochs = e.grace_period_epochs,
+                    "Processed BlobManagerUpdated event"
                 );
             }
         }
@@ -739,7 +744,7 @@ impl Storage {
             .aggregate_blob_info_iter()
             .context("DB error while attempting to iterate over aggregate blob info")?
         {
-            let (blob_id, blob_info) = match entry {
+            let (blob_id, mut blob_info) = match entry {
                 Ok(entry) => entry,
                 Err(error) => {
                     tracing::warn!(
@@ -749,6 +754,41 @@ impl Storage {
                     continue;
                 }
             };
+
+            // For managed blobs, find and remove expired BlobManagers.
+            if let Some(managed_info) = blob_info.managed_blob_info_mut() {
+                // Find all BlobManagers that have passed their gc_eligible_epoch.
+                let expired_blob_manager_ids: Vec<ObjectID> = managed_info
+                    .all_blob_manager_ids()
+                    .filter(|manager_id| {
+                        self.get_blob_manager_gc_eligible_epoch(manager_id)
+                            .ok()
+                            .flatten()
+                            .is_some_and(|gc_epoch| current_epoch >= gc_epoch)
+                    })
+                    .cloned()
+                    .collect();
+
+                // If there are expired BlobManagers, submit the merge operator and update local
+                // copy.
+                if !expired_blob_manager_ids.is_empty() {
+                    // Remove the expired managers from our local copy to simulate the deletion.
+                    managed_info.remove_blob_managers(&expired_blob_manager_ids);
+
+                    // Submit the merge operator to the database.
+                    if let Err(e) = self
+                        .blob_info
+                        .remove_expired_blob_managers(&blob_id, expired_blob_manager_ids)
+                    {
+                        tracing::error!(
+                            ?e,
+                            %blob_id,
+                            "failed to remove expired blob managers from managed blob"
+                        );
+                        continue;
+                    }
+                }
+            }
 
             if !blob_info.can_data_be_deleted(current_epoch) {
                 tracing::trace!(
@@ -2280,8 +2320,7 @@ pub(crate) mod tests {
     }
 
     #[tokio::test]
-    async fn test_managed_blob_registered_creates_per_object_info() -> TestResult {
-        use blob_info::{CertifiedBlobInfoApi, PerObjectBlobInfoApi};
+    async fn test_managed_blob_registered_creates_managed_blob_info() -> TestResult {
         use walrus_sui::types::ManagedBlobRegistered;
 
         let storage = empty_storage().await;
@@ -2309,18 +2348,13 @@ pub(crate) mod tests {
             &walrus_sui::types::BlobEvent::ManagedBlobRegistered(event.clone()),
         )?;
 
-        // Verify that per-object blob info was created.
+        // Managed blobs do NOT create per_object_blob_info entries.
+        // They track per-object info in ManagedBlobInfo within aggregate_blob_info.
         let per_object_info = storage.inner.get_per_object_info(&object_id)?;
         assert!(
-            per_object_info.is_some(),
-            "PerObjectBlobInfo should be created for managed blob"
+            per_object_info.is_none(),
+            "PerObjectBlobInfo should NOT be created for managed blob"
         );
-
-        let info = per_object_info.unwrap();
-        assert_eq!(info.blob_id(), blob_id);
-        assert!(info.is_deletable());
-        assert!(!info.is_deleted());
-        assert!(!info.is_certified(1), "Blob should not be certified yet");
 
         // Verify BlobInfoV2 was created with managed blob info.
         let blob_info_result = storage.inner.get_blob_info(&blob_id)?;
