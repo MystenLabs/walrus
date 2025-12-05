@@ -49,7 +49,7 @@ pub const EVENT_ID_FOR_CHECKPOINT_EVENTS: EventID = EventID {
 #[must_use]
 // Important: Don't derive or implement `Clone` or `Copy`; every event should have a single handle
 // that is passed around until it is completely handled or the thread panics.
-pub(super) struct EventHandle {
+pub(crate) struct EventHandle {
     index: u64,
     event_id: EventID,
     node: Arc<StorageNodeInner>,
