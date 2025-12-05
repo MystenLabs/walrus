@@ -26,14 +26,19 @@ jobs:
         uses: actions/setup-node@1e60f620b9541d16bece96c5465dc8ee9832be0b # pin@v4
         with:
           node-version: '18'
-          cache: 'npm'
-          cache-dependency-path: documentation/site/package-lock.json
+          cache: 'pnpm'
+          cache-dependency-path: documentation/site/pnpm-lock.yaml
+        if: github.event.action != 'closed'
+      - name: Install pnpm
+        uses: pnpm/action-setup@a3252b78c470c02df07e9d59298aecedc3ccdd6d # pin@v3.0.0
+        with:
+          version: 8
         if: github.event.action != 'closed'
       - name: Install dependencies
-        run: cd documentation/site && npm ci
+        run: cd documentation/site && pnpm install --frozen-lockfile
         if: github.event.action != 'closed'
       - name: Build site
-        run: cd documentation/site && npm run build
+        run: cd documentation/site && pnpm run build
         if: github.event.action != 'closed'
 
   preview:
@@ -45,14 +50,19 @@ jobs:
         uses: actions/setup-node@1e60f620b9541d16bece96c5465dc8ee9832be0b # pin@v4
         with:
           node-version: '18'
-          cache: 'npm'
-          cache-dependency-path: documentation/site/package-lock.json
+          cache: 'pnpm'
+          cache-dependency-path: documentation/site/pnpm-lock.yaml
+        if: github.event.action != 'closed'
+      - name: Install pnpm
+        uses: pnpm/action-setup@a3252b78c470c02df07e9d59298aecedc3ccdd6d # pin@v3.0.0
+        with:
+          version: 8
         if: github.event.action != 'closed'
       - name: Install dependencies
-        run: cd documentation/site && npm ci
+        run: cd documentation/site && pnpm install --frozen-lockfile
         if: github.event.action != 'closed'
       - name: Build site
-        run: cd documentation/site && npm run build
+        run: cd documentation/site && pnpm run build
         if: github.event.action != 'closed'
       - name: Deploy preview
         uses: rossjrw/pr-preview-action@9f77b1d057b494e662c50b8ca40ecc63f21e0887 # pin@v1.6.2
