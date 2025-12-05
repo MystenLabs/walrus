@@ -11,13 +11,13 @@ import Tabs from "@theme/Tabs";
 import TabItem from "@theme/TabItem";
 
 export default function MDXContent({ children }) {
-  const suiComponents = {
-    ...MDXComponents,
-    Link,
-    Term,
-    ImportContent,
-    Tabs,
-    TabItem,
-  };
-  return <MDXProvider components={suiComponents}>{children}</MDXProvider>;
+    const suiComponents = {
+        ...MDXComponents,
+        Link,
+        Term,
+        ImportContent,
+        Tabs,
+        TabItem,
+    };
+    return <MDXProvider components={suiComponents}>{children}</MDXProvider>;
 }

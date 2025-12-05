@@ -1,7 +1,7 @@
 {
-  "portals": {
-    "https://wal.app": {
-      "operator": "Mysten Labs"
+    "portals": {
+        "https://wal.app": {
+            "operator": "Mysten Labs"
+        }
     }
-  }
 }

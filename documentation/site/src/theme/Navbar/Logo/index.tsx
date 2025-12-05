@@ -1,15 +1,15 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-import React, {type ReactNode} from 'react';
-import Logo from '@theme/Logo';
+import React, { type ReactNode } from "react";
+import Logo from "@theme/Logo";
 
 export default function NavbarLogo(): ReactNode {
-  return (
-    <Logo
-    className="navbar__brand"
-    imageClassName="navbar__logo"
-    titleClassName="navbar__title text--truncate font-light text-xl"
-    />
-  );
+    return (
+        <Logo
+            className="navbar__brand"
+            imageClassName="navbar__logo"
+            titleClassName="navbar__title text--truncate font-light text-xl"
+        />
+    );
 }
