@@ -148,8 +148,9 @@ const config = {
             },
             footer: {
                 style: "dark",
-                copyright: 
-                    `Copyright © ${new Date().getFullYear()} Walrus Foundation. All rights reserved.`,
+                copyright:
+                    `Copyright © ${new Date().getFullYear()} 
+                    Walrus Foundation. All rights reserved.`,
             },
             prism: {
                 theme: prismThemes.github,

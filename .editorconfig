@@ -40,7 +40,7 @@ max_line_length = 120
 indent_size = unset
 
 # Ignore paths
-[{.git/**/*,**/*.lock,**/Move.toml,LICENSE,docs/devnet-public/glossary.md,crates/walrus-orchestrator/assets/*,.editorconfig,venv/**/*,crates/walrus-service/*.html,crates/walrus-upload-relay/*.html,crates/walrus-upload-relay/*.yaml,crates/walrus-service/*.yaml,docker/walrus-antithesis/build-walrus-image-for-antithesis/update_move_toml.sh,docs/mdbook-admonish.css,docs/theme/**/*,.github/workflows/issues-monitor.yaml,scripts/simtest/seed-search.py,documentation/content/legal/**/*,documentation/data/glossary.yaml,documentation/site/src/**/*,documentation/static/**/*}]
+[{.git/**/*,**/*.lock,**/Move.toml,LICENSE,docs/devnet-public/glossary.md,crates/walrus-orchestrator/assets/*,.editorconfig,venv/**/*,crates/walrus-service/*.html,crates/walrus-upload-relay/*.html,crates/walrus-upload-relay/*.yaml,crates/walrus-service/*.yaml,docker/walrus-antithesis/build-walrus-image-for-antithesis/update_move_toml.sh,docs/mdbook-admonish.css,docs/theme/**/*,.github/workflows/issues-monitor.yaml,scripts/simtest/seed-search.py,documentation/content/legal/**/*,documentation/data/glossary.yaml,documentation/site/**/*}]
 charset = unset
 end_of_line = unset
 indent_size = unset
