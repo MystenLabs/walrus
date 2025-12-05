@@ -14,7 +14,7 @@ use std::{
     borrow::Borrow,
     default::Default,
     net::{SocketAddr, TcpStream},
-    num::NonZeroU16,
+    num::{NonZeroU16, NonZeroUsize},
     path::PathBuf,
     sync::Arc,
 };
@@ -3116,7 +3116,9 @@ pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
             admin_socket_path: None,
             node_recovery_config: Default::default(),
             // Uses smaller number of workers in tests to avoid overwhelming the tests.
-            blob_event_processor_config: BlobEventProcessorConfig { num_workers: 3 },
+            blob_event_processor_config: BlobEventProcessorConfig {
+                num_workers: NonZeroUsize::new(3).unwrap(),
+            },
             garbage_collection: GarbageCollectionConfig::default_for_test(),
             live_upload_deferral: LiveUploadDeferralConfig::default_for_test(),
             pending_metadata_cache: Default::default(),

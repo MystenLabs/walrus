@@ -812,13 +812,14 @@ impl Default for NodeRecoveryConfig {
 #[serde(default)]
 pub struct BlobEventProcessorConfig {
     /// The number of workers to process blob events in parallel.
-    /// When set to 0, the node will process all blob events sequentially.
-    pub num_workers: usize,
+    pub num_workers: NonZeroUsize,
 }
 
 impl Default for BlobEventProcessorConfig {
     fn default() -> Self {
-        Self { num_workers: 10 }
+        Self {
+            num_workers: NonZeroUsize::new(10).expect("10 is non-zero"),
+        }
     }
 }
 
