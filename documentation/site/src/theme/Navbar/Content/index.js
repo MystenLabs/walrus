@@ -1,5 +1,6 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
+
 import * as React from "react";
 import { useThemeConfig, ErrorCauseBoundary } from "@docusaurus/theme-common";
 import { splitNavbarItems, useNavbarMobileSidebar } from "@docusaurus/theme-common/internal";

@@ -1,5 +1,6 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
+
 import React from "react";
 import clsx from "clsx";
 import { translate } from "@docusaurus/Translate";

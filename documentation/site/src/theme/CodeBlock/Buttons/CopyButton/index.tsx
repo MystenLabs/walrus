@@ -1,5 +1,6 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
+
 import React, { useCallback, useState, useRef, useEffect, type ReactNode } from "react";
 import clsx from "clsx";
 import copy from "copy-text-to-clipboard";
