@@ -185,6 +185,10 @@ impl<E: EncodingAxis> SliverSelector<E> {
             .remove_by_left(sliver_index)
             .is_some()
     }
+
+    pub fn remaining_slivers(&self) -> Vec<SliverIndex> {
+        self.indices_and_shards.left_values().copied().collect()
+    }
 }
 
 /// A client to communicate with Walrus shards and storage nodes.
@@ -657,9 +661,11 @@ impl<T: ReadClient> WalrusNodeClient<T> {
         certified_epoch: Epoch,
         max_attempts: usize,
         timeout_duration: Duration,
+        recovery_unavailable_slivers: bool,
     ) -> Result<Vec<SliverData<E>>, ClientError>
     where
         SliverData<E>: TryFrom<Sliver>,
+        RecoverySymbol<MerkleProof>: TryInto<RecoverySymbolData<E, MerkleProof>>,
     {
         self.retry_if_error_epoch_change(|| {
             self.retrieve_slivers_with_retry(
@@ -668,6 +674,7 @@ impl<T: ReadClient> WalrusNodeClient<T> {
                 certified_epoch,
                 max_attempts,
                 timeout_duration,
+                recovery_unavailable_slivers,
             )
         })
         .await
@@ -687,9 +694,11 @@ impl<T: ReadClient> WalrusNodeClient<T> {
         certified_epoch: Epoch,
         max_attempts: usize,
         timeout_duration: Duration,
+        recovery_unavailable_slivers: bool,
     ) -> Result<Vec<SliverData<E>>, ClientError>
     where
         SliverData<E>: TryFrom<walrus_core::Sliver>,
+        RecoverySymbol<MerkleProof>: TryInto<RecoverySymbolData<E, MerkleProof>>,
     {
         let mut sliver_selector =
             SliverSelector::<E>::new(sliver_indices, metadata.n_shards(), metadata.blob_id());
@@ -698,6 +707,8 @@ impl<T: ReadClient> WalrusNodeClient<T> {
         let mut all_slivers = Vec::with_capacity(num_unique_slivers);
         let start_time = Instant::now();
         let mut last_error: Option<ClientError> = None;
+
+        let mut recover_slivers = false;
 
         while !sliver_selector.is_empty() {
             // Check if we've exceeded the timeout or the max retries.
@@ -713,27 +724,56 @@ impl<T: ReadClient> WalrusNodeClient<T> {
                 break;
             }
 
+            if recovery_unavailable_slivers {
+                recover_slivers = true;
+            }
+
             tracing::debug!(?sliver_selector, "retrieving slivers");
-            match self
-                .retrieve_slivers(
-                    metadata,
-                    &sliver_selector,
-                    certified_epoch,
-                    timeout_duration - start_time.elapsed(),
-                )
-                .await
-            {
-                Ok(new_slivers) => {
-                    // Track which indices we've successfully retrieved.
-                    for sliver in new_slivers {
-                        sliver_selector.remove_sliver(&sliver.index);
-                        all_slivers.push(sliver);
+            if !recover_slivers {
+                match self
+                    .retrieve_slivers(
+                        metadata,
+                        &sliver_selector,
+                        certified_epoch,
+                        timeout_duration - start_time.elapsed(),
+                    )
+                    .await
+                {
+                    Ok(new_slivers) => {
+                        // Track which indices we've successfully retrieved.
+                        for sliver in new_slivers {
+                            sliver_selector.remove_sliver(&sliver.index);
+                            all_slivers.push(sliver);
+                        }
+                    }
+                    Err(error) => {
+                        // TODO(WAL-685): if the error is not retriable, return the error immediately.
+                        tracing::warn!(?error, "error retrieving slivers");
+                        last_error = Some(error);
                     }
                 }
-                Err(error) => {
-                    // TODO(WAL-685): if the error is not retriable, return the error immediately.
-                    tracing::warn!(?error, "error retrieving slivers");
-                    last_error = Some(error);
+            } else {
+                match self
+                    .recover_slivers(
+                        metadata,
+                        &sliver_selector,
+                        certified_epoch,
+                        timeout_duration - start_time.elapsed(),
+                    )
+                    .await
+                {
+                    Ok(new_slivers) => {
+                        // Track which indices we've successfully retrieved.
+                        for sliver in new_slivers {
+                            sliver_selector.remove_sliver(&sliver.index);
+                            all_slivers.push(sliver);
+                        }
+                    }
+                    Err(error) => {
+                        // TODO(WAL-685): if the error is not retriable, return the error immediately.
+                        tracing::warn!(?error, "error retrieving slivers");
+                        last_error = Some(error);
+                    }
                 }
             }
 
@@ -839,17 +879,19 @@ impl<T: ReadClient> WalrusNodeClient<T> {
         Ok(slivers)
     }
 
-    async fn recover_slivers<A: EncodingAxis>(
+    async fn recover_slivers<E: EncodingAxis>(
         &self,
         metadata: &VerifiedBlobMetadataWithId,
-        sliver_indices: &[SliverIndex],
+        sliver_selector: &SliverSelector<E>,
         certified_epoch: Epoch,
         timeout_duration: Duration,
-    ) -> ClientResult<Vec<SliverData<A>>>
+    ) -> ClientResult<Vec<SliverData<E>>>
     where
-        SliverData<A>: TryFrom<Sliver>,
-        RecoverySymbol<MerkleProof>: TryInto<RecoverySymbolData<A, MerkleProof>>,
+        SliverData<E>: TryFrom<Sliver>,
+        RecoverySymbol<MerkleProof>: TryInto<RecoverySymbolData<E, MerkleProof>>,
     {
+        let sliver_indices = sliver_selector.remaining_slivers();
+
         // Call recover_sliver in parallel.
         let futures = sliver_indices
             .iter()
@@ -864,23 +906,23 @@ impl<T: ReadClient> WalrusNodeClient<T> {
     }
 
     #[tracing::instrument(level = Level::ERROR, skip_all)]
-    async fn recover_sliver<A: EncodingAxis>(
+    async fn recover_sliver<E: EncodingAxis>(
         &self,
         metadata: &VerifiedBlobMetadataWithId,
         sliver_index: SliverIndex,
         certified_epoch: Epoch,
-        timeout_duration: Duration,
-    ) -> ClientResult<SliverData<A>>
+        _timeout_duration: Duration,
+    ) -> ClientResult<SliverData<E>>
     where
-        SliverData<A>: TryFrom<Sliver>,
-        RecoverySymbol<MerkleProof>: TryInto<RecoverySymbolData<A, MerkleProof>>,
+        SliverData<E>: TryFrom<Sliver>,
+        RecoverySymbol<MerkleProof>: TryInto<RecoverySymbolData<E, MerkleProof>>,
     {
         let committees = self.get_committees().await?;
         // Create a progress bar to track the progress of the sliver retrieval.
         let progress_bar: indicatif::ProgressBar = styled_progress_bar(
             self.encoding_config
                 .get_for_type(metadata.metadata().encoding_type())
-                .n_source_symbols::<A>()
+                .n_source_symbols::<E>()
                 .get()
                 .into(),
         );
@@ -890,35 +932,31 @@ impl<T: ReadClient> WalrusNodeClient<T> {
             .communication_factory
             .node_read_communications(&committees, certified_epoch)?;
         // Create requests to get all slivers from all nodes.
-        let verified_slivers_futures = comms.iter().flat_map(|n| {
+        let verified_slivers_futures = comms.iter().map(|n| {
             // NOTE: the cloned here is needed because otherwise the compiler complains about the
             // lifetimes of `s`.
-            n.node.shard_ids.iter().cloned().map(|s| {
-                n.retrieve_recovery_symbols::<A>(Arc::new(metadata.clone()), s)
-                    .instrument(n.span.clone())
-                    // Increment the progress bar if the sliver is successfully retrieved.
-                    .inspect({
-                        let value = progress_bar.clone();
-                        move |result| {
-                            if result.is_ok() {
-                                value.inc(1)
-                            }
+            n.retrieve_recovery_symbols::<E>(Arc::new(metadata.clone()), sliver_index)
+                .instrument(n.span.clone())
+                // Increment the progress bar if the sliver is successfully retrieved.
+                .inspect({
+                    let value = progress_bar.clone();
+                    move |result| {
+                        if result.is_ok() {
+                            value.inc(1)
                         }
-                    })
-            })
+                    }
+                })
         });
-        // Get the first ~1/3 or ~2/3 of slivers directly, and decode with these.
         let mut requests = WeightedFutures::new(verified_slivers_futures);
 
-        // Note: The following code may have to be changed if we add encodings that require a
-        // variable number of slivers to reconstruct a blob.
         let RequiredCount::Exact(required_slivers) = self
             .encoding_config
             .get_for_type(metadata.metadata().encoding_type())
-            .n_symbols_for_recovery::<A>();
+            .n_symbols_for_recovery::<E>();
         let completed_reason = requests
             .execute_weight(
                 &|weight| weight >= required_slivers,
+                // TODO: revisit
                 self.communication_limits
                     .max_concurrent_sliver_reads_for_blob_size(
                         metadata.metadata().unencoded_length(),
@@ -932,23 +970,32 @@ impl<T: ReadClient> WalrusNodeClient<T> {
         match completed_reason {
             CompletedReasonWeight::ThresholdReached => {
                 let verified_slivers = requests.take_inner_ok();
-                assert!(
-                    verified_slivers.len() >= required_slivers,
-                    "we must have sufficient slivers if the threshold was reached"
-                );
+                // assert!(
+                //     verified_slivers.len() >= required_slivers,
+                //     "we must have sufficient slivers if the threshold was reached"
+                // );
 
                 let recovery_symbol_iter = verified_slivers
                     .into_iter()
                     .flat_map(|s| s.into_iter())
                     .map(|symbol| {
-                        let Ok(symbol) = RecoverySymbol::from(symbol).try_into() else {
-                            panic!("symbols must be checked against filter in API call")
-                        };
-                        symbol
+                        tracing::error!(
+                            ?symbol,
+                            "ZZZZZ symbols must be checked against filter in API call"
+                        );
+                        match RecoverySymbol::from(symbol).try_into() {
+                            Ok(symbol) => symbol,
+                            Err(error) => {
+                                tracing::error!(
+                                    "ZZZZZ symbols must be checked against filter in API call"
+                                );
+                                panic!("symbols must be checked against filter in API call")
+                            }
+                        }
                     });
 
                 let recovered_sliver =
-                    SliverData::<A>::recover_sliver_or_generate_inconsistency_proof(
+                    SliverData::<E>::recover_sliver_or_generate_inconsistency_proof(
                         recovery_symbol_iter,
                         sliver_index,
                         metadata.metadata(),

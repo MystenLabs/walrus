@@ -80,7 +80,9 @@ pub const DELETABLE_BLOB_CONFIRMATION_ENDPOINT: &str =
 /// The path to get recovery symbols.
 pub const RECOVERY_SYMBOL_ENDPOINT: &str = "/v1/blobs/{blob_id}/recoverySymbols/{symbol_id}";
 /// The path to get multiple recovery symbols.
-pub const RECOVERY_SYMBOL_LIST_ENDPOINT: &str = "/v1/blobs/{blob_id}/recoverySymbols";
+pub const LIST_RECOVERY_SYMBOL_ENDPOINT: &str = "/v1/blobs/{blob_id}/recoverySymbols";
+pub const CLIENT_LIST_RECOVERY_SYMBOL_ENDPOINT: &str =
+    "/v1/blobs/{blob_id}/clientListRecoverySymbols";
 /// The path to push inconsistency proofs.
 pub const INCONSISTENCY_PROOF_ENDPOINT: &str =
     "/v1/blobs/{blob_id}/inconsistencyProof/{sliver_type}";
@@ -479,7 +481,7 @@ pub struct ListRecoverySymbolsQuery {
     proof_axis: Option<SliverType>,
 
     #[serde(flatten)]
-    #[param(inline)]
+    #[into_params(inline)]
     ids: ListRecoverySymbolIdsFilter,
 }
 
@@ -534,7 +536,7 @@ impl TryFrom<ListRecoverySymbolsQuery> for RecoverySymbolsFilter {
 #[tracing::instrument(skip_all, err(level = Level::DEBUG), fields(walrus.blob_id = %blob_id))]
 #[utoipa::path(
     get,
-    path = RECOVERY_SYMBOL_LIST_ENDPOINT,
+    path = LIST_RECOVERY_SYMBOL_ENDPOINT,
     params(("blob_id" = BlobId,), ListRecoverySymbolsQuery),
     responses(
         (status = 200, description = "List of BCS-encoded recovery symbols", body = [u8]),
@@ -552,7 +554,62 @@ pub async fn list_recovery_symbols<S: SyncServiceState>(
     let filter = query.try_into()?;
     let symbols = state
         .service
-        .retrieve_multiple_recovery_symbols(&blob_id, filter)
+        .retrieve_multiple_recovery_symbols(&blob_id, filter, false)
+        .await?;
+
+    Ok(Bcs(symbols))
+}
+
+#[serde_as]
+#[derive(Debug, Clone, Deserialize, utoipa::IntoParams)]
+#[serde(rename_all = "camelCase")]
+#[into_params(style = Form, parameter_in = Query)]
+pub struct ClientListRecoverySymbolsQuery {
+    /// The ID of the target sliver being recovered.
+    #[serde_as(as = "DisplayFromStr")]
+    target_sliver: SliverIndex,
+    /// The type of the sliver being recovered.
+    target_type: SliverType,
+}
+
+impl TryFrom<ClientListRecoverySymbolsQuery> for RecoverySymbolsFilter {
+    type Error = ListSymbolsError;
+
+    fn try_from(query: ClientListRecoverySymbolsQuery) -> Result<Self, Self::Error> {
+        Ok(RecoverySymbolsFilter::recovers(
+            query.target_sliver,
+            query.target_type,
+        ))
+    }
+}
+
+/// Get multiple recovery symbols.
+#[tracing::instrument(skip_all, err(level = Level::DEBUG), fields(walrus.blob_id = %blob_id))]
+#[utoipa::path(
+    get,
+    path = CLIENT_LIST_RECOVERY_SYMBOL_ENDPOINT,
+    params(("blob_id" = BlobId,), ClientListRecoverySymbolsQuery),
+    responses(
+        (status = 200, description = "List of BCS-encoded recovery symbols", body = [u8]),
+        ListSymbolsError,
+    ),
+    tag = openapi::GROUP_RECOVERY
+)]
+pub async fn client_list_recovery_symbols<S: SyncServiceState>(
+    State(state): State<RestApiState<S>>,
+    Path(BlobIdString(blob_id)): Path<BlobIdString>,
+    ExtraQuery(query): ExtraQuery<ClientListRecoverySymbolsQuery>,
+) -> Result<Bcs<Vec<GeneralRecoverySymbol>>, ListSymbolsError> {
+    let _guard = limit_symbol_recovery_requests(state.recovery_symbols_limit.as_deref())?;
+
+    if query.target_type.is_secondary() {
+        return Err(ListSymbolsError::InvalidSliverType(query.target_type));
+    }
+
+    let filter = query.try_into()?;
+    let symbols = state
+        .service
+        .retrieve_multiple_recovery_symbols(&blob_id, filter, true)
         .await?;
 
     Ok(Bcs(symbols))

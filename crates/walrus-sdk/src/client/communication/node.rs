@@ -18,6 +18,7 @@ use walrus_core::{
     PublicKey,
     ShardIndex,
     Sliver,
+    SliverIndex,
     SliverPairIndex,
     encoding::{EncodingAxis, EncodingConfig, GeneralRecoverySymbol, SliverData, SliverPair},
     messages::{BlobPersistenceType, SignedStorageConfirmation},
@@ -265,17 +266,15 @@ impl<W> NodeCommunication<W> {
     pub async fn retrieve_recovery_symbols<A: EncodingAxis>(
         &self,
         metadata: Arc<VerifiedBlobMetadataWithId>,
-        shard_index: ShardIndex,
+        sliver_index: SliverIndex,
     ) -> NodeResult<Vec<GeneralRecoverySymbol>, NodeError> {
-        tracing::debug!(
-            walrus.shard_index = %shard_index,
+        tracing::info!(
+            walrus.sliver_index = %sliver_index,
             sliver_type = A::NAME,
-            "retrieving recovery symbols"
+            "ZZZZZ retrieving recovery symbols"
         );
-        let sliver_index = shard_index
-            .to_pair_index(self.n_shards(), metadata.blob_id())
-            .to_sliver_index::<A>(self.n_shards());
-        let filter = RecoverySymbolsFilter::recovers(sliver_index, A::sliver_type());
+        let filter = RecoverySymbolsFilter::recovers(sliver_index, A::sliver_type())
+            .require_proof_from_axis(A::sliver_type().orthogonal());
         let result = self
             .client
             .list_and_verify_recovery_symbols(

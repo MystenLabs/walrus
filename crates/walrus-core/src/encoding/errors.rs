@@ -80,6 +80,12 @@ pub enum RecoverySymbolError {
     /// The underlying basic encoder returned an error.
     #[error(transparent)]
     EncodeError(#[from] EncodeError),
+    /// The index of the recovery symbol is too large for a client request.
+    #[error(
+        "the index of the recovery symbol is too large for a client request, it can only recovery \
+        source primary sliver"
+    )]
+    ClientRequestIndexTooLarge(SliverIndex),
 }
 
 impl From<InvalidDataSizeError> for RecoverySymbolError {

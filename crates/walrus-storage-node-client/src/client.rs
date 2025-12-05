@@ -66,7 +66,6 @@ const SLIVER_STATUS_TEMPLATE: &str =
 const PERMANENT_BLOB_CONFIRMATION_URL_TEMPLATE: &str = "/v1/blobs/:blob_id/confirmation/permanent";
 const DELETABLE_BLOB_CONFIRMATION_URL_TEMPLATE: &str =
     "/v1/blobs/:blob_id/confirmation/deletable/:object_id";
-const RECOVERY_SYMBOL_URL_TEMPLATE: &str = "/v1/blobs/:blob_id/recoverySymbols/:symbol_id";
 const LIST_RECOVERY_SYMBOLS_URL_TEMPLATE: &str = "/v1/blobs/:blob_id/recoverySymbols";
 const INCONSISTENCY_PROOF_URL_TEMPLATE: &str = "/v1/blobs/:blob_id/inconsistencyProof/:sliver_type";
 const BLOB_STATUS_URL_TEMPLATE: &str = "/v1/blobs/:blob_id/status";
@@ -173,13 +172,6 @@ impl UrlEndpoints {
         (
             self.sliver_path::<A>(blob_id, sliver_pair_index, Some("status")),
             SLIVER_STATUS_TEMPLATE,
-        )
-    }
-
-    fn recovery_symbol(&self, blob_id: &BlobId, symbol_id: SymbolId) -> (Url, &'static str) {
-        (
-            self.blob_resource(blob_id, &format!("recoverySymbols/{symbol_id}")),
-            RECOVERY_SYMBOL_URL_TEMPLATE,
         )
     }
 
@@ -315,6 +307,16 @@ where
 {
     serializer.collect_map(symbols.iter().map(|id| ("id", id)))
 }
+
+// /// Filter for [`StorageNodeClient::list_recovery_symbols()`] endpoint.
+// #[derive(Debug, Clone, Serialize)]
+// #[serde(rename_all = "camelCase")]
+// pub struct ClientRecoverySymbolsFilter {
+//     /// The ID of the target sliver being recovered.
+//     target_sliver: SliverIndex,
+//     /// The type of the sliver being recovered.
+//     target_type: SliverType,
+// }
 
 /// A client for communicating with a StorageNode.
 #[derive(Debug, Clone)]

@@ -17,6 +17,7 @@ use walrus_core::{
     EncodingType,
     Epoch,
     QuiltPatchId,
+    RecoverySymbol,
     Sliver,
     SliverIndex,
     encoding::{
@@ -25,10 +26,12 @@ use walrus_core::{
         Primary,
         QUILT_TYPE_VALUE,
         QuiltError,
+        RecoverySymbol as RecoverySymbolData,
         Secondary,
         SliverData,
         quilt_encoding::*,
     },
+    merkle::MerkleProof,
     metadata::{QuiltIndex, QuiltMetadata, QuiltMetadataV1, VerifiedBlobMetadataWithId},
 };
 use walrus_sui::{client::ReadClient, types::move_structs::BlobAttribute};
@@ -224,7 +227,10 @@ where
         sliver_indices: &[SliverIndex],
         metadata: &VerifiedBlobMetadataWithId,
         certified_epoch: Epoch,
-    ) -> ClientResult<()> {
+    ) -> ClientResult<()>
+    where
+        RecoverySymbol<MerkleProof>: TryInto<RecoverySymbolData<V::SliverAxis, MerkleProof>>,
+    {
         if matches!(self.reader, QuiltCacheReader::FullQuilt(_)) {
             return Ok(());
         }
@@ -238,6 +244,7 @@ where
                 certified_epoch,
                 self.config.max_retrieve_slivers_attempts,
                 self.config.timeout,
+                false,
             )
             .await;
 
@@ -458,6 +465,7 @@ impl<T: ReadClient> QuiltClient<'_, WalrusNodeClient<T>> {
                 certified_epoch,
                 self.config.max_retrieve_slivers_attempts,
                 self.config.timeout,
+                false,
             )
             .await?;
 
@@ -486,6 +494,7 @@ impl<T: ReadClient> QuiltClient<'_, WalrusNodeClient<T>> {
     ) -> ClientResult<QuiltIndex>
     where
         SliverData<V::SliverAxis>: TryFrom<Sliver>,
+        RecoverySymbol<MerkleProof>: TryInto<RecoverySymbolData<V::SliverAxis, MerkleProof>>,
     {
         let mut all_slivers = Vec::new();
         let mut decoder = V::QuiltConfig::get_decoder(std::iter::once(first_sliver))?;
@@ -501,6 +510,7 @@ impl<T: ReadClient> QuiltClient<'_, WalrusNodeClient<T>> {
                             certified_epoch,
                             self.config.max_retrieve_slivers_attempts,
                             self.config.timeout,
+                            false,
                         )
                         .await?,
                 );

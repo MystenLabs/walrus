@@ -425,6 +425,9 @@ macro_rules! index_type {
 
 index_type!(
     /// Represents the index of a (primary or secondary) sliver.
+    /// It indicates the position of the sliver from the beginning of the blob.
+    /// Note that the first secondary sliver index is paired with the last primary sliver index,
+    /// and is in the last SliverPairIndex.
     #[derive(Ord, PartialOrd)]
     #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
     SliverIndex("sliver")

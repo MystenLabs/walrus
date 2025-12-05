@@ -76,6 +76,7 @@ use walrus_core::{
     },
     ensure,
     keys::ProtocolKeyPair,
+    merkle::MerkleProof,
     messages::{
         BlobPersistenceType,
         Confirmation,
@@ -330,6 +331,7 @@ pub trait ServiceState {
         &self,
         blob_id: &BlobId,
         filter: RecoverySymbolsFilter,
+        client_request: bool,
     ) -> impl Future<Output = Result<Vec<GeneralRecoverySymbol>, ListSymbolsError>> + Send;
 
     /// Retrieves the blob status for the given `blob_id`.
@@ -3215,6 +3217,7 @@ impl StorageNodeInner {
         sliver_type: Option<SliverType>,
         encoding_type: EncodingType,
         worker: RecoverySymbolService,
+        client_request: bool,
     ) -> Result<GeneralRecoverySymbol, RetrieveSymbolError> {
         let n_shards = self.n_shards();
 
@@ -3236,7 +3239,13 @@ impl StorageNodeInner {
 
         for target_sliver_type in [SliverType::Secondary, SliverType::Primary]
             .into_iter()
-            .filter(|target_type| sliver_type.is_none() || sliver_type == Some(*target_type))
+            .filter(|target_type| {
+                if client_request {
+                    *target_type == SliverType::Primary
+                } else {
+                    sliver_type.is_none() || sliver_type == Some(*target_type)
+                }
+            })
         {
             let (source_pair_index, target_pair_index) = match target_sliver_type {
                 Axis::Primary => (secondary_pair_index, primary_pair_index),
@@ -3281,6 +3290,7 @@ impl StorageNodeInner {
                 source_sliver,
                 target_pair_index,
                 encoding_type,
+                client_request,
             };
 
             match worker.call(request).await {
@@ -3290,6 +3300,9 @@ impl StorageNodeInner {
                 }
                 Err(RecoverySymbolError::EncodeError(error)) => {
                     final_error = RetrieveSymbolError::Internal(anyhow!(error));
+                }
+                Err(RecoverySymbolError::ClientRequestIndexTooLarge(index)) => {
+                    final_error = RetrieveSymbolError::ClientRequestIndexTooLarge(index);
                 }
             }
         }
@@ -3635,9 +3648,10 @@ impl ServiceState for StorageNode {
         &self,
         blob_id: &BlobId,
         filter: RecoverySymbolsFilter,
+        client_request: bool,
     ) -> impl Future<Output = Result<Vec<GeneralRecoverySymbol>, ListSymbolsError>> + Send {
         self.inner
-            .retrieve_multiple_recovery_symbols(blob_id, filter)
+            .retrieve_multiple_recovery_symbols(blob_id, filter, client_request)
     }
 
     fn blob_status(&self, blob_id: &BlobId) -> Result<BlobStatus, BlobStatusError> {
@@ -3977,6 +3991,7 @@ impl ServiceState for StorageNodeInner {
             sliver_type,
             encoding_type,
             worker,
+            false,
         )
         .await
     }
@@ -3986,6 +4001,7 @@ impl ServiceState for StorageNodeInner {
         &self,
         blob_id: &BlobId,
         filter: RecoverySymbolsFilter,
+        client_request: bool,
     ) -> Result<Vec<GeneralRecoverySymbol>, ListSymbolsError> {
         // Begin by fetching a ready worker, as this gates all database reads based
         // on whether we have capacity to even serve the request.
@@ -4028,6 +4044,7 @@ impl ServiceState for StorageNodeInner {
                     target_type_from_proof,
                     encoding_type,
                     worker,
+                    client_request,
                 )
                 .map(move |result| (symbol_id, result))
                 .await
