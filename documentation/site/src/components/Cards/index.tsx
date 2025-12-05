@@ -7,6 +7,7 @@
 import React, { useEffect, useState } from "react";
 import { useHistory } from "@docusaurus/router";
 import { usePluginData } from "@docusaurus/useGlobalData";
+import useBaseUrl from "@docusaurus/useBaseUrl";
 import styles from "./styles.module.css";
 
 interface CardProps {
@@ -19,6 +20,9 @@ interface CardProps {
 export function Card({ title, href, className, children }: CardProps) {
   const history = useHistory();
   const [url, setUrl] = useState();
+  
+  // Process the href with baseUrl for internal links
+  const processedHref = href.match(/^https?/) ? href : useBaseUrl(href);
 
   useEffect(() => {
     if (url) {
@@ -49,7 +53,7 @@ export function Card({ title, href, className, children }: CardProps) {
   return (
     <div
       className={`${styles.card} ${className}`}
-      onClick={() => handleClick(href)}
+      onClick={() => handleClick(processedHref)}
     >
       <div className={styles.card__header}>
         <h2 className={styles.card__header__copy}>{title}</h2>
