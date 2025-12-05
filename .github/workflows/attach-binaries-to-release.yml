@@ -63,7 +63,7 @@ jobs:
           echo "walrus_version=${walrus_version}" >> $GITHUB_ENV
 
       - name: Check out ${{ env.walrus_tag }}
-        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # pin@v5.0.0
+        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # pin@v6.0.0
         with:
           ref: ${{ env.walrus_tag }}
 
@@ -212,7 +212,7 @@ jobs:
             ./tmp/walrus-${{ env.walrus_tag }}-${{ env.os_type }}.tgz
 
       - name: Attach artifacts to ${{ env.walrus_tag }} release in GH
-        uses: softprops/action-gh-release@6da8fa9354ddfdc4aeace5fc48d7f679b5214090 # pin@v2.4.1
+        uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # pin@v2.5.0
         with:
           tag_name: ${{ env.walrus_tag }}
           files: |
