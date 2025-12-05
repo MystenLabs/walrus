@@ -1,3 +1,6 @@
+// Copyright (c) Walrus Foundation
+// SPDX-License-Identifier: Apache-2.0
+
 // @ts-check
 
 //import { type } from '@generated/site-storage'
