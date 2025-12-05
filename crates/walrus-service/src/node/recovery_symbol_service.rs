@@ -30,7 +30,7 @@ use walrus_core::{
         SliverData,
         Symbols,
     },
-    merkle::MerkleTree,
+    merkle::{MerkleProof, MerkleTree},
 };
 use walrus_utils::metrics::Registry;
 
@@ -69,6 +69,8 @@ pub(crate) struct RecoverySymbolRequest {
     pub encoding_type: EncodingType,
     /// The index of the sliver on the orthogonal axis which is being recovered.
     pub target_pair_index: SliverPairIndex,
+    /// Whether the request is from a client.
+    pub client_request: bool,
 }
 
 /// Service used to create recovery symbols from a sliver.
@@ -169,7 +171,8 @@ impl RecoverySymbolService {
             cache_key.clone(),
             sliver,
             req.target_pair_index,
-            &config
+            &config,
+            req.client_request,
         ))
     }
 
@@ -179,6 +182,7 @@ impl RecoverySymbolService {
         sliver: SliverData<T>,
         target_pair_index: SliverPairIndex,
         config: &EncodingConfigEnum,
+        client_request: bool,
     ) -> Result<GeneralRecoverySymbol, RecoverySymbolError>
     where
         DecodingSymbol<T::OrthogonalAxis>: Into<EitherDecodingSymbol>,
@@ -187,17 +191,27 @@ impl RecoverySymbolService {
             target_pair_index.to_sliver_index::<T::OrthogonalAxis>(config.n_shards());
         let is_source_target = usize::from(target_sliver_index.get()) < sliver.symbols.len();
 
+        if client_request && !is_source_target {
+            return Err(RecoverySymbolError::ClientRequestIndexTooLarge(
+                target_sliver_index,
+            ));
+        }
+
         if is_source_target {
             let symbol_bytes = sliver.symbols[target_sliver_index.as_usize()].to_vec();
             let sliver_index = sliver.index;
             let decoding_symbol =
                 DecodingSymbol::<T::OrthogonalAxis>::new(sliver_index.get(), symbol_bytes);
 
-            let proof = self.proof_from_cache_or_build(
-                cache_key,
-                target_sliver_index.as_usize(),
-                move || sliver.recovery_symbols(config),
-            )?;
+            let proof = if client_request {
+                MerkleProof::new_empty_proof()
+            } else {
+                self.proof_from_cache_or_build(
+                    cache_key,
+                    target_sliver_index.as_usize(),
+                    move || sliver.recovery_symbols(config),
+                )?
+            };
 
             Ok(GeneralRecoverySymbol::from_recovery_symbol(
                 decoding_symbol.with_proof(proof),
@@ -339,6 +353,7 @@ mod tests {
             source_sliver: walrus_core::test_utils::sliver(),
             target_pair_index: SliverPairIndex(0),
             encoding_type: EncodingType::RS2,
+            client_request: false,
         }
     }
 
@@ -398,6 +413,7 @@ mod tests {
                 source_sliver: sliver.into(),
                 target_pair_index,
                 encoding_type: blob_info.encoding_type(),
+                client_request: false,
             })
             .await?;
 
@@ -438,6 +454,7 @@ mod tests {
             source_sliver: sliver.into(),
             target_pair_index: first_target_id.pair_index(n_shards),
             encoding_type: blob_info.encoding_type(),
+            client_request: false,
         };
 
         let symbols = symbol_service(blob_info.config.clone(), pool_type)
@@ -489,6 +506,7 @@ mod tests {
             source_sliver: first_sliver.into(),
             target_pair_index: target_id.pair_index(n_shards),
             encoding_type: blob_info.encoding_type(),
+            client_request: false,
         };
 
         let symbols = symbol_service(blob_info.config.clone(), pool_type)

@@ -120,6 +120,14 @@ where
             path: path.into(),
         }
     }
+
+    /// Creates a new empty proof.
+    pub fn new_empty_proof() -> Self {
+        Self {
+            _hash_type: PhantomData,
+            path: Vec::new(),
+        }
+    }
 }
 
 // Cannot be derived as many hash functions don't implement `Clone` and the derive is not smart

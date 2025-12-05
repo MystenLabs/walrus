@@ -400,8 +400,12 @@ where
                 get(routes::get_recovery_symbol_by_id),
             )
             .route(
-                routes::RECOVERY_SYMBOL_LIST_ENDPOINT,
+                routes::LIST_RECOVERY_SYMBOL_ENDPOINT,
                 get(routes::list_recovery_symbols),
+            )
+            .route(
+                routes::CLIENT_LIST_RECOVERY_SYMBOL_ENDPOINT,
+                get(routes::client_list_recovery_symbols),
             )
             .route(
                 routes::INCONSISTENCY_PROOF_ENDPOINT,
@@ -664,6 +668,7 @@ mod tests {
             &self,
             blob_id: &BlobId,
             _filter: RecoverySymbolsFilter,
+            _client_request: bool,
         ) -> Result<Vec<GeneralRecoverySymbol>, ListSymbolsError> {
             let symbol = self
                 .retrieve_recovery_symbol(blob_id, SymbolId::new(0.into(), 0.into()), None)
