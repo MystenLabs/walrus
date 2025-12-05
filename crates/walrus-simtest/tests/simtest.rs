@@ -30,7 +30,13 @@ mod tests {
     use walrus_core::{Epoch, EpochCount};
     use walrus_proc_macros::walrus_simtest;
     use walrus_sdk::{
-        client::{StoreArgs, StoreBlobsApi as _, WalrusNodeClient, metrics::ClientMetrics},
+        client::{
+            StoreArgs,
+            StoreBlobsApi as _,
+            WalrusNodeClient,
+            metrics::ClientMetrics,
+            responses::BlobStoreResult,
+        },
         config::SliverWriteExtraTime,
     };
     use walrus_service::{
@@ -59,7 +65,7 @@ mod tests {
         client::{BlobPersistence, PostStoreAction, ReadClient, SuiContractClient, UpgradeType},
         system_setup::copy_recursively,
         test_utils::system_setup::{development_contract_dir, testnet_contract_dir},
-        types::move_structs::EventBlob,
+        types::{Blob, move_structs::EventBlob},
     };
     use walrus_test_utils::{WithTempDir, random_data_from_rng};
 
@@ -1223,14 +1229,26 @@ mod tests {
                 {
                     Ok(result) => {
                         if should_delete {
-                            let _ = client
-                                .as_ref()
-                                .inner
-                                .delete_owned_blob(&result[0].blob_id().unwrap())
-                                .await
-                                .inspect_err(|error| {
-                                    tracing::warn!(?error, "error deleting blob");
-                                });
+                            tracing::info!("deleting {} blobs", result.len());
+                            for blob in result.into_iter() {
+                                if let BlobStoreResult::NewlyCreated {
+                                    blob_object: Blob { id, .. },
+                                    ..
+                                } = blob
+                                {
+                                    tracing::info!(object_id = %id, "deleting blob");
+                                    let _ = client
+                                        .as_ref()
+                                        .inner
+                                        .delete_owned_blob_by_object(id)
+                                        .await
+                                        .inspect_err(|error| {
+                                            tracing::warn!(?error, "error deleting blob");
+                                        });
+                                } else {
+                                    tracing::warn!("blob is not newly created");
+                                }
+                            }
                         }
                     }
                     Err(error) => {
