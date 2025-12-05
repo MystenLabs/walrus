@@ -20,7 +20,7 @@ lifetimes.
 Sui and Walrus are both decentralized, distributed systems made up of many independent servers that
 communicate and collectively establish shared state. A group of servers together is a *network*.
 
-### Available networks
+### Available Networks
 
 Sui and Walrus each have the following available [networks](/usage/networks.mdx):
 
@@ -32,7 +32,7 @@ Sui and Walrus each have the following available [networks](/usage/networks.mdx)
 
 When you are getting started, you should use **Testnet**.
 
-## Install tooling
+## Install Tooling
 
 To install Walrus and Sui, use the Mysten Labs `suiup` tool. First,
 [install suiup](https://github.com/MystenLabs/suiup?tab=readme-ov-file#installation):
@@ -48,7 +48,7 @@ $ suiup install sui
 $ suiup install walrus
 ```
 
-### Configure tooling for Walrus Testnet
+### Configure Tooling for Walrus Testnet
 
 After installing Walrus it is important to configure the Walrus client, which tells it the RPC URLs
 to use to access Testnet or Mainnet, as well as the Sui objects that track the state of the Walrus
@@ -91,7 +91,7 @@ Testnet.
 For detailed information about the `walrus` command-line tool, use the `walrus --help` command. Or,
 append `--help` to any `walrus` subcommand to get details about that specific command.
 
-## Understanding your Sui account
+## Understanding your Sui Account
 
 When you ran `sui client` during setup, the system automatically created a Sui account for you. Sui
 uses addresses and accounts. When you store blobs on Walrus, Walrus binds them to an object on Sui
@@ -126,7 +126,7 @@ $ sui client addresses
 >
 > [Learn more about addresses, available key pair options, and key storage.](https://docs.sui.io/guides/developer/getting-started/get-address)
 
-### Creating additional addresses (Optional)
+### Creating Additional Addresses (Optional)
 
 You can create additional addresses if needed:
 
@@ -187,7 +187,7 @@ Then, check your balance again with `sui client balance` to confirm you now have
 ╰─────────────────────────────────────────╯
 ```
 
-## Store a blob
+## Store a Blob
 
 Changes to objects on Sui happen through the use of transactions. Accounts sign these transactions
 on behalf of addresses and they result in the system creating, updating, transferring, and sometimes
@@ -226,7 +226,7 @@ metadata, such as its storage duration. You might also use them to read blob dat
 
 You can use the [Walrus Explorer](https://walruscan.com/) to view more information about a blob ID.
 
-## Retrieve a blob
+## Retrieve a Blob
 
 To retrieve a blob and save it on your local machine, run the following command:
 
@@ -237,7 +237,7 @@ $ walrus read <blob-id> --out file.txt --context testnet
 Replace `<blob-id>` with the blob's identifier the `walrus store` command returns in its output, and
 replace `file.txt` with the name and file extension for storing the file locally.
 
-## Extend a blob's storage duration
+## Extend a Blob's Storage Duration
 
 To extend a blob's storage duration, you must reference the Sui object ID and indicate how many
 epochs you want to extend the blob's storage for.
@@ -252,7 +252,7 @@ $ walrus extend --blob-obj-id <blob-object-id> --epochs-extended 3 --context tes
 Replace `<blob-object-id>` with the blob's Sui object ID the `walrus store` command returns in its
 output.
 
-## Delete a blob
+## Delete a Blob
 
 All blobs stored in Walrus are public and discoverable by anyone The `delete` command does not
 delete blobs from caches, slivers from past storage nodes, or copies that could have been made by
@@ -266,7 +266,7 @@ $ walrus delete --blob-id <blob-id> --context testnet
 
 Replace `<blob-id>` with the blob's identifier the `walrus store` command returns in its output.
 
-## Next steps
+## Next Steps
 
 [Build your first Walrus application](/dev-guide/dev-guide.mdx). Explore
 working examples:
@@ -275,7 +275,7 @@ working examples:
 - [JavaScript web form](https://github.com/MystenLabs/walrus/tree/main/documentation/examples/javascript)
 - [Move smart contracts](https://github.com/MystenLabs/walrus/tree/main/documentation/examples/move)
 
-## Need help?
+## Need Help?
 
 - [Troubleshooting guide](/usage/troubleshooting.mdx)
 - [Discord community](https://discord.gg/walrus)
