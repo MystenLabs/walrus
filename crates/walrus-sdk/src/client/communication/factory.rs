@@ -4,7 +4,7 @@
 //! Create the vectors of node communications objects.
 
 use std::{
-    collections::{HashMap, hash_map::Entry},
+    collections::{HashMap, HashSet, hash_map::Entry},
     sync::{Arc, Mutex},
 };
 
@@ -191,6 +191,72 @@ impl NodeCommunicationFactory {
                     "cannot communicate with one or more of the storage nodes: {error}",
                 ))
             })?;
+
+        Ok(comms)
+    }
+
+    /// Returns a vector of [`NodeWriteCommunication`] objects, matching the specified node indices.
+    ///
+    /// This is useful when retrying uploads to a subset of nodes without rebuilding communications
+    /// for the entire committee.
+    pub(crate) fn node_write_communications_by_index(
+        &self,
+        committees: &ActiveCommittees,
+        sliver_write_limit: Arc<Semaphore>,
+        auto_tune_handle: Option<AutoTuneHandle>,
+        node_indices: impl IntoIterator<Item = usize>,
+    ) -> ClientResult<Vec<NodeWriteCommunication>> {
+        self.remove_old_cached_clients(
+            committees,
+            &mut self
+                .client_cache
+                .lock()
+                .expect("other threads should not panic"),
+        );
+
+        let write_committee = committees.write_committee();
+        let mut seen = HashSet::new();
+        let mut comms = Vec::new();
+
+        for index in node_indices {
+            if !seen.insert(index) {
+                continue;
+            }
+
+            if index >= write_committee.members().len() {
+                tracing::warn!(
+                    node = index,
+                    committee_size = write_committee.members().len(),
+                    "requested node index is out of range; likely stale committee info"
+                );
+                return Err(ClientError::store_blob_internal(format!(
+                    "node index {} out of range for committee size {}",
+                    index,
+                    write_committee.members().len()
+                )));
+            }
+
+            match self.create_write_communication(
+                write_committee,
+                index,
+                sliver_write_limit.clone(),
+                auto_tune_handle.clone(),
+            ) {
+                Ok(Some(comm)) => comms.push(comm),
+                Ok(None) => {
+                    tracing::warn!(
+                        node = index,
+                        "skipping storage node without shards when building write communications"
+                    );
+                    continue;
+                }
+                Err(error) => {
+                    return Err(ClientError::store_blob_internal(format!(
+                        "cannot communicate with one or more of the storage nodes: {error}",
+                    )));
+                }
+            }
+        }
 
         Ok(comms)
     }

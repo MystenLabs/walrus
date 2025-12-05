@@ -34,6 +34,7 @@ use tokio::{
     task::JoinHandle,
     time::Duration,
 };
+use tokio_util::sync::CancellationToken;
 use tracing::{Instrument as _, Level};
 use walrus_core::{
     BlobId,
@@ -88,7 +89,7 @@ use crate::{
             WalrusStoreBlobUnfinished,
             WalrusStoreEncodedBlobApi as _,
         },
-        communication::NodeResult,
+        communication::{NodeResult, NodeWriteCommunication, node::NodeIndex},
         quilt_client::QuiltClient,
         refresh::{CommitteesRefresherHandle, RequestKind, are_current_previous_different},
         resource::{PriceComputation, ResourceManager},
@@ -1439,6 +1440,7 @@ impl<T> WalrusNodeClient<T> {
             &blobs,
             event_tx.clone(),
             tail_handling,
+            None,
         ));
 
         let mut upload_results: Option<RunOutput<Vec<BlobId>, StoreError>> = None;
@@ -1549,6 +1551,47 @@ impl<T> WalrusNodeClient<T> {
         blobs: &[(VerifiedBlobMetadataWithId, Arc<Vec<SliverPair>>)],
         event_sender: tokio::sync::mpsc::Sender<UploaderEvent>,
         tail_handling: TailHandling,
+        cancellation: Option<CancellationToken>,
+    ) -> ClientResult<RunOutput<Vec<BlobId>, StoreError>> {
+        self.distributed_upload_without_confirmation_inner(
+            blobs,
+            event_sender,
+            tail_handling,
+            cancellation,
+            None,
+        )
+        .await
+    }
+
+    /// Targets only the provided node indices.
+    /// This is useful when retrying uploads without hitting already-successful nodes.
+    #[allow(dead_code)]
+    pub(crate) async fn distributed_upload_without_confirmation_for_nodes(
+        &self,
+        blobs: &[(VerifiedBlobMetadataWithId, Arc<Vec<SliverPair>>)],
+        event_sender: tokio::sync::mpsc::Sender<UploaderEvent>,
+        tail_handling: TailHandling,
+        cancellation: Option<CancellationToken>,
+        committee_epoch: Epoch,
+        node_indices: &[NodeIndex],
+    ) -> ClientResult<RunOutput<Vec<BlobId>, StoreError>> {
+        self.distributed_upload_without_confirmation_inner(
+            blobs,
+            event_sender,
+            tail_handling,
+            cancellation,
+            Some((committee_epoch, node_indices)),
+        )
+        .await
+    }
+
+    async fn distributed_upload_without_confirmation_inner(
+        &self,
+        blobs: &[(VerifiedBlobMetadataWithId, Arc<Vec<SliverPair>>)],
+        event_sender: tokio::sync::mpsc::Sender<UploaderEvent>,
+        tail_handling: TailHandling,
+        cancellation: Option<CancellationToken>,
+        target_nodes: Option<(Epoch, &[NodeIndex])>,
     ) -> ClientResult<RunOutput<Vec<BlobId>, StoreError>> {
         if blobs.is_empty() {
             return Ok(RunOutput {
@@ -1558,6 +1601,16 @@ impl<T> WalrusNodeClient<T> {
         }
 
         let committees = self.get_committees().await?;
+        if let Some((target_epoch, _)) = target_nodes
+            && committees.epoch() != target_epoch
+        {
+            let message = format!(
+                "target nodes belong to epoch {target_epoch},
+                current committee epoch is {}; refresh committees before retrying targeted upload",
+                committees.epoch()
+            );
+            return Err(ClientError::other(std::io::Error::other(message)));
+        }
 
         let max_unencoded = blobs
             .iter()
@@ -1579,10 +1632,11 @@ impl<T> WalrusNodeClient<T> {
             tracing::debug!("auto tune is disabled");
         }
 
-        let comms = self.communication_factory.node_write_communications(
+        let comms = self.node_write_communications_for_upload(
             &committees,
             sliver_write_semaphore,
             auto_tune_handle,
+            target_nodes.map(|(_, nodes)| nodes),
         )?;
 
         let sliver_write_extra_time = self
@@ -1628,10 +1682,35 @@ impl<T> WalrusNodeClient<T> {
                 },
                 event_sender,
                 tail_handling,
+                cancellation,
             )
             .await?;
 
         Ok(run_output)
+    }
+
+    fn node_write_communications_for_upload(
+        &self,
+        committees: &ActiveCommittees,
+        sliver_write_semaphore: Arc<Semaphore>,
+        auto_tune_handle: Option<AutoTuneHandle>,
+        target_nodes: Option<&[NodeIndex]>,
+    ) -> ClientResult<Vec<NodeWriteCommunication>> {
+        match target_nodes {
+            Some(indices) => self
+                .communication_factory
+                .node_write_communications_by_index(
+                    committees,
+                    sliver_write_semaphore,
+                    auto_tune_handle,
+                    indices.iter().copied(),
+                ),
+            None => self.communication_factory.node_write_communications(
+                committees,
+                sliver_write_semaphore,
+                auto_tune_handle,
+            ),
+        }
     }
 
     /// Fetches confirmations for a blob from a quorum of nodes and returns the certificate.
