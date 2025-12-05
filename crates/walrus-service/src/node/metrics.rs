@@ -417,6 +417,7 @@ impl TelemetryLabel for ClientErrorKind {
             ClientErrorKind::ClientInitializationError(_) => "client-initialization-error",
             ClientErrorKind::ByteRangeReadInputError(_) => "byte-range-read-input-error",
             ClientErrorKind::NotEnoughSymbols => "not-enough-symbols",
+            ClientErrorKind::RecoverSliverError(_) => "recover-sliver-error",
         }
     }
 }

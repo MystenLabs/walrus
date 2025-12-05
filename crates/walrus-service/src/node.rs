@@ -76,7 +76,6 @@ use walrus_core::{
     },
     ensure,
     keys::ProtocolKeyPair,
-    merkle::MerkleProof,
     messages::{
         BlobPersistenceType,
         Confirmation,

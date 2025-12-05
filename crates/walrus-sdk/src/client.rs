@@ -994,19 +994,19 @@ impl<T: ReadClient> WalrusNodeClient<T> {
                         }
                     });
 
-                let recovered_sliver =
-                    SliverData::<E>::recover_sliver_or_generate_inconsistency_proof(
-                        recovery_symbol_iter,
-                        sliver_index,
-                        metadata.metadata(),
-                        &self.encoding_config,
-                    );
+                let recovered_sliver = SliverData::<E>::try_recover_sliver(
+                    recovery_symbol_iter,
+                    sliver_index,
+                    metadata.metadata(),
+                    &self.encoding_config,
+                );
 
                 match recovered_sliver {
-                    Ok(SliverOrInconsistencyProof::Sliver(sliver)) => Ok(sliver.into()),
-                    _ => Err(ClientErrorKind::InvalidBlob.into()),
+                    Ok(sliver) => Ok(sliver),
+                    Err(error) => Err(ClientErrorKind::RecoverSliverError(error).into()),
                 }
             }
+
             CompletedReasonWeight::FuturesConsumed(weight) => {
                 assert!(
                     weight < required_slivers,

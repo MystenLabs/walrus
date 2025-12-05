@@ -29,6 +29,7 @@ use walrus_storage_node_client::{
     RecoverySymbolsFilter,
     StorageNodeClient,
     api::{BlobStatus, StoredOnNodeStatus},
+    client::ClientRecoverySymbolsFilter,
 };
 use walrus_sui::types::StorageNode;
 use walrus_utils::backoff::{self, ExponentialBackoff};
@@ -273,11 +274,11 @@ impl<W> NodeCommunication<W> {
             sliver_type = A::NAME,
             "ZZZZZ retrieving recovery symbols"
         );
-        let filter = RecoverySymbolsFilter::recovers(sliver_index, A::sliver_type())
-            .require_proof_from_axis(A::sliver_type().orthogonal());
+        let filter = ClientRecoverySymbolsFilter::new(sliver_index, A::sliver_type());
+
         let result = self
             .client
-            .list_and_verify_recovery_symbols(
+            .client_list_recovery_symbols(
                 filter,
                 metadata,
                 self.encoding_config.clone(),

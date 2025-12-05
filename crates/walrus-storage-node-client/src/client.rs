@@ -67,6 +67,7 @@ const PERMANENT_BLOB_CONFIRMATION_URL_TEMPLATE: &str = "/v1/blobs/:blob_id/confi
 const DELETABLE_BLOB_CONFIRMATION_URL_TEMPLATE: &str =
     "/v1/blobs/:blob_id/confirmation/deletable/:object_id";
 const LIST_RECOVERY_SYMBOLS_URL_TEMPLATE: &str = "/v1/blobs/:blob_id/recoverySymbols";
+const CLIENT_RECOVERY_SYMBOLS_URL_TEMPLATE: &str = "/v1/blobs/:blob_id/clientListRecoverySymbols";
 const INCONSISTENCY_PROOF_URL_TEMPLATE: &str = "/v1/blobs/:blob_id/inconsistencyProof/:sliver_type";
 const BLOB_STATUS_URL_TEMPLATE: &str = "/v1/blobs/:blob_id/status";
 const HEALTH_URL_TEMPLATE: &str = "/v1/health";
@@ -179,6 +180,13 @@ impl UrlEndpoints {
         (
             self.blob_resource(blob_id, "recoverySymbols"),
             LIST_RECOVERY_SYMBOLS_URL_TEMPLATE,
+        )
+    }
+
+    fn client_list_recovery_symbols(&self, blob_id: &BlobId) -> (Url, &'static str) {
+        (
+            self.blob_resource(blob_id, "clientListRecoverySymbols"),
+            CLIENT_RECOVERY_SYMBOLS_URL_TEMPLATE,
         )
     }
 
@@ -308,15 +316,24 @@ where
     serializer.collect_map(symbols.iter().map(|id| ("id", id)))
 }
 
-// /// Filter for [`StorageNodeClient::list_recovery_symbols()`] endpoint.
-// #[derive(Debug, Clone, Serialize)]
-// #[serde(rename_all = "camelCase")]
-// pub struct ClientRecoverySymbolsFilter {
-//     /// The ID of the target sliver being recovered.
-//     target_sliver: SliverIndex,
-//     /// The type of the sliver being recovered.
-//     target_type: SliverType,
-// }
+/// Filter for [`StorageNodeClient::list_recovery_symbols()`] endpoint.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClientRecoverySymbolsFilter {
+    /// The ID of the target sliver being recovered.
+    target_sliver: SliverIndex,
+    /// The type of the sliver being recovered.
+    target_type: SliverType,
+}
+
+impl ClientRecoverySymbolsFilter {
+    pub fn new(target_sliver: SliverIndex, target_type: SliverType) -> Self {
+        Self {
+            target_sliver,
+            target_type,
+        }
+    }
+}
 
 /// A client for communicating with a StorageNode.
 #[derive(Debug, Clone)]
@@ -607,6 +624,33 @@ impl StorageNodeClient {
         })
         .await
         .map_err(|_| NodeError::other(ListAndVerifyRecoverySymbolsError::BackgroundWorkerFailed))?
+    }
+
+    /// Gets multiple recovery symbols.
+    #[tracing::instrument(
+        skip_all, fields(walrus.blob_id = %metadata.blob_id(),), err(level = Level::DEBUG)
+    )]
+    pub async fn client_list_recovery_symbols(
+        &self,
+        filter: ClientRecoverySymbolsFilter,
+        metadata: Arc<VerifiedBlobMetadataWithId>,
+        encoding_config: Arc<EncodingConfig>,
+        target_index: SliverIndex,
+        target_type: SliverType,
+    ) -> Result<Vec<GeneralRecoverySymbol>, NodeError> {
+        let (url, template) = self
+            .endpoints
+            .client_list_recovery_symbols(metadata.blob_id());
+
+        let request = self
+            .client_clone
+            .get(url)
+            .query(&filter)
+            .build()
+            .expect("creating a URL from typed arguments should always succeed");
+        let symbols = self.send_and_parse_bcs_response(request, template).await?;
+
+        Ok(symbols)
     }
 
     /// Stores the metadata on the node.

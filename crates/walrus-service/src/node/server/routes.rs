@@ -602,6 +602,8 @@ pub async fn client_list_recovery_symbols<S: SyncServiceState>(
 ) -> Result<Bcs<Vec<GeneralRecoverySymbol>>, ListSymbolsError> {
     let _guard = limit_symbol_recovery_requests(state.recovery_symbols_limit.as_deref())?;
 
+    tracing::info!("ZZZZZ client_list_recovery_symbols: {:?}", query);
+
     if query.target_type.is_secondary() {
         return Err(ListSymbolsError::InvalidSliverType(query.target_type));
     }
