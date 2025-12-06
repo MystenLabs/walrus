@@ -1,0 +1,98 @@
+/*
+  Copyright (c) Walrus Foundation
+  SPDX-License-Identifier: Apache-2.0
+*/
+
+/* Copyright (c) Walrus Foundation */
+/* SPDX-License-Identifier: Apache-2.0 */
+
+.container {
+    margin: 1rem 0;
+}
+
+.title {
+    font-size: 1.25rem;
+    font-weight: 600;
+    margin-bottom: 1rem;
+    color: var(--ifm-heading-color);
+}
+
+.portalsList {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.portalItem {
+    border: 1px solid var(--ifm-color-emphasis-300);
+    border-radius: 8px;
+    padding: 1rem;
+    margin-bottom: 0.75rem;
+    background: var(--ifm-background-color);
+    transition: box-shadow 0.2s ease;
+}
+
+.portalItem:hover {
+    box-shadow: 0 2px 8px var(--ifm-color-emphasis-200);
+}
+
+.portalContent {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.portalUrl {
+    font-size: 1rem;
+    font-weight: 500;
+    color: var(--ifm-link-color);
+    text-decoration: none;
+    word-break: break-all;
+}
+
+.portalUrl:hover {
+    text-decoration: underline;
+}
+
+.portalOperator {
+    font-size: 0.875rem;
+    color: var(--ifm-color-emphasis-700);
+    font-style: italic;
+}
+
+.loading,
+.error,
+.empty {
+    text-align: center;
+    padding: 2rem;
+    font-size: 1rem;
+}
+
+.loading {
+    color: var(--ifm-color-emphasis-600);
+}
+
+.error {
+    color: var(--ifm-color-danger);
+    background: var(--ifm-color-danger-contrast-background);
+    border: 1px solid var(--ifm-color-danger-contrast-border);
+    border-radius: 4px;
+}
+
+.empty {
+    color: var(--ifm-color-emphasis-600);
+    background: var(--ifm-color-emphasis-100);
+    border-radius: 4px;
+}
+
+@media (min-width: 768px) {
+    .portalContent {
+        flex-direction: row;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    .portalUrl {
+        word-break: normal;
+    }
+}

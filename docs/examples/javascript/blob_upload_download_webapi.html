@@ -32,10 +32,10 @@
     const SUI_VIEW_OBJECT_URL = `https://suiscan.xyz/${SUI_NETWORK}/object`;
 
     /**
-     * Handler for submit events from the HTML form.
-     *
-     * Stores the blob provided in the form, and disable the default HTML form submission.
-     */
+    * Handler for submit events from the HTML form.
+    *
+    * Stores the blob provided in the form, and disable the default HTML form submission.
+    */
     function onSubmit(event) {
       // Ensure that the event does not propagate, so that the browser does not
       // perform a POST with the file.
@@ -63,8 +63,8 @@
     }
 
     /**
-     * Stores the file from the HTML form on Walrus.
-     */
+    * Stores the file from the HTML form on Walrus.
+    */
     function storeBlob() {
       const inputFile = document.getElementById("file-input").files[0];
       const numEpochs = document.getElementById("epochs-input").value;
@@ -91,8 +91,8 @@
     }
 
     /**
-     * Display the result of uploading the file to Walrus.
-     */
+    * Display the result of uploading the file to Walrus.
+    */
     function displayUpload(storage_info, media_type) {
       // Extract the displayed fields from either of the two successful responses:
       // - newlyCreated for blobs that have been uploaded for the first time,
@@ -154,8 +154,8 @@
     }
 
     /**
-     * Helper function to disable the form while uploading.
-     */
+    * Helper function to disable the form while uploading.
+    */
     function enableForm(isEnabled) {
       if (isEnabled) {
         // Copy the urls, so that they are not reset.
@@ -179,8 +179,8 @@
     }
 
     /**
-     * Helper to display an error message.
-     */
+    * Helper to display an error message.
+    */
     function alert(message) {
       const alertElement = document.getElementById("alert");
       if (message !== null) {
