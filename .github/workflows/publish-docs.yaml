@@ -5,7 +5,7 @@ on:
     branches:
       - "main"
     paths:
-      - "documentation/site/**"
+      - "docs/site/**"
       - ".github/workflows/publish-docs.yaml"
   workflow_dispatch:
     inputs:
@@ -46,15 +46,15 @@ jobs:
         with:
           node-version: '18'
           cache: 'pnpm'
-          cache-dependency-path: documentation/site/pnpm-lock.yaml
+          cache-dependency-path: docs/site/pnpm-lock.yaml
       - name: Install dependencies
-        run: cd documentation/site && pnpm install --frozen-lockfile
+        run: cd docs/site && pnpm install --frozen-lockfile
       - name: Build site
-        run: cd documentation/site && pnpm run build
+        run: cd docs/site && pnpm run build
       - name: Update GitHub Pages
         uses: JamesIves/github-pages-deploy-action@6c2d9db40f9296374acc17b90404b6e8864128c8 # pin@v4.7.3
         with:
-          folder: documentation/site/build
+          folder: docs/site/build
           clean-exclude: pr-preview/
           force: false
 
@@ -70,7 +70,7 @@ jobs:
       NO_COLOR: 1
       RUST_LOG: info
       EPOCHS: 10
-      BUILD_DIR: documentation/site/build
+      BUILD_DIR: docs/site/build
     concurrency:
       group: sui-wallet-operations
       cancel-in-progress: false
@@ -85,11 +85,11 @@ jobs:
         with:
           node-version: '18'
           cache: 'pnpm'
-          cache-dependency-path: documentation/site/pnpm-lock.yaml
+          cache-dependency-path: docs/site/pnpm-lock.yaml
       - name: Install dependencies
-        run: cd documentation/site && pnpm install --frozen-lockfile
+        run: cd docs/site && pnpm install --frozen-lockfile
       - name: Build site
-        run: cd documentation/site && pnpm run build
+        run: cd docs/site && pnpm run build
       - uses: ./.github/actions/set-up-walrus
         with:
           SUI_ADDRESS: "${{ vars.SUI_ADDRESS }}"
