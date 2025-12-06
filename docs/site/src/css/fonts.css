@@ -1,0 +1,15 @@
+/*
+  Copyright (c) Walrus Foundation
+  SPDX-License-Identifier: Apache-2.0
+*/
+
+/* Copyright (c) Walrus Foundation */
+/* SPDX-License-Identifier: Apache-2.0 */
+
+@font-face {
+    font-family: "Inter";
+    src: url("/fonts/Inter.woff2") format("woff2");
+    font-weight: 100 900;
+    font-style: normal italic; /* covers both roman + slanted */
+    font-display: swap;
+}
