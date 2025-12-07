@@ -1,7 +1,7 @@
 [files]
 extend-exclude = [
-    "*.svg",
-    "mainnet-contracts/",
-    "testnet-contracts/",
-    "docs/site/src/plugins/askcookbook/index.js",
+  "*.svg",
+  "docs/site/src/plugins/askcookbook/index.js",
+  "mainnet-contracts/",
+  "testnet-contracts/",
 ]
