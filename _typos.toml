@@ -1,2 +1,2 @@
 [files]
-extend-exclude = ["*.svg", "mainnet-contracts/", "testnet-contracts/"]
+extend-exclude = ["*.svg", "mainnet-contracts/", "testnet-contracts/", "docs/site/src/plugins/askcookbook/index.js"]
