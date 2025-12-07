@@ -3,7 +3,9 @@
 
 // It is going to be exposed in HTTP requests anyway, so it's fine to just hardcode it here.
 const COOKBOOK_PUBLIC_API_KEY =
-    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI2NzU4Y2YyODM4NTcxODU5MjU0MGIyMDciLCJpYXQiOjE3MzM4NzM0NDgsImV4cCI6MjA0OTQ0OTQ0OH0.Z3cv3HuMkYq3aYZYzCKkkYuM5LI3KG-kuA0R-GaSMV4";
+    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9." +
+    "eyJzdWIiOiI2NzU4Y2YyODM4NTcxODU5MjU0MGIyMDciLCJpYXQiOjE3MzM4NzM0NDgsImV4cCI6MjA0OTQ0OTQ0OH0." +
+    "Z3cv3HuMkYq3aYZYzCKkkYuM5LI3KG-kuA0R-GaSMV4";
 
 async function askCookbookPlugin() {
     return {
@@ -21,9 +23,6 @@ async function askCookbookPlugin() {
                     `
             <script>
             window.initCookbook = function initCookbook() {
-                // It's a public API key, so it's safe to expose it here
-                const PUBLIC_API_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI2NzU4Y2YyODM4NTcxODU5MjU0MGIyMDciLCJpYXQiOjE3MzM4NzM0NDgsImV4cCI6MjA0OTQ0OTQ0OH0.Z3cv3HuMkYq3aYZYzCKkkYuM5LI3KG-kuA0R-GaSMV4";
-
                 let cookbookContainer = document.getElementById("__cookbook");
                 if (!cookbookContainer) {
                 cookbookContainer = document.createElement("div");

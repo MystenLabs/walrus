@@ -13,7 +13,13 @@ export default function CustomHitsContent({ name }) {
 
     let siteToVisit = "Try your search again with different keywords";
     if (name === "sui_docs") {
-        siteToVisit = `${siteToVisit}. If you are unable to find the information you need, try one of the official Sui support channels: <a href="https://github.com/MystenLabs/sui/issues/new/choose" target="_blank">GitHub</a>, <a href="https://discord.gg/Sui" target="_blank">Discord</a>, or <a href="https://t.me/SuiTokenNetwork" target="_blank">Telegram</a>.`;
+        siteToVisit =
+            `${siteToVisit}. If you are unable to find the information you need, ` +
+            `try one of the official Sui support channels: ` +
+            `<a href="https://github.com/MystenLabs/sui/issues/new/choose" ` +
+            `target="_blank">GitHub</a>, ` +
+            `<a href="https://discord.gg/Sui" target="_blank">Discord</a>, or ` +
+            `<a href="https://t.me/SuiTokenNetwork" target="_blank">Telegram</a>.`;
     } else if (name === "suins_docs") {
         siteToVisit = `${siteToVisit} or visit the official <a href="https://docs.suins.io" target="_blank">SuiNS doc</a> site.`;
     } else if (name === "move_book") {
@@ -80,7 +86,12 @@ export default function CustomHitsContent({ name }) {
                                                 onClick={() =>
                                                     history.push(new URL(hit.url).pathname)
                                                 }
-                                                className="text-base text-blue-600 hover:text-wal-green-dark underline text-left bg-transparent border-0 pl-0 cursor-pointer font-[Inter]"
+                                                className={
+                                                    "text-base text-blue-600 " +
+                                                    "hover:text-wal-green-dark underline " +
+                                                    "text-left bg-transparent border-0 pl-0 " +
+                                                    "cursor-pointer font-[Inter]"
+                                                }
                                             >
                                                 {sectionTitle}
                                             </button>

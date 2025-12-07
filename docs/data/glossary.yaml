@@ -18,15 +18,23 @@
 
 - id: shard
   label: Shard
-  definition: (Disjoint) Subset of erasure-encoded data of all blobs; at every point in time, a shard is assigned to and stored on a single storage node.
+  definition: >-
+    (Disjoint) Subset of erasure-encoded data of all blobs; at every point
+    in time, a shard is assigned to and stored on a single storage node.
 
 - id: redstuff
   label: RedStuff
-  definition: Erasure-encoding approach, which uses two different encodings (primary and secondary) to enable shard recovery; details are available in the [whitepaper](./walrus.pdf).
+  definition: >-
+    Erasure-encoding approach, which uses two different encodings (primary
+    and secondary) to enable shard recovery; details are available in the
+    [whitepaper](./walrus.pdf).
 
 - id: sliver
   label: Sliver
-  definition: Erasure-encoded data of one shard corresponding to a single blob for one of the two encodings; this contains several erasure-encoded symbols of that blob but not the blob metadata.
+  definition: >-
+    Erasure-encoded data of one shard corresponding to a single blob for one
+    of the two encodings; this contains several erasure-encoded symbols of
+    that blob but not the blob metadata.
 
 - id: sliver-pair
   label: Sliver pair
@@ -42,7 +50,10 @@
 
 - id: end-user
   label: User
-  definition: Any entity or person that wants to store or read blobs on or from Walrus; can act as a Walrus client itself or use the simple interface exposed by publishers and caches.
+  definition: >-
+    Any entity or person that wants to store or read blobs on or from Walrus;
+    can act as a Walrus client itself or use the simple interface exposed by
+    publishers and caches.
   aliases: ["end user"]
 
 - id: publisher
@@ -83,16 +94,24 @@
 
 - id: point-of-availability
   label: Point of availability
-  definition: Point in time when a certificate of availability is submitted to Sui and the corresponding blob is guaranteed to be available until its expiration.
+  definition: >-
+    Point in time when a certificate of availability is submitted to Sui and
+    the corresponding blob is guaranteed to be available until its expiration.
   aliases: ["point of availability (PoA)", "PoA"]
 
 - id: inconsistency-proof
   label: Inconsistency proof
-  definition: Set of several recovery symbols with their Merkle proofs such that the decoded sliver does not match the corresponding hash; this proves an incorrect/inconsistent encoding by the client.
+  definition: >-
+    Set of several recovery symbols with their Merkle proofs such that the
+    decoded sliver does not match the corresponding hash; this proves an
+    incorrect/inconsistent encoding by the client.
 
 - id: inconsistency-certificate
   label: Inconsistency certificate
-  definition: An aggregated signature from 2/3 of storage nodes (weighted by their number of shards) that they have seen and stored an inconsistency proof for a blob ID.
+  definition: >-
+    An aggregated signature from 2/3 of storage nodes (weighted by their
+    number of shards) that they have seen and stored an inconsistency proof
+    for a blob ID.
 
 - id: storage-committee
   label: Storage committee

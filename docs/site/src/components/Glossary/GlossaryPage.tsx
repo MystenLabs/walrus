@@ -102,7 +102,13 @@ export default function GlossaryPage() {
 
                     return (
                         <div key={letter} id={`letter-${letter}`}>
-                            <h2 className="text-2xl font-bold text-wal-gray-80 dark:text-wal-white-60 mb-4 pb-2 border-b-2 border-wal-green-dark dark:border-wal-green-light">
+                            <h2
+                                className={
+                                    "text-2xl font-bold text-wal-gray-80 " +
+                                    "dark:text-wal-white-60 mb-4 pb-2 border-b-2 " +
+                                    "border-wal-green-dark dark:border-wal-green-light"
+                                }
+                            >
                                 {letter}
                             </h2>
                             <div className="flex flex-col gap-4">

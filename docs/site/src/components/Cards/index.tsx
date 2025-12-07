@@ -20,7 +20,7 @@ interface CardProps {
 export function Card({ title, href, className, children }: CardProps) {
   const history = useHistory();
   const [url, setUrl] = useState();
-  
+
   // Process the href with baseUrl for internal links
   const processedHref = href.match(/^https?/) ? href : useBaseUrl(href);
 
@@ -74,7 +74,9 @@ interface CardsProps {
 
 export function Cards({ children, type, ...props }: CardsProps) {
   let twClassList =
-    "grid-card gap-8 grid xl:grid-rows-${Math.ceil(children.length/3)} lg:grid-rows-${Math.ceil(children.length/2)} xl:grid-cols-3 lg:grid-cols-2 justify-start pb-8";
+    "grid-card gap-8 grid xl:grid-rows-${Math.ceil(children.length/3)} " +
+    "lg:grid-rows-${Math.ceil(children.length/2)} xl:grid-cols-3 " +
+    "lg:grid-cols-2 justify-start pb-8";
   return (
     <div
       className={`${twClassList} ${type === "steps" ? `${styles["step-card-container"]}` : `${styles["card-container"]}`}`}

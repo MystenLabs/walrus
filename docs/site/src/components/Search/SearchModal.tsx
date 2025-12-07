@@ -221,7 +221,13 @@ export default function MultiIndexSearchModal({
                         ))}
                     </InstantSearch>
                 </div>
-                <div className="h-14 bg-[var(--ifm-background-color)] flex items-center justify-between text-sm border-t border-solid border-wal-gray-50 border-b-transparent border-l-transparent border-r-transparent">
+                <div
+                    className={
+                        "h-14 bg-[var(--ifm-background-color)] flex items-center " +
+                        "justify-between text-sm border-t border-solid border-wal-gray-50 " +
+                        "border-b-transparent border-l-transparent border-r-transparent"
+                    }
+                >
                     <a
                         href={`/search?q=${encodeURIComponent(query)}`}
                         className="wal-link-hover dark:text-wal-link dark:hover:text-wal-green underline"

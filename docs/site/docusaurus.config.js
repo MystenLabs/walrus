@@ -150,7 +150,7 @@ const config = {
             footer: {
                 style: "dark",
                 copyright:
-                    `Copyright © ${new Date().getFullYear()} 
+                    `Copyright © ${new Date().getFullYear()}
                     Walrus Foundation. All rights reserved.`,
             },
             prism: {
