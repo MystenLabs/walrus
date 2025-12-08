@@ -50,6 +50,16 @@ const config = {
 
     plugins: [
         "docusaurus-plugin-copy-page-button",
+            [
+      require.resolve("./src/plugins/plausible"),
+      {
+        domain: "docs.wal.app",
+        enableInDev: false,
+        trackOutboundLinks: true,
+        hashMode: false,
+        trackLocalhost: false,
+      },
+    ],
         "./src/plugins/tailwind-config.js",
         function docsAliasPlugin() {
             return {
