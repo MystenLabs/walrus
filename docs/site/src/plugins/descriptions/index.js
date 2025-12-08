@@ -1,9 +1,6 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-// Copyright (c) Mysten Labs, Inc.
-// SPDX-License-Identifier: Apache-2.0
-
 // This plugin gets the descriptions from yaml header and
 // adds them to global data as
 // { title: doc title, id: docID, description: YAML header, section: the section of llms.txt the file should be listed in }
