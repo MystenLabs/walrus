@@ -1604,12 +1604,10 @@ impl<T> WalrusNodeClient<T> {
         if let Some((target_epoch, _)) = target_nodes
             && committees.epoch() != target_epoch
         {
-            let message = format!(
-                "target nodes belong to epoch {target_epoch},
-                current committee epoch is {}; refresh committees before retrying targeted upload",
-                committees.epoch()
-            );
-            return Err(ClientError::other(std::io::Error::other(message)));
+            return Err(ClientError::other(StoreError::TargetEpochMismatch {
+                target_epoch,
+                current_epoch: committees.epoch(),
+            }));
         }
 
         let max_unencoded = blobs
