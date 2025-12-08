@@ -232,11 +232,10 @@ impl<'a> BlobManagerClient<'a, SuiContractClient> {
 
     /// Extracts the blobs Table ObjectID from the BlobManager structure.
     ///
-    /// The BlobManager has the following nested structure (simplified single-table design):
-    /// - BlobManager { blob_stash: BlobStash }
-    ///   - BlobStash::BlobIdBased(BlobStashByBlobId) (enum variant stored as "pos0")
-    ///     - BlobStashByBlobId { blobs: Table<u256, ManagedBlob> }
-    ///       - Table { id: UID }
+    /// The BlobManager has the following structure (unified design):
+    /// - BlobManager { storage: BlobStorage }
+    ///   - BlobStorage { blobs: Table<u256, ManagedBlob> }
+    ///     - Table { id: UID }
     ///
     /// This function navigates through this structure to extract the ObjectID of the blobs Table.
     fn extract_blobs_table_id_from_blob_manager(
@@ -260,51 +259,33 @@ impl<'a> BlobManagerClient<'a, SuiContractClient> {
             return Err(Self::error("BlobManager fields not found"));
         };
 
-        // Step 4: Extract the "blob_stash" field from BlobManager.
-        let stash_value = fields
-            .get("blob_stash")
-            .ok_or_else(|| Self::error("blob_stash field not found"))?;
+        // Step 4: Extract the "storage" field from BlobManager.
+        let storage_value = fields
+            .get("storage")
+            .ok_or_else(|| Self::error("storage field not found"))?;
 
-        let SuiMoveValue::Struct(stash_struct) = stash_value else {
-            return Err(Self::error("blob_stash is not a Struct"));
+        let SuiMoveValue::Struct(storage_struct) = storage_value else {
+            return Err(Self::error("storage is not a Struct"));
         };
 
-        // Step 5: Extract the "pos0" field from the BlobStash enum.
-        // For BlobStash::BlobIdBased, the BlobStashByBlobId is stored in "pos0".
+        // Step 5: Extract the "blobs" Table field from BlobStorage.
         let SuiMoveStruct::WithTypes {
-            fields: stash_fields,
+            fields: storage_fields,
             ..
-        } = stash_struct
+        } = storage_struct
         else {
-            return Err(Self::error("blob_stash struct has no fields"));
+            return Err(Self::error("storage struct has no fields"));
         };
 
-        let pos0_value = stash_fields
-            .get("pos0")
-            .ok_or_else(|| Self::error("pos0 field not found in blob_stash"))?;
-
-        let SuiMoveValue::Struct(pos0_struct) = pos0_value else {
-            return Err(Self::error("pos0 is not a Struct"));
-        };
-
-        // Step 6: Extract the "blobs" Table field from BlobStashByBlobId.
-        let SuiMoveStruct::WithTypes {
-            fields: pos0_fields,
-            ..
-        } = pos0_struct
-        else {
-            return Err(Self::error("pos0 struct has no fields"));
-        };
-
-        let table_value = pos0_fields
+        let table_value = storage_fields
             .get("blobs")
-            .ok_or_else(|| Self::error("blobs table not found in BlobStashByBlobId"))?;
+            .ok_or_else(|| Self::error("blobs table not found in BlobStorage"))?;
 
         let SuiMoveValue::Struct(table_struct) = table_value else {
             return Err(Self::error("blobs table is not a Struct"));
         };
 
-        // Step 7: Extract the "id" field from the Table struct.
+        // Step 6: Extract the "id" field from the Table struct.
         let SuiMoveStruct::WithTypes {
             fields: table_fields,
             ..
@@ -483,7 +464,7 @@ impl<'a> BlobManagerClient<'a, SuiContractClient> {
             }
         };
 
-        // Navigate to BlobManager.storage (BlobStorage enum).
+        // Navigate to BlobManager.storage (BlobStorage struct).
         let storage_value = fields
             .get("storage")
             .ok_or_else(|| Self::error("storage field not found"))?;
@@ -492,8 +473,7 @@ impl<'a> BlobManagerClient<'a, SuiContractClient> {
             return Err(Self::error("storage is not a Struct"));
         };
 
-        // Extract the UnifiedStorage from the enum's pos0 field.
-        // Storage struct can be represented as WithTypes or WithFields.
+        // BlobStorage struct can be represented as WithTypes or WithFields.
         let storage_fields = match storage_struct {
             SuiMoveStruct::WithTypes { fields, .. } => fields,
             SuiMoveStruct::WithFields(fields) => fields,
@@ -502,31 +482,17 @@ impl<'a> BlobManagerClient<'a, SuiContractClient> {
             }
         };
 
-        let pos0_value = storage_fields
-            .get("pos0")
-            .ok_or_else(|| Self::error("pos0 field not found in storage"))?;
+        // Extract the values directly from BlobStorage (no enum wrapper anymore).
+        let available_storage = Self::extract_u64_field(storage_fields, "available_storage")?;
+        let used_storage = Self::extract_u64_field(storage_fields, "used_storage")?;
+        let end_epoch = Self::extract_u32_field(storage_fields, "end_epoch")?;
 
-        let SuiMoveValue::Struct(unified_struct) = pos0_value else {
-            return Err(Self::error("storage pos0 is not a Struct"));
-        };
-
-        // UnifiedStorage struct can be represented as WithTypes or WithFields.
-        let unified_fields = match unified_struct {
-            SuiMoveStruct::WithTypes { fields, .. } => fields,
-            SuiMoveStruct::WithFields(fields) => fields,
-            _ => {
-                return Err(Self::error("UnifiedStorage has unexpected format"));
-            }
-        };
-
-        // Extract the values from UnifiedStorage.
-        let total_capacity = Self::extract_u64_field(unified_fields, "total_capacity")?;
-        let available_storage = Self::extract_u64_field(unified_fields, "available_storage")?;
-        let end_epoch = Self::extract_u32_field(unified_fields, "end_epoch")?;
+        // Compute total_capacity from available and used storage.
+        let total_capacity = available_storage + used_storage;
 
         Ok(BlobManagerStorageInfo {
             total_capacity,
-            used_capacity: total_capacity - available_storage,
+            used_capacity: used_storage,
             available_capacity: available_storage,
             end_epoch,
         })

@@ -9,7 +9,6 @@ use std::string::String;
 use sui::{coin::{Self, Coin}, sui::SUI};
 use wal::wal::WAL;
 use walrus::{
-    blob_stash::{Self, BlobStash},
     blob_storage::{Self, BlobStorage},
     coin_stash::{Self, BlobManagerCoinStash},
     encoding,
@@ -47,10 +46,8 @@ const DEFAULT_GRACE_PERIOD_EPOCHS: u32 = 2;
 /// The minimal blob-management interface.
 public struct BlobManager has key, store {
     id: UID,
-    /// Storage management strategy.
+    /// Unified storage that handles both capacity management and blob storage.
     storage: BlobStorage,
-    /// Blob stash strategy - handles both individual blobs and managed blobs.
-    blob_stash: BlobStash,
     /// Coin stash for community funding - embedded directly.
     coin_stash: BlobManagerCoinStash,
     /// Extension policy controlling who can extend storage and under what conditions.
@@ -93,8 +90,7 @@ public fun new_with_unified_storage(
 
     let manager = BlobManager {
         id: manager_uid,
-        storage: blob_storage::new_unified_blob_storage(initial_storage),
-        blob_stash: blob_stash::new_blob_id_based_stash(ctx),
+        storage: blob_storage::new_unified_blob_storage(initial_storage, ctx),
         coin_stash: coin_stash::new(),
         // Default policy: extend within 1 epoch of expiry, max 10 epochs per extension.
         extension_policy: extension_policy::constrained(1, 10),
@@ -195,7 +191,7 @@ fun ensure_admin(cap: &BlobManagerCap) {
 /// Only aborts on errors:
 ///   - Insufficient funds (payment too small)
 ///   - Insufficient storage capacity
-///   - Inconsistency detected in blob stash
+///   - Inconsistency detected in blob storage
 public fun register_blob(
     self: &mut BlobManager,
     cap: &BlobManagerCap,
@@ -214,8 +210,8 @@ public fun register_blob(
 
     // Step 1: Check for existing managed blob with same blob_id and deletable flag.
     let existing_blob = self
-        .blob_stash
-        .find_blob_in_stash(
+        .storage
+        .find_blob(
             blob_id,
             deletable,
         );
@@ -225,13 +221,10 @@ public fun register_blob(
         return 0
     };
 
-    // Step 2: Allocate storage and register managed blob.
+    // Step 2: Register managed blob and allocate storage atomically.
     // Calculate encoded size for storage.
     let n_shards = system::n_shards(system);
     let encoded_size = encoding::encoded_blob_length(size, encoding_type, n_shards);
-
-    // Verify we have enough storage capacity.
-    self.storage.allocate_storage(encoded_size);
 
     // Get the end_epoch from the storage.
     let (_start_epoch, end_epoch_at_registration) = self.storage.storage_epochs();
@@ -250,8 +243,8 @@ public fun register_blob(
         ctx,
     );
 
-    // Add blob to stash (BlobManager now owns it).
-    self.blob_stash.add_blob_to_stash(managed_blob);
+    // Add blob to storage with atomic allocation (BlobManager now owns it).
+    self.storage.add_blob(managed_blob, encoded_size);
 
     // Return the end_epoch for client use.
     end_epoch_at_registration
@@ -271,11 +264,12 @@ public fun certify_blob(
 ) {
     // Verify the capability.
     check_cap(self, cap);
-    let managed_blob = self.blob_stash.get_mut_blob_in_stash(blob_id, deletable);
-    assert!(!managed_blob.certified_epoch().is_some(), EBlobAlreadyCertifiedInBlobManager);
 
     // Get the current end_epoch from storage for the certification event.
     let (_start_epoch, end_epoch_at_certify) = self.storage.storage_epochs();
+
+    let managed_blob = self.storage.get_mut_blob(blob_id, deletable);
+    assert!(!managed_blob.certified_epoch().is_some(), EBlobAlreadyCertifiedInBlobManager);
 
     system.certify_managed_blob(
         managed_blob,
@@ -303,8 +297,8 @@ public fun delete_blob(
     // Get the current epoch from the system.
     let epoch = system::epoch(system);
 
-    // Remove the blob from the stash and get the managed blob.
-    let managed_blob = self.blob_stash.remove_blob_from_stash(blob_id, deletable);
+    // Remove the blob from storage and get the managed blob.
+    let managed_blob = self.storage.remove_blob(blob_id, deletable);
 
     // Get blob info before deleting.
     let blob_size = managed_blob.size();
@@ -523,22 +517,22 @@ public fun storage_epochs(self: &BlobManager): (u32, u32) {
 
 /// Returns the number of blobs (all variants).
 public fun blob_count(self: &BlobManager): u64 {
-    self.blob_stash.blob_count_in_stash()
+    self.storage.blob_count()
 }
 
 /// Returns the total unencoded size of all blobs.
 public fun total_blob_size(self: &BlobManager): u64 {
-    self.blob_stash.total_blob_size_in_stash()
+    self.storage.total_blob_size()
 }
 
 /// Checks if a blob_id exists (any variant).
 public fun has_blob(self: &BlobManager, blob_id: u256): bool {
-    self.blob_stash.has_blob_in_stash(blob_id)
+    self.storage.has_blob(blob_id)
 }
 
 /// Gets the object ID for a given blob_id (one blob per blob_id).
 public fun get_blob_object_id(self: &BlobManager, blob_id: u256): Option<ID> {
-    self.blob_stash.get_blob_object_id_from_stash(blob_id)
+    self.storage.get_blob_object_id_unchecked(blob_id)
 }
 
 /// Gets the ObjectID of a blob by blob_id and deletable flag.
@@ -548,7 +542,7 @@ public fun get_blob_object_id_by_blob_id_and_deletable(
     blob_id: u256,
     deletable: bool,
 ): ID {
-    let mut blob_info_opt = self.blob_stash.find_blob_in_stash(blob_id, deletable);
+    let mut blob_info_opt = self.storage.find_blob(blob_id, deletable);
     assert!(blob_info_opt.is_some(), EBlobNotRegisteredInBlobManager);
     let blob_info = blob_info_opt.extract();
     blob_info.object_id()
@@ -666,7 +660,7 @@ public fun set_blob_attribute(
     check_cap(self, cap);
 
     // Get the managed blob and set the attribute.
-    let managed_blob = self.blob_stash.get_mut_blob_in_stash_unchecked(blob_id);
+    let managed_blob = self.storage.get_mut_blob_unchecked(blob_id);
     managed_blob.set_attribute(key, value);
 }
 
@@ -684,7 +678,7 @@ public fun remove_blob_attribute(
     check_cap(self, cap);
 
     // Get the managed blob and remove the attribute.
-    let managed_blob = self.blob_stash.get_mut_blob_in_stash_unchecked(blob_id);
+    let managed_blob = self.storage.get_mut_blob_unchecked(blob_id);
     managed_blob.remove_attribute(&key);
 }
 
@@ -697,6 +691,6 @@ public fun clear_blob_attributes(self: &mut BlobManager, cap: &BlobManagerCap, b
     check_cap(self, cap);
 
     // Get the managed blob and clear all attributes.
-    let managed_blob = self.blob_stash.get_mut_blob_in_stash_unchecked(blob_id);
+    let managed_blob = self.storage.get_mut_blob_unchecked(blob_id);
     managed_blob.clear_attributes();
 }
