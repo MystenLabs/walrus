@@ -74,14 +74,6 @@ public fun new_unified_blob_storage(initial_storage: Storage, ctx: &mut TxContex
 
 // === Storage Capacity Management Functions ===
 
-/// Releases storage back to the pool when a blob is deleted.
-/// This is accounting-only - increases available storage and decreases used storage.
-public fun release_storage(self: &mut BlobStorage, encoded_size: u64) {
-    assert!(self.used_storage >= encoded_size, 0);
-    self.available_storage = self.available_storage + encoded_size;
-    self.used_storage = self.used_storage - encoded_size;
-}
-
 /// Creates a Storage object from the pool for individual blobs.
 /// This decrements the available storage and creates a real Storage object.
 public fun prepare_storage_for_blob(
@@ -230,8 +222,13 @@ public fun add_blob(self: &mut BlobStorage, managed_blob: ManagedBlob, encoded_s
     self.total_unencoded_size = self.total_unencoded_size + size;
 }
 
-/// Removes a blob from storage and returns it.
-public fun remove_blob(self: &mut BlobStorage, blob_id: u256, deletable: bool): ManagedBlob {
+/// Removes a blob from storage and returns it with atomic storage release.
+public fun remove_blob(
+    self: &mut BlobStorage,
+    blob_id: u256,
+    deletable: bool,
+    encoded_size: u64,
+): ManagedBlob {
     assert!(self.blobs.contains(blob_id), EBlobNotRegisteredInBlobManager);
 
     // Verify deletable flag before removal.
@@ -244,6 +241,11 @@ public fun remove_blob(self: &mut BlobStorage, blob_id: u256, deletable: bool): 
 
     // Update total unencoded size.
     self.total_unencoded_size = self.total_unencoded_size - size;
+
+    // Atomically release storage back to the pool.
+    assert!(self.used_storage >= encoded_size, 0);
+    self.available_storage = self.available_storage + encoded_size;
+    self.used_storage = self.used_storage - encoded_size;
 
     managed_blob
 }

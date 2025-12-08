@@ -297,20 +297,19 @@ public fun delete_blob(
     // Get the current epoch from the system.
     let epoch = system::epoch(system);
 
-    // Remove the blob from storage and get the managed blob.
-    let managed_blob = self.storage.remove_blob(blob_id, deletable);
+    // Calculate encoded size before removal (needed for atomic storage release).
+    let n_shards = system::n_shards(system);
+    // We need to get the blob first to get its size and encoding type.
+    let existing_blob = self.storage.get_mut_blob_unchecked(blob_id);
+    let blob_size = existing_blob.size();
+    let encoding_type = existing_blob.encoding_type();
+    let encoded_size = encoding::encoded_blob_length(blob_size, encoding_type, n_shards);
 
-    // Get blob info before deleting.
-    let blob_size = managed_blob.size();
-    let encoding_type = managed_blob.encoding_type();
+    // Remove the blob from storage and atomically release storage.
+    let managed_blob = self.storage.remove_blob(blob_id, deletable, encoded_size);
 
     // Delete the managed blob (this emits the ManagedBlobDeleted event).
     managed_blob.delete(epoch);
-
-    // Release the storage back to the BlobManager.
-    let n_shards = system::n_shards(system);
-    let encoded_size = encoding::encoded_blob_length(blob_size, encoding_type, n_shards);
-    self.storage.release_storage(encoded_size);
 }
 
 // === Coin Stash Operations ===
