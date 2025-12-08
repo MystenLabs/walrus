@@ -22,6 +22,6 @@ To maintian these components, they will be consolidated into a central package a
 
 ## Ongoing and planned updates
 
-- DOCS-342 + DOCS-384 + DOCS-524: Revisions for style guide compliance, readablity, and other misc backlog edits.
-- DOCS-345: Revisions to the information architecture.
-- DOCS-365: Create central package for custom components. 
+- TODO(DOCS-342) + DOCS-384 + DOCS-524: Revisions for style guide compliance, readablity, and other misc backlog edits.
+- TODO(DOCS-345): Revisions to the information architecture.
+- TODO(DOCS-365): Create central package for custom components. 
