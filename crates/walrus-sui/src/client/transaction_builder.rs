@@ -1974,7 +1974,6 @@ impl WalrusPtbBuilder {
         manager: ObjectID,
         cap: ObjectID,
         blob_id: walrus_core::BlobId,
-        deletable: bool,
     ) -> SuiClientResult<()> {
         // Get the initial shared version for the BlobManager first.
         let manager_initial_version = self
@@ -1995,8 +1994,7 @@ impl WalrusPtbBuilder {
             })?,
             cap_arg,
             self.system_arg(SharedObjectMutability::Immutable).await?,
-            self.pt_builder.pure(blob_id)?,   // blob_id as u256.
-            self.pt_builder.pure(deletable)?, // deletable flag.
+            self.pt_builder.pure(blob_id)?, // blob_id as u256.
         ];
 
         self.blobmanager_move_call(contracts::blobmanager::delete_blob, delete_args)?;

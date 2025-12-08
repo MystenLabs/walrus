@@ -872,7 +872,7 @@ impl BlobManagerClient<'_, SuiContractClient> {
         // - Ensure it belongs to this BlobManager
         self.client
             .sui_client()
-            .delete_managed_blob(self.data.manager_id(), self.data.cap_id(), blob_id, true)
+            .delete_managed_blob(self.data.manager_id(), self.data.cap_id(), blob_id)
             .await
             .map_err(crate::error::ClientError::from)?;
 

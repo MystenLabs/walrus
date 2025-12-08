@@ -715,12 +715,11 @@ impl SuiContractClient {
         manager_id: ObjectID,
         manager_cap: ObjectID,
         blob_id: BlobId,
-        deletable: bool,
     ) -> SuiClientResult<()> {
         self.inner
             .lock()
             .await
-            .delete_managed_blob(manager_id, manager_cap, blob_id, deletable)
+            .delete_managed_blob(manager_id, manager_cap, blob_id)
             .await
     }
 
@@ -2242,11 +2241,9 @@ impl SuiContractClientInner {
         manager_id: ObjectID,
         manager_cap: ObjectID,
         blob_id: BlobId,
-        deletable: bool,
     ) -> SuiClientResult<()> {
         tracing::debug!(
             blob_id = %blob_id,
-            deletable = deletable,
             manager_id = %manager_id,
             "deleting managed blob from blob manager"
         );
@@ -2254,7 +2251,7 @@ impl SuiContractClientInner {
         let mut pt_builder = self.transaction_builder()?;
 
         pt_builder
-            .delete_managed_blob(manager_id, manager_cap, blob_id, deletable)
+            .delete_managed_blob(manager_id, manager_cap, blob_id)
             .await?;
 
         let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;

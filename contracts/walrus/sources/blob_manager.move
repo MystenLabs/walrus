@@ -9,13 +9,14 @@ use std::string::String;
 use sui::{coin::{Self, Coin}, sui::SUI};
 use wal::wal::WAL;
 use walrus::{
-    blob_storage::{Self, BlobStorage},
+    blob_storage::{Self, BlobStorage, CapacityInfo},
     coin_stash::{Self, BlobManagerCoinStash},
     encoding,
     events,
     extension_policy::{Self, ExtensionPolicy},
     storage_resource::Storage,
-    system::{Self, System}
+    system::{Self, System},
+    tip_policy::{Self, TipPolicy}
 };
 
 // === Constants ===
@@ -37,6 +38,8 @@ const EBlobNotRegisteredInBlobManager: u64 = 2;
 const ERequiresAdminCap: u64 = 5;
 /// Operation requires fund_manager permission.
 const ERequiresFundManager: u64 = 6;
+/// Conflict: Attempting to register a blob with different deletable flag than existing blob.
+const EBlobPermanencyConflict: u64 = 7;
 
 // === Main Structures ===
 
@@ -52,6 +55,8 @@ public struct BlobManager has key, store {
     coin_stash: BlobManagerCoinStash,
     /// Extension policy controlling who can extend storage and under what conditions.
     extension_policy: ExtensionPolicy,
+    /// Tip policy controlling how much to tip transaction senders for helping with operations.
+    tip_policy: TipPolicy,
     /// Grace period in epochs after storage expiry before blobs become eligible for GC.
     grace_period_epochs: u32,
 }
@@ -94,6 +99,8 @@ public fun new_with_unified_storage(
         coin_stash: coin_stash::new(),
         // Default policy: extend within 1 epoch of expiry, max 10 epochs per extension.
         extension_policy: extension_policy::constrained(1, 10),
+        // Default tip policy: 1000 MIST (0.001 SUI) fixed amount.
+        tip_policy: tip_policy::new_fixed_amount(1000),
         grace_period_epochs: DEFAULT_GRACE_PERIOD_EPOCHS,
     };
 
@@ -268,7 +275,9 @@ public fun certify_blob(
     // Get the current end_epoch from storage for the certification event.
     let (_start_epoch, end_epoch_at_certify) = self.storage.storage_epochs();
 
-    let managed_blob = self.storage.get_mut_blob(blob_id, deletable);
+    let managed_blob = self.storage.get_mut_blob(blob_id);
+    // Verify permanency matches
+    assert!(managed_blob.is_deletable() == deletable, EBlobPermanencyConflict);
     assert!(!managed_blob.certified_epoch().is_some(), EBlobAlreadyCertifiedInBlobManager);
 
     system.certify_managed_blob(
@@ -289,7 +298,6 @@ public fun delete_blob(
     cap: &BlobManagerCap,
     system: &System,
     blob_id: u256,
-    deletable: bool,
 ) {
     // Verify the capability.
     check_cap(self, cap);
@@ -300,13 +308,13 @@ public fun delete_blob(
     // Calculate encoded size before removal (needed for atomic storage release).
     let n_shards = system::n_shards(system);
     // We need to get the blob first to get its size and encoding type.
-    let existing_blob = self.storage.get_mut_blob_unchecked(blob_id);
+    let existing_blob = self.storage.get_mut_blob(blob_id);
     let blob_size = existing_blob.size();
     let encoding_type = existing_blob.encoding_type();
     let encoded_size = encoding::encoded_blob_length(blob_size, encoding_type, n_shards);
 
     // Remove the blob from storage and atomically release storage.
-    let managed_blob = self.storage.remove_blob(blob_id, deletable, encoded_size);
+    let managed_blob = self.storage.remove_blob(blob_id, encoded_size);
 
     // Delete the managed blob (this emits the ManagedBlobDeleted event).
     managed_blob.delete(epoch);
@@ -459,8 +467,9 @@ fun execute_extension(
     };
 
     // Get current storage info.
-    let (total_capacity, _used, _available) = self.storage.capacity_info();
-    let storage_end_epoch = self.storage.end_epoch();
+    let capacity_info = self.storage.capacity_info();
+    let total_capacity = capacity_info.total();
+    let storage_end_epoch = capacity_info.capacity_end_epoch();
     let new_end_epoch = storage_end_epoch + effective_extension;
 
     // Withdraw all available funds from stash for payment.
@@ -486,6 +495,16 @@ fun execute_extension(
     // Apply the extension to the BlobManager's storage.
     self.storage.extend_storage(extension_storage);
 
+    // Tip the transaction sender for helping execute the extension.
+    // Get the tip amount from the policy.
+    let tip_amount = self.tip_policy.get_tip_amount();
+    if (tip_amount > 0) {
+        // Try to tip the sender from the coin stash.
+        let tip_coin = self.coin_stash.tip_sender(tip_amount, ctx);
+        // Transfer the tip to the sender.
+        transfer::public_transfer(tip_coin, ctx.sender());
+    };
+
     // Emit BlobManagerUpdated event for storage nodes to update gc_eligible_epoch.
     events::emit_blob_manager_updated(
         system::epoch(system),
@@ -504,34 +523,14 @@ public fun manager_id(self: &BlobManager): ID {
     object::uid_to_inner(&self.id)
 }
 
-/// Returns capacity information: (total, used, available).
-public fun capacity_info(self: &BlobManager): (u64, u64, u64) {
+/// Returns capacity information.
+public fun capacity_info(self: &BlobManager): CapacityInfo {
     self.storage.capacity_info()
 }
 
 /// Returns storage epoch information: (start, end).
 public fun storage_epochs(self: &BlobManager): (u32, u32) {
     self.storage.storage_epochs()
-}
-
-/// Returns the number of blobs (all variants).
-public fun blob_count(self: &BlobManager): u64 {
-    self.storage.blob_count()
-}
-
-/// Returns the total unencoded size of all blobs.
-public fun total_blob_size(self: &BlobManager): u64 {
-    self.storage.total_blob_size()
-}
-
-/// Checks if a blob_id exists (any variant).
-public fun has_blob(self: &BlobManager, blob_id: u256): bool {
-    self.storage.has_blob(blob_id)
-}
-
-/// Gets the object ID for a given blob_id (one blob per blob_id).
-public fun get_blob_object_id(self: &BlobManager, blob_id: u256): Option<ID> {
-    self.storage.get_blob_object_id_unchecked(blob_id)
 }
 
 /// Gets the ObjectID of a blob by blob_id and deletable flag.
@@ -596,6 +595,40 @@ public fun withdraw_all_sui(
     self.coin_stash.withdraw_all_sui(ctx)
 }
 
+/// Withdraws a specific amount of WAL funds from the coin stash.
+/// Requires fund_manager permission.
+public fun withdraw_wal(
+    self: &mut BlobManager,
+    cap: &BlobManagerCap,
+    amount: u64,
+    ctx: &mut TxContext,
+): Coin<WAL> {
+    // Verify the capability.
+    check_cap(self, cap);
+    // Ensure the caller has fund_manager permission.
+    assert!(cap.fund_manager, ERequiresFundManager);
+
+    // Withdraw the specified amount of WAL.
+    self.coin_stash.withdraw_wal(amount, ctx)
+}
+
+/// Withdraws a specific amount of SUI funds from the coin stash.
+/// Requires fund_manager permission.
+public fun withdraw_sui(
+    self: &mut BlobManager,
+    cap: &BlobManagerCap,
+    amount: u64,
+    ctx: &mut TxContext,
+): Coin<SUI> {
+    // Verify the capability.
+    check_cap(self, cap);
+    // Ensure the caller has fund_manager permission.
+    assert!(cap.fund_manager, ERequiresFundManager);
+
+    // Withdraw the specified amount of SUI.
+    self.coin_stash.withdraw_sui(amount, ctx)
+}
+
 /// Sets the extension policy to disabled (no one can extend).
 /// Requires fund_manager permission.
 public fun set_extension_policy_disabled(self: &mut BlobManager, cap: &BlobManagerCap) {
@@ -641,6 +674,28 @@ public fun set_grace_period_epochs(
     self.grace_period_epochs = grace_period_epochs;
 }
 
+// === Tip Policy Management ===
+
+/// Sets the tip policy to a fixed amount.
+/// Requires fund_manager permission.
+public fun set_tip_policy_fixed_amount(
+    self: &mut BlobManager,
+    cap: &BlobManagerCap,
+    tip_amount: u64,
+) {
+    check_cap(self, cap);
+    assert!(cap.fund_manager, ERequiresFundManager);
+    self.tip_policy = tip_policy::new_fixed_amount(tip_amount);
+}
+
+/// Disables tipping (sets tip amount to zero).
+/// Requires fund_manager permission.
+public fun set_tip_policy_disabled(self: &mut BlobManager, cap: &BlobManagerCap) {
+    check_cap(self, cap);
+    assert!(cap.fund_manager, ERequiresFundManager);
+    self.tip_policy = tip_policy::disabled();
+}
+
 // === Blob Attribute Operations ===
 
 /// Sets an attribute on a managed blob.
@@ -659,7 +714,7 @@ public fun set_blob_attribute(
     check_cap(self, cap);
 
     // Get the managed blob and set the attribute.
-    let managed_blob = self.storage.get_mut_blob_unchecked(blob_id);
+    let managed_blob = self.storage.get_mut_blob(blob_id);
     managed_blob.set_attribute(key, value);
 }
 
@@ -677,7 +732,7 @@ public fun remove_blob_attribute(
     check_cap(self, cap);
 
     // Get the managed blob and remove the attribute.
-    let managed_blob = self.storage.get_mut_blob_unchecked(blob_id);
+    let managed_blob = self.storage.get_mut_blob(blob_id);
     managed_blob.remove_attribute(&key);
 }
 
@@ -690,6 +745,6 @@ public fun clear_blob_attributes(self: &mut BlobManager, cap: &BlobManagerCap, b
     check_cap(self, cap);
 
     // Get the managed blob and clear all attributes.
-    let managed_blob = self.storage.get_mut_blob_unchecked(blob_id);
+    let managed_blob = self.storage.get_mut_blob(blob_id);
     managed_blob.clear_attributes();
 }

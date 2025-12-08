@@ -24,6 +24,10 @@ const EBlobAlreadyExists: u64 = 4;
 const EBlobNotRegisteredInBlobManager: u64 = 5;
 /// Conflict: Attempting to register a blob with different deletable flag than existing blob.
 const EBlobPermanencyConflict: u64 = 6;
+/// The blob is not deletable.
+const EBlobNotDeletable: u64 = 7;
+/// Storage size must equal total capacity for extension.
+const EStorageSizeMismatch: u64 = 8;
 
 // === Structs ===
 
@@ -35,6 +39,8 @@ public struct BlobStorage has store {
     available_storage: u64,
     /// Used storage capacity in bytes.
     used_storage: u64,
+    /// Start epoch for this storage (when BlobManager was created).
+    start_epoch: u32,
     /// End epoch for this storage.
     end_epoch: u32,
     // === Blob Storage Fields ===
@@ -52,12 +58,23 @@ public struct ManagedBlobInfo has drop {
     is_certified: bool,
 }
 
+/// Capacity information for the storage.
+public struct CapacityInfo has copy, drop {
+    /// Available storage capacity in bytes.
+    available: u64,
+    /// Used storage capacity in bytes.
+    in_use: u64,
+    /// End epoch for this storage.
+    end_epoch: u32,
+}
+
 // === Constructor ===
 
 /// Creates a new BlobStorage instance by consuming a Storage object.
-/// The Storage is destroyed and only its capacity and end_epoch are tracked.
+/// The Storage is destroyed and only its capacity and epochs are tracked.
 public fun new_unified_blob_storage(initial_storage: Storage, ctx: &mut TxContext): BlobStorage {
     let capacity = initial_storage.size();
+    let start_epoch = initial_storage.start_epoch();
     let end_epoch = initial_storage.end_epoch();
 
     // Destroy the storage object - we only need accounting.
@@ -66,6 +83,7 @@ public fun new_unified_blob_storage(initial_storage: Storage, ctx: &mut TxContex
     BlobStorage {
         available_storage: capacity,
         used_storage: 0,
+        start_epoch,
         end_epoch,
         blobs: table::new(ctx),
         total_unencoded_size: 0,
@@ -74,33 +92,18 @@ public fun new_unified_blob_storage(initial_storage: Storage, ctx: &mut TxContex
 
 // === Storage Capacity Management Functions ===
 
-/// Creates a Storage object from the pool for individual blobs.
-/// This decrements the available storage and creates a real Storage object.
-public fun prepare_storage_for_blob(
-    self: &mut BlobStorage,
-    encoded_size: u64,
-    system: &System,
-    ctx: &mut TxContext,
-): Storage {
-    assert!(self.available_storage >= encoded_size, EInsufficientBlobManagerCapacity);
-    self.available_storage = self.available_storage - encoded_size;
-    self.used_storage = self.used_storage + encoded_size;
-
-    // Create a new Storage object from the pool
-    let current_epoch = system::epoch(system);
-    storage_resource::create_storage(current_epoch, self.end_epoch, encoded_size, ctx)
+/// Returns capacity information.
+public fun capacity_info(self: &BlobStorage): CapacityInfo {
+    CapacityInfo {
+        available: self.available_storage,
+        in_use: self.used_storage,
+        end_epoch: self.end_epoch,
+    }
 }
 
-/// Returns capacity information: (total, used, available).
-public fun capacity_info(self: &BlobStorage): (u64, u64, u64) {
-    let total_capacity = self.available_storage + self.used_storage;
-    (total_capacity, self.used_storage, self.available_storage)
-}
-
-/// Returns storage epoch information: (start=0, end).
-/// Note: start_epoch is always 0 for accounting-based storage.
+/// Returns storage epoch information: (start, end).
 public fun storage_epochs(self: &BlobStorage): (u32, u32) {
-    (0, self.end_epoch)
+    (self.start_epoch, self.end_epoch)
 }
 
 /// Returns the end epoch of the storage.
@@ -123,26 +126,22 @@ public fun add_storage(self: &mut BlobStorage, storage: Storage) {
 }
 
 /// Extends the storage validity period by consuming a Storage object.
-/// The new Storage must have a later end_epoch.
+/// The new Storage must have a later end_epoch and its size must equal total capacity.
 public fun extend_storage(self: &mut BlobStorage, extension_storage: Storage) {
     let new_end_epoch = extension_storage.end_epoch();
+    let extension_size = extension_storage.size();
+    let total_capacity = self.available_storage + self.used_storage;
 
     // Verify the extension is valid
     assert!(new_end_epoch > self.end_epoch, EStorageExpired);
+    // Verify the storage size matches total capacity
+    assert!(extension_size == total_capacity, EStorageSizeMismatch);
 
     // Update end epoch
     self.end_epoch = new_end_epoch;
 
     // Destroy the storage object (we only use it for the end_epoch)
     extension_storage.destroy();
-}
-
-/// Extends the storage period by consuming a Storage object.
-/// Similar to extend_storage but specifically for coin stash operations.
-public fun extend_managed_storage(self: &mut BlobStorage, extension_storage: Storage) {
-    // For now, just delegate to extend_storage.
-    // In the future, we might have different logic for coin stash extensions.
-    self.extend_storage(extension_storage);
 }
 
 // === Blob Management Functions ===
@@ -167,43 +166,18 @@ public fun find_blob(self: &BlobStorage, blob_id: u256, deletable: bool): Option
 }
 
 /// Gets a mutable reference to a blob by blob_id.
-public fun get_mut_blob(self: &mut BlobStorage, blob_id: u256, deletable: bool): &mut ManagedBlob {
-    assert!(self.blobs.contains(blob_id), EBlobNotRegisteredInBlobManager);
-
-    let existing_blob = self.blobs.borrow(blob_id);
-    // Check if deletable flag matches. If not, it's a permanency conflict.
-    assert!(existing_blob.is_deletable() == deletable, EBlobPermanencyConflict);
-
-    self.blobs.borrow_mut(blob_id)
-}
-
-/// Gets a mutable reference to a blob by blob_id without checking deletable flag.
-/// Use this when the permanency type doesn't matter for the operation.
-public fun get_mut_blob_unchecked(self: &mut BlobStorage, blob_id: u256): &mut ManagedBlob {
+/// Caller should check deletable flag if necessary.
+public fun get_mut_blob(self: &mut BlobStorage, blob_id: u256): &mut ManagedBlob {
     assert!(self.blobs.contains(blob_id), EBlobNotRegisteredInBlobManager);
     self.blobs.borrow_mut(blob_id)
-}
-
-/// Gets the object ID for a given blob_id with deletable flag verification.
-public(package) fun get_blob_object_id(
-    self: &BlobStorage,
-    blob_id: u256,
-    deletable: bool,
-): Option<ID> {
-    if (!self.blobs.contains(blob_id)) {
-        return option::none()
-    };
-
-    let existing_blob = self.blobs.borrow(blob_id);
-
-    // Check if deletable flag matches. If not, it's a permanency conflict.
-    assert!(existing_blob.is_deletable() == deletable, EBlobPermanencyConflict);
-
-    option::some(existing_blob.object_id())
 }
 
 /// Adds a new managed blob to storage with atomic storage allocation.
+/// Checks capacity before adding the blob.
 public fun add_blob(self: &mut BlobStorage, managed_blob: ManagedBlob, encoded_size: u64) {
+    // Check storage capacity first before modifying state.
+    assert!(self.available_storage >= encoded_size, EInsufficientBlobManagerCapacity);
+
     let blob_id = managed_blob.blob_id();
     let size = managed_blob.size();
 
@@ -211,7 +185,6 @@ public fun add_blob(self: &mut BlobStorage, managed_blob: ManagedBlob, encoded_s
     assert!(!self.blobs.contains(blob_id), EBlobAlreadyExists);
 
     // Atomically allocate storage for the blob.
-    assert!(self.available_storage >= encoded_size, EInsufficientBlobManagerCapacity);
     self.available_storage = self.available_storage - encoded_size;
     self.used_storage = self.used_storage + encoded_size;
 
@@ -223,17 +196,13 @@ public fun add_blob(self: &mut BlobStorage, managed_blob: ManagedBlob, encoded_s
 }
 
 /// Removes a blob from storage and returns it with atomic storage release.
-public fun remove_blob(
-    self: &mut BlobStorage,
-    blob_id: u256,
-    deletable: bool,
-    encoded_size: u64,
-): ManagedBlob {
+/// Only deletable blobs can be removed.
+public fun remove_blob(self: &mut BlobStorage, blob_id: u256, encoded_size: u64): ManagedBlob {
     assert!(self.blobs.contains(blob_id), EBlobNotRegisteredInBlobManager);
 
-    // Verify deletable flag before removal.
+    // Verify blob is deletable before removal.
     let existing_blob = self.blobs.borrow(blob_id);
-    assert!(existing_blob.is_deletable() == deletable, EBlobPermanencyConflict);
+    assert!(existing_blob.is_deletable(), EBlobNotDeletable);
 
     // Remove and return the blob.
     let managed_blob = self.blobs.remove(blob_id);
@@ -250,30 +219,6 @@ public fun remove_blob(
     managed_blob
 }
 
-/// Returns the number of blobs.
-public fun blob_count(self: &BlobStorage): u64 {
-    self.blobs.length()
-}
-
-/// Returns the total unencoded size of all blobs.
-public fun total_blob_size(self: &BlobStorage): u64 {
-    self.total_unencoded_size
-}
-
-/// Checks if a blob_id exists.
-public fun has_blob(self: &BlobStorage, blob_id: u256): bool {
-    self.blobs.contains(blob_id)
-}
-
-/// Gets the object ID for a given blob_id without checking deletable flag.
-public fun get_blob_object_id_unchecked(self: &BlobStorage, blob_id: u256): Option<ID> {
-    if (self.blobs.contains(blob_id)) {
-        option::some(self.blobs.borrow(blob_id).object_id())
-    } else {
-        option::none()
-    }
-}
-
 // === ManagedBlobInfo Accessors ===
 
 /// Gets the object ID from ManagedBlobInfo.
@@ -284,4 +229,26 @@ public fun object_id(self: &ManagedBlobInfo): ID {
 /// Gets the certification status from ManagedBlobInfo.
 public fun is_certified(self: &ManagedBlobInfo): bool {
     self.is_certified
+}
+
+// === CapacityInfo Accessors ===
+
+/// Gets available storage from CapacityInfo.
+public fun available(self: &CapacityInfo): u64 {
+    self.available
+}
+
+/// Gets used storage from CapacityInfo.
+public fun in_use(self: &CapacityInfo): u64 {
+    self.in_use
+}
+
+/// Gets total capacity from CapacityInfo.
+public fun total(self: &CapacityInfo): u64 {
+    self.available + self.in_use
+}
+
+/// Gets end epoch from CapacityInfo.
+public fun capacity_end_epoch(self: &CapacityInfo): u32 {
+    self.end_epoch
 }
