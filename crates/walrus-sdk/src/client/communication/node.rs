@@ -10,6 +10,7 @@ use std::{
 use anyhow::Result;
 use futures::{Future, StreamExt, future::Either, stream::FuturesUnordered};
 use rand::rngs::StdRng;
+use sui_types::base_types::ObjectID;
 use tokio::sync::Semaphore;
 use tracing::{Level, Span};
 use walrus_core::{
@@ -301,6 +302,68 @@ impl<W> NodeCommunication<W> {
         tracing::debug!("retrieving confirmation");
         let result = self
             .get_confirmation_with_retries_inner(blob_id, epoch, blob_persistence_type)
+            .await;
+        self.to_node_result_with_n_shards(result)
+    }
+
+    /// Gets the confirmation for a managed blob with retries.
+    ///
+    /// Returns the confirmation and the extracted `BlobPersistenceType`.
+    /// For permanent blobs, returns `BlobPersistenceType::Permanent`.
+    /// For deletable blobs, returns `BlobPersistenceType::Deletable { object_id }`.
+    ///
+    /// The caller should use `execute_weight_mapped` to verify that a quorum agrees on the same
+    /// `BlobPersistenceType` (especially important for deletable blobs where the object_id is
+    /// determined by the server).
+    async fn get_confirmation_managed_with_retries_inner(
+        &self,
+        blob_id: &BlobId,
+        epoch: Epoch,
+        manager_id: &ObjectID,
+        deletable: bool,
+    ) -> Result<(SignedStorageConfirmation, BlobPersistenceType), NodeError> {
+        let confirmation = backoff::retry(self.backoff_strategy(), || {
+            self.client
+                .get_confirmation_managed(blob_id, manager_id, deletable)
+        })
+        .await
+        .map_err(|error| {
+            tracing::warn!(
+                ?error,
+                "could not retrieve managed confirmation after retrying"
+            );
+            NodeError::other(error)
+        })?;
+
+        // Verify the confirmation and extract the BlobPersistenceType.
+        let (_decoded, blob_persistence_type) = confirmation
+            .verify_managed_and_extract_persistence_type(
+                self.public_key(),
+                epoch,
+                *blob_id,
+                deletable,
+            )
+            .map_err(NodeError::other)?;
+
+        Ok((confirmation, blob_persistence_type))
+    }
+
+    /// Gets the confirmation for a managed blob with retries.
+    ///
+    /// Returns the confirmation and the extracted `BlobPersistenceType`.
+    /// The caller should use `execute_weight_mapped` to verify that a quorum agrees on the same
+    /// `BlobPersistenceType`.
+    #[tracing::instrument(level = Level::TRACE, parent = &self.span, skip_all)]
+    pub async fn get_confirmation_managed_with_retries(
+        &self,
+        blob_id: &BlobId,
+        epoch: Epoch,
+        manager_id: &ObjectID,
+        deletable: bool,
+    ) -> NodeResult<(SignedStorageConfirmation, BlobPersistenceType), NodeError> {
+        tracing::debug!("retrieving managed confirmation");
+        let result = self
+            .get_confirmation_managed_with_retries_inner(blob_id, epoch, manager_id, deletable)
             .await;
         self.to_node_result_with_n_shards(result)
     }

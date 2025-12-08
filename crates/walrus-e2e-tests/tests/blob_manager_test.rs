@@ -234,87 +234,86 @@ impl TestAggregatedBlobInfo {
     /// - Permanent managed blobs contribute to `Permanent` status with their `end_epoch`.
     /// - Deletable managed blobs contribute to `DeletableCounts`.
     fn verify_status(&self, status: &BlobStatus) {
-        let has_permanent = self.has_permanent();
-        let has_managed_permanent = self.has_managed_permanent();
-        let is_nonexistent = self.is_nonexistent();
+        let expect_permanent = self.has_permanent() || self.has_managed_permanent();
+        let expect_nonexistent = self.is_nonexistent();
         let expected_managed_deletable = self.expected_managed_registered_deletable();
+        let expected_regular_deletable = self.expected_deletable_total();
+        let expect_deletable = !expect_permanent
+            && !expect_nonexistent
+            && (expected_managed_deletable > 0 || expected_regular_deletable > 0);
 
         tracing::info!(
-            "Verifying status for blob_id={}: has_permanent={}, \
-            has_managed_permanent={}, is_nonexistent={}, expected_managed_deletable={}",
+            "Verifying status for blob_id={}: expect_permanent={}, \
+            expect_deletable={}, expect_nonexistent={}, expected_managed_deletable={}",
             self.blob_id,
-            has_permanent,
-            has_managed_permanent,
-            is_nonexistent,
+            expect_permanent,
+            expect_deletable,
+            expect_nonexistent,
             expected_managed_deletable
         );
 
-        if is_nonexistent {
+        // Verify variant using public APIs.
+        assert_eq!(
+            status.is_permanent(),
+            expect_permanent,
+            "is_permanent mismatch: expected {}, got {} (status={:?})",
+            expect_permanent,
+            status.is_permanent(),
+            status
+        );
+        assert_eq!(
+            status.is_registered(),
+            expect_permanent || expect_deletable,
+            "is_registered mismatch: expected {}, got {} (status={:?})",
+            expect_permanent || expect_deletable,
+            status.is_registered(),
+            status
+        );
+
+        if expect_nonexistent {
             assert!(
-                matches!(status, BlobStatus::Nonexistent),
+                !status.is_registered(),
                 "Expected Nonexistent status, got {:?}",
                 status
             );
             return;
         }
 
-        // Verify based on expected status type.
-        // Permanent managed blobs now contribute to `Permanent` status.
-        if has_permanent || has_managed_permanent {
-            assert!(
-                matches!(status, BlobStatus::Permanent { .. }),
-                "Expected Permanent status (has permanent or managed permanent), got {:?}",
-                status
-            );
-            if let BlobStatus::Permanent {
-                end_epoch,
-                deletable_counts,
-                ..
-            } = status
-            {
-                // Verify end_epoch is at least the max of regular and managed permanent end_epochs.
-                let expected_regular_end = self.expected_permanent_end_epoch();
-                let expected_managed_end = self.expected_managed_permanent_end_epoch();
-                let expected_min_end = expected_regular_end.max(expected_managed_end);
-                if let Some(expected) = expected_min_end {
-                    assert!(
-                        *end_epoch >= expected,
-                        "End epoch should be >= expected: {} >= {}",
-                        end_epoch,
-                        expected
-                    );
-                }
-                // Managed deletable counts are combined into deletable_counts.
-                assert!(
-                    deletable_counts.count_deletable_total >= expected_managed_deletable,
-                    "Deletable count should include managed deletables: {} >= {}",
-                    deletable_counts.count_deletable_total,
-                    expected_managed_deletable
+        // Verify end_epoch for permanent status.
+        // With long epoch duration (200s), we can verify the exact end_epoch.
+        if expect_permanent {
+            let expected_regular_end = self.expected_permanent_end_epoch();
+            let expected_managed_end = self.expected_managed_permanent_end_epoch();
+            let expected_end = expected_regular_end.max(expected_managed_end);
+            if let Some(expected) = expected_end {
+                let actual_end = status.end_epoch().expect("Permanent should have end_epoch");
+                assert_eq!(
+                    actual_end, expected,
+                    "End epoch mismatch: expected {}, got {}",
+                    expected, actual_end
                 );
             }
-        } else if expected_managed_deletable > 0 || self.expected_deletable_total() > 0 {
+        }
+
+        // Verify deletable counts using public API.
+        let deletable_counts = status.deletable_counts();
+        if expect_permanent {
+            // Managed deletable counts are combined into deletable_counts.
+            assert!(
+                deletable_counts.count_deletable_total >= expected_managed_deletable,
+                "Deletable count should include managed deletables: {} >= {}",
+                deletable_counts.count_deletable_total,
+                expected_managed_deletable
+            );
+        } else if expect_deletable {
             // Only deletable instances (regular or managed).
+            let expected_total = expected_regular_deletable + expected_managed_deletable;
             assert!(
-                matches!(status, BlobStatus::Deletable { .. }),
-                "Expected Deletable status (deletable only), got {:?}",
-                status
+                deletable_counts.count_deletable_total >= expected_total,
+                "Deletable count mismatch: expected >= {}, got {}",
+                expected_total,
+                deletable_counts.count_deletable_total
             );
-            if let BlobStatus::Deletable {
-                deletable_counts, ..
-            } = status
-            {
-                // Managed deletable counts are combined into deletable_counts.
-                let expected_total = self.expected_deletable_total() + expected_managed_deletable;
-                assert!(
-                    deletable_counts.count_deletable_total >= expected_total,
-                    "Deletable count mismatch: expected >= {}, got {}",
-                    expected_total,
-                    deletable_counts.count_deletable_total
-                );
-            }
-        } else {
-            // No instances - should be nonexistent but already handled above.
-            panic!("Unexpected state: no instances but not nonexistent");
         }
     }
 }
@@ -572,8 +571,11 @@ async fn test_mixed_case2_single_blob_manager() -> TestResult {
         node_weights: vec![7, 7, 7, 7, 7],
         ..Default::default()
     };
+    // Use 200-second epoch duration to ensure blobs don't expire during test,
+    // allowing us to verify the exact end_epoch from BlobStatus.
     let (_sui_cluster_handle, _cluster, mut client, _) = test_cluster::E2eTestSetupBuilder::new()
         .with_test_nodes_config(test_nodes_config)
+        .with_epoch_duration(Duration::from_secs(200))
         .build()
         .await?;
     let client = client.as_mut();
@@ -677,8 +679,10 @@ async fn test_mixed_case3_two_blob_managers() -> TestResult {
         node_weights: vec![7, 7, 7, 7, 7],
         ..Default::default()
     };
+    // Use 200-second epoch duration to ensure blobs don't expire during test.
     let (_sui_cluster_handle, _cluster, mut client, _) = test_cluster::E2eTestSetupBuilder::new()
         .with_test_nodes_config(test_nodes_config)
+        .with_epoch_duration(Duration::from_secs(200))
         .build()
         .await?;
     let client = client.as_mut();
@@ -815,8 +819,10 @@ async fn test_mixed_case4_regular_and_managed() -> TestResult {
         node_weights: vec![7, 7, 7, 7, 7],
         ..Default::default()
     };
+    // Use 200-second epoch duration to ensure blobs don't expire during test.
     let (_sui_cluster_handle, _cluster, mut client, _) = test_cluster::E2eTestSetupBuilder::new()
         .with_test_nodes_config(test_nodes_config)
+        .with_epoch_duration(Duration::from_secs(200))
         .build()
         .await?;
     let client = client.as_mut();
@@ -956,8 +962,10 @@ async fn test_mixed_case5_deletable_only_all_deleted() -> TestResult {
         node_weights: vec![7, 7, 7, 7, 7],
         ..Default::default()
     };
+    // Use 200-second epoch duration to ensure blobs don't expire during test.
     let (_sui_cluster_handle, _cluster, mut client, _) = test_cluster::E2eTestSetupBuilder::new()
         .with_test_nodes_config(test_nodes_config)
+        .with_epoch_duration(Duration::from_secs(200))
         .build()
         .await?;
     let client = client.as_mut();
@@ -2357,4 +2365,513 @@ async fn test_blob_manager_extension_policy() {
     tracing::info!("Fund manager extension succeeded with constrained policy");
 
     tracing::info!("All extension policy tests completed successfully!");
+}
+
+// =============================================================================
+// Randomized Test - Mixed Operations
+// =============================================================================
+
+/// Represents a store operation for the randomized test.
+#[derive(Debug, Clone)]
+enum StoreOperation {
+    /// Store as regular blob.
+    Regular {
+        epochs_ahead: u32,
+        persistence: BlobPersistence,
+    },
+    /// Store in a BlobManager.
+    Managed {
+        manager_index: usize, // Index into the managers array.
+        persistence: BlobPersistence,
+    },
+}
+
+/// Randomized test for mixed regular and managed blob operations.
+///
+/// This test covers:
+/// - Different orderings of storing the same blob (regular, manager1, manager2).
+/// - Random deletion of deletable blobs between store operations.
+/// - Verification of blob status from storage nodes after each operation.
+/// - Verification that ManagedBlobs exist on chain (not just storage nodes).
+#[ignore = "ignore E2E tests by default"]
+#[walrus_simtest]
+async fn test_random_mixed_operations() -> TestResult {
+    use rand::{Rng, SeedableRng, seq::SliceRandom};
+
+    walrus_test_utils::init_tracing();
+
+    // Use a fixed seed for reproducibility. Change this to test different scenarios.
+    let seed: u64 = 42;
+    let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
+    tracing::info!("=== Randomized Mixed Operations Test (seed={}) ===", seed);
+
+    let test_nodes_config = TestNodesConfig {
+        node_weights: vec![7, 7, 7, 7, 7],
+        ..Default::default()
+    };
+    // Use 200-second epoch duration so blobs don't expire during test.
+    let (_sui_cluster_handle, _cluster, mut client, _) = test_cluster::E2eTestSetupBuilder::new()
+        .with_test_nodes_config(test_nodes_config)
+        .with_epoch_duration(Duration::from_secs(200))
+        .build()
+        .await?;
+    let client = client.as_mut();
+
+    // Create two BlobManagers with different end_epochs.
+    let initial_capacity = 500 * 1024 * 1024; // 500MB.
+
+    let (manager_a_id, cap_a_id) = client
+        .sui_client()
+        .create_blob_manager(initial_capacity, 5)
+        .await?;
+    tracing::info!("Created BlobManager A: {}", manager_a_id);
+
+    let (manager_b_id, cap_b_id) = client
+        .sui_client()
+        .create_blob_manager(initial_capacity, 10)
+        .await?;
+    tracing::info!("Created BlobManager B: {}", manager_b_id);
+
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    // Get end_epochs for managers.
+    client.init_blob_manager(cap_a_id).await?;
+    let manager_a_info = client.get_blob_manager_client()?.get_storage_info().await?;
+    let manager_a = Arc::new(TestBlobManager {
+        id: manager_a_id,
+        end_epoch: manager_a_info.end_epoch,
+    });
+
+    client.init_blob_manager(cap_b_id).await?;
+    let manager_b_info = client.get_blob_manager_client()?.get_storage_info().await?;
+    let manager_b = Arc::new(TestBlobManager {
+        id: manager_b_id,
+        end_epoch: manager_b_info.end_epoch,
+    });
+
+    let managers = [(manager_a.clone(), cap_a_id), (manager_b.clone(), cap_b_id)];
+
+    tracing::info!(
+        "Manager A end_epoch: {}, Manager B end_epoch: {}",
+        manager_a.end_epoch,
+        manager_b.end_epoch
+    );
+
+    // Generate test data.
+    let test_data = walrus_test_utils::random_data(1024);
+
+    // Define all possible store operations.
+    let mut store_operations: Vec<StoreOperation> = vec![
+        // Regular stores.
+        StoreOperation::Regular {
+            epochs_ahead: 3,
+            persistence: BlobPersistence::Permanent,
+        },
+        StoreOperation::Regular {
+            epochs_ahead: 5,
+            persistence: BlobPersistence::Deletable,
+        },
+        // Manager A stores.
+        StoreOperation::Managed {
+            manager_index: 0,
+            persistence: BlobPersistence::Deletable,
+        },
+        // Manager B stores.
+        StoreOperation::Managed {
+            manager_index: 1,
+            persistence: BlobPersistence::Deletable,
+        },
+    ];
+
+    // Shuffle the operations.
+    store_operations.shuffle(&mut rng);
+
+    tracing::info!(
+        "Randomized operation order: {:?}",
+        store_operations
+            .iter()
+            .map(|op| match op {
+                StoreOperation::Regular { persistence, .. } =>
+                    format!("Regular({:?})", persistence),
+                StoreOperation::Managed {
+                    manager_index,
+                    persistence,
+                } => format!("Manager{}({:?})", manager_index, persistence),
+            })
+            .collect::<Vec<_>>()
+    );
+
+    // Track stored instances using TestAggregatedBlobInfo.
+    // We'll create the tracker after the first store operation when we know the blob_id.
+    let mut tracker: Option<TestAggregatedBlobInfo> = None;
+
+    // Execute operations with random deletions between them.
+    for (op_idx, operation) in store_operations.iter().enumerate() {
+        tracing::info!(
+            "--- Operation {}/{}: {:?} ---",
+            op_idx + 1,
+            store_operations.len(),
+            operation
+        );
+
+        // Randomly decide whether to delete a deletable managed blob before this operation.
+        if let Some(ref mut t) = tracker {
+            // Find deletable managed instances that haven't been deleted.
+            let deletable_managers: Vec<Arc<TestBlobManager>> = t
+                .instances
+                .iter()
+                .filter(|inst| {
+                    !inst.deleted
+                        && inst.deletable
+                        && matches!(inst.context, StorageContext::BlobManager { .. })
+                })
+                .filter_map(|inst| {
+                    if let StorageContext::BlobManager { manager } = &inst.context {
+                        Some(manager.clone())
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+
+            if !deletable_managers.is_empty() && rng.gen_bool(0.3) {
+                // 30% chance to delete.
+                let manager_to_delete = deletable_managers.choose(&mut rng).unwrap();
+                tracing::info!("Randomly deleting from manager {}", manager_to_delete.id);
+
+                // Find the cap_id for this manager.
+                let cap_id = managers
+                    .iter()
+                    .find(|(m, _)| Arc::ptr_eq(m, manager_to_delete))
+                    .map(|(_, cap)| *cap)
+                    .unwrap();
+
+                client.init_blob_manager(cap_id).await?;
+                client
+                    .get_blob_manager_client()?
+                    .delete_blob(t.blob_id)
+                    .await?;
+                t.mark_deleted_for_manager(manager_to_delete);
+                tracing::info!("Deleted managed blob from manager {}", manager_to_delete.id);
+
+                tokio::time::sleep(Duration::from_millis(300)).await;
+
+                // Verify status after deletion.
+                let status = get_and_verify_status(client, &t.blob_id).await?;
+                tracing::info!("Status after deletion: {:?}", status);
+                t.verify_status(&status);
+            }
+        }
+
+        // Execute the store operation.
+        let (new_blob_id, context, deletable) = match operation {
+            StoreOperation::Regular {
+                epochs_ahead,
+                persistence,
+            } => {
+                let (bid, end_ep) =
+                    store_regular_blob(client, &test_data, *persistence, *epochs_ahead, true)
+                        .await?;
+                tracing::info!("Stored regular blob: {} (end_epoch={})", bid, end_ep);
+                let ctx = StorageContext::Regular {
+                    object_id: ObjectID::ZERO, // Placeholder - not used for verification.
+                    end_epoch: end_ep,
+                };
+                (bid, ctx, *persistence == BlobPersistence::Deletable)
+            }
+            StoreOperation::Managed {
+                manager_index,
+                persistence,
+            } => {
+                let (manager, cap_id) = &managers[*manager_index];
+                let bid = store_managed_blob(client, *cap_id, &test_data, *persistence).await?;
+                tracing::info!(
+                    "Stored in Manager {}: {} (end_epoch={})",
+                    manager_index,
+                    bid,
+                    manager.end_epoch
+                );
+                let ctx = StorageContext::BlobManager {
+                    manager: manager.clone(),
+                };
+                (bid, ctx, *persistence == BlobPersistence::Deletable)
+            }
+        };
+
+        // Initialize or update tracker.
+        match &mut tracker {
+            Some(t) => {
+                assert_eq!(
+                    t.blob_id, new_blob_id,
+                    "Same data should produce same blob_id"
+                );
+                t.add_instance(context, deletable);
+            }
+            None => {
+                let mut t = TestAggregatedBlobInfo::new(new_blob_id, test_data.clone());
+                t.add_instance(context, deletable);
+                tracker = Some(t);
+            }
+        }
+
+        tokio::time::sleep(Duration::from_millis(500)).await;
+
+        let t = tracker.as_ref().unwrap();
+
+        // Verify blob is readable from storage nodes.
+        verify_blob_readable(client, &new_blob_id, &test_data).await?;
+        tracing::info!("Blob readable from storage nodes");
+
+        // Verify status from storage nodes using tracker.
+        let status = get_and_verify_status(client, &new_blob_id).await?;
+        tracing::info!("Status from storage nodes: {:?}", status);
+        t.verify_status(&status);
+
+        // For managed blobs, verify ManagedBlob exists on chain.
+        if let StoreOperation::Managed {
+            manager_index,
+            persistence,
+        } = operation
+        {
+            let (_, cap_id) = &managers[*manager_index];
+            client.init_blob_manager(*cap_id).await?;
+            let managed_blob = client
+                .get_blob_manager_client()?
+                .get_managed_blob(new_blob_id, *persistence == BlobPersistence::Deletable)
+                .await?;
+
+            assert_eq!(managed_blob.blob_id, new_blob_id);
+            assert_eq!(
+                managed_blob.deletable,
+                *persistence == BlobPersistence::Deletable
+            );
+            tracing::info!(
+                "Verified ManagedBlob on chain: id={}, deletable={}",
+                managed_blob.id,
+                managed_blob.deletable
+            );
+        }
+    }
+
+    // Final verification: delete all remaining deletable managed blobs and verify final status.
+    tracing::info!("--- Final cleanup: deleting all remaining deletable managed blobs ---");
+
+    let tracker = tracker.as_mut().unwrap();
+
+    // Collect managers to delete from (to avoid borrow issues).
+    let managers_to_delete: Vec<Arc<TestBlobManager>> = tracker
+        .instances
+        .iter()
+        .filter(|inst| {
+            !inst.deleted
+                && inst.deletable
+                && matches!(inst.context, StorageContext::BlobManager { .. })
+        })
+        .filter_map(|inst| {
+            if let StorageContext::BlobManager { manager } = &inst.context {
+                Some(manager.clone())
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    for manager in &managers_to_delete {
+        let cap_id = managers
+            .iter()
+            .find(|(m, _)| Arc::ptr_eq(m, manager))
+            .map(|(_, cap)| *cap)
+            .unwrap();
+
+        client.init_blob_manager(cap_id).await?;
+        client
+            .get_blob_manager_client()?
+            .delete_blob(tracker.blob_id)
+            .await?;
+        tracker.mark_deleted_for_manager(manager);
+        tracing::info!("Deleted remaining managed blob from manager {}", manager.id);
+    }
+
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    // Verify final status.
+    let final_status = get_and_verify_status(client, &tracker.blob_id).await?;
+    tracing::info!("Final status: {:?}", final_status);
+    tracker.verify_status(&final_status);
+
+    // Blob should still be readable if any permanent instance exists.
+    if tracker.has_permanent() || tracker.has_managed_permanent() {
+        verify_blob_readable(client, &tracker.blob_id, &test_data).await?;
+        tracing::info!("Blob still readable (permanent instance exists)");
+    } else {
+        tracing::info!("No permanent instances remain");
+    }
+
+    tracing::info!(
+        "=== Randomized Mixed Operations Test PASSED (seed={}) ===",
+        seed
+    );
+    Ok(())
+}
+
+/// Tests that BlobStatus::Permanent uses permanent_end_epoch, not deletable_end_epoch.
+///
+/// This test verifies the fix for a bug where BlobStatus::Permanent was using the max
+/// end_epoch across ALL registered BlobManagers (including deletable ones), instead of
+/// only using the permanent blobs' end_epoch.
+///
+/// Scenario:
+/// - Create BlobManager A with short end_epoch (2 epochs ahead) for PERMANENT blob.
+/// - Create BlobManager B with long end_epoch (10 epochs ahead) for DELETABLE blob.
+/// - Store same blob in both managers.
+/// - Verify BlobStatus::Permanent reports end_epoch from BlobManager A (permanent),
+///   not from BlobManager B (deletable).
+#[ignore = "ignore E2E tests by default"]
+#[walrus_simtest]
+async fn test_managed_permanent_end_epoch_uses_permanent_not_deletable() -> TestResult {
+    walrus_test_utils::init_tracing();
+
+    let test_nodes_config = TestNodesConfig {
+        node_weights: vec![7, 7, 7, 7, 7],
+        ..Default::default()
+    };
+    // Use 200-second epoch duration to ensure blobs don't expire during test.
+    let (_sui_cluster_handle, _cluster, mut client, _) = test_cluster::E2eTestSetupBuilder::new()
+        .with_test_nodes_config(test_nodes_config)
+        .with_epoch_duration(Duration::from_secs(200))
+        .build()
+        .await?;
+    let client = client.as_mut();
+
+    tracing::info!("=== Testing Permanent End Epoch Uses Permanent, Not Deletable ===");
+
+    let initial_capacity = 500 * 1024 * 1024; // 500MB.
+
+    // Create BlobManager A with SHORT end_epoch (2 epochs) for PERMANENT blob.
+    let epochs_ahead_permanent = 2;
+    let (manager_permanent_id, cap_permanent_id) = client
+        .sui_client()
+        .create_blob_manager(initial_capacity, epochs_ahead_permanent)
+        .await?;
+    tracing::info!(
+        "Created BlobManager for PERMANENT blob: {}, epochs_ahead: {}",
+        manager_permanent_id,
+        epochs_ahead_permanent
+    );
+
+    // Create BlobManager B with LONG end_epoch (10 epochs) for DELETABLE blob.
+    let epochs_ahead_deletable = 10;
+    let (manager_deletable_id, cap_deletable_id) = client
+        .sui_client()
+        .create_blob_manager(initial_capacity, epochs_ahead_deletable)
+        .await?;
+    tracing::info!(
+        "Created BlobManager for DELETABLE blob: {}, epochs_ahead: {}",
+        manager_deletable_id,
+        epochs_ahead_deletable
+    );
+
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    // Get end epochs.
+    client.init_blob_manager(cap_permanent_id).await?;
+    let permanent_manager_info = client.get_blob_manager_client()?.get_storage_info().await?;
+    let permanent_end_epoch = permanent_manager_info.end_epoch;
+
+    client.init_blob_manager(cap_deletable_id).await?;
+    let deletable_manager_info = client.get_blob_manager_client()?.get_storage_info().await?;
+    let deletable_end_epoch = deletable_manager_info.end_epoch;
+
+    tracing::info!(
+        "Permanent manager end_epoch: {}, Deletable manager end_epoch: {}",
+        permanent_end_epoch,
+        deletable_end_epoch
+    );
+
+    // Verify deletable manager has HIGHER end_epoch.
+    assert!(
+        deletable_end_epoch > permanent_end_epoch,
+        "Deletable manager should have later end_epoch: {} > {}",
+        deletable_end_epoch,
+        permanent_end_epoch
+    );
+
+    // Generate test data.
+    let test_data = walrus_test_utils::random_data(1024);
+
+    // Store PERMANENT blob in BlobManager A (shorter end_epoch).
+    let blob_id = store_managed_blob(
+        client,
+        cap_permanent_id,
+        &test_data,
+        BlobPersistence::Permanent,
+    )
+    .await?;
+    tracing::info!(
+        "Stored PERMANENT blob in manager with end_epoch={}: {}",
+        permanent_end_epoch,
+        blob_id
+    );
+
+    // Store DELETABLE blob (same data) in BlobManager B (longer end_epoch).
+    let blob_id_deletable = store_managed_blob(
+        client,
+        cap_deletable_id,
+        &test_data,
+        BlobPersistence::Deletable,
+    )
+    .await?;
+    assert_eq!(
+        blob_id, blob_id_deletable,
+        "Same data should have same blob_id"
+    );
+    tracing::info!(
+        "Stored DELETABLE blob in manager with end_epoch={}: {}",
+        deletable_end_epoch,
+        blob_id_deletable
+    );
+
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    // Get blob status.
+    let status = get_and_verify_status(client, &blob_id).await?;
+    tracing::info!("Blob status: {:?}", status);
+
+    // Verify the status is Permanent.
+    assert!(
+        status.is_permanent(),
+        "Status should be Permanent, got: {:?}",
+        status
+    );
+
+    // THE KEY ASSERTION: end_epoch should be from PERMANENT blob (shorter end_epoch),
+    // NOT from DELETABLE blob (longer end_epoch).
+    let reported_end_epoch = status.end_epoch().expect("Permanent should have end_epoch");
+
+    assert_eq!(
+        reported_end_epoch, permanent_end_epoch,
+        "BlobStatus::Permanent should report end_epoch from PERMANENT blob ({}), \
+            not from DELETABLE blob ({}). Got: {}",
+        permanent_end_epoch, deletable_end_epoch, reported_end_epoch
+    );
+
+    tracing::info!(
+        "SUCCESS: BlobStatus::Permanent correctly reports end_epoch={} (from permanent blob), \
+            not {} (from deletable blob)",
+        permanent_end_epoch,
+        deletable_end_epoch
+    );
+
+    // Also verify deletable counts are correct.
+    let deletable_counts = status.deletable_counts();
+    assert_eq!(
+        deletable_counts.count_deletable_total, 1,
+        "Should have 1 deletable blob"
+    );
+
+    // Verify blob is readable.
+    verify_blob_readable(client, &blob_id, &test_data).await?;
+
+    tracing::info!("=== Permanent End Epoch Test PASSED ===");
+    Ok(())
 }

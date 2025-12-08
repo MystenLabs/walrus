@@ -70,6 +70,7 @@ use crate::{
         client_types::{
             BlobAwaitingUpload,
             BlobData,
+            BlobObject,
             BlobPendingCertifyAndExtend,
             BlobWithStatus,
             EncodedBlob,
@@ -100,6 +101,7 @@ use crate::{
 };
 
 pub mod client_types;
+pub use client_types::CertificateArg;
 pub mod communication;
 pub use communication::NodeCommunicationFactory;
 pub mod metrics;
@@ -1350,6 +1352,9 @@ impl WalrusNodeClient<SuiContractClient> {
             ..
         } = &blob_to_be_certified.state;
 
+        // Get the certificate argument for this blob (handles both regular and managed blobs).
+        let certificate_arg = blob_object.certificate_arg();
+
         let certificate_result = match blob_status.initial_certified_epoch() {
             Some(certified_epoch) if !committees.is_change_in_progress() => {
                 // If the blob is already certified on chain and there is no committee change in
@@ -1357,7 +1362,7 @@ impl WalrusNodeClient<SuiContractClient> {
                 self.get_certificate_standalone(
                     &blob_object.blob_id(),
                     certified_epoch,
-                    &blob_object.blob_persistence_type(),
+                    &certificate_arg,
                 )
                 .await
             }
@@ -1385,7 +1390,7 @@ impl WalrusNodeClient<SuiContractClient> {
                         self.send_blob_data_and_get_certificate(
                             &encoded_blob.metadata,
                             sliver_pairs.clone(),
-                            &blob_object.blob_persistence_type(),
+                            &certificate_arg,
                             Some(multi_pb),
                             store_args.tail_handling,
                             store_args.quorum_event_tx.clone(),
@@ -1393,16 +1398,21 @@ impl WalrusNodeClient<SuiContractClient> {
                         )
                         .await
                     }
-                    BlobData::BlobForUploadRelay(blob, upload_relay_client) => upload_relay_client
-                        .send_blob_data_and_get_certificate_with_relay(
-                            &self.sui_client,
-                            blob,
-                            blob_object.blob_id(),
-                            store_args.encoding_type,
-                            blob_object.blob_persistence_type(),
-                        )
-                        .await
-                        .map_err(|error| ClientErrorKind::UploadRelayError(error).into()),
+                    BlobData::BlobForUploadRelay(blob, upload_relay_client) => {
+                        // Get the blob persistence type, querying Sui for managed blobs.
+                        let blob_persistence_type =
+                            self.get_blob_persistence_type(blob_object).await?;
+                        upload_relay_client
+                            .send_blob_data_and_get_certificate_with_relay(
+                                &self.sui_client,
+                                blob,
+                                blob_object.blob_id(),
+                                store_args.encoding_type,
+                                blob_persistence_type,
+                            )
+                            .await
+                            .map_err(|error| ClientErrorKind::UploadRelayError(error).into())
+                    }
                 };
 
                 let blob_size = blob_object.size().unwrap_or(0);
@@ -1418,6 +1428,36 @@ impl WalrusNodeClient<SuiContractClient> {
             }
         };
         blob_to_be_certified.with_certificate_result(certificate_result)
+    }
+
+    /// Gets the blob persistence type for a blob, querying Sui for managed blobs if needed.
+    ///
+    /// For regular blobs, this returns the persistence type directly from the blob object.
+    /// For managed blobs, this queries Sui to get the ManagedBlob object_id (needed for
+    /// deletable blobs to construct the correct `BlobPersistenceType`).
+    async fn get_blob_persistence_type(
+        &self,
+        blob_object: &BlobObject,
+    ) -> ClientResult<BlobPersistenceType> {
+        match blob_object {
+            BlobObject::Regular(_) => Ok(blob_object.blob_persistence_type()),
+            BlobObject::Managed {
+                blob_id, deletable, ..
+            } => {
+                if *deletable {
+                    // For deletable managed blobs, query the object_id from Sui.
+                    let object_id = self
+                        .get_blob_manager_client()?
+                        .get_managed_blob_object_id(*blob_id, *deletable)
+                        .await?;
+                    Ok(BlobPersistenceType::Deletable {
+                        object_id: object_id.into(),
+                    })
+                } else {
+                    Ok(BlobPersistenceType::Permanent)
+                }
+            }
+        }
     }
 
     async fn certify_and_extend_blobs(
@@ -1705,7 +1745,7 @@ impl<T> WalrusNodeClient<T> {
         &self,
         metadata: &VerifiedBlobMetadataWithId,
         pairs: Arc<Vec<SliverPair>>,
-        blob_persistence_type: &BlobPersistenceType,
+        certificate_arg: &CertificateArg,
         multi_pb: Option<&MultiProgress>,
         tail_handling: TailHandling,
         quorum_forwarder: Option<tokio::sync::mpsc::Sender<UploaderEvent>>,
@@ -1823,7 +1863,7 @@ impl<T> WalrusNodeClient<T> {
         self.get_certificate_standalone(
             metadata.blob_id(),
             committees.write_committee().epoch,
-            blob_persistence_type,
+            certificate_arg,
         )
         .await
     }
@@ -1923,30 +1963,75 @@ impl<T> WalrusNodeClient<T> {
     }
 
     /// Fetches confirmations for a blob from a quorum of nodes and returns the certificate.
+    ///
+    // For regular blobs (`CertificateArg::Regular`), uses `execute_weight` for simple quorum.
+    // For managed blobs (`CertificateArg::Managed`), uses `execute_weight_mapped` with
+    // `BlobPersistenceType` as the grouping key to ensure quorum agreement on `object_id`
+    // (especially important for deletable blobs where the client doesn't know the `object_id`
+    // upfront).
     async fn get_certificate_standalone(
         &self,
         blob_id: &BlobId,
         certified_epoch: Epoch,
-        blob_persistence_type: &BlobPersistenceType,
+        certificate_arg: &CertificateArg,
     ) -> ClientResult<ConfirmationCertificate> {
         let committees = self.get_committees().await?;
         let comms = self
             .communication_factory
             .node_read_communications(&committees, certified_epoch)?;
 
-        let mut requests = WeightedFutures::new(comms.iter().map(|n| {
-            n.get_confirmation_with_retries(blob_id, committees.epoch(), blob_persistence_type)
-        }));
+        match certificate_arg {
+            CertificateArg::Regular(blob_persistence_type) => {
+                let mut requests = WeightedFutures::new(comms.iter().map(|n| {
+                    n.get_confirmation_with_retries(
+                        blob_id,
+                        committees.epoch(),
+                        blob_persistence_type,
+                    )
+                }));
 
-        let _ = requests
-            .execute_weight(
-                &|weight| committees.is_quorum(weight),
-                self.communication_limits.max_concurrent_sliver_reads,
-            )
-            .await;
-        let results = requests.into_results();
+                let _ = requests
+                    .execute_weight(
+                        &|weight| committees.is_quorum(weight),
+                        self.communication_limits.max_concurrent_sliver_reads,
+                    )
+                    .await;
+                let results = requests.into_results();
 
-        self.confirmations_to_certificate(results, &committees)
+                self.confirmations_to_certificate(results, &committees)
+            }
+            CertificateArg::Managed {
+                manager_id,
+                deletable,
+            } => {
+                // Use the unified method that returns (SignedStorageConfirmation,
+                // BlobPersistenceType). Group by BlobPersistenceType to ensure quorum agreement
+                // (especially important for deletable blobs where the object_id is determined by
+                // the server).
+                let mut requests = WeightedFutures::new(comms.iter().map(|n| {
+                    n.get_confirmation_managed_with_retries(
+                        blob_id,
+                        committees.epoch(),
+                        manager_id,
+                        *deletable,
+                    )
+                }));
+
+                let _ = requests
+                    .execute_weight_mapped(
+                        &|weight| committees.is_quorum(weight),
+                        self.communication_limits.max_concurrent_sliver_reads,
+                        // Extract BlobPersistenceType from the tuple for grouping.
+                        |(_, persistence_type)| *persistence_type,
+                    )
+                    .await;
+
+                // After execute_weight_mapped, results contain only confirmations with the quorum
+                // BlobPersistenceType. Build the certificate from these results.
+                let results = requests.into_results();
+                self.confirmations_to_certificate_managed(results, &committees)
+            }
+        }
     }
 
     /// Combines the received storage confirmations into a single certificate.
@@ -2003,6 +2088,55 @@ impl<T> WalrusNodeClient<T> {
         committees: &ActiveCommittees,
     ) -> ClientError {
         ClientErrorKind::NotEnoughConfirmations(weight, committees.min_n_correct()).into()
+    }
+
+    /// Combines the received storage confirmations for managed blobs into a certificate.
+    ///
+    /// After `execute_weight_mapped` has already grouped by `BlobPersistenceType` and reached
+    /// quorum, this function simply extracts the `SignedStorageConfirmation` from the tuples
+    /// and builds the certificate.
+    fn confirmations_to_certificate_managed<E: Display>(
+        &self,
+        confirmations: Vec<NodeResult<(SignedStorageConfirmation, BlobPersistenceType), E>>,
+        committees: &ActiveCommittees,
+    ) -> ClientResult<ConfirmationCertificate> {
+        let mut aggregate_weight = 0;
+        let mut signers = Vec::with_capacity(confirmations.len());
+        let mut signed_messages = Vec::with_capacity(confirmations.len());
+
+        for NodeResult {
+            weight,
+            node,
+            result,
+            ..
+        } in confirmations
+        {
+            match result {
+                Ok((confirmation, _persistence_type)) => {
+                    aggregate_weight += weight;
+                    signed_messages.push(confirmation);
+                    signers.push(
+                        u16::try_from(node)
+                            .expect("the node index is computed from the vector of members"),
+                    );
+                }
+                Err(error) => {
+                    tracing::info!(node, %error, "getting managed confirmation failed");
+                }
+            }
+        }
+
+        ensure!(
+            committees
+                .write_committee()
+                .is_at_least_min_n_correct(aggregate_weight),
+            self.not_enough_confirmations_error(aggregate_weight, committees)
+        );
+
+        let cert =
+            ConfirmationCertificate::from_signed_messages_and_indices(signed_messages, signers)
+                .map_err(ClientError::other)?;
+        Ok(cert)
     }
 
     /// Requests the slivers and decodes them into a blob.

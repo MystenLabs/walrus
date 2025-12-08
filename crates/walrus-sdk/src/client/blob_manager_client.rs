@@ -691,6 +691,29 @@ impl<'a> BlobManagerClient<'a, SuiContractClient> {
 
         Ok(managed_blob)
     }
+
+    /// Gets the object ID of a ManagedBlob by blob_id.
+    ///
+    /// This is a convenience method that queries the on-chain ManagedBlob and returns
+    /// just its object ID. This is useful for constructing `BlobPersistenceType::Deletable`
+    /// when using upload relay for managed blobs.
+    ///
+    /// # Arguments
+    ///
+    /// * `blob_id` - The blob ID to look up.
+    /// * `deletable` - Whether the blob should be deletable (for permanency conflict check).
+    ///
+    /// # Returns
+    ///
+    /// The `ObjectID` of the ManagedBlob on-chain.
+    pub async fn get_managed_blob_object_id(
+        &self,
+        blob_id: BlobId,
+        deletable: bool,
+    ) -> ClientResult<ObjectID> {
+        let managed_blob = self.get_managed_blob(blob_id, deletable).await?;
+        Ok(managed_blob.id)
+    }
 }
 
 impl BlobManagerClient<'_, SuiContractClient> {

@@ -143,6 +143,112 @@ where
         }
     }
 
+    /// Executes the futures until the provided threshold is met for any single map key,
+    /// or all futures have been executed.
+    ///
+    /// The `map_fn` generates a hashable key for each successful result's inner value.
+    /// Results are grouped by this key, and weights are accumulated per group.
+    /// The threshold is checked against each group's accumulated weight.
+    ///
+    /// After execution completes, `self.results` will contain only the results from the
+    /// group that reached the threshold (or the group with maximum weight if no threshold
+    /// was reached). Other results are discarded.
+    ///
+    /// Stops executing in two cases:
+    ///
+    /// 1. If the `threshold` closure applied to any group's weight returns `true`;
+    ///    in this case a [`CompletedReasonWeight::ThresholdReached`] is returned.
+    /// 2. If there are no more futures to execute; in this case a
+    ///    [`CompletedReasonWeight::FuturesConsumed`] is returned containing the maximum weight
+    ///    across all map entries.
+    ///
+    /// `n_concurrent` is the maximum number of futures that are awaited at any one time to produce
+    /// results.
+    ///
+    /// # Important Notes
+    ///
+    /// - The `map_fn` is only called on successful results (Ok values).
+    /// - Failed results (Err values) are discarded.
+    /// - Only the group that reached threshold (or has max weight) is retained in `self.results`.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Group results by object_id and stop when any group reaches quorum weight.
+    /// let result = weighted_futures.execute_weight_mapped(
+    ///     &|weight| weight >= quorum_weight,
+    ///     10, // n_concurrent
+    ///     |inner| inner.object_id, // Extract object_id from successful results.
+    /// ).await;
+    /// // After execution, self.results contains only results with the quorum object_id.
+    /// ```
+    #[tracing::instrument(level = Level::DEBUG, skip(self, threshold, map_fn), ret)]
+    pub async fn execute_weight_mapped<K, F>(
+        &mut self,
+        threshold: &impl Fn(usize) -> bool,
+        n_concurrent: usize,
+        map_fn: F,
+    ) -> CompletedReasonWeight
+    where
+        K: Hash + Eq + Clone,
+        F: Fn(&T::Inner) -> K,
+    {
+        tracing::debug!("starting to execute weighted futures with map");
+
+        // Map from key to (accumulated weight, results).
+        let mut results_map: HashMap<K, (usize, Vec<T>)> = HashMap::new();
+        self.total_weight = 0;
+
+        // Execute futures and group them by key.
+        loop {
+            // Get the next result.
+            let Some(result) = self.next_mapped(n_concurrent).await else {
+                break; // No more futures.
+            };
+
+            // Only process successful results.
+            let Ok(inner) = result.inner_result() else {
+                // Log error and discard.
+                tracing::debug!("discarding error result in execute_weight_mapped");
+                continue;
+            };
+
+            let key = map_fn(inner);
+            let weight = result.weight();
+
+            let entry = results_map.entry(key).or_insert_with(|| (0, Vec::new()));
+            entry.0 += weight;
+            entry.1.push(result);
+
+            // Check if this group reached threshold.
+            if threshold(entry.0) {
+                self.total_weight = entry.0;
+                // Move this group's results to self.results.
+                self.results = std::mem::take(&mut entry.1);
+                return CompletedReasonWeight::ThresholdReached;
+            }
+        }
+
+        // All futures consumed - find and keep the group with maximum weight.
+        let max_entry = results_map
+            .iter()
+            .max_by_key(|(_, (weight, _))| *weight)
+            .map(|(key, _)| key.clone());
+
+        if let Some(max_key) = max_entry
+            && let Some((weight, results)) = results_map.remove(&max_key)
+        {
+            self.results = results;
+            self.total_weight = weight;
+            return CompletedReasonWeight::FuturesConsumed(weight);
+        }
+
+        // No successful results.
+        self.results = Vec::new();
+        self.total_weight = 0;
+        CompletedReasonWeight::FuturesConsumed(0)
+    }
+
     /// Executes the futures until the set `duration` is elapsed, collecting all the futures that
     /// return without error within this time.
     ///
@@ -210,6 +316,38 @@ where
             }
             if completed.is_ok() {
                 self.total_weight += completed.weight();
+            }
+            Some(completed)
+        } else {
+            None
+        }
+    }
+
+    /// Returns the next result from the futures being executed concurrently.
+    ///
+    /// This function manages the concurrent execution of futures, maintaining up to
+    /// `n_concurrent` futures in flight at any time. It simply returns the next
+    /// completed result without any filtering or threshold checking.
+    ///
+    /// Returns `None` when no more futures are available.
+    /// Returns `Some(result)` containing the next completed result.
+    ///
+    /// `n_concurrent` is the maximum number of futures that are awaited at any one time.
+    pub async fn next_mapped(&mut self, n_concurrent: usize) -> Option<T> {
+        // Fill up concurrent futures
+        while self.being_executed.len() < n_concurrent {
+            if let Some(future) = self.futures.next() {
+                self.being_executed.push(future);
+            } else {
+                break;
+            }
+        }
+
+        // Wait for a future to complete
+        if let Some(completed) = self.being_executed.next().await {
+            // Add more futures to the ones being awaited
+            if let Some(future) = self.futures.next() {
+                self.being_executed.push(future);
             }
             Some(completed)
         } else {

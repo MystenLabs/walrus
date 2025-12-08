@@ -34,7 +34,7 @@ use utoipa::{OpenApi, ToSchema};
 use utoipa_redoc::{Redoc, Servable};
 use walrus_sdk::{
     SuiReadClient,
-    client::WalrusNodeClient,
+    client::{CertificateArg, WalrusNodeClient},
     config::{ClientConfig, load_configuration},
     core::{
         BlobId,
@@ -210,12 +210,13 @@ impl Controller {
         } else {
             BlobPersistenceType::Permanent
         };
+        let certificate_arg = CertificateArg::Regular(blob_persistence);
         let confirmation_certificate: ConfirmationCertificate = self
             .client
             .send_blob_data_and_get_certificate(
                 &metadata,
                 Arc::new(sliver_pairs),
-                &blob_persistence,
+                &certificate_arg,
                 None,
                 TailHandling::Blocking,
                 None,

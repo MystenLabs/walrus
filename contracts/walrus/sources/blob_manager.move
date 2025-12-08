@@ -41,6 +41,9 @@ const ERequiresFundManager: u64 = 6;
 
 // === Main Structures ===
 
+/// Default grace period epochs for BlobManager (2 epochs).
+const DEFAULT_GRACE_PERIOD_EPOCHS: u32 = 2;
+
 /// The minimal blob-management interface.
 public struct BlobManager has key, store {
     id: UID,
@@ -52,11 +55,14 @@ public struct BlobManager has key, store {
     coin_stash: BlobManagerCoinStash,
     /// Extension policy controlling who can extend storage and under what conditions.
     extension_policy: ExtensionPolicy,
+    /// Grace period in epochs after storage expiry before blobs become eligible for GC.
+    grace_period_epochs: u32,
 }
 
 /// A capability which represents the authority to manage blobs in the BlobManager.
 /// Admin can create new capabilities and perform all operations.
 /// Fund manager can withdraw funds from the coin stash.
+/// revocation for caps.
 public struct BlobManagerCap has key, store {
     id: UID,
     /// The BlobManager this capability is for.
@@ -92,6 +98,7 @@ public fun new_with_unified_storage(
         coin_stash: coin_stash::new(),
         // Default policy: extend within 1 epoch of expiry, max 10 epochs per extension.
         extension_policy: extension_policy::constrained(1, 10),
+        grace_period_epochs: DEFAULT_GRACE_PERIOD_EPOCHS,
     };
 
     // Get the ObjectID from the constructed manager object.
@@ -111,6 +118,7 @@ public fun new_with_unified_storage(
         system::epoch(system),
         manager_object_id,
         end_epoch,
+        DEFAULT_GRACE_PERIOD_EPOCHS,
     );
 
     // BlobManager is designed to be a shared object.
@@ -485,6 +493,14 @@ fun execute_extension(
     // Apply the extension to the BlobManager's storage.
     self.storage.extend_storage(extension_storage);
 
+    // Emit BlobManagerUpdated event for storage nodes to update gc_eligible_epoch.
+    events::emit_blob_manager_updated(
+        system::epoch(system),
+        object::id(self),
+        new_end_epoch,
+        self.grace_period_epochs,
+    );
+
     effective_extension
 }
 
@@ -546,6 +562,11 @@ public fun coin_stash_balances(self: &BlobManager): (u64, u64) {
 /// Returns the current extension policy.
 public fun extension_policy(self: &BlobManager): &ExtensionPolicy {
     &self.extension_policy
+}
+
+/// Returns the grace period in epochs after storage expiry before blobs become eligible for GC.
+public fun grace_period_epochs(self: &BlobManager): u32 {
+    self.grace_period_epochs
 }
 
 // === Fund Manager Functions ===
@@ -613,6 +634,18 @@ public fun set_extension_policy_constrained(
             expiry_threshold_epochs,
             max_extension_epochs,
         );
+}
+
+/// Sets the grace period in epochs after storage expiry before blobs become eligible for GC.
+/// Requires fund_manager permission.
+public fun set_grace_period_epochs(
+    self: &mut BlobManager,
+    cap: &BlobManagerCap,
+    grace_period_epochs: u32,
+) {
+    check_cap(self, cap);
+    assert!(cap.fund_manager, ERequiresFundManager);
+    self.grace_period_epochs = grace_period_epochs;
 }
 
 // === Blob Attribute Operations ===

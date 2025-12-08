@@ -31,11 +31,16 @@ public struct BlobManagerCoinStash has store {
 
 // === Constructor ===
 
+/// TODO(heliu): Reward tips for the caller.
+
 /// Creates a new coin stash for a BlobManager.
 /// Returns the coin stash to be embedded in BlobManager.
 /// TODO(heliu): do we need SUI? Discuss with the product team.
 public fun new(): BlobManagerCoinStash {
     BlobManagerCoinStash {
+        // TODO(heliu): ADD Stable coin support.
+        // Dynamic fields.
+        // Object bag.
         wal_balance: balance::zero<WAL>(),
         sui_balance: balance::zero<SUI>(),
     }

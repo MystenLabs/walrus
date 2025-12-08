@@ -13,7 +13,6 @@ use walrus_core::{
     BlobId,
     EpochCount,
     QuiltPatchId,
-    SuiObjectId,
     encoding::{
         EncodingConfigEnum,
         EncodingFactory as _,
@@ -684,17 +683,6 @@ impl WalrusStoreBlobMaybeFinished<BlobWithStatus> {
                     end_epoch,
                 });
             }
-            // Managed-only permanent blobs have no status_event but are still certified.
-            BlobStatus::Permanent {
-                end_epoch,
-                is_certified: true,
-                status_event: None,
-                ..
-            } if end_epoch >= target_epoch => {
-                // For managed-only permanent blobs, we still report as already certified
-                // but without an event. Use the blob_id to construct a pseudo-identifier.
-                // The client will need to handle this case appropriately.
-            }
             BlobStatus::Invalid { event } => {
                 self.state = WalrusStoreBlobState::Finished(BlobStoreResult::MarkedInvalid {
                     blob_id,
@@ -708,6 +696,20 @@ impl WalrusStoreBlobMaybeFinished<BlobWithStatus> {
         drop(_guard);
         Ok(self)
     }
+}
+
+/// Specifies how to fetch the certificate for a blob.
+#[derive(Debug, Clone)]
+pub enum CertificateArg {
+    /// Regular blob with known persistence type.
+    Regular(BlobPersistenceType),
+    /// Managed blob where the object_id is determined by the server.
+    Managed {
+        /// The BlobManager ID.
+        manager_id: ObjectID,
+        /// Whether the managed blob is deletable.
+        deletable: bool,
+    },
 }
 
 /// Enum to represent both regular Blob and ManagedBlob.
@@ -776,6 +778,13 @@ impl BlobObject {
     }
 
     /// Get the blob persistence type.
+    ///
+    /// This method should only be called for regular (non-managed) blobs.
+    /// For managed blobs, use `get_confirmation_managed()` with `manager_id()` and `deletable()`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if called on a managed blob.
     pub fn blob_persistence_type(&self) -> BlobPersistenceType {
         match self {
             BlobObject::Regular(blob) => {
@@ -787,20 +796,40 @@ impl BlobObject {
                     BlobPersistenceType::Permanent
                 }
             }
-            BlobObject::Managed {
-                deletable,
-                manager_id,
-                ..
-            } => {
-                // For managed blobs, return the Managed variant.
-                // The client doesn't know the blob_object_id yet, so it's ZERO.
-                // The server will populate the actual object_id in the confirmation.
-                BlobPersistenceType::Managed {
-                    blob_manager_id: manager_id.into(),
-                    deletable: *deletable,
-                    blob_object_id: SuiObjectId::ZERO,
-                }
+            BlobObject::Managed { .. } => {
+                panic!(
+                    "blob_persistence_type() should not be called for managed blobs. \
+                        Use get_confirmation_managed() instead."
+                )
             }
+        }
+    }
+
+    /// Get the certificate argument for this blob.
+    ///
+    /// This returns the appropriate `CertificateArg` variant for fetching confirmations.
+    /// - For regular blobs, returns `CertificateArg::Regular` with the persistence type.
+    /// - For managed blobs, returns `CertificateArg::Managed` with manager_id and deletable flag.
+    pub fn certificate_arg(&self) -> CertificateArg {
+        match self {
+            BlobObject::Regular(blob) => {
+                let persistence_type = if blob.deletable {
+                    BlobPersistenceType::Deletable {
+                        object_id: blob.id.into(),
+                    }
+                } else {
+                    BlobPersistenceType::Permanent
+                };
+                CertificateArg::Regular(persistence_type)
+            }
+            BlobObject::Managed {
+                manager_id,
+                deletable,
+                ..
+            } => CertificateArg::Managed {
+                manager_id: *manager_id,
+                deletable: *deletable,
+            },
         }
     }
 }

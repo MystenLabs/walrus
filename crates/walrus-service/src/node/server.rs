@@ -701,6 +701,23 @@ mod tests {
             }
         }
 
+        /// Returns a confirmation for a managed blob.
+        async fn compute_storage_confirmation_managed(
+            &self,
+            blob_id: &BlobId,
+            _blob_manager_id: &sui_types::base_types::ObjectID,
+            _deletable: bool,
+        ) -> Result<StorageConfirmation, ComputeStorageConfirmationError> {
+            if blob_id.0[0] == 0 {
+                let confirmation = walrus_core::test_utils::random_signed_message();
+                Ok(StorageConfirmation::Signed(confirmation))
+            } else if blob_id.0[0] == 1 {
+                Err(ComputeStorageConfirmationError::NotFullyStored)
+            } else {
+                Err(anyhow::anyhow!("Invalid shard").into())
+            }
+        }
+
         /// Returns a "certified" blob status for blob ID starting with zero, `Nonexistent` when
         /// starting with 1, and otherwise an error.
         fn blob_status(&self, blob_id: &BlobId) -> Result<BlobStatus, BlobStatusError> {

@@ -52,6 +52,7 @@ use walrus_proc_macros::walrus_simtest;
 use walrus_sdk::{
     client::{
         Blocklist,
+        CertificateArg,
         StoreArgs,
         WalrusNodeClient,
         client_types::WalrusStoreBlob,
@@ -367,12 +368,13 @@ async fn test_inconsistency(failed_nodes: &[usize]) -> TestResult {
         .expect("should register exactly one blob");
 
     // Certify blob.
+    let certificate_arg = CertificateArg::Regular(BlobPersistenceType::Permanent);
     let certificate = client
         .as_ref()
         .send_blob_data_and_get_certificate(
             &metadata,
             Arc::new(pairs),
-            &BlobPersistenceType::Permanent,
+            &certificate_arg,
             None,
             TailHandling::Blocking,
             None,

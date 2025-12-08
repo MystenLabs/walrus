@@ -115,14 +115,6 @@ impl UrlEndpoints {
             BlobPersistenceType::Deletable { object_id } => {
                 self.deletable_blob_confirmation(blob_id, &object_id.into())
             }
-            BlobPersistenceType::Managed {
-                blob_manager_id,
-                deletable,
-                ..
-            } => {
-                // For managed blobs, route to the managed endpoint
-                self.managed_blob_confirmation(blob_id, &blob_manager_id.into(), *deletable)
-            }
         }
     }
 
@@ -427,9 +419,6 @@ impl StorageNodeClient {
     }
 
     /// Requests a storage confirmation from the node for the Blob specified by the given ID.
-    ///
-    /// For managed blobs, `blob_manager_id` should be provided to route to the managed blob
-    /// confirmation endpoint.
     #[tracing::instrument(skip_all, fields(walrus.blob_id = %blob_id), err(level = Level::DEBUG))]
     pub async fn get_confirmation(
         &self,
@@ -438,6 +427,30 @@ impl StorageNodeClient {
     ) -> Result<SignedStorageConfirmation, NodeError> {
         let (url, template) = self.endpoints.confirmation(blob_id, blob_persistence_type);
         // NOTE(giac): in the future additional values may be possible here.
+        let StorageConfirmation::Signed(confirmation) = self
+            .send_and_parse_service_response(Request::new(Method::GET, url), template)
+            .await?;
+        Ok(confirmation)
+    }
+
+    /// Requests a storage confirmation from the node for a managed blob.
+    ///
+    /// This method calls the managed blob confirmation endpoint, which looks up the
+    /// ManagedBlob object ID server-side.
+    #[tracing::instrument(
+        skip_all,
+        fields(walrus.blob_id = %blob_id, walrus.manager_id = %manager_id),
+        err(level = Level::DEBUG)
+    )]
+    pub async fn get_confirmation_managed(
+        &self,
+        blob_id: &BlobId,
+        manager_id: &ObjectID,
+        deletable: bool,
+    ) -> Result<SignedStorageConfirmation, NodeError> {
+        let (url, template) = self
+            .endpoints
+            .managed_blob_confirmation(blob_id, manager_id, deletable);
         let StorageConfirmation::Signed(confirmation) = self
             .send_and_parse_service_response(Request::new(Method::GET, url), template)
             .await?;

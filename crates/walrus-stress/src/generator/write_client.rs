@@ -20,6 +20,7 @@ use walrus_core::{
 };
 use walrus_sdk::{
     client::{
+        CertificateArg,
         StoreArgs,
         WalrusNodeClient,
         metrics::ClientMetrics,
@@ -217,13 +218,14 @@ impl WriteClient {
         // Wait to ensure that the storage nodes received the registration event.
         tokio::time::sleep(Duration::from_secs(1)).await;
 
+        let certificate_arg = CertificateArg::Regular(blob_sui_object.blob_persistence_type());
         let certificate = self
             .client
             .as_ref()
             .send_blob_data_and_get_certificate(
                 &metadata,
                 Arc::new(pairs),
-                &blob_sui_object.blob_persistence_type(),
+                &certificate_arg,
                 Some(&MultiProgress::new()),
                 TailHandling::Blocking,
                 None,

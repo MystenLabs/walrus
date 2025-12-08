@@ -261,6 +261,17 @@ pub trait ServiceState {
         blob_persistence_type: &BlobPersistenceType,
     ) -> impl Future<Output = Result<StorageConfirmation, ComputeStorageConfirmationError>> + Send;
 
+    /// Retrieves a signed confirmation for a managed blob.
+    ///
+    /// This is a separate method from `compute_storage_confirmation` to handle managed blobs,
+    /// which require looking up the ManagedBlob object ID from the database.
+    fn compute_storage_confirmation_managed(
+        &self,
+        blob_id: &BlobId,
+        blob_manager_id: &ObjectID,
+        deletable: bool,
+    ) -> impl Future<Output = Result<StorageConfirmation, ComputeStorageConfirmationError>> + Send;
+
     /// Verifies an inconsistency proof and provides a signed attestation for it, if valid.
     fn verify_inconsistency_proof(
         &self,
@@ -2972,6 +2983,17 @@ impl ServiceState for StorageNode {
             .compute_storage_confirmation(blob_id, blob_persistence_type)
     }
 
+    fn compute_storage_confirmation_managed(
+        &self,
+        blob_id: &BlobId,
+        blob_manager_id: &ObjectID,
+        deletable: bool,
+    ) -> impl Future<Output = Result<StorageConfirmation, ComputeStorageConfirmationError>> + Send
+    {
+        self.inner
+            .compute_storage_confirmation_managed(blob_id, blob_manager_id, deletable)
+    }
+
     fn verify_inconsistency_proof(
         &self,
         blob_id: &BlobId,
@@ -3216,28 +3238,63 @@ impl ServiceState for StorageNodeInner {
                     object_id: *object_id,
                 }
             }
-            BlobPersistenceType::Managed {
-                blob_manager_id,
-                deletable,
-                blob_object_id: _,
-            } => {
-                // For all managed blobs (both deletable and permanent),
-                // look up the actual ManagedBlob object ID.
-                let object_id = self
-                    .storage
-                    .get_managed_blob_object_id(blob_id, &blob_manager_id.into())
-                    .context("database error when looking up managed blob object ID")?
-                    .ok_or(ComputeStorageConfirmationError::NotCurrentlyRegistered)?;
-                let blob_object_id = object_id.into();
-                BlobPersistenceType::Managed {
-                    blob_manager_id: *blob_manager_id,
-                    deletable: *deletable,
-                    blob_object_id,
-                }
-            }
         };
 
         tracing::debug!("blob_persistence_type: {:?}", blob_persistence_type);
+
+        let confirmation = Confirmation::new(
+            self.current_committee_epoch(),
+            *blob_id,
+            blob_persistence_type,
+        );
+        let signed = sign_message(confirmation, self.protocol_key_pair.clone()).await?;
+
+        self.metrics.storage_confirmations_issued_total.inc();
+
+        Ok(StorageConfirmation::Signed(signed))
+    }
+
+    async fn compute_storage_confirmation_managed(
+        &self,
+        blob_id: &BlobId,
+        blob_manager_id: &ObjectID,
+        deletable: bool,
+    ) -> Result<StorageConfirmation, ComputeStorageConfirmationError> {
+        ensure!(
+            self.is_blob_registered(blob_id)?,
+            ComputeStorageConfirmationError::NotCurrentlyRegistered,
+        );
+
+        // Storage confirmation must use the last shard assignment, even though the node hasn't
+        // processed to the latest epoch yet. This is because if the onchain committee has moved
+        // on to the new epoch, confirmation from the old epoch is not longer valid.
+        ensure!(
+            self.is_stored_at_all_shards_at_latest_epoch(blob_id)
+                .await
+                .context("database error when checking storage status")?,
+            ComputeStorageConfirmationError::NotFullyStored,
+        );
+
+        // For managed blobs, look up the actual ManagedBlob object ID.
+        let object_id = self
+            .storage
+            .get_managed_blob_object_id(blob_id, blob_manager_id)
+            .context("database error when looking up managed blob object ID")?
+            .ok_or(ComputeStorageConfirmationError::NotCurrentlyRegistered)?;
+
+        // Use Deletable or Permanent based on the deletable flag.
+        let blob_persistence_type = if deletable {
+            BlobPersistenceType::Deletable {
+                object_id: object_id.into(),
+            }
+        } else {
+            BlobPersistenceType::Permanent
+        };
+
+        tracing::debug!(
+            "blob_persistence_type (managed): {:?}",
+            blob_persistence_type
+        );
 
         let confirmation = Confirmation::new(
             self.current_committee_epoch(),

@@ -83,12 +83,13 @@ public struct ManagedBlobDeleted has copy, drop {
     was_certified: bool,
 }
 
-/// Signals that a BlobManager's storage has been extended.
-public struct BlobManagerExtended has copy, drop {
+/// Signals that a BlobManager's configuration has been updated.
+public struct BlobManagerUpdated has copy, drop {
     epoch: u32,
     blob_manager_id: ID,
-    additional_storage: u64,
     new_end_epoch: u32,
+    /// Grace period in epochs after storage expiry before blobs become eligible for GC.
+    grace_period_epochs: u32,
 }
 
 /// Signals that a new BlobManager has been created.
@@ -96,6 +97,8 @@ public struct BlobManagerCreated has copy, drop {
     epoch: u32,
     blob_manager_id: ID,
     end_epoch: u32,
+    /// Grace period in epochs after storage expiry before blobs become eligible for GC.
+    grace_period_epochs: u32,
 }
 
 /// Signals that a BlobID is invalid.
@@ -287,25 +290,31 @@ public(package) fun emit_managed_blob_deleted(
     });
 }
 
-public(package) fun emit_blob_manager_extended(
+public(package) fun emit_blob_manager_updated(
     epoch: u32,
     blob_manager_id: ID,
-    additional_storage: u64,
     new_end_epoch: u32,
+    grace_period_epochs: u32,
 ) {
-    event::emit(BlobManagerExtended {
+    event::emit(BlobManagerUpdated {
         epoch,
         blob_manager_id,
-        additional_storage,
         new_end_epoch,
+        grace_period_epochs,
     });
 }
 
-public(package) fun emit_blob_manager_created(epoch: u32, blob_manager_id: ID, end_epoch: u32) {
+public(package) fun emit_blob_manager_created(
+    epoch: u32,
+    blob_manager_id: ID,
+    end_epoch: u32,
+    grace_period_epochs: u32,
+) {
     event::emit(BlobManagerCreated {
         epoch,
         blob_manager_id,
         end_epoch,
+        grace_period_epochs,
     });
 }
 

@@ -8,7 +8,7 @@ use alloc::{format, string::String, vec::Vec};
 use serde::{Deserialize, Serialize};
 
 use super::{Intent, InvalidIntent, MessageVerificationError, ProtocolMessage, SignedMessage};
-use crate::{BlobId, Epoch, PublicKey, SuiObjectId, ensure, messages::IntentType};
+use crate::{BlobId, Epoch, PublicKey, SuiObjectId, messages::IntentType};
 
 /// Confirmation from a storage node that it has stored the sliver pairs for a given blob.
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -23,8 +23,7 @@ pub enum StorageConfirmation {
 /// Indicates the persistence of a blob.
 ///
 /// For deletable blobs the object ID of the associated Sui object is included.
-/// For managed blobs, the BlobManager ID and optional ManagedBlob object ID are included.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum BlobPersistenceType {
     /// The blob is permanent.
     Permanent,
@@ -32,18 +31,6 @@ pub enum BlobPersistenceType {
     Deletable {
         /// The object ID of the associated Sui object.
         object_id: SuiObjectId,
-    },
-    /// The blob is managed by a BlobManager.
-    Managed {
-        /// The object ID of the BlobManager.
-        blob_manager_id: SuiObjectId,
-        /// Whether the managed blob is deletable.
-        deletable: bool,
-        /// The object ID of the ManagedBlob.
-        /// - Zero/null ObjectID when client sends request (client doesn't know it yet).
-        /// - Actual ManagedBlob object_id when server returns confirmation
-        ///   (for both deletable and permanent).
-        blob_object_id: SuiObjectId,
     },
 }
 
@@ -111,66 +98,63 @@ impl SignedStorageConfirmation {
         blob_id: BlobId,
         blob_type: BlobPersistenceType,
     ) -> Result<Confirmation, MessageVerificationError> {
-        // For Managed blobs, use custom verification logic.
-        if let BlobPersistenceType::Managed {
-            blob_manager_id: client_manager_id,
-            deletable: client_deletable,
-            ..
-        } = blob_type
-        {
-            // First verify the signature and deserialize the message.
-            let message = self.verify_signature_and_get_message(public_key)?;
+        self.verify_signature_and_contents(
+            public_key,
+            epoch,
+            &StorageConfirmationBody { blob_id, blob_type },
+        )
+    }
 
-            // Verify epoch and blob_id.
-            ensure!(
-                message.0.message_contents.blob_id == blob_id,
-                MessageVerificationError::MessageContent
-            );
-            ensure!(
-                message.0.epoch == epoch,
-                MessageVerificationError::EpochMismatch {
-                    actual: message.0.epoch,
-                    expected: epoch,
-                }
-            );
+    /// Verifies that this confirmation is valid for a managed blob and extracts the persistence
+    /// type.
+    ///
+    /// For managed blobs, the client doesn't know the exact object_id upfront (it's determined
+    /// by the server based on the registered managed blob). This method verifies the signature,
+    /// epoch, blob_id, and that the persistence type matches (Permanent or Deletable), but for
+    /// Deletable it accepts any object_id.
+    ///
+    /// Returns the decoded `Confirmation` and the `BlobPersistenceType`.
+    /// The caller should collect responses and verify that a quorum agrees on the same
+    /// persistence type.
+    pub fn verify_managed_and_extract_persistence_type(
+        &self,
+        public_key: &PublicKey,
+        epoch: Epoch,
+        blob_id: BlobId,
+        deletable: bool,
+    ) -> Result<(Confirmation, BlobPersistenceType), MessageVerificationError> {
+        // First, verify the signature and decode the message.
+        let confirmation = self.verify_signature_and_get_message(public_key)?;
 
-            // For Managed blobs, verify blob_manager_id and deletable flag.
-            if let BlobPersistenceType::Managed {
-                blob_manager_id: server_manager_id,
-                deletable: server_deletable,
-                blob_object_id: server_object_id,
-            } = message.0.message_contents.blob_type
-            {
-                // Verify blob_manager_id matches.
-                ensure!(
-                    server_manager_id == client_manager_id,
-                    MessageVerificationError::MessageContent
-                );
-                // Verify deletable flag matches.
-                ensure!(
-                    server_deletable == client_deletable,
-                    MessageVerificationError::MessageContent
-                );
-                // Verify blob_object_id is populated for all managed blobs.
-                // Both deletable and permanent managed blobs have real ManagedBlob objects.
-                ensure!(
-                    server_object_id != SuiObjectId::ZERO,
-                    MessageVerificationError::MessageContent
-                );
-            } else {
-                // Server returned non-Managed type when we expected Managed.
-                return Err(MessageVerificationError::MessageContent);
-            }
-
-            Ok(message)
-        } else {
-            // For non-Managed blobs, use exact match verification.
-            self.verify_signature_and_contents(
-                public_key,
-                epoch,
-                &StorageConfirmationBody { blob_id, blob_type },
-            )
+        // Check epoch matches.
+        if confirmation.as_ref().epoch() != epoch {
+            return Err(MessageVerificationError::EpochMismatch {
+                actual: confirmation.as_ref().epoch(),
+                expected: epoch,
+            });
         }
+
+        // Check blob_id matches.
+        if confirmation.as_ref().contents().blob_id != blob_id {
+            return Err(MessageVerificationError::MessageContent);
+        }
+
+        // Extract persistence type and check it matches the expected deletable flag.
+        let blob_persistence_type = confirmation.as_ref().contents().blob_type;
+        match &blob_persistence_type {
+            BlobPersistenceType::Permanent => {
+                if deletable {
+                    return Err(MessageVerificationError::MessageContent);
+                }
+            }
+            BlobPersistenceType::Deletable { .. } => {
+                if !deletable {
+                    return Err(MessageVerificationError::MessageContent);
+                }
+            }
+        };
+
+        Ok((confirmation, blob_persistence_type))
     }
 }
 
@@ -236,107 +220,5 @@ mod tests {
             encoded[40..],
             bcs::to_bytes(&object_id).expect("successful encoding")
         );
-    }
-
-    #[test]
-    fn confirmation_is_correctly_encoded_managed_permanent() {
-        use std::println;
-        let blob_manager_id = SuiObjectId([42; 32]);
-        let blob_object_id = SuiObjectId([99; 32]);
-        let confirmation = Confirmation::new(
-            EPOCH,
-            BLOB_ID,
-            BlobPersistenceType::Managed {
-                blob_manager_id,
-                deletable: false,
-                blob_object_id,
-            },
-        );
-        let encoded = bcs::to_bytes(&confirmation).expect("successful encoding");
-
-        println!("Managed permanent BCS encoding:");
-        println!("  Full length: {}", encoded.len());
-        println!("  Variant index (byte 39): {}", encoded[39]);
-        println!("  First 10 bytes after variant: {:?}", &encoded[40..50]);
-
-        assert_eq!(
-            encoded[..3],
-            [
-                IntentType::BLOB_CERT_MSG.0,
-                IntentVersion::default().0,
-                IntentAppId::STORAGE.0
-            ]
-        );
-        assert_eq!(encoded[3..7], EPOCH.to_le_bytes());
-        assert_eq!(
-            encoded[7..39],
-            bcs::to_bytes(&BLOB_ID).expect("successful encoding")
-        );
-        // BlobPersistenceType::Managed should be encoded as 2.
-        assert_eq!(encoded[39], 2u8);
-        // Followed by blob_manager_id.
-        assert_eq!(
-            encoded[40..72],
-            bcs::to_bytes(&blob_manager_id).expect("successful encoding")
-        );
-        // Followed by deletable bool.
-        assert_eq!(encoded[72], 0u8); // false
-        // Followed by blob_object_id (real object ID, not zero).
-        assert_eq!(
-            encoded[73..105],
-            bcs::to_bytes(&blob_object_id).expect("successful encoding")
-        );
-        assert_eq!(encoded.len(), 105);
-    }
-
-    #[test]
-    fn confirmation_is_correctly_encoded_managed_deletable() {
-        use std::println;
-        let blob_manager_id = SuiObjectId([42; 32]);
-        let blob_object_id = SuiObjectId([99; 32]);
-        let confirmation = Confirmation::new(
-            EPOCH,
-            BLOB_ID,
-            BlobPersistenceType::Managed {
-                blob_manager_id,
-                deletable: true,
-                blob_object_id,
-            },
-        );
-        let encoded = bcs::to_bytes(&confirmation).expect("successful encoding");
-
-        println!("Managed deletable BCS encoding:");
-        println!("  Full length: {}", encoded.len());
-        println!("  Variant index (byte 39): {}", encoded[39]);
-        println!("  First 10 bytes after variant: {:?}", &encoded[40..50]);
-
-        assert_eq!(
-            encoded[..3],
-            [
-                IntentType::BLOB_CERT_MSG.0,
-                IntentVersion::default().0,
-                IntentAppId::STORAGE.0
-            ]
-        );
-        assert_eq!(encoded[3..7], EPOCH.to_le_bytes());
-        assert_eq!(
-            encoded[7..39],
-            bcs::to_bytes(&BLOB_ID).expect("successful encoding")
-        );
-        // BlobPersistenceType::Managed should be encoded as 2.
-        assert_eq!(encoded[39], 2u8);
-        // Followed by blob_manager_id.
-        assert_eq!(
-            encoded[40..72],
-            bcs::to_bytes(&blob_manager_id).expect("successful encoding")
-        );
-        // Followed by deletable bool.
-        assert_eq!(encoded[72], 1u8); // true
-        // Followed by blob_object_id.
-        assert_eq!(
-            encoded[73..105],
-            bcs::to_bytes(&blob_object_id).expect("successful encoding")
-        );
-        assert_eq!(encoded.len(), 105);
     }
 }

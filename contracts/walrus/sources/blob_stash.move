@@ -30,6 +30,9 @@ public struct BlobStashByBlobId has store {
     total_unencoded_size: u64,
 }
 
+/// TODO(heliu): Keep this in the walrus core, but with versioning, like the system
+/// and staking objects.
+/// For shared objects.
 /// Blob storage implementation.
 /// Uses an enum to allow future storage variants while maintaining backward compatibility.
 public enum BlobStash has store {

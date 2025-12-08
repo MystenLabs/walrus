@@ -394,6 +394,130 @@ impl ManagedBlobInfo {
 }
 ```
 
+## Storage Confirmation for Managed Blobs
+
+The storage confirmation API uses a dedicated endpoint for managed blobs. The `BlobPersistenceType`
+enum has only two variants (`Permanent` and `Deletable`), and managed blobs use the same variants
+as regular blobs.
+
+### API Endpoint
+
+```
+GET /v1/blobs/{blob_id}/confirmation/managed/{manager_id}/{deletable}
+```
+
+The `manager_id` and `deletable` flag are passed in the URL path. The server:
+1. Looks up the `ManagedBlob.object_id` from `ManagedBlobInfo` using `(blob_id, manager_id)`.
+2. Returns a confirmation with `Permanent` or `Deletable { object_id }` based on the `deletable` flag.
+
+### Implementation
+
+The `ServiceState` trait defines `compute_storage_confirmation_managed()`:
+
+```rust
+fn compute_storage_confirmation_managed(
+    &self,
+    blob_id: &BlobId,
+    blob_manager_id: &ObjectID,
+    deletable: bool,
+) -> impl Future<Output = Result<StorageConfirmation, ComputeStorageConfirmationError>> + Send;
+```
+
+This method:
+1. Verifies the blob is registered for the given `(blob_id, blob_manager_id)`.
+2. Looks up the `object_id` from `ManagedBlobInfo`.
+3. Creates the `BlobPersistenceType` based on `deletable`.
+4. Signs and returns the confirmation.
+
+### Rationale for Separate Endpoint
+
+Instead of adding a `Managed` variant to `BlobPersistenceType`, managed blobs use a separate API
+endpoint with `manager_id` in the URL. Benefits:
+- **Simpler enum**: Only two variants in `BlobPersistenceType`.
+- **Cleaner wire format**: Same BCS encoding for managed and regular blobs.
+- **Separation of concerns**: The `manager_id` is routing information, not persistence semantics.
+
+## Quorum Verification for Deletable Managed Blobs
+
+For deletable managed blobs, the client doesn't know the `object_id` upfront - it's determined by
+the server based on the registered `ManagedBlob`. The client must collect confirmations from
+multiple storage nodes and verify that a quorum agrees on the same `object_id`.
+
+### Client-Side Verification
+
+The client uses `execute_weight_mapped()` to group confirmations by `BlobPersistenceType`:
+
+```rust
+let completed = weighted_futures.execute_weight_mapped(
+    &|weight| weight >= quorum_weight,
+    n_concurrent,
+    |(_confirmation, persistence_type)| *persistence_type,  // Group by persistence type
+).await;
+```
+
+This ensures:
+- Permanent blobs reach quorum for `BlobPersistenceType::Permanent`.
+- Deletable blobs reach quorum for `BlobPersistenceType::Deletable { object_id }` with the same
+  `object_id`.
+
+### Verification Method
+
+The `SignedStorageConfirmation::verify_managed_and_extract_persistence_type()` method:
+1. Verifies the signature and decodes the confirmation.
+2. Checks epoch and blob_id match.
+3. Validates the persistence type matches the expected `deletable` flag.
+4. Returns `(Confirmation, BlobPersistenceType)` directly.
+
+```rust
+pub fn verify_managed_and_extract_persistence_type(
+    &self,
+    public_key: &PublicKey,
+    epoch: Epoch,
+    blob_id: BlobId,
+    deletable: bool,
+) -> Result<(Confirmation, BlobPersistenceType), MessageVerificationError>;
+```
+
+## Upload Relay Support for Managed Blobs
+
+The upload relay requires `BlobPersistenceType` with the actual `object_id` for deletable blobs.
+For managed blobs, the client queries Sui on-chain to get the `object_id` before calling the
+upload relay.
+
+### Query Flow
+
+1. Client calls `get_managed_blob_object_id(blob_id, deletable)` on `BlobManagerClient`.
+2. This queries the on-chain `ManagedBlob` from the BlobManager's blob stash.
+3. Client constructs `BlobPersistenceType::Deletable { object_id }` with the queried ID.
+4. Upload relay proceeds with the correct persistence type.
+
+### Implementation
+
+```rust
+// Helper method to get BlobPersistenceType for any blob type.
+async fn get_blob_persistence_type(
+    &self,
+    blob_object: &BlobObject,
+) -> ClientResult<BlobPersistenceType> {
+    match blob_object {
+        BlobObject::Regular(_) => Ok(blob_object.blob_persistence_type()),
+        BlobObject::Managed { blob_id, deletable, .. } => {
+            if *deletable {
+                let object_id = self
+                    .get_blob_manager_client()?
+                    .get_managed_blob_object_id(*blob_id, *deletable)
+                    .await?;
+                Ok(BlobPersistenceType::Deletable { object_id: object_id.into() })
+            } else {
+                Ok(BlobPersistenceType::Permanent)
+            }
+        }
+    }
+}
+```
+
+This approach keeps the upload relay API unchanged while supporting managed blobs.
+
 ## Key Design Decisions
 
 1. **Single-table for managed blobs**: All managed blob info is in `ManagedBlobInfo` within the
@@ -415,6 +539,9 @@ impl ManagedBlobInfo {
 
 7. **Combined V1/V2 status**: When a blob exists as both regular and managed, query functions
    return an aggregation over both.
+
+8. **No `Managed` variant in `BlobPersistenceType`**: Managed blobs use `Permanent` or `Deletable`
+   like regular blobs, with `manager_id` passed separately via the API endpoint.
 
 ## Files
 
