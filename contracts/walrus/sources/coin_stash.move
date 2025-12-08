@@ -80,7 +80,7 @@ public fun deposit_sui(self: &mut BlobManagerCoinStash, payment: Coin<SUI>) {
 
 /// Withdraws WAL for storage operations.
 /// Anyone can use these funds for valid storage operations.
-public fun withdraw_wal_for_storage(
+public(package) fun withdraw_wal_for_storage(
     self: &mut BlobManagerCoinStash,
     amount: u64,
     ctx: &mut TxContext,
@@ -94,7 +94,7 @@ public fun withdraw_wal_for_storage(
 /// Tips the transaction sender with SUI from the stash.
 /// Used to reward users who help execute storage operations like extensions.
 /// Returns the tip coin if successful, or an empty coin if insufficient funds.
-public fun tip_sender(
+public(package) fun tip_sender(
     self: &mut BlobManagerCoinStash,
     tip_amount: u64,
     ctx: &mut TxContext,
