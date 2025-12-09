@@ -2626,6 +2626,13 @@ impl ManagedBlobInfo {
                 );
             }
         }
+
+        // Verify invariant after status change.
+        #[cfg(debug_assertions)]
+        debug_assert!(
+            self.check_invariants().is_ok(),
+            "Invariant violated after status change"
+        );
     }
 
     fn is_certified(&self, current_epoch: Epoch) -> bool {
@@ -2758,6 +2765,56 @@ impl ManagedBlobInfo {
             || self.registered_permanent.contains_key(blob_manager_id)
             || self.certified_deletable.contains_key(blob_manager_id)
             || self.certified_permanent.contains_key(blob_manager_id)
+    }
+
+    /// Validates the invariant that each BlobManager appears in at most one map.
+    /// Returns Ok(()) if valid, Err if violation detected.
+    pub fn check_invariants(&self) -> Result<(), anyhow::Error> {
+        use std::collections::HashSet;
+
+        let mut seen = HashSet::new();
+        let mut violations = Vec::new();
+
+        // Check registered_deletable.
+        for manager_id in self.registered_deletable.keys() {
+            if !seen.insert(manager_id) {
+                violations.push((*manager_id, "registered_deletable"));
+            }
+        }
+
+        // Check registered_permanent.
+        for manager_id in self.registered_permanent.keys() {
+            if !seen.insert(manager_id) {
+                violations.push((*manager_id, "registered_permanent"));
+            }
+        }
+
+        // Check certified_deletable.
+        for manager_id in self.certified_deletable.keys() {
+            if !seen.insert(manager_id) {
+                violations.push((*manager_id, "certified_deletable"));
+            }
+        }
+
+        // Check certified_permanent.
+        for manager_id in self.certified_permanent.keys() {
+            if !seen.insert(manager_id) {
+                violations.push((*manager_id, "certified_permanent"));
+            }
+        }
+
+        if !violations.is_empty() {
+            tracing::error!(
+                ?violations,
+                "Invariant violation: BlobManagers found in multiple maps"
+            );
+            return Err(anyhow::anyhow!(
+                "Invariant violation: {} BlobManagers found in multiple maps",
+                violations.len()
+            ));
+        }
+
+        Ok(())
     }
 }
 
@@ -4537,7 +4594,7 @@ mod tests {
                             object_id_for_testing(1),
                             CertifiedManagedBlobInfo::new(
                                 object_id_for_testing(1),
-                                1,
+                                1, // certified_epoch
                                 fixed_event_id_for_testing(0),
                             ),
                         )]
@@ -4573,7 +4630,7 @@ mod tests {
                             object_id_for_testing(1),
                             CertifiedManagedBlobInfo::new(
                                 object_id_for_testing(1),
-                                1,
+                                1, // certified_epoch
                                 fixed_event_id_for_testing(0),
                             ),
                         )]
@@ -4600,7 +4657,7 @@ mod tests {
                             object_id_for_testing(1),
                             CertifiedManagedBlobInfo::new(
                                 object_id_for_testing(1),
-                                1,
+                                1, // certified_epoch
                                 fixed_event_id_for_testing(0),
                             ),
                         )]
@@ -4610,7 +4667,7 @@ mod tests {
                             object_id_for_testing(2),
                             CertifiedManagedBlobInfo::new(
                                 object_id_for_testing(2),
-                                2, // Epoch 2 from the certify operand.
+                                2, // certified_epoch (Epoch 2 from the certify operand)
                                 fixed_event_id_for_testing(0), // Matches the certify operand event.
                             ),
                         )]
@@ -4926,7 +4983,7 @@ mod tests {
                             object_id_for_testing(1),
                             CertifiedManagedBlobInfo::new(
                                 object_id_for_testing(1),
-                                5,
+                                5, // certified_epoch
                                 fixed_event_id_for_testing(0),
                             ),
                         )]
@@ -4979,7 +5036,7 @@ mod tests {
                             object_id_for_testing(1),
                             CertifiedManagedBlobInfo::new(
                                 object_id_for_testing(1),
-                                3,
+                                3, // certified_epoch
                                 fixed_event_id_for_testing(0),
                             ),
                         )]
@@ -5192,7 +5249,7 @@ mod tests {
                             object_id_for_testing(1),
                             CertifiedManagedBlobInfo::new(
                                 object_id_for_testing(1),
-                                3,
+                                3, // certified_epoch
                                 fixed_event_id_for_testing(0),
                             ),
                         )]
@@ -5203,7 +5260,7 @@ mod tests {
                             object_id_for_testing(4),
                             CertifiedManagedBlobInfo::new(
                                 object_id_for_testing(4),
-                                3,
+                                3, // certified_epoch
                                 fixed_event_id_for_testing(3),
                             ),
                         )]
@@ -5258,7 +5315,7 @@ mod tests {
                             object_id_for_testing(4),
                             CertifiedManagedBlobInfo::new(
                                 object_id_for_testing(4),
-                                3,
+                                3, // certified_epoch
                                 fixed_event_id_for_testing(3),
                             ),
                         )]
@@ -5289,7 +5346,7 @@ mod tests {
                             object_id_for_testing(1),
                             CertifiedManagedBlobInfo::new(
                                 object_id_for_testing(1),
-                                1,
+                                1, // certified_epoch
                                 fixed_event_id_for_testing(0),
                             ),
                         )]
@@ -5363,7 +5420,7 @@ mod tests {
                 manager_id_deletable,
                 CertifiedManagedBlobInfo::new(
                     manager_id_deletable,
-                    1,
+                    1, // certified_epoch
                     fixed_event_id_for_testing(0),
                 ),
             )]
@@ -5373,7 +5430,7 @@ mod tests {
                 manager_id_permanent,
                 CertifiedManagedBlobInfo::new(
                     manager_id_permanent,
-                    1,
+                    1, // certified_epoch
                     fixed_event_id_for_testing(1),
                 ),
             )]
@@ -5424,5 +5481,60 @@ mod tests {
                 panic!("Expected BlobStatus::Permanent, got {:?}", other);
             }
         }
+    }
+
+    #[test]
+    fn test_managed_blob_info_invariant() {
+        let mut info = ManagedBlobInfo::default();
+
+        // Should be valid when empty.
+        assert!(info.check_invariants().is_ok());
+
+        // Add to registered_deletable.
+        let manager1 = ObjectID::random();
+        let blob1 = ObjectID::random();
+        info.registered_deletable.insert(
+            manager1,
+            RegisteredManagedBlobInfo::new(blob1, 1, fixed_event_id_for_testing(0)),
+        );
+        assert!(info.check_invariants().is_ok());
+
+        // Adding same manager to another map should violate invariant.
+        info.certified_permanent.insert(
+            manager1, // Same manager ID
+            CertifiedManagedBlobInfo::new(blob1, 2, fixed_event_id_for_testing(0)),
+        );
+        assert!(info.check_invariants().is_err());
+
+        // Removing from one map should restore validity.
+        info.registered_deletable.remove(&manager1);
+        assert!(info.check_invariants().is_ok());
+    }
+
+    #[test]
+    fn test_register_epoch_preserved_on_certify() {
+        let mut info = ManagedBlobInfo::default();
+        let manager_id = ObjectID::random();
+        let blob_id = ObjectID::random();
+        let register_epoch = 5;
+        let certify_epoch = 10;
+
+        // Register.
+        info.registered_permanent.insert(
+            manager_id,
+            RegisteredManagedBlobInfo::new(blob_id, register_epoch, fixed_event_id_for_testing(0)),
+        );
+
+        // Simulate certification (move from registered to certified).
+        let _registered = info.registered_permanent.remove(&manager_id).unwrap();
+        info.certified_permanent.insert(
+            manager_id,
+            CertifiedManagedBlobInfo::new(blob_id, certify_epoch, fixed_event_id_for_testing(0)),
+        );
+
+        // Verify certification epoch is recorded.
+        let certified = info.certified_permanent.get(&manager_id).unwrap();
+        assert_eq!(certified.certified_epoch, certify_epoch);
+        assert!(info.check_invariants().is_ok());
     }
 }
