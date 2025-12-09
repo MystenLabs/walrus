@@ -65,8 +65,7 @@ runs:
         INPUT_SUI_NETWORK: ${{ inputs.SUI_NETWORK }}
         INPUT_WALRUS_CONFIG: ${{ inputs.WALRUS_CONFIG }}
       run: |
-        # The bin directory was already created and added to $PATH in the build-mdbook action
-        curl https://storage.googleapis.com/mysten-walrus-binaries/walrus-${INPUT_SUI_NETWORK}-latest-ubuntu-x86_64 -o bin/walrus
+        curl https://storage.googleapis.com/mysten-walrus-binaries/walrus-${{ inputs.SUI_NETWORK }}-latest-ubuntu-x86_64 -o bin/walrus
         chmod +x bin/walrus
         mkdir -p ~/.config/walrus
         echo "${INPUT_WALRUS_CONFIG}" > ~/.config/walrus/client_config.yaml

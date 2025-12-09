@@ -1,0 +1,104 @@
+---
+title: Walrus
+hide_table_of_contents: true
+---
+
+<div className="flex flex-col lg:flex-row gap-6 sm:gap-8">
+<div className="w-full lg:w-72 xl:w-80 flex-shrink-0 pr-0 sm:pr-6">
+<div className="sticky top-32">
+<div className="flex flex-wrap gap-4 lg:flex-col lg:space-y-4 lg:gap-0">
+<Card className="flex-1 min-w-48 lg:flex-none lg:w-full" title="Docs" href="/docs/usage/started">
+Get started with Walrus CLI tools, setup your environment, and learn core storage operations for developers.
+</Card>
+<Card className="flex-1 min-w-48 lg:flex-none lg:w-full" title="Walrus Sites" href="/docs/walrus-sites/intro">
+Deploy decentralized websites using Walrus Sites - host static sites with true decentralization.
+</Card>
+<Card className="flex-1 min-w-48 lg:flex-none lg:w-full" title="Design" href="/docs/design/objectives_use_cases">
+Deep dive into Walrus architecture, security properties, and decentralized storage design principles.
+</Card>
+<Card className="flex-1 min-w-48 lg:flex-none lg:w-full" title="Blog" href="/blog">
+Latest updates, announcements, and technical insights about the Walrus decentralized storage protocol.
+</Card>
+</div>
+</div>
+</div>
+
+<div className="flex-1 min-w-0 mr-16">
+
+<header>
+<h1 className='text-wal-purple-darker dark:text-wal-purple'>Walrus Docs</h1>
+</header>
+
+Walrus is a decentralized storage and data availability protocol designed specifically for large
+binary files, or blobs. Walrus focuses on providing a robust but affordable solution for storing
+unstructured content on decentralized storage nodes while ensuring high availability and
+reliability even in the presence of Byzantine faults.
+
+:::tip Fun fact
+
+If you are viewing this site at https://docs.wal.app, you are fetching this from
+Walrus behind the scenes. See the [Walrus Sites chapter](/docs/walrus-sites/intro) for further
+details on how this works.
+
+:::
+
+## Features
+
+- **Storage and retrieval:** Walrus supports storage operations to write and read blobs. It also
+  allows anyone to prove that a blob has been stored and is available for retrieval at a later
+  time.
+
+- **Cost efficiency:** By utilizing advanced erasure coding, Walrus maintains storage costs at
+  approximately five times the size of the stored blobs, and encoded parts of each blob are stored
+  on each storage node. This is significantly more cost-effective than traditional full-replication
+  methods and much more robust against failures than protocols that only store each blob on a subset
+  of storage nodes.
+
+- **Integration with the Sui blockchain:** Walrus leverages [Sui](https://github.com/MystenLabs/sui)
+  for coordination, attesting availability, and payments. Storage space is represented as a resource
+  on Sui, which can be owned, split, merged, and transferred. Stored blobs are also represented by
+  objects on Sui, which means that smart contracts can check whether a blob is available and for how
+  long, extend its lifetime or optionally delete it.
+
+- **Epochs, tokenomics, and delegated proof of stake** Walrus is operated by a committee of storage
+  nodes that evolve between epochs. A native token, WAL (and its subdivision FROST, where 1 WAL is
+  equal to 1 billion FROST), is used to delegate stake to storage nodes, and those with high stake
+  become part of the epoch committee. The WAL token is also used for payments for storage. At the
+  end of each epoch, rewards for selecting storage nodes, storing and serving blobs are distributed
+  to storage nodes and whose that stake with them. All these processes are mediated by smart
+  contracts on the Sui platform.
+
+- **Flexible access:** Users can interact with Walrus through a command-line interface (CLI),
+  software development kits (SDKs), and web2 HTTP technologies. Walrus is designed to work well
+  with traditional caches and content distribution networks (CDNs), while ensuring all operations
+  can also be run using local tools to maximize decentralization.
+
+:::danger Public access
+
+**All blobs stored in Walrus are public and discoverable by all.** Therefore you must not use Walrus
+to store anything that contains secrets or private data without additional measures to protect
+confidentiality. Refer to [Data Security](/docs/dev-guide/data-security) for such use cases.
+
+:::
+
+## Architecture and operations
+
+Walrus's architecture ensures that content remains accessible and retrievable even when many
+storage nodes are unavailable or malicious. Under the hood it uses modern error correction
+techniques based on fast linear fountain codes, augmented to ensure resilience against Byzantine
+faults, and a dynamically changing set of storage nodes. The core of Walrus remains simple, and
+storage node management and blob certification leverages Sui smart contracts.
+
+## Organization
+
+This documentation is split into several parts:
+
+1. _Docs_ provides concrete information on Walrus for developers. If you want to get started quickly, you can
+   jump directly to [Getting Started with Walrus](/docs/usage/started).
+1. _Walrus Sites_ describes how you can use Walrus and Sui together to build truly decentralized
+   websites.
+1. _Design_ describes the objectives, security properties, and architecture of Walrus.
+1. _Dev blog_ contains announcements and other blog posts.
+
+</div>
+</div>
