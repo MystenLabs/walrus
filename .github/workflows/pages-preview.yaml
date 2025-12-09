@@ -21,14 +21,14 @@ jobs:
   build-with-linkcheck:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # pin@v4
       - name: Install pnpm
-        uses: pnpm/action-setup@a3252b78c470c02df07e9d59298aecedc3ccdd6d # pin@v3.0.0
+        uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # pin@v4.2.0
         with:
           version: 9
         if: github.event.action != 'closed'
       - name: Setup Node.js
-        uses: actions/setup-node@1e60f620b9541d16bece96c5465dc8ee9832be0b # pin@v4
+        uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # pin@v4
         with:
           node-version: '18'
           cache: 'pnpm'
@@ -45,14 +45,14 @@ jobs:
     runs-on: ubuntu-latest
     if: github.repository_owner == 'MystenLabs'
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # pin@v4
       - name: Install pnpm
-        uses: pnpm/action-setup@a3252b78c470c02df07e9d59298aecedc3ccdd6d # pin@v3.0.0
+        uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # pin@v4.2.0
         with:
           version: 9
         if: github.event.action != 'closed'
       - name: Setup Node.js
-        uses: actions/setup-node@1e60f620b9541d16bece96c5465dc8ee9832be0b # pin@v4
+        uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # pin@v4
         with:
           node-version: '18'
           cache: 'pnpm'
@@ -65,6 +65,6 @@ jobs:
         run: cd docs/site && DOCUSAURUS_BASE_URL="/walrus/pr-preview/pr-${{ github.event.number }}/" pnpm run build
         if: github.event.action != 'closed'
       - name: Deploy preview
-        uses: rossjrw/pr-preview-action@9f77b1d057b494e662c50b8ca40ecc63f21e0887 # pin@v1.6.2
+        uses: rossjrw/pr-preview-action@8ff09e486b4c23709012eedd3b42e9f0b95dd0c5 # pin@v1.6.3
         with:
           source-dir: docs/site/build
