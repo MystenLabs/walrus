@@ -3,7 +3,14 @@
 
 //! The errors for the storage client and the communication with storage nodes.
 
-use walrus_core::{BlobId, EncodingType, Epoch, SliverPairIndex, SliverType, encoding::QuiltError};
+use walrus_core::{
+    BlobId,
+    EncodingType,
+    Epoch,
+    SliverPairIndex,
+    SliverType,
+    encoding::{QuiltError, SliverRecoveryOrVerificationError},
+};
 use walrus_storage_node_client::error::{ClientBuildError, NodeError};
 use walrus_sui::client::{MIN_STAKING_THRESHOLD, SuiClientError};
 
@@ -278,4 +285,10 @@ pub enum ClientErrorKind {
     /// An error occurred while validating the input for byte range read.
     #[error("byte range read input error: {0}")]
     ByteRangeReadInputError(String),
+    /// The client could not retrieve enough symbols to decode the sliver.
+    #[error("could not retrieve enough symbols to decode the sliver")]
+    NotEnoughSymbols,
+    /// An error occurred while recovering a sliver.
+    #[error("error while recovering a sliver: {0}")]
+    RecoverSliverError(SliverRecoveryOrVerificationError),
 }

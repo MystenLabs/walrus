@@ -236,7 +236,7 @@ macro_rules! derive_try_from_trait {
             fn try_from(value: ByAxis<$t, $u>) -> Result<Self, Self::Error> {
                 match value {
                     ByAxis::Primary(value) => Ok(value),
-                    ByAxis::Secondary(_) => Err(WrongAxisError),
+                    ByAxis::Secondary(_) => {tracing::error!("ZZZZZ wrong secondary axis variant"); Err(WrongAxisError)}  ,
                 }
             }
         }
@@ -246,7 +246,7 @@ macro_rules! derive_try_from_trait {
 
             fn try_from(value: ByAxis<$t, $u>) -> Result<Self, Self::Error> {
                 match value {
-                    ByAxis::Primary(_) => Err(WrongAxisError),
+                    ByAxis::Primary(_) => {tracing::error!("ZZZZZ wrong primary axis variant"); Err(WrongAxisError)},
                     ByAxis::Secondary(value) => Ok(value),
                 }
             }

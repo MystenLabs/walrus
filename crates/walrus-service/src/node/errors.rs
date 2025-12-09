@@ -16,6 +16,8 @@ use walrus_core::{
     Epoch,
     SUPPORTED_ENCODING_TYPES,
     ShardIndex,
+    SliverIndex,
+    SliverType,
     encoding::SliverVerificationError,
     inconsistency::InconsistencyVerificationError,
     messages::MessageVerificationError,
@@ -241,6 +243,12 @@ pub enum RetrieveSymbolError {
     #[rest_api_error(delegate)]
     RetrieveSliver(#[from] RetrieveSliverError),
 
+    #[error(
+        "the index of the recovery symbol is too large for a client request, it can only recovery source primary sliver"
+    )]
+    #[rest_api_error(reason = "CLIENT_REQUEST_INDEX_TOO_LARGE", status = ApiStatusCode::InvalidArgument)]
+    ClientRequestIndexTooLarge(SliverIndex),
+
     #[error(transparent)]
     #[rest_api_error(delegate)]
     Unavailable(#[from] Unavailable),
@@ -258,6 +266,10 @@ pub enum ListSymbolsError {
         reason = "NO_SYMBOLS_SPECIFIED", status = ApiStatusCode::FailedPrecondition,
     )]
     NoSymbolsSpecified,
+
+    #[error("the requested sliver type is invalid")]
+    #[rest_api_error(reason = "INVALID_SLIVER_TYPE", status = ApiStatusCode::InvalidArgument)]
+    InvalidSliverType(SliverType),
 
     #[error(transparent)]
     #[rest_api_error(delegate)]
