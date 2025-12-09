@@ -1110,33 +1110,6 @@ impl BlobManagerClient<'_, SuiContractClient> {
 
     // ===== Extension Policy Management Methods =====
 
-    /// Sets the extension policy to disabled.
-    ///
-    /// When disabled, no one (including fund managers) can extend storage.
-    /// This method requires a capability with fund_manager permission.
-    ///
-    /// # Returns
-    ///
-    /// * `Ok(())` if the policy was successfully set.
-    /// * `Err(ClientError)` if:
-    ///   - The caller doesn't have fund_manager permission.
-    ///   - The transaction fails.
-    pub async fn set_extension_policy_disabled(&self) -> ClientResult<()> {
-        tracing::info!(
-            "BlobManager set_extension_policy_disabled: manager_id={:?}, cap={:?}",
-            self.data.manager_id(),
-            self.data.cap_id()
-        );
-
-        self.client
-            .sui_client()
-            .set_extension_policy_disabled(self.data.manager_id(), self.data.cap_id())
-            .await
-            .map_err(crate::error::ClientError::from)?;
-
-        Ok(())
-    }
-
     /// Sets the extension policy to fund_manager only.
     ///
     /// When set to fund_manager only, only accounts with fund_manager capability
@@ -1208,6 +1181,41 @@ impl BlobManagerClient<'_, SuiContractClient> {
                 expiry_threshold_epochs,
                 max_extension_epochs,
             )
+            .await
+            .map_err(crate::error::ClientError::from)?;
+
+        Ok(())
+    }
+
+    /// Set a fixed tip amount for transaction senders.
+    ///
+    /// Sets the amount of SUI (in MIST) that will be tipped to users who help
+    /// execute storage operations like extensions. Tips are paid from the
+    /// BlobManager's coin stash.
+    ///
+    /// This method requires a capability with fund_manager permission.
+    ///
+    /// # Arguments
+    ///
+    /// * `tip_amount` - The tip amount in MIST (1 SUI = 1,000,000,000 MIST).
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` if the policy was successfully set.
+    /// * `Err(ClientError)` if:
+    ///   - The caller doesn't have fund_manager permission.
+    ///   - The transaction fails.
+    pub async fn set_tip_policy_fixed_amount(&self, tip_amount: u64) -> ClientResult<()> {
+        tracing::info!(
+            "BlobManager set_tip_policy_fixed_amount: manager_id={:?}, cap={:?}, tip_amount={}",
+            self.data.manager_id(),
+            self.data.cap_id(),
+            tip_amount
+        );
+
+        self.client
+            .sui_client()
+            .set_tip_policy_fixed_amount(self.data.manager_id(), self.data.cap_id(), tip_amount)
             .await
             .map_err(crate::error::ClientError::from)?;
 

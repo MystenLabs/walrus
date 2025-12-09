@@ -885,20 +885,6 @@ impl SuiContractClient {
             .await
     }
 
-    /// Sets the extension policy to disabled (no one can extend).
-    /// Requires fund_manager permission on the capability.
-    pub async fn set_extension_policy_disabled(
-        &self,
-        manager_id: ObjectID,
-        manager_cap: ObjectID,
-    ) -> SuiClientResult<()> {
-        self.inner
-            .lock()
-            .await
-            .set_extension_policy_disabled(manager_id, manager_cap)
-            .await
-    }
-
     /// Sets the extension policy to fund_manager only (only fund_manager can extend).
     /// Requires fund_manager permission on the capability.
     pub async fn set_extension_policy_fund_manager_only(
@@ -931,6 +917,21 @@ impl SuiContractClient {
                 expiry_threshold_epochs,
                 max_extension_epochs,
             )
+            .await
+    }
+
+    /// Set a fixed tip amount for transaction senders.
+    /// Requires fund_manager permission on the capability.
+    pub async fn set_tip_policy_fixed_amount(
+        &self,
+        manager_id: ObjectID,
+        manager_cap: ObjectID,
+        tip_amount: u64,
+    ) -> SuiClientResult<()> {
+        self.inner
+            .lock()
+            .await
+            .set_tip_policy_fixed_amount(manager_id, manager_cap, tip_amount)
             .await
     }
 
@@ -2640,38 +2641,6 @@ impl SuiContractClientInner {
         Ok(())
     }
 
-    /// Sets the extension policy to disabled (no one can extend).
-    /// Requires fund_manager permission on the capability.
-    pub async fn set_extension_policy_disabled(
-        &mut self,
-        manager_id: ObjectID,
-        manager_cap: ObjectID,
-    ) -> SuiClientResult<()> {
-        tracing::debug!(
-            manager_id = %manager_id,
-            "setting extension policy to disabled"
-        );
-
-        let mut pt_builder = self.transaction_builder()?;
-
-        pt_builder
-            .set_extension_policy_disabled(manager_id, manager_cap)
-            .await?;
-
-        let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
-        let res = self
-            .sign_and_send_transaction(transaction, "set_extension_policy_disabled")
-            .await?;
-
-        if !res.errors.is_empty() {
-            tracing::warn!(errors = ?res.errors, "failed to set extension policy to disabled");
-            return Err(anyhow!("could not set extension policy: {:?}", res.errors).into());
-        }
-
-        tracing::debug!("successfully set extension policy to disabled");
-        Ok(())
-    }
-
     /// Sets the extension policy to fund_manager only (only fund_manager can extend).
     /// Requires fund_manager permission on the capability.
     pub async fn set_extension_policy_fund_manager_only(
@@ -2742,6 +2711,40 @@ impl SuiContractClientInner {
         }
 
         tracing::debug!("successfully set extension policy to constrained");
+        Ok(())
+    }
+
+    /// Set a fixed tip amount for transaction senders.
+    /// Requires fund_manager permission on the capability.
+    pub async fn set_tip_policy_fixed_amount(
+        &mut self,
+        manager_id: ObjectID,
+        manager_cap: ObjectID,
+        tip_amount: u64,
+    ) -> SuiClientResult<()> {
+        tracing::debug!(
+            manager_id = %manager_id,
+            tip_amount = tip_amount,
+            "setting tip policy to fixed amount"
+        );
+
+        let mut pt_builder = self.transaction_builder()?;
+
+        pt_builder
+            .set_tip_policy_fixed_amount(manager_id, manager_cap, tip_amount)
+            .await?;
+
+        let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
+        let res = self
+            .sign_and_send_transaction(transaction, "set_tip_policy_fixed_amount")
+            .await?;
+
+        if !res.errors.is_empty() {
+            tracing::warn!(errors = ?res.errors, "failed to set tip policy to fixed amount");
+            return Err(anyhow!("could not set tip policy: {:?}", res.errors).into());
+        }
+
+        tracing::debug!("successfully set tip policy to fixed amount");
         Ok(())
     }
 

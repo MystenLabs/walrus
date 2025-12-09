@@ -2316,39 +2316,8 @@ async fn test_blob_manager_extension_policy() {
     // Wait for transaction to be processed.
     tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
 
-    // Test 4: Set policy to disabled.
-    tracing::info!("Test 4: Setting policy to disabled");
-    blob_manager_client
-        .set_extension_policy_disabled()
-        .await
-        .expect("Failed to set policy to disabled");
-
-    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-
-    // Both public and fund manager extension should fail.
-    tracing::info!("Test 4b: Public extension should fail with disabled policy");
-    let public_result = client_ref
-        .sui_client()
-        .extend_storage_from_stash(manager_id, 1)
-        .await;
-    assert!(
-        public_result.is_err(),
-        "Public extension should fail with disabled policy"
-    );
-    tracing::info!("Correctly rejected public extension with disabled policy");
-
-    tracing::info!("Test 4c: Fund manager extension should also fail with disabled policy");
-    let fund_manager_result = blob_manager_client
-        .extend_storage_from_stash_fund_manager(1)
-        .await;
-    assert!(
-        fund_manager_result.is_err(),
-        "Fund manager extension should fail with disabled policy"
-    );
-    tracing::info!("Correctly rejected fund manager extension with disabled policy");
-
-    // Test 5: Set policy back to constrained.
-    tracing::info!("Test 5: Setting policy to constrained(2, 5)");
+    // Test 4: Set policy back to constrained.
+    tracing::info!("Test 4: Setting policy to constrained(2, 5)");
     blob_manager_client
         .set_extension_policy_constrained(2, 5)
         .await
@@ -2357,7 +2326,7 @@ async fn test_blob_manager_extension_policy() {
     tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
 
     // Fund manager extension should work again.
-    tracing::info!("Test 5b: Fund manager extension should work with constrained policy");
+    tracing::info!("Test 4b: Fund manager extension should work with constrained policy");
     blob_manager_client
         .extend_storage_from_stash_fund_manager(1)
         .await

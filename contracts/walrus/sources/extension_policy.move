@@ -9,15 +9,13 @@ module walrus::extension_policy;
 
 /// Extension is not allowed yet - storage hasn't reached the expiry threshold.
 const EExtensionTooEarly: u64 = 0;
-/// Extension is disabled - no one can extend until policy is changed.
-const EExtensionDisabled: u64 = 2;
+/// Only fund managers can extend with this policy.
+const EFundManagerOnly: u64 = 2;
 
 // === Main Structure ===
 
 /// Extension policy controlling when and how storage can be extended.
 public enum ExtensionPolicy has copy, drop, store {
-    /// Extension completely disabled - no one can extend until policy is changed.
-    Disabled,
     /// Only fund_manager can extend (no public extension).
     FundManagerOnly,
     /// Allow extension within constraints by anyone.
@@ -30,11 +28,6 @@ public enum ExtensionPolicy has copy, drop, store {
 }
 
 // === Constructors ===
-
-/// Creates a disabled policy (no one can extend).
-public fun disabled(): ExtensionPolicy {
-    ExtensionPolicy::Disabled
-}
 
 /// Creates a fund_manager-only policy (only fund_manager can extend).
 public fun fund_manager_only(): ExtensionPolicy {
@@ -55,19 +48,13 @@ public fun constrained(expiry_threshold_epochs: u32, max_extension_epochs: u32):
 /// Fund manager bypasses policy time/amount constraints but still respects system max.
 /// Caller is responsible for verifying the cap has fund_manager permission.
 ///
-/// Aborts if policy is Disabled (no one can extend).
-///
 /// Returns the capped extension epochs (may be less than requested due to system limits).
 public fun validate_and_cap_extension_fund_manager(
-    policy: &ExtensionPolicy,
     current_epoch: u32,
     storage_end_epoch: u32,
     requested_extension_epochs: u32,
     system_max_epochs_ahead: u32,
 ): u32 {
-    // Disabled policy blocks everyone, even fund_manager.
-    assert!(!is_disabled(policy), EExtensionDisabled);
-
     // Fund manager bypasses time/amount constraints, but still respect system max.
     cap_to_system_max(
         current_epoch,
@@ -94,12 +81,9 @@ public fun validate_and_cap_extension(
     system_max_epochs_ahead: u32,
 ): u32 {
     match (policy) {
-        ExtensionPolicy::Disabled => {
-            abort EExtensionDisabled
-        },
         ExtensionPolicy::FundManagerOnly => {
             // Public extension not allowed.
-            abort EExtensionDisabled
+            abort EFundManagerOnly
         },
         ExtensionPolicy::Constrained { expiry_threshold_epochs, max_extension_epochs } => {
             // Check time threshold.
@@ -157,33 +141,20 @@ fun cap_to_system_max(
 
 // === Accessors ===
 
-/// Returns true if the policy is disabled.
-public fun is_disabled(policy: &ExtensionPolicy): bool {
-    match (policy) {
-        ExtensionPolicy::Disabled => true,
-        ExtensionPolicy::FundManagerOnly => false,
-        ExtensionPolicy::Constrained { .. } => false,
-    }
-}
+// No accessor functions needed since Disabled variant has been removed.
 
 // === Tests ===
 
 #[test]
-fun test_disabled_policy() {
-    let policy = disabled();
-    assert!(is_disabled(&policy));
-}
-
-#[test]
 fun test_fund_manager_only_policy() {
-    let policy = fund_manager_only();
-    assert!(!is_disabled(&policy));
+    let _policy = fund_manager_only();
+    // Policy created successfully.
 }
 
 #[test]
 fun test_constrained_policy_creation() {
-    let policy = constrained(1, 5);
-    assert!(!is_disabled(&policy));
+    let _policy = constrained(1, 5);
+    // Policy created successfully.
 }
 
 #[test]
@@ -205,19 +176,7 @@ fun test_cap_to_system_max() {
     assert!(cap_to_system_max(100, 160, 10, system_max) == 0);
 }
 
-#[test, expected_failure(abort_code = EExtensionDisabled)]
-fun test_validate_disabled_aborts() {
-    let policy = disabled();
-    validate_and_cap_extension(&policy, 99, 100, 5, 52);
-}
-
-#[test, expected_failure(abort_code = EExtensionDisabled)]
-fun test_validate_disabled_aborts_fund_manager() {
-    let policy = disabled();
-    validate_and_cap_extension_fund_manager(&policy, 99, 100, 5, 52);
-}
-
-#[test, expected_failure(abort_code = EExtensionDisabled)]
+#[test, expected_failure(abort_code = EFundManagerOnly)]
 fun test_validate_fund_manager_only_without_cap_aborts() {
     let policy = fund_manager_only();
     validate_and_cap_extension(&policy, 99, 100, 5, 52);
@@ -225,8 +184,7 @@ fun test_validate_fund_manager_only_without_cap_aborts() {
 
 #[test]
 fun test_validate_fund_manager_only_with_fund_manager() {
-    let policy = fund_manager_only();
-    let result = validate_and_cap_extension_fund_manager(&policy, 99, 100, 5, 52);
+    let result = validate_and_cap_extension_fund_manager(99, 100, 5, 52);
     assert!(result == 5);
 }
 
@@ -283,19 +241,17 @@ fun test_validate_constrained_caps_to_system_max() {
 
 #[test]
 fun test_validate_fund_manager_bypasses_threshold() {
-    let policy = constrained(1, 5);
     // Threshold is 99, current is 50 - would be too early for public.
     // But fund_manager bypasses the threshold check.
     // system max = 50 + 52 = 102, so 10 epochs is within limit.
-    let result = validate_and_cap_extension_fund_manager(&policy, 50, 100, 10, 52);
+    let result = validate_and_cap_extension_fund_manager(50, 100, 10, 52);
     assert!(result == 2); // Capped by system: 102 - 100 = 2.
 }
 
 #[test]
 fun test_validate_fund_manager_still_capped_by_system() {
-    let policy = constrained(1, 5);
     // current=100, end=150, max_allowed=152.
     // Fund manager can bypass policy max (5), but system max is 2.
-    let result = validate_and_cap_extension_fund_manager(&policy, 100, 150, 10, 52);
+    let result = validate_and_cap_extension_fund_manager(100, 150, 10, 52);
     assert!(result == 2);
 }

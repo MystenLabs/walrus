@@ -27,11 +27,6 @@ public fun new_fixed_amount(tip_amount: u64): TipPolicy {
     TipPolicy { tip_amount }
 }
 
-/// Creates a disabled tip policy (zero tips).
-public fun disabled(): TipPolicy {
-    TipPolicy { tip_amount: 0 }
-}
-
 // === Accessor Functions ===
 
 /// Gets the tip amount based on the policy.

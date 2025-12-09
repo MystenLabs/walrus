@@ -434,14 +434,12 @@ public fun extend_storage_from_stash_fund_manager(
     let system_max_epochs_ahead = system.future_accounting().max_epochs_ahead();
 
     // Validate and cap extension based on policy (fund_manager extension).
-    let effective_extension = self
-        .extension_policy
-        .validate_and_cap_extension_fund_manager(
-            current_epoch,
-            storage_end_epoch,
-            extension_epochs,
-            system_max_epochs_ahead,
-        );
+    let effective_extension = extension_policy::validate_and_cap_extension_fund_manager(
+        current_epoch,
+        storage_end_epoch,
+        extension_epochs,
+        system_max_epochs_ahead,
+    );
 
     // Execute the extension with the effective epochs.
     self.execute_extension(system, effective_extension, ctx)
@@ -629,14 +627,6 @@ public fun withdraw_sui(
     self.coin_stash.withdraw_sui(amount, ctx)
 }
 
-/// Sets the extension policy to disabled (no one can extend).
-/// Requires fund_manager permission.
-public fun set_extension_policy_disabled(self: &mut BlobManager, cap: &BlobManagerCap) {
-    check_cap(self, cap);
-    assert!(cap.fund_manager, ERequiresFundManager);
-    self.extension_policy = extension_policy::disabled();
-}
-
 /// Sets the extension policy to fund_manager only.
 /// Requires fund_manager permission.
 public fun set_extension_policy_fund_manager_only(self: &mut BlobManager, cap: &BlobManagerCap) {
@@ -686,14 +676,6 @@ public fun set_tip_policy_fixed_amount(
     check_cap(self, cap);
     assert!(cap.fund_manager, ERequiresFundManager);
     self.tip_policy = tip_policy::new_fixed_amount(tip_amount);
-}
-
-/// Disables tipping (sets tip amount to zero).
-/// Requires fund_manager permission.
-public fun set_tip_policy_disabled(self: &mut BlobManager, cap: &BlobManagerCap) {
-    check_cap(self, cap);
-    assert!(cap.fund_manager, ERequiresFundManager);
-    self.tip_policy = tip_policy::disabled();
 }
 
 // === Blob Attribute Operations ===
