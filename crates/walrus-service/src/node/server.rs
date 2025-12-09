@@ -396,7 +396,7 @@ where
                 get(routes::get_deletable_blob_confirmation),
             )
             .route(
-                routes::RECOVERY_SYMBOL_LIST_ENDPOINT,
+                routes::LIST_RECOVERY_SYMBOL_ENDPOINT,
                 get(routes::list_recovery_symbols),
             )
             .route(
