@@ -19,6 +19,7 @@ use rayon::prelude::*;
 use tokio::{
     sync::{Notify, Semaphore, watch},
     task::{JoinHandle, JoinSet},
+    time::Instant,
 };
 use tokio_metrics::TaskMonitor;
 use tokio_util::sync::CancellationToken;
@@ -377,8 +378,9 @@ impl BlobSyncHandler {
         permits: Permits,
         mut event_handle: Option<EventHandle>,
     ) -> Option<EventHandle> {
-        let start = tokio::time::Instant::now();
+        let start = Instant::now();
         let blob_id = synchronizer.blob_id;
+        let mut active_start: Option<Instant> = None;
 
         let queued_gauge =
             walrus_utils::with_label!(self.node.metrics.recover_blob_backlog, STATUS_QUEUED);
@@ -415,8 +417,10 @@ impl BlobSyncHandler {
                         (metrics::STATUS_CANCELLED, None)
                     },
 
-                    guard = async {
+                    (guard, start) = async {
                         synchronizer.wait_for_recovery_window().await;
+
+                        let active_start = tokio::time::Instant::now();
 
                         // Await claiming the permit inside this async closure, to enable
                         // cancellation to also cancel waiting for the permit.
@@ -431,10 +435,11 @@ impl BlobSyncHandler {
 
                         synchronizer.run(permits.sliver_pairs).await;
 
-                        decrement_guard
+                        (decrement_guard, active_start)
                     } => {
                         event_handle.mark_as_complete();
                         event_handle = None;
+                        active_start = Some(start);
                         (metrics::STATUS_SUCCESS, Some(guard))
                     }
                 }
@@ -446,6 +451,13 @@ impl BlobSyncHandler {
 
         walrus_utils::with_label!(self.node.metrics.recover_blob_duration_seconds, label)
             .observe(start.elapsed().as_secs_f64());
+        if let Some(active_start) = active_start {
+            walrus_utils::with_label!(
+                self.node.metrics.recover_blob_active_duration_seconds,
+                label
+            )
+            .observe(active_start.elapsed().as_secs_f64());
+        }
 
         event_handle
     }
