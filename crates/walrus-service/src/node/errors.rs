@@ -259,6 +259,16 @@ pub enum ListSymbolsError {
     )]
     NoSymbolsSpecified,
 
+    #[error("the filter is invalid: {0}")]
+    #[rest_api_error(
+        reason = "INVALID_FILTER", status = ApiStatusCode::InvalidArgument,
+    )]
+    InvalidFilter(String),
+
+    #[error("the requested recovery symbol is out of range: {0}")]
+    #[rest_api_error(delegate)]
+    RetrieveRawRecoverySymbolOutOfRange(String),
+
     #[error(transparent)]
     #[rest_api_error(delegate)]
     Last(#[from] RetrieveSymbolError),
