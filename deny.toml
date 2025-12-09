@@ -24,6 +24,8 @@ ignore = [
   "RUSTSEC-2025-0057",
   # number_prefix is unmaintained; it is a dependency of many sui crates.
   "RUSTSEC-2025-0119",
+  # rustls-pemfile is unmaintained; it is a dependency of `sui-types` crate.
+  "RUSTSEC-2025-0134",
 ]
 
 
