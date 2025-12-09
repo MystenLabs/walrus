@@ -190,15 +190,16 @@ panic = 'abort'
 [profile.dev]
 panic = 'abort'
 
-[profile.test]
+[profile.test-opt]
+inherits = "test"
+# the small extra compilation time for opt-level 1 is worth it to give >5x speedup for simulator
+# tests and major speedup for other tests.
 opt-level = 1
 
 [profile.simulator]
 debug = true
 debug-assertions = true
-inherits = "test"
-# opt-level 1 gives >5x speedup for simulator tests without slowing down build times very much.
-opt-level = 1
+inherits = "test-opt"
 overflow-checks = true
 panic = 'abort'
 

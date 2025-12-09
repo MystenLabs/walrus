@@ -67,7 +67,12 @@ mod tests {
         test_utils::system_setup::{development_contract_dir, testnet_contract_dir},
         types::{Blob, move_structs::EventBlob},
     };
-    use walrus_test_utils::{WithTempDir, random_data_from_rng};
+    use walrus_test_utils::{
+        WithTempDir,
+        async_param_test,
+        random_data_from_rng,
+        simtest_param_test,
+    };
 
     /// Returns a simulator configuration that adds random network latency between nodes.
     ///
@@ -651,6 +656,123 @@ mod tests {
         // );
         clear_fail_point("fail_point_recovery_with_incomplete_history");
         clear_fail_point("fail_point_catchup_using_event_blobs_start");
+    }
+
+    simtest_param_test! {
+        #[ignore = "ignore integration simtests by default"]
+        correctly_handles_blob_deletions_with_concurrent_instances: [
+            same_epoch_deletable: (true, true),
+            same_epoch_permanent: (true, false),
+            later_epoch_deletable: (false, true),
+            later_epoch_permanent: (false, false),
+        ]
+    }
+    async fn correctly_handles_blob_deletions_with_concurrent_instances(
+        process_in_same_epoch: bool,
+        blob_2_deletable: bool,
+    ) {
+        const EPOCH_DURATION: Duration = Duration::from_secs(30);
+        let (_sui_cluster, walrus_cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
+            .with_epoch_duration(EPOCH_DURATION)
+            .with_test_nodes_config(TestNodesConfig {
+                node_weights: vec![1, 2, 3, 3, 4],
+                ..Default::default()
+            })
+            .with_communication_config(
+                ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
+                    Duration::from_secs(2),
+                ),
+            )
+            .build_generic::<SimStorageNodeHandle>()
+            .await
+            .unwrap();
+
+        let target_epoch_for_processing = if process_in_same_epoch { 1 } else { 2 };
+        let target_cluster_epoch = target_epoch_for_processing + 1;
+
+        let blob_info_consistency_check = BlobInfoConsistencyCheck::new();
+        let client = Arc::new(client);
+
+        let maybe_delayed_node_id = walrus_cluster.nodes[0]
+            .node_id
+            .expect("node ID should be set");
+
+        let allow_processing = Arc::new(AtomicBool::new(process_in_same_epoch));
+        register_fail_point_async("before-process-event-impl", {
+            let allow_processing = allow_processing.clone();
+            move || {
+                let target_node_id = maybe_delayed_node_id;
+                let allow_processing = allow_processing.clone();
+                async move {
+                    if sui_simulator::current_simnode_id() == target_node_id {
+                        while !allow_processing.load(Ordering::SeqCst) {
+                            tokio::time::sleep(Duration::from_millis(100)).await;
+                        }
+                    }
+                }
+            }
+        });
+
+        let blob = walrus_test_utils::random_data(256);
+        let blob_1_store_args = StoreArgs::default_with_epochs(1)
+            .with_persistence(BlobPersistence::Deletable)
+            .no_store_optimizations();
+        let blob_2_store_args = blob_1_store_args
+            .clone()
+            .with_persistence(BlobPersistence::from_deletable(blob_2_deletable));
+
+        let mut blob_ids = Vec::new();
+        let mut object_ids_to_delete = Vec::new();
+        for (i, store_args) in [blob_1_store_args, blob_2_store_args].iter().enumerate() {
+            let results = client
+                .inner
+                .reserve_and_store_blobs_retry_committees(vec![blob.clone()], vec![], store_args)
+                .await
+                .expect("store should succeed");
+            let BlobStoreResult::NewlyCreated {
+                blob_object: Blob { blob_id, id, .. },
+                ..
+            } = results.first().expect("expected result for store")
+            else {
+                panic!("unexpected store result {results:?} for store {i}");
+            };
+            blob_ids.push(*blob_id);
+            if store_args.persistence.is_deletable() {
+                object_ids_to_delete.push(*id);
+            }
+        }
+        assert_eq!(blob_ids[0], blob_ids[1]);
+        if object_ids_to_delete.len() == 2 {
+            assert!(object_ids_to_delete[0] != object_ids_to_delete[1]);
+        }
+
+        for object_id in object_ids_to_delete.into_iter() {
+            client
+                .as_ref()
+                .as_ref()
+                .delete_owned_blob_by_object(object_id)
+                .await
+                .expect("delete should succeed for deletable blob");
+        }
+
+        simtest_utils::wait_for_nodes_to_reach_epoch(
+            &walrus_cluster.nodes[1..],
+            target_epoch_for_processing,
+            2 * EPOCH_DURATION,
+        )
+        .await;
+        allow_processing.store(true, Ordering::SeqCst);
+
+        simtest_utils::wait_for_nodes_to_reach_epoch(
+            &walrus_cluster.nodes[..],
+            target_cluster_epoch,
+            2 * EPOCH_DURATION,
+        )
+        .await;
+
+        blob_info_consistency_check.check_storage_node_consistency();
+
+        clear_fail_point("before-process-event-impl");
     }
 
     // The node recovery process is artificially prolonged to be longer than 1 epoch.
