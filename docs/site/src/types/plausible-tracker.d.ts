@@ -1,7 +1,7 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-declare module "@plausible-analytics/tracker" {
+declare module "plausible-tracker" {
   // Default-export init() returning an instance with trackPageview/trackEvent
   const init: (opts: {
     domain: string;
