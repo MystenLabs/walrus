@@ -329,25 +329,25 @@ html.blog-list-page article {
     flex-wrap: wrap !important;
     gap: 0.5rem !important;
   }
-  
+
   /* Scale down search bar on mobile */
   .navbar__search {
     max-width: 150px !important;
     flex-shrink: 1 !important;
   }
-  
+
   .navbar__search input {
     font-size: 0.875rem !important;
     padding: 0.25rem 0.5rem !important;
   }
-  
+
   /* Scale down cookbook button */
   [class*="cookbook"],
   .navbar__item button {
     font-size: 0.875rem !important;
     padding: 0.25rem 0.75rem !important;
   }
-  
+
   /* Ensure navbar right items don't overflow */
   .navbar__items--right {
     flex-wrap: wrap !important;
@@ -361,17 +361,17 @@ html.blog-list-page article {
   .navbar__items {
     gap: 0.25rem !important;
   }
-  
+
   /* Make search bar even smaller */
   .navbar__search {
     max-width: 120px !important;
   }
-  
+
   .navbar__search input {
     font-size: 0.75rem !important;
     padding: 0.25rem 0.5rem !important;
   }
-  
+
   /* Make all navbar buttons smaller */
   .navbar__item button,
   .navbar__link {
@@ -387,7 +387,7 @@ html.blog-list-page article {
     align-items: flex-end !important;
     gap: 0.25rem !important;
   }
-  
+
   .navbar__search {
     max-width: 100px !important;
   }

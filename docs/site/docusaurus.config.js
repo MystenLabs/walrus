@@ -56,43 +56,43 @@ const config = {
         fromExtensions: ['html', 'htm'], // /myPage.html -> /myPage
         redirects: [
 {
-            to: "/design/encoding",
+            to: "/docs/design/encoding",
             from: "/design/encoding.html",
           },
           {
-            to: "/index",
+            to: "/docs/index",
             from: "/index.html",
           },
           {
-            to: "/usage/client-cli",
+            to: "/docs/usage/client-cli",
             from: "/usage/client-cli.html",
           },
           {
-            to: "/usage/interacting",
+            to: "/docs/usage/interacting",
             from: "/usage/interacting.html",
           },
           {
-            to: "/usage/quilt",
+            to: "/docs/usage/quilt",
             from: "/usage/quilt.html",
           },
           {
-            to: "/usage/setup",
+            to: "/docs/usage/setup",
             from: "/usage/setup.html",
           },
           {
-            to: "/usage/web-api",
+            to: "/docs/usage/web-api",
             from: "/usage/web-api.html",
           },
           {
-            to: "/walrus-sites/bring-your-own-domain",
+            to: "/docs/walrus-sites/bring-your-own-domain",
             from: "/walrus-sites/bring-your-own-domain.html",
           },
           {
-            to: "/walrus-sites/intro",
+            to: "/docs/walrus-sites/intro",
             from: "/walrus-sites/intro.html",
           },
           {
-            to: "/walrus-sites/portal",
+            to: "/docs/walrus-sites/portal",
             from: "/walrus-sites/portal.html",
           },
         ],
