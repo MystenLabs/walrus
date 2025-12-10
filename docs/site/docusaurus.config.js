@@ -50,7 +50,55 @@ const config = {
 
     plugins: [
         "docusaurus-plugin-copy-page-button",
-            [
+    [
+      '@docusaurus/plugin-client-redirects',
+      {
+        fromExtensions: ['html', 'htm'], // /myPage.html -> /myPage
+        redirects: [
+{
+            to: "/design/encoding",
+            from: "/design/encoding.html",
+          },
+          {
+            to: "/index",
+            from: "/index.html",
+          },
+          {
+            to: "/usage/client-cli",
+            from: "/usage/client-cli.html",
+          },
+          {
+            to: "/usage/interacting",
+            from: "/usage/interacting.html",
+          },
+          {
+            to: "/usage/quilt",
+            from: "/usage/quilt.html",
+          },
+          {
+            to: "/usage/setup",
+            from: "/usage/setup.html",
+          },
+          {
+            to: "/usage/web-api",
+            from: "/usage/web-api.html",
+          },
+          {
+            to: "/walrus-sites/bring-your-own-domain",
+            from: "/walrus-sites/bring-your-own-domain.html",
+          },
+          {
+            to: "/walrus-sites/intro",
+            from: "/walrus-sites/intro.html",
+          },
+          {
+            to: "/walrus-sites/portal",
+            from: "/walrus-sites/portal.html",
+          },
+        ],
+      },
+    ],
+    [
       require.resolve("./src/plugins/plausible"),
       {
         domain: "docs.wal.app",
