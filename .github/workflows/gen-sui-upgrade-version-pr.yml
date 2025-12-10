@@ -127,7 +127,8 @@ jobs:
           echo "slack_id=$(echo ${slack_id} | tr -d '"')" >> $GITHUB_ENV
 
       - name: Post to slack
-        uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # pin@v2.1.1
+        # TODO(WAL-1119): manually bump this to v2 and remove from Dependabot ignore list.
+        uses: slackapi/slack-github-action@34c3fd73326693ef04728f8611669d918a2d781d # pin@v1.19.0
         env:
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
           SUI_SHA: ${{ env.sui_sha }}
@@ -135,7 +136,7 @@ jobs:
           SLACK_ID: ${{ env.slack_id }}
           ONCALL_NAME: ${{ env.oncall_name }}
         with:
-          channel-id: 'walrus-ci'
+          channel-id: "walrus-ci"
           slack-message: |
             <!here> :walrus_face::rocket: New Sui version `${{ env.NEW_TAG }}` bump PR created: ${{ needs.bump.outputs.pr_url }} for walrus
             <@${{ env.SLACK_ID }}>, current `${{ env.ONCALL_NAME }}` oncall, please do the following:
