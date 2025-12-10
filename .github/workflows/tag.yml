@@ -39,7 +39,7 @@ jobs:
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # pin@v6.0.1
 
       - name: Tag
-        uses: julbme/gh-action-manage-tag@8daf6387badea2c6b8f989bd0f82b5a9ef1d84e6 # pin@v1
+        uses: julbme/gh-action-manage-tag@8daf6387badea2c6b8f989bd0f82b5a9ef1d84e6 # pin@v1.0.1
         with:
           name: ${{ env.TAG_NAME }}
           state: present
