@@ -1152,6 +1152,7 @@ impl StorageNodeHandleBuilder {
                     200
                 },
                 runtime_catchup_lag_threshold: 200,
+                enable_runtime_catchup: true,
                 ..Default::default()
             },
             pending_sliver_cache: Default::default(),
