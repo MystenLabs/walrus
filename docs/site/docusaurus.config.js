@@ -65,10 +65,6 @@ const config = {
         createRedirects(existingPath) {
           const redirects = [];
 
- // This function creates redirects dynamically for all existing pages
-        createRedirects(existingPath) {
-          const redirects = [];
-
           // Skip the homepage to avoid /index.html/index.html error
           if (existingPath === '/' || existingPath === '') {
             return undefined;
