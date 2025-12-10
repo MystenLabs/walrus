@@ -16,7 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Dispatch Walrus Artifact Builds in MystenLabs/sui-operations
-        uses: peter-evans/repository-dispatch@5fc4efd1a4797ddb68ffd0714a238564e4cc0e6f # pin@v4.0.0
+        uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # pin@v4.0.1
         with:
           repository: MystenLabs/sui-operations
           token: ${{ secrets.SUI_OPS_DISPATCH_TOKEN }}
