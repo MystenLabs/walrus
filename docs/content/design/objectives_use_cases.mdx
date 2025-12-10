@@ -4,72 +4,36 @@ description: "Overview of Walrus objectives, use cases, and applications includi
 keywords: ["walrus", "use cases", "objectives", "nft storage", "ai datasets", "decentralized web", "blockchain storage", "media storage", "applications"]
 ---
 
-Walrus supports operations to store and read blobs, and to prove and verify their availability.
-It ensures that content survives storage nodes suffering Byzantine faults, remaining available and
-retrievable. It provides APIs to access the stored content over CLI, SDKs, and Web2 HTTP
-technologies, and supports content delivery infrastructures like caches and content distribution
-networks (CDNs).
+Walrus supports operations to store and read blobs, and to prove and verify their availability. It ensures that content survives storage nodes suffering Byzantine faults, remaining available and retrievable. It provides APIs to access the stored content over [CLI, SDKs, and Web2 HTTP technologies](/usage/interacting.mdx), and supports content delivery infrastructures like caches and content distribution networks (CDNs).
 
-Under the hood, storage cost is a small fixed multiple of the size of blobs (around 5x). Advanced
-erasure coding keeps the cost low, in contrast to the full replication of data traditional to
-blockchains, such as the >100x multiple for data stored in Sui objects. As a result, storage of large resources (multiple GB) is possible on Walrus at substantially lower cost than on Sui
-or other blockchains. Because all storage nodes store encoded blobs, Walrus also provides
-superior robustness compared to designs using a small amount of replicas to store the full blob.
+Under the hood, [storage cost](/dev-guide/costs.mdx) is a small fixed multiple of the size of blobs (around 5x). Advanced erasure coding keeps the cost low, in contrast to the full replication of data traditional to blockchains, such as the >100x multiple for data stored in Sui objects. As a result, storage of large resources (multiple GB) is possible on Walrus at substantially lower cost than on Sui or other blockchains. Because all storage nodes store encoded blobs, Walrus also provides superior robustness compared to designs using a small amount of replicas to store the full blob.
 
-Walrus uses the Sui chain for coordination and payments. Available storage is represented as Sui
-objects that can be acquired, owned, split, merged, and transferred. Storage space can be tied to
-a stored blob for a period of time, with the resulting Sui object used to prove
-availability either on-chain in smart contracts, or off-chain using light clients.
+Walrus uses the [Sui chain](https://github.com/MystenLabs/sui) for coordination and payments. Available storage is represented as Sui objects that can be acquired, owned, split, merged, and transferred. Storage space can be tied to a stored blob for a period of time, with the resulting Sui object used to prove availability either on-chain in smart contracts, or off-chain using light clients.
 
-The [next chapter](/design/overview.mdx) discusses in detail the above operations relating to storage,
-retrieval, and availability.
-
-Currently, Walrus is compatible with periodic payments for continued storage. It also allows light nodes to get rewards for storing small parts
-of blobs, proving availability, and assisting recovery. Future plans include implementing some minimal governance to allow storage nodes to change between storage epochs, as well as challenge-based storage attestation for blob storage and availability confidence. These topics will be covered in later documents, and encoding scheme details will also be provided in a separate document.
+Currently, Walrus is compatible with periodic payments for continued storage. It also allows light nodes to get rewards for storing small parts of blobs, proving availability, and assisting recovery. Future plans include implementing some minimal governance to allow storage nodes to change between storage epochs, as well as challenge-based storage attestation for blob storage and availability confidence. These topics will be covered in later documents, and encoding scheme details will also be provided in a separate document.
 
 ## Non-objectives
 
 There are a few things that Walrus explicitly is not:
 
-- Walrus does not reimplement a CDN that might be geo-replicated or have less than tens of
-  milliseconds of latency. Instead, it ensures that traditional CDNs are usable and compatible with
-  Walrus caches.
+- Walrus does not reimplement a CDN that might be geo-replicated or have less than tens of milliseconds of latency. Instead, it ensures that traditional CDNs are usable and compatible with Walrus caches.
 
-- Walrus does not reimplement a full smart contracts platform with consensus or execution. It
-  relies on Sui smart contracts to manage Walrus resources and processes, including
-  payments, storage epochs, and so on.
+- Walrus does not reimplement a full smart contracts platform with consensus or execution. It relies on Sui smart contracts to manage Walrus resources and processes, including payments, storage epochs, and so on.
 
-- Walrus supports storage of any blob, including encrypted blobs. Walrus itself is not the distributed key management infrastructure that manages encryption or decryption
-  keys to support a full private storage eco-system. However, it can provide the storage layer for
-  such infrastructures.
+- Walrus supports storage of any blob, including encrypted blobs. Walrus itself is not the distributed key management infrastructure that manages encryption or decryption keys to support a full private storage eco-system. However, it can provide the storage layer for such infrastructures.
 
 ## Use Cases
 
-App builders may use Walrus in conjunction with any L1 or L2 blockchains to build experiences that
-require large amounts of data to be stored, and possibly certified as available, in a decentralized manner.
+App builders may use Walrus in conjunction with any L1 or L2 blockchains to build experiences that require large amounts of data to be stored, and possibly certified as available, in a decentralized manner.
 
-- **Store media for non-fungible tokens (NFTs) or dApps:** Walrus can directly store and serve media such as images,
-  sounds, sprites, videos, game assets, and so on. This is publicly available media that is
-  accessed using HTTP requests at caches to create multimedia dApps.
+- **Support AI-related use cases:** Walrus can store clean data sets of training data, datasets with a known and verified provenance, models, weights, and proofs of correct training for AI models. It can also store and ensure the availability of an AI model output. [OpenGradient](https://www.opengradient.ai/) and [Talus](https://talus.network/) are two live examples built on Walrus.
 
-- **Store long-term archives of blockchain history:** Walrus can act as a lower-cost
-  decentralized storage for blockchain history. For Sui, this might include sequences of
-  checkpoints with all associated transaction and effects content, as well as historic snapshots
-  of the blockchain state, code, or binaries.
+- **Store media for non-fungible tokens (NFTs) or dApps:** Walrus can directly store and serve media such as images, sounds, sprites, videos, game assets, and so on. This is publicly available media that is accessed using HTTP requests at caches to create multimedia dApps. See [Pudgy Penguins](https://pudgypenguins.com/) for an example of Walrus-stored NFTs.
 
-- **Support AI-related use cases:** Walrus can store clean data sets of training data, datasets with a
-  known and verified provenance, models, weights, and proofs of correct training for AI models.
-  It can also store and ensure the availability of an AI model output.
+- **Store long-term archives of blockchain history:** Walrus can act as a lower-cost decentralized storage for blockchain history. For Sui, this might include sequences of checkpoints with all associated transaction and effects content, as well as historic snapshots of the blockchain state, code, or binaries.
 
-- **Support availability for L2s:** Walrus allows parties to certify the availability of blobs, as
-  required by L2s that need data to be stored and attested as available to all. This may also
-  include availability of extra audit data such as validity proofs, zero knowledge proofs of
-  correct execution, or large fraud proofs.
+- **Support availability for L2s:** Walrus allows parties to certify the availability of blobs, as required by L2s that need data to be stored and attested as available to all. This may also include availability of extra audit data such as validity proofs, zero knowledge proofs of correct execution, or large fraud proofs.
 
-- **Support a fully decentralized web experience:** Walrus can host fully decentralized web
-  experiences, including all resources such as JavaScript, CSS, HTML, media. These web experiences are capable of both
-  providing content, as well as hosting the UX of dApps to enable applications with fully decentralized
-  front ends and back ends on-chain.
+- **Support a fully decentralized web experience:** Walrus can host fully decentralized web experiences, including all resources such as JavaScript, CSS, HTML, or media. These web experiences are capable of both providing content, as well as hosting the UX of dApps to enable applications with fully decentralized front ends and back ends on-chain. To learn more, see [Introduction to Walrus Sites](/walrus-sites/intro.mdx).
 
-- **Support subscription models for media:** Creators can store encrypted media on Walrus and limit access through decryption keys to parties who have paid a subscription fee or have paid for
-  content. Walrus provides the needed off-system storage, encryption, and decryption.
+- **Support subscription models for media:** Creators can store encrypted media on Walrus and limit access through decryption keys to parties who have paid a subscription fee or have paid for content. Walrus provides the needed off-system storage, encryption, and decryption.
