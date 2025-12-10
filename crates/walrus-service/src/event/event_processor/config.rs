@@ -137,7 +137,8 @@ impl Default for EventProcessorConfig {
             sampled_tracing_interval: Duration::from_hours(1),
             runtime_catchup_lag_threshold: 20_000,
             runtime_lag_check_interval: Duration::from_mins(5),
-            enable_runtime_catchup: true,
+            // TODO(WAL-1115): enable runtime catchup after the issue is fixed.
+            enable_runtime_catchup: false,
             catchup_coordination_timeout: Duration::from_mins(50),
             catchup_processing_timeout: Duration::from_mins(50),
         }
