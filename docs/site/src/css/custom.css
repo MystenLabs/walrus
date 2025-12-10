@@ -320,3 +320,75 @@ html.blog-list-page header h2 a {
 html.blog-list-page article {
     @apply p-8 border border-x-2 border-solid border-transparent border-x-wal-purple rounded-xl;
 }
+
+/* Mobile Navbar Fix - Search and Cookbook AI Button */
+
+@media screen and (max-width: 996px) {
+  /* Make navbar items wrap properly */
+  .navbar__items {
+    flex-wrap: wrap !important;
+    gap: 0.5rem !important;
+  }
+  
+  /* Scale down search bar on mobile */
+  .navbar__search {
+    max-width: 150px !important;
+    flex-shrink: 1 !important;
+  }
+  
+  .navbar__search input {
+    font-size: 0.875rem !important;
+    padding: 0.25rem 0.5rem !important;
+  }
+  
+  /* Scale down cookbook button */
+  [class*="cookbook"],
+  .navbar__item button {
+    font-size: 0.875rem !important;
+    padding: 0.25rem 0.75rem !important;
+  }
+  
+  /* Ensure navbar right items don't overflow */
+  .navbar__items--right {
+    flex-wrap: wrap !important;
+    gap: 0.5rem !important;
+    max-width: 100% !important;
+  }
+}
+
+@media screen and (max-width: 768px) {
+  /* Stack navbar items vertically or make them smaller */
+  .navbar__items {
+    gap: 0.25rem !important;
+  }
+  
+  /* Make search bar even smaller */
+  .navbar__search {
+    max-width: 120px !important;
+  }
+  
+  .navbar__search input {
+    font-size: 0.75rem !important;
+    padding: 0.25rem 0.5rem !important;
+  }
+  
+  /* Make all navbar buttons smaller */
+  .navbar__item button,
+  .navbar__link {
+    font-size: 0.75rem !important;
+    padding: 0.25rem 0.5rem !important;
+  }
+}
+
+@media screen and (max-width: 480px) {
+  /* For very small screens, stack items or hide less important ones */
+  .navbar__items--right {
+    flex-direction: column !important;
+    align-items: flex-end !important;
+    gap: 0.25rem !important;
+  }
+  
+  .navbar__search {
+    max-width: 100px !important;
+  }
+}
