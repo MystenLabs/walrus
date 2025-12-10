@@ -4,7 +4,7 @@
 //! Walrus storage node.
 
 use std::{
-    collections::hash_map::Entry,
+    collections::{BTreeMap, hash_map::Entry},
     future::Future,
     num::{NonZero, NonZeroU16, NonZeroUsize},
     pin::Pin,
@@ -62,18 +62,21 @@ use walrus_core::{
     PublicKey,
     ShardIndex,
     Sliver,
+    SliverIndex,
     SliverPairIndex,
     SliverType,
     SymbolId,
-    by_axis::{self, Axis},
+    by_axis::{self, Axis, ByAxis},
     encoding::{
         DecodingSymbol,
+        EitherDecodingSymbol,
         EncodingAxis,
         EncodingConfig,
         GeneralRecoverySymbol,
         Primary,
         RecoverySymbolError,
         Secondary,
+        SliverData,
     },
     ensure,
     keys::ProtocolKeyPair,
@@ -326,8 +329,11 @@ pub trait ServiceState {
     fn retrieve_multiple_raw_recovery_symbols(
         &self,
         blob_id: &BlobId,
-        filter: RecoverySymbolsFilter,
-    ) -> impl Future<Output = Result<Vec<GeneralRecoverySymbol>, ListSymbolsError>> + Send;
+        target_slivers: Vec<SliverIndex>,
+        target_type: SliverType,
+    ) -> impl Future<
+        Output = Result<BTreeMap<SliverIndex, Vec<EitherDecodingSymbol>>, ListSymbolsError>,
+    > + Send;
 
     /// Retrieves the blob status for the given `blob_id`.
     fn blob_status(&self, blob_id: &BlobId) -> Result<BlobStatus, BlobStatusError>;
@@ -3311,6 +3317,31 @@ impl StorageNodeInner {
         Err(final_error)
     }
 
+    fn extract_decoding_symbol<T: EncodingAxis>(
+        &self,
+        sliver: SliverData<T>,
+        target_sliver_index: SliverIndex,
+    ) -> Result<EitherDecodingSymbol, ListSymbolsError>
+    where
+        EitherDecodingSymbol: From<DecodingSymbol<<T as EncodingAxis>::OrthogonalAxis>>,
+    {
+        if usize::from(target_sliver_index.get()) >= sliver.symbols.len() {
+            return Err(ListSymbolsError::RetrieveRawRecoverySymbolOutOfRange(
+                format!(
+                    "target sliver index out of range: {} < {}",
+                    target_sliver_index.get(),
+                    sliver.symbols.len(),
+                ),
+            ));
+        }
+
+        let symbol_bytes = sliver.symbols[target_sliver_index.as_usize()].to_vec();
+        let sliver_index = sliver.index;
+        let decoding_symbol: EitherDecodingSymbol =
+            DecodingSymbol::<T::OrthogonalAxis>::new(sliver_index.get(), symbol_bytes).into();
+        Ok(decoding_symbol)
+    }
+
     fn get_encoding_type_for_blob(
         &self,
         blob_id: &BlobId,
@@ -3647,10 +3678,13 @@ impl ServiceState for StorageNode {
     fn retrieve_multiple_raw_recovery_symbols(
         &self,
         blob_id: &BlobId,
-        filter: RecoverySymbolsFilter,
-    ) -> impl Future<Output = Result<Vec<GeneralRecoverySymbol>, ListSymbolsError>> + Send {
+        target_slivers: Vec<SliverIndex>,
+        target_type: SliverType,
+    ) -> impl Future<
+        Output = Result<BTreeMap<SliverIndex, Vec<EitherDecodingSymbol>>, ListSymbolsError>,
+    > + Send {
         self.inner
-            .retrieve_multiple_raw_recovery_symbols(blob_id, filter)
+            .retrieve_multiple_raw_recovery_symbols(blob_id, target_slivers, target_type)
     }
 
     fn blob_status(&self, blob_id: &BlobId) -> Result<BlobStatus, BlobStatusError> {
@@ -4041,8 +4075,9 @@ impl ServiceState for StorageNodeInner {
     async fn retrieve_multiple_raw_recovery_symbols(
         &self,
         blob_id: &BlobId,
-        filter: RecoverySymbolsFilter,
-    ) -> Result<Vec<DecodingSymbol>, ListSymbolsError> {
+        target_sliver_indexes: Vec<SliverIndex>,
+        target_type: SliverType,
+    ) -> Result<BTreeMap<SliverIndex, Vec<EitherDecodingSymbol>>, ListSymbolsError> {
         self.validate_blob_access(
             blob_id,
             RetrieveSliverError::Forbidden,
@@ -4050,112 +4085,53 @@ impl ServiceState for StorageNodeInner {
         )
         .map_err(RetrieveSymbolError::RetrieveSliver)?;
 
-        let SymbolIdFilter::Recovers {
-            target_sliver,
-            target_type: target_sliver_type,
-        } = filter.id_filter()
-        else {
-            return Err(ListSymbolsError::InvalidFilter(
-                "retrieve multiple raw recovery symbols \
-            must specify a target sliver and type"
-                    .into(),
-            ));
-        };
+        let mut output = BTreeMap::new();
+        let n_shards = self.n_shards();
+        let owned_shards = self.owned_shards_at_latest_epoch();
+        for target_sliver_index in target_sliver_indexes {
+            let filter = RecoverySymbolsFilter::recovers(target_sliver_index, target_type);
+            for symbol_id in self.symbol_ids_from_filter(*blob_id, &filter) {
+                // Row index
+                let primary_index = symbol_id.primary_sliver_index();
+                self.check_index(primary_index)
+                    .map_err(RetrieveSymbolError::RecoverySymbolOutOfRange)?;
+                // Map to shard index
+                let primary_pair_index = primary_index.to_pair_index::<Primary>(n_shards);
 
-        let encoding_type = self
-            .get_encoding_type_for_blob(blob_id)
-            .context("could not retrieve blob encoding type")?
-            .ok_or_else(|| anyhow!("encoding type unavailable for blob {:?}", blob_id))?;
+                // Col index
+                let secondary_index = symbol_id.secondary_sliver_index();
+                self.check_index(secondary_index)
+                    .map_err(RetrieveSymbolError::RecoverySymbolOutOfRange)?;
+                // Map to shard index
+                let secondary_pair_index = secondary_index.to_pair_index::<Secondary>(n_shards);
 
-        let mut output = vec![];
-        for symbol_id in self.symbol_ids_from_filter(*blob_id, &filter) {
-            let n_shards = self.n_shards();
-
-            let primary_index = symbol_id.primary_sliver_index();
-            self.check_index(primary_index)
-                .map_err(RetrieveSymbolError::RecoverySymbolOutOfRange)?;
-            let primary_pair_index = primary_index.to_pair_index::<Primary>(n_shards);
-
-            let secondary_index = symbol_id.secondary_sliver_index();
-            self.check_index(secondary_index)
-                .map_err(RetrieveSymbolError::RecoverySymbolOutOfRange)?;
-            let secondary_pair_index = secondary_index.to_pair_index::<Secondary>(n_shards);
-
-            let owned_shards = self.owned_shards_at_latest_epoch();
-
-            let (source_pair_index, target_pair_index) = match target_sliver_type {
-                Axis::Primary => (secondary_pair_index, primary_pair_index),
-                Axis::Secondary => (primary_pair_index, secondary_pair_index),
-            };
-
-            let required_shard = &source_pair_index.to_shard_index(n_shards, blob_id);
-            if !owned_shards.contains(required_shard) {
-                // This node does not manage the shard owning the source pair.
-                continue;
-            }
-
-            let source_sliver = self
-                .retrieve_sliver_unchecked(
-                    blob_id,
-                    source_pair_index,
-                    target_sliver_type.orthogonal(),
-                )
-                .await
-                .map_err(RetrieveSymbolError::RetrieveSliver)?;
-            let target_sliver_index = match target_sliver_type {
-                Axis::Primary => target_pair_index.to_sliver_index::<Secondary>(n_shards),
-                Axis::Secondary => target_pair_index.to_sliver_index::<Primary>(n_shards),
-            };
-
-            let decoding_symbol = by_axis::flat_map!(source_sliver, |sliver_data| {
-                if usize::from(target_sliver_index.get()) >= sliver_data.symbols.len() {
-                    return Err(ListSymbolsError::RetrieveRawRecoverySymbolOutOfRange(
-                        format!(
-                            "target sliver index out of range: {} < {}",
-                            target_sliver_index.get(),
-                            source_sliver.symbols.len(),
-                        ),
-                    ));
-                }
-
-                let symbol_bytes = sliver_data.symbols[target_sliver_index.as_usize()].to_vec();
-                let sliver_index = sliver.index;
-
-                let decoding_symbol = match target_sliver_type {
-                    Axis::Primary => {
-                        DecodingSymbol::<Primary>::new(sliver_index.get(), symbol_bytes)
-                    }
-                    Axis::Secondary => {
-                        DecodingSymbol::<Secondary>::new(sliver_index.get(), symbol_bytes)
-                    }
+                let (source_pair_index, target_pair_index) = match target_type {
+                    Axis::Primary => (secondary_pair_index, primary_pair_index),
+                    Axis::Secondary => (primary_pair_index, secondary_pair_index),
                 };
 
-                Ok(decoding_symbol)
-            });
-
-            output.push(decoding_symbol);
-        }
-
-        let mut last_error = ListSymbolsError::NoSymbolsSpecified;
-
-        while let Some((symbol_id, result)) = symbols.next().await {
-            match result {
-                Ok(symbol) => output.push(symbol),
-
-                // Callers may request symbols that are not stored with this shard, or
-                // completely invalid symbols. These are ignored unless there are no successes.
-                Err(error) => {
-                    tracing::debug!(%error, %symbol_id, "failed to get requested symbol");
-                    last_error = error.into();
+                let required_shard = &source_pair_index.to_shard_index(n_shards, blob_id);
+                if !owned_shards.contains(required_shard) {
+                    // This node does not manage the shard owning the source pair.
+                    continue;
                 }
+
+                let sliver_result = self
+                    .retrieve_sliver_unchecked(blob_id, source_pair_index, target_type.orthogonal())
+                    .await
+                    .map_err(RetrieveSymbolError::RetrieveSliver)?;
+
+                let decoding_symbol = by_axis::flat_map!(sliver_result, |sliver| {
+                    self.extract_decoding_symbol(sliver, target_sliver_index)
+                })?;
+
+                output
+                    .entry(target_sliver_index)
+                    .or_insert_with(|| vec![])
+                    .push(decoding_symbol);
             }
         }
-
-        if output.is_empty() {
-            Err(last_error)
-        } else {
-            Ok(output)
-        }
+        Ok(output)
     }
 
     fn n_shards(&self) -> NonZeroU16 {
