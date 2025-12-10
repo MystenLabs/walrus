@@ -55,7 +55,7 @@ const config = {
       {
         fromExtensions: ['html', 'htm'], // /myPage.html -> /myPage
         redirects: [
-         // Specific page redirects
+          // Specific page redirects
           {
             to: "/",
             from: "/index.html",
