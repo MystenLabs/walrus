@@ -60,10 +60,6 @@ const config = {
             from: "/design/encoding.html",
           },
           {
-            to: "/",
-            from: "/index.html",
-          },
-          {
             to: "/docs/usage/client-cli",
             from: "/usage/client-cli.html",
           },
