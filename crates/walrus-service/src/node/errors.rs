@@ -266,7 +266,9 @@ pub enum ListSymbolsError {
     InvalidFilter(String),
 
     #[error("the requested recovery symbol is out of range: {0}")]
-    #[rest_api_error(delegate)]
+    #[rest_api_error(
+        reason = "RECOVERY_SYMBOL_OUT_OF_RANGE", status = ApiStatusCode::InvalidArgument,
+    )]
     RetrieveRawRecoverySymbolOutOfRange(String),
 
     #[error(transparent)]

@@ -1,6 +1,8 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
+use std::collections::BTreeMap;
+
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
@@ -21,7 +23,12 @@ use walrus_core::{
     SliverPairIndex,
     SliverType,
     SymbolId,
-    encoding::{GeneralRecoverySymbol, Primary as PrimaryEncoding, Secondary as SecondaryEncoding},
+    encoding::{
+        EitherDecodingSymbol,
+        GeneralRecoverySymbol,
+        Primary as PrimaryEncoding,
+        Secondary as SecondaryEncoding,
+    },
     messages::{
         BlobPersistenceType,
         InvalidBlobIdAttestation,
@@ -553,22 +560,11 @@ fn limit_symbol_recovery_requests(
 #[serde(rename_all = "camelCase")]
 #[into_params(style = Form, parameter_in = Query)]
 pub struct ListRawRecoverySymbolsQuery {
-    /// The ID of the target sliver being recovered.
-    #[serde_as(as = "DisplayFromStr")]
-    target_sliver: SliverIndex,
+    /// The sliver indexes of the target sliver being recovered.
+    #[serde_as(as = "OneOrMany<_>")]
+    target_slivers: Vec<SliverIndex>,
     /// The type of the sliver being recovered.
     target_type: SliverType,
-}
-
-impl TryFrom<ListRawRecoverySymbolsQuery> for RecoverySymbolsFilter {
-    type Error = ListSymbolsError;
-
-    fn try_from(query: ListRawRecoverySymbolsQuery) -> Result<Self, Self::Error> {
-        Ok(RecoverySymbolsFilter::recovers(
-            query.target_sliver,
-            query.target_type,
-        ))
-    }
 }
 
 /// Get multiple recovery symbols.
@@ -588,11 +584,10 @@ pub async fn list_raw_recovery_symbols<S: SyncServiceState>(
     State(state): State<RestApiState<S>>,
     Path(BlobIdString(blob_id)): Path<BlobIdString>,
     ExtraQuery(query): ExtraQuery<ListRawRecoverySymbolsQuery>,
-) -> Result<Bcs<Vec<GeneralRecoverySymbol>>, ListSymbolsError> {
-    let filter = query.try_into()?;
+) -> Result<Bcs<BTreeMap<SliverIndex, Vec<EitherDecodingSymbol>>>, ListSymbolsError> {
     let symbols = state
         .service
-        .retrieve_multiple_raw_recovery_symbols(&blob_id, filter)
+        .retrieve_multiple_raw_recovery_symbols(&blob_id, query.target_slivers, query.target_type)
         .await?;
 
     Ok(Bcs(symbols))
