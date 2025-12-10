@@ -16,7 +16,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 /** @type {import('@docusaurus/types').Config} */
-export default = {
+export default {
     title: "Walrus Docs",
     tagline: "Where the world’s data becomes reliable, valuable, and governable",
     favicon: "img/favicon.ico",
