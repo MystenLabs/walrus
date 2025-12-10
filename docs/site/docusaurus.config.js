@@ -60,7 +60,7 @@ const config = {
             from: "/design/encoding.html",
           },
           {
-            to: "/docs/index",
+            to: "/",
             from: "/index.html",
           },
           {
