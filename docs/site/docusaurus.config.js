@@ -16,7 +16,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 /** @type {import('@docusaurus/types').Config} */
-export default {
+const config = {
     title: "Walrus Docs",
     tagline: "Where the world's data becomes reliable, valuable, and governable",
     favicon: "img/favicon.ico",
@@ -51,9 +51,8 @@ export default {
 
     plugins: [
         "docusaurus-plugin-copy-page-button",
-
         [
-            path.resolve(__dirname, "./src/plugins/plausible"),
+            require.resolve("./src/plugins/plausible"),
             {
                 domain: "docs.wal.app",
                 enableInDev: false,
@@ -62,7 +61,6 @@ export default {
                 trackLocalhost: false,
             },
         ],
-
         [
             "@docusaurus/plugin-client-redirects",
             {
@@ -234,3 +232,5 @@ export default {
         discord: "walrusprotocol",
     },
 };
+
+export default config;
