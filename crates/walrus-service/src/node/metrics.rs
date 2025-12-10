@@ -121,6 +121,12 @@ walrus_utils::metrics::define_metric_set! {
             buckets: default_buckets_for_slow_operations(),
         },
 
+        #[help = "Time (in seconds) spent recovering blobs (excluding deferral wait)"]
+        recover_blob_active_duration_seconds: HistogramVec {
+            labels: ["status"],
+            buckets: default_buckets_for_slow_operations(),
+        },
+
         #[help = "Time (in seconds) spent recovering metadata or slivers of blobs"]
         recover_blob_part_duration_seconds: HistogramVec {
             labels: ["part", "status"],
