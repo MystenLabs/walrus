@@ -56,28 +56,28 @@ const config = {
         fromExtensions: ['html', 'htm'], // /myPage.html -> /myPage
         redirects: [
           {
-            to: "/design/:path*",
-            from: "/docs/design/:path*",
+            to: "/docs/design/:path*",
+            from: "/design/:path*",
           },
           {
-            to: "/usage/:path*",
-            from: "/docs/usage/:path*",
+            to: "/docs/usage/:path*",
+            from: "/usage/:path*",
           },
           {
-            to: "/dev-guide/:path*",
-            from: "/docs/dev-guide/:path*",
+            to: "/docs/dev-guide/:path*",
+            from: "/dev-guide/:path*",
           },
           {
-            to: "/legal/:path*",
-            from: "/docs/legal/:path*",
+            to: "/docs/legal/:path*",
+            from: "/legal/:path*",
           },
           {
-            to: "/operator-guide/:path*",
-            from: "/docs/operator-guide/:path*",
+            to: "/docs/operator-guide/:path*",
+            from: "/operator-guide/:path*",
           },
           {
-            to: "/walrus-sites/:path*",
-            from: "/docs/walrus-sites/:path*",
+            to: "/docs/walrus-sites/:path*",
+            from: "/walrus-sites/:path*",
           },
           {
             to: "/docs/design/encoding",
