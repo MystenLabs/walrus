@@ -55,7 +55,31 @@ const config = {
       {
         fromExtensions: ['html', 'htm'], // /myPage.html -> /myPage
         redirects: [
-{
+          {
+            to: "/design/:path*",
+            from: "/docs/design/:path*",
+          },
+          {
+            to: "/usage/:path*",
+            from: "/docs/usage/:path*",
+          },
+          {
+            to: "/dev-guide/:path*",
+            from: "/docs/dev-guide/:path*",
+          },
+          {
+            to: "/legal/:path*",
+            from: "/docs/legal/:path*",
+          },
+          {
+            to: "/operator-guide/:path*",
+            from: "/docs/operator-guide/:path*",
+          },
+          {
+            to: "/walrus-sites/:path*",
+            from: "/docs/walrus-sites/:path*",
+          },
+          {
             to: "/docs/design/encoding",
             from: "/design/encoding.html",
           },
