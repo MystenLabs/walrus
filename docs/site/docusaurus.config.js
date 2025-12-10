@@ -52,54 +52,49 @@ export default {
     plugins: [
         "docusaurus-plugin-copy-page-button",
     [
-      '@docusaurus/plugin-client-redirects',
-      {
-        fromExtensions: ['html', 'htm'], // /myPage.html -> /myPage
-        redirects: [
-          // Specific page redirects
-          {
-            to: "/",
-            from: "/index.html",
-          },
-        ],
-        // This function creates redirects dynamically for all existing pages
-        createRedirects(existingPath) {
-          const redirects = [];
-
-          // Skip the homepage to avoid /index.html/index.html error
-          if (existingPath === '/' || existingPath === '') {
-            return undefined;
-          }
-
-          // Add .html extension redirects (but not for paths that already end in /)
-          if (existingPath.includes('/docs/') && !existingPath.endsWith('/')) {
-            redirects.push(existingPath + '.html');
-          }
-
-          // Redirect from old paths without /docs/ prefix to new paths with /docs/ prefix
-          if (existingPath.startsWith('/docs/design/')) {
-            redirects.push(existingPath.replace('/docs/design/', '/design/'));
-          }
-          if (existingPath.startsWith('/docs/usage/')) {
-            redirects.push(existingPath.replace('/docs/usage/', '/usage/'));
-          }
-          if (existingPath.startsWith('/docs/dev-guide/')) {
-            redirects.push(existingPath.replace('/docs/dev-guide/', '/dev-guide/'));
-          }
-          if (existingPath.startsWith('/docs/legal/')) {
-            redirects.push(existingPath.replace('/docs/legal/', '/legal/'));
-          }
-          if (existingPath.startsWith('/docs/operator-guide/')) {
-            redirects.push(existingPath.replace('/docs/operator-guide/', '/operator-guide/'));
-          }
-          if (existingPath.startsWith('/docs/walrus-sites/')) {
-            redirects.push(existingPath.replace('/docs/walrus-sites/', '/walrus-sites/'));
-          }
-
-          return redirects.length > 0 ? redirects : undefined;
-        },
-      },
-    ],
+     createRedirects(existingPath) {
+      if (existingPath === '/' || existingPath === '') return undefined;
+    
+      const redirects = [];
+    
+      // normalize
+      const normalized =
+        existingPath.length > 1 && existingPath.endsWith('/')
+          ? existingPath.slice(0, -1)
+          : existingPath;
+    
+      // If you want: generate html/index.html for *all* pages
+      // redirects.push(`${normalized}.html`);
+      // redirects.push(`${normalized}/index.html`);
+    
+      const addLegacy = (fromPath) => {
+        redirects.push(fromPath);
+        redirects.push(`${fromPath}.html`);
+        redirects.push(`${fromPath}/index.html`);
+      };
+    
+      // OLD prefix → NEW prefix
+      if (normalized.startsWith('/docs/usage/')) {
+        addLegacy(normalized.replace('/docs/usage/', '/usage/'));
+      }
+      if (normalized.startsWith('/docs/design/')) {
+        addLegacy(normalized.replace('/docs/design/', '/design/'));
+      }
+      if (normalized.startsWith('/docs/dev-guide/')) {
+        addLegacy(normalized.replace('/docs/dev-guide/', '/dev-guide/'));
+      }
+      if (normalized.startsWith('/docs/legal/')) {
+        addLegacy(normalized.replace('/docs/legal/', '/legal/'));
+      }
+      if (normalized.startsWith('/docs/operator-guide/')) {
+        addLegacy(normalized.replace('/docs/operator-guide/', '/operator-guide/'));
+      }
+      if (normalized.startsWith('/docs/walrus-sites/')) {
+        addLegacy(normalized.replace('/docs/walrus-sites/', '/walrus-sites/'));
+      }
+    
+      return redirects.length ? redirects : undefined;
+    }
     [
       require.resolve("./src/plugins/plausible"),
       {
