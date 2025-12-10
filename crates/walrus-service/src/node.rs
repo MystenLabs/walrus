@@ -66,7 +66,7 @@ use walrus_core::{
     SliverPairIndex,
     SliverType,
     SymbolId,
-    by_axis::{self, Axis, ByAxis},
+    by_axis::{self, Axis},
     encoding::{
         DecodingSymbol,
         EitherDecodingSymbol,
@@ -326,6 +326,10 @@ pub trait ServiceState {
         filter: RecoverySymbolsFilter,
     ) -> impl Future<Output = Result<Vec<GeneralRecoverySymbol>, ListSymbolsError>> + Send;
 
+    /// Retrieves multiple raw recovery symbols.
+    ///
+    /// Attempts to retrieve multiple raw recovery symbols, skipping any failures that occur. Returns an
+    /// error if none of the requested symbols can be retrieved.
     fn retrieve_multiple_raw_recovery_symbols(
         &self,
         blob_id: &BlobId,
@@ -4091,23 +4095,19 @@ impl ServiceState for StorageNodeInner {
         for target_sliver_index in target_sliver_indexes {
             let filter = RecoverySymbolsFilter::recovers(target_sliver_index, target_type);
             for symbol_id in self.symbol_ids_from_filter(*blob_id, &filter) {
-                // Row index
-                let primary_index = symbol_id.primary_sliver_index();
-                self.check_index(primary_index)
-                    .map_err(RetrieveSymbolError::RecoverySymbolOutOfRange)?;
-                // Map to shard index
-                let primary_pair_index = primary_index.to_pair_index::<Primary>(n_shards);
-
-                // Col index
-                let secondary_index = symbol_id.secondary_sliver_index();
-                self.check_index(secondary_index)
-                    .map_err(RetrieveSymbolError::RecoverySymbolOutOfRange)?;
-                // Map to shard index
-                let secondary_pair_index = secondary_index.to_pair_index::<Secondary>(n_shards);
-
-                let (source_pair_index, target_pair_index) = match target_type {
-                    Axis::Primary => (secondary_pair_index, primary_pair_index),
-                    Axis::Secondary => (primary_pair_index, secondary_pair_index),
+                let source_pair_index = match target_type {
+                    Axis::Primary => {
+                        let secondary_index = symbol_id.secondary_sliver_index();
+                        self.check_index(secondary_index)
+                            .map_err(RetrieveSymbolError::RecoverySymbolOutOfRange)?;
+                        secondary_index.to_pair_index::<Secondary>(n_shards)
+                    }
+                    Axis::Secondary => {
+                        let primary_index = symbol_id.primary_sliver_index();
+                        self.check_index(primary_index)
+                            .map_err(RetrieveSymbolError::RecoverySymbolOutOfRange)?;
+                        primary_index.to_pair_index::<Primary>(n_shards)
+                    }
                 };
 
                 let required_shard = &source_pair_index.to_shard_index(n_shards, blob_id);
@@ -4317,6 +4317,7 @@ mod tests {
         DEFAULT_ENCODING,
         Sliver,
         SliverType,
+        by_axis::ByAxis,
         encoding::{EncodingFactory as _, Primary, Secondary, SliverData, SliverPair},
         messages::{SyncShardMsg, SyncShardRequest},
         test_utils::{generate_config_metadata_and_valid_recovery_symbols, random_blob_id},
@@ -8656,6 +8657,73 @@ mod tests {
             NodeStatus::RecoveryCatchUp
         );
 
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn retrieve_multiple_raw_recovery_symbols() -> TestResult {
+        walrus_test_utils::init_tracing();
+        const BLOB_DATA: &[u8] = &[
+            0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23,
+            24, 25, 26, 27, 28,
+        ];
+
+        let (cluster, _, blob_detail) = cluster_with_initial_epoch_and_certified_blobs(
+            &[&[0, 2, 4, 6, 8], &[1, 3, 5, 7, 9]],
+            &[BLOB_DATA],
+            2,
+            None,
+        )
+        .await?;
+
+        let blob_id = *blob_detail[0].blob_id();
+
+        let result_1 = cluster.nodes[0]
+            .storage_node
+            .retrieve_multiple_raw_recovery_symbols(
+                &blob_id,
+                vec![SliverIndex(1)],
+                SliverType::Primary,
+            )
+            .await?;
+        let result_2 = cluster.nodes[1]
+            .storage_node
+            .retrieve_multiple_raw_recovery_symbols(
+                &blob_id,
+                vec![SliverIndex(1)],
+                SliverType::Primary,
+            )
+            .await?;
+
+        let recovery_symbol_iter = result_1
+            .into_iter()
+            .flat_map(|(_, symbols)| symbols.into_iter())
+            .chain(
+                result_2
+                    .into_iter()
+                    .flat_map(|(_, symbols)| symbols.into_iter()),
+            )
+            .collect::<Vec<_>>();
+
+        let symbol_size = blob_detail[0].pairs[0].primary.symbols.symbol_size();
+
+        let recovered_sliver = SliverData::recover_sliver_from_decoding_symbols(
+            recovery_symbol_iter.into_iter().map(|s| match s {
+                ByAxis::Primary(s) => s,
+                ByAxis::Secondary(_) => unreachable!("secondary sliver should not be present"),
+            }),
+            SliverIndex(1),
+            symbol_size,
+            cluster.encoding_config().get_for_type(EncodingType::RS2),
+        )?;
+
+        let sliver_pair = blob_detail[0]
+            .pairs
+            .iter()
+            .find(|pair| pair.index() == SliverPairIndex(1))
+            .expect("shard must be assigned at least 1 sliver");
+
+        assert_eq!(sliver_pair.primary, recovered_sliver);
         Ok(())
     }
 }

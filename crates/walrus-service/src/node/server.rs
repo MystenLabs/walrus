@@ -400,6 +400,10 @@ where
                 get(routes::list_recovery_symbols),
             )
             .route(
+                routes::LIST_RAW_RECOVERY_SYMBOL_ENDPOINT,
+                get(routes::list_raw_recovery_symbols),
+            )
+            .route(
                 routes::INCONSISTENCY_PROOF_ENDPOINT,
                 post(routes::inconsistency_proof),
             )
