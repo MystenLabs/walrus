@@ -50,79 +50,92 @@ export default {
     },
 
     plugins: [
-        "docusaurus-plugin-copy-page-button",
-    [
-     createRedirects(existingPath) {
-      if (existingPath === '/' || existingPath === '') return undefined;
-    
-      const redirects = [];
-    
-      // normalize
-      const normalized =
-        existingPath.length > 1 && existingPath.endsWith('/')
-          ? existingPath.slice(0, -1)
-          : existingPath;
-    
-      // If you want: generate html/index.html for *all* pages
-      // redirects.push(`${normalized}.html`);
-      // redirects.push(`${normalized}/index.html`);
-    
-      const addLegacy = (fromPath) => {
-        redirects.push(fromPath);
-        redirects.push(`${fromPath}.html`);
-        redirects.push(`${fromPath}/index.html`);
-      };
-    
-      // OLD prefix → NEW prefix
-      if (normalized.startsWith('/docs/usage/')) {
-        addLegacy(normalized.replace('/docs/usage/', '/usage/'));
-      }
-      if (normalized.startsWith('/docs/design/')) {
-        addLegacy(normalized.replace('/docs/design/', '/design/'));
-      }
-      if (normalized.startsWith('/docs/dev-guide/')) {
-        addLegacy(normalized.replace('/docs/dev-guide/', '/dev-guide/'));
-      }
-      if (normalized.startsWith('/docs/legal/')) {
-        addLegacy(normalized.replace('/docs/legal/', '/legal/'));
-      }
-      if (normalized.startsWith('/docs/operator-guide/')) {
-        addLegacy(normalized.replace('/docs/operator-guide/', '/operator-guide/'));
-      }
-      if (normalized.startsWith('/docs/walrus-sites/')) {
-        addLegacy(normalized.replace('/docs/walrus-sites/', '/walrus-sites/'));
-      }
-    
-      return redirects.length ? redirects : undefined;
-    }
-    [
-      require.resolve("./src/plugins/plausible"),
-      {
-        domain: "docs.wal.app",
-        enableInDev: false,
-        trackOutboundLinks: true,
-        hashMode: false,
-        trackLocalhost: false,
+  "docusaurus-plugin-copy-page-button",
+
+  [
+    "@docusaurus/plugin-client-redirects",
+    {
+      // Optional: keep if you want /foo.html -> /foo automatically
+      fromExtensions: ["html", "htm"],
+
+      redirects: [
+        // explicit homepage legacy
+        { from: "/index.html", to: "/" },
+      ],
+
+      createRedirects(existingPath) {
+        if (existingPath === "/" || existingPath === "") return undefined;
+
+        // normalize (remove trailing slash except root)
+        const normalized =
+          existingPath.length > 1 && existingPath.endsWith("/")
+            ? existingPath.slice(0, -1)
+            : existingPath;
+
+        const redirects = [];
+
+        const addLegacy = (fromPath) => {
+          redirects.push(fromPath);
+          redirects.push(`${fromPath}.html`);
+          redirects.push(`${fromPath}/index.html`);
+        };
+
+        // OLD prefix → NEW prefix (this fixes /usage/setup.html#... etc.)
+        if (normalized.startsWith("/docs/usage/")) {
+          addLegacy(normalized.replace("/docs/usage/", "/usage/"));
+        }
+        if (normalized.startsWith("/docs/design/")) {
+          addLegacy(normalized.replace("/docs/design/", "/design/"));
+        }
+        if (normalized.startsWith("/docs/dev-guide/")) {
+          addLegacy(normalized.replace("/docs/dev-guide/", "/dev-guide/"));
+        }
+        if (normalized.startsWith("/docs/legal/")) {
+          addLegacy(normalized.replace("/docs/legal/", "/legal/"));
+        }
+        if (normalized.startsWith("/docs/operator-guide/")) {
+          addLegacy(normalized.replace("/docs/operator-guide/", "/operator-guide/"));
+        }
+        if (normalized.startsWith("/docs/walrus-sites/")) {
+          addLegacy(normalized.replace("/docs/walrus-sites/", "/walrus-sites/"));
+        }
+
+        return redirects.length ? redirects : undefined;
       },
-    ],
-        "./src/plugins/tailwind-config.js",
-        function docsAliasPlugin() {
-            return {
-                name: "docs-alias-plugin",
-                configureWebpack() {
-                    return {
-                        resolve: {
-                            alias: {
-                                "@docs": path.resolve(__dirname, "../content"),
-                            },
-                        },
-                    };
-                },
-            };
-        },
-        path.resolve(__dirname, `./src/plugins/askcookbook/index.js`),
-        path.resolve(__dirname, `./src/plugins/descriptions`),
-    ],
+    },
+  ],
+
+  [
+    path.resolve(__dirname, "./src/plugins/plausible"),
+    {
+      domain: "docs.wal.app",
+      enableInDev: false,
+      trackOutboundLinks: true,
+      hashMode: false,
+      trackLocalhost: false,
+    },
+  ],
+
+  "./src/plugins/tailwind-config.js",
+
+  function docsAliasPlugin() {
+    return {
+      name: "docs-alias-plugin",
+      configureWebpack() {
+        return {
+          resolve: {
+            alias: {
+              "@docs": path.resolve(__dirname, "../content"),
+            },
+          },
+        };
+      },
+    };
+  },
+
+  path.resolve(__dirname, "./src/plugins/askcookbook/index.js"),
+  path.resolve(__dirname, "./src/plugins/descriptions"),
+],
     presets: [
         [
             "classic",
