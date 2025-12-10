@@ -65,8 +65,17 @@ const config = {
         createRedirects(existingPath) {
           const redirects = [];
 
-          // Add .html extension redirects
-          if (existingPath.includes('/docs/')) {
+ // This function creates redirects dynamically for all existing pages
+        createRedirects(existingPath) {
+          const redirects = [];
+
+          // Skip the homepage to avoid /index.html/index.html error
+          if (existingPath === '/' || existingPath === '') {
+            return undefined;
+          }
+
+          // Add .html extension redirects (but not for paths that already end in /)
+          if (existingPath.includes('/docs/') && !existingPath.endsWith('/')) {
             redirects.push(existingPath + '.html');
           }
 
