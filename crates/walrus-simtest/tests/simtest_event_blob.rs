@@ -306,7 +306,9 @@ mod tests {
             test_cluster::E2eTestSetupBuilder::new()
                 .with_epoch_duration(Duration::from_secs(15))
                 .with_num_checkpoints_per_blob(20)
-                //.with_event_stream_catchup_min_checkpoint_lag(Some(u64::MAX))
+                // Use a high event_stream_catchup_min_checkpoint_lag to prevent using event blobs
+                // to catch up when node starts.
+                .with_event_stream_catchup_min_checkpoint_lag(Some(20000))
                 .with_test_nodes_config(
                     TestNodesConfig::builder()
                         .with_node_weights(&[2, 2, 3, 3, 3])
@@ -337,7 +339,7 @@ mod tests {
             tokio::time::sleep(Duration::from_secs(1)).await;
         }
 
-        tracing::info!("All nodes have non zero latest checkpoint sequence number");
+        tracing::info!("all nodes have non zero latest checkpoint sequence number");
 
         // Get latest certified event blob
         let mut latest_certified_blob;
@@ -347,12 +349,12 @@ mod tests {
                     .await;
             if latest_certified_blob.is_some() {
                 tracing::info!(
-                    "Latest certified blob: {:?}",
+                    "latest certified blob: {:?}",
                     latest_certified_blob.clone().unwrap()
                 );
                 break;
             }
-            tracing::info!("Waiting for latest certified blob");
+            tracing::info!("waiting for latest certified blob");
         }
 
         // Track whether event-blob catchup path is exercised
@@ -367,8 +369,9 @@ mod tests {
             "pause_checkpoint_tailing_entry",
             move || async move {
                 // Sleep enough to build lag and trigger catchup monitoring
-                tracing::info!("Pausing checkpoint tailing");
+                tracing::info!("pausing checkpoint tailing");
                 tokio::time::sleep(Duration::from_secs(45)).await;
+                tracing::info!("resuming checkpoint tailing");
             },
         );
 
@@ -381,7 +384,7 @@ mod tests {
                 simtest_utils::get_last_certified_event_blob(&client_arc, Duration::from_secs(30))
                     .await
             {
-                tracing::info!("Latest certified blob: {:?}", blob);
+                tracing::info!("latest certified blob: {:?}", blob);
                 if blob.blob_id != latest_certified_blob.clone().unwrap().blob_id {
                     break;
                 }
@@ -404,7 +407,13 @@ mod tests {
         let latest_seq = node_health_info[0]
             .latest_checkpoint_sequence_number
             .unwrap();
-        assert!(latest_seq > prev_seq);
+        assert!(
+            latest_seq > prev_seq,
+            "latest checkpoint sequence number should advance after the pause window, \
+            prev_seq: {}, latest_seq: {}",
+            prev_seq,
+            latest_seq
+        );
 
         // Verify event-blob catchup ran
         assert!(saw_event_blob_catchup.load(Ordering::SeqCst));

@@ -133,7 +133,11 @@ impl EventBlobCatchupManager {
         let current_lag = self.get_current_lag().await?;
 
         if current_lag > lag_threshold {
-            tracing::info!(lag_threshold, "performing catchup - lag is above threshold");
+            tracing::info!(
+                lag_threshold,
+                current_lag,
+                "performing catchup - lag is above threshold"
+            );
             match self.perform_catchup().await {
                 Ok(()) => {}
                 Err(CatchupError::Recoverable(error)) => {
@@ -144,7 +148,11 @@ impl EventBlobCatchupManager {
                 }
             }
         } else {
-            tracing::info!(lag_threshold, "skipping catchup - lag is below threshold");
+            tracing::info!(
+                lag_threshold,
+                current_lag,
+                "skipping catchup - lag is below threshold"
+            );
         }
 
         Ok(())
@@ -318,6 +326,14 @@ impl EventBlobCatchupManager {
         let next_event_index = self
             .get_next_event_index()
             .map_err(|error| CatchupError::NonRecoverable(anyhow::Error::from(error)))?;
+
+        // Inv: when process_event_blob is running, checkpoint tailing should definitely be stopped.
+        if !coordination_state.is_tailing_stopped() {
+            return Err(CatchupError::Recoverable(anyhow::anyhow!(
+                "checkpoint tailing should be stopped when process_event_blob is running"
+            )));
+        }
+
         let processing_result = tokio::time::timeout(
             self.catchup_runtime_config.processing_timeout,
             self.process_event_blobs(blobs, next_event_index),
@@ -582,10 +598,8 @@ impl EventBlobCatchupManager {
             .await?;
         let verified_checkpoint = VerifiedCheckpoint::new_unchecked(checkpoint_summary.clone());
 
-        batch.insert_batch(
-            &self.stores.checkpoint_store,
-            [((), verified_checkpoint.serializable_ref())],
-        )?;
+        self.stores
+            .insert_checkpoint_in_batch(batch, &verified_checkpoint)?;
 
         let next_committee = self.get_next_committee(&checkpoint_summary).await?;
         batch.insert_batch(

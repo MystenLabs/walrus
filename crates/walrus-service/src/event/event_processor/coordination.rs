@@ -82,27 +82,39 @@ impl CatchupCoordinationState {
 
     /// Mark that checkpoint tailing has started.
     pub fn mark_tailing_started(&self) {
+        tracing::debug!("marking tailing started");
         self.is_tailing_stopped
             .store(false, std::sync::atomic::Ordering::Release);
     }
 
     /// Notify that checkpoint tailing has fully stopped and wake any waiters.
     pub fn notify_tailing_stopped(&self) {
+        tracing::debug!("notifying tailing stopped");
         self.is_tailing_stopped
             .store(true, std::sync::atomic::Ordering::Release);
-        self.tailing_stopped_notify.notify_one();
+        self.tailing_stopped_notify.notify_waiters();
+    }
+
+    /// Returns true if checkpoint tailing is currently stopped.
+    pub fn is_tailing_stopped(&self) -> bool {
+        self.is_tailing_stopped
+            .load(std::sync::atomic::Ordering::Acquire)
     }
 
     /// Wait until checkpoint tailing is stopped, with timeout.
     /// Returns true if stopped, false on timeout.
     pub async fn wait_for_tailing_stopped(&self, timeout: std::time::Duration) -> bool {
+        // Note that we need to create the future first so that any notify_waiters calls after
+        // this point will guarantee to wake up the future.
+        let waiting_for_tailing_stopped_notify_future = self.tailing_stopped_notify.notified();
+
         if self
             .is_tailing_stopped
             .load(std::sync::atomic::Ordering::Acquire)
         {
             return true;
         }
-        match tokio::time::timeout(timeout, self.tailing_stopped_notify.notified()).await {
+        match tokio::time::timeout(timeout, waiting_for_tailing_stopped_notify_future).await {
             Ok(()) => true,
             Err(_) => false,
         }

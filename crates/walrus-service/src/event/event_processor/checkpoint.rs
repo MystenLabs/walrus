@@ -232,10 +232,8 @@ impl CheckpointProcessor {
         }
 
         // Update checkpoint store
-        write_batch.insert_batch(
-            &self.stores.checkpoint_store,
-            std::iter::once(((), verified_checkpoint.serializable_ref())),
-        )?;
+        self.stores
+            .insert_checkpoint_in_batch(&mut write_batch, &verified_checkpoint)?;
 
         // Write all changes
         write_batch.write()?;
