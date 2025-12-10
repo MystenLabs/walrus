@@ -16,10 +16,11 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 /** @type {import('@docusaurus/types').Config} */
-const config = {
+export default = {
     title: "Walrus Docs",
     tagline: "Where the world’s data becomes reliable, valuable, and governable",
     favicon: "img/favicon.ico",
+    trailingSlash: false,
 
     // Future flags, see https://docusaurus.io/docs/api/docusaurus-config#future
     future: {
@@ -223,8 +224,4 @@ const config = {
         twitterX: "walrusprotocol",
         discord: "walrusprotocol",
     },
-};
-
-export default {
-  trailingSlash: false,
 };
