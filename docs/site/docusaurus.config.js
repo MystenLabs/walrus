@@ -50,7 +50,7 @@ const config = {
 
     plugins: [
         "docusaurus-plugin-copy-page-button",
-            [
+        [
       require.resolve("./src/plugins/plausible"),
       {
         domain: "docs.wal.app",
@@ -75,6 +75,41 @@ const config = {
                 },
             };
         },
+        function stepHeadingLoader() {
+      return {
+        name: "step-heading-loader",
+        configureWebpack() {
+          return {
+            module: {
+              rules: [
+                {
+                  test: /\.mdx?$/, // run on .md and .mdx
+                  enforce: "pre", // make sure it runs BEFORE @docusaurus/mdx-loader
+                  include: [
+                    // adjust these to match where your Markdown lives
+                    path.resolve(__dirname, "../content"),
+                  ],
+                  use: [
+                    {
+                      loader: path.resolve(
+                        __dirname,
+                        "./src/plugins/inject-code/stepLoader.js",
+                      ),
+                    },
+                  ],
+                },
+              ],
+            },
+            resolve: {
+              alias: {
+                "@repo": path.resolve(__dirname, "../../"),
+                "@docs": path.resolve(__dirname, "../content/"),
+              },
+            },
+          };
+        },
+      };
+    },
         path.resolve(__dirname, `./src/plugins/askcookbook/index.js`),
         path.resolve(__dirname, `./src/plugins/descriptions`),
     ],
