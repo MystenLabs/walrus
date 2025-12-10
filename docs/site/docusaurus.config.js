@@ -53,7 +53,7 @@ export default {
         "docusaurus-plugin-copy-page-button",
 
         [
-            require.resolve("./src/plugins/plausible"),
+            path.resolve(__dirname, "./src/plugins/plausible"),
             {
                 domain: "docs.wal.app",
                 enableInDev: false,
@@ -113,17 +113,6 @@ export default {
 
                     return redirects.length ? redirects : undefined;
                 },
-            },
-        ],
-
-        [
-            path.resolve(__dirname, "./src/plugins/plausible"),
-            {
-                domain: "docs.wal.app",
-                enableInDev: false,
-                trackOutboundLinks: true,
-                hashMode: false,
-                trackLocalhost: false,
             },
         ],
 
