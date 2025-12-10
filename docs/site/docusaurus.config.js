@@ -53,6 +53,14 @@ export default {
   "docusaurus-plugin-copy-page-button",
 
   [
+    require.resolve("./src/plugins/plausible"),
+      {
+        domain: "docs.wal.app",
+        enableInDev: false,
+        trackOutboundLinks: true,
+        hashMode: false,
+        trackLocalhost: false,
+      },
     "@docusaurus/plugin-client-redirects",
     {
       // Optional: keep if you want /foo.html -> /foo automatically
