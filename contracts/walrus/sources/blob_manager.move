@@ -40,6 +40,8 @@ const ERequiresAdminCap: u64 = 5;
 const ERequiresFundManager: u64 = 6;
 /// Conflict: Attempting to register a blob with different deletable flag than existing blob.
 const EBlobPermanencyConflict: u64 = 7;
+/// Extension attempted beyond grace period.
+const EBeyondGracePeriod: u64 = 8;
 
 // === Main Structures ===
 
@@ -468,16 +470,50 @@ fun execute_extension(
     let capacity_info = self.storage.capacity_info();
     let total_capacity = capacity_info.total();
     let storage_end_epoch = capacity_info.capacity_end_epoch();
-    let new_end_epoch = storage_end_epoch + effective_extension;
+    let current_epoch = system::epoch(system);
 
     // Withdraw all available funds from stash for payment.
     let mut payment = self.coin_stash.withdraw_wal_for_storage(available_wal, ctx);
 
-    // Purchase extension storage from system.
+    // Phase 1: Handle dormant mode compensation if needed.
+    let compensation_epochs = if (current_epoch > storage_end_epoch) {
+        // Dormant mode: BlobManager has expired, need to compensate for past epochs.
+        // Check if still within grace period.
+        let grace_end_epoch = storage_end_epoch + self.grace_period_epochs;
+        assert!(current_epoch <= grace_end_epoch, EBeyondGracePeriod);
+
+        // Calculate compensation epochs needed (how many epochs we're past expiry).
+        let past_epochs = current_epoch - storage_end_epoch;
+
+        // Buy compensation storage for the equivalent duration, but starting from current_epoch.
+        // This "cheats" by buying future storage to compensate for past epochs.
+        let compensation_storage = system::reserve_space_for_epochs(
+            system,
+            total_capacity,
+            current_epoch,
+            current_epoch + past_epochs,
+            &mut payment,
+            ctx,
+        );
+
+        // Apply the compensation to bring storage up to current epoch.
+        self.storage.extend_storage(compensation_storage);
+
+        past_epochs
+    } else {
+        0
+    };
+
+    // Phase 2: Buy the actual extension storage.
+    // The extension starts from current_epoch + compensation_epochs.
+    let extension_start_epoch = current_epoch + compensation_epochs;
+    let new_end_epoch = extension_start_epoch + effective_extension;
+
+    // Purchase the extension storage.
     let extension_storage = system::reserve_space_for_epochs(
         system,
         total_capacity,
-        storage_end_epoch,
+        extension_start_epoch,
         new_end_epoch,
         &mut payment,
         ctx,

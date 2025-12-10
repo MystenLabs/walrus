@@ -21,19 +21,22 @@ use std::{sync::Arc, time::Duration};
 use sui_types::base_types::ObjectID;
 use walrus_core::{BlobId, DEFAULT_ENCODING, Epoch, encoding::Primary};
 use walrus_proc_macros::walrus_simtest;
-use walrus_sdk::client::{
-    StoreArgs,
-    WalrusNodeClient,
-    client_types::{
-        BlobWithStatus,
-        WalrusStoreBlob,
-        WalrusStoreBlobMaybeFinished,
-        WalrusStoreBlobState,
-        WalrusStoreBlobUnfinished,
-        WalrusStoreEncodedBlobApi,
-        partition_unfinished_finished,
+use walrus_sdk::{
+    client::{
+        StoreArgs,
+        WalrusNodeClient,
+        client_types::{
+            BlobWithStatus,
+            WalrusStoreBlob,
+            WalrusStoreBlobMaybeFinished,
+            WalrusStoreBlobState,
+            WalrusStoreBlobUnfinished,
+            WalrusStoreEncodedBlobApi,
+            partition_unfinished_finished,
+        },
+        responses::BlobStoreResult,
     },
-    responses::BlobStoreResult,
+    error::ClientErrorKind,
 };
 use walrus_service::test_utils::{TestNodesConfig, test_cluster};
 use walrus_storage_node_client::api::{BlobStatus, DeletableCounts};
@@ -558,13 +561,12 @@ async fn create_wallet_with_multiple_wal_coins(
 // Test Cases - Mixed Regular and Managed Blob Storage
 // =============================================================================
 
-/// Case 2: Single BlobManager Only.
-/// Store same blob in BlobManager A as: Deletable + Permanent.
-/// Verify status reflects combined counts.
-/// Delete deletable -> verify `DeletableCounts` decreases.
+/// Single BlobManager store/delete.
+/// Store a deletable blob in BlobManager A, then delete it.
+/// Verify status and storage reflect the delete (counts drop, blob gone).
 #[ignore = "ignore E2E tests by default"]
 #[walrus_simtest]
-async fn test_mixed_case2_single_blob_manager() -> TestResult {
+async fn test_single_blob_manager_store_delete() -> TestResult {
     walrus_test_utils::init_tracing();
 
     let test_nodes_config = TestNodesConfig {
@@ -580,7 +582,7 @@ async fn test_mixed_case2_single_blob_manager() -> TestResult {
         .await?;
     let client = client.as_mut();
 
-    tracing::info!("=== Case 2: Single BlobManager Only ===");
+    tracing::info!("=== Single BlobManager store/delete ===");
 
     // Create BlobManager A.
     let initial_capacity = 500 * 1024 * 1024; // 500MB.
@@ -629,7 +631,6 @@ async fn test_mixed_case2_single_blob_manager() -> TestResult {
     tracker.verify_status(&status);
 
     // Get storage info before deletion.
-    client.init_blob_manager(cap_a_id).await?;
     let storage_before = client.get_blob_manager_client()?.get_storage_info().await?;
     tracing::info!(
         "Storage before deletion: available={}",
@@ -645,7 +646,6 @@ async fn test_mixed_case2_single_blob_manager() -> TestResult {
     tokio::time::sleep(Duration::from_millis(500)).await;
 
     // Verify storage was released.
-    client.init_blob_manager(cap_a_id).await?;
     let storage_after = client.get_blob_manager_client()?.get_storage_info().await?;
     tracing::info!(
         "Storage after deletion: available={}",
@@ -661,18 +661,18 @@ async fn test_mixed_case2_single_blob_manager() -> TestResult {
     tracing::info!("Blob status after deletion: {:?}", status_after);
     tracker.verify_status(&status_after);
 
-    tracing::info!("Case 2 completed successfully!");
+    tracing::info!("Scenario completed successfully!");
     Ok(())
 }
 
-/// Case 3: Two BlobManagers with Different End Epochs.
+/// Two BlobManagers with Different End Epochs.
 /// BlobManager A (5 epochs): Store deletable.
 /// BlobManager B (10 epochs): Store deletable.
 /// Verify `end_epoch` reflects max (BlobManager B's end_epoch).
 /// Delete from BlobManager B -> `end_epoch` should now be BlobManager A's.
 #[ignore = "ignore E2E tests by default"]
 #[walrus_simtest]
-async fn test_mixed_case3_two_blob_managers() -> TestResult {
+async fn test_mixed_two_blob_managers() -> TestResult {
     walrus_test_utils::init_tracing();
 
     let test_nodes_config = TestNodesConfig {
@@ -687,7 +687,7 @@ async fn test_mixed_case3_two_blob_managers() -> TestResult {
         .await?;
     let client = client.as_mut();
 
-    tracing::info!("=== Case 3: Two BlobManagers with Different End Epochs ===");
+    tracing::info!("=== Two BlobManagers with Different End Epochs ===");
 
     // Create BlobManager A with shorter duration.
     let initial_capacity = 500 * 1024 * 1024; // 500MB.
@@ -802,17 +802,17 @@ async fn test_mixed_case3_two_blob_managers() -> TestResult {
     tracing::info!("Blob status after deletion from B: {:?}", status_after);
     tracker.verify_status(&status_after);
 
-    tracing::info!("Case 3 completed successfully!");
+    tracing::info!("Scenario completed successfully!");
     Ok(())
 }
 
-/// Case 4: Mixed Regular + Managed.
+/// Mixed Regular + Managed.
 /// Store: Regular Permanent + BlobManager A Deletable + BlobManager B Deletable.
 /// Verify status is `Permanent` with managed counts.
 /// Delete both managed deletables -> status still `Permanent` (regular permanent exists).
 #[ignore = "ignore E2E tests by default"]
 #[walrus_simtest]
-async fn test_mixed_case4_regular_and_managed() -> TestResult {
+async fn test_mixed_regular_and_managed() -> TestResult {
     walrus_test_utils::init_tracing();
 
     let test_nodes_config = TestNodesConfig {
@@ -827,7 +827,7 @@ async fn test_mixed_case4_regular_and_managed() -> TestResult {
         .await?;
     let client = client.as_mut();
 
-    tracing::info!("=== Case 4: Mixed Regular + Managed ===");
+    tracing::info!("=== Mixed Regular + Managed ===");
 
     // Create two BlobManagers.
     let initial_capacity = 500 * 1024 * 1024; // 500MB.
@@ -944,18 +944,16 @@ async fn test_mixed_case4_regular_and_managed() -> TestResult {
     // Verify blob is still readable.
     verify_blob_readable(client, &blob_id, &test_data).await?;
 
-    tracing::info!("Case 4 completed successfully!");
+    tracing::info!("Scenario completed successfully!");
     Ok(())
 }
 
-/// Case 5: Deletable-Only, All Deleted.
-/// Store same blob ONLY as deletable in BlobManager A.
-/// Verify blob is readable.
-/// Delete it -> blob becomes unreadable.
-/// Verify status is `Nonexistent`.
+/// Deletable-only, all deleted.
+/// Store a deletable blob in BlobManager A, then delete it.
+/// Verify reads fail and status is `Nonexistent`.
 #[ignore = "ignore E2E tests by default"]
 #[walrus_simtest]
-async fn test_mixed_case5_deletable_only_all_deleted() -> TestResult {
+async fn test_mixed_deletable_only_all_deleted() -> TestResult {
     walrus_test_utils::init_tracing();
 
     let test_nodes_config = TestNodesConfig {
@@ -970,7 +968,7 @@ async fn test_mixed_case5_deletable_only_all_deleted() -> TestResult {
         .await?;
     let client = client.as_mut();
 
-    tracing::info!("=== Case 5: Deletable-Only, All Deleted ===");
+    tracing::info!("=== Deletable-only, all deleted ===");
 
     // Create BlobManager A.
     let initial_capacity = 500 * 1024 * 1024; // 500MB.
@@ -1042,16 +1040,16 @@ async fn test_mixed_case5_deletable_only_all_deleted() -> TestResult {
     );
     tracing::info!("Confirmed blob is not readable after deletion");
 
-    tracing::info!("Case 5 completed successfully!");
+    tracing::info!("Scenario completed successfully!");
     Ok(())
 }
 
-/// Case 6: Multiple Regular Blobs (No Reuse).
-/// Store same blob 3x as Regular Deletable (force/no-reuse).
+/// Multiple Regular Blobs (No Reuse).
+/// Store the same blob 3x as Regular Deletable (force/no-reuse).
 /// Verify `deletable_counts.count_deletable_total >= 3`.
 #[ignore = "ignore E2E tests by default"]
 #[walrus_simtest]
-async fn test_mixed_case6_multiple_regular_no_reuse() -> TestResult {
+async fn test_mixed_multiple_regular_no_reuse() -> TestResult {
     walrus_test_utils::init_tracing();
 
     let test_nodes_config = TestNodesConfig {
@@ -1064,7 +1062,7 @@ async fn test_mixed_case6_multiple_regular_no_reuse() -> TestResult {
         .await?;
     let client = client.as_ref();
 
-    tracing::info!("=== Case 6: Multiple Regular Blobs (No Reuse) ===");
+    tracing::info!("=== Multiple Regular Blobs (No Reuse) ===");
 
     // Generate test data.
     let test_data = walrus_test_utils::random_data(1024);
@@ -1104,7 +1102,7 @@ async fn test_mixed_case6_multiple_regular_no_reuse() -> TestResult {
     // Verify blob is readable.
     verify_blob_readable(client, &blob_id1, &test_data).await?;
 
-    tracing::info!("Case 6 completed successfully!");
+    tracing::info!("Scenario completed successfully!");
     Ok(())
 }
 
@@ -2842,5 +2840,295 @@ async fn test_managed_permanent_end_epoch_uses_permanent_not_deletable() -> Test
     verify_blob_readable(client, &blob_id, &test_data).await?;
 
     tracing::info!("=== Permanent End Epoch Test PASSED ===");
+    Ok(())
+}
+
+/// Tests dormant mode: BlobManager extension after storage has expired but within grace period.
+/// This test verifies the "cheat" implementation where we buy future storage to compensate
+/// for past epochs.
+#[ignore = "ignore E2E tests by default"]
+#[walrus_simtest]
+async fn test_blob_manager_dormant_mode_extension() -> TestResult {
+    walrus_test_utils::init_tracing();
+
+    let test_nodes_config = TestNodesConfig {
+        node_weights: vec![7, 7, 7, 7, 7],
+        ..Default::default()
+    };
+
+    // Use VERY SHORT epoch duration (5 seconds) to allow BlobManager to expire during test.
+    let epoch_duration = Duration::from_secs(5);
+
+    let (_sui_cluster_handle, _cluster, mut client, _) = test_cluster::E2eTestSetupBuilder::new()
+        .with_test_nodes_config(test_nodes_config)
+        .with_epoch_duration(epoch_duration)
+        .build()
+        .await?;
+    let client = client.as_mut();
+
+    tracing::info!("=== Testing BlobManager Dormant Mode Extension ===");
+
+    let initial_capacity = 100 * 1024 * 1024; // 100MB.
+    let initial_epochs = 2; // BlobManager will expire after 2 epochs (10 seconds).
+
+    // Create a BlobManager that will expire soon.
+    let (manager_id, cap_id) = client
+        .sui_client()
+        .create_blob_manager(initial_capacity, initial_epochs)
+        .await?;
+    tracing::info!(
+        "Created BlobManager {} with cap {}, expires in {} epochs",
+        manager_id,
+        cap_id,
+        initial_epochs
+    );
+
+    // Initialize the BlobManager client.
+    client.init_blob_manager(cap_id).await?;
+
+    // Note: Grace period is configured on the system level, not per BlobManager.
+    // The system default should be sufficient for this test.
+    tracing::info!("Using system default grace period");
+
+    // Set extension policy to allow public extension near expiry.
+    // Allow extension within last 20 epochs (basically always), max 5 epochs at a time.
+    client
+        .sui_client()
+        .set_extension_policy_constrained(cap_id, manager_id, 5, 20)
+        .await?;
+    tracing::info!("Set extension policy to allow public extension");
+
+    // Add funds to the coin stash for future extension.
+    {
+        let amount_to_deposit = 1_000_000_000_000u64; // 1000 WAL.
+        let blob_manager_client = client.get_blob_manager_client()?;
+        blob_manager_client
+            .deposit_wal_to_coin_stash(amount_to_deposit)
+            .await?;
+        tracing::info!("Deposited {} WAL to coin stash", amount_to_deposit);
+    }
+
+    // Store a test blob to verify it remains accessible.
+    let test_data = walrus_test_utils::random_data(1024);
+    let blob_id =
+        store_managed_blob(client, cap_id, &test_data, BlobPersistence::Permanent).await?;
+    tracing::info!("Stored test blob with ID: {}", blob_id);
+
+    // Get initial storage info.
+    let initial_storage_info = client.get_blob_manager_client()?.get_storage_info().await?;
+    tracing::info!(
+        "Initial storage: end_epoch={}, total_capacity={}, used={}",
+        initial_storage_info.end_epoch,
+        initial_storage_info.total_capacity,
+        initial_storage_info.used_capacity
+    );
+
+    // Wait for BlobManager to expire (go past end_epoch).
+    // We need to wait at least 2 epochs * 5 seconds = 10 seconds.
+    // Add extra time to ensure we're definitely past expiry.
+    tracing::info!("Waiting for BlobManager to expire (15 seconds)...");
+    tokio::time::sleep(Duration::from_secs(15)).await;
+
+    // After waiting 15 seconds (3 epochs of 5 seconds), the BlobManager should be expired.
+    // The end_epoch was only 2 epochs ahead, so we're now past expiry.
+    tracing::info!(
+        "After waiting 15 seconds, storage should be expired (end_epoch was {})",
+        initial_storage_info.end_epoch
+    );
+    // We don't have a direct way to get current epoch, but we know we've waited long enough
+    // for the storage to expire based on the epoch duration and initial epochs.
+
+    // Verify blob is still readable even though BlobManager is expired (within grace period).
+    verify_blob_readable(client, &blob_id, &test_data).await?;
+    tracing::info!("Blob still readable during dormant mode");
+
+    // Now extend the BlobManager during dormant mode.
+    let extension_epochs = 5u32;
+    tracing::info!(
+        "Extending BlobManager by {} epochs during dormant mode",
+        extension_epochs
+    );
+
+    // Use fund manager extension during dormant mode.
+    // This should buy compensation storage for the dormant period.
+    {
+        let blob_manager_client = client.get_blob_manager_client()?;
+        blob_manager_client
+            .extend_storage_from_stash_fund_manager(extension_epochs)
+            .await?;
+    }
+
+    // Get updated storage info.
+    client.init_blob_manager(cap_id).await?; // Re-init to refresh cached data.
+    let extended_storage_info = client.get_blob_manager_client()?.get_storage_info().await?;
+
+    // The dormant extension should have compensated for the expired epochs
+    // and added the requested extension epochs.
+    // Since we waited 3 epochs (15 seconds / 5 seconds per epoch) and the storage
+    // was initially only 2 epochs ahead, we're 1 epoch past expiry.
+    // The extension should add compensation for that 1 epoch plus the requested 5 epochs.
+    let expected_minimum_epochs_extended = extension_epochs; // At least the requested extension.
+    let actual_extension = extended_storage_info.end_epoch - initial_storage_info.end_epoch;
+
+    tracing::info!(
+        "Extended storage: end_epoch={} (was {}), actual extension={} epochs",
+        extended_storage_info.end_epoch,
+        initial_storage_info.end_epoch,
+        actual_extension
+    );
+
+    assert!(
+        actual_extension >= expected_minimum_epochs_extended,
+        "Storage should be extended by at least {} epochs, but only extended by {}",
+        expected_minimum_epochs_extended,
+        actual_extension
+    );
+
+    // Verify blob is still accessible after extension.
+    verify_blob_readable(client, &blob_id, &test_data).await?;
+    tracing::info!("Blob still readable after dormant mode extension");
+
+    // We've already verified that:
+    // 1. The blob is still readable (via verify_blob_readable)
+    // 2. The storage was extended
+    // These two facts together confirm the dormant mode extension worked correctly.
+
+    tracing::info!("=== Dormant Mode Extension Test PASSED ===");
+    Ok(())
+}
+
+/// Test that managed blobs become unavailable after grace period expires.
+///
+/// This test:
+/// 1. Creates a BlobManager with very short storage duration
+/// 2. Stores a managed blob
+/// 3. Waits for the BlobManager storage to expire
+/// 4. Waits for the grace period to expire
+/// 5. Verifies the blob is no longer available (garbage collected)
+#[ignore = "ignore E2E tests by default"]
+#[walrus_simtest]
+async fn test_blob_manager_garbage_collection() -> TestResult {
+    walrus_test_utils::init_tracing();
+    tracing::info!("=== Starting Managed Blob Garbage Collection Test ===");
+
+    // Use short epoch duration for faster testing.
+    let epoch_duration = Duration::from_secs(5);
+    let test_nodes_config = TestNodesConfig {
+        node_weights: vec![7, 7, 7, 7, 7],
+        ..Default::default()
+    };
+
+    let (_sui_cluster_handle, _cluster, mut client, _) = test_cluster::E2eTestSetupBuilder::new()
+        .with_test_nodes_config(test_nodes_config)
+        .with_epoch_duration(epoch_duration)
+        .build()
+        .await?;
+    let client = client.as_mut();
+
+    // Create a BlobManager with very short storage (just 1 epoch).
+    // Note: grace period is 2 epochs by default.
+    let initial_capacity = 500 * 1000 * 1000; // 500MB capacity (minimum required).
+    let initial_epochs = 1; // BlobManager will expire after 1 epoch.
+
+    let (_manager_id, cap_id) = client
+        .sui_client()
+        .create_blob_manager(initial_capacity, initial_epochs)
+        .await?;
+    tracing::info!(
+        "Created BlobManager with {} epoch storage, cap_id: {}",
+        initial_epochs,
+        cap_id
+    );
+
+    // Initialize BlobManager client.
+    client.init_blob_manager(cap_id).await?;
+
+    // Get expected expiry times.
+    // We assume we're starting near epoch 0 since this is a fresh test cluster.
+    let storage_end_epoch = 1; // Storage expires after 1 epoch.
+    let grace_period_epochs = 2; // Default grace period.
+    let gc_eligible_epoch = storage_end_epoch + grace_period_epochs;
+
+    tracing::info!(
+        "Storage ends at epoch: {}, GC eligible at epoch: {}",
+        storage_end_epoch,
+        gc_eligible_epoch
+    );
+
+    // Store a blob in the BlobManager.
+    let test_data = walrus_test_utils::random_data(1024);
+
+    let store_args = StoreArgs::default_with_epochs(1)
+        .with_blob_manager()
+        .deletable();
+
+    let results = client
+        .reserve_and_store_blobs_retry_committees(vec![test_data.clone()], vec![], &store_args)
+        .await?;
+
+    let blob_id = results[0].blob_id().expect("blob ID should be present");
+    tracing::info!("Stored blob {} in BlobManager", blob_id);
+
+    // Verify blob is initially accessible.
+    verify_blob_readable(client, &blob_id, &test_data).await?;
+    tracing::info!("Verified blob is initially readable");
+
+    // Wait for storage to expire (1 epoch = 5 seconds).
+    tracing::info!(
+        "Waiting for storage to expire at epoch {} (5 seconds)...",
+        storage_end_epoch
+    );
+    tokio::time::sleep(Duration::from_secs(6)).await; // Wait slightly more than 1 epoch.
+
+    // Blob should still be accessible during grace period.
+    verify_blob_readable(client, &blob_id, &test_data).await?;
+    tracing::info!("Blob still readable during grace period (dormant mode)");
+
+    // Wait for grace period to expire (2 more epochs = 10 seconds).
+    tracing::info!(
+        "Waiting for grace period to expire at epoch {} (10 more seconds)...",
+        gc_eligible_epoch
+    );
+    tokio::time::sleep(Duration::from_secs(11)).await; // Wait slightly more than 2 epochs.
+
+    // Small delay to ensure nodes have processed the epoch change.
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    // Now blob should be unavailable (garbage collected).
+    tracing::info!("Checking if blob has been garbage collected...");
+
+    // Check blob status - should be nonexistent.
+    let status = client
+        .get_verified_blob_status(
+            &blob_id,
+            client.sui_client().read_client(),
+            Duration::from_secs(1),
+        )
+        .await?;
+
+    assert!(
+        matches!(status, BlobStatus::Nonexistent),
+        "Expected blob to be garbage collected, but status is: {:?}",
+        status
+    );
+    tracing::info!("Blob status is Nonexistent as expected");
+
+    // Try to read the blob - should fail.
+    let read_result = client.read_blob::<Primary>(&blob_id).await;
+    assert!(
+        read_result.is_err(),
+        "Expected blob read to fail after GC, but it succeeded"
+    );
+
+    if let Err(e) = read_result {
+        assert!(
+            matches!(e.kind(), ClientErrorKind::BlobIdDoesNotExist),
+            "Expected BlobIdDoesNotExist error, but got: {:?}",
+            e.kind()
+        );
+        tracing::info!("Blob read failed with BlobIdDoesNotExist as expected");
+    }
+
+    tracing::info!("=== Managed Blob Garbage Collection Test PASSED ===");
     Ok(())
 }

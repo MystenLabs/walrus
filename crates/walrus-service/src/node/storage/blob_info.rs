@@ -228,9 +228,25 @@ impl BlobInfoTable {
             | BlobEvent::InvalidBlobID(_)
             | BlobEvent::DenyListBlobDeleted(_)
             | BlobEvent::ManagedBlobRegistered(_)
-            | BlobEvent::ManagedBlobCertified(_)
             | BlobEvent::ManagedBlobDeleted(_) => {
                 tracing::debug!("performing standard blob-info update for event");
+                return self.update_blob_info(event_index, event);
+            }
+            BlobEvent::ManagedBlobCertified(_cert_event) => {
+                // In recovery with incomplete history, we may see ManagedBlobCertified
+                // without a prior ManagedBlobRegistered event.
+                // Since certified blobs don't have registration info anyway (it's moved from
+                // registered to certified map), we just let the standard update handle it.
+                // The merge operation will create the managed_blob_info structure if needed
+                // and add the certification directly.
+
+                tracing::info!(
+                    "processing managed blob certification during recovery \
+                    (may be without prior registration)"
+                );
+
+                // Let the standard update handle it - the merge operation will handle
+                // missing registration by creating the structures as needed
                 return self.update_blob_info(event_index, event);
             }
             BlobEvent::Certified(event) => {

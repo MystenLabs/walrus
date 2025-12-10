@@ -1637,8 +1637,20 @@ impl WalrusNodeClient<SuiContractClient> {
     /// Initializes the blob manager with the given capability ID.
     ///
     /// This fetches the BlobManagerCap and table ID from the chain and caches them
-    /// for efficient subsequent operations.
+    /// for efficient subsequent operations. If already initialized with the same
+    /// capability, this is a no-op and avoids redundant fetches.
+    ///
+    /// Note: Due to lifetime constraints, this method cannot directly return
+    /// a `BlobManagerClient`. After calling this method, use `get_blob_manager_client()`
+    /// to obtain the client, which is guaranteed to succeed.
     pub async fn init_blob_manager(&mut self, cap_id: ObjectID) -> ClientResult<()> {
+        // Check if already initialized with the same capability to avoid redundant fetches.
+        if let Some(existing_data) = &self.blob_manager_data
+            && existing_data.cap_id() == cap_id
+        {
+            return Ok(()); // Already initialized with same cap, no-op.
+        }
+
         let data = blob_manager_client::BlobManagerData::from_cap_id(self, cap_id).await?;
         self.blob_manager_data = Some(Arc::new(data));
         Ok(())
@@ -1660,6 +1672,13 @@ impl WalrusNodeClient<SuiContractClient> {
     /// Returns whether a blob manager is currently initialized.
     pub fn has_blob_manager(&self) -> bool {
         self.blob_manager_data.is_some()
+    }
+
+    /// Returns true if the blob manager is initialized with the specified capability ID.
+    pub fn has_blob_manager_with_cap(&self, cap_id: ObjectID) -> bool {
+        self.blob_manager_data
+            .as_ref()
+            .is_some_and(|data| data.cap_id() == cap_id)
     }
 
     /// Returns the cached BlobManagerData, if initialized.
