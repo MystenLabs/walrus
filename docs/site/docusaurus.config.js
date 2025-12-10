@@ -55,67 +55,43 @@ const config = {
       {
         fromExtensions: ['html', 'htm'], // /myPage.html -> /myPage
         redirects: [
+         // Specific page redirects
           {
-            to: "/docs/design/:path*",
-            from: "/design/:path*",
-          },
-          {
-            to: "/docs/usage/:path*",
-            from: "/usage/:path*",
-          },
-          {
-            to: "/docs/dev-guide/:path*",
-            from: "/dev-guide/:path*",
-          },
-          {
-            to: "/docs/legal/:path*",
-            from: "/legal/:path*",
-          },
-          {
-            to: "/docs/operator-guide/:path*",
-            from: "/operator-guide/:path*",
-          },
-          {
-            to: "/docs/walrus-sites/:path*",
-            from: "/walrus-sites/:path*",
-          },
-          {
-            to: "/docs/design/encoding",
-            from: "/design/encoding.html",
-          },
-          {
-            to: "/docs/usage/client-cli",
-            from: "/usage/client-cli.html",
-          },
-          {
-            to: "/docs/usage/interacting",
-            from: "/usage/interacting.html",
-          },
-          {
-            to: "/docs/usage/quilt",
-            from: "/usage/quilt.html",
-          },
-          {
-            to: "/docs/usage/setup",
-            from: "/usage/setup.html",
-          },
-          {
-            to: "/docs/usage/web-api",
-            from: "/usage/web-api.html",
-          },
-          {
-            to: "/docs/walrus-sites/bring-your-own-domain",
-            from: "/walrus-sites/bring-your-own-domain.html",
-          },
-          {
-            to: "/docs/walrus-sites/intro",
-            from: "/walrus-sites/intro.html",
-          },
-          {
-            to: "/docs/walrus-sites/portal",
-            from: "/walrus-sites/portal.html",
+            to: "/",
+            from: "/index.html",
           },
         ],
+        // This function creates redirects dynamically for all existing pages
+        createRedirects(existingPath) {
+          const redirects = [];
+
+          // Add .html extension redirects
+          if (existingPath.includes('/docs/')) {
+            redirects.push(existingPath + '.html');
+          }
+
+          // Redirect from old paths without /docs/ prefix to new paths with /docs/ prefix
+          if (existingPath.startsWith('/docs/design/')) {
+            redirects.push(existingPath.replace('/docs/design/', '/design/'));
+          }
+          if (existingPath.startsWith('/docs/usage/')) {
+            redirects.push(existingPath.replace('/docs/usage/', '/usage/'));
+          }
+          if (existingPath.startsWith('/docs/dev-guide/')) {
+            redirects.push(existingPath.replace('/docs/dev-guide/', '/dev-guide/'));
+          }
+          if (existingPath.startsWith('/docs/legal/')) {
+            redirects.push(existingPath.replace('/docs/legal/', '/legal/'));
+          }
+          if (existingPath.startsWith('/docs/operator-guide/')) {
+            redirects.push(existingPath.replace('/docs/operator-guide/', '/operator-guide/'));
+          }
+          if (existingPath.startsWith('/docs/walrus-sites/')) {
+            redirects.push(existingPath.replace('/docs/walrus-sites/', '/walrus-sites/'));
+          }
+
+          return redirects.length > 0 ? redirects : undefined;
+        },
       },
     ],
     [
