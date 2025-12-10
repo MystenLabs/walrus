@@ -306,7 +306,7 @@ mod tests {
             test_cluster::E2eTestSetupBuilder::new()
                 .with_epoch_duration(Duration::from_secs(15))
                 .with_num_checkpoints_per_blob(20)
-                //.with_event_stream_catchup_min_checkpoint_lag(Some(u64::MAX))
+                .with_event_stream_catchup_min_checkpoint_lag(Some(2000))
                 .with_test_nodes_config(
                     TestNodesConfig::builder()
                         .with_node_weights(&[2, 2, 3, 3, 3])
@@ -347,7 +347,7 @@ mod tests {
                     .await;
             if latest_certified_blob.is_some() {
                 tracing::info!(
-                    "Latest certified blob: {:?}",
+                    "latest certified blob: {:?}",
                     latest_certified_blob.clone().unwrap()
                 );
                 break;
@@ -404,7 +404,13 @@ mod tests {
         let latest_seq = node_health_info[0]
             .latest_checkpoint_sequence_number
             .unwrap();
-        assert!(latest_seq > prev_seq);
+        assert!(
+            latest_seq > prev_seq,
+            "latest checkpoint sequence number should advance after the pause window, \
+            prev_seq: {}, latest_seq: {}",
+            prev_seq,
+            latest_seq
+        );
 
         // Verify event-blob catchup ran
         assert!(saw_event_blob_catchup.load(Ordering::SeqCst));
