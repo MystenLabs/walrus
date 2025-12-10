@@ -328,8 +328,8 @@ pub trait ServiceState {
 
     /// Retrieves multiple raw recovery symbols.
     ///
-    /// Attempts to retrieve multiple raw recovery symbols, skipping any failures that occur. Returns an
-    /// error if none of the requested symbols can be retrieved.
+    /// Attempts to retrieve multiple raw recovery symbols, skipping any failures that occur.
+    /// Returns an error if none of the requested symbols can be retrieved.
     fn retrieve_multiple_raw_recovery_symbols(
         &self,
         blob_id: &BlobId,
@@ -3329,6 +3329,7 @@ impl StorageNodeInner {
     where
         EitherDecodingSymbol: From<DecodingSymbol<<T as EncodingAxis>::OrthogonalAxis>>,
     {
+        // TODO(zhewu): add test to test this error.
         if usize::from(target_sliver_index.get()) >= sliver.symbols.len() {
             return Err(ListSymbolsError::RetrieveRawRecoverySymbolOutOfRange(
                 format!(
@@ -4089,11 +4090,13 @@ impl ServiceState for StorageNodeInner {
         )
         .map_err(RetrieveSymbolError::RetrieveSliver)?;
 
-        let mut output = BTreeMap::new();
+        let mut output: BTreeMap<SliverIndex, Vec<EitherDecodingSymbol>> = BTreeMap::new();
         let n_shards = self.n_shards();
         let owned_shards = self.owned_shards_at_latest_epoch();
+
         for target_sliver_index in target_sliver_indexes {
             let filter = RecoverySymbolsFilter::recovers(target_sliver_index, target_type);
+
             for symbol_id in self.symbol_ids_from_filter(*blob_id, &filter) {
                 let source_pair_index = match target_type {
                     Axis::Primary => {
@@ -4110,12 +4113,13 @@ impl ServiceState for StorageNodeInner {
                     }
                 };
 
-                let required_shard = &source_pair_index.to_shard_index(n_shards, blob_id);
-                if !owned_shards.contains(required_shard) {
+                let required_shard = source_pair_index.to_shard_index(n_shards, blob_id);
+                if !owned_shards.contains(&required_shard) {
                     // This node does not manage the shard owning the source pair.
                     continue;
                 }
 
+                // TODO(zhewu): make fetching slivers parallel.
                 let sliver_result = self
                     .retrieve_sliver_unchecked(blob_id, source_pair_index, target_type.orthogonal())
                     .await
@@ -4127,7 +4131,7 @@ impl ServiceState for StorageNodeInner {
 
                 output
                     .entry(target_sliver_index)
-                    .or_insert_with(|| vec![])
+                    .or_default()
                     .push(decoding_symbol);
             }
         }
@@ -8677,53 +8681,55 @@ mod tests {
         .await?;
 
         let blob_id = *blob_detail[0].blob_id();
+        let target_sliver_index = SliverIndex(1);
 
-        let result_1 = cluster.nodes[0]
+        // Retrieve recovery symbols from both nodes
+        let results_node_0 = cluster.nodes[0]
             .storage_node
             .retrieve_multiple_raw_recovery_symbols(
                 &blob_id,
-                vec![SliverIndex(1)],
+                vec![target_sliver_index],
                 SliverType::Primary,
             )
             .await?;
-        let result_2 = cluster.nodes[1]
+        let results_node_1 = cluster.nodes[1]
             .storage_node
             .retrieve_multiple_raw_recovery_symbols(
                 &blob_id,
-                vec![SliverIndex(1)],
+                vec![target_sliver_index],
                 SliverType::Primary,
             )
             .await?;
 
-        let recovery_symbol_iter = result_1
+        // Combine all recovery symbols from both nodes
+        let recovery_symbols = results_node_0
             .into_iter()
-            .flat_map(|(_, symbols)| symbols.into_iter())
-            .chain(
-                result_2
-                    .into_iter()
-                    .flat_map(|(_, symbols)| symbols.into_iter()),
-            )
+            .chain(results_node_1)
+            .flat_map(|(_, symbols)| symbols)
+            .map(|s| match s {
+                ByAxis::Primary(s) => s,
+                ByAxis::Secondary(_) => unreachable!("only primary symbols expected"),
+            })
             .collect::<Vec<_>>();
 
         let symbol_size = blob_detail[0].pairs[0].primary.symbols.symbol_size();
+        let encoding_config = cluster.encoding_config().get_for_type(EncodingType::RS2);
 
         let recovered_sliver = SliverData::recover_sliver_from_decoding_symbols(
-            recovery_symbol_iter.into_iter().map(|s| match s {
-                ByAxis::Primary(s) => s,
-                ByAxis::Secondary(_) => unreachable!("secondary sliver should not be present"),
-            }),
-            SliverIndex(1),
+            recovery_symbols,
+            target_sliver_index,
             symbol_size,
-            cluster.encoding_config().get_for_type(EncodingType::RS2),
+            encoding_config,
         )?;
 
-        let sliver_pair = blob_detail[0]
+        let expected_sliver = &blob_detail[0]
             .pairs
             .iter()
             .find(|pair| pair.index() == SliverPairIndex(1))
-            .expect("shard must be assigned at least 1 sliver");
+            .expect("sliver pair must exist")
+            .primary;
 
-        assert_eq!(sliver_pair.primary, recovered_sliver);
+        assert_eq!(expected_sliver, &recovered_sliver);
         Ok(())
     }
 }
