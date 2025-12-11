@@ -312,17 +312,6 @@ pub trait ServiceState {
         inconsistency_proof: InconsistencyProof,
     ) -> impl Future<Output = Result<InvalidBlobIdAttestation, InconsistencyProofError>> + Send;
 
-    /// Retrieves a recovery symbol from a shard held by this storage node.
-    ///
-    /// Returns a recovery symbol for the identified symbol, if it can be constructed from the
-    /// slivers stored with the storage node.
-    fn retrieve_recovery_symbol(
-        &self,
-        blob_id: &BlobId,
-        symbol_id: SymbolId,
-        sliver_type: Option<SliverType>,
-    ) -> impl Future<Output = Result<GeneralRecoverySymbol, RetrieveSymbolError>> + Send;
-
     /// Retrieves multiple recovery symbols.
     ///
     /// Attempts to retrieve multiple recovery symbols, skipping any failures that occur. Returns an
@@ -3639,16 +3628,6 @@ impl ServiceState for StorageNode {
             .verify_inconsistency_proof(blob_id, inconsistency_proof)
     }
 
-    fn retrieve_recovery_symbol(
-        &self,
-        blob_id: &BlobId,
-        symbol_id: SymbolId,
-        sliver_type: Option<SliverType>,
-    ) -> impl Future<Output = Result<GeneralRecoverySymbol, RetrieveSymbolError>> + Send {
-        self.inner
-            .retrieve_recovery_symbol(blob_id, symbol_id, sliver_type)
-    }
-
     fn retrieve_multiple_recovery_symbols(
         &self,
         blob_id: &BlobId,
@@ -3965,38 +3944,6 @@ impl ServiceState for StorageNodeInner {
 
         let message = InvalidBlobIdMsg::new(self.current_committee_epoch(), blob_id.to_owned());
         Ok(sign_message(message, self.protocol_key_pair.clone()).await?)
-    }
-
-    #[tracing::instrument(skip(self))]
-    async fn retrieve_recovery_symbol(
-        &self,
-        blob_id: &BlobId,
-        symbol_id: SymbolId,
-        sliver_type: Option<SliverType>,
-    ) -> Result<GeneralRecoverySymbol, RetrieveSymbolError> {
-        // Begin by fetching a ready worker, as this gates all database reads based
-        // on whether we have capacity to even serve the request.
-        let worker = self.get_ready_symbol_service()?;
-
-        self.validate_blob_access(
-            blob_id,
-            RetrieveSliverError::Forbidden,
-            RetrieveSliverError::Unavailable,
-        )?;
-
-        let encoding_type = self
-            .get_encoding_type_for_blob(blob_id)
-            .context("could not retrieve blob encoding type")?
-            .ok_or_else(|| anyhow!("encoding type unavailable for blob {:?}", blob_id))?;
-
-        self.retrieve_recovery_symbol_unchecked(
-            blob_id,
-            symbol_id,
-            sliver_type,
-            encoding_type,
-            worker,
-        )
-        .await
     }
 
     #[tracing::instrument(skip_all)]

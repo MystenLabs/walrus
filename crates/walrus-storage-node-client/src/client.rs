@@ -67,7 +67,6 @@ const SLIVER_STATUS_TEMPLATE: &str =
 const PERMANENT_BLOB_CONFIRMATION_URL_TEMPLATE: &str = "/v1/blobs/:blob_id/confirmation/permanent";
 const DELETABLE_BLOB_CONFIRMATION_URL_TEMPLATE: &str =
     "/v1/blobs/:blob_id/confirmation/deletable/:object_id";
-const RECOVERY_SYMBOL_URL_TEMPLATE: &str = "/v1/blobs/:blob_id/recoverySymbols/:symbol_id";
 const LIST_RECOVERY_SYMBOLS_URL_TEMPLATE: &str = "/v1/blobs/:blob_id/recoverySymbols";
 const INCONSISTENCY_PROOF_URL_TEMPLATE: &str = "/v1/blobs/:blob_id/inconsistencyProof/:sliver_type";
 const BLOB_STATUS_URL_TEMPLATE: &str = "/v1/blobs/:blob_id/status";
@@ -174,13 +173,6 @@ impl UrlEndpoints {
         (
             self.sliver_path::<A>(blob_id, sliver_pair_index, Some("status")),
             SLIVER_STATUS_TEMPLATE,
-        )
-    }
-
-    fn recovery_symbol(&self, blob_id: &BlobId, symbol_id: SymbolId) -> (Url, &'static str) {
-        (
-            self.blob_resource(blob_id, &format!("recoverySymbols/{symbol_id}")),
-            RECOVERY_SYMBOL_URL_TEMPLATE,
         )
     }
 
@@ -539,22 +531,6 @@ impl StorageNodeClient {
             .map_err(NodeError::other)?;
 
         Ok(sliver)
-    }
-
-    /// Gets a recovery symbol that can be used to recover a sliver.
-    #[tracing::instrument(
-        skip_all,
-        fields(walrus.blob_id = %blob_id, walrus.recovery.symbol_id = %symbol_id),
-        err(level = Level::DEBUG)
-    )]
-    pub async fn get_recovery_symbol(
-        &self,
-        blob_id: &BlobId,
-        symbol_id: SymbolId,
-    ) -> Result<GeneralRecoverySymbol, NodeError> {
-        let (url, template) = self.endpoints.recovery_symbol(blob_id, symbol_id);
-        self.send_and_parse_bcs_response(Request::new(Method::GET, url), template)
-            .await
     }
 
     /// Gets multiple recovery symbols.
