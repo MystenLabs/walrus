@@ -101,9 +101,11 @@ const config = {
                       ) {
                         addLegacy(newPath);
                       }
+                    }
 
                     return redirects.length ? redirects : undefined;
                 },
+            },
         ],
 
         "./src/plugins/tailwind-config.js",
