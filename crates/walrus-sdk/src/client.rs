@@ -321,6 +321,7 @@ impl<T: ReadClient> WalrusNodeClient<T> {
     }
 
     /// Sets the maximum blob size for the client for testing purposes.
+    #[cfg(any(test, feature = "test-utils"))]
     pub fn set_max_blob_size(&mut self, max_blob_size: Option<u64>) {
         self.max_blob_size = max_blob_size;
     }
@@ -700,7 +701,7 @@ impl<T: ReadClient> WalrusNodeClient<T> {
                 .get(),
         );
         let read_total_sliver_size = sliver_size
-            .checked_mul(sliver_indices.len() as u64)
+            .checked_mul(u64::try_from(sliver_indices.len()).unwrap_or(u64::MAX))
             .ok_or(ClientError::from(ClientErrorKind::BlobTooLarge(u64::MAX)))?;
         self.check_read_data_size(read_total_sliver_size)?;
 
