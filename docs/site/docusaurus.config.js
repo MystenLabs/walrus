@@ -86,7 +86,6 @@ const config = {
                     const addLegacy = (fromPath) => {
                         redirects.push(fromPath);
                         redirects.push(`${fromPath}.html`);
-                        redirects.push(`${fromPath}/index.html`);
                     };
 
                     // OLD prefix → NEW prefix (this fixes /usage/setup.html#... etc.)
