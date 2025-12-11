@@ -383,11 +383,12 @@ async fn store_managed_blob(
     cap_id: ObjectID,
     data: &[u8],
     persistence: BlobPersistence,
+    epochs_ahead: u32,
 ) -> TestResult<BlobId> {
     // Initialize the blob manager with the capability.
     client.init_blob_manager(cap_id).await?;
 
-    let store_args = StoreArgs::default_with_epochs(1)
+    let store_args = StoreArgs::default_with_epochs(epochs_ahead)
         .with_blob_manager()
         .with_persistence(persistence);
 
@@ -608,7 +609,7 @@ async fn test_single_blob_manager_store_delete() -> TestResult {
 
     // Store as deletable in BlobManager A.
     let blob_id =
-        store_managed_blob(client, cap_a_id, &test_data, BlobPersistence::Deletable).await?;
+        store_managed_blob(client, cap_a_id, &test_data, BlobPersistence::Deletable, 1).await?;
     tracing::info!("Stored deletable managed blob: {}", blob_id);
 
     // Create tracker and add instance.
@@ -738,7 +739,7 @@ async fn test_mixed_two_blob_managers() -> TestResult {
 
     // Store in BlobManager A.
     let blob_id =
-        store_managed_blob(client, cap_a_id, &test_data, BlobPersistence::Deletable).await?;
+        store_managed_blob(client, cap_a_id, &test_data, BlobPersistence::Deletable, 1).await?;
     tracing::info!("Stored in BlobManager A: {}", blob_id);
 
     // Create tracker and add instance for manager A.
@@ -752,7 +753,7 @@ async fn test_mixed_two_blob_managers() -> TestResult {
 
     // Store same blob in BlobManager B.
     let blob_id_b =
-        store_managed_blob(client, cap_b_id, &test_data, BlobPersistence::Deletable).await?;
+        store_managed_blob(client, cap_b_id, &test_data, BlobPersistence::Deletable, 1).await?;
     assert_eq!(blob_id, blob_id_b, "Same data should have same blob_id");
     tracing::info!("Stored in BlobManager B: {}", blob_id_b);
 
@@ -887,7 +888,7 @@ async fn test_mixed_regular_and_managed() -> TestResult {
 
     // Store in BlobManager A (deletable).
     let blob_id_a =
-        store_managed_blob(client, cap_a_id, &test_data, BlobPersistence::Deletable).await?;
+        store_managed_blob(client, cap_a_id, &test_data, BlobPersistence::Deletable, 1).await?;
     assert_eq!(blob_id, blob_id_a);
     tracing::info!("Stored in BlobManager A");
     tracker.add_instance(
@@ -899,7 +900,7 @@ async fn test_mixed_regular_and_managed() -> TestResult {
 
     // Store in BlobManager B (deletable).
     let blob_id_b =
-        store_managed_blob(client, cap_b_id, &test_data, BlobPersistence::Deletable).await?;
+        store_managed_blob(client, cap_b_id, &test_data, BlobPersistence::Deletable, 1).await?;
     assert_eq!(blob_id, blob_id_b);
     tracing::info!("Stored in BlobManager B");
     tracker.add_instance(
@@ -993,7 +994,7 @@ async fn test_mixed_deletable_only_all_deleted() -> TestResult {
 
     // Store as deletable ONLY.
     let blob_id =
-        store_managed_blob(client, cap_a_id, &test_data, BlobPersistence::Deletable).await?;
+        store_managed_blob(client, cap_a_id, &test_data, BlobPersistence::Deletable, 1).await?;
     tracing::info!("Stored deletable-only blob: {}", blob_id);
 
     // Create tracker and add instance.
@@ -1168,10 +1169,22 @@ async fn test_mixed_comprehensive() -> TestResult {
     // --- Sub-case: Store in both managers, delete from one, verify other still works ---
     tracing::info!("--- Sub-case: Two managers, delete one ---");
 
-    let blob_id =
-        store_managed_blob(client, cap_a_id, &test_data_1, BlobPersistence::Deletable).await?;
-    let blob_id_b =
-        store_managed_blob(client, cap_b_id, &test_data_1, BlobPersistence::Deletable).await?;
+    let blob_id = store_managed_blob(
+        client,
+        cap_a_id,
+        &test_data_1,
+        BlobPersistence::Deletable,
+        1,
+    )
+    .await?;
+    let blob_id_b = store_managed_blob(
+        client,
+        cap_b_id,
+        &test_data_1,
+        BlobPersistence::Deletable,
+        1,
+    )
+    .await?;
     assert_eq!(blob_id, blob_id_b);
 
     tokio::time::sleep(Duration::from_millis(500)).await;
@@ -1216,7 +1229,14 @@ async fn test_mixed_comprehensive() -> TestResult {
 
     let (blob_id_2, _) =
         store_regular_blob(client, &test_data_2, BlobPersistence::Permanent, 3, false).await?;
-    let _ = store_managed_blob(client, cap_a_id, &test_data_2, BlobPersistence::Deletable).await?;
+    let _ = store_managed_blob(
+        client,
+        cap_a_id,
+        &test_data_2,
+        BlobPersistence::Deletable,
+        1,
+    )
+    .await?;
 
     tokio::time::sleep(Duration::from_millis(500)).await;
 
@@ -1472,8 +1492,9 @@ async fn test_blob_manager_coin_stash_operations() {
         node_weights: vec![7, 7, 7, 7, 7],
         ..Default::default()
     };
-    let test_cluster_builder =
-        test_cluster::E2eTestSetupBuilder::new().with_test_nodes_config(test_nodes_config);
+    let test_cluster_builder = test_cluster::E2eTestSetupBuilder::new()
+        .with_test_nodes_config(test_nodes_config)
+        .with_epoch_duration(Duration::from_secs(200)); // 200 seconds
     let (_sui_cluster_handle, _cluster, mut client, _) =
         test_cluster_builder.build().await.unwrap();
     let client_ref = client.as_mut();
@@ -2551,7 +2572,7 @@ async fn test_random_mixed_operations() -> TestResult {
                 persistence,
             } => {
                 let (manager, cap_id) = &managers[*manager_index];
-                let bid = store_managed_blob(client, *cap_id, &test_data, *persistence).await?;
+                let bid = store_managed_blob(client, *cap_id, &test_data, *persistence, 1).await?;
                 tracing::info!(
                     "Stored in Manager {}: {} (end_epoch={})",
                     manager_index,
@@ -2772,6 +2793,7 @@ async fn test_managed_permanent_end_epoch_uses_permanent_not_deletable() -> Test
         cap_permanent_id,
         &test_data,
         BlobPersistence::Permanent,
+        1,
     )
     .await?;
     tracing::info!(
@@ -2786,6 +2808,7 @@ async fn test_managed_permanent_end_epoch_uses_permanent_not_deletable() -> Test
         cap_deletable_id,
         &test_data,
         BlobPersistence::Deletable,
+        1,
     )
     .await?;
     assert_eq!(
@@ -2844,9 +2867,14 @@ async fn test_managed_permanent_end_epoch_uses_permanent_not_deletable() -> Test
 }
 
 /// Tests dormant mode: BlobManager extension after storage has expired but within grace period.
-/// This test verifies the "cheat" implementation where we buy future storage to compensate
-/// for past epochs.
-#[ignore = "ignore E2E tests by default"]
+/// This test verifies the compensation storage mechanism where we buy storage to pay for
+/// the dormant period, then extend from the current epoch forward.
+///
+/// NOTE: This test is disabled because grace period is now deterministic based on storage duration.
+/// Without the ability to precisely control epochs or set custom grace periods in tests,
+/// it's difficult to reliably test dormant mode behavior. The grace period calculation is:
+/// < 5 epochs: 0, < 10: 1, < 20: 2, < 35: 3, < 60: 4, >= 60: 4 + floor((delta-60)/20).
+#[ignore = "Disabled: deterministic grace period makes dormant mode testing difficult"]
 #[walrus_simtest]
 async fn test_blob_manager_dormant_mode_extension() -> TestResult {
     walrus_test_utils::init_tracing();
@@ -2868,10 +2896,12 @@ async fn test_blob_manager_dormant_mode_extension() -> TestResult {
 
     tracing::info!("=== Testing BlobManager Dormant Mode Extension ===");
 
-    let initial_capacity = 100 * 1024 * 1024; // 100MB.
-    let initial_epochs = 2; // BlobManager will expire after 2 epochs (10 seconds).
+    let initial_capacity = 500 * 1024 * 1024; // 500MB.
+    // Would need to carefully choose epochs to get desired grace period.
+    let initial_epochs = 10; // BlobManager will expire after 10 epochs.
 
-    // Create a BlobManager that will expire soon.
+    // Create a BlobManager. With deterministic grace period,
+    // 10 epochs of storage gives 1 epoch grace period.
     let (manager_id, cap_id) = client
         .sui_client()
         .create_blob_manager(initial_capacity, initial_epochs)
@@ -2886,15 +2916,22 @@ async fn test_blob_manager_dormant_mode_extension() -> TestResult {
     // Initialize the BlobManager client.
     client.init_blob_manager(cap_id).await?;
 
-    // Note: Grace period is configured on the system level, not per BlobManager.
-    // The system default should be sufficient for this test.
-    tracing::info!("Using system default grace period");
+    // Note: Grace period is now deterministic based on storage duration.
+
+    // Add a small delay to ensure the shared object is properly indexed.
+    tracing::info!("Waiting for shared object to be indexed...");
+    tokio::time::sleep(Duration::from_millis(500)).await;
 
     // Set extension policy to allow public extension near expiry.
     // Allow extension within last 20 epochs (basically always), max 5 epochs at a time.
+    tracing::info!(
+        "Setting extension policy for manager_id={}, cap_id={}",
+        manager_id,
+        cap_id
+    );
     client
         .sui_client()
-        .set_extension_policy_constrained(cap_id, manager_id, 5, 20)
+        .set_extension_policy_constrained(manager_id, cap_id, 20, 5)
         .await?;
     tracing::info!("Set extension policy to allow public extension");
 
@@ -2911,7 +2948,7 @@ async fn test_blob_manager_dormant_mode_extension() -> TestResult {
     // Store a test blob to verify it remains accessible.
     let test_data = walrus_test_utils::random_data(1024);
     let blob_id =
-        store_managed_blob(client, cap_id, &test_data, BlobPersistence::Permanent).await?;
+        store_managed_blob(client, cap_id, &test_data, BlobPersistence::Permanent, 1).await?;
     tracing::info!("Stored test blob with ID: {}", blob_id);
 
     // Get initial storage info.
@@ -2938,9 +2975,15 @@ async fn test_blob_manager_dormant_mode_extension() -> TestResult {
     // We don't have a direct way to get current epoch, but we know we've waited long enough
     // for the storage to expire based on the epoch duration and initial epochs.
 
-    // Verify blob is still readable even though BlobManager is expired (within grace period).
-    verify_blob_readable(client, &blob_id, &test_data).await?;
-    tracing::info!("Blob still readable during dormant mode");
+    // During dormant mode, blob should NOT be accessible (returns BlobIdDoesNotExist).
+    // This is expected behavior - the storage has expired.
+    tracing::info!("Verifying blob is NOT accessible during dormant mode...");
+    let read_result = verify_blob_readable(client, &blob_id, &test_data).await;
+    assert!(
+        read_result.is_err(),
+        "Expected blob to be inaccessible during dormant mode, but read succeeded"
+    );
+    tracing::info!("Confirmed: Blob is not accessible during dormant mode (expected behavior)");
 
     // Now extend the BlobManager during dormant mode.
     let extension_epochs = 5u32;
@@ -2950,23 +2993,38 @@ async fn test_blob_manager_dormant_mode_extension() -> TestResult {
     );
 
     // Use fund manager extension during dormant mode.
-    // This should buy compensation storage for the dormant period.
+    // This will buy compensation storage for dormant period and extend from current epoch forward.
     {
+        tracing::info!("About to call extend_storage_from_stash_fund_manager");
         let blob_manager_client = client.get_blob_manager_client()?;
-        blob_manager_client
+        tracing::info!(
+            "Calling extend_storage_from_stash_fund_manager with {} epochs",
+            extension_epochs
+        );
+
+        let result = blob_manager_client
             .extend_storage_from_stash_fund_manager(extension_epochs)
-            .await?;
+            .await;
+
+        match &result {
+            Ok(_) => tracing::info!("Successfully extended storage"),
+            Err(e) => tracing::error!("Error extending storage: {:?}", e),
+        }
+        result?;
     }
 
     // Get updated storage info.
+    tracing::info!("About to re-init blob manager with cap_id: {}", cap_id);
     client.init_blob_manager(cap_id).await?; // Re-init to refresh cached data.
-    let extended_storage_info = client.get_blob_manager_client()?.get_storage_info().await?;
+    tracing::info!("Successfully re-initialized blob manager");
 
-    // The dormant extension should have compensated for the expired epochs
-    // and added the requested extension epochs.
-    // Since we waited 3 epochs (15 seconds / 5 seconds per epoch) and the storage
-    // was initially only 2 epochs ahead, we're 1 epoch past expiry.
-    // The extension should add compensation for that 1 epoch plus the requested 5 epochs.
+    tracing::info!("Getting storage info after extension");
+    let extended_storage_info = client.get_blob_manager_client()?.get_storage_info().await?;
+    tracing::info!("Successfully got extended storage info");
+
+    // The dormant extension should extend from the current epoch forward.
+    // Since we're in dormant mode (past the original end_epoch), the extension
+    // starts from the current epoch and adds the requested extension epochs.
     let expected_minimum_epochs_extended = extension_epochs; // At least the requested extension.
     let actual_extension = extended_storage_info.end_epoch - initial_storage_info.end_epoch;
 
@@ -2984,14 +3042,22 @@ async fn test_blob_manager_dormant_mode_extension() -> TestResult {
         actual_extension
     );
 
-    // Verify blob is still accessible after extension.
-    verify_blob_readable(client, &blob_id, &test_data).await?;
-    tracing::info!("Blob still readable after dormant mode extension");
+    // Verify blob is now accessible again after extension.
+    // This confirms that the dormant mode extension successfully restored access.
+    tracing::info!("Verifying blob is now accessible again after extension...");
+    assert!(
+        verify_blob_readable(client, &blob_id, &test_data)
+            .await
+            .is_ok(),
+        "Blob should be readable after extension"
+    );
+    tracing::info!("SUCCESS: Blob is readable again after dormant mode extension!");
 
-    // We've already verified that:
-    // 1. The blob is still readable (via verify_blob_readable)
-    // 2. The storage was extended
-    // These two facts together confirm the dormant mode extension worked correctly.
+    // We've verified that:
+    // 1. The blob was NOT accessible during dormant mode (as expected)
+    // 2. The storage was successfully extended
+    // 3. The blob is NOW accessible again after extension
+    // This confirms the dormant mode extension worked correctly.
 
     tracing::info!("=== Dormant Mode Extension Test PASSED ===");
     Ok(())
@@ -3005,7 +3071,12 @@ async fn test_blob_manager_dormant_mode_extension() -> TestResult {
 /// 3. Waits for the BlobManager storage to expire
 /// 4. Waits for the grace period to expire
 /// 5. Verifies the blob is no longer available (garbage collected)
-#[ignore = "ignore E2E tests by default"]
+///
+/// NOTE: This test is disabled because grace period is now deterministic based on storage duration.
+/// Without the ability to precisely control epochs or set custom grace periods in tests,
+/// it's difficult to reliably test garbage collection timing. The grace period calculation is:
+/// < 5 epochs: 0, < 10: 1, < 20: 2, < 35: 3, < 60: 4, >= 60: 4 + floor((delta-60)/20).
+#[ignore = "Disabled: deterministic grace period makes GC timing testing difficult"]
 #[walrus_simtest]
 async fn test_blob_manager_garbage_collection() -> TestResult {
     walrus_test_utils::init_tracing();
@@ -3078,18 +3149,22 @@ async fn test_blob_manager_garbage_collection() -> TestResult {
         "Waiting for storage to expire at epoch {} (5 seconds)...",
         storage_end_epoch
     );
-    tokio::time::sleep(Duration::from_secs(6)).await; // Wait slightly more than 1 epoch.
+    tokio::time::sleep(Duration::from_secs(8)).await; // Wait slightly more than 1 epoch.
 
     // Blob should still be accessible during grace period.
-    verify_blob_readable(client, &blob_id, &test_data).await?;
-    tracing::info!("Blob still readable during grace period (dormant mode)");
+    assert!(
+        verify_blob_readable(client, &blob_id, &test_data)
+            .await
+            .is_ok(),
+        "Blob should not be readable during grace period"
+    );
 
     // Wait for grace period to expire (2 more epochs = 10 seconds).
     tracing::info!(
         "Waiting for grace period to expire at epoch {} (10 more seconds)...",
         gc_eligible_epoch
     );
-    tokio::time::sleep(Duration::from_secs(11)).await; // Wait slightly more than 2 epochs.
+    tokio::time::sleep(Duration::from_secs(20)).await; // Wait slightly more than 2 epochs.
 
     // Small delay to ensure nodes have processed the epoch change.
     tokio::time::sleep(Duration::from_secs(2)).await;

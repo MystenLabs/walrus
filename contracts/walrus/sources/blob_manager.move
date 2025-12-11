@@ -14,7 +14,7 @@ use walrus::{
     encoding,
     events,
     extension_policy::{Self, ExtensionPolicy},
-    storage_resource::Storage,
+    storage_resource::{Self, Storage},
     system::{Self, System},
     tip_policy::{Self, TipPolicy}
 };
@@ -23,6 +23,17 @@ use walrus::{
 
 /// Minimum initial capacity for BlobManager (500MB in bytes).
 const MIN_INITIAL_CAPACITY: u64 = 500_000_000; // 500 MB.
+
+// Grace period calculation thresholds (based on storage duration in epochs)
+const GRACE_PERIOD_DURATION_THRESHOLD_5: u32 = 5;
+const GRACE_PERIOD_DURATION_THRESHOLD_10: u32 = 10;
+const GRACE_PERIOD_DURATION_THRESHOLD_20: u32 = 20;
+const GRACE_PERIOD_DURATION_THRESHOLD_35: u32 = 35;
+const GRACE_PERIOD_DURATION_THRESHOLD_60: u32 = 60;
+
+// Grace period growth parameters
+const MAX_GRACE_PERIOD_EPOCHS: u32 = 7;
+const GRACE_PERIOD_GROWTH_INTERVAL: u32 = 20;
 
 // === Error Codes ===
 
@@ -42,11 +53,10 @@ const ERequiresFundManager: u64 = 6;
 const EBlobPermanencyConflict: u64 = 7;
 /// Extension attempted beyond grace period.
 const EBeyondGracePeriod: u64 = 8;
+/// Grace period exceeds maximum allowed for BlobManager age.
+const EGracePeriodExceedsMaximum: u64 = 9;
 
 // === Main Structures ===
-
-/// Default grace period epochs for BlobManager (2 epochs).
-const DEFAULT_GRACE_PERIOD_EPOCHS: u32 = 2;
 
 /// The minimal blob-management interface.
 public struct BlobManager has key, store {
@@ -79,7 +89,7 @@ public struct BlobManagerCap has key, store {
 
 // === Constructors ===
 
-/// Creates a new shared BlobManager and returns its capability.
+/// Creates a new shared BlobManager with deterministic grace period and returns its capability.
 /// The BlobManager is automatically shared in the same transaction.
 /// Requires minimum initial capacity of 100MB.
 /// Note: This function requires access to System to emit the creation event with proper epoch.
@@ -92,6 +102,12 @@ public fun new_with_unified_storage(
     let capacity = initial_storage.size();
     assert!(capacity >= MIN_INITIAL_CAPACITY, EInitialBlobManagerCapacityTooSmall);
 
+    // Calculate grace period based on storage duration.
+    let current_epoch = system::epoch(system);
+    let end_epoch = storage_resource::end_epoch(&initial_storage);
+    let storage_duration = end_epoch - current_epoch;
+    let grace_period_epochs = calculate_grace_period(storage_duration);
+
     // Create the manager object.
     let manager_uid = object::new(ctx);
 
@@ -103,12 +119,11 @@ public fun new_with_unified_storage(
         extension_policy: extension_policy::constrained(1, 10),
         // Default tip policy: 1000 MIST (0.001 SUI) fixed amount.
         tip_policy: tip_policy::new_fixed_amount(1000),
-        grace_period_epochs: DEFAULT_GRACE_PERIOD_EPOCHS,
+        grace_period_epochs,
     };
 
     // Get the ObjectID from the constructed manager object.
     let manager_object_id = object::id(&manager);
-    let end_epoch = blob_storage::end_epoch(&manager.storage);
 
     // Create an Admin capability with fund_manager permissions.
     let cap = BlobManagerCap {
@@ -120,10 +135,10 @@ public fun new_with_unified_storage(
 
     // Emit creation event.
     events::emit_blob_manager_created(
-        system::epoch(system),
+        current_epoch,
         manager_object_id,
         end_epoch,
-        DEFAULT_GRACE_PERIOD_EPOCHS,
+        grace_period_epochs,
     );
 
     // BlobManager is designed to be a shared object.
@@ -186,6 +201,33 @@ fun check_cap(self: &BlobManager, cap: &BlobManagerCap) {
 /// Ensures the capability is an Admin capability.
 fun ensure_admin(cap: &BlobManagerCap) {
     assert!(is_admin_cap(cap), ERequiresAdminCap);
+}
+
+/// Calculates grace period based on duration.
+/// Uses thresholds: <5: 0, <10: 1, <20: 2, <35: 3, <60: 4, >=60: 4 + floor((delta-60)/20).
+/// Maximum grace period is capped at 7 epochs.
+fun calculate_grace_period(duration: u32): u32 {
+    let grace = if (duration < GRACE_PERIOD_DURATION_THRESHOLD_5) {
+        0
+    } else if (duration < GRACE_PERIOD_DURATION_THRESHOLD_10) {
+        1
+    } else if (duration < GRACE_PERIOD_DURATION_THRESHOLD_20) {
+        2
+    } else if (duration < GRACE_PERIOD_DURATION_THRESHOLD_35) {
+        3
+    } else if (duration < GRACE_PERIOD_DURATION_THRESHOLD_60) {
+        4
+    } else {
+        // For durations >= 60, add 1 for every 20 epochs beyond 60
+        4 + ((duration - GRACE_PERIOD_DURATION_THRESHOLD_60) / GRACE_PERIOD_GROWTH_INTERVAL)
+    };
+
+    // Cap at maximum grace period
+    if (grace > MAX_GRACE_PERIOD_EPOCHS) {
+        MAX_GRACE_PERIOD_EPOCHS
+    } else {
+        grace
+    }
 }
 
 // === Core Operations ===
@@ -485,19 +527,19 @@ fun execute_extension(
         // Calculate compensation epochs needed (how many epochs we're past expiry).
         let past_epochs = current_epoch - storage_end_epoch;
 
-        // Buy compensation storage for the equivalent duration, but starting from current_epoch.
-        // This "cheats" by buying future storage to compensate for past epochs.
+        // Buy compensation storage for the past epochs (dormant period).
+        // We purchase this to pay for the dormant period but don't apply it.
         let compensation_storage = system::reserve_space_for_epochs(
             system,
             total_capacity,
+            storage_end_epoch,
             current_epoch,
-            current_epoch + past_epochs,
             &mut payment,
             ctx,
         );
 
-        // Apply the compensation to bring storage up to current epoch.
-        self.storage.extend_storage(compensation_storage);
+        // Destroy the compensation storage - we only needed to pay for it.
+        storage_resource::destroy(compensation_storage);
 
         past_epochs
     } else {
@@ -505,8 +547,15 @@ fun execute_extension(
     };
 
     // Phase 2: Buy the actual extension storage.
-    // The extension starts from current_epoch + compensation_epochs.
-    let extension_start_epoch = current_epoch + compensation_epochs;
+    // If we paid compensation (dormant mode), extend from current_epoch forward.
+    // Otherwise extend from the existing storage_end_epoch.
+    let extension_start_epoch = if (compensation_epochs > 0) {
+        // In dormant mode, start extension from current epoch.
+        current_epoch
+    } else {
+        // Not dormant, extend from current storage end.
+        storage_end_epoch
+    };
     let new_end_epoch = extension_start_epoch + effective_extension;
 
     // Purchase the extension storage.
@@ -689,15 +738,31 @@ public fun set_extension_policy_constrained(
 }
 
 /// Sets the grace period in epochs after storage expiry before blobs become eligible for GC.
+/// The input will be capped between 0 and the maximum allowed based on BlobManager age.
 /// Requires fund_manager permission.
 public fun set_grace_period_epochs(
     self: &mut BlobManager,
     cap: &BlobManagerCap,
+    system: &System,
     grace_period_epochs: u32,
 ) {
     check_cap(self, cap);
     assert!(cap.fund_manager, ERequiresFundManager);
-    self.grace_period_epochs = grace_period_epochs;
+
+    // Calculate maximum allowed grace period based on BlobManager age.
+    let current_epoch = system::epoch(system);
+    let (start_epoch, _end_epoch) = blob_storage::storage_epochs(&self.storage);
+    let age = current_epoch - start_epoch;
+    let max_allowed = calculate_grace_period(age);
+
+    // Cap the user input between 0 and maximum.
+    let capped_grace_period = if (grace_period_epochs > max_allowed) {
+        max_allowed
+    } else {
+        grace_period_epochs
+    };
+
+    self.grace_period_epochs = capped_grace_period;
 }
 
 // === Tip Policy Management ===
