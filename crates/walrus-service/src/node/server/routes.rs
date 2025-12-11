@@ -585,7 +585,7 @@ pub async fn list_raw_recovery_symbols<S: SyncServiceState>(
     Path(BlobIdString(blob_id)): Path<BlobIdString>,
     ExtraQuery(query): ExtraQuery<ListRawRecoverySymbolsQuery>,
 ) -> Result<Bcs<BTreeMap<SliverIndex, Vec<EitherDecodingSymbol>>>, ListSymbolsError> {
-    // TODO(zhewu): add a configuration to throttle this endpoint.
+    // TODO(WAL-1120): add a configuration to throttle this endpoint.
     let symbols = state
         .service
         .retrieve_multiple_raw_recovery_symbols(&blob_id, query.target_slivers, query.target_type)
