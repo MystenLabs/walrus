@@ -8,13 +8,13 @@ use anyhow::Result;
 use sui_types::{
     base_types::ObjectID,
     committee::Committee,
-    messages_checkpoint::TrustedCheckpoint,
+    messages_checkpoint::{TrustedCheckpoint, VerifiedCheckpoint},
     object::Object,
 };
 use typed_store::{
     Map,
     TypedStoreError,
-    rocks::{self, DBMap, MetricConf, ReadWriteOptions, RocksDB},
+    rocks::{self, DBBatch, DBMap, MetricConf, ReadWriteOptions, RocksDB},
 };
 
 use crate::{
@@ -147,6 +147,36 @@ impl EventProcessorStores {
         self.committee_store.schedule_delete_all()?;
         self.event_store.schedule_delete_all()?;
         self.walrus_package_store.schedule_delete_all()?;
+        Ok(())
+    }
+
+    /// Inserts a checkpoint into the checkpoint store in a batch.
+    /// Inv: it should never insert smaller sequence number than the
+    /// current latest checkpoint sequence number.
+    pub fn insert_checkpoint_in_batch(
+        &self,
+        batch: &mut DBBatch,
+        checkpoint: &VerifiedCheckpoint,
+    ) -> Result<(), TypedStoreError> {
+        #[cfg(debug_assertions)]
+        {
+            let current_latest_checkpoint_seq_number = self
+                .checkpoint_store
+                .get(&())?
+                .map(|c| c.inner().sequence_number)
+                .unwrap_or(0);
+            debug_assert!(
+                *checkpoint.sequence_number() > current_latest_checkpoint_seq_number,
+                "attempt to insert checkpoint with sequence number {} which is smaller than the \
+                current latest checkpoint sequence number {}",
+                *checkpoint.sequence_number(),
+                current_latest_checkpoint_seq_number
+            );
+        }
+        batch.insert_batch(
+            &self.checkpoint_store,
+            std::iter::once(((), checkpoint.serializable_ref())),
+        )?;
         Ok(())
     }
 }

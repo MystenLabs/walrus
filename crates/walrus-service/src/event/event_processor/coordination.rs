@@ -3,7 +3,10 @@
 
 //! Coordination module for managing operation between checkpoint downloader and catchup manager.
 
-use std::{sync::Arc, time::Instant};
+use std::{
+    sync::{Arc, atomic::Ordering},
+    time::Instant,
+};
 
 use tokio::sync::{Mutex, Notify, mpsc};
 
@@ -35,9 +38,9 @@ pub struct CatchupCoordinationState {
     /// Timestamp when catchup was last started
     pub last_catchup_start: Arc<Mutex<Option<Instant>>>,
     /// Notifier signaled when checkpoint tailing has fully stopped
-    tailing_stopped_notify: Arc<Notify>,
+    pub tailing_stopped_notify: Arc<Notify>,
     /// Flag indicating whether checkpoint tailing is currently stopped
-    is_tailing_stopped: Arc<std::sync::atomic::AtomicBool>,
+    pub is_tailing_stopped: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl CatchupCoordinationState {
@@ -82,30 +85,43 @@ impl CatchupCoordinationState {
 
     /// Mark that checkpoint tailing has started.
     pub fn mark_tailing_started(&self) {
+        tracing::debug!("marking tailing started");
         self.is_tailing_stopped
             .store(false, std::sync::atomic::Ordering::Release);
     }
 
     /// Notify that checkpoint tailing has fully stopped and wake any waiters.
     pub fn notify_tailing_stopped(&self) {
+        tracing::debug!("notifying tailing stopped");
         self.is_tailing_stopped
             .store(true, std::sync::atomic::Ordering::Release);
-        self.tailing_stopped_notify.notify_one();
+        self.tailing_stopped_notify.notify_waiters();
+    }
+
+    /// Check if checkpoint tailing is currently stopped.
+    pub fn is_tailing_stopped(&self) -> bool {
+        self.is_tailing_stopped.load(Ordering::Acquire)
     }
 
     /// Wait until checkpoint tailing is stopped, with timeout.
-    /// Returns true if stopped, false on timeout.
+    /// Returns true if stopped, false on timeout. `is_tailing_stopped`
+    /// is the source of truth for the tailing stop state. A stale spurious
+    /// notification might cause an extra wake up  but it will be ignored by the loop.
     pub async fn wait_for_tailing_stopped(&self, timeout: std::time::Duration) -> bool {
-        if self
-            .is_tailing_stopped
-            .load(std::sync::atomic::Ordering::Acquire)
-        {
-            return true;
-        }
-        match tokio::time::timeout(timeout, self.tailing_stopped_notify.notified()).await {
-            Ok(()) => true,
-            Err(_) => false,
-        }
+        let fut = async {
+            loop {
+                // We grab the future first and then await it after we check the condition.
+                // This is to avoid a lost wake up when a notification is triggered
+                // after we check the condition but before we await the notification.
+                let fut = self.tailing_stopped_notify.notified();
+                let is_stopped = self.is_tailing_stopped.load(Ordering::Acquire);
+                if is_stopped {
+                    return true;
+                }
+                fut.await;
+            }
+        };
+        tokio::time::timeout(timeout, fut).await.is_ok()
     }
 
     /// Start the download phase of catchup.
