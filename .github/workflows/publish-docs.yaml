@@ -100,6 +100,6 @@ jobs:
 
       - name: Update Walrus Site
         run: >
-          site-builder
+          site-builder --gas-budget 1000000000
           update ${{ env.BUILD_DIR }} ${{ vars.WALRUS_SITE_OBJECT_DOCS }}
           --epochs ${{ env.EPOCHS }}
