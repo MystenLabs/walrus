@@ -18,8 +18,9 @@ const __dirname = path.dirname(__filename);
 /** @type {import('@docusaurus/types').Config} */
 const config = {
     title: "Walrus Docs",
-    tagline: "Where the world’s data becomes reliable, valuable, and governable",
+    tagline: "Where the world's data becomes reliable, valuable, and governable",
     favicon: "img/favicon.ico",
+    trailingSlash: false,
 
     // Future flags, see https://docusaurus.io/docs/api/docusaurus-config#future
     future: {
@@ -50,17 +51,65 @@ const config = {
 
     plugins: [
         "docusaurus-plugin-copy-page-button",
-            [
-      require.resolve("./src/plugins/plausible"),
-      {
-        domain: "docs.wal.app",
-        enableInDev: false,
-        trackOutboundLinks: true,
-        hashMode: false,
-        trackLocalhost: false,
-      },
-    ],
+        [
+            require.resolve("./src/plugins/plausible"),
+            {
+                domain: "docs.wal.app",
+                enableInDev: false,
+                trackOutboundLinks: true,
+                hashMode: false,
+                trackLocalhost: false,
+            },
+        ],
+        [
+            "@docusaurus/plugin-client-redirects",
+            {
+                // Optional: keep if you want /foo.html -> /foo automatically
+                fromExtensions: ["html", "htm"],
+
+                redirects: [
+                    // explicit homepage legacy
+                    { from: "/index.html", to: "/" },
+                ],
+
+                createRedirects(existingPath) {
+                    if (existingPath === "/" || existingPath === "") return undefined;
+
+                    // normalize (remove trailing slash except root)
+                    const normalized =
+                        existingPath.length > 1 && existingPath.endsWith("/")
+                            ? existingPath.slice(0, -1)
+                            : existingPath;
+
+                    const redirects = [];
+
+                    const addLegacy = (fromPath) => {
+                        redirects.push(fromPath);
+                        redirects.push(`${fromPath}.html`);
+                    };
+
+                    // OLD prefix → NEW prefix (this fixes /usage/setup.html#... etc.)
+                    if (normalized.startsWith("/docs/")) {
+                      const newPath = normalized.replace("/docs/", "/");
+                      if (
+                        newPath.startsWith("/usage/") ||
+                        newPath.startsWith("/design/") ||
+                        newPath.startsWith("/dev-guide/") ||
+                        newPath.startsWith("/legal/") ||
+                        newPath.startsWith("/operator-guide/") ||
+                        newPath.startsWith("/walrus-sites/")
+                      ) {
+                        addLegacy(newPath);
+                      }
+                    }
+
+                    return redirects.length ? redirects : undefined;
+                },
+            },
+        ],
+
         "./src/plugins/tailwind-config.js",
+
         function docsAliasPlugin() {
             return {
                 name: "docs-alias-plugin",
@@ -75,9 +124,11 @@ const config = {
                 },
             };
         },
-        path.resolve(__dirname, `./src/plugins/askcookbook/index.js`),
-        path.resolve(__dirname, `./src/plugins/descriptions`),
+
+        path.resolve(__dirname, "./src/plugins/askcookbook/index.js"),
+        path.resolve(__dirname, "./src/plugins/descriptions"),
     ],
+
     presets: [
         [
             "classic",
