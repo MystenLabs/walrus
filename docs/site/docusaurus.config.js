@@ -64,7 +64,7 @@ const config = {
         [
             "@docusaurus/plugin-client-redirects",
             {
-                // Optional: keep if you want /foo.html -> /foo automatically
+                // Automatically redirect /foo.html -> /foo
                 fromExtensions: ["html", "htm"],
 
                 redirects: [
@@ -91,16 +91,7 @@ const config = {
                     // OLD prefix → NEW prefix (this fixes /usage/setup.html#... etc.)
                     if (normalized.startsWith("/docs/")) {
                       const newPath = normalized.replace("/docs/", "/");
-                      if (
-                        newPath.startsWith("/usage/") ||
-                        newPath.startsWith("/design/") ||
-                        newPath.startsWith("/dev-guide/") ||
-                        newPath.startsWith("/legal/") ||
-                        newPath.startsWith("/operator-guide/") ||
-                        newPath.startsWith("/walrus-sites/")
-                      ) {
-                        addLegacy(newPath);
-                      }
+                      addLegacy(newPath);
                     }
 
                     return redirects.length ? redirects : undefined;
