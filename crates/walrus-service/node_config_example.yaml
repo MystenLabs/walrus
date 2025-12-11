@@ -228,9 +228,9 @@ node_recovery_config:
 blob_event_processor_config:
   num_workers: 10
 garbage_collection:
-  enable_blob_info_cleanup: false
-  enable_data_deletion: false
+  enable_blob_info_cleanup: true
+  enable_data_deletion: true
   enable_random_delay: true
   randomization_time_window_secs: null
-  blob_objects_batch_size: 10000
-  data_deletion_batch_size: 1000
+  blob_objects_batch_size: 100000
+  data_deletion_batch_size: 5000
