@@ -74,8 +74,10 @@ jobs:
           GITHUB_ACTOR: ${{ github.actor }}
         shell: bash
         run: |
-          export PR_URL=$(./scripts/bump_sui_testnet_version.sh "${{ env.NEW_TAG }}" | tail -1)
-          echo "PR_URL=${PR_URL}" >> "$GITHUB_OUTPUT"
+          # export PR_URL=$(./scripts/bump_sui_testnet_version.sh "${{ env.NEW_TAG }}" | tail -1)
+          # echo "PR_URL=${PR_URL}" >> "$GITHUB_OUTPUT"
+
+          echo "PR_URL=test" >> "$GITHUB_OUTPUT"
 
   notify:
     needs: bump
@@ -136,7 +138,7 @@ jobs:
           method: chat.postMessage
           token: ${{ secrets.SLACK_BOT_TOKEN }}
           payload: |
-            channel: "walrus-ci"
+            channel: "test-notifications"
             text: |
               <!here> :walrus_face::rocket: New Sui version `${{ env.NEW_TAG }}` bump PR created: ${{ needs.bump.outputs.pr_url }} for walrus
               <@${{ env.SLACK_ID }}>, current `${{ env.ONCALL_NAME }}` oncall, please do the following:
