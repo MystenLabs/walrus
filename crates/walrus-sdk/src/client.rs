@@ -60,7 +60,7 @@ use walrus_core::{
     messages::{BlobPersistenceType, ConfirmationCertificate, SignedStorageConfirmation},
     metadata::{BlobMetadataApi as _, VerifiedBlobMetadataWithId},
 };
-use walrus_storage_node_client::api::BlobStatus;
+use walrus_storage_node_client::{UploadIntent, api::BlobStatus};
 use walrus_sui::{
     client::{CertifyAndExtendBlobResult, ExpirySelectionPolicy, ReadClient, SuiContractClient},
     types::{
@@ -894,6 +894,7 @@ impl<T: ReadClient> WalrusNodeClient<T> {
                     pairs_per_node
                         .remove(&nc.node_index)
                         .expect("there are shards for each node"),
+                    UploadIntent::Immediate,
                 )
             })
             .collect();
@@ -1655,6 +1656,7 @@ impl<T> WalrusNodeClient<T> {
                             .store_metadata_and_pairs_without_confirmation(
                                 &item.metadata,
                                 item.pair_indices.iter().map(|&i| &item.pairs[i]),
+                                UploadIntent::Immediate,
                             )
                             .await;
 

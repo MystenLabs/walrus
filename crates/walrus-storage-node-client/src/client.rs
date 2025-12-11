@@ -59,6 +59,23 @@ pub use builder::StorageNodeClientBuilder;
 
 mod middleware;
 
+/// Indicates how the storage node should treat uploads.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum UploadIntent {
+    /// Store immediately; reject if the blob is not yet registered.
+    #[default]
+    Immediate,
+    /// Cache the upload until the blob registration is observed.
+    Pending,
+}
+
+impl UploadIntent {
+    /// Returns true if the upload should be cached until registration completes.
+    pub fn is_pending(self) -> bool {
+        matches!(self, Self::Pending)
+    }
+}
+
 const METADATA_URL_TEMPLATE: &str = "/v1/blobs/:blob_id/metadata";
 const METADATA_STATUS_URL_TEMPLATE: &str = "/v1/blobs/:blob_id/metadata/status";
 const SLIVER_URL_TEMPLATE: &str = "/v1/blobs/:blob_id/slivers/:sliver_pair_index/:sliver_type";
@@ -205,6 +222,13 @@ impl UrlEndpoints {
             SYNC_SHARD_TEMPLATE,
         )
     }
+}
+
+fn url_with_intent(mut url: Url, intent: UploadIntent) -> Url {
+    if intent.is_pending() {
+        url.query_pairs_mut().append_pair("pending", "true");
+    }
+    url
 }
 
 /// Filter for [`StorageNodeClient::list_recovery_symbols()`] endpoint.
@@ -617,28 +641,35 @@ impl StorageNodeClient {
         .map_err(|_| NodeError::other(ListAndVerifyRecoverySymbolsError::BackgroundWorkerFailed))?
     }
 
-    /// Stores the metadata on the node.
+    /// Stores the metadata on the node with the provided upload intent.
     #[tracing::instrument(
-        skip_all, fields(walrus.blob_id = %metadata.blob_id()), err(level = Level::DEBUG)
+        skip_all, fields(walrus.blob_id = %metadata.blob_id(), walrus.intent = ?intent),
+        err(level = Level::DEBUG)
     )]
     pub async fn store_metadata(
         &self,
         metadata: &VerifiedBlobMetadataWithId,
+        intent: UploadIntent,
     ) -> Result<(), NodeError> {
         let (url, template) = self.endpoints.metadata(metadata.blob_id());
-        let request = self.create_request_with_payload(Method::PUT, url, metadata.as_ref());
+        let request = self.create_request_with_payload(
+            Method::PUT,
+            url_with_intent(url, intent),
+            metadata.as_ref(),
+        );
         self.send_and_parse_service_response::<String>(request, template)
             .await?;
         Ok(())
     }
 
-    /// Stores a sliver on a node.
+    /// Stores a sliver on a node with the provided upload intent.
     #[tracing::instrument(
         skip_all,
         fields(
             walrus.blob_id = %blob_id,
             walrus.sliver.pair_index = %pair_index,
             walrus.sliver.type_ = %A::NAME,
+            walrus.intent = ?intent,
         ),
         err(level = Level::DEBUG)
     )]
@@ -647,27 +678,32 @@ impl StorageNodeClient {
         blob_id: &BlobId,
         pair_index: SliverPairIndex,
         sliver: &SliverData<A>,
+        intent: UploadIntent,
     ) -> Result<(), NodeError> {
         tracing::trace!("starting to store sliver");
         let (url, template) = self.endpoints.sliver::<A>(blob_id, pair_index);
-        let request = self.create_request_with_payload(Method::PUT, url, &sliver);
+        let request =
+            self.create_request_with_payload(Method::PUT, url_with_intent(url, intent), &sliver);
         self.send_and_parse_service_response::<String>(request, template)
             .await
             .inspect_err(|error| tracing::debug!(?error, "error storing sliver"))?;
         Ok(())
     }
 
-    /// Stores a sliver on a node.
+    /// Stores a sliver on a node with the provided upload intent.
     #[tracing::instrument(skip_all, err(level = Level::DEBUG))]
     pub async fn store_sliver_by_type(
         &self,
         blob_id: &BlobId,
         pair_index: SliverPairIndex,
         sliver: &Sliver,
+        intent: UploadIntent,
     ) -> Result<(), NodeError> {
         match sliver {
-            Sliver::Primary(sliver) => self.store_sliver(blob_id, pair_index, sliver).await,
-            Sliver::Secondary(sliver) => self.store_sliver(blob_id, pair_index, sliver).await,
+            Sliver::Primary(sliver) => self.store_sliver(blob_id, pair_index, sliver, intent).await,
+            Sliver::Secondary(sliver) => {
+                self.store_sliver(blob_id, pair_index, sliver, intent).await
+            }
         }
     }
 
