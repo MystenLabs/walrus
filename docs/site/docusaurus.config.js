@@ -104,7 +104,6 @@ const config = {
 
                     return redirects.length ? redirects : undefined;
                 },
-            },
         ],
 
         "./src/plugins/tailwind-config.js",
