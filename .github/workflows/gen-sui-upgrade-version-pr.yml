@@ -127,20 +127,20 @@ jobs:
           echo "slack_id=$(echo ${slack_id} | tr -d '"')" >> $GITHUB_ENV
 
       - name: Post to slack
-        # TODO(WAL-1119): manually bump this to v2 and remove from Dependabot ignore list.
-        uses: slackapi/slack-github-action@34c3fd73326693ef04728f8611669d918a2d781d # pin@v1.19.0
+        uses: slackapi/slack-github-action@485a9d42d3a73031f12ec201c457e2162c45d02d # pin@v2.1.1
         env:
-          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
-          SUI_SHA: ${{ env.sui_sha }}
           GH_JOB_LINK: ${{ env.gh_job_link }}
           SLACK_ID: ${{ env.slack_id }}
           ONCALL_NAME: ${{ env.oncall_name }}
         with:
-          channel-id: "walrus-ci"
-          slack-message: |
-            <!here> :walrus_face::rocket: New Sui version `${{ env.NEW_TAG }}` bump PR created: ${{ needs.bump.outputs.pr_url }} for walrus
-            <@${{ env.SLACK_ID }}>, current `${{ env.ONCALL_NAME }}` oncall, please do the following:
-            1. Trigger the CI to run on the PR by checking out the PR branch and running:
-              `git commit --allow-empty -m "Empty commit to trigger CI" && git push`
-            2. Approve and merge the PR if CI passes.
-            Run: <${{ env.GH_JOB_LINK }}|${{ github.run_id }}>
+          method: chat.postMessage
+          token: ${{ secrets.SLACK_BOT_TOKEN }}
+          payload: |
+            channel: "walrus-ci"
+            text: |
+              <!here> :walrus_face::rocket: New Sui version `${{ env.NEW_TAG }}` bump PR created: ${{ needs.bump.outputs.pr_url }} for walrus
+              <@${{ env.SLACK_ID }}>, current `${{ env.ONCALL_NAME }}` oncall, please do the following:
+              1. Trigger the CI to run on the PR by checking out the PR branch and running:
+                `git commit --allow-empty -m "Empty commit to trigger CI" && git push`
+              2. Approve and merge the PR if CI passes.
+              Run: <${{ env.GH_JOB_LINK }}|${{ github.run_id }}>
