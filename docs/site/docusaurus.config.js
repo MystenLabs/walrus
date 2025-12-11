@@ -89,24 +89,18 @@ const config = {
                     };
 
                     // OLD prefix → NEW prefix (this fixes /usage/setup.html#... etc.)
-                    if (normalized.startsWith("/docs/usage/")) {
-                        addLegacy(normalized.replace("/docs/usage/", "/usage/"));
-                    }
-                    if (normalized.startsWith("/docs/design/")) {
-                        addLegacy(normalized.replace("/docs/design/", "/design/"));
-                    }
-                    if (normalized.startsWith("/docs/dev-guide/")) {
-                        addLegacy(normalized.replace("/docs/dev-guide/", "/dev-guide/"));
-                    }
-                    if (normalized.startsWith("/docs/legal/")) {
-                        addLegacy(normalized.replace("/docs/legal/", "/legal/"));
-                    }
-                    if (normalized.startsWith("/docs/operator-guide/")) {
-                        addLegacy(normalized.replace("/docs/operator-guide/", "/operator-guide/"));
-                    }
-                    if (normalized.startsWith("/docs/walrus-sites/")) {
-                        addLegacy(normalized.replace("/docs/walrus-sites/", "/walrus-sites/"));
-                    }
+                    if (normalized.startsWith("/docs/")) {
+                      const newPath = normalized.replace("/docs/", "/");
+                      if (
+                        newPath.startsWith("/usage/") ||
+                        newPath.startsWith("/design/") ||
+                        newPath.startsWith("/dev-guide/") ||
+                        newPath.startsWith("/legal/") ||
+                        newPath.startsWith("/operator-guide/") ||
+                        newPath.startsWith("/walrus-sites/")
+                      ) {
+                        addLegacy(newPath);
+                      }
 
                     return redirects.length ? redirects : undefined;
                 },
