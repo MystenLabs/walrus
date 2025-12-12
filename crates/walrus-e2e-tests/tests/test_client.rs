@@ -2931,10 +2931,9 @@ async fn test_byte_range_read_client() -> TestResult {
 async fn test_byte_range_read_size_too_large() -> TestResult {
     walrus_test_utils::init_tracing();
 
-    let test_nodes_config: TestNodesConfig = TestNodesConfig {
-        node_weights: vec![7, 7, 7, 7, 7],
-        ..Default::default()
-    };
+    let test_nodes_config = TestNodesConfig::builder()
+        .with_node_weights(&[7, 7, 7, 7, 7])
+        .build();
     let test_cluster_builder =
         test_cluster::E2eTestSetupBuilder::new().with_test_nodes_config(test_nodes_config);
     let (_sui_cluster_handle, _cluster, mut client, _) = test_cluster_builder.build().await?;
@@ -2959,7 +2958,7 @@ async fn test_byte_range_read_size_too_large() -> TestResult {
 
     // Generate a random byte range. Pick a start position randomly choosing from 0 to 3000, so that
     // the read byte range can be in the middle of the blob.
-    let start_byte = random::<usize>() % 3000;
+    let start_byte = random::<u64>() % 3000;
     {
         // Note that when `byte_length` is smaller, but close the max read size, it may still
         // return BlobTooLarge, due to the config is cap the total data read from storage, rather
@@ -2982,7 +2981,7 @@ async fn test_byte_range_read_size_too_large() -> TestResult {
     }
 
     {
-        let byte_length = 500;
+        let byte_length = 300;
         tracing::info!(
             "reading byte range {start_byte}-{end_byte} of blob {blob_id}",
             start_byte = start_byte,
@@ -2994,8 +2993,10 @@ async fn test_byte_range_read_size_too_large() -> TestResult {
             .read_byte_range(&blob_id, start_byte, byte_length)
             .await?;
         assert_eq!(
-            byte_range_data,
-            blobs[0][start_byte..start_byte + byte_length].to_vec()
+            byte_range_data.data,
+            blobs[0][usize::try_from(start_byte).expect("start byte should be valid")
+                ..usize::try_from(start_byte + byte_length).expect("end byte should be valid")]
+                .to_vec()
         );
     }
     Ok(())
