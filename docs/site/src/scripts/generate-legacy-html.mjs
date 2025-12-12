@@ -36,7 +36,12 @@ function ensureDir(p) {
 }
 
 function htmlRedirect(to) {
-return `<!doctype html>
+return `<!--
+  Copyright (c) Walrus Foundation
+  SPDX-License-Identifier: Apache-2.0
+-->
+
+<!doctype html>
 <meta charset="utf-8">
 <title>Redirecting…</title>
 <link rel="canonical" href="${to}">
