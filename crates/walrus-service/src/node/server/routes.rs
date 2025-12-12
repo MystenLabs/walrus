@@ -86,8 +86,9 @@ pub const DELETABLE_BLOB_CONFIRMATION_ENDPOINT: &str =
     "/v1/blobs/{blob_id}/confirmation/deletable/{object_id}";
 /// The path to get multiple recovery symbols.
 pub const LIST_RECOVERY_SYMBOL_ENDPOINT: &str = "/v1/blobs/{blob_id}/recoverySymbols";
-/// The path to get raw recovery symbols without proof.
-pub const LIST_RAW_RECOVERY_SYMBOL_ENDPOINT: &str = "/v1/blobs/{blob_id}/rawRecoverySymbols";
+/// The path to get decoding symbols to decode target slivers.
+/// It is essentially recovery symbols without proof.
+pub const LIST_DECODING_SYMBOL_ENDPOINT: &str = "/v1/blobs/{blob_id}/decodingSymbols";
 /// The path to push inconsistency proofs.
 pub const INCONSISTENCY_PROOF_ENDPOINT: &str =
     "/v1/blobs/{blob_id}/inconsistencyProof/{sliver_type}";
@@ -559,7 +560,7 @@ fn limit_symbol_recovery_requests(
 #[derive(Debug, Clone, Deserialize, utoipa::IntoParams)]
 #[serde(rename_all = "camelCase")]
 #[into_params(style = Form, parameter_in = Query)]
-pub struct ListRawRecoverySymbolsQuery {
+pub struct ListDecodingSymbolsQuery {
     /// The sliver indexes of the target sliver being recovered.
     #[serde_as(as = "OneOrMany<_>")]
     target_slivers: Vec<SliverIndex>,
@@ -571,24 +572,23 @@ pub struct ListRawRecoverySymbolsQuery {
 #[tracing::instrument(skip_all, err(level = Level::DEBUG), fields(walrus.blob_id = %blob_id))]
 #[utoipa::path(
     get,
-    path = LIST_RAW_RECOVERY_SYMBOL_ENDPOINT,
-    params(("blob_id" = BlobId,), ListRawRecoverySymbolsQuery),
+    path = LIST_DECODING_SYMBOL_ENDPOINT,
+    params(("blob_id" = BlobId,), ListDecodingSymbolsQuery),
     responses(
-        (status = 200, description = "List of BCS-encoded recovery symbols without proof",
-        body = [u8]),
+        (status = 200, description = "List of BCS-encoded decoding symbols", body = [u8]),
         ListSymbolsError,
     ),
     tag = openapi::GROUP_RECOVERY
 )]
-pub async fn list_raw_recovery_symbols<S: SyncServiceState>(
+pub async fn list_decoding_symbols<S: SyncServiceState>(
     State(state): State<RestApiState<S>>,
     Path(BlobIdString(blob_id)): Path<BlobIdString>,
-    ExtraQuery(query): ExtraQuery<ListRawRecoverySymbolsQuery>,
+    ExtraQuery(query): ExtraQuery<ListDecodingSymbolsQuery>,
 ) -> Result<Bcs<BTreeMap<SliverIndex, Vec<EitherDecodingSymbol>>>, ListSymbolsError> {
     // TODO(WAL-1120): add a configuration to throttle this endpoint.
     let symbols = state
         .service
-        .retrieve_multiple_raw_recovery_symbols(&blob_id, query.target_slivers, query.target_type)
+        .retrieve_multiple_decoding_symbols(&blob_id, query.target_slivers, query.target_type)
         .await?;
 
     Ok(Bcs(symbols))
