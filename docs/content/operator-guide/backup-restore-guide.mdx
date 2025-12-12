@@ -7,52 +7,67 @@ keywords: ["walrus", "backup", "restore", "storage node", "database", "recovery"
 Walrus storage nodes provide backup and restore functionality for the primary database containing blob data. This guide covers configuration requirements, operational procedures, and best practices for both automated and manual backup processes, and restore operations.
 
 :::info
+
 The current backup implementation creates full copies of the database files. This means backups require substantial disk space (approximately the same size as your active database). A checkpoint-based solution is planned for a future release.
+
 :::
 
-## Prerequisites
+<Tabs className="tabsHeadingCentered--small">
+<TabItem value="prereq" label="Prerequisites">
 
-- Storage node must be running with appropriate permissions to create backups.
-- Sufficient disk space for backup storage (recommended: separate physical volume).
-- Unix or Linux operating system with support for Unix domain sockets.
-- `walrus` user account with appropriate permissions.
+- [x] Storage node running with appropriate permissions to create backups.
 
-### Local administration socket configuration
+- [x] Sufficient disk space for backup storage. A separate physical volume is recommended.
 
-The backup system communicates with running storage nodes through a Unix domain socket. To enable this functionality:
+- [x] Unix or Linux operating system with support for Unix domain sockets.
 
-1. **Configure the administration socket path** in your node configuration file:
-```yaml
-    admin_socket_path: /opt/walrus/admin.socket
-```
+- [x] `walrus` [user account](/docs/usage/started.mdx) with appropriate permissions.
 
-2. **Restart the storage node** to initialize the socket:
-```sh
-    $ sudo systemctl restart walrus-node.service
-```
+- [x] Configure the local administration socket
 
-3. **Verify socket creation**:
-```sh
-    $ ls -la /opt/walrus/admin.socket
-```
+    The backup system communicates with running storage nodes through a Unix domain socket. To enable this functionality:
 
-:::warning
-The storage node creates the socket with permissions `srw------- 1 walrus walrus`, ensuring that only the `walrus` user can send operations to it. This is critical for security, as operations sent to this socket are executed directly on the running storage node.
+    1. Configure the administration socket path in your node configuration file:
 
-Currently supported operations include:
-- **local-admin checkpoint**
-- **local-admin log-level**
-:::
+    ```yaml
+        admin_socket_path: /opt/walrus/admin.socket
+    ```
 
-## Automated periodic backups
+    2. Restart the storage node to initialize the socket:
 
-Storage nodes support scheduled automatic backups through checkpoint configuration. Add the following configs to your node configuration:
+    ```sh
+        $ sudo systemctl restart walrus-node.service
+    ```
+
+    3. Verify socket creation:
+
+    ```sh
+        $ ls -la /opt/walrus/admin.socket
+    ```
+
+    :::warning
+
+    The storage node creates the socket with permissions `srw------- 1 walrus walrus`, ensuring that only the `walrus` user can send operations to it. This is critical for security, as operations sent to this socket are executed directly on the running storage node.
+
+    Currently supported operations include:
+    - **local-admin checkpoint**
+    - **local-admin log-level**
+
+    :::
+
+</TabItem>
+</Tabs>
+
+## Set up automated periodic backups
+
+Storage nodes support scheduled automatic backups through checkpoint configuration. Add the following configuration to your node configuration:
+
 ```yaml
 checkpoint_config:
-  # Directory where backups will be stored
+  # Directory where backups are stored
   db_checkpoint_dir: /opt/walrus/checkpoints
 
-  # Number of backups to retain (oldest will be deleted)
+  # Number of backups to retain (oldest are deleted)
   max_db_checkpoints: 2
 
   # Backup frequency (example: 4-hour interval)
@@ -76,15 +91,16 @@ To disable automated backups, set `periodic_db_checkpoints: false` in your confi
 
 :::
 
-## Manual backup creation
+## Create manual backups
 
 Create on-demand backups using the `local-admin` command:
 
 :::info
 
-The following commands assume `walrus-node` is in your system's PATH. If it's not, replace `walrus-node` with the full path to the binary, for example `/opt/walrus/bin/walrus-node`.
+The following commands assume `walrus-node` is in your system's PATH. If not, replace `walrus-node` with the full path to the binary, for example `/opt/walrus/bin/walrus-node`.
 
 :::
+
 ```sh
 # Basic backup command
 $ sudo -u walrus walrus-node local-admin \
@@ -95,11 +111,12 @@ $ sudo -u walrus walrus-node local-admin \
 
 :::tip
 
-The backup operation runs in the background within the storage node. Once the backup creation is initialized, the process continues independently even if the command-line interface is terminated.
+The backup operation runs in the background within the storage node. After the backup creation is initialized, the process continues independently even if the command-line interface is terminated.
 
 :::
 
 ## List available backups
+
 ```sh
 $ sudo -u walrus walrus-node local-admin \
     --socket-path /opt/walrus/admin.socket \
@@ -108,6 +125,7 @@ $ sudo -u walrus walrus-node local-admin \
 ```
 
 **Sample output:**
+
 ```sh
 Backups:
 Backup ID: 1, Size: 85.9 GB, Files: 1055, Created: 2025-07-02T00:25:48Z
@@ -124,47 +142,49 @@ Do not copy backup directories directly to the storage node's data path. The res
 
 Follow these steps to restore from a backup:
 
-1. **Stop the storage node service**:
+1. Stop the storage node service:
+
 ```sh
     $ sudo systemctl stop walrus-node.service
 ```
 
-    **Verify the service is stopped**
+Verify the service is stopped:
+
 ```sh
     $ sudo systemctl status walrus-node.service
 ```
 
-2. **Optional: Backup current database** Assuming the Walrus storage path is: `storage_path: /opt/walrus/db`:
+2. Optional: Back up the current database. Assuming the Walrus storage path is `storage_path: /opt/walrus/db`:
+
 ```sh
     $ sudo -u walrus cp -r /opt/walrus/db /opt/walrus/db.backup.$(date +%Y%m%d-%H%M%S)
 ```
 
-    This command saves the main database files, events database (`/opt/walrus/db/events/`), and event blob data (`/opt/walrus/db/event_blob_writer/`).
+This command saves the main database files, events database (`/opt/walrus/db/events/`), and event blob data (`/opt/walrus/db/event_blob_writer/`).
 
-3. **Clear existing data** (if performing a clean restore):
-
-    Remove all existing database files to ensure a clean restore. Assuming the Walrus storage path is: `storage_path: /opt/walrus/db`:
+3. Clear existing data (if performing a clean restore). Remove all existing database files to ensure a clean restore. Assuming the Walrus storage path is `storage_path: /opt/walrus/db`:
 ```sh
     $ sudo -u walrus rm -rf /opt/walrus/db/*
 ```
 
-    This command removes the main database files, events database (`/opt/walrus/db/events/`), and event blob data (`/opt/walrus/db/event_blob_writer/`).
+This command removes the main database files, events database `/opt/walrus/db/events/`, and event blob data `/opt/walrus/db/event_blob_writer/`.
 
-4. **Restore main database**:
+4. Restore the main database.
 
-    :::warning
+:::warning
 
-    The restore process can take significant time depending on database size. Run the restore command in a persistent session using `tmux` or `screen` to prevent interruption if your connection drops.
+The restore process can take significant time depending on database size. Run the restore command in a persistent session using `tmux` or `screen` to prevent interruption if your connection drops.
 
-    :::
+:::
 
-    :::note
+:::info
 
-    As mentioned earlier, if `walrus-node` is not in your PATH, use the full path to the binary.
+If `walrus-node` is not in your PATH, use the full path to the binary.
 
-    :::
+:::
 
-    Restore from specific checkpoint:
+Restore from a specific checkpoint:
+
 ```sh
     $ sudo -u walrus walrus-node \
         restore \
@@ -173,7 +193,8 @@ Follow these steps to restore from a backup:
         --checkpoint-id 2
 ```
 
-    Or restore from latest checkpoint (omit `--checkpoint-id`):
+Or, restore from the latest checkpoint by omitting `--checkpoint-id`:
+
 ```sh
     $ sudo -u walrus walrus-node \
         restore \
@@ -181,12 +202,14 @@ Follow these steps to restore from a backup:
         --db-path /opt/walrus/db
 ```
 
-5. **Start the storage node**:
+5. Start the storage node:
+
 ```sh
     $ sudo systemctl start walrus-node.service
 ```
 
-    Monitor startup logs:
+Monitor startup logs:
+
 ```sh
     $ sudo journalctl -u walrus-node.service -f
 ```
