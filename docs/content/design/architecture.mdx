@@ -4,66 +4,69 @@ description: "Overview of Walrus system architecture including users, storage no
 keywords: ["walrus", "architecture", "storage nodes", "shards", "byzantine fault tolerance", "aggregators", "publishers", "clients", "security assumptions"]
 ---
 
-The key actors in the Walrus architecture are the following:
+The Walrus architecture is built on the following key actors:
 
-- **Users** through **clients** want to store and read **blobs** identified by their **blob ID**.
+- **Users:** Clients that store and retrieve data blobs.
+- **Storage nodes:** Distributed storage nodes that hold erasure-coded data.
+- **Blockchain coordination:** [Sui blockchain](https://github.com/MystenLabs/sui) that manages payments, metadata, and system orchestration.
 
-  These actors are ready to pay for service
-  when it comes to writes and non-best-effort reads. Users also want to prove
-  the **availability** of a blob to third parties without the cost of sending or receiving the full
-  blob.
+## Users
 
-  Users might be malicious in various ways: they might not want to pay for services, prove the
-  availability of unavailable blobs, modify/delete blobs without authorization, try to
-  exhaust resources of storage nodes, and so on.
+**Users** interact with Walrus through **clients** to store and read **blobs**, which are identified by their **blob ID**. Users engage with the system in two primary ways:
 
-- **Storage nodes** hold one or many **shards** within a **storage epoch**.
+- **Storage:** Users store new blobs and pay [required costs](/dev-guide/costs.mdx) for [write](/dev-guide/dev-operations.mdx#store) and [non-best-effort read](/dev-guide/dev-operations.mdx#read) operations.
+- **Availability:** Users can [prove a blob's availability to third parties](/dev-guide/dev-operations.mdx#certify-availability) without the cost of transmitting the full blob.
 
-  Each blob is erasure-encoded into many **slivers**. Slivers from each stored blob become part
-  of all shards. A shard at any storage epoch is associated with a storage node that actually stores
-  all slivers of the shard and is ready to serve them.
+Users might also exhibit malicious behavior, including:
+- Refusing to pay for services
+- Attempting to prove availability of unavailable blobs
+- Modifying or deleting blobs without authorization
+- Exhausting storage node resources.
 
-  A Sui smart contract controls the assignment of shards to storage nodes within
-  **storage epochs** (2 weeks on Mainnet), and Walrus assumes that more than 2/3 of the
-  shards are managed by correct storage nodes within each storage epoch. This means that Walrus must
-  tolerate up to 1/3 of the shards managed by Byzantine storage nodes (approximately 1/3 of the
-  storage nodes being Byzantine) within each storage epoch and across storage epochs.
+## Storage nodes
 
-- All clients and storage nodes operate a blockchain client (specifically on Sui), and mediate
-  payments, resources (space), mapping of shards to storage nodes, and metadata through blockchain
-  smart contracts. Users interact with the blockchain to acquire storage resources and upload
-  certificates for stored blobs. Storage nodes listen to the blockchain events to coordinate
-  their operations.
+**Storage nodes** manage the actual data storage in Walrus. Each storage node holds one or more **shards** during a **storage epoch**. Each blob undergoes erasure encoding, which splits it into many **slivers**. These slivers from each stored blob become distributed across all shards in the system. At any given storage epoch, a storage node associates with one or more shards. The node stores all slivers belonging to its assigned shards and serves them upon request.
 
-Walrus supports any additional number of optional infrastructure actors that can operate in a
-permissionless way:
+## Blockchain coordination
 
-- **Aggregators** are clients that reconstruct blobs from slivers and make them available to users
-  over traditional web2 technologies (such as HTTP). They are optional in that end users may
-  reconstruct blobs directly or run a local aggregator to perform Walrus reads over web2
-  technologies locally.
+All clients and storage nodes run a Sui blockchain client, which provides the coordination layer for the entire system. The Sui chain manages several operations, including:
 
-- **Caches** are aggregators with additional caching functionality to decrease latency and reduce
-  load on storage nodes. Such cache infrastructures may also act as CDNs, split the cost of blob
-  reconstruction over many requests, be better connected, and so on. A client can always verify that
-  reads from such infrastructures are correct.
+- **Payments:** Processing storage fees and service payments
+- **Resource management:** Allocating and tracking storage capacity
+- **Shard assignment:** Mapping shards to storage nodes
+- **Metadata management:** Storing blob certificates and system state
 
-- **Publishers** are clients that help end users store a blob using web2 technologies,
-  using less bandwidth and custom logic.
+Users interact with the Sui chain to acquire storage resources and submit certificates for stored blobs. Storage nodes monitor blockchain events to coordinate their operations and respond to system changes.
 
-  In effect, they receive the blob to be published over traditional web2 protocols (like HTTP) and
-  run the Walrus store protocol on the end user's behalf. This includes encoding the blob into
-  slivers, distributing the slivers to storage nodes, collecting storage-node signatures and
-  aggregating them into a certificate, as well as all other on-chain actions.
+### Byzantine fault tolerance
 
-  They are optional in that a user can directly interact with Sui and
-  the storage nodes to store blobs. An end user can always verify that a publisher
-  performed their duties correctly by checking that an event associated with the
-  **[point of availability](/design/properties.mdx)** for the blob exists on chain
-  and then either performing a read to see if Walrus returns the blob or encoding the blob
-  and comparing the result to the blob ID in the certificate.
+A Sui smart contract controls how shards are assigned to storage nodes. These assignments occur within **storage epochs**, which last 2 weeks on Mainnet.
 
-Aggregators, publishers, and end users are not considered trusted components of the system, and they
-might deviate from the protocol arbitrarily. However, some of the security properties of Walrus only
-hold for honest end users that use honest intermediaries (caches and publishers). Walrus provides a
-means for end users to audit the correct operation of both caches and publishers.
+Walrus assumes that more than 2/3 of shards are managed by correct storage nodes within each storage epoch. The system tolerates up to 1/3 of shards being controlled by Byzantine (malicious or faulty) storage nodes. This tolerance level applies both within individual storage epochs and across transitions between epochs.
+
+## Optional infrastructure
+
+Walrus supports any additional number of optional infrastructure actors that can operate in a permissionless way:
+
+### Aggregators 
+
+Aggregators are clients that reconstruct complete blobs from individual slivers and serve them to users over traditional Web2 technologies like HTTP. They are optional because end users can reconstruct blobs directly from storage nodes or run a local aggregator to perform reads over Web2 protocols.
+
+### Caches
+
+Caches are aggregators with additional caching functionality to decrease latency and reduce load on storage nodes. Cache infrastructures can also act as CDNs, split the cost of blob reconstruction over many requests, and provide better network connectivity. A client can always verify that reads from cache infrastructures are correct.
+
+### Publishers
+
+Publishers are clients that help end users store blobs through Web2 technologies while using less bandwidth and offering custom logic. Publishers streamline the storage process by:
+
+1. Receiving the blob over traditional Web2 protocols (like HTTP)
+2. Encoding the blob into slivers
+3. Distributing slivers to storage nodes
+4. Collecting storage node signatures
+5. Aggregating signatures into a certificate
+6. Performing all required on-chain actions
+
+Publishers are optional because users can directly interact with Sui and storage nodes to store blobs. An end user can always verify that a publisher performed their duties correctly by checking that an event associated with the **[point of availability](/design/properties.mdx)** for the blob exists on-chain, and then either performing a read to see if Walrus returns the blob, or encoding the blob and comparing the result to the blob ID in the certificate.
+
+Aggregators, publishers, and end users are not considered trusted system components, and they might arbitrarily deviate from protocol. However, some of the security properties of Walrus only hold for honest end users that use honest intermediaries (caches and publishers). Walrus provides a means for end users to audit the correct operation of both caches and publishers.
