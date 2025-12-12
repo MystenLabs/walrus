@@ -1,13 +1,5 @@
-// Copyright (c) Mysten Labs, Inc.
+// Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
-
-// **********************************
-//
-// This file is deprecated.
-//
-// See src/components/ImportContent
-//
-// **********************************
 
 const fs = require("fs");
 const path = require("path");
@@ -168,7 +160,8 @@ const addCodeInject = async function (source) {
                   } else if (isTs) {
                     funStr = `^(\\s*)(async )?(export (default )?)?function \\b${fn}\\b.*?\\n\\1}\\n`;
                   } else if (isRust) {
-                    funStr = `^(\\s*)(?:pub\\s+)?(?:async\\s+)?(?:const\\s+)?(?:unsafe\\s+)?(?:extern\\s+(?:"[^"]+"\\s*)?)?fn\\s+${fn}\\s*(?:<[^>]*>)?\\s*\\([^)]*\\)\\s*(?:->\\s*[^;{]+)?\\s*(?:;|\\{[\\s\\S]*?^\\1\\})`;
+                    funStr = `^(\\s*)(?:pub\\s+)?(?:async\\s+)?(?:const\\s+)?(?:unsafe\\s+)?(?:extern\\s+(?:"[^"]+"\\s*)?)?fn\\s+${fn}\\
+                    s*(?:<[^>]*>)?\\s*\\([^)]*\\)\\s*(?:->\\s*[^;{]+)?\\s*(?:;|\\{[\\s\\S]*?^\\1\\})`;
                   }
                   const funRE = new RegExp(funStr, "msi");
                   const funMatch = funRE.exec(injectFileContent);
@@ -514,7 +507,7 @@ const addCodeInject = async function (source) {
                 }
                 injectFileContent = typeContent.join("\n").trim();
               } else {
-                // Capture everything beteen tags, ignoring content after marker on same line
+                // Capture everything between tags, ignoring content after marker on same line
                 const regexStr = `\\/\\/\\s?docs::${marker.trim()}\\b[^\\n]*\\n([\\s\\S]*)\\/\\/\\s*docs::\\/\\s?${marker.trim()}\\b`;
                 const closingsStr = `\\/\\/\\s?docs::\\/${marker.trim()}\\b([)};]*)`;
 
