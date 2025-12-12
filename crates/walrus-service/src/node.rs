@@ -6,7 +6,7 @@
 use std::{
     collections::hash_map::Entry,
     future::Future,
-    num::{NonZero, NonZeroU16},
+    num::{NonZero, NonZeroU16, NonZeroUsize},
     pin::Pin,
     sync::{
         Arc,
@@ -159,7 +159,7 @@ use self::{
         ShardStorage,
         blob_info::{BlobInfoApi, CertifiedBlobInfoApi},
     },
-    system_events::{EventManager, SuiSystemEventProvider},
+    system_events::EventManager,
 };
 use crate::{
     common::config::SuiConfig,
@@ -179,6 +179,7 @@ use crate::{
         },
     },
     node::{
+        blob_event_processor::pending_events::PendingEventCounter,
         config::LiveUploadDeferralConfig,
         event_blob_writer::EventBlobWriter,
         garbage_collector::GarbageCollector,
@@ -194,12 +195,12 @@ pub mod event_blob_writer;
 pub mod server;
 pub mod system_events;
 
+pub(crate) mod blob_event_processor;
 pub(crate) mod consistency_check;
 pub(crate) mod db_checkpoint;
 pub(crate) mod errors;
 pub(crate) mod metrics;
 
-mod blob_event_processor;
 mod blob_retirement_notifier;
 mod blob_sync;
 mod config_synchronizer;
@@ -310,17 +311,6 @@ pub trait ServiceState {
         blob_id: &BlobId,
         inconsistency_proof: InconsistencyProof,
     ) -> impl Future<Output = Result<InvalidBlobIdAttestation, InconsistencyProofError>> + Send;
-
-    /// Retrieves a recovery symbol from a shard held by this storage node.
-    ///
-    /// Returns a recovery symbol for the identified symbol, if it can be constructed from the
-    /// slivers stored with the storage node.
-    fn retrieve_recovery_symbol(
-        &self,
-        blob_id: &BlobId,
-        symbol_id: SymbolId,
-        sliver_type: Option<SliverType>,
-    ) -> impl Future<Output = Result<GeneralRecoverySymbol, RetrieveSymbolError>> + Send;
 
     /// Retrieves multiple recovery symbols.
     ///
@@ -466,36 +456,29 @@ impl StorageNodeBuilder {
                 .as_ref()
                 .expect("this is always created if self.event_manager.is_none()");
 
-            if config.use_legacy_event_provider {
-                Box::new(SuiSystemEventProvider::new(
-                    read_client.clone(),
-                    sui_config.event_polling_interval,
-                ))
-            } else {
-                let rpc_addresses =
-                    combine_rpc_urls(&sui_config.rpc, &sui_config.additional_rpc_endpoints);
-                let processor_config = EventProcessorRuntimeConfig {
-                    rpc_addresses,
-                    event_polling_interval: sui_config.event_polling_interval,
-                    db_path: config.storage_path.join("events"),
-                    rpc_fallback_config: sui_config.rpc_fallback_config.clone(),
-                    db_config: config.db_config.clone(),
-                };
-                let system_config = SystemConfig {
-                    system_pkg_id: read_client.walrus_package_id(),
-                    system_object_id: sui_config.contract_config.system_object,
-                    staking_object_id: sui_config.contract_config.staking_object,
-                };
-                Box::new(
-                    EventProcessor::new(
-                        &config.event_processor_config,
-                        processor_config,
-                        system_config,
-                        &metrics_registry,
-                    )
-                    .await?,
+            let rpc_addresses =
+                combine_rpc_urls(&sui_config.rpc, &sui_config.additional_rpc_endpoints);
+            let processor_config = EventProcessorRuntimeConfig {
+                rpc_addresses,
+                event_polling_interval: sui_config.event_polling_interval,
+                db_path: config.storage_path.join("events"),
+                rpc_fallback_config: sui_config.rpc_fallback_config.clone(),
+                db_config: config.db_config.clone(),
+            };
+            let system_config = SystemConfig {
+                system_pkg_id: read_client.walrus_package_id(),
+                system_object_id: sui_config.contract_config.system_object,
+                staking_object_id: sui_config.contract_config.staking_object,
+            };
+            Box::new(
+                EventProcessor::new(
+                    &config.event_processor_config,
+                    processor_config,
+                    system_config,
+                    &metrics_registry,
                 )
-            }
+                .await?,
+            )
         };
 
         let committee_service: Arc<dyn CommitteeService> =
@@ -563,8 +546,9 @@ pub struct StorageNode {
     shard_sync_handler: ShardSyncHandler,
     epoch_change_driver: EpochChangeDriver,
     start_epoch_change_finisher: StartEpochChangeFinisher,
+    num_blob_event_processors: NonZeroUsize,
+    pending_event_counter: PendingEventCounter,
     node_recovery_handler: NodeRecoveryHandler,
-    blob_event_processor: BlobEventProcessor,
     garbage_collector: GarbageCollector,
     event_blob_writer_factory: Option<EventBlobWriterFactory>,
     config_synchronizer: Option<Arc<ConfigSynchronizer>>,
@@ -805,12 +789,6 @@ impl StorageNode {
         );
         node_recovery_handler.restart_recovery().await?;
 
-        let blob_event_processor = BlobEventProcessor::new(
-            inner.clone(),
-            blob_sync_handler.clone(),
-            config.blob_event_processor_config.num_workers,
-        );
-
         tracing::debug!(
             "num_checkpoints_per_blob for event blobs: {:?}",
             node_params.num_checkpoints_per_blob
@@ -857,7 +835,8 @@ impl StorageNode {
             epoch_change_driver,
             start_epoch_change_finisher,
             node_recovery_handler,
-            blob_event_processor,
+            num_blob_event_processors: config.blob_event_processor_config.num_workers,
+            pending_event_counter: PendingEventCounter::default(),
             garbage_collector,
             event_blob_writer_factory,
             config_synchronizer,
@@ -949,6 +928,11 @@ impl StorageNode {
     /// of the local shard storage.
     pub async fn existing_shards(&self) -> Vec<ShardIndex> {
         self.inner.storage.existing_shards().await
+    }
+
+    /// Returns the pending event counter for blob events.
+    pub fn get_pending_event_counter(&self) -> PendingEventCounter {
+        self.pending_event_counter.clone()
     }
 
     /// Wait for the storage node to be in at least the provided epoch.
@@ -1186,6 +1170,13 @@ impl StorageNode {
     }
 
     async fn process_events(&self) -> anyhow::Result<()> {
+        let blob_event_processor = BlobEventProcessor::new(
+            self.inner.clone(),
+            self.blob_sync_handler.clone(),
+            self.num_blob_event_processors,
+            self.pending_event_counter.clone(),
+        );
+
         let writer_cursor = match self.event_blob_writer_factory {
             Some(ref factory) => factory.event_cursor().unwrap_or_default(),
             None => EventStreamCursor::new(None, u64::MAX),
@@ -1246,6 +1237,7 @@ impl StorageNode {
                 if element_index >= processing_starting_index {
                     sui_macros::fail_point!("process-event-before");
                     self.process_event(
+                        &blob_event_processor,
                         stream_element.clone(),
                         element_index,
                         &mut maybe_epoch_at_start,
@@ -1318,6 +1310,7 @@ impl StorageNode {
     #[tracing::instrument(skip_all)]
     async fn process_event(
         &self,
+        blob_event_processor: &BlobEventProcessor,
         stream_element: PositionedStreamEvent,
         element_index: u64,
         maybe_epoch_at_start: &mut Option<Epoch>,
@@ -1382,7 +1375,7 @@ impl StorageNode {
             return Ok(());
         }
 
-        self.process_event_impl(event_handle, stream_element.clone())
+        self.process_event_impl(blob_event_processor, event_handle, stream_element.clone())
             .inspect_err(|err| {
                 let span = tracing::Span::current();
                 span.record("otel.status_code", "error");
@@ -1458,6 +1451,7 @@ impl StorageNode {
     #[tracing::instrument(skip_all)]
     async fn process_event_impl(
         &self,
+        blob_event_processor: &BlobEventProcessor,
         event_handle: EventHandle,
         stream_element: PositionedStreamEvent,
     ) -> anyhow::Result<()> {
@@ -1472,14 +1466,23 @@ impl StorageNode {
         let checkpoint_position = stream_element.checkpoint_event_position;
         match stream_element.element {
             EventStreamElement::ContractEvent(ContractEvent::BlobEvent(blob_event)) => {
-                self.process_blob_event(event_handle, blob_event, checkpoint_position)
-                    .await?;
+                self.process_blob_event(
+                    blob_event_processor,
+                    event_handle,
+                    blob_event,
+                    checkpoint_position,
+                )
+                .await?;
             }
             EventStreamElement::ContractEvent(ContractEvent::EpochChangeEvent(
                 epoch_change_event,
             )) => {
-                self.process_epoch_change_event(event_handle, epoch_change_event)
-                    .await?;
+                self.process_epoch_change_event(
+                    blob_event_processor,
+                    event_handle,
+                    epoch_change_event,
+                )
+                .await?;
             }
             EventStreamElement::ContractEvent(ContractEvent::PackageEvent(package_event)) => {
                 self.process_package_event(event_handle, package_event)
@@ -1505,6 +1508,7 @@ impl StorageNode {
     #[tracing::instrument(skip_all)]
     async fn process_blob_event(
         &self,
+        blob_event_processor: &BlobEventProcessor,
         event_handle: EventHandle,
         blob_event: BlobEvent,
         checkpoint_position: CheckpointEventPosition,
@@ -1512,7 +1516,7 @@ impl StorageNode {
         let _scope = monitored_scope::monitored_scope("ProcessEvent::BlobEvent");
 
         tracing::debug!(?blob_event, "{} event received", blob_event.name());
-        self.blob_event_processor
+        blob_event_processor
             .process_event(event_handle, blob_event, checkpoint_position)
             .await?;
         Ok(())
@@ -1521,6 +1525,7 @@ impl StorageNode {
     #[tracing::instrument(skip_all)]
     async fn process_epoch_change_event(
         &self,
+        blob_event_processor: &BlobEventProcessor,
         event_handle: EventHandle,
         epoch_change_event: EpochChangeEvent,
     ) -> anyhow::Result<()> {
@@ -1560,7 +1565,7 @@ impl StorageNode {
                     "ProcessEvent::EpochChangeEvent::EpochChangeStart",
                 );
                 fail_point_async!("epoch_change_start_entry");
-                self.process_epoch_change_start_event(event_handle, &event)
+                self.process_epoch_change_start_event(blob_event_processor, event_handle, &event)
                     .await?;
             }
             EpochChangeEvent::EpochChangeDone(event) => {
@@ -1634,6 +1639,7 @@ impl StorageNode {
     #[tracing::instrument(skip_all)]
     async fn process_epoch_change_start_event(
         &self,
+        blob_event_processor: &BlobEventProcessor,
         event_handle: EventHandle,
         event: &EpochChangeStart,
     ) -> anyhow::Result<()> {
@@ -1662,7 +1668,8 @@ impl StorageNode {
         // the current epoch to be processed (note that this does not include waiting for all
         // pending blob syncs to finish). This is to make sure that the node is in a consistent
         // state before processing the epoch change start event.
-        self.blob_event_processor
+        blob_event_processor
+            .get_pending_event_counter()
             .wait_for_all_events_to_be_processed()
             .await;
 
@@ -3621,16 +3628,6 @@ impl ServiceState for StorageNode {
             .verify_inconsistency_proof(blob_id, inconsistency_proof)
     }
 
-    fn retrieve_recovery_symbol(
-        &self,
-        blob_id: &BlobId,
-        symbol_id: SymbolId,
-        sliver_type: Option<SliverType>,
-    ) -> impl Future<Output = Result<GeneralRecoverySymbol, RetrieveSymbolError>> + Send {
-        self.inner
-            .retrieve_recovery_symbol(blob_id, symbol_id, sliver_type)
-    }
-
     fn retrieve_multiple_recovery_symbols(
         &self,
         blob_id: &BlobId,
@@ -3947,38 +3944,6 @@ impl ServiceState for StorageNodeInner {
 
         let message = InvalidBlobIdMsg::new(self.current_committee_epoch(), blob_id.to_owned());
         Ok(sign_message(message, self.protocol_key_pair.clone()).await?)
-    }
-
-    #[tracing::instrument(skip(self))]
-    async fn retrieve_recovery_symbol(
-        &self,
-        blob_id: &BlobId,
-        symbol_id: SymbolId,
-        sliver_type: Option<SliverType>,
-    ) -> Result<GeneralRecoverySymbol, RetrieveSymbolError> {
-        // Begin by fetching a ready worker, as this gates all database reads based
-        // on whether we have capacity to even serve the request.
-        let worker = self.get_ready_symbol_service()?;
-
-        self.validate_blob_access(
-            blob_id,
-            RetrieveSliverError::Forbidden,
-            RetrieveSliverError::Unavailable,
-        )?;
-
-        let encoding_type = self
-            .get_encoding_type_for_blob(blob_id)
-            .context("could not retrieve blob encoding type")?
-            .ok_or_else(|| anyhow!("encoding type unavailable for blob {:?}", blob_id))?;
-
-        self.retrieve_recovery_symbol_unchecked(
-            blob_id,
-            symbol_id,
-            sliver_type,
-            encoding_type,
-            worker,
-        )
-        .await
     }
 
     #[tracing::instrument(skip_all)]
@@ -5022,7 +4987,10 @@ mod tests {
                     || store_at_shard(&shard, SliverType::Secondary))
             {
                 retry_until_success_or_timeout(TIMEOUT, || {
-                    node.client().store_metadata(&blob.metadata)
+                    node.client().store_metadata(
+                        &blob.metadata,
+                        walrus_storage_node_client::UploadIntent::Immediate,
+                    )
                 })
                 .await?;
                 metadata_stored.push(node.public_key());
@@ -5032,13 +5000,23 @@ mod tests {
 
             if store_at_shard(&shard, SliverType::Primary) {
                 node.client()
-                    .store_sliver(blob.blob_id(), sliver_pair.index(), &sliver_pair.primary)
+                    .store_sliver(
+                        blob.blob_id(),
+                        sliver_pair.index(),
+                        &sliver_pair.primary,
+                        walrus_storage_node_client::UploadIntent::Immediate,
+                    )
                     .await?;
             }
 
             if store_at_shard(&shard, SliverType::Secondary) {
                 node.client()
-                    .store_sliver(blob.blob_id(), sliver_pair.index(), &sliver_pair.secondary)
+                    .store_sliver(
+                        blob.blob_id(),
+                        sliver_pair.index(),
+                        &sliver_pair.secondary,
+                        walrus_storage_node_client::UploadIntent::Immediate,
+                    )
                     .await?;
             }
         }
@@ -8006,12 +7984,11 @@ mod tests {
             store_at_shards(&blob, &cluster, |&shard, _| shard != test_shard).await?;
 
             let node = cluster.nodes[0].storage_node.clone();
-
             // Initially, no event processing is blocked, so wait_for_all_events_to_be_processed()
             // should return promptly.
             tokio::time::timeout(
                 Duration::from_secs(5),
-                node.blob_event_processor
+                node.get_pending_event_counter()
                     .wait_for_all_events_to_be_processed(),
             )
             .await
@@ -8036,7 +8013,7 @@ mod tests {
             // should timeout.
             tokio::time::timeout(
                 Duration::from_secs(10),
-                node.blob_event_processor
+                node.get_pending_event_counter()
                     .wait_for_all_events_to_be_processed(),
             )
             .await
@@ -8051,7 +8028,7 @@ mod tests {
             // promptly.
             tokio::time::timeout(
                 Duration::from_secs(5),
-                node.blob_event_processor
+                node.get_pending_event_counter()
                     .wait_for_all_events_to_be_processed(),
             )
             .await
@@ -8127,7 +8104,7 @@ mod tests {
                 .expect("certified event processing should start after flush completes");
 
             storage_node
-                .blob_event_processor
+                .get_pending_event_counter()
                 .wait_for_all_events_to_be_processed()
                 .await;
 

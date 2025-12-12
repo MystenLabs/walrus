@@ -34,6 +34,7 @@ use tokio::{
     task::JoinHandle,
     time::Duration,
 };
+use tokio_util::sync::CancellationToken;
 use tracing::{Instrument as _, Level};
 use walrus_core::{
     BlobId,
@@ -59,7 +60,7 @@ use walrus_core::{
     messages::{BlobPersistenceType, ConfirmationCertificate, SignedStorageConfirmation},
     metadata::{BlobMetadataApi as _, VerifiedBlobMetadataWithId},
 };
-use walrus_storage_node_client::api::BlobStatus;
+use walrus_storage_node_client::{UploadIntent, api::BlobStatus};
 use walrus_sui::{
     client::{CertifyAndExtendBlobResult, ExpirySelectionPolicy, ReadClient, SuiContractClient},
     types::{
@@ -88,7 +89,7 @@ use crate::{
             WalrusStoreBlobUnfinished,
             WalrusStoreEncodedBlobApi as _,
         },
-        communication::NodeResult,
+        communication::{NodeResult, NodeWriteCommunication, node::NodeIndex},
         quilt_client::QuiltClient,
         refresh::{CommitteesRefresherHandle, RequestKind, are_current_previous_different},
         resource::{PriceComputation, ResourceManager},
@@ -319,6 +320,12 @@ impl<T: ReadClient> WalrusNodeClient<T> {
         Ok(WalrusNodeClient::new(config, committees_handle)?.with_client(sui_read_client))
     }
 
+    /// Sets the maximum blob size for the client for testing purposes.
+    #[cfg(any(test, feature = "test-utils"))]
+    pub fn set_max_blob_size(&mut self, max_blob_size: Option<u64>) {
+        self.max_blob_size = max_blob_size;
+    }
+
     /// Reconstructs the blob by reading slivers from Walrus shards.
     ///
     /// The operation is retried if epoch it fails due to epoch change.
@@ -531,13 +538,7 @@ impl<T: ReadClient> WalrusNodeClient<T> {
         SliverData<U>: TryFrom<Sliver>,
     {
         let metadata = self.retrieve_metadata(certified_epoch, blob_id).await?;
-        if let Some(max_blob_size) = self.max_blob_size
-            && metadata.metadata().unencoded_length() > max_blob_size
-        {
-            return Err(ClientError::from(ClientErrorKind::BlobTooLarge(
-                max_blob_size,
-            )));
-        };
+        self.check_read_data_size(metadata.metadata().unencoded_length())?;
         let blob = self
             .request_slivers_and_decode::<U>(certified_epoch, &metadata, consistency_check)
             .await?;
@@ -687,6 +688,23 @@ impl<T: ReadClient> WalrusNodeClient<T> {
     where
         SliverData<E>: TryFrom<walrus_core::Sliver>,
     {
+        if metadata.metadata().unencoded_length() == 0 {
+            return Ok(Vec::new());
+        }
+
+        // Get the sliver size for the given encoding type.
+        let sliver_size = u64::from(
+            self.encoding_config()
+                .get_for_type(metadata.metadata().encoding_type())
+                .sliver_size_for_blob::<E>(metadata.metadata().unencoded_length())
+                .map_err(|e| ClientError::from(ClientErrorKind::Other(e.into())))?
+                .get(),
+        );
+        let read_total_sliver_size = sliver_size
+            .checked_mul(u64::try_from(sliver_indices.len()).unwrap_or(u64::MAX))
+            .ok_or(ClientError::from(ClientErrorKind::BlobTooLarge(u64::MAX)))?;
+        self.check_read_data_size(read_total_sliver_size)?;
+
         let mut sliver_selector =
             SliverSelector::<E>::new(sliver_indices, metadata.n_shards(), metadata.blob_id());
         let mut attempts = 0;
@@ -893,6 +911,7 @@ impl<T: ReadClient> WalrusNodeClient<T> {
                     pairs_per_node
                         .remove(&nc.node_index)
                         .expect("there are shards for each node"),
+                    UploadIntent::Immediate,
                 )
             })
             .collect();
@@ -901,6 +920,18 @@ impl<T: ReadClient> WalrusNodeClient<T> {
         let results = futures::future::join_all(store_operations).await;
 
         Ok(results)
+    }
+
+    /// Checks if the data size is within the maximum allowed size.
+    fn check_read_data_size(&self, data_size: u64) -> ClientResult<()> {
+        if let Some(max_blob_size) = self.max_blob_size
+            && data_size > max_blob_size
+        {
+            return Err(ClientError::from(ClientErrorKind::BlobTooLarge(
+                max_blob_size,
+            )));
+        }
+        Ok(())
     }
 }
 
@@ -1439,6 +1470,7 @@ impl<T> WalrusNodeClient<T> {
             &blobs,
             event_tx.clone(),
             tail_handling,
+            None,
         ));
 
         let mut upload_results: Option<RunOutput<Vec<BlobId>, StoreError>> = None;
@@ -1549,6 +1581,47 @@ impl<T> WalrusNodeClient<T> {
         blobs: &[(VerifiedBlobMetadataWithId, Arc<Vec<SliverPair>>)],
         event_sender: tokio::sync::mpsc::Sender<UploaderEvent>,
         tail_handling: TailHandling,
+        cancellation: Option<CancellationToken>,
+    ) -> ClientResult<RunOutput<Vec<BlobId>, StoreError>> {
+        self.distributed_upload_without_confirmation_inner(
+            blobs,
+            event_sender,
+            tail_handling,
+            cancellation,
+            None,
+        )
+        .await
+    }
+
+    /// Targets only the provided node indices.
+    /// This is useful when retrying uploads without hitting already-successful nodes.
+    #[allow(dead_code)]
+    pub(crate) async fn distributed_upload_without_confirmation_for_nodes(
+        &self,
+        blobs: &[(VerifiedBlobMetadataWithId, Arc<Vec<SliverPair>>)],
+        event_sender: tokio::sync::mpsc::Sender<UploaderEvent>,
+        tail_handling: TailHandling,
+        cancellation: Option<CancellationToken>,
+        committee_epoch: Epoch,
+        node_indices: &[NodeIndex],
+    ) -> ClientResult<RunOutput<Vec<BlobId>, StoreError>> {
+        self.distributed_upload_without_confirmation_inner(
+            blobs,
+            event_sender,
+            tail_handling,
+            cancellation,
+            Some((committee_epoch, node_indices)),
+        )
+        .await
+    }
+
+    async fn distributed_upload_without_confirmation_inner(
+        &self,
+        blobs: &[(VerifiedBlobMetadataWithId, Arc<Vec<SliverPair>>)],
+        event_sender: tokio::sync::mpsc::Sender<UploaderEvent>,
+        tail_handling: TailHandling,
+        cancellation: Option<CancellationToken>,
+        target_nodes: Option<(Epoch, &[NodeIndex])>,
     ) -> ClientResult<RunOutput<Vec<BlobId>, StoreError>> {
         if blobs.is_empty() {
             return Ok(RunOutput {
@@ -1558,6 +1631,14 @@ impl<T> WalrusNodeClient<T> {
         }
 
         let committees = self.get_committees().await?;
+        if let Some((target_epoch, _)) = target_nodes
+            && committees.epoch() != target_epoch
+        {
+            return Err(ClientError::other(StoreError::TargetEpochMismatch {
+                target_epoch,
+                current_epoch: committees.epoch(),
+            }));
+        }
 
         let max_unencoded = blobs
             .iter()
@@ -1579,10 +1660,11 @@ impl<T> WalrusNodeClient<T> {
             tracing::debug!("auto tune is disabled");
         }
 
-        let comms = self.communication_factory.node_write_communications(
+        let comms = self.node_write_communications_for_upload(
             &committees,
             sliver_write_semaphore,
             auto_tune_handle,
+            target_nodes.map(|(_, nodes)| nodes),
         )?;
 
         let sliver_write_extra_time = self
@@ -1603,6 +1685,7 @@ impl<T> WalrusNodeClient<T> {
                             .store_metadata_and_pairs_without_confirmation(
                                 &item.metadata,
                                 item.pair_indices.iter().map(|&i| &item.pairs[i]),
+                                UploadIntent::Immediate,
                             )
                             .await;
 
@@ -1628,10 +1711,35 @@ impl<T> WalrusNodeClient<T> {
                 },
                 event_sender,
                 tail_handling,
+                cancellation,
             )
             .await?;
 
         Ok(run_output)
+    }
+
+    fn node_write_communications_for_upload(
+        &self,
+        committees: &ActiveCommittees,
+        sliver_write_semaphore: Arc<Semaphore>,
+        auto_tune_handle: Option<AutoTuneHandle>,
+        target_nodes: Option<&[NodeIndex]>,
+    ) -> ClientResult<Vec<NodeWriteCommunication>> {
+        match target_nodes {
+            Some(indices) => self
+                .communication_factory
+                .node_write_communications_by_index(
+                    committees,
+                    sliver_write_semaphore,
+                    auto_tune_handle,
+                    indices.iter().copied(),
+                ),
+            None => self.communication_factory.node_write_communications(
+                committees,
+                sliver_write_semaphore,
+                auto_tune_handle,
+            ),
+        }
     }
 
     /// Fetches confirmations for a blob from a quorum of nodes and returns the certificate.

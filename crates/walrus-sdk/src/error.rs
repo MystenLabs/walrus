@@ -16,6 +16,17 @@ pub enum StoreError {
     /// The metadata could not be stored on the node.
     #[error("the metadata could not be stored")]
     Metadata(NodeError),
+    /// The target nodes belong to a different committee epoch than the current committees.
+    #[error(
+        "target nodes belong to epoch {target_epoch}, current committee epoch is {current_epoch}; \
+        refresh committees before retrying targeted upload"
+    )]
+    TargetEpochMismatch {
+        /// The epoch associated with the targeted nodes.
+        target_epoch: Epoch,
+        /// The epoch of the currently active committees.
+        current_epoch: Epoch,
+    },
     /// One or more slivers could not be stored on the node.
     #[error(transparent)]
     SliverStore(#[from] SliverStoreError),
@@ -106,6 +117,13 @@ impl ClientError {
                 | ClientErrorKind::NotEnoughSlivers
                 // The client was notified that the committee has changed.
                 | ClientErrorKind::CommitteeChangeNotified
+        ) || matches!(
+            self.kind.as_ref(),
+            ClientErrorKind::Other(error)
+                if matches!(
+                    error.downcast_ref::<StoreError>(),
+                    Some(StoreError::TargetEpochMismatch { .. })
+                )
         )
     }
 

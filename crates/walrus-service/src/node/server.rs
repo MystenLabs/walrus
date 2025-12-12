@@ -396,10 +396,6 @@ where
                 get(routes::get_deletable_blob_confirmation),
             )
             .route(
-                routes::RECOVERY_SYMBOL_ENDPOINT,
-                get(routes::get_recovery_symbol_by_id),
-            )
-            .route(
                 routes::RECOVERY_SYMBOL_LIST_ENDPOINT,
                 get(routes::list_recovery_symbols),
             )
@@ -564,7 +560,6 @@ mod tests {
             InconsistencyProofError,
             RetrieveMetadataError,
             RetrieveSliverError,
-            RetrieveSymbolError,
             StoreMetadataError,
             StoreSliverError,
             SyncShardServiceError,
@@ -625,50 +620,19 @@ mod tests {
             Ok(walrus_core::test_utils::sliver())
         }
 
-        /// Returns a valid response only for the pair index 0, otherwise, returns
-        /// an internal error.
-        async fn retrieve_recovery_symbol(
-            &self,
-            _blob_id: &BlobId,
-            symbol_id: SymbolId,
-            _sliver_type: Option<SliverType>,
-        ) -> Result<GeneralRecoverySymbol, RetrieveSymbolError> {
-            if symbol_id == SymbolId::new(0.into(), 0.into()) {
-                if let Some(SliverType::Secondary) = _sliver_type {
-                    let RecoverySymbol::Secondary(symbol) =
-                        walrus_core::test_utils::recovery_symbol()
-                    else {
-                        panic!("util method must return secondary recovery symbol");
-                    };
-                    Ok(GeneralRecoverySymbol::from_recovery_symbol(
-                        symbol,
-                        SliverIndex(0),
-                    ))
-                } else {
-                    let RecoverySymbol::Primary(symbol) =
-                        walrus_core::test_utils::primary_recovery_symbol()
-                    else {
-                        panic!("util method must return primary recovery symbol");
-                    };
-                    Ok(GeneralRecoverySymbol::from_recovery_symbol(
-                        symbol,
-                        SliverIndex(0),
-                    ))
-                }
-            } else {
-                Err(RetrieveSliverError::Unavailable.into())
-            }
-        }
-
         async fn retrieve_multiple_recovery_symbols(
             &self,
-            blob_id: &BlobId,
+            _blob_id: &BlobId,
             _filter: RecoverySymbolsFilter,
         ) -> Result<Vec<GeneralRecoverySymbol>, ListSymbolsError> {
-            let symbol = self
-                .retrieve_recovery_symbol(blob_id, SymbolId::new(0.into(), 0.into()), None)
-                .await
-                .unwrap();
+            // Mock implementation returning a single symbol with id (0, 0)
+
+            let RecoverySymbol::Primary(symbol) =
+                walrus_core::test_utils::primary_recovery_symbol()
+            else {
+                panic!("util method must return primary recovery symbol");
+            };
+            let symbol = GeneralRecoverySymbol::from_recovery_symbol(symbol, SliverIndex(0));
             Ok(vec![symbol.clone(), symbol])
         }
 
@@ -1020,7 +984,12 @@ mod tests {
         let sliver_pair_id = SliverPairIndex(0); // Triggers an ok response
 
         client
-            .store_sliver_by_type(&blob_id, sliver_pair_id, &sliver)
+            .store_sliver_by_type(
+                &blob_id,
+                sliver_pair_id,
+                &sliver,
+                walrus_storage_node_client::UploadIntent::Immediate,
+            )
             .await
             .expect("sliver should be successfully stored");
     }
@@ -1035,7 +1004,12 @@ mod tests {
         let sliver_pair_id = SliverPairIndex(1); // Triggers an internal server error
 
         let err = client
-            .store_sliver_by_type(&blob_id, sliver_pair_id, &sliver)
+            .store_sliver_by_type(
+                &blob_id,
+                sliver_pair_id,
+                &sliver,
+                walrus_storage_node_client::UploadIntent::Immediate,
+            )
             .await
             .expect_err("store sliver should fail");
 

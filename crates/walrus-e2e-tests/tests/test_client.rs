@@ -939,9 +939,10 @@ async fn test_storage_nodes_do_not_serve_data_for_deleted_blobs() -> TestResult 
 
     let count_deleted = client.delete_owned_blob(&blob_id).await?;
     assert_eq!(count_deleted, 1, "should have deleted one blob");
-    tokio::time::sleep(Duration::from_millis(50)).await;
 
-    check_that_blob_is_not_available(client, blob_id).await
+    // Wait for the deletion event to be processed by storage nodes.
+    // The checkpoint-based event processor needs time to process the deletion.
+    wait_for_blob_to_be_unavailable(client, blob_id, Duration::from_secs(30)).await
 }
 
 /// Tests that nodes correctly update the blob info for expired deletable blobs and no longer serve
@@ -1027,6 +1028,44 @@ async fn test_storage_nodes_do_not_serve_data_for_expired_deletable_blobs() -> T
     check_that_blob_is_not_available(client, blob_id).await
 }
 
+/// Polls until the blob status becomes `Nonexistent` and the blob cannot be read.
+async fn wait_for_blob_to_be_unavailable(
+    client: &WalrusNodeClient<SuiContractClient>,
+    blob_id: BlobId,
+    timeout: Duration,
+) -> TestResult {
+    walrus_test_utils::retry_until_success_or_timeout(timeout, || async {
+        let status_result = client
+            .get_verified_blob_status(
+                &blob_id,
+                client.sui_client().read_client(),
+                Duration::from_secs(1),
+            )
+            .await
+            .map_err(Box::new)?;
+
+        if !matches!(status_result, BlobStatus::Nonexistent) {
+            return Err(format!(
+                "blob status is still {:?}, expected Nonexistent",
+                status_result
+            )
+            .into());
+        }
+
+        // Also verify we can't read the blob.
+        let read_result = client.read_blob::<Primary>(&blob_id).await;
+        if !matches!(
+            read_result.as_ref().map_err(|e| e.kind()),
+            Err(ClientErrorKind::BlobIdDoesNotExist)
+        ) {
+            return Err("blob is still readable".into());
+        }
+
+        Ok(())
+    })
+    .await
+}
+
 async fn check_that_blob_is_not_available(
     client: &WalrusNodeClient<SuiContractClient>,
     blob_id: BlobId,
@@ -1081,10 +1120,9 @@ async_param_test! {
 async fn test_store_quilt(blobs_to_create: u32) -> TestResult {
     walrus_test_utils::init_tracing();
 
-    let test_nodes_config = TestNodesConfig {
-        node_weights: vec![7, 7, 7, 7, 7],
-        ..Default::default()
-    };
+    let test_nodes_config = TestNodesConfig::builder()
+        .with_node_weights(&[7, 7, 7, 7, 7])
+        .build();
     let test_cluster_builder =
         test_cluster::E2eTestSetupBuilder::new().with_test_nodes_config(test_nodes_config);
     let (_sui_cluster_handle, _cluster, client, _) = test_cluster_builder.build().await?;
@@ -1216,10 +1254,11 @@ async fn test_blocklist() -> TestResult {
     walrus_test_utils::init_tracing();
     let blocklist_dir = tempfile::tempdir().expect("temporary directory creation must succeed");
     let (_sui_cluster_handle, _cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
-        .with_test_nodes_config(TestNodesConfig {
-            blocklist_dir: Some(blocklist_dir.path().to_path_buf()),
-            ..Default::default()
-        })
+        .with_test_nodes_config(
+            TestNodesConfig::builder()
+                .with_blocklist_dir(blocklist_dir.path().to_path_buf())
+                .build(),
+        )
         .build()
         .await?;
 
@@ -1555,10 +1594,11 @@ async fn test_repeated_shard_move() -> TestResult {
     walrus_test_utils::init_tracing();
     let (_sui_cluster_handle, walrus_cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
         .with_epoch_duration(Duration::from_secs(20))
-        .with_test_nodes_config(TestNodesConfig {
-            node_weights: vec![1, 1],
-            ..Default::default()
-        })
+        .with_test_nodes_config(
+            TestNodesConfig::builder()
+                .with_node_weights(&[1, 1])
+                .build(),
+        )
         .build()
         .await?;
 
@@ -2298,10 +2338,11 @@ async fn test_shard_move_out_and_back_in_immediately() -> TestResult {
     walrus_test_utils::init_tracing();
     let (_sui_cluster_handle, walrus_cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
         .with_epoch_duration(Duration::from_secs(20))
-        .with_test_nodes_config(TestNodesConfig {
-            node_weights: vec![1, 1],
-            ..Default::default()
-        })
+        .with_test_nodes_config(
+            TestNodesConfig::builder()
+                .with_node_weights(&[1, 1])
+                .build(),
+        )
         .build()
         .await?;
 
@@ -2828,10 +2869,9 @@ async fn test_store_with_upload_relay_with_tip() {
 async fn test_byte_range_read_client() -> TestResult {
     walrus_test_utils::init_tracing();
 
-    let test_nodes_config = TestNodesConfig {
-        node_weights: vec![7, 7, 7, 7, 7],
-        ..Default::default()
-    };
+    let test_nodes_config = TestNodesConfig::builder()
+        .with_node_weights(&[7, 7, 7, 7, 7])
+        .build();
     let test_cluster_builder =
         test_cluster::E2eTestSetupBuilder::new().with_test_nodes_config(test_nodes_config);
     let (_sui_cluster_handle, _cluster, client, _) = test_cluster_builder.build().await?;
@@ -2882,5 +2922,82 @@ async fn test_byte_range_read_client() -> TestResult {
         assert_eq!(byte_range_data.unencoded_blob_size, blobs[0].len() as u64);
     }
 
+    Ok(())
+}
+
+// Tests client byte range read functionality.
+#[ignore = "ignore E2E tests by default"]
+#[walrus_simtest]
+async fn test_byte_range_read_size_too_large() -> TestResult {
+    walrus_test_utils::init_tracing();
+
+    let test_nodes_config = TestNodesConfig::builder()
+        .with_node_weights(&[7, 7, 7, 7, 7])
+        .build();
+    let test_cluster_builder =
+        test_cluster::E2eTestSetupBuilder::new().with_test_nodes_config(test_nodes_config);
+    let (_sui_cluster_handle, _cluster, mut client, _) = test_cluster_builder.build().await?;
+    client.as_mut().set_max_blob_size(Some(1000));
+    let client = client.as_ref();
+
+    // Generate a non zero blob size.
+    let blob_size = 5000;
+    let blobs = walrus_test_utils::random_data_list(blob_size, 1);
+
+    // Store the blob on walrus.
+    let blob_read_result = client
+        .reserve_and_store_blobs(
+            blobs.clone(),
+            &StoreArgs::default_with_epochs(5).with_encoding_type(DEFAULT_ENCODING),
+        )
+        .await?;
+
+    let blob_id = blob_read_result[0]
+        .blob_id()
+        .expect("blob ID should be present");
+
+    // Generate a random byte range. Pick a start position randomly choosing from 0 to 3000, so that
+    // the read byte range can be in the middle of the blob.
+    let start_byte = random::<u64>() % 3000;
+    {
+        // Note that when `byte_length` is smaller, but close the max read size, it may still
+        // return BlobTooLarge, due to the config is cap the total data read from storage, rather
+        // than the data returned to the client.
+        let byte_length = 1001;
+        tracing::info!(
+            "reading byte range {start_byte}-{end_byte} of blob {blob_id}",
+            start_byte = start_byte,
+            end_byte = start_byte + byte_length,
+            blob_id = blob_id
+        );
+        let result = client
+            .byte_range_read_client()
+            .read_byte_range(&blob_id, start_byte, byte_length)
+            .await;
+
+        assert!(result.is_err());
+        let error = result.unwrap_err();
+        assert!(matches!(error.kind(), ClientErrorKind::BlobTooLarge(_)));
+    }
+
+    {
+        let byte_length = 300;
+        tracing::info!(
+            "reading byte range {start_byte}-{end_byte} of blob {blob_id}",
+            start_byte = start_byte,
+            end_byte = start_byte + byte_length,
+            blob_id = blob_id
+        );
+        let byte_range_data = client
+            .byte_range_read_client()
+            .read_byte_range(&blob_id, start_byte, byte_length)
+            .await?;
+        assert_eq!(
+            byte_range_data.data,
+            blobs[0][usize::try_from(start_byte).expect("start byte should be valid")
+                ..usize::try_from(start_byte + byte_length).expect("end byte should be valid")]
+                .to_vec()
+        );
+    }
     Ok(())
 }

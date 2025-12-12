@@ -121,6 +121,12 @@ walrus_utils::metrics::define_metric_set! {
             buckets: default_buckets_for_slow_operations(),
         },
 
+        #[help = "Time (in seconds) spent recovering blobs (excluding deferral wait)"]
+        recover_blob_active_duration_seconds: HistogramVec {
+            labels: ["status"],
+            buckets: default_buckets_for_slow_operations(),
+        },
+
         #[help = "Time (in seconds) spent recovering metadata or slivers of blobs"]
         recover_blob_part_duration_seconds: HistogramVec {
             labels: ["part", "status"],
@@ -197,7 +203,7 @@ walrus_utils::metrics::define_metric_set! {
         pending_processing_blob_event_in_queue: IntGaugeVec["worker_index"],
 
         #[help = "The number of blob events pending processing in the BlobEventProcessor."]
-        pending_processing_blob_event_in_background_processors: IntGaugeVec["worker_index"],
+        pending_processing_blob_events_in_background_processors: IntGauge[],
 
         #[help = "The Sui checkpoint of the last Walrus event processed."]
         event_position_sui_checkpoint: U64GaugeVec["state"],

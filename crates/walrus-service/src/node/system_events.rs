@@ -3,7 +3,7 @@
 
 //! Walrus events observed by the storage node.
 
-use std::{fmt::Debug, future::ready, pin::Pin, sync::Arc, thread, time::Duration};
+use std::{fmt::Debug, future::ready, pin::Pin, sync::Arc, thread};
 
 use anyhow::Error;
 use async_trait::async_trait;
@@ -13,14 +13,12 @@ use sui_types::{digests::TransactionDigest, event::EventID};
 use tokio::time::MissedTickBehavior;
 use tokio_stream::{Stream, wrappers::IntervalStream};
 use tracing::Level;
-use walrus_sui::client::{ReadClient, SuiReadClient};
 
 use super::{STATUS_PENDING, STATUS_PERSISTED, StorageNodeInner};
 use crate::{
-    common::config::SuiConfig,
     event::{
         event_processor::processor::EventProcessor,
-        events::{CheckpointEventPosition, EventStreamCursor, InitState, PositionedStreamEvent},
+        events::{EventStreamCursor, InitState, PositionedStreamEvent},
     },
     node::{metrics::STATUS_HIGHEST_FINISHED, storage::EventProgress},
 };
@@ -51,7 +49,7 @@ pub const EVENT_ID_FOR_CHECKPOINT_EVENTS: EventID = EventID {
 #[must_use]
 // Important: Don't derive or implement `Clone` or `Copy`; every event should have a single handle
 // that is passed around until it is completely handled or the thread panics.
-pub(super) struct EventHandle {
+pub(crate) struct EventHandle {
     index: u64,
     event_id: EventID,
     node: Arc<StorageNodeInner>,
@@ -161,32 +159,6 @@ impl CompletableHandle for Option<EventHandle> {
     }
 }
 
-/// A [`SystemEventProvider`] that uses a [`SuiReadClient`] to fetch events.
-#[derive(Debug, Clone)]
-pub struct SuiSystemEventProvider {
-    read_client: SuiReadClient,
-    polling_interval: Duration,
-}
-
-impl SuiSystemEventProvider {
-    /// Creates a new provider with the supplied [`SuiReadClient`], which polls
-    /// for new events every polling_interval.
-    pub fn new(read_client: SuiReadClient, polling_interval: Duration) -> Self {
-        Self {
-            read_client,
-            polling_interval,
-        }
-    }
-
-    /// Creates a new provider with for a [`SuiReadClient`] constructed from the config.
-    pub async fn from_config(config: &SuiConfig) -> Result<Self, anyhow::Error> {
-        Ok(Self::new(
-            config.new_read_client().await?,
-            config.event_polling_interval,
-        ))
-    }
-}
-
 /// A provider of system events to a storage node.
 #[async_trait]
 pub trait SystemEventProvider: std::fmt::Debug + Sync + Send {
@@ -228,49 +200,6 @@ pub trait EventRetentionManager: std::fmt::Debug + Sync + Send {
 pub trait EventManager: SystemEventProvider + EventRetentionManager {
     /// Get the latest checkpoint sequence number.
     fn latest_checkpoint_sequence_number(&self) -> Option<u64>;
-}
-
-#[async_trait]
-impl SystemEventProvider for SuiSystemEventProvider {
-    async fn events(
-        &self,
-        cursor: EventStreamCursor,
-    ) -> Result<Box<dyn Stream<Item = PositionedStreamEvent> + Send + Sync + 'life0>, anyhow::Error>
-    {
-        tracing::info!(?cursor, "resuming from event");
-        let events = self
-            .read_client
-            .event_stream(self.polling_interval, cursor.event_id)
-            .await?;
-        let event_stream = events
-            .map(|event| PositionedStreamEvent::new(event, CheckpointEventPosition::new(0, 0)));
-        Ok(Box::new(event_stream))
-    }
-
-    async fn init_state(
-        &self,
-        _from: EventStreamCursor,
-    ) -> Result<Option<InitState>, anyhow::Error> {
-        Ok(None)
-    }
-
-    fn as_event_processor(&self) -> Option<&EventProcessor> {
-        None
-    }
-}
-
-#[async_trait]
-impl EventRetentionManager for SuiSystemEventProvider {
-    async fn drop_events_before(&self, _cursor: EventStreamCursor) -> Result<(), anyhow::Error> {
-        Ok(())
-    }
-}
-
-#[async_trait]
-impl EventManager for SuiSystemEventProvider {
-    fn latest_checkpoint_sequence_number(&self) -> Option<u64> {
-        None
-    }
 }
 
 #[async_trait]

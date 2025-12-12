@@ -148,9 +148,7 @@ pub mod simtest_utils {
                 } else {
                     base
                 };
-                base.with_persistence(BlobPersistence::from_deletable_and_permanent(
-                    deletable, !deletable,
-                )?)
+                base.with_persistence(BlobPersistence::from_deletable(deletable))
             };
             let result = client
                 .as_ref()
@@ -631,17 +629,18 @@ pub mod simtest_utils {
         target_epoch: Epoch,
         timeout: Duration,
     ) {
+        let start = tokio::time::Instant::now();
+        let nodes_count = nodes.len();
         tokio::time::timeout(timeout, async {
             loop {
                 let min_epoch = get_min_epoch_from_nodes(nodes).await;
                 if min_epoch >= target_epoch {
                     break;
                 }
+                let elapsed = start.elapsed();
                 tracing::info!(
-                    "waiting for {} nodes to reach epoch {}, current min epoch: {}",
-                    nodes.len(),
-                    target_epoch,
-                    min_epoch
+                    "waiting for {nodes_count} nodes to reach epoch {target_epoch}; current min \
+                    epoch: {min_epoch}, elapsed time: {elapsed:?}, timeout: {timeout:?}",
                 );
                 tokio::time::sleep(Duration::from_secs(1)).await;
             }

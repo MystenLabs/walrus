@@ -620,7 +620,7 @@ impl CliOutput for InfoCommitteeOutput {
             metadata_storage_size,
             max_sliver_size,
             max_encoded_blob_size,
-            storage_nodes,
+            current_storage_nodes,
             next_storage_nodes,
         } = self;
 
@@ -649,7 +649,7 @@ impl CliOutput for InfoCommitteeOutput {
                 .walrus_purple()
         );
 
-        print_storage_node_table(n_shards, storage_nodes);
+        print_storage_node_table(n_shards, current_storage_nodes);
         if let Some(storage_nodes) = next_storage_nodes.as_ref() {
             println!(
                 "{}",
@@ -1123,6 +1123,9 @@ fn print_storage_node_info(node: &StorageNodeInfo, node_idx: usize, n_shards: &N
         Network public key: {network_public_key}
         Owned shards:
         {shards}
+        Write price vote: {write_price_vote}
+        Storage price vote: {storage_price_vote}
+        Node capacity vote: {node_capacity_vote}
         ",
         heading = format!("{}: {}", node_idx, node.name)
             .bold()
@@ -1133,6 +1136,9 @@ fn print_storage_node_info(node: &StorageNodeInfo, node_idx: usize, n_shards: &N
         public_key = node.public_key,
         network_public_key = node.network_public_key,
         shards = DisplayShardList(&node.shard_ids),
+        write_price_vote = HumanReadableFrost::from(node.voting_params.write_price),
+        storage_price_vote = HumanReadableFrost::from(node.voting_params.storage_price),
+        node_capacity_vote = HumanReadableBytes(node.voting_params.node_capacity),
     );
 }
 

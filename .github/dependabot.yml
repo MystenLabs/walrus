@@ -39,3 +39,5 @@ updates:
     groups:
       github-actions-all:
         patterns: ["*"]
+    ignore:
+      - dependency-name: "slackapi/slack-github-action" # TODO(WAL-1119): remove after bump to v2

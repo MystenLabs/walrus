@@ -13,6 +13,7 @@ use std::{
 use anyhow;
 use chrono::{DateTime, Utc};
 use futures::{StreamExt as _, stream};
+use itertools::Itertools;
 use serde::Serialize;
 use serde_with::{DisplayFromStr, base64::Base64, serde_as};
 use sui_types::base_types::{ObjectID, SuiAddress};
@@ -42,7 +43,6 @@ use walrus_sdk::{
     sui::{
         client::ReadClient,
         types::{
-            Committee,
             NetworkAddress,
             StakedWal,
             StorageNode,
@@ -56,6 +56,7 @@ use walrus_storage_node_client::{
     NodeError,
     api::{BlobStatus, ServiceHealthInfo},
 };
+use walrus_sui::types::move_structs::{StakingPool, VotingParams};
 
 use super::cli::{BlobIdDecimal, BlobIdentity, HumanReadableBytes};
 use crate::client::cli::{HealthSortBy, HumanReadableFrost, NodeSortBy, SortBy};
@@ -402,7 +403,7 @@ pub(crate) struct InfoCommitteeOutput {
     pub(crate) max_sliver_size: u64,
     pub(crate) metadata_storage_size: u64,
     pub(crate) max_encoded_blob_size: u64,
-    pub(crate) storage_nodes: Vec<StorageNodeInfo>,
+    pub(crate) current_storage_nodes: Vec<StorageNodeInfo>,
     pub(crate) next_storage_nodes: Option<Vec<StorageNodeInfo>>,
 }
 
@@ -411,11 +412,13 @@ impl InfoCommitteeOutput {
         sui_read_client: &impl ReadClient,
         sort: SortBy<NodeSortBy>,
     ) -> anyhow::Result<Self> {
-        let committee = sui_read_client.current_committee().await?;
-        let next_committee = sui_read_client.next_committee().await?;
+        let staking_object = sui_read_client.read_client().get_staking_object().await?;
+        let n_shards = staking_object.n_shards();
+        let current_committee_shard_assignment =
+            staking_object.current_committee_shard_assignment();
+        let next_committee_shard_assignment = staking_object.next_committee_shard_assignment();
         let stake_assignment = sui_read_client.stake_assignment().await?;
 
-        let n_shards = committee.n_shards();
         let (n_primary_source_symbols, n_secondary_source_symbols) =
             source_symbols_for_n_shards(n_shards);
 
@@ -426,10 +429,55 @@ impl InfoCommitteeOutput {
             encoded_blob_length_for_n_shards(n_shards, max_blob_size, DEFAULT_ENCODING)
                 .expect("we can compute the encoded length of the max blob size");
 
-        let mut storage_nodes = merge_nodes_and_stake(&committee, &stake_assignment);
-        let mut next_storage_nodes = next_committee
+        let all_node_ids = current_committee_shard_assignment
+            .iter()
+            .chain(next_committee_shard_assignment.into_iter().flatten())
+            .map(|(node_id, _)| *node_id)
+            .unique();
+
+        let staking_pools = sui_read_client
+            .read_client()
+            .retriable_sui_client()
+            .get_node_objects(all_node_ids)
+            .await?;
+        let current_committee_staking_pools = current_committee_shard_assignment
+            .iter()
+            .map(|(node_id, shard_ids)| {
+                staking_pools
+                    .get(node_id)
+                    .ok_or(anyhow::anyhow!(
+                        "staking pool not found for node ID {}",
+                        node_id
+                    ))
+                    .cloned()
+                    .map(|mut pool| {
+                        pool.node_info.shard_ids =
+                            shard_ids.iter().map(|index| index.into()).collect();
+                        pool
+                    })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut current_storage_nodes =
+            merge_pools_and_stake(current_committee_staking_pools, &stake_assignment);
+        let next_committee_staking_pools = next_committee_shard_assignment
             .as_ref()
-            .map(|next_committee| merge_nodes_and_stake(next_committee, &stake_assignment));
+            .map(|next_committee| {
+                next_committee
+                    .iter()
+                    .map(|(node_id, _)| {
+                        staking_pools
+                            .get(node_id)
+                            .ok_or(anyhow::anyhow!(
+                                "staking pool not found for node ID {}",
+                                node_id
+                            ))
+                            .cloned()
+                    })
+                    .collect::<Result<Vec<_>, _>>()
+            })
+            .transpose()?;
+        let mut next_storage_nodes = next_committee_staking_pools
+            .map(|next_committee| merge_pools_and_stake(next_committee, &stake_assignment));
 
         // Sort nodes if sort_by is specified
         let cmp = |a: &StorageNodeInfo, b: &StorageNodeInfo| match sort.sort_by {
@@ -443,10 +491,10 @@ impl InfoCommitteeOutput {
             None => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
         };
 
-        storage_nodes.sort_by(|a, b| if sort.desc { cmp(b, a) } else { cmp(a, b) });
+        current_storage_nodes.sort_by(|a, b| if sort.desc { cmp(b, a) } else { cmp(a, b) });
 
-        if let Some(ref mut nodes) = next_storage_nodes {
-            nodes.sort_by(|a, b| if sort.desc { cmp(b, a) } else { cmp(a, b) });
+        if let Some(ref mut next_storage_nodes) = next_storage_nodes {
+            next_storage_nodes.sort_by(|a, b| if sort.desc { cmp(b, a) } else { cmp(a, b) });
         }
 
         let metadata_storage_size =
@@ -459,7 +507,7 @@ impl InfoCommitteeOutput {
             metadata_storage_size,
             max_sliver_size,
             max_encoded_blob_size,
-            storage_nodes,
+            current_storage_nodes,
             next_storage_nodes,
         })
     }
@@ -507,10 +555,13 @@ pub(crate) struct StorageNodeInfo {
     pub(crate) shard_ids: Vec<ShardIndex>,
     pub(crate) node_id: ObjectID,
     pub(crate) stake: u64,
+    pub(crate) voting_params: VotingParams,
 }
 
 impl StorageNodeInfo {
-    fn from_node_and_stake(value: StorageNode, stake: u64) -> Self {
+    fn from_pool_and_stake(pool: StakingPool, stake: u64) -> Self {
+        let storage_node = pool.node_info;
+        let voting_params = pool.voting_params;
         let StorageNode {
             name,
             node_id,
@@ -520,7 +571,7 @@ impl StorageNodeInfo {
             network_public_key,
             shard_ids,
             ..
-        } = value;
+        } = storage_node;
         Self {
             name,
             network_address,
@@ -531,23 +582,22 @@ impl StorageNodeInfo {
             shard_ids,
             node_id,
             stake,
+            voting_params,
         }
     }
 }
 
-fn merge_nodes_and_stake(
-    committee: &Committee,
+fn merge_pools_and_stake(
+    pools: Vec<StakingPool>,
     stake_assignment: &HashMap<ObjectID, u64>,
 ) -> Vec<StorageNodeInfo> {
-    committee
-        .members()
-        .iter()
-        .cloned()
-        .map(|node| {
+    pools
+        .into_iter()
+        .map(|pool| {
             let stake = *stake_assignment
-                .get(&node.node_id)
+                .get(&pool.id)
                 .expect("a node in the committee must have stake");
-            StorageNodeInfo::from_node_and_stake(node, stake)
+            StorageNodeInfo::from_pool_and_stake(pool, stake)
         })
         .collect()
 }

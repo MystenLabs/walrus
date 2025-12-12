@@ -26,6 +26,7 @@ use walrus_core::{
 use walrus_storage_node_client::{
     NodeError,
     StorageNodeClient,
+    UploadIntent,
     api::{BlobStatus, StoredOnNodeStatus},
 };
 use walrus_sui::types::StorageNode;
@@ -322,51 +323,19 @@ impl<W> NodeCommunication<W> {
 }
 
 impl NodeWriteCommunication {
-    /// Stores metadata and sliver pairs on a node, and requests a storage confirmation.
-    ///
-    /// Returns a [`NodeResult`], where the weight is the number of shards for which the storage
-    /// confirmation was issued.
-    #[tracing::instrument(level = Level::TRACE, parent = &self.span, skip_all)]
-    pub async fn store_metadata_and_pairs(
-        &self,
-        metadata: &VerifiedBlobMetadataWithId,
-        pairs: impl IntoIterator<Item = &SliverPair>,
-        blob_persistence_type: &BlobPersistenceType,
-    ) -> NodeResult<SignedStorageConfirmation, StoreError> {
-        let result = async {
-            self.store_metadata_and_pairs_without_confirmation(metadata, pairs)
-                .await
-                .take_inner_result()?;
-
-            self.get_confirmation_with_retries_inner(
-                metadata.blob_id(),
-                self.committee_epoch,
-                blob_persistence_type,
-            )
-            .await
-            .map_err(StoreError::Confirmation)
-        }
-        .await;
-        tracing::debug!(
-            blob_id = %metadata.blob_id(),
-            node = %self.node.public_key,
-            ?result,
-            "retrieved storage confirmation"
-        );
-        self.to_node_result_with_n_shards(result)
-    }
-
-    /// Stores metadata and sliver pairs on a node, but does _not_ request a storage confirmation.
+    /// Stores metadata and sliver pairs on a node with the provided intent, but does _not_ request
+    /// a storage confirmation.
     #[tracing::instrument(level = Level::TRACE, parent = &self.span, skip_all)]
     pub async fn store_metadata_and_pairs_without_confirmation(
         &self,
         metadata: &VerifiedBlobMetadataWithId,
         pairs: impl IntoIterator<Item = &SliverPair>,
+        intent: UploadIntent,
     ) -> NodeResult<(), StoreError> {
         tracing::debug!(blob_id = %metadata.blob_id(), "storing metadata and sliver pairs");
         let result = async {
             let metadata_status = self
-                .store_metadata_with_retries(metadata)
+                .store_metadata(metadata, intent)
                 .await
                 .map_err(StoreError::Metadata)?;
             tracing::debug!(
@@ -376,7 +345,7 @@ impl NodeWriteCommunication {
                 "finished storing metadata on node");
 
             let n_stored_slivers = self
-                .store_pairs(metadata.blob_id(), &metadata_status, pairs)
+                .store_pairs(metadata.blob_id(), &metadata_status, pairs, intent)
                 .await?;
             tracing::debug!(
                 node = %self.node.public_key,
@@ -399,9 +368,10 @@ impl NodeWriteCommunication {
     ///
     /// Before storing the metadata, it checks whether the metadata is already stored.
     /// Returns the [`StoredOnNodeStatus`] of the metadata.
-    async fn store_metadata_with_retries(
+    async fn store_metadata(
         &self,
         metadata: &VerifiedBlobMetadataWithId,
+        intent: UploadIntent,
     ) -> Result<StoredOnNodeStatus, NodeError> {
         let metadata_status = self
             .retry_with_limits_and_backoff(|| self.client.get_metadata_status(metadata.blob_id()))
@@ -412,7 +382,7 @@ impl NodeWriteCommunication {
                 tracing::debug!("the metadata is already stored or buffered on the node");
             }
             StoredOnNodeStatus::Nonexistent => {
-                self.retry_with_limits_and_backoff(|| self.client.store_metadata(metadata))
+                self.retry_with_limits_and_backoff(|| self.client.store_metadata(metadata, intent))
                     .await?;
             }
         }
@@ -436,6 +406,7 @@ impl NodeWriteCommunication {
         blob_id: &BlobId,
         metadata_status: &StoredOnNodeStatus,
         pairs: impl IntoIterator<Item = &SliverPair>,
+        intent: UploadIntent,
     ) -> Result<usize, SliverStoreError> {
         let mut requests = pairs
             .into_iter()
@@ -446,12 +417,14 @@ impl NodeWriteCommunication {
                         metadata_status,
                         &pair.primary,
                         pair.index(),
+                        intent,
                     )),
                     Either::Right(self.check_and_store_sliver(
                         blob_id,
                         metadata_status,
                         &pair.secondary,
                         pair.index(),
+                        intent,
                     )),
                 ]
             })
@@ -492,6 +465,7 @@ impl NodeWriteCommunication {
         metdadata_status: &StoredOnNodeStatus,
         sliver: &SliverData<A>,
         pair_index: SliverPairIndex,
+        intent: UploadIntent,
     ) -> Result<(), SliverStoreError> {
         let print_debug = |message| {
             tracing::debug!(
@@ -531,7 +505,7 @@ impl NodeWriteCommunication {
         }
 
         let start = Instant::now();
-        match self.store_sliver(blob_id, sliver, pair_index).await {
+        match self.store_sliver(blob_id, sliver, pair_index, intent).await {
             Ok(()) => {
                 let completed_at = Instant::now();
                 self.record_throughput_success::<A>(
@@ -592,20 +566,24 @@ impl NodeWriteCommunication {
         sliver_len < self.sliver_status_check_threshold
     }
 
-    /// Stores a sliver on a node.
+    /// Stores a sliver on a node with the provided intent.
     async fn store_sliver<A: EncodingAxis>(
         &self,
         blob_id: &BlobId,
         sliver: &SliverData<A>,
         pair_index: SliverPairIndex,
+        intent: UploadIntent,
     ) -> Result<(), SliverStoreError> {
-        self.retry_with_limits_and_backoff(|| self.client.store_sliver(blob_id, pair_index, sliver))
-            .await
-            .map_err(|error| SliverStoreError {
-                pair_index,
-                sliver_type: A::sliver_type(),
-                error,
-            })
+        self.retry_with_limits_and_backoff(|| {
+            self.client
+                .store_sliver(blob_id, pair_index, sliver, intent)
+        })
+        .await
+        .map_err(|error| SliverStoreError {
+            pair_index,
+            sliver_type: A::sliver_type(),
+            error,
+        })
     }
 
     /// Requests the status for sliver after retrying.

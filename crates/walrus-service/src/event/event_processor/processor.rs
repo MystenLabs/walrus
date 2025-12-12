@@ -332,7 +332,11 @@ impl EventProcessor {
     /// Tails the full node for new checkpoints and processes them. This method will run until the
     /// cancellation token is cancelled. If the checkpoint processor falls behind the full node, it
     /// will read events from the event blobs so it can catch up.
-    pub async fn start_tailing_checkpoints(&self, cancel_token: CancellationToken) -> Result<()> {
+    pub async fn start_tailing_checkpoints(
+        &self,
+        cancel_token: CancellationToken,
+        coordination_state: Arc<CatchupCoordinationState>,
+    ) -> Result<()> {
         let mut next_event_index = self
             .stores
             .event_store
@@ -364,6 +368,11 @@ impl EventProcessor {
         sui_macros::fail_point_async!("pause_checkpoint_tailing_entry");
 
         while let Some(entry) = rx.recv().await {
+            ensure!(
+                !coordination_state.is_tailing_stopped(),
+                "catchup using event blob is active, this is unexpected when tailing checkpoints \
+                is also active"
+            );
             let Ok(checkpoint) = entry.result else {
                 let error = entry.result.err().unwrap_or(anyhow!("unknown error"));
                 tracing::error!(
@@ -410,8 +419,13 @@ impl EventProcessor {
         let coordination_state = coordination_state.clone();
         tokio::spawn(async move {
             tracing::info!("Starting tailing task");
-            let result = processor.start_tailing_checkpoints(cancel_token).await;
-            tracing::info!("Tailing task exited");
+            let result = processor
+                .start_tailing_checkpoints(cancel_token, coordination_state.clone())
+                .await;
+            match &result {
+                Ok(()) => tracing::info!("tailing task exited successfully"),
+                Err(error) => tracing::error!(?error, "tailing task exited with error"),
+            }
             coordination_state.notify_tailing_stopped();
             result
         })

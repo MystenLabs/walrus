@@ -27,13 +27,17 @@ mod tests {
     use sui_simulator::configs::{env_config, uniform_latency_ms};
     use tempfile::TempDir;
     use tokio::sync::RwLock;
-    use walrus_core::EpochCount;
+    use walrus_core::{Epoch, EpochCount};
     use walrus_proc_macros::walrus_simtest;
-    use walrus_sdk::client::{
-        StoreArgs,
-        StoreBlobsApi as _,
-        WalrusNodeClient,
-        metrics::ClientMetrics,
+    use walrus_sdk::{
+        client::{
+            StoreArgs,
+            StoreBlobsApi as _,
+            WalrusNodeClient,
+            metrics::ClientMetrics,
+            responses::BlobStoreResult,
+        },
+        config::SliverWriteExtraTime,
     };
     use walrus_service::{
         client::ClientCommunicationConfig,
@@ -58,12 +62,12 @@ mod tests {
         },
     };
     use walrus_sui::{
-        client::{PostStoreAction, ReadClient, SuiContractClient, UpgradeType},
+        client::{BlobPersistence, PostStoreAction, ReadClient, SuiContractClient, UpgradeType},
         system_setup::copy_recursively,
         test_utils::system_setup::{development_contract_dir, testnet_contract_dir},
-        types::move_structs::EventBlob,
+        types::{Blob, move_structs::EventBlob},
     };
-    use walrus_test_utils::WithTempDir;
+    use walrus_test_utils::{WithTempDir, random_data_from_rng};
 
     /// Returns a simulator configuration that adds random network latency between nodes.
     ///
@@ -95,10 +99,12 @@ mod tests {
         let blob_info_consistency_check = BlobInfoConsistencyCheck::new();
 
         let (_sui_cluster, _cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
-            .with_test_nodes_config(TestNodesConfig {
-                node_weights: vec![1, 2, 3, 3, 4],
-                ..Default::default()
-            })
+            .with_test_nodes_config(
+                TestNodesConfig::builder()
+                    .with_node_weights(&[1, 2, 3, 3, 4])
+                    .with_enable_event_blob_writer()
+                    .build(),
+            )
             .build_generic::<SimStorageNodeHandle>()
             .await
             .unwrap();
@@ -156,11 +162,12 @@ mod tests {
         let mut node_weights = vec![2, 2, 3, 3, 3];
         let (_sui_cluster, walrus_cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
             .with_epoch_duration(Duration::from_secs(30))
-            .with_test_nodes_config(TestNodesConfig {
-                node_weights: node_weights.clone(),
-                use_legacy_event_processor: false,
-                ..Default::default()
-            })
+            .with_test_nodes_config(
+                TestNodesConfig::builder()
+                    .with_node_weights(&node_weights)
+                    .with_enable_event_blob_writer()
+                    .build(),
+            )
             .with_communication_config(
                 ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
                     Duration::from_secs(2),
@@ -277,11 +284,13 @@ mod tests {
         let (_sui_cluster, mut walrus_cluster, client, _) =
             test_cluster::E2eTestSetupBuilder::new()
                 .with_epoch_duration(Duration::from_secs(30))
-                .with_test_nodes_config(TestNodesConfig {
-                    node_weights: vec![1, 2, 3, 3, 4, 0],
-                    node_recovery_config: Some(node_recovery_config),
-                    ..Default::default()
-                })
+                .with_test_nodes_config(
+                    TestNodesConfig::builder()
+                        .with_node_weights(&[1, 2, 3, 3, 4, 0])
+                        .with_node_recovery_config(node_recovery_config)
+                        .with_enable_event_blob_writer()
+                        .build(),
+                )
                 .with_communication_config(
                     ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
                         Duration::from_secs(2),
@@ -493,10 +502,11 @@ mod tests {
             test_cluster::E2eTestSetupBuilder::new()
                 .with_epoch_duration(EPOCH_DURATION)
                 .with_max_epochs_ahead(MAX_EPOCHS_AHEAD)
-                .with_test_nodes_config(TestNodesConfig {
-                    node_weights: vec![1, 2, 3, 3, 4, 0],
-                    ..Default::default()
-                })
+                .with_test_nodes_config(
+                    TestNodesConfig::builder()
+                        .with_node_weights(&[1, 2, 3, 3, 4, 0])
+                        .build(),
+                )
                 .with_communication_config(
                     ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
                         Duration::from_secs(2),
@@ -663,12 +673,12 @@ mod tests {
 
         let (_sui_cluster, walrus_cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
             .with_epoch_duration(Duration::from_secs(30))
-            .with_test_nodes_config(TestNodesConfig {
-                node_weights: vec![1, 2, 3, 3, 4],
-                use_legacy_event_processor: false,
-                node_recovery_config: Some(node_recovery_config),
-                ..Default::default()
-            })
+            .with_test_nodes_config(
+                TestNodesConfig::builder()
+                    .with_node_weights(&[1, 2, 3, 3, 4])
+                    .with_node_recovery_config(node_recovery_config)
+                    .build(),
+            )
             .with_communication_config(
                 ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
                     Duration::from_secs(2),
@@ -763,10 +773,11 @@ mod tests {
         });
 
         let (_sui_cluster, walrus_cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
-            .with_test_nodes_config(TestNodesConfig {
-                node_weights: vec![1, 2, 3, 3, 4],
-                ..Default::default()
-            })
+            .with_test_nodes_config(
+                TestNodesConfig::builder()
+                    .with_node_weights(&[1, 2, 3, 3, 4])
+                    .build(),
+            )
             .with_epoch_duration(Duration::from_secs(30))
             .build_generic::<SimStorageNodeHandle>()
             .await
@@ -827,11 +838,11 @@ mod tests {
     async fn test_recovery_in_progress_with_node_restart() {
         let (_sui_cluster, walrus_cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
             .with_epoch_duration(Duration::from_secs(30))
-            .with_test_nodes_config(TestNodesConfig {
-                node_weights: vec![1, 2, 3, 3, 4],
-                use_legacy_event_processor: false,
-                ..Default::default()
-            })
+            .with_test_nodes_config(
+                TestNodesConfig::builder()
+                    .with_node_weights(&[1, 2, 3, 3, 4])
+                    .build(),
+            )
             .with_communication_config(
                 ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
                     Duration::from_secs(2),
@@ -962,6 +973,11 @@ mod tests {
                 .with_contract_directory(testnet_contract_dir().unwrap())
                 .with_epoch_duration(epoch_duration)
                 .with_num_checkpoints_per_blob(20)
+                .with_test_nodes_config(
+                    TestNodesConfig::builder()
+                        .with_enable_event_blob_writer()
+                        .build(),
+                )
                 .build_generic::<SimStorageNodeHandle>()
                 .await?;
         let client = Arc::new(client);
@@ -1146,14 +1162,140 @@ mod tests {
     // Basic test for single client workload.
     #[ignore = "ignore integration simtests by default"]
     #[walrus_simtest]
+    async fn test_repeated_write_delete_and_expire() {
+        const TARGET_EPOCH: Epoch = 10;
+        const EPOCH_DURATION: Duration = Duration::from_secs(10);
+        const DATA_LENGTH: usize = 64;
+        const BLOBS_PER_WRITE: usize = 20;
+
+        let seed = rand::thread_rng().gen_range(0..=u64::MAX);
+
+        let blob_info_consistency_check = BlobInfoConsistencyCheck::new();
+        let communication_config = ClientCommunicationConfig {
+            // No extra time to provoke blob recoveries.
+            sliver_write_extra_time: SliverWriteExtraTime {
+                factor: 0.,
+                base: Duration::ZERO,
+            },
+            ..ClientCommunicationConfig::default_for_test_with_reqwest_timeout(Duration::from_secs(
+                2,
+            ))
+        };
+
+        let (_sui_cluster, cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
+            .with_test_nodes_config(
+                TestNodesConfig::builder()
+                    .with_node_weights(&[10; 7])
+                    .build(),
+            )
+            .with_epoch_duration(Duration::from_secs(20))
+            .with_communication_config(communication_config)
+            .build_generic::<SimStorageNodeHandle>()
+            .await
+            .unwrap();
+
+        let client = Arc::new(client);
+
+        // We probabilistically slow down two nodes to provoke blob recoveries.
+        let target_slow_nodes = [0, 1]
+            .into_iter()
+            .map(|node_index| {
+                cluster.nodes[node_index]
+                    .node_id
+                    .expect("node ID should be set")
+            })
+            .collect::<Vec<_>>();
+        sui_macros::register_fail_point_async("epoch_change_start_entry", move || {
+            let target_slow_nodes = target_slow_nodes.clone();
+            async move {
+                if target_slow_nodes.contains(&sui_simulator::current_simnode_id()) {
+                    let delay = rand::rngs::StdRng::from_entropy().gen_range(0..=7);
+                    tracing::info!("slowing down node for {delay} seconds");
+                    tokio::time::sleep(Duration::from_secs(delay)).await;
+                }
+            }
+        });
+
+        let workload_handle = tokio::spawn(async move {
+            let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
+            loop {
+                tracing::info!("writing data with size {DATA_LENGTH}");
+
+                let deletable = rng.gen_bool(0.8);
+                let should_delete = deletable && rng.gen_bool(0.5);
+                let epochs = rng.gen_range(1..=2);
+
+                let blobs = (0..BLOBS_PER_WRITE)
+                    .map(|_| random_data_from_rng(DATA_LENGTH, &mut rng))
+                    .collect();
+
+                match client
+                    .as_ref()
+                    .inner
+                    .reserve_and_store_blobs_retry_committees(
+                        blobs,
+                        vec![],
+                        &StoreArgs::default_with_epochs(epochs)
+                            .with_persistence(BlobPersistence::from_deletable(deletable)),
+                    )
+                    .await
+                {
+                    Ok(result) => {
+                        if should_delete {
+                            tracing::info!("deleting {} blobs", result.len());
+                            for blob in result.into_iter() {
+                                if let BlobStoreResult::NewlyCreated {
+                                    blob_object: Blob { id, .. },
+                                    ..
+                                } = blob
+                                {
+                                    tracing::info!(object_id = %id, "deleting blob");
+                                    let _ = client
+                                        .as_ref()
+                                        .inner
+                                        .delete_owned_blob_by_object(id)
+                                        .await
+                                        .inspect_err(|error| {
+                                            tracing::warn!(?error, "error deleting blob");
+                                        });
+                                } else {
+                                    tracing::warn!("blob is not newly created");
+                                }
+                            }
+                        }
+                    }
+                    Err(error) => {
+                        tracing::warn!(?error, "error reserving and storing blobs");
+                        continue;
+                    }
+                }
+            }
+        });
+
+        simtest_utils::wait_for_nodes_to_reach_epoch(
+            &cluster.nodes,
+            TARGET_EPOCH,
+            3 * EPOCH_DURATION * TARGET_EPOCH,
+        )
+        .await;
+
+        workload_handle.abort();
+
+        blob_info_consistency_check.check_storage_node_consistency();
+    }
+
+    // Basic test for single client workload.
+    #[ignore = "ignore integration simtests by default"]
+    #[walrus_simtest]
     async fn test_single_client_workload() {
         let blob_info_consistency_check = BlobInfoConsistencyCheck::new();
 
         let (_sui_cluster, _cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
-            .with_test_nodes_config(TestNodesConfig {
-                node_weights: vec![1, 2, 3, 3, 4],
-                ..Default::default()
-            })
+            .with_test_nodes_config(
+                TestNodesConfig::builder()
+                    .with_node_weights(&[1, 2, 3, 3, 4])
+                    .build(),
+            )
             // Use a long epoch duration to avoid operation across epoch change.
             // TODO(WAL-937): shorten this and fix any issues exposed by this.
             .with_epoch_duration(Duration::from_mins(10))

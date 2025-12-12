@@ -1204,6 +1204,10 @@ impl Storage {
     pub(crate) fn blob_info_invariants_check(&self) {
         if let Err(error) = self.blob_info.check_invariants() {
             tracing::error!(?error, "blob info internal consistency check failed");
+            debug_assert!(
+                false,
+                "blob info internal consistency check failed: {error:?}"
+            );
         }
     }
 

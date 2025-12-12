@@ -14,8 +14,8 @@ use std::{
     borrow::Borrow,
     default::Default,
     net::{SocketAddr, TcpStream},
-    num::NonZeroU16,
-    path::PathBuf,
+    num::{NonZeroU16, NonZeroUsize},
+    path::{Path, PathBuf},
     sync::Arc,
 };
 
@@ -201,33 +201,159 @@ pub trait StorageNodeHandleTrait {
     fn use_distinct_ip() -> bool;
 }
 
-/// Configuration for test node setup
+/// Minimum number of shards required for Reed-Solomon encoding when the event blob writer is
+/// enabled. With fewer shards, the recovery shard count becomes zero, which is unsupported.
+///
+/// With n_shards=4: max_n_faulty=1, source_symbols_primary=2, source_symbols_secondary=3,
+/// giving recovery counts of 2 and 1 respectively (both > 0).
+pub const MIN_SHARDS_FOR_EVENT_BLOB_WRITER: u16 = 4;
+
+/// Configuration for test node setup.
+///
+/// Use [`TestNodesConfig::builder()`] to create instances. The builder validates that
+/// configurations with the event blob writer enabled have at least
+/// [`MIN_SHARDS_FOR_EVENT_BLOB_WRITER`] shards.
 #[derive(Debug, Clone)]
 pub struct TestNodesConfig {
-    /// The weights of the nodes in the cluster.
-    pub node_weights: Vec<u16>,
-    /// Whether to use the legacy event processor.
-    pub use_legacy_event_processor: bool,
-    /// Whether to disable the event blob writer.
-    pub disable_event_blob_writer: bool,
-    /// The directory to store the blocklist.
-    pub blocklist_dir: Option<PathBuf>,
-    /// Whether to enable the node config monitor.
-    pub enable_node_config_synchronizer: bool,
-    /// The node recovery config for the nodes.
-    pub node_recovery_config: Option<NodeRecoveryConfig>,
+    node_weights: Vec<u16>,
+    disable_event_blob_writer: bool,
+    blocklist_dir: Option<PathBuf>,
+    enable_node_config_synchronizer: bool,
+    node_recovery_config: Option<NodeRecoveryConfig>,
+}
+
+impl TestNodesConfig {
+    /// Returns the weights of the nodes in the cluster.
+    pub fn node_weights(&self) -> &[u16] {
+        &self.node_weights
+    }
+
+    /// Returns whether the event blob writer is disabled.
+    pub fn disable_event_blob_writer(&self) -> bool {
+        self.disable_event_blob_writer
+    }
+
+    /// Returns the directory to store the blocklist.
+    pub fn blocklist_dir(&self) -> Option<&Path> {
+        self.blocklist_dir.as_deref()
+    }
+
+    /// Returns whether the node config synchronizer is enabled.
+    pub fn enable_node_config_synchronizer(&self) -> bool {
+        self.enable_node_config_synchronizer
+    }
+
+    /// Returns the node recovery config.
+    pub fn node_recovery_config(&self) -> Option<&NodeRecoveryConfig> {
+        self.node_recovery_config.as_ref()
+    }
+
+    /// Creates a new builder for `TestNodesConfig`.
+    pub fn builder() -> TestNodesConfigBuilder {
+        TestNodesConfigBuilder::new()
+    }
 }
 
 impl Default for TestNodesConfig {
     fn default() -> Self {
+        TestNodesConfigBuilder::new().build()
+    }
+}
+
+/// Builder for [`TestNodesConfig`] that validates configuration constraints.
+#[derive(Debug, Clone)]
+pub struct TestNodesConfigBuilder {
+    node_weights: Vec<u16>,
+    disable_event_blob_writer: bool,
+    blocklist_dir: Option<PathBuf>,
+    enable_node_config_synchronizer: bool,
+    node_recovery_config: Option<NodeRecoveryConfig>,
+}
+
+impl Default for TestNodesConfigBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl TestNodesConfigBuilder {
+    /// Creates a new builder with default values.
+    ///
+    /// By default, the event blob writer is **disabled** to avoid interference with tests.
+    /// Use [`with_enable_event_blob_writer`](Self::with_enable_event_blob_writer) for tests
+    /// that specifically need event blob functionality.
+    pub fn new() -> Self {
         Self {
             node_weights: vec![1, 2, 3, 3, 4],
-            // TODO(WAL-405): change default to checkpoint-based event processor
-            use_legacy_event_processor: true,
-            disable_event_blob_writer: false,
+            disable_event_blob_writer: true, // Disabled by default to avoid test interference
             blocklist_dir: None,
             enable_node_config_synchronizer: false,
             node_recovery_config: None,
+        }
+    }
+
+    /// Sets the weights of the nodes in the cluster.
+    pub fn with_node_weights(mut self, weights: &[u16]) -> Self {
+        self.node_weights = weights.to_vec();
+        self
+    }
+
+    /// Disables the event blob writer (this is the default).
+    pub fn with_disable_event_blob_writer(mut self) -> Self {
+        self.disable_event_blob_writer = true;
+        self
+    }
+
+    /// Enables the event blob writer.
+    ///
+    /// Use this for tests that specifically need event blob functionality.
+    /// Note: Requires at least [`MIN_SHARDS_FOR_EVENT_BLOB_WRITER`] shards.
+    pub fn with_enable_event_blob_writer(mut self) -> Self {
+        self.disable_event_blob_writer = false;
+        self
+    }
+
+    /// Sets the directory to store the blocklist.
+    pub fn with_blocklist_dir(mut self, dir: PathBuf) -> Self {
+        self.blocklist_dir = Some(dir);
+        self
+    }
+
+    /// Enables the node config synchronizer.
+    pub fn with_enable_node_config_synchronizer(mut self) -> Self {
+        self.enable_node_config_synchronizer = true;
+        self
+    }
+
+    /// Sets the node recovery config.
+    pub fn with_node_recovery_config(mut self, config: NodeRecoveryConfig) -> Self {
+        self.node_recovery_config = Some(config);
+        self
+    }
+
+    /// Builds the [`TestNodesConfig`], validating constraints.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the event blob writer is enabled but the total number of shards
+    /// (sum of node_weights) is less than [`MIN_SHARDS_FOR_EVENT_BLOB_WRITER`].
+    pub fn build(self) -> TestNodesConfig {
+        let n_shards: u16 = self.node_weights.iter().sum();
+        if !self.disable_event_blob_writer && n_shards < MIN_SHARDS_FOR_EVENT_BLOB_WRITER {
+            panic!(
+                "TestNodesConfig: event blob writer requires at least {} shards for \
+                Reed-Solomon encoding, but node_weights {:?} sum to only {} shards. \
+                Either increase node_weights or remove with_enable_event_blob_writer().",
+                MIN_SHARDS_FOR_EVENT_BLOB_WRITER, self.node_weights, n_shards
+            );
+        }
+
+        TestNodesConfig {
+            node_weights: self.node_weights,
+            disable_event_blob_writer: self.disable_event_blob_writer,
+            blocklist_dir: self.blocklist_dir,
+            enable_node_config_synchronizer: self.enable_node_config_synchronizer,
+            node_recovery_config: self.node_recovery_config,
         }
     }
 }
@@ -562,12 +688,7 @@ impl SimStorageNodeHandle {
         // Starts the event processor thread if the node is configured to use the checkpoint
         // based event processor.
         let sui_read_client = sui_config.new_read_client().await?;
-        let event_provider: Box<dyn EventManager> = if config.use_legacy_event_provider {
-            Box::new(crate::node::system_events::SuiSystemEventProvider::new(
-                sui_read_client.clone(),
-                Duration::from_millis(100),
-            ))
-        } else {
+        let event_provider: Box<dyn EventManager> = {
             let processor_config = EventProcessorRuntimeConfig {
                 rpc_addresses: combine_rpc_urls(
                     &sui_config.rpc,
@@ -1152,10 +1273,11 @@ impl StorageNodeHandleBuilder {
                     200
                 },
                 runtime_catchup_lag_threshold: 200,
+                runtime_lag_check_interval: Duration::from_secs(30),
+                enable_runtime_catchup: true,
                 ..Default::default()
             },
             pending_sliver_cache: Default::default(),
-            use_legacy_event_provider: false,
             disable_event_blob_writer,
             sui: Some(SuiConfig {
                 rpc: sui_rpc_urls.remove(0),
@@ -1296,30 +1418,8 @@ async fn wait_for_rest_api_ready(client: &StorageNodeClient) -> anyhow::Result<(
     .await?
 }
 
-/// Retries until success or a timeout, returning the last result.
-pub(crate) async fn retry_until_success_or_timeout<F, Fut, T, E>(
-    duration: Duration,
-    mut func_to_retry: F,
-) -> Result<T, E>
-where
-    F: FnMut() -> Fut,
-    Fut: Future<Output = Result<T, E>>,
-{
-    let mut last_result = None;
-
-    let _ = tokio::time::timeout(duration, async {
-        loop {
-            last_result = Some(func_to_retry().await);
-            if last_result.as_ref().unwrap().is_ok() {
-                return;
-            }
-            tokio::time::sleep(Duration::from_millis(5)).await;
-        }
-    })
-    .await;
-
-    last_result.expect("function to have completed at least once")
-}
+// Re-export from walrus_test_utils for internal use.
+pub(crate) use walrus_test_utils::retry_until_success_or_timeout;
 
 /// Waits until garbage collection has completed for the specified epoch on all provided nodes.
 ///
@@ -2840,9 +2940,7 @@ pub mod test_cluster {
                 .with_system_contract_services(node_contract_services);
 
             let event_processor_config = Default::default();
-            let mut cluster_builder = if test_nodes_config.use_legacy_event_processor {
-                setup_legacy_event_processors(sui_read_client.clone(), cluster_builder)?
-            } else {
+            let mut cluster_builder = {
                 setup_checkpoint_based_event_processors(
                     &event_processor_config,
                     sui_rpc_urls.as_slice(),
@@ -3039,18 +3137,6 @@ pub mod test_cluster {
         Ok(res)
     }
 
-    fn setup_legacy_event_processors(
-        sui_read_client: SuiReadClient,
-        test_cluster_builder: TestClusterBuilder,
-    ) -> anyhow::Result<TestClusterBuilder> {
-        let event_provider = crate::node::system_events::SuiSystemEventProvider::new(
-            sui_read_client.clone(),
-            Duration::from_millis(100),
-        );
-        let res = test_cluster_builder.with_system_event_providers(event_provider);
-        Ok(res)
-    }
-
     // Prevent tests running simultaneously to avoid interferences or race conditions.
     fn global_test_lock() -> &'static TokioMutex<()> {
         static LOCK: OnceLock<TokioMutex<()>> = OnceLock::new();
@@ -3093,7 +3179,6 @@ pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
             },
             event_processor_config: Default::default(),
             pending_sliver_cache: Default::default(),
-            use_legacy_event_provider: false,
             disable_event_blob_writer: false,
             commission_rate: 0,
             voting_params: VotingParams {
@@ -3116,7 +3201,9 @@ pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
             admin_socket_path: None,
             node_recovery_config: Default::default(),
             // Uses smaller number of workers in tests to avoid overwhelming the tests.
-            blob_event_processor_config: BlobEventProcessorConfig { num_workers: 3 },
+            blob_event_processor_config: BlobEventProcessorConfig {
+                num_workers: NonZeroUsize::new(3).unwrap(),
+            },
             garbage_collection: GarbageCollectionConfig::default_for_test(),
             live_upload_deferral: LiveUploadDeferralConfig::default_for_test(),
             pending_metadata_cache: Default::default(),

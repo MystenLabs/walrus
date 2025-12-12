@@ -186,7 +186,6 @@ pending_sliver_cache:
 pending_metadata_cache:
   max_cached_entries: 512
   cache_ttl: 10
-use_legacy_event_provider: false
 disable_event_blob_writer: false
 commission_rate: 6000
 voting_params:

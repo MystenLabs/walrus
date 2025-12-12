@@ -595,6 +595,26 @@ impl StakingObject {
             }
         }
     }
+
+    /// Returns the number of shards in the system.
+    pub fn n_shards(&self) -> NonZeroU16 {
+        self.inner.n_shards
+    }
+
+    /// Returns the shard assignment for the current committee.
+    pub fn current_committee_shard_assignment(&self) -> &[(ObjectID, Vec<u16>)] {
+        &self.inner.committee
+    }
+
+    /// Returns the shard assignment for the next committee.
+    pub fn next_committee_shard_assignment(&self) -> Option<&Vec<(ObjectID, Vec<u16>)>> {
+        self.inner.next_committee.as_ref()
+    }
+
+    /// Returns the shard assignment for the previous committee.
+    pub fn previous_committee_shard_assignment(&self) -> &[(ObjectID, Vec<u16>)] {
+        &self.inner.previous_committee
+    }
 }
 
 /// Sui type for outer staking object. Used for deserialization.

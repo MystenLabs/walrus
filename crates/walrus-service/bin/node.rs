@@ -701,7 +701,6 @@ mod commands {
                 .map(|config| config.into())
                 .expect("Sui configuration must be present"),
             config.event_processor_config.clone(),
-            config.use_legacy_event_provider,
             &config.storage_path,
             &metrics_runtime.registry,
             cancel_token.child_token(),

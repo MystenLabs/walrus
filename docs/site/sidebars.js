@@ -44,6 +44,10 @@ const sidebars = {
         {
             type: "category",
             label: "Developer Guide",
+            link: {
+                type: "doc",
+                id: "dev-guide/dev-guide",
+            },
             items: [
                 "dev-guide/components",
                 "dev-guide/dev-operations",
@@ -56,6 +60,10 @@ const sidebars = {
         {
             type: "category",
             label: "Operator Guide",
+            link: {
+                type: "doc",
+                id: "operator-guide/operator-guide",
+            },
             items: [
                 {
                     type: "category",
@@ -69,6 +77,10 @@ const sidebars = {
                 {
                     type: "category",
                     label: "Operating a Storage Node",
+                    link: {
+                        type: "doc",
+                        id: "operator-guide/storage-node",
+                    },
                     items: [
                         "operator-guide/commission-governance",
                         "operator-guide/backup-restore-guide",
