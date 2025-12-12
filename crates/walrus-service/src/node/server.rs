@@ -400,8 +400,8 @@ where
                 get(routes::list_recovery_symbols),
             )
             .route(
-                routes::LIST_RAW_RECOVERY_SYMBOL_ENDPOINT,
-                get(routes::list_raw_recovery_symbols),
+                routes::LIST_DECODING_SYMBOL_ENDPOINT,
+                get(routes::list_decoding_symbols),
             )
             .route(
                 routes::INCONSISTENCY_PROOF_ENDPOINT,
@@ -642,7 +642,7 @@ mod tests {
             Ok(vec![symbol.clone(), symbol])
         }
 
-        async fn retrieve_multiple_raw_recovery_symbols(
+        async fn retrieve_multiple_decoding_symbols(
             &self,
             _blob_id: &BlobId,
             _target_slivers: Vec<SliverIndex>,
