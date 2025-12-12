@@ -22,3 +22,5 @@ static/portals.json
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+ws-resources.json
