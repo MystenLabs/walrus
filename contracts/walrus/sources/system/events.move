@@ -88,8 +88,6 @@ public struct BlobManagerUpdated has copy, drop {
     epoch: u32,
     blob_manager_id: ID,
     new_end_epoch: u32,
-    /// Grace period in epochs after storage expiry before blobs become eligible for GC.
-    grace_period_epochs: u32,
 }
 
 /// Signals that a new BlobManager has been created.
@@ -97,14 +95,24 @@ public struct BlobManagerCreated has copy, drop {
     epoch: u32,
     blob_manager_id: ID,
     end_epoch: u32,
-    /// Grace period in epochs after storage expiry before blobs become eligible for GC.
-    grace_period_epochs: u32,
 }
 
 /// Signals that a BlobID is invalid.
 public struct InvalidBlobID has copy, drop {
     epoch: u32, // The epoch in which the blob ID is first registered as invalid
     blob_id: u256,
+}
+
+/// Signals that a regular blob has been moved into a BlobManager.
+public struct BlobMovedIntoBlobManager has copy, drop {
+    epoch: u32,
+    blob_id: u256,
+    blob_manager_id: ID,
+    original_object_id: ID, // Original Blob's ObjectID
+    size: u64,
+    encoding_type: u8,
+    new_object_id: ID, // New ManagedBlob's ObjectID
+    deletable: bool, // Whether the blob is deletable
 }
 
 /// Signals that epoch `epoch` has started and the epoch change is in progress.
@@ -230,6 +238,28 @@ public(package) fun emit_blob_deleted(
     event::emit(BlobDeleted { epoch, blob_id, end_epoch, object_id, was_certified });
 }
 
+public(package) fun emit_blob_moved_into_blob_manager(
+    epoch: u32,
+    blob_id: u256,
+    blob_manager_id: ID,
+    original_object_id: ID,
+    size: u64,
+    encoding_type: u8,
+    new_object_id: ID,
+    deletable: bool,
+) {
+    event::emit(BlobMovedIntoBlobManager {
+        epoch,
+        blob_id,
+        blob_manager_id,
+        original_object_id,
+        size,
+        encoding_type,
+        new_object_id,
+        deletable,
+    });
+}
+
 public(package) fun emit_managed_blob_registered(
     epoch: u32,
     blob_manager_id: ID,
@@ -290,31 +320,19 @@ public(package) fun emit_managed_blob_deleted(
     });
 }
 
-public(package) fun emit_blob_manager_updated(
-    epoch: u32,
-    blob_manager_id: ID,
-    new_end_epoch: u32,
-    grace_period_epochs: u32,
-) {
+public(package) fun emit_blob_manager_updated(epoch: u32, blob_manager_id: ID, new_end_epoch: u32) {
     event::emit(BlobManagerUpdated {
         epoch,
         blob_manager_id,
         new_end_epoch,
-        grace_period_epochs,
     });
 }
 
-public(package) fun emit_blob_manager_created(
-    epoch: u32,
-    blob_manager_id: ID,
-    end_epoch: u32,
-    grace_period_epochs: u32,
-) {
+public(package) fun emit_blob_manager_created(epoch: u32, blob_manager_id: ID, end_epoch: u32) {
     event::emit(BlobManagerCreated {
         epoch,
         blob_manager_id,
         end_epoch,
-        grace_period_epochs,
     });
 }
 

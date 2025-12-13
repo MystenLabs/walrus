@@ -55,6 +55,16 @@ public enum BlobType has copy, drop, store {
     Quilt,
 }
 
+/// Returns a Regular BlobType.
+public fun blob_type_regular(): BlobType {
+    BlobType::Regular
+}
+
+/// Returns a Quilt BlobType.
+public fun blob_type_quilt(): BlobType {
+    BlobType::Quilt
+}
+
 // === Object definitions ===
 
 /// The managed blob structure represents a blob that has been registered with
@@ -64,8 +74,11 @@ public struct ManagedBlob has key, store {
     id: UID,
     registered_epoch: u32,
     blob_id: u256,
+    // Unencoded size.
     size: u64,
     encoding_type: u8,
+    // Encoded size (cached to avoid recalculation).
+    encoded_size: u64,
     // Stores the epoch first certified.
     certified_epoch: option::Option<u32>,
     // TODO(heliu): Generic ownership.
@@ -146,12 +159,9 @@ public fun get_attribute(self: &ManagedBlob, key: &String): Option<String> {
     }
 }
 
-public fun encoded_size(self: &ManagedBlob, n_shards: u16): u64 {
-    encoding::encoded_blob_length(
-        self.size,
-        self.encoding_type,
-        n_shards,
-    )
+public fun encoded_size(self: &ManagedBlob): u64 {
+    // Direct getter for cached encoded_size without n_shards parameter.
+    self.encoded_size
 }
 
 /// Aborts if the blob is not certified.
@@ -179,6 +189,7 @@ public(package) fun new(
     blob_type: u8,
     end_epoch_at_registration: u32,
     registered_epoch: u32,
+    n_shards: u16,
     ctx: &mut TxContext,
 ): ManagedBlob {
     let id = object::new(ctx);
@@ -186,6 +197,9 @@ public(package) fun new(
     // Cryptographically verify that the Blob ID authenticates
     // both the size and encoding_type (sanity check).
     assert!(derive_blob_id(root_hash, encoding_type, size) == blob_id, EInvalidBlobId);
+
+    // Calculate encoded size once during creation.
+    let encoded_size = encoding::encoded_blob_length(size, encoding_type, n_shards);
 
     // Convert u8 to BlobType enum (0 = Regular, 1 = Quilt)
     let blob_type_enum = if (blob_type == 1) {
@@ -213,10 +227,45 @@ public(package) fun new(
         blob_id,
         size,
         encoding_type,
+        encoded_size,
         certified_epoch: option::none(),
         blob_manager_id,
         deletable,
         blob_type: blob_type_enum,
+        attributes: vec_map::empty(),
+    }
+}
+
+/// Creates a ManagedBlob from a regular Blob that is being moved into a BlobManager.
+/// This preserves the certification status and registration epoch from the original blob.
+public(package) fun new_from_regular(
+    blob_id: u256,
+    size: u64,
+    encoding_type: u8,
+    blob_manager_id: ID,
+    certified_epoch: Option<u32>,
+    registered_epoch: u32,
+    deletable: bool,
+    blob_type: BlobType,
+    n_shards: u16,
+    ctx: &mut TxContext,
+): ManagedBlob {
+    let id = object::new(ctx);
+
+    // Calculate encoded size once during creation.
+    let encoded_size = encoding::encoded_blob_length(size, encoding_type, n_shards);
+
+    ManagedBlob {
+        id,
+        registered_epoch,
+        blob_id,
+        size,
+        encoding_type,
+        encoded_size,
+        certified_epoch,
+        blob_manager_id,
+        deletable,
+        blob_type,
         attributes: vec_map::empty(),
     }
 }
@@ -256,29 +305,17 @@ public fun certify_with_certified_msg(
     self.emit_certified(end_epoch_at_certify);
 }
 
-/// Deletes a deletable blob.
-///
-/// Emits a `ManagedBlobDeleted` event for the given epoch.
+/// Internal function to delete a deletable blob.
+/// Used by system_state_inner::delete_managed_blob.
 /// Aborts if the ManagedBlob is not deletable.
-public(package) fun delete(self: ManagedBlob, epoch: u32) {
+public(package) fun delete_internal(self: ManagedBlob) {
     let ManagedBlob {
         id,
-        blob_manager_id,
         deletable,
-        blob_id,
-        certified_epoch,
         ..,
     } = self;
     assert!(deletable, EBlobNotDeletable);
-    let object_id = id.to_inner();
     id.delete();
-    emit_managed_blob_deleted(
-        epoch,
-        blob_manager_id,
-        blob_id,
-        object_id,
-        certified_epoch.is_some(),
-    );
 }
 
 /// Allow the owner of a managed blob object to destroy it.

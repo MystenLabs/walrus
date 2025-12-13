@@ -2002,6 +2002,45 @@ impl WalrusPtbBuilder {
     }
 
     /// Deposits WAL coins to the BlobManager's coin stash.
+    pub async fn move_blob_into_manager(
+        &mut self,
+        manager: ObjectID,
+        cap: ObjectID,
+        blob_id: ObjectID,
+    ) -> SuiClientResult<()> {
+        // Get the initial shared versions.
+        let manager_initial_version = self
+            .read_client
+            .get_shared_object_initial_version(manager)
+            .await?;
+
+        // Create the capability argument.
+        let cap_arg = self
+            .argument_from_arg_or_obj(ArgumentOrOwnedObject::Object(cap))
+            .await?;
+
+        // Create the blob argument (blob is an owned object).
+        let blob_arg = self
+            .argument_from_arg_or_obj(ArgumentOrOwnedObject::Object(blob_id))
+            .await?;
+
+        let move_args = vec![
+            self.pt_builder.obj(ObjectArg::SharedObject {
+                id: manager,
+                initial_shared_version: manager_initial_version,
+                mutability: SharedObjectMutability::Mutable,
+            })?,
+            cap_arg,
+            self.system_arg(SharedObjectMutability::Mutable).await?,
+            blob_arg,
+        ];
+
+        let _ =
+            self.blobmanager_move_call(contracts::blobmanager::move_blob_into_manager, move_args)?;
+        Ok(())
+    }
+
+    /// Deposit WAL to the blob manager.
     pub async fn deposit_wal_to_blob_manager(
         &mut self,
         manager: ObjectID,
@@ -2085,13 +2124,13 @@ impl WalrusPtbBuilder {
         Ok(())
     }
 
-    /// Buys additional storage using funds from the BlobManager's coin stash.
+    /// Buys additional storage capacity using funds from the BlobManager's coin stash.
+    /// The new storage uses the same epoch range as the existing storage.
     pub async fn buy_storage_from_stash(
         &mut self,
         manager: ObjectID,
         cap: ObjectID,
         storage_amount: u64,
-        epochs_ahead: u32,
     ) -> SuiClientResult<()> {
         // Get the initial shared version for the BlobManager.
         let manager_initial_version = self
@@ -2110,7 +2149,6 @@ impl WalrusPtbBuilder {
             ))?,
             self.system_arg(SharedObjectMutability::Mutable).await?,
             self.pt_builder.pure(storage_amount)?, // storage amount in bytes.
-            self.pt_builder.pure(epochs_ahead)?,   // epochs ahead.
         ];
 
         self.blobmanager_move_call(contracts::blobmanager::buy_storage_from_stash, buy_args)?;
@@ -2139,19 +2177,27 @@ impl WalrusPtbBuilder {
             self.pt_builder.pure(extension_epochs)?, // extension epochs.
         ];
 
-        self.blobmanager_move_call(
+        // The function returns a Coin<SUI> tip that must be transferred to the caller.
+        let tip_coin = self.blobmanager_move_call(
             contracts::blobmanager::extend_storage_from_stash,
             extend_args,
         )?;
+
+        // Transfer the tip coin to the sender.
+        let sender = self.pt_builder.pure(self.sender_address)?;
+        self.pt_builder
+            .command(Command::TransferObjects(vec![tip_coin], sender));
+
         Ok(())
     }
 
-    /// Withdraws all WAL funds from the BlobManager's coin stash.
+    /// Withdraws a specific amount of WAL funds from the BlobManager's coin stash.
     /// Requires fund_manager permission on the capability.
-    pub async fn withdraw_all_wal_from_blob_manager(
+    pub async fn withdraw_wal_from_blob_manager(
         &mut self,
         manager: ObjectID,
         cap: ObjectID,
+        amount: u64,
     ) -> SuiClientResult<()> {
         // Get the initial shared version for the BlobManager.
         let manager_initial_version = self
@@ -2170,12 +2216,13 @@ impl WalrusPtbBuilder {
                 mutability: SharedObjectMutability::Mutable,
             })?,
             cap_arg,
+            self.pt_builder.pure(amount)?,
         ];
 
         let coin =
-            self.blobmanager_move_call(contracts::blobmanager::withdraw_all_wal, withdraw_args)?;
+            self.blobmanager_move_call(contracts::blobmanager::withdraw_wal, withdraw_args)?;
 
-        // Transfer the withdrawn coin to the sender
+        // Transfer the withdrawn coin to the sender.
         let sender = self.pt_builder.pure(self.sender_address)?;
         self.pt_builder
             .command(Command::TransferObjects(vec![coin], sender));
@@ -2183,12 +2230,13 @@ impl WalrusPtbBuilder {
         Ok(())
     }
 
-    /// Withdraws all SUI funds from the BlobManager's coin stash.
+    /// Withdraws a specific amount of SUI funds from the BlobManager's coin stash.
     /// Requires fund_manager permission on the capability.
-    pub async fn withdraw_all_sui_from_blob_manager(
+    pub async fn withdraw_sui_from_blob_manager(
         &mut self,
         manager: ObjectID,
         cap: ObjectID,
+        amount: u64,
     ) -> SuiClientResult<()> {
         // Get the initial shared version for the BlobManager.
         let manager_initial_version = self
@@ -2207,12 +2255,13 @@ impl WalrusPtbBuilder {
                 mutability: SharedObjectMutability::Mutable,
             })?,
             cap_arg,
+            self.pt_builder.pure(amount)?,
         ];
 
         let coin =
-            self.blobmanager_move_call(contracts::blobmanager::withdraw_all_sui, withdraw_args)?;
+            self.blobmanager_move_call(contracts::blobmanager::withdraw_sui, withdraw_args)?;
 
-        // Transfer the withdrawn coin to the sender
+        // Transfer the withdrawn coin to the sender.
         let sender = self.pt_builder.pure(self.sender_address)?;
         self.pt_builder
             .command(Command::TransferObjects(vec![coin], sender));
@@ -2366,46 +2415,9 @@ impl WalrusPtbBuilder {
         Ok(())
     }
 
-    /// Extends the storage period using funds from the BlobManager's coin stash.
-    /// This is for fund managers and bypasses policy time/amount constraints.
+    /// Sets the extension policy to disabled (no one can extend).
     /// Requires fund_manager permission on the capability.
-    pub async fn extend_storage_from_stash_fund_manager(
-        &mut self,
-        manager: ObjectID,
-        cap: ObjectID,
-        extension_epochs: u32,
-    ) -> SuiClientResult<()> {
-        // Get the initial shared version for the BlobManager.
-        let manager_initial_version = self
-            .read_client
-            .get_shared_object_initial_version(manager)
-            .await?;
-
-        // Get the capability's ObjectRef.
-        let cap_ref = self.read_client.get_object_ref(cap).await?;
-        let cap_arg = self.pt_builder.obj(ObjectArg::ImmOrOwnedObject(cap_ref))?;
-
-        let extend_args = vec![
-            self.pt_builder.obj(ObjectArg::SharedObject {
-                id: manager,
-                initial_shared_version: manager_initial_version,
-                mutability: SharedObjectMutability::Mutable,
-            })?,
-            cap_arg,
-            self.system_arg(SharedObjectMutability::Mutable).await?,
-            self.pt_builder.pure(extension_epochs)?, // extension epochs.
-        ];
-
-        self.blobmanager_move_call(
-            contracts::blobmanager::extend_storage_from_stash_fund_manager,
-            extend_args,
-        )?;
-        Ok(())
-    }
-
-    /// Sets the extension policy to fund_manager only (only fund_manager can extend).
-    /// Requires fund_manager permission on the capability.
-    pub async fn set_extension_policy_fund_manager_only(
+    pub async fn set_extension_policy_disabled(
         &mut self,
         manager: ObjectID,
         cap: ObjectID,
@@ -2430,7 +2442,7 @@ impl WalrusPtbBuilder {
         ];
 
         self.blobmanager_move_call(
-            contracts::blobmanager::set_extension_policy_fund_manager_only,
+            contracts::blobmanager::set_extension_policy_disabled,
             policy_args,
         )?;
         Ok(())

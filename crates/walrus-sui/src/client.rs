@@ -723,6 +723,24 @@ impl SuiContractClient {
             .await
     }
 
+    /// Moves a regular blob (which owns Storage directly) into a BlobManager.
+    /// The blob must be certified and not expired.
+    /// Storage epochs are aligned: if blob's end_epoch < manager's, purchase extension using coin
+    /// stash.
+    /// If blob's end_epoch > manager's, split excess and return to owner.
+    pub async fn move_blob_into_manager(
+        &self,
+        manager_id: ObjectID,
+        manager_cap: ObjectID,
+        blob_id: ObjectID,
+    ) -> SuiClientResult<()> {
+        self.inner
+            .lock()
+            .await
+            .move_blob_into_manager(manager_id, manager_cap, blob_id)
+            .await
+    }
+
     /// Deposits WAL coins to the BlobManager's coin stash.
     pub async fn deposit_wal_to_blob_manager(
         &self,
@@ -749,18 +767,18 @@ impl SuiContractClient {
             .await
     }
 
-    /// Buys additional storage using funds from the BlobManager's coin stash.
+    /// Buys additional storage capacity using funds from the BlobManager's coin stash.
+    /// The new storage uses the same epoch range as the existing storage.
     pub async fn buy_storage_from_stash(
         &self,
         manager_id: ObjectID,
         cap: ObjectID,
         storage_amount: u64,
-        epochs_ahead: u32,
     ) -> SuiClientResult<()> {
         self.inner
             .lock()
             .await
-            .buy_storage_from_stash(manager_id, cap, storage_amount, epochs_ahead)
+            .buy_storage_from_stash(manager_id, cap, storage_amount)
             .await
     }
 
@@ -777,31 +795,33 @@ impl SuiContractClient {
             .await
     }
 
-    /// Withdraws all WAL funds from the BlobManager's coin stash.
+    /// Withdraws a specific amount of WAL funds from the BlobManager's coin stash.
     /// Requires fund_manager permission.
-    pub async fn withdraw_all_wal_from_blob_manager(
+    pub async fn withdraw_wal_from_blob_manager(
         &self,
         manager_id: ObjectID,
         manager_cap: ObjectID,
+        amount: u64,
     ) -> SuiClientResult<()> {
         self.inner
             .lock()
             .await
-            .withdraw_all_wal_from_blob_manager(manager_id, manager_cap)
+            .withdraw_wal_from_blob_manager(manager_id, manager_cap, amount)
             .await
     }
 
-    /// Withdraws all SUI funds from the BlobManager's coin stash.
+    /// Withdraws a specific amount of SUI funds from the BlobManager's coin stash.
     /// Requires fund_manager permission.
-    pub async fn withdraw_all_sui_from_blob_manager(
+    pub async fn withdraw_sui_from_blob_manager(
         &self,
         manager_id: ObjectID,
         manager_cap: ObjectID,
+        amount: u64,
     ) -> SuiClientResult<()> {
         self.inner
             .lock()
             .await
-            .withdraw_all_sui_from_blob_manager(manager_id, manager_cap)
+            .withdraw_sui_from_blob_manager(manager_id, manager_cap, amount)
             .await
     }
 
@@ -869,25 +889,9 @@ impl SuiContractClient {
             .await
     }
 
-    /// Extends the storage period using funds from the BlobManager's coin stash.
-    /// This is for fund managers and bypasses policy time/amount constraints.
+    /// Sets the extension policy to disabled (no one can extend).
     /// Requires fund_manager permission on the capability.
-    pub async fn extend_storage_from_stash_fund_manager(
-        &self,
-        manager_id: ObjectID,
-        manager_cap: ObjectID,
-        extension_epochs: u32,
-    ) -> SuiClientResult<()> {
-        self.inner
-            .lock()
-            .await
-            .extend_storage_from_stash_fund_manager(manager_id, manager_cap, extension_epochs)
-            .await
-    }
-
-    /// Sets the extension policy to fund_manager only (only fund_manager can extend).
-    /// Requires fund_manager permission on the capability.
-    pub async fn set_extension_policy_fund_manager_only(
+    pub async fn set_extension_policy_disabled(
         &self,
         manager_id: ObjectID,
         manager_cap: ObjectID,
@@ -895,7 +899,7 @@ impl SuiContractClient {
         self.inner
             .lock()
             .await
-            .set_extension_policy_fund_manager_only(manager_id, manager_cap)
+            .set_extension_policy_disabled(manager_id, manager_cap)
             .await
     }
 
@@ -2269,6 +2273,38 @@ impl SuiContractClientInner {
         Ok(())
     }
 
+    pub async fn move_blob_into_manager(
+        &mut self,
+        manager_id: ObjectID,
+        manager_cap: ObjectID,
+        blob_id: ObjectID,
+    ) -> SuiClientResult<()> {
+        tracing::debug!(
+            blob_id = %blob_id,
+            manager_id = %manager_id,
+            "moving regular blob into blob manager"
+        );
+
+        let mut pt_builder = self.transaction_builder()?;
+
+        pt_builder
+            .move_blob_into_manager(manager_id, manager_cap, blob_id)
+            .await?;
+
+        let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
+        let res = self
+            .sign_and_send_transaction(transaction, "move_blob_into_manager")
+            .await?;
+
+        if !res.errors.is_empty() {
+            tracing::warn!(errors = ?res.errors, "failed to move blob into manager");
+            return Err(anyhow!("could not move blob into manager: {:?}", res.errors).into());
+        }
+
+        tracing::debug!("successfully moved blob into blob manager");
+        Ok(())
+    }
+
     /// Deposits WAL coins to the BlobManager's coin stash.
     pub async fn deposit_wal_to_blob_manager(
         &mut self,
@@ -2321,26 +2357,25 @@ impl SuiContractClientInner {
         Ok(())
     }
 
-    /// Buys additional storage using funds from the BlobManager's coin stash.
+    /// Buys additional storage capacity using funds from the BlobManager's coin stash.
+    /// The new storage uses the same epoch range as the existing storage.
     pub async fn buy_storage_from_stash(
         &mut self,
         manager_id: ObjectID,
         cap: ObjectID,
         storage_amount: u64,
-        epochs_ahead: u32,
     ) -> SuiClientResult<()> {
         tracing::debug!(
             manager_id = %manager_id,
             cap = %cap,
             storage_amount = storage_amount,
-            epochs_ahead = epochs_ahead,
-            "buying storage from blob manager coin stash"
+            "buying storage capacity from blob manager coin stash"
         );
 
         let mut pt_builder = self.transaction_builder()?;
 
         pt_builder
-            .buy_storage_from_stash(manager_id, cap, storage_amount, epochs_ahead)
+            .buy_storage_from_stash(manager_id, cap, storage_amount)
             .await?;
 
         let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
@@ -2353,7 +2388,7 @@ impl SuiContractClientInner {
             return Err(anyhow!("could not buy storage: {:?}", res.errors).into());
         }
 
-        tracing::debug!("successfully bought storage from coin stash");
+        tracing::debug!("successfully bought storage capacity from coin stash");
         Ok(())
     }
 
@@ -2389,55 +2424,59 @@ impl SuiContractClientInner {
         Ok(())
     }
 
-    /// Withdraws all WAL funds from the BlobManager's coin stash.
+    /// Withdraws a specific amount of WAL funds from the BlobManager's coin stash.
     /// Requires fund_manager permission on the capability.
-    pub async fn withdraw_all_wal_from_blob_manager(
+    pub async fn withdraw_wal_from_blob_manager(
         &mut self,
         manager_id: ObjectID,
         manager_cap: ObjectID,
+        amount: u64,
     ) -> SuiClientResult<()> {
         tracing::debug!(
             manager_id = %manager_id,
-            "withdrawing all WAL from blob manager coin stash"
+            amount,
+            "withdrawing WAL from blob manager coin stash"
         );
 
         let mut pt_builder = self.transaction_builder()?;
 
         pt_builder
-            .withdraw_all_wal_from_blob_manager(manager_id, manager_cap)
+            .withdraw_wal_from_blob_manager(manager_id, manager_cap, amount)
             .await?;
 
         let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
-        self.sign_and_send_transaction(transaction, "withdraw_all_wal_from_blob_manager")
+        self.sign_and_send_transaction(transaction, "withdraw_wal_from_blob_manager")
             .await?;
 
-        tracing::debug!("successfully withdrew all WAL from blob manager");
+        tracing::debug!("successfully withdrew WAL from blob manager");
         Ok(())
     }
 
-    /// Withdraws all SUI funds from the BlobManager's coin stash.
+    /// Withdraws a specific amount of SUI funds from the BlobManager's coin stash.
     /// Requires fund_manager permission on the capability.
-    pub async fn withdraw_all_sui_from_blob_manager(
+    pub async fn withdraw_sui_from_blob_manager(
         &mut self,
         manager_id: ObjectID,
         manager_cap: ObjectID,
+        amount: u64,
     ) -> SuiClientResult<()> {
         tracing::debug!(
             manager_id = %manager_id,
-            "withdrawing all SUI from blob manager coin stash"
+            amount,
+            "withdrawing SUI from blob manager coin stash"
         );
 
         let mut pt_builder = self.transaction_builder()?;
 
         pt_builder
-            .withdraw_all_sui_from_blob_manager(manager_id, manager_cap)
+            .withdraw_sui_from_blob_manager(manager_id, manager_cap, amount)
             .await?;
 
         let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
-        self.sign_and_send_transaction(transaction, "withdraw_all_sui_from_blob_manager")
+        self.sign_and_send_transaction(transaction, "withdraw_sui_from_blob_manager")
             .await?;
 
-        tracing::debug!("successfully withdrew all SUI from blob manager");
+        tracing::debug!("successfully withdrew SUI from blob manager");
         Ok(())
     }
 
@@ -2606,70 +2645,35 @@ impl SuiContractClientInner {
         Ok(())
     }
 
-    /// Extends the storage period using funds from the BlobManager's coin stash.
-    /// This is for fund managers and bypasses policy time/amount constraints.
+    /// Sets the extension policy to disabled (no one can extend).
     /// Requires fund_manager permission on the capability.
-    pub async fn extend_storage_from_stash_fund_manager(
-        &mut self,
-        manager_id: ObjectID,
-        manager_cap: ObjectID,
-        extension_epochs: u32,
-    ) -> SuiClientResult<()> {
-        tracing::debug!(
-            manager_id = %manager_id,
-            extension_epochs = extension_epochs,
-            "extending storage from blob manager coin stash (fund manager)"
-        );
-
-        let mut pt_builder = self.transaction_builder()?;
-
-        pt_builder
-            .extend_storage_from_stash_fund_manager(manager_id, manager_cap, extension_epochs)
-            .await?;
-
-        let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
-        let res = self
-            .sign_and_send_transaction(transaction, "extend_storage_from_stash_fund_manager")
-            .await?;
-
-        if !res.errors.is_empty() {
-            tracing::warn!(errors = ?res.errors, "failed to extend storage (fund manager)");
-            return Err(anyhow!("could not extend storage: {:?}", res.errors).into());
-        }
-
-        tracing::debug!("successfully extended storage from coin stash (fund manager)");
-        Ok(())
-    }
-
-    /// Sets the extension policy to fund_manager only (only fund_manager can extend).
-    /// Requires fund_manager permission on the capability.
-    pub async fn set_extension_policy_fund_manager_only(
+    pub async fn set_extension_policy_disabled(
         &mut self,
         manager_id: ObjectID,
         manager_cap: ObjectID,
     ) -> SuiClientResult<()> {
         tracing::debug!(
             manager_id = %manager_id,
-            "setting extension policy to fund_manager only"
+            "setting extension policy to disabled"
         );
 
         let mut pt_builder = self.transaction_builder()?;
 
         pt_builder
-            .set_extension_policy_fund_manager_only(manager_id, manager_cap)
+            .set_extension_policy_disabled(manager_id, manager_cap)
             .await?;
 
         let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
         let res = self
-            .sign_and_send_transaction(transaction, "set_extension_policy_fund_manager_only")
+            .sign_and_send_transaction(transaction, "set_extension_policy_disabled")
             .await?;
 
         if !res.errors.is_empty() {
-            tracing::warn!(errors = ?res.errors, "failed to set policy to fund_manager only");
+            tracing::warn!(errors = ?res.errors, "failed to set policy to disabled");
             return Err(anyhow!("could not set extension policy: {:?}", res.errors).into());
         }
 
-        tracing::debug!("successfully set extension policy to fund_manager only");
+        tracing::debug!("successfully set extension policy to disabled");
         Ok(())
     }
 

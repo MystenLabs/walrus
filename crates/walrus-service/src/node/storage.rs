@@ -664,27 +664,22 @@ impl Storage {
 
         match event {
             BlobManagerEvent::Created(e) => {
-                // When a BlobManager is created, store its initial end_epoch and gc_eligible_epoch.
-                let info = StoredBlobManagerInfo::new(e.end_epoch, e.grace_period_epochs);
+                // When a BlobManager is created, store its initial end_epoch.
+                let info = StoredBlobManagerInfo::new(e.end_epoch);
                 self.blob_managers.insert(e.blob_manager_id, info)?;
                 tracing::debug!(
                     blob_manager_id = %e.blob_manager_id,
                     end_epoch = e.end_epoch,
-                    grace_period_epochs = e.grace_period_epochs,
                     "Processed BlobManagerCreated event"
                 );
             }
             BlobManagerEvent::Updated(e) => {
-                // When a BlobManager is updated, update its end_epoch and/or grace_period_epochs.
-                self.blob_managers.update_blob_manager_info(
-                    &e.blob_manager_id,
-                    e.new_end_epoch,
-                    e.grace_period_epochs,
-                )?;
+                // When a BlobManager is updated, update its end_epoch.
+                self.blob_managers
+                    .update_blob_manager_info(&e.blob_manager_id, e.new_end_epoch)?;
                 tracing::debug!(
                     blob_manager_id = %e.blob_manager_id,
                     new_end_epoch = e.new_end_epoch,
-                    grace_period_epochs = e.grace_period_epochs,
                     "Processed BlobManagerUpdated event"
                 );
             }

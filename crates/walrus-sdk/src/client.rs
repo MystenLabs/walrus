@@ -1706,6 +1706,42 @@ impl WalrusNodeClient<SuiContractClient> {
             data.clone(),
         ))
     }
+
+    /// Extends the storage period for a BlobManager using funds from its coin stash.
+    ///
+    /// This is a public function that anyone can call to extend a BlobManager's storage.
+    /// The extension is subject to the BlobManager's extension policy constraints.
+    /// A tip may be paid to the caller if the BlobManager has a tip policy configured.
+    ///
+    /// # Arguments
+    ///
+    /// * `manager_id` - The BlobManager object ID.
+    /// * `extension_epochs` - The number of epochs to extend the storage for.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` if the storage period was successfully extended.
+    /// * `Err(ClientError)` if:
+    ///   - The extension policy is disabled or constraints are not met.
+    ///   - The coin stash has insufficient WAL balance.
+    ///   - The transaction fails.
+    pub async fn extend_blob_manager_storage(
+        &self,
+        manager_id: ObjectID,
+        extension_epochs: u32,
+    ) -> ClientResult<()> {
+        tracing::info!(
+            ?manager_id,
+            extension_epochs,
+            "extending blob manager storage"
+        );
+
+        self.sui_client
+            .extend_storage_from_stash(manager_id, extension_epochs)
+            .await?;
+
+        Ok(())
+    }
 }
 
 impl<T> WalrusNodeClient<T> {

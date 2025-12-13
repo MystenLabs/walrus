@@ -139,8 +139,8 @@
   - `buy_storage_from_stash()` - Purchase storage capacity
   - `extend_storage_from_stash()` - Extend storage duration (public, follows policy)
   - `extend_storage_from_stash_fund_manager()` - Extend storage (fund_manager, bypasses constraints)
-  - `withdraw_all_wal()` - Withdraw all WAL (requires fund_manager)
-  - `withdraw_all_sui()` - Withdraw all SUI (requires fund_manager)
+  - `withdraw_wal(amount)` - Withdraw WAL (requires fund_manager)
+  - `withdraw_sui(amount)` - Withdraw SUI (requires fund_manager)
 
 - **Query Functions**:
   - `manager_id()` - Returns BlobManager ID

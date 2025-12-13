@@ -266,6 +266,27 @@ public fun burn(mut self: Blob) {
     storage.destroy();
 }
 
+/// Extracts the storage from a blob and destroys the blob object.
+/// This is used when moving a regular blob into a BlobManager.
+public(package) fun burn_and_extract_storage(mut self: Blob): Storage {
+    // Remove any metadata associated with the blob
+    dynamic_field::remove_if_exists<_, Metadata>(&mut self.id, METADATA_DF);
+
+    // Destructure the blob and extract storage
+    let Blob { id, storage, .. } = self;
+
+    // Delete the blob object
+    id.delete();
+
+    // Return the storage
+    storage
+}
+
+/// Check if the blob is certified.
+public fun is_certified(self: &Blob): bool {
+    self.certified_epoch.is_some()
+}
+
 /// Extend the period of validity of a blob with a new storage resource.
 /// The new storage resource must be the same size as the storage resource
 /// used in the blob, and have a longer period of validity.

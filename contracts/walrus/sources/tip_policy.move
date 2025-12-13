@@ -10,6 +10,11 @@ module walrus::tip_policy;
 /// Invalid tip amount (must be non-zero).
 const EInvalidTipAmount: u64 = 1;
 
+// === Constants ===
+
+/// Default tip amount: 1000 MIST (0.001 SUI).
+const DEFAULT_TIP_AMOUNT_MIST: u64 = 1000;
+
 // === Structs ===
 
 /// Policy for determining tip amounts.
@@ -22,9 +27,14 @@ public struct TipPolicy has copy, drop, store {
 // === Constructor ===
 
 /// Creates a new tip policy with a fixed tip amount.
-public fun new_fixed_amount(tip_amount: u64): TipPolicy {
+public(package) fun new_fixed_amount(tip_amount: u64): TipPolicy {
     assert!(tip_amount > 0, EInvalidTipAmount);
     TipPolicy { tip_amount }
+}
+
+/// Creates a tip policy with the default fixed amount (1000 MIST / 0.001 SUI).
+public(package) fun default_fixed_amount(): TipPolicy {
+    TipPolicy { tip_amount: DEFAULT_TIP_AMOUNT_MIST }
 }
 
 // === Accessor Functions ===

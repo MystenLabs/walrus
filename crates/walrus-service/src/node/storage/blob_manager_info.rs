@@ -21,22 +21,18 @@ use super::constants;
 pub struct StoredBlobManagerInfo {
     /// The end epoch for this BlobManager's storage.
     pub end_epoch: Epoch,
-    /// The number of epochs after end_epoch before managed blobs become eligible for GC.
-    pub grace_period_epochs: Epoch,
 }
 
 impl StoredBlobManagerInfo {
     /// Creates a new StoredBlobManagerInfo.
-    pub fn new(end_epoch: Epoch, grace_period_epochs: Epoch) -> Self {
-        Self {
-            end_epoch,
-            grace_period_epochs,
-        }
+    pub fn new(end_epoch: Epoch) -> Self {
+        Self { end_epoch }
     }
 
     /// Returns the epoch at which managed blobs become eligible for GC.
+    /// With no grace period, GC is eligible at end_epoch.
     pub fn gc_eligible_epoch(&self) -> Epoch {
-        self.end_epoch + self.grace_period_epochs
+        self.end_epoch
     }
 
     /// Returns true if the given epoch is valid for this BlobManager.
@@ -88,14 +84,13 @@ impl BlobManagerTable {
         self.blob_managers.insert(&manager_id, &info)
     }
 
-    /// Updates the info for a BlobManager (end_epoch and/or grace_period_epochs).
+    /// Updates the end_epoch for a BlobManager.
     pub fn update_blob_manager_info(
         &self,
         manager_id: &ObjectID,
         new_end_epoch: Epoch,
-        grace_period_epochs: Epoch,
     ) -> Result<(), TypedStoreError> {
-        let info = StoredBlobManagerInfo::new(new_end_epoch, grace_period_epochs);
+        let info = StoredBlobManagerInfo::new(new_end_epoch);
         self.blob_managers.insert(manager_id, &info)
     }
 

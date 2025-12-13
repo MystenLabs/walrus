@@ -36,7 +36,7 @@ public struct BlobManagerCoinStash has store {
 /// Creates a new coin stash for a BlobManager.
 /// Returns the coin stash to be embedded in BlobManager.
 /// TODO(heliu): do we need SUI? Discuss with the product team.
-public fun new(): BlobManagerCoinStash {
+public(package) fun new(): BlobManagerCoinStash {
     BlobManagerCoinStash {
         // TODO(heliu): ADD Stable coin support.
         // Dynamic fields.
@@ -50,7 +50,7 @@ public fun new(): BlobManagerCoinStash {
 
 /// Deposits WAL coins to the stash.
 /// Anyone can call this to contribute funds.
-public fun deposit_wal(self: &mut BlobManagerCoinStash, payment: Coin<WAL>) {
+public(package) fun deposit_wal(self: &mut BlobManagerCoinStash, payment: Coin<WAL>) {
     let amount = payment.value();
     if (amount == 0) {
         // Destroy empty coin and return.
@@ -64,7 +64,7 @@ public fun deposit_wal(self: &mut BlobManagerCoinStash, payment: Coin<WAL>) {
 
 /// Deposits SUI coins to the stash.
 /// Anyone can call this to contribute funds.
-public fun deposit_sui(self: &mut BlobManagerCoinStash, payment: Coin<SUI>) {
+public(package) fun deposit_sui(self: &mut BlobManagerCoinStash, payment: Coin<SUI>) {
     let amount = payment.value();
     if (amount == 0) {
         // Destroy empty coin and return.
@@ -94,7 +94,7 @@ public(package) fun withdraw_wal_for_storage(
 /// Tips the transaction sender with SUI from the stash.
 /// Used to reward users who help execute storage operations like extensions.
 /// Returns the tip coin if successful, or an empty coin if insufficient funds.
-public(package) fun tip_sender(
+public(package) fun withdraw_sui_for_tip(
     self: &mut BlobManagerCoinStash,
     tip_amount: u64,
     ctx: &mut TxContext,
@@ -134,34 +134,6 @@ public(package) fun withdraw_sui(
     assert!(self.sui_balance.value() >= amount, EInsufficientSuiBalance);
 
     coin::from_balance(self.sui_balance.split(amount), ctx)
-}
-
-/// Withdraws all WAL funds from the stash.
-/// Only callable through BlobManager with fund_manager permission.
-public(package) fun withdraw_all_wal(
-    self: &mut BlobManagerCoinStash,
-    ctx: &mut TxContext,
-): Coin<WAL> {
-    let amount = self.wal_balance.value();
-    if (amount == 0) {
-        coin::zero<WAL>(ctx)
-    } else {
-        coin::from_balance(self.wal_balance.split(amount), ctx)
-    }
-}
-
-/// Withdraws all SUI funds from the stash.
-/// Only callable through BlobManager with fund_manager permission.
-public(package) fun withdraw_all_sui(
-    self: &mut BlobManagerCoinStash,
-    ctx: &mut TxContext,
-): Coin<SUI> {
-    let amount = self.sui_balance.value();
-    if (amount == 0) {
-        coin::zero<SUI>(ctx)
-    } else {
-        coin::from_balance(self.sui_balance.split(amount), ctx)
-    }
 }
 
 // === Query Functions ===

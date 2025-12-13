@@ -17,14 +17,13 @@ A simple key-value table that stores the current state of each BlobManager:
 struct StoredBlobManagerInfo {
     // The epoch starting from which the blobs won't be available for reads.
     end_epoch: Epoch,
-    // The number of epochs after end_epoch before managed blobs become eligible for GC.
-    grace_period_epochs: Epoch,
 }
 
 impl StoredBlobManagerInfo {
     // Returns the epoch at which managed blobs become eligible for GC.
+    // With no grace period, GC is eligible at end_epoch.
     fn gc_eligible_epoch(&self) -> Epoch {
-        self.end_epoch + self.grace_period_epochs
+        self.end_epoch
     }
 }
 
@@ -34,8 +33,8 @@ struct BlobManagerTable {
 ```
 
 The table is updated when:
-- `BlobManagerCreated` event: Insert new entry with initial `end_epoch` and `grace_period_epochs`.
-- `BlobManagerUpdated` event: Update `end_epoch` and/or `grace_period_epochs`.
+- `BlobManagerCreated` event: Insert new entry with initial `end_epoch`.
+- `BlobManagerUpdated` event: Update `end_epoch`.
 
 ### Aggregate Blob Info (BlobInfo)
 
@@ -101,10 +100,6 @@ struct ManagedBlobInfo {
     deletable_end_epoch: Option<Epoch>,
     #[serde(skip)]
     permanent_end_epoch: Option<Epoch>,
-    #[serde(skip)]
-    deletable_gc_eligible_epoch: Option<Epoch>,
-    #[serde(skip)]
-    permanent_gc_eligible_epoch: Option<Epoch>,
 }
 ```
 
@@ -139,20 +134,16 @@ extended.
 1. Read the stored `ManagedBlobInfo` from the database.
 2. Call `populate_epochs(&BlobManagerTable)` which:
    - For each BlobManager in all 4 maps, looks up its info from `BlobManagerTable`.
-   - Sets `deletable_end_epoch` and `deletable_gc_eligible_epoch` to the max across deletable maps.
-   - Sets `permanent_end_epoch` and `permanent_gc_eligible_epoch` to the max across permanent maps.
+   - Sets `deletable_end_epoch` to the max across deletable maps.
+   - Sets `permanent_end_epoch` to the max across permanent maps.
 
 ```rust
 impl ManagedBlobInfo {
     fn populate_epochs(&mut self, blob_managers: &BlobManagerTable) -> Result<(), TypedStoreError> {
-        // Find max end_epoch and gc_eligible_epoch from deletable BlobManagers.
+        // Find max end_epoch from deletable BlobManagers.
         for manager_id in self.registered_deletable.keys().chain(self.certified_deletable.keys()) {
             if let Some(manager_info) = blob_managers.get(manager_id)? {
                 self.deletable_end_epoch = max(self.deletable_end_epoch, manager_info.end_epoch);
-                self.deletable_gc_eligible_epoch = max(
-                    self.deletable_gc_eligible_epoch,
-                    manager_info.gc_eligible_epoch()
-                );
             }
         }
         // Similar for permanent maps...
@@ -176,8 +167,8 @@ Processed via `process_blob_manager_event()`:
 
 | Event | Action |
 |-------|--------|
-| `BlobManagerCreated` | Insert `(manager_id, end_epoch, grace_period_epochs)` into BlobManagerTable |
-| `BlobManagerUpdated` | Update `end_epoch` and/or `grace_period_epochs` in BlobManagerTable |
+| `BlobManagerCreated` | Insert `(manager_id, end_epoch)` into BlobManagerTable |
+| `BlobManagerUpdated` | Update `end_epoch` in BlobManagerTable |
 
 ### Managed Blob Events
 
@@ -534,8 +525,8 @@ This approach keeps the upload relay API unchanged while supporting managed blob
 5. **In-memory simulation for GC decisions**: Update local copy before deciding on deletion to
    avoid re-reading from database.
 
-6. **Grace period for GC**: BlobManager's `gc_eligible_epoch = end_epoch + grace_period_epochs`
-   allows users to extend storage after expiration without losing data.
+6. **Simple GC eligibility**: BlobManager's `gc_eligible_epoch = end_epoch`. Blobs become eligible
+   for garbage collection when the current epoch reaches the BlobManager's end_epoch.
 
 7. **Combined V1/V2 status**: When a blob exists as both regular and managed, query functions
    return an aggregation over both.

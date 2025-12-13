@@ -359,6 +359,64 @@ impl TryFrom<SuiEvent> for ManagedBlobDeleted {
     }
 }
 
+/// Sui event that a regular blob has been moved into a BlobManager.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BlobMovedIntoBlobManager {
+    /// The epoch in which the blob was moved.
+    pub epoch: Epoch,
+    /// The blob ID.
+    pub blob_id: BlobId,
+    /// The ID of the BlobManager that now manages this blob.
+    pub blob_manager_id: ObjectID,
+    /// The original Blob object ID.
+    pub original_object_id: ObjectID,
+    /// The (unencoded) size of the blob.
+    pub size: u64,
+    /// The erasure coding type used for the blob.
+    pub encoding_type: EncodingType,
+    /// The new ManagedBlob object ID.
+    pub new_object_id: ObjectID,
+    /// Whether the blob is deletable.
+    pub deletable: bool,
+    /// The ID of the event.
+    pub event_id: EventID,
+}
+
+impl AssociatedSuiEvent for BlobMovedIntoBlobManager {
+    const EVENT_STRUCT: StructTag<'static> = contracts::events::BlobMovedIntoBlobManager;
+}
+
+impl TryFrom<SuiEvent> for BlobMovedIntoBlobManager {
+    type Error = MoveConversionError;
+
+    fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
+        ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
+
+        let (
+            epoch,
+            blob_id,
+            blob_manager_id,
+            original_object_id,
+            size,
+            encoding_type,
+            new_object_id,
+            deletable,
+        ) = bcs::from_bytes(sui_event.bcs.bytes())?;
+
+        Ok(Self {
+            epoch,
+            blob_id,
+            blob_manager_id,
+            original_object_id,
+            size,
+            encoding_type,
+            new_object_id,
+            deletable,
+            event_id: sui_event.id,
+        })
+    }
+}
+
 impl AssociatedSuiEvent for DenyListBlobDeleted {
     const EVENT_STRUCT: StructTag<'static> = contracts::events::DenyListBlobDeleted;
 }
@@ -387,8 +445,6 @@ pub struct BlobManagerUpdated {
     pub blob_manager_id: ObjectID,
     /// The new end epoch after update.
     pub new_end_epoch: Epoch,
-    /// Grace period in epochs after storage expiry before blobs become eligible for GC.
-    pub grace_period_epochs: Epoch,
     /// The ID of the event.
     pub event_id: EventID,
 }
@@ -403,14 +459,12 @@ impl TryFrom<SuiEvent> for BlobManagerUpdated {
     fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
         ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
 
-        let (epoch, blob_manager_id, new_end_epoch, grace_period_epochs) =
-            bcs::from_bytes(sui_event.bcs.bytes())?;
+        let (epoch, blob_manager_id, new_end_epoch) = bcs::from_bytes(sui_event.bcs.bytes())?;
 
         Ok(Self {
             epoch,
             blob_manager_id,
             new_end_epoch,
-            grace_period_epochs,
             event_id: sui_event.id,
         })
     }
@@ -425,8 +479,6 @@ pub struct BlobManagerCreated {
     pub blob_manager_id: ObjectID,
     /// The end epoch of the BlobManager's initial storage.
     pub end_epoch: Epoch,
-    /// Grace period in epochs after storage expiry before blobs become eligible for GC.
-    pub grace_period_epochs: Epoch,
     /// The ID of the event.
     pub event_id: EventID,
 }
@@ -441,14 +493,12 @@ impl TryFrom<SuiEvent> for BlobManagerCreated {
     fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
         ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
 
-        let (epoch, blob_manager_id, end_epoch, grace_period_epochs) =
-            bcs::from_bytes(sui_event.bcs.bytes())?;
+        let (epoch, blob_manager_id, end_epoch) = bcs::from_bytes(sui_event.bcs.bytes())?;
 
         Ok(Self {
             epoch,
             blob_manager_id,
             end_epoch,
-            grace_period_epochs,
             event_id: sui_event.id,
         })
     }
@@ -515,14 +565,6 @@ impl BlobManagerEvent {
             BlobManagerEvent::Updated(event) => event.new_end_epoch,
         }
     }
-
-    /// Returns the grace period in epochs after storage expiry before blobs become eligible for GC.
-    pub fn grace_period_epochs(&self) -> Epoch {
-        match self {
-            BlobManagerEvent::Created(event) => event.grace_period_epochs,
-            BlobManagerEvent::Updated(event) => event.grace_period_epochs,
-        }
-    }
 }
 
 /// Enum to wrap blob events.
@@ -544,6 +586,8 @@ pub enum BlobEvent {
     ManagedBlobCertified(ManagedBlobCertified),
     /// A managed blob deleted event.
     ManagedBlobDeleted(ManagedBlobDeleted),
+    /// A blob moved into BlobManager event.
+    BlobMovedIntoBlobManager(BlobMovedIntoBlobManager),
 }
 
 impl From<BlobRegistered> for BlobEvent {
@@ -612,6 +656,12 @@ impl From<ManagedBlobCertified> for BlobEvent {
     }
 }
 
+impl From<BlobMovedIntoBlobManager> for BlobEvent {
+    fn from(value: BlobMovedIntoBlobManager) -> Self {
+        Self::BlobMovedIntoBlobManager(value)
+    }
+}
+
 impl BlobEvent {
     /// Returns the blob ID contained in the wrapped event.
     pub fn blob_id(&self) -> BlobId {
@@ -624,6 +674,7 @@ impl BlobEvent {
             BlobEvent::ManagedBlobRegistered(event) => event.blob_id,
             BlobEvent::ManagedBlobCertified(event) => event.blob_id,
             BlobEvent::ManagedBlobDeleted(event) => event.blob_id,
+            BlobEvent::BlobMovedIntoBlobManager(event) => event.blob_id,
         }
     }
 
@@ -638,6 +689,8 @@ impl BlobEvent {
             BlobEvent::ManagedBlobRegistered(event) => Some(event.object_id),
             BlobEvent::ManagedBlobCertified(event) => Some(event.object_id),
             BlobEvent::ManagedBlobDeleted(event) => Some(event.object_id),
+            // Return the new ManagedBlob's object ID.
+            BlobEvent::BlobMovedIntoBlobManager(event) => Some(event.new_object_id),
         }
     }
 
@@ -648,6 +701,7 @@ impl BlobEvent {
             BlobEvent::ManagedBlobRegistered(_)
                 | BlobEvent::ManagedBlobCertified(_)
                 | BlobEvent::ManagedBlobDeleted(_)
+                | BlobEvent::BlobMovedIntoBlobManager(_)
         )
     }
 
@@ -662,6 +716,7 @@ impl BlobEvent {
             BlobEvent::ManagedBlobRegistered(event) => event.event_id,
             BlobEvent::ManagedBlobCertified(event) => event.event_id,
             BlobEvent::ManagedBlobDeleted(event) => event.event_id,
+            BlobEvent::BlobMovedIntoBlobManager(event) => event.event_id,
         }
     }
 
@@ -685,6 +740,7 @@ impl BlobEvent {
             BlobEvent::ManagedBlobRegistered(event) => Some(event.epoch),
             BlobEvent::ManagedBlobCertified(event) => Some(event.epoch),
             BlobEvent::ManagedBlobDeleted(event) => Some(event.epoch),
+            BlobEvent::BlobMovedIntoBlobManager(event) => Some(event.epoch),
         }
     }
 
@@ -699,6 +755,7 @@ impl BlobEvent {
             BlobEvent::ManagedBlobRegistered(_) => "ManagedBlobRegistered",
             BlobEvent::ManagedBlobCertified(_) => "ManagedBlobCertified",
             BlobEvent::ManagedBlobDeleted(_) => "ManagedBlobDeleted",
+            BlobEvent::BlobMovedIntoBlobManager(_) => "BlobMovedIntoBlobManager",
         }
     }
 
@@ -722,6 +779,9 @@ impl TryFrom<SuiEvent> for BlobEvent {
             contracts::events::BlobDeleted => Ok(BlobEvent::Deleted(value.try_into()?)),
             contracts::events::DenyListBlobDeleted => {
                 Ok(BlobEvent::DenyListBlobDeleted(value.try_into()?))
+            }
+            contracts::events::BlobMovedIntoBlobManager => {
+                Ok(BlobEvent::BlobMovedIntoBlobManager(value.try_into()?))
             }
             _ => Err(anyhow!("could not convert to blob event: {}", value)),
         }

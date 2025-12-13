@@ -942,12 +942,12 @@ impl BlobManagerClient<'_, SuiContractClient> {
     /// Buys additional storage capacity using funds from the coin stash.
     ///
     /// This increases the BlobManager's storage capacity by purchasing more storage.
+    /// The new storage uses the same epoch range as the existing storage.
     /// The funds are taken from the coin stash's WAL balance.
     ///
     /// # Arguments
     ///
     /// * `storage_amount` - The amount of storage to buy (in bytes).
-    /// * `epochs_ahead` - The number of epochs ahead to reserve the storage for.
     ///
     /// # Returns
     ///
@@ -955,153 +955,83 @@ impl BlobManagerClient<'_, SuiContractClient> {
     /// * `Err(ClientError)` if:
     ///   - The coin stash has insufficient WAL balance.
     ///   - The transaction fails.
-    pub async fn buy_storage_from_stash(
-        &self,
-        storage_amount: u64,
-        epochs_ahead: u32,
-    ) -> ClientResult<()> {
+    pub async fn buy_storage_from_stash(&self, storage_amount: u64) -> ClientResult<()> {
         tracing::info!(
-            "BlobManager buy_storage: manager_id={:?}, cap={:?}, amount={}, epochs={}",
+            "BlobManager buy_storage: manager_id={:?}, cap={:?}, amount={}",
             self.data.manager_id(),
             self.data.cap_id(),
             storage_amount,
-            epochs_ahead
         );
 
         self.client
             .sui_client()
-            .buy_storage_from_stash(
-                self.data.manager_id(),
-                self.data.cap_id(),
-                storage_amount,
-                epochs_ahead,
-            )
+            .buy_storage_from_stash(self.data.manager_id(), self.data.cap_id(), storage_amount)
             .await
             .map_err(crate::error::ClientError::from)?;
 
         Ok(())
     }
 
-    /// Extends the storage period using funds from the coin stash.
+    /// Withdraws a specific amount of WAL funds from the coin stash.
     ///
-    /// This extends the validity period of the BlobManager's existing storage.
-    /// The funds are taken from the coin stash's WAL balance.
+    /// This method can only be called by someone with a fund_manager or admin capability.
+    /// It withdraws the specified amount of WAL tokens from the coin stash.
     ///
     /// # Arguments
     ///
-    /// * `extension_epochs` - The number of epochs to extend the storage for.
-    ///
-    /// # Returns
-    ///
-    /// * `Ok(())` if the storage period was successfully extended.
-    /// * `Err(ClientError)` if:
-    ///   - The coin stash has insufficient WAL balance.
-    ///   - The transaction fails.
-    pub async fn extend_storage_from_stash(&self, extension_epochs: u32) -> ClientResult<()> {
-        tracing::info!(
-            "BlobManager extend_storage: manager_id={:?}, epochs={}",
-            self.data.manager_id(),
-            extension_epochs
-        );
-
-        self.client
-            .sui_client()
-            .extend_storage_from_stash(self.data.manager_id(), extension_epochs)
-            .await
-            .map_err(crate::error::ClientError::from)?;
-
-        Ok(())
-    }
-
-    /// Withdraws all WAL funds from the coin stash.
-    ///
-    /// This method can only be called by someone with a fund_manager or admin capability.
-    /// It withdraws all available WAL tokens from the coin stash.
+    /// * `amount` - The amount of WAL tokens to withdraw.
     ///
     /// # Returns
     ///
     /// * `Ok(())` if the withdrawal was successful.
     /// * `Err(ClientError)` if:
     ///   - The caller doesn't have fund_manager or admin permission.
+    ///   - The amount exceeds the available balance.
     ///   - The transaction fails.
-    pub async fn withdraw_all_wal(&self) -> ClientResult<()> {
+    pub async fn withdraw_wal(&self, amount: u64) -> ClientResult<()> {
         tracing::info!(
-            "BlobManager withdraw_all_wal: manager_id={:?}, cap={:?}",
-            self.data.manager_id(),
-            self.data.cap_id()
-        );
-
-        self.client
-            .sui_client()
-            .withdraw_all_wal_from_blob_manager(self.data.manager_id(), self.data.cap_id())
-            .await
-            .map_err(crate::error::ClientError::from)?;
-
-        Ok(())
-    }
-
-    /// Withdraws all SUI funds from the coin stash.
-    ///
-    /// This method can only be called by someone with a fund_manager or admin capability.
-    /// It withdraws all available SUI tokens from the coin stash.
-    ///
-    /// # Returns
-    ///
-    /// * `Ok(())` if the withdrawal was successful.
-    /// * `Err(ClientError)` if:
-    ///   - The caller doesn't have fund_manager or admin permission.
-    ///   - The transaction fails.
-    pub async fn withdraw_all_sui(&self) -> ClientResult<()> {
-        tracing::info!(
-            "BlobManager withdraw_all_sui: manager_id={:?}, cap={:?}",
-            self.data.manager_id(),
-            self.data.cap_id()
-        );
-
-        self.client
-            .sui_client()
-            .withdraw_all_sui_from_blob_manager(self.data.manager_id(), self.data.cap_id())
-            .await
-            .map_err(crate::error::ClientError::from)?;
-
-        Ok(())
-    }
-
-    /// Extends the storage period using funds from the coin stash (fund manager version).
-    ///
-    /// This extends the validity period of the BlobManager's existing storage.
-    /// Unlike `extend_storage_from_stash`, this method bypasses policy time/amount constraints.
-    /// It requires a capability with fund_manager permission.
-    ///
-    /// # Arguments
-    ///
-    /// * `extension_epochs` - The number of epochs to extend the storage for.
-    ///
-    /// # Returns
-    ///
-    /// * `Ok(())` if the storage period was successfully extended.
-    /// * `Err(ClientError)` if:
-    ///   - The caller doesn't have fund_manager permission.
-    ///   - The coin stash has insufficient WAL balance.
-    ///   - The transaction fails.
-    pub async fn extend_storage_from_stash_fund_manager(
-        &self,
-        extension_epochs: u32,
-    ) -> ClientResult<()> {
-        tracing::info!(
-            "BlobManager extend_storage_fund_manager: manager_id={:?}, cap={:?}, epochs={}",
+            "BlobManager withdraw_wal: manager_id={:?}, cap={:?}, amount={}",
             self.data.manager_id(),
             self.data.cap_id(),
-            extension_epochs
+            amount
         );
 
         self.client
             .sui_client()
-            .extend_storage_from_stash_fund_manager(
-                self.data.manager_id(),
-                self.data.cap_id(),
-                extension_epochs,
-            )
+            .withdraw_wal_from_blob_manager(self.data.manager_id(), self.data.cap_id(), amount)
+            .await
+            .map_err(crate::error::ClientError::from)?;
+
+        Ok(())
+    }
+
+    /// Withdraws a specific amount of SUI funds from the coin stash.
+    ///
+    /// This method can only be called by someone with a fund_manager or admin capability.
+    /// It withdraws the specified amount of SUI tokens from the coin stash.
+    ///
+    /// # Arguments
+    ///
+    /// * `amount` - The amount of SUI tokens to withdraw.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` if the withdrawal was successful.
+    /// * `Err(ClientError)` if:
+    ///   - The caller doesn't have fund_manager or admin permission.
+    ///   - The amount exceeds the available balance.
+    ///   - The transaction fails.
+    pub async fn withdraw_sui(&self, amount: u64) -> ClientResult<()> {
+        tracing::info!(
+            "BlobManager withdraw_sui: manager_id={:?}, cap={:?}, amount={}",
+            self.data.manager_id(),
+            self.data.cap_id(),
+            amount
+        );
+
+        self.client
+            .sui_client()
+            .withdraw_sui_from_blob_manager(self.data.manager_id(), self.data.cap_id(), amount)
             .await
             .map_err(crate::error::ClientError::from)?;
 
@@ -1110,11 +1040,9 @@ impl BlobManagerClient<'_, SuiContractClient> {
 
     // ===== Extension Policy Management Methods =====
 
-    /// Sets the extension policy to fund_manager only.
+    /// Sets the extension policy to disabled.
     ///
-    /// When set to fund_manager only, only accounts with fund_manager capability
-    /// can extend storage using `extend_storage_from_stash_fund_manager`.
-    /// Public extensions via `extend_storage_from_stash` will be rejected.
+    /// When disabled, no one can extend storage. All extension attempts will be rejected.
     /// This method requires a capability with fund_manager permission.
     ///
     /// # Returns
@@ -1123,16 +1051,16 @@ impl BlobManagerClient<'_, SuiContractClient> {
     /// * `Err(ClientError)` if:
     ///   - The caller doesn't have fund_manager permission.
     ///   - The transaction fails.
-    pub async fn set_extension_policy_fund_manager_only(&self) -> ClientResult<()> {
+    pub async fn set_extension_policy_disabled(&self) -> ClientResult<()> {
         tracing::info!(
-            "BlobManager set_extension_policy_fund_manager_only: manager_id={:?}, cap={:?}",
+            "BlobManager set_extension_policy_disabled: manager_id={:?}, cap={:?}",
             self.data.manager_id(),
             self.data.cap_id()
         );
 
         self.client
             .sui_client()
-            .set_extension_policy_fund_manager_only(self.data.manager_id(), self.data.cap_id())
+            .set_extension_policy_disabled(self.data.manager_id(), self.data.cap_id())
             .await
             .map_err(crate::error::ClientError::from)?;
 
@@ -1145,7 +1073,6 @@ impl BlobManagerClient<'_, SuiContractClient> {
     /// - Time constraint: Extension only allowed when within `expiry_threshold_epochs` of expiry.
     /// - Amount constraint: Maximum epochs capped at `max_extension_epochs`.
     ///
-    /// Fund managers can bypass these constraints using `extend_storage_from_stash_fund_manager`.
     /// This method requires a capability with fund_manager permission.
     ///
     /// # Arguments

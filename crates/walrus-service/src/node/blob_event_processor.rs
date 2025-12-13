@@ -202,6 +202,11 @@ impl BackgroundEventProcessor {
                 self.process_blob_deleted_event(event_handle, event.blob_id, event.epoch)
                     .await?;
             }
+            BlobEvent::BlobMovedIntoBlobManager(_) => {
+                // TODO: Implement BlobMovedIntoBlobManager event handling.
+                // This event occurs when a regular certified blob is moved into a BlobManager.
+                todo!("BlobMovedIntoBlobManager event handling is not yet implemented");
+            }
         }
 
         Ok(())

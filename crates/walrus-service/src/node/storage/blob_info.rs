@@ -228,7 +228,8 @@ impl BlobInfoTable {
             | BlobEvent::InvalidBlobID(_)
             | BlobEvent::DenyListBlobDeleted(_)
             | BlobEvent::ManagedBlobRegistered(_)
-            | BlobEvent::ManagedBlobDeleted(_) => {
+            | BlobEvent::ManagedBlobDeleted(_)
+            | BlobEvent::BlobMovedIntoBlobManager(_) => {
                 tracing::debug!("performing standard blob-info update for event");
                 return self.update_blob_info(event_index, event);
             }
@@ -1146,6 +1147,12 @@ impl From<&BlobEvent> for BlobInfoMergeOperand {
             BlobEvent::ManagedBlobRegistered(event) => event.into(),
             BlobEvent::ManagedBlobCertified(event) => event.into(),
             BlobEvent::ManagedBlobDeleted(event) => event.into(),
+            BlobEvent::BlobMovedIntoBlobManager(_) => {
+                // TODO: Implement BlobMovedIntoBlobManager event handling.
+                // This event occurs when a regular certified blob is moved into a BlobManager.
+                // The handling should register the blob as a managed blob and mark it as certified.
+                todo!("BlobMovedIntoBlobManager event handling is not yet implemented");
+            }
         }
     }
 }

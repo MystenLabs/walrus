@@ -356,6 +356,7 @@ pub mod events {
     contract_ident!(struct events::ManagedBlobRegistered);
     contract_ident!(struct events::ManagedBlobCertified);
     contract_ident!(struct events::ManagedBlobDeleted);
+    contract_ident!(struct events::BlobMovedIntoBlobManager);
     contract_ident!(struct events::BlobManagerUpdated);
     contract_ident!(struct events::BlobManagerCreated);
     contract_ident!(struct events::InvalidBlobID);
@@ -487,6 +488,7 @@ pub mod blobmanager {
     contract_ident!(fn blobmanager::register_blob);
     contract_ident!(fn blobmanager::certify_blob);
     contract_ident!(fn blobmanager::delete_blob);
+    contract_ident!(fn blobmanager::move_blob_into_manager);
     contract_ident!(fn blobmanager::cap_manager_id);
     contract_ident!(fn blobmanager::manager_id);
     contract_ident!(fn blobmanager::capacity_info);
@@ -501,8 +503,8 @@ pub mod blobmanager {
     contract_ident!(fn blobmanager::deposit_sui_to_coin_stash);
     contract_ident!(fn blobmanager::buy_storage_from_stash);
     contract_ident!(fn blobmanager::extend_storage_from_stash);
-    contract_ident!(fn blobmanager::withdraw_all_wal);
-    contract_ident!(fn blobmanager::withdraw_all_sui);
+    contract_ident!(fn blobmanager::withdraw_wal);
+    contract_ident!(fn blobmanager::withdraw_sui);
     contract_ident!(fn blobmanager::coin_stash_balances);
     // Capability management.
     contract_ident!(fn blobmanager::create_cap);
@@ -513,8 +515,7 @@ pub mod blobmanager {
     contract_ident!(fn blobmanager::remove_blob_attribute);
     contract_ident!(fn blobmanager::clear_blob_attributes);
     // Extension policy operations.
-    contract_ident!(fn blobmanager::extend_storage_from_stash_fund_manager);
-    contract_ident!(fn blobmanager::set_extension_policy_fund_manager_only);
+    contract_ident!(fn blobmanager::set_extension_policy_disabled);
     contract_ident!(fn blobmanager::set_extension_policy_constrained);
     // Tip policy operations.
     contract_ident!(fn blobmanager::set_tip_policy_fixed_amount);

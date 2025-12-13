@@ -11,7 +11,7 @@ use walrus::{
     blob::Blob,
     bls_aggregate::BlsCommittee,
     epoch_parameters::EpochParams,
-    managed_blob::ManagedBlob,
+    managed_blob::{Self, ManagedBlob},
     storage_accounting::FutureAccountingRingBuffer,
     storage_node::StorageNodeCap,
     storage_resource::Storage,
@@ -24,6 +24,8 @@ use walrus::{
 const EInvalidMigration: u64 = 0;
 /// The package version is not compatible with the system object.
 const EWrongVersion: u64 = 1;
+/// The blob is not certified.
+const EBlobNotCertified: u64 = 2;
 
 /// Flag to indicate the version of the system.
 const VERSION: u64 = 3;
@@ -157,6 +159,8 @@ public fun register_blob(
 
 /// Registers a managed blob without a Storage object.
 /// Used by BlobManager for blobs with accounting-based storage.
+/// Note: the sender of the register transaction pays for the write fee, although the storage space
+/// is accounted from the blob manager's storage.
 public fun register_managed_blob(
     self: &mut System,
     blob_manager_id: ID,
@@ -209,12 +213,27 @@ public fun certify_managed_blob(
     signers_bitmap: vector<u8>,
     message: vector<u8>,
 ) {
-    self.inner().certify_managed_blob(managed_blob, end_epoch_at_certify, signature, signers_bitmap, message);
+    self
+        .inner()
+        .certify_managed_blob(
+            managed_blob,
+            end_epoch_at_certify,
+            signature,
+            signers_bitmap,
+            message,
+        );
 }
 
 /// Deletes a deletable blob and returns the contained storage resource.
 public fun delete_blob(self: &System, blob: Blob): Storage {
     self.inner().delete_blob(blob)
+}
+
+/// Deletes a deletable managed blob.
+/// Emits a ManagedBlobDeleted event and destroys the managed blob object.
+/// Aborts if the ManagedBlob is not deletable.
+public fun delete_managed_blob(self: &System, managed_blob: ManagedBlob) {
+    self.inner().delete_managed_blob(managed_blob)
 }
 
 /// Extend the period of validity of a blob with a new storage resource.
@@ -329,6 +348,49 @@ public(package) fun package_id(system: &System): ID {
 
 public fun version(system: &System): u64 {
     system.version
+}
+
+/// Converts a regular Blob to a ManagedBlob and extracts its Storage.
+/// Returns the new ManagedBlob and the extracted Storage object.
+/// The blob must be certified before it can be converted.
+/// The caller is responsible for managing the returned Storage object
+/// (e.g., aligning epochs, splitting excess).
+public fun convert_blob_to_managed(
+    self: &System,
+    blob: Blob,
+    blob_manager_id: ID,
+    ctx: &mut TxContext,
+): (ManagedBlob, Storage) {
+    // Ensure the blob is certified before conversion.
+    assert!(blob.is_certified(), EBlobNotCertified);
+
+    // Extract the metadata from the blob.
+    let blob_id = blob.blob_id();
+    let size = blob.size();
+    let encoding_type = blob.encoding_type();
+    let certified_epoch = *blob.certified_epoch();
+    let registered_epoch = blob.registered_epoch();
+    let deletable = blob.is_deletable();
+    let blob_type = managed_blob::blob_type_regular();
+
+    // Extract storage from the blob (this destroys the blob).
+    let storage = blob.burn_and_extract_storage();
+
+    // Create a new ManagedBlob from the regular blob's data.
+    let managed_blob = managed_blob::new_from_regular(
+        blob_id,
+        size,
+        encoding_type,
+        blob_manager_id,
+        certified_epoch,
+        registered_epoch,
+        deletable,
+        blob_type,
+        self.n_shards(),
+        ctx,
+    );
+
+    (managed_blob, storage)
 }
 
 // === Upgrade ===

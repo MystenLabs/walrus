@@ -1180,6 +1180,8 @@ pub struct ManagedBlob {
     pub size: u64,
     /// The encoding type used for the blob.
     pub encoding_type: EncodingType,
+    /// The encoded size of the blob (cached to avoid recalculation).
+    pub encoded_size: u64,
     /// The epoch in which the blob was first certified, `None` if the blob is uncertified.
     pub certified_epoch: Option<Epoch>,
     /// The ID of the BlobManager that manages this blob's storage.

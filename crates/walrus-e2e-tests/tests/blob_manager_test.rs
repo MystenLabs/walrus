@@ -21,22 +21,19 @@ use std::{sync::Arc, time::Duration};
 use sui_types::base_types::ObjectID;
 use walrus_core::{BlobId, DEFAULT_ENCODING, Epoch, encoding::Primary};
 use walrus_proc_macros::walrus_simtest;
-use walrus_sdk::{
-    client::{
-        StoreArgs,
-        WalrusNodeClient,
-        client_types::{
-            BlobWithStatus,
-            WalrusStoreBlob,
-            WalrusStoreBlobMaybeFinished,
-            WalrusStoreBlobState,
-            WalrusStoreBlobUnfinished,
-            WalrusStoreEncodedBlobApi,
-            partition_unfinished_finished,
-        },
-        responses::BlobStoreResult,
+use walrus_sdk::client::{
+    StoreArgs,
+    WalrusNodeClient,
+    client_types::{
+        BlobWithStatus,
+        WalrusStoreBlob,
+        WalrusStoreBlobMaybeFinished,
+        WalrusStoreBlobState,
+        WalrusStoreBlobUnfinished,
+        WalrusStoreEncodedBlobApi,
+        partition_unfinished_finished,
     },
-    error::ClientErrorKind,
+    responses::BlobStoreResult,
 };
 use walrus_service::test_utils::{TestNodesConfig, test_cluster};
 use walrus_storage_node_client::api::{BlobStatus, DeletableCounts};
@@ -1554,42 +1551,37 @@ async fn test_blob_manager_coin_stash_operations() {
     // Wait a bit for transaction to be processed.
     tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
 
-    // Test 3: Buy additional storage using coin stash funds.
+    // Test 3: Buy additional storage capacity using coin stash funds.
+    // The new storage uses the same epoch range as the existing storage.
     let additional_storage = 100 * 1024 * 1024; // 100MB.
-    let storage_epochs = 2;
-    tracing::info!(
-        "Testing buy storage: {} bytes for {} epochs",
-        additional_storage,
-        storage_epochs
-    );
+    tracing::info!("Testing buy storage capacity: {} bytes", additional_storage);
 
     client_ref
         .sui_client()
-        .buy_storage_from_stash(manager_id, cap_id, additional_storage, storage_epochs)
+        .buy_storage_from_stash(manager_id, cap_id, additional_storage)
         .await
         .expect("Failed to buy storage from coin stash");
 
     tracing::info!(
-        "Successfully bought {} MB of storage for {} epochs",
+        "Successfully bought {} MB of additional storage capacity",
         additional_storage / (1024 * 1024),
-        storage_epochs
     );
 
-    // Test 4: Extend storage period using coin stash funds (fund manager version).
-    // Note: Public extension (extend_storage_from_stash) would fail here because
-    // the default policy is constrained(1, 10), meaning extension is only allowed
-    // when within 1 epoch of expiry. Since we just created the BlobManager with
-    // epochs_ahead=2, we're not within the threshold yet. Use fund manager extension
-    // which bypasses the time constraint.
+    // Test 4: Extend storage period using coin stash funds.
+    // First, set a wider expiry threshold policy so extension is allowed.
+    // The default policy is constrained(1, 10), meaning extension is only allowed
+    // when within 1 epoch of expiry. Update to constrained(100, 10) to allow extension now.
+    tracing::info!("Setting extension policy to allow extension from current epoch");
+    blob_manager_client
+        .set_extension_policy_constrained(100, 10)
+        .await
+        .expect("Failed to set extension policy");
+
     let extension_epochs = 1;
-    tracing::info!(
-        "Testing storage extension by {} epochs (fund manager)",
-        extension_epochs
-    );
+    tracing::info!("Testing storage extension by {} epochs", extension_epochs);
 
     client_ref
-        .sui_client()
-        .extend_storage_from_stash_fund_manager(manager_id, cap_id, extension_epochs)
+        .extend_blob_manager_storage(manager_id, extension_epochs)
         .await
         .expect("Failed to extend storage from coin stash");
 
@@ -1615,27 +1607,41 @@ async fn test_blob_manager_coin_stash_operations() {
     // Wait for the new capability to be indexed.
     tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
 
-    // Test 6: Withdraw all WAL using fund_manager capability.
-    tracing::info!("Testing WAL withdrawal with fund_manager capability");
+    // Test 6: Withdraw WAL using fund_manager capability.
+    let withdraw_wal_amount = 1; // Withdraw a small amount to test the function works.
+    tracing::info!(
+        "Testing WAL withdrawal with fund_manager capability: amount={}",
+        withdraw_wal_amount
+    );
 
     client_ref
         .sui_client()
-        .withdraw_all_wal_from_blob_manager(manager_id, new_cap_id)
+        .withdraw_wal_from_blob_manager(manager_id, new_cap_id, withdraw_wal_amount)
         .await
         .expect("Failed to withdraw WAL from coin stash");
 
-    tracing::info!("Successfully withdrew all WAL from coin stash");
+    tracing::info!(
+        "Successfully withdrew {} WAL from coin stash",
+        withdraw_wal_amount
+    );
 
-    // Test 7: Withdraw all SUI using fund_manager capability.
-    tracing::info!("Testing SUI withdrawal with fund_manager capability");
+    // Test 7: Withdraw SUI using fund_manager capability.
+    let withdraw_sui_amount = 1; // Withdraw a small amount to test the function works.
+    tracing::info!(
+        "Testing SUI withdrawal with fund_manager capability: amount={}",
+        withdraw_sui_amount
+    );
 
     client_ref
         .sui_client()
-        .withdraw_all_sui_from_blob_manager(manager_id, new_cap_id)
+        .withdraw_sui_from_blob_manager(manager_id, new_cap_id, withdraw_sui_amount)
         .await
         .expect("Failed to withdraw SUI from coin stash");
 
-    tracing::info!("Successfully withdrew all SUI from coin stash");
+    tracing::info!(
+        "Successfully withdrew {} SUI from coin stash",
+        withdraw_sui_amount
+    );
 
     // Test 8: Store a blob to verify BlobManager still works after coin operations.
     let test_data = b"Testing blob storage after coin operations";
@@ -1856,16 +1862,17 @@ async fn test_blob_manager_capability_management() {
     tracing::info!("Testing fund_manager capability for fund operations");
 
     // First deposit some WAL.
+    let deposit_wal = 100_000_000;
     client_ref
         .sui_client()
-        .deposit_wal_to_blob_manager(manager_id, 100_000_000)
+        .deposit_wal_to_blob_manager(manager_id, deposit_wal)
         .await
         .expect("Failed to deposit WAL");
 
     // Then withdraw using fund_manager cap.
     client_ref
         .sui_client()
-        .withdraw_all_wal_from_blob_manager(manager_id, fund_manager_cap_id)
+        .withdraw_wal_from_blob_manager(manager_id, fund_manager_cap_id, deposit_wal)
         .await
         .expect("Fund manager cap should be able to withdraw funds");
 
@@ -2020,16 +2027,17 @@ async fn test_blob_manager_capability_permissions() {
     tracing::info!("Test 7: Testing fund_manager cap for fund operations");
 
     // Deposit some WAL first.
+    let deposit_wal = 100_000_000;
     client_ref
         .sui_client()
-        .deposit_wal_to_blob_manager(manager_id, 100_000_000)
+        .deposit_wal_to_blob_manager(manager_id, deposit_wal)
         .await
         .expect("Failed to deposit WAL");
 
     // Fund_manager cap can withdraw.
     client_ref
         .sui_client()
-        .withdraw_all_wal_from_blob_manager(manager_id, fm_cap)
+        .withdraw_wal_from_blob_manager(manager_id, fm_cap, deposit_wal)
         .await
         .expect("Fund_manager cap should withdraw funds");
     tracing::info!("Fund_manager cap withdrew funds successfully");
@@ -2285,72 +2293,72 @@ async fn test_blob_manager_extension_policy() {
     tracing::info!("Deposited {} MIST WAL to coin stash", deposit_amount_wal);
 
     // Test 1: Default policy is constrained(1, 10).
-    // Try public extension - should work since default policy allows it.
-    tracing::info!("Test 1: Public extension with default constrained policy");
-
-    // Note: Public extension will only work if we're within the expiry threshold.
-    // Since storage_end_epoch is ahead, public extension might fail due to EExtensionTooEarly.
-    // That's expected behavior. Let's test fund manager extension which bypasses the check.
-
-    // Test 2: Test fund manager extension (bypasses policy constraints).
-    tracing::info!("Test 2: Fund manager extension (bypasses policy constraints)");
-    blob_manager_client
-        .extend_storage_from_stash_fund_manager(1)
-        .await
-        .expect("Failed to extend storage with fund manager");
-    tracing::info!("Fund manager extension succeeded");
-
-    // Wait for transaction to be processed.
-    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-
-    // Test 3: Set policy to fund_manager_only.
-    tracing::info!("Test 3: Setting policy to fund_manager_only");
-    blob_manager_client
-        .set_extension_policy_fund_manager_only()
-        .await
-        .expect("Failed to set policy to fund_manager_only");
-
-    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-
-    // Public extension should now fail.
-    tracing::info!("Test 3b: Public extension should fail with fund_manager_only policy");
-    let public_result = client_ref
-        .sui_client()
-        .extend_storage_from_stash(manager_id, 1)
-        .await;
+    // Extension should fail because we're not within the expiry threshold yet.
+    tracing::info!("Test 1: Extension with default constrained(1, 10) policy - too early");
+    let result = client_ref.extend_blob_manager_storage(manager_id, 1).await;
     assert!(
-        public_result.is_err(),
-        "Public extension should fail with fund_manager_only policy"
+        result.is_err(),
+        "Extension should fail - not within expiry threshold"
     );
-    tracing::info!("Correctly rejected public extension with fund_manager_only policy");
-
-    // But fund manager extension should still work.
-    tracing::info!("Test 3c: Fund manager extension should still work");
-    blob_manager_client
-        .extend_storage_from_stash_fund_manager(1)
-        .await
-        .expect("Fund manager extension should succeed even with fund_manager_only policy");
-    tracing::info!("Fund manager extension succeeded with fund_manager_only policy");
+    tracing::info!("Correctly rejected extension outside threshold window");
 
     // Wait for transaction to be processed.
     tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
 
-    // Test 4: Set policy back to constrained.
-    tracing::info!("Test 4: Setting policy to constrained(2, 5)");
+    // Test 2: Set policy to wider threshold so extension is allowed.
+    tracing::info!("Test 2: Setting policy to constrained(100, 5)");
     blob_manager_client
-        .set_extension_policy_constrained(2, 5)
+        .set_extension_policy_constrained(100, 5)
         .await
         .expect("Failed to set policy to constrained");
 
     tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
 
-    // Fund manager extension should work again.
-    tracing::info!("Test 4b: Fund manager extension should work with constrained policy");
-    blob_manager_client
-        .extend_storage_from_stash_fund_manager(1)
+    // Extension should now succeed.
+    tracing::info!("Test 2b: Extension should succeed with wider threshold");
+    client_ref
+        .extend_blob_manager_storage(manager_id, 1)
         .await
-        .expect("Fund manager extension should succeed with constrained policy");
-    tracing::info!("Fund manager extension succeeded with constrained policy");
+        .expect("Extension should succeed with wider threshold");
+    tracing::info!("Extension succeeded with constrained(100, 5) policy");
+
+    // Wait for transaction to be processed.
+    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+    // Test 3: Set policy to disabled.
+    tracing::info!("Test 3: Setting policy to disabled");
+    blob_manager_client
+        .set_extension_policy_disabled()
+        .await
+        .expect("Failed to set policy to disabled");
+
+    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+    // Extension should now fail.
+    tracing::info!("Test 3b: Extension should fail with disabled policy");
+    let result = client_ref.extend_blob_manager_storage(manager_id, 1).await;
+    assert!(
+        result.is_err(),
+        "Extension should fail with disabled policy"
+    );
+    tracing::info!("Correctly rejected extension with disabled policy");
+
+    // Test 4: Re-enable with constrained policy.
+    tracing::info!("Test 4: Re-enabling with constrained(100, 10) policy");
+    blob_manager_client
+        .set_extension_policy_constrained(100, 10)
+        .await
+        .expect("Failed to set policy to constrained");
+
+    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+    // Extension should work again.
+    tracing::info!("Test 4b: Extension should work after re-enabling");
+    client_ref
+        .extend_blob_manager_storage(manager_id, 1)
+        .await
+        .expect("Extension should succeed after re-enabling policy");
+    tracing::info!("Extension succeeded after re-enabling policy");
 
     tracing::info!("All extension policy tests completed successfully!");
 }
@@ -2866,344 +2874,6 @@ async fn test_managed_permanent_end_epoch_uses_permanent_not_deletable() -> Test
     Ok(())
 }
 
-/// Tests dormant mode: BlobManager extension after storage has expired but within grace period.
-/// This test verifies the compensation storage mechanism where we buy storage to pay for
-/// the dormant period, then extend from the current epoch forward.
-///
-/// NOTE: This test is disabled because grace period is now deterministic based on storage duration.
-/// Without the ability to precisely control epochs or set custom grace periods in tests,
-/// it's difficult to reliably test dormant mode behavior. The grace period calculation is:
-/// < 5 epochs: 0, < 10: 1, < 20: 2, < 35: 3, < 60: 4, >= 60: 4 + floor((delta-60)/20).
-#[ignore = "Disabled: deterministic grace period makes dormant mode testing difficult"]
-#[walrus_simtest]
-async fn test_blob_manager_dormant_mode_extension() -> TestResult {
-    walrus_test_utils::init_tracing();
-
-    let test_nodes_config = TestNodesConfig {
-        node_weights: vec![7, 7, 7, 7, 7],
-        ..Default::default()
-    };
-
-    // Use VERY SHORT epoch duration (5 seconds) to allow BlobManager to expire during test.
-    let epoch_duration = Duration::from_secs(5);
-
-    let (_sui_cluster_handle, _cluster, mut client, _) = test_cluster::E2eTestSetupBuilder::new()
-        .with_test_nodes_config(test_nodes_config)
-        .with_epoch_duration(epoch_duration)
-        .build()
-        .await?;
-    let client = client.as_mut();
-
-    tracing::info!("=== Testing BlobManager Dormant Mode Extension ===");
-
-    let initial_capacity = 500 * 1024 * 1024; // 500MB.
-    // Would need to carefully choose epochs to get desired grace period.
-    let initial_epochs = 10; // BlobManager will expire after 10 epochs.
-
-    // Create a BlobManager. With deterministic grace period,
-    // 10 epochs of storage gives 1 epoch grace period.
-    let (manager_id, cap_id) = client
-        .sui_client()
-        .create_blob_manager(initial_capacity, initial_epochs)
-        .await?;
-    tracing::info!(
-        "Created BlobManager {} with cap {}, expires in {} epochs",
-        manager_id,
-        cap_id,
-        initial_epochs
-    );
-
-    // Initialize the BlobManager client.
-    client.init_blob_manager(cap_id).await?;
-
-    // Note: Grace period is now deterministic based on storage duration.
-
-    // Add a small delay to ensure the shared object is properly indexed.
-    tracing::info!("Waiting for shared object to be indexed...");
-    tokio::time::sleep(Duration::from_millis(500)).await;
-
-    // Set extension policy to allow public extension near expiry.
-    // Allow extension within last 20 epochs (basically always), max 5 epochs at a time.
-    tracing::info!(
-        "Setting extension policy for manager_id={}, cap_id={}",
-        manager_id,
-        cap_id
-    );
-    client
-        .sui_client()
-        .set_extension_policy_constrained(manager_id, cap_id, 20, 5)
-        .await?;
-    tracing::info!("Set extension policy to allow public extension");
-
-    // Add funds to the coin stash for future extension.
-    {
-        let amount_to_deposit = 1_000_000_000_000u64; // 1000 WAL.
-        let blob_manager_client = client.get_blob_manager_client()?;
-        blob_manager_client
-            .deposit_wal_to_coin_stash(amount_to_deposit)
-            .await?;
-        tracing::info!("Deposited {} WAL to coin stash", amount_to_deposit);
-    }
-
-    // Store a test blob to verify it remains accessible.
-    let test_data = walrus_test_utils::random_data(1024);
-    let blob_id =
-        store_managed_blob(client, cap_id, &test_data, BlobPersistence::Permanent, 1).await?;
-    tracing::info!("Stored test blob with ID: {}", blob_id);
-
-    // Get initial storage info.
-    let initial_storage_info = client.get_blob_manager_client()?.get_storage_info().await?;
-    tracing::info!(
-        "Initial storage: end_epoch={}, total_capacity={}, used={}",
-        initial_storage_info.end_epoch,
-        initial_storage_info.total_capacity,
-        initial_storage_info.used_capacity
-    );
-
-    // Wait for BlobManager to expire (go past end_epoch).
-    // We need to wait at least 2 epochs * 5 seconds = 10 seconds.
-    // Add extra time to ensure we're definitely past expiry.
-    tracing::info!("Waiting for BlobManager to expire (15 seconds)...");
-    tokio::time::sleep(Duration::from_secs(15)).await;
-
-    // After waiting 15 seconds (3 epochs of 5 seconds), the BlobManager should be expired.
-    // The end_epoch was only 2 epochs ahead, so we're now past expiry.
-    tracing::info!(
-        "After waiting 15 seconds, storage should be expired (end_epoch was {})",
-        initial_storage_info.end_epoch
-    );
-    // We don't have a direct way to get current epoch, but we know we've waited long enough
-    // for the storage to expire based on the epoch duration and initial epochs.
-
-    // During dormant mode, blob should NOT be accessible (returns BlobIdDoesNotExist).
-    // This is expected behavior - the storage has expired.
-    tracing::info!("Verifying blob is NOT accessible during dormant mode...");
-    let read_result = verify_blob_readable(client, &blob_id, &test_data).await;
-    assert!(
-        read_result.is_err(),
-        "Expected blob to be inaccessible during dormant mode, but read succeeded"
-    );
-    tracing::info!("Confirmed: Blob is not accessible during dormant mode (expected behavior)");
-
-    // Now extend the BlobManager during dormant mode.
-    let extension_epochs = 5u32;
-    tracing::info!(
-        "Extending BlobManager by {} epochs during dormant mode",
-        extension_epochs
-    );
-
-    // Use fund manager extension during dormant mode.
-    // This will buy compensation storage for dormant period and extend from current epoch forward.
-    {
-        tracing::info!("About to call extend_storage_from_stash_fund_manager");
-        let blob_manager_client = client.get_blob_manager_client()?;
-        tracing::info!(
-            "Calling extend_storage_from_stash_fund_manager with {} epochs",
-            extension_epochs
-        );
-
-        let result = blob_manager_client
-            .extend_storage_from_stash_fund_manager(extension_epochs)
-            .await;
-
-        match &result {
-            Ok(_) => tracing::info!("Successfully extended storage"),
-            Err(e) => tracing::error!("Error extending storage: {:?}", e),
-        }
-        result?;
-    }
-
-    // Get updated storage info.
-    tracing::info!("About to re-init blob manager with cap_id: {}", cap_id);
-    client.init_blob_manager(cap_id).await?; // Re-init to refresh cached data.
-    tracing::info!("Successfully re-initialized blob manager");
-
-    tracing::info!("Getting storage info after extension");
-    let extended_storage_info = client.get_blob_manager_client()?.get_storage_info().await?;
-    tracing::info!("Successfully got extended storage info");
-
-    // The dormant extension should extend from the current epoch forward.
-    // Since we're in dormant mode (past the original end_epoch), the extension
-    // starts from the current epoch and adds the requested extension epochs.
-    let expected_minimum_epochs_extended = extension_epochs; // At least the requested extension.
-    let actual_extension = extended_storage_info.end_epoch - initial_storage_info.end_epoch;
-
-    tracing::info!(
-        "Extended storage: end_epoch={} (was {}), actual extension={} epochs",
-        extended_storage_info.end_epoch,
-        initial_storage_info.end_epoch,
-        actual_extension
-    );
-
-    assert!(
-        actual_extension >= expected_minimum_epochs_extended,
-        "Storage should be extended by at least {} epochs, but only extended by {}",
-        expected_minimum_epochs_extended,
-        actual_extension
-    );
-
-    // Verify blob is now accessible again after extension.
-    // This confirms that the dormant mode extension successfully restored access.
-    tracing::info!("Verifying blob is now accessible again after extension...");
-    assert!(
-        verify_blob_readable(client, &blob_id, &test_data)
-            .await
-            .is_ok(),
-        "Blob should be readable after extension"
-    );
-    tracing::info!("SUCCESS: Blob is readable again after dormant mode extension!");
-
-    // We've verified that:
-    // 1. The blob was NOT accessible during dormant mode (as expected)
-    // 2. The storage was successfully extended
-    // 3. The blob is NOW accessible again after extension
-    // This confirms the dormant mode extension worked correctly.
-
-    tracing::info!("=== Dormant Mode Extension Test PASSED ===");
-    Ok(())
-}
-
-/// Test that managed blobs become unavailable after grace period expires.
-///
-/// This test:
-/// 1. Creates a BlobManager with very short storage duration
-/// 2. Stores a managed blob
-/// 3. Waits for the BlobManager storage to expire
-/// 4. Waits for the grace period to expire
-/// 5. Verifies the blob is no longer available (garbage collected)
-///
-/// NOTE: This test is disabled because grace period is now deterministic based on storage duration.
-/// Without the ability to precisely control epochs or set custom grace periods in tests,
-/// it's difficult to reliably test garbage collection timing. The grace period calculation is:
-/// < 5 epochs: 0, < 10: 1, < 20: 2, < 35: 3, < 60: 4, >= 60: 4 + floor((delta-60)/20).
-#[ignore = "Disabled: deterministic grace period makes GC timing testing difficult"]
-#[walrus_simtest]
-async fn test_blob_manager_garbage_collection() -> TestResult {
-    walrus_test_utils::init_tracing();
-    tracing::info!("=== Starting Managed Blob Garbage Collection Test ===");
-
-    // Use short epoch duration for faster testing.
-    let epoch_duration = Duration::from_secs(5);
-    let test_nodes_config = TestNodesConfig {
-        node_weights: vec![7, 7, 7, 7, 7],
-        ..Default::default()
-    };
-
-    let (_sui_cluster_handle, _cluster, mut client, _) = test_cluster::E2eTestSetupBuilder::new()
-        .with_test_nodes_config(test_nodes_config)
-        .with_epoch_duration(epoch_duration)
-        .build()
-        .await?;
-    let client = client.as_mut();
-
-    // Create a BlobManager with very short storage (just 1 epoch).
-    // Note: grace period is 2 epochs by default.
-    let initial_capacity = 500 * 1000 * 1000; // 500MB capacity (minimum required).
-    let initial_epochs = 1; // BlobManager will expire after 1 epoch.
-
-    let (_manager_id, cap_id) = client
-        .sui_client()
-        .create_blob_manager(initial_capacity, initial_epochs)
-        .await?;
-    tracing::info!(
-        "Created BlobManager with {} epoch storage, cap_id: {}",
-        initial_epochs,
-        cap_id
-    );
-
-    // Initialize BlobManager client.
-    client.init_blob_manager(cap_id).await?;
-
-    // Get expected expiry times.
-    // We assume we're starting near epoch 0 since this is a fresh test cluster.
-    let storage_end_epoch = 1; // Storage expires after 1 epoch.
-    let grace_period_epochs = 2; // Default grace period.
-    let gc_eligible_epoch = storage_end_epoch + grace_period_epochs;
-
-    tracing::info!(
-        "Storage ends at epoch: {}, GC eligible at epoch: {}",
-        storage_end_epoch,
-        gc_eligible_epoch
-    );
-
-    // Store a blob in the BlobManager.
-    let test_data = walrus_test_utils::random_data(1024);
-
-    let store_args = StoreArgs::default_with_epochs(1)
-        .with_blob_manager()
-        .deletable();
-
-    let results = client
-        .reserve_and_store_blobs_retry_committees(vec![test_data.clone()], vec![], &store_args)
-        .await?;
-
-    let blob_id = results[0].blob_id().expect("blob ID should be present");
-    tracing::info!("Stored blob {} in BlobManager", blob_id);
-
-    // Verify blob is initially accessible.
-    verify_blob_readable(client, &blob_id, &test_data).await?;
-    tracing::info!("Verified blob is initially readable");
-
-    // Wait for storage to expire (1 epoch = 5 seconds).
-    tracing::info!(
-        "Waiting for storage to expire at epoch {} (5 seconds)...",
-        storage_end_epoch
-    );
-    tokio::time::sleep(Duration::from_secs(8)).await; // Wait slightly more than 1 epoch.
-
-    // Blob should still be accessible during grace period.
-    assert!(
-        verify_blob_readable(client, &blob_id, &test_data)
-            .await
-            .is_ok(),
-        "Blob should not be readable during grace period"
-    );
-
-    // Wait for grace period to expire (2 more epochs = 10 seconds).
-    tracing::info!(
-        "Waiting for grace period to expire at epoch {} (10 more seconds)...",
-        gc_eligible_epoch
-    );
-    tokio::time::sleep(Duration::from_secs(20)).await; // Wait slightly more than 2 epochs.
-
-    // Small delay to ensure nodes have processed the epoch change.
-    tokio::time::sleep(Duration::from_secs(2)).await;
-
-    // Now blob should be unavailable (garbage collected).
-    tracing::info!("Checking if blob has been garbage collected...");
-
-    // Check blob status - should be nonexistent.
-    let status = client
-        .get_verified_blob_status(
-            &blob_id,
-            client.sui_client().read_client(),
-            Duration::from_secs(1),
-        )
-        .await?;
-
-    assert!(
-        matches!(status, BlobStatus::Nonexistent),
-        "Expected blob to be garbage collected, but status is: {:?}",
-        status
-    );
-    tracing::info!("Blob status is Nonexistent as expected");
-
-    // Try to read the blob - should fail.
-    let read_result = client.read_blob::<Primary>(&blob_id).await;
-    assert!(
-        read_result.is_err(),
-        "Expected blob read to fail after GC, but it succeeded"
-    );
-
-    if let Err(e) = read_result {
-        assert!(
-            matches!(e.kind(), ClientErrorKind::BlobIdDoesNotExist),
-            "Expected BlobIdDoesNotExist error, but got: {:?}",
-            e.kind()
-        );
-        tracing::info!("Blob read failed with BlobIdDoesNotExist as expected");
-    }
-
-    tracing::info!("=== Managed Blob Garbage Collection Test PASSED ===");
-    Ok(())
-}
+// Dormant mode and grace period tests have been removed as dormant mode functionality
+// has been removed from the BlobManager. BlobManagers now expire at end_epoch without
+// a grace period.
