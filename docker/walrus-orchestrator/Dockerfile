@@ -3,7 +3,7 @@
 # Copy in all crates, Cargo.toml and Cargo.lock unmodified,
 # and build the application.
 
-FROM rust:1.91-bookworm AS builder
+FROM rust:1.92-bookworm AS builder
 
 ARG PROFILE=release
 ARG GIT_REVISION

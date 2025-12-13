@@ -6,7 +6,7 @@
 use std::{sync::Arc, time::Duration};
 
 use serde::{Deserialize, Serialize};
-use serde_with::{DurationMilliSeconds, serde_as};
+use serde_with::DurationMilliSeconds;
 use walrus_sdk::config::combine_rpc_urls;
 use walrus_sui::{
     client::{

@@ -543,8 +543,11 @@ impl ParallelCheckpointDownloaderInner {
                     }
 
                     // Note that we only return error in test mode.
-                    assert!(cfg!(test));
-                    return CheckpointEntry::new(sequence_number, Err(err.into()));
+                    if cfg!(test) {
+                        return CheckpointEntry::new(sequence_number, Err(err.into()));
+                    } else {
+                        unreachable!("we retry indefinitely in production");
+                    }
                 }
             }
         }
