@@ -6,7 +6,7 @@
 module walrus::blobmanager;
 
 use std::string::String;
-use sui::{coin::{Self, Coin}, sui::SUI};
+use sui::{coin::{Self, Coin}, sui::SUI, table::{Self, Table}};
 use wal::wal::WAL;
 use walrus::{
     blob_storage::{Self, BlobStorage, CapacityInfo},
@@ -49,6 +49,10 @@ const EBlobManagerStorageExpired: u64 = 8;
 const ERegularBlobEndEpochTooLarge: u64 = 9;
 /// Insufficient funds in coin stash for the operation.
 const EInsufficientFunds: u64 = 10;
+/// The capability has been revoked.
+const ECapRevoked: u64 = 11;
+/// The capability was not found in the manager's registry.
+const ECapNotFound: u64 = 12;
 
 // === Main Structures ===
 
@@ -65,12 +69,13 @@ public struct BlobManager has key, store {
     tip_policy: TipPolicy,
     /// Storage purchase policy controlling how much storage can be purchased.
     storage_purchase_policy: StoragePurchasePolicy,
+    /// Maps capability IDs to their info, including revocation status.
+    caps_info: Table<ID, CapInfo>,
 }
 
 /// A capability which represents the authority to manage blobs in the BlobManager.
 /// Admin can create new capabilities and perform all operations.
 /// Fund manager can withdraw funds from the coin stash.
-/// TODO(heliu): revocation for caps.
 public struct BlobManagerCap has key, store {
     id: UID,
     /// The BlobManager this capability is for.
@@ -79,6 +84,11 @@ public struct BlobManagerCap has key, store {
     is_admin: bool,
     /// Whether this capability has fund manager permissions (can withdraw funds).
     fund_manager: bool,
+}
+
+/// Information about a capability, including its revocation status.
+public struct CapInfo has drop, store {
+    is_revoked: bool,
 }
 
 // === Constructors ===
@@ -103,7 +113,7 @@ public fun new_with_unified_storage(
     // Create the manager object.
     let manager_uid = object::new(ctx);
 
-    let manager = BlobManager {
+    let mut manager = BlobManager {
         id: manager_uid,
         storage: blob_storage::new_unified_blob_storage(initial_storage, current_epoch, ctx),
         coin_stash: coin_stash::new(),
@@ -114,6 +124,7 @@ public fun new_with_unified_storage(
         // Default storage purchase policy: conditional purchase with 15GB threshold.
         // Only allow purchases when available storage < 15GB, max purchase is 15GB.
         storage_purchase_policy: storage_purchase_policy::default_conditional_purchase(),
+        caps_info: table::new(ctx),
     };
 
     // Get the ObjectID from the constructed manager object.
@@ -126,6 +137,9 @@ public fun new_with_unified_storage(
         is_admin: true,
         fund_manager: true,
     };
+
+    // Register the initial admin cap in caps_info
+    table::add(&mut manager.caps_info, object::id(&cap), CapInfo { is_revoked: false });
 
     // Emit creation event.
     events::emit_blob_manager_created(
@@ -147,7 +161,7 @@ public fun new_with_unified_storage(
 /// If the creating cap has fund_manager = true, they can create new caps with fund_manager = true.
 /// Returns the newly created capability (caller/PTB handles transfer).
 public fun create_cap(
-    self: &BlobManager,
+    self: &mut BlobManager,
     cap: &BlobManagerCap,
     is_admin: bool,
     fund_manager: bool,
@@ -162,11 +176,39 @@ public fun create_cap(
     // Only caps with fund_manager = true can create new fund_manager caps.
     assert!(!fund_manager || cap.fund_manager, ERequiresFundManager);
 
-    BlobManagerCap {
+    let new_cap = BlobManagerCap {
         id: object::new(ctx),
         manager_id: object::id(self),
         is_admin,
         fund_manager,
+    };
+
+    // Register the new cap in caps_info
+    table::add(&mut self.caps_info, object::id(&new_cap), CapInfo { is_revoked: false });
+
+    new_cap
+}
+
+/// Revokes a capability, preventing it from being used for any future operations.
+/// Only an admin can revoke a capability.
+public fun revoke_cap(self: &mut BlobManager, admin_cap: &BlobManagerCap, cap_to_revoke_id: ID) {
+    check_cap(self, admin_cap);
+    ensure_admin(admin_cap);
+
+    assert!(table::contains(&self.caps_info, cap_to_revoke_id), ECapNotFound);
+    let cap_info = table::borrow_mut(&mut self.caps_info, cap_to_revoke_id);
+    assert!(!cap_info.is_revoked, ECapRevoked);
+    cap_info.is_revoked = true;
+}
+
+/// Helper function to check if a capability is registered and not revoked.
+fun is_valid_cap(self: &BlobManager, cap: &BlobManagerCap): bool {
+    let cap_id = object::id(cap);
+    if (table::contains(&self.caps_info, cap_id)) {
+        let cap_info = table::borrow(&self.caps_info, cap_id);
+        !cap_info.is_revoked
+    } else {
+        false
     }
 }
 
@@ -185,10 +227,10 @@ public fun is_fund_manager_cap(cap: &BlobManagerCap): bool {
     cap.fund_manager
 }
 
-/// Checks that the given BlobManagerCap matches the BlobManager.
+/// Checks that the given BlobManagerCap matches the BlobManager and is not revoked.
 fun check_cap(self: &BlobManager, cap: &BlobManagerCap) {
-    let manager_id = cap_manager_id(cap);
-    assert!(object::id(self) == manager_id, EInvalidBlobManagerCap);
+    assert!(object::id(self) == cap.manager_id, EInvalidBlobManagerCap);
+    assert!(is_valid_cap(self, cap), ECapRevoked);
 }
 
 /// Ensures the capability is an Admin capability.
