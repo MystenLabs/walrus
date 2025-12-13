@@ -212,11 +212,9 @@ macro_rules! simtest_param_test {
             $func_name -> (): [ $( #[walrus_simtest] $case_name: ($($args),+) ),* ]
         );
     };
-    ($func_name:ident -> $return_ty:ty: [
-        $( $case_name:ident: ( $($args:expr),+ ) ),+$(,)?
-    ]) => {
+    ($(#[$outer:meta])* $func_name:ident $(-> $return_ty:ty)?: $cases:tt) => {
         async_param_test!(
-            $func_name -> $return_ty: [ $( #[walrus_simtest] $case_name: ( $($args),+ ) ),* ]
+            $(#[$outer])* #[walrus_simtest] $func_name $(-> $return_ty)?: $cases
         );
     };
     (#[tokio::test(start_paused = true)] $func_name:ident -> $return_ty:ty: [
