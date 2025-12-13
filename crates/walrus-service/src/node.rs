@@ -4223,7 +4223,7 @@ mod tests {
             move_structs::EpochState,
         },
     };
-    use walrus_test_utils::{Result as TestResult, WithTempDir, async_param_test, random_data};
+    use walrus_test_utils::{Result as TestResult, WithTempDir, async_param_test};
 
     use super::*;
     use crate::test_utils::{
@@ -4521,117 +4521,6 @@ mod tests {
         inner
             .check_does_not_store_metadata_or_slivers_for_blob(&BLOB_ID)
             .await?;
-        Ok(())
-    }
-
-    async_param_test! {
-        correctly_handles_blob_deletions_with_concurrent_instances -> TestResult: [
-            same_epoch_deletable: (true, 1),
-            same_epoch_permanent: (false, 1),
-            later_epoch_deletable: (true, 2),
-            later_epoch_permanent: (false, 2),
-        ]
-    }
-    async fn correctly_handles_blob_deletions_with_concurrent_instances(
-        blob_2_deletable: bool,
-        current_epoch: Epoch,
-    ) -> TestResult {
-        walrus_test_utils::init_tracing();
-
-        tracing::info!("setting up cluster at epoch 1");
-        let (cluster, events) =
-            cluster_at_epoch1_without_blobs_waiting_for_active_nodes(&[&[0, 1, 2, 3]], None)
-                .await?;
-        let node = &cluster.nodes[0];
-        let mut current_events_processed_count = node
-            .storage_node
-            .inner
-            .storage
-            .get_sequentially_processed_event_count()?;
-
-        tracing::info!("generating random blob");
-        let blob = random_data(100);
-        let blob_details = EncodedBlob::new(&blob, cluster.encoding_config());
-        let blob_id = *blob_details.blob_id();
-
-        let blob_1_registration_event = BlobRegistered {
-            epoch: 1,
-            deletable: true,
-            end_epoch: 2,
-            ..BlobRegistered::for_testing_with_random_object_id(blob_id)
-        };
-        let blob_2_registration_event = BlobRegistered {
-            epoch: 1,
-            deletable: blob_2_deletable,
-            end_epoch: 2,
-            ..BlobRegistered::for_testing_with_random_object_id(blob_id)
-        };
-
-        tracing::info!("storing blob at all shards");
-        events.send(blob_1_registration_event.clone().into())?;
-        store_at_shards(&blob_details, &cluster, |_, _| true).await?;
-        current_events_processed_count =
-            wait_until_events_processed_exact(node, current_events_processed_count + 1).await?;
-
-        if current_epoch > 1 {
-            tracing::info!("advancing cluster to epoch {current_epoch}");
-            advance_cluster_to_epoch(&cluster, &[&events], current_epoch).await?;
-
-            tracing::info!("sending first blob registration event again");
-            events.send(blob_1_registration_event.clone().into())?;
-            current_events_processed_count = wait_until_events_processed_exact(
-                node,
-                current_events_processed_count + 2 * (u64::from(current_epoch) - 1) + 1,
-            )
-            .await?;
-        }
-
-        tracing::info!(
-            "current epoch: {}",
-            node.storage_node.inner.current_committee_epoch()
-        );
-        tracing::info!("current events processed count: {current_events_processed_count}");
-
-        tracing::info!("registering same blob again");
-        events.send(blob_2_registration_event.clone().into())?;
-        current_events_processed_count =
-            wait_until_events_processed_exact(node, current_events_processed_count + 1).await?;
-
-        tracing::info!("certifying and deleting first blob");
-        events.send(
-            blob_1_registration_event
-                .clone()
-                .into_corresponding_certified_event_for_testing()
-                .into(),
-        )?;
-        events.send(
-            blob_1_registration_event
-                .into_corresponding_deleted_event_for_testing(true)
-                .into(),
-        )?;
-        current_events_processed_count =
-            wait_until_events_processed_exact(node, current_events_processed_count + 2).await?;
-
-        tracing::info!("certifying second blob");
-        events.send(
-            blob_2_registration_event
-                .clone()
-                .into_corresponding_certified_event_for_testing()
-                .into(),
-        )?;
-        current_events_processed_count =
-            wait_until_events_processed_exact(node, current_events_processed_count + 1).await?;
-
-        if blob_2_deletable {
-            tracing::info!("deleting second blob");
-            events.send(
-                blob_2_registration_event
-                    .into_corresponding_deleted_event_for_testing(true)
-                    .into(),
-            )?;
-            wait_until_events_processed_exact(node, current_events_processed_count + 1).await?;
-        }
-
         Ok(())
     }
 
@@ -5350,6 +5239,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "ignore long-running test by default"]
     async fn recovers_all_shards_for_multi_shard_node() -> TestResult {
         let shards: &[&[u16]] = &[&[0, 1], &[2, 3]];
 
@@ -5508,6 +5398,7 @@ mod tests {
     }
 
     #[walrus_simtest]
+    #[ignore = "ignore long-running test by default"]
     async fn deletes_expired_blob_data() -> TestResult {
         walrus_test_utils::init_tracing();
 

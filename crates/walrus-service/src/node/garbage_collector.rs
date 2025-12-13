@@ -71,8 +71,8 @@ impl GarbageCollectionConfig {
             enable_data_deletion: true,
             enable_random_delay: true,
             randomization_time_window: Some(Duration::from_secs(1)),
-            blob_objects_batch_size: 1000,
-            data_deletion_batch_size: 1000,
+            blob_objects_batch_size: 10,
+            data_deletion_batch_size: 10,
         }
     }
 }
