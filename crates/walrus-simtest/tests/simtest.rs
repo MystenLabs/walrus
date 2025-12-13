@@ -674,10 +674,11 @@ mod tests {
         const EPOCH_DURATION: Duration = Duration::from_secs(30);
         let (_sui_cluster, walrus_cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
             .with_epoch_duration(EPOCH_DURATION)
-            .with_test_nodes_config(TestNodesConfig {
-                node_weights: vec![1, 2, 3, 3, 4],
-                ..Default::default()
-            })
+            .with_test_nodes_config(
+                TestNodesConfig::builder()
+                    .with_node_weights(&[1, 2, 3, 3, 4])
+                    .build(),
+            )
             .with_communication_config(
                 ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
                     Duration::from_secs(2),
