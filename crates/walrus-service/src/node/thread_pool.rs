@@ -175,10 +175,9 @@ impl RayonThreadPool {
         // Note that in simtest, we cannot use Rayon thread pool due to that it causes simtest to be
         // non-deterministic. This is because Rayon threads are actually run in different threads
         // than the tokio main threads, and not controlled by the tokio runtime.
-        debug_assert!(
-            !cfg!(msim),
-            "`RayonThreadPool` cannot be used in msim and so must not be constructed"
-        );
+        if cfg!(msim) {
+            panic!("`RayonThreadPool` cannot be used in msim and so must not be constructed");
+        }
         Self { inner: pool }
     }
 }
