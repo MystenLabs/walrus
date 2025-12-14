@@ -1137,8 +1137,6 @@ pub struct BlobStorage {
 }
 
 /// Coin stash for community funding of a BlobManager.
-///
-/// Note: `Balance<T>` serializes as just u64 (the value field).
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub struct BlobManagerCoinStash {
     /// WAL token balance.
