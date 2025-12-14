@@ -396,8 +396,12 @@ where
                 get(routes::get_deletable_blob_confirmation),
             )
             .route(
-                routes::RECOVERY_SYMBOL_LIST_ENDPOINT,
+                routes::LIST_RECOVERY_SYMBOL_ENDPOINT,
                 get(routes::list_recovery_symbols),
+            )
+            .route(
+                routes::LIST_DECODING_SYMBOL_ENDPOINT,
+                get(routes::list_decoding_symbols),
             )
             .route(
                 routes::INCONSISTENCY_PROOF_ENDPOINT,
@@ -502,6 +506,8 @@ pub(crate) fn to_pkcs8_key_pair(keypair: &NetworkKeyPair) -> RcGenKeyPair {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
     use anyhow::anyhow;
     use axum::http::StatusCode;
     use fastcrypto::traits::KeyPair;
@@ -519,7 +525,7 @@ mod tests {
         SliverPairIndex,
         SliverType,
         SymbolId,
-        encoding::{EncodingAxis, GeneralRecoverySymbol, Primary},
+        encoding::{EitherDecodingSymbol, EncodingAxis, GeneralRecoverySymbol, Primary},
         inconsistency::{
             InconsistencyProof as InconsistencyProofInner,
             InconsistencyVerificationError,
@@ -634,6 +640,15 @@ mod tests {
             };
             let symbol = GeneralRecoverySymbol::from_recovery_symbol(symbol, SliverIndex(0));
             Ok(vec![symbol.clone(), symbol])
+        }
+
+        async fn retrieve_multiple_decoding_symbols(
+            &self,
+            _blob_id: &BlobId,
+            _target_slivers: Vec<SliverIndex>,
+            _target_type: SliverType,
+        ) -> Result<BTreeMap<SliverIndex, Vec<EitherDecodingSymbol>>, ListSymbolsError> {
+            Ok(BTreeMap::new())
         }
 
         /// Successful only for the pair index 0, otherwise, returns an internal error.

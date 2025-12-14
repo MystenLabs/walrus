@@ -1,6 +1,8 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
+use std::collections::BTreeMap;
+
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
@@ -21,7 +23,12 @@ use walrus_core::{
     SliverPairIndex,
     SliverType,
     SymbolId,
-    encoding::{GeneralRecoverySymbol, Primary as PrimaryEncoding, Secondary as SecondaryEncoding},
+    encoding::{
+        EitherDecodingSymbol,
+        GeneralRecoverySymbol,
+        Primary as PrimaryEncoding,
+        Secondary as SecondaryEncoding,
+    },
     messages::{
         BlobPersistenceType,
         InvalidBlobIdAttestation,
@@ -78,7 +85,10 @@ pub const PERMANENT_BLOB_CONFIRMATION_ENDPOINT: &str = "/v1/blobs/{blob_id}/conf
 pub const DELETABLE_BLOB_CONFIRMATION_ENDPOINT: &str =
     "/v1/blobs/{blob_id}/confirmation/deletable/{object_id}";
 /// The path to get multiple recovery symbols.
-pub const RECOVERY_SYMBOL_LIST_ENDPOINT: &str = "/v1/blobs/{blob_id}/recoverySymbols";
+pub const LIST_RECOVERY_SYMBOL_ENDPOINT: &str = "/v1/blobs/{blob_id}/recoverySymbols";
+/// The path to get decoding symbols to decode target slivers.
+/// It is essentially recovery symbols without proof.
+pub const LIST_DECODING_SYMBOL_ENDPOINT: &str = "/v1/blobs/{blob_id}/decodingSymbols";
 /// The path to push inconsistency proofs.
 pub const INCONSISTENCY_PROOF_ENDPOINT: &str =
     "/v1/blobs/{blob_id}/inconsistencyProof/{sliver_type}";
@@ -503,7 +513,7 @@ impl TryFrom<ListRecoverySymbolsQuery> for RecoverySymbolsFilter {
 #[tracing::instrument(skip_all, err(level = Level::DEBUG), fields(walrus.blob_id = %blob_id))]
 #[utoipa::path(
     get,
-    path = RECOVERY_SYMBOL_LIST_ENDPOINT,
+    path = LIST_RECOVERY_SYMBOL_ENDPOINT,
     params(("blob_id" = BlobId,), ListRecoverySymbolsQuery),
     responses(
         (status = 200, description = "List of BCS-encoded recovery symbols", body = [u8]),
@@ -544,6 +554,44 @@ fn limit_symbol_recovery_requests(
         Err(TryAcquireError::Closed) => panic!("the semaphore must not be closed"),
         Err(TryAcquireError::NoPermits) => Err(Unavailable.into()),
     }
+}
+
+#[serde_as]
+#[derive(Debug, Clone, Deserialize, utoipa::IntoParams)]
+#[serde(rename_all = "camelCase")]
+#[into_params(style = Form, parameter_in = Query)]
+pub struct ListDecodingSymbolsQuery {
+    /// The sliver indexes of the target sliver being recovered.
+    #[serde_as(as = "OneOrMany<_>")]
+    target_slivers: Vec<SliverIndex>,
+    /// The type of the sliver being recovered.
+    target_type: SliverType,
+}
+
+/// Get multiple recovery symbols.
+#[tracing::instrument(skip_all, err(level = Level::DEBUG), fields(walrus.blob_id = %blob_id))]
+#[utoipa::path(
+    get,
+    path = LIST_DECODING_SYMBOL_ENDPOINT,
+    params(("blob_id" = BlobId,), ListDecodingSymbolsQuery),
+    responses(
+        (status = 200, description = "List of BCS-encoded decoding symbols", body = [u8]),
+        ListSymbolsError,
+    ),
+    tag = openapi::GROUP_RECOVERY
+)]
+pub async fn list_decoding_symbols<S: SyncServiceState>(
+    State(state): State<RestApiState<S>>,
+    Path(BlobIdString(blob_id)): Path<BlobIdString>,
+    ExtraQuery(query): ExtraQuery<ListDecodingSymbolsQuery>,
+) -> Result<Bcs<BTreeMap<SliverIndex, Vec<EitherDecodingSymbol>>>, ListSymbolsError> {
+    // TODO(WAL-1120): add a configuration to throttle this endpoint.
+    let symbols = state
+        .service
+        .retrieve_multiple_decoding_symbols(&blob_id, query.target_slivers, query.target_type)
+        .await?;
+
+    Ok(Bcs(symbols))
 }
 
 /// Verify blob inconsistency.

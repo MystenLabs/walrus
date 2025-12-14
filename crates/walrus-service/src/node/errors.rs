@@ -259,6 +259,24 @@ pub enum ListSymbolsError {
     )]
     NoSymbolsSpecified,
 
+    #[error("the filter is invalid: {0}")]
+    #[rest_api_error(
+        reason = "INVALID_FILTER", status = ApiStatusCode::InvalidArgument,
+    )]
+    InvalidFilter(String),
+
+    #[error("at least one target sliver must be specified")]
+    #[rest_api_error(
+        reason = "NO_TARGET_SLIVERS_SPECIFIED", status = ApiStatusCode::FailedPrecondition,
+    )]
+    NoTargetSliversSpecified,
+
+    #[error("the requested recovery symbol is out of range: {0}")]
+    #[rest_api_error(
+        reason = "RECOVERY_SYMBOL_OUT_OF_RANGE", status = ApiStatusCode::InvalidArgument,
+    )]
+    RetrieveDecodingSymbolOutOfRange(String),
+
     #[error(transparent)]
     #[rest_api_error(delegate)]
     Last(#[from] RetrieveSymbolError),

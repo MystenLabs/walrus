@@ -254,6 +254,31 @@ impl<T: EncodingAxis> SliverData<T> {
         I::IntoIter: Iterator<Item = RecoverySymbol<T, U>> + ExactSizeIterator,
         U: MerkleAuth,
     {
+        Self::recover_sliver_from_decoding_symbols(
+            recovery_symbols
+                .into_iter()
+                .map(RecoverySymbol::into_decoding_symbol),
+            target_index,
+            symbol_size,
+            config,
+        )
+    }
+
+    /// Recovers a [`SliverData`] from the provided decoding symbols.
+    ///
+    /// Returns the recovered [`SliverData`] if decoding succeeds or `None` if decoding fails.
+    ///
+    /// The recovery symbols are only the raw symbols without the Merkle proofs.
+    pub fn recover_sliver_from_decoding_symbols<I>(
+        recovery_symbols: I,
+        target_index: SliverIndex,
+        symbol_size: NonZeroU16,
+        config: EncodingConfigEnum,
+    ) -> Result<Self, DecodeError>
+    where
+        I: IntoIterator,
+        I::IntoIter: Iterator<Item = DecodingSymbol<T>> + ExactSizeIterator,
+    {
         let recovery_symbols = recovery_symbols.into_iter();
 
         // Note: The following code may have to be changed if we add encodings that require a
@@ -265,10 +290,7 @@ impl<T: EncodingAxis> SliverData<T> {
         }
 
         config
-            .decode_from_decoding_symbols(
-                symbol_size,
-                recovery_symbols.map(RecoverySymbol::into_decoding_symbol),
-            )
+            .decode_from_decoding_symbols(symbol_size, recovery_symbols)
             .map(|data| SliverData::new(data, symbol_size, target_index))
     }
 
