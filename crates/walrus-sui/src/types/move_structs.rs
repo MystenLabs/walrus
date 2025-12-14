@@ -1192,12 +1192,24 @@ pub struct CapInfo {
 
 /// Sui type for a `BlobManager` object.
 ///
-/// This struct matches the Move BlobManager for BCS deserialization.
-/// The `storage.blobs` field contains the Table for querying managed blobs.
+/// This is the interface object containing only versioning information.
+/// The actual business logic is stored in `BlobManagerInnerV1` as a dynamic field.
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub struct BlobManager {
     /// Object ID of the BlobManager.
     pub id: ObjectID,
+    /// Version of the BlobManager (used for upgrade compatibility).
+    pub version: u64,
+}
+
+impl AssociatedContractStruct for BlobManager {
+    const CONTRACT_STRUCT: StructTag<'static> = contracts::blobmanager::BlobManager;
+}
+
+/// Inner state of BlobManager containing all business logic fields.
+/// Stored as a dynamic field of BlobManager, keyed by version number.
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+pub struct BlobManagerInnerV1 {
     /// Unified storage that handles capacity management and blob storage.
     pub storage: BlobStorage,
     /// Coin stash for community funding.
@@ -1212,8 +1224,9 @@ pub struct BlobManager {
     pub caps_info: SuiTable,
 }
 
-impl AssociatedContractStruct for BlobManager {
-    const CONTRACT_STRUCT: StructTag<'static> = contracts::blobmanager::BlobManager;
+impl AssociatedContractStruct for BlobManagerInnerV1 {
+    const CONTRACT_STRUCT: StructTag<'static> =
+        contracts::blob_manager_inner_v1::BlobManagerInnerV1;
 }
 
 /// Sui type for a `BlobManagerCap` capability object.

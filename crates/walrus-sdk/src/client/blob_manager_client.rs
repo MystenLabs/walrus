@@ -9,7 +9,7 @@ use sui_types::{TypeTag, base_types::ObjectID};
 use walrus_core::{BlobId, metadata::BlobMetadataApi as _};
 use walrus_sui::{
     client::{BlobPersistence, SuiContractClient},
-    types::move_structs::{BlobManager, BlobManagerCap, ManagedBlob},
+    types::move_structs::{BlobManager, BlobManagerCap, BlobManagerInnerV1, ManagedBlob},
 };
 
 use crate::{
@@ -179,6 +179,8 @@ impl<'a> BlobManagerClient<'a, SuiContractClient> {
     /// Fetches the BlobManager object from the chain.
     ///
     /// Uses BCS deserialization via the `AssociatedContractStruct` trait.
+    /// Note: BlobManager now only contains `id` and `version`. The actual business
+    /// logic is stored in `BlobManagerInnerV1` as a dynamic field.
     async fn fetch_blob_manager(
         client: &WalrusNodeClient<SuiContractClient>,
         manager_id: ObjectID,
@@ -191,13 +193,36 @@ impl<'a> BlobManagerClient<'a, SuiContractClient> {
             .map_err(|e| Self::error(format!("failed to read BlobManager: {}", e)))
     }
 
+    /// Fetches the BlobManagerInnerV1 from the chain via dynamic field lookup.
+    ///
+    /// The inner is stored as a dynamic field of BlobManager, keyed by the version number.
+    async fn fetch_blob_manager_inner(
+        client: &WalrusNodeClient<SuiContractClient>,
+        manager_id: ObjectID,
+    ) -> ClientResult<BlobManagerInnerV1> {
+        // First fetch the BlobManager to get its version.
+        let blob_manager = Self::fetch_blob_manager(client, manager_id).await?;
+
+        // Fetch the inner via dynamic field using version as the key.
+        client
+            .sui_client()
+            .retriable_sui_client()
+            .get_dynamic_field::<u64, BlobManagerInnerV1>(
+                manager_id,
+                TypeTag::U64,
+                blob_manager.version,
+            )
+            .await
+            .map_err(|e| Self::error(format!("failed to read BlobManagerInnerV1: {}", e)))
+    }
+
     /// Extracts the blobs table ID from the BlobManager structure.
     async fn extract_blobs_table_id(
         client: &WalrusNodeClient<SuiContractClient>,
         manager_id: ObjectID,
     ) -> ClientResult<ObjectID> {
-        let blob_manager = Self::fetch_blob_manager(client, manager_id).await?;
-        Ok(blob_manager.storage.blobs.id)
+        let inner = Self::fetch_blob_manager_inner(client, manager_id).await?;
+        Ok(inner.storage.blobs.id)
     }
 
     /// Get the BlobManager object ID.
@@ -232,15 +257,15 @@ impl<'a> BlobManagerClient<'a, SuiContractClient> {
 
     /// Fetches BlobManager info including storage and coin stash balances.
     ///
-    /// This makes a single RPC call to fetch all BlobManager state at once,
-    /// which is more efficient than calling `get_storage_info` and
-    /// `get_coin_stash_balances` separately.
+    /// This fetches the inner state via dynamic field lookup to get all
+    /// BlobManager state at once, which is more efficient than calling
+    /// `get_storage_info` and `get_coin_stash_balances` separately.
     pub async fn get_blob_manager_info(
         &self,
     ) -> ClientResult<(BlobManagerStorageInfo, BlobManagerCoinStashBalances)> {
-        let blob_manager = Self::fetch_blob_manager(self.client, self.data.manager_id()).await?;
+        let inner = Self::fetch_blob_manager_inner(self.client, self.data.manager_id()).await?;
 
-        let storage = &blob_manager.storage;
+        let storage = &inner.storage;
         let storage_info = BlobManagerStorageInfo {
             total_capacity: storage.available_storage + storage.used_storage,
             used_capacity: storage.used_storage,
@@ -249,8 +274,8 @@ impl<'a> BlobManagerClient<'a, SuiContractClient> {
         };
 
         let coin_stash_balances = BlobManagerCoinStashBalances {
-            wal_balance: blob_manager.coin_stash.wal_balance,
-            sui_balance: blob_manager.coin_stash.sui_balance,
+            wal_balance: inner.coin_stash.wal_balance,
+            sui_balance: inner.coin_stash.sui_balance,
         };
 
         Ok((storage_info, coin_stash_balances))
@@ -260,8 +285,8 @@ impl<'a> BlobManagerClient<'a, SuiContractClient> {
     ///
     /// Returns storage capacity (total, used, available) and the end epoch.
     pub async fn get_storage_info(&self) -> ClientResult<BlobManagerStorageInfo> {
-        let blob_manager = Self::fetch_blob_manager(self.client, self.data.manager_id()).await?;
-        let storage = &blob_manager.storage;
+        let inner = Self::fetch_blob_manager_inner(self.client, self.data.manager_id()).await?;
+        let storage = &inner.storage;
 
         Ok(BlobManagerStorageInfo {
             total_capacity: storage.available_storage + storage.used_storage,
@@ -275,11 +300,11 @@ impl<'a> BlobManagerClient<'a, SuiContractClient> {
     ///
     /// Returns the WAL and SUI balances in the coin stash.
     pub async fn get_coin_stash_balances(&self) -> ClientResult<BlobManagerCoinStashBalances> {
-        let blob_manager = Self::fetch_blob_manager(self.client, self.data.manager_id()).await?;
+        let inner = Self::fetch_blob_manager_inner(self.client, self.data.manager_id()).await?;
 
         Ok(BlobManagerCoinStashBalances {
-            wal_balance: blob_manager.coin_stash.wal_balance,
-            sui_balance: blob_manager.coin_stash.sui_balance,
+            wal_balance: inner.coin_stash.wal_balance,
+            sui_balance: inner.coin_stash.sui_balance,
         })
     }
 

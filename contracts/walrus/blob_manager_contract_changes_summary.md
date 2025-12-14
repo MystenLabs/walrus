@@ -90,22 +90,36 @@
   - `add_storage()` - Expand capacity
   - `extend_managed_storage()` - Extend validity period
 
-### 1.4 `blob_manager.move`
-**Purpose**: Main BlobManager implementation coordinating all components.
+### 1.4 `blob_manager.move` and `blob_manager/blob_manager_inner_v1.move`
+**Purpose**: Main BlobManager implementation using a versioned design pattern for upgradability.
+
+**Architecture**:
+The BlobManager uses a two-layer design similar to `System` / `SystemStateInnerV1`:
+- `blob_manager.move` - The stable interface layer with version tracking
+- `blob_manager/blob_manager_inner_v1.move` - The implementation layer stored as a dynamic field
 
 **Key Components**:
-- **BlobManager struct**:
+- **BlobManager struct** (interface - stable):
   ```move
   struct BlobManager {
       id: UID,
-      storage: BlobStorage,
-      blob_stash: BlobStash,
-      coin_stash: BlobManagerCoinStash,
-      extension_policy: ExtensionPolicy,
+      version: u64,  // Currently 1
   }
   ```
 
-- **BlobManagerCap struct**:
+- **BlobManagerInnerV1 struct** (implementation - can be upgraded):
+  ```move
+  struct BlobManagerInnerV1 {
+      storage: BlobStorage,
+      coin_stash: BlobManagerCoinStash,
+      extension_policy: ExtensionPolicy,
+      tip_policy: TipPolicy,
+      storage_purchase_policy: StoragePurchasePolicy,
+      caps_info: Table<ID, CapInfo>,
+  }
+  ```
+
+- **BlobManagerCap struct** (stays in interface):
   ```move
   struct BlobManagerCap {
       id: UID,
@@ -114,6 +128,11 @@
       fund_manager: bool,
   }
   ```
+
+**Internal Accessors**:
+  - `inner(self: &BlobManager)` - Get immutable reference to inner via dynamic field
+  - `inner_mut(self: &mut BlobManager)` - Get mutable reference to inner via dynamic field
+  - Both assert `self.version == VERSION` before accessing
 
 - **Capability Management**:
   - `create_cap(is_admin, fund_manager)` - Returns new cap (PTB handles transfer)

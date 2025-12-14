@@ -521,3 +521,11 @@ pub mod blobmanager {
     // Tip policy operations.
     contract_ident!(fn blobmanager::set_tip_policy_fixed_amount);
 }
+
+/// Module for tags corresponding to the Move module `blob_manager_inner_v1`.
+pub mod blob_manager_inner_v1 {
+    use super::*;
+
+    contract_ident!(struct blob_manager_inner_v1::BlobManagerInnerV1);
+    contract_ident!(struct blob_manager_inner_v1::CapInfo);
+}

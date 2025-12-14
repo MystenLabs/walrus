@@ -33,11 +33,21 @@ re-storing as permanent, but a permanent blob cannot be made deletable.
 
 ## Sui structures
 
-The BlobManager is implemented as a Sui shared object with the following structure:
+The BlobManager is implemented as a Sui shared object using a **versioned design pattern** for upgradability.
+The outer `BlobManager` struct serves as a stable interface, while the actual implementation is stored
+in `BlobManagerInnerV1` as a dynamic field. This allows the implementation to be upgraded without
+breaking external contracts.
 
 ```move
+/// The stable interface object.
 public struct BlobManager has key, store {
     id: UID,
+    /// Version number (currently 1) used to access the inner implementation.
+    version: u64,
+}
+
+/// The implementation stored as a dynamic field of BlobManager.
+public struct BlobManagerInnerV1 has store {
     /// Unified storage pool for all managed blobs.
     storage: BlobStorage,
     /// Coin stash for community funding (WAL for storage, SUI for tips).
@@ -52,6 +62,9 @@ public struct BlobManager has key, store {
     caps_info: Table<ID, CapInfo>,
 }
 ```
+
+The inner implementation is accessed via dynamic field lookup using the version number as the key.
+This pattern follows the same design as the Walrus `System` / `SystemStateInnerV1` structs.
 
 Access to the BlobManager is controlled through capability objects, the owner of a cap object has
 the corresponding permissions.

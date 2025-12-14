@@ -27,7 +27,18 @@ With BlobManager:
 
 ### BlobManager Object
 
-The BlobManager is a shared object containing four main parts:
+The BlobManager uses a **versioned design pattern** for upgradability, similar to the Walrus
+`System` / `SystemStateInnerV1` pattern:
+
+- **BlobManager** (interface): A shared object with only `id` and `version` fields. This is the
+  stable external interface that never changes.
+- **BlobManagerInnerV1** (implementation): The actual business logic stored as a dynamic field of
+  BlobManager, keyed by the version number.
+
+This separation allows the implementation to be upgraded (e.g., to `BlobManagerInnerV2`) without
+breaking external contracts that reference the BlobManager object.
+
+The inner implementation contains four main parts:
 
 1. **BlobStorage** - A unified storage pool that tracks total capacity, used capacity, and the
    storage validity period. All ManagedBlobs draw from this single pool. When you buy more storage
