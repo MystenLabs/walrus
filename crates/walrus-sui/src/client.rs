@@ -69,6 +69,7 @@ use crate::{
             Authorized,
             Blob,
             BlobAttribute,
+            BlobManagerCap,
             BlobWithAttribute,
             EpochState,
             SharedBlob,
@@ -648,17 +649,20 @@ impl SuiContractClient {
         .await
     }
 
-    /// Creates a new BlobManager and returns its ID and capability ID.
+    /// Creates a new BlobManager and returns the admin capability.
+    /// The `initial_wal_amount` is deposited to the coin stash for storage payments.
+    /// The capability contains the `manager_id` for accessing the BlobManager.
     pub async fn create_blob_manager(
         &self,
         initial_capacity: u64,
         epochs_ahead: EpochCount,
-    ) -> SuiClientResult<(ObjectID, ObjectID)> {
+        initial_wal_amount: u64,
+    ) -> SuiClientResult<BlobManagerCap> {
         self.retry_on_wrong_version(|| async {
             self.inner
                 .lock()
                 .await
-                .create_blob_manager(initial_capacity, epochs_ahead)
+                .create_blob_manager(initial_capacity, epochs_ahead, initial_wal_amount)
                 .await
         })
         .await
@@ -838,6 +842,21 @@ impl SuiContractClient {
             .lock()
             .await
             .create_blob_manager_cap(manager_id, manager_cap, is_admin, fund_manager)
+            .await
+    }
+
+    /// Revokes a capability from the BlobManager.
+    /// Requires admin permission on the revoking capability.
+    pub async fn revoke_blob_manager_cap(
+        &self,
+        manager_id: ObjectID,
+        admin_cap: ObjectID,
+        cap_to_revoke_id: ObjectID,
+    ) -> SuiClientResult<()> {
+        self.inner
+            .lock()
+            .await
+            .revoke_blob_manager_cap(manager_id, admin_cap, cap_to_revoke_id)
             .await
     }
 
@@ -2534,6 +2553,41 @@ impl SuiContractClientInner {
         Ok(new_cap_id)
     }
 
+    /// Revokes a capability from the BlobManager.
+    /// Requires admin permission on the revoking capability.
+    pub async fn revoke_blob_manager_cap(
+        &mut self,
+        manager_id: ObjectID,
+        admin_cap: ObjectID,
+        cap_to_revoke_id: ObjectID,
+    ) -> SuiClientResult<()> {
+        tracing::debug!(
+            manager_id = %manager_id,
+            admin_cap = %admin_cap,
+            cap_to_revoke_id = %cap_to_revoke_id,
+            "revoking blob manager capability"
+        );
+
+        let mut pt_builder = self.transaction_builder()?;
+
+        pt_builder
+            .revoke_blob_manager_cap(manager_id, admin_cap, cap_to_revoke_id)
+            .await?;
+
+        let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
+        let res = self
+            .sign_and_send_transaction(transaction, "revoke_blob_manager_cap")
+            .await?;
+
+        if !res.errors.is_empty() {
+            tracing::warn!(errors = ?res.errors, "failed to revoke blob manager cap");
+            return Err(anyhow!("could not revoke capability: {:?}", res.errors).into());
+        }
+
+        tracing::debug!("successfully revoked blob manager capability");
+        Ok(())
+    }
+
     /// Sets an attribute on a managed blob in the BlobManager.
     /// Requires a valid BlobManagerCap.
     pub async fn set_managed_blob_attribute(
@@ -2824,25 +2878,25 @@ impl SuiContractClientInner {
         Ok(blob_ids)
     }
 
-    /// Creates a new BlobManager and returns its ID and capability ID.
+    /// Creates a new BlobManager and returns the admin capability.
     ///
     /// The BlobManager is automatically shared and can be used to manage blobs.
+    /// The `initial_wal_amount` is deposited to the coin stash for storage payments.
+    /// The returned capability contains the `manager_id` for accessing the BlobManager.
     pub async fn create_blob_manager(
         &mut self,
         initial_capacity: u64,
         epochs_ahead: EpochCount,
-    ) -> SuiClientResult<(ObjectID, ObjectID)> {
-        // Reserve storage for the initial capacity
+        initial_wal_amount: u64,
+    ) -> SuiClientResult<BlobManagerCap> {
+        // Reserve storage for the initial capacity.
         let initial_storage = self.reserve_space(initial_capacity, epochs_ahead).await?;
 
-        // Create the BlobManager with PTB
+        // Create the BlobManager with PTB.
         let mut pt_builder = self.transaction_builder()?;
-        let cap_arg = pt_builder
-            .create_blob_manager(initial_storage.id.into())
+        pt_builder
+            .create_blob_manager(initial_storage.id.into(), initial_wal_amount)
             .await?;
-
-        // Transfer the capability to the sender
-        pt_builder.transfer(None, vec![cap_arg.into()]).await?;
 
         let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
         let res = self
@@ -2854,43 +2908,27 @@ impl SuiContractClientInner {
             return Err(anyhow!("could not create blob manager: {:?}", res.errors).into());
         }
 
-        // Extract the BlobManager and Cap object IDs from the transaction effects
-        let effects = res
-            .effects
-            .ok_or_else(|| anyhow!("No effects in transaction response"))?;
-        let object_changes = effects.created();
+        // Extract the BlobManagerCap object ID by type.
+        let cap_ids = get_created_sui_object_ids_by_type(
+            &res,
+            &contracts::blobmanager::BlobManagerCap
+                .to_move_struct_tag_with_type_map(&self.read_client.type_origin_map(), &[])?,
+        )?;
+        ensure!(
+            cap_ids.len() == 1,
+            "unexpected number of BlobManagerCap created: {}",
+            cap_ids.len()
+        );
+        let cap_id = cap_ids[0];
 
-        let mut manager_id: Option<ObjectID> = None;
-        let mut cap_id: Option<ObjectID> = None;
+        // Fetch the full BlobManagerCap object.
+        let cap = self
+            .retriable_sui_client()
+            .get_sui_object::<BlobManagerCap>(cap_id)
+            .await?;
 
-        for obj_ref in object_changes {
-            // Check if it's shared or owned by looking at the owner field
-            // The manager is shared, the cap is owned
-            use sui_types::object::Owner;
-            match &obj_ref.owner {
-                Owner::Shared { .. } => {
-                    // This is the BlobManager (shared object)
-                    manager_id = Some(obj_ref.reference.object_id);
-                }
-                Owner::AddressOwner(_)
-                | Owner::ObjectOwner(_)
-                | Owner::ConsensusAddressOwner { .. } => {
-                    // This is the BlobManagerCap (owned object)
-                    cap_id = Some(obj_ref.reference.object_id);
-                }
-                Owner::Immutable => {
-                    // Shouldn't happen, but skip
-                }
-            }
-        }
-
-        let manager_id =
-            manager_id.ok_or_else(|| anyhow!("BlobManager not found in transaction effects"))?;
-        let cap_id =
-            cap_id.ok_or_else(|| anyhow!("BlobManagerCap not found in transaction effects"))?;
-
-        tracing::debug!(%manager_id, %cap_id, "created blob manager");
-        Ok((manager_id, cap_id))
+        tracing::debug!(?cap, "created blob manager");
+        Ok(cap)
     }
 
     /// Registers a candidate node.

@@ -15,7 +15,7 @@ use walrus::{
     extension_policy::{Self, ExtensionPolicy},
     managed_blob,
     storage_purchase_policy::{Self, StoragePurchasePolicy},
-    storage_resource::{Self, Storage},
+    storage_resource::Storage,
     system::{Self, System},
     tip_policy::{Self, TipPolicy}
 };
@@ -99,6 +99,7 @@ public struct CapInfo has drop, store {
 /// Note: This function requires access to System to emit the creation event with proper epoch.
 public fun new_with_unified_storage(
     initial_storage: Storage,
+    initial_wal: Coin<WAL>,
     system: &System,
     ctx: &mut TxContext,
 ): BlobManagerCap {
@@ -127,6 +128,9 @@ public fun new_with_unified_storage(
         caps_info: table::new(ctx),
     };
 
+    // Deposit initial WAL to the coin stash.
+    manager.coin_stash.deposit_wal(initial_wal);
+
     // Get the ObjectID from the constructed manager object.
     let manager_object_id = object::id(&manager);
 
@@ -138,8 +142,8 @@ public fun new_with_unified_storage(
         fund_manager: true,
     };
 
-    // Register the initial admin cap in caps_info
-    table::add(&mut manager.caps_info, object::id(&cap), CapInfo { is_revoked: false });
+    // Register the initial admin cap in caps_info.
+    manager.caps_info.add(object::id(&cap), CapInfo { is_revoked: false });
 
     // Emit creation event.
     events::emit_blob_manager_created(
@@ -184,7 +188,7 @@ public fun create_cap(
     };
 
     // Register the new cap in caps_info
-    table::add(&mut self.caps_info, object::id(&new_cap), CapInfo { is_revoked: false });
+    self.caps_info.add(object::id(&new_cap), CapInfo { is_revoked: false });
 
     new_cap
 }
@@ -197,24 +201,7 @@ public fun revoke_cap(self: &mut BlobManager, admin_cap: &BlobManagerCap, cap_to
 
     assert!(table::contains(&self.caps_info, cap_to_revoke_id), ECapNotFound);
     let cap_info = table::borrow_mut(&mut self.caps_info, cap_to_revoke_id);
-    assert!(!cap_info.is_revoked, ECapRevoked);
     cap_info.is_revoked = true;
-}
-
-/// Helper function to check if a capability is registered and not revoked.
-fun is_valid_cap(self: &BlobManager, cap: &BlobManagerCap): bool {
-    let cap_id = object::id(cap);
-    if (table::contains(&self.caps_info, cap_id)) {
-        let cap_info = table::borrow(&self.caps_info, cap_id);
-        !cap_info.is_revoked
-    } else {
-        false
-    }
-}
-
-/// Returns the manager ID from a capability.
-public fun cap_manager_id(cap: &BlobManagerCap): ID {
-    cap.manager_id
 }
 
 /// Checks if the capability is an Admin capability.
@@ -222,15 +209,13 @@ public fun is_admin_cap(cap: &BlobManagerCap): bool {
     cap.is_admin
 }
 
-/// Checks if the capability has fund manager permissions.
-public fun is_fund_manager_cap(cap: &BlobManagerCap): bool {
-    cap.fund_manager
-}
-
 /// Checks that the given BlobManagerCap matches the BlobManager and is not revoked.
 fun check_cap(self: &BlobManager, cap: &BlobManagerCap) {
     assert!(object::id(self) == cap.manager_id, EInvalidBlobManagerCap);
-    assert!(is_valid_cap(self, cap), ECapRevoked);
+    let cap_id = object::id(cap);
+    assert!(self.caps_info.contains(cap_id), ECapNotFound);
+    let cap_info = table::borrow(&self.caps_info, cap_id);
+    assert!(!cap_info.is_revoked, ECapRevoked);
 }
 
 /// Ensures the capability is an Admin capability.
@@ -264,7 +249,6 @@ public fun register_blob(
     encoding_type: u8,
     deletable: bool,
     blob_type: u8,
-    payment: &mut Coin<WAL>,
     ctx: &mut TxContext,
 ) {
     // Verify the capability.
@@ -281,6 +265,12 @@ public fun register_blob(
     let capacity_info = self.storage.capacity_info();
     let end_epoch_at_registration = capacity_info.capacity_end_epoch();
 
+    // Calculate write price and withdraw from coin stash.
+    let n_shards = system::n_shards(system);
+    let encoded_size = walrus::encoding::encoded_blob_length(size, encoding_type, n_shards);
+    let write_price = system::write_price(system, encoded_size);
+    let mut payment = self.coin_stash.withdraw_wal_for_storage(write_price, ctx);
+
     // Register managed blob with the system.
     let managed_blob = system.register_managed_blob(
         object::id(self),
@@ -291,12 +281,11 @@ public fun register_blob(
         deletable,
         blob_type,
         end_epoch_at_registration,
-        payment,
+        &mut payment,
         ctx,
     );
 
-    // Get the cached encoded size.
-    let encoded_size = managed_blob.encoded_size();
+    self.coin_stash.deposit_wal(payment);
 
     assert!(capacity_info.available() >= encoded_size, EInsufficientBlobManagerCapacity);
 
@@ -525,12 +514,7 @@ fun purchase_storage_from_stash(
         ctx,
     );
 
-    // Return unused funds to the stash.
-    if (payment.value() > 0) {
-        coin_stash.deposit_wal(payment);
-    } else {
-        coin::destroy_zero(payment);
-    };
+    coin_stash.deposit_wal(payment);
 
     storage
 }

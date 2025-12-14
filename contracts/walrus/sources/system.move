@@ -64,6 +64,10 @@ public(package) fun advance_epoch(
     self.inner_mut().advance_epoch(new_committee, new_epoch_params)
 }
 
+public(package) fun write_price(self: &System, write_size: u64): u64 {
+    self.inner().write_price(write_size)
+}
+
 /// === Public Functions ===
 
 /// Marks blob as invalid given an invalid blob certificate.

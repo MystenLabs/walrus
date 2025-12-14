@@ -45,6 +45,9 @@ use walrus_sui::{
 };
 use walrus_test_utils::{Result as TestResult, WithTempDir};
 
+/// Default initial WAL amount (10 WAL) for BlobManager creation in tests.
+const DEFAULT_INITIAL_WAL: u64 = 10_000_000_000;
+
 // =============================================================================
 // Data Structures for Tracking Test State
 // =============================================================================
@@ -586,10 +589,12 @@ async fn test_single_blob_manager_store_delete() -> TestResult {
     let initial_capacity = 500 * 1024 * 1024; // 500MB.
     let epochs_ahead_a = 5;
 
-    let (manager_a_id, cap_a_id) = client
+    let admin_cap_a = client
         .sui_client()
-        .create_blob_manager(initial_capacity, epochs_ahead_a)
+        .create_blob_manager(initial_capacity, epochs_ahead_a, DEFAULT_INITIAL_WAL)
         .await?;
+    let manager_a_id = admin_cap_a.manager_id;
+    let cap_a_id = admin_cap_a.id;
 
     tokio::time::sleep(Duration::from_millis(500)).await;
 
@@ -692,16 +697,20 @@ async fn test_mixed_two_blob_managers() -> TestResult {
     let epochs_ahead_a = 5;
     let epochs_ahead_b = 10;
 
-    let (manager_a_id, cap_a_id) = client
+    let admin_cap_a = client
         .sui_client()
-        .create_blob_manager(initial_capacity, epochs_ahead_a)
+        .create_blob_manager(initial_capacity, epochs_ahead_a, DEFAULT_INITIAL_WAL)
         .await?;
+    let manager_a_id = admin_cap_a.manager_id;
+    let cap_a_id = admin_cap_a.id;
     tracing::info!("Created BlobManager A: {}", manager_a_id);
 
-    let (manager_b_id, cap_b_id) = client
+    let admin_cap_b = client
         .sui_client()
-        .create_blob_manager(initial_capacity, epochs_ahead_b)
+        .create_blob_manager(initial_capacity, epochs_ahead_b, DEFAULT_INITIAL_WAL)
         .await?;
+    let manager_b_id = admin_cap_b.manager_id;
+    let cap_b_id = admin_cap_b.id;
     tracing::info!("Created BlobManager B: {}", manager_b_id);
 
     tokio::time::sleep(Duration::from_millis(500)).await;
@@ -830,16 +839,20 @@ async fn test_mixed_regular_and_managed() -> TestResult {
     // Create two BlobManagers.
     let initial_capacity = 500 * 1024 * 1024; // 500MB.
 
-    let (manager_a_id, cap_a_id) = client
+    let admin_cap_a = client
         .sui_client()
-        .create_blob_manager(initial_capacity, 5)
+        .create_blob_manager(initial_capacity, 5, DEFAULT_INITIAL_WAL)
         .await?;
+    let manager_a_id = admin_cap_a.manager_id;
+    let cap_a_id = admin_cap_a.id;
     tracing::info!("Created BlobManager A: {}", manager_a_id);
 
-    let (manager_b_id, cap_b_id) = client
+    let admin_cap_b = client
         .sui_client()
-        .create_blob_manager(initial_capacity, 10)
+        .create_blob_manager(initial_capacity, 10, DEFAULT_INITIAL_WAL)
         .await?;
+    let manager_b_id = admin_cap_b.manager_id;
+    let cap_b_id = admin_cap_b.id;
     tracing::info!("Created BlobManager B: {}", manager_b_id);
 
     tokio::time::sleep(Duration::from_millis(500)).await;
@@ -971,10 +984,12 @@ async fn test_mixed_deletable_only_all_deleted() -> TestResult {
     // Create BlobManager A.
     let initial_capacity = 500 * 1024 * 1024; // 500MB.
 
-    let (manager_a_id, cap_a_id) = client
+    let admin_cap_a = client
         .sui_client()
-        .create_blob_manager(initial_capacity, 5)
+        .create_blob_manager(initial_capacity, 5, DEFAULT_INITIAL_WAL)
         .await?;
+    let manager_a_id = admin_cap_a.manager_id;
+    let cap_a_id = admin_cap_a.id;
 
     tokio::time::sleep(Duration::from_millis(500)).await;
 
@@ -1126,16 +1141,20 @@ async fn test_mixed_comprehensive() -> TestResult {
     // Create two BlobManagers with DIFFERENT epochs_ahead.
     let initial_capacity = 500 * 1024 * 1024; // 500MB.
 
-    let (manager_a_id, cap_a_id) = client
+    let admin_cap_a = client
         .sui_client()
-        .create_blob_manager(initial_capacity, 5) // 5 epochs ahead (shorter).
+        .create_blob_manager(initial_capacity, 5, DEFAULT_INITIAL_WAL) // 5 epochs ahead (shorter).
         .await?;
+    let manager_a_id = admin_cap_a.manager_id;
+    let cap_a_id = admin_cap_a.id;
     tracing::info!("Created BlobManager A: {}", manager_a_id);
 
-    let (manager_b_id, cap_b_id) = client
+    let admin_cap_b = client
         .sui_client()
-        .create_blob_manager(initial_capacity, 10) // 10 epochs ahead (longer).
+        .create_blob_manager(initial_capacity, 10, DEFAULT_INITIAL_WAL) // 10 epochs ahead (longer).
         .await?;
+    let manager_b_id = admin_cap_b.manager_id;
+    let cap_b_id = admin_cap_b.id;
     tracing::info!("Created BlobManager B: {}", manager_b_id);
 
     tokio::time::sleep(Duration::from_millis(500)).await;
@@ -1285,11 +1304,13 @@ async fn test_blob_manager_basic() {
     let initial_capacity = 500 * 1024 * 1024; // 500MB.
     let epochs_ahead = 5;
 
-    let (manager_id, cap_id) = client_ref
+    let admin_cap = client_ref
         .sui_client()
-        .create_blob_manager(initial_capacity, epochs_ahead)
+        .create_blob_manager(initial_capacity, epochs_ahead, DEFAULT_INITIAL_WAL)
         .await
         .expect("Failed to create BlobManager");
+    let manager_id = admin_cap.manager_id;
+    let cap_id = admin_cap.id;
 
     tracing::info!("Created BlobManager: {}", manager_id);
     tracing::info!("BlobManagerCap: {}", cap_id);
@@ -1409,11 +1430,13 @@ async fn test_blob_manager_store_and_read() {
     let initial_capacity = 500 * 1024 * 1024; // 500MB.
     let epochs_ahead = 5;
 
-    let (manager_id, cap_id) = client_ref
+    let admin_cap = client_ref
         .sui_client()
-        .create_blob_manager(initial_capacity, epochs_ahead)
+        .create_blob_manager(initial_capacity, epochs_ahead, DEFAULT_INITIAL_WAL)
         .await
         .expect("Failed to create BlobManager");
+    let manager_id = admin_cap.manager_id;
+    let cap_id = admin_cap.id;
 
     tracing::info!("Created BlobManager: {}", manager_id);
     tracing::info!("BlobManagerCap: {}", cap_id);
@@ -1500,11 +1523,13 @@ async fn test_blob_manager_coin_stash_operations() {
     let initial_capacity = 500 * 1024 * 1024; // 500MB.
     let epochs_ahead = 2; // Start with just 2 epochs.
 
-    let (manager_id, cap_id) = client_ref
+    let admin_cap = client_ref
         .sui_client()
-        .create_blob_manager(initial_capacity, epochs_ahead)
+        .create_blob_manager(initial_capacity, epochs_ahead, DEFAULT_INITIAL_WAL)
         .await
         .expect("Failed to create BlobManager");
+    let manager_id = admin_cap.manager_id;
+    let cap_id = admin_cap.id;
 
     tracing::info!(?manager_id, ?cap_id, "BlobManager created");
 
@@ -1691,26 +1716,41 @@ async fn test_blob_manager_deposit_wal_coin_merging() {
     )
     .expect("Failed to load cluster wallet");
 
-    // Create test wallet with 11 small WAL coins (0.1 WAL each).
-    let num_coins = 11;
-    let small_amount = 100_000_000; // 0.1 WAL (assuming 9 decimals).
+    // Create test wallet with 11 small WAL coins (0.1 WAL each = 1.1 WAL) for testing coin merging.
+    let num_small_coins = 11;
+    let small_amount = 100_000_000; // 0.1 WAL per coin.
     let test_sui_client = create_wallet_with_multiple_wal_coins(
         &mut cluster_wallet,
         &cluster_client,
-        num_coins,
+        num_small_coins,
         small_amount,
     )
     .await
-    .expect("Failed to create test wallet with multiple WAL coins");
+    .expect("Failed to create test wallet with small WAL coins");
+
+    // Add 2 larger coins (5 WAL each = 10 WAL) for initial deposit - requires merging to get
+    // 10 WAL.
+    let test_address = test_sui_client.address();
+    let large_amount = 5_000_000_000; // 5 WAL per coin.
+    for _ in 0..2 {
+        cluster_client
+            .inner
+            .sui_client()
+            .send_wal(large_amount, test_address)
+            .await
+            .expect("Failed to send large WAL coin to test wallet");
+    }
 
     // Create a BlobManager using the test client.
     let initial_capacity = 500 * 1024 * 1024; // 500MB.
     let epochs_ahead = 2;
 
-    let (manager_id, cap_id) = test_sui_client
-        .create_blob_manager(initial_capacity, epochs_ahead)
+    let admin_cap = test_sui_client
+        .create_blob_manager(initial_capacity, epochs_ahead, DEFAULT_INITIAL_WAL)
         .await
         .expect("Failed to create BlobManager");
+    let manager_id = admin_cap.manager_id;
+    let cap_id = admin_cap.id;
 
     tracing::info!(?manager_id, ?cap_id, "BlobManager created with test wallet");
 
@@ -1736,15 +1776,15 @@ async fn test_blob_manager_deposit_wal_coin_merging() {
     );
 
     assert_eq!(
-        initial_balances.wal_balance, 0,
-        "Expected initial WAL balance to be 0"
+        initial_balances.wal_balance, DEFAULT_INITIAL_WAL,
+        "Expected initial WAL balance to be {}",
+        DEFAULT_INITIAL_WAL
     );
 
     // Now try to deposit 1 WAL, which requires merging multiple coins.
     let deposit_amount = 1_000_000_000; // 1 WAL.
     tracing::info!(
         deposit_amount,
-        num_coins,
         "Attempting to deposit WAL (requires merging coins)"
     );
 
@@ -1770,10 +1810,11 @@ async fn test_blob_manager_deposit_wal_coin_merging() {
         final_balances.sui_balance
     );
 
+    let expected_final_balance = DEFAULT_INITIAL_WAL + deposit_amount;
     assert_eq!(
-        final_balances.wal_balance, deposit_amount,
+        final_balances.wal_balance, expected_final_balance,
         "Expected WAL balance to be {} after deposit, got {}",
-        deposit_amount, final_balances.wal_balance
+        expected_final_balance, final_balances.wal_balance
     );
 }
 
@@ -1797,11 +1838,13 @@ async fn test_blob_manager_capability_management() {
     let initial_capacity = 500 * 1024 * 1024; // 500MB.
     let epochs_ahead = 5;
 
-    let (manager_id, admin_cap_id) = client_ref
+    let admin_cap = client_ref
         .sui_client()
-        .create_blob_manager(initial_capacity, epochs_ahead)
+        .create_blob_manager(initial_capacity, epochs_ahead, DEFAULT_INITIAL_WAL)
         .await
         .expect("Failed to create BlobManager");
+    let manager_id = admin_cap.manager_id;
+    let admin_cap_id = admin_cap.id;
 
     tracing::info!("Created BlobManager: {}", manager_id);
     tracing::info!("Admin Cap: {}", admin_cap_id);
@@ -1895,6 +1938,67 @@ async fn test_blob_manager_capability_management() {
     tracing::info!("All capability management tests completed successfully!");
 }
 
+/// Test capability revocation functionality.
+#[ignore = "ignore E2E tests by default"]
+#[walrus_simtest]
+async fn test_blob_manager_capability_revocation() {
+    walrus_test_utils::init_tracing();
+
+    let test_nodes_config = TestNodesConfig {
+        node_weights: vec![7, 7, 7, 7, 7],
+        ..Default::default()
+    };
+    let test_cluster_builder =
+        test_cluster::E2eTestSetupBuilder::new().with_test_nodes_config(test_nodes_config);
+    let (_sui_cluster_handle, _cluster, mut client, _) =
+        test_cluster_builder.build().await.unwrap();
+    let client_ref = client.as_mut();
+
+    // 1. Create a BlobManager.
+    let initial_capacity = 500 * 1024 * 1024; // 500MB.
+    let epochs_ahead = 5;
+
+    let admin_cap = client_ref
+        .sui_client()
+        .create_blob_manager(initial_capacity, epochs_ahead, DEFAULT_INITIAL_WAL)
+        .await
+        .expect("Failed to create BlobManager");
+    let _manager_id = admin_cap.manager_id;
+    let admin_cap_id = admin_cap.id;
+
+    // Wait for objects to be indexed.
+    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+    // 2. Create a writer capability.
+    let blob_manager_client = client_ref
+        .blob_manager(admin_cap_id)
+        .await
+        .expect("Failed to create BlobManagerClient");
+    let writer_cap_id = blob_manager_client
+        .create_cap(false, false)
+        .await
+        .expect("Failed to create writer capability");
+
+    // 3. Revoke the writer capability.
+    blob_manager_client
+        .revoke_cap(writer_cap_id)
+        .await
+        .expect("Failed to revoke writer capability");
+
+    // 4. Attempt to use the revoked capability.
+    let test_data = b"This should fail.";
+    let result = store_managed_blob(
+        client_ref,
+        writer_cap_id,
+        test_data,
+        BlobPersistence::Permanent,
+        1,
+    )
+    .await;
+
+    assert!(result.is_err(), "Using a revoked capability should fail");
+}
+
 /// Test capability permissions with different capability types.
 /// Tests that:
 /// - Admin caps with fund_manager can create any cap type.
@@ -1920,11 +2024,13 @@ async fn test_blob_manager_capability_permissions() {
     let initial_capacity = 500 * 1024 * 1024; // 500MB.
     let epochs_ahead = 5;
 
-    let (manager_id, admin_cap_id) = client_ref
+    let admin_cap = client_ref
         .sui_client()
-        .create_blob_manager(initial_capacity, epochs_ahead)
+        .create_blob_manager(initial_capacity, epochs_ahead, DEFAULT_INITIAL_WAL)
         .await
         .expect("Failed to create BlobManager");
+    let manager_id = admin_cap.manager_id;
+    let admin_cap_id = admin_cap.id;
 
     tracing::info!("Created BlobManager: {}", manager_id);
 
@@ -2085,11 +2191,12 @@ async fn test_blob_manager_attributes() {
     let initial_capacity = 500 * 1024 * 1024; // 500MB.
     let epochs_ahead = 5;
 
-    let (_manager_id, admin_cap_id) = client_ref
+    let admin_cap = client_ref
         .sui_client()
-        .create_blob_manager(initial_capacity, epochs_ahead)
+        .create_blob_manager(initial_capacity, epochs_ahead, DEFAULT_INITIAL_WAL)
         .await
         .expect("Failed to create BlobManager");
+    let admin_cap_id = admin_cap.id;
 
     tracing::info!("Created BlobManager with cap: {}", admin_cap_id);
 
@@ -2262,11 +2369,13 @@ async fn test_blob_manager_extension_policy() {
     let initial_capacity = 500 * 1024 * 1024; // 500MB.
     let epochs_ahead = 5;
 
-    let (manager_id, admin_cap_id) = client_ref
+    let admin_cap = client_ref
         .sui_client()
-        .create_blob_manager(initial_capacity, epochs_ahead)
+        .create_blob_manager(initial_capacity, epochs_ahead, DEFAULT_INITIAL_WAL)
         .await
         .expect("Failed to create BlobManager");
+    let manager_id = admin_cap.manager_id;
+    let admin_cap_id = admin_cap.id;
 
     tracing::info!(
         "Created BlobManager: {} with cap: {}",
@@ -2416,16 +2525,20 @@ async fn test_random_mixed_operations() -> TestResult {
     // Create two BlobManagers with different end_epochs.
     let initial_capacity = 500 * 1024 * 1024; // 500MB.
 
-    let (manager_a_id, cap_a_id) = client
+    let admin_cap_a = client
         .sui_client()
-        .create_blob_manager(initial_capacity, 5)
+        .create_blob_manager(initial_capacity, 5, DEFAULT_INITIAL_WAL)
         .await?;
+    let manager_a_id = admin_cap_a.manager_id;
+    let cap_a_id = admin_cap_a.id;
     tracing::info!("Created BlobManager A: {}", manager_a_id);
 
-    let (manager_b_id, cap_b_id) = client
+    let admin_cap_b = client
         .sui_client()
-        .create_blob_manager(initial_capacity, 10)
+        .create_blob_manager(initial_capacity, 10, DEFAULT_INITIAL_WAL)
         .await?;
+    let manager_b_id = admin_cap_b.manager_id;
+    let cap_b_id = admin_cap_b.id;
     tracing::info!("Created BlobManager B: {}", manager_b_id);
 
     tokio::time::sleep(Duration::from_millis(500)).await;
@@ -2745,10 +2858,16 @@ async fn test_managed_permanent_end_epoch_uses_permanent_not_deletable() -> Test
 
     // Create BlobManager A with SHORT end_epoch (2 epochs) for PERMANENT blob.
     let epochs_ahead_permanent = 2;
-    let (manager_permanent_id, cap_permanent_id) = client
+    let admin_cap_permanent = client
         .sui_client()
-        .create_blob_manager(initial_capacity, epochs_ahead_permanent)
+        .create_blob_manager(
+            initial_capacity,
+            epochs_ahead_permanent,
+            DEFAULT_INITIAL_WAL,
+        )
         .await?;
+    let manager_permanent_id = admin_cap_permanent.manager_id;
+    let cap_permanent_id = admin_cap_permanent.id;
     tracing::info!(
         "Created BlobManager for PERMANENT blob: {}, epochs_ahead: {}",
         manager_permanent_id,
@@ -2757,10 +2876,16 @@ async fn test_managed_permanent_end_epoch_uses_permanent_not_deletable() -> Test
 
     // Create BlobManager B with LONG end_epoch (10 epochs) for DELETABLE blob.
     let epochs_ahead_deletable = 10;
-    let (manager_deletable_id, cap_deletable_id) = client
+    let admin_cap_deletable = client
         .sui_client()
-        .create_blob_manager(initial_capacity, epochs_ahead_deletable)
+        .create_blob_manager(
+            initial_capacity,
+            epochs_ahead_deletable,
+            DEFAULT_INITIAL_WAL,
+        )
         .await?;
+    let manager_deletable_id = admin_cap_deletable.manager_id;
+    let cap_deletable_id = admin_cap_deletable.id;
     tracing::info!(
         "Created BlobManager for DELETABLE blob: {}, epochs_ahead: {}",
         manager_deletable_id,

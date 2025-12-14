@@ -9,7 +9,7 @@ use sui_types::{TypeTag, base_types::ObjectID};
 use walrus_core::{BlobId, metadata::BlobMetadataApi as _};
 use walrus_sui::{
     client::{BlobPersistence, SuiContractClient},
-    types::move_structs::{BlobManagerCap, ManagedBlob},
+    types::move_structs::{BlobManager, BlobManagerCap, ManagedBlob},
 };
 
 use crate::{
@@ -104,8 +104,15 @@ impl BlobManagerData {
         cap_id: ObjectID,
     ) -> ClientResult<Self> {
         let cap = BlobManagerClient::fetch_blob_manager_cap(client, cap_id).await?;
+        tracing::debug!(?cap, "Fetched blob manager cap.");
         let blobs_table_id =
             BlobManagerClient::extract_blobs_table_id(client, cap.manager_id).await?;
+        tracing::debug!(
+            ?blobs_table_id,
+            ?cap.manager_id,
+            "Fetched blob manager table id."
+        );
+
         Ok(Self {
             cap,
             blobs_table_id,
@@ -155,154 +162,33 @@ impl<'a> BlobManagerClient<'a, SuiContractClient> {
     }
 
     /// Fetches a BlobManagerCap from the chain by its object ID.
+    ///
+    /// Uses BCS deserialization via the `AssociatedContractStruct` trait for type-safe parsing.
     pub async fn fetch_blob_manager_cap(
         client: &WalrusNodeClient<SuiContractClient>,
         cap_id: ObjectID,
     ) -> ClientResult<BlobManagerCap> {
-        use sui_sdk::rpc_types::{
-            SuiMoveStruct,
-            SuiMoveValue,
-            SuiObjectDataOptions,
-            SuiParsedData,
-        };
-
-        // Read the BlobManagerCap object.
-        let cap_response = client
+        client
             .sui_client()
             .retriable_sui_client()
-            .get_object_with_options(cap_id, SuiObjectDataOptions::new().with_content())
+            .get_sui_object::<BlobManagerCap>(cap_id)
             .await
-            .map_err(|e| Self::error(format!("Failed to read BlobManagerCap: {}", e)))?;
-
-        let cap_data = cap_response
-            .data
-            .ok_or_else(|| Self::error("BlobManagerCap object not found"))?;
-
-        let content = cap_data
-            .content
-            .ok_or_else(|| Self::error("BlobManagerCap content not found"))?;
-
-        let SuiParsedData::MoveObject(move_obj) = content else {
-            return Err(Self::error("BlobManagerCap is not a Move object"));
-        };
-
-        // Extract fields from the Move object (can be WithFields or WithTypes).
-        let fields = match &move_obj.fields {
-            SuiMoveStruct::WithFields(fields) => fields,
-            SuiMoveStruct::WithTypes { fields, .. } => fields,
-            _ => {
-                return Err(Self::error("BlobManagerCap has unexpected struct format"));
-            }
-        };
-
-        // Extract manager_id field.
-        let manager_id_value = fields
-            .get("manager_id")
-            .ok_or_else(|| Self::error("manager_id field not found"))?;
-
-        let SuiMoveValue::Address(manager_id) = manager_id_value else {
-            return Err(Self::error("manager_id is not an Address"));
-        };
-
-        // Extract is_admin field.
-        let is_admin_value = fields
-            .get("is_admin")
-            .ok_or_else(|| Self::error("is_admin field not found"))?;
-
-        let SuiMoveValue::Bool(is_admin) = is_admin_value else {
-            return Err(Self::error("is_admin is not a Bool"));
-        };
-
-        // Extract fund_manager field.
-        let fund_manager_value = fields
-            .get("fund_manager")
-            .ok_or_else(|| Self::error("fund_manager field not found"))?;
-
-        let SuiMoveValue::Bool(fund_manager) = fund_manager_value else {
-            return Err(Self::error("fund_manager is not a Bool"));
-        };
-
-        Ok(BlobManagerCap {
-            id: cap_id,
-            manager_id: (*manager_id).into(),
-            is_admin: *is_admin,
-            fund_manager: *fund_manager,
-        })
+            .map_err(|e| Self::error(format!("failed to read BlobManagerCap: {}", e)))
     }
 
-    /// Extracts the blobs Table ObjectID from the BlobManager structure.
+    /// Fetches the BlobManager object from the chain.
     ///
-    /// The BlobManager has the following structure (unified design):
-    /// - BlobManager { storage: BlobStorage }
-    ///   - BlobStorage { blobs: Table<u256, ManagedBlob> }
-    ///     - Table { id: UID }
-    ///
-    /// This function navigates through this structure to extract the ObjectID of the blobs Table.
-    fn extract_blobs_table_id_from_blob_manager(
-        blob_manager_response: &sui_sdk::rpc_types::SuiObjectData,
-    ) -> ClientResult<ObjectID> {
-        use sui_sdk::rpc_types::{SuiMoveStruct, SuiMoveValue, SuiParsedData};
-
-        // Step 1: Get the parsed content from the BlobManager SuiObjectData.
-        let content = blob_manager_response
-            .content
-            .as_ref()
-            .ok_or_else(|| Self::error("BlobManager content not found"))?;
-
-        // Step 2: Extract the MoveObject from the parsed data.
-        let SuiParsedData::MoveObject(obj) = content else {
-            return Err(Self::error("BlobManager is not a MoveObject"));
-        };
-
-        // Step 3: Get the fields map from the MoveObject.
-        let SuiMoveStruct::WithFields(fields) = &obj.fields else {
-            return Err(Self::error("BlobManager fields not found"));
-        };
-
-        // Step 4: Extract the "storage" field from BlobManager.
-        let storage_value = fields
-            .get("storage")
-            .ok_or_else(|| Self::error("storage field not found"))?;
-
-        let SuiMoveValue::Struct(storage_struct) = storage_value else {
-            return Err(Self::error("storage is not a Struct"));
-        };
-
-        // Step 5: Extract the "blobs" Table field from BlobStorage.
-        let SuiMoveStruct::WithTypes {
-            fields: storage_fields,
-            ..
-        } = storage_struct
-        else {
-            return Err(Self::error("storage struct has no fields"));
-        };
-
-        let table_value = storage_fields
-            .get("blobs")
-            .ok_or_else(|| Self::error("blobs table not found in BlobStorage"))?;
-
-        let SuiMoveValue::Struct(table_struct) = table_value else {
-            return Err(Self::error("blobs table is not a Struct"));
-        };
-
-        // Step 6: Extract the "id" field from the Table struct.
-        let SuiMoveStruct::WithTypes {
-            fields: table_fields,
-            ..
-        } = table_struct
-        else {
-            return Err(Self::error("blobs table struct has no fields"));
-        };
-
-        let id_value = table_fields
-            .get("id")
-            .ok_or_else(|| Self::error("blobs table has no 'id' field"))?;
-
-        let SuiMoveValue::UID { id } = id_value else {
-            return Err(Self::error("blobs table id field is not a UID"));
-        };
-
-        Ok(*id)
+    /// Uses BCS deserialization via the `AssociatedContractStruct` trait.
+    async fn fetch_blob_manager(
+        client: &WalrusNodeClient<SuiContractClient>,
+        manager_id: ObjectID,
+    ) -> ClientResult<BlobManager> {
+        client
+            .sui_client()
+            .retriable_sui_client()
+            .get_sui_object::<BlobManager>(manager_id)
+            .await
+            .map_err(|e| Self::error(format!("failed to read BlobManager: {}", e)))
     }
 
     /// Extracts the blobs table ID from the BlobManager structure.
@@ -310,21 +196,8 @@ impl<'a> BlobManagerClient<'a, SuiContractClient> {
         client: &WalrusNodeClient<SuiContractClient>,
         manager_id: ObjectID,
     ) -> ClientResult<ObjectID> {
-        use sui_sdk::rpc_types::SuiObjectDataOptions;
-
-        // Fetch the BlobManager with parsed content using the retriable sui client.
-        let blob_manager_response = client
-            .sui_client()
-            .retriable_sui_client()
-            .get_object_with_options(manager_id, SuiObjectDataOptions::new().with_content())
-            .await?;
-
-        let blob_manager_data = blob_manager_response
-            .data
-            .as_ref()
-            .ok_or_else(|| Self::error("BlobManager object data not found"))?;
-
-        Self::extract_blobs_table_id_from_blob_manager(blob_manager_data)
+        let blob_manager = Self::fetch_blob_manager(client, manager_id).await?;
+        Ok(blob_manager.storage.blobs.id)
     }
 
     /// Get the BlobManager object ID.
@@ -365,27 +238,20 @@ impl<'a> BlobManagerClient<'a, SuiContractClient> {
     pub async fn get_blob_manager_info(
         &self,
     ) -> ClientResult<(BlobManagerStorageInfo, BlobManagerCoinStashBalances)> {
-        use sui_sdk::rpc_types::SuiObjectDataOptions;
+        let blob_manager = Self::fetch_blob_manager(self.client, self.data.manager_id()).await?;
 
-        // Fetch the BlobManager with parsed content.
-        let blob_manager_response = self
-            .client
-            .sui_client()
-            .retriable_sui_client()
-            .get_object_with_options(
-                self.data.manager_id(),
-                SuiObjectDataOptions::new().with_content(),
-            )
-            .await?;
+        let storage = &blob_manager.storage;
+        let storage_info = BlobManagerStorageInfo {
+            total_capacity: storage.available_storage + storage.used_storage,
+            used_capacity: storage.used_storage,
+            available_capacity: storage.available_storage,
+            end_epoch: storage.end_epoch,
+        };
 
-        let blob_manager_data = blob_manager_response
-            .data
-            .as_ref()
-            .ok_or_else(|| Self::error("BlobManager object data not found"))?;
-
-        let storage_info = Self::extract_storage_info_from_blob_manager(blob_manager_data)?;
-        let coin_stash_balances =
-            Self::extract_coin_stash_balances_from_blob_manager(blob_manager_data)?;
+        let coin_stash_balances = BlobManagerCoinStashBalances {
+            wal_balance: blob_manager.coin_stash.wal_balance,
+            sui_balance: blob_manager.coin_stash.sui_balance,
+        };
 
         Ok((storage_info, coin_stash_balances))
     }
@@ -394,229 +260,27 @@ impl<'a> BlobManagerClient<'a, SuiContractClient> {
     ///
     /// Returns storage capacity (total, used, available) and the end epoch.
     pub async fn get_storage_info(&self) -> ClientResult<BlobManagerStorageInfo> {
-        use sui_sdk::rpc_types::SuiObjectDataOptions;
+        let blob_manager = Self::fetch_blob_manager(self.client, self.data.manager_id()).await?;
+        let storage = &blob_manager.storage;
 
-        // Fetch the BlobManager with parsed content.
-        let blob_manager_response = self
-            .client
-            .sui_client()
-            .retriable_sui_client()
-            .get_object_with_options(
-                self.data.manager_id(),
-                SuiObjectDataOptions::new().with_content(),
-            )
-            .await?;
-
-        let blob_manager_data = blob_manager_response
-            .data
-            .as_ref()
-            .ok_or_else(|| Self::error("BlobManager object data not found"))?;
-
-        Self::extract_storage_info_from_blob_manager(blob_manager_data)
+        Ok(BlobManagerStorageInfo {
+            total_capacity: storage.available_storage + storage.used_storage,
+            used_capacity: storage.used_storage,
+            available_capacity: storage.available_storage,
+            end_epoch: storage.end_epoch,
+        })
     }
 
     /// Gets the coin stash balances from the BlobManager.
     ///
     /// Returns the WAL and SUI balances in the coin stash.
     pub async fn get_coin_stash_balances(&self) -> ClientResult<BlobManagerCoinStashBalances> {
-        use sui_sdk::rpc_types::SuiObjectDataOptions;
-
-        // Fetch the BlobManager with parsed content.
-        let blob_manager_response = self
-            .client
-            .sui_client()
-            .retriable_sui_client()
-            .get_object_with_options(
-                self.data.manager_id(),
-                SuiObjectDataOptions::new().with_content(),
-            )
-            .await?;
-
-        let blob_manager_data = blob_manager_response
-            .data
-            .as_ref()
-            .ok_or_else(|| Self::error("BlobManager object data not found"))?;
-
-        Self::extract_coin_stash_balances_from_blob_manager(blob_manager_data)
-    }
-
-    /// Extracts storage info from a fetched BlobManager object.
-    fn extract_storage_info_from_blob_manager(
-        blob_manager_data: &sui_sdk::rpc_types::SuiObjectData,
-    ) -> ClientResult<BlobManagerStorageInfo> {
-        use sui_sdk::rpc_types::{SuiMoveStruct, SuiMoveValue, SuiParsedData};
-
-        let content = blob_manager_data
-            .content
-            .as_ref()
-            .ok_or_else(|| Self::error("BlobManager content not found"))?;
-
-        let SuiParsedData::MoveObject(obj) = content else {
-            return Err(Self::error("BlobManager is not a MoveObject"));
-        };
-
-        // BlobManager struct can be represented as WithTypes or WithFields.
-        let fields = match &obj.fields {
-            SuiMoveStruct::WithTypes { fields, .. } => fields,
-            SuiMoveStruct::WithFields(fields) => fields,
-            _ => {
-                return Err(Self::error("BlobManager fields not found"));
-            }
-        };
-
-        // Navigate to BlobManager.storage (BlobStorage struct).
-        let storage_value = fields
-            .get("storage")
-            .ok_or_else(|| Self::error("storage field not found"))?;
-
-        let SuiMoveValue::Struct(storage_struct) = storage_value else {
-            return Err(Self::error("storage is not a Struct"));
-        };
-
-        // BlobStorage struct can be represented as WithTypes or WithFields.
-        let storage_fields = match storage_struct {
-            SuiMoveStruct::WithTypes { fields, .. } => fields,
-            SuiMoveStruct::WithFields(fields) => fields,
-            _ => {
-                return Err(Self::error("storage struct has unexpected format"));
-            }
-        };
-
-        // Extract the values directly from BlobStorage (no enum wrapper anymore).
-        let available_storage = Self::extract_u64_field(storage_fields, "available_storage")?;
-        let used_storage = Self::extract_u64_field(storage_fields, "used_storage")?;
-        let end_epoch = Self::extract_u32_field(storage_fields, "end_epoch")?;
-
-        // Compute total_capacity from available and used storage.
-        let total_capacity = available_storage + used_storage;
-
-        Ok(BlobManagerStorageInfo {
-            total_capacity,
-            used_capacity: used_storage,
-            available_capacity: available_storage,
-            end_epoch,
-        })
-    }
-
-    /// Extracts coin stash balances from a fetched BlobManager object.
-    fn extract_coin_stash_balances_from_blob_manager(
-        blob_manager_data: &sui_sdk::rpc_types::SuiObjectData,
-    ) -> ClientResult<BlobManagerCoinStashBalances> {
-        use sui_sdk::rpc_types::{SuiMoveStruct, SuiMoveValue, SuiParsedData};
-
-        let content = blob_manager_data
-            .content
-            .as_ref()
-            .ok_or_else(|| Self::error("BlobManager content not found"))?;
-
-        let SuiParsedData::MoveObject(obj) = content else {
-            return Err(Self::error("BlobManager is not a MoveObject"));
-        };
-
-        // BlobManager struct can be represented as WithTypes or WithFields.
-        let fields = match &obj.fields {
-            SuiMoveStruct::WithTypes { fields, .. } => fields,
-            SuiMoveStruct::WithFields(fields) => fields,
-            _ => {
-                return Err(Self::error("BlobManager fields not found"));
-            }
-        };
-
-        // Navigate to BlobManager.coin_stash (BlobManagerCoinStash).
-        let coin_stash_value = fields
-            .get("coin_stash")
-            .ok_or_else(|| Self::error("coin_stash field not found"))?;
-
-        let SuiMoveValue::Struct(coin_stash_struct) = coin_stash_value else {
-            return Err(Self::error("coin_stash is not a Struct"));
-        };
-
-        // coin_stash struct can be represented as WithTypes or WithFields.
-        let coin_stash_fields = match coin_stash_struct {
-            SuiMoveStruct::WithTypes { fields, .. } => fields,
-            SuiMoveStruct::WithFields(fields) => fields,
-            _ => {
-                return Err(Self::error("coin_stash struct has unexpected format"));
-            }
-        };
-
-        // Extract WAL balance from wal_balance field (Balance struct has a value field).
-        let wal_balance = Self::extract_balance_value(coin_stash_fields, "wal_balance")?;
-        let sui_balance = Self::extract_balance_value(coin_stash_fields, "sui_balance")?;
+        let blob_manager = Self::fetch_blob_manager(self.client, self.data.manager_id()).await?;
 
         Ok(BlobManagerCoinStashBalances {
-            wal_balance,
-            sui_balance,
+            wal_balance: blob_manager.coin_stash.wal_balance,
+            sui_balance: blob_manager.coin_stash.sui_balance,
         })
-    }
-
-    /// Helper to extract a u64 value from a field map.
-    fn extract_u64_field(
-        fields: &std::collections::BTreeMap<String, sui_sdk::rpc_types::SuiMoveValue>,
-        field_name: &str,
-    ) -> ClientResult<u64> {
-        use sui_sdk::rpc_types::SuiMoveValue;
-
-        let value = fields
-            .get(field_name)
-            .ok_or_else(|| Self::error(format!("{} field not found", field_name)))?;
-
-        match value {
-            SuiMoveValue::String(s) => s
-                .parse::<u64>()
-                .map_err(|e| Self::error(format!("Failed to parse {} as u64: {}", field_name, e))),
-            SuiMoveValue::Number(n) => Ok(u64::from(*n)),
-            _ => Err(Self::error(format!(
-                "{} is not a number or string",
-                field_name
-            ))),
-        }
-    }
-
-    /// Helper to extract a u32 value from a field map.
-    fn extract_u32_field(
-        fields: &std::collections::BTreeMap<String, sui_sdk::rpc_types::SuiMoveValue>,
-        field_name: &str,
-    ) -> ClientResult<u32> {
-        use sui_sdk::rpc_types::SuiMoveValue;
-
-        let value = fields
-            .get(field_name)
-            .ok_or_else(|| Self::error(format!("{} field not found", field_name)))?;
-
-        match value {
-            SuiMoveValue::String(s) => s
-                .parse::<u32>()
-                .map_err(|e| Self::error(format!("Failed to parse {} as u32: {}", field_name, e))),
-            SuiMoveValue::Number(n) => Ok(*n),
-            _ => Err(Self::error(format!(
-                "{} is not a number or string",
-                field_name
-            ))),
-        }
-    }
-
-    /// Helper to extract a Balance value.
-    /// Balance<T> is serialized as a String representing the u64 value.
-    fn extract_balance_value(
-        fields: &std::collections::BTreeMap<String, sui_sdk::rpc_types::SuiMoveValue>,
-        field_name: &str,
-    ) -> ClientResult<u64> {
-        use sui_sdk::rpc_types::SuiMoveValue;
-
-        let balance_value = fields
-            .get(field_name)
-            .ok_or_else(|| Self::error(format!("{} field not found", field_name)))?;
-
-        let SuiMoveValue::String(s) = balance_value else {
-            return Err(Self::error(format!(
-                "{} is not a String, got {:?}",
-                field_name, balance_value
-            )));
-        };
-
-        s.parse::<u64>()
-            .map_err(|e| Self::error(format!("Failed to parse {} as u64: {}", field_name, e)))
     }
 
     /// Gets a ManagedBlob by blob_id and deletable flag.
@@ -1191,6 +855,25 @@ impl BlobManagerClient<'_, SuiContractClient> {
             .map_err(crate::error::ClientError::from)?;
 
         Ok(new_cap_id)
+    }
+
+    /// Revokes a capability, preventing it from being used for any future operations.
+    /// Only an admin can revoke a capability.
+    pub async fn revoke_cap(&self, cap_to_revoke_id: ObjectID) -> ClientResult<()> {
+        tracing::info!(
+            "BlobManager revoke_cap: manager_id={:?}, admin_cap={:?}, cap_to_revoke_id={}",
+            self.data.manager_id(),
+            self.data.cap_id(),
+            cap_to_revoke_id
+        );
+
+        self.client
+            .sui_client()
+            .revoke_blob_manager_cap(self.data.manager_id(), self.data.cap_id(), cap_to_revoke_id)
+            .await
+            .map_err(crate::error::ClientError::from)?;
+
+        Ok(())
     }
 
     // ===== Blob Attribute Management Methods =====

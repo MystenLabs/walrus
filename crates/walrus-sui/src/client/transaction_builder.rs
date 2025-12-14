@@ -1849,14 +1849,42 @@ impl WalrusPtbBuilder {
 
     /// Creates a new shared BlobManager and returns the capability argument.
     /// The BlobManager is automatically shared in the same transaction.
+    /// The `initial_wal_amount` is deposited to the BlobManager's coin stash for storage payments.
     pub async fn create_blob_manager(
         &mut self,
         storage_resource: ArgumentOrOwnedObject,
+        initial_wal_amount: u64,
     ) -> SuiClientResult<Argument> {
         let storage_arg = self.argument_from_arg_or_obj(storage_resource).await?;
+
+        // Fill WAL balance to ensure we have enough coins.
+        self.fill_wal_balance(initial_wal_amount).await?;
+        assert!(
+            self.tx_wal_balance >= initial_wal_amount,
+            "insufficient WAL balance for initial deposit"
+        );
+
+        // Split the exact amount from the WAL coin arg.
+        let wal_coin = if self.tx_wal_balance > initial_wal_amount {
+            // We have more than needed, split the exact amount.
+            let amount_arg = self.pt_builder.pure(initial_wal_amount)?;
+            let wal_coin_arg = self.wal_coin_arg()?;
+            let split_result = self
+                .pt_builder
+                .command(Command::SplitCoins(wal_coin_arg, vec![amount_arg]));
+            self.reduce_wal_balance(initial_wal_amount)?;
+            split_result
+        } else {
+            // Use the entire WAL coin.
+            let coin = self.wal_coin_arg()?;
+            self.tx_wal_balance = 0;
+            self.wal_coin_arg = None;
+            coin
+        };
+
         let system_arg = self.system_arg(SharedObjectMutability::Immutable).await?;
 
-        let new_args = vec![storage_arg, system_arg];
+        let new_args = vec![storage_arg, wal_coin, system_arg];
 
         let result_arg =
             self.blobmanager_move_call(contracts::blobmanager::new_with_unified_storage, new_args)?;
@@ -1877,11 +1905,6 @@ impl WalrusPtbBuilder {
         persistence: BlobPersistence,
         blob_type: BlobType,
     ) -> SuiClientResult<Argument> {
-        let price = self
-            .write_price_for_encoded_length(blob_metadata.encoded_size, false)
-            .await?;
-        self.fill_wal_balance(price).await?;
-
         let cap_arg = self.argument_from_arg_or_obj(cap).await?;
 
         // Get the initial shared version for the BlobManager
@@ -1913,14 +1936,12 @@ impl WalrusPtbBuilder {
             self.pt_builder.pure(persistence.is_deletable())?,
             // Pass blob_type as u8 (0 = Regular, 1 = Quilt)
             self.pt_builder.pure(blob_type_u8)?,
-            self.wal_coin_arg()?,
         ];
 
         // register_blob returns the end_epoch (u32) or 0 if blob already exists
         let end_epoch_arg =
             self.blobmanager_move_call(contracts::blobmanager::register_blob, register_args)?;
 
-        self.reduce_wal_balance(price)?;
         // Return the end_epoch argument from register_blob
         Ok(end_epoch_arg)
     }
@@ -2269,8 +2290,7 @@ impl WalrusPtbBuilder {
         Ok(())
     }
 
-    /// Creates a new capability for the BlobManager.
-    /// Requires admin permission on the creating capability.
+    /// Create a new blob manager capability object.
     pub async fn create_blob_manager_cap(
         &mut self,
         manager: ObjectID,
@@ -2278,22 +2298,22 @@ impl WalrusPtbBuilder {
         is_admin: bool,
         fund_manager: bool,
     ) -> SuiClientResult<Argument> {
-        // Get the initial shared version for the BlobManager.
+        // Get the initial shared version for the BlobManager first.
         let manager_initial_version = self
             .read_client
             .get_shared_object_initial_version(manager)
             .await?;
 
-        // Get the capability's ObjectRef.
-        let cap_ref = self.read_client.get_object_ref(cap).await?;
-        let cap_arg = self.pt_builder.obj(ObjectArg::ImmOrOwnedObject(cap_ref))?;
+        // Create the capability argument (cap is an owned object).
+        let cap_arg = self
+            .argument_from_arg_or_obj(ArgumentOrOwnedObject::Object(cap))
+            .await?;
 
         let create_cap_args = vec![
             self.pt_builder.obj(ObjectArg::SharedObject {
                 id: manager,
                 initial_shared_version: manager_initial_version,
-                // BlobManager is immutable for this call.
-                mutability: SharedObjectMutability::Immutable,
+                mutability: SharedObjectMutability::Mutable,
             })?,
             cap_arg,
             self.pt_builder.pure(is_admin)?,
@@ -2302,44 +2322,80 @@ impl WalrusPtbBuilder {
 
         let result_arg =
             self.blobmanager_move_call(contracts::blobmanager::create_cap, create_cap_args)?;
-
         self.add_result_to_be_consumed(result_arg);
         Ok(result_arg)
     }
 
-    /// Sets an attribute on a managed blob in the BlobManager.
-    /// Requires a valid BlobManagerCap to prove write access.
-    pub async fn set_managed_blob_attribute(
+    /// Revokes a capability from the BlobManager.
+    pub async fn revoke_blob_manager_cap(
         &mut self,
         manager: ObjectID,
-        cap: ObjectID,
-        blob_id: BlobId,
-        key: String,
-        value: String,
+        admin_cap: ObjectID,
+        cap_to_revoke_id: ObjectID,
     ) -> SuiClientResult<()> {
-        // Get the initial shared version for the BlobManager.
+        // Get the initial shared version for the BlobManager first.
         let manager_initial_version = self
             .read_client
             .get_shared_object_initial_version(manager)
             .await?;
 
-        // Get the capability's ObjectRef.
-        let cap_ref = self.read_client.get_object_ref(cap).await?;
-        let cap_arg = self.pt_builder.obj(ObjectArg::ImmOrOwnedObject(cap_ref))?;
+        // Create the capability argument (cap is an owned object).
+        let admin_cap_arg = self
+            .argument_from_arg_or_obj(ArgumentOrOwnedObject::Object(admin_cap))
+            .await?;
 
-        let set_attr_args = vec![
+        let revoke_cap_args = vec![
+            self.pt_builder.obj(ObjectArg::SharedObject {
+                id: manager,
+                initial_shared_version: manager_initial_version,
+                mutability: SharedObjectMutability::Mutable,
+            })?,
+            admin_cap_arg,
+            self.pt_builder.pure(cap_to_revoke_id)?,
+        ];
+
+        self.blobmanager_move_call(contracts::blobmanager::revoke_cap, revoke_cap_args)?;
+
+        Ok(())
+    }
+
+    /// Sets an attribute on a managed blob.
+    pub async fn set_managed_blob_attribute(
+        &mut self,
+        manager: ObjectID,
+        cap: ObjectID,
+        blob_id: walrus_core::BlobId,
+        key: String,
+        value: String,
+    ) -> SuiClientResult<()> {
+        // Get the initial shared version for the BlobManager first.
+        let manager_initial_version = self
+            .read_client
+            .get_shared_object_initial_version(manager)
+            .await?;
+
+        // Create the capability argument (cap is an owned object).
+        let cap_arg = self
+            .argument_from_arg_or_obj(ArgumentOrOwnedObject::Object(cap))
+            .await?;
+
+        let set_attribute_args = vec![
             self.pt_builder.obj(ObjectArg::SharedObject {
                 id: manager,
                 initial_shared_version: manager_initial_version,
                 mutability: SharedObjectMutability::Mutable,
             })?,
             cap_arg,
-            self.pt_builder.pure(blob_id.0)?,
+            self.pt_builder.pure(blob_id)?,
             self.pt_builder.pure(key)?,
             self.pt_builder.pure(value)?,
         ];
 
-        self.blobmanager_move_call(contracts::blobmanager::set_blob_attribute, set_attr_args)?;
+        self.blobmanager_move_call(
+            contracts::blobmanager::set_blob_attribute,
+            set_attribute_args,
+        )?;
+
         Ok(())
     }
 

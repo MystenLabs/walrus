@@ -1106,16 +1106,112 @@ impl AssociatedContractStruct for SubsidiesInnerKey {
 
 // ===== BlobManager Types =====
 
-/// Sui type for a `BlobManager` object.
+/// Sui Table representation for BCS deserialization.
+/// A `Table<K, V>` serializes as: `{ id: UID, size: u64 }`.
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+pub struct SuiTable {
+    /// The UID (ObjectID) of the table.
+    pub id: ObjectID,
+    /// The number of entries in the table.
+    pub size: u64,
+}
+
+/// Storage capacity and blob tracking for a BlobManager.
+///
+/// Note: When deserializing via BCS, the `blobs` Table contains id and size.
+/// The actual blobs are stored as dynamic fields.
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+pub struct BlobStorage {
+    /// Available storage capacity in bytes.
+    pub available_storage: u64,
+    /// Used storage capacity in bytes.
+    pub used_storage: u64,
+    /// Start epoch for this storage.
+    pub start_epoch: u32,
+    /// End epoch for this storage.
+    pub end_epoch: u32,
+    /// Table for blob_id -> ManagedBlob mapping (contents are dynamic fields).
+    pub blobs: SuiTable,
+    /// Total unencoded size of all blobs.
+    pub total_unencoded_size: u64,
+}
+
+/// Coin stash for community funding of a BlobManager.
+///
+/// Note: `Balance<T>` serializes as just u64 (the value field).
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+pub struct BlobManagerCoinStash {
+    /// WAL token balance.
+    pub wal_balance: u64,
+    /// SUI token balance.
+    pub sui_balance: u64,
+}
+
+/// Extension policy controlling who can extend storage and when.
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+pub enum ExtensionPolicy {
+    /// Extension is disabled.
+    Disabled,
+    /// Allow extension within constraints.
+    Constrained {
+        /// Extension only allowed when current epoch >= end_epoch - expiry_threshold_epochs.
+        expiry_threshold_epochs: u32,
+        /// Maximum epochs that can be extended in a single call.
+        max_extension_epochs: u32,
+    },
+}
+
+/// Tip policy for rewarding community members who help with operations.
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+pub struct TipPolicy {
+    /// Fixed tip amount in SUI (MIST units).
+    pub tip_amount: u64,
+}
+
+/// Storage purchase policy controlling how much storage can be purchased.
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+pub enum StoragePurchasePolicy {
+    /// No limit on storage purchases.
+    Unlimited,
+    /// Fixed cap on total storage.
+    FixedCap {
+        /// Maximum storage size in bytes that can be purchased.
+        max_storage_bytes: u64,
+    },
+    /// Conditional purchase based on available storage threshold.
+    ConditionalPurchase {
+        /// Only allow purchases when available storage < threshold.
+        threshold_bytes: u64,
+    },
+}
+
+/// Information about a capability's revocation status.
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+pub struct CapInfo {
+    /// Whether the capability has been revoked.
+    pub is_revoked: bool,
+}
+
+/// Sui type for a `BlobManager` object.
+///
+/// This struct matches the Move BlobManager for BCS deserialization.
+/// The `storage.blobs` field contains the Table for querying managed blobs.
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub struct BlobManager {
     /// Object ID of the BlobManager.
-    #[cfg_attr(feature = "utoipa", schema(schema_with = object_id_schema))]
     pub id: ObjectID,
-    // Note: The internal storage and blob_stash fields are not exposed
-    // as they use complex enum types that would require additional parsing
+    /// Unified storage that handles capacity management and blob storage.
+    pub storage: BlobStorage,
+    /// Coin stash for community funding.
+    pub coin_stash: BlobManagerCoinStash,
+    /// Extension policy.
+    pub extension_policy: ExtensionPolicy,
+    /// Tip policy.
+    pub tip_policy: TipPolicy,
+    /// Storage purchase policy.
+    pub storage_purchase_policy: StoragePurchasePolicy,
+    /// Capability info table (contents are dynamic fields).
+    pub caps_info: SuiTable,
 }
 
 impl AssociatedContractStruct for BlobManager {

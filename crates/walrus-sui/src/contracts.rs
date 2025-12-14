@@ -508,6 +508,7 @@ pub mod blobmanager {
     contract_ident!(fn blobmanager::coin_stash_balances);
     // Capability management.
     contract_ident!(fn blobmanager::create_cap);
+    contract_ident!(fn blobmanager::revoke_cap);
     contract_ident!(fn blobmanager::is_admin_cap);
     contract_ident!(fn blobmanager::is_fund_manager_cap);
     // Blob attribute operations.
