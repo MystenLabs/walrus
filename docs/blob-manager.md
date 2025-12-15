@@ -561,7 +561,7 @@ Response:
 ```sh
 curl -X PUT "$PUBLISHER/v1/blob-managers/$MANAGER_ID/extension-policy" \
   -H "Content-Type: application/json" \
-  -d '{"type": "constrained", "expiryThresholdEpochs": 5, "maxExtensionEpochs": 10}'
+  -d '{"type": "constrained", "expiryThresholdEpochs": 5, "maxExtensionEpochs": 10, "tipAmount": 100000000}'
 ```
 
 **Deposit WAL to coin stash:**
