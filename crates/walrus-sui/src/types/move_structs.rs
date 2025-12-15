@@ -1146,22 +1146,22 @@ pub struct BlobManagerCoinStash {
 }
 
 /// Tip policy for rewarding users who execute storage extensions.
-/// All tip amounts are in DWAL (0.1 WAL) units internally.
+/// All tip amounts are stored in FROST (smallest WAL unit, 1 WAL = 1_000_000_000 FROST).
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub enum TipPolicy {
     /// Fixed tip amount regardless of capacity or time.
     Fixed {
-        /// Tip amount in DWAL (0.1 WAL) units.
-        tip_amount_dwal: u64,
+        /// Tip amount in FROST (e.g., 10_000_000_000 = 10 WAL).
+        tip_amount_frost: u64,
     },
     /// Adaptive tip that scales with used capacity and time urgency.
     Adaptive {
-        /// Minimum base tip in DWAL (e.g., 1 = 0.1 WAL).
-        base_tip_dwal: u64,
-        /// Maximum tip cap in DWAL (e.g., 2000 = 200 WAL).
-        max_tip_dwal: u64,
-        /// Additional tip per TB of used capacity in DWAL (e.g., 10 = 1 WAL per TB).
-        tip_per_tb_dwal: u64,
+        /// Minimum base tip in FROST (e.g., 1_000_000_000 = 1 WAL).
+        base_tip_frost: u64,
+        /// Maximum tip cap in FROST (e.g., 2_000_000_000_000 = 2000 WAL).
+        max_tip_frost: u64,
+        /// Additional tip per TB of used capacity in FROST (e.g., 10_000_000_000 = 10 WAL/TB).
+        tip_per_tb_frost: u64,
     },
 }
 

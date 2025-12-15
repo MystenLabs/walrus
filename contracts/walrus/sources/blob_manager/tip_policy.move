@@ -4,9 +4,8 @@
 /// Tip policy for BlobManager storage extensions.
 /// Defines how tips are calculated to incentivize community members to extend storage.
 ///
-/// Units:
-/// - Capacity: MB (megabytes) internally, accepts bytes and converts
-/// - Tip amounts: DWAL (0.1 WAL), converted to FROST only at the final step
+/// Public API uses WAL for constructor parameters (human-readable values).
+/// Internal storage and return values use FROST (smallest unit).
 module walrus::tip_policy;
 
 // === Constants ===
@@ -17,69 +16,66 @@ const MB: u64 = 1_000_000;
 /// 1 TB in MB.
 const TB_IN_MB: u64 = 1_000_000;
 
-/// Conversion factor: 1 DWAL (0.1 WAL) = 100_000_000 FROST.
-const DWAL_TO_FROST: u64 = 100_000_000;
+/// Conversion factor: 1 WAL = 1_000_000_000 FROST.
+const WAL_TO_FROST: u64 = 1_000_000_000;
 
 /// Scale factor for multiplier calculations (1.0x = 1_000_000).
 const MULTIPLIER_SCALE: u64 = 1_000_000;
 
-// Default Adaptive policy values (in DWAL = 0.1 WAL units).
+// Default Adaptive policy values (in WAL units for constructor).
 
-/// Default base tip: 1 DWAL = 0.1 WAL.
-const DEFAULT_BASE_TIP_DWAL: u64 = 1;
+/// Default base tip: 1 WAL.
+const DEFAULT_BASE_TIP_WAL: u64 = 1;
 
-/// Default max tip: 2000 DWAL = 200 WAL.
-const DEFAULT_MAX_TIP_DWAL: u64 = 2000;
+/// Default max tip: 2000 WAL.
+const DEFAULT_MAX_TIP_WAL: u64 = 2000;
 
-/// Default tip per TB: 10 DWAL = 1 WAL per TB.
-const DEFAULT_TIP_PER_TB_DWAL: u64 = 10;
+/// Default tip per TB: 10 WAL per TB.
+const DEFAULT_TIP_PER_TB_WAL: u64 = 10;
 
 // === Main Structure ===
 
 /// Tip policy defining how tips are calculated for storage extensions.
-/// All tip amounts are in DWAL (0.1 WAL) units internally.
+/// All tip amounts are stored in FROST (smallest WAL unit) internally.
 public enum TipPolicy has copy, drop, store {
     /// Fixed tip amount regardless of capacity or time.
-    Fixed { tip_amount_dwal: u64 },
+    Fixed { tip_amount_frost: u64 },
     /// Adaptive tip that scales with used capacity and time urgency.
     Adaptive {
-        /// Minimum base tip in DWAL (e.g., 1 = 0.1 WAL).
-        base_tip_dwal: u64,
-        /// Maximum tip cap in DWAL (e.g., 2000 = 200 WAL).
-        max_tip_dwal: u64,
-        /// Additional tip per TB of used capacity in DWAL (e.g., 10 = 1 WAL per TB).
-        tip_per_tb_dwal: u64,
+        /// Minimum base tip in FROST.
+        base_tip_frost: u64,
+        /// Maximum tip cap in FROST.
+        max_tip_frost: u64,
+        /// Additional tip per TB of used capacity in FROST.
+        tip_per_tb_frost: u64,
     },
 }
 
 // === Constructors ===
 
-/// Creates a fixed tip policy with the given amount in DWAL (0.1 WAL units).
-public(package) fun fixed(tip_amount_dwal: u64): TipPolicy {
-    TipPolicy::Fixed { tip_amount_dwal }
+/// Creates a fixed tip policy.
+/// `tip_wal`: Tip amount in WAL (e.g., 10 = 10 WAL).
+public(package) fun fixed(tip_wal: u64): TipPolicy {
+    TipPolicy::Fixed { tip_amount_frost: tip_wal * WAL_TO_FROST }
 }
 
-/// Creates an adaptive tip policy with the given parameters (all in DWAL units).
-public(package) fun adaptive(
-    base_tip_dwal: u64,
-    max_tip_dwal: u64,
-    tip_per_tb_dwal: u64,
-): TipPolicy {
+/// Creates an adaptive tip policy.
+/// All parameters in WAL for readability:
+/// - `base_tip`: Base tip (e.g., 1 = 1 WAL)
+/// - `max_tip`: Maximum tip cap (e.g., 2000 = 2000 WAL)
+/// - `tip_per_tb`: Tip per TB of used capacity (e.g., 10 = 10 WAL/TB)
+public(package) fun adaptive(base_tip: u64, max_tip: u64, tip_per_tb: u64): TipPolicy {
     TipPolicy::Adaptive {
-        base_tip_dwal,
-        max_tip_dwal,
-        tip_per_tb_dwal,
+        base_tip_frost: base_tip * WAL_TO_FROST,
+        max_tip_frost: max_tip * WAL_TO_FROST,
+        tip_per_tb_frost: tip_per_tb * WAL_TO_FROST,
     }
 }
 
 /// Creates a default adaptive tip policy.
-/// Default: base=0.1 WAL, max=200 WAL, per_tb=1 WAL.
+/// Default: base=1 WAL, max=2000 WAL, per_tb=10 WAL.
 public(package) fun default_adaptive(): TipPolicy {
-    TipPolicy::Adaptive {
-        base_tip_dwal: DEFAULT_BASE_TIP_DWAL,
-        max_tip_dwal: DEFAULT_MAX_TIP_DWAL,
-        tip_per_tb_dwal: DEFAULT_TIP_PER_TB_DWAL,
-    }
+    adaptive(DEFAULT_BASE_TIP_WAL, DEFAULT_MAX_TIP_WAL, DEFAULT_TIP_PER_TB_WAL)
 }
 
 // === Tip Calculation ===
@@ -105,15 +101,16 @@ public(package) fun calculate_tip(
     epoch_duration_ms: u64,
     storage_end_epoch: u32,
 ): u64 {
-    // Convert bytes to MB for smaller numbers.
+    // Convert bytes to MB for smaller numbers in intermediate calculations.
     let used_mb = used_bytes / MB;
 
-    let tip_dwal = match (policy) {
-        TipPolicy::Fixed { tip_amount_dwal } => *tip_amount_dwal,
-        TipPolicy::Adaptive { base_tip_dwal, max_tip_dwal, tip_per_tb_dwal } => {
+    match (policy) {
+        TipPolicy::Fixed { tip_amount_frost } => *tip_amount_frost,
+        TipPolicy::Adaptive { base_tip_frost, max_tip_frost, tip_per_tb_frost } => {
             // Capacity-based tip: base + (used_mb / TB_IN_MB) * tip_per_tb.
+            // All values in FROST.
             let tb_count = used_mb / TB_IN_MB;
-            let capacity_tip_dwal = *base_tip_dwal + tb_count * *tip_per_tb_dwal;
+            let capacity_tip_frost = *base_tip_frost + tb_count * *tip_per_tb_frost;
 
             // Time multiplier (only active in the last epoch before expiry).
             let multiplier = calculate_last_epoch_multiplier(
@@ -124,41 +121,40 @@ public(package) fun calculate_tip(
                 storage_end_epoch,
             );
 
-            // Apply multiplier (all values are small, safe multiplication).
-            let tip_dwal = capacity_tip_dwal * multiplier / MULTIPLIER_SCALE;
+            // Apply multiplier using u128 to prevent overflow.
+            let tip_frost =
+                (capacity_tip_frost as u128) * (multiplier as u128)
+                / (MULTIPLIER_SCALE as u128);
+            let tip_frost = tip_frost as u64;
 
             // Cap to max tip.
-            if (tip_dwal > *max_tip_dwal) {
-                *max_tip_dwal
+            if (tip_frost > *max_tip_frost) {
+                *max_tip_frost
             } else {
-                tip_dwal
+                tip_frost
             }
         },
-    };
-
-    // Convert to FROST at the very end.
-    tip_dwal * DWAL_TO_FROST
+    }
 }
 
 /// Calculates the tip amount without time multiplier.
 /// Convenience function that doesn't require epoch timing parameters.
+/// Returns: Tip amount in FROST
 public(package) fun calculate_tip_simple(policy: &TipPolicy, used_bytes: u64): u64 {
     let used_mb = used_bytes / MB;
 
-    let tip_dwal = match (policy) {
-        TipPolicy::Fixed { tip_amount_dwal } => *tip_amount_dwal,
-        TipPolicy::Adaptive { base_tip_dwal, max_tip_dwal, tip_per_tb_dwal } => {
+    match (policy) {
+        TipPolicy::Fixed { tip_amount_frost } => *tip_amount_frost,
+        TipPolicy::Adaptive { base_tip_frost, max_tip_frost, tip_per_tb_frost } => {
             let tb_count = used_mb / TB_IN_MB;
-            let tip_dwal = *base_tip_dwal + tb_count * *tip_per_tb_dwal;
-            if (tip_dwal > *max_tip_dwal) {
-                *max_tip_dwal
+            let tip_frost = *base_tip_frost + tb_count * *tip_per_tb_frost;
+            if (tip_frost > *max_tip_frost) {
+                *max_tip_frost
             } else {
-                tip_dwal
+                tip_frost
             }
         },
-    };
-
-    tip_dwal * DWAL_TO_FROST
+    }
 }
 
 // === Time Multiplier ===
@@ -228,37 +224,37 @@ fun calculate_last_epoch_multiplier(
 
 #[test]
 fun test_fixed_policy() {
-    let policy = fixed(10); // 1 WAL fixed tip.
+    let policy = fixed(10); // 10 WAL fixed tip.
     // Fixed policy always returns the same amount.
     let tip = calculate_tip_simple(&policy, 0);
-    assert!(tip == 10 * DWAL_TO_FROST); // 1 WAL.
+    assert!(tip == 10 * WAL_TO_FROST); // 10 WAL.
     let tip = calculate_tip_simple(&policy, 100 * TB_IN_MB * MB); // 100 TB.
-    assert!(tip == 10 * DWAL_TO_FROST); // Still 1 WAL.
+    assert!(tip == 10 * WAL_TO_FROST); // Still 10 WAL.
 }
 
 #[test]
 fun test_adaptive_policy_capacity_scaling() {
-    let policy = adaptive(1, 2000, 10); // base=0.1 WAL, max=200 WAL, 1 WAL/TB.
+    let policy = adaptive(1, 2000, 10); // base=1 WAL, max=2000 WAL, 10 WAL/TB.
 
-    // 0 TB: base tip only = 0.1 WAL.
+    // 0 TB: base tip only = 1 WAL.
     let tip = calculate_tip_simple(&policy, 0);
-    assert!(tip == 1 * DWAL_TO_FROST);
+    assert!(tip == 1 * WAL_TO_FROST);
 
-    // 1 TB: base + 1 WAL = 1.1 WAL = 11 DWAL.
+    // 1 TB: base + 10 WAL = 11 WAL.
     let tip = calculate_tip_simple(&policy, TB_IN_MB * MB);
-    assert!(tip == 11 * DWAL_TO_FROST);
+    assert!(tip == 11 * WAL_TO_FROST);
 
-    // 50 TB: base + 50 WAL = 50.1 WAL = 501 DWAL.
+    // 50 TB: base + 500 WAL = 501 WAL.
     let tip = calculate_tip_simple(&policy, 50 * TB_IN_MB * MB);
-    assert!(tip == 501 * DWAL_TO_FROST);
+    assert!(tip == 501 * WAL_TO_FROST);
 
-    // 100 TB: base + 100 WAL = 100.1 WAL = 1001 DWAL.
+    // 100 TB: base + 1000 WAL = 1001 WAL.
     let tip = calculate_tip_simple(&policy, 100 * TB_IN_MB * MB);
-    assert!(tip == 1001 * DWAL_TO_FROST);
+    assert!(tip == 1001 * WAL_TO_FROST);
 
-    // 500 TB: would be 500.1 WAL but capped to 200 WAL = 2000 DWAL.
+    // 500 TB: would be 5001 WAL but capped to 2000 WAL.
     let tip = calculate_tip_simple(&policy, 500 * TB_IN_MB * MB);
-    assert!(tip == 2000 * DWAL_TO_FROST);
+    assert!(tip == 2000 * WAL_TO_FROST);
 }
 
 #[test]
@@ -307,9 +303,9 @@ fun test_time_multiplier_in_last_epoch() {
 
 #[test]
 fun test_adaptive_with_time_multiplier() {
-    let policy = adaptive(1, 2000, 10); // base=0.1 WAL, max=200 WAL, 1 WAL/TB.
+    let policy = adaptive(1, 2000, 10); // base=1 WAL, max=2000 WAL, 10 WAL/TB.
 
-    // At 10 TB, not in last epoch: 10.1 WAL = 101 DWAL.
+    // At 10 TB, not in last epoch: 1 + 100 = 101 WAL.
     let tip = calculate_tip(
         &policy,
         10 * TB_IN_MB * MB, // 10 TB
@@ -319,9 +315,9 @@ fun test_adaptive_with_time_multiplier() {
         10000, // epoch_duration_ms
         100, // storage_end_epoch
     );
-    assert!(tip == 101 * DWAL_TO_FROST);
+    assert!(tip == 101 * WAL_TO_FROST);
 
-    // At 10 TB, at midpoint of last epoch: 10.1 WAL * 2 = 20.2 WAL = 202 DWAL.
+    // At 10 TB, at midpoint of last epoch: 101 WAL * 2 = 202 WAL.
     let tip = calculate_tip(
         &policy,
         10 * TB_IN_MB * MB, // 10 TB
@@ -331,14 +327,14 @@ fun test_adaptive_with_time_multiplier() {
         10000, // epoch_duration_ms
         100, // storage_end_epoch
     );
-    assert!(tip == 202 * DWAL_TO_FROST);
+    assert!(tip == 202 * WAL_TO_FROST);
 }
 
 #[test]
 fun test_default_adaptive() {
     let policy = default_adaptive();
     let tip = calculate_tip_simple(&policy, 0);
-    assert!(tip == DEFAULT_BASE_TIP_DWAL * DWAL_TO_FROST);
+    assert!(tip == DEFAULT_BASE_TIP_WAL * WAL_TO_FROST);
 }
 
 #[test]

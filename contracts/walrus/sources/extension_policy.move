@@ -27,17 +27,18 @@ public struct ExtensionPolicy has copy, drop, store {
 
 // === Constructors ===
 
-/// Creates a new extension policy with a fixed tip amount (in DWAL = 0.1 WAL units).
+/// Creates a new extension policy with a fixed tip amount in WAL.
 /// To disable extensions, set max_extension_epochs to 0.
+/// `tip_amount_wal`: Tip amount in WAL (e.g., 10 = 10 WAL).
 public(package) fun new(
     expiry_threshold_epochs: u32,
     max_extension_epochs: u32,
-    tip_amount_dwal: u64,
+    tip_amount_wal: u64,
 ): ExtensionPolicy {
     ExtensionPolicy {
         expiry_threshold_epochs,
         max_extension_epochs,
-        tip_policy: tip_policy::fixed(tip_amount_dwal),
+        tip_policy: tip_policy::fixed(tip_amount_wal),
     }
 }
 
@@ -65,12 +66,12 @@ public(package) fun default(): ExtensionPolicy {
 }
 
 /// Creates a policy with fixed tip for backward compatibility.
-/// Default: expiry_threshold=2, max_extension=5, tip=10 DWAL (1 WAL).
+/// Default: expiry_threshold=2, max_extension=5, tip=1 WAL.
 public(package) fun default_fixed(): ExtensionPolicy {
     ExtensionPolicy {
         expiry_threshold_epochs: 2,
         max_extension_epochs: 5,
-        tip_policy: tip_policy::fixed(10), // 1 WAL = 10 DWAL.
+        tip_policy: tip_policy::fixed(1), // 1 WAL.
     }
 }
 
@@ -164,15 +165,15 @@ public fun calculate_tip_simple(policy: &ExtensionPolicy, used_bytes: u64): u64 
 
 // === Tests ===
 
-/// DWAL to FROST conversion for test assertions.
-const DWAL_TO_FROST: u64 = 100_000_000;
+/// WAL to FROST conversion for test assertions.
+const WAL_TO_FROST: u64 = 1_000_000_000;
 
 #[test]
 fun test_policy_creation() {
-    // new() creates a fixed tip policy with tip in DWAL units.
-    let policy = new(1, 5, 10); // 10 DWAL = 1 WAL.
-    // Policy created successfully. Tip is 10 DWAL = 1 WAL = 1_000_000_000 FROST.
-    assert!(calculate_tip_simple(&policy, 0) == 10 * DWAL_TO_FROST);
+    // new() creates a fixed tip policy with tip in WAL units.
+    let policy = new(1, 5, 10); // 10 WAL.
+    // Policy created successfully. Tip is 10 WAL = 10_000_000_000 FROST.
+    assert!(calculate_tip_simple(&policy, 0) == 10 * WAL_TO_FROST);
 }
 
 #[test]
@@ -240,16 +241,15 @@ fun test_caps_to_system_max() {
 
 #[test]
 fun test_tip_calculation() {
-    // Fixed tip policy: 20 DWAL = 2 WAL.
+    // Fixed tip policy: 20 WAL.
     let policy = new(1, 5, 20);
-    assert!(calculate_tip_simple(&policy, 0) == 20 * DWAL_TO_FROST);
+    assert!(calculate_tip_simple(&policy, 0) == 20 * WAL_TO_FROST);
 
     // Zero tip policy.
     let zero_tip_policy = new(1, 5, 0);
     assert!(calculate_tip_simple(&zero_tip_policy, 0) == 0);
 
-    // Default policy uses adaptive tip.
+    // Default policy uses adaptive tip (base=1 WAL).
     let default_policy = default();
-    // Adaptive base tip is 1 DWAL = 0.1 WAL.
-    assert!(calculate_tip_simple(&default_policy, 0) == 1 * DWAL_TO_FROST);
+    assert!(calculate_tip_simple(&default_policy, 0) == 1 * WAL_TO_FROST);
 }

@@ -683,17 +683,18 @@ public(package) fun withdraw_sui(
 
 /// Sets the extension policy with the given parameters.
 /// To disable extensions, set max_extension_epochs to 0.
+/// `tip_amount_wal`: Tip amount in WAL (e.g., 10 = 10 WAL).
 public(package) fun set_extension_policy(
     self: &mut BlobManagerInnerV1,
     expiry_threshold_epochs: u32,
     max_extension_epochs: u32,
-    tip_amount_dwal: u64,
+    tip_amount_wal: u64,
 ) {
     self.extension_policy =
         extension_policy::new(
             expiry_threshold_epochs,
             max_extension_epochs,
-            tip_amount_dwal,
+            tip_amount_wal,
         );
 }
 

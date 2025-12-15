@@ -2627,16 +2627,16 @@ async fn test_blob_manager_extension_community_tip() {
     // Set extension policy with a known tip amount:
     // expiry_threshold_epochs=100 (allows extension anytime).
     // max_extension_epochs=5.
-    // tip_amount_dwal=100 (100 DWAL = 10 WAL = 10_000_000_000 FROST).
-    let tip_amount_dwal: u64 = 100;
-    let expected_tip_frost: u64 = tip_amount_dwal * 100_000_000; // 100 DWAL = 10 WAL.
+    // tip_amount_wal=10 (10 WAL = 10_000_000_000 FROST).
+    let tip_amount_wal: u64 = 10;
+    let expected_tip_frost: u64 = tip_amount_wal * 1_000_000_000; // 10 WAL in FROST.
     tracing::info!(
-        "Setting extension policy with tip_amount_dwal={} (expected tip={} FROST)",
-        tip_amount_dwal,
+        "Setting extension policy with tip_amount_wal={} (expected tip={} FROST)",
+        tip_amount_wal,
         expected_tip_frost
     );
     blob_manager_client
-        .set_extension_policy(100, 5, tip_amount_dwal)
+        .set_extension_policy(100, 5, tip_amount_wal)
         .await
         .expect("Failed to set extension policy");
 
