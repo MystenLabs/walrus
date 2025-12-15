@@ -69,10 +69,10 @@ The fields are: `blob_id`, `size`, `encoding_type`, `certified_epoch`, `deletabl
 
 Access control uses capability objects. Each capability has two permission flags:
 
-- **is_admin** - Can create new capabilities of any type.
-- **fund_manager** - Can withdraw funds and change extension policy.
+- **can_delegate** - Can create new capabilities of any type.
+- **can_withdraw_funds** - Can withdraw funds and change extension policy.
 
-Any capability holder can register, certify, and delete blobs. The initial capability created with the BlobManager is an admin + fund_manager cap.
+Any capability holder can register, certify, and delete blobs. The initial capability created with the BlobManager has both permissions enabled.
 
 ## Blob Lifecycle
 
@@ -104,21 +104,38 @@ The CoinStash enables community funding of storage:
 
 - **Anyone can deposit** WAL or SUI tokens using `deposit_wal_to_coin_stash()` or `deposit_sui_to_coin_stash()`.
 - **Anyone can use funds** to extend the storage subject to the extension policy.
-- **Only fund_managers can withdraw** coins.
+- **Only can_withdraw_funds caps can withdraw** coins.
 
 This allows communities to pool resources for shared storage without giving everyone withdrawal access.
 
 ## Extension Policy
 
-The extension policy controls public storage extensions. There are three modes:
+The extension policy controls community storage extensions. There are two modes:
 
-1. **Disabled** - No one can extend storage, not even fund managers. Use this to lock down a manager.
+1. **Disabled** - No one can extend storage through the public extension function. Use this to lock down
+   a manager. Admins with `can_withdraw_funds` permission can still use `adjust_storage()`.
 
-2. **FundManagerOnly** - Only fund_manager capability holders can extend storage. Public extension calls are rejected.
-
-3. **Constrained** - Anyone can extend storage, but with limits:
+2. **Constrained** - Anyone can extend storage, but with limits:
    - `expiry_threshold_epochs` - Extension only allowed when storage is within N epochs of expiring.
    - `max_extension_epochs` - Maximum epochs that can be extended per call.
+   - `tip_amount` - SUI tip (in MIST) rewarded to users who execute extension transactions.
+
+The tip incentivizes community members to help keep the BlobManager's storage extended. When someone
+successfully extends storage via `extend_storage_from_stash()`, they receive the configured tip
+amount from the CoinStash.
+
+## Admin Storage Management
+
+For administrators with `can_withdraw_funds` permission, the `adjust_storage()` function provides
+direct control over storage capacity and duration:
+
+- **Bypasses extension policy** - Works even when extension policy is disabled.
+- **Bypasses storage_purchase_policy** - No limits on purchase amounts.
+- **Increase-only** - Can only increase capacity and end_epoch, not decrease them.
+- **Uses CoinStash funds** - Purchases are paid from the BlobManager's WAL balance.
+
+This allows admins to make any storage adjustments needed without being constrained by policies
+designed for community use.
 
 ## Query Functions
 

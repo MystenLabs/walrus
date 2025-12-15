@@ -35,6 +35,7 @@ pub use events::{
     InvalidBlobId,
     ManagedBlobCertified,
     ManagedBlobDeleted,
+    ManagedBlobMadePermanent,
     ManagedBlobRegistered,
     PackageEvent,
     ProtocolEvent,

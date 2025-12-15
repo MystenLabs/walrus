@@ -52,10 +52,8 @@ public struct BlobManagerInnerV1 has store {
     storage: BlobStorage,
     /// Coin stash for community funding (WAL for storage, SUI for tips).
     coin_stash: BlobManagerCoinStash,
-    /// Policy controlling who can extend storage and when.
+    /// Policy controlling who can extend storage, when, and tip amount.
     extension_policy: ExtensionPolicy,
-    /// Policy for tipping community members who extend storage.
-    tip_policy: TipPolicy,
     /// Policy controlling how much storage can be purchased from the coin stash.
     storage_purchase_policy: StoragePurchasePolicy,
     /// Maps capability IDs to their info, including revocation status.
@@ -73,21 +71,21 @@ the corresponding permissions.
 public struct BlobManagerCap has key, store {
     id: UID,
     manager_id: ID,
-    is_admin: bool,
-    fund_manager: bool,
+    can_delegate: bool,
+    can_withdraw_funds: bool,
 }
 ```
 
 Capabilities determine what operations an address can perform:
 
-| Permission     | Can do                                                    |
-|----------------|-----------------------------------------------------------|
-| Any cap        | Store, delete, and manage blobs; buy storage              |
-| `fund_manager` | Configure policies; withdraw funds                        |
-| `is_admin`     | Create and revoke capabilities                            |
+| Permission           | Can do                                                    |
+|----------------------|-----------------------------------------------------------|
+| Any cap              | Store, delete, and manage blobs; buy storage              |
+| `can_withdraw_funds` | Configure policies; withdraw funds                        |
+| `can_delegate`       | Create and revoke capabilities                            |
 
 The initial creator receives a capability with all permissions. Capabilities can be revoked by
-admins, which prevents the revoked capability from performing any operations.
+delegate caps, which prevents the revoked capability from performing any operations.
 
 ## Creating a BlobManager
 
@@ -280,12 +278,13 @@ blob_manager_client.set_extension_policy_disabled().await?;
 
 ### Constrained policy
 
-Allow extensions within specified constraints:
+Allow extensions within specified constraints with optional tipping:
 
 ```rust
-// Allow extensions when within 5 epochs of expiry, max 10 epochs per extension
+// Allow extensions when within 5 epochs of expiry, max 10 epochs per extension,
+// tip 0.1 SUI (100_000_000 MIST) to extenders
 blob_manager_client
-    .set_extension_policy_constrained(5, 10)
+    .set_extension_policy_constrained(5, 10, 100_000_000)
     .await?;
 ```
 
@@ -293,25 +292,33 @@ Parameters:
 - `expiry_threshold_epochs`: Extensions only allowed when current epoch is within this many epochs
   of the storage end epoch
 - `max_extension_epochs`: Maximum epochs that can be added in a single extension
-
-### Tip policy
-
-Incentivize community members to extend your storage by offering tips:
-
-```rust
-// Tip 0.1 SUI to anyone who successfully extends storage
-blob_manager_client
-    .set_tip_policy_fixed_amount(100_000_000)  // 0.1 SUI in MIST
-    .await?;
-```
+- `tip_amount`: SUI tip in MIST to reward community extenders (1 SUI = 1,000,000,000 MIST)
 
 When a community member calls `extend_blob_manager_storage()`, they:
 1. Pay the gas fee of the transaction
-2. Pay nothing (WAL comes from the coin stash)
+2. Pay nothing for storage (WAL comes from the coin stash)
 3. Receive the configured SUI tip
 
 This creates a **keeper incentive**: community members can monitor BlobManagers approaching expiry
 and extend them to earn tips.
+
+### Admin storage adjustment
+
+For administrators with `can_withdraw_funds` permission, `adjust_storage()` provides direct control
+over storage capacity and duration, bypassing all policy constraints:
+
+```rust
+// Increase capacity to 10GB and extend to epoch 200
+blob_manager_client
+    .adjust_storage(10_000_000_000, 200)
+    .await?;
+```
+
+This function:
+- Bypasses extension policy (works even when disabled)
+- Bypasses storage_purchase_policy (no limits)
+- Can only increase values (not decrease capacity or end_epoch)
+- Uses WAL from the coin stash for purchases
 
 ## Access control
 
@@ -322,12 +329,12 @@ Share access by creating new capabilities:
 ```rust
 // Create a writer-only capability (can store/delete blobs, cannot configure policies)
 let writer_cap = blob_manager_client
-    .create_cap(false, false)  // not admin, not fund_manager
+    .create_cap(false, false)  // no delegate, no withdraw_funds
     .await?;
 
-// Create a fund_manager capability (can configure policies and withdraw)
-let fund_manager_cap = blob_manager_client
-    .create_cap(false, true)  // not admin, is fund_manager
+// Create a can_withdraw_funds capability (can configure policies and withdraw)
+let withdraw_funds_cap = blob_manager_client
+    .create_cap(false, true)  // no delegate, can_withdraw_funds
     .await?;
 
 // Transfer the capability to another address
@@ -336,10 +343,10 @@ let fund_manager_cap = blob_manager_client
 
 ### Revoking capabilities
 
-Admins can revoke capabilities to prevent them from performing any operations:
+Delegate caps can revoke capabilities to prevent them from performing any operations:
 
 ```rust
-// Revoke a capability (requires admin permission)
+// Revoke a capability (requires can_delegate permission)
 blob_manager_client
     .revoke_cap(cap_id_to_revoke)
     .await?;
@@ -350,9 +357,9 @@ be used for any BlobManager operations.
 
 ### Withdrawing funds
 
-Fund managers can withdraw from the coin stash, note the fund will go to the fund manager's address.
-A blob manager's admin could burn all fund managers, so that the community funds cannot be withdraw
-by anyone.
+Caps with can_withdraw_funds can withdraw from the coin stash, note the fund will go to the
+withdrawer's address. A blob manager's delegate cap could revoke all can_withdraw_funds caps, so
+that the community funds cannot be withdrawn by anyone.
 
 ```rust
 blob_manager_client.withdraw_wal(1_000_000_000).await?;  // Withdraw 1 WAL
@@ -395,16 +402,16 @@ transactions. Do not expose a BlobManager-enabled publisher publicly without pro
 
 ### Rust SDK
 
-#### Fund manager operations
+#### Can_withdraw_funds operations
 
 | Operation | Description |
 |-----------|-------------|
 | `create_blob_manager(capacity, epochs, initial_wal)` | Create a new BlobManager with initial storage and WAL deposit |
-| `create_cap(is_admin, fund_manager)` | Create a new capability |
-| `revoke_cap(cap_id)` | Revoke a capability (admin only) |
+| `create_cap(can_delegate, can_withdraw_funds)` | Create a new capability (requires can_delegate) |
+| `revoke_cap(cap_id)` | Revoke a capability (requires can_delegate) |
 | `set_extension_policy_disabled()` | Disable community extensions |
-| `set_extension_policy_constrained(threshold, max)` | Set constrained extension policy |
-| `set_tip_policy_fixed_amount(amount)` | Set tip amount for extenders |
+| `set_extension_policy_constrained(threshold, max, tip)` | Set constrained extension policy with tip |
+| `adjust_storage(capacity, end_epoch)` | Admin storage adjustment (increase only) |
 | `withdraw_wal(amount)` | Withdraw WAL from coin stash |
 | `withdraw_sui(amount)` | Withdraw SUI from coin stash |
 

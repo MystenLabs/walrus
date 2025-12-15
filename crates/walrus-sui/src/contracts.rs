@@ -356,6 +356,7 @@ pub mod events {
     contract_ident!(struct events::ManagedBlobRegistered);
     contract_ident!(struct events::ManagedBlobCertified);
     contract_ident!(struct events::ManagedBlobDeleted);
+    contract_ident!(struct events::ManagedBlobMadePermanent);
     contract_ident!(struct events::BlobMovedIntoBlobManager);
     contract_ident!(struct events::BlobManagerUpdated);
     contract_ident!(struct events::BlobManagerCreated);
@@ -487,6 +488,7 @@ pub mod blobmanager {
     contract_ident!(fn blobmanager::new_with_unified_storage);
     contract_ident!(fn blobmanager::register_blob);
     contract_ident!(fn blobmanager::certify_blob);
+    contract_ident!(fn blobmanager::make_blob_permanent);
     contract_ident!(fn blobmanager::delete_blob);
     contract_ident!(fn blobmanager::move_blob_into_manager);
     contract_ident!(fn blobmanager::cap_manager_id);
@@ -509,8 +511,8 @@ pub mod blobmanager {
     // Capability management.
     contract_ident!(fn blobmanager::create_cap);
     contract_ident!(fn blobmanager::revoke_cap);
-    contract_ident!(fn blobmanager::is_admin_cap);
-    contract_ident!(fn blobmanager::is_fund_manager_cap);
+    contract_ident!(fn blobmanager::can_delegate);
+    contract_ident!(fn blobmanager::can_withdraw_funds);
     // Blob attribute operations.
     contract_ident!(fn blobmanager::set_blob_attribute);
     contract_ident!(fn blobmanager::remove_blob_attribute);
@@ -518,8 +520,8 @@ pub mod blobmanager {
     // Extension policy operations.
     contract_ident!(fn blobmanager::set_extension_policy_disabled);
     contract_ident!(fn blobmanager::set_extension_policy_constrained);
-    // Tip policy operations.
-    contract_ident!(fn blobmanager::set_tip_policy_fixed_amount);
+    // Storage adjustment operations.
+    contract_ident!(fn blobmanager::adjust_storage);
 }
 
 /// Module for tags corresponding to the Move module `blob_manager_inner_v1`.

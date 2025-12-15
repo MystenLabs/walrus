@@ -8,7 +8,12 @@ use sui::vec_map::{Self, VecMap};
 use walrus::{
     blob,
     encoding,
-    events::{emit_managed_blob_registered, emit_managed_blob_certified, emit_managed_blob_deleted},
+    events::{
+        emit_managed_blob_registered,
+        emit_managed_blob_certified,
+        emit_managed_blob_deleted,
+        emit_managed_blob_made_permanent
+    },
     messages::CertifiedBlobMessage
 };
 
@@ -38,6 +43,8 @@ const ETooManyAttributes: u64 = 11;
 const EAttributeKeyTooLong: u64 = 12;
 /// Attribute value too long (max 1024 bytes).
 const EAttributeValueTooLong: u64 = 13;
+/// The blob is already permanent (not deletable).
+const EBlobAlreadyPermanent: u64 = 14;
 
 // === Attribute Limits ===
 /// Maximum number of attributes per blob.
@@ -342,6 +349,26 @@ public(package) fun emit_certified(self: &ManagedBlob, end_epoch_at_certify: u32
         blob_type_u8,
         end_epoch_at_certify,
         self.id.to_inner(),
+    );
+}
+
+/// Converts a deletable blob to permanent.
+/// This is a one-way operation - permanent blobs cannot be made deletable again.
+/// Aborts if the blob is already permanent (not deletable).
+public(package) fun make_permanent(self: &mut ManagedBlob, current_epoch: u32, end_epoch: u32) {
+    // Check that the blob is currently deletable.
+    assert!(self.deletable, EBlobAlreadyPermanent);
+
+    // Convert to permanent.
+    self.deletable = false;
+
+    // Emit the event.
+    emit_managed_blob_made_permanent(
+        current_epoch,
+        self.blob_manager_id,
+        self.blob_id,
+        self.id.to_inner(),
+        end_epoch,
     );
 }
 

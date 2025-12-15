@@ -1502,6 +1502,99 @@ async fn test_blob_manager_store_and_read() {
     );
 }
 
+/// Tests converting a deletable blob to permanent in BlobManager.
+#[ignore = "ignore E2E tests by default"]
+#[walrus_simtest]
+async fn test_blob_manager_make_blob_permanent() {
+    walrus_test_utils::init_tracing();
+
+    let test_nodes_config = TestNodesConfig {
+        node_weights: vec![7, 7, 7, 7, 7],
+        ..Default::default()
+    };
+    let test_cluster_builder = test_cluster::E2eTestSetupBuilder::new()
+        .with_test_nodes_config(test_nodes_config)
+        .with_epoch_duration(Duration::from_secs(200));
+    let (_sui_cluster_handle, _cluster, mut client, _) =
+        test_cluster_builder.build().await.unwrap();
+    let client_ref = client.as_mut();
+
+    // Create a BlobManager.
+    let initial_capacity = 500 * 1024 * 1024; // 500MB.
+    let epochs_ahead = 3;
+
+    let admin_cap = client_ref
+        .sui_client()
+        .create_blob_manager(initial_capacity, epochs_ahead, DEFAULT_INITIAL_WAL)
+        .await
+        .expect("Failed to create BlobManager");
+    let manager_id = admin_cap.manager_id;
+    let cap_id = admin_cap.id;
+
+    tracing::info!(?manager_id, ?cap_id, "BlobManager created");
+
+    // Store a deletable blob.
+    let test_data = walrus_test_utils::random_data(1024);
+    let deletable_blob_id = store_managed_blob(
+        client_ref,
+        cap_id,
+        &test_data,
+        BlobPersistence::Deletable,
+        epochs_ahead,
+    )
+    .await
+    .expect("Failed to store deletable blob");
+
+    tracing::info!(
+        "Stored deletable blob in BlobManager! Blob ID: {}",
+        deletable_blob_id
+    );
+
+    // Verify blob is readable.
+    verify_blob_readable(client_ref, &deletable_blob_id, &test_data)
+        .await
+        .expect("Blob should be readable");
+
+    // Create blob_manager_client.
+    let blob_manager_client = client_ref
+        .blob_manager(cap_id)
+        .await
+        .expect("Failed to create BlobManagerClient");
+
+    // Convert the deletable blob to permanent.
+    blob_manager_client
+        .make_blob_permanent(deletable_blob_id)
+        .await
+        .expect("Failed to convert blob to permanent");
+
+    tracing::info!("Converted blob to permanent: {}", deletable_blob_id);
+
+    // Verify blob is still readable.
+    verify_blob_readable(client_ref, &deletable_blob_id, &test_data)
+        .await
+        .expect("Blob should still be readable after conversion");
+
+    // Trying to delete a permanent blob should fail.
+    let delete_result = blob_manager_client.delete_blob(deletable_blob_id).await;
+    assert!(
+        delete_result.is_err(),
+        "Should not be able to delete a permanent blob"
+    );
+    tracing::info!("Confirmed cannot delete permanent blob");
+
+    // Trying to convert an already permanent blob should fail.
+    let convert_result = blob_manager_client
+        .make_blob_permanent(deletable_blob_id)
+        .await;
+    assert!(
+        convert_result.is_err(),
+        "Should not be able to convert already permanent blob"
+    );
+    tracing::info!("Confirmed cannot convert already permanent blob");
+
+    tracing::info!("test_blob_manager_make_blob_permanent passed!");
+}
+
 /// Tests BlobManager coin stash operations: deposit, buy storage, extend storage, withdraw.
 #[ignore = "ignore E2E tests by default"]
 #[walrus_simtest]
@@ -1594,11 +1687,11 @@ async fn test_blob_manager_coin_stash_operations() {
 
     // Test 4: Extend storage period using coin stash funds.
     // First, set a wider expiry threshold policy so extension is allowed.
-    // The default policy is constrained(1, 10), meaning extension is only allowed
-    // when within 1 epoch of expiry. Update to constrained(100, 10) to allow extension now.
+    // The default policy is constrained(2, 5, 1000), meaning extension is only allowed
+    // when within 2 epochs of expiry. Update to constrained(100, 10, 1000) to allow extension now.
     tracing::info!("Setting extension policy to allow extension from current epoch");
     blob_manager_client
-        .set_extension_policy_constrained(100, 10)
+        .set_extension_policy_constrained(100, 10, 1000)
         .await
         .expect("Failed to set extension policy");
 
@@ -1615,27 +1708,28 @@ async fn test_blob_manager_coin_stash_operations() {
         extension_epochs
     );
 
-    // Test 5: Create a new capability with fund_manager permission.
-    tracing::info!("Testing capability creation with fund_manager permission");
+    // Test 5: Create a new capability with can_withdraw_funds permission.
+    tracing::info!("Testing capability creation with can_withdraw_funds permission");
 
+    // Create cap with no delegate, but can_withdraw_funds.
     let new_cap_id = client_ref
         .sui_client()
-        .create_blob_manager_cap(manager_id, cap_id, false, true) // not admin, but fund_manager.
+        .create_blob_manager_cap(manager_id, cap_id, false, true)
         .await
         .expect("Failed to create new capability");
 
     tracing::info!(
-        "Successfully created new capability with fund_manager permission: {}",
+        "Successfully created new capability with can_withdraw_funds permission: {}",
         new_cap_id
     );
 
     // Wait for the new capability to be indexed.
     tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
 
-    // Test 6: Withdraw WAL using fund_manager capability.
+    // Test 6: Withdraw WAL using can_withdraw_funds capability.
     let withdraw_wal_amount = 1; // Withdraw a small amount to test the function works.
     tracing::info!(
-        "Testing WAL withdrawal with fund_manager capability: amount={}",
+        "Testing WAL withdrawal with can_withdraw_funds capability: amount={}",
         withdraw_wal_amount
     );
 
@@ -1650,10 +1744,10 @@ async fn test_blob_manager_coin_stash_operations() {
         withdraw_wal_amount
     );
 
-    // Test 7: Withdraw SUI using fund_manager capability.
+    // Test 7: Withdraw SUI using can_withdraw_funds capability.
     let withdraw_sui_amount = 1; // Withdraw a small amount to test the function works.
     tracing::info!(
-        "Testing SUI withdrawal with fund_manager capability: amount={}",
+        "Testing SUI withdrawal with can_withdraw_funds capability: amount={}",
         withdraw_sui_amount
     );
 
@@ -1852,7 +1946,7 @@ async fn test_blob_manager_capability_management() {
     // Wait for objects to be indexed.
     tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
 
-    // Test 1: Create a writer capability (no admin, no fund_manager).
+    // Test 1: Create a writer capability (no delegate, no withdraw_funds).
     tracing::info!("Creating writer capability");
     let writer_cap_id = client_ref
         .sui_client()
@@ -1862,25 +1956,28 @@ async fn test_blob_manager_capability_management() {
 
     tracing::info!("Created writer capability: {}", writer_cap_id);
 
-    // Test 2: Create a fund_manager capability (no admin, yes fund_manager).
-    tracing::info!("Creating fund_manager capability");
-    let fund_manager_cap_id = client_ref
+    // Test 2: Create a withdraw_funds capability (no delegate, yes withdraw_funds).
+    tracing::info!("Creating withdraw_funds capability");
+    let withdraw_funds_cap_id = client_ref
         .sui_client()
         .create_blob_manager_cap(manager_id, admin_cap_id, false, true)
         .await
-        .expect("Failed to create fund_manager capability");
+        .expect("Failed to create withdraw_funds capability");
 
-    tracing::info!("Created fund_manager capability: {}", fund_manager_cap_id);
+    tracing::info!(
+        "Created withdraw_funds capability: {}",
+        withdraw_funds_cap_id
+    );
 
-    // Test 3: Create another admin capability (yes admin, yes fund_manager).
-    tracing::info!("Creating another admin capability");
-    let admin2_cap_id = client_ref
+    // Test 3: Create another delegate capability (yes delegate, yes withdraw_funds).
+    tracing::info!("Creating another delegate capability");
+    let delegate2_cap_id = client_ref
         .sui_client()
         .create_blob_manager_cap(manager_id, admin_cap_id, true, true)
         .await
-        .expect("Failed to create second admin capability");
+        .expect("Failed to create second delegate capability");
 
-    tracing::info!("Created second admin capability: {}", admin2_cap_id);
+    tracing::info!("Created second delegate capability: {}", delegate2_cap_id);
 
     // Wait for capabilities to be indexed.
     tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
@@ -1901,8 +1998,8 @@ async fn test_blob_manager_capability_management() {
 
     tracing::info!("Writer cap successfully stored blob: {}", blob_id);
 
-    // Test 5: Verify fund_manager cap can withdraw funds.
-    tracing::info!("Testing fund_manager capability for fund operations");
+    // Test 5: Verify withdraw_funds cap can withdraw funds.
+    tracing::info!("Testing withdraw_funds capability for fund operations");
 
     // First deposit some WAL.
     let deposit_wal = 100_000_000;
@@ -1912,27 +2009,27 @@ async fn test_blob_manager_capability_management() {
         .await
         .expect("Failed to deposit WAL");
 
-    // Then withdraw using fund_manager cap.
+    // Then withdraw using withdraw_funds cap.
     client_ref
         .sui_client()
-        .withdraw_wal_from_blob_manager(manager_id, fund_manager_cap_id, deposit_wal)
+        .withdraw_wal_from_blob_manager(manager_id, withdraw_funds_cap_id, deposit_wal)
         .await
-        .expect("Fund manager cap should be able to withdraw funds");
+        .expect("Withdraw funds cap should be able to withdraw funds");
 
-    tracing::info!("Fund manager cap successfully withdrew funds");
+    tracing::info!("Withdraw funds cap successfully withdrew funds");
 
-    // Test 6: Verify admin2 cap can create new capabilities.
-    tracing::info!("Testing second admin capability for creating new caps");
+    // Test 6: Verify delegate2 cap can create new capabilities.
+    tracing::info!("Testing second delegate capability for creating new caps");
 
-    let new_cap_from_admin2 = client_ref
+    let new_cap_from_delegate2 = client_ref
         .sui_client()
-        .create_blob_manager_cap(manager_id, admin2_cap_id, false, false)
+        .create_blob_manager_cap(manager_id, delegate2_cap_id, false, false)
         .await
-        .expect("Admin cap should be able to create new capabilities");
+        .expect("Delegate cap should be able to create new capabilities");
 
     tracing::info!(
-        "Admin2 cap successfully created new capability: {}",
-        new_cap_from_admin2
+        "Delegate2 cap successfully created new capability: {}",
+        new_cap_from_delegate2
     );
 
     tracing::info!("All capability management tests completed successfully!");
@@ -2001,10 +2098,10 @@ async fn test_blob_manager_capability_revocation() {
 
 /// Test capability permissions with different capability types.
 /// Tests that:
-/// - Admin caps with fund_manager can create any cap type.
-/// - Admin caps without fund_manager cannot create fund_manager caps.
-/// - Writer caps (non-admin) cannot create caps.
-/// - Fund_manager caps can withdraw funds but not create caps.
+/// - Delegate caps with can_withdraw_funds can create any cap type.
+/// - Delegate caps without can_withdraw_funds cannot create can_withdraw_funds caps.
+/// - Writer caps (non-delegate) cannot create caps.
+/// - Can_withdraw_funds caps can withdraw funds but not create caps.
 #[tokio::test]
 #[ignore = "e2e test"]
 async fn test_blob_manager_capability_permissions() {
@@ -2415,9 +2512,9 @@ async fn test_blob_manager_extension_policy() {
     tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
 
     // Test 2: Set policy to wider threshold so extension is allowed.
-    tracing::info!("Test 2: Setting policy to constrained(100, 5)");
+    tracing::info!("Test 2: Setting policy to constrained(100, 5, 1000)");
     blob_manager_client
-        .set_extension_policy_constrained(100, 5)
+        .set_extension_policy_constrained(100, 5, 1000)
         .await
         .expect("Failed to set policy to constrained");
 
@@ -2453,9 +2550,9 @@ async fn test_blob_manager_extension_policy() {
     tracing::info!("Correctly rejected extension with disabled policy");
 
     // Test 4: Re-enable with constrained policy.
-    tracing::info!("Test 4: Re-enabling with constrained(100, 10) policy");
+    tracing::info!("Test 4: Re-enabling with constrained(100, 10, 1000) policy");
     blob_manager_client
-        .set_extension_policy_constrained(100, 10)
+        .set_extension_policy_constrained(100, 10, 1000)
         .await
         .expect("Failed to set policy to constrained");
 

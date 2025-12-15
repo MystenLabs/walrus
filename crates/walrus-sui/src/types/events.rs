@@ -359,6 +359,48 @@ impl TryFrom<SuiEvent> for ManagedBlobDeleted {
     }
 }
 
+/// Sui event that a managed blob has been converted from deletable to permanent.
+/// This is a one-way operation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ManagedBlobMadePermanent {
+    /// The epoch in which the blob was made permanent.
+    pub epoch: Epoch,
+    /// The ID of the BlobManager that manages this blob.
+    pub blob_manager_id: ObjectID,
+    /// The blob ID.
+    pub blob_id: BlobId,
+    /// The object id of the related `ManagedBlob` object.
+    pub object_id: ObjectID,
+    /// The BlobManager's end_epoch at the time of conversion.
+    pub end_epoch: Epoch,
+    /// The ID of the event.
+    pub event_id: EventID,
+}
+
+impl AssociatedSuiEvent for ManagedBlobMadePermanent {
+    const EVENT_STRUCT: StructTag<'static> = contracts::events::ManagedBlobMadePermanent;
+}
+
+impl TryFrom<SuiEvent> for ManagedBlobMadePermanent {
+    type Error = MoveConversionError;
+
+    fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
+        ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
+
+        let (epoch, blob_manager_id, blob_id, object_id, end_epoch) =
+            bcs::from_bytes(sui_event.bcs.bytes())?;
+
+        Ok(Self {
+            epoch,
+            blob_manager_id,
+            blob_id,
+            object_id,
+            end_epoch,
+            event_id: sui_event.id,
+        })
+    }
+}
+
 /// Sui event that a regular blob has been moved into a BlobManager.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BlobMovedIntoBlobManager {
@@ -586,6 +628,8 @@ pub enum BlobEvent {
     ManagedBlobCertified(ManagedBlobCertified),
     /// A managed blob deleted event.
     ManagedBlobDeleted(ManagedBlobDeleted),
+    /// A managed blob made permanent event.
+    ManagedBlobMadePermanent(ManagedBlobMadePermanent),
     /// A blob moved into BlobManager event.
     BlobMovedIntoBlobManager(BlobMovedIntoBlobManager),
 }
@@ -674,6 +718,7 @@ impl BlobEvent {
             BlobEvent::ManagedBlobRegistered(event) => event.blob_id,
             BlobEvent::ManagedBlobCertified(event) => event.blob_id,
             BlobEvent::ManagedBlobDeleted(event) => event.blob_id,
+            BlobEvent::ManagedBlobMadePermanent(event) => event.blob_id,
             BlobEvent::BlobMovedIntoBlobManager(event) => event.blob_id,
         }
     }
@@ -689,6 +734,7 @@ impl BlobEvent {
             BlobEvent::ManagedBlobRegistered(event) => Some(event.object_id),
             BlobEvent::ManagedBlobCertified(event) => Some(event.object_id),
             BlobEvent::ManagedBlobDeleted(event) => Some(event.object_id),
+            BlobEvent::ManagedBlobMadePermanent(event) => Some(event.object_id),
             // Return the new ManagedBlob's object ID.
             BlobEvent::BlobMovedIntoBlobManager(event) => Some(event.new_object_id),
         }
@@ -701,6 +747,7 @@ impl BlobEvent {
             BlobEvent::ManagedBlobRegistered(_)
                 | BlobEvent::ManagedBlobCertified(_)
                 | BlobEvent::ManagedBlobDeleted(_)
+                | BlobEvent::ManagedBlobMadePermanent(_)
                 | BlobEvent::BlobMovedIntoBlobManager(_)
         )
     }
@@ -716,6 +763,7 @@ impl BlobEvent {
             BlobEvent::ManagedBlobRegistered(event) => event.event_id,
             BlobEvent::ManagedBlobCertified(event) => event.event_id,
             BlobEvent::ManagedBlobDeleted(event) => event.event_id,
+            BlobEvent::ManagedBlobMadePermanent(event) => event.event_id,
             BlobEvent::BlobMovedIntoBlobManager(event) => event.event_id,
         }
     }
@@ -740,6 +788,7 @@ impl BlobEvent {
             BlobEvent::ManagedBlobRegistered(event) => Some(event.epoch),
             BlobEvent::ManagedBlobCertified(event) => Some(event.epoch),
             BlobEvent::ManagedBlobDeleted(event) => Some(event.epoch),
+            BlobEvent::ManagedBlobMadePermanent(event) => Some(event.epoch),
             BlobEvent::BlobMovedIntoBlobManager(event) => Some(event.epoch),
         }
     }
@@ -755,6 +804,7 @@ impl BlobEvent {
             BlobEvent::ManagedBlobRegistered(_) => "ManagedBlobRegistered",
             BlobEvent::ManagedBlobCertified(_) => "ManagedBlobCertified",
             BlobEvent::ManagedBlobDeleted(_) => "ManagedBlobDeleted",
+            BlobEvent::ManagedBlobMadePermanent(_) => "ManagedBlobMadePermanent",
             BlobEvent::BlobMovedIntoBlobManager(_) => "BlobMovedIntoBlobManager",
         }
     }
@@ -1468,6 +1518,18 @@ impl TryFrom<SuiEvent> for ContractEvent {
                 Ok(ContractEvent::BlobEvent(BlobEvent::ManagedBlobDeleted(
                     managed_blob_event,
                 )))
+            }
+            contracts::events::ManagedBlobMadePermanent => {
+                let managed_blob_event: ManagedBlobMadePermanent = value.try_into()?;
+                tracing::debug!(
+                    blob_id = %managed_blob_event.blob_id,
+                    blob_manager_id = %managed_blob_event.blob_manager_id,
+                    object_id = %managed_blob_event.object_id,
+                    "Processing ManagedBlobMadePermanent event"
+                );
+                Ok(ContractEvent::BlobEvent(
+                    BlobEvent::ManagedBlobMadePermanent(managed_blob_event),
+                ))
             }
             contracts::events::BlobManagerCreated => Ok(ContractEvent::BlobManagerEvent(
                 BlobManagerEvent::Created(value.try_into()?),

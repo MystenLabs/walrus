@@ -1989,6 +1989,40 @@ impl WalrusPtbBuilder {
         Ok(())
     }
 
+    /// Converts a deletable managed blob to permanent in the BlobManager.
+    /// This is a one-way operation - permanent blobs cannot be made deletable again.
+    pub async fn make_managed_blob_permanent(
+        &mut self,
+        manager: ObjectID,
+        cap: ObjectID,
+        blob_id: walrus_core::BlobId,
+    ) -> SuiClientResult<()> {
+        // Get the initial shared version for the BlobManager first.
+        let manager_initial_version = self
+            .read_client
+            .get_shared_object_initial_version(manager)
+            .await?;
+
+        // Create the capability argument (cap is an owned object).
+        let cap_arg = self
+            .argument_from_arg_or_obj(ArgumentOrOwnedObject::Object(cap))
+            .await?;
+
+        let args = vec![
+            self.pt_builder.obj(ObjectArg::SharedObject {
+                id: manager,
+                initial_shared_version: manager_initial_version,
+                mutability: SharedObjectMutability::Mutable,
+            })?,
+            cap_arg,
+            self.system_arg(SharedObjectMutability::Immutable).await?,
+            self.pt_builder.pure(blob_id)?, // blob_id as u256.
+        ];
+
+        self.blobmanager_move_call(contracts::blobmanager::make_blob_permanent, args)?;
+        Ok(())
+    }
+
     /// Deletes a deletable managed blob from the BlobManager.
     pub async fn delete_managed_blob(
         &mut self,
@@ -2213,7 +2247,7 @@ impl WalrusPtbBuilder {
     }
 
     /// Withdraws a specific amount of WAL funds from the BlobManager's coin stash.
-    /// Requires fund_manager permission on the capability.
+    /// Requires can_withdraw_funds permission on the capability.
     pub async fn withdraw_wal_from_blob_manager(
         &mut self,
         manager: ObjectID,
@@ -2252,7 +2286,7 @@ impl WalrusPtbBuilder {
     }
 
     /// Withdraws a specific amount of SUI funds from the BlobManager's coin stash.
-    /// Requires fund_manager permission on the capability.
+    /// Requires can_withdraw_funds permission on the capability.
     pub async fn withdraw_sui_from_blob_manager(
         &mut self,
         manager: ObjectID,
@@ -2295,8 +2329,8 @@ impl WalrusPtbBuilder {
         &mut self,
         manager: ObjectID,
         cap: ObjectID,
-        is_admin: bool,
-        fund_manager: bool,
+        can_delegate: bool,
+        can_withdraw_funds: bool,
     ) -> SuiClientResult<Argument> {
         // Get the initial shared version for the BlobManager first.
         let manager_initial_version = self
@@ -2316,8 +2350,8 @@ impl WalrusPtbBuilder {
                 mutability: SharedObjectMutability::Mutable,
             })?,
             cap_arg,
-            self.pt_builder.pure(is_admin)?,
-            self.pt_builder.pure(fund_manager)?,
+            self.pt_builder.pure(can_delegate)?,
+            self.pt_builder.pure(can_withdraw_funds)?,
         ];
 
         let result_arg =
@@ -2472,7 +2506,7 @@ impl WalrusPtbBuilder {
     }
 
     /// Sets the extension policy to disabled (no one can extend).
-    /// Requires fund_manager permission on the capability.
+    /// Requires can_withdraw_funds permission on the capability.
     pub async fn set_extension_policy_disabled(
         &mut self,
         manager: ObjectID,
@@ -2505,13 +2539,14 @@ impl WalrusPtbBuilder {
     }
 
     /// Sets the extension policy to constrained with the given parameters.
-    /// Requires fund_manager permission on the capability.
+    /// Requires can_withdraw_funds permission on the capability.
     pub async fn set_extension_policy_constrained(
         &mut self,
         manager: ObjectID,
         cap: ObjectID,
         expiry_threshold_epochs: u32,
         max_extension_epochs: u32,
+        tip_amount: u64,
     ) -> SuiClientResult<()> {
         // Get the initial shared version for the BlobManager.
         let manager_initial_version = self
@@ -2532,6 +2567,7 @@ impl WalrusPtbBuilder {
             cap_arg,
             self.pt_builder.pure(expiry_threshold_epochs)?,
             self.pt_builder.pure(max_extension_epochs)?,
+            self.pt_builder.pure(tip_amount)?,
         ];
 
         self.blobmanager_move_call(
@@ -2541,13 +2577,16 @@ impl WalrusPtbBuilder {
         Ok(())
     }
 
-    /// Set a fixed tip amount for transaction senders.
-    /// Requires fund_manager permission on the capability.
-    pub async fn set_tip_policy_fixed_amount(
+    /// Adjusts storage capacity and/or end_epoch.
+    /// Requires can_withdraw_funds permission on the capability.
+    /// Can only increase values, not decrease them.
+    /// Uses funds from the coin stash - bypasses storage_purchase_policy.
+    pub async fn adjust_storage(
         &mut self,
         manager: ObjectID,
         cap: ObjectID,
-        tip_amount: u64,
+        new_capacity: u64,
+        new_end_epoch: u32,
     ) -> SuiClientResult<()> {
         // Get the initial shared version for the BlobManager.
         let manager_initial_version = self
@@ -2559,20 +2598,19 @@ impl WalrusPtbBuilder {
         let cap_ref = self.read_client.get_object_ref(cap).await?;
         let cap_arg = self.pt_builder.obj(ObjectArg::ImmOrOwnedObject(cap_ref))?;
 
-        let policy_args = vec![
+        let args = vec![
             self.pt_builder.obj(ObjectArg::SharedObject {
                 id: manager,
                 initial_shared_version: manager_initial_version,
                 mutability: SharedObjectMutability::Mutable,
             })?,
             cap_arg,
-            self.pt_builder.pure(tip_amount)?,
+            self.system_arg(SharedObjectMutability::Mutable).await?,
+            self.pt_builder.pure(new_capacity)?,
+            self.pt_builder.pure(new_end_epoch)?,
         ];
 
-        self.blobmanager_move_call(
-            contracts::blobmanager::set_tip_policy_fixed_amount,
-            policy_args,
-        )?;
+        self.blobmanager_move_call(contracts::blobmanager::adjust_storage, args)?;
         Ok(())
     }
 

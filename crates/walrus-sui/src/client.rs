@@ -727,6 +727,22 @@ impl SuiContractClient {
             .await
     }
 
+    /// Converts a deletable managed blob to permanent in the BlobManager.
+    ///
+    /// This is a one-way operation - permanent blobs cannot be made deletable again.
+    pub async fn make_managed_blob_permanent(
+        &self,
+        manager_id: ObjectID,
+        manager_cap: ObjectID,
+        blob_id: BlobId,
+    ) -> SuiClientResult<()> {
+        self.inner
+            .lock()
+            .await
+            .make_managed_blob_permanent(manager_id, manager_cap, blob_id)
+            .await
+    }
+
     /// Moves a regular blob (which owns Storage directly) into a BlobManager.
     /// The blob must be certified and not expired.
     /// Storage epochs are aligned: if blob's end_epoch < manager's, purchase extension using coin
@@ -800,7 +816,7 @@ impl SuiContractClient {
     }
 
     /// Withdraws a specific amount of WAL funds from the BlobManager's coin stash.
-    /// Requires fund_manager permission.
+    /// Requires can_withdraw_funds permission.
     pub async fn withdraw_wal_from_blob_manager(
         &self,
         manager_id: ObjectID,
@@ -815,7 +831,7 @@ impl SuiContractClient {
     }
 
     /// Withdraws a specific amount of SUI funds from the BlobManager's coin stash.
-    /// Requires fund_manager permission.
+    /// Requires can_withdraw_funds permission.
     pub async fn withdraw_sui_from_blob_manager(
         &self,
         manager_id: ObjectID,
@@ -830,23 +846,23 @@ impl SuiContractClient {
     }
 
     /// Creates a new capability for the BlobManager.
-    /// Requires admin permission on the creating capability.
+    /// Requires can_delegate permission on the creating capability.
     pub async fn create_blob_manager_cap(
         &self,
         manager_id: ObjectID,
         manager_cap: ObjectID,
-        is_admin: bool,
-        fund_manager: bool,
+        can_delegate: bool,
+        can_withdraw_funds: bool,
     ) -> SuiClientResult<ObjectID> {
         self.inner
             .lock()
             .await
-            .create_blob_manager_cap(manager_id, manager_cap, is_admin, fund_manager)
+            .create_blob_manager_cap(manager_id, manager_cap, can_delegate, can_withdraw_funds)
             .await
     }
 
     /// Revokes a capability from the BlobManager.
-    /// Requires admin permission on the revoking capability.
+    /// Requires can_delegate permission on the revoking capability.
     pub async fn revoke_blob_manager_cap(
         &self,
         manager_id: ObjectID,
@@ -909,7 +925,7 @@ impl SuiContractClient {
     }
 
     /// Sets the extension policy to disabled (no one can extend).
-    /// Requires fund_manager permission on the capability.
+    /// Requires can_withdraw_funds permission on the capability.
     pub async fn set_extension_policy_disabled(
         &self,
         manager_id: ObjectID,
@@ -923,13 +939,14 @@ impl SuiContractClient {
     }
 
     /// Sets the extension policy to constrained with the given parameters.
-    /// Requires fund_manager permission on the capability.
+    /// Requires can_withdraw_funds permission on the capability.
     pub async fn set_extension_policy_constrained(
         &self,
         manager_id: ObjectID,
         manager_cap: ObjectID,
         expiry_threshold_epochs: u32,
         max_extension_epochs: u32,
+        tip_amount: u64,
     ) -> SuiClientResult<()> {
         self.inner
             .lock()
@@ -939,22 +956,26 @@ impl SuiContractClient {
                 manager_cap,
                 expiry_threshold_epochs,
                 max_extension_epochs,
+                tip_amount,
             )
             .await
     }
 
-    /// Set a fixed tip amount for transaction senders.
-    /// Requires fund_manager permission on the capability.
-    pub async fn set_tip_policy_fixed_amount(
+    /// Adjusts storage capacity and/or end_epoch.
+    /// Requires can_withdraw_funds permission on the capability.
+    /// Can only increase values, not decrease them.
+    /// Uses funds from the coin stash - bypasses storage_purchase_policy.
+    pub async fn adjust_storage(
         &self,
         manager_id: ObjectID,
         manager_cap: ObjectID,
-        tip_amount: u64,
+        new_capacity: u64,
+        new_end_epoch: u32,
     ) -> SuiClientResult<()> {
         self.inner
             .lock()
             .await
-            .set_tip_policy_fixed_amount(manager_id, manager_cap, tip_amount)
+            .adjust_storage(manager_id, manager_cap, new_capacity, new_end_epoch)
             .await
     }
 
@@ -2292,6 +2313,41 @@ impl SuiContractClientInner {
         Ok(())
     }
 
+    /// Converts a deletable managed blob to permanent in the BlobManager.
+    ///
+    /// This is a one-way operation - permanent blobs cannot be made deletable again.
+    pub async fn make_managed_blob_permanent(
+        &mut self,
+        manager_id: ObjectID,
+        manager_cap: ObjectID,
+        blob_id: BlobId,
+    ) -> SuiClientResult<()> {
+        tracing::debug!(
+            blob_id = %blob_id,
+            manager_id = %manager_id,
+            "converting managed blob to permanent"
+        );
+
+        let mut pt_builder = self.transaction_builder()?;
+
+        pt_builder
+            .make_managed_blob_permanent(manager_id, manager_cap, blob_id)
+            .await?;
+
+        let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
+        let res = self
+            .sign_and_send_transaction(transaction, "make_managed_blob_permanent")
+            .await?;
+
+        if !res.errors.is_empty() {
+            tracing::warn!(errors = ?res.errors, "failed to make managed blob permanent");
+            return Err(anyhow!("could not make managed blob permanent: {:?}", res.errors).into());
+        }
+
+        tracing::debug!("successfully converted managed blob to permanent");
+        Ok(())
+    }
+
     pub async fn move_blob_into_manager(
         &mut self,
         manager_id: ObjectID,
@@ -2444,7 +2500,7 @@ impl SuiContractClientInner {
     }
 
     /// Withdraws a specific amount of WAL funds from the BlobManager's coin stash.
-    /// Requires fund_manager permission on the capability.
+    /// Requires can_withdraw_funds permission on the capability.
     pub async fn withdraw_wal_from_blob_manager(
         &mut self,
         manager_id: ObjectID,
@@ -2472,7 +2528,7 @@ impl SuiContractClientInner {
     }
 
     /// Withdraws a specific amount of SUI funds from the BlobManager's coin stash.
-    /// Requires fund_manager permission on the capability.
+    /// Requires can_withdraw_funds permission on the capability.
     pub async fn withdraw_sui_from_blob_manager(
         &mut self,
         manager_id: ObjectID,
@@ -2500,25 +2556,25 @@ impl SuiContractClientInner {
     }
 
     /// Creates a new capability for the BlobManager.
-    /// Requires admin permission on the creating capability.
+    /// Requires can_delegate permission on the creating capability.
     pub async fn create_blob_manager_cap(
         &mut self,
         manager_id: ObjectID,
         manager_cap: ObjectID,
-        is_admin: bool,
-        fund_manager: bool,
+        can_delegate: bool,
+        can_withdraw_funds: bool,
     ) -> SuiClientResult<ObjectID> {
         tracing::debug!(
             manager_id = %manager_id,
-            is_admin = is_admin,
-            fund_manager = fund_manager,
+            can_delegate = can_delegate,
+            can_withdraw_funds = can_withdraw_funds,
             "creating new blob manager capability"
         );
 
         let mut pt_builder = self.transaction_builder()?;
 
         pt_builder
-            .create_blob_manager_cap(manager_id, manager_cap, is_admin, fund_manager)
+            .create_blob_manager_cap(manager_id, manager_cap, can_delegate, can_withdraw_funds)
             .await?;
 
         let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
@@ -2554,7 +2610,7 @@ impl SuiContractClientInner {
     }
 
     /// Revokes a capability from the BlobManager.
-    /// Requires admin permission on the revoking capability.
+    /// Requires can_delegate permission on the revoking capability.
     pub async fn revoke_blob_manager_cap(
         &mut self,
         manager_id: ObjectID,
@@ -2700,7 +2756,7 @@ impl SuiContractClientInner {
     }
 
     /// Sets the extension policy to disabled (no one can extend).
-    /// Requires fund_manager permission on the capability.
+    /// Requires can_withdraw_funds permission on the capability.
     pub async fn set_extension_policy_disabled(
         &mut self,
         manager_id: ObjectID,
@@ -2732,18 +2788,20 @@ impl SuiContractClientInner {
     }
 
     /// Sets the extension policy to constrained with the given parameters.
-    /// Requires fund_manager permission on the capability.
+    /// Requires can_withdraw_funds permission on the capability.
     pub async fn set_extension_policy_constrained(
         &mut self,
         manager_id: ObjectID,
         manager_cap: ObjectID,
         expiry_threshold_epochs: u32,
         max_extension_epochs: u32,
+        tip_amount: u64,
     ) -> SuiClientResult<()> {
         tracing::debug!(
             manager_id = %manager_id,
             expiry_threshold_epochs = expiry_threshold_epochs,
             max_extension_epochs = max_extension_epochs,
+            tip_amount = tip_amount,
             "setting extension policy to constrained"
         );
 
@@ -2755,6 +2813,7 @@ impl SuiContractClientInner {
                 manager_cap,
                 expiry_threshold_epochs,
                 max_extension_epochs,
+                tip_amount,
             )
             .await?;
 
@@ -2772,37 +2831,41 @@ impl SuiContractClientInner {
         Ok(())
     }
 
-    /// Set a fixed tip amount for transaction senders.
-    /// Requires fund_manager permission on the capability.
-    pub async fn set_tip_policy_fixed_amount(
+    /// Adjusts storage capacity and/or end_epoch.
+    /// Requires can_withdraw_funds permission on the capability.
+    /// Can only increase values, not decrease them.
+    /// Uses funds from the coin stash - bypasses storage_purchase_policy.
+    pub async fn adjust_storage(
         &mut self,
         manager_id: ObjectID,
         manager_cap: ObjectID,
-        tip_amount: u64,
+        new_capacity: u64,
+        new_end_epoch: u32,
     ) -> SuiClientResult<()> {
         tracing::debug!(
             manager_id = %manager_id,
-            tip_amount = tip_amount,
-            "setting tip policy to fixed amount"
+            new_capacity = new_capacity,
+            new_end_epoch = new_end_epoch,
+            "adjusting blob manager storage"
         );
 
         let mut pt_builder = self.transaction_builder()?;
 
         pt_builder
-            .set_tip_policy_fixed_amount(manager_id, manager_cap, tip_amount)
+            .adjust_storage(manager_id, manager_cap, new_capacity, new_end_epoch)
             .await?;
 
         let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
         let res = self
-            .sign_and_send_transaction(transaction, "set_tip_policy_fixed_amount")
+            .sign_and_send_transaction(transaction, "adjust_storage")
             .await?;
 
         if !res.errors.is_empty() {
-            tracing::warn!(errors = ?res.errors, "failed to set tip policy to fixed amount");
-            return Err(anyhow!("could not set tip policy: {:?}", res.errors).into());
+            tracing::warn!(errors = ?res.errors, "failed to adjust storage");
+            return Err(anyhow!("could not adjust storage: {:?}", res.errors).into());
         }
 
-        tracing::debug!("successfully set tip policy to fixed amount");
+        tracing::debug!("successfully adjusted storage");
         Ok(())
     }
 

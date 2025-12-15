@@ -11,15 +11,16 @@ module walrus::storage_purchase_policy;
 
 // === Error Codes ===
 
-/// Error when trying to purchase more than the allowed maximum.
-const EStoragePurchaseExceedsLimit: u64 = 0;
 /// Error when available storage exceeds threshold for conditional purchase.
 const EStorageAvailableExceedsThreshold: u64 = 1;
 
 // === Constants ===
 
-/// Default threshold for conditional purchase: 15GB in bytes.
-const DEFAULT_CONDITIONAL_PURCHASE_THRESHOLD_BYTES: u64 = 15_000_000_000;
+/// Default threshold for constrained purchase: 15GB in bytes.
+const DEFAULT_CONSTRAINED_THRESHOLD_BYTES: u64 = 15_000_000_000;
+
+/// Default max purchase for constrained purchase: 15GB in bytes.
+const DEFAULT_CONSTRAINED_MAX_PURCHASE_BYTES: u64 = 15_000_000_000;
 
 // === Structs ===
 
@@ -27,17 +28,14 @@ const DEFAULT_CONDITIONAL_PURCHASE_THRESHOLD_BYTES: u64 = 15_000_000_000;
 public enum StoragePurchasePolicy has copy, drop, store {
     /// No limit on storage purchases.
     Unlimited,
-    /// Fixed cap on the total amount of storage that can be purchased.
-    FixedCap {
-        /// Maximum storage size in bytes that can be purchased.
-        max_storage_bytes: u64,
-    },
-    /// Conditional purchase: only allow purchases when available storage < threshold.
-    /// Max purchase amount is capped at threshold.
-    ConditionalPurchase {
-        /// Threshold for available storage (e.g., 15GB).
-        /// Purchases only allowed when available < threshold.
+    /// Constrained purchase: only allow purchases when available storage < threshold.
+    /// Max purchase amount is capped at max_purchase_bytes.
+    Constrained {
+        /// Threshold for available storage.
+        /// Purchases only allowed when available < threshold_bytes.
         threshold_bytes: u64,
+        /// Maximum storage size in bytes that can be purchased in a single call.
+        max_purchase_bytes: u64,
     },
 }
 
@@ -48,82 +46,48 @@ public(package) fun unlimited(): StoragePurchasePolicy {
     StoragePurchasePolicy::Unlimited
 }
 
-/// Create a fixed cap storage purchase policy.
-public(package) fun fixed_cap(max_storage_bytes: u64): StoragePurchasePolicy {
-    StoragePurchasePolicy::FixedCap { max_storage_bytes }
-}
-
-/// Create a conditional purchase policy.
+/// Create a constrained storage purchase policy.
 /// Only allows purchases when available storage < threshold_bytes.
-/// Maximum purchase is capped at threshold_bytes.
-public(package) fun conditional_purchase(threshold_bytes: u64): StoragePurchasePolicy {
-    StoragePurchasePolicy::ConditionalPurchase { threshold_bytes }
+/// Maximum purchase is capped at max_purchase_bytes.
+public(package) fun constrained(
+    threshold_bytes: u64,
+    max_purchase_bytes: u64,
+): StoragePurchasePolicy {
+    StoragePurchasePolicy::Constrained { threshold_bytes, max_purchase_bytes }
 }
 
-/// Creates a storage purchase policy with the default conditional purchase threshold (15GB).
-/// Only allows purchases when available storage < 15GB, max purchase is 15GB.
-public(package) fun default_conditional_purchase(): StoragePurchasePolicy {
-    StoragePurchasePolicy::ConditionalPurchase {
-        threshold_bytes: DEFAULT_CONDITIONAL_PURCHASE_THRESHOLD_BYTES,
+/// Creates a storage purchase policy with the default constrained parameters (15GB threshold, 15GB
+/// max). Only allows purchases when available storage < 15GB, max purchase is 15GB.
+public(package) fun default_constrained(): StoragePurchasePolicy {
+    StoragePurchasePolicy::Constrained {
+        threshold_bytes: DEFAULT_CONSTRAINED_THRESHOLD_BYTES,
+        max_purchase_bytes: DEFAULT_CONSTRAINED_MAX_PURCHASE_BYTES,
     }
 }
 
 // === Core Functions ===
 
-/// Validate that a storage purchase request is within policy limits.
-/// Returns the allowed storage size (which may be capped).
-public(package) fun validate_and_cap_purchase(
-    policy: &StoragePurchasePolicy,
-    requested_storage_bytes: u64,
-): u64 {
-    match (policy) {
-        StoragePurchasePolicy::Unlimited => requested_storage_bytes,
-        StoragePurchasePolicy::FixedCap { max_storage_bytes } => {
-            // Cap the purchase to the maximum allowed.
-            if (requested_storage_bytes > *max_storage_bytes) {
-                *max_storage_bytes
-            } else {
-                requested_storage_bytes
-            }
-        },
-        StoragePurchasePolicy::ConditionalPurchase { threshold_bytes } => {
-            // For conditional purchase, cap at the threshold.
-            // The availability check happens separately in validate_conditional_purchase.
-            if (requested_storage_bytes > *threshold_bytes) {
-                *threshold_bytes
-            } else {
-                requested_storage_bytes
-            }
-        },
-    }
-}
-
-/// Check if a storage purchase would exceed the policy limit.
-/// Aborts if the purchase exceeds the limit.
-public(package) fun enforce_limit(policy: &StoragePurchasePolicy, requested_storage_bytes: u64) {
-    match (policy) {
-        StoragePurchasePolicy::Unlimited => {},
-        StoragePurchasePolicy::FixedCap { max_storage_bytes } => {
-            assert!(requested_storage_bytes <= *max_storage_bytes, EStoragePurchaseExceedsLimit);
-        },
-        StoragePurchasePolicy::ConditionalPurchase { threshold_bytes } => {
-            assert!(requested_storage_bytes <= *threshold_bytes, EStoragePurchaseExceedsLimit);
-        },
-    }
-}
-
-/// Validate that a conditional purchase is allowed based on available storage.
-/// This function should be called before purchasing storage with ConditionalPurchase policy.
-/// Aborts if available storage is >= threshold.
-public(package) fun validate_conditional_purchase(
-    policy: &StoragePurchasePolicy,
+/// Validates a storage purchase request and returns the allowed amount.
+/// - For Unlimited: returns the requested amount as-is.
+/// - For Constrained: checks that available_storage < threshold, then caps at max_purchase_bytes.
+///
+/// Aborts with EStorageAvailableExceedsThreshold if Constrained threshold is exceeded.
+public(package) fun validate_purchase(
+    self: &StoragePurchasePolicy,
+    requested_amount: u64,
     available_storage: u64,
-) {
-    match (policy) {
-        StoragePurchasePolicy::Unlimited => {},
-        StoragePurchasePolicy::FixedCap { max_storage_bytes: _ } => {},
-        StoragePurchasePolicy::ConditionalPurchase { threshold_bytes } => {
+): u64 {
+    match (self) {
+        StoragePurchasePolicy::Unlimited => requested_amount,
+        StoragePurchasePolicy::Constrained { threshold_bytes, max_purchase_bytes } => {
+            // Only allow purchase when available storage is below threshold.
             assert!(available_storage < *threshold_bytes, EStorageAvailableExceedsThreshold);
+            // Cap at max_purchase_bytes.
+            if (requested_amount > *max_purchase_bytes) {
+                *max_purchase_bytes
+            } else {
+                requested_amount
+            }
         },
     }
 }
@@ -132,85 +96,63 @@ public(package) fun validate_conditional_purchase(
 fun test_unlimited_policy() {
     let policy = unlimited();
 
-    // Any size should be allowed.
-    assert!(validate_and_cap_purchase(&policy, 1000) == 1000);
-    assert!(validate_and_cap_purchase(&policy, 1_000_000_000) == 1_000_000_000);
-
-    // Enforcement should always pass.
-    enforce_limit(&policy, 1_000_000_000_000);
+    // Any size should be allowed, regardless of available storage.
+    assert!(policy.validate_purchase(1000, 0) == 1000);
+    assert!(policy.validate_purchase(1_000_000_000, 0) == 1_000_000_000);
+    assert!(policy.validate_purchase(1_000_000_000_000, 999_999_999_999) == 1_000_000_000_000);
 }
 
 #[test]
-fun test_fixed_cap_policy() {
-    let max_bytes = 15_000_000_000; // 15GB
-    let policy = fixed_cap(max_bytes);
-
-    // Under limit should work.
-    assert!(validate_and_cap_purchase(&policy, 1000) == 1000);
-    assert!(validate_and_cap_purchase(&policy, max_bytes) == max_bytes);
-
-    // Over limit should be capped.
-    assert!(validate_and_cap_purchase(&policy, max_bytes + 1) == max_bytes);
-    assert!(validate_and_cap_purchase(&policy, max_bytes * 2) == max_bytes);
-
-    // Enforcement should pass under limit.
-    enforce_limit(&policy, max_bytes);
-}
-
-#[test]
-#[expected_failure(abort_code = EStoragePurchaseExceedsLimit)]
-fun test_fixed_cap_enforcement_fails() {
-    let max_bytes = 15_000_000_000; // 15GB
-    let policy = fixed_cap(max_bytes);
-
-    // Should abort when over limit.
-    enforce_limit(&policy, max_bytes + 1);
-}
-
-#[test]
-fun test_conditional_purchase_policy() {
+fun test_constrained_policy() {
     let threshold = 15_000_000_000; // 15GB
-    let policy = conditional_purchase(threshold);
+    let max_purchase = 10_000_000_000; // 10GB
+    let policy = constrained(threshold, max_purchase);
 
-    // Test validate_and_cap_purchase - should cap at threshold.
-    assert!(validate_and_cap_purchase(&policy, 1000) == 1000);
-    assert!(validate_and_cap_purchase(&policy, threshold) == threshold);
-    assert!(validate_and_cap_purchase(&policy, threshold * 2) == threshold);
+    // Under max_purchase should work when available < threshold.
+    assert!(policy.validate_purchase(1000, 0) == 1000);
+    assert!(policy.validate_purchase(max_purchase, 0) == max_purchase);
 
-    // Test validate_conditional_purchase - should pass when available < threshold.
-    validate_conditional_purchase(&policy, 0);
-    validate_conditional_purchase(&policy, threshold - 1);
+    // Over max_purchase should be capped.
+    assert!(policy.validate_purchase(max_purchase + 1, 0) == max_purchase);
+    assert!(policy.validate_purchase(max_purchase * 2, 0) == max_purchase);
 
-    // Test enforcement - should pass when under threshold.
-    enforce_limit(&policy, threshold);
+    // Should work when available is just under threshold.
+    assert!(policy.validate_purchase(1000, threshold - 1) == 1000);
+}
+
+#[test]
+fun test_default_constrained_policy() {
+    let policy = default_constrained();
+
+    // Default is 15GB threshold and 15GB max purchase.
+    let default_value = 15_000_000_000;
+
+    // Should work when available < threshold.
+    assert!(policy.validate_purchase(1000, 0) == 1000);
+    assert!(policy.validate_purchase(default_value, 0) == default_value);
+
+    // Should cap at max_purchase.
+    assert!(policy.validate_purchase(default_value * 2, 0) == default_value);
 }
 
 #[test]
 #[expected_failure(abort_code = EStorageAvailableExceedsThreshold)]
-fun test_conditional_purchase_blocks_when_available_high() {
+fun test_constrained_blocks_when_available_equals_threshold() {
     let threshold = 15_000_000_000; // 15GB
-    let policy = conditional_purchase(threshold);
+    let max_purchase = 10_000_000_000; // 10GB
+    let policy = constrained(threshold, max_purchase);
 
-    // Should abort when available storage >= threshold.
-    validate_conditional_purchase(&policy, threshold);
+    // Should abort when available storage == threshold.
+    policy.validate_purchase(1000, threshold);
 }
 
 #[test]
 #[expected_failure(abort_code = EStorageAvailableExceedsThreshold)]
-fun test_conditional_purchase_blocks_when_available_exceeds() {
+fun test_constrained_blocks_when_available_exceeds_threshold() {
     let threshold = 15_000_000_000; // 15GB
-    let policy = conditional_purchase(threshold);
+    let max_purchase = 10_000_000_000; // 10GB
+    let policy = constrained(threshold, max_purchase);
 
     // Should abort when available storage > threshold.
-    validate_conditional_purchase(&policy, threshold + 1);
-}
-
-#[test]
-#[expected_failure(abort_code = EStoragePurchaseExceedsLimit)]
-fun test_conditional_purchase_enforcement_fails() {
-    let threshold = 15_000_000_000; // 15GB
-    let policy = conditional_purchase(threshold);
-
-    // Should abort when requested amount > threshold.
-    enforce_limit(&policy, threshold + 1);
+    policy.validate_purchase(1000, threshold + 1);
 }

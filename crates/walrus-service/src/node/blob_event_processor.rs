@@ -202,6 +202,18 @@ impl BackgroundEventProcessor {
                 self.process_blob_deleted_event(event_handle, event.blob_id, event.epoch)
                     .await?;
             }
+            BlobEvent::ManagedBlobMadePermanent(event) => {
+                let _scope = monitored_scope::monitored_scope(
+                    "ProcessEvent::BlobEvent::ManagedBlobMadePermanent",
+                );
+                // The merge operator handles the conversion from deletable to permanent.
+                // No additional processing needed here - just update blob info.
+                tracing::debug!(
+                    blob_id = %event.blob_id,
+                    blob_manager_id = %event.blob_manager_id,
+                    "Processed ManagedBlobMadePermanent event"
+                );
+            }
             BlobEvent::BlobMovedIntoBlobManager(_) => {
                 // TODO: Implement BlobMovedIntoBlobManager event handling.
                 // This event occurs when a regular certified blob is moved into a BlobManager.

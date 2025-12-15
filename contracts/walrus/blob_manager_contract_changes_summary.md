@@ -124,8 +124,8 @@ The BlobManager uses a two-layer design similar to `System` / `SystemStateInnerV
   struct BlobManagerCap {
       id: UID,
       manager_id: ID,
-      is_admin: bool,
-      fund_manager: bool,
+      can_delegate: bool,
+      can_withdraw_funds: bool,
   }
   ```
 
@@ -135,11 +135,11 @@ The BlobManager uses a two-layer design similar to `System` / `SystemStateInnerV
   - Both assert `self.version == VERSION` before accessing
 
 - **Capability Management**:
-  - `create_cap(is_admin, fund_manager)` - Returns new cap (PTB handles transfer)
-  - `cap_manager_id()` / `is_admin_cap()` / `is_fund_manager_cap()` - Accessors
+  - `create_cap(can_delegate, can_withdraw_funds)` - Returns new cap (PTB handles transfer)
+  - `cap_manager_id()` / `can_delegate()` / `can_withdraw_funds()` - Accessors
   - Permission rules:
-    - Admin caps can create new caps
-    - Only fund_manager caps can create new fund_manager caps
+    - Delegate caps can create new caps
+    - Only can_withdraw_funds caps can create new can_withdraw_funds caps
     - Any cap can write blobs
 
 - **Core Operations**:
@@ -157,9 +157,9 @@ The BlobManager uses a two-layer design similar to `System` / `SystemStateInnerV
   - `deposit_sui_to_coin_stash()` - Add SUI tokens
   - `buy_storage_from_stash()` - Purchase storage capacity
   - `extend_storage_from_stash()` - Extend storage duration (public, follows policy)
-  - `extend_storage_from_stash_fund_manager()` - Extend storage (fund_manager, bypasses constraints)
-  - `withdraw_wal(amount)` - Withdraw WAL (requires fund_manager)
-  - `withdraw_sui(amount)` - Withdraw SUI (requires fund_manager)
+  - `extend_storage_from_stash_fund_manager()` - Extend storage (can_withdraw_funds, bypasses constraints)
+  - `withdraw_wal(amount)` - Withdraw WAL (requires can_withdraw_funds)
+  - `withdraw_sui(amount)` - Withdraw SUI (requires can_withdraw_funds)
 
 - **Query Functions**:
   - `manager_id()` - Returns BlobManager ID
@@ -209,69 +209,64 @@ The BlobManager uses a two-layer design similar to `System` / `SystemStateInnerV
 ## 3. Extension Policy Module
 
 ### 3.1 `extension_policy.move`
-**Purpose**: Controls when and how storage can be extended by anyone using the coin stash.
+**Purpose**: Controls when and how storage can be extended by community members using the coin stash.
+Also configures tip amounts for community extenders.
 
 **Key Components**:
 - **ExtensionPolicy enum**:
   ```move
   public enum ExtensionPolicy has store, copy, drop {
       Disabled,
-      FundManagerOnly,
       Constrained {
           expiry_threshold_epochs: u32,
           max_extension_epochs: u32,
+          tip_amount: u64,  // Tip in MIST for community extenders
       },
   }
   ```
 
 - **Policy Variants**:
-  - `Disabled` - No one can extend storage (blocks everyone including fund managers)
-  - `FundManagerOnly` - Only fund managers can extend (public extension blocked)
+  - `Disabled` - No one can extend storage via community extension (admins can use `adjust_storage`)
   - `Constrained` - Anyone can extend within constraints:
     - `expiry_threshold_epochs` - Extension only allowed when within N epochs of expiry
     - `max_extension_epochs` - Maximum epochs per extension call
+    - `tip_amount` - SUI tip (in MIST) rewarded to transaction sender
 
 - **Validation Functions**:
-  - `validate_and_cap_extension()` - For public extension
+  - `validate_and_compute_end_epoch()` - For public extension
     - Enforces time threshold (current_epoch >= end_epoch - expiry_threshold)
     - Caps to min(policy_max, system_max)
-    - Aborts if Disabled or FundManagerOnly
-  - `validate_and_cap_extension_fund_manager()` - For fund managers
-    - Bypasses time/amount constraints
-    - Still caps to system max epochs ahead
-    - Only aborts if Disabled
+    - Aborts if Disabled
+
+- **Accessors**:
+  - `get_tip_amount()` - Returns tip amount (0 if Disabled)
 
 - **Constructors**:
   - `disabled()` - Creates disabled policy
-  - `fund_manager_only()` - Creates fund manager only policy
-  - `constrained(expiry_threshold_epochs, max_extension_epochs)` - Creates constrained policy
+  - `constrained(expiry_threshold_epochs, max_extension_epochs, tip_amount)` - Creates constrained policy
+  - `default_constrained()` - Creates default constrained policy (2 epoch threshold, 5 max extension, 1000 MIST tip)
 
 ### 3.2 BlobManager Extension Policy Integration
 **Updated in `blob_manager.move`**:
 
-- **New Field**:
-  ```move
-  struct BlobManager {
-      ...
-      extension_policy: ExtensionPolicy,  // Default: constrained(1, 10)
-  }
-  ```
-
 - **Extension Functions**:
-  - `extend_storage_from_stash()` - Public extension (follows policy)
-  - `extend_storage_from_stash_fund_manager()` - Fund manager extension (bypasses constraints)
-  - Both return actual epochs extended (may be less than requested due to caps)
-  - Both return 0 if extension not possible
+  - `extend_storage_from_stash()` - Community extension (follows policy, returns tip)
+  - `adjust_storage(new_capacity, new_end_epoch)` - Admin-level storage adjustment (bypasses all policies)
 
-- **Policy Management** (require fund_manager permission):
-  - `set_extension_policy_disabled()` - Block all extension
-  - `set_extension_policy_fund_manager_only()` - Fund manager only mode
-  - `set_extension_policy_constrained(threshold, max)` - Set constrained policy
+- **Policy Management** (require can_withdraw_funds permission):
+  - `set_extension_policy_disabled()` - Block community extension
+  - `set_extension_policy_constrained(threshold, max, tip_amount)` - Set constrained policy with tip
   - `extension_policy()` - Query current policy
 
+- **Admin Storage Adjustment** (requires can_withdraw_funds permission):
+  - `adjust_storage(new_capacity, new_end_epoch)` - Direct storage control
+    - Bypasses extension policy
+    - Bypasses storage_purchase_policy
+    - Increase-only (cannot decrease capacity or end_epoch)
+    - Uses funds from coin stash
+
 - **Policy Behavior**:
-  | Policy | Public Extension | Fund Manager Extension |
-  |--------|------------------|------------------------|
-  | Disabled | ❌ Blocked | ❌ Blocked |
-  | FundManagerOnly | ❌ Blocked | ✅ System cap only |
-  | Constrained | ✅ Within threshold & max | ✅ System cap only |
+  | Policy | Community Extension | Admin adjust_storage |
+  |--------|---------------------|----------------------|
+  | Disabled | ❌ Blocked | ✅ Always works |
+  | Constrained | ✅ Within threshold & max + tip | ✅ Always works |

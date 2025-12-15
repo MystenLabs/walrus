@@ -17,8 +17,7 @@ use walrus::{
     managed_blob,
     storage_purchase_policy::{Self, StoragePurchasePolicy},
     storage_resource::Storage,
-    system::{Self, System},
-    tip_policy::{Self, TipPolicy}
+    system::{Self, System}
 };
 
 // === Constants ===
@@ -35,7 +34,7 @@ const EInsufficientBlobManagerCapacity: u64 = 2;
 /// Initial storage capacity is below minimum requirement.
 const EInitialBlobManagerCapacityTooSmall: u64 = 3;
 /// The blob already expired.
-const EBlobAlreadyExpired: u64 = 4;
+const EBlobAlreadyExpired: u64 = 5;
 /// Operation requires fund_manager permission.
 const ERequiresFundManager: u64 = 6;
 /// Conflict: Attempting to register a blob with different deletable flag than existing blob.
@@ -50,6 +49,10 @@ const EInsufficientFunds: u64 = 10;
 const ECapRevoked: u64 = 11;
 /// The capability was not found in the manager's registry.
 const ECapNotFound: u64 = 12;
+/// Cannot decrease storage capacity via adjust_storage.
+const ECannotDecreaseCapacity: u64 = 13;
+/// Cannot decrease storage end_epoch via adjust_storage.
+const ECannotDecreaseEndEpoch: u64 = 14;
 
 // === Main Structures ===
 
@@ -61,9 +64,8 @@ public struct BlobManagerInnerV1 has store {
     /// Coin stash for community funding - embedded directly.
     coin_stash: BlobManagerCoinStash,
     /// Extension policy controlling who can extend storage and under what conditions.
+    /// Also includes tip configuration for community extenders.
     extension_policy: ExtensionPolicy,
-    /// Tip policy controlling how much to tip transaction senders for helping with operations.
-    tip_policy: TipPolicy,
     /// Storage purchase policy controlling how much storage can be purchased.
     storage_purchase_policy: StoragePurchasePolicy,
     /// Maps capability IDs to their info, including revocation status.
@@ -97,13 +99,12 @@ public(package) fun new(
     let mut inner = BlobManagerInnerV1 {
         storage: blob_storage::new_unified_blob_storage(initial_storage, current_epoch, ctx),
         coin_stash: coin_stash::new(),
-        // Default policy: extend within 1 epoch of expiry, max 10 epochs per extension.
+        // Default policy: extend within 2 epochs of expiry, max 5 epochs per extension,
+        // with 1000 MIST tip for community extenders.
         extension_policy: extension_policy::default_constrained(),
-        // Default tip policy: 1000 MIST (0.001 SUI) fixed amount.
-        tip_policy: tip_policy::default_fixed_amount(),
-        // Default storage purchase policy: conditional purchase with 15GB threshold.
+        // Default storage purchase policy: constrained with 15GB threshold and 15GB max.
         // Only allow purchases when available storage < 15GB, max purchase is 15GB.
-        storage_purchase_policy: storage_purchase_policy::default_conditional_purchase(),
+        storage_purchase_policy: storage_purchase_policy::default_constrained(),
         caps_info: table::new(ctx),
     };
 
@@ -233,6 +234,24 @@ public(package) fun certify_blob(
     );
 }
 
+/// Converts a deletable managed blob to permanent.
+/// This is a one-way operation - permanent blobs cannot be made deletable again.
+/// Requires the blob to be deletable.
+public(package) fun make_blob_permanent(
+    self: &mut BlobManagerInnerV1,
+    system: &System,
+    blob_id: u256,
+) {
+    self.verify_storage(system);
+
+    let current_epoch = system::epoch(system);
+    let end_epoch = self.storage.end_epoch();
+    let managed_blob = self.storage.get_mut_blob(blob_id);
+
+    // Call the managed_blob function to make it permanent and emit event.
+    managed_blob.make_permanent(current_epoch, end_epoch);
+}
+
 /// Deletes a managed blob from the BlobManager.
 /// This removes the blob from storage tracking and emits a deletion event.
 /// The blob must be deletable and registered with this BlobManager.
@@ -340,7 +359,7 @@ public(package) fun move_blob_into_manager(
     // Add managed blob to BlobManager.
     self.storage.add_blob(managed_blob);
 
-    // Emit event with deletable field.
+    // Emit event.
     events::emit_blob_moved_into_blob_manager(
         current_epoch,
         blob_id,
@@ -374,21 +393,12 @@ fun purchase_storage_from_stash(
     end_epoch: u32,
     ctx: &mut TxContext,
 ): Storage {
-    // Get current available storage for conditional purchase validation.
+    // Get current available storage for policy validation.
     let capacity_info = storage.capacity_info();
     let available_storage = capacity_info.available();
 
-    // Validate conditional purchase if applicable.
-    storage_purchase_policy::validate_conditional_purchase(
-        storage_purchase_policy,
-        available_storage,
-    );
-
-    // Apply storage purchase policy to cap the amount.
-    let capped_amount = storage_purchase_policy::validate_and_cap_purchase(
-        storage_purchase_policy,
-        amount,
-    );
+    // Validate and cap the purchase amount using the unified policy method.
+    let capped_amount = storage_purchase_policy.validate_purchase(amount, available_storage);
 
     // Get available WAL balance from stash.
     let available_wal = coin_stash.wal_balance();
@@ -530,8 +540,8 @@ fun execute_extension(
     // Apply the extension to the BlobManager's storage.
     self.storage.extend_storage(extension_storage);
 
-    // Get tip coin for the caller.
-    let tip_amount = self.tip_policy.get_tip_amount();
+    // Get tip coin for the caller from extension policy.
+    let tip_amount = self.extension_policy.get_tip_amount();
     let tip_coin = if (tip_amount > 0) {
         self.coin_stash.withdraw_sui_for_tip(tip_amount, ctx)
     } else {
@@ -546,6 +556,109 @@ fun execute_extension(
     );
 
     tip_coin
+}
+
+/// Adjusts storage capacity and/or end_epoch. Requires can_withdraw_funds permission.
+/// Can only increase values, not decrease them.
+/// Uses funds from the coin stash. Bypasses storage_purchase_policy constraints.
+public(package) fun adjust_storage(
+    self: &mut BlobManagerInnerV1,
+    manager_id: ID,
+    system: &mut System,
+    new_capacity: u64,
+    new_end_epoch: u32,
+    ctx: &mut TxContext,
+) {
+    self.verify_storage(system);
+
+    let current_epoch = system::epoch(system);
+    let capacity_info = self.storage.capacity_info();
+    let current_capacity = capacity_info.total();
+    let current_end_epoch = self.storage.end_epoch();
+
+    // Validate: can only increase, not decrease.
+    assert!(new_capacity >= current_capacity, ECannotDecreaseCapacity);
+    assert!(new_end_epoch >= current_end_epoch, ECannotDecreaseEndEpoch);
+
+    // Calculate what we need to purchase.
+    let capacity_increase = new_capacity - current_capacity;
+    let epoch_extension = (new_end_epoch as u64) - (current_end_epoch as u64);
+
+    // Skip if no change needed.
+    if (capacity_increase == 0 && epoch_extension == 0) {
+        return
+    };
+
+    // Get available WAL balance from stash.
+    let available_wal = self.coin_stash.wal_balance();
+    assert!(available_wal > 0, EInsufficientFunds);
+
+    // Withdraw all available funds from stash for payment.
+    let mut payment = self.coin_stash.withdraw_wal_for_storage(available_wal, ctx);
+
+    // Handle the different cases:
+    // 1. Only capacity increase (same end_epoch)
+    // 2. Only epoch extension (same capacity)
+    // 3. Both capacity increase and epoch extension
+
+    if (capacity_increase > 0 && epoch_extension == 0) {
+        // Case 1: Only capacity increase.
+        // Purchase storage from current_epoch to current_end_epoch.
+        let new_storage = system::reserve_space_for_epochs(
+            system,
+            capacity_increase,
+            current_epoch,
+            current_end_epoch,
+            &mut payment,
+            ctx,
+        );
+        self.storage.add_storage(new_storage);
+    } else if (capacity_increase == 0 && epoch_extension > 0) {
+        // Case 2: Only epoch extension.
+        // Purchase extension for existing capacity from current_end_epoch to new_end_epoch.
+        let extension_storage = system::reserve_space_for_epochs(
+            system,
+            current_capacity,
+            current_end_epoch,
+            new_end_epoch,
+            &mut payment,
+            ctx,
+        );
+        self.storage.extend_storage(extension_storage);
+    } else {
+        // Case 3: Both capacity increase and epoch extension.
+        // First, purchase extension for existing capacity.
+        let extension_storage = system::reserve_space_for_epochs(
+            system,
+            current_capacity,
+            current_end_epoch,
+            new_end_epoch,
+            &mut payment,
+            ctx,
+        );
+        self.storage.extend_storage(extension_storage);
+
+        // Then, purchase the capacity increase for the full period.
+        let capacity_storage = system::reserve_space_for_epochs(
+            system,
+            capacity_increase,
+            current_epoch,
+            new_end_epoch,
+            &mut payment,
+            ctx,
+        );
+        self.storage.add_storage(capacity_storage);
+    };
+
+    // Return unused funds to stash.
+    self.coin_stash.deposit_wal(payment);
+
+    // Emit BlobManagerUpdated event.
+    events::emit_blob_manager_updated(
+        current_epoch,
+        manager_id,
+        new_end_epoch,
+    );
 }
 
 // === Fund Manager Functions ===
@@ -580,19 +693,14 @@ public(package) fun set_extension_policy_constrained(
     self: &mut BlobManagerInnerV1,
     expiry_threshold_epochs: u32,
     max_extension_epochs: u32,
+    tip_amount: u64,
 ) {
     self.extension_policy =
         extension_policy::constrained(
             expiry_threshold_epochs,
             max_extension_epochs,
+            tip_amount,
         );
-}
-
-// === Tip Policy Management ===
-
-/// Sets the tip policy to a fixed amount.
-public(package) fun set_tip_policy_fixed_amount(self: &mut BlobManagerInnerV1, tip_amount: u64) {
-    self.tip_policy = tip_policy::new_fixed_amount(tip_amount);
 }
 
 // === Storage Purchase Policy Configuration ===
@@ -602,22 +710,16 @@ public(package) fun set_storage_purchase_policy_unlimited(self: &mut BlobManager
     self.storage_purchase_policy = storage_purchase_policy::unlimited();
 }
 
-/// Sets the storage purchase policy to a fixed cap.
-public(package) fun set_storage_purchase_policy_fixed_cap(
-    self: &mut BlobManagerInnerV1,
-    max_storage_bytes: u64,
-) {
-    self.storage_purchase_policy = storage_purchase_policy::fixed_cap(max_storage_bytes);
-}
-
-/// Sets the storage purchase policy to conditional purchase.
+/// Sets the storage purchase policy to constrained.
 /// Only allows purchases when available storage < threshold_bytes.
-/// Maximum purchase is capped at threshold_bytes.
-public(package) fun set_storage_purchase_policy_conditional(
+/// Maximum purchase is capped at max_purchase_bytes.
+public(package) fun set_storage_purchase_policy_constrained(
     self: &mut BlobManagerInnerV1,
     threshold_bytes: u64,
+    max_purchase_bytes: u64,
 ) {
-    self.storage_purchase_policy = storage_purchase_policy::conditional_purchase(threshold_bytes);
+    self.storage_purchase_policy =
+        storage_purchase_policy::constrained(threshold_bytes, max_purchase_bytes);
 }
 
 // === Blob Attribute Operations ===

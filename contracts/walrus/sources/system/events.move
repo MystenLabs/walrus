@@ -115,6 +115,18 @@ public struct BlobMovedIntoBlobManager has copy, drop {
     deletable: bool, // Whether the blob is deletable
 }
 
+/// Signals that a managed blob has been converted from deletable to permanent.
+/// This is a one-way operation - permanent blobs cannot be made deletable again.
+public struct ManagedBlobMadePermanent has copy, drop {
+    epoch: u32,
+    blob_manager_id: ID,
+    blob_id: u256,
+    /// The object id of the related `ManagedBlob` object.
+    object_id: ID,
+    /// The BlobManager's end_epoch at the time of conversion.
+    end_epoch: u32,
+}
+
 /// Signals that epoch `epoch` has started and the epoch change is in progress.
 public struct EpochChangeStart has copy, drop {
     epoch: u32,
@@ -332,6 +344,22 @@ public(package) fun emit_blob_manager_created(epoch: u32, blob_manager_id: ID, e
     event::emit(BlobManagerCreated {
         epoch,
         blob_manager_id,
+        end_epoch,
+    });
+}
+
+public(package) fun emit_managed_blob_made_permanent(
+    epoch: u32,
+    blob_manager_id: ID,
+    blob_id: u256,
+    object_id: ID,
+    end_epoch: u32,
+) {
+    event::emit(ManagedBlobMadePermanent {
+        epoch,
+        blob_manager_id,
+        blob_id,
+        object_id,
         end_epoch,
     });
 }

@@ -274,6 +274,7 @@ impl TelemetryLabel for BlobEvent {
             BlobEvent::ManagedBlobRegistered(_) => "managed-registered",
             BlobEvent::ManagedBlobCertified(_) => "managed-certified",
             BlobEvent::ManagedBlobDeleted(_) => "managed-deleted",
+            BlobEvent::ManagedBlobMadePermanent(_) => "managed-made-permanent",
             BlobEvent::BlobMovedIntoBlobManager(_) => "blob-moved-into-manager",
         }
     }

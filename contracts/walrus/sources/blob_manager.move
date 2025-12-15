@@ -26,10 +26,10 @@ const VERSION: u64 = 1;
 
 /// The provided BlobManagerCap does not match the BlobManager.
 const EInvalidBlobManagerCap: u64 = 0;
-/// Operation requires Admin capability.
-const ERequiresAdminCap: u64 = 5;
-/// Operation requires fund_manager permission.
-const ERequiresFundManager: u64 = 6;
+/// Operation requires delegate capability.
+const ERequiresDelegateCap: u64 = 5;
+/// Operation requires can_withdraw_funds permission.
+const ERequiresWithdrawFunds: u64 = 6;
 /// The package version is not compatible with the BlobManager object.
 const EWrongVersion: u64 = 13;
 
@@ -43,16 +43,16 @@ public struct BlobManager has key, store {
 }
 
 /// A capability which represents the authority to manage blobs in the BlobManager.
-/// Admin can create new capabilities and perform all operations.
-/// Fund manager can withdraw funds from the coin stash.
+/// Delegate capability can create new capabilities and perform all operations.
+/// Withdraw funds capability can withdraw funds from the coin stash.
 public struct BlobManagerCap has key, store {
     id: UID,
     /// The BlobManager this capability is for.
     manager_id: ID,
-    /// Whether this capability has admin permissions (can create new caps).
-    is_admin: bool,
-    /// Whether this capability has fund manager permissions (can withdraw funds).
-    fund_manager: bool,
+    /// Whether this capability can delegate (create new caps).
+    can_delegate: bool,
+    /// Whether this capability can withdraw funds from the coin stash.
+    can_withdraw_funds: bool,
 }
 
 // === Internal Accessors ===
@@ -101,12 +101,12 @@ public fun new_with_unified_storage(
     // Get the ObjectID from the constructed manager object.
     let manager_object_id = object::id(&manager);
 
-    // Create an Admin capability with fund_manager permissions.
+    // Create a capability with full permissions.
     let cap = BlobManagerCap {
         id: object::new(ctx),
         manager_id: manager_object_id,
-        is_admin: true,
-        fund_manager: true,
+        can_delegate: true,
+        can_withdraw_funds: true,
     };
 
     // Register the initial admin cap in the inner's caps_info.
@@ -129,30 +129,31 @@ public fun new_with_unified_storage(
 // === Capability Operations ===
 
 /// Creates a new capability for the BlobManager.
-/// Only Admin capability can create new capabilities.
-/// If the creating cap has fund_manager = true, they can create new caps with fund_manager = true.
+/// Only delegate capability can create new capabilities.
+/// If the creating cap has can_withdraw_funds = true, they can create new caps with
+/// can_withdraw_funds = true.
 /// Returns the newly created capability (caller/PTB handles transfer).
 public fun create_cap(
     self: &mut BlobManager,
     cap: &BlobManagerCap,
-    is_admin: bool,
-    fund_manager: bool,
+    can_delegate: bool,
+    can_withdraw_funds: bool,
     ctx: &mut TxContext,
 ): BlobManagerCap {
     // Verify the capability matches this BlobManager.
     check_cap(self, cap);
 
-    // Ensure the caller has Admin capability.
-    ensure_admin(cap);
+    // Ensure the caller has delegate capability.
+    ensure_can_delegate(cap);
 
-    // Only caps with fund_manager = true can create new fund_manager caps.
-    assert!(!fund_manager || cap.fund_manager, ERequiresFundManager);
+    // Only caps with can_withdraw_funds = true can create new can_withdraw_funds caps.
+    assert!(!can_withdraw_funds || cap.can_withdraw_funds, ERequiresWithdrawFunds);
 
     let new_cap = BlobManagerCap {
         id: object::new(ctx),
         manager_id: object::id(self),
-        is_admin,
-        fund_manager,
+        can_delegate,
+        can_withdraw_funds,
     };
 
     // Register the new cap in inner's caps_info.
@@ -162,17 +163,22 @@ public fun create_cap(
 }
 
 /// Revokes a capability, preventing it from being used for any future operations.
-/// Only an admin can revoke a capability.
-public fun revoke_cap(self: &mut BlobManager, admin_cap: &BlobManagerCap, cap_to_revoke_id: ID) {
-    check_cap(self, admin_cap);
-    ensure_admin(admin_cap);
+/// Only a delegate cap can revoke a capability.
+public fun revoke_cap(self: &mut BlobManager, delegate_cap: &BlobManagerCap, cap_to_revoke_id: ID) {
+    check_cap(self, delegate_cap);
+    ensure_can_delegate(delegate_cap);
 
     self.inner_mut().revoke_cap(cap_to_revoke_id);
 }
 
-/// Checks if the capability is an Admin capability.
-public fun is_admin_cap(cap: &BlobManagerCap): bool {
-    cap.is_admin
+/// Checks if the capability can delegate (create new caps).
+public fun can_delegate(cap: &BlobManagerCap): bool {
+    cap.can_delegate
+}
+
+/// Checks if the capability can withdraw funds from the coin stash.
+public fun can_withdraw_funds(cap: &BlobManagerCap): bool {
+    cap.can_withdraw_funds
 }
 
 /// Checks that the given BlobManagerCap matches the BlobManager and is not revoked.
@@ -181,9 +187,9 @@ fun check_cap(self: &BlobManager, cap: &BlobManagerCap) {
     self.inner().check_cap_valid(object::id(cap));
 }
 
-/// Ensures the capability is an Admin capability.
-fun ensure_admin(cap: &BlobManagerCap) {
-    assert!(cap.is_admin_cap(), ERequiresAdminCap);
+/// Ensures the capability can delegate.
+fun ensure_can_delegate(cap: &BlobManagerCap) {
+    assert!(cap.can_delegate(), ERequiresDelegateCap);
 }
 
 // === Core Operations ===
@@ -254,6 +260,21 @@ public fun certify_blob(
             signers_bitmap,
             message,
         );
+}
+
+/// Converts a deletable managed blob to permanent.
+/// This is a one-way operation - permanent blobs cannot be made deletable again.
+/// Requires a valid BlobManagerCap to prove write access.
+/// Requires the blob to be deletable.
+public fun make_blob_permanent(
+    self: &mut BlobManager,
+    cap: &BlobManagerCap,
+    system: &System,
+    blob_id: u256,
+) {
+    check_cap(self, cap);
+
+    self.inner_mut().make_blob_permanent(system, blob_id);
 }
 
 /// Deletes a managed blob from the BlobManager.
@@ -336,7 +357,7 @@ public fun extend_storage_from_stash(
 // === Fund Manager Functions ===
 
 /// Withdraws a specific amount of WAL funds from the coin stash.
-/// Requires fund_manager permission.
+/// Requires can_withdraw_funds permission.
 public fun withdraw_wal(
     self: &mut BlobManager,
     cap: &BlobManagerCap,
@@ -344,13 +365,13 @@ public fun withdraw_wal(
     ctx: &mut TxContext,
 ): Coin<WAL> {
     check_cap(self, cap);
-    assert!(cap.fund_manager, ERequiresFundManager);
+    assert!(cap.can_withdraw_funds, ERequiresWithdrawFunds);
 
     self.inner_mut().withdraw_wal(amount, ctx)
 }
 
 /// Withdraws a specific amount of SUI funds from the coin stash.
-/// Requires fund_manager permission.
+/// Requires can_withdraw_funds permission.
 public fun withdraw_sui(
     self: &mut BlobManager,
     cap: &BlobManagerCap,
@@ -358,88 +379,85 @@ public fun withdraw_sui(
     ctx: &mut TxContext,
 ): Coin<SUI> {
     check_cap(self, cap);
-    assert!(cap.fund_manager, ERequiresFundManager);
+    assert!(cap.can_withdraw_funds, ERequiresWithdrawFunds);
 
     self.inner_mut().withdraw_sui(amount, ctx)
 }
 
 /// Sets the extension policy to disabled (no one can extend).
-/// Requires fund_manager permission.
+/// Requires can_withdraw_funds permission.
 public fun set_extension_policy_disabled(self: &mut BlobManager, cap: &BlobManagerCap) {
     check_cap(self, cap);
-    assert!(cap.fund_manager, ERequiresFundManager);
+    assert!(cap.can_withdraw_funds, ERequiresWithdrawFunds);
 
     self.inner_mut().set_extension_policy_disabled();
 }
 
 /// Sets the extension policy to constrained with the given parameters.
-/// Requires fund_manager permission.
+/// Requires can_withdraw_funds permission.
 public fun set_extension_policy_constrained(
     self: &mut BlobManager,
     cap: &BlobManagerCap,
     expiry_threshold_epochs: u32,
     max_extension_epochs: u32,
-) {
-    check_cap(self, cap);
-    assert!(cap.fund_manager, ERequiresFundManager);
-
-    self
-        .inner_mut()
-        .set_extension_policy_constrained(expiry_threshold_epochs, max_extension_epochs);
-}
-
-// === Tip Policy Management ===
-
-/// Sets the tip policy to a fixed amount.
-/// Requires fund_manager permission.
-public fun set_tip_policy_fixed_amount(
-    self: &mut BlobManager,
-    cap: &BlobManagerCap,
     tip_amount: u64,
 ) {
     check_cap(self, cap);
-    assert!(cap.fund_manager, ERequiresFundManager);
+    assert!(cap.can_withdraw_funds, ERequiresWithdrawFunds);
 
-    self.inner_mut().set_tip_policy_fixed_amount(tip_amount);
+    self
+        .inner_mut()
+        .set_extension_policy_constrained(
+            expiry_threshold_epochs,
+            max_extension_epochs,
+            tip_amount,
+        );
+}
+
+/// Adjusts storage capacity and/or end_epoch.
+/// Requires can_withdraw_funds permission.
+/// Can only increase values, not decrease them.
+/// Uses funds from the coin stash - bypasses storage_purchase_policy.
+public fun adjust_storage(
+    self: &mut BlobManager,
+    cap: &BlobManagerCap,
+    system: &mut System,
+    new_capacity: u64,
+    new_end_epoch: u32,
+    ctx: &mut TxContext,
+) {
+    check_cap(self, cap);
+    assert!(cap.can_withdraw_funds, ERequiresWithdrawFunds);
+
+    let manager_id = object::id(self);
+    self.inner_mut().adjust_storage(manager_id, system, new_capacity, new_end_epoch, ctx);
 }
 
 // === Storage Purchase Policy Configuration ===
 
 /// Sets the storage purchase policy to unlimited (no restrictions).
-/// Requires fund_manager permission.
+/// Requires can_withdraw_funds permission.
 public fun set_storage_purchase_policy_unlimited(self: &mut BlobManager, cap: &BlobManagerCap) {
     check_cap(self, cap);
-    assert!(cap.fund_manager, ERequiresFundManager);
+    assert!(cap.can_withdraw_funds, ERequiresWithdrawFunds);
 
     self.inner_mut().set_storage_purchase_policy_unlimited();
 }
 
-/// Sets the storage purchase policy to a fixed cap.
-/// Requires fund_manager permission.
-public fun set_storage_purchase_policy_fixed_cap(
-    self: &mut BlobManager,
-    cap: &BlobManagerCap,
-    max_storage_bytes: u64,
-) {
-    check_cap(self, cap);
-    assert!(cap.fund_manager, ERequiresFundManager);
-
-    self.inner_mut().set_storage_purchase_policy_fixed_cap(max_storage_bytes);
-}
-
-/// Sets the storage purchase policy to conditional purchase.
+/// Sets the storage purchase policy to constrained.
 /// Only allows purchases when available storage < threshold_bytes.
-/// Maximum purchase is capped at threshold_bytes.
-/// Requires fund_manager permission.
-public fun set_storage_purchase_policy_conditional(
+/// Maximum purchase is capped at max_purchase_bytes.
+/// Requires can_withdraw_funds permission.
+public fun set_storage_purchase_policy_constrained(
     self: &mut BlobManager,
     cap: &BlobManagerCap,
     threshold_bytes: u64,
+    max_purchase_bytes: u64,
 ) {
     check_cap(self, cap);
-    assert!(cap.fund_manager, ERequiresFundManager);
+    assert!(cap.can_withdraw_funds, ERequiresWithdrawFunds);
 
-    self.inner_mut().set_storage_purchase_policy_conditional(threshold_bytes);
+    self.inner_mut().set_storage_purchase_policy_constrained(threshold_bytes, max_purchase_bytes);
 }
 
 // === Blob Attribute Operations ===

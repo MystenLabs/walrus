@@ -24,6 +24,8 @@ public enum ExtensionPolicy has copy, drop, store {
         expiry_threshold_epochs: u32,
         /// Maximum epochs that can be extended in a single call.
         max_extension_epochs: u32,
+        /// Tip amount in MIST to reward the transaction sender who executes the extension.
+        tip_amount: u64,
     },
 }
 
@@ -34,22 +36,29 @@ public(package) fun disabled(): ExtensionPolicy {
     ExtensionPolicy::Disabled
 }
 
-/// Creates a constrained policy with the given thresholds.
+/// Creates a constrained policy with the given thresholds and tip amount.
 public(package) fun constrained(
     expiry_threshold_epochs: u32,
     max_extension_epochs: u32,
+    tip_amount: u64,
 ): ExtensionPolicy {
     ExtensionPolicy::Constrained {
         expiry_threshold_epochs,
         max_extension_epochs,
+        tip_amount,
     }
 }
 
-/// Creates a constrained policy with the given thresholds.
+/// Default tip amount: 1000 MIST (0.001 SUI).
+const DEFAULT_TIP_AMOUNT_MIST: u64 = 1000;
+
+/// Creates a constrained policy with default thresholds and tip amount.
+/// Default: expiry_threshold=2, max_extension=5, tip=1000 MIST.
 public(package) fun default_constrained(): ExtensionPolicy {
     ExtensionPolicy::Constrained {
         expiry_threshold_epochs: 2,
         max_extension_epochs: 5,
+        tip_amount: DEFAULT_TIP_AMOUNT_MIST,
     }
 }
 
@@ -75,7 +84,7 @@ public(package) fun validate_and_compute_end_epoch(
             // Extension is disabled.
             abort EExtensionDisabled
         },
-        ExtensionPolicy::Constrained { expiry_threshold_epochs, max_extension_epochs } => {
+        ExtensionPolicy::Constrained { expiry_threshold_epochs, max_extension_epochs, .. } => {
             // Check time threshold.
             let threshold_epoch = if (storage_end_epoch > *expiry_threshold_epochs) {
                 storage_end_epoch - *expiry_threshold_epochs
@@ -106,6 +115,17 @@ public(package) fun validate_and_compute_end_epoch(
     }
 }
 
+// === Accessors ===
+
+/// Gets the tip amount from the policy.
+/// Returns 0 if the policy is Disabled.
+public fun get_tip_amount(policy: &ExtensionPolicy): u64 {
+    match (policy) {
+        ExtensionPolicy::Disabled => 0,
+        ExtensionPolicy::Constrained { tip_amount, .. } => *tip_amount,
+    }
+}
+
 // === Tests ===
 
 #[test]
@@ -116,8 +136,9 @@ fun test_disabled_policy_creation() {
 
 #[test]
 fun test_constrained_policy_creation() {
-    let _policy = constrained(1, 5);
+    let policy = constrained(1, 5, 1000);
     // Policy created successfully.
+    assert!(get_tip_amount(&policy) == 1000);
 }
 
 #[test, expected_failure(abort_code = EExtensionDisabled)]
@@ -128,14 +149,14 @@ fun test_disabled_policy_aborts() {
 
 #[test, expected_failure(abort_code = EExtensionTooEarly)]
 fun test_constrained_too_early_aborts() {
-    let policy = constrained(1, 5);
+    let policy = constrained(1, 5, 1000);
     // Threshold is 99, current is 98 - too early.
     validate_and_compute_end_epoch(&policy, 98, 100, 5, 52);
 }
 
 #[test]
 fun test_constrained_at_threshold() {
-    let policy = constrained(1, 5);
+    let policy = constrained(1, 5, 1000);
     // Threshold is 99, current is 99 - allowed.
     // end=100, extension=5, new_end=105.
     let result = validate_and_compute_end_epoch(&policy, 99, 100, 5, 52);
@@ -144,7 +165,7 @@ fun test_constrained_at_threshold() {
 
 #[test]
 fun test_constrained_caps_to_policy_max() {
-    let policy = constrained(1, 5);
+    let policy = constrained(1, 5, 1000);
     // Requesting 10, but policy max is 5.
     // end=100, capped_extension=5, new_end=105.
     let result = validate_and_compute_end_epoch(&policy, 99, 100, 10, 52);
@@ -155,7 +176,7 @@ fun test_constrained_caps_to_policy_max() {
 fun test_constrained_caps_to_system_max() {
     // Policy: extend only within 1 epoch of expiry, max 100 epochs.
     // Using high policy max to test system cap.
-    let policy = constrained(1, 100);
+    let policy = constrained(1, 100, 1000);
 
     // current=99, end=100, threshold=99, within window (99 >= 99).
     // requested=100, policy_capped=100, new_end=200.
@@ -170,10 +191,25 @@ fun test_constrained_caps_to_system_max() {
     assert!(result2 == 202);
 
     // Test with smaller policy max.
-    let policy2 = constrained(1, 10);
+    let policy2 = constrained(1, 10, 1000);
     // current=99, end=100, threshold=99, within window.
     // requested=100, policy_capped=10, new_end=110.
     // system_max_end=151, so new_end=110 (no system cap needed).
     let result3 = validate_and_compute_end_epoch(&policy2, 99, 100, 100, 52);
     assert!(result3 == 110);
+}
+
+#[test]
+fun test_get_tip_amount() {
+    // Disabled policy returns 0.
+    let disabled_policy = disabled();
+    assert!(get_tip_amount(&disabled_policy) == 0);
+
+    // Constrained policy returns the tip amount.
+    let constrained_policy = constrained(1, 5, 2000);
+    assert!(get_tip_amount(&constrained_policy) == 2000);
+
+    // Default constrained policy returns default tip.
+    let default_policy = default_constrained();
+    assert!(get_tip_amount(&default_policy) == DEFAULT_TIP_AMOUNT_MIST);
 }

@@ -88,14 +88,14 @@ impl BlobManagerData {
         self.blobs_table_id
     }
 
-    /// Returns true if the capability has admin permissions.
-    pub fn is_admin(&self) -> bool {
-        self.cap.is_admin
+    /// Returns true if the capability can delegate (create new caps).
+    pub fn can_delegate(&self) -> bool {
+        self.cap.can_delegate
     }
 
-    /// Returns true if the capability has fund manager permissions.
-    pub fn is_fund_manager(&self) -> bool {
-        self.cap.fund_manager
+    /// Returns true if the capability can withdraw funds from the coin stash.
+    pub fn can_withdraw_funds(&self) -> bool {
+        self.cap.can_withdraw_funds
     }
 
     /// Creates BlobManagerData by fetching the cap and table ID from the chain.
@@ -245,14 +245,14 @@ impl<'a> BlobManagerClient<'a, SuiContractClient> {
         &self.data
     }
 
-    /// Returns true if this client has admin permissions.
-    pub fn is_admin(&self) -> bool {
-        self.data.is_admin()
+    /// Returns true if this client can delegate (create new caps).
+    pub fn can_delegate(&self) -> bool {
+        self.data.can_delegate()
     }
 
-    /// Returns true if this client has fund manager permissions.
-    pub fn is_fund_manager(&self) -> bool {
-        self.data.is_fund_manager()
+    /// Returns true if this client can withdraw funds from the coin stash.
+    pub fn can_withdraw_funds(&self) -> bool {
+        self.data.can_withdraw_funds()
     }
 
     /// Fetches BlobManager info including storage and coin stash balances.
@@ -568,6 +568,41 @@ impl BlobManagerClient<'_, SuiContractClient> {
         Ok(())
     }
 
+    /// Converts a deletable managed blob to permanent.
+    ///
+    /// This is a one-way operation - permanent blobs cannot be made deletable again.
+    /// The blob must be currently deletable and registered in this BlobManager.
+    ///
+    /// # Arguments
+    /// * `blob_id` - The ID of the blob to convert to permanent.
+    ///
+    /// # Errors
+    /// Returns an error if:
+    /// - The blob is already permanent.
+    /// - The blob is not registered in this BlobManager.
+    /// - The transaction fails.
+    pub async fn make_blob_permanent(&self, blob_id: BlobId) -> ClientResult<()> {
+        tracing::info!(
+            "BlobManager make_blob_permanent: manager_id={:?}, manager_cap={:?}, blob_id={}",
+            self.data.manager_id(),
+            self.data.cap_id(),
+            blob_id
+        );
+
+        // Call the Sui contract to convert the blob to permanent.
+        // The contract will handle all validation:
+        // - Check if the blob exists
+        // - Verify it's currently deletable
+        // - Ensure it belongs to this BlobManager
+        self.client
+            .sui_client()
+            .make_managed_blob_permanent(self.data.manager_id(), self.data.cap_id(), blob_id)
+            .await
+            .map_err(crate::error::ClientError::from)?;
+
+        Ok(())
+    }
+
     // ===== Coin Stash Management Methods =====
 
     /// Deposits WAL tokens to the BlobManager's coin stash.
@@ -663,7 +698,7 @@ impl BlobManagerClient<'_, SuiContractClient> {
 
     /// Withdraws a specific amount of WAL funds from the coin stash.
     ///
-    /// This method can only be called by someone with a fund_manager or admin capability.
+    /// This method can only be called by someone with a can_withdraw_funds capability.
     /// It withdraws the specified amount of WAL tokens from the coin stash.
     ///
     /// # Arguments
@@ -674,7 +709,7 @@ impl BlobManagerClient<'_, SuiContractClient> {
     ///
     /// * `Ok(())` if the withdrawal was successful.
     /// * `Err(ClientError)` if:
-    ///   - The caller doesn't have fund_manager or admin permission.
+    ///   - The caller doesn't have can_withdraw_funds permission.
     ///   - The amount exceeds the available balance.
     ///   - The transaction fails.
     pub async fn withdraw_wal(&self, amount: u64) -> ClientResult<()> {
@@ -696,7 +731,7 @@ impl BlobManagerClient<'_, SuiContractClient> {
 
     /// Withdraws a specific amount of SUI funds from the coin stash.
     ///
-    /// This method can only be called by someone with a fund_manager or admin capability.
+    /// This method can only be called by someone with a can_withdraw_funds capability.
     /// It withdraws the specified amount of SUI tokens from the coin stash.
     ///
     /// # Arguments
@@ -707,7 +742,7 @@ impl BlobManagerClient<'_, SuiContractClient> {
     ///
     /// * `Ok(())` if the withdrawal was successful.
     /// * `Err(ClientError)` if:
-    ///   - The caller doesn't have fund_manager or admin permission.
+    ///   - The caller doesn't have can_withdraw_funds permission.
     ///   - The amount exceeds the available balance.
     ///   - The transaction fails.
     pub async fn withdraw_sui(&self, amount: u64) -> ClientResult<()> {
@@ -732,13 +767,13 @@ impl BlobManagerClient<'_, SuiContractClient> {
     /// Sets the extension policy to disabled.
     ///
     /// When disabled, no one can extend storage. All extension attempts will be rejected.
-    /// This method requires a capability with fund_manager permission.
+    /// This method requires a capability with can_withdraw_funds permission.
     ///
     /// # Returns
     ///
     /// * `Ok(())` if the policy was successfully set.
     /// * `Err(ClientError)` if:
-    ///   - The caller doesn't have fund_manager permission.
+    ///   - The caller doesn't have can_withdraw_funds permission.
     ///   - The transaction fails.
     pub async fn set_extension_policy_disabled(&self) -> ClientResult<()> {
         tracing::info!(
@@ -762,7 +797,7 @@ impl BlobManagerClient<'_, SuiContractClient> {
     /// - Time constraint: Extension only allowed when within `expiry_threshold_epochs` of expiry.
     /// - Amount constraint: Maximum epochs capped at `max_extension_epochs`.
     ///
-    /// This method requires a capability with fund_manager permission.
+    /// This method requires a capability with can_withdraw_funds permission.
     ///
     /// # Arguments
     ///
@@ -773,20 +808,22 @@ impl BlobManagerClient<'_, SuiContractClient> {
     ///
     /// * `Ok(())` if the policy was successfully set.
     /// * `Err(ClientError)` if:
-    ///   - The caller doesn't have fund_manager permission.
+    ///   - The caller doesn't have can_withdraw_funds permission.
     ///   - The transaction fails.
     pub async fn set_extension_policy_constrained(
         &self,
         expiry_threshold_epochs: u32,
         max_extension_epochs: u32,
+        tip_amount: u64,
     ) -> ClientResult<()> {
         tracing::info!(
             "BlobManager set_extension_policy_constrained: manager_id={:?}, cap={:?}, \
-            expiry_threshold={}, max_extension={}",
+            expiry_threshold={}, max_extension={}, tip_amount={}",
             self.data.manager_id(),
             self.data.cap_id(),
             expiry_threshold_epochs,
-            max_extension_epochs
+            max_extension_epochs,
+            tip_amount
         );
 
         self.client
@@ -796,6 +833,7 @@ impl BlobManagerClient<'_, SuiContractClient> {
                 self.data.cap_id(),
                 expiry_threshold_epochs,
                 max_extension_epochs,
+                tip_amount,
             )
             .await
             .map_err(crate::error::ClientError::from)?;
@@ -803,35 +841,46 @@ impl BlobManagerClient<'_, SuiContractClient> {
         Ok(())
     }
 
-    /// Set a fixed tip amount for transaction senders.
+    /// Adjusts storage capacity and/or end_epoch.
     ///
-    /// Sets the amount of SUI (in MIST) that will be tipped to users who help
-    /// execute storage operations like extensions. Tips are paid from the
-    /// BlobManager's coin stash.
+    /// This method allows admins to increase the BlobManager's storage capacity
+    /// and/or extend the storage duration. It bypasses the storage_purchase_policy
+    /// constraints, providing unlimited control to authorized users.
     ///
-    /// This method requires a capability with fund_manager permission.
+    /// This method requires a capability with can_withdraw_funds permission.
     ///
     /// # Arguments
     ///
-    /// * `tip_amount` - The tip amount in MIST (1 SUI = 1,000,000,000 MIST).
+    /// * `new_capacity` - The target total capacity in bytes. Must be >= current capacity.
+    /// * `new_end_epoch` - The target end epoch. Must be >= current end_epoch.
     ///
     /// # Returns
     ///
-    /// * `Ok(())` if the policy was successfully set.
+    /// * `Ok(())` if storage was successfully adjusted.
     /// * `Err(ClientError)` if:
-    ///   - The caller doesn't have fund_manager permission.
+    ///   - The caller doesn't have can_withdraw_funds permission.
+    ///   - new_capacity is less than current capacity.
+    ///   - new_end_epoch is less than current end_epoch.
+    ///   - Insufficient funds in coin stash.
     ///   - The transaction fails.
-    pub async fn set_tip_policy_fixed_amount(&self, tip_amount: u64) -> ClientResult<()> {
+    pub async fn adjust_storage(&self, new_capacity: u64, new_end_epoch: u32) -> ClientResult<()> {
         tracing::info!(
-            "BlobManager set_tip_policy_fixed_amount: manager_id={:?}, cap={:?}, tip_amount={}",
+            "BlobManager adjust_storage: manager_id={:?}, cap={:?}, new_capacity={}, \
+            new_end_epoch={}",
             self.data.manager_id(),
             self.data.cap_id(),
-            tip_amount
+            new_capacity,
+            new_end_epoch
         );
 
         self.client
             .sui_client()
-            .set_tip_policy_fixed_amount(self.data.manager_id(), self.data.cap_id(), tip_amount)
+            .adjust_storage(
+                self.data.manager_id(),
+                self.data.cap_id(),
+                new_capacity,
+                new_end_epoch,
+            )
             .await
             .map_err(crate::error::ClientError::from)?;
 
@@ -842,29 +891,36 @@ impl BlobManagerClient<'_, SuiContractClient> {
 
     /// Creates a new capability for this BlobManager.
     ///
-    /// Only accounts with admin capabilities can create new capabilities.
+    /// Only accounts with can_delegate capability can create new capabilities.
     /// The new capability will be transferred to the transaction sender.
     ///
     /// # Arguments
     ///
-    /// * `is_admin` - Whether the new capability should have admin permissions.
-    /// * `fund_manager` - Whether the new capability should have fund manager permissions.
-    ///   Note: Only capabilities with fund_manager permission can create new fund_manager caps.
+    /// * `can_delegate` - Whether the new capability can delegate (create new caps).
+    /// * `can_withdraw_funds` - Whether the new capability can withdraw funds.
+    ///   Note: Only capabilities with can_withdraw_funds permission can create new
+    ///   can_withdraw_funds caps.
     ///
     /// # Returns
     ///
     /// * `Ok(ObjectID)` - The ObjectID of the newly created capability.
     /// * `Err(ClientError)` if:
-    ///   - The caller doesn't have admin permission.
-    ///   - The caller doesn't have fund_manager permission but tries to create a fund_manager cap.
+    ///   - The caller doesn't have can_delegate permission.
+    ///   - The caller doesn't have can_withdraw_funds permission but tries to create a
+    ///     can_withdraw_funds cap.
     ///   - The transaction fails.
-    pub async fn create_cap(&self, is_admin: bool, fund_manager: bool) -> ClientResult<ObjectID> {
+    pub async fn create_cap(
+        &self,
+        can_delegate: bool,
+        can_withdraw_funds: bool,
+    ) -> ClientResult<ObjectID> {
         tracing::info!(
-            "BlobManager create_cap: manager_id={:?}, cap={:?}, is_admin={}, fund_manager={}",
+            "BlobManager create_cap: manager_id={:?}, cap={:?}, can_delegate={}, \
+            can_withdraw_funds={}",
             self.data.manager_id(),
             self.data.cap_id(),
-            is_admin,
-            fund_manager
+            can_delegate,
+            can_withdraw_funds
         );
 
         let new_cap_id = self
@@ -873,8 +929,8 @@ impl BlobManagerClient<'_, SuiContractClient> {
             .create_blob_manager_cap(
                 self.data.manager_id(),
                 self.data.cap_id(),
-                is_admin,
-                fund_manager,
+                can_delegate,
+                can_withdraw_funds,
             )
             .await
             .map_err(crate::error::ClientError::from)?;

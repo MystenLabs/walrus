@@ -1171,15 +1171,13 @@ pub struct TipPolicy {
 pub enum StoragePurchasePolicy {
     /// No limit on storage purchases.
     Unlimited,
-    /// Fixed cap on total storage.
-    FixedCap {
-        /// Maximum storage size in bytes that can be purchased.
-        max_storage_bytes: u64,
-    },
-    /// Conditional purchase based on available storage threshold.
-    ConditionalPurchase {
+    /// Constrained purchase: only allows purchases when available storage < threshold.
+    /// Maximum purchase is capped at max_purchase_bytes.
+    Constrained {
         /// Only allow purchases when available storage < threshold.
         threshold_bytes: u64,
+        /// Maximum storage size in bytes that can be purchased.
+        max_purchase_bytes: u64,
     },
 }
 
@@ -1240,10 +1238,10 @@ pub struct BlobManagerCap {
     /// The ID of the BlobManager this capability controls.
     #[cfg_attr(feature = "utoipa", schema(schema_with = object_id_schema))]
     pub manager_id: ObjectID,
-    /// Whether this capability has admin permissions.
-    pub is_admin: bool,
-    /// Whether this capability has fund manager permissions.
-    pub fund_manager: bool,
+    /// Whether this capability can delegate (create new caps).
+    pub can_delegate: bool,
+    /// Whether this capability can withdraw funds from the coin stash.
+    pub can_withdraw_funds: bool,
 }
 
 impl AssociatedContractStruct for BlobManagerCap {
