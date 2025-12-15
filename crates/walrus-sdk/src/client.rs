@@ -1593,7 +1593,7 @@ impl<T> WalrusNodeClient<T> {
         tail_handling: TailHandling,
         quorum_forwarder: Option<tokio::sync::mpsc::Sender<UploaderEvent>>,
         tail_handle_collector: Option<Arc<tokio::sync::Mutex<Vec<tokio::task::JoinHandle<()>>>>>,
-        target_nodes: Option<&[NodeIndex]>,
+        target_nodes: Option<(Epoch, &[NodeIndex])>,
         initial_completed_weight: Option<&HashMap<BlobId, usize>>,
     ) -> ClientResult<ConfirmationCertificate> {
         tracing::info!(blob_id = %metadata.blob_id(), "starting to send data to storage nodes");
@@ -1727,7 +1727,7 @@ impl<T> WalrusNodeClient<T> {
         blobs: &[(VerifiedBlobMetadataWithId, Arc<Vec<SliverPair>>)],
         event_sender: tokio::sync::mpsc::Sender<UploaderEvent>,
         tail_handling: TailHandling,
-        target_nodes: Option<&[NodeIndex]>,
+        target_nodes: Option<(Epoch, &[NodeIndex])>,
         upload_intent: UploadIntent,
         initial_completed_weight: Option<&HashMap<BlobId, usize>>,
         cancellation: Option<CancellationToken>,
@@ -1796,7 +1796,7 @@ impl<T> WalrusNodeClient<T> {
                     let mut stored = Vec::with_capacity(work.len());
                     for item in &work {
                         let response = node
-                            .store_metadata_and_pairs_without_confirmation_with_intent(
+                            .store_metadata_and_pairs_without_confirmation(
                                 &item.metadata,
                                 item.pair_indices.iter().map(|&i| &item.pairs[i]),
                                 upload_intent,
@@ -1843,11 +1843,16 @@ impl<T> WalrusNodeClient<T> {
         store_args: &StoreArgs,
     ) -> ClientResult<ConfirmationCertificate> {
         let blobs = vec![(metadata.clone(), pairs.clone())];
-        let target_nodes = store_args
+        let target_nodes = if let Some(failed) = store_args
             .initial_failed_nodes
             .as_ref()
             .and_then(|m| m.get(metadata.blob_id()))
-            .map(|v| v.as_slice());
+        {
+            let target_epoch = self.get_committees().await?.epoch();
+            Some((target_epoch, failed.as_slice()))
+        } else {
+            None
+        };
 
         let upload_result = self
             .send_blob_data_and_get_certificate(
@@ -1949,7 +1954,7 @@ impl<T> WalrusNodeClient<T> {
                         blobs,
                         tx,
                         store_args.tail_handling,
-                        Some(&missing_nodes),
+                        Some((certified_epoch, &missing_nodes)),
                         UploadIntent::Immediate,
                         initial_weight.as_ref(),
                         None,

@@ -225,7 +225,6 @@ impl DistributedUploader {
 
         let mut blobs_at_quorum = self.progress.values().filter(|p| p.quorum_reached).count();
         let mut results: Vec<NodeResult<R, E>> = Vec::new();
-        let mut cancelled = false;
 
         while blobs_at_quorum < self.progress.len() {
             tokio::select! {
