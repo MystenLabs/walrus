@@ -20,13 +20,13 @@ An [erasure code](https://en.wikipedia.org/wiki/Erasure_code) transforms data by
 
 This process allows Walrus encoding to be:
 
-- **Highly efficient:** Walrus can resconstruct a blob from just one-third of the encoded symbols.
+- **Highly efficient:** Walrus can reconstruct a blob from just one-third of the encoded symbols.
 - **Systematic:** Some storage nodes hold part of the original blob, enabling fast random-access reads.
 - **Deterministic:** All encoding and decoding operations follow fixed algorithms with no discretion.
 
 For each blob, multiple symbols are combined into a **sliver**, which is then assigned to a shard. Storage nodes manage one or more shards, and the corresponding slivers of each blob are distributed to all storage shards.
 
-This detailed encoding setup results in an expansion of the blob size by a factor of \(4.5 \sim 5\). This is independent of the number of shards and the number of storage nodes.
+This detailed encoding setup results in an expansion of the blob size by a factor of 4.5-5. This is independent of the number of shards and the number of storage nodes.
 
 ## Blob authentication
 
@@ -63,7 +63,7 @@ Honest storage nodes that are assigned an incorrect sliver, or one with an incor
 **Incorrect hash computation:**
 - Generally detected before or shortly after certification using the process above.
 
-**Incorrect blob ID computation**:
+**Incorrect blob ID computation:**
 - Detected immediately when the client uploads metadata.
 - Storage nodes reject these blobs and never issue storage certificates.
 - Such blobs are never certified.
@@ -72,11 +72,11 @@ Honest storage nodes that are assigned an incorrect sliver, or one with an incor
 
 Clients perform consistency checks when reading blobs to ensure data integrity. Walrus offers two levels of verification: **default** and **strict**.
 
-In most cases, the default consistency check is sufficient, particularly when the blob writer is trusted. The strict consistency check is only needed for specific availability guarantees. When the writer is known and trusted, consistency checks can be disable entirely.
+In most cases, the default consistency check is sufficient, particularly when the blob writer is trusted. The strict consistency check is only needed for specific availability guarantees. When the writer is known and trusted, consistency checks can be disabled entirely.
 
 ### Default consistency check
 
-The default check balances performance with security by only verifying the read data.
+The default check balances performance with security by verifying only the read data.
 
 **Check process:**
 
