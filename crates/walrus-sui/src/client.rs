@@ -924,23 +924,10 @@ impl SuiContractClient {
             .await
     }
 
-    /// Sets the extension policy to disabled (no one can extend).
+    /// Sets the extension policy with the given parameters.
+    /// To disable extensions, set max_extension_epochs to 0.
     /// Requires can_withdraw_funds permission on the capability.
-    pub async fn set_extension_policy_disabled(
-        &self,
-        manager_id: ObjectID,
-        manager_cap: ObjectID,
-    ) -> SuiClientResult<()> {
-        self.inner
-            .lock()
-            .await
-            .set_extension_policy_disabled(manager_id, manager_cap)
-            .await
-    }
-
-    /// Sets the extension policy to constrained with the given parameters.
-    /// Requires can_withdraw_funds permission on the capability.
-    pub async fn set_extension_policy_constrained(
+    pub async fn set_extension_policy(
         &self,
         manager_id: ObjectID,
         manager_cap: ObjectID,
@@ -951,7 +938,7 @@ impl SuiContractClient {
         self.inner
             .lock()
             .await
-            .set_extension_policy_constrained(
+            .set_extension_policy(
                 manager_id,
                 manager_cap,
                 expiry_threshold_epochs,
@@ -2755,41 +2742,10 @@ impl SuiContractClientInner {
         Ok(())
     }
 
-    /// Sets the extension policy to disabled (no one can extend).
+    /// Sets the extension policy with the given parameters.
+    /// To disable extensions, set max_extension_epochs to 0.
     /// Requires can_withdraw_funds permission on the capability.
-    pub async fn set_extension_policy_disabled(
-        &mut self,
-        manager_id: ObjectID,
-        manager_cap: ObjectID,
-    ) -> SuiClientResult<()> {
-        tracing::debug!(
-            manager_id = %manager_id,
-            "setting extension policy to disabled"
-        );
-
-        let mut pt_builder = self.transaction_builder()?;
-
-        pt_builder
-            .set_extension_policy_disabled(manager_id, manager_cap)
-            .await?;
-
-        let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
-        let res = self
-            .sign_and_send_transaction(transaction, "set_extension_policy_disabled")
-            .await?;
-
-        if !res.errors.is_empty() {
-            tracing::warn!(errors = ?res.errors, "failed to set policy to disabled");
-            return Err(anyhow!("could not set extension policy: {:?}", res.errors).into());
-        }
-
-        tracing::debug!("successfully set extension policy to disabled");
-        Ok(())
-    }
-
-    /// Sets the extension policy to constrained with the given parameters.
-    /// Requires can_withdraw_funds permission on the capability.
-    pub async fn set_extension_policy_constrained(
+    pub async fn set_extension_policy(
         &mut self,
         manager_id: ObjectID,
         manager_cap: ObjectID,
@@ -2802,13 +2758,13 @@ impl SuiContractClientInner {
             expiry_threshold_epochs = expiry_threshold_epochs,
             max_extension_epochs = max_extension_epochs,
             tip_amount = tip_amount,
-            "setting extension policy to constrained"
+            "setting extension policy"
         );
 
         let mut pt_builder = self.transaction_builder()?;
 
         pt_builder
-            .set_extension_policy_constrained(
+            .set_extension_policy(
                 manager_id,
                 manager_cap,
                 expiry_threshold_epochs,
@@ -2819,15 +2775,15 @@ impl SuiContractClientInner {
 
         let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
         let res = self
-            .sign_and_send_transaction(transaction, "set_extension_policy_constrained")
+            .sign_and_send_transaction(transaction, "set_extension_policy")
             .await?;
 
         if !res.errors.is_empty() {
-            tracing::warn!(errors = ?res.errors, "failed to set extension policy to constrained");
+            tracing::warn!(errors = ?res.errors, "failed to set extension policy");
             return Err(anyhow!("could not set extension policy: {:?}", res.errors).into());
         }
 
-        tracing::debug!("successfully set extension policy to constrained");
+        tracing::debug!("successfully set extension policy");
         Ok(())
     }
 

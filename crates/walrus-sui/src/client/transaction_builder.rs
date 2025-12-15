@@ -2499,42 +2499,10 @@ impl WalrusPtbBuilder {
         Ok(())
     }
 
-    /// Sets the extension policy to disabled (no one can extend).
+    /// Sets the extension policy with the given parameters.
+    /// To disable extensions, set max_extension_epochs to 0.
     /// Requires can_withdraw_funds permission on the capability.
-    pub async fn set_extension_policy_disabled(
-        &mut self,
-        manager: ObjectID,
-        cap: ObjectID,
-    ) -> SuiClientResult<()> {
-        // Get the initial shared version for the BlobManager.
-        let manager_initial_version = self
-            .read_client
-            .get_shared_object_initial_version(manager)
-            .await?;
-
-        // Get the capability's ObjectRef.
-        let cap_ref = self.read_client.get_object_ref(cap).await?;
-        let cap_arg = self.pt_builder.obj(ObjectArg::ImmOrOwnedObject(cap_ref))?;
-
-        let policy_args = vec![
-            self.pt_builder.obj(ObjectArg::SharedObject {
-                id: manager,
-                initial_shared_version: manager_initial_version,
-                mutability: SharedObjectMutability::Mutable,
-            })?,
-            cap_arg,
-        ];
-
-        self.blobmanager_move_call(
-            contracts::blobmanager::set_extension_policy_disabled,
-            policy_args,
-        )?;
-        Ok(())
-    }
-
-    /// Sets the extension policy to constrained with the given parameters.
-    /// Requires can_withdraw_funds permission on the capability.
-    pub async fn set_extension_policy_constrained(
+    pub async fn set_extension_policy(
         &mut self,
         manager: ObjectID,
         cap: ObjectID,
@@ -2564,10 +2532,7 @@ impl WalrusPtbBuilder {
             self.pt_builder.pure(tip_amount)?,
         ];
 
-        self.blobmanager_move_call(
-            contracts::blobmanager::set_extension_policy_constrained,
-            policy_args,
-        )?;
+        self.blobmanager_move_call(contracts::blobmanager::set_extension_policy, policy_args)?;
         Ok(())
     }
 

@@ -383,18 +383,10 @@ public fun withdraw_sui(
     self.inner_mut().withdraw_sui(amount, ctx)
 }
 
-/// Sets the extension policy to disabled (no one can extend).
+/// Sets the extension policy with the given parameters.
+/// To disable extensions, set max_extension_epochs to 0.
 /// Requires can_withdraw_funds permission.
-public fun set_extension_policy_disabled(self: &mut BlobManager, cap: &BlobManagerCap) {
-    check_cap(self, cap);
-    assert!(cap.can_withdraw_funds, ERequiresWithdrawFunds);
-
-    self.inner_mut().set_extension_policy_disabled();
-}
-
-/// Sets the extension policy to constrained with the given parameters.
-/// Requires can_withdraw_funds permission.
-public fun set_extension_policy_constrained(
+public fun set_extension_policy(
     self: &mut BlobManager,
     cap: &BlobManagerCap,
     expiry_threshold_epochs: u32,
@@ -406,7 +398,7 @@ public fun set_extension_policy_constrained(
 
     self
         .inner_mut()
-        .set_extension_policy_constrained(
+        .set_extension_policy(
             expiry_threshold_epochs,
             max_extension_epochs,
             tip_amount,

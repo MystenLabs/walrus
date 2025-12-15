@@ -266,33 +266,28 @@ let balances = blob_manager_client.get_coin_stash_balances().await?;
 ## Extension policies
 
 Extension policies control how and when community members can extend the BlobManager's storage
-lifetime.
+lifetime. The policy is configured with three parameters:
 
-### Disabled policy
+- `expiry_threshold_epochs`: Extensions only allowed when current epoch is within this many epochs
+  of the storage end epoch
+- `max_extension_epochs`: Maximum epochs that can be added in a single extension. Set to 0 to
+  disable extensions entirely.
+- `tip_amount`: SUI tip in MIST to reward community extenders (1 SUI = 1,000,000,000 MIST)
 
-No one can extend storage.
-
-```rust
-blob_manager_client.set_extension_policy_disabled().await?;
-```
-
-### Constrained policy
-
-Allow extensions within specified constraints with optional tipping:
+### Setting the extension policy
 
 ```rust
 // Allow extensions when within 5 epochs of expiry, max 10 epochs per extension,
 // tip 0.1 SUI (100_000_000 MIST) to extenders
 blob_manager_client
-    .set_extension_policy_constrained(5, 10, 100_000_000)
+    .set_extension_policy(5, 10, 100_000_000)
+    .await?;
+
+// Disable extensions by setting max_extension_epochs to 0
+blob_manager_client
+    .set_extension_policy(0, 0, 0)
     .await?;
 ```
-
-Parameters:
-- `expiry_threshold_epochs`: Extensions only allowed when current epoch is within this many epochs
-  of the storage end epoch
-- `max_extension_epochs`: Maximum epochs that can be added in a single extension
-- `tip_amount`: SUI tip in MIST to reward community extenders (1 SUI = 1,000,000,000 MIST)
 
 When a community member calls `extend_blob_manager_storage()`, they:
 1. Pay the gas fee of the transaction
@@ -315,7 +310,7 @@ blob_manager_client
 ```
 
 This function:
-- Bypasses extension policy (works even when disabled)
+- Bypasses extension policy (works even when extensions are disabled)
 - Bypasses storage_purchase_policy (no limits)
 - Can only increase values (not decrease capacity or end_epoch)
 - Uses WAL from the coin stash for purchases
@@ -421,8 +416,7 @@ transactions. Do not expose a BlobManager-enabled publisher publicly without pro
 | `create_blob_manager(capacity, epochs, initial_wal)` | Create a new BlobManager with initial storage and WAL deposit |
 | `create_cap(can_delegate, can_withdraw_funds)` | Create a new capability (requires can_delegate) |
 | `revoke_cap(cap_id)` | Revoke a capability (requires can_delegate) |
-| `set_extension_policy_disabled()` | Disable community extensions |
-| `set_extension_policy_constrained(threshold, max, tip)` | Set constrained extension policy with tip |
+| `set_extension_policy(threshold, max, tip)` | Set extension policy (0 for max disables extensions) |
 | `adjust_storage(capacity, end_epoch)` | Admin storage adjustment (increase only) |
 | `withdraw_wal(amount)` | Withdraw WAL from coin stash |
 | `withdraw_sui(amount)` | Withdraw SUI from coin stash |
@@ -580,6 +574,7 @@ curl -X POST "$PUBLISHER/v1/blob-managers/$MANAGER_ID/deposit-wal?amount=1000000
 | Deletion | Owner only (if deletable) | Capability holders |
 | Community funding | No | Yes (coin stash) |
 | Tipped extensions | No | Yes |
+| Attributes| Access by blob object ID | Accessed by blob ID |
 
 **Use BlobManager when**: You have many related blobs, want community-funded storage, or need
 shared access control.

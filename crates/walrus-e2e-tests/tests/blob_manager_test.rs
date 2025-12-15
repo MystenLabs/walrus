@@ -1691,7 +1691,7 @@ async fn test_blob_manager_coin_stash_operations() {
     // when within 2 epochs of expiry. Update to constrained(100, 10, 1000) to allow extension now.
     tracing::info!("Setting extension policy to allow extension from current epoch");
     blob_manager_client
-        .set_extension_policy_constrained(100, 10, 1000)
+        .set_extension_policy(100, 10, 1000)
         .await
         .expect("Failed to set extension policy");
 
@@ -2512,11 +2512,11 @@ async fn test_blob_manager_extension_policy() {
     tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
 
     // Test 2: Set policy to wider threshold so extension is allowed.
-    tracing::info!("Test 2: Setting policy to constrained(100, 5, 1000)");
+    tracing::info!("Test 2: Setting policy to (100, 5, 1000)");
     blob_manager_client
-        .set_extension_policy_constrained(100, 5, 1000)
+        .set_extension_policy(100, 5, 1000)
         .await
-        .expect("Failed to set policy to constrained");
+        .expect("Failed to set extension policy");
 
     tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
 
@@ -2531,17 +2531,17 @@ async fn test_blob_manager_extension_policy() {
     // Wait for transaction to be processed.
     tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
 
-    // Test 3: Set policy to disabled.
-    tracing::info!("Test 3: Setting policy to disabled");
+    // Test 3: Disable extensions by setting expiry_threshold_epochs to 0.
+    tracing::info!("Test 3: Disabling extensions with (0, 0, 0)");
     blob_manager_client
-        .set_extension_policy_disabled()
+        .set_extension_policy(0, 0, 0)
         .await
         .expect("Failed to set policy to disabled");
 
     tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
 
-    // Extension should now fail.
-    tracing::info!("Test 3b: Extension should fail with disabled policy");
+    // Extension should fail with EExtensionTooEarly since storage hasn't expired yet.
+    tracing::info!("Test 3b: Extension should fail with disabled policy (EExtensionTooEarly)");
     let result = client_ref.extend_blob_manager_storage(manager_id, 1).await;
     assert!(
         result.is_err(),
@@ -2549,12 +2549,12 @@ async fn test_blob_manager_extension_policy() {
     );
     tracing::info!("Correctly rejected extension with disabled policy");
 
-    // Test 4: Re-enable with constrained policy.
-    tracing::info!("Test 4: Re-enabling with constrained(100, 10, 1000) policy");
+    // Test 4: Re-enable with policy that allows extensions.
+    tracing::info!("Test 4: Re-enabling with (100, 10, 1000) policy");
     blob_manager_client
-        .set_extension_policy_constrained(100, 10, 1000)
+        .set_extension_policy(100, 10, 1000)
         .await
-        .expect("Failed to set policy to constrained");
+        .expect("Failed to set extension policy");
 
     tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
 

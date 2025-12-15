@@ -101,7 +101,7 @@ public(package) fun new(
         coin_stash: coin_stash::new(),
         // Default policy: extend within 2 epochs of expiry, max 5 epochs per extension,
         // with 1000 MIST tip for community extenders.
-        extension_policy: extension_policy::default_constrained(),
+        extension_policy: extension_policy::default(),
         // Default storage purchase policy: constrained with 15GB threshold and 15GB max.
         // Only allow purchases when available storage < 15GB, max purchase is 15GB.
         storage_purchase_policy: storage_purchase_policy::default_constrained(),
@@ -683,20 +683,16 @@ public(package) fun withdraw_sui(
     self.coin_stash.withdraw_sui(amount, ctx)
 }
 
-/// Sets the extension policy to disabled (no one can extend).
-public(package) fun set_extension_policy_disabled(self: &mut BlobManagerInnerV1) {
-    self.extension_policy = extension_policy::disabled();
-}
-
-/// Sets the extension policy to constrained with the given parameters.
-public(package) fun set_extension_policy_constrained(
+/// Sets the extension policy with the given parameters.
+/// To disable extensions, set max_extension_epochs to 0.
+public(package) fun set_extension_policy(
     self: &mut BlobManagerInnerV1,
     expiry_threshold_epochs: u32,
     max_extension_epochs: u32,
     tip_amount: u64,
 ) {
     self.extension_policy =
-        extension_policy::constrained(
+        extension_policy::new(
             expiry_threshold_epochs,
             max_extension_epochs,
             tip_amount,

@@ -1146,23 +1146,14 @@ pub struct BlobManagerCoinStash {
 }
 
 /// Extension policy controlling who can extend storage and when.
+/// To disable extensions, set max_extension_epochs to 0.
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
-pub enum ExtensionPolicy {
-    /// Extension is disabled.
-    Disabled,
-    /// Allow extension within constraints.
-    Constrained {
-        /// Extension only allowed when current epoch >= end_epoch - expiry_threshold_epochs.
-        expiry_threshold_epochs: u32,
-        /// Maximum epochs that can be extended in a single call.
-        max_extension_epochs: u32,
-    },
-}
-
-/// Tip policy for rewarding community members who help with operations.
-#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
-pub struct TipPolicy {
-    /// Fixed tip amount in SUI (MIST units).
+pub struct ExtensionPolicy {
+    /// Extension only allowed when current epoch >= end_epoch - expiry_threshold_epochs.
+    pub expiry_threshold_epochs: u32,
+    /// Maximum epochs that can be extended in a single call. Set to 0 to disable extensions.
+    pub max_extension_epochs: u32,
+    /// Tip amount in SUI (MIST units) to reward community extenders.
     pub tip_amount: u64,
 }
 
@@ -1212,10 +1203,8 @@ pub struct BlobManagerInnerV1 {
     pub storage: BlobStorage,
     /// Coin stash for community funding.
     pub coin_stash: BlobManagerCoinStash,
-    /// Extension policy.
+    /// Extension policy (includes tip amount).
     pub extension_policy: ExtensionPolicy,
-    /// Tip policy.
-    pub tip_policy: TipPolicy,
     /// Storage purchase policy.
     pub storage_purchase_policy: StoragePurchasePolicy,
     /// Capability info table (contents are dynamic fields).

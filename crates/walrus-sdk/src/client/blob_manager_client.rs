@@ -760,45 +760,23 @@ impl BlobManagerClient<'_, SuiContractClient> {
 
     // ===== Extension Policy Management Methods =====
 
-    /// Sets the extension policy to disabled.
+    /// Sets the extension policy with the given parameters.
     ///
-    /// When disabled, no one can extend storage. All extension attempts will be rejected.
-    /// This method requires a capability with can_withdraw_funds permission.
-    ///
-    /// # Returns
-    ///
-    /// * `Ok(())` if the policy was successfully set.
-    /// * `Err(ClientError)` if:
-    ///   - The caller doesn't have can_withdraw_funds permission.
-    ///   - The transaction fails.
-    pub async fn set_extension_policy_disabled(&self) -> ClientResult<()> {
-        tracing::info!(
-            "BlobManager set_extension_policy_disabled: manager_id={:?}, cap={:?}",
-            self.data.manager_id(),
-            self.data.cap_id()
-        );
-
-        self.client
-            .sui_client()
-            .set_extension_policy_disabled(self.data.manager_id(), self.data.cap_id())
-            .await
-            .map_err(crate::error::ClientError::from)?;
-
-        Ok(())
-    }
-
-    /// Sets the extension policy to constrained with the given parameters.
-    ///
-    /// A constrained policy allows anyone to extend storage, subject to:
+    /// The policy controls when and how storage can be extended:
     /// - Time constraint: Extension only allowed when within `expiry_threshold_epochs` of expiry.
     /// - Amount constraint: Maximum epochs capped at `max_extension_epochs`.
+    /// - Tip: SUI reward for the transaction sender who executes the extension.
+    ///
+    /// To disable extensions, set `max_extension_epochs` to 0.
     ///
     /// This method requires a capability with can_withdraw_funds permission.
     ///
     /// # Arguments
     ///
     /// * `expiry_threshold_epochs` - Extension only allowed when within this many epochs of expiry.
-    /// * `max_extension_epochs` - Maximum epochs that can be extended in a single call.
+    /// * `max_extension_epochs` - Maximum epochs that can be extended in a single call. Set to 0 to
+    ///   disable extensions.
+    /// * `tip_amount` - SUI tip in MIST to reward community extenders.
     ///
     /// # Returns
     ///
@@ -806,14 +784,14 @@ impl BlobManagerClient<'_, SuiContractClient> {
     /// * `Err(ClientError)` if:
     ///   - The caller doesn't have can_withdraw_funds permission.
     ///   - The transaction fails.
-    pub async fn set_extension_policy_constrained(
+    pub async fn set_extension_policy(
         &self,
         expiry_threshold_epochs: u32,
         max_extension_epochs: u32,
         tip_amount: u64,
     ) -> ClientResult<()> {
         tracing::info!(
-            "BlobManager set_extension_policy_constrained: manager_id={:?}, cap={:?}, \
+            "BlobManager set_extension_policy: manager_id={:?}, cap={:?}, \
             expiry_threshold={}, max_extension={}, tip_amount={}",
             self.data.manager_id(),
             self.data.cap_id(),
@@ -824,7 +802,7 @@ impl BlobManagerClient<'_, SuiContractClient> {
 
         self.client
             .sui_client()
-            .set_extension_policy_constrained(
+            .set_extension_policy(
                 self.data.manager_id(),
                 self.data.cap_id(),
                 expiry_threshold_epochs,
