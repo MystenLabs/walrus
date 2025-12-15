@@ -305,6 +305,11 @@ pub enum StoreSliverError {
     #[rest_api_error(reason = "CACHE_SATURATED", status = ApiStatusCode::FailedPrecondition)]
     CacheSaturated,
 
+    /// The sliver was too large to fit in the pending cache for the node.
+    #[error("pending upload cache rejected sliver; too large for cache")]
+    #[rest_api_error(reason = "SLIVER_TOO_LARGE", status = ApiStatusCode::FailedPrecondition)]
+    SliverTooLarge,
+
     #[error(transparent)]
     #[rest_api_error(delegate)]
     Internal(#[from] InternalError),

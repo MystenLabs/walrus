@@ -651,8 +651,7 @@ impl StorageNodeClient {
         metadata: &VerifiedBlobMetadataWithId,
         intent: UploadIntent,
     ) -> Result<(), NodeError> {
-        self.store_metadata_with_intent(metadata, UploadIntent::Immediate)
-            .await
+        self.store_metadata_with_intent(metadata, intent).await
     }
 
     /// Stores the metadata on the node with the provided upload intent.
@@ -694,7 +693,7 @@ impl StorageNodeClient {
         sliver: &SliverData<A>,
         intent: UploadIntent,
     ) -> Result<(), NodeError> {
-        self.store_sliver_with_intent(blob_id, pair_index, sliver, UploadIntent::Immediate)
+        self.store_sliver_with_intent(blob_id, pair_index, sliver, intent)
             .await
     }
 

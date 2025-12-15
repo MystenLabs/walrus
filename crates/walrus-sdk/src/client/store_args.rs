@@ -98,14 +98,7 @@ impl StoreArgs {
             store_optimizations,
             persistence,
             post_store,
-            metrics: None,
-            upload_relay_client: None,
-            tail_handling: TailHandling::Blocking,
-            quorum_event_tx: None,
-            tail_handle_collector: None,
-            encoding_event_tx: None,
-            initial_upload_weight: None,
-            initial_failed_nodes: None,
+            ..Self::default_inner()
         }
     }
 

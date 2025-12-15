@@ -3758,6 +3758,11 @@ impl ServiceState for StorageNodeInner {
         }
 
         if !intent.is_pending() {
+            tracing::debug!(
+                %blob_id,
+                ?intent,
+                "store_metadata: blob not registered and pending not allowed"
+            );
             return Err(StoreMetadataError::NotCurrentlyRegistered);
         }
 
@@ -3831,6 +3836,13 @@ impl ServiceState for StorageNodeInner {
         if !encoding_type.is_supported() {
             return Err(StoreSliverError::UnsupportedEncodingType(encoding_type));
         }
+        tracing::debug!(
+            %blob_id,
+            ?sliver_pair_index,
+            ?intent,
+            ?metadata_persisted,
+            "store_sliver: resolved metadata for sliver"
+        );
 
         if persisted {
             // Metadata is already persisted, so the sliver can be written directly because
@@ -3853,6 +3865,12 @@ impl ServiceState for StorageNodeInner {
             .await
         {
             Ok(inserted) => {
+                tracing::debug!(
+                    %blob_id,
+                    ?sliver_pair_index,
+                    inserted,
+                    "store_sliver: buffered sliver in pending cache"
+                );
                 if self.is_blob_registered(&blob_id)? {
                     // Registration may arrive between the initial registration check and the point
                     // where we enqueue the sliver. If it does, flush everything immediately so the
@@ -3869,9 +3887,7 @@ impl ServiceState for StorageNodeInner {
 
                 Ok(inserted)
             }
-            Err(PendingSliverCacheError::SliverTooLarge) => {
-                Err(StoreSliverError::NotCurrentlyRegistered)
-            }
+            Err(PendingSliverCacheError::SliverTooLarge) => Err(StoreSliverError::CacheSaturated),
             Err(PendingSliverCacheError::Saturated) => Err(StoreSliverError::CacheSaturated),
         }
     }
@@ -3893,10 +3909,12 @@ impl ServiceState for StorageNodeInner {
         // Storage confirmation must use the last shard assignment, even though the node hasn't
         // processed to the latest epoch yet. This is because if the onchain committee has moved
         // on to the new epoch, confirmation from the old epoch is not longer valid.
+        let fully_stored = self
+            .is_stored_at_all_shards_at_latest_epoch(blob_id)
+            .await
+            .context("database error when checking storage status")?;
         ensure!(
-            self.is_stored_at_all_shards_at_latest_epoch(blob_id)
-                .await
-                .context("database error when checking storage status")?,
+            fully_stored,
             ComputeStorageConfirmationError::NotFullyStored,
         );
 
@@ -4138,10 +4156,10 @@ enum PendingCacheError {
 fn map_sliver_error_to_metadata(error: StoreSliverError) -> StoreMetadataError {
     match error {
         StoreSliverError::Internal(inner) => StoreMetadataError::Internal(inner),
-        StoreSliverError::NotCurrentlyRegistered | StoreSliverError::MissingMetadata => {
-            StoreMetadataError::NotCurrentlyRegistered
-        }
-        StoreSliverError::CacheSaturated => StoreMetadataError::CacheSaturated,
+        StoreSliverError::NotCurrentlyRegistered
+        | StoreSliverError::MissingMetadata
+        | StoreSliverError::CacheSaturated
+        | StoreSliverError::SliverTooLarge => StoreMetadataError::NotCurrentlyRegistered,
         StoreSliverError::UnsupportedEncodingType(kind) => {
             StoreMetadataError::UnsupportedEncodingType(kind)
         }

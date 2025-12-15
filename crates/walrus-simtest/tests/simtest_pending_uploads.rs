@@ -38,7 +38,7 @@ mod tests {
         communication_config
             .request_rate_config
             .backoff_config
-            .max_retries = Some(1);
+            .max_retries = Some(3);
         communication_config
             .request_rate_config
             .backoff_config
@@ -50,10 +50,11 @@ mod tests {
 
         let (_sui_cluster, mut walrus_cluster, client, _) =
             test_cluster::E2eTestSetupBuilder::new()
-                .with_test_nodes_config(TestNodesConfig {
-                    node_weights: vec![1, 1, 1, 1],
-                    ..Default::default()
-                })
+                .with_test_nodes_config(
+                    TestNodesConfig::builder()
+                        .with_node_weights(&[1, 1, 1, 1])
+                        .build(),
+                )
                 .with_communication_config(communication_config)
                 .build_generic::<SimStorageNodeHandle>()
                 .await
@@ -65,7 +66,7 @@ mod tests {
         simtest_utils::restart_nodes_with_checkpoints(&mut walrus_cluster, |_| 20).await;
 
         // Take two nodes down briefly so the initial pending + immediate attempts cannot hit a
-        // quorum (needs 3 of 4) and the client has to retry when confirmations are missing.
+        // quorum and the client has to retry when confirmations are missing.
         let restart_handles =
             crash_nodes(&mut walrus_cluster, &[0, 1], Duration::from_millis(1_500));
 
