@@ -35,7 +35,7 @@ Where the world's data becomes reliable, valuable, and governable
 
 ## Operator guide
 
-- [Operating an Aggregator](/operator-guide/aggregator): Detailed guide for operating Walrus aggregators and publishers including daemon configuration, metrics, and advanced features.
+- [Operating an Aggregator or Publisher](/operator-guide/aggregator): Detailed guide for operating Walrus aggregators and publishers including daemon configuration, metrics, and advanced features.
 - [The Authenticated Publisher](/operator-guide/auth-publisher): Guide to setting up and using authenticated Walrus publishers with JWT authentication for controlled blob storage access.
 - [Backup and Restore Guide](/operator-guide/backup-restore-guide): Comprehensive guide for backing up and restoring Walrus storage node databases with automated and manual procedures.
 - [Commission and Governance](/operator-guide/commission-governance): Guide to managing storage node commission collection and governance operations including authorization and contract upgrades.

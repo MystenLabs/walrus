@@ -35,7 +35,7 @@ And, the community is collecting tools, resources and dapps for Walrus under
 designing the Walrus protocol. And a special thanks is due to the community of storage operators
 that supported the development of Walrus through consecutive Testnet(s), as well as all
 community members that integrated the protocol early and provided feedback to improve it.</p>
-<h2 class="anchor anchorWithStickyNavbar_bvlg" id="new-features">New features<a href="https://docs.wal.app/blog/06_mainnet#new-features" class="hash-link" aria-label="Direct link to New features" title="Direct link to New features">​</a></h2>
+<h2 class="anchor anchorWithStickyNavbar_aXGe" id="new-features">New features<a href="https://docs.wal.app/blog/06_mainnet#new-features" class="hash-link" aria-label="Direct link to New features" title="Direct link to New features">​</a></h2>
 <p>Besides the promise of stability and security, the Mainnet release of Walrus comes with a few
 notable new features and changes:</p>
 <ul>
@@ -99,7 +99,7 @@ smart contract to
 The CLI client uses it automatically when storing blobs.</p>
 </li>
 </ul>
-<h2 class="anchor anchorWithStickyNavbar_bvlg" id="testnet-future-plans">Testnet future plans<a href="https://docs.wal.app/blog/06_mainnet#testnet-future-plans" class="hash-link" aria-label="Direct link to Testnet future plans" title="Direct link to Testnet future plans">​</a></h2>
+<h2 class="anchor anchorWithStickyNavbar_aXGe" id="testnet-future-plans">Testnet future plans<a href="https://docs.wal.app/blog/06_mainnet#testnet-future-plans" class="hash-link" aria-label="Direct link to Testnet future plans" title="Direct link to Testnet future plans">​</a></h2>
 <p>The current Walrus Testnet will soon be wiped and restarted to align the codebase to the Mainnet
 release. Going forward we will regularly wipe the Testnet, every few months. Developers should use
 the Walrus Mainnet to get any level of stability. The Walrus Testnet is only there to test new
@@ -107,7 +107,7 @@ features before they are deployed in production.</p>
 <p>We will not be operating a public portal to serve Walrus Sites on Testnet, to reduce costs and
 incident response associated with free web hosting. Developers can still run a local portal
 pointed to Testnet to test Walrus Sites.</p>
-<h2 class="anchor anchorWithStickyNavbar_bvlg" id="open-source-walrus-codebase">Open source Walrus codebase<a href="https://docs.wal.app/blog/06_mainnet#open-source-walrus-codebase" class="hash-link" aria-label="Direct link to Open source Walrus codebase" title="Direct link to Open source Walrus codebase">​</a></h2>
+<h2 class="anchor anchorWithStickyNavbar_aXGe" id="open-source-walrus-codebase">Open source Walrus codebase<a href="https://docs.wal.app/blog/06_mainnet#open-source-walrus-codebase" class="hash-link" aria-label="Direct link to Open source Walrus codebase" title="Direct link to Open source Walrus codebase">​</a></h2>
 <p>The Walrus codebase, including all smart contracts in Move, services in Rust, and documentation, is
 now open sourced under an Apache 2.0 license, and hosted on
 <a href="https://github.com/MystenLabs/walrus" target="_blank" rel="noopener noreferrer">GitHub</a>. Since the main Walrus repository is now open to all,
@@ -116,7 +116,7 @@ and contains both documentation and smart contracts, we are retiring the <code>w
 interest. These can be extended to specialize services to specific operational needs. They are
 also a good illustration of how to interface with Walrus using Rust clients. A cleaner and more
 stable Rust SDK is in the works as well.</p>
-<h2 class="anchor anchorWithStickyNavbar_bvlg" id="publisher-improvements-and-plans">Publisher improvements and plans<a href="https://docs.wal.app/blog/06_mainnet#publisher-improvements-and-plans" class="hash-link" aria-label="Direct link to Publisher improvements and plans" title="Direct link to Publisher improvements and plans">​</a></h2>
+<h2 class="anchor anchorWithStickyNavbar_aXGe" id="publisher-improvements-and-plans">Publisher improvements and plans<a href="https://docs.wal.app/blog/06_mainnet#publisher-improvements-and-plans" class="hash-link" aria-label="Direct link to Publisher improvements and plans" title="Direct link to Publisher improvements and plans">​</a></h2>
 <p>Publishing blobs on Mainnet consumes real WAL and SUI. To avoid uncontrolled costs to operations the
 publisher service was augmented with facilities to authenticate requests and account for costs per
 user.</p>]]></content>
@@ -137,14 +137,14 @@ of the WAL token, so your previous WAL tokens will not work anymore. To use the 
 need to obtain new WAL tokens.</p>
 <p>In the following sections, we describe the notable changes and the actions required for existing
 Walrus Sites.</p>
-<h2 class="anchor anchorWithStickyNavbar_bvlg" id="epoch-duration">Epoch duration<a href="https://docs.wal.app/blog/05_testnet_redeployment#epoch-duration" class="hash-link" aria-label="Direct link to Epoch duration" title="Direct link to Epoch duration">​</a></h2>
+<h2 class="anchor anchorWithStickyNavbar_aXGe" id="epoch-duration">Epoch duration<a href="https://docs.wal.app/blog/05_testnet_redeployment#epoch-duration" class="hash-link" aria-label="Direct link to Epoch duration" title="Direct link to Epoch duration">​</a></h2>
 <p>The epoch duration has been increased from one day to two days to emphasize that this duration is
 different from Sui epochs (at Mainnet, epochs will likely be multiple weeks long). In addition, the
 maximum number of epochs a blob can be stored for has been reduced from 200 to 183 (corresponding
 to one year).</p>
 <p>The <code>walrus store</code> command now also supports the <code>--epochs max</code> flag, which will store
 the blob for the maximum number of epochs. Note that the <code>--epochs</code> flag is now mandatory.</p>
-<h2 class="anchor anchorWithStickyNavbar_bvlg" id="new-features">New features<a href="https://docs.wal.app/blog/05_testnet_redeployment#new-features" class="hash-link" aria-label="Direct link to New features" title="Direct link to New features">​</a></h2>
+<h2 class="anchor anchorWithStickyNavbar_aXGe" id="new-features">New features<a href="https://docs.wal.app/blog/05_testnet_redeployment#new-features" class="hash-link" aria-label="Direct link to New features" title="Direct link to New features">​</a></h2>
 <p>Besides many improvements to the contracts and the storage-node service, the latest Walrus release
 also brings several user-facing improvements.</p>
 <ul>
@@ -155,32 +155,32 @@ with glob patterns offered by many shells, so you can for example run a command 
 <li>The <code>walrus</code> CLI now supports creating, funding, and extending <em>shared blobs</em> using the <code>walrus share</code>, <code>walrus store --share</code>, and <code>walrus fund-shared-blob</code> commands. Shared blobs are an
 example of collectively managed and funded blobs. See the <a href="https://docs.wal.app/docs/usage/client-cli#shared-blobs">shared blobs section</a> for more details.</li>
 </ul>
-<h2 class="anchor anchorWithStickyNavbar_bvlg" id="new-wal-token">New WAL token<a href="https://docs.wal.app/blog/05_testnet_redeployment#new-wal-token" class="hash-link" aria-label="Direct link to New WAL token" title="Direct link to New WAL token">​</a></h2>
+<h2 class="anchor anchorWithStickyNavbar_aXGe" id="new-wal-token">New WAL token<a href="https://docs.wal.app/blog/05_testnet_redeployment#new-wal-token" class="hash-link" aria-label="Direct link to New WAL token" title="Direct link to New WAL token">​</a></h2>
 <p>Along with the redeployment of Walrus, we have also deployed a fresh WAL contract. This
 means that you cannot use any WAL token from the previous Testnet instance with the new Testnet
 instance. You need to request new WAL tokens through the <a href="https://docs.wal.app/docs/usage/networks#testnet-wal-faucet">Testnet WAL faucet</a>.</p>
-<h2 class="anchor anchorWithStickyNavbar_bvlg" id="backwards-incompatible-changes">Backwards-incompatible changes<a href="https://docs.wal.app/blog/05_testnet_redeployment#backwards-incompatible-changes" class="hash-link" aria-label="Direct link to Backwards-incompatible changes" title="Direct link to Backwards-incompatible changes">​</a></h2>
+<h2 class="anchor anchorWithStickyNavbar_aXGe" id="backwards-incompatible-changes">Backwards-incompatible changes<a href="https://docs.wal.app/blog/05_testnet_redeployment#backwards-incompatible-changes" class="hash-link" aria-label="Direct link to Backwards-incompatible changes" title="Direct link to Backwards-incompatible changes">​</a></h2>
 <p>One reason for a full redeployment is to allow us to make some changes that are
 backwards-incompatible. Many of those are related to the contracts and thus less visible to users.
 There are, however, some changes that may affect you.</p>
-<h3 class="anchor anchorWithStickyNavbar_bvlg" id="configuration-files">Configuration files<a href="https://docs.wal.app/blog/05_testnet_redeployment#configuration-files" class="hash-link" aria-label="Direct link to Configuration files" title="Direct link to Configuration files">​</a></h3>
+<h3 class="anchor anchorWithStickyNavbar_aXGe" id="configuration-files">Configuration files<a href="https://docs.wal.app/blog/05_testnet_redeployment#configuration-files" class="hash-link" aria-label="Direct link to Configuration files" title="Direct link to Configuration files">​</a></h3>
 <p>The format of the configuration files for storage nodes and clients has been changed. Make sure to
 use the latest version of the configuration files, see the <a href="https://docs.wal.app/docs/usage/setup#configuration">configuration section</a>.</p>
-<h3 class="anchor anchorWithStickyNavbar_bvlg" id="cli-options">CLI options<a href="https://docs.wal.app/blog/05_testnet_redeployment#cli-options" class="hash-link" aria-label="Direct link to CLI options" title="Direct link to CLI options">​</a></h3>
+<h3 class="anchor anchorWithStickyNavbar_aXGe" id="cli-options">CLI options<a href="https://docs.wal.app/blog/05_testnet_redeployment#cli-options" class="hash-link" aria-label="Direct link to CLI options" title="Direct link to CLI options">​</a></h3>
 <p>Several CLI options of the <code>walrus</code> CLI have been changed. Notably, all "short" variants of options
 (e.g., <code>-e</code> instead of <code>--epochs</code>) have been removed to prevent future confusion with new options.
 Additionally, the <code>--epochs</code> flag is now mandatory for the <code>walrus store</code> command (this also affects
 the <a href="https://docs.wal.app/docs/usage/json-api">JSON API</a>).</p>
 <p>Please refer to the CLI help (<code>walrus --help</code>, or <code>walrus &lt;command&gt; --help</code>) for further details.</p>
-<h3 class="anchor anchorWithStickyNavbar_bvlg" id="http-apis">HTTP APIs<a href="https://docs.wal.app/blog/05_testnet_redeployment#http-apis" class="hash-link" aria-label="Direct link to HTTP APIs" title="Direct link to HTTP APIs">​</a></h3>
+<h3 class="anchor anchorWithStickyNavbar_aXGe" id="http-apis">HTTP APIs<a href="https://docs.wal.app/blog/05_testnet_redeployment#http-apis" class="hash-link" aria-label="Direct link to HTTP APIs" title="Direct link to HTTP APIs">​</a></h3>
 <p>The paths, request, and response formats of the HTTP APIs have changed for the storage nodes, and
 also the aggregator and publisher. Please refer to the section on the <a href="https://docs.wal.app/docs/usage/web-api">HTTP API</a> for further details.</p>
-<h2 class="anchor anchorWithStickyNavbar_bvlg" id="effects-on-and-actions-required-for-existing-walrus-sites">Effects on and actions required for existing Walrus Sites<a href="https://docs.wal.app/blog/05_testnet_redeployment#effects-on-and-actions-required-for-existing-walrus-sites" class="hash-link" aria-label="Direct link to Effects on and actions required for existing Walrus Sites" title="Direct link to Effects on and actions required for existing Walrus Sites">​</a></h2>
+<h2 class="anchor anchorWithStickyNavbar_aXGe" id="effects-on-and-actions-required-for-existing-walrus-sites">Effects on and actions required for existing Walrus Sites<a href="https://docs.wal.app/blog/05_testnet_redeployment#effects-on-and-actions-required-for-existing-walrus-sites" class="hash-link" aria-label="Direct link to Effects on and actions required for existing Walrus Sites" title="Direct link to Effects on and actions required for existing Walrus Sites">​</a></h2>
 <p>The Walrus Sites contracts have not changed, which means that all corresponding objects on Sui are
 still valid. However, the resources now point to blob IDs that do not yet exist on the new Testnet.
 The easiest way to fix existing sites is to simply update them with the <code>--force</code> flag:</p>
-<div class="language-sh codeBlockContainer_cf3z theme-code-block" style="--prism-color:#393A34;--prism-background-color:#f6f8fa"><div class="codeBlockContent_wZQs"><pre tabindex="0" class="prism-code language-sh !pt-[14px] codeBlock_qGQc thin-scrollbar" style="color:#393A34;background-color:#f6f8fa"><code class="codeBlockLines_p187"><span class="token-line" style="color:#393A34"><span class="token plain">site-builder update --epochs &lt;number of epochs&gt; --force &lt;path to site&gt; &lt;existing site object&gt;</span><br></span></code></pre></div></div>
-<h2 class="anchor anchorWithStickyNavbar_bvlg" id="new-move-contracts--documentation">New Move contracts &amp; documentation<a href="https://docs.wal.app/blog/05_testnet_redeployment#new-move-contracts--documentation" class="hash-link" aria-label="Direct link to New Move contracts &amp; documentation" title="Direct link to New Move contracts &amp; documentation">​</a></h2>
+<div class="language-sh codeBlockContainer_EJja theme-code-block" style="--prism-color:#393A34;--prism-background-color:#f6f8fa"><div class="codeBlockContent_kDO3"><pre tabindex="0" class="prism-code language-sh !pt-[14px] codeBlock_qGQc thin-scrollbar" style="color:#393A34;background-color:#f6f8fa"><code class="codeBlockLines_p187"><span class="token-line" style="color:#393A34"><span class="token plain">site-builder update --epochs &lt;number of epochs&gt; --force &lt;path to site&gt; &lt;existing site object&gt;</span><br></span></code></pre></div></div>
+<h2 class="anchor anchorWithStickyNavbar_aXGe" id="new-move-contracts--documentation">New Move contracts &amp; documentation<a href="https://docs.wal.app/blog/05_testnet_redeployment#new-move-contracts--documentation" class="hash-link" aria-label="Direct link to New Move contracts &amp; documentation" title="Direct link to New Move contracts &amp; documentation">​</a></h2>
 <p>As part of the new Testnet release of Walrus, the Move smart contracts have been updated; the
 deployed version can be found in the <a href="https://github.com/MystenLabs/walrus-docs/tree/main/contracts" target="_blank" rel="noopener noreferrer"><code>walrus-docs</code>
 repository</a>.</p>]]></content>
@@ -201,7 +201,7 @@ slivers can be used to rapidly reconstruct the original blob, even when up to tw
 slivers are missing. This is possible while keeping the replication factor down to a minimal 4x-5x,
 similar to existing cloud-based services, but with the additional benefits of decentralization and
 resilience to more widespread faults.</p>
-<h2 class="anchor anchorWithStickyNavbar_bvlg" id="the-replication-challenge">The Replication Challenge<a href="https://docs.wal.app/blog/01_announcing_walrus#the-replication-challenge" class="hash-link" aria-label="Direct link to The Replication Challenge" title="Direct link to The Replication Challenge">​</a></h2>
+<h2 class="anchor anchorWithStickyNavbar_aXGe" id="the-replication-challenge">The Replication Challenge<a href="https://docs.wal.app/blog/01_announcing_walrus#the-replication-challenge" class="hash-link" aria-label="Direct link to The Replication Challenge" title="Direct link to The Replication Challenge">​</a></h2>
 <p>Sui is the most advanced blockchain system in relation to storage on validators, with innovations
 such as a <a href="https://docs.sui.io/concepts/tokenomics/storage-fund" target="_blank" rel="noopener noreferrer">storage fund</a> that future-proofs
 the cost of storing data on-chain. Nevertheless, Sui still requires complete data replication among
@@ -209,7 +209,7 @@ all validators, resulting in a replication factor of 100x or more in today’s S
 is necessary for replicated computing and smart contracts acting on the state of the blockchain, it
 is inefficient for simply storing unstructured data blobs, such as music, video, blockchain history,
 etc.</p>
-<h2 class="anchor anchorWithStickyNavbar_bvlg" id="introducing-walrus-efficient-and-robust-decentralized-storage">Introducing Walrus: Efficient and Robust Decentralized Storage<a href="https://docs.wal.app/blog/01_announcing_walrus#introducing-walrus-efficient-and-robust-decentralized-storage" class="hash-link" aria-label="Direct link to Introducing Walrus: Efficient and Robust Decentralized Storage" title="Direct link to Introducing Walrus: Efficient and Robust Decentralized Storage">​</a></h2>
+<h2 class="anchor anchorWithStickyNavbar_aXGe" id="introducing-walrus-efficient-and-robust-decentralized-storage">Introducing Walrus: Efficient and Robust Decentralized Storage<a href="https://docs.wal.app/blog/01_announcing_walrus#introducing-walrus-efficient-and-robust-decentralized-storage" class="hash-link" aria-label="Direct link to Introducing Walrus: Efficient and Robust Decentralized Storage" title="Direct link to Introducing Walrus: Efficient and Robust Decentralized Storage">​</a></h2>
 <p>To tackle the challenge of high replication costs, Mysten Labs has developed Walrus, a decentralized
 storage network offering exceptional data availability and robustness with a minimal replication
 factor of 4x-5x. Walrus provides two key benefits:</p>
@@ -243,7 +243,7 @@ offer.</p>
 <p>Walrus is powered by the Sui Network and scales horizontally to hundreds or thousands of networked
 decentralized storage nodes. This should enable Walrus to offer Exabytes of storage at costs
 competitive with current centralized offerings, given the higher assurance and decentralization.</p>
-<h2 class="anchor anchorWithStickyNavbar_bvlg" id="the-future-of-walrus">The Future of Walrus<a href="https://docs.wal.app/blog/01_announcing_walrus#the-future-of-walrus" class="hash-link" aria-label="Direct link to The Future of Walrus" title="Direct link to The Future of Walrus">​</a></h2>
+<h2 class="anchor anchorWithStickyNavbar_aXGe" id="the-future-of-walrus">The Future of Walrus<a href="https://docs.wal.app/blog/01_announcing_walrus#the-future-of-walrus" class="hash-link" aria-label="Direct link to The Future of Walrus" title="Direct link to The Future of Walrus">​</a></h2>
 <p>By releasing this developer preview we hope to share some of the design decisions with the
 decentralized app developer community and gather feedback on the approach and the APIs for storing,
 retrieving, and certifying blobs. In this developer preview, all storage nodes are operated by
@@ -253,7 +253,7 @@ as well as changing the mapping of what slivers are managed by each storage node
 operations and tools will also be expanded to cover more storage-related use cases. Many of these
 functions will be designed with the feedback we gather in mind.</p>
 <p>Stay tuned for more updates on how Walrus will revolutionize data storage in the web3 ecosystem.</p>
-<h2 class="anchor anchorWithStickyNavbar_bvlg" id="what-can-developers-build">What can developers build?<a href="https://docs.wal.app/blog/01_announcing_walrus#what-can-developers-build" class="hash-link" aria-label="Direct link to What can developers build?" title="Direct link to What can developers build?">​</a></h2>
+<h2 class="anchor anchorWithStickyNavbar_aXGe" id="what-can-developers-build">What can developers build?<a href="https://docs.wal.app/blog/01_announcing_walrus#what-can-developers-build" class="hash-link" aria-label="Direct link to What can developers build?" title="Direct link to What can developers build?">​</a></h2>
 <p>As part of this developer preview, we provide a binary client (currently macOS, ubuntu) that can be
 operated from the <a href="https://docs.wal.app/docs/usage/client-cli">command line interface</a>, a <a href="https://docs.wal.app/docs/usage/json-api">JSON API</a>, and an <a href="https://docs.wal.app/docs/usage/web-api">HTTP API</a>. We also offer the community an aggregator and
 publisher service and a Devnet deployment of 10 storage nodes operated by Mysten Labs.</p>
@@ -296,13 +296,13 @@ Walrus).</p>
 </li>
 </ul>
 <p>We are excited to see what else the web3 developer community can imagine!</p>
-<h2 class="anchor anchorWithStickyNavbar_bvlg" id="getting-started">Getting Started<a href="https://docs.wal.app/blog/01_announcing_walrus#getting-started" class="hash-link" aria-label="Direct link to Getting Started" title="Direct link to Getting Started">​</a></h2>
+<h2 class="anchor anchorWithStickyNavbar_aXGe" id="getting-started">Getting Started<a href="https://docs.wal.app/blog/01_announcing_walrus#getting-started" class="hash-link" aria-label="Direct link to Getting Started" title="Direct link to Getting Started">​</a></h2>
 <p>For this developer preview the public Walrus Devnet is openly available to all developers. Developer
 documentation is available at <code>&lt;https://docs.wal.app&gt;</code>.</p>
 <p>SUI Testnet token is the main currency for interacting with Walrus. Developers pay for Walrus Devnet
 storage using SUI Testnet tokens which can be acquired at the <a href="https://discord.com/channels/916379725201563759/1037811694564560966" target="_blank" rel="noopener noreferrer">Sui Testnet Discord
 faucet</a>.</p>
-<h2 class="anchor anchorWithStickyNavbar_bvlg" id="one-more-thing-">One more thing …<a href="https://docs.wal.app/blog/01_announcing_walrus#one-more-thing-" class="hash-link" aria-label="Direct link to One more thing …" title="Direct link to One more thing …">​</a></h2>
+<h2 class="anchor anchorWithStickyNavbar_aXGe" id="one-more-thing-">One more thing …<a href="https://docs.wal.app/blog/01_announcing_walrus#one-more-thing-" class="hash-link" aria-label="Direct link to One more thing …" title="Direct link to One more thing …">​</a></h2>
 <p>The <a href="https://walrus.site/" target="_blank" rel="noopener noreferrer">Walrus Sites website</a>, the <a href="https://docs.wal.app/">Walrus docs</a>, and
 <a href="https://blog.walrus.site/" target="_blank" rel="noopener noreferrer">this very blog</a> are hosted on Walrus. To learn more about Walrus Sites
 and how you can deploy your own, <a href="https://docs.wal.app/docs/walrus-sites/intro">click here</a>.</p>]]></content>
@@ -319,7 +319,7 @@ by operating it on a set of independent storage nodes, that change over time thr
 proof of stake mechanism. The Testnet also brings functionality updates relating to governance,
 epochs, and blob deletion.</p>
 <!-- -->
-<h2 class="anchor anchorWithStickyNavbar_bvlg" id="blob-deletion">Blob deletion<a href="https://docs.wal.app/blog/04_testnet_update#blob-deletion" class="hash-link" aria-label="Direct link to Blob deletion" title="Direct link to Blob deletion">​</a></h2>
+<h2 class="anchor anchorWithStickyNavbar_aXGe" id="blob-deletion">Blob deletion<a href="https://docs.wal.app/blog/04_testnet_update#blob-deletion" class="hash-link" aria-label="Direct link to Blob deletion" title="Direct link to Blob deletion">​</a></h2>
 <p>The most important user-facing new feature is optional blob deletion. The uploader of a blob can
 optionally indicate a blob is "deletable". This information is stored in the Sui blob metadata
 object, and is also included in the event denoting when the blob is certified. Subsequently, the
@@ -339,7 +339,7 @@ whole.</p>
 through the CLI.</li>
 <li>Find out more about how <a href="https://docs.wal.app/docs/dev-guide/dev-operations#delete">delete operations work</a>.</li>
 </ul>
-<h2 class="anchor anchorWithStickyNavbar_bvlg" id="epochs">Epochs<a href="https://docs.wal.app/blog/04_testnet_update#epochs" class="hash-link" aria-label="Direct link to Epochs" title="Direct link to Epochs">​</a></h2>
+<h2 class="anchor anchorWithStickyNavbar_aXGe" id="epochs">Epochs<a href="https://docs.wal.app/blog/04_testnet_update#epochs" class="hash-link" aria-label="Direct link to Epochs" title="Direct link to Epochs">​</a></h2>
 <p>Walrus Testnet enables multiple epochs. Initially, the epoch duration is set to a single day to
 ensure the logic of epoch change is thoroughly tested. At Mainnet, epochs will likely be multiple
 weeks long.</p>
@@ -352,7 +352,7 @@ re-upload blob contents.</p>
 <li>Find out how to store a blob for
 <a href="https://docs.wal.app/docs/usage/client-cli">multiple epochs</a>.</li>
 </ul>
-<h2 class="anchor anchorWithStickyNavbar_bvlg" id="the-wal-token-and-the-testnet-wal-faucet">The WAL token and the Testnet WAL faucet<a href="https://docs.wal.app/blog/04_testnet_update#the-wal-token-and-the-testnet-wal-faucet" class="hash-link" aria-label="Direct link to The WAL token and the Testnet WAL faucet" title="Direct link to The WAL token and the Testnet WAL faucet">​</a></h2>
+<h2 class="anchor anchorWithStickyNavbar_aXGe" id="the-wal-token-and-the-testnet-wal-faucet">The WAL token and the Testnet WAL faucet<a href="https://docs.wal.app/blog/04_testnet_update#the-wal-token-and-the-testnet-wal-faucet" class="hash-link" aria-label="Direct link to The WAL token and the Testnet WAL faucet" title="Direct link to The WAL token and the Testnet WAL faucet">​</a></h2>
 <p>Payments for blob storage and extending blob expiry are denominated in Testnet WAL, a
 Walrus token issued on the Sui Testnet. Testnet WAL has no value, and an unlimited supply; so no
 need to covet or hoard it, it's just for testing purposes and only issued on Sui Testnet.</p>
@@ -363,7 +363,7 @@ utility and smart contract to convert Testnet SUI (which also has no value) into
 a one-to-one exchange rate. This is chosen arbitrarily, and generally one should not read too much
 into the actual WAL denominated costs of storage on Testnet. They have been chosen arbitrarily.</p>
 <p>Find out how to <a href="https://docs.wal.app/docs/usage/networks#testnet-wal-faucet">request Testnet WAL tokens</a> through the CLI.</p>
-<h2 class="anchor anchorWithStickyNavbar_bvlg" id="decentralization-through-staking--unstaking">Decentralization through staking &amp; unstaking<a href="https://docs.wal.app/blog/04_testnet_update#decentralization-through-staking--unstaking" class="hash-link" aria-label="Direct link to Decentralization through staking &amp; unstaking" title="Direct link to Decentralization through staking &amp; unstaking">​</a></h2>
+<h2 class="anchor anchorWithStickyNavbar_aXGe" id="decentralization-through-staking--unstaking">Decentralization through staking &amp; unstaking<a href="https://docs.wal.app/blog/04_testnet_update#decentralization-through-staking--unstaking" class="hash-link" aria-label="Direct link to Decentralization through staking &amp; unstaking" title="Direct link to Decentralization through staking &amp; unstaking">​</a></h2>
 <p>The WAL token may also be used to stake with storage operators. Staked WAL can be unstaked and
 re-staked with other operators or used to purchase storage.</p>
 <p>Each epoch storage nodes are selected and allocated storage shards according to their delegated
@@ -383,11 +383,11 @@ to follow Sui event streams.</p>
 <li>Explore the <a href="https://stake.walrus.site/" target="_blank" rel="noopener noreferrer">Walrus staking dApp</a>.</li>
 <li>Look at recent activity on the <a href="https://walruscan.com/testnet/home" target="_blank" rel="noopener noreferrer">Walrus Explorer</a>.</li>
 </ul>
-<h2 class="anchor anchorWithStickyNavbar_bvlg" id="new-move-contracts--documentation">New Move contracts &amp; documentation<a href="https://docs.wal.app/blog/04_testnet_update#new-move-contracts--documentation" class="hash-link" aria-label="Direct link to New Move contracts &amp; documentation" title="Direct link to New Move contracts &amp; documentation">​</a></h2>
+<h2 class="anchor anchorWithStickyNavbar_aXGe" id="new-move-contracts--documentation">New Move contracts &amp; documentation<a href="https://docs.wal.app/blog/04_testnet_update#new-move-contracts--documentation" class="hash-link" aria-label="Direct link to New Move contracts &amp; documentation" title="Direct link to New Move contracts &amp; documentation">​</a></h2>
 <p>As part of the Testnet release of Walrus, the documentation and Move Smart contracts have been
 updated, and can be found in the <a href="https://github.com/MystenLabs/walrus-docs" target="_blank" rel="noopener noreferrer"><code>walrus-docs</code>
 repository</a>.</p>
-<h2 class="anchor anchorWithStickyNavbar_bvlg" id="new-walrus-sites-features">New Walrus Sites features<a href="https://docs.wal.app/blog/04_testnet_update#new-walrus-sites-features" class="hash-link" aria-label="Direct link to New Walrus Sites features" title="Direct link to New Walrus Sites features">​</a></h2>
+<h2 class="anchor anchorWithStickyNavbar_aXGe" id="new-walrus-sites-features">New Walrus Sites features<a href="https://docs.wal.app/blog/04_testnet_update#new-walrus-sites-features" class="hash-link" aria-label="Direct link to New Walrus Sites features" title="Direct link to New Walrus Sites features">​</a></h2>
 <p>With the move to Walrus Testnet, Walrus Sites have also been updated! The new features in this
 update greatly increase the flexibility, speed, and security of Walrus Sites. Developers can now
 specify client-side routing rules, and add custom HTTP headers to the portals' responses for their
@@ -395,7 +395,7 @@ site, expanding the possibilities for what Walrus Sites can do.</p>
 <p>Migrate now to take advantage of these new features! The old Walrus Sites, based on Walrus Devnet,
 will still be available for a short time. However, Devnet will be wiped soon (as described below),
 so it is recommended to migrate as soon as possible.</p>
-<h2 class="anchor anchorWithStickyNavbar_bvlg" id="discontinuation-of-walrus-devnet">Discontinuation of Walrus Devnet<a href="https://docs.wal.app/blog/04_testnet_update#discontinuation-of-walrus-devnet" class="hash-link" aria-label="Direct link to Discontinuation of Walrus Devnet" title="Direct link to Discontinuation of Walrus Devnet">​</a></h2>
+<h2 class="anchor anchorWithStickyNavbar_aXGe" id="discontinuation-of-walrus-devnet">Discontinuation of Walrus Devnet<a href="https://docs.wal.app/blog/04_testnet_update#discontinuation-of-walrus-devnet" class="hash-link" aria-label="Direct link to Discontinuation of Walrus Devnet" title="Direct link to Discontinuation of Walrus Devnet">​</a></h2>
 <p>The previous Walrus Devnet instance is now deprecated and <strong>will be shut down after 2024-10-31</strong>.
 All data stored on Walrus Devnet (including Walrus Sites) will no longer be accessible at that
 point. You need to re-upload all data to Walrus Testnet if you want it to remain accessible. Walrus
@@ -455,14 +455,14 @@ storage node, and plans around light nodes, will be shared in subsequent posts.<
 and clients. In this process, all blobs stored on Walrus were wiped. Note that this may happen again
 on Devnet and Testnet, but obviously <em>not on the future Mainnet</em>.</p>
 <!-- -->
-<h2 class="anchor anchorWithStickyNavbar_bvlg" id="migration-and-re-deployment-of-walrus-sites">Migration and Re-deployment of Walrus Sites<a href="https://docs.wal.app/blog/02_devnet_update#migration-and-re-deployment-of-walrus-sites" class="hash-link" aria-label="Direct link to Migration and Re-deployment of Walrus Sites" title="Direct link to Migration and Re-deployment of Walrus Sites">​</a></h2>
+<h2 class="anchor anchorWithStickyNavbar_aXGe" id="migration-and-re-deployment-of-walrus-sites">Migration and Re-deployment of Walrus Sites<a href="https://docs.wal.app/blog/02_devnet_update#migration-and-re-deployment-of-walrus-sites" class="hash-link" aria-label="Direct link to Migration and Re-deployment of Walrus Sites" title="Direct link to Migration and Re-deployment of Walrus Sites">​</a></h2>
 <p>You can obtain the latest version of the <code>walrus</code> binary and the new configuration as described in
 the <a href="https://docs.wal.app/docs/usage/setup">setup chapter</a>.</p>
 <p>If you had deployed any Walrus Sites, the site object on Sui and any SuiNS name are still valid.
 However, you need to re-store all blobs on Walrus. You can achieve this by running the site-builder
 tool (from the <code>walrus-sites</code> directory) as follows:</p>
-<div class="language-sh codeBlockContainer_cf3z theme-code-block" style="--prism-color:#393A34;--prism-background-color:#f6f8fa"><div class="codeBlockContent_wZQs"><pre tabindex="0" class="prism-code language-sh !pt-[14px] codeBlock_qGQc thin-scrollbar" style="color:#393A34;background-color:#f6f8fa"><code class="codeBlockLines_p187"><span class="token-line" style="color:#393A34"><span class="token plain">./target/release/site-builder --config site-builder/assets/builder-example.yaml update --force \</span><br></span><span class="token-line" style="color:#393A34"><span class="token plain">    &lt;path to the site&gt; &lt;site object ID&gt;</span><br></span></code></pre></div></div>
-<h2 class="anchor anchorWithStickyNavbar_bvlg" id="changes">Changes<a href="https://docs.wal.app/blog/02_devnet_update#changes" class="hash-link" aria-label="Direct link to Changes" title="Direct link to Changes">​</a></h2>
+<div class="language-sh codeBlockContainer_EJja theme-code-block" style="--prism-color:#393A34;--prism-background-color:#f6f8fa"><div class="codeBlockContent_kDO3"><pre tabindex="0" class="prism-code language-sh !pt-[14px] codeBlock_qGQc thin-scrollbar" style="color:#393A34;background-color:#f6f8fa"><code class="codeBlockLines_p187"><span class="token-line" style="color:#393A34"><span class="token plain">./target/release/site-builder --config site-builder/assets/builder-example.yaml update --force \</span><br></span><span class="token-line" style="color:#393A34"><span class="token plain">    &lt;path to the site&gt; &lt;site object ID&gt;</span><br></span></code></pre></div></div>
+<h2 class="anchor anchorWithStickyNavbar_aXGe" id="changes">Changes<a href="https://docs.wal.app/blog/02_devnet_update#changes" class="hash-link" aria-label="Direct link to Changes" title="Direct link to Changes">​</a></h2>
 <p>Besides many improvements to the storage nodes, the new version of Walrus includes the following
 user-facing changes:</p>
 <ul>
