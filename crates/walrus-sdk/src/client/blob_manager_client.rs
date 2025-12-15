@@ -505,11 +505,7 @@ impl BlobManagerClient<'_, SuiContractClient> {
 
         self.client
             .sui_client()
-            .certify_managed_blobs_in_blobmanager(
-                self.data.manager_id(),
-                self.data.cap_id(),
-                &cert_params,
-            )
+            .certify_managed_blobs_in_blobmanager(self.data.manager_id(), &cert_params)
             .await
             .map_err(crate::error::ClientError::from)?;
 

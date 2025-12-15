@@ -237,10 +237,11 @@ public fun register_blob(
 }
 
 /// Certifies a managed blob.
-/// Requires a valid BlobManagerCap to prove write access.
+/// Anyone can certify a registered blob - no capability required.
+/// The blob must already be registered, and the certification message is
+/// cryptographically verified by the system.
 public fun certify_blob(
     self: &mut BlobManager,
-    cap: &BlobManagerCap,
     system: &System,
     blob_id: u256,
     deletable: bool,
@@ -248,8 +249,6 @@ public fun certify_blob(
     signers_bitmap: vector<u8>,
     message: vector<u8>,
 ) {
-    check_cap(self, cap);
-
     self
         .inner_mut()
         .certify_blob(

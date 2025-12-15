@@ -669,10 +669,10 @@ impl SuiContractClient {
     }
 
     /// Certifies managed blobs in BlobManager using blob_id and deletable flag.
+    /// No capability is required - anyone can certify registered blobs.
     pub async fn certify_managed_blobs_in_blobmanager(
         &self,
         manager_id: ObjectID,
-        manager_cap: ObjectID,
         blobs_with_certificates: &[(BlobId, bool, &ConfirmationCertificate)],
     ) -> SuiClientResult<()> {
         let mut inner = self.inner.lock().await;
@@ -692,7 +692,7 @@ impl SuiContractClient {
             );
 
             pt_builder
-                .certify_managed_blob(manager_id, manager_cap, *blob_id, *deletable, certificate)
+                .certify_managed_blob(manager_id, *blob_id, *deletable, certificate)
                 .await?;
         }
 

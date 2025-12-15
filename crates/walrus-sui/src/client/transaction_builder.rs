@@ -1948,26 +1948,21 @@ impl WalrusPtbBuilder {
 
     /// Certifies a managed blob in BlobManager using blob_id and deletable flag.
     /// This is the correct API for blobs already registered in the BlobManager.
+    /// No capability is required - anyone can certify a registered blob.
     pub async fn certify_managed_blob(
         &mut self,
         manager: ObjectID,
-        cap: ObjectID,
         blob_id: walrus_core::BlobId,
         deletable: bool,
         certificate: &ConfirmationCertificate,
     ) -> SuiClientResult<()> {
-        // Get the initial shared version for the BlobManager first
+        // Get the initial shared version for the BlobManager first.
         let manager_initial_version = self
             .read_client
             .get_shared_object_initial_version(manager)
             .await?;
 
-        // Create the capability argument (cap is an owned object)
-        let cap_arg = self
-            .argument_from_arg_or_obj(ArgumentOrOwnedObject::Object(cap))
-            .await?;
-
-        // Get the signers bitmap
+        // Get the signers bitmap.
         let signers = self.signers_to_bitmap(&certificate.signers).await?;
 
         let certify_args = vec![
@@ -1976,7 +1971,6 @@ impl WalrusPtbBuilder {
                 initial_shared_version: manager_initial_version,
                 mutability: SharedObjectMutability::Mutable,
             })?,
-            cap_arg,
             self.system_arg(SharedObjectMutability::Immutable).await?,
             self.pt_builder.pure(blob_id)?,   // blob_id as u256
             self.pt_builder.pure(deletable)?, // deletable flag

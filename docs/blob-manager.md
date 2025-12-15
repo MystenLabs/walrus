@@ -370,6 +370,18 @@ blob_manager_client.withdraw_sui(500_000_000).await?;    // Withdraw 0.5 SUI
 
 These operations can be performed by anyone, without a capability:
 
+### Certifying blobs
+
+Anyone can certify a registered blob—no capability required. Since the blob must already be
+registered (which requires a capability), certification simply confirms that the blob data was
+successfully stored with cryptographic proof. This allows flexible publisher architectures where
+less-trusted parties can complete the certification step:
+
+```rust
+// Anyone can certify a registered blob
+client.certify_managed_blob(manager_id, blob_id, deletable, &certificate).await?;
+```
+
 ### Depositing funds
 
 Anyone can contribute to a BlobManager's coin stash:
@@ -432,6 +444,7 @@ transactions. Do not expose a BlobManager-enabled publisher publicly without pro
 | Operation | Description |
 |-----------|-------------|
 | `read_blob(blob_id)` | Read blob data |
+| `certify_blob(blob_id, certificate)` | Certify a registered blob |
 | `deposit_wal_to_coin_stash(amount)` | Donate WAL for storage |
 | `deposit_sui_to_coin_stash(amount)` | Donate SUI for tips |
 | `extend_blob_manager_storage(manager_id, epochs)` | Extend storage (earn tip) |
@@ -455,8 +468,7 @@ be exposed publicly without authentication, as they can modify on-chain state an
 | `POST` | `/v1/blob-managers` | Create a new BlobManager (with initial WAL) |
 | `POST` | `/v1/blob-managers/{manager_id}/cap` | Create a new capability |
 | `DELETE` | `/v1/blob-managers/{manager_id}/cap/{cap_id}` | Revoke a capability |
-| `PUT` | `/v1/blob-managers/{manager_id}/extension-policy` | Set extension policy |
-| `PUT` | `/v1/blob-managers/{manager_id}/tip-policy` | Set tip policy |
+| `PUT` | `/v1/blob-managers/{manager_id}/extension-policy` | Set extension policy (includes tip) |
 | `POST` | `/v1/blob-managers/{manager_id}/withdraw-wal` | Withdraw WAL |
 | `POST` | `/v1/blob-managers/{manager_id}/withdraw-sui` | Withdraw SUI |
 
@@ -477,6 +489,7 @@ be exposed publicly without authentication, as they can modify on-chain state an
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | `GET` | `/v1/blobs/{blob_id}` | Read blob (same as regular blobs) |
+| `POST` | `/v1/blob-managers/{manager_id}/certify/{blob_id}` | Certify a registered blob |
 | `POST` | `/v1/blob-managers/{manager_id}/deposit-wal` | Deposit WAL |
 | `POST` | `/v1/blob-managers/{manager_id}/deposit-sui` | Deposit SUI |
 | `POST` | `/v1/blob-managers/{manager_id}/extend` | Extend storage (earn tip) |
@@ -533,11 +546,8 @@ Response:
   "extensionPolicy": {
     "type": "constrained",
     "expiryThresholdEpochs": 5,
-    "maxExtensionEpochs": 10
-  },
-  "tipPolicy": {
-    "type": "fixedAmount",
-    "amount": 10000000
+    "maxExtensionEpochs": 10,
+    "tipAmount": 10000000
   },
   "storagePurchasePolicy": {
     "type": "conditionalPurchase",
