@@ -5,6 +5,8 @@
 /// Controls when and how storage can be extended by anyone using the coin stash.
 module walrus::extension_policy;
 
+use walrus::tip_policy::{Self, TipPolicy};
+
 // === Error Codes ===
 
 /// Extension is not allowed yet - storage hasn't reached the expiry threshold.
@@ -19,36 +21,56 @@ public struct ExtensionPolicy has copy, drop, store {
     expiry_threshold_epochs: u32,
     /// Maximum epochs that can be extended in a single call. Set to 0 to disable extensions.
     max_extension_epochs: u32,
-    /// Tip amount in MIST to reward the transaction sender who executes the extension.
-    tip_amount: u64,
+    /// Tip policy for rewarding users who execute extensions. Tips are paid in WAL.
+    tip_policy: TipPolicy,
 }
 
 // === Constructors ===
 
-/// Creates a new extension policy with the given parameters.
+/// Creates a new extension policy with a fixed tip amount (in DWAL = 0.1 WAL units).
 /// To disable extensions, set max_extension_epochs to 0.
 public(package) fun new(
     expiry_threshold_epochs: u32,
     max_extension_epochs: u32,
-    tip_amount: u64,
+    tip_amount_dwal: u64,
 ): ExtensionPolicy {
     ExtensionPolicy {
         expiry_threshold_epochs,
         max_extension_epochs,
-        tip_amount,
+        tip_policy: tip_policy::fixed(tip_amount_dwal),
     }
 }
 
-/// Default tip amount: 1000 MIST (0.001 SUI).
-const DEFAULT_TIP_AMOUNT_MIST: u64 = 1000;
+/// Creates a new extension policy with a custom tip policy.
+public(package) fun new_with_tip_policy(
+    expiry_threshold_epochs: u32,
+    max_extension_epochs: u32,
+    tip_policy: TipPolicy,
+): ExtensionPolicy {
+    ExtensionPolicy {
+        expiry_threshold_epochs,
+        max_extension_epochs,
+        tip_policy,
+    }
+}
 
-/// Creates a policy with default thresholds and tip amount.
-/// Default: expiry_threshold=2, max_extension=5, tip=1000 MIST.
+/// Creates a policy with default thresholds and adaptive tip policy.
+/// Default: expiry_threshold=2, max_extension=5, adaptive tip.
 public(package) fun default(): ExtensionPolicy {
     ExtensionPolicy {
         expiry_threshold_epochs: 2,
         max_extension_epochs: 5,
-        tip_amount: DEFAULT_TIP_AMOUNT_MIST,
+        tip_policy: tip_policy::default_adaptive(),
+    }
+}
+
+/// Creates a policy with fixed tip for backward compatibility.
+/// Default: expiry_threshold=2, max_extension=5, tip=10 DWAL (1 WAL).
+public(package) fun default_fixed(): ExtensionPolicy {
+    ExtensionPolicy {
+        expiry_threshold_epochs: 2,
+        max_extension_epochs: 5,
+        tip_policy: tip_policy::fixed(10), // 1 WAL = 10 DWAL.
     }
 }
 
@@ -98,18 +120,59 @@ public(package) fun validate_and_compute_end_epoch(
 
 // === Accessors ===
 
-/// Gets the tip amount from the policy.
-public fun get_tip_amount(policy: &ExtensionPolicy): u64 {
-    policy.tip_amount
+/// Gets the tip policy.
+public fun tip_policy(policy: &ExtensionPolicy): &TipPolicy {
+    &policy.tip_policy
+}
+
+/// Gets the expiry threshold epochs.
+public fun expiry_threshold_epochs(policy: &ExtensionPolicy): u32 {
+    policy.expiry_threshold_epochs
+}
+
+/// Gets the max extension epochs.
+public fun max_extension_epochs(policy: &ExtensionPolicy): u32 {
+    policy.max_extension_epochs
+}
+
+/// Calculates the tip amount in FROST based on policy, capacity, and timing.
+/// This is the full calculation with time multiplier.
+public fun calculate_tip(
+    policy: &ExtensionPolicy,
+    used_bytes: u64,
+    current_timestamp_ms: u64,
+    current_epoch: u32,
+    current_epoch_start_ms: u64,
+    epoch_duration_ms: u64,
+    storage_end_epoch: u32,
+): u64 {
+    tip_policy::calculate_tip(
+        &policy.tip_policy,
+        used_bytes,
+        current_timestamp_ms,
+        current_epoch,
+        current_epoch_start_ms,
+        epoch_duration_ms,
+        storage_end_epoch,
+    )
+}
+
+/// Calculates the tip amount without time multiplier (simpler version).
+public fun calculate_tip_simple(policy: &ExtensionPolicy, used_bytes: u64): u64 {
+    tip_policy::calculate_tip_simple(&policy.tip_policy, used_bytes)
 }
 
 // === Tests ===
 
+/// DWAL to FROST conversion for test assertions.
+const DWAL_TO_FROST: u64 = 100_000_000;
+
 #[test]
 fun test_policy_creation() {
-    let policy = new(1, 5, 1000);
-    // Policy created successfully.
-    assert!(get_tip_amount(&policy) == 1000);
+    // new() creates a fixed tip policy with tip in DWAL units.
+    let policy = new(1, 5, 10); // 10 DWAL = 1 WAL.
+    // Policy created successfully. Tip is 10 DWAL = 1 WAL = 1_000_000_000 FROST.
+    assert!(calculate_tip_simple(&policy, 0) == 10 * DWAL_TO_FROST);
 }
 
 #[test]
@@ -125,14 +188,14 @@ fun test_disabled_policy_no_extension() {
 
 #[test, expected_failure(abort_code = EExtensionTooEarly)]
 fun test_too_early_aborts() {
-    let policy = new(1, 5, 1000);
+    let policy = new(1, 5, 10);
     // Threshold is 99, current is 98 - too early.
     validate_and_compute_end_epoch(&policy, 98, 100, 5, 52);
 }
 
 #[test]
 fun test_at_threshold() {
-    let policy = new(1, 5, 1000);
+    let policy = new(1, 5, 10);
     // Threshold is 99, current is 99 - allowed.
     // end=100, extension=5, new_end=105.
     let result = validate_and_compute_end_epoch(&policy, 99, 100, 5, 52);
@@ -141,7 +204,7 @@ fun test_at_threshold() {
 
 #[test]
 fun test_caps_to_policy_max() {
-    let policy = new(1, 5, 1000);
+    let policy = new(1, 5, 10);
     // Requesting 10, but policy max is 5.
     // end=100, capped_extension=5, new_end=105.
     let result = validate_and_compute_end_epoch(&policy, 99, 100, 10, 52);
@@ -152,7 +215,7 @@ fun test_caps_to_policy_max() {
 fun test_caps_to_system_max() {
     // Policy: extend only within 1 epoch of expiry, max 100 epochs.
     // Using high policy max to test system cap.
-    let policy = new(1, 100, 1000);
+    let policy = new(1, 100, 10);
 
     // current=99, end=100, threshold=99, within window (99 >= 99).
     // requested=100, policy_capped=100, new_end=200.
@@ -167,7 +230,7 @@ fun test_caps_to_system_max() {
     assert!(result2 == 202);
 
     // Test with smaller policy max.
-    let policy2 = new(1, 10, 1000);
+    let policy2 = new(1, 10, 10);
     // current=99, end=100, threshold=99, within window.
     // requested=100, policy_capped=10, new_end=110.
     // system_max_end=151, so new_end=110 (no system cap needed).
@@ -176,16 +239,17 @@ fun test_caps_to_system_max() {
 }
 
 #[test]
-fun test_get_tip_amount() {
-    // Policy with tip amount.
-    let policy = new(1, 5, 2000);
-    assert!(get_tip_amount(&policy) == 2000);
-
-    // Default policy returns default tip.
-    let default_policy = default();
-    assert!(get_tip_amount(&default_policy) == DEFAULT_TIP_AMOUNT_MIST);
+fun test_tip_calculation() {
+    // Fixed tip policy: 20 DWAL = 2 WAL.
+    let policy = new(1, 5, 20);
+    assert!(calculate_tip_simple(&policy, 0) == 20 * DWAL_TO_FROST);
 
     // Zero tip policy.
     let zero_tip_policy = new(1, 5, 0);
-    assert!(get_tip_amount(&zero_tip_policy) == 0);
+    assert!(calculate_tip_simple(&zero_tip_policy, 0) == 0);
+
+    // Default policy uses adaptive tip.
+    let default_policy = default();
+    // Adaptive base tip is 1 DWAL = 0.1 WAL.
+    assert!(calculate_tip_simple(&default_policy, 0) == 1 * DWAL_TO_FROST);
 }

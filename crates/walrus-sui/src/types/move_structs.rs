@@ -1145,6 +1145,26 @@ pub struct BlobManagerCoinStash {
     pub sui_balance: u64,
 }
 
+/// Tip policy for rewarding users who execute storage extensions.
+/// All tip amounts are in DWAL (0.1 WAL) units internally.
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+pub enum TipPolicy {
+    /// Fixed tip amount regardless of capacity or time.
+    Fixed {
+        /// Tip amount in DWAL (0.1 WAL) units.
+        tip_amount_dwal: u64,
+    },
+    /// Adaptive tip that scales with used capacity and time urgency.
+    Adaptive {
+        /// Minimum base tip in DWAL (e.g., 1 = 0.1 WAL).
+        base_tip_dwal: u64,
+        /// Maximum tip cap in DWAL (e.g., 2000 = 200 WAL).
+        max_tip_dwal: u64,
+        /// Additional tip per TB of used capacity in DWAL (e.g., 10 = 1 WAL per TB).
+        tip_per_tb_dwal: u64,
+    },
+}
+
 /// Extension policy controlling who can extend storage and when.
 /// To disable extensions, set max_extension_epochs to 0.
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
@@ -1153,8 +1173,8 @@ pub struct ExtensionPolicy {
     pub expiry_threshold_epochs: u32,
     /// Maximum epochs that can be extended in a single call. Set to 0 to disable extensions.
     pub max_extension_epochs: u32,
-    /// Tip amount in SUI (MIST units) to reward community extenders.
-    pub tip_amount: u64,
+    /// Tip policy for rewarding users who execute extensions. Tips are paid in WAL.
+    pub tip_policy: TipPolicy,
 }
 
 /// Storage purchase policy controlling how much storage can be purchased.

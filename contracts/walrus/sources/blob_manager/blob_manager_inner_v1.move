@@ -470,14 +470,14 @@ public(package) fun buy_storage_from_stash(
 
 /// Extends the storage period using funds from the coin stash.
 /// Must follow the extension policy constraints.
-/// Returns tip coin as reward to the caller.
+/// Returns tip coin (in WAL) as reward to the caller.
 public(package) fun extend_storage_from_stash(
     self: &mut BlobManagerInnerV1,
     manager_id: ID,
     system: &mut System,
     extension_epochs: u32,
     ctx: &mut TxContext,
-): Coin<SUI> {
+): Coin<WAL> {
     self.verify_storage(system);
 
     // Get current epoch and storage end epoch.
@@ -501,20 +501,20 @@ public(package) fun extend_storage_from_stash(
 
 /// Internal helper to execute the storage extension.
 /// Extends storage to the specified new_end_epoch.
-/// Returns tip_coin as reward for the caller.
+/// Returns tip_coin (in WAL) as reward for the caller.
 fun execute_extension(
     self: &mut BlobManagerInnerV1,
     manager_id: ID,
     system: &mut System,
     new_end_epoch: u32,
     ctx: &mut TxContext,
-): Coin<SUI> {
+): Coin<WAL> {
     let current_epoch = system::epoch(system);
     let storage_end_epoch = self.storage.end_epoch();
 
     // If new_end_epoch is not greater than current end epoch, no extension needed.
     if (new_end_epoch <= storage_end_epoch) {
-        return coin::zero<SUI>(ctx)
+        return coin::zero<WAL>(ctx)
     };
 
     // Get available WAL balance from stash.
@@ -540,13 +540,11 @@ fun execute_extension(
     // Apply the extension to the BlobManager's storage.
     self.storage.extend_storage(extension_storage);
 
-    // Get tip coin for the caller from extension policy.
-    let tip_amount = self.extension_policy.get_tip_amount();
-    let tip_coin = if (tip_amount > 0) {
-        self.coin_stash.withdraw_sui_for_tip(tip_amount, ctx)
-    } else {
-        coin::zero<SUI>(ctx)
-    };
+    // Calculate and withdraw tip in WAL for the caller.
+    // Use simple calculation (without time multiplier) for now.
+    let used_bytes = self.storage.capacity_info().in_use();
+    let tip_amount = self.extension_policy.calculate_tip_simple(used_bytes);
+    let tip_coin = self.coin_stash.withdraw_wal_for_tip(tip_amount, ctx);
 
     // Emit BlobManagerUpdated event.
     events::emit_blob_manager_updated(
@@ -689,13 +687,13 @@ public(package) fun set_extension_policy(
     self: &mut BlobManagerInnerV1,
     expiry_threshold_epochs: u32,
     max_extension_epochs: u32,
-    tip_amount: u64,
+    tip_amount_dwal: u64,
 ) {
     self.extension_policy =
         extension_policy::new(
             expiry_threshold_epochs,
             max_extension_epochs,
-            tip_amount,
+            tip_amount_dwal,
         );
 }
 

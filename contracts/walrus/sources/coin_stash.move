@@ -108,6 +108,23 @@ public(package) fun withdraw_sui_for_tip(
     coin::from_balance(self.sui_balance.split(tip_amount), ctx)
 }
 
+/// Tips the transaction sender with WAL from the stash.
+/// Used to reward users who help execute storage operations like extensions.
+/// Returns the tip coin if successful, or an empty coin if insufficient funds.
+public(package) fun withdraw_wal_for_tip(
+    self: &mut BlobManagerCoinStash,
+    tip_amount: u64,
+    ctx: &mut TxContext,
+): Coin<WAL> {
+    // If no tip amount or insufficient balance, return empty coin.
+    if (tip_amount == 0 || self.wal_balance.value() < tip_amount) {
+        return coin::zero<WAL>(ctx)
+    };
+
+    // Split the tip amount from the balance and return as coin.
+    coin::from_balance(self.wal_balance.split(tip_amount), ctx)
+}
+
 // === Fund Manager Functions ===
 
 /// Withdraws a specific amount of WAL funds from the stash.

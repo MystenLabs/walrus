@@ -2569,6 +2569,172 @@ async fn test_blob_manager_extension_policy() {
     tracing::info!("All extension policy tests completed successfully!");
 }
 
+/// Tests that a community member can execute storage extension and receive WAL tip.
+/// This validates that:
+/// 1. Anyone (not just the manager owner) can call extend_storage_from_stash.
+/// 2. The caller receives WAL as a tip reward.
+/// 3. The tip amount matches the configured extension policy.
+#[ignore = "ignore E2E tests by default"]
+#[walrus_simtest]
+async fn test_blob_manager_extension_community_tip() {
+    walrus_test_utils::init_tracing();
+
+    let test_nodes_config = TestNodesConfig {
+        node_weights: vec![7, 7, 7, 7, 7],
+        ..Default::default()
+    };
+    let test_cluster_builder =
+        test_cluster::E2eTestSetupBuilder::new().with_test_nodes_config(test_nodes_config);
+    let (sui_cluster_handle, _cluster, mut client, _) = test_cluster_builder.build().await.unwrap();
+    let client_ref = client.as_mut();
+
+    // Create a BlobManager with initial storage.
+    let initial_capacity = 500 * 1024 * 1024; // 500MB.
+    let epochs_ahead = 5;
+
+    let admin_cap = client_ref
+        .sui_client()
+        .create_blob_manager(initial_capacity, epochs_ahead, DEFAULT_INITIAL_WAL)
+        .await
+        .expect("Failed to create BlobManager");
+    let manager_id = admin_cap.manager_id;
+    let admin_cap_id = admin_cap.id;
+
+    tracing::info!(
+        "Created BlobManager: {} with cap: {}",
+        manager_id,
+        admin_cap_id
+    );
+
+    // Wait for objects to be indexed.
+    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+    // Create BlobManagerClient.
+    let blob_manager_client = client_ref
+        .blob_manager(admin_cap_id)
+        .await
+        .expect("Failed to create BlobManagerClient");
+
+    // Deposit some WAL to the coin stash for extension operations + tip.
+    let deposit_amount_wal = 5_000_000_000; // 5 WAL.
+    blob_manager_client
+        .deposit_wal_to_coin_stash(deposit_amount_wal)
+        .await
+        .expect("Failed to deposit WAL to coin stash");
+
+    tracing::info!("Deposited {} FROST WAL to coin stash", deposit_amount_wal);
+
+    // Set extension policy with a known tip amount:
+    // expiry_threshold_epochs=100 (allows extension anytime).
+    // max_extension_epochs=5.
+    // tip_amount_dwal=100 (100 DWAL = 10 WAL = 10_000_000_000 FROST).
+    let tip_amount_dwal: u64 = 100;
+    let expected_tip_frost: u64 = tip_amount_dwal * 100_000_000; // 100 DWAL = 10 WAL.
+    tracing::info!(
+        "Setting extension policy with tip_amount_dwal={} (expected tip={} FROST)",
+        tip_amount_dwal,
+        expected_tip_frost
+    );
+    blob_manager_client
+        .set_extension_policy(100, 5, tip_amount_dwal)
+        .await
+        .expect("Failed to set extension policy");
+
+    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+    // Create a community member wallet with SUI for gas but no WAL.
+    let mut cluster_wallet = walrus_sui::config::load_wallet_context_from_path(
+        Some(
+            sui_cluster_handle
+                .lock()
+                .await
+                .wallet_path()
+                .await
+                .as_path(),
+        ),
+        None,
+    )
+    .expect("Failed to load cluster wallet");
+
+    let env = cluster_wallet.get_active_env().unwrap().to_owned();
+    let mut community_wallet = test_utils::temp_dir_wallet(None, env)
+        .await
+        .expect("Failed to create community wallet");
+    let community_address = community_wallet.inner.active_address().unwrap();
+
+    // Fund the community wallet with SUI for gas only (no WAL).
+    walrus_sui::test_utils::fund_addresses(
+        &mut cluster_wallet,
+        vec![community_address],
+        Some(10_000_000_000),
+    )
+    .await
+    .expect("Failed to fund community wallet with SUI");
+
+    tracing::info!(?community_address, "Created community member wallet");
+
+    // Create a SuiContractClient for the community member.
+    let config = client_ref.config().clone();
+    let community_sui_client = config
+        .new_contract_client(community_wallet.inner, None)
+        .await
+        .expect("Failed to create SuiContractClient for community wallet");
+
+    // Verify community member has no WAL initially.
+    let wal_coin_type = community_sui_client.read_client.wal_coin_type().to_owned();
+    let initial_wal_coins = community_sui_client
+        .retriable_sui_client()
+        .select_all_coins(community_address, Some(wal_coin_type.clone()))
+        .await
+        .expect("Failed to get initial WAL coins");
+    let initial_wal_balance: u64 = initial_wal_coins.iter().map(|c| c.balance).sum();
+
+    tracing::info!(
+        initial_wal_balance,
+        num_coins = initial_wal_coins.len(),
+        "Community member initial WAL balance"
+    );
+    assert_eq!(
+        initial_wal_balance, 0,
+        "Community member should have no WAL initially"
+    );
+
+    // Have the community member execute the extension.
+    tracing::info!("Community member executing extension...");
+    community_sui_client
+        .extend_storage_from_stash(manager_id, 1)
+        .await
+        .expect("Community member should be able to extend storage");
+
+    // Wait for transaction to be processed.
+    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+    // Verify community member received WAL tip.
+    let final_wal_coins = community_sui_client
+        .retriable_sui_client()
+        .select_all_coins(community_address, Some(wal_coin_type))
+        .await
+        .expect("Failed to get final WAL coins");
+    let final_wal_balance: u64 = final_wal_coins.iter().map(|c| c.balance).sum();
+
+    tracing::info!(
+        final_wal_balance,
+        num_coins = final_wal_coins.len(),
+        expected_tip_frost,
+        "Community member final WAL balance"
+    );
+
+    assert_eq!(
+        final_wal_balance, expected_tip_frost,
+        "Community member should have received the tip amount in WAL"
+    );
+
+    tracing::info!(
+        "Community member received {} FROST WAL tip as expected!",
+        final_wal_balance
+    );
+}
+
 // =============================================================================
 // Randomized Test - Mixed Operations
 // =============================================================================

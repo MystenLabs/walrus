@@ -342,13 +342,13 @@ public fun buy_storage_from_stash(
 
 /// Extends the storage period using funds from the coin stash.
 /// Must follow the extension policy constraints.
-/// Returns tip coin as reward to the caller.
+/// Returns tip coin (in WAL) as reward to the caller.
 public fun extend_storage_from_stash(
     self: &mut BlobManager,
     system: &mut System,
     extension_epochs: u32,
     ctx: &mut TxContext,
-): Coin<SUI> {
+): Coin<WAL> {
     let manager_id = object::id(self);
     self.inner_mut().extend_storage_from_stash(manager_id, system, extension_epochs, ctx)
 }
@@ -386,12 +386,13 @@ public fun withdraw_sui(
 /// Sets the extension policy with the given parameters.
 /// To disable extensions, set max_extension_epochs to 0.
 /// Requires can_withdraw_funds permission.
+/// tip_amount_dwal is in DWAL units (0.1 WAL), e.g., 10 = 1 WAL.
 public fun set_extension_policy(
     self: &mut BlobManager,
     cap: &BlobManagerCap,
     expiry_threshold_epochs: u32,
     max_extension_epochs: u32,
-    tip_amount: u64,
+    tip_amount_dwal: u64,
 ) {
     check_cap(self, cap);
     assert!(cap.can_withdraw_funds, ERequiresWithdrawFunds);
@@ -401,7 +402,7 @@ public fun set_extension_policy(
         .set_extension_policy(
             expiry_threshold_epochs,
             max_extension_epochs,
-            tip_amount,
+            tip_amount_dwal,
         );
 }
 
