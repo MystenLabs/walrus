@@ -4,7 +4,7 @@ description: "Overview of Walrus objectives, use cases, and applications includi
 keywords: ["walrus", "use cases", "objectives", "nft storage", "ai datasets", "decentralized web", "blockchain storage", "media storage", "applications"]
 ---
 
-Walrus supports operations to store and read blobs, and to prove and verify their availability. It ensures that content survives storage nodes suffering Byzantine faults, remaining available and retrievable. It provides APIs to access the stored content over [CLI, SDKs, and Web2 HTTP technologies](/usage/interacting.mdx), and supports content delivery infrastructures like caches and content distribution networks (CDNs).
+Walrus supports operations to store and read blobs, and to prove and verify their availability. It ensures that content survives storage nodes suffering Byzantine faults, remaining available and retrievable. It provides APIs to access the stored content over CLI, SDKs, and Web2 HTTP technologies, and supports content delivery infrastructures like caches and content distribution networks (CDNs).
 
 Under the hood, [storage cost](/dev-guide/costs.mdx) is a small fixed multiple of the size of blobs (around 5x). Advanced erasure coding keeps the cost low, in contrast to the full replication of data traditional to blockchains, such as the >100x multiple for data stored in Sui objects. As a result, storage of large resources (multiple GB) is possible on Walrus at substantially lower cost than on Sui or other blockchains. Because all storage nodes store encoded blobs, Walrus also provides superior robustness compared to designs using a small amount of replicas to store the full blob.
 
