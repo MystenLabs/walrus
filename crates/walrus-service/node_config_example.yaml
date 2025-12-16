@@ -9,7 +9,7 @@ db_config:
     wal_ttl_seconds: 172800
     wal_size_limit_mb: 10240
     enable_statistics: false
-    experimental_use_optimistic_transaction_db: false
+    use_optimistic_transaction_db: true
   standard:
     enable_blob_files: false
     min_blob_size: 0

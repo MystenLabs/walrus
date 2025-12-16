@@ -282,7 +282,7 @@ impl Storage {
             .chain(blob_info_column_families)
             .collect::<Vec<_>>();
 
-        let database = if db_config.experimental_use_optimistic_transaction_db() {
+        let database = if db_config.use_optimistic_transaction_db() {
             rocks::open_cf_opts_optimistic(
                 path,
                 Some(db_opts),
