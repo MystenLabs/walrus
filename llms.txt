@@ -45,6 +45,7 @@ Where the world's data becomes reliable, valuable, and governable
 
 ## Snippets
 
+- [No title](/snippets/blob-object-id): After you upload a blob to Walrus, it has 2 identifiers:
 - [Blog Post Notice](/snippets/blog-note-edit): Notice about legacy blog post content that may contain outdated information or broken links.
 
 ## Usage
@@ -52,7 +53,6 @@ Where the world's data becomes reliable, valuable, and governable
 - [Using the Walrus Client](/usage/client-cli): Comprehensive guide to using the Walrus CLI for storing, reading, and managing blobs with detailed command examples.
 - [Examples](/usage/examples): Collection of code examples for Walrus integration including Python, JavaScript, and Move smart contract examples.
 - [Glossary](/usage/glossary): Comprehensive glossary of Walrus and blockchain storage terminology including technical definitions and concepts.
-- [Interacting with Walrus](/usage/interacting): Overview of different ways to interact with Walrus including CLI, JSON API, HTTP API, and staking operations.
 - [JSON Mode](/usage/json-api): Guide to using Walrus client in JSON mode for programmatic access with JSON formatted input and output.
 - [Available Networks](/usage/networks): Overview of Walrus networks including Mainnet and Testnet configurations, parameters, and setup instructions.
 - [Quilt: Walrus Native Batch Store Tool](/usage/quilt): Comprehensive guide to Walrus Quilt for batch storage of multiple small blobs with cost optimization and metadata management.

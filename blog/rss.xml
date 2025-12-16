@@ -17,7 +17,7 @@
             <content:encoded><![CDATA[<p>The production Walrus Mainnet is now live, and operated by
 a decentralized network of over 100 storage nodes. Epoch 1 begun on March 25, 2025. The
 network can now be used to
-<a href="https://docs.wal.app/docs/usage/interacting">publish and retrieve blobs</a>,
+<a href="https://docs.wal.app/docs/usage/client-cli">publish and retrieve blobs</a>,
 <a href="https://docs.wal.app/docs/walrus-sites/tutorial-publish">upload and browse Walrus Sites</a>, as
 well as <a href="https://stake-wal.wal.app/" target="_blank" rel="noopener noreferrer">stake and unstake</a> to determine future committees using the
 live
