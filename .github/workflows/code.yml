@@ -128,7 +128,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libssl-dev pkg-config zlib1g-dev libpq-dev build-essential cmake
       - name: Run tests
-        run: cargo nextest run --workspace --features "walrus-service/backup" --profile ci --run-ignored all
+        run: cargo nextest run --workspace --features "walrus-service/backup" --profile ci --run-ignored all --cargo-profile
+          test-opt
       - name: Run all unit tests and doctests with `cargo test`
         run: cargo test
 

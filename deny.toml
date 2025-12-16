@@ -20,11 +20,11 @@ ignore = [
   "RUSTSEC-2025-0012",
   # Crash due to uncontrolled recursion in `protobuf` crate.
   "RUSTSEC-2024-0437",
-  # fxhash is unmaintained; it is used in `sui-config`.
+  # `fxhash` is unmaintained; it is used in `sui-config`.
   "RUSTSEC-2025-0057",
-  # number_prefix is unmaintained; it is a dependency of many sui crates.
+  # `number_prefix` is unmaintained; it is a dependency of many sui crates.
   "RUSTSEC-2025-0119",
-  # rustls-pemfile is unmaintained; it is a dependency of `sui-types` crate.
+  # `rustls-pemfile` is unmaintained; it is an indirect dependency through various crates.
   "RUSTSEC-2025-0134",
 ]
 
