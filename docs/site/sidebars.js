@@ -35,10 +35,6 @@ const sidebars = {
         {
             type: "category",
             label: "Interacting with Walrus",
-            link: {
-                type: "doc",
-                id: "usage/interacting",
-            },
             items: ["usage/client-cli", "usage/json-api", "usage/web-api", "usage/sdks"],
         },
         {
