@@ -30,7 +30,7 @@ This detailed encoding setup results in an expansion of the blob size by a facto
 
 ## Blob authentication
 
-Each blob has associated metadata, including a **blob ID**, that enables data authenticity verification:
+Each blob has associated metadata, including a **blob ID**, that enables data authenticity verification.
 
 ### Blob ID computation
 
@@ -85,20 +85,13 @@ The default check balances performance with security by verifying only the read 
 3. Client verifies sliver authenticity using the metadata.
 4. Client decodes the original blob from these authentic slivers.
 
-The first 334 primary slivers contain the unencoded data (potentially padded). This means the cryptographic hashes of these slivers, combined with the blob length, uniquely determine the blob content:
+The first 334 primary slivers contain the unencoded data (potentially padded). This means the cryptographic hashes of these slivers, combined with the blob length, uniquely determine the blob content. Therefore, by recomputing the sliver hashes of the first 334 slivers and checking them against the metadata, the client can verify that the decoded data is correct. If the hashes match, the data is provided to the user, otherwise an error is returned. 
 
-1. Recompute sliver hashes for the first 334 slivers.
-2. Check recomputed hashes against the metadata.
-3. If hashes match, provide data to user.
-4. If hashes don't match, return an error.
-
-Any correct client attempting to read a blob, performing the default consistency check, will either read the specific value authenticated by the writer or return an error.
+Any correct client attempting to read a blob and performing the default consistency check, will either read the specific value authenticated by the writer or return an error.
 
 ### Strict consistency check
 
 The strict check provides stronger guarantees by verifying the entire blob encoding, not just the read portion.
-
-**When to use strict checks:**
 
 When a blob is encoded incorrectly, different sets of 334 slivers might decode to different data. The default check guarantees correct data when a read succeeds, but some read attempts might fail while others succeed. Storage nodes might later detect the blob as inconsistent, causing all subsequent reads to fail.
 
@@ -110,10 +103,10 @@ When a blob is encoded incorrectly, different sets of 334 slivers might decode t
 4. Client verifies the computed blob ID matches the requested blob ID.
 5. Read succeeds only if blob IDs match.
 
-This check is strictly stronger than the default check and provides the same data consistency property. It ensures the original writer encoded the blob correctly, eliminating the possibility of inconsistent reads across different clients or time periods.
+This check is more rigorous than the default check and provides the same data consistency property. It ensures the original writer encoded the blob correctly, eliminating the possibility of inconsistent reads across different clients or time periods.
 
 Additionally, the strict check guarantees that any correct client attempting to read the blob during its lifetime will always succeed and read the same data intended by the writer, regardless of which consistency check they perform.
 
 ### Consistency checks for quilts
 
-For quilt patches, only a variant of the default consistency check is available, because clients read only part of the quilt rather than the entire structure.
+For [quilt patches](/docs/content/usage/quilt.mdx), only a variant of the default consistency check is available, because clients read only part of the quilt rather than the entire structure.
