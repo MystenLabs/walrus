@@ -708,11 +708,12 @@ impl EncodingFactory for ReedSolomonEncodingConfig {
     }
 }
 
-/// Computes the number of primary and secondary source symbols starting from the number of shards.
+/// Computes the number of primary encoding and secondary encoding source symbols starting from the
+/// number of shards.
 ///
 /// The computation is as follows:
-/// - `source_symbols_primary = n_shards - 2f`
-/// - `source_symbols_secondary = n_shards - f`
+/// - `source_symbols_primary = n_shards - 2f` = # of symbols in secondary sliver
+/// - `source_symbols_secondary = n_shards - f` = # of symbols in primary sliver
 #[inline]
 pub fn source_symbols_for_n_shards(n_shards: NonZeroU16) -> (NonZeroU16, NonZeroU16) {
     let min_n_correct = bft::min_n_correct(n_shards);
