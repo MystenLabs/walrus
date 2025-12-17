@@ -50,7 +50,7 @@ Where the world's data becomes reliable, valuable, and governable
 
 ## Tusky migration guide
 
-- [Tusky Migration Guide](/tusky-migration-guide): During the Tusky sunsetting period, you can continue reading your data and migrate to using Walrus directly or via alternative tooling.
+- [Tusky Migration Guide](/tusky-migration-guide): During the Tusky sunsetting period, you can continue reading your data and migrate to using Walrus directly or through alternative tooling.
 
 ## Usage
 
