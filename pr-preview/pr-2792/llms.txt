@@ -48,6 +48,10 @@ Where the world's data becomes reliable, valuable, and governable
 - [No title](/snippets/blob-object-id): After you upload a blob to Walrus, it has 2 identifiers:
 - [Blog Post Notice](/snippets/blog-note-edit): Notice about legacy blog post content that may contain outdated information or broken links.
 
+## Tusky migration guide
+
+- [Tusky Migration Guide](/tusky-migration-guide): During the Tusky sunsetting period, you can continue reading your data and migrate to using Walrus directly or via alternative tooling.
+
 ## Usage
 
 - [Using the Walrus Client](/usage/client-cli): Comprehensive guide to using the Walrus CLI for storing, reading, and managing blobs with detailed command examples.
