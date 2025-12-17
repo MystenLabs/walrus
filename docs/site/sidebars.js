@@ -87,6 +87,7 @@ const sidebars = {
         },
         "usage/stake",
         "usage/examples",
+        "tusky-migration-guide",
         "usage/troubleshooting",
         "usage/glossary",
     ],
