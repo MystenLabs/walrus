@@ -2499,17 +2499,19 @@ impl WalrusPtbBuilder {
         Ok(())
     }
 
-    /// Sets the extension policy with the given parameters.
+    /// Sets extension parameters for a BlobManager.
     /// To disable extensions, set max_extension_epochs to 0.
     /// Requires can_withdraw_funds permission on the capability.
-    /// `tip_amount_wal`: Tip amount in WAL (e.g., 10 = 10 WAL).
-    pub async fn set_extension_policy(
+    /// `tip_amount_frost`: Tip amount in FROST (e.g., 10_000_000_000 = 10 WAL).
+    /// `last_epoch_multiplier`: Multiplier for last epoch (e.g., 2 = 2x, 1 = no multiplier).
+    pub async fn set_extension_params(
         &mut self,
         manager: ObjectID,
         cap: ObjectID,
         expiry_threshold_epochs: u32,
         max_extension_epochs: u32,
-        tip_amount_wal: u64,
+        tip_amount_frost: u64,
+        last_epoch_multiplier: u64,
     ) -> SuiClientResult<()> {
         // Get the initial shared version for the BlobManager.
         let manager_initial_version = self
@@ -2530,10 +2532,11 @@ impl WalrusPtbBuilder {
             cap_arg,
             self.pt_builder.pure(expiry_threshold_epochs)?,
             self.pt_builder.pure(max_extension_epochs)?,
-            self.pt_builder.pure(tip_amount_wal)?,
+            self.pt_builder.pure(tip_amount_frost)?,
+            self.pt_builder.pure(last_epoch_multiplier)?,
         ];
 
-        self.blobmanager_move_call(contracts::blobmanager::set_extension_policy, policy_args)?;
+        self.blobmanager_move_call(contracts::blobmanager::set_extension_params, policy_args)?;
         Ok(())
     }
 

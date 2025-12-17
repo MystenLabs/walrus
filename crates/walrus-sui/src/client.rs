@@ -924,26 +924,29 @@ impl SuiContractClient {
             .await
     }
 
-    /// Sets the extension policy with the given parameters.
+    /// Sets extension parameters for a BlobManager.
     /// To disable extensions, set max_extension_epochs to 0.
     /// Requires can_withdraw_funds permission on the capability.
-    pub async fn set_extension_policy(
+    /// `last_epoch_multiplier`: Multiplier for last epoch (e.g., 2 = 2x, 1 = no multiplier).
+    pub async fn set_extension_params(
         &self,
         manager_id: ObjectID,
         manager_cap: ObjectID,
         expiry_threshold_epochs: u32,
         max_extension_epochs: u32,
         tip_amount: u64,
+        last_epoch_multiplier: u64,
     ) -> SuiClientResult<()> {
         self.inner
             .lock()
             .await
-            .set_extension_policy(
+            .set_extension_params(
                 manager_id,
                 manager_cap,
                 expiry_threshold_epochs,
                 max_extension_epochs,
                 tip_amount,
+                last_epoch_multiplier,
             )
             .await
     }
@@ -2742,48 +2745,52 @@ impl SuiContractClientInner {
         Ok(())
     }
 
-    /// Sets the extension policy with the given parameters.
+    /// Sets extension parameters for a BlobManager.
     /// To disable extensions, set max_extension_epochs to 0.
     /// Requires can_withdraw_funds permission on the capability.
-    pub async fn set_extension_policy(
+    /// `last_epoch_multiplier`: Multiplier for last epoch (e.g., 2 = 2x, 1 = no multiplier).
+    pub async fn set_extension_params(
         &mut self,
         manager_id: ObjectID,
         manager_cap: ObjectID,
         expiry_threshold_epochs: u32,
         max_extension_epochs: u32,
         tip_amount: u64,
+        last_epoch_multiplier: u64,
     ) -> SuiClientResult<()> {
         tracing::debug!(
             manager_id = %manager_id,
             expiry_threshold_epochs = expiry_threshold_epochs,
             max_extension_epochs = max_extension_epochs,
             tip_amount = tip_amount,
-            "setting extension policy"
+            last_epoch_multiplier = last_epoch_multiplier,
+            "setting extension parameters"
         );
 
         let mut pt_builder = self.transaction_builder()?;
 
         pt_builder
-            .set_extension_policy(
+            .set_extension_params(
                 manager_id,
                 manager_cap,
                 expiry_threshold_epochs,
                 max_extension_epochs,
                 tip_amount,
+                last_epoch_multiplier,
             )
             .await?;
 
         let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
         let res = self
-            .sign_and_send_transaction(transaction, "set_extension_policy")
+            .sign_and_send_transaction(transaction, "set_extension_params")
             .await?;
 
         if !res.errors.is_empty() {
-            tracing::warn!(errors = ?res.errors, "failed to set extension policy");
-            return Err(anyhow!("could not set extension policy: {:?}", res.errors).into());
+            tracing::warn!(errors = ?res.errors, "failed to set extension params");
+            return Err(anyhow!("could not set extension params: {:?}", res.errors).into());
         }
 
-        tracing::debug!("successfully set extension policy");
+        tracing::debug!("successfully set extension params");
         Ok(())
     }
 

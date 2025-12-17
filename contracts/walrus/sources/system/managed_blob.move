@@ -315,13 +315,30 @@ public fun certify_with_certified_msg(
 /// Internal function to delete a deletable blob.
 /// Used by system_state_inner::delete_managed_blob.
 /// Aborts if the ManagedBlob is not deletable.
-public(package) fun delete_internal(self: ManagedBlob) {
+public(package) fun delete_internal(self: ManagedBlob, epoch: u32) {
     let ManagedBlob {
         id,
+        blob_id: deleted_blob_id,
+        certified_epoch,
         deletable,
+        blob_manager_id,
         ..,
     } = self;
+
     assert!(deletable, EBlobNotDeletable);
+
+    let object_id = id.to_inner();
+    let was_certified = certified_epoch.is_some();
+
+    // Emit the deletion event before destroying the object.
+    emit_managed_blob_deleted(
+        epoch,
+        blob_manager_id,
+        deleted_blob_id,
+        object_id,
+        was_certified,
+    );
+
     id.delete();
 }
 

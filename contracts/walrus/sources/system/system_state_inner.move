@@ -430,34 +430,6 @@ public(package) fun delete_blob(self: &SystemStateInnerV1, blob: Blob): Storage 
     blob.delete(self.epoch())
 }
 
-/// Deletes a deletable managed blob.
-/// Emits a ManagedBlobDeleted event and destroys the managed blob object.
-public(package) fun delete_managed_blob(
-    self: &SystemStateInnerV1,
-    managed_blob: managed_blob::ManagedBlob,
-) {
-    use walrus::events::emit_managed_blob_deleted;
-
-    // Extract necessary data before deletion.
-    let epoch = self.epoch();
-    let blob_manager_id = managed_blob.blob_manager_id();
-    let blob_id = managed_blob.blob_id();
-    let object_id = managed_blob.object_id();
-    let is_certified = managed_blob.certified_epoch().is_some();
-
-    // Delete the managed blob (this checks deletable and destroys the object).
-    managed_blob.delete_internal();
-
-    // Emit the deletion event.
-    emit_managed_blob_deleted(
-        epoch,
-        blob_manager_id,
-        blob_id,
-        object_id,
-        is_certified,
-    );
-}
-
 /// Extend the period of validity of a blob with a new storage resource.
 /// The new storage resource must be the same size as the storage resource
 /// used in the blob, and have a longer period of validity.

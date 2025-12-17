@@ -183,7 +183,7 @@ The BlobManager uses a two-layer design similar to `System` / `SystemStateInnerV
 
 - **Key Functions**:
   - `deposit_wal()` / `deposit_sui()` - Accept contributions
-  - `withdraw_wal_for_storage()` - Use funds for storage
+  - `withdraw_wal()` - Use funds for storage
   - `withdraw_sui_for_gas()` - Use funds for gas
   - Balance query functions
 

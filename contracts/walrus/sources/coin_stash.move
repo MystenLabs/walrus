@@ -80,7 +80,7 @@ public(package) fun deposit_sui(self: &mut BlobManagerCoinStash, payment: Coin<S
 
 /// Withdraws WAL for storage operations.
 /// Anyone can use these funds for valid storage operations.
-public(package) fun withdraw_wal_for_storage(
+public(package) fun withdraw_wal(
     self: &mut BlobManagerCoinStash,
     amount: u64,
     ctx: &mut TxContext,
@@ -126,19 +126,6 @@ public(package) fun withdraw_wal_for_tip(
 }
 
 // === Fund Manager Functions ===
-
-/// Withdraws a specific amount of WAL funds from the stash.
-/// Only callable through BlobManager with fund_manager permission.
-public(package) fun withdraw_wal(
-    self: &mut BlobManagerCoinStash,
-    amount: u64,
-    ctx: &mut TxContext,
-): Coin<WAL> {
-    assert!(amount > 0, EInvalidWithdrawalAmount);
-    assert!(self.wal_balance.value() >= amount, EInsufficientWalBalance);
-
-    coin::from_balance(self.wal_balance.split(amount), ctx)
-}
 
 /// Withdraws a specific amount of SUI funds from the stash.
 /// Only callable through BlobManager with fund_manager permission.

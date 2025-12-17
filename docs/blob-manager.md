@@ -50,11 +50,9 @@ public struct BlobManager has key, store {
 public struct BlobManagerInnerV1 has store {
     /// Unified storage pool for all managed blobs.
     storage: BlobStorage,
-    /// Coin stash for community funding (WAL for storage, SUI for tips).
+    /// Coin stash for community funding (WAL for storage, tips).
     coin_stash: BlobManagerCoinStash,
-    /// Policy controlling who can extend storage, when, and tip amount.
-    extension_policy: ExtensionPolicy,
-    /// Policy controlling how much storage can be purchased from the coin stash.
+    /// Combined policy controlling both capacity purchases and time extensions.
     storage_purchase_policy: StoragePurchasePolicy,
     /// Maps capability IDs to their info, including revocation status.
     caps_info: Table<ID, CapInfo>,
@@ -208,26 +206,29 @@ blob_manager_client.buy_storage_from_stash(500_000_000).await?;
 
 #### Storage purchase policy
 
-The BlobManager implements a **storage purchase policy** system to prevent abuse and ensure fair
-access to storage resources. This policy controls when and how much storage can be purchased from
-the coin stash.
+The BlobManager implements a **unified storage purchase policy** that controls both capacity
+purchases and time extensions. This policy prevents abuse and ensures fair access to storage resources.
 
-**Policy types:**
+**Capacity Policy Types:**
 
 1. **Unlimited**: No restrictions on storage purchases (not recommended for production)
-2. **FixedCap**: Hard limit on the maximum storage that can be purchased in a single transaction
-3. **ConditionalPurchase**: Only allows purchases when available storage is below a threshold
+2. **Constrained**: Only allows purchases when available storage is below a threshold with a maximum purchase limit
 
-**Default policy (ConditionalPurchase):**
+**Default policy:**
 
-The BlobManager defaults to a conditional purchase policy with a 15GB threshold:
+The BlobManager defaults to a constrained capacity policy with a 15GB threshold:
 - Storage can only be purchased when available storage < 15GB
 - Maximum purchase amount is capped at 15GB per transaction
-- Prevents malicious actors from draining funds by purchasing excessive storage
+- Extensions allowed within 2 epochs of expiry, max 5 epochs per extension
+- Base tip of 10 WAL with 2x multiplier in last epoch
 
 ```move
 /// Default configuration in BlobManager
-storage_purchase_policy: storage_purchase_policy::conditional_purchase(15_000_000_000), // 15GB
+storage_purchase_policy: storage_purchase_policy::default(),
+// Includes:
+// - Capacity: constrained with 15GB threshold and max
+// - Extensions: allowed within 2 epochs, max 5 epochs
+// - Tip: 10 WAL base with 2x last epoch multiplier
 ```
 
 **How it works:**
@@ -265,37 +266,91 @@ let balances = blob_manager_client.get_coin_stash_balances().await?;
 
 ## Extension policies
 
-Extension policies control how and when community members can extend the BlobManager's storage
-lifetime. The policy is configured with three parameters:
+Extension policies (part of the unified storage purchase policy) control how and when community
+members can extend the BlobManager's storage lifetime. The policy is configured with four parameters:
 
 - `expiry_threshold_epochs`: Extensions only allowed when current epoch is within this many epochs
   of the storage end epoch
 - `max_extension_epochs`: Maximum epochs that can be added in a single extension. Set to 0 to
   disable extensions entirely.
-- `tip_amount`: SUI tip in MIST to reward community extenders (1 SUI = 1,000,000,000 MIST)
+- `tip_amount`: Base tip amount in FROST (WAL) for community extenders
+- `last_epoch_multiplier`: Multiplier applied to tip in the last epoch before expiry (e.g., 2 = 2x)
 
-### Setting the extension policy
+### Setting extension parameters
 
 ```rust
 // Allow extensions when within 5 epochs of expiry, max 10 epochs per extension,
-// tip 0.1 SUI (100_000_000 MIST) to extenders
+// with a base tip of 10 WAL and 2x multiplier in last epoch
 blob_manager_client
-    .set_extension_policy(5, 10, 100_000_000)
+    .set_extension_params(5, 10, 10_000_000_000, 2)  // 10 WAL in FROST, 2x last epoch
+    .await?;
+
+// Flat tip (no multiplier): 20 WAL always
+blob_manager_client
+    .set_extension_params(5, 10, 20_000_000_000, 1)  // 20 WAL, no multiplier (1x)
     .await?;
 
 // Disable extensions by setting max_extension_epochs to 0
 blob_manager_client
-    .set_extension_policy(0, 0, 0)
+    .set_extension_params(0, 0, 0, 1)
     .await?;
 ```
 
 When a community member calls `extend_blob_manager_storage()`, they:
 1. Pay the gas fee of the transaction
 2. Pay nothing for storage (WAL comes from the coin stash)
-3. Receive the configured SUI tip
+3. Receive the configured WAL tip
 
 This creates a **keeper incentive**: community members can monitor BlobManagers approaching expiry
 and extend them to earn tips.
+
+## Tip Policy
+
+The BlobManager uses a simple tip policy to incentivize community members to extend storage. Tips are paid in WAL from the coin stash.
+
+### How It Works
+
+The tip policy has two components:
+- **Base tip**: A fixed amount in WAL paid for extensions
+- **Last-epoch multiplier**: Increases the tip when extending in the last epoch before expiry (default: 2x)
+
+### Configuration
+
+```rust
+// Default policy: 10 WAL base tip with 2x multiplier in last epoch
+blob_manager_client.set_extension_params(
+    2,                  // expiry_threshold_epochs
+    5,                  // max_extension_epochs
+    10_000_000_000,     // base_tip: 10 WAL in FROST
+    2,                  // last_epoch_multiplier: 2x
+).await?;
+
+// Custom multiplier: 5 WAL base with 3x in last epoch
+blob_manager_client.set_extension_params(
+    2,                  // expiry_threshold_epochs
+    5,                  // max_extension_epochs
+    5_000_000_000,      // base_tip: 5 WAL in FROST
+    3,                  // last_epoch_multiplier: 3x
+).await?;
+
+// Flat tip (no multiplier): 20 WAL always
+blob_manager_client.set_extension_params(
+    2,                  // expiry_threshold_epochs
+    5,                  // max_extension_epochs
+    20_000_000_000,     // base_tip: 20 WAL in FROST
+    1,                  // last_epoch_multiplier: 1x (no multiplier)
+).await?;
+```
+
+### Examples
+
+| Policy | Normal Epochs | Last Epoch Before Expiry |
+|--------|---------------|--------------------------|
+| Default (10 WAL, 2x) | 10 WAL | 20 WAL |
+| Custom (5 WAL, 3x) | 5 WAL | 15 WAL |
+| Flat (20 WAL, 1x) | 20 WAL | 20 WAL |
+
+This design provides predictable costs while incentivizing timely extensions when storage is about to expire.
 
 ### Admin storage adjustment
 

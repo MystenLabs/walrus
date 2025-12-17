@@ -1689,11 +1689,11 @@ async fn test_blob_manager_coin_stash_operations() {
     // First, set a wider expiry threshold policy so extension is allowed.
     // The default policy is constrained(2, 5, 1000), meaning extension is only allowed
     // when within 2 epochs of expiry. Update to constrained(100, 10, 1000) to allow extension now.
-    tracing::info!("Setting extension policy to allow extension from current epoch");
+    tracing::info!("Setting extension params to allow extension from current epoch");
     blob_manager_client
-        .set_extension_policy(100, 10, 1000)
+        .set_extension_params(100, 10, 1000, 2)
         .await
-        .expect("Failed to set extension policy");
+        .expect("Failed to set extension params");
 
     let extension_epochs = 1;
     tracing::info!("Testing storage extension by {} epochs", extension_epochs);
@@ -2512,11 +2512,11 @@ async fn test_blob_manager_extension_policy() {
     tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
 
     // Test 2: Set policy to wider threshold so extension is allowed.
-    tracing::info!("Test 2: Setting policy to (100, 5, 1000)");
+    tracing::info!("Test 2: Setting policy to (100, 5, 1000, 2)");
     blob_manager_client
-        .set_extension_policy(100, 5, 1000)
+        .set_extension_params(100, 5, 1000, 2)
         .await
-        .expect("Failed to set extension policy");
+        .expect("Failed to set extension params");
 
     tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
 
@@ -2532,9 +2532,9 @@ async fn test_blob_manager_extension_policy() {
     tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
 
     // Test 3: Disable extensions by setting expiry_threshold_epochs to 0.
-    tracing::info!("Test 3: Disabling extensions with (0, 0, 0)");
+    tracing::info!("Test 3: Disabling extensions with (0, 0, 0, 1)");
     blob_manager_client
-        .set_extension_policy(0, 0, 0)
+        .set_extension_params(0, 0, 0, 1)
         .await
         .expect("Failed to set policy to disabled");
 
@@ -2550,11 +2550,11 @@ async fn test_blob_manager_extension_policy() {
     tracing::info!("Correctly rejected extension with disabled policy");
 
     // Test 4: Re-enable with policy that allows extensions.
-    tracing::info!("Test 4: Re-enabling with (100, 10, 1000) policy");
+    tracing::info!("Test 4: Re-enabling with (100, 10, 1000, 2) policy");
     blob_manager_client
-        .set_extension_policy(100, 10, 1000)
+        .set_extension_params(100, 10, 1000, 2)
         .await
-        .expect("Failed to set extension policy");
+        .expect("Failed to set extension params");
 
     tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
 
@@ -2627,18 +2627,17 @@ async fn test_blob_manager_extension_community_tip() {
     // Set extension policy with a known tip amount:
     // expiry_threshold_epochs=100 (allows extension anytime).
     // max_extension_epochs=5.
-    // tip_amount_wal=10 (10 WAL = 10_000_000_000 FROST).
-    let tip_amount_wal: u64 = 10;
-    let expected_tip_frost: u64 = tip_amount_wal * 1_000_000_000; // 10 WAL in FROST.
+    // tip_amount_frost=10_000_000_000 (10 WAL).
+    let tip_amount_frost: u64 = 10_000_000_000; // 10 WAL in FROST.
     tracing::info!(
-        "Setting extension policy with tip_amount_wal={} (expected tip={} FROST)",
-        tip_amount_wal,
-        expected_tip_frost
+        "Setting extension policy with tip_amount_frost={} (10 WAL)",
+        tip_amount_frost
     );
     blob_manager_client
-        .set_extension_policy(100, 5, tip_amount_wal)
+        .set_extension_params(100, 5, tip_amount_frost, 2)
         .await
-        .expect("Failed to set extension policy");
+        .expect("Failed to set extension params");
+    let expected_tip_frost = tip_amount_frost;
 
     tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
 

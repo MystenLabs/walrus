@@ -1146,50 +1146,43 @@ pub struct BlobManagerCoinStash {
 }
 
 /// Tip policy for rewarding users who execute storage extensions.
-/// All tip amounts are stored in FROST (smallest WAL unit, 1 WAL = 1_000_000_000 FROST).
+/// Simple fixed tip with optional last-epoch multiplier.
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
-pub enum TipPolicy {
-    /// Fixed tip amount regardless of capacity or time.
-    Fixed {
-        /// Tip amount in FROST (e.g., 10_000_000_000 = 10 WAL).
-        tip_amount_frost: u64,
-    },
-    /// Adaptive tip that scales with used capacity and time urgency.
-    Adaptive {
-        /// Minimum base tip in FROST (e.g., 1_000_000_000 = 1 WAL).
-        base_tip_frost: u64,
-        /// Maximum tip cap in FROST (e.g., 2_000_000_000_000 = 2000 WAL).
-        max_tip_frost: u64,
-        /// Additional tip per TB of used capacity in FROST (e.g., 10_000_000_000 = 10 WAL/TB).
-        tip_per_tb_frost: u64,
+pub struct TipPolicy {
+    /// Base tip amount in FROST. E.g., 10_000_000_000 = 10 WAL.
+    pub tip_amount: u64,
+    /// Multiplier for last epoch as literal value (e.g., 2 = 2x, 1 = 1x to disable).
+    /// Applied when current_epoch == storage_end_epoch - 1.
+    pub last_epoch_multiplier: u64,
+}
+
+/// Policy for capacity purchase controls.
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+pub enum CapacityPolicy {
+    /// No limit on storage purchases.
+    Unlimited,
+    /// Constrained purchase: only allow purchases when available storage < threshold.
+    /// Max purchase amount is capped at max_purchase_bytes.
+    Constrained {
+        /// Threshold for available storage.
+        /// Purchases only allowed when available < threshold_bytes.
+        threshold_bytes: u64,
+        /// Maximum storage size in bytes that can be purchased in a single call.
+        max_purchase_bytes: u64,
     },
 }
 
-/// Extension policy controlling who can extend storage and when.
-/// To disable extensions, set max_extension_epochs to 0.
+/// Storage purchase policy controlling both capacity purchases and time extensions.
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
-pub struct ExtensionPolicy {
+pub struct StoragePurchasePolicy {
+    /// Policy for capacity purchases.
+    pub capacity_policy: CapacityPolicy,
     /// Extension only allowed when current epoch >= end_epoch - expiry_threshold_epochs.
     pub expiry_threshold_epochs: u32,
     /// Maximum epochs that can be extended in a single call. Set to 0 to disable extensions.
     pub max_extension_epochs: u32,
     /// Tip policy for rewarding users who execute extensions. Tips are paid in WAL.
     pub tip_policy: TipPolicy,
-}
-
-/// Storage purchase policy controlling how much storage can be purchased.
-#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
-pub enum StoragePurchasePolicy {
-    /// No limit on storage purchases.
-    Unlimited,
-    /// Constrained purchase: only allows purchases when available storage < threshold.
-    /// Maximum purchase is capped at max_purchase_bytes.
-    Constrained {
-        /// Only allow purchases when available storage < threshold.
-        threshold_bytes: u64,
-        /// Maximum storage size in bytes that can be purchased.
-        max_purchase_bytes: u64,
-    },
 }
 
 /// Information about a capability's revocation status.
@@ -1223,9 +1216,7 @@ pub struct BlobManagerInnerV1 {
     pub storage: BlobStorage,
     /// Coin stash for community funding.
     pub coin_stash: BlobManagerCoinStash,
-    /// Extension policy (includes tip amount).
-    pub extension_policy: ExtensionPolicy,
-    /// Storage purchase policy.
+    /// Storage purchase policy controlling both capacity purchases and time extensions.
     pub storage_purchase_policy: StoragePurchasePolicy,
     /// Capability info table (contents are dynamic fields).
     pub caps_info: SuiTable,

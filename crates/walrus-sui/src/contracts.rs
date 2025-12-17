@@ -518,7 +518,7 @@ pub mod blobmanager {
     contract_ident!(fn blobmanager::remove_blob_attribute);
     contract_ident!(fn blobmanager::clear_blob_attributes);
     // Extension policy operations.
-    contract_ident!(fn blobmanager::set_extension_policy);
+    contract_ident!(fn blobmanager::set_extension_params);
     // Storage adjustment operations.
     contract_ident!(fn blobmanager::adjust_storage);
 }

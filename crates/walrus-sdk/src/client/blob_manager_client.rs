@@ -776,7 +776,8 @@ impl BlobManagerClient<'_, SuiContractClient> {
     /// * `expiry_threshold_epochs` - Extension only allowed when within this many epochs of expiry.
     /// * `max_extension_epochs` - Maximum epochs that can be extended in a single call. Set to 0 to
     ///   disable extensions.
-    /// * `tip_amount` - SUI tip in MIST to reward community extenders.
+    /// * `tip_amount` - Tip in FROST to reward community extenders.
+    /// * `last_epoch_multiplier` - Multiplier for last epoch (e.g., 2 = 2x, 1 = no multiplier).
     ///
     /// # Returns
     ///
@@ -784,30 +785,33 @@ impl BlobManagerClient<'_, SuiContractClient> {
     /// * `Err(ClientError)` if:
     ///   - The caller doesn't have can_withdraw_funds permission.
     ///   - The transaction fails.
-    pub async fn set_extension_policy(
+    pub async fn set_extension_params(
         &self,
         expiry_threshold_epochs: u32,
         max_extension_epochs: u32,
         tip_amount: u64,
+        last_epoch_multiplier: u64,
     ) -> ClientResult<()> {
         tracing::info!(
-            "BlobManager set_extension_policy: manager_id={:?}, cap={:?}, \
-            expiry_threshold={}, max_extension={}, tip_amount={}",
+            "BlobManager set_extension_params: manager_id={:?}, cap={:?}, \
+            expiry_threshold={}, max_extension={}, tip_amount={}, last_epoch_multiplier={}",
             self.data.manager_id(),
             self.data.cap_id(),
             expiry_threshold_epochs,
             max_extension_epochs,
-            tip_amount
+            tip_amount,
+            last_epoch_multiplier
         );
 
         self.client
             .sui_client()
-            .set_extension_policy(
+            .set_extension_params(
                 self.data.manager_id(),
                 self.data.cap_id(),
                 expiry_threshold_epochs,
                 max_extension_epochs,
                 tip_amount,
+                last_epoch_multiplier,
             )
             .await
             .map_err(crate::error::ClientError::from)?;

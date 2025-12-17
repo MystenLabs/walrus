@@ -50,14 +50,6 @@ public struct BlobStorage has store {
     total_unencoded_size: u64,
 }
 
-/// Result of finding a managed blob with its certification status.
-public struct ManagedBlobInfo has drop {
-    /// The object ID of the managed blob.
-    object_id: ID,
-    /// Whether the blob is certified.
-    is_certified: bool,
-}
-
 /// Capacity information for the storage.
 public struct CapacityInfo has copy, drop {
     /// Available storage capacity in bytes.
@@ -215,18 +207,6 @@ public(package) fun remove_blob(self: &mut BlobStorage, blob_id: u256): ManagedB
     self.used_storage = self.used_storage - encoded_size;
 
     managed_blob
-}
-
-// === ManagedBlobInfo Accessors ===
-
-/// Gets the object ID from ManagedBlobInfo.
-public fun object_id(self: &ManagedBlobInfo): ID {
-    self.object_id
-}
-
-/// Gets the certification status from ManagedBlobInfo.
-public fun is_certified(self: &ManagedBlobInfo): bool {
-    self.is_certified
 }
 
 // === CapacityInfo Accessors ===

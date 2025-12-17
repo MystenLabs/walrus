@@ -11,6 +11,7 @@ use walrus::{
     blob::Blob,
     bls_aggregate::BlsCommittee,
     epoch_parameters::EpochParams,
+    events,
     managed_blob::{Self, ManagedBlob},
     storage_accounting::FutureAccountingRingBuffer,
     storage_node::StorageNodeCap,
@@ -233,13 +234,6 @@ public fun delete_blob(self: &System, blob: Blob): Storage {
     self.inner().delete_blob(blob)
 }
 
-/// Deletes a deletable managed blob.
-/// Emits a ManagedBlobDeleted event and destroys the managed blob object.
-/// Aborts if the ManagedBlob is not deletable.
-public fun delete_managed_blob(self: &System, managed_blob: ManagedBlob) {
-    self.inner().delete_managed_blob(managed_blob)
-}
-
 /// Extend the period of validity of a blob with a new storage resource.
 /// The new storage resource must be the same size as the storage resource
 /// used in the blob, and have a longer period of validity.
@@ -369,6 +363,7 @@ public fun convert_blob_to_managed(
     assert!(blob.is_certified(), EBlobNotCertified);
 
     // Extract the metadata from the blob.
+    let original_object_id = blob.object_id();
     let blob_id = blob.blob_id();
     let size = blob.size();
     let encoding_type = blob.encoding_type();
@@ -392,6 +387,21 @@ public fun convert_blob_to_managed(
         blob_type,
         self.n_shards(),
         ctx,
+    );
+
+    // Get the new object ID from the managed blob.
+    let new_object_id = managed_blob.object_id();
+
+    // Emit event for blob being moved into BlobManager.
+    events::emit_blob_moved_into_blob_manager(
+        self.epoch(),
+        blob_id,
+        blob_manager_id,
+        original_object_id,
+        size,
+        encoding_type,
+        new_object_id,
+        deletable,
     );
 
     (managed_blob, storage)

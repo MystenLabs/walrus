@@ -383,26 +383,29 @@ public fun withdraw_sui(
     self.inner_mut().withdraw_sui(amount, ctx)
 }
 
-/// Sets the extension policy with the given parameters.
+/// Sets extension parameters.
 /// To disable extensions, set max_extension_epochs to 0.
 /// Requires can_withdraw_funds permission.
-/// `tip_amount_wal`: Tip amount in WAL (e.g., 10 = 10 WAL).
-public fun set_extension_policy(
+/// `tip_amount_frost`: Tip amount in FROST (e.g., 10_000_000_000 = 10 WAL).
+/// `last_epoch_multiplier`: Multiplier for last epoch (e.g., 2 = 2x, 1 = no multiplier).
+public fun set_extension_params(
     self: &mut BlobManager,
     cap: &BlobManagerCap,
     expiry_threshold_epochs: u32,
     max_extension_epochs: u32,
-    tip_amount_wal: u64,
+    tip_amount_frost: u64,
+    last_epoch_multiplier: u64,
 ) {
     check_cap(self, cap);
     assert!(cap.can_withdraw_funds, ERequiresWithdrawFunds);
 
     self
         .inner_mut()
-        .set_extension_policy(
+        .set_extension_params(
             expiry_threshold_epochs,
             max_extension_epochs,
-            tip_amount_wal,
+            tip_amount_frost,
+            last_epoch_multiplier,
         );
 }
 
@@ -427,20 +430,20 @@ public fun adjust_storage(
 
 // === Storage Purchase Policy Configuration ===
 
-/// Sets the storage purchase policy to unlimited (no restrictions).
+/// Sets the capacity policy to unlimited (no restrictions).
 /// Requires can_withdraw_funds permission.
-public fun set_storage_purchase_policy_unlimited(self: &mut BlobManager, cap: &BlobManagerCap) {
+public fun set_capacity_unlimited(self: &mut BlobManager, cap: &BlobManagerCap) {
     check_cap(self, cap);
     assert!(cap.can_withdraw_funds, ERequiresWithdrawFunds);
 
-    self.inner_mut().set_storage_purchase_policy_unlimited();
+    self.inner_mut().set_capacity_unlimited();
 }
 
-/// Sets the storage purchase policy to constrained.
+/// Sets the capacity policy to constrained.
 /// Only allows purchases when available storage < threshold_bytes.
 /// Maximum purchase is capped at max_purchase_bytes.
 /// Requires can_withdraw_funds permission.
-public fun set_storage_purchase_policy_constrained(
+public fun set_capacity_constrained(
     self: &mut BlobManager,
     cap: &BlobManagerCap,
     threshold_bytes: u64,
@@ -449,7 +452,7 @@ public fun set_storage_purchase_policy_constrained(
     check_cap(self, cap);
     assert!(cap.can_withdraw_funds, ERequiresWithdrawFunds);
 
-    self.inner_mut().set_storage_purchase_policy_constrained(threshold_bytes, max_purchase_bytes);
+    self.inner_mut().set_capacity_constrained(threshold_bytes, max_purchase_bytes);
 }
 
 // === Blob Attribute Operations ===
