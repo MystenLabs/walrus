@@ -56,13 +56,13 @@ Based on your needs for data management going forward, you can choose to encrypt
   - Use the [CLI](/docs/usage/client-cli), [SDK](/docs/usage/sdks), or [web API](/docs/usage/web-api).
 
   - For encryption, either:
-    - Use a third-party library (like [CryptoES](https://www.npmjs.com/package/crypto-es) or [Node’s Crypto Module](https://medium.com/@tony.infisical/guide-to-nodes-crypto-module-for-encryption-decryption-65c077176980) for symmetric key based encryption before upload. You may optionally use the keys that you may have retrieved from Tusky.
-    - Integrate Seal as part of your write flow. This will require a Move-based access policy and integration with key server providers: https://seal-docs.wal.app/GettingStarted/.
+    - Use a third-party library (like [CryptoES](https://www.npmjs.com/package/crypto-es) or [Node’s Crypto Module](https://medium.com/@tony.infisical/guide-to-nodes-crypto-module-for-encryption-decryption-65c077176980) for symmetric key based encryption before upload. You can optionally use the keys that you might have retrieved from Tusky.
+    - Integrate Seal as part of your write flow. This requires a Move-based access policy and integration with key server providers: https://seal-docs.wal.app/GettingStarted/.
 
 
-## Migration option 2: Direct Walrus access via blob or quilt patch IDs
+## Migration option 2: Direct Walrus access through blob or quilt patch IDs
 
-1. Extract blob or patch IDs and metadata from Tusky (via their app, API, or SDK).
+1. Extract blob or patch IDs and metadata from Tusky (through their app, API, or SDK).
 
 2. Fetch blobs or quilt patches directly from Walrus using:
   - [Walrus CLI](/docs/usage/client-cli)
@@ -71,7 +71,7 @@ Based on your needs for data management going forward, you can choose to encrypt
   - [Walrus Quilt](/docs/usage/quilt)
 
 3. Validate integrity and availability of the data.
-  - You may have to decrypt your data using encryption keys that you have retrieved from Tusky. Make sure you request for those before their service is shut down.
+  - You might have to decrypt your data using encryption keys that you have retrieved from Tusky. Make sure you request for those before their service is shut down.
 
 4. Update your application or workflows to reference Walrus directly going forward.
 
@@ -97,7 +97,7 @@ More managed UX options coming soon.
     - Long-term maintenance and support
 
 2. Re-upload data
-  - Upload data via the new interface (relevant UI, API, or SDK).
+  - Upload data through the new interface (relevant UI, API, or SDK).
   - Re-apply encryption and access controls as needed.
 
 3. Validate access and workflows
