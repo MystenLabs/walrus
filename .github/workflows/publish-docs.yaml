@@ -102,4 +102,4 @@ jobs:
         run: >
           site-builder --gas-budget 1000000000
           update ${{ env.BUILD_DIR }} ${{ vars.WALRUS_SITE_OBJECT_DOCS }}
-          --epochs ${{ env.EPOCHS }}
+          --epochs ${{ env.EPOCHS }} --ws-resources docs/site/ws-resources.json
