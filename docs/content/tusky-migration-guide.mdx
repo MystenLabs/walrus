@@ -1,10 +1,10 @@
 ---
 title: Tusky Migration Guide
-description: During the Tusky sunsetting period, you can continue reading your data and migrate to using Walrus directly or via alternative tooling.
+description: During the Tusky sunsetting period, you can continue reading your data and migrate to using Walrus directly or through alternative tooling.
 keywords: [ tusky, migration, migrate from tusky, tusky sunset ] 
 ---
 
-As of December 17, 2025, the storage service Tusky is shutting down. Data stored on Walrus through Tusky is still safe and accessible. During Tusky's sunsetting period, you can continue reading your data, however you must either migrate to using Walrus directly or via alternative tooling.
+As of December 17, 2025, the storage service Tusky is shutting down. Data stored on Walrus through Tusky is still safe and accessible. During Tusky's sunsetting period, you can continue reading your data, however you must either migrate to using Walrus directly or through alternative tooling.
 
 During this sunset period, you must:
 
@@ -25,7 +25,7 @@ During this sunset period, you must:
 ## Immediate first steps 
 
 1. Confirm your sunset window.
-   - You have at least 30 days of guaranteed read access via Tusky from the date of their shut down announcement.
+   - You have at least **30 days** of guaranteed read access via Tusky from the date of their shut down announcement (December 17, 2025).
    - **Do not wait until the last week of this 30 day window**.
 2. Take inventory of your data. Having an inventory of your data will help determine which migration option fits best.
    - Make a list of:
@@ -40,7 +40,7 @@ During this sunset period, you must:
 
 Tusky supports self-hosted keys and keys supplied by the user but [stored on Tusky and password protected](https://github.com/tusky-io/ts-sdk?tab=readme-ov-file#encryption). They implement server-side encryption and decryption of blobs with those keys, which means that a user or app client does not need to do the actual encryption or decryption on their end. 
 
-This means once you download your data from Tusky, it should already be decrypted. 
+**This means once you download your data from Tusky, it should already be decrypted.**
 
 Based on your needs for data management going forward, you can choose to encrypt your data using an alternative mechanism as mentioned in the migration options. If you request the Tusky-stored encryption keys from them before they shut down the service, you may choose to reuse those keys with the relevant alternatives.
 
@@ -71,7 +71,7 @@ Based on your needs for data management going forward, you can choose to encrypt
   - [Walrus Quilt](/docs/usage/quilt)
 
 3. Validate integrity and availability of the data.
-  - You might have to decrypt your data using encryption keys that you have retrieved from Tusky. Make sure you request for those before their service is shut down.
+  - You might have to decrypt your data using encryption keys that you have retrieved from Tusky. Make sure you request these **before** their service is shut down.
 
 4. Update your application or workflows to reference Walrus directly going forward.
 
