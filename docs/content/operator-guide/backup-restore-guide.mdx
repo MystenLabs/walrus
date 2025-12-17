@@ -118,10 +118,7 @@ The backup operation runs in the background within the storage node. After the b
 ## List available backups
 
 ```sh
-$ sudo -u walrus walrus-node local-admin \
-    --socket-path /opt/walrus/admin.socket \
-    checkpoint list \
-    --path /opt/walrus/checkpoints
+$ sudo -u walrus walrus-node list-db-checkpoint /opt/walrus/checkpoints
 ```
 
 **Sample output:**
