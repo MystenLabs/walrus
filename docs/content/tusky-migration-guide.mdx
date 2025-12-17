@@ -1,0 +1,104 @@
+---
+title: Tusky Migration Guide
+description: During the Tusky sunsetting period, you can continue reading your data and migrate to using Walrus directly or via alternative tooling.
+keywords: [ tusky, migration, migrate from tusky, tusky sunset ] 
+---
+
+As of December 17, 2025, the storage service Tusky is shutting down. Data stored on Walrus through Tusky is still safe and accessible. During Tusky's sunsetting period, you can continue reading your data, however you must either migrate to using Walrus directly or via alternative tooling.
+
+During this sunset period, you must:
+
+1. Confirm your Tusky sunsetting window.
+
+2. Request your encryption keys from Tusky if you use the password protected keys stored by them.
+
+3. Begin downloading your datasets.
+
+4. Decide which migration option fits your use case best.
+
+5. Complete re-upload where required.
+
+6. Validate reads and access patterns on Walrus.
+
+7. Update applications or workflows as needed.
+
+## Immediate first steps 
+
+1. Confirm your sunset window.
+   - You have at least 30 days of guaranteed read access via Tusky from the date of their shut down announcement.
+   - **Do not wait until the last week of this 30 day window**.
+2. Take inventory of your data. Having an inventory of your data will help determine which migration option fits best.
+   - Make a list of:
+     - [Vaults and buckets](https://docs.tusky.io/http-api#tag/vaults/get/vaults)
+     - [Blob IDs or file paths](https://docs.tusky.io/http-api#tag/blobs/get/blobs)
+     - Encryption keys
+   - Estimate the approximate total size of your data.
+
+3. Request your encryption keys from Tusky now if you use the [password protected keys they store](https://github.com/tusky-io/ts-sdk?tab=readme-ov-file#encryption).
+
+## Important note on encryption (applies to all migration options)
+
+Tusky supports self-hosted keys and keys supplied by the user but [stored on Tusky and password protected](https://github.com/tusky-io/ts-sdk?tab=readme-ov-file#encryption). They implement server-side encryption and decryption of blobs with those keys, which means that a user or app client does not need to do the actual encryption or decryption on their end. 
+
+This means once you download your data from Tusky, it should already be decrypted. 
+
+Based on your needs for data management going forward, you can choose to encrypt your data using an alternative mechanism as mentioned in the migration options. If you request the Tusky-stored encryption keys from them before they shut down the service, you may choose to reuse those keys with the relevant alternatives.
+
+## Migration option 1: Download from Tusky → decrypt → re-upload to Walrus
+
+1. Download your data from Tusky
+  - Use the Tusky app, HTTP API, or SDK for bulk export.
+
+2. Set up a Walrus client
+  - Install Walrus [CLI](/docs/usage/client-cli) or [SDK](/docs/usage/sdks), or use the [web API](/docs/usage/web-api): https://docs.wal.app/docs/usage/started 
+
+3. Re-upload to Walrus
+  - Use the [CLI](/docs/usage/client-cli), [SDK](/docs/usage/sdks), or [web API](/docs/usage/web-api).
+
+  - For encryption, either:
+    - Use a third-party library (like [CryptoES](https://www.npmjs.com/package/crypto-es) or [Node’s Crypto Module](https://medium.com/@tony.infisical/guide-to-nodes-crypto-module-for-encryption-decryption-65c077176980) for symmetric key based encryption before upload. You may optionally use the keys that you may have retrieved from Tusky.
+    - Integrate Seal as part of your write flow. This will require a Move-based access policy and integration with key server providers: https://seal-docs.wal.app/GettingStarted/.
+
+
+## Migration option 2: Direct Walrus access via blob or quilt patch IDs
+
+1. Extract blob or patch IDs and metadata from Tusky (via their app, API, or SDK).
+
+2. Fetch blobs or quilt patches directly from Walrus using:
+  - [Walrus CLI](/docs/usage/client-cli)
+  - [Walrus HTTP API](/docs/usage/web-api)
+  - [Walrus SDKs](/docs/usage/sdks)
+  - [Walrus Quilt](/docs/usage/quilt)
+
+3. Validate integrity and availability of the data.
+  - You may have to decrypt your data using encryption keys that you have retrieved from Tusky. Make sure you request for those before their service is shut down.
+
+4. Update your application or workflows to reference Walrus directly going forward.
+
+## Migration option 3: Migrate to another Walrus-compatible interface (Managed UX)
+
+Available options:
+
+  - [Nami Cloud](https://docs.nami.cloud/introduction)
+  - [Zark Lab](https://zarklab.ai)
+  - [Pawtato](https://pawtato.app/board/walrus/upload)
+
+:::tip
+More managed UX options coming soon.
+:::
+
+1. Export data from Tusky
+  - Use the Tusky app, API, or SDK to download all required data.
+  - Evaluate and choose one of the options listed above.
+  - Based on your needs, confirm support for:
+    - Bulk uploads
+    - Large files
+    - Encryption
+    - Long-term maintenance and support
+
+2. Re-upload data
+  - Upload data via the new interface (relevant UI, API, or SDK).
+  - Re-apply encryption and access controls as needed.
+
+3. Validate access and workflows
+  - Confirm reads, permissions, and any application integrations.
