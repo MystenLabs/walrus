@@ -38,6 +38,7 @@ use crate::client::{
     byte_range_read_client::ByteRangeReadClientConfig,
     quilt_client::QuiltClientConfig,
     refresh::{CommitteesRefresher, CommitteesRefresherHandle},
+    streaming::StreamingConfig,
 };
 
 mod committees_refresh_config;
@@ -124,6 +125,9 @@ pub struct ClientConfig {
     /// The configuration of the ByteRangeReadClient.
     #[serde(default)]
     pub byte_range_read_client_config: ByteRangeReadClientConfig,
+    /// The configuration of the StreamingReadClient.
+    #[serde(default)]
+    pub streaming_config: StreamingConfig,
 }
 
 impl ClientConfig {
@@ -139,6 +143,7 @@ impl ClientConfig {
             refresh_config: Default::default(),
             quilt_client_config: Default::default(),
             byte_range_read_client_config: Default::default(),
+            streaming_config: Default::default(),
         }
     }
 
@@ -354,6 +359,7 @@ mod tests {
             refresh_config: Default::default(),
             quilt_client_config: Default::default(),
             byte_range_read_client_config: Default::default(),
+            streaming_config: Default::default(),
         };
 
         walrus_test_utils::overwrite_file_and_fail_if_not_equal(
