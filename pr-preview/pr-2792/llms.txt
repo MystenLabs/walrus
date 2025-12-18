@@ -6,7 +6,6 @@ Where the world's data becomes reliable, valuable, and governable
 
 - [Basic Architecture and Security Assumptions](/design/architecture): Overview of Walrus system architecture including users, storage nodes, aggregators, and security assumptions for Byzantine fault tolerance.
 - [Encoding, Overheads, and Verification](/design/encoding): Technical details of Walrus encoding using RedStuff erasure codes, data authentication, integrity checks, and consistency verification.
-- [Future Discussion](/design/future): Discussion of future Walrus features including shard transfer, recovery mechanisms, and light clients for availability sampling.
 - [Objectives and Use Cases](/design/objectives_use_cases): Overview of Walrus objectives, use cases, and applications including NFT storage, AI datasets, and decentralized web hosting.
 - [Off-Chain Operations](/design/operations-off-chain): Detailed explanation of Walrus off-chain operations including write paths, read operations, and storage node interactions.
 - [Operations on Sui](/design/operations-sui): Walrus operations on Sui blockchain including storage resource lifecycle, smart contracts, and governance mechanisms.
