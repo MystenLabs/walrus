@@ -251,7 +251,23 @@ impl Default for StorageNodeConfig {
     }
 }
 
+impl walrus_utils::config::Config for StorageNodeConfig {
+    fn validate(&self) -> anyhow::Result<()> {
+        if !self.db_config.use_optimistic_transaction_db()
+            && self.garbage_collection.enable_data_deletion
+        {
+            anyhow::bail!(
+                "data deletion is only supported when DB transactions are enabled; \
+                either set `db_config.global.use_optimistic_transaction_db` to `true` or \
+                `garbage_collection.enable_data_deletion` to `false`"
+            );
+        }
+        Ok(())
+    }
+}
+
 impl StorageNodeConfig {
+    /// Loads the config from a file.
     /// Rotates the protocol key pair.
     pub fn rotate_protocol_key_pair(&mut self) {
         if let Some(next_key_pair) = self.next_protocol_key_pair.clone() {

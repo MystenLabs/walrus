@@ -64,7 +64,7 @@ use walrus_sui::{
     types::move_structs::VotingParams,
     utils::SuiNetwork,
 };
-use walrus_utils::load_from_yaml;
+use walrus_utils::config::Config as _;
 
 // Define the `GIT_REVISION` and `VERSION` consts
 walrus_utils::bin_version!();
@@ -505,8 +505,10 @@ fn main() -> anyhow::Result<()> {
             cleanup_storage,
             ignore_sync_failures: _,
         } => loop {
+            tracing::info!("loading node configuration from {}", config_path.display());
+            let config = StorageNodeConfig::load_and_validate(&config_path)?;
             let result = commands::run(
-                load_from_yaml(&config_path)?,
+                config,
                 cleanup_storage,
                 Arc::new(StorageNodeConfigLoader::new(config_path.clone())),
             );
@@ -870,7 +872,7 @@ mod commands {
     /// the new config file may not contain it after adding the storage node capability object ID.
     #[tokio::main]
     pub(crate) async fn register_node(config_path: PathBuf, force: bool) -> anyhow::Result<()> {
-        let mut config: StorageNodeConfig = load_from_yaml(&config_path)?;
+        let mut config: StorageNodeConfig = StorageNodeConfig::load_and_validate(&config_path)?;
         let contract_client = get_contract_client_from_node_config(&config).await?;
 
         if !force
