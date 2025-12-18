@@ -1,97 +1,74 @@
 ---
-title: Client Daemon Mode & HTTP API
-description: "Complete guide to Walrus HTTP API including daemon mode, public services, store/read operations, and quilt management."
+title: HTTP API
+description: "Learn how to use the Walrus HTTP API for public services, store and read operations, and quilt management."
 keywords: ["walrus", "http api", "daemon mode", "aggregator", "publisher", "rest api", "web service", "public services", "quilt api"]
 ---
 
-In addition to the CLI and JSON modes, the Walrus client offers a *daemon mode*. In this mode, it
-runs a simple web server offering HTTP interfaces to store and read blobs in an *aggregator* and
-*publisher* role respectively. We also offer
-[public aggregator and publisher services](#public-services) to try the Walrus HTTP APIs without
-the need to run a local client. See how to
-[operate an aggregator or publisher](/operator-guide/aggregator.mdx) in the operator documentation.
+The Walrus client offers a daemon mode that runs a simple web server that provides HTTP interfaces you can use to store and read blobs in an [aggregator](/operator-guide/aggregator.mdx) or [publisher](/operator-guide/aggregator.mdx) role respectively. Walrus also offers HTTP APIs through [public aggregator and publisher services](#public-services) that you can use without running a local client. 
 
-## HTTP API Usage
-
-For the following examples, we assume you set the `AGGREGATOR` and `PUBLISHER` environment variables
-to your desired aggregator and publisher, respectively. For example, the instances run by Mysten
-Labs on Walrus Testnet (see [below](#public-services) for further public options):
+For the following examples, set the `AGGREGATOR` and `PUBLISHER` environment variables to your desired aggregator and publisher, respectively. For example, set these variables to aggregator and publisher instances run by Walrus on Walrus Testnet:
 
 ```sh
 $ AGGREGATOR=https://aggregator.walrus-testnet.walrus.space
 $ PUBLISHER=https://publisher.walrus-testnet.walrus.space
 ```
 
-:::tip API specification
+Walrus aggregators and publishers expose their API specifications at the path `/v1/api`. View this path in a browser, for example, at https://aggregator.walrus-testnet.walrus.space/v1/api. The latest version of these specifications is available [on GitHub](https://github.com/MystenLabs/walrus/tree/main/crates/walrus-service) in HTML and YAML format.
 
-Walrus aggregators and publishers expose their API specifications at the path `/v1/api`. You can
-view this in the browser, for example, at https://aggregator.walrus-testnet.walrus.space/v1/api. The latest version of these specifications are also available [on GitHub](https://github.com/MystenLabs/walrus/tree/main/crates/walrus-service)
-in HTML and YAML format.
+## Store
 
-:::
-
-### Store
-
-You can interact with the daemon through simple HTTP PUT requests. For example, with
-[cURL](https://curl.se), you can store blobs using a publisher or daemon as follows:
+You can store data using HTTP PUT requests. For example, with [cURL](https://curl.se), you can store blobs using a publisher:
 
 ```sh
-# store the string `some string` for 1 storage epoch
+# Store the string `some string` for 1 storage epoch
 $ curl -X PUT "$PUBLISHER/v1/blobs" -d "some string"
-# store file `some/file` for 1 storage epoch
+# Store file `some/file` for 1 storage epoch
 $ curl -X PUT "$PUBLISHER/v1/blobs" --upload-file "some/file"
 ```
 
-You can control how the new blob should be created through several query parameters, which can be
-combined and are all documented in the [OpenAPI specification mentioned above](#http-api-usage):
+Control how the new blob is created through a combination of several query parameters as documented in the [OpenAPI specification](#http-api-usage). For example:
 
-- The lifetime of the blob can be specified through the `epochs` parameter. If the parameter is
-  omitted, blobs are stored for one epoch.
+- Specify the lifetime of the blob through the `epochs` parameter. If the parameter is omitted, blobs are stored for 1 epoch.
 
   ```sh
-  # store file `some/file` for 5 storage epochs
+  # Store file `some/file` for 5 storage epochs
   $ curl -X PUT "$PUBLISHER/v1/blobs?epochs=5" --upload-file "some/file"
   ```
 
-- Similar to the CLI, the publisher API allows you to specify whether a blob should be stored as
-  permanent or deletable through a query parameter `permanent=true` or `deletable=true`,
-  respectively:
+- Specify whether a blob is stored as permanent or deletable through a query parameter `permanent=true` or `deletable=true`, respectively:
 
-  Store file `some/file` as a deletable blob:
   ```sh
+  # Store file `some/file` as a deletable blob:
   $ curl -X PUT "$PUBLISHER/v1/blobs?deletable=true" --upload-file "some/file"
   ```
 
-  Store file `some/file` as a permanent blob:
-
   ```sh
+  # Store file `some/file` as a permanent blob:
   $ curl -X PUT "$PUBLISHER/v1/blobs?permanent=true" --upload-file "some/file"
   ```
 
-  :::warning Change of default blob persistence
+  :::warning 
 
-  Up to (including) version 1.32, the CLI and [publisher](/usage/web-api.mdx) store blobs as permanent by default, requiring the user to explicitly specify a blob to be deletable. Starting with version 1.33, newly stored blobs are *deletable* by default. If you care about the blob persistence, make sure to use the appropriate flag.
+  Newly stored blobs are *deletable* by default.
 
   :::
 
-- You can specify an address to which the resulting `Blob` object should be sent through the
-  `send-object-to` parameter:
-
-  Store file `some/file` and send the blob object to `$ADDRESS`:
+- Specify an address to which the resulting `Blob` object is sent using the `send-object-to` parameter:
 
   ```sh
+  # Store file `some/file` and send the blob object to `$ADDRESS`:
   $ curl -X PUT "$PUBLISHER/v1/blobs?send_object_to=$ADDRESS" --upload-file "some/file"
   ```
 
-The store HTTP API end points return information about the blob stored in JSON format. When a blob
-is stored for the first time, a `newlyCreated` field contains information about the
-new blob:
+
+The store HTTP API endpoints return information about stored blobs in JSON format. When a blob is stored for the first time, a `newlyCreated` field contains information about it:
 
 ```sh
 $ curl -X PUT "$PUBLISHER/v1/blobs" -d "some other string"
 ```
 
-If successful, the console responds:
+If successful, the console responds with the information stored in the content of the blob's corresponding [Sui object](/dev-guide/sui-struct.mdx).
+:
 
 ```sh
 {
@@ -122,16 +99,8 @@ If successful, the console responds:
 }
 ```
 
-The information returned is the content of the [Sui blob object](/dev-guide/sui-struct.mdx).
 
-When the publisher finds a certified blob with the same blob ID and a sufficient validity period,
-it returns a `alreadyCertified` JSON structure:
-
-```sh
-$ curl -X PUT "$PUBLISHER/v1/blobs" -d "some other string"
-```
-
-If successful, the console responds:
+When the publisher finds a certified blob with the same blob ID and a sufficient validity period, it returns an `alreadyCertified` JSON structure:
 
 ```sh
 {
@@ -146,84 +115,79 @@ If successful, the console responds:
 }
 ```
 
-The field `event` returns the [Sui event ID](/dev-guide/sui-struct.mdx) that can be used to
-find the transaction that created the Sui Blob object on the Sui explorer or using a Sui SDK.
+The field `event` returns the [Sui event ID](/dev-guide/sui-struct.mdx) that can be used to find the object creation transaction using a [Sui Explorer](https://suiscan.xyz/) or using a [Sui SDK](https://docs.sui.io/references/sui-sdks).
 
-### Read
+## Read
 
-Blobs may be read from an aggregator or daemon using HTTP GET using their blob ID.
+You can read blobs using HTTP GET requests and their blob ID or object ID.
+
+### Blob IDs
+
 For example, the following cURL command reads a blob and writes it to an output file:
 
 ```sh
 $ curl "$AGGREGATOR/v1/blobs/<some blob ID>" -o <some file name>
 ```
 
-Alternatively you may print the contents of a blob in the terminal with the cURL command:
+Alternatively, you can print the contents of a blob in the terminal with the cURL command:
 
 ```sh
 $ curl "$AGGREGATOR/v1/blobs/<some blob ID>"
 ```
 
-:::tip Content sniffing
+:::tip
 
-Modern browsers will attempt to sniff the content type for such resources, and will generally do a
-good job of inferring content types for media. However, the aggregator on purpose prevents such
-sniffing from inferring dangerous executable types such as JavaScript or style sheet types.
+Modern browsers attempt to sniff the content type for such resources, and generally do a good job of inferring content types for media. However, the aggregator on purpose prevents such sniffing from inferring dangerous executable types such as JavaScript or style sheet types.
 
 :::
 
-#### Reading by Object ID
+### Object ID
 
-Blobs may also be read by using the object ID of a Sui blob object or a shared blob.
-For example the following
-cURL command downloads the blob corresponding to a Sui blob with a specific object ID:
+You can also read blobs by using the object ID of a Sui blob object or a shared blob. For example, the following cURL command downloads the blob corresponding to a Sui object ID:
 
 ```sh
 $ curl "$AGGREGATOR/v1/blobs/by-object-id/<object-id>" -o <some file name>
 ```
 
-Downloading blobs by object ID allows the use of attributes to set some HTTP headers.
-The aggregator recognizes the attribute keys `content-disposition`, `content-encoding`,
-`content-language`, `content-location`, `content-type`, and `link`, and when present returns
-the values in the corresponding HTTP headers.
+Downloading blobs by object ID allows setting some HTTP headers. The aggregator recognizes the following attribute keys and returns the values in the corresponding HTTP headers when present:
 
-#### Consistency checks
+- `content-disposition`
 
-The consistency checks performed by the aggregator are the same as the ones [performed by the CLI](/usage/client-cli.mdx#consistency-checks).
-For special use cases, the [strict consistency check](/design/encoding.mdx)
-can be enabled by adding a query parameter `strict_consistency_check=true` (starting with `v1.35`).
-If the writer of the blob is known and trusted, the consistency check can be disabled by adding a
-query parameter `skip_consistency_check=true` (starting with `v1.36`).
+- `content-encoding`
 
-### Quilt HTTP APIs
+- `content-language`
 
-Walrus supports storing and retrieving multiple blobs as a single unit called a [quilt](/usage/quilt.mdx).
-The publishers and aggregators support *quilt* related operations.
+- `content-location`
 
-**Note** Quilt APIs are supported with Walrus *1.29* and higher.
+- `content-type`
 
-#### Storing quilts
+- `link`
 
-:::tip
+### Consistency checks
 
-All the query parameters available for storing regular blobs (see [Store](#store) section above) can also be used when storing quilts.
+The consistency checks performed by the aggregator are the same as the ones [performed by the CLI](/usage/client-cli.mdx#consistency-checks). For special use cases, the [strict consistency check](/design/encoding.mdx) can be enabled by adding a query parameter `strict_consistency_check=true` (starting with `v1.35`). If the writer of the blob is known and trusted, you can disable the consistency check by adding a query parameter `skip_consistency_check=true` (starting with `v1.36`).
 
-:::
+## Quilt HTTP APIs
+
+Walrus supports storing and retrieving multiple blobs as a single unit called a [quilt](/usage/quilt.mdx). Publishers and aggregators both support quilt operations.
+
+### Storing quilts
+
+All query parameters available for [storing regular blobs](#store) can also be used when storing quilts.
 
 Use the following publisher API to store multiple blobs as a quilt.
 
-Store two files `document.pdf` and `image.png`, with custom identifiers `contract-v2` and
-`logo-2024`, respectively:
-
 ```sh
+# Store 2 files `document.pdf` and `image.png`, with custom identifiers `contract-v2` and `logo-2024`, respectively:
 $ curl -X PUT "$PUBLISHER/v1/quilts?epochs=5" \
   -F "contract-v2=@document.pdf" \
   -F "logo-2024=@image.png"
 ```
 
-Store two files with Walrus-native metadata. The metadata are assigned to the blob with the same identifier. Note: `_metadata` must be used as the field name for Walrus-native metadata.
+Identifiers must be unique within a quilt and cannot start with `_`. The field name `_metadata` is reserved for Walrus native metadata and does not conflict with user-defined identifiers. See the [Quilt documentation](/usage/quilt.mdx) for complete identifier restrictions.
 
 ```sh
+# Store 2 files with Walrus-native metadata. `_metadata` must be used as the field name for Walrus native metadata
 $ curl -X PUT "$PUBLISHER/v1/quilts?epochs=5" \
   -F "quilt-manual=@document.pdf" \
   -F "logo-2025=@image.png" \
@@ -233,24 +197,7 @@ $ curl -X PUT "$PUBLISHER/v1/quilts?epochs=5" \
   ]'
 ```
 
-:::warning
-
-Identifiers must be unique within a quilt.
-
-:::
-
-:::info
-
-Since identifiers cannot start with `_`, the field name `_metadata` is reserved for Walrus native
-metadata and won't conflict with user-defined identifiers. See
-[Quilt documentation](/usage/quilt.mdx) for complete identifier restrictions.
-
-:::
-
-The quilt store API returns a JSON response with information about the stored quilt, including
-the quilt ID (blobId) and individual blob patch IDs that can be used to retrieve specific blobs
-later. The following example shows the command and response (the actual JSON output is returned
-as a single line; it's formatted here for readability):
+The quilt store API returns a JSON response with information about the stored quilt, including the quilt ID (`blobId`) and individual blob patch IDs that can be used to retrieve specific blobs later. The following example shows the command and response. The actual JSON output is returned as a single line and is formatted on this page for readability:
 
 ```sh
 $ curl -X PUT "http://127.0.0.1:31415/v1/quilts?epochs=1" \
@@ -301,72 +248,50 @@ If successful, the console responds:
 }
 ```
 
-#### Reading Quilts
+### Reading quilts
 
-There are two ways to retrieve blobs from a quilt via the aggregator APIs:
+You can retrieve blobs from a quilt through the aggregator APIs using their quilt patch ID or their quilt ID and unique identifier. Currently, only 1 blob can be retrieved per request. Bulk retrieval of multiple blobs from a quilt in a single request is not yet supported.
 
-:::info
-
-Currently, only one blob can be retrieved per request. Bulk retrieval of multiple blobs from a
-quilt in a single request is not yet supported.
-
-:::
-
-##### By Quilt Patch ID
+##### Quilt patch ID
 
 Each blob in a quilt has a unique patch ID. You can retrieve a specific blob using its patch ID.
 
-Retrieve a blob using its quilt patch ID:
-
 ```sh
+# Retrieve a blob using its quilt patch ID:
 $ curl "$AGGREGATOR/v1/blobs/by-quilt-patch-id/6XUOE-Q5-nAXHRifN6n9nomVDtHZQbGuAkW3PjlBuKoBAQDQAA" \
 ```
 
-:::tip
+You can obtain `QuiltPatchIds` from the store quilt output or by using the [`list-patches-in-quilt`](/usage/client-cli.mdx#batch-store) CLI command.
 
-QuiltPatchIds can be obtained from the store quilt output (as shown above) or by using the
-[`list-patches-in-quilt`](/usage/client-cli.mdx#batch-store) CLI command.
-
-:::
-
-##### By Quilt ID and Identifier
+##### Quilt ID and identifier
 
 You can also retrieve a blob using the quilt ID and the blob's identifier.
 
-Retrieve a blob with identifier `walrus.jpg` from the quilt.
 ```sh
+# Retrieve a blob with identifier `walrus.jpg` from the quilt:
 $ curl "$AGGREGATOR/v1/blobs/by-quilt-id/6XUOE-Q5-nAXHRifN6n9nomVDtHZQbGuAkW3PjlBuKo/walrus.jpg" \
 ```
 
-Both methods return the raw blob bytes in the response body. Metadata such as the blob identifier
-and tags are returned as HTTP headers:
+Both methods return the raw blob bytes in the response body. Metadata such as the blob ID and tags are returned as HTTP headers:
 
 - `X-Quilt-Patch-Identifier`: The identifier of the blob within the quilt
+
 - `ETag`: The patch ID or quilt ID for caching purposes
-- Additional custom headers from blob tags (if configured)
+
+- Additional custom headers from blob tags, if configured
 
 ## Using a public aggregator or publisher {#public-services}
 
-For some use cases (e.g., a public website), or to just try out the HTTP API, a publicly accessible
-aggregator and/or publisher is required. On Walrus Testnet, many entities run public aggregators and
-publishers. On Mainnet, there are no public publishers without authentication, as they consume both
-SUI and WAL.
+On Walrus Testnet, many entities run public aggregators and publishers. On Mainnet, there are no public publishers without authentication, as they consume both SUI and WAL.
 
-See the [aggregators and publishers list](#agg-list) below for public services on Mainnet and Testnet. We also
-provide the [operator lists in JSON format](/operators.json).
-
-:::tip
+See the [aggregators and publishers list](#agg-list) for public services on Mainnet and Testnet. Walrus also provides the [operator lists in JSON format](/operators.json).
 
 The operator list in JSON format includes additional info about aggregators, namely whether they are deployed with caching functionality and whether they are found to be functional. The list is updated once per week.
 
-:::
+Most aggregators and publishers limit requests to 10 MB by default. If you want to upload larger files, you need to [run your own publisher](/operator-guide/aggregator.mdx#local-daemon) or use the [CLI](/usage/client-cli.mdx).
 
 import OperatorsList from '@site/src/components/OperatorsList';
 
 ### Aggregators and publishers list {#agg-list}
 
 <OperatorsList />
-
-Most of these limit requests to 10 MiB by default. If you want to upload larger files, you need to
-[run your own publisher](/operator-guide/aggregator.mdx#local-daemon) or use
-the [CLI](/usage/client-cli.mdx).
