@@ -97,6 +97,8 @@ pub const QUILT_PATCH_BY_IDENTIFIER_GET_ENDPOINT: &str =
 pub const LIST_PATCHES_IN_QUILT_ENDPOINT: &str = "/v1/quilts/{quilt_id}/patches";
 /// The path to read a byte range from a blob.
 pub const BLOB_BYTE_RANGE_GET_ENDPOINT: &str = "/v1/blobs/{blob_id}/byte-range";
+/// The path to stream a blob sliver-by-sliver.
+pub const BLOB_STREAM_ENDPOINT: &str = "/v1alpha/blobs/{blob_id}/stream";
 /// Custom header for quilt patch identifier.
 const X_QUILT_PATCH_IDENTIFIER: &str = "X-Quilt-Patch-Identifier";
 
@@ -657,6 +659,116 @@ pub(super) async fn get_blob_byte_range<T: WalrusReadClient>(
             tracing::debug!(?etag, ?error, "error retrieving byte range");
 
             error.to_response()
+        }
+    }
+}
+
+/// Errors that can occur when streaming a blob.
+#[derive(Debug, thiserror::Error, RestApiError)]
+#[rest_api_error(domain = ERROR_DOMAIN)]
+pub(crate) enum StreamBlobError {
+    /// The requested blob has not yet been stored on Walrus.
+    #[error("the requested blob ID does not exist on Walrus")]
+    #[rest_api_error(reason = "BLOB_NOT_FOUND", status = ApiStatusCode::NotFound)]
+    BlobNotFound,
+
+    /// The blob cannot be returned as it has been blocked.
+    #[error("the requested blob is blocked")]
+    #[rest_api_error(reason = "FORBIDDEN_BLOB", status = ApiStatusCode::UnavailableForLegalReasons)]
+    Blocked,
+
+    /// Failed to retrieve one or more slivers after retries.
+    #[error("failed to retrieve sliver after retries: {message}")]
+    #[rest_api_error(reason = "SLIVER_RETRIEVAL_FAILED", status = ApiStatusCode::Internal)]
+    SliverRetrievalFailed { message: String },
+
+    /// The blob size exceeds the maximum allowed size.
+    #[error("the blob size exceeds the maximum allowed size: {0}")]
+    #[rest_api_error(reason = "BLOB_TOO_LARGE", status = ApiStatusCode::SizeExceeded)]
+    BlobTooLarge(u64),
+
+    #[error(transparent)]
+    #[rest_api_error(delegate)]
+    Internal(#[from] anyhow::Error),
+}
+
+impl From<ClientError> for StreamBlobError {
+    fn from(error: ClientError) -> Self {
+        match error.kind() {
+            ClientErrorKind::BlobIdDoesNotExist => Self::BlobNotFound,
+            ClientErrorKind::BlobIdBlocked(_) => Self::Blocked,
+            ClientErrorKind::BlobTooLarge(max_blob_size) => Self::BlobTooLarge(*max_blob_size),
+            _ => Self::SliverRetrievalFailed {
+                message: error.to_string(),
+            },
+        }
+    }
+}
+
+/// Stream a Walrus blob sliver-by-sliver.
+///
+/// Reconstructs and streams the blob identified by the provided blob ID from Walrus.
+/// Data is streamed progressively as slivers are retrieved, reducing time-to-first-byte
+/// for large blobs.
+///
+/// This endpoint uses aggressive retry logic with longer timeouts for each sliver,
+/// and prefetches slivers ahead of the current streaming position to minimize wait time.
+///
+/// # Error Handling
+///
+/// If a sliver cannot be retrieved after multiple retries, the stream will abort with an error.
+/// Clients should be prepared to handle partial data in case of failures.
+#[tracing::instrument(level = Level::ERROR, skip_all, fields(%blob_id))]
+#[utoipa::path(
+    get,
+    path = BLOB_STREAM_ENDPOINT,
+    params(("blob_id" = BlobId,)),
+    responses(
+        (status = 200, description = "Blob streaming started successfully", body = [u8]),
+        StreamBlobError,
+    ),
+)]
+pub(super) async fn stream_blob<T: WalrusReadClient + Send + Sync + 'static>(
+    request_method: Method,
+    request_headers: HeaderMap,
+    State(client): State<Arc<T>>,
+    Path(BlobIdString(blob_id)): Path<BlobIdString>,
+) -> Response {
+    tracing::debug!("starting to stream blob");
+
+    match Arc::clone(&client).stream_blob(&blob_id).await {
+        Ok((stream, blob_size)) => {
+            use futures::StreamExt;
+            // Wrap stream to convert ClientError to axum-compatible errors
+            let byte_stream = StreamExt::map(stream, |result: Result<Bytes, ClientError>| {
+                result.map_err(|e: ClientError| {
+                    tracing::error!(error = ?e, "error during blob streaming");
+                    std::io::Error::other(e.to_string())
+                })
+            });
+
+            let mut response = (StatusCode::OK, Body::from_stream(byte_stream)).into_response();
+            let headers = response.headers_mut();
+            populate_response_headers_from_request(
+                request_method,
+                &request_headers,
+                &blob_id.to_string(),
+                headers,
+            );
+            // Add streaming-specific headers
+            headers.insert(
+                HeaderName::from_static("x-walrus-streaming"),
+                HeaderValue::from_static("true"),
+            );
+            // Add blob size header for progress tracking
+            if let Ok(size_value) = HeaderValue::from_str(&blob_size.to_string()) {
+                headers.insert(HeaderName::from_static("x-walrus-blob-size"), size_value);
+            }
+            response
+        }
+        Err(error) => {
+            tracing::debug!(?error, "failed to start blob stream");
+            StreamBlobError::from(error).to_response()
         }
     }
 }

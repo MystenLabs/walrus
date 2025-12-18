@@ -31,7 +31,7 @@ use walrus_sdk::{
         responses::{BlobStoreResult, QuiltStoreResult},
     },
     config::ClientConfig,
-    error::ClientResult,
+    error::{ClientError, ClientErrorKind, ClientResult},
     store_optimizations::StoreOptimizations,
 };
 use walrus_sui::{
@@ -189,6 +189,25 @@ impl WalrusReadClient for ClientMultiplexer {
         blob_object_id: &ObjectID,
     ) -> ClientResult<BlobWithAttribute> {
         self.read_client.get_blob_by_object_id(blob_object_id).await
+    }
+
+    /// Streaming is not supported through the ClientMultiplexer.
+    ///
+    /// The multiplexer manages multiple write clients for parallelism, but the read client
+    /// is stored directly (not in an Arc) which is incompatible with the streaming API that
+    /// requires `Arc<Self>` for background prefetch tasks.
+    ///
+    /// For streaming blob downloads, use the aggregator endpoint directly:
+    /// `GET /v1alpha/blobs/{blob_id}/stream`
+    async fn stream_blob(
+        self: Arc<Self>,
+        _blob_id: &BlobId,
+    ) -> ClientResult<(super::daemon::BlobStream, u64)> {
+        Err(ClientError::from(ClientErrorKind::Other(
+            "streaming not supported through ClientMultiplexer; \
+                use the aggregator /v1alpha/blobs/{blob_id}/stream endpoint instead"
+                .into(),
+        )))
     }
 }
 
