@@ -54,8 +54,8 @@ impl Default for GarbageCollectionConfig {
             enable_data_deletion: true,
             enable_random_delay: true,
             randomization_time_window: None,
-            blob_objects_batch_size: 100_000,
-            data_deletion_batch_size: 5000,
+            blob_objects_batch_size: 5000,
+            data_deletion_batch_size: 2000,
         }
     }
 }
