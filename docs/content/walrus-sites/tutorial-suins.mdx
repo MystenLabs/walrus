@@ -4,46 +4,16 @@ description: "Guide to setting up SuiNS names for human-readable Walrus Sites do
 keywords: ["walrus sites", "suins", "domain names", "naming", "portal", "sui blockchain", "human readable"]
 ---
 
-:::note
-Browsing sites with b36 subdomains (e.g. `https://1lupgq2auevjruy7hs9z7tskqwjp5cc8c5ebhci4v57qyl4piy.wal.app`)
-is no longer possible using the `wal.app` portal. B36 subdomains are still supported if you use
-a local server, or an alternative portal.
+Browsing sites with Base36 subdomains, for example, `https://1lupgq2auevjruy7hs9z7tskqwjp5cc8c5ebhci4v57qyl4piy.wal.app`, is no longer possible using the `wal.app` portal. Base36 subdomains are still supported if you use a local server or an alternative portal. To browse walrus sites using the `wal.app` portal, [you must use SuiNS names instead](/walrus-sites/tutorial-suins.mdx#get-a-suins-name).
 
-To browse walrus sites using the `wal.app` portal, please
-[use SuiNS names instead](/walrus-sites/tutorial-suins.mdx#get-a-suins-name).
-:::
-
-Walrus Sites require to use SuiNS names (this is like DNS for Sui) to assign a human-readable name
-to a Walrus Site. To do so, you simply have to get a SuiNS name you like, and point it to the
-object ID of the Walrus Site.
-
-Let's do this step by step.
+SuiNS names are like DNS for Sui and are used to assign a human-readable name to a Walrus Site. To do so, you simply have to get a SuiNS name you like and point it to the object ID of the Walrus Site.
 
 ## Get a SuiNS name
 
-- Navigate to https://suins.io (mainnet) or https://testnet.suins.io (testnet) and buy
-  a domain name with your wallet. For example, `walrusgame` (this specific one is already
-  taken, choose another you like).
-
-  :::note
-  At the moment, you can only select names that are composed of letters `a-z` and numbers `0-9`, but
-  no special characters (e.g., `-`).
-  :::
+Navigate to https://suins.io (Mainnet) or https://testnet.suins.io (Testnet) and buy a domain name with your wallet. At the moment, you can only select names that are composed of letters `a-z` and numbers `0-9`, but no special characters (for example, `-`).
 
 ## Map the SuiNS name to the Walrus Site
 
-Now, you can set the SuiNS name to point to the address of your Walrus Site. To do so, go to the
-"names you own" section at [SuiNS.io](https://suins.io/account/my-names) or
-[Testnet.SuiNS.io](https://testnet.suins.io/account/my-names) for Testnet, click on the "three
-dots" menu icon above the name you want to map, and click "Link To Walrus Site". Paste in the bar
-the object ID of the Walrus Site, check that it is correct, and click "Apply".
+Now, you can set the SuiNS name to point to the address of your Walrus Site. To do so, go to the **Names You Own** section at [suins.io](https://suins.io/account/my-names) or [testnet.suins.io](https://testnet.suins.io/account/my-names) for Testnet, click on the three dot menu icon above the name you want to map, and click **Link To Walrus Site**. Paste in the bar the object ID of the Walrus Site, check that it is correct, and click **Apply**.
 
-After approving the transaction, we can now browse https://walrusgame.wal.app!
-
-:::warning Backwards compatibility
-If you previously linked a SuiNS domain to a Walrus Site, you might recall clicking the "Link To
-Wallet Address" button instead of the "Link To Walrus Site" button. These old links remain valid,
-but we recommend using the procedure above for all new sites and updates to older sites. The portal
-will first check if the domain is linked using the "Link to Walrus Site", and, if that is not set,
-it will fall back to checking the "Link to Wallet Address".
-:::
+After approving the transaction, you can now browse your site at https://your-domain.wal.app.
