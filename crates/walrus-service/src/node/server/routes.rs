@@ -562,7 +562,7 @@ fn limit_symbol_recovery_requests(
 #[into_params(style = Form, parameter_in = Query)]
 pub struct ListDecodingSymbolsQuery {
     /// The sliver indexes of the target sliver being recovered.
-    #[serde_as(as = "OneOrMany<_>")]
+    #[serde_as(as = "OneOrMany<DisplayFromStr>")]
     target_slivers: Vec<SliverIndex>,
     /// The type of the sliver being recovered.
     target_type: SliverType,

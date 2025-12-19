@@ -33,6 +33,7 @@ tokio.workspace = true
 tower = { workspace = true, features = ["util"] }
 tracing.workspace = true
 tracing-opentelemetry.workspace = true
+tracing-subscriber.workspace = true
 utoipa.workspace = true
 walrus-core = { workspace = true, features = ["sui-types"] }
 walrus-utils = { workspace = true, features = ["http", "metrics"] }
