@@ -28,7 +28,7 @@ Send the blob metadata to all storage nodes. Each of the blob slivers are sent t
 
 ### Availability certificate
 
-A storage node managing a shard receives a sliver and checks it against the blob ID. It also checks that there is a blob resource with the blob ID that is authorized to store a blob. If correct, the storage node then signs a statement that it holds the sliver and returns it to you. You then put together the signatures returned from storage nodes into an availability certificate.
+A storage node managing a shard receives a sliver and checks it against the blob ID. It also checks that there is a blob resource with the blob ID that is authorized to store a blob. If correct, the storage node then signs a statement that it holds the sliver and returns it to you. Then, you can put together the signatures returned from storage nodes into an availability certificate.
 
 ### Certify blob ID
 
