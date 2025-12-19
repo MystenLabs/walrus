@@ -50,14 +50,12 @@ pub struct GarbageCollectionConfig {
 impl Default for GarbageCollectionConfig {
     fn default() -> Self {
         Self {
-            // TODO(WAL-1105): Enable this by default.
-            enable_blob_info_cleanup: false,
-            // TODO(WAL-1105): Enable this by default.
-            enable_data_deletion: false,
+            enable_blob_info_cleanup: true,
+            enable_data_deletion: true,
             enable_random_delay: true,
             randomization_time_window: None,
-            blob_objects_batch_size: 10_000,
-            data_deletion_batch_size: 1000,
+            blob_objects_batch_size: 5000,
+            data_deletion_batch_size: 2000,
         }
     }
 }
@@ -72,7 +70,7 @@ impl GarbageCollectionConfig {
             enable_random_delay: true,
             randomization_time_window: Some(Duration::from_secs(1)),
             blob_objects_batch_size: 10,
-            data_deletion_batch_size: 10,
+            data_deletion_batch_size: 5,
         }
     }
 }

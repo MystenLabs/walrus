@@ -230,12 +230,10 @@ pub struct GlobalDatabaseOptions {
     pub wal_size_limit_mb: Option<u64>,
     /// Whether to enable statistics.
     pub enable_statistics: bool,
-    /// Temporary/experimental: if true, open databases using OptimisticTransactionDB instead of
-    /// the standard DB. This enables optimistic transactions for write paths that need
-    /// transactional semantics. Once transactions are fully adopted, this flag should be removed
-    /// and the behavior made unconditional.
-    #[serde(alias = "use_optimistic_transaction_db")]
-    pub experimental_use_optimistic_transaction_db: bool,
+    /// If true, databases are opened using `OptimisticTransactionDB` instead of the standard DB.
+    /// This enables optimistic transactions for write paths that need transactional semantics,
+    /// including garbage collection. If this is disabled, some operations may not be available.
+    pub use_optimistic_transaction_db: bool,
 }
 
 impl Default for GlobalDatabaseOptions {
@@ -247,7 +245,7 @@ impl Default for GlobalDatabaseOptions {
             wal_ttl_seconds: Some(60 * 60 * 24 * 2), // 2 days,
             wal_size_limit_mb: Some(10 * 1024),      // 10 GB,
             enable_statistics: false,
-            experimental_use_optimistic_transaction_db: false,
+            use_optimistic_transaction_db: true,
         }
     }
 }
@@ -256,10 +254,7 @@ impl GlobalDatabaseOptions {
     /// Provides a config tailored for tests. In particular, enables optimistic transactions.
     #[cfg(any(test, feature = "test-utils"))]
     pub fn default_for_test() -> Self {
-        Self {
-            experimental_use_optimistic_transaction_db: true,
-            ..Default::default()
-        }
+        Default::default()
     }
 }
 
@@ -383,8 +378,8 @@ impl DatabaseConfig {
     }
 
     /// Returns true if the storage node should use OptimisticTransactionDB.
-    pub fn experimental_use_optimistic_transaction_db(&self) -> bool {
-        self.global.experimental_use_optimistic_transaction_db
+    pub fn use_optimistic_transaction_db(&self) -> bool {
+        self.global.use_optimistic_transaction_db
     }
 
     fn standard(&self) -> DatabaseTableOptions {
