@@ -32,7 +32,7 @@ A storage node managing a shard receives a sliver and checks it against the blob
 
 ### Certify blob ID
 
-You submit an availability certificate to the chain. When the certificate is verified on-chain, an availability event for the blob ID is emitted, and all other storage nodes seek to download any missing shards for the blob ID. This event emitted by Sui is the [point of availability (PoA)](/design/properties.mdx) for the blob ID.
+Submit an availability certificate to the chain. When the certificate is verified on-chain, an availability event for the blob ID is emitted, and all other storage nodes seek to download any missing shards for the blob ID. This event emitted by Sui is the [point of availability (PoA)](/design/properties.mdx) for the blob ID.
 
 After the PoA, and without your involvement, storage nodes sync and recover any missing metadata and slivers.
 
