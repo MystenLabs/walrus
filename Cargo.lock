@@ -13342,7 +13342,6 @@ dependencies = [
  "tower 0.5.2",
  "tracing",
  "tracing-opentelemetry",
- "tracing-subscriber",
  "utoipa",
  "walrus-core",
  "walrus-test-utils",

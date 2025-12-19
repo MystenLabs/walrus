@@ -651,6 +651,8 @@ mod tests {
         }
 
         // A mock implementation returning a single decoding symbol for each target sliver.
+        // The returned symbols are also used to test the query sent to the server can be
+        // parsed correctly.
         async fn retrieve_multiple_decoding_symbols(
             &self,
             _blob_id: &BlobId,
@@ -1410,6 +1412,7 @@ mod tests {
         Ok(())
     }
 
+    // Test the query sent to the server can be parsed correctly.
     async_param_test! {
         list_decoding_symbols: [
             primary: (SliverType::Primary),
@@ -1419,7 +1422,8 @@ mod tests {
     async fn list_decoding_symbols(sliver_type: SliverType) {
         let _ = tracing_subscriber::fmt::try_init();
         let (config, _handle) = start_rest_api_with_test_config().await;
-        println!("config: {:?}", config.as_ref());
+
+        tracing::debug!("config: {:?}", config.as_ref());
         let client = storage_node_client(config.as_ref());
         let blob_id = walrus_core::test_utils::random_blob_id();
 
@@ -1432,6 +1436,7 @@ mod tests {
             .list_decoding_symbols(&blob_id, &filter)
             .await
             .expect("request should succeed");
+
         assert_eq!(result.len(), 2);
         assert_eq!(result.get(&SliverIndex(17)).unwrap().len(), 1);
         assert_eq!(result.get(&SliverIndex(28)).unwrap().len(), 1);

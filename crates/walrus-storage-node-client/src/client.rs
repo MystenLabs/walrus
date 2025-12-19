@@ -345,7 +345,7 @@ where
 /// Filter for [`StorageNodeClient::list_decoding_symbols()`] endpoint.
 #[derive(Debug, Clone)]
 pub struct DecodingSymbolsFilter {
-    /// The sliver indexes of the target sliver being recovered.
+    /// The sliver indexes of the target slivers being recovered.
     pub target_slivers: Vec<SliverIndex>,
     /// The type of the sliver being recovered.
     pub target_type: SliverType,
@@ -357,12 +357,17 @@ impl Serialize for DecodingSymbolsFilter {
         S: Serializer,
     {
         use serde::ser::SerializeMap;
+
+        // Use serde's name mangling to get camelCase field names
+        const TARGET_SLIVERS: &str = "targetSlivers";
+        const TARGET_TYPE: &str = "targetType";
+
         let mut map = serializer.serialize_map(Some(self.target_slivers.len() + 1))?;
         for sliver in &self.target_slivers {
             // Serialize the inner u16 value directly, not the SliverIndex wrapper
-            map.serialize_entry("targetSlivers", &sliver.0)?;
+            map.serialize_entry(TARGET_SLIVERS, &sliver.0)?;
         }
-        map.serialize_entry("targetType", &self.target_type)?;
+        map.serialize_entry(TARGET_TYPE, &self.target_type)?;
         map.end()
     }
 }
@@ -675,7 +680,9 @@ impl StorageNodeClient {
         .map_err(|_| NodeError::other(ListAndVerifyRecoverySymbolsError::BackgroundWorkerFailed))?
     }
 
-    /// Gets multiple decoding symbols.
+    /// Gets multiple decoding symbols for recovering the specified target slivers.
+    /// This endpoint is meant to only serve symbols used to recover source slivers, and therefore
+    /// more suitable to be used by the client.
     #[tracing::instrument(
         skip_all,
         fields(
@@ -1094,8 +1101,6 @@ mod tests {
         filter: DecodingSymbolsFilter,
         expected_query: &str,
     ) -> TestResult {
-        let _ = tracing_subscriber::fmt::try_init();
-
         let request = reqwest::Client::new()
             .get("https://node.com")
             .query(&filter)
