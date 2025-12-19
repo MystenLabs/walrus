@@ -12,47 +12,47 @@ Walrus operations primarily occur off-chain on storage nodes, though they intera
 
 ### Acquire storage resource
 
-A user acquires a storage resource of appropriate size and duration on-chain, either by directly buying it from the Walrus system object or a secondary market. The user can split, merge, and transfer owned storage resources.
+You acquire a storage resource of appropriate size and duration on-chain, either by directly buying it from the Walrus system object or a secondary market. You can split, merge, and transfer owned storage resources.
 
 ### Encode and compute blob ID
 
-When a user wants to store a blob, they first apply erasure coding to the blob, and then compute the blob ID from the encoded data. The user can then perform the remaining write flow steps themself, or use a publisher to perform the steps on their behalf.
+When you want to store a blob, you first apply erasure coding to the blob, and then compute the blob ID from the encoded data. You can then perform the remaining write flow steps yourself, or use a publisher to perform the steps on your behalf.
 
 ### Register blob ID
 
-The user interacts with Sui to update a storage resource to register the blob ID with the desired size and lifetime. This emits an event that is received by storage nodes, and the user continues with the upload after event confirmation.
+You interact with Sui to update a storage resource to register the blob ID with the desired size and lifetime. This emits an event that storage nodes receive, and you continue with the upload after event confirmation.
 
 ### Store slivers
 
-The user sends the blob metadata to all storage nodes, and sends each of the blob slivers to the storage node that currently manages the corresponding shard.
+You send the blob metadata to all storage nodes, and send each of the blob slivers to the storage node that currently manages the corresponding shard.
 
 ### Availability certificate
 
-A storage node managing a shard receives a sliver and checks it against the blob ID. It also checks that there is a blob resource with the blob ID that is authorized to store a blob. If correct, the storage node then signs a statement that it holds the sliver and returns it to the user. The user then puts together the signatures returned from storage nodes into an availability certificate.
+A storage node managing a shard receives a sliver and checks it against the blob ID. It also checks that there is a blob resource with the blob ID that is authorized to store a blob. If correct, the storage node then signs a statement that it holds the sliver and returns it to you. You then put together the signatures returned from storage nodes into an availability certificate.
 
 ### Certify blob ID
 
-The user submits an availability certificate to the chain. When the certificate is verified on-chain, an availability event for the blob ID is emitted, and all other storage nodes seek to download any missing shards for the blob ID. This event emitted by Sui is the [point of availability (PoA)](/design/properties.mdx) for the blob ID.
+You submit an availability certificate to the chain. When the certificate is verified on-chain, an availability event for the blob ID is emitted, and all other storage nodes seek to download any missing shards for the blob ID. This event emitted by Sui is the [point of availability (PoA)](/design/properties.mdx) for the blob ID.
 
-After the PoA, and without user involvement, storage nodes sync and recover any missing metadata and slivers.
+After the PoA, and without your involvement, storage nodes sync and recover any missing metadata and slivers.
 
 ### Effects certificate proves availability
 
-The user waits for 2/3 of shard signatures to return to create the certificate of availability. The erasure code rate is below 1/3, allowing for reconstruction even if only 1/3 of shards return the sliver for a read. [Because at most 1/3 of the storage nodes can fail](/design/architecture.mdx#byzantine-fault-tolerance), this ensures reconstruction if a reader requests slivers from all storage nodes. The full process can be mediated by a publisher that receives a blob and drives the process to completion.
+You wait for 2/3 of shard signatures to return to create the certificate of availability. The erasure code rate is below 1/3, allowing for reconstruction even if only 1/3 of shards return the sliver for a read. [Because at most 1/3 of the storage nodes can fail](/design/architecture.mdx#byzantine-fault-tolerance), this ensures reconstruction if you request slivers from all storage nodes. A publisher can mediate the full process by receiving a blob and driving the process to completion.
 
 ## Read operations
 
 Reading blobs from Walrus can occur directly or through aggregators and caches. The operations are identical whether performed by end users, aggregators, or caches experiencing cache misses. In practice, most reads occur through caches for frequently accessed (hot) blobs and do not require requests to storage nodes.
 
 The read flow consists of the following steps:
-1. The reader obtains the metadata for the blob ID from any storage node, and authenticates it using the blob ID.
-2. The reader then sends a request to the storage nodes for the shards corresponding to the blob ID and waits for \(f+1\) responses. Sufficient requests are sent in parallel to ensure low latency for reads.
-3. The reader authenticates the slivers returned with the blob ID, reconstructs the blob, and decides whether the contents are valid or inconsistent.
+1. You obtain the metadata for the blob ID from any storage node, and authenticate it using the blob ID.
+2. You then send a request to the storage nodes for the shards corresponding to the blob ID and wait for \(f+1\) responses. Send sufficient requests in parallel to ensure low latency for reads.
+3. You authenticate the slivers returned with the blob ID, reconstruct the blob, and decide whether the contents are valid or inconsistent.
 4. Optionally, for a cache, the result is cached and can be served without reconstruction until it is evicted from the cache. Requests for the blob to the cache return the blob contents or an inconsistency proof.
 
 ## Refresh availability
 
-Because no blob content is involved, refresh operations are conducted entirely through the Sui protocol. To extend blob availability, a user provides an appropriate on-chain storage resource. Upon success, storage nodes receive an emitted event to extend the storage duration for each sliver.
+Because no blob content is involved, refresh operations are conducted entirely through the Sui protocol. To extend blob availability, you provide an appropriate on-chain storage resource. Upon success, storage nodes receive an emitted event to extend the storage duration for each sliver.
 
 ## Inconsistency handling
 
@@ -70,7 +70,7 @@ A blob ID marked as inconsistent always resolves to `None` upon reading. This oc
 
 An inconsistency proof reveals only a true fact to storage nodes (which do not otherwise run decoding) and does not change read output in any case.
 
-However, partial reads leveraging the systematic nature of the encoding might successfully return partial data for inconsistently encoded files. If consistency and availability of reads is important, dApps should perform full reads rather than partial reads.
+However, partial reads leveraging the systematic nature of the encoding might successfully return partial data for inconsistently encoded files. If consistency and availability of reads is important, perform full reads rather than partial reads.
 
 ## Challenge mechanism for storage attestation
 
