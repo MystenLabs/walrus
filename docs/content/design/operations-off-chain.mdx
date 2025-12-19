@@ -45,10 +45,10 @@ You wait for 2/3 of shard signatures to return to create the certificate of avai
 Reading blobs from Walrus can occur directly or through aggregators and caches. The operations are identical whether performed by end users, aggregators, or caches experiencing cache misses. In practice, most reads occur through caches for frequently accessed (hot) blobs and do not require requests to storage nodes.
 
 The read flow consists of the following steps:
-1. You obtain the metadata for the blob ID from any storage node, and authenticate it using the blob ID.
-2. You then send a request to the storage nodes for the shards corresponding to the blob ID and wait for \(f+1\) responses. Send sufficient requests in parallel to ensure low latency for reads.
-3. You authenticate the slivers returned with the blob ID, reconstruct the blob, and decide whether the contents are valid or inconsistent.
-4. Optionally, for a cache, the result is cached and can be served without reconstruction until it is evicted from the cache. Requests for the blob to the cache return the blob contents or an inconsistency proof.
+1. Obtain the metadata for the blob ID from any storage node and authenticate it using the blob ID.
+2. Send a request to the storage nodes for the shards corresponding to the blob ID and wait for \(f+1\) responses. Send sufficient requests in parallel to ensure low latency for reads.
+3. Authenticate the slivers returned with the blob ID, reconstruct the blob, and decide whether the contents are valid or inconsistent.
+4. Optionally, the result is cached and can be served without reconstruction until it is evicted from the cache. Requests to the cache for the blob return the blob contents or an inconsistency proof.
 
 ## Refresh availability
 
