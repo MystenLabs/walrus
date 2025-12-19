@@ -15,11 +15,7 @@ use tokio::{
 use walrus_core::{DEFAULT_ENCODING, EncodingType, EpochCount};
 use walrus_sui::client::{BlobPersistence, PostStoreAction};
 
-use super::{
-    communication::node::NodeIndex,
-    metrics::ClientMetrics,
-    upload_relay_client::UploadRelayClient,
-};
+use super::{metrics::ClientMetrics, upload_relay_client::UploadRelayClient};
 use crate::{
     client::upload_relay_client::UploadRelayClientError,
     store_optimizations::StoreOptimizations,
@@ -76,11 +72,6 @@ pub struct StoreArgs {
     pub tail_handle_collector: Option<Arc<Mutex<Vec<JoinHandle<()>>>>>,
     /// Optional channel to forward encoding progress events to.
     pub encoding_event_tx: Option<UnboundedSender<EncodingProgressEvent>>,
-    /// Initial upload weight accumulated before certification (e.g., from pending uploads).
-    pub initial_upload_weight: Option<std::collections::HashMap<walrus_core::BlobId, usize>>,
-    /// Nodes that failed during pending uploads, keyed by blob ID, to scope immediate retries.
-    pub initial_failed_nodes:
-        Option<std::collections::HashMap<walrus_core::BlobId, Vec<NodeIndex>>>,
 }
 
 impl StoreArgs {
@@ -120,8 +111,6 @@ impl StoreArgs {
             quorum_event_tx: None,
             tail_handle_collector: None,
             encoding_event_tx: None,
-            initial_upload_weight: None,
-            initial_failed_nodes: None,
         }
     }
 
@@ -156,24 +145,6 @@ impl StoreArgs {
         collector: Arc<Mutex<Vec<JoinHandle<()>>>>,
     ) -> Self {
         self.tail_handle_collector = Some(collector);
-        self
-    }
-
-    /// Marks blob IDs that already had optimistic uploads scheduled earlier.
-    pub fn with_initial_upload_weight(
-        mut self,
-        weight: std::collections::HashMap<walrus_core::BlobId, usize>,
-    ) -> Self {
-        self.initial_upload_weight = Some(weight);
-        self
-    }
-
-    /// Sets the initial failed nodes map.
-    pub fn with_initial_failed_nodes(
-        mut self,
-        failed: std::collections::HashMap<walrus_core::BlobId, Vec<NodeIndex>>,
-    ) -> Self {
-        self.initial_failed_nodes = Some(failed);
         self
     }
 

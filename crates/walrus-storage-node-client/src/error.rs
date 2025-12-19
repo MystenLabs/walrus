@@ -66,16 +66,6 @@ impl NodeError {
             .unwrap_or(false)
     }
 
-    /// Returns true if the error was caused by the pending upload cache being full.
-    pub fn is_cache_saturated(&self) -> bool {
-        self.has_reason("CACHE_SATURATED")
-    }
-
-    /// Returns true if the error indicates the blob is not yet registered.
-    pub fn is_not_registered(&self) -> bool {
-        self.has_reason("NOT_REGISTERED")
-    }
-
     /// Returns true if the HTTP error status code associated with number 499
     pub fn is_expired(&self) -> bool {
         Some(StatusCode::from_u16(499).expect("status code is in a valid range"))
@@ -138,12 +128,6 @@ impl NodeError {
         } else {
             None
         }
-    }
-
-    fn has_reason(&self, reason: &str) -> bool {
-        self.status()
-            .map(|status| status.is_for_reason(reason, STORAGE_NODE_ERROR_DOMAIN))
-            .unwrap_or(false)
     }
 }
 

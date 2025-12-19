@@ -79,8 +79,13 @@ impl StoreOptimizations {
         self.reuse_resources
     }
 
+    /// Returns true if pending (optimistic) uploads are enabled.
+    pub fn pending_uploads_enabled(&self) -> bool {
+        self.optimistic_uploads
+    }
+
     /// Returns true if optimistic buffering is enabled.
     pub fn optimistic_uploads_enabled(&self) -> bool {
-        self.optimistic_uploads
+        self.pending_uploads_enabled()
     }
 }

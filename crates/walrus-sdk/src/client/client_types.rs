@@ -698,19 +698,19 @@ impl WalrusStoreBlobMaybeFinished<BlobWithStatus> {
         Ok(self)
     }
 
-    /// Returns the metadata and sliver pairs needed for an optimistic upload if eligible.
+    /// Returns the metadata and sliver pairs needed for a pending upload if eligible.
     pub fn pending_upload_payload(
         &self,
         pending_uploads_enabled: bool,
         store_args: &StoreArgs,
-        optimistic_upload_max_blob_bytes: u64,
+        pending_upload_max_blob_bytes: u64,
     ) -> Option<(VerifiedBlobMetadataWithId, Arc<Vec<SliverPair>>)> {
         let WalrusStoreBlobState::Unfinished(blob_with_status) = &self.state else {
             return None;
         };
         if blob_with_status.status.is_registered()
             || !pending_uploads_enabled
-            || !store_args.store_optimizations.optimistic_uploads_enabled()
+            || !store_args.store_optimizations.pending_uploads_enabled()
         {
             return None;
         }
@@ -719,7 +719,7 @@ impl WalrusStoreBlobMaybeFinished<BlobWithStatus> {
             return None;
         };
         let unencoded_len = encoded.metadata.metadata().unencoded_length();
-        if unencoded_len > optimistic_upload_max_blob_bytes {
+        if unencoded_len > pending_upload_max_blob_bytes {
             return None;
         }
 

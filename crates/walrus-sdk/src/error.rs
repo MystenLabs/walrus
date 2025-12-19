@@ -52,18 +52,6 @@ pub struct SliverStoreError {
     pub error: NodeError,
 }
 
-impl SliverStoreError {
-    /// Returns true if the underlying node rejected the write because its pending cache is full.
-    pub fn is_cache_saturated(&self) -> bool {
-        self.error.is_cache_saturated()
-    }
-
-    /// Returns true if the underlying node reports the blob is not yet registered.
-    pub fn is_not_registered(&self) -> bool {
-        self.error.is_not_registered()
-    }
-}
-
 /// A helper type for the client to handle errors.
 pub type ClientResult<T> = Result<T, ClientError>;
 
