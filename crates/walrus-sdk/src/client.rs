@@ -101,6 +101,7 @@ use crate::{
     uploader::{DistributedUploader, RunOutput, TailHandling, UploaderEvent},
     utils::{
         self,
+        CompletedReasonTime,
         CompletedReasonWeight,
         WeightedFutures,
         WeightedResult,
@@ -822,9 +823,8 @@ impl<T: ReadClient> WalrusNodeClient<T> {
         let mut requests = WeightedFutures::new(futures);
 
         // Execute all requests with appropriate concurrency limits.
-        requests
-            .execute_until(
-                &|_| false, // We want to execute all futures.
+        let completed_reason_time = requests
+            .execute_time(
                 timeout_duration,
                 self.communication_limits
                     .max_concurrent_sliver_reads_for_blob_size(
@@ -834,6 +834,16 @@ impl<T: ReadClient> WalrusNodeClient<T> {
                     ),
             )
             .await;
+
+        if completed_reason_time == CompletedReasonTime::Timeout {
+            // REVIEW: the assumption here is that if the sliver retrieval timed out, we should
+            // fail. It's not clear from the prior code that it was OK with some slivers failing to
+            // be retrieved or not. If it is the case that this routine is just optimistically
+            // getting as many of the specified slivers as possible within the given timeout
+            // period, then we can simply add some code comments to reflect this.
+            tracing::error!("retrieving slivers timed out");
+            return Err(ClientError::from(ClientErrorKind::SliverRetrievalTimeout));
+        }
 
         progress_bar.finish_with_message("slivers received");
 
