@@ -350,7 +350,7 @@ where
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(msim)))]
 mod tests {
     use walrus_test_utils::async_param_test;
 

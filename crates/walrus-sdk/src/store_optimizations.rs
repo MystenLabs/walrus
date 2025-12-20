@@ -16,6 +16,8 @@ pub struct StoreOptimizations {
     /// for a sufficient duration) that can be used to register the blob or if there is an already
     /// registered blob object that matches the blob ID and duration.
     pub reuse_resources: bool,
+    /// Allow optimistic buffering (pending intent) for small blobs to reduce latency.
+    pub optimistic_uploads: bool,
 }
 
 impl StoreOptimizations {
@@ -24,6 +26,7 @@ impl StoreOptimizations {
         Self {
             check_status: true,
             reuse_resources: true,
+            optimistic_uploads: false,
         }
     }
 
@@ -32,6 +35,7 @@ impl StoreOptimizations {
         Self {
             check_status: false,
             reuse_resources: false,
+            optimistic_uploads: false,
         }
     }
 
@@ -40,6 +44,7 @@ impl StoreOptimizations {
         Self {
             check_status: !force,
             reuse_resources: !ignore_resources,
+            optimistic_uploads: false,
         }
     }
 
@@ -55,6 +60,12 @@ impl StoreOptimizations {
         self
     }
 
+    /// Sets the `optimistic_uploads` flag.
+    pub fn with_optimistic_uploads(mut self, optimistic_uploads: bool) -> Self {
+        self.optimistic_uploads = optimistic_uploads;
+        self
+    }
+
     /// Returns `true` if the operation should check the blob status.
     ///
     /// If `true`, the client does not store the blob if it is already stored on Walrus for a
@@ -66,5 +77,15 @@ impl StoreOptimizations {
     /// Returns `true` if the operation should check the resources in the wallet.
     pub fn should_check_existing_resources(&self) -> bool {
         self.reuse_resources
+    }
+
+    /// Returns true if pending (optimistic) uploads are enabled.
+    pub fn pending_uploads_enabled(&self) -> bool {
+        self.optimistic_uploads
+    }
+
+    /// Returns true if optimistic buffering is enabled.
+    pub fn optimistic_uploads_enabled(&self) -> bool {
+        self.pending_uploads_enabled()
     }
 }

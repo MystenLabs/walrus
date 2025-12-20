@@ -8,7 +8,7 @@
 //! core upload logic, used by all parts of the client.
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -21,7 +21,7 @@ use walrus_core::{BlobId, encoding::SliverPair, metadata::VerifiedBlobMetadataWi
 
 use crate::{
     active_committees::ActiveCommittees,
-    client::communication::{NodeResult, NodeWriteCommunication},
+    client::communication::{NodeResult, NodeWriteCommunication, node::NodeIndex},
     config::SliverWriteExtraTime,
     error::ClientError,
     utils::WeightedFutures,
@@ -45,6 +45,20 @@ pub struct RunOutput<R, E> {
     pub results: Vec<NodeResult<R, E>>,
     /// The handle to the detached tail upload.
     pub tail_handle: Option<JoinHandle<()>>,
+}
+
+/// Returns the unique set of node indices that returned an error.
+pub fn failed_node_indices<R, E>(results: &[NodeResult<R, E>]) -> Vec<NodeIndex> {
+    let mut seen = HashSet::new();
+    let mut failed = Vec::new();
+
+    for result in results {
+        if result.result.is_err() && seen.insert(result.node) {
+            failed.push(result.node);
+        }
+    }
+
+    failed
 }
 
 /// A work item for the uploader, representing a set of sliver pairs for a single blob
@@ -122,13 +136,23 @@ impl DistributedUploader {
         committees: Arc<ActiveCommittees>,
         comms: Vec<NodeWriteCommunication>,
         sliver_write_extra_time: SliverWriteExtraTime,
+        initial_completed_weight: Option<&HashMap<BlobId, usize>>,
     ) -> Self {
         let mut work_items: HashMap<usize, Vec<UploadWorkItem>> = HashMap::new();
         let mut progress: HashMap<BlobId, BlobUploadProgress> = HashMap::new();
 
         for (metadata, pairs) in blobs {
             let blob_id = *metadata.blob_id();
-            progress.entry(blob_id).or_default();
+            let entry = progress.entry(blob_id).or_default();
+            if let Some(initial_weight) = initial_completed_weight.and_then(|m| m.get(&blob_id)) {
+                entry.completed_weight = *initial_weight;
+                if committees
+                    .write_committee()
+                    .is_at_least_min_n_correct(*initial_weight)
+                {
+                    entry.quorum_reached = true;
+                }
+            }
 
             let mut pairs_per_node: HashMap<usize, Vec<usize>> = HashMap::new();
             for (idx, pair) in pairs.iter().enumerate() {
@@ -199,7 +223,7 @@ impl DistributedUploader {
         let n_shards: usize = self.committees.n_shards().get().into();
         let cancel_token = cancellation.unwrap_or_default();
 
-        let mut blobs_at_quorum = 0;
+        let mut blobs_at_quorum = self.progress.values().filter(|p| p.quorum_reached).count();
         let mut results: Vec<NodeResult<R, E>> = Vec::new();
 
         while blobs_at_quorum < self.progress.len() {

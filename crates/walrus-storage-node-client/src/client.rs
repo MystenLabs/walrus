@@ -651,6 +651,19 @@ impl StorageNodeClient {
         metadata: &VerifiedBlobMetadataWithId,
         intent: UploadIntent,
     ) -> Result<(), NodeError> {
+        self.store_metadata_with_intent(metadata, intent).await
+    }
+
+    /// Stores the metadata on the node with the provided upload intent.
+    #[tracing::instrument(
+        skip_all, fields(walrus.blob_id = %metadata.blob_id(), walrus.intent = ?intent),
+        err(level = Level::DEBUG)
+    )]
+    pub async fn store_metadata_with_intent(
+        &self,
+        metadata: &VerifiedBlobMetadataWithId,
+        intent: UploadIntent,
+    ) -> Result<(), NodeError> {
         let (url, template) = self.endpoints.metadata(metadata.blob_id());
         let request = self.create_request_with_payload(
             Method::PUT,
@@ -674,6 +687,28 @@ impl StorageNodeClient {
         err(level = Level::DEBUG)
     )]
     pub async fn store_sliver<A: EncodingAxis>(
+        &self,
+        blob_id: &BlobId,
+        pair_index: SliverPairIndex,
+        sliver: &SliverData<A>,
+        intent: UploadIntent,
+    ) -> Result<(), NodeError> {
+        self.store_sliver_with_intent(blob_id, pair_index, sliver, intent)
+            .await
+    }
+
+    /// Stores a sliver on a node with the provided upload intent.
+    #[tracing::instrument(
+        skip_all,
+        fields(
+            walrus.blob_id = %blob_id,
+            walrus.sliver.pair_index = %pair_index,
+            walrus.sliver.type_ = %A::NAME,
+            walrus.intent = ?intent,
+        ),
+        err(level = Level::DEBUG)
+    )]
+    pub async fn store_sliver_with_intent<A: EncodingAxis>(
         &self,
         blob_id: &BlobId,
         pair_index: SliverPairIndex,
