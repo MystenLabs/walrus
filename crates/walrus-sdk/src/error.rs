@@ -125,6 +125,8 @@ impl ClientError {
                     Some(StoreError::TargetEpochMismatch { .. })
                 )
         )
+        // REVIEW: Could SliverRetrievalTimeout occur because of epoch change? Doesn't seem like
+        // it...
     }
 
     /// Returns `true` if the error indicates that a blob is not available to read.
@@ -278,4 +280,7 @@ pub enum ClientErrorKind {
     /// An error occurred while validating the input for byte range read.
     #[error("byte range read input error: {0}")]
     ByteRangeReadInputError(String),
+    /// A timeout occurred while reading slivers.
+    #[error("a timeout occurred while reading slivers")]
+    SliverRetrievalTimeout,
 }
