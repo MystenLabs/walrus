@@ -608,6 +608,7 @@ mod tests {
             .with_test_nodes_config(
                 TestNodesConfig::builder()
                     .with_node_weights(&[1, 2, 3, 3, 4])
+                    .with_node_recovery_config(node_recovery_config)
                     .build(),
             )
             .with_communication_config(
