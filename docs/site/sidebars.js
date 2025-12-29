@@ -109,10 +109,6 @@ const sidebars = {
         {
             type: "category",
             label: "Advanced Functionality",
-            link: {
-                type: "doc",
-                id: "walrus-sites/advanced",
-            },
             items: [
                 "walrus-sites/commands",
                 "walrus-sites/builder-config",

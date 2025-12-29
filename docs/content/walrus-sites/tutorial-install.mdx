@@ -1,27 +1,26 @@
 ---
 title: Installing the Site Builder
 description: "Step-by-step guide to installing and setting up the Walrus Sites site-builder tool for development."
-keywords: ["walrus sites", "installation", "site builder", "setup", "prerequisites", "binaries", "configuration"]
+keywords: ["walrus sites", "installation", "site-builder", "setup", "prerequisites", "binaries", "configuration"]
 ---
 
-This section describes the steps necessary to setup the Walrus Sites' `site-builder` tool and
-prepare your environment for development.
+This section describes the steps necessary to set up the Walrus Sites' `site-builder` tool and prepare your environment for development.
 
-## Prerequisites
+<Tabs className="tabsHeadingCentered--small">
+<TabItem value="prereq" label="Prerequisites">
 
-Before you start, make sure you
+- [x] Install a recent version of [Rust](https://www.rust-lang.org/tools/install).
 
-- have a recent version of [Rust](https://www.rust-lang.org/tools/install) installed;
-- followed all [Walrus setup instructions](/usage/setup.mdx).
+- [x] Follow all [Walrus setup instructions](/usage/started.mdx).
 
-Then, follow these additional setup steps.
+</TabItem>
+</Tabs>
 
 ## Installation
 
-Similar to the `walrus` client CLI tool, we currently provide the `site-builder` client binary for
-macOS (Intel and Apple CPUs), Ubuntu, and Windows:
+Similar to the `walrus` client CLI tool, the `site-builder` client binary is currently provided for macOS (Intel and Apple CPUs), Ubuntu, and Windows:
 
-### Mainnet Binaries
+### Mainnet binaries
 
 | OS      | CPU                   | Architecture |
 |---------|-----------------------|-----------------------------------------------------------------------------------------------------------------------------------|
@@ -30,7 +29,7 @@ macOS (Intel and Apple CPUs), Ubuntu, and Windows:
 | MacOS   | Intel 64bit           | [`site-builder-mainnet-latest-macos-x86_64`](https://storage.googleapis.com/mysten-walrus-binaries/site-builder-mainnet-latest-macos-x86_64)                  |
 | Windows | Intel 64bit           | [`site-builder-mainnet-latest-windows-x86_64.exe`](https://storage.googleapis.com/mysten-walrus-binaries/site-builder-mainnet-latest-windows-x86_64.exe)      |
 
-### Testnet Binaries
+### Testnet binaries
 
 | OS      | CPU                   | Architecture |
 |---------|-----------------------|-----------------------------------------------------------------------------------------------------------------------------------|
@@ -39,15 +38,21 @@ macOS (Intel and Apple CPUs), Ubuntu, and Windows:
 | MacOS   | Intel 64bit           | [`site-builder-testnet-latest-macos-x86_64`](https://storage.googleapis.com/mysten-walrus-binaries/site-builder-testnet-latest-macos-x86_64)                  |
 | Windows | Intel 64bit           | [`site-builder-testnet-latest-windows-x86_64.exe`](https://storage.googleapis.com/mysten-walrus-binaries/site-builder-testnet-latest-windows-x86_64.exe)      |
 
-:::note Windows
+:::info
 
-We now offer a pre-built binary also for Windows. However, most of the remaining instructions assume a UNIX-based system for the directory structure, commands, etc. If you use Windows, you may need to adapt most of those.
+A pre-built binary is now offered for Windows. However, most of the remaining instructions assume a UNIX-based system for the directory structure, commands, and so on. If you use Windows, you might need to adapt most of those.
 
 :::
 
-You can download the latest build from our Google Cloud Storage (GCS) bucket (correctly setting the `$SYSTEM` variable):
+You can download the latest build from the Google Cloud Storage (GCS) bucket after correctly setting the `$SYSTEM` variable:
 
-### Mainnet Curl Request
+:::danger
+
+The stable branch of Walrus Sites is `mainnet`. Make sure that you always pull the latest changes from there.
+
+:::
+
+### Mainnet curl request
 
 ```sh
 $ SYSTEM= # set this to your system: ubuntu-x86_64, ubuntu-x86_64-generic, macos-x86_64, macos-arm64, windows-x86_64.exe
@@ -55,7 +60,7 @@ $ curl https://storage.googleapis.com/mysten-walrus-binaries/site-builder-mainne
 $ chmod +x site-builder
 ```
 
-### Testnet Curl Request
+### Testnet curl request
 
 ``` sh
 $ SYSTEM= # set this to your system: ubuntu-x86_64, ubuntu-x86_64-generic, macos-x86_64, macos-arm64, windows-x86_64.exe
@@ -63,8 +68,7 @@ $ curl https://storage.googleapis.com/mysten-walrus-binaries/site-builder-testne
 $ chmod +x site-builder
 ```
 
-As an alternative, you can also use the `suiup` tool which enables you to install different
-versions of the site-builder seamlessly.
+As an alternative, you can also use the `suiup` tool which enables you to install different versions of the site-builder seamlessly.
 
 ```sh
 $ curl -sSfL \
@@ -78,18 +82,9 @@ Then, install the `site-builder`:
 $ suiup install site-builder@mainnet
 ```
 
-To be able to run it just as `site-builder`, move the binary to any directory included in your
-`$PATH` environment variable. Standard locations are `/usr/local/bin/`, `$HOME/bin/`, or
-`$HOME/.local/bin/`.
+To be able to run it just as `site-builder`, move the binary to any directory included in your `$PATH` environment variable. Standard locations are `/usr/local/bin/`, `$HOME/bin/`, or `$HOME/.local/bin/`.
 
-:::note
-
-The site builder will look for the default configuration file `sites-config.yaml` in the current
-directory, the `$XDG_HOME/walrus/sites-config.yaml` and `$HOME/walrus/sites-config.yaml` directory.
-In case you want to use explicitly a different `sites-config.yaml`, use the `--config` flag to
-specify the path to the configuration file.
-
-:::
+The site-builder looks for the default configuration file `sites-config.yaml` in the current directory, the `$XDG_HOME/walrus/sites-config.yaml` and `$HOME/walrus/sites-config.yaml` directory. In case you want to use explicitly a different `sites-config.yaml`, use the `--config` flag to specify the path to the configuration file.
 
 After this is done, you should be able to simply type `site-builder` in your terminal.
 
@@ -115,8 +110,7 @@ Commands:
 
 ## Configuration
 
-The `site-builder` tool needs a configuration file to work. This file is called `sites-config.yaml`
-and looks like this:
+The `site-builder` tool needs a configuration file to work. This file is called `sites-config.yaml` and looks like this:
 
 ```yaml
 contexts:
@@ -154,31 +148,20 @@ contexts:
 default_context: mainnet
 ```
 
-As you can see, the configuration file is quite simple. You can define here different contexts and
-their configurations, with just the package id field being the mandatory one, representing the Sui
-object ID of the Walrus Sites smart contract. You can find the latest version of the package in the [Walrus Sites repository](https://github.com/MystenLabs/walrus-sites/tree/mainnet) on the `mainnet` branch.
+You can define different contexts and their configurations. Only the package ID field is mandatory as it represents the Sui object ID of the Walrus Sites smart contract. You can find the latest version of the package in the [Walrus Sites repository](https://github.com/MystenLabs/walrus-sites/tree/mainnet) on the `mainnet` branch.
 
-:::danger Walrus Sites stable branch
-
-The stable branch of Walrus Sites is `mainnet`. Make sure that you always pull the latest changes from there.
-
-:::
-
-You can define the location of the `sites-config.yaml` file using the `--config` flag when running
-the `site-builder` commands like so:
+You can define the location of the `sites-config.yaml` file using the `--config` flag when running the `site-builder` commands like so:
 
 ```sh
 $ site-builder --config /path/to/sites-config.yaml publish <build-directory-of-a-site>
 ```
 
-However, if are not a fan of repeating the same flags over and over, it's always easier to have the
-configuration file in one of the [default locations](#configuration).
+However, if you are not a fan of repeating the same flags over and over, it's always easier to have the configuration file in one of the [default locations](#configuration).
 
-Download the `sites-config.yaml` file from the repository, and place it in one of the aforementioned
-default locations. To illustrate, we will use the `~/.config/walrus` directory, like so:
+Download the `sites-config.yaml` file from the repository, and place it in one of the aforementioned default locations. To illustrate, use the `~/.config/walrus` directory, like so:
 
 ```sh
 $ curl https://raw.githubusercontent.com/MystenLabs/walrus-sites/refs/heads/mainnet/sites-config.yaml -o ~/.config/walrus/sites-config.yaml
 ```
 
-You are now ready to start working on your Walrus Sites! 🎉
+You are now ready to start working on your Walrus Sites 🎉
