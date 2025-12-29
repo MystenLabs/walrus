@@ -122,7 +122,11 @@ pub trait WalrusReadClient {
         async {
             use walrus_sdk::error::ClientErrorKind;
             Err(ClientError::from(ClientErrorKind::Other(
-                "quilt functionality not supported by this client".into(),
+                format!(
+                    "quilt functionality not supported by this client ({})",
+                    std::any::type_name::<Self>()
+                )
+                .into(),
             )))
         }
     }
@@ -137,7 +141,11 @@ pub trait WalrusReadClient {
         async {
             use walrus_sdk::error::ClientErrorKind;
             Err(ClientError::from(ClientErrorKind::Other(
-                "quilt functionality not supported by this client".into(),
+                format!(
+                    "quilt functionality not supported by this client ({})",
+                    std::any::type_name::<Self>()
+                )
+                .into(),
             )))
         }
     }
@@ -150,7 +158,11 @@ pub trait WalrusReadClient {
         async {
             use walrus_sdk::error::ClientErrorKind;
             Err(ClientError::from(ClientErrorKind::Other(
-                "quilt functionality not supported by this client".into(),
+                format!(
+                    "quilt functionality not supported by this client ({})",
+                    std::any::type_name::<Self>()
+                )
+                .into(),
             )))
         }
     }
