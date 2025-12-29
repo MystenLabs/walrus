@@ -24,15 +24,15 @@ use walrus_core::{
     },
 };
 use walrus_sdk::{
-    client::{
+    config::ClientConfig,
+    error::{ClientError, ClientErrorKind, ClientResult},
+    node_client::{
         WalrusNodeClient,
         byte_range_read_client::ReadByteRangeResult,
         metrics::ClientMetrics,
         refresh::CommitteesRefresherHandle,
         responses::{BlobStoreResult, QuiltStoreResult},
     },
-    config::ClientConfig,
-    error::{ClientError, ClientErrorKind, ClientResult},
     store_optimizations::StoreOptimizations,
 };
 use walrus_sui::{
