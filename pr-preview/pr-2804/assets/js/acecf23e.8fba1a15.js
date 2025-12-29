@@ -1,1 +1,0 @@
-"use strict";(globalThis.webpackChunkwalrus_docusaurus=globalThis.webpackChunkwalrus_docusaurus||[]).push([[1903],{1912:s=>{s.exports=JSON.parse('{"blogBasePath":"/walrus/pr-preview/pr-2804/blog","blogTitle":"Blog","authorsListPath":"/walrus/pr-preview/pr-2804/blog/authors"}')}}]);
