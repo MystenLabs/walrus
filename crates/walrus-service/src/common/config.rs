@@ -80,7 +80,7 @@ impl SuiConfig {
         let wallet = WalletConfig::load_wallet(Some(&self.wallet_config), self.request_timeout)?;
 
         let rpc_urls = combine_rpc_urls(
-            wallet.get_rpc_url()?,
+            wallet.get_rpc_url(),
             &combine_rpc_urls(&self.rpc, &self.additional_rpc_endpoints),
         );
         if let Some(metrics) = metrics {

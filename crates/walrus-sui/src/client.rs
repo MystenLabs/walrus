@@ -538,11 +538,11 @@ impl SuiContractClient {
 
     /// Constructor for [`SuiContractClient`] with an existing [`SuiReadClient`].
     pub fn new_with_read_client(
-        mut wallet: Wallet,
+        wallet: Wallet,
         gas_budget: Option<u64>,
         read_client: Arc<SuiReadClient>,
     ) -> SuiClientResult<Self> {
-        let wallet_address = wallet.active_address()?;
+        let wallet_address = wallet.active_address();
         Ok(Self {
             inner: Mutex::new(SuiContractClientInner::new(
                 wallet,
@@ -2340,7 +2340,7 @@ impl SuiContractClientInner {
     pub fn transaction_builder(&mut self) -> SuiClientResult<WalrusPtbBuilder> {
         Ok(WalrusPtbBuilder::new(
             self.read_client.clone(),
-            self.wallet.active_address()?,
+            self.wallet.active_address(),
         ))
     }
 
@@ -2381,7 +2381,7 @@ impl SuiContractClientInner {
     /// Merges the WAL and SUI coins owned by the wallet of the contract client.
     pub async fn merge_coins(&mut self) -> SuiClientResult<()> {
         let mut tx_builder = self.transaction_builder()?;
-        let address = self.wallet.active_address()?;
+        let address = self.wallet.active_address();
         let sui_balance = self
             .retriable_sui_client()
             .get_balance(address, None)
@@ -2621,7 +2621,7 @@ impl SuiContractClientInner {
         node_parameters: NodeUpdateParams,
         node_capability_object_id: ObjectID,
     ) -> SuiClientResult<()> {
-        let wallet_address = self.wallet.active_address()?;
+        let wallet_address = self.wallet.active_address();
 
         tracing::debug!(
             ?wallet_address,
@@ -2649,7 +2649,7 @@ impl SuiContractClientInner {
             .sign_and_send_transaction(transaction, "collect_commission")
             .await?;
         let wal_type_tag = TypeTag::from_str(self.read_client.wal_coin_type())?;
-        let sender_address = self.wallet.active_address()?;
+        let sender_address = self.wallet.active_address();
         let Some(balance_change) = response
             .balance_changes
             .ok_or_else(|| anyhow!("transaction response does not contain balance changes"))?

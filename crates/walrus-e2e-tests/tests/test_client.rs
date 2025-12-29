@@ -2497,17 +2497,17 @@ pub async fn test_select_coins_max_objects() -> TestResult {
         ),
         None,
     )?;
-    let env = cluster_wallet.get_active_env()?.to_owned();
-    let mut wallet = test_utils::temp_dir_wallet(None, env).await?;
+    let env = cluster_wallet.get_active_env().to_owned();
+    let wallet = test_utils::temp_dir_wallet(None, env).await?;
 
     let sui = |sui: u64| sui * 1_000_000_000;
 
     // Add 4 coins with 1 SUI each to the wallet.
-    let address = wallet.as_mut().active_address()?;
+    let address = wallet.as_ref().active_address();
     walrus_sui::test_utils::fund_addresses(&mut cluster_wallet, vec![address; 4], Some(sui(1)))
         .await?;
 
-    let rpc_urls = &[wallet.as_ref().get_rpc_url().unwrap()];
+    let rpc_urls = &[wallet.as_ref().get_rpc_url()];
 
     // Create a new client with the funded wallet.
     let retry_client = RetriableSuiClient::new(
@@ -2576,17 +2576,12 @@ async fn test_store_with_upload_relay_no_tip() {
     )
     .expect("loading cluster wallet should succeed");
 
-    let mut relay_wallet = wallet_for_testing(&mut cluster_wallet, false)
+    let relay_wallet = wallet_for_testing(&mut cluster_wallet, false)
         .await
         .expect("wallet creation should succeed");
     fund_addresses(
         &mut cluster_wallet,
-        vec![
-            relay_wallet
-                .inner
-                .active_address()
-                .expect("relay wallet active address should exist"),
-        ],
+        vec![relay_wallet.as_ref().active_address()],
         Some(10_000_000_000),
     )
     .await
@@ -2637,10 +2632,7 @@ async fn test_store_with_upload_relay_no_tip() {
     let n_shards = cluster_client.inner.encoding_config().n_shards();
     let upload_relay_url = get_upload_relay_url(&server_address);
     let upload_relay_client = UploadRelayClient::new(
-        relay_wallet
-            .inner
-            .active_address()
-            .expect("client wallet active address should exist"),
+        relay_wallet.as_ref().active_address(),
         n_shards,
         upload_relay_url,
         None,
@@ -2705,14 +2697,11 @@ async fn test_store_with_upload_relay_with_tip() {
     )
     .expect("loading cluster wallet should succeed");
 
-    let mut relay_wallet = wallet_for_testing(&mut cluster_wallet, false)
+    let relay_wallet = wallet_for_testing(&mut cluster_wallet, false)
         .await
         .expect("wallet creation should succeed");
 
-    let relay_address = relay_wallet
-        .inner
-        .active_address()
-        .expect("relay wallet active address should exist");
+    let relay_address = relay_wallet.as_ref().active_address();
 
     // Create the Walrus config for the upload relay.
     let walrus_read_client_config = ClientConfig {
@@ -2766,9 +2755,7 @@ async fn test_store_with_upload_relay_with_tip() {
         .expect("wait for TCP bind");
 
     assert_ne!(
-        cluster_wallet
-            .active_address()
-            .expect("cluster_wallet should have an address"),
+        cluster_wallet.active_address(),
         cluster_client.inner.sui_client().address()
     );
     let n_shards = cluster_client.inner.encoding_config().n_shards();

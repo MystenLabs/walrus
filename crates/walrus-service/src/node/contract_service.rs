@@ -340,11 +340,7 @@ async fn monitor_sui_balance(
         let _now = interval.tick().await;
         let mut client = contract_client.lock().await;
 
-        let address = client.wallet_mut().active_address().ok();
-        let address = address
-            .as_ref()
-            .map(ToString::to_string)
-            .unwrap_or_default();
+        let address = client.wallet_mut().active_address().to_string();
         let span = tracing::info_span!("check_sui_balance", sui.address = %address);
 
         async {

@@ -2860,7 +2860,7 @@ pub mod test_cluster {
             {
                 let client = wallet
                     .and_then_async(async |wallet| {
-                        let rpc_urls = &[wallet.get_rpc_url()?];
+                        let rpc_urls = &[wallet.get_rpc_url().to_string()];
                         system_ctx
                             .new_contract_client(wallet, rpc_urls, Default::default(), None)
                             .await
