@@ -3,7 +3,7 @@
 
 use utoipa::OpenApi;
 use walrus_core::{BlobId, EncodingType, EpochSchema, QuiltPatchId};
-use walrus_sdk::client::{
+use walrus_sdk::node_client::{
     resource::RegisterBlobOp,
     responses::{BlobStoreResult, EventOrObjectId, QuiltStoreResult},
 };

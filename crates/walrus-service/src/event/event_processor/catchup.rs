@@ -434,11 +434,12 @@ impl EventBlobCatchupManager {
         let sui_read_client =
             SuiReadClient::new(self.clients.sui_client.clone(), &contract_config).await?;
         let config = crate::client::ClientConfig::new_from_contract_config(contract_config);
-        let walrus_client = walrus_sdk::client::WalrusNodeClient::new_read_client_with_refresher(
-            config,
-            sui_read_client.clone(),
-        )
-        .await?;
+        let walrus_client =
+            walrus_sdk::node_client::WalrusNodeClient::new_read_client_with_refresher(
+                config,
+                sui_read_client.clone(),
+            )
+            .await?;
         let blob_downloader = EventBlobDownloader::new(walrus_client, sui_read_client);
         let blob_ids = blob_downloader
             .download(

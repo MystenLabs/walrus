@@ -29,8 +29,8 @@ use walrus_core::{
     encoding::{ConsistencyCheckType, Primary},
 };
 use walrus_sdk::{
-    client::WalrusNodeClient,
     config::{ClientConfig, combine_rpc_urls},
+    node_client::WalrusNodeClient,
 };
 use walrus_sui::{
     client::{SuiReadClient, retry_client::RetriableSuiClient},

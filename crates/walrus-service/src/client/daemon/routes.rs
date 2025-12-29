@@ -58,8 +58,8 @@ use walrus_core::{
 };
 use walrus_proc_macros::RestApiError;
 use walrus_sdk::{
-    client::responses::{BlobStoreResult, QuiltStoreResult},
     error::{ClientError, ClientErrorKind},
+    node_client::responses::{BlobStoreResult, QuiltStoreResult},
     store_optimizations::StoreOptimizations,
 };
 use walrus_storage_node_client::api::errors::DAEMON_ERROR_DOMAIN as ERROR_DOMAIN;
