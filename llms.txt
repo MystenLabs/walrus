@@ -64,11 +64,10 @@ Where the world's data becomes reliable, valuable, and governable
 - [Staking and Unstaking](/usage/stake): Complete guide to staking and unstaking WAL tokens with storage nodes using the Walrus staking dApp.
 - [Getting Started with Walrus](/usage/started): Complete getting started guide for Walrus including installation, configuration, storing and retrieving blobs on testnet and mainnet.
 - [Troubleshooting](/usage/troubleshooting): Troubleshooting guide for common Walrus issues including configuration, binary compatibility, and network problems.
-- [Client Daemon Mode & HTTP API](/usage/web-api): Complete guide to Walrus HTTP API including daemon mode, public services, store/read operations, and quilt management.
+- [HTTP API](/usage/web-api): Learn how to use the Walrus HTTP API for public services, store and read operations, and quilt management.
 
 ## Walrus sites
 
-- [Advanced Functionality](/walrus-sites/advanced): Overview of advanced Walrus Sites features including site builder configuration, headers, routing, and Sui object redirection.
 - [Site Data Authentication](/walrus-sites/authentication): Guide to Walrus Sites data authentication mechanisms using SHA-256 hashes for content verification and integrity.
 - [Avoiding Duplicate-Content SEO in Custom Portals](/walrus-sites/avoid-duplicate-content-seo): Best practices for preventing duplicate content SEO issues in custom Walrus Sites portals with canonical domains and redirects.
 - [Bringing Your Own Domain](/walrus-sites/bring-your-own-domain): Guide to configuring custom domains for Walrus Sites using your own DNS and portal configuration.
@@ -80,7 +79,7 @@ Where the world's data becomes reliable, valuable, and governable
 - [Introduction to Walrus Sites](/walrus-sites/intro): Introduction to Walrus Sites - decentralized websites using Sui and Walrus for hosting static web content.
 - [Linking from and to Walrus Sites](/walrus-sites/linking): Guide to creating links within Walrus Sites including relative links, external links, and cross-site linking.
 - [Technical Overview](/walrus-sites/overview): Technical deep dive into Walrus Sites architecture, Sui objects, resource storage, and site rendering pathways.
-- [The Walrus Sites Portal](/walrus-sites/portal): Guide to Walrus Sites portals including server-side, service-worker portals, local deployment, and configuration options.
+- [Walrus Sites Portal](/walrus-sites/portal): Guide to Walrus Sites portals including server-side, service-worker portals, local deployment, and configuration options.
 - [Redirecting Objects to Walrus Sites](/walrus-sites/redirects): Guide to creating personalized Walrus Sites for NFTs and objects using redirect links and Display properties.
 - [Known Restrictions](/walrus-sites/restrictions): Overview of known restrictions and limitations when developing and deploying Walrus Sites.
 - [Specifying Headers, Routing, and Metadata](/walrus-sites/routing): Guide to configuring custom headers, client-side routing, and metadata for Walrus Sites using ws-resources.json.
