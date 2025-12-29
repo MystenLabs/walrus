@@ -2612,12 +2612,14 @@ async fn test_store_with_upload_relay_no_tip() {
     let upload_relay_sui_client = get_client_with_config(walrus_client_config, &registry)
         .await
         .expect("create upload relay sui client");
+    const BLOB_SIZE: usize = 40000;
     let upload_relay_handle: UploadRelayHandle = walrus_upload_relay::start_upload_relay(
         upload_relay_sui_client,
         WalrusUploadRelayConfig {
             tip_config: TipConfig::NoTip,
             tx_freshness_threshold: Duration::from_mins(5),
             tx_max_future_threshold: Duration::from_secs(10),
+            max_body_size_limit: BLOB_SIZE,
         },
         server_address,
         registry,
@@ -2640,9 +2642,13 @@ async fn test_store_with_upload_relay_no_tip() {
     )
     .await
     .expect("upload relay client creation should succeed");
-    match basic_store_and_read(&cluster_client, 1, 40000, Some(upload_relay_client), || {
-        Ok(())
-    })
+    match basic_store_and_read(
+        &cluster_client,
+        1,
+        BLOB_SIZE,
+        Some(upload_relay_client),
+        || Ok(()),
+    )
     .await
     {
         Ok(_) => {}
@@ -2725,6 +2731,7 @@ async fn test_store_with_upload_relay_with_tip() {
 
     const TIP_BASE: u64 = 1000;
     const TIP_MULTIPLIER: u64 = 100;
+    const BLOB_SIZE: usize = 40000;
 
     let registry = Registry::default();
 
@@ -2743,6 +2750,7 @@ async fn test_store_with_upload_relay_with_tip() {
             },
             tx_freshness_threshold: Duration::from_mins(5),
             tx_max_future_threshold: Duration::from_secs(10),
+            max_body_size_limit: BLOB_SIZE,
         },
         server_address,
         registry,
@@ -2792,7 +2800,6 @@ async fn test_store_with_upload_relay_with_tip() {
         .expect("get balance")
         .total_balance;
 
-    const BLOB_SIZE: usize = 40000;
     match basic_store_and_read(
         &cluster_client,
         1,

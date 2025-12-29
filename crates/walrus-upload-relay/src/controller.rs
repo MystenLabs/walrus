@@ -86,6 +86,9 @@ pub struct WalrusUploadRelayConfig {
     ///
     /// This is to account for clock skew between the Walrus upload relay and the full nodes.
     pub tx_max_future_threshold: Duration,
+    /// The maximum body size limit for incoming requests, in bytes. Defaults to 1 GiB.
+    #[serde(default = "defaults::default_max_body_size_limit")]
+    pub max_body_size_limit: usize,
 }
 
 /// The subset of query parameters of the Walrus Upload Relay, necessary to check the tip.
@@ -388,7 +391,7 @@ async fn run_server(
         ))
         .route(TIP_CONFIG_ROUTE, get(send_tip_config))
         .route(BLOB_UPLOAD_RELAY_ROUTE, post(blob_upload_relay_handler))
-        .layer(DefaultBodyLimit::max(1024 * 1024 * 1024))
+        .layer(DefaultBodyLimit::max(relay_config.max_body_size_limit))
         .with_state(Arc::new(Controller::new(
             client,
             n_shards,
@@ -598,6 +601,13 @@ pub async fn get_client_with_config(
     )?)
 }
 
+mod defaults {
+    /// The default maximum body size limit for incoming requests, in bytes.
+    pub fn default_max_body_size_limit() -> usize {
+        1024 * 1024 * 1024 // 1 GiB
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::time::Duration;
@@ -607,7 +617,7 @@ mod tests {
     use utoipa_redoc::Redoc;
     use walrus_sdk::upload_relay::tip_config::{TipConfig, TipKind};
 
-    use super::{WalrusUploadRelayApiDoc, WalrusUploadRelayConfig};
+    use super::{WalrusUploadRelayApiDoc, WalrusUploadRelayConfig, defaults};
 
     const EXAMPLE_CONFIG_PATH: &str = "walrus_upload_relay_config_example.yaml";
 
@@ -620,6 +630,7 @@ mod tests {
             },
             tx_freshness_threshold: Duration::from_hours(10),
             tx_max_future_threshold: Duration::from_secs(30),
+            max_body_size_limit: defaults::default_max_body_size_limit(),
         };
 
         walrus_test_utils::overwrite_file_and_fail_if_not_equal(

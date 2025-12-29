@@ -5,3 +5,4 @@ tx_freshness_threshold_secs: 36000
 tx_max_future_threshold:
   secs: 30
   nanos: 0
+max_body_size_limit: 1073741824
