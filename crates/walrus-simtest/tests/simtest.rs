@@ -30,14 +30,14 @@ mod tests {
     use walrus_core::{Epoch, EpochCount};
     use walrus_proc_macros::walrus_simtest;
     use walrus_sdk::{
-        client::{
+        config::SliverWriteExtraTime,
+        node_client::{
             StoreArgs,
             StoreBlobsApi as _,
             WalrusNodeClient,
             metrics::ClientMetrics,
             responses::BlobStoreResult,
         },
-        config::SliverWriteExtraTime,
     };
     use walrus_service::{
         client::ClientCommunicationConfig,

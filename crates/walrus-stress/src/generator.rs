@@ -17,12 +17,12 @@ use tokio::{
 };
 use walrus_core::{BlobId, EpochCount, encoding::Primary};
 use walrus_sdk::{
-    client::{
+    config::ClientConfig,
+    error::ClientResult,
+    node_client::{
         WalrusNodeClient,
         metrics::{self, ClientMetrics},
     },
-    config::ClientConfig,
-    error::ClientResult,
 };
 use walrus_service::client::{RefillHandles, Refiller};
 use walrus_sui::{

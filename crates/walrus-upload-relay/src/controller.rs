@@ -34,7 +34,6 @@ use utoipa::{OpenApi, ToSchema};
 use utoipa_redoc::{Redoc, Servable};
 use walrus_sdk::{
     SuiReadClient,
-    client::WalrusNodeClient,
     config::{ClientConfig, load_configuration},
     core::{
         BlobId,
@@ -43,6 +42,7 @@ use walrus_sdk::{
         messages::{BlobPersistenceType, ConfirmationCertificate},
     },
     core_utils::metrics::Registry,
+    node_client::WalrusNodeClient,
     sui::{
         ObjectIdSchema,
         client::{SuiClientMetricSet, retry_client::RetriableSuiClient},

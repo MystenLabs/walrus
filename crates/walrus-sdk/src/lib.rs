@@ -7,9 +7,9 @@
 
 pub mod active_committees;
 pub mod blocklist;
-pub mod client;
 pub mod config;
 pub mod error;
+pub mod node_client;
 pub mod store_optimizations;
 pub mod upload_relay;
 pub mod uploader;

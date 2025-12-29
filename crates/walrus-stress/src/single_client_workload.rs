@@ -23,7 +23,7 @@ use walrus_core::{
     encoding::{Primary, Secondary},
 };
 use walrus_sdk::{
-    client::{
+    node_client::{
         StoreArgs,
         StoreBlobsApi as _,
         WalrusNodeClient,
