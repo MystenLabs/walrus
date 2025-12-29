@@ -456,13 +456,8 @@ pub async fn create_and_fund_wallets_on_cluster(
     let mut wallets = vec![];
     let mut addresses = vec![];
     for _ in 0..n_wallets {
-        let mut wallet = wallet_for_testing(&mut cluster_wallet, false).await?;
-        addresses.push(
-            wallet
-                .inner
-                .active_address()
-                .expect("newly created wallet has an active address"),
-        );
+        let wallet = wallet_for_testing(&mut cluster_wallet, false).await?;
+        addresses.push(wallet.as_ref().active_address());
         wallets.push(wallet);
     }
 
@@ -496,7 +491,7 @@ pub async fn new_contract_client_on_sui_test_cluster(
     let walrus_client = new_wallet_on_sui_test_cluster(sui_cluster_handle)
         .await?
         .and_then_async(async |wallet| {
-            let rpc_urls = &[wallet.get_rpc_url()?];
+            let rpc_urls = &[wallet.get_rpc_url().to_string()];
             SuiContractClient::new(
                 wallet,
                 rpc_urls,
@@ -527,16 +522,16 @@ pub async fn wallet_for_testing(
 ) -> anyhow::Result<WithTempDir<Wallet>> {
     let temp_dir = tempfile::tempdir().expect("temporary directory creation must succeed");
 
-    let mut wallet = create_wallet(
+    let wallet = create_wallet(
         &temp_dir.path().join("wallet_config.yaml"),
-        funding_wallet.get_active_env()?.to_owned(),
+        funding_wallet.get_active_env().to_owned(),
         None,
         None,
     )
     .await?;
 
     if funded {
-        fund_addresses(funding_wallet, vec![wallet.active_address()?], None).await?;
+        fund_addresses(funding_wallet, vec![wallet.active_address()], None).await?;
     }
 
     Ok(WithTempDir {
@@ -552,7 +547,7 @@ pub async fn fund_addresses(
     recipients: Vec<SuiAddress>,
     amount: Option<u64>,
 ) -> anyhow::Result<()> {
-    let sender = funding_wallet.active_address()?;
+    let sender = funding_wallet.active_address();
 
     #[allow(deprecated)]
     let gas_coin = funding_wallet

@@ -6,6 +6,7 @@
 use std::{
     collections::BTreeSet,
     path::{Path, PathBuf},
+    sync::Arc,
 };
 
 use sui_package_management::LockCommand;
@@ -20,11 +21,16 @@ use sui_types::{
     message_envelope::Envelope,
     transaction::{SenderSignedData, Transaction, TransactionData},
 };
+use tokio::sync::Mutex;
 
 /// The `Wallet` struct wraps the `WalletContext` from the Sui SDK. This allows us to
 /// reduce the scope of the `WalletContext` to only the methods we need.
+#[derive(Clone)]
 pub struct Wallet {
-    wallet_context: WalletContext,
+    active_address: SuiAddress,
+    active_env: SuiEnv,
+    config_path: PathBuf,
+    wallet_context: Arc<Mutex<WalletContext>>,
 }
 
 impl std::fmt::Debug for Wallet {
@@ -39,32 +45,49 @@ pub type WalletError = anyhow::Error;
 
 impl Wallet {
     /// Create a new Wallet.
-    pub fn new(wallet_context: WalletContext) -> Self {
-        Self { wallet_context }
+    pub fn new(mut wallet_context: WalletContext) -> Result<Self, WalletError> {
+        Ok(Self {
+            active_address: wallet_context.active_address()?,
+            active_env: wallet_context.config.get_active_env()?.clone(),
+            config_path: wallet_context.config.path().to_path_buf(),
+            wallet_context: Arc::new(Mutex::new(wallet_context)),
+        })
     }
 
-    /// Passes through to the `WalletContext` to get the active address.
-    pub fn active_address(&mut self) -> Result<SuiAddress, WalletError> {
-        self.wallet_context.active_address()
+    /// Get the active address.
+    pub fn active_address(&self) -> SuiAddress {
+        self.active_address
     }
 
     /// Passes through to the `WalletContext` to sign a transaction.
     pub async fn sign_transaction(&self, transaction_data: &TransactionData) -> Transaction {
-        self.wallet_context.sign_transaction(transaction_data).await
+        self.wallet_context
+            .lock()
+            .await
+            .sign_transaction(transaction_data)
+            .await
     }
 
     // TODO: WAL-820 move callsites to the RetriableSuiClient.
     /// Passes through to the `WalletContext` to get the reference gas price.
     #[deprecated(note = "Avoid this method. Use the RetriableSuiClient instead.")]
     pub async fn get_reference_gas_price(&self) -> Result<u64, WalletError> {
-        self.wallet_context.get_reference_gas_price().await
+        self.wallet_context
+            .lock()
+            .await
+            .get_reference_gas_price()
+            .await
     }
 
     // TODO: WAL-820 move callsites to the RetriableSuiClient.
     /// Passes through to the `WalletContext` to get an [`sui_types::base_types::ObjectRef`].
     #[deprecated(note = "Avoid this method. Use the RetriableSuiClient instead.")]
     pub async fn get_object_ref(&self, object_id: ObjectID) -> Result<ObjectRef, WalletError> {
-        self.wallet_context.get_object_ref(object_id).await
+        self.wallet_context
+            .lock()
+            .await
+            .get_object_ref(object_id)
+            .await
     }
 
     // TODO: WAL-820 move callsites to the RetriableSuiClient.
@@ -75,6 +98,8 @@ impl Wallet {
         signed_transaction: Envelope<SenderSignedData, EmptySignInfo>,
     ) -> Result<SuiTransactionBlockResponse, WalletError> {
         self.wallet_context
+            .lock()
+            .await
             .execute_transaction_may_fail(signed_transaction)
             .await
     }
@@ -89,6 +114,8 @@ impl Wallet {
         forbidden_gas_objects: BTreeSet<ObjectID>,
     ) -> Result<(u64, SuiObjectData), WalletError> {
         self.wallet_context
+            .lock()
+            .await
             .gas_for_owner_budget(address, budget, forbidden_gas_objects)
             .await
     }
@@ -104,8 +131,9 @@ impl Wallet {
         lock_file: Option<PathBuf>,
         response: &SuiTransactionBlockResponse,
     ) -> Result<(), WalletError> {
+        let wallet_context = self.wallet_context.lock().await;
         sui_package_management::update_lock_file(
-            &self.wallet_context,
+            &wallet_context,
             lock_command,
             install_dir,
             lock_file,
@@ -115,17 +143,17 @@ impl Wallet {
     }
 
     /// Get the rpc_url for the active environment.
-    pub fn get_rpc_url(&self) -> Result<String, WalletError> {
-        Ok(self.wallet_context.config.get_active_env()?.rpc.clone())
+    pub fn get_rpc_url(&self) -> &str {
+        &self.active_env.rpc
     }
 
     /// Get the path to the wallet configuration file.
     pub fn get_config_path(&self) -> &Path {
-        self.wallet_context.config.path()
+        &self.config_path
     }
 
     /// Get the active environment.
-    pub fn get_active_env(&self) -> Result<&SuiEnv, WalletError> {
-        self.wallet_context.config.get_active_env()
+    pub fn get_active_env(&self) -> &SuiEnv {
+        &self.active_env
     }
 }
