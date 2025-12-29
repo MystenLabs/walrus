@@ -22,7 +22,12 @@ pub mod simtest_utils {
         encoding::{Primary, Secondary},
     };
     use walrus_sdk::{
-        client::{StoreArgs, StoreBlobsApi as _, WalrusNodeClient, responses::BlobStoreResult},
+        node_client::{
+            StoreArgs,
+            StoreBlobsApi as _,
+            WalrusNodeClient,
+            responses::BlobStoreResult,
+        },
         uploader::TailHandling,
     };
     use walrus_service::test_utils::{SimStorageNodeHandle, TestCluster};

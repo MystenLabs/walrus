@@ -39,7 +39,7 @@ use walrus_core::{
     metadata::{BlobMetadataApi as _, QuiltIndex, VerifiedBlobMetadataWithId},
 };
 use walrus_sdk::{
-    client::NodeCommunicationFactory,
+    node_client::NodeCommunicationFactory,
     sui::{
         client::ReadClient,
         types::{
