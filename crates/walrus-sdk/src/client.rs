@@ -822,9 +822,11 @@ impl<T: ReadClient> WalrusNodeClient<T> {
         let mut requests = WeightedFutures::new(futures);
 
         // Execute all requests with appropriate concurrency limits.
-        requests
-            .execute_until(
-                &|_| false, // We want to execute all futures.
+        // NB: This is a "best effort" retrieval: we get as many slivers as possible within the
+        // timeout. Partial results are returned to the caller, which has retry logic to fetch
+        // missing slivers.
+        let completed_reason = requests
+            .execute_time(
                 timeout_duration,
                 self.communication_limits
                     .max_concurrent_sliver_reads_for_blob_size(
@@ -834,6 +836,8 @@ impl<T: ReadClient> WalrusNodeClient<T> {
                     ),
             )
             .await;
+
+        tracing::debug!(%completed_reason, "finished executing sliver retrieval requests");
 
         progress_bar.finish_with_message("slivers received");
 
