@@ -892,7 +892,7 @@ impl InternalRunContext {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(msim)))]
 mod tests {
     use std::{
         collections::VecDeque,

@@ -229,6 +229,8 @@ impl WriteClient {
                 TailHandling::Blocking,
                 None,
                 None,
+                None,
+                None,
             )
             .await?;
 
