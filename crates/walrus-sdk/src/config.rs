@@ -210,11 +210,11 @@ impl ClientConfig {
         wallet: Wallet,
         gas_budget: Option<u64>,
     ) -> Result<SuiContractClient, SuiClientError> {
-        let wallet_rpc_url = wallet.get_rpc_url()?;
+        let wallet_rpc_url = wallet.get_rpc_url().to_string();
 
         SuiContractClient::new(
             wallet,
-            &combine_rpc_urls(&wallet_rpc_url, &self.rpc_urls),
+            &combine_rpc_urls(wallet_rpc_url, &self.rpc_urls),
             &self.contract_config,
             self.backoff_config().clone(),
             gas_budget,

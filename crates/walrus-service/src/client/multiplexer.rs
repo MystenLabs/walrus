@@ -71,7 +71,7 @@ impl ClientMultiplexer {
         prometheus_registry: &Registry,
         args: &PublisherArgs,
     ) -> anyhow::Result<Self> {
-        let sui_env = wallet.get_active_env()?.clone();
+        let sui_env = wallet.get_active_env().clone();
         let contract_client = config.new_contract_client(wallet, gas_budget).await?;
         let main_address = contract_client.address();
 
@@ -442,10 +442,10 @@ impl<'a> SubClientLoader<'a> {
         min_balance: u64,
     ) -> anyhow::Result<()> {
         let wal_coin_type = self.refiller.wal_coin_type();
-        let address = wallet.active_address()?;
+        let address = wallet.active_address();
         tracing::debug!(%address, "refilling sub-wallet with SUI and WAL");
 
-        let rpc_urls = &[wallet.get_rpc_url()?];
+        let rpc_urls = &[wallet.get_rpc_url()];
 
         let sui_client = RetriableSuiClient::new_for_rpc_urls(
             rpc_urls,

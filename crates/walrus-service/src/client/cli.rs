@@ -136,11 +136,7 @@ pub async fn get_sui_read_client_from_rpc_node_or_wallet(
             urls.clone()
         }
         (_, _, Ok(wallet)) => {
-            let url = wallet
-                .get_active_env()
-                .context("unable to get the wallet's active environment")?
-                .rpc
-                .clone();
+            let url = wallet.get_rpc_url().to_string();
             tracing::info!("using RPC URL set in wallet configuration: {url}");
             vec![url]
         }

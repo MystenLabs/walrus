@@ -511,7 +511,7 @@ mod commands {
             load_wallet_context_from_path(admin_wallet_path, sui_client_request_timeout)
                 .context("unable to load admin wallet")?;
 
-        let rpc_urls = &[admin_wallet.get_rpc_url()?];
+        let rpc_urls = &[admin_wallet.get_rpc_url().to_string()];
 
         let mut admin_contract_client = testbed_config
             .system_ctx
@@ -623,7 +623,7 @@ mod commands {
             load_wallet_context_from_path(wallet_path, None).context("unable to load wallet")?;
         let contract_config = ContractConfig::new(system_object_id, staking_object_id);
 
-        let rpc_urls = &[wallet.get_rpc_url()?];
+        let rpc_urls = &[wallet.get_rpc_url().to_string()];
 
         let contract_client =
             SuiContractClient::new(wallet, rpc_urls, &contract_config, Default::default(), None)
@@ -686,7 +686,7 @@ mod commands {
             load_wallet_context_from_path(wallet_path, None).context("unable to load wallet")?;
         let contract_config = ContractConfig::new(system_object_id, staking_object_id);
 
-        let rpc_urls = &[wallet.get_rpc_url()?];
+        let rpc_urls = &[wallet.get_rpc_url().to_string()];
 
         let contract_client =
             SuiContractClient::new(wallet, rpc_urls, &contract_config, Default::default(), None)

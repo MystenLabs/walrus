@@ -669,7 +669,7 @@ mod commands {
                 &config.contract_config.system_object,
                 &config.contract_config.staking_object,
                 WalletConfig::load_wallet(Some(&config.wallet_config), config.request_timeout)
-                    .and_then(|mut wallet| wallet.active_address())
+                    .map(|wallet| wallet.active_address())
                     .ok(),
             );
         }
@@ -965,10 +965,7 @@ mod commands {
             );
             let wallet = load_wallet_context_from_path(Some(&wallet_config), None)
                 .context("Reading Sui wallet failed")?;
-            wallet
-                .get_rpc_url()
-                .context("Unable to get the wallet's active environment")?
-                .clone()
+            wallet.get_rpc_url().to_string()
         };
 
         // Do a minor sanity check that the user has not included a port in the hostname.

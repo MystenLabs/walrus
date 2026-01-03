@@ -153,7 +153,7 @@ impl WalletConfig {
 
             wallet_context.config.active_address = Some(active_address);
         }
-        Ok(Wallet::new(wallet_context))
+        Wallet::new(wallet_context)
     }
 }
 
