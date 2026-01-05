@@ -13,8 +13,7 @@ use std::{
 
 use p256::elliptic_curve::ALGORITHM_OID;
 use rustls::{
-    DigitallySignedStruct,
-    RootCertStore,
+    DigitallySignedStruct, RootCertStore,
     client::{
         WebPkiServerVerifier,
         danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier},
@@ -26,9 +25,7 @@ use x509_cert::{
     Version,
     certificate::{Certificate as X509Certificate, TbsCertificateInner},
     der::{
-        Decode,
-        Encode,
-        EncodePem as _,
+        Decode, Encode, EncodePem as _,
         asn1::{BitString, GeneralizedTime, Ia5String},
         pem::LineEnding,
     },
@@ -198,8 +195,9 @@ impl TlsCertificateVerifier {
 
     fn has_pinned_public_key(&self, end_entity: &CertificateDer<'_>) -> bool {
         let Some(ref expected_key) = self.public_key else {
-            return true;
+            return false;
         };
+
         let Ok(certificate) = X509Certificate::from_der(end_entity) else {
             tracing::warn!("unable to parse certificate issued by server");
             return false;
@@ -213,6 +211,10 @@ impl TlsCertificateVerifier {
 
         expected_subject_info == public_key_info
     }
+
+    fn has_pinned_public_key_or_unset(&self, end_entity: &CertificateDer<'_>) -> bool {
+        self.public_key.is_none() || self.has_pinned_public_key(end_entity)
+    }
 }
 
 impl ServerCertVerifier for TlsCertificateVerifier {
@@ -224,23 +226,28 @@ impl ServerCertVerifier for TlsCertificateVerifier {
         ocsp_response: &[u8],
         now: UnixTime,
     ) -> Result<ServerCertVerified, rustls::Error> {
-        let verified = self.inner.verify_server_cert(
+        let result = self.inner.verify_server_cert(
             end_entity,
             intermediates,
             server_name,
             ocsp_response,
             now,
-        )?;
+        );
 
-        // Check the public key only after a successful verification against the web PKI. At this
-        // point, the only thing left to check is whether the public key is as expected.
-        if self.has_pinned_public_key(end_entity) {
-            Ok(verified)
-        } else {
-            Err(rustls::Error::General(
-                "the certificate presented by the server does not match the pinned public key"
-                    .to_owned(),
-            ))
+        match result {
+            Ok(verified) if !self.has_pinned_public_key_or_unset(end_entity) => {
+                Err(rustls::Error::General(
+                    "the server's certificate does not match the pinned public key".to_owned(),
+                ))
+            }
+            // If the verification failed due to the certificate having expired, check if the
+            // key is the pinned key, and if so, accept it. Note that this just accepts the
+            // certificate, the key is verified otherwise as part of the handshake.
+            Err(rustls::Error::InvalidCertificate(rustls::CertificateError::Expired))
+            | Err(rustls::Error::InvalidCertificate(rustls::CertificateError::ExpiredContext {
+                ..
+            })) if self.has_pinned_public_key(end_entity) => Ok(ServerCertVerified::assertion()),
+            _ => result,
         }
     }
 

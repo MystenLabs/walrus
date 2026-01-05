@@ -1165,10 +1165,26 @@ mod tests {
             key_pair: &NetworkKeyPair,
             public_server_name: String,
         ) -> TestResult<(CertifiedKey, RcGenCertificate)> {
+            create_non_self_signed_certificate_that_may_be_expired(
+                key_pair,
+                public_server_name,
+                /*is_expired = */ false,
+            )
+        }
+
+        fn create_non_self_signed_certificate_that_may_be_expired(
+            key_pair: &NetworkKeyPair,
+            public_server_name: String,
+            is_expired: bool,
+        ) -> TestResult<(CertifiedKey, RcGenCertificate)> {
             let pkcs8_key_pair = to_pkcs8_key_pair(key_pair);
             let issuer = generate_issuer_certificate()?;
 
-            let params = CertificateParams::new(vec![public_server_name])?;
+            let mut params = CertificateParams::new(vec![public_server_name])?;
+            if is_expired {
+                params.not_after = params.not_after.replace_year(1970).unwrap();
+            }
+
             let certificate = params.signed_by(&pkcs8_key_pair, &issuer.cert, &issuer.key_pair)?;
 
             let certified_key = CertifiedKey {
@@ -1243,6 +1259,34 @@ mod tests {
                 &network_key_pair,
                 rest_api_address.ip().to_string(),
             )?;
+
+            configure_certificates_from_disk(certified_key_pair, &mut config)?;
+            start_rest_api_with_config(config.as_ref()).await;
+
+            let client = default_storage_node_client_builder()
+                .add_root_certificate(issuer_cert.der())
+                .authenticate_with_public_key(network_key_pair.public().clone())
+                .build(&rest_api_address.to_string())
+                .expect("must be able to construct client in tests");
+
+            try_tls_request(client).await?;
+
+            Ok(())
+        }
+
+        #[tokio::test]
+        async fn client_accepts_expired_non_self_signed_certificates_with_pinned_key() -> TestResult
+        {
+            let mut config = test_utils::storage_node_config();
+            let network_key_pair = config.as_ref().network_key_pair().clone();
+            let rest_api_address = config.as_ref().rest_api_address;
+
+            let (certified_key_pair, issuer_cert) =
+                create_non_self_signed_certificate_that_may_be_expired(
+                    &network_key_pair,
+                    rest_api_address.ip().to_string(),
+                    /*is_expired = */ true,
+                )?;
 
             configure_certificates_from_disk(certified_key_pair, &mut config)?;
             start_rest_api_with_config(config.as_ref()).await;
