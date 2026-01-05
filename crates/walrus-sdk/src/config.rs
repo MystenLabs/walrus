@@ -34,7 +34,7 @@ use walrus_utils::{
     is_internal_run,
 };
 
-use crate::client::{
+use crate::node_client::{
     byte_range_read_client::ByteRangeReadClientConfig,
     quilt_client::QuiltClientConfig,
     refresh::{CommitteesRefresher, CommitteesRefresherHandle},

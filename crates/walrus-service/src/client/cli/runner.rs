@@ -41,7 +41,9 @@ use walrus_core::{
 };
 use walrus_sdk::{
     SuiReadClient,
-    client::{
+    config::load_configuration,
+    error::ClientErrorKind,
+    node_client::{
         NodeCommunicationFactory,
         StoreArgs,
         StoreBlobsApi as _,
@@ -57,8 +59,6 @@ use walrus_sdk::{
         responses as sdk_responses,
         upload_relay_client::UploadRelayClient,
     },
-    config::load_configuration,
-    error::ClientErrorKind,
     store_optimizations::StoreOptimizations,
     sui::{
         client::{

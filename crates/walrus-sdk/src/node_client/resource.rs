@@ -26,13 +26,13 @@ use super::{
     responses::{BlobStoreResult, EventOrObjectId},
 };
 use crate::{
-    client::client_types::{
+    error::{ClientError, ClientErrorKind, ClientResult},
+    node_client::client_types::{
         BlobWithStatus,
         RegisteredBlob,
         WalrusStoreBlobUnfinished,
         WalrusStoreEncodedBlobApi,
     },
-    error::{ClientError, ClientErrorKind, ClientResult},
     store_optimizations::StoreOptimizations,
 };
 

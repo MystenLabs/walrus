@@ -31,7 +31,6 @@ use walrus_utils::backoff::{self, BackoffStrategy, ExponentialBackoff, Exponenti
 
 use crate::{
     ObjectID,
-    client::WalrusNodeClient,
     config::{ClientConfig as WalrusConfig, load_configuration},
     core::{
         BlobId,
@@ -41,6 +40,7 @@ use crate::{
         messages::ConfirmationCertificate,
         metadata::{BlobMetadataApi, VerifiedBlobMetadataWithId},
     },
+    node_client::WalrusNodeClient,
     sui::{
         client::{
             BlobPersistence,

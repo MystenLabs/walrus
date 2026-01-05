@@ -21,9 +21,9 @@ use walrus_core::{BlobId, encoding::SliverPair, metadata::VerifiedBlobMetadataWi
 
 use crate::{
     active_committees::ActiveCommittees,
-    client::communication::{NodeResult, NodeWriteCommunication, node::NodeIndex},
     config::SliverWriteExtraTime,
     error::ClientError,
+    node_client::communication::{NodeResult, NodeWriteCommunication, node::NodeIndex},
     utils::WeightedFutures,
 };
 
