@@ -2959,9 +2959,9 @@ where
     fn convert_result_ref(
         result: &Result<WalrusNodeClient<T>, String>,
     ) -> ClientResult<&WalrusNodeClient<T>> {
-        result
-            .as_ref()
-            .map_err(|e| ClientErrorKind::ClientInitializationError(e.clone()).into())
+        result.as_ref().map_err(|e| {
+            ClientErrorKind::WalrusNodeClientBackgroundInitializationError(e.clone()).into()
+        })
     }
 
     /// Returns the [`WalrusNodeClient`].
@@ -2978,7 +2978,9 @@ where
     #[tracing::instrument(skip_all, level = Level::DEBUG)]
     pub async fn into_client(self) -> ClientResult<WalrusNodeClient<T>> {
         if let Some(client) = self.client.into_inner() {
-            return client.map_err(|e| ClientErrorKind::ClientInitializationError(e).into());
+            return client.map_err(|e| {
+                ClientErrorKind::WalrusNodeClientBackgroundInitializationError(e).into()
+            });
         }
         let start = Instant::now();
         let join_handle = self

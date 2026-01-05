@@ -77,7 +77,7 @@ use walrus_sdk::{
     utils::styled_spinner,
 };
 use walrus_storage_node_client::api::BlobStatus;
-use walrus_sui::{client::rpc_client, wallet::Wallet};
+use walrus_sui::{client::rpc_client, types::StakingObject, wallet::Wallet};
 use walrus_utils::{metrics::Registry, read_blob_from_file};
 
 use super::{
@@ -438,7 +438,7 @@ impl ClientCommandRunner {
             }
 
             CliCommands::RemoveBlobAttributeFields { blob_obj_id, keys } => {
-                let sui_client = self
+                let mut sui_client = self
                     .walrus_client
                     .new_sui_write_client("remove_blob_attribute_pairs", self.gas_budget)
                     .await?;
@@ -457,8 +457,8 @@ impl ClientCommandRunner {
 
             CliCommands::RemoveBlobAttribute { blob_obj_id } => {
                 let mut sui_client = self
-                    .config?
-                    .new_contract_client(self.wallet?, self.gas_budget)
+                    .walrus_client
+                    .new_sui_write_client("remove_blob_attribute_pairs", self.gas_budget)
                     .await?;
                 sui_client.remove_blob_attribute(blob_obj_id).await?;
                 if !self.json {
@@ -673,8 +673,9 @@ impl ClientCommandRunner {
 
         let encoding_type = encoding_type.unwrap_or(DEFAULT_ENCODING);
 
-        let config = self.config?;
-        let wallet = self.wallet?;
+        #[allow(deprecated)]
+        let (wallet, config) = self.walrus_client.required_both("store")?;
+
         let active_address = wallet.active_address();
         let mut client_created_in_bg = WalrusNodeClientCreatedInBackground::new(
             get_contract_client(config.clone(), wallet, self.gas_budget),
@@ -1028,8 +1029,10 @@ impl ClientCommandRunner {
         }
 
         let encoding_type = encoding_type.unwrap_or(DEFAULT_ENCODING);
-        let config = self.config?;
-        let wallet = self.wallet?;
+
+        #[allow(deprecated)]
+        let (wallet, config) = self.walrus_client.required_both("store_quilt")?;
+
         let active_address = wallet.active_address();
         let mut client_created_in_bg = WalrusNodeClientCreatedInBackground::new(
             get_contract_client(config.clone(), wallet, self.gas_budget),
@@ -1392,28 +1395,32 @@ impl ClientCommandRunner {
         encoding_type: Option<EncodingType>,
     ) -> Result<()> {
         tracing::debug!(?file_or_blob_id, "getting blob status");
-        let config = self.config?;
-        let sui_read_client =
-            get_sui_read_client_from_rpc_node_or_wallet(&config, rpc_url, self.wallet).await?;
 
-        let encoding_type = encoding_type.unwrap_or(DEFAULT_ENCODING);
-
-        let refresher_handle = config
-            .build_refresher_and_run(sui_read_client.clone())
+        let read_toolkit = self
+            .walrus_client
+            .build_walrus_node_read_toolkit("blob_status")
             .await?;
-        let client = WalrusNodeClient::new(config, refresher_handle)?;
 
         let file = file_or_blob_id.file.clone();
-        let blob_id =
-            file_or_blob_id.get_or_compute_blob_id(client.encoding_config(), encoding_type)?;
+        let encoding_type = encoding_type.unwrap_or(DEFAULT_ENCODING);
 
-        let status = client
-            .get_verified_blob_status(&blob_id, &sui_read_client, timeout)
+        let blob_id = file_or_blob_id.get_or_compute_blob_id(
+            read_toolkit.walrus_node_client.encoding_config(),
+            encoding_type,
+        )?;
+
+        let status = read_toolkit
+            .walrus_node_client
+            .get_verified_blob_status(&blob_id, &read_toolkit.sui_read_client, timeout)
             .await?;
 
         // Compute estimated blob expiry in DateTime if it is a permanent blob.
         let estimated_expiry_timestamp = if let BlobStatus::Permanent { end_epoch, .. } = status {
-            let staking_object = sui_read_client.get_staking_object().await?;
+            let staking_object: StakingObject = read_toolkit
+                .walrus_node_client
+                .sui_client()
+                .get_staking_object()
+                .await?;
             let epoch_duration = staking_object.epoch_duration();
             let epoch_state = staking_object.epoch_state();
             let current_epoch = staking_object.epoch();

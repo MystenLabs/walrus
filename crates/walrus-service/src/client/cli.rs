@@ -84,27 +84,6 @@ pub async fn get_read_client(
     }
 }
 
-/// Creates a [`WalrusNodeClient<SuiContractClient>`] based on the provided [`ClientConfig`] with
-/// write access to Sui.
-#[tracing::instrument(skip_all)]
-pub async fn get_contract_client(
-    config: ClientConfig,
-    wallet: Wallet,
-    gas_budget: Option<u64>,
-) -> ClientResult<WalrusNodeClient<SuiContractClient>> {
-    let sui_client = config.new_contract_client(wallet, gas_budget).await?;
-
-    let refresh_handle = config
-        .build_refresher_and_run(sui_client.read_client().clone())
-        .await
-        .map_err(|e| ClientError::store_blob_internal(e.to_string()))?;
-    tokio::task::spawn_blocking(|| {
-        WalrusNodeClient::new_contract_client(config, refresh_handle, sui_client)
-    })
-    .await
-    .map_err(ClientError::other)?
-}
-
 /// Returns the string `Success:` colored in green for terminal output.
 pub fn success() -> ColoredString {
     "Success:".bold().walrus_teal()

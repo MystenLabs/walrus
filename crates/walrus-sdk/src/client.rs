@@ -10,7 +10,11 @@ use walrus_sui::{
     wallet::Wallet,
 };
 
-use crate::config::{ClientConfig, load_configuration};
+use crate::{
+    config::{ClientConfig, load_configuration},
+    error::{ClientError, ClientErrorKind, ClientResult},
+    node_client::WalrusNodeClient,
+};
 
 /// The primary client structure for interacting with the Walrus SDK.
 #[allow(missing_debug_implementations)]
@@ -65,25 +69,33 @@ impl WalrusClient {
         Self { wallet, config }
     }
 
-    fn required_wallet(&self, context: &str) -> Result<&Wallet> {
+    fn required_wallet(&self, context: &str) -> ClientResult<&Wallet> {
         match &self.wallet {
             Ok(wallet) => Ok(wallet),
-            Err(e) => Err(anyhow::anyhow!(
-                "'{context}' requires a valid wallet; it failed to load with: {e:?}"
-            )),
+            Err(e) => Err(ClientErrorKind::InitializationError(format!(
+                "Client operation '{context}' requires a valid wallet; the wallet failed to \
+                    load with: {e:?}"
+            ))
+            .into()),
         }
     }
 
-    fn required_config(&self, context: &str) -> Result<&ClientConfig> {
+    fn required_config(&self, context: &str) -> ClientResult<&ClientConfig> {
         match &self.config {
             Ok(config) => Ok(config),
-            Err(e) => Err(anyhow::anyhow!(
-                "'{context}' requires a valid configuration; it failed to load with: {e:?}"
-            )),
+            Err(e) => {
+                tracing::error!(
+                    "Client operation '{context}' requires a valid configuration; it failed to \
+                    load with: {e:?}"
+                );
+                Err(ClientErrorKind::InvalidConfig.into())
+            }
         }
     }
 
-    fn required_both(&self, context: &str) -> Result<(&Wallet, &ClientConfig)> {
+    /// Returns both the wallet and configuration, or an error if either is not available.
+    // #[deprecated(note = "avoid accessing these items; use specific methods instead")]
+    fn required_both(&self, context: &str) -> ClientResult<(&Wallet, &ClientConfig)> {
         Ok((
             self.required_wallet(context)?,
             self.required_config(context)?,
@@ -119,8 +131,60 @@ impl WalrusClient {
         Ok(sui_client)
     }
 
+    /// Creates a lower-level object able to read and write directly to Walrus storage nodes.
+    /// See [`WalrusNodeClient<SuiContractClient>`].
+    #[tracing::instrument(skip_all)]
+    pub async fn new_walrus_node_client(
+        &self,
+        context: &str,
+        gas_budget: Option<u64>,
+    ) -> ClientResult<WalrusNodeClient<SuiContractClient>> {
+        let (wallet, config) = self.required_both(context)?;
+        let sui_client = config
+            .new_contract_client(wallet.clone(), gas_budget)
+            .await?;
+
+        let refresh_handle = self
+            .required_config(context)?
+            .build_refresher_and_run(sui_client.read_client().clone())
+            .await
+            .map_err(|e| ClientError::store_blob_internal(e.to_string()))?;
+        let config = config.clone();
+        tokio::task::spawn_blocking(move || {
+            WalrusNodeClient::new_contract_client(config, refresh_handle, sui_client)
+        })
+        .await
+        .map_err(|e| ClientErrorKind::WalrusNodeClientInitializationError(e.to_string()))?
+    }
+
+    /// Creates a lower-level object able to read and write directly to Walrus storage nodes.
+    /// See [`WalrusNodeClient<SuiContractClient>`].
+    #[tracing::instrument(skip_all)]
+    pub async fn build_walrus_node_read_toolkit(
+        &self,
+        context: &str,
+    ) -> ClientResult<WalrusReadToolkit> {
+        let config = self.required_config(context)?;
+        let sui_read_client = self.new_sui_read_client(context).await?;
+
+        let walrus_node_client = {
+            let refresh_handle = config
+                .build_refresher_and_run(sui_read_client.clone())
+                .await?;
+            let config = config.clone();
+            tokio::task::spawn_blocking(move || WalrusNodeClient::new(config, refresh_handle))
+                .await
+                .map_err(|e| ClientErrorKind::WalrusNodeClientInitializationError(e.to_string()))?
+        }?;
+
+        Ok(WalrusReadToolkit {
+            walrus_node_client,
+            sui_read_client,
+        })
+    }
+
     /// Creates a new Sui read client using the current wallet and configuration.
-    pub async fn new_sui_read_client(&self, context: &str) -> Result<SuiReadClient> {
+    pub async fn new_sui_read_client(&self, context: &str) -> ClientResult<SuiReadClient> {
         let config = self.required_config(context)?;
         let sui_read_client =
             get_sui_read_client_from_rpc_node_or_wallet(config, None, &self.wallet).await?;
@@ -178,7 +242,7 @@ pub async fn get_sui_read_client_from_rpc_node_or_wallet(
     config: &ClientConfig,
     rpc_url: Option<String>,
     wallet: &Result<Wallet>,
-) -> Result<SuiReadClient> {
+) -> ClientResult<SuiReadClient> {
     tracing::debug!(
         ?rpc_url,
         ?config.rpc_urls,
@@ -204,10 +268,11 @@ pub async fn get_sui_read_client_from_rpc_node_or_wallet(
             vec![url]
         }
         (_, _, Err(e)) => {
-            anyhow::bail!(
+            return Err(ClientErrorKind::InitializationError(format!(
                 "Sui RPC url is not specified as a CLI argument or in the client configuration, \
                 and no valid Sui wallet was provided ({e})"
-            );
+            ))
+            .into());
         }
     };
 
@@ -215,11 +280,22 @@ pub async fn get_sui_read_client_from_rpc_node_or_wallet(
         &rpc_urls,
         backoff_config,
         config.communication_config.sui_client_request_timeout,
-    )
-    .context(format!(
-        "cannot connect to Sui RPC nodes at {}",
-        rpc_urls.join(", ")
-    ))?;
+    )?;
 
     Ok(config.new_read_client(sui_client).await?)
+}
+
+/// A toolkit for reading from Walrus storage nodes.
+#[derive(Clone)]
+pub struct WalrusReadToolkit {
+    /// The Walrus node client.
+    pub walrus_node_client: WalrusNodeClient<()>,
+    /// The Sui read client.
+    pub sui_read_client: SuiReadClient,
+}
+
+impl std::fmt::Debug for WalrusReadToolkit {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "WalrusReadToolkit(...)")
+    }
 }

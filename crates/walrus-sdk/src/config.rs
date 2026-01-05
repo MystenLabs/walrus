@@ -34,10 +34,13 @@ use walrus_utils::{
     is_internal_run,
 };
 
-use crate::node_client::{
-    byte_range_read_client::ByteRangeReadClientConfig,
-    quilt_client::QuiltClientConfig,
-    refresh::{CommitteesRefresher, CommitteesRefresherHandle},
+use crate::{
+    error::ClientResult,
+    node_client::{
+        byte_range_read_client::ByteRangeReadClientConfig,
+        quilt_client::QuiltClientConfig,
+        refresh::{CommitteesRefresher, CommitteesRefresherHandle},
+    },
 };
 
 mod committees_refresh_config;
@@ -249,15 +252,12 @@ impl ClientConfig {
     pub async fn build_refresher_and_run(
         &self,
         sui_client: impl ReadClient + 'static,
-    ) -> Result<CommitteesRefresherHandle> {
+    ) -> ClientResult<CommitteesRefresherHandle> {
         tracing::debug!("building a new committees refresher");
         let n_shards = if let Some(n_shards) = self.contract_config.n_shards {
             n_shards
         } else {
-            sui_client
-                .n_shards()
-                .await
-                .context("failed to determine n_shards before starting refresher")?
+            sui_client.n_shards().await?
         };
 
         let notify = Arc::new(Notify::new());
