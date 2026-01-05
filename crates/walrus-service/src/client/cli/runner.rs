@@ -12,7 +12,7 @@ use std::{
     time::Duration,
 };
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use chrono::{DateTime, Utc};
 use fastcrypto::encoding::Encoding;
 use itertools::Itertools as _;
@@ -41,7 +41,7 @@ use walrus_core::{
 };
 use walrus_sdk::{
     SuiReadClient,
-    client::WalrusClient,
+    client::{WalrusClient, get_sui_read_client_from_rpc_node_or_wallet},
     config::load_configuration,
     error::ClientErrorKind,
     node_client::{
@@ -119,7 +119,6 @@ use crate::{
             args::{CommonStoreOptions, TraceExporter},
             get_contract_client,
             get_read_client,
-            get_sui_read_client_from_rpc_node_or_wallet,
             internal_run::{
                 ChildUploaderEvent,
                 InternalRunContext,
@@ -371,20 +370,12 @@ impl ClientCommandRunner {
                 shared,
                 epochs_extended,
             } => {
-                let sui_client = self
-                    .config?
-                    .new_contract_client(self.wallet?, self.gas_budget)
-                    .await?;
                 let spinner = styled_spinner();
                 spinner.set_message("extending blob...");
 
-                if shared {
-                    sui_client
-                        .extend_shared_blob(blob_obj_id, epochs_extended)
-                        .await?;
-                } else {
-                    sui_client.extend_blob(blob_obj_id, epochs_extended).await?;
-                }
+                self.walrus_client
+                    .extend_blob(blob_obj_id, shared, epochs_extended, self.gas_budget)
+                    .await?;
 
                 spinner.finish_with_message("done");
                 ExtendBlobOutput { epochs_extended }.print_output(self.json)
@@ -395,8 +386,8 @@ impl ClientCommandRunner {
                 amount,
             } => {
                 let sui_client = self
-                    .config?
-                    .new_contract_client(self.wallet?, self.gas_budget)
+                    .walrus_client
+                    .new_sui_write_client("share", self.gas_budget)
                     .await?;
                 let spinner = styled_spinner();
                 spinner.set_message("sharing blob...");
@@ -414,9 +405,10 @@ impl ClientCommandRunner {
             }
 
             CliCommands::GetBlobAttribute { blob_obj_id } => {
-                let sui_read_client =
-                    get_sui_read_client_from_rpc_node_or_wallet(&self.config?, None, self.wallet)
-                        .await?;
+                let sui_read_client = self
+                    .walrus_client
+                    .new_sui_read_client("get_blob_attribute")
+                    .await?;
                 let attribute = sui_read_client.get_blob_attribute(&blob_obj_id).await?;
                 GetBlobAttributeOutput { attribute }.print_output(self.json)
             }
@@ -425,21 +417,19 @@ impl ClientCommandRunner {
                 blob_obj_id,
                 attributes,
             } => {
-                let pairs: Vec<(String, String)> = attributes
+                if attributes.len() % 2 != 0 {
+                    bail!("attributes must be provided as key-value pairs");
+                }
+                let key_value_pairs: Vec<(String, String)> = attributes
                     .chunks_exact(2)
                     .map(|chunk| (chunk[0].clone(), chunk[1].clone()))
                     .collect();
-                let mut sui_client = self
-                    .config?
-                    .new_contract_client(self.wallet?, self.gas_budget)
-                    .await?;
-                let attribute = BlobAttribute::from(pairs);
-                sui_client
-                    .insert_or_update_blob_attribute_pairs(blob_obj_id, attribute.iter(), true)
+                self.walrus_client
+                    .set_blob_attributes(blob_obj_id, key_value_pairs, self.gas_budget)
                     .await?;
                 if !self.json {
                     println!(
-                        "{} Successfully added attribute for blob object {}",
+                        "{} Successfully added attributes to blob object {}",
                         success(),
                         blob_obj_id
                     );
@@ -448,9 +438,9 @@ impl ClientCommandRunner {
             }
 
             CliCommands::RemoveBlobAttributeFields { blob_obj_id, keys } => {
-                let mut sui_client = self
-                    .config?
-                    .new_contract_client(self.wallet?, self.gas_budget)
+                let sui_client = self
+                    .walrus_client
+                    .new_sui_write_client("remove_blob_attribute_pairs", self.gas_budget)
                     .await?;
                 sui_client
                     .remove_blob_attribute_pairs(blob_obj_id, keys)

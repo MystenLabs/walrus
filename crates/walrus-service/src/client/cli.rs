@@ -16,6 +16,7 @@ use serde::{Deserialize, Serialize};
 use walrus_core::{BlobId, QuiltPatchId, encoding::QuiltError};
 use walrus_sdk::{
     blocklist::Blocklist,
+    client::get_sui_read_client_from_rpc_node_or_wallet,
     config::ClientConfig,
     error::{ClientError, ClientResult},
     node_client::WalrusNodeClient,
@@ -102,63 +103,6 @@ pub async fn get_contract_client(
     })
     .await
     .map_err(ClientError::other)?
-}
-
-/// Creates a [`SuiReadClient`] from the provided RPC URL or wallet.
-///
-/// The RPC URL is set based on the `rpc_url` parameter (if `Some`), the `rpc_url` field in the
-/// `config` (if `Some`), or the `wallet` (if `Ok`). An error is returned if it cannot be set
-/// successfully.
-// NB: When making changes to the logic, make sure to update the docstring of `get_read_client` and
-// the argument docs in `crates/walrus-service/client/cli/args.rs`.
-pub async fn get_sui_read_client_from_rpc_node_or_wallet(
-    config: &ClientConfig,
-    rpc_url: Option<String>,
-    wallet: Result<Wallet>,
-) -> Result<SuiReadClient> {
-    tracing::debug!(
-        ?rpc_url,
-        ?config.rpc_urls,
-        "attempting to create a read client from explicitly set RPC URL, RPC URLs in client \
-        config, or wallet config"
-    );
-    let backoff_config = config.backoff_config().clone();
-    let rpc_urls = match (rpc_url, &config.rpc_urls, wallet) {
-        (Some(url), _, _) => {
-            tracing::info!("using explicitly set RPC URL: {url}");
-            vec![url]
-        }
-        (_, urls, _) if !urls.is_empty() => {
-            tracing::info!(
-                "using RPC URLs set in client configuration: {}",
-                urls.join(", ")
-            );
-            urls.clone()
-        }
-        (_, _, Ok(wallet)) => {
-            let url = wallet.get_rpc_url().to_string();
-            tracing::info!("using RPC URL set in wallet configuration: {url}");
-            vec![url]
-        }
-        (_, _, Err(e)) => {
-            anyhow::bail!(
-                "Sui RPC url is not specified as a CLI argument or in the client configuration, \
-                and no valid Sui wallet was provided ({e})"
-            );
-        }
-    };
-
-    let sui_client = RetriableSuiClient::new_for_rpc_urls(
-        &rpc_urls,
-        backoff_config,
-        config.communication_config.sui_client_request_timeout,
-    )
-    .context(format!(
-        "cannot connect to Sui RPC nodes at {}",
-        rpc_urls.join(", ")
-    ))?;
-
-    Ok(config.new_read_client(sui_client).await?)
 }
 
 /// Returns the string `Success:` colored in green for terminal output.
