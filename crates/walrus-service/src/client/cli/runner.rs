@@ -1417,8 +1417,7 @@ impl ClientCommandRunner {
         // Compute estimated blob expiry in DateTime if it is a permanent blob.
         let estimated_expiry_timestamp = if let BlobStatus::Permanent { end_epoch, .. } = status {
             let staking_object: StakingObject = read_toolkit
-                .walrus_node_client
-                .sui_client()
+                .sui_read_client
                 .get_staking_object()
                 .await?;
             let epoch_duration = staking_object.epoch_duration();
