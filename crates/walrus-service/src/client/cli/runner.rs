@@ -41,6 +41,7 @@ use walrus_core::{
 };
 use walrus_sdk::{
     SuiReadClient,
+    client::WalrusClient,
     config::load_configuration,
     error::ClientErrorKind,
     node_client::{
@@ -164,10 +165,8 @@ use crate::{
 /// A helper struct to run commands for the Walrus client.
 #[allow(missing_debug_implementations)]
 pub struct ClientCommandRunner {
-    /// The Sui wallet for the client.
-    wallet: Result<Wallet>,
-    /// The config for the client.
-    config: Result<ClientConfig>,
+    /// The Walrus client.
+    walrus_client: WalrusClient,
     /// Whether to output JSON.
     json: bool,
     /// The gas budget for the client commands.
@@ -177,33 +176,16 @@ pub struct ClientCommandRunner {
 impl ClientCommandRunner {
     /// Creates a new client runner, loading the configuration and wallet context.
     pub fn new(
-        config_path: &Option<PathBuf>,
+        config_path: &Option<impl AsRef<Path>>,
         context: Option<&str>,
-        wallet_override: &Option<PathBuf>,
+        wallet_override: &Option<impl AsRef<Path>>,
         gas_budget: Option<u64>,
         json: bool,
     ) -> Self {
-        let config = load_configuration(config_path.as_ref(), context);
-        let wallet_config = wallet_override
-            .as_ref()
-            .map(WalletConfig::from_path)
-            .or(config
-                .as_ref()
-                .ok()
-                .and_then(|config: &ClientConfig| config.wallet_config.clone()));
-        let wallet = WalletConfig::load_wallet(
-            wallet_config.as_ref(),
-            config
-                .as_ref()
-                .ok()
-                .and_then(|config| config.communication_config.sui_client_request_timeout),
-        );
-
         Self {
-            wallet,
-            config,
-            gas_budget,
+            walrus_client: WalrusClient::new(config_path, context, wallet_override),
             json,
+            gas_budget,
         }
     }
 
@@ -373,15 +355,11 @@ impl ClientCommandRunner {
                 shared_blob_obj_id,
                 amount,
             } => {
-                let sui_client = self
-                    .config?
-                    .new_contract_client(self.wallet?, self.gas_budget)
-                    .await?;
                 let spinner = styled_spinner();
                 spinner.set_message("funding blob...");
 
-                sui_client
-                    .fund_shared_blob(shared_blob_obj_id, amount)
+                self.walrus_client
+                    .fund_shared_blob(shared_blob_obj_id, amount, self.gas_budget)
                     .await?;
 
                 spinner.finish_with_message("done");
