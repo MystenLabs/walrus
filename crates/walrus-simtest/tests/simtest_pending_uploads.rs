@@ -76,12 +76,15 @@ mod tests {
             .with_persistence(BlobPersistence::Deletable)
             .with_tail_handling(TailHandling::Blocking);
 
+        // This test relies on the retry loop/backoff spanning the downtime; if the nodes are
+        // still down when retries are exhausted, this call fails with NotEnoughConfirmations.
         let store_results = client
             .inner
             .reserve_and_store_blobs_retry_committees(vec![blob.clone()], vec![], &store_args)
             .await
             .expect("client should recover when pending uploads cannot reach quorum");
 
+        // Wait for restarts to finish so cluster node IDs are valid before the read below.
         apply_restarts(&mut walrus_cluster, restart_handles).await;
 
         let blob_id = match store_results.first().expect("one blob result expected") {

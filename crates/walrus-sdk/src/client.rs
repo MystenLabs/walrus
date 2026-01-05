@@ -99,7 +99,7 @@ use crate::{
     },
     config::CommunicationLimits,
     error::{ClientError, ClientErrorKind, ClientResult, StoreError},
-    uploader::{DistributedUploader, RunOutput, TailHandling, UploaderEvent, failed_node_indices},
+    uploader::{DistributedUploader, RunOutput, TailHandling, UploaderEvent},
     utils::{
         self,
         CompletedReasonWeight,
@@ -215,8 +215,9 @@ struct SendBlobOptions<'a> {
 /// Pending upload state carried through a single reserve+store execution.
 #[derive(Debug, Default, Clone)]
 struct PendingUploadContext {
-    initial_upload_weight: Option<HashMap<BlobId, usize>>,
-    initial_failed_nodes: Option<HashMap<BlobId, Vec<NodeIndex>>>,
+    /// Nodes that reported successful pending uploads per blob.
+    /// Nodes that did not report success (errors or missing results) are treated as missing.
+    initial_success_nodes: Option<HashMap<BlobId, Vec<NodeIndex>>>,
 }
 
 struct PendingUploadHandle<'a> {
@@ -1082,8 +1083,7 @@ impl WalrusNodeClient<SuiContractClient> {
         tracing::debug!(?registered_blobs);
         store_args.maybe_observe_store_operation(store_op_duration);
 
-        let pending_context =
-            self.apply_pending_upload_outcome(pending_upload_result, &pending_blobs, &committees);
+        let pending_context = self.apply_pending_upload_outcome(pending_upload_result);
 
         let (mut final_result, blobs_awaiting_upload, mut blobs_pending_certify_and_extend) =
             Self::partition_registered_blobs(registered_blobs, blobs_count);
@@ -1236,16 +1236,22 @@ impl WalrusNodeClient<SuiContractClient> {
             let mut pending_upload_result = None;
             let registered_blobs = tokio::select! {
                 reg = &mut registration_fut => {
+                    // Cancel pending uploads once registration completes; if they already finished
+                    // we'll still await their output below.
                     pending.cancel.cancel();
                     reg
                 }
                 pending_res = pending.future.as_mut() => {
+                    // Pending uploads may finish first; record their output before awaiting
+                    // registration.
                     pending_upload_result = Some(pending_res?);
                     registration_fut.await
                 }
             }?;
 
             if pending_upload_result.is_none() {
+                // Registration finished first; still await the pending task to capture any
+                // completed work before or during cancellation.
                 pending.cancel.cancel();
                 match pending.future.as_mut().await {
                     Ok(res) => pending_upload_result = Some(res),
@@ -1262,8 +1268,6 @@ impl WalrusNodeClient<SuiContractClient> {
     fn apply_pending_upload_outcome(
         &self,
         mut pending_upload_result: Option<RunOutput<Vec<BlobId>, StoreError>>,
-        pending_blobs: &[(VerifiedBlobMetadataWithId, Arc<Vec<SliverPair>>)],
-        committees: &ActiveCommittees,
     ) -> PendingUploadContext {
         let mut context = PendingUploadContext::default();
         // Cancel any in-flight pending tail. Tail handle is returned during the upload with
@@ -1275,29 +1279,9 @@ impl WalrusNodeClient<SuiContractClient> {
         }
 
         if let Some(pending_output) = pending_upload_result {
-            let weight_map = Self::success_weight_by_blob(&pending_output.results);
-            if !weight_map.is_empty() {
-                context.initial_upload_weight = Some(weight_map);
-            }
-            let mut failed_nodes = failed_node_indices(&pending_output.results);
-            // Add nodes that were not seen in the pending upload results to the failed nodes.
-            let committee_size = committees.write_committee().members().len();
-            let seen: HashSet<NodeIndex> = pending_output.results.iter().map(|r| r.node).collect();
-            for idx in 0..committee_size {
-                let node_idx = NodeIndex::from(idx);
-                if !seen.contains(&node_idx) {
-                    failed_nodes.push(node_idx);
-                }
-            }
-            failed_nodes.sort_unstable();
-            failed_nodes.dedup();
-            if !failed_nodes.is_empty() {
-                let failed_map = HashMap::from_iter(
-                    pending_blobs
-                        .iter()
-                        .map(|(meta, _)| (*meta.blob_id(), failed_nodes.clone())),
-                );
-                context.initial_failed_nodes = Some(failed_map);
+            let success_nodes = Self::successful_nodes_by_blob(&pending_output.results);
+            if !success_nodes.is_empty() {
+                context.initial_success_nodes = Some(success_nodes);
             }
         }
 
@@ -1754,6 +1738,9 @@ impl<T> WalrusNodeClient<T> {
         certificate
     }
 
+    /// Uploads slivers (optionally to a target node subset) and then collects confirmations from
+    /// the full write committee; missing confirmations from non-targeted nodes still count as
+    /// missing and can trigger retries.
     async fn send_blob_data_and_collect_confirmations(
         &self,
         metadata: &VerifiedBlobMetadataWithId,
@@ -2050,16 +2037,36 @@ impl<T> WalrusNodeClient<T> {
         pending_context: &PendingUploadContext,
     ) -> ClientResult<ConfirmationCertificate> {
         let blobs = vec![(metadata.clone(), pairs.clone())];
-        let target_nodes = if let Some(failed) = pending_context
-            .initial_failed_nodes
+        let committees = self.get_committees().await?;
+        let mut missing_nodes = None;
+        let mut initial_completed_weight = None;
+        if let Some(success_nodes) = pending_context
+            .initial_success_nodes
             .as_ref()
             .and_then(|m| m.get(metadata.blob_id()))
         {
-            let target_epoch = self.get_committees().await?.epoch();
-            Some((target_epoch, failed.as_slice()))
-        } else {
-            None
-        };
+            // Nodes that did not report success are treated as missing.
+            let success_set: HashSet<NodeIndex> = success_nodes.iter().copied().collect();
+            let all_nodes = committees.write_committee().members().len();
+            let missing: Vec<NodeIndex> = (0..all_nodes)
+                .filter(|idx| !success_set.contains(idx))
+                .collect();
+            if !missing.is_empty() {
+                missing_nodes = Some(missing);
+            }
+
+            let members = committees.write_committee().members();
+            let weight: usize = success_nodes
+                .iter()
+                .map(|idx| members[*idx].shard_ids.len())
+                .sum();
+            if weight > 0 {
+                initial_completed_weight = Some(HashMap::from([(*metadata.blob_id(), weight)]));
+            }
+        }
+        let target_nodes = missing_nodes
+            .as_ref()
+            .map(|nodes| (committees.epoch(), nodes.as_slice()));
 
         let send_options = SendBlobOptions {
             blob_persistence_type,
@@ -2068,7 +2075,7 @@ impl<T> WalrusNodeClient<T> {
             quorum_forwarder: store_args.quorum_event_tx.clone(),
             tail_handle_collector: store_args.tail_handle_collector.clone(),
             target_nodes,
-            initial_completed_weight: pending_context.initial_upload_weight.as_ref(),
+            initial_completed_weight: initial_completed_weight.as_ref(),
         };
 
         let (confirmation_results, upload_result) = self
@@ -2083,9 +2090,10 @@ impl<T> WalrusNodeClient<T> {
                     return Err(err);
                 }
 
-                let committees = self.get_committees().await?;
                 let certified_epoch = committees.write_committee().epoch;
 
+                // Pending slivers can be cache-evicted, so retry uploads to nodes that never
+                // confirmed.
                 self.retry_missing_nodes(
                     metadata,
                     blob_persistence_type,
@@ -2101,8 +2109,6 @@ impl<T> WalrusNodeClient<T> {
     }
 
     /// Retries the upload with immediate intent to the missing nodes until quorum is reached.
-    /// It is possible that we fail to get storage confirmation from quorum because buffered slivers
-    /// were cache evicted.
     #[allow(clippy::too_many_arguments)]
     async fn retry_missing_nodes(
         &self,
@@ -2374,24 +2380,29 @@ impl<T> WalrusNodeClient<T> {
         ClientErrorKind::NotEnoughConfirmations(weight, committees.min_n_correct()).into()
     }
 
-    fn success_weight_by_blob(
+    /// Returns per-blob successful nodes from pending upload results.
+    /// Nodes that did not report success (errors or missing results) are treated as missing later.
+    fn successful_nodes_by_blob(
         results: &[NodeResult<Vec<BlobId>, StoreError>],
-    ) -> HashMap<BlobId, usize> {
-        let mut totals: HashMap<BlobId, usize> = HashMap::new();
-        let mut seen: HashMap<BlobId, HashSet<NodeIndex>> = HashMap::new();
+    ) -> HashMap<BlobId, Vec<NodeIndex>> {
+        let mut nodes_by_blob: HashMap<BlobId, HashSet<NodeIndex>> = HashMap::new();
 
         for res in results {
             if let Ok(blob_ids) = &res.result {
                 for blob_id in blob_ids {
-                    let counted_nodes = seen.entry(*blob_id).or_default();
-                    if counted_nodes.insert(res.node) {
-                        *totals.entry(*blob_id).or_default() += res.weight;
-                    }
+                    nodes_by_blob.entry(*blob_id).or_default().insert(res.node);
                 }
             }
         }
 
-        totals
+        nodes_by_blob
+            .into_iter()
+            .map(|(blob_id, mut nodes)| {
+                let mut nodes = nodes.drain().collect::<Vec<_>>();
+                nodes.sort_unstable();
+                (blob_id, nodes)
+            })
+            .collect()
     }
 
     /// Requests the slivers and decodes them into a blob.
