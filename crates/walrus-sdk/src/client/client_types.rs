@@ -19,7 +19,7 @@ use walrus_core::{
         quilt_encoding::{QuiltIndexApi as _, QuiltPatchApi as _, QuiltPatchInternalIdApi},
     },
     messages::ConfirmationCertificate,
-    metadata::{QuiltIndex, VerifiedBlobMetadataWithId},
+    metadata::{BlobMetadataApi, QuiltIndex, VerifiedBlobMetadataWithId},
 };
 use walrus_storage_node_client::api::BlobStatus;
 use walrus_sui::{
@@ -33,7 +33,10 @@ use super::{
     resource::{PriceComputation, RegisterBlobOp},
     responses::{BlobStoreResult, EventOrObjectId},
 };
-use crate::{client::upload_relay_client::UploadRelayClient, utils::Either};
+use crate::{
+    client::{store_args::StoreArgs, upload_relay_client::UploadRelayClient},
+    utils::Either,
+};
 
 /// The log level for all WalrusStoreBlob spans.
 const BLOB_SPAN_LEVEL: Level = Level::DEBUG;
@@ -693,6 +696,34 @@ impl WalrusStoreBlobMaybeFinished<BlobWithStatus> {
         self.log_state("try_complete_if_certified_beyond_epoch completed");
         drop(_guard);
         Ok(self)
+    }
+
+    /// Returns the metadata and sliver pairs needed for a pending upload if eligible.
+    pub fn pending_upload_payload(
+        &self,
+        pending_uploads_enabled: bool,
+        store_args: &StoreArgs,
+        pending_upload_max_blob_bytes: u64,
+    ) -> Option<(VerifiedBlobMetadataWithId, Arc<Vec<SliverPair>>)> {
+        let WalrusStoreBlobState::Unfinished(blob_with_status) = &self.state else {
+            return None;
+        };
+        if blob_with_status.status.is_registered()
+            || !pending_uploads_enabled
+            || !store_args.store_optimizations.pending_uploads_enabled()
+        {
+            return None;
+        }
+        let encoded = &blob_with_status.encoded_blob;
+        let BlobData::SliverPairs(sliver_pairs) = &encoded.data else {
+            return None;
+        };
+        let unencoded_len = encoded.metadata.metadata().unencoded_length();
+        if unencoded_len > pending_upload_max_blob_bytes {
+            return None;
+        }
+
+        Some((encoded.metadata.as_ref().clone(), sliver_pairs.clone()))
     }
 }
 
