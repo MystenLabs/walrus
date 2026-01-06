@@ -13,7 +13,8 @@ use std::{
 
 use p256::elliptic_curve::ALGORITHM_OID;
 use rustls::{
-    DigitallySignedStruct, RootCertStore,
+    DigitallySignedStruct,
+    RootCertStore,
     client::{
         WebPkiServerVerifier,
         danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier},
@@ -25,7 +26,9 @@ use x509_cert::{
     Version,
     certificate::{Certificate as X509Certificate, TbsCertificateInner},
     der::{
-        Decode, Encode, EncodePem as _,
+        Decode,
+        Encode,
+        EncodePem as _,
         asn1::{BitString, GeneralizedTime, Ia5String},
         pem::LineEnding,
     },
@@ -193,6 +196,8 @@ impl TlsCertificateVerifier {
         Ok(Self { inner, public_key })
     }
 
+    /// Returns true if the a public key has been pinned AND the same key is in the provided
+    /// end entity certificate, false otherwise.
     fn has_pinned_public_key(&self, end_entity: &CertificateDer<'_>) -> bool {
         let Some(ref expected_key) = self.public_key else {
             return false;
@@ -212,6 +217,8 @@ impl TlsCertificateVerifier {
         expected_subject_info == public_key_info
     }
 
+    /// Returns true if the a public key has NOT been pinned OR it has been pinned and the same key
+    /// is in the provided end entity certificate, false otherwise.
     fn has_pinned_public_key_or_unset(&self, end_entity: &CertificateDer<'_>) -> bool {
         self.public_key.is_none() || self.has_pinned_public_key(end_entity)
     }
