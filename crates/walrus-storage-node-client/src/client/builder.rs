@@ -21,6 +21,7 @@ use crate::{
 pub struct StorageNodeClientBuilder {
     inner: ReqwestClientBuilder,
     server_public_key: Option<NetworkPublicKey>,
+    disallow_expired_pinned_keys: bool,
     roots: Vec<CertificateDer<'static>>,
     no_built_in_root_certs: bool,
     connect_timeout: Option<Duration>,
@@ -67,6 +68,22 @@ impl StorageNodeClientBuilder {
     /// corresponding to the provided public key.
     pub fn authenticate_with_public_key(mut self, public_key: NetworkPublicKey) -> Self {
         self.server_public_key = Some(public_key);
+        self
+    }
+
+    /// Disallow expired certificates even if the public key is pinned.
+    ///
+    /// By default, pinning a public key allows connections to be established with a server using
+    /// that public key even if its certificate has expired. This is because the source of truth is
+    /// the public key and the server has the associated private key.
+    ///
+    /// Passing true to this constructor disables that behaviour, resulting in expired certificates
+    /// failing even if the public key is pinned.
+    ///
+    /// This setting does not if not authenticating with the public key via
+    /// `authenticate_with_public_key` or `new_with_pinned_public_key`.
+    pub fn disallow_expired_pinned_keys(mut self, is_disallowed: bool) -> Self {
+        self.disallow_expired_pinned_keys = is_disallowed;
         self
     }
 
@@ -164,8 +181,14 @@ impl StorageNodeClientBuilder {
         }
 
         let verifier = if let Some(public_key) = self.server_public_key {
-            TlsCertificateVerifier::new_with_pinned_public_key(public_key, host, self.roots)
-                .map_err(BuildErrorKind::Tls)?
+            let mut verifier =
+                TlsCertificateVerifier::new_with_pinned_public_key(public_key, host, self.roots)
+                    .map_err(BuildErrorKind::Tls)?;
+
+            if self.disallow_expired_pinned_keys {
+                verifier.disallow_expired_pinned_keys();
+            }
+            verifier
         } else {
             TlsCertificateVerifier::new(self.roots).map_err(BuildErrorKind::Tls)?
         };

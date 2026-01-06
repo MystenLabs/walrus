@@ -145,6 +145,7 @@ pub(crate) enum VerifierBuildError {
 #[derive(Debug)]
 pub(crate) struct TlsCertificateVerifier {
     inner: WebPkiServerVerifier,
+    disallow_expired_pinned_keys: bool,
     public_key: Option<NetworkPublicKey>,
 }
 
@@ -193,7 +194,11 @@ impl TlsCertificateVerifier {
         let inner: Arc<_> = WebPkiServerVerifier::builder(trust_root.into()).build()?;
         let inner = Arc::into_inner(inner).expect("uniquely owned arc");
 
-        Ok(Self { inner, public_key })
+        Ok(Self {
+            inner,
+            public_key,
+            disallow_expired_pinned_keys: false,
+        })
     }
 
     /// Returns true if the a public key has been pinned AND the same key is in the provided
@@ -221,6 +226,11 @@ impl TlsCertificateVerifier {
     /// is in the provided end entity certificate, false otherwise.
     fn has_pinned_public_key_or_unset(&self, end_entity: &CertificateDer<'_>) -> bool {
         self.public_key.is_none() || self.has_pinned_public_key(end_entity)
+    }
+
+    /// Causes expired certificates to always err, even if the pinned public key matches.
+    pub(crate) fn disallow_expired_pinned_keys(&mut self) {
+        self.disallow_expired_pinned_keys = true;
     }
 }
 
@@ -253,7 +263,9 @@ impl ServerCertVerifier for TlsCertificateVerifier {
             Err(rustls::Error::InvalidCertificate(rustls::CertificateError::Expired))
             | Err(rustls::Error::InvalidCertificate(rustls::CertificateError::ExpiredContext {
                 ..
-            })) if self.has_pinned_public_key(end_entity) => Ok(ServerCertVerified::assertion()),
+            })) if !self.disallow_expired_pinned_keys && self.has_pinned_public_key(end_entity) => {
+                Ok(ServerCertVerified::assertion())
+            }
             _ => result,
         }
     }
