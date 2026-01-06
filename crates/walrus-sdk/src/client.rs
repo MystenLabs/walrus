@@ -19,7 +19,7 @@ use walrus_sui::{
 use crate::{
     blocklist::Blocklist,
     config::{ClientConfig, load_configuration},
-    error::{ClientError, ClientErrorKind, ClientResult},
+    error::{ClientErrorKind, ClientResult},
     node_client::WalrusNodeClient,
 };
 
@@ -105,7 +105,8 @@ impl WalrusClient {
     }
 
     /// Returns both the wallet and configuration, or an error if either is not available.
-    fn required_both(&self, context: &str) -> ClientResult<(&Wallet, &ClientConfig)> {
+    #[deprecated]
+    pub fn required_both(&self, context: &str) -> ClientResult<(&Wallet, &ClientConfig)> {
         Ok((
             self.required_wallet(context)?,
             self.required_config(context)?,
@@ -119,6 +120,7 @@ impl WalrusClient {
         amount: u64,
         gas_budget: Option<u64>,
     ) -> Result<()> {
+        #[allow(deprecated)]
         let (wallet, config) = self.required_both("fund_shared_blob")?;
         let sui_client = config
             .new_contract_client(wallet.clone(), gas_budget)
@@ -134,6 +136,7 @@ impl WalrusClient {
         context: &str,
         gas_budget: Option<u64>,
     ) -> Result<SuiContractClient> {
+        #[allow(deprecated)]
         let (wallet, config) = self.required_both(context)?;
         let sui_client = config
             .new_contract_client(wallet.clone(), gas_budget)
@@ -141,42 +144,35 @@ impl WalrusClient {
         Ok(sui_client)
     }
 
-    /// Creates a lower-level object able to read and write directly to Walrus storage nodes.
+    /// Creates a long-lived object able to read and write directly to/from Walrus storage nodes.
     /// See [`WalrusNodeClient<SuiContractClient>`].
     #[tracing::instrument(skip_all)]
-    pub async fn write_toolkit(
+    pub async fn walrus_node_write_client(
         &self,
         context: &str,
         gas_budget: Option<u64>,
     ) -> ClientResult<WalrusNodeClient<SuiContractClient>> {
+        #[allow(deprecated)]
         let (wallet, config) = self.required_both(context)?;
         let sui_client = config
             .new_contract_client(wallet.clone(), gas_budget)
             .await?;
 
-        let refresh_handle = self
-            .required_config(context)?
-            .build_refresher_and_run(sui_client.read_client().clone())
-            .await
-            .map_err(|e| ClientError::store_blob_internal(e.to_string()))?;
-        let config = config.clone();
-        tokio::task::spawn_blocking(move || {
-            WalrusNodeClient::new_contract_client(config, refresh_handle, sui_client)
-        })
-        .await
-        .map_err(|e| ClientErrorKind::WalrusNodeClientInitializationError(e.to_string()))?
+        WalrusNodeClient::new_contract_client_with_refresher(config.clone(), sui_client).await
     }
 
-    /// Creates a lower-level object able to read and write directly to Walrus storage nodes.
-    /// See [`WalrusNodeClient<SuiContractClient>`].
+    /// Creates a long-lived object able to read from Walrus storage nodes. See
+    /// [`WalrusNodeClient<SuiReadClient>`].
     #[tracing::instrument(skip_all)]
     pub async fn walrus_node_read_client(
         &self,
         context: &str,
         rpc_url: Option<String>,
     ) -> ClientResult<WalrusNodeClient<SuiReadClient>> {
+        #[allow(deprecated)]
+        let config = self.required_config(context)?.clone();
         WalrusNodeClient::new_read_client_with_refresher(
-            self.required_config(context)?.clone(),
+            config,
             self.new_sui_read_client(context, rpc_url).await?,
         )
         .await
@@ -188,6 +184,7 @@ impl WalrusClient {
         context: &str,
         rpc_url: Option<String>,
     ) -> ClientResult<SuiReadClient> {
+        #[allow(deprecated)]
         let config = self.required_config(context)?;
         let sui_read_client =
             get_sui_read_client_from_rpc_node_or_wallet(config, rpc_url, &self.wallet).await?;
@@ -318,20 +315,5 @@ pub async fn get_read_client(
         Ok(client.with_blocklist(Blocklist::new(blocklist_path)?))
     } else {
         Ok(client)
-    }
-}
-
-/// A toolkit for reading from Walrus storage nodes.
-#[derive(Clone)]
-pub struct WalrusReadToolkit<T: Clone> {
-    /// The Walrus node client.
-    pub walrus_node_client: WalrusNodeClient<T>,
-    /// The Sui read client.
-    pub sui_read_client: SuiReadClient,
-}
-
-impl<T: Clone> std::fmt::Debug for WalrusReadToolkit<T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "WalrusReadToolkit(...)")
     }
 }
