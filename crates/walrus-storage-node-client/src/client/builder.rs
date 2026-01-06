@@ -80,7 +80,7 @@ impl StorageNodeClientBuilder {
     /// Passing true to this constructor disables that behaviour, resulting in expired certificates
     /// failing even if the public key is pinned.
     ///
-    /// This setting does not if not authenticating with the public key via
+    /// This setting has no effect if not authenticating with the public key via
     /// `authenticate_with_public_key` or `new_with_pinned_public_key`.
     pub fn disallow_expired_pinned_keys(mut self, is_disallowed: bool) -> Self {
         self.disallow_expired_pinned_keys = is_disallowed;
