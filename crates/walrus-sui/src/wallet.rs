@@ -6,7 +6,6 @@
 use std::{
     collections::BTreeSet,
     path::{Path, PathBuf},
-    sync::Arc,
 };
 
 use sui_package_management::LockCommand;
@@ -117,7 +116,7 @@ impl Wallet {
         response: &SuiTransactionBlockResponse,
     ) -> Result<(), WalletError> {
         sui_package_management::update_lock_file(
-            self.wallet_context.as_ref(),
+            &self.wallet_context,
             lock_command,
             install_dir,
             lock_file,
