@@ -6,7 +6,6 @@
 use std::{
     collections::BTreeSet,
     path::{Path, PathBuf},
-    sync::Arc,
 };
 
 use sui_package_management::LockCommand;
@@ -24,12 +23,11 @@ use sui_types::{
 
 /// The `Wallet` struct wraps the `WalletContext` from the Sui SDK. This allows us to
 /// reduce the scope of the `WalletContext` to only the methods we need.
-#[derive(Clone)]
 pub struct Wallet {
     active_address: SuiAddress,
     active_env: SuiEnv,
     config_path: PathBuf,
-    wallet_context: Arc<WalletContext>,
+    wallet_context: WalletContext,
 }
 
 impl std::fmt::Debug for Wallet {
@@ -52,7 +50,7 @@ impl Wallet {
             active_address: wallet_context.active_address()?,
             active_env: wallet_context.config.get_active_env()?.clone(),
             config_path: wallet_context.config.path().to_path_buf(),
-            wallet_context: Arc::new(wallet_context),
+            wallet_context,
         })
     }
 
@@ -118,7 +116,7 @@ impl Wallet {
         response: &SuiTransactionBlockResponse,
     ) -> Result<(), WalletError> {
         sui_package_management::update_lock_file(
-            self.wallet_context.as_ref(),
+            &self.wallet_context,
             lock_command,
             install_dir,
             lock_file,
