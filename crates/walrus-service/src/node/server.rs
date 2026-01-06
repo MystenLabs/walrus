@@ -525,7 +525,14 @@ mod tests {
         SliverPairIndex,
         SliverType,
         SymbolId,
-        encoding::{EitherDecodingSymbol, EncodingAxis, GeneralRecoverySymbol, Primary},
+        encoding::{
+            DecodingSymbol,
+            EitherDecodingSymbol,
+            EncodingAxis,
+            GeneralRecoverySymbol,
+            Primary,
+            Secondary,
+        },
         inconsistency::{
             InconsistencyProof as InconsistencyProofInner,
             InconsistencyVerificationError,
@@ -554,6 +561,7 @@ mod tests {
             StoredOnNodeStatus,
             errors::StatusCode as ApiStatusCode,
         },
+        client::DecodingSymbolsFilter,
     };
     use walrus_sui::test_utils::event_id_for_testing;
     use walrus_test_utils::{Result as TestResult, WithTempDir, async_param_test};
@@ -642,13 +650,37 @@ mod tests {
             Ok(vec![symbol.clone(), symbol])
         }
 
+        // A mock implementation returning a single decoding symbol for each target sliver.
+        // The returned symbols are also used to test the query sent to the server can be
+        // parsed correctly.
         async fn retrieve_multiple_decoding_symbols(
             &self,
             _blob_id: &BlobId,
-            _target_slivers: Vec<SliverIndex>,
-            _target_type: SliverType,
+            target_slivers: Vec<SliverIndex>,
+            target_type: SliverType,
         ) -> Result<BTreeMap<SliverIndex, Vec<EitherDecodingSymbol>>, ListSymbolsError> {
-            Ok(BTreeMap::new())
+            let mut result = BTreeMap::new();
+            for target_sliver in target_slivers {
+                match target_type {
+                    SliverType::Primary => {
+                        result.insert(
+                            target_sliver,
+                            vec![EitherDecodingSymbol::Primary(
+                                DecodingSymbol::<Primary>::new(target_sliver.0, vec![0]),
+                            )],
+                        );
+                    }
+                    SliverType::Secondary => {
+                        result.insert(
+                            target_sliver,
+                            vec![EitherDecodingSymbol::Secondary(
+                                DecodingSymbol::<Secondary>::new(target_sliver.0, vec![0]),
+                            )],
+                        );
+                    }
+                }
+            }
+            Ok(result)
         }
 
         /// Successful only for the pair index 0, otherwise, returns an internal error.
@@ -1422,5 +1454,45 @@ mod tests {
             .expect("Rustls must recognise key as valid");
 
         Ok(())
+    }
+
+    // Test the query sent to the server can be parsed correctly.
+    async_param_test! {
+        list_decoding_symbols: [
+            primary: (SliverType::Primary),
+            secondary: (SliverType::Secondary),
+        ]
+    }
+    async fn list_decoding_symbols(sliver_type: SliverType) {
+        let _ = tracing_subscriber::fmt::try_init();
+        let (config, _handle) = start_rest_api_with_test_config().await;
+
+        tracing::debug!("config: {:?}", config.as_ref());
+        let client = storage_node_client(config.as_ref());
+        let blob_id = walrus_core::test_utils::random_blob_id();
+
+        let filter = DecodingSymbolsFilter {
+            target_slivers: vec![SliverIndex(17), SliverIndex(28)],
+            target_type: sliver_type,
+        };
+
+        let result = client
+            .list_decoding_symbols(&blob_id, &filter)
+            .await
+            .expect("request should succeed");
+
+        assert_eq!(result.len(), 2);
+        assert_eq!(result.get(&SliverIndex(17)).unwrap().len(), 1);
+        assert_eq!(result.get(&SliverIndex(28)).unwrap().len(), 1);
+        match sliver_type {
+            SliverType::Primary => {
+                assert!(result.get(&SliverIndex(17)).unwrap()[0].is_primary());
+                assert!(result.get(&SliverIndex(28)).unwrap()[0].is_primary());
+            }
+            SliverType::Secondary => {
+                assert!(result.get(&SliverIndex(17)).unwrap()[0].is_secondary());
+                assert!(result.get(&SliverIndex(28)).unwrap()[0].is_secondary());
+            }
+        }
     }
 }

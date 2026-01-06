@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::{
+    collections::BTreeMap,
     num::NonZeroU16,
     sync::{Arc, Mutex},
     time::{Duration, Instant},
@@ -18,8 +19,9 @@ use walrus_core::{
     PublicKey,
     ShardIndex,
     Sliver,
+    SliverIndex,
     SliverPairIndex,
-    encoding::{EncodingAxis, EncodingConfig, SliverData, SliverPair},
+    encoding::{EitherDecodingSymbol, EncodingAxis, EncodingConfig, SliverData, SliverPair},
     messages::{BlobPersistenceType, SignedStorageConfirmation},
     metadata::VerifiedBlobMetadataWithId,
 };
@@ -28,6 +30,7 @@ use walrus_storage_node_client::{
     StorageNodeClient,
     UploadIntent,
     api::{BlobStatus, StoredOnNodeStatus},
+    client::DecodingSymbolsFilter,
 };
 use walrus_sui::types::StorageNode;
 use walrus_utils::backoff::{self, ExponentialBackoff};
@@ -260,6 +263,20 @@ impl<W> NodeCommunication<W> {
 
         // Each sliver is in this case requested individually, so the weight is 1.
         self.to_node_result(1, sliver)
+    }
+
+    pub async fn retrieve_decoding_symbols<A: EncodingAxis>(
+        &self,
+        blob_id: &BlobId,
+        target_slivers: Vec<SliverIndex>,
+    ) -> NodeResult<BTreeMap<SliverIndex, Vec<EitherDecodingSymbol>>, NodeError> {
+        tracing::debug!(%blob_id, "retrieving decoding symbols");
+        let filter = DecodingSymbolsFilter {
+            target_slivers,
+            target_type: A::sliver_type(),
+        };
+        let symbols = self.client.list_decoding_symbols(blob_id, &filter).await;
+        self.to_node_result_with_n_shards(symbols)
     }
 
     /// Requests the status for a blob ID from the node.
