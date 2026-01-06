@@ -35,7 +35,10 @@ pub struct Wallet {
 
 impl std::fmt::Debug for Wallet {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Wallet").finish()
+        f.debug_struct("Wallet")
+            .field("active_address", &self.active_address)
+            .field("active_env", &self.active_env)
+            .finish()
     }
 }
 
