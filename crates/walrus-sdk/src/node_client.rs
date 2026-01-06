@@ -3009,84 +3009,69 @@ impl<T: Send + Sync> WalrusNodeClientCreatedInBackground<T> {
     }
 }
 
-mod internal {
-    use super::*;
-
-    pub trait StoreBlobApiInternal: LazyWalrusNodeClient<SuiContractClient> + Sync {
-        /// Encodes the blobs, reserves & registers the space on chain, stores the slivers to the
-        /// storage nodes, and certifies the blobs.
-        ///
-        /// Returns a vector of [`BlobStoreResult`]s, in the same order as the input blobs. The
-        /// length of the output vector is the same as the input vector.
-        fn reserve_and_store_blobs_inner(
-            &self,
-            walrus_store_blobs: Vec<WalrusStoreBlobMaybeFinished<UnencodedBlob>>,
-            store_args: &StoreArgs,
-            perform_retries: bool,
-        ) -> impl Future<Output = ClientResult<Vec<BlobStoreResult>>> + Send {
-            async move {
-                let blobs_count = walrus_store_blobs.len();
-                if blobs_count == 0 {
-                    tracing::debug!("no blobs provided to store");
-                    return Ok(vec![]);
-                }
-                let start = Instant::now();
-
-                let upload_relay_client = store_args.upload_relay_client.clone();
-                let encoding_event_tx = store_args.encoding_event_tx.clone();
-                let maybe_encoded_blobs = tokio::task::spawn_blocking(move || {
-                    encode_blobs(
-                        walrus_store_blobs,
-                        upload_relay_client,
-                        encoding_event_tx.as_ref(),
-                    )
-                })
-                .await
-                .map_err(ClientError::other)??;
-                let (encoded_blobs, mut results) =
-                    client_types::partition_unfinished_finished(maybe_encoded_blobs);
-                store_args.maybe_observe_encoding_latency(start.elapsed());
-
-                let client = self.client().await?;
-
-                if !encoded_blobs.is_empty() {
-                    let store_results = if perform_retries {
-                        client
-                            .retry_if_error_epoch_change(|| {
-                                client.reserve_and_store_encoded_blobs(
-                                    encoded_blobs.clone(),
-                                    store_args,
-                                )
-                            })
-                            .await?
-                    } else {
-                        client
-                            .reserve_and_store_encoded_blobs(encoded_blobs.clone(), store_args)
-                            .await?
-                    };
-                    results.extend(store_results);
-                }
-
-                debug_assert_eq!(results.len(), blobs_count);
-                // Make sure the output order is the same as the input order.
-                results.sort_by_key(|blob| blob.common.identifier.to_string());
-
-                Ok(results.into_iter().map(|blob| blob.state).collect())
-            }
+/// Encodes the blobs, reserves & registers the space on chain, stores the slivers to the
+/// storage nodes, and certifies the blobs.
+///
+/// Returns a vector of [`BlobStoreResult`]s, in the same order as the input blobs. The
+/// length of the output vector is the same as the input vector.
+fn reserve_and_store_blobs_inner(
+    lazy_client: impl LazyWalrusNodeClient<SuiContractClient>,
+    walrus_store_blobs: Vec<WalrusStoreBlobMaybeFinished<UnencodedBlob>>,
+    store_args: &StoreArgs,
+    perform_retries: bool,
+) -> impl Future<Output = ClientResult<Vec<BlobStoreResult>>> + Send {
+    async move {
+        let blobs_count = walrus_store_blobs.len();
+        if blobs_count == 0 {
+            tracing::debug!("no blobs provided to store");
+            return Ok(vec![]);
         }
+        let start = Instant::now();
+
+        let upload_relay_client = store_args.upload_relay_client.clone();
+        let encoding_event_tx = store_args.encoding_event_tx.clone();
+        let maybe_encoded_blobs = tokio::task::spawn_blocking(move || {
+            encode_blobs(
+                walrus_store_blobs,
+                upload_relay_client,
+                encoding_event_tx.as_ref(),
+            )
+        })
+        .await
+        .map_err(ClientError::other)??;
+        let (encoded_blobs, mut results) =
+            client_types::partition_unfinished_finished(maybe_encoded_blobs);
+        store_args.maybe_observe_encoding_latency(start.elapsed());
+
+        let client = lazy_client.client().await?;
+
+        if !encoded_blobs.is_empty() {
+            let store_results = if perform_retries {
+                client
+                    .retry_if_error_epoch_change(|| {
+                        client.reserve_and_store_encoded_blobs(encoded_blobs.clone(), store_args)
+                    })
+                    .await?
+            } else {
+                client
+                    .reserve_and_store_encoded_blobs(encoded_blobs.clone(), store_args)
+                    .await?
+            };
+            results.extend(store_results);
+        }
+
+        debug_assert_eq!(results.len(), blobs_count);
+        // Make sure the output order is the same as the input order.
+        results.sort_by_key(|blob| blob.common.identifier.to_string());
+
+        Ok(results.into_iter().map(|blob| blob.state).collect())
     }
 }
 
 /// A trait containing functions to store blobs to Walrus.
-pub trait StoreBlobsApi: internal::StoreBlobApiInternal + Sized {
+pub trait StoreBlobsApi: LazyWalrusNodeClient<SuiContractClient> + Sized {
     /// Returns the encoding config used by the client.
     fn encoding_config(&self) -> impl Future<Output = ClientResult<&EncodingConfig>> + Send;
-
-    /// Returns the [`WalrusNodeClient`]. If the [`WalrusNodeClient`] is not yet created, this will
-    /// wait for the background task to complete.
-    fn client(&self) -> impl Future<Output = ClientResult<&WalrusNodeClient<SuiContractClient>>> {
-        LazyWalrusNodeClient::<SuiContractClient>::client(self)
-    }
 
     /// Stores a list of blobs to Walrus, retrying if it fails because of epoch change.
     #[tracing::instrument(skip_all, fields(blob_id))]
@@ -3106,8 +3091,7 @@ pub trait StoreBlobsApi: internal::StoreBlobApiInternal + Sized {
                         .get_for_type(store_args.encoding_type),
                 );
 
-            self.reserve_and_store_blobs_inner(walrus_store_blobs, store_args, true)
-                .await
+            reserve_and_store_blobs_inner(self, walrus_store_blobs, store_args, true).await
         }
     }
 
@@ -3132,9 +3116,8 @@ pub trait StoreBlobsApi: internal::StoreBlobApiInternal + Sized {
                         .get_for_type(store_args.encoding_type),
                 );
 
-            let completed_blobs = self
-                .reserve_and_store_blobs_inner(walrus_store_blobs, store_args, true)
-                .await?;
+            let completed_blobs =
+                reserve_and_store_blobs_inner(self, walrus_store_blobs, store_args, true).await?;
 
             Ok(completed_blobs
                 .into_iter()
@@ -3162,8 +3145,7 @@ pub trait StoreBlobsApi: internal::StoreBlobApiInternal + Sized {
                         .await?
                         .get_for_type(store_args.encoding_type),
                 );
-            self.reserve_and_store_blobs_inner(walrus_store_blobs, store_args, false)
-                .await
+            reserve_and_store_blobs_inner(self, walrus_store_blobs, store_args, false).await
         }
     }
 }
@@ -3204,8 +3186,7 @@ impl StoreBlobsApi for WalrusNodeClient<SuiContractClient> {
                         self.encoding_config()
                             .get_for_type(store_args.encoding_type),
                     );
-                self.reserve_and_store_blobs_inner(walrus_store_blobs, store_args, true)
-                    .await
+                reserve_and_store_blobs_inner(self, walrus_store_blobs, store_args, true).await
             };
             if !__tracing_attr_span.is_disabled() {
                 ::tracing::Instrument::instrument(__tracing_instrument_future, __tracing_attr_span)
@@ -3236,9 +3217,9 @@ impl StoreBlobsApi for WalrusNodeClient<SuiContractClient> {
                             .await?
                             .get_for_type(store_args.encoding_type),
                     );
-                let completed_blobs = self
-                    .reserve_and_store_blobs_inner(walrus_store_blobs, store_args, true)
-                    .await?;
+                let completed_blobs =
+                    reserve_and_store_blobs_inner(self, walrus_store_blobs, store_args, true)
+                        .await?;
                 Ok(completed_blobs
                     .into_iter()
                     .zip(paths.into_iter())
@@ -3273,8 +3254,7 @@ impl StoreBlobsApi for WalrusNodeClient<SuiContractClient> {
                             .await?
                             .get_for_type(store_args.encoding_type),
                     );
-                self.reserve_and_store_blobs_inner(walrus_store_blobs, store_args, false)
-                    .await
+                reserve_and_store_blobs_inner(self, walrus_store_blobs, store_args, false).await
             };
             if !__tracing_attr_span.is_disabled() {
                 ::tracing::Instrument::instrument(__tracing_instrument_future, __tracing_attr_span)
