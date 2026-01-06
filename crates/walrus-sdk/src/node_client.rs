@@ -2329,7 +2329,7 @@ impl<T> WalrusNodeClient<T> {
     /// [`NodeCommunication::get_confirmation_with_retries`][gcwr], which internally verifies them
     /// to check the blob ID, epoch, and blob persistence type.
     ///
-    /// [gcwr]: crate::client::communication::NodeCommunication::get_confirmation_with_retries
+    /// [gcwr]: crate::node_client::communication::NodeCommunication::get_confirmation_with_retries
     fn confirmations_to_certificate<E: Display>(
         &self,
         confirmations: Vec<NodeResult<SignedStorageConfirmation, E>>,
