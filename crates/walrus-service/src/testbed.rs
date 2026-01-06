@@ -857,7 +857,7 @@ async fn create_storage_node_wallets(
         storage_node_wallets.push(wallet);
     }
 
-    print_wallet_addresses(&mut storage_node_wallets)?;
+    print_wallet_addresses(&mut storage_node_wallets);
 
     // Get coins from faucet for the wallets.
     for wallet in storage_node_wallets.iter_mut() {
@@ -879,12 +879,11 @@ async fn create_storage_node_wallets(
     Ok(storage_node_wallets)
 }
 
-fn print_wallet_addresses(wallets: &mut [Wallet]) -> anyhow::Result<()> {
+fn print_wallet_addresses(wallets: &mut [Wallet]) {
     println!("Wallet addresses:");
     for wallet in wallets.iter_mut() {
         println!("{}", wallet.active_address());
     }
     // Try to flush output
     let _ = std::io::stdout().flush();
-    Ok(())
 }
