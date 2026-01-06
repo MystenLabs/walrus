@@ -17,6 +17,7 @@ use walrus_core::{
     BlobId,
     EncodingType,
     EpochCount,
+    QuiltPatchId,
     encoding::{
         ConsistencyCheckType,
         quilt_encoding::{QuiltStoreBlob, QuiltVersion},
@@ -51,7 +52,7 @@ use walrus_utils::metrics::Registry;
 
 use super::{
     cli::PublisherArgs,
-    daemon::{WalrusReadClient, WalrusWriteClient},
+    daemon::{QuiltPatchItem, WalrusReadClient, WalrusWriteClient},
     refill::{RefillHandles, Refiller},
 };
 use crate::client::refill::should_refill;
@@ -189,6 +190,29 @@ impl WalrusReadClient for ClientMultiplexer {
         blob_object_id: &ObjectID,
     ) -> ClientResult<BlobWithAttribute> {
         self.read_client.get_blob_by_object_id(blob_object_id).await
+    }
+
+    async fn get_blobs_by_quilt_patch_ids(
+        &self,
+        quilt_patch_ids: &[QuiltPatchId],
+    ) -> ClientResult<Vec<QuiltStoreBlob<'static>>> {
+        self.read_client
+            .get_blobs_by_quilt_patch_ids(quilt_patch_ids)
+            .await
+    }
+
+    async fn get_patch_by_quilt_id_and_identifier(
+        &self,
+        quilt_id: &BlobId,
+        identifier: &str,
+    ) -> ClientResult<QuiltStoreBlob<'static>> {
+        self.read_client
+            .get_patch_by_quilt_id_and_identifier(quilt_id, identifier)
+            .await
+    }
+
+    async fn list_patches_in_quilt(&self, quilt_id: &BlobId) -> ClientResult<Vec<QuiltPatchItem>> {
+        self.read_client.list_patches_in_quilt(quilt_id).await
     }
 }
 

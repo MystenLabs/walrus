@@ -118,18 +118,7 @@ pub trait WalrusReadClient {
     fn get_blobs_by_quilt_patch_ids(
         &self,
         _quilt_patch_ids: &[QuiltPatchId],
-    ) -> impl std::future::Future<Output = ClientResult<Vec<QuiltStoreBlob<'static>>>> + Send {
-        async {
-            use walrus_sdk::error::ClientErrorKind;
-            Err(ClientError::from(ClientErrorKind::Other(
-                format!(
-                    "quilt functionality not supported by this client ({})",
-                    std::any::type_name::<Self>()
-                )
-                .into(),
-            )))
-        }
-    }
+    ) -> impl std::future::Future<Output = ClientResult<Vec<QuiltStoreBlob<'static>>>> + Send;
 
     /// Retrieves a blob from quilt by quilt ID and identifier.
     /// Default implementation returns an error indicating quilt is not supported.
@@ -137,35 +126,13 @@ pub trait WalrusReadClient {
         &self,
         _quilt_id: &BlobId,
         _identifier: &str,
-    ) -> impl std::future::Future<Output = ClientResult<QuiltStoreBlob<'static>>> + Send {
-        async {
-            use walrus_sdk::error::ClientErrorKind;
-            Err(ClientError::from(ClientErrorKind::Other(
-                format!(
-                    "quilt functionality not supported by this client ({})",
-                    std::any::type_name::<Self>()
-                )
-                .into(),
-            )))
-        }
-    }
+    ) -> impl std::future::Future<Output = ClientResult<QuiltStoreBlob<'static>>> + Send;
 
     /// Lists patches in a quilt.
     fn list_patches_in_quilt(
         &self,
         _quilt_id: &BlobId,
-    ) -> impl std::future::Future<Output = ClientResult<Vec<QuiltPatchItem>>> + Send {
-        async {
-            use walrus_sdk::error::ClientErrorKind;
-            Err(ClientError::from(ClientErrorKind::Other(
-                format!(
-                    "quilt functionality not supported by this client ({})",
-                    std::any::type_name::<Self>()
-                )
-                .into(),
-            )))
-        }
-    }
+    ) -> impl std::future::Future<Output = ClientResult<Vec<QuiltPatchItem>>> + Send;
 }
 
 /// Trait representing a client that can write blobs to Walrus.
@@ -819,6 +786,28 @@ mod tests {
             _start_byte_position: u64,
             _byte_length: u64,
         ) -> ClientResult<ReadByteRangeResult> {
+            unimplemented!("not needed for rate limit tests")
+        }
+
+        async fn get_blobs_by_quilt_patch_ids(
+            &self,
+            _quilt_patch_ids: &[QuiltPatchId],
+        ) -> ClientResult<Vec<QuiltStoreBlob<'static>>> {
+            unimplemented!("not needed for rate limit tests")
+        }
+
+        async fn get_patch_by_quilt_id_and_identifier(
+            &self,
+            _quilt_id: &BlobId,
+            _identifier: &str,
+        ) -> ClientResult<QuiltStoreBlob<'static>> {
+            unimplemented!("not needed for rate limit tests")
+        }
+
+        async fn list_patches_in_quilt(
+            &self,
+            _quilt_id: &BlobId,
+        ) -> ClientResult<Vec<QuiltPatchItem>> {
             unimplemented!("not needed for rate limit tests")
         }
     }
