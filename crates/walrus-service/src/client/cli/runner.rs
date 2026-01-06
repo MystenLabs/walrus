@@ -41,7 +41,7 @@ use walrus_core::{
 };
 use walrus_sdk::{
     SuiReadClient,
-    client::{WalrusClient, get_sui_read_client_from_rpc_node_or_wallet},
+    client::{WalrusClient, get_read_client, get_sui_read_client_from_rpc_node_or_wallet},
     config::load_configuration,
     error::ClientErrorKind,
     node_client::{
@@ -104,7 +104,6 @@ use super::{
 };
 use crate::{
     client::{
-        ClientConfig,
         ClientDaemon,
         cli::{
             BlobIdDecimal,
@@ -117,8 +116,6 @@ use crate::{
             QuiltPatchByTag,
             QuiltPatchSelector,
             args::{CommonStoreOptions, TraceExporter},
-            get_contract_client,
-            get_read_client,
             internal_run::{
                 ChildUploaderEvent,
                 InternalRunContext,
@@ -554,6 +551,7 @@ impl ClientCommandRunner {
         rpc_url: Option<String>,
         consistency_check: ConsistencyCheckType,
     ) -> Result<()> {
+        let read_toolkit = self.walrus_client.walrus_only_read_toolkit("read").await?;
         let client = get_read_client(self.config?, rpc_url, self.wallet, &None, None).await?;
 
         let start_timer = std::time::Instant::now();
@@ -1398,7 +1396,7 @@ impl ClientCommandRunner {
 
         let read_toolkit = self
             .walrus_client
-            .build_walrus_node_read_toolkit("blob_status")
+            .walrus_only_read_toolkit("blob_status")
             .await?;
 
         let file = file_or_blob_id.file.clone();
@@ -1416,10 +1414,8 @@ impl ClientCommandRunner {
 
         // Compute estimated blob expiry in DateTime if it is a permanent blob.
         let estimated_expiry_timestamp = if let BlobStatus::Permanent { end_epoch, .. } = status {
-            let staking_object: StakingObject = read_toolkit
-                .sui_read_client
-                .get_staking_object()
-                .await?;
+            let staking_object: StakingObject =
+                read_toolkit.sui_read_client.get_staking_object().await?;
             let epoch_duration = staking_object.epoch_duration();
             let epoch_state = staking_object.epoch_state();
             let current_epoch = staking_object.epoch();

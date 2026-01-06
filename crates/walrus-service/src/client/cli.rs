@@ -9,7 +9,7 @@ use std::{
     str::FromStr,
 };
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use colored::{Color, ColoredString, Colorize};
 use num_bigint::BigUint;
 use serde::{Deserialize, Serialize};
@@ -18,9 +18,8 @@ use walrus_sdk::{
     blocklist::Blocklist,
     client::get_sui_read_client_from_rpc_node_or_wallet,
     config::ClientConfig,
-    error::{ClientError, ClientResult},
     node_client::WalrusNodeClient,
-    sui::client::{SuiContractClient, SuiReadClient, retry_client::RetriableSuiClient},
+    sui::client::SuiReadClient,
 };
 use walrus_sui::wallet::Wallet;
 
@@ -50,39 +49,6 @@ pub use args::{
 };
 pub use cli_output::CliOutput;
 pub use runner::ClientCommandRunner;
-
-/// Creates a [`WalrusNodeClient`] based on the provided [`ClientConfig`] with read-only access to
-/// Sui.
-///
-/// The RPC URL is set based on the `rpc_url` parameter (if `Some`), the `rpc_url` field in the
-/// `config` (if `Some`), or the `wallet` (if `Ok`). An error is returned if it cannot be set
-/// successfully.
-pub async fn get_read_client(
-    config: ClientConfig,
-    rpc_url: Option<String>,
-    wallet: Result<Wallet>,
-    blocklist_path: &Option<PathBuf>,
-    max_blob_size: Option<u64>,
-) -> Result<WalrusNodeClient<SuiReadClient>> {
-    let sui_read_client =
-        get_sui_read_client_from_rpc_node_or_wallet(&config, rpc_url, wallet).await?;
-
-    let refresh_handle = config
-        .build_refresher_and_run(sui_read_client.clone())
-        .await?;
-    let client = WalrusNodeClient::new_read_client_with_max_blob_size(
-        config,
-        refresh_handle,
-        sui_read_client,
-        max_blob_size,
-    )?;
-
-    if blocklist_path.is_some() {
-        Ok(client.with_blocklist(Blocklist::new(blocklist_path)?))
-    } else {
-        Ok(client)
-    }
-}
 
 /// Returns the string `Success:` colored in green for terminal output.
 pub fn success() -> ColoredString {

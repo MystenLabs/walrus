@@ -1,7 +1,13 @@
+// Copyright (c) Walrus Foundation
+// SPDX-License-Identifier: Apache-2.0
+
+//! The Walrus Rust SDK Client. This module provides the primary client
+//! structure for interacting with the Walrus SDK, including wallet management,
+//! configuration loading, and various operations related to blob management.
 #![allow(dead_code)]
 use std::path::Path;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use sui_types::base_types::ObjectID;
 use walrus_sui::{
     client::{SuiContractClient, SuiReadClient, retry_client::RetriableSuiClient},
@@ -11,6 +17,7 @@ use walrus_sui::{
 };
 
 use crate::{
+    blocklist::Blocklist,
     config::{ClientConfig, load_configuration},
     error::{ClientError, ClientErrorKind, ClientResult},
     node_client::WalrusNodeClient,
@@ -160,10 +167,10 @@ impl WalrusClient {
     /// Creates a lower-level object able to read and write directly to Walrus storage nodes.
     /// See [`WalrusNodeClient<SuiContractClient>`].
     #[tracing::instrument(skip_all)]
-    pub async fn build_walrus_node_read_toolkit(
+    pub async fn walrus_only_read_toolkit(
         &self,
         context: &str,
-    ) -> ClientResult<WalrusReadToolkit> {
+    ) -> ClientResult<WalrusReadToolkit<()>> {
         let config = self.required_config(context)?;
         let sui_read_client = self.new_sui_read_client(context).await?;
 
@@ -285,16 +292,49 @@ pub async fn get_sui_read_client_from_rpc_node_or_wallet(
     Ok(config.new_read_client(sui_client).await?)
 }
 
+/// Creates a [`WalrusNodeClient`] based on the provided [`ClientConfig`] with read-only access to
+/// Sui.
+///
+/// The RPC URL is set based on the `rpc_url` parameter (if `Some`), the `rpc_url` field in the
+/// `config` (if `Some`), or the `wallet` (if `Ok`). An error is returned if it cannot be set
+/// successfully.
+pub async fn get_read_client(
+    config: ClientConfig,
+    rpc_url: Option<String>,
+    wallet: Result<Wallet>,
+    blocklist_path: &Option<impl AsRef<Path>>,
+    max_blob_size: Option<u64>,
+) -> Result<WalrusNodeClient<SuiReadClient>> {
+    let sui_read_client =
+        get_sui_read_client_from_rpc_node_or_wallet(&config, rpc_url, &wallet).await?;
+
+    let refresh_handle = config
+        .build_refresher_and_run(sui_read_client.clone())
+        .await?;
+    let client = WalrusNodeClient::new_read_client_with_max_blob_size(
+        config,
+        refresh_handle,
+        sui_read_client,
+        max_blob_size,
+    )?;
+
+    if blocklist_path.is_some() {
+        Ok(client.with_blocklist(Blocklist::new(blocklist_path)?))
+    } else {
+        Ok(client)
+    }
+}
+
 /// A toolkit for reading from Walrus storage nodes.
 #[derive(Clone)]
-pub struct WalrusReadToolkit {
+pub struct WalrusReadToolkit<T: Clone> {
     /// The Walrus node client.
-    pub walrus_node_client: WalrusNodeClient<()>,
+    pub walrus_node_client: WalrusNodeClient<T>,
     /// The Sui read client.
     pub sui_read_client: SuiReadClient,
 }
 
-impl std::fmt::Debug for WalrusReadToolkit {
+impl<T: Clone> std::fmt::Debug for WalrusReadToolkit<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "WalrusReadToolkit(...)")
     }
