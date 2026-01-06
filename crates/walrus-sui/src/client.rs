@@ -2377,11 +2377,7 @@ impl SuiContractClientInner {
 
     /// Merges the WAL and SUI coins owned by the wallet of the contract client.
     pub async fn merge_coins(&mut self) -> SuiClientResult<()> {
-<<<<<<< HEAD
         let mut tx_builder = self.transaction_builder();
-=======
-        let mut tx_builder = self.transaction_builder()?;
->>>>>>> chore: refactor Wallet to make it Clone-able
         let address = self.wallet.active_address();
         let sui_balance = self
             .retriable_sui_client()
