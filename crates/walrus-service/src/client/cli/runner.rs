@@ -42,7 +42,6 @@ use walrus_core::{
 use walrus_sdk::{
     SuiReadClient,
     client::{WalrusClient, get_read_client, get_sui_read_client_from_rpc_node_or_wallet},
-    config::load_configuration,
     error::ClientErrorKind,
     node_client::{
         NodeCommunicationFactory,
@@ -404,7 +403,7 @@ impl ClientCommandRunner {
             CliCommands::GetBlobAttribute { blob_obj_id } => {
                 let sui_read_client = self
                     .walrus_client
-                    .new_sui_read_client("get_blob_attribute")
+                    .new_sui_read_client("get_blob_attribute", None)
                     .await?;
                 let attribute = sui_read_client.get_blob_attribute(&blob_obj_id).await?;
                 GetBlobAttributeOutput { attribute }.print_output(self.json)
@@ -528,15 +527,19 @@ impl ClientCommandRunner {
     }
 
     fn maybe_export_contract_info(&mut self, registry: &Registry) {
-        let Ok(config) = self.config.as_ref() else {
+        #[allow(deprecated)]
+        let Ok(config) = self
+            .walrus_client
+            .required_config("maybe_export_contract_info")
+        else {
             return;
         };
         utils::export_contract_info(
             registry,
             &config.contract_config.system_object,
             &config.contract_config.staking_object,
-            self.wallet
-                .as_ref()
+            self.walrus_client
+                .required_wallet()
                 .map(|wallet| wallet.active_address())
                 .ok(),
         );
@@ -551,8 +554,10 @@ impl ClientCommandRunner {
         rpc_url: Option<String>,
         consistency_check: ConsistencyCheckType,
     ) -> Result<()> {
-        let read_toolkit = self.walrus_client.walrus_only_read_toolkit("read").await?;
-        let client = get_read_client(self.config?, rpc_url, self.wallet, &None, None).await?;
+        let client = self
+            .walrus_client
+            .walrus_node_read_client("read", rpc_url)
+            .await?;
 
         let start_timer = std::time::Instant::now();
         let blob = client
@@ -580,11 +585,10 @@ impl ClientCommandRunner {
         out: Option<PathBuf>,
         rpc_url: Option<String>,
     ) -> Result<()> {
-        let config = self.config?;
-        let sui_read_client =
-            get_sui_read_client_from_rpc_node_or_wallet(&config, rpc_url, self.wallet).await?;
-        let read_client =
-            WalrusNodeClient::new_read_client_with_refresher(config, sui_read_client).await?;
+        let read_client = self
+            .walrus_client
+            .walrus_node_read_client("read_quilt", rpc_url)
+            .await?;
 
         let quilt_read_client = read_client.quilt_client();
 
@@ -627,11 +631,10 @@ impl ClientCommandRunner {
         quilt_id: BlobId,
         rpc_url: Option<String>,
     ) -> Result<()> {
-        let config = self.config?;
-        let sui_read_client =
-            get_sui_read_client_from_rpc_node_or_wallet(&config, rpc_url, self.wallet).await?;
-        let read_client =
-            WalrusNodeClient::new_read_client_with_refresher(config, sui_read_client).await?;
+        let read_client = self
+            .walrus_client
+            .walrus_node_read_client("list_patches_in_quilt", rpc_url)
+            .await?;
 
         let quilt_read_client = read_client.quilt_client();
         let quilt_metadata = quilt_read_client.get_quilt_metadata(&quilt_id).await?;
@@ -1396,7 +1399,7 @@ impl ClientCommandRunner {
 
         let read_toolkit = self
             .walrus_client
-            .walrus_only_read_toolkit("blob_status")
+            .walrus_only_read_toolkit("blob_status", rpc_url)
             .await?;
 
         let file = file_or_blob_id.file.clone();

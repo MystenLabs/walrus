@@ -76,7 +76,9 @@ impl WalrusClient {
         Self { wallet, config }
     }
 
-    fn required_wallet(&self, context: &str) -> ClientResult<&Wallet> {
+    /// Returns the wallet, or an error if it is not available.
+    #[deprecated]
+    pub fn required_wallet(&self, context: &str) -> ClientResult<&Wallet> {
         match &self.wallet {
             Ok(wallet) => Ok(wallet),
             Err(e) => Err(ClientErrorKind::InitializationError(format!(
@@ -87,7 +89,9 @@ impl WalrusClient {
         }
     }
 
-    fn required_config(&self, context: &str) -> ClientResult<&ClientConfig> {
+    /// Returns the configuration, or an error if it is not available.
+    #[deprecated]
+    pub fn required_config(&self, context: &str) -> ClientResult<&ClientConfig> {
         match &self.config {
             Ok(config) => Ok(config),
             Err(e) => {
@@ -101,7 +105,6 @@ impl WalrusClient {
     }
 
     /// Returns both the wallet and configuration, or an error if either is not available.
-    // #[deprecated(note = "avoid accessing these items; use specific methods instead")]
     fn required_both(&self, context: &str) -> ClientResult<(&Wallet, &ClientConfig)> {
         Ok((
             self.required_wallet(context)?,
@@ -141,7 +144,7 @@ impl WalrusClient {
     /// Creates a lower-level object able to read and write directly to Walrus storage nodes.
     /// See [`WalrusNodeClient<SuiContractClient>`].
     #[tracing::instrument(skip_all)]
-    pub async fn new_walrus_node_client(
+    pub async fn write_toolkit(
         &self,
         context: &str,
         gas_budget: Option<u64>,
@@ -167,34 +170,27 @@ impl WalrusClient {
     /// Creates a lower-level object able to read and write directly to Walrus storage nodes.
     /// See [`WalrusNodeClient<SuiContractClient>`].
     #[tracing::instrument(skip_all)]
-    pub async fn walrus_only_read_toolkit(
+    pub async fn walrus_node_read_client(
         &self,
         context: &str,
-    ) -> ClientResult<WalrusReadToolkit<()>> {
-        let config = self.required_config(context)?;
-        let sui_read_client = self.new_sui_read_client(context).await?;
-
-        let walrus_node_client = {
-            let refresh_handle = config
-                .build_refresher_and_run(sui_read_client.clone())
-                .await?;
-            let config = config.clone();
-            tokio::task::spawn_blocking(move || WalrusNodeClient::new(config, refresh_handle))
-                .await
-                .map_err(|e| ClientErrorKind::WalrusNodeClientInitializationError(e.to_string()))?
-        }?;
-
-        Ok(WalrusReadToolkit {
-            walrus_node_client,
-            sui_read_client,
-        })
+        rpc_url: Option<String>,
+    ) -> ClientResult<WalrusNodeClient<SuiReadClient>> {
+        WalrusNodeClient::new_read_client_with_refresher(
+            self.required_config(context)?.clone(),
+            self.new_sui_read_client(context, rpc_url).await?,
+        )
+        .await
     }
 
     /// Creates a new Sui read client using the current wallet and configuration.
-    pub async fn new_sui_read_client(&self, context: &str) -> ClientResult<SuiReadClient> {
+    pub async fn new_sui_read_client(
+        &self,
+        context: &str,
+        rpc_url: Option<String>,
+    ) -> ClientResult<SuiReadClient> {
         let config = self.required_config(context)?;
         let sui_read_client =
-            get_sui_read_client_from_rpc_node_or_wallet(config, None, &self.wallet).await?;
+            get_sui_read_client_from_rpc_node_or_wallet(config, rpc_url, &self.wallet).await?;
         Ok(sui_read_client)
     }
 

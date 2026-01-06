@@ -65,6 +65,7 @@ fn client() -> Result<()> {
     if !is_internal_run() {
         tracing::info!("client version: {VERSION}");
     }
+    // TODO: move ClientCommandRunner initialization inside Commands::Cli command handler only.
     let runner = ClientCommandRunner::new(
         &app.config,
         app.context.as_deref(),

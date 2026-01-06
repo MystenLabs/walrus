@@ -5,7 +5,6 @@
 
 use std::{
     fmt::{self, Display},
-    path::PathBuf,
     str::FromStr,
 };
 
@@ -14,14 +13,6 @@ use colored::{Color, ColoredString, Colorize};
 use num_bigint::BigUint;
 use serde::{Deserialize, Serialize};
 use walrus_core::{BlobId, QuiltPatchId, encoding::QuiltError};
-use walrus_sdk::{
-    blocklist::Blocklist,
-    client::get_sui_read_client_from_rpc_node_or_wallet,
-    config::ClientConfig,
-    node_client::WalrusNodeClient,
-    sui::client::SuiReadClient,
-};
-use walrus_sui::wallet::Wallet;
 
 mod args;
 mod backfill;
