@@ -570,10 +570,10 @@ impl ClientCommandRunner {
             registry,
             &config.contract_config.system_object,
             &config.contract_config.staking_object,
-            match &mut self.wallet {
-                Ok(wallet_context) => wallet_context.active_address().ok(),
-                Err(_) => None,
-            },
+            self.wallet
+                .as_ref()
+                .map(|wallet| wallet.active_address())
+                .ok(),
         );
     }
 
@@ -706,8 +706,8 @@ impl ClientCommandRunner {
         let encoding_type = encoding_type.unwrap_or(DEFAULT_ENCODING);
 
         let config = self.config?;
-        let mut wallet = self.wallet?;
-        let active_address = wallet.active_address()?;
+        let wallet = self.wallet?;
+        let active_address = wallet.active_address();
         let mut client_created_in_bg = WalrusNodeClientCreatedInBackground::new(
             get_contract_client(config.clone(), wallet, self.gas_budget),
             config.contract_config.n_shards,
@@ -1061,8 +1061,8 @@ impl ClientCommandRunner {
 
         let encoding_type = encoding_type.unwrap_or(DEFAULT_ENCODING);
         let config = self.config?;
-        let mut wallet = self.wallet?;
-        let active_address = wallet.active_address()?;
+        let wallet = self.wallet?;
+        let active_address = wallet.active_address();
         let mut client_created_in_bg = WalrusNodeClientCreatedInBackground::new(
             get_contract_client(config.clone(), wallet, self.gas_budget),
             config.contract_config.n_shards,
@@ -2284,13 +2284,7 @@ async fn get_latest_checkpoint_sequence_number(
     let url = if let Some(url) = rpc_url {
         url.clone()
     } else if let Ok(wallet) = wallet {
-        match wallet.get_rpc_url() {
-            Ok(rpc) => rpc,
-            Err(error) => {
-                eprintln!("Failed to get full node RPC URL. (error: {error})");
-                return None;
-            }
-        }
+        wallet.get_rpc_url().to_string()
     } else {
         println!("Failed to get full node RPC URL.");
         return None;

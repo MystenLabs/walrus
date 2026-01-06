@@ -258,7 +258,7 @@ async fn new_client(
 ) -> anyhow::Result<WithTempDir<WalrusNodeClient<SuiContractClient>>> {
     // Create the client with a separate wallet
     let wallet = wallet_for_testing_from_refill(config, network, refiller).await?;
-    let rpc_urls = &[wallet.as_ref().get_rpc_url()?];
+    let rpc_urls = &[wallet.as_ref().get_rpc_url()];
     let sui_client = RetriableSuiClient::new(
         rpc_urls
             .iter()
@@ -293,7 +293,7 @@ pub async fn wallet_for_testing_from_refill(
         network.env(),
     )
     .await?;
-    let address = wallet.as_mut().active_address()?;
+    let address = wallet.as_mut().active_address();
     refiller.send_gas_request(address).await?;
     refiller.send_wal_request(address).await?;
     Ok(wallet)

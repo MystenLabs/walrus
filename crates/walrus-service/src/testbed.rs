@@ -359,7 +359,7 @@ pub async fn deploy_walrus_contract(
         load_wallet_context_from_path(Some(&admin_wallet_path), None)?
     } else {
         tracing::debug!("creating new admin wallet in working directory");
-        let mut admin_wallet = create_wallet(
+        let admin_wallet = create_wallet(
             &working_dir.join(format!("{ADMIN_CONFIG_PREFIX}.yaml")),
             sui_network.env(),
             Some(&format!("{ADMIN_CONFIG_PREFIX}.keystore")),
@@ -369,18 +369,18 @@ pub async fn deploy_walrus_contract(
 
         // Print the wallet address.
         println!("Admin wallet address:");
-        println!("{}", admin_wallet.active_address()?);
+        println!("{}", admin_wallet.active_address());
         // Try to flush output
         let _ = std::io::stdout().flush();
 
-        let rpc_url = admin_wallet.get_rpc_url()?;
+        let rpc_url = admin_wallet.get_rpc_url();
 
         // Get coins from faucet for the wallet.
         let sui_client = RetriableSuiClient::new(
             vec![LazySuiClientBuilder::new(rpc_url, None)],
             Default::default(),
         )?;
-        request_sui_from_faucet(admin_wallet.active_address()?, &sui_network, &sui_client).await?;
+        request_sui_from_faucet(admin_wallet.active_address(), &sui_network, &sui_client).await?;
         admin_wallet
     };
 
@@ -476,7 +476,7 @@ pub async fn create_client_config(
 
     // Create wallet for the client
     let sui_client_wallet_path = working_dir.join(format!("{wallet_name}.yaml"));
-    let mut sui_client_wallet_context = create_wallet(
+    let sui_client_wallet_context = create_wallet(
         &sui_client_wallet_path,
         sui_network.env(),
         Some(&format!("{wallet_name}.keystore")),
@@ -484,7 +484,7 @@ pub async fn create_client_config(
     )
     .await?;
 
-    let client_address = sui_client_wallet_context.active_address()?;
+    let client_address = sui_client_wallet_context.active_address();
 
     // Get Sui coins from faucet or the admin wallet.
     get_sui_from_wallet_or_faucet(
@@ -649,7 +649,7 @@ pub async fn create_storage_node_configs(
         })
         .unzip();
 
-    let rpc = wallets[0].get_active_env()?.rpc.clone();
+    let rpc = wallets[0].get_active_env().rpc.clone();
     let mut storage_node_configs = Vec::new();
     for (i, (node, rest_api_address)) in nodes.into_iter().zip(rest_api_addrs).enumerate() {
         let node_index = i
@@ -753,9 +753,7 @@ pub async fn create_storage_node_configs(
     }
 
     let contract_clients = join_all(wallets.into_iter().map(|wallet| async {
-        let rpc_urls = &[wallet
-            .get_rpc_url()
-            .expect("wallet environment should contain an rpc url")];
+        let rpc_urls = &[wallet.get_rpc_url().to_string()];
 
         testbed_config
             .system_ctx
@@ -859,7 +857,7 @@ async fn create_storage_node_wallets(
         storage_node_wallets.push(wallet);
     }
 
-    print_wallet_addresses(&mut storage_node_wallets)?;
+    print_wallet_addresses(&mut storage_node_wallets);
 
     // Get coins from faucet for the wallets.
     for wallet in storage_node_wallets.iter_mut() {
@@ -871,7 +869,7 @@ async fn create_storage_node_wallets(
             tokio::time::sleep(cooldown).await;
         }
         get_sui_from_wallet_or_faucet(
-            wallet.active_address()?,
+            wallet.active_address(),
             admin_wallet,
             &sui_network,
             sui_amount,
@@ -881,12 +879,11 @@ async fn create_storage_node_wallets(
     Ok(storage_node_wallets)
 }
 
-fn print_wallet_addresses(wallets: &mut [Wallet]) -> anyhow::Result<()> {
+fn print_wallet_addresses(wallets: &mut [Wallet]) {
     println!("Wallet addresses:");
     for wallet in wallets.iter_mut() {
-        println!("{}", wallet.active_address()?);
+        println!("{}", wallet.active_address());
     }
     // Try to flush output
     let _ = std::io::stdout().flush();
-    Ok(())
 }

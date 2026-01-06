@@ -538,11 +538,11 @@ impl SuiContractClient {
 
     /// Constructor for [`SuiContractClient`] with an existing [`SuiReadClient`].
     pub fn new_with_read_client(
-        mut wallet: Wallet,
+        wallet: Wallet,
         gas_budget: Option<u64>,
         read_client: Arc<SuiReadClient>,
     ) -> SuiClientResult<Self> {
-        let wallet_address = wallet.active_address()?;
+        let wallet_address = wallet.active_address();
         Ok(Self {
             inner: Mutex::new(SuiContractClientInner::new(
                 wallet,
@@ -1440,7 +1440,7 @@ impl SuiContractClientInner {
         blob_obj_id: ObjectID,
         blob_attribute: &BlobAttribute,
     ) -> SuiClientResult<()> {
-        let mut pt_builder = self.transaction_builder()?;
+        let mut pt_builder = self.transaction_builder();
         pt_builder
             .add_blob_attribute(blob_obj_id.into(), blob_attribute.clone())
             .await?;
@@ -1452,7 +1452,7 @@ impl SuiContractClientInner {
 
     /// Removes the attribute dynamic field from a blob object.
     pub async fn remove_blob_attribute(&mut self, blob_obj_id: ObjectID) -> SuiClientResult<()> {
-        let mut pt_builder = self.transaction_builder()?;
+        let mut pt_builder = self.transaction_builder();
         pt_builder.remove_blob_attribute(blob_obj_id.into()).await?;
         let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
         self.sign_and_send_transaction(transaction, "remove_blob_attribute")
@@ -1470,7 +1470,7 @@ impl SuiContractClientInner {
         I: IntoIterator<Item = (T, T)>,
         T: Into<String>,
     {
-        let mut pt_builder = self.transaction_builder()?;
+        let mut pt_builder = self.transaction_builder();
         pt_builder
             .insert_or_update_blob_attribute_pairs(blob_obj_id.into(), pairs)
             .await?;
@@ -1490,7 +1490,7 @@ impl SuiContractClientInner {
         I: IntoIterator<Item = T>,
         T: AsRef<str>,
     {
-        let mut pt_builder = self.transaction_builder()?;
+        let mut pt_builder = self.transaction_builder();
         pt_builder
             .remove_blob_attribute_pairs(blob_obj_id.into(), keys)
             .await?;
@@ -1545,7 +1545,7 @@ impl SuiContractClientInner {
         encoded_size: u64,
         epochs_ahead: EpochCount,
     ) -> SuiClientResult<StorageResource> {
-        let mut pt_builder = self.transaction_builder()?;
+        let mut pt_builder = self.transaction_builder();
         pt_builder
             .reserve_space_with_credits(encoded_size, epochs_ahead)
             .await?;
@@ -1577,7 +1577,7 @@ impl SuiContractClientInner {
         encoded_size: u64,
         epochs_ahead: EpochCount,
     ) -> SuiClientResult<StorageResource> {
-        let mut pt_builder = self.transaction_builder()?;
+        let mut pt_builder = self.transaction_builder();
         pt_builder.reserve_space(encoded_size, epochs_ahead).await?;
         let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
         let res = self
@@ -1620,7 +1620,7 @@ impl SuiContractClientInner {
 
         let expected_num_blobs = blob_metadata_and_storage.len();
         tracing::debug!(num_blobs = expected_num_blobs, "starting to register blobs");
-        let mut pt_builder = self.transaction_builder()?;
+        let mut pt_builder = self.transaction_builder();
         // Build a ptb to include all register blob commands for all blobs.
         for (blob_metadata, storage) in blob_metadata_and_storage.into_iter() {
             if with_credits {
@@ -1712,7 +1712,7 @@ impl SuiContractClientInner {
             "starting to reserve and register blobs"
         );
 
-        let mut pt_builder = self.transaction_builder()?;
+        let mut pt_builder = self.transaction_builder();
 
         // Reserve enough space for all blobs
         let mut main_storage_arg_size = blob_metadata_list
@@ -1782,7 +1782,7 @@ impl SuiContractClientInner {
         blobs_with_certificates: &[(&BlobWithAttribute, ConfirmationCertificate)],
         post_store: PostStoreAction,
     ) -> SuiClientResult<HashMap<BlobId, ObjectID>> {
-        let mut pt_builder = self.transaction_builder()?;
+        let mut pt_builder = self.transaction_builder();
         for (i, (blob_with_attr, certificate)) in blobs_with_certificates.iter().enumerate() {
             let blob = &blob_with_attr.blob;
             tracing::debug!(
@@ -1841,7 +1841,7 @@ impl SuiContractClientInner {
             "calling certify_event_blob"
         );
 
-        let mut pt_builder = self.transaction_builder()?;
+        let mut pt_builder = self.transaction_builder();
         pt_builder
             .certify_event_blob(
                 blob_metadata,
@@ -1862,7 +1862,7 @@ impl SuiContractClientInner {
         &mut self,
         certificate: &InvalidBlobCertificate,
     ) -> SuiClientResult<()> {
-        let mut pt_builder = self.transaction_builder()?;
+        let mut pt_builder = self.transaction_builder();
         pt_builder.invalidate_blob_id(certificate).await?;
         let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
         self.sign_and_send_transaction(transaction, "invalidate_blob_id")
@@ -1876,7 +1876,7 @@ impl SuiContractClientInner {
         node_parameters: &NodeRegistrationParams,
         proof_of_possession: ProofOfPossession,
     ) -> SuiClientResult<StorageNodeCap> {
-        let mut pt_builder = self.transaction_builder()?;
+        let mut pt_builder = self.transaction_builder();
         pt_builder.register_candidate(node_parameters, proof_of_possession)?;
         let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
         let res = self
@@ -1913,7 +1913,7 @@ impl SuiContractClientInner {
             return Ok(vec![]);
         }
 
-        let mut pt_builder = self.transaction_builder()?;
+        let mut pt_builder = self.transaction_builder();
         for (node_parameters, proof_of_possession, address) in
             registration_params_with_stake_amounts.into_iter()
         {
@@ -1953,7 +1953,7 @@ impl SuiContractClientInner {
             tracing::debug!("no nodes to stake with provided");
             return Ok(vec![]);
         }
-        let mut pt_builder = self.transaction_builder()?;
+        let mut pt_builder = self.transaction_builder();
         for &(node_id, amount) in node_ids_with_amounts.iter() {
             if amount < MIN_STAKING_THRESHOLD {
                 return Err(SuiClientError::StakeBelowThreshold(amount));
@@ -1987,7 +1987,7 @@ impl SuiContractClientInner {
     /// StakedWal is available after an epoch has passed.
     #[tracing::instrument(level = Level::DEBUG, skip_all)]
     pub async fn request_withdraw_stake(&mut self, staked_wal_id: ObjectID) -> SuiClientResult<()> {
-        let mut pt_builder = self.transaction_builder()?;
+        let mut pt_builder = self.transaction_builder();
         pt_builder.request_withdraw_stake(staked_wal_id).await?;
         let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
         self.sign_and_send_transaction(transaction, "request_withdraw_stake")
@@ -2000,7 +2000,7 @@ impl SuiContractClientInner {
     /// StakedWal is available after an epoch has passed.
     #[tracing::instrument(level = Level::DEBUG, skip_all)]
     pub async fn withdraw_stake(&mut self, staked_wal_id: ObjectID) -> SuiClientResult<()> {
-        let mut pt_builder = self.transaction_builder()?;
+        let mut pt_builder = self.transaction_builder();
         pt_builder.withdraw_stake(staked_wal_id).await?;
         let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
         self.sign_and_send_transaction(transaction, "withdraw_stake")
@@ -2012,7 +2012,7 @@ impl SuiContractClientInner {
     ///
     /// Can be called once the voting period is over.
     pub async fn voting_end(&mut self) -> SuiClientResult<()> {
-        let mut pt_builder = self.transaction_builder()?;
+        let mut pt_builder = self.transaction_builder();
         pt_builder.voting_end()?;
         let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
         self.sign_and_send_transaction(transaction, "voting_end")
@@ -2024,7 +2024,7 @@ impl SuiContractClientInner {
     ///
     /// Can be called once the epoch duration is over.
     pub async fn initiate_epoch_change(&mut self) -> SuiClientResult<()> {
-        let mut pt_builder = self.transaction_builder()?;
+        let mut pt_builder = self.transaction_builder();
         pt_builder.initiate_epoch_change()?;
         let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
         self.sign_and_send_transaction(transaction, "initiate_epoch_change")
@@ -2037,7 +2037,7 @@ impl SuiContractClientInner {
     /// Requires the new walrus subsidy contract to be set.
     pub async fn process_subsidies(&mut self) -> SuiClientResult<()> {
         tracing::debug!("sending transaction to call process_subsidies");
-        let mut pt_builder = self.transaction_builder()?;
+        let mut pt_builder = self.transaction_builder();
         pt_builder.process_subsidies()?;
         let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
         self.sign_and_send_transaction(transaction, "process_subsidies")
@@ -2065,7 +2065,7 @@ impl SuiContractClientInner {
             "calling epoch_sync_done"
         );
 
-        let mut pt_builder = self.transaction_builder()?;
+        let mut pt_builder = self.transaction_builder();
         pt_builder
             .epoch_sync_done(node_capability.id.into(), epoch)
             .await?;
@@ -2088,7 +2088,7 @@ impl SuiContractClientInner {
         node_id: ObjectID,
         package_digest: [u8; 32],
     ) -> SuiClientResult<[u8; 32]> {
-        let mut pt_builder = self.transaction_builder()?;
+        let mut pt_builder = self.transaction_builder();
         pt_builder
             .vote_for_upgrade(upgrade_manager, node_id, &package_digest)
             .await?;
@@ -2116,7 +2116,7 @@ impl SuiContractClientInner {
         let (compiled_package, build_config) =
             compile_package(package_path, Default::default(), chain_id).await?;
 
-        let mut pt_builder = self.transaction_builder()?;
+        let mut pt_builder = self.transaction_builder();
 
         pt_builder
             .custom_walrus_upgrade(upgrade_manager, compiled_package, upgrade_type)
@@ -2135,7 +2135,7 @@ impl SuiContractClientInner {
     /// This must be called in the new package after an upgrade is committed in a separate
     /// transaction.
     pub async fn set_migration_epoch(&mut self, new_package_id: ObjectID) -> SuiClientResult<()> {
-        let mut pt_builder = self.transaction_builder()?;
+        let mut pt_builder = self.transaction_builder();
         pt_builder.set_migration_epoch(new_package_id)?;
         let transaction: TransactionData =
             pt_builder.build_transaction_data(self.gas_budget).await?;
@@ -2148,7 +2148,7 @@ impl SuiContractClientInner {
     ///
     /// This must be called in the new package after the migration epoch is set and has started.
     pub async fn migrate_contracts(&mut self, new_package_id: ObjectID) -> SuiClientResult<()> {
-        let mut pt_builder = self.transaction_builder()?;
+        let mut pt_builder = self.transaction_builder();
         pt_builder.migrate_contracts(new_package_id)?;
         let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
         self.sign_and_send_transaction(transaction, "migrate_contracts")
@@ -2162,7 +2162,7 @@ impl SuiContractClientInner {
         operation: PoolOperationWithAuthorization,
         authorized: Authorized,
     ) -> SuiClientResult<()> {
-        let mut pt_builder = self.transaction_builder()?;
+        let mut pt_builder = self.transaction_builder();
         let authorized_arg = pt_builder.authorized_address_or_object(authorized)?;
         match operation {
             PoolOperationWithAuthorization::Commission => {
@@ -2193,7 +2193,7 @@ impl SuiContractClientInner {
     ) -> SuiClientResult<SharedObjectWithAdminCap> {
         tracing::info!("creating a new walrus subsidies object");
 
-        let mut pt_builder = self.transaction_builder()?;
+        let mut pt_builder = self.transaction_builder();
         pt_builder.create_walrus_subsidies(
             package_id,
             system_subsidy_rate,
@@ -2228,7 +2228,7 @@ impl SuiContractClientInner {
     /// Adds funds to the walrus subsidies object (`walrus_subsidies::WalrusSubsidies`) if it is
     /// configured.
     pub async fn fund_walrus_subsidies(&mut self, amount: u64) -> SuiClientResult<()> {
-        let mut pt_builder = self.transaction_builder()?;
+        let mut pt_builder = self.transaction_builder();
         pt_builder.fund_walrus_subsidies(amount).await?;
         let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
         self.sign_and_send_transaction(transaction, "fund_walrus_subsidies")
@@ -2245,7 +2245,7 @@ impl SuiContractClientInner {
     ) -> SuiClientResult<ObjectID> {
         tracing::info!("creating a new SUI/WAL exchange");
 
-        let mut pt_builder = self.transaction_builder()?;
+        let mut pt_builder = self.transaction_builder();
         pt_builder
             .create_and_fund_exchange(exchange_package, amount)
             .await?;
@@ -2278,7 +2278,7 @@ impl SuiContractClientInner {
     ) -> SuiClientResult<SharedObjectWithAdminCap> {
         tracing::info!("creating a new credits object");
 
-        let mut pt_builder = self.transaction_builder()?;
+        let mut pt_builder = self.transaction_builder();
         pt_builder
             .create_and_fund_credits(
                 package_id,
@@ -2318,7 +2318,7 @@ impl SuiContractClientInner {
     ) -> SuiClientResult<()> {
         tracing::debug!(amount, "exchanging SUI/MIST for WAL/FROST");
 
-        let mut pt_builder = self.transaction_builder()?;
+        let mut pt_builder = self.transaction_builder();
         pt_builder.exchange_sui_for_wal(exchange_id, amount).await?;
         let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
         self.sign_and_send_transaction(transaction, "exchange_sui_for_wal")
@@ -2328,7 +2328,7 @@ impl SuiContractClientInner {
 
     /// Deletes the specified blob from the wallet's storage.
     pub async fn delete_blob(&mut self, blob_object_id: ObjectID) -> SuiClientResult<()> {
-        let mut pt_builder = self.transaction_builder()?;
+        let mut pt_builder = self.transaction_builder();
         pt_builder.delete_blob(blob_object_id.into()).await?;
         let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
         self.sign_and_send_transaction(transaction, "delete_blob")
@@ -2337,11 +2337,8 @@ impl SuiContractClientInner {
     }
 
     /// Returns a new [`WalrusPtbBuilder`] for the client.
-    pub fn transaction_builder(&mut self) -> SuiClientResult<WalrusPtbBuilder> {
-        Ok(WalrusPtbBuilder::new(
-            self.read_client.clone(),
-            self.wallet.active_address()?,
-        ))
+    pub fn transaction_builder(&mut self) -> WalrusPtbBuilder {
+        WalrusPtbBuilder::new(self.read_client.clone(), self.wallet.active_address())
     }
 
     async fn sign_and_send_transaction(
@@ -2380,8 +2377,8 @@ impl SuiContractClientInner {
 
     /// Merges the WAL and SUI coins owned by the wallet of the contract client.
     pub async fn merge_coins(&mut self) -> SuiClientResult<()> {
-        let mut tx_builder = self.transaction_builder()?;
-        let address = self.wallet.active_address()?;
+        let mut tx_builder = self.transaction_builder();
+        let address = self.wallet.active_address();
         let sui_balance = self
             .retriable_sui_client()
             .get_balance(address, None)
@@ -2423,7 +2420,7 @@ impl SuiContractClientInner {
 
     /// Sends the `amount` gas to the provided `recipient`.
     pub async fn send_sui(&mut self, amount: u64, recipient: SuiAddress) -> SuiClientResult<()> {
-        let mut pt_builder = self.transaction_builder()?;
+        let mut pt_builder = self.transaction_builder();
         pt_builder.pay_sui(recipient, amount).await?;
         self.sign_and_send_transaction(
             pt_builder.build_transaction_data(self.gas_budget).await?,
@@ -2436,7 +2433,7 @@ impl SuiContractClientInner {
     /// Sends the `amount` WAL to the provided `address`.
     pub async fn send_wal(&mut self, amount: u64, address: SuiAddress) -> SuiClientResult<()> {
         tracing::debug!(%address, "sending WAL to address");
-        let mut pt_builder = self.transaction_builder()?;
+        let mut pt_builder = self.transaction_builder();
 
         pt_builder.pay_wal(address, amount).await?;
         let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
@@ -2452,7 +2449,7 @@ impl SuiContractClientInner {
         tracing::debug!(n_blobs = blob_object_ids.len(), "burning blobs");
 
         for id_block in blob_object_ids.chunks(MAX_BURNS_PER_PTB) {
-            let mut pt_builder = self.transaction_builder()?;
+            let mut pt_builder = self.transaction_builder();
             for id in id_block {
                 pt_builder.burn_blob(id.into()).await?;
             }
@@ -2470,7 +2467,7 @@ impl SuiContractClientInner {
         shared_blob_obj_id: ObjectID,
         amount: u64,
     ) -> SuiClientResult<()> {
-        let mut pt_builder = self.transaction_builder()?;
+        let mut pt_builder = self.transaction_builder();
         pt_builder
             .fund_shared_blob(shared_blob_obj_id, amount)
             .await?;
@@ -2486,7 +2483,7 @@ impl SuiContractClientInner {
         shared_blob_obj_id: ObjectID,
         epochs_extended: EpochCount,
     ) -> SuiClientResult<()> {
-        let mut pt_builder = self.transaction_builder()?;
+        let mut pt_builder = self.transaction_builder();
         pt_builder
             .extend_shared_blob(shared_blob_obj_id, epochs_extended)
             .await?;
@@ -2507,7 +2504,7 @@ impl SuiContractClientInner {
             .retriable_sui_client()
             .get_sui_object(blob_obj_id)
             .await?;
-        let mut pt_builder = self.transaction_builder()?;
+        let mut pt_builder = self.transaction_builder();
 
         if let Some(amount) = amount {
             ensure!(amount > 0, "must fund with non-zero amount");
@@ -2546,7 +2543,7 @@ impl SuiContractClientInner {
             .retriable_sui_client()
             .get_sui_object(blob_obj_id)
             .await?;
-        let mut pt_builder = self.transaction_builder()?;
+        let mut pt_builder = self.transaction_builder();
         pt_builder
             .extend_blob(
                 blob_obj_id.into(),
@@ -2571,7 +2568,7 @@ impl SuiContractClientInner {
             .retriable_sui_client()
             .get_sui_object(blob_obj_id)
             .await?;
-        let mut pt_builder = self.transaction_builder()?;
+        let mut pt_builder = self.transaction_builder();
         pt_builder
             .extend_blob_with_credits(
                 blob_obj_id.into(),
@@ -2621,7 +2618,7 @@ impl SuiContractClientInner {
         node_parameters: NodeUpdateParams,
         node_capability_object_id: ObjectID,
     ) -> SuiClientResult<()> {
-        let wallet_address = self.wallet.active_address()?;
+        let wallet_address = self.wallet.active_address();
 
         tracing::debug!(
             ?wallet_address,
@@ -2629,7 +2626,7 @@ impl SuiContractClientInner {
             "updating node parameters"
         );
 
-        let mut pt_builder = self.transaction_builder()?;
+        let mut pt_builder = self.transaction_builder();
         pt_builder
             .update_node_params(node_capability_object_id.into(), node_parameters)
             .await?;
@@ -2642,14 +2639,14 @@ impl SuiContractClientInner {
     /// Withdraws the commission for the pool with id `node_id` and returns the
     /// withdrawn amount in FROST.
     pub async fn collect_commission(&mut self, node_id: ObjectID) -> SuiClientResult<u64> {
-        let mut pt_builder = self.transaction_builder()?;
+        let mut pt_builder = self.transaction_builder();
         pt_builder.collect_commission(node_id).await?;
         let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
         let response = self
             .sign_and_send_transaction(transaction, "collect_commission")
             .await?;
         let wal_type_tag = TypeTag::from_str(self.read_client.wal_coin_type())?;
-        let sender_address = self.wallet.active_address()?;
+        let sender_address = self.wallet.active_address();
         let Some(balance_change) = response
             .balance_changes
             .ok_or_else(|| anyhow!("transaction response does not contain balance changes"))?
@@ -2680,7 +2677,7 @@ impl SuiContractClientInner {
         amount: u64,
         n: u64,
     ) -> SuiClientResult<()> {
-        let mut pt_builder = self.transaction_builder()?;
+        let mut pt_builder = self.transaction_builder();
         for _ in 0..n {
             pt_builder.pay_wal(address, amount).await?;
         }
@@ -2745,7 +2742,7 @@ impl SuiContractClientInner {
             .into_iter()
             .map(ObjectArg::ImmOrOwnedObject);
 
-        let mut pt_builder = self.transaction_builder()?;
+        let mut pt_builder = self.transaction_builder();
 
         for (blob_params, object_arg) in certify_and_extend_parameters
             .iter()

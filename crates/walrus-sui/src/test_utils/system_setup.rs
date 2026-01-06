@@ -224,7 +224,7 @@ pub async fn create_and_init_system(
 
     let contract_config = ContractConfig::new(system_object, staking_object);
 
-    let rpc_urls = &[admin_wallet.get_rpc_url()?];
+    let rpc_urls = &[admin_wallet.get_rpc_url().to_string()];
     let admin_contract_client = SuiContractClient::new(
         admin_wallet,
         rpc_urls,

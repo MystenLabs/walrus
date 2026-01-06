@@ -24,12 +24,18 @@ use sui_types::{
 /// The `Wallet` struct wraps the `WalletContext` from the Sui SDK. This allows us to
 /// reduce the scope of the `WalletContext` to only the methods we need.
 pub struct Wallet {
+    active_address: SuiAddress,
+    active_env: SuiEnv,
+    config_path: PathBuf,
     wallet_context: WalletContext,
 }
 
 impl std::fmt::Debug for Wallet {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Wallet").finish()
+        f.debug_struct("Wallet")
+            .field("active_address", &self.active_address)
+            .field("active_env", &self.active_env)
+            .finish()
     }
 }
 
@@ -39,13 +45,18 @@ pub type WalletError = anyhow::Error;
 
 impl Wallet {
     /// Create a new Wallet.
-    pub fn new(wallet_context: WalletContext) -> Self {
-        Self { wallet_context }
+    pub fn new(mut wallet_context: WalletContext) -> Result<Self, WalletError> {
+        Ok(Self {
+            active_address: wallet_context.active_address()?,
+            active_env: wallet_context.config.get_active_env()?.clone(),
+            config_path: wallet_context.config.path().to_path_buf(),
+            wallet_context,
+        })
     }
 
-    /// Passes through to the `WalletContext` to get the active address.
-    pub fn active_address(&mut self) -> Result<SuiAddress, WalletError> {
-        self.wallet_context.active_address()
+    /// Get the active address.
+    pub fn active_address(&self) -> SuiAddress {
+        self.active_address
     }
 
     /// Passes through to the `WalletContext` to sign a transaction.
@@ -115,17 +126,17 @@ impl Wallet {
     }
 
     /// Get the rpc_url for the active environment.
-    pub fn get_rpc_url(&self) -> Result<String, WalletError> {
-        Ok(self.wallet_context.config.get_active_env()?.rpc.clone())
+    pub fn get_rpc_url(&self) -> &str {
+        &self.active_env.rpc
     }
 
     /// Get the path to the wallet configuration file.
     pub fn get_config_path(&self) -> &Path {
-        self.wallet_context.config.path()
+        &self.config_path
     }
 
     /// Get the active environment.
-    pub fn get_active_env(&self) -> Result<&SuiEnv, WalletError> {
-        self.wallet_context.config.get_active_env()
+    pub fn get_active_env(&self) -> &SuiEnv {
+        &self.active_env
     }
 }
