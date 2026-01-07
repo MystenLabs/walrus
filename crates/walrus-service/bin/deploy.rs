@@ -637,7 +637,7 @@ mod commands {
                 .ok();
             let wallet = load_wallet_context_from_path(wallet_path, None)
                 .context("unable to load wallet")?;
-            let (compiled_package, _build_config) =
+            let (compiled_package, _build_config, _root_package) =
                 compile_package(contract_dir, Default::default(), chain_id, &wallet).await?;
 
             let sender = sender.unwrap_or(contract_client.address());

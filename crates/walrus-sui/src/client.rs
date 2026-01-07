@@ -852,7 +852,7 @@ impl SuiContractClient {
             .await
             .ok();
         tracing::info!(?chain_id, "chain identifier");
-        let (compiled_package, _build_config) = system_setup::compile_package(
+        let (compiled_package, _build_config, _root_package) = system_setup::compile_package(
             package_path,
             Default::default(),
             chain_id,
@@ -2129,7 +2129,7 @@ impl SuiContractClientInner {
             .get_chain_identifier()
             .await
             .ok();
-        let (compiled_package, _build_config) =
+        let (compiled_package, _build_config, _root_package) =
             compile_package(package_path, Default::default(), chain_id, &self.wallet).await?;
 
         let mut pt_builder = self.transaction_builder();

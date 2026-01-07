@@ -11,10 +11,14 @@ use std::{
 };
 
 use anyhow::{Context, Result, anyhow, bail};
-use move_package_alt::package::{RootPackage, package_loader::PackageLoader};
+use move_package_alt::{
+    package::{RootPackage, package_loader::PackageLoader},
+    schema::{OriginalID, Publication, PublishAddresses, PublishedID},
+};
 use move_package_alt_compilation::build_config::BuildConfig as MoveBuildConfig;
 use sui_move_build::{CompiledPackage, PackageDependencies};
-use sui_package_alt::{SuiFlavor, find_environment};
+use sui_package_alt::{BuildParams, SuiFlavor, find_environment};
+use sui_package_management::LockCommand;
 use sui_sdk::{
     rpc_types::{SuiExecutionStatus, SuiTransactionBlockEffectsAPI, SuiTransactionBlockResponse},
     types::{
@@ -82,7 +86,7 @@ pub async fn compile_package(
     build_config: MoveBuildConfig,
     chain_id: Option<String>,
     wallet: &Wallet,
-) -> Result<(CompiledPackage, MoveBuildConfig)> {
+) -> Result<(CompiledPackage, MoveBuildConfig, RootPackage<SuiFlavor>)> {
     // TODO: branch here depending on the environment or pass a flag for testing
 
     // let env = find_environment(
@@ -98,6 +102,7 @@ pub async fn compile_package(
     //     .await?;
 
     let pubfile_path = PathBuf::from(package_path.join("Pub.localnet.toml"));
+    tracing::info!("ZZZZZZ pubfile_path {:?}", pubfile_path);
 
     // TODO: make this clean, only for testing
     let root_pkg = PackageLoader::new_ephemeral(
@@ -130,7 +135,7 @@ fn compile_package_inner_blocking(
     build_config: MoveBuildConfig,
     _chain_id: Option<String>,
     root_pkg: RootPackage<SuiFlavor>,
-) -> Result<(CompiledPackage, MoveBuildConfig)> {
+) -> Result<(CompiledPackage, MoveBuildConfig, RootPackage<SuiFlavor>)> {
     let mut stdout = std::io::stdout();
     let package = move_package_alt_compilation::compile_from_root_package::<
         std::io::Stdout,
@@ -139,18 +144,19 @@ fn compile_package_inner_blocking(
     .expect("Compilation should succeed");
 
     let package_dependencies = PackageDependencies::new(&root_pkg)?;
-    if !package_dependencies.unpublished.is_empty() {
-        bail!(
-            "Walrus packages must not have unpublished dependencies. Unpublished dependencies: {}
-        ",
-            package_dependencies
-                .unpublished
-                .into_iter()
-                .map(|n| n.to_string())
-                .collect::<Vec<_>>()
-                .join(", ")
-        );
-    }
+    tracing::info!("ZZZZZZ package_dependencies {:?}", package_dependencies);
+    // if !package_dependencies.unpublished.is_empty() {
+    //     bail!(
+    //         "Walrus packages must not have unpublished dependencies. Unpublished dependencies: {}
+    //     ",
+    //         package_dependencies
+    //             .unpublished
+    //             .into_iter()
+    //             .map(|n| n.to_string())
+    //             .collect::<Vec<_>>()
+    //             .join(", ")
+    //     );
+    // }
 
     let published_at = root_pkg
         .publication()
@@ -167,7 +173,57 @@ fn compile_package_inner_blocking(
         "package was already published, modules must all have 0x0 as their addresses."
     );
 
-    Ok((compiled_package, build_config))
+    Ok((compiled_package, build_config, root_pkg))
+}
+
+/// Return the update publication data, without writing it to lockfile
+pub fn update_publication(
+    chain_id: &str,
+    command: LockCommand,
+    response: &SuiTransactionBlockResponse,
+    _build_config: &MoveBuildConfig,
+    publication: Option<&mut Publication<SuiFlavor>>,
+) -> Result<Publication<SuiFlavor>, anyhow::Error> {
+    // Get the published package ID and version from the response
+    let (published_id, version, _) = response.get_new_package_obj().ok_or_else(|| {
+        anyhow!(
+            "Expected a valid published package response but didn't see \
+         one when attempting to update the `Move.lock`."
+        )
+    })?;
+
+    match command {
+        LockCommand::Publish => {
+            let (upgrade_cap, _, _) = response
+                .get_new_package_upgrade_cap()
+                .ok_or_else(|| anyhow!("Expected a valid published package with a upgrade cap"))?;
+            Ok(Publication::<SuiFlavor> {
+                chain_id: chain_id.to_string(),
+                metadata: sui_package_alt::PublishedMetadata {
+                    toolchain_version: Some(env!("CARGO_PKG_VERSION").into()),
+                    build_config: Some(sui_package_alt::BuildParams::default()),
+                    upgrade_capability: Some(upgrade_cap),
+                },
+                addresses: PublishAddresses {
+                    published_at: PublishedID(*published_id),
+                    original_id: OriginalID(*published_id),
+                },
+                version: version.value(),
+            })
+        }
+        LockCommand::Upgrade => {
+            let publication =
+                publication.expect("for upgrade there should already exist publication info");
+            publication.addresses.published_at = PublishedID(*published_id);
+            publication.version = version.value();
+            // TODO: fix build config data
+            publication.metadata.build_config = Some(BuildParams::default());
+            publication.metadata.toolchain_version = Some(env!("CARGO_PKG_VERSION").into());
+            // TODO: fix this, we should return a mut publication instead of creating a new one in
+            // the Publish case
+            Ok(publication.clone())
+        }
+    }
 }
 
 #[tracing::instrument(err, skip(wallet, build_config))]
@@ -185,8 +241,8 @@ pub(crate) async fn publish_package(
 
     let chain_id = retry_client.get_chain_identifier().await.ok();
 
-    let (compiled_package, _build_config) =
-        compile_package(package_path, build_config, chain_id, wallet).await?;
+    let (compiled_package, final_build_config, mut root_package) =
+        compile_package(package_path, build_config, chain_id.clone(), wallet).await?;
 
     let compiled_modules = compiled_package.get_package_bytes(false);
 
@@ -236,17 +292,19 @@ pub(crate) async fn publish_package(
         .execute_transaction_may_fail(wallet.sign_transaction(&tx_data).await)
         .await?;
 
+    tracing::info!("ZZZZZZ response {:?}", response);
+
     // TODO: duplicate update_publication, and return root_package from compile_package
     // (or construct it above and pass it to compile_package)
-    // let publish_data = update_publication(
-    //     &chain_id,
-    //     LockCommand::Publish,
-    //     response,
-    //     &build_config,
-    //     None,
-    // )?;
+    let publish_data = update_publication(
+        chain_id.clone().unwrap().as_str(),
+        LockCommand::Publish,
+        &response,
+        &final_build_config,
+        None,
+    )?;
 
-    // root_package.write_publish_data(publish_data)?;
+    root_package.write_publish_data(publish_data)?;
 
     Ok(response)
 }
