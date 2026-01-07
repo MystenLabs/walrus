@@ -117,6 +117,7 @@ md5 = { workspace = true, optional = true }
 mime = { workspace = true, optional = true }
 moka = { version = "0.12.10", features = ["future"] }
 move-core-types.workspace = true
+move-package-alt.workspace = true
 mysten-metrics = { workspace = true, optional = true }
 num-bigint.workspace = true
 object_store = { workspace = true, optional = true }
