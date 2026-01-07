@@ -6,7 +6,7 @@ keywords: ["walrus", "sui blockchain", "smart contracts", "storage resources", "
 
 Walrus uses [Sui smart contracts](https://docs.sui.io/guides/developer/sui-101/move-package-management) to coordinate storage resource lifecycle operations and payments. Smart contracts also facilitate governance to determine the storage nodes holding each storage shard. This page outlines these operations and refers to them as part of the read and write paths.
 
-Metadata is the only blob element ever exposed to Sui or [its validators](https://docs.sui.io/guides/operator/validator-index), as the content of blobs is always stored off-chain on Walrus storage nodes and caches. The storage nodes or caches do not have to overlap with any Sui infrastructure components (such as validators), and the [storage epochs](/blog/04_testnet_update.mdx#epochs) can have different lengths and timing than [Sui epochs](https://docs.sui.io/concepts/sui-architecture/epochs).
+Metadata is the only blob element ever exposed to Sui or [its validators](https://docs.sui.io/guides/operator/validator-index), as the content of blobs is always stored off-chain on Walrus storage nodes and caches. The storage nodes or caches do not have to overlap with any Sui infrastructure components (such as validators), and the [storage epochs](/blog/04_testnet_update#epochs) can have different lengths and timing than [Sui epochs](https://docs.sui.io/concepts/sui-architecture/epochs).
 
 ## Sui smart contracts
 

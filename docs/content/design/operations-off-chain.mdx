@@ -61,7 +61,7 @@ After the PoA, a correct storage node attempting to reconstruct a sliver might f
 The flow is as follows:
 1. A storage node fails to reconstruct a sliver, and instead computes an inconsistency proof.
 2. The storage node sends the blob ID and inconsistency proof to all storage nodes of the Walrus epoch. The storage nodes verify the proof and sign it.
-3. The storage node that found the inconsistency aggregates the signatures into an inconsistency certificate and sends it to the [Sui smart contract]((https://docs.sui.io/guides/developer/sui-101/move-package-management)), which verifies it and emits an inconsistent resource event.
+3. The storage node that found the inconsistency aggregates the signatures into an inconsistency certificate and sends it to the [Sui smart contract](https://docs.sui.io/guides/developer/sui-101/move-package-management), which verifies it and emits an inconsistent resource event.
 4. Upon receiving an inconsistent resource event, correct storage nodes delete sliver data for the blob ID and record in the metadata to return `None` for the blob during the [availability period](/design/properties.mdx). No storage attestation challenges are issued for this blob ID.
 
 ### Reading inconsistent blobs
