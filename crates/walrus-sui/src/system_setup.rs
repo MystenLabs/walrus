@@ -11,7 +11,7 @@ use std::{
 };
 
 use anyhow::{Context, Result, anyhow, bail};
-use move_package_alt::package::RootPackage;
+use move_package_alt::package::{RootPackage, package_loader::PackageLoader};
 use move_package_alt_compilation::build_config::BuildConfig as MoveBuildConfig;
 use sui_move_build::{CompiledPackage, PackageDependencies};
 use sui_package_alt::{SuiFlavor, find_environment};
@@ -83,18 +83,34 @@ pub async fn compile_package(
     chain_id: Option<String>,
     wallet: &Wallet,
 ) -> Result<(CompiledPackage, MoveBuildConfig)> {
-    let env = find_environment(
-        &package_path,
-        build_config.environment.clone(),
-        wallet.wallet_context(),
+    // TODO: branch here depending on the environment or pass a flag for testing
+
+    // let env = find_environment(
+    //     &package_path,
+    //     build_config.environment.clone(),
+    //     wallet.wallet_context(),
+    // )
+    // .await?;
+
+    // let root_pkg: RootPackage<SuiFlavor> = build_config
+    //     .package_loader(&package_path, &env)
+    //     .load()
+    //     .await?;
+
+    let pubfile_path = PathBuf::from(package_path.join("Pub.localnet.toml"));
+
+    // TODO: make this clean, only for testing
+    let root_pkg = PackageLoader::new_ephemeral(
+        package_path.clone(),
+        Some(String::from("localnet")),
+        chain_id.clone().unwrap(),
+        pubfile_path,
     )
+    .modes(build_config.mode_set())
+    .load()
     .await?;
 
-    let root_pkg: RootPackage<SuiFlavor> = build_config
-        .package_loader(&package_path, &env)
-        .load()
-        .await?;
-    tokio::task::spawn_blocking(|| {
+    let result = tokio::task::spawn_blocking(|| {
         sui_macros::nondeterministic!(compile_package_inner_blocking(
             package_path,
             build_config,
@@ -102,7 +118,9 @@ pub async fn compile_package(
             root_pkg
         ))
     })
-    .await?
+    .await?;
+
+    result
 }
 
 /// Synchronous method to compile the package. Should only be called from an async context
@@ -217,6 +235,18 @@ pub(crate) async fn publish_package(
     let response = wallet
         .execute_transaction_may_fail(wallet.sign_transaction(&tx_data).await)
         .await?;
+
+    // TODO: duplicate update_publication, and return root_package from compile_package
+    // (or construct it above and pass it to compile_package)
+    // let publish_data = update_publication(
+    //     &chain_id,
+    //     LockCommand::Publish,
+    //     response,
+    //     &build_config,
+    //     None,
+    // )?;
+
+    // root_package.write_publish_data(publish_data)?;
 
     Ok(response)
 }
