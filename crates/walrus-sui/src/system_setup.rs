@@ -11,16 +11,10 @@ use std::{
 };
 
 use anyhow::{Context, Result, anyhow, bail};
-use move_core_types::account_address::AccountAddress;
-use move_package::BuildConfig as MoveBuildConfig;
-use sui_move_build::{
-    BuildConfig,
-    CompiledPackage,
-    build_from_resolution_graph,
-    check_invalid_dependencies,
-    check_unpublished_dependencies,
-    gather_published_ids,
-};
+use move_package_alt::package::RootPackage;
+use move_package_alt_compilation::build_config::BuildConfig as MoveBuildConfig;
+use sui_move_build::{CompiledPackage, PackageDependencies};
+use sui_package_alt::{SuiFlavor, find_environment};
 use sui_sdk::{
     rpc_types::{SuiExecutionStatus, SuiTransactionBlockEffectsAPI, SuiTransactionBlockResponse},
     types::{
@@ -46,7 +40,7 @@ use crate::{
     },
     contracts::{self, StructTag},
     test_utils::system_setup::update_contract_sui_dependency_to_local_copy,
-    utils::{get_created_sui_object_ids_by_type, resolve_lock_file_path},
+    utils::get_created_sui_object_ids_by_type,
     wallet::Wallet,
 };
 
@@ -87,12 +81,25 @@ pub async fn compile_package(
     package_path: PathBuf,
     build_config: MoveBuildConfig,
     chain_id: Option<String>,
+    wallet: &Wallet,
 ) -> Result<(CompiledPackage, MoveBuildConfig)> {
+    let env = find_environment(
+        &package_path,
+        build_config.environment.clone(),
+        wallet.wallet_context(),
+    )
+    .await?;
+
+    let root_pkg: RootPackage<SuiFlavor> = build_config
+        .package_loader(&package_path, &env)
+        .load()
+        .await?;
     tokio::task::spawn_blocking(|| {
         sui_macros::nondeterministic!(compile_package_inner_blocking(
             package_path,
             build_config,
-            chain_id
+            chain_id,
+            root_pkg
         ))
     })
     .await?
@@ -101,61 +108,46 @@ pub async fn compile_package(
 /// Synchronous method to compile the package. Should only be called from an async context
 /// using `tokio::task::spawn_blocking` or similar methods.
 fn compile_package_inner_blocking(
-    package_path: PathBuf,
+    _package_path: PathBuf,
     build_config: MoveBuildConfig,
-    chain_id: Option<String>,
+    _chain_id: Option<String>,
+    root_pkg: RootPackage<SuiFlavor>,
 ) -> Result<(CompiledPackage, MoveBuildConfig)> {
-    let build_config = resolve_lock_file_path(build_config, &package_path)?;
+    let mut stdout = std::io::stdout();
+    let package = move_package_alt_compilation::compile_from_root_package::<
+        std::io::Stdout,
+        SuiFlavor,
+    >(&root_pkg, &build_config, &mut stdout)
+    .unwrap();
 
-    // Set the package ID to zero.
-    let previous_id = if let Some(ref chain_id) = chain_id {
-        sui_package_management::set_package_id(
-            &package_path,
-            build_config.install_dir.clone(),
-            chain_id,
-            AccountAddress::ZERO,
-        )?
-    } else {
-        None
+    let package_dependencies = PackageDependencies::new(&root_pkg)?;
+    if !package_dependencies.unpublished.is_empty() {
+        bail!(
+            "Walrus packages must not have unpublished dependencies. Unpublished dependencies: {}
+        ",
+            package_dependencies
+                .unpublished
+                .into_iter()
+                .map(|n| n.to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+    }
+
+    let published_at = root_pkg
+        .publication()
+        .map(|p| ObjectID::from_address(p.addresses.published_at.0));
+
+    let compiled_package = CompiledPackage {
+        package,
+        published_at,
+        dependency_ids: package_dependencies,
     };
-
-    let run_bytecode_verifier = true;
-    let print_diags_to_stderr = false;
-    let config = BuildConfig {
-        config: build_config.clone(),
-        run_bytecode_verifier,
-        print_diags_to_stderr,
-        chain_id: chain_id.clone(),
-    };
-    let resolution_graph = config.resolution_graph(&package_path, chain_id.clone())?;
-    let (_, dependencies) = gather_published_ids(&resolution_graph, chain_id.clone());
-
-    // Check that the dependencies have a valid published address.
-    check_invalid_dependencies(&dependencies.invalid)?;
-    // Check that all dependencies are published.
-    check_unpublished_dependencies(&dependencies.unpublished)?;
-
-    let compiled_package = build_from_resolution_graph(
-        resolution_graph,
-        run_bytecode_verifier,
-        print_diags_to_stderr,
-        chain_id.clone(),
-    )?;
 
     ensure!(
         compiled_package.published_root_module().is_none(),
         "package was already published, modules must all have 0x0 as their addresses."
     );
-
-    // Restore original ID.
-    if let (Some(chain_id), Some(previous_id)) = (chain_id, previous_id) {
-        let _ = sui_package_management::set_package_id(
-            &package_path,
-            build_config.install_dir.clone(),
-            &chain_id,
-            previous_id,
-        )?;
-    }
 
     Ok((compiled_package, build_config))
 }
@@ -175,8 +167,8 @@ pub(crate) async fn publish_package(
 
     let chain_id = retry_client.get_chain_identifier().await.ok();
 
-    let (compiled_package, build_config) =
-        compile_package(package_path, build_config, chain_id).await?;
+    let (compiled_package, _build_config) =
+        compile_package(package_path, build_config, chain_id, wallet).await?;
 
     let compiled_modules = compiled_package.get_package_bytes(false);
 
@@ -225,17 +217,6 @@ pub(crate) async fn publish_package(
     let response = wallet
         .execute_transaction_may_fail(wallet.sign_transaction(&tx_data).await)
         .await?;
-
-    // Update the lock file with the new package ID.
-    wallet
-        .update_lock_file(
-            sui_package_management::LockCommand::Publish,
-            build_config.install_dir,
-            build_config.lock_file,
-            &response,
-        )
-        .await
-        .context("failed to update Move.lock")?;
 
     Ok(response)
 }

@@ -1142,7 +1142,6 @@ mod tests {
             .as_ref()
             .inner
             .sui_client()
-            .read_client()
             .compute_package_digest(walrus_package_path.clone())
             .await?;
 
