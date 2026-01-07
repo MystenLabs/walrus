@@ -729,21 +729,6 @@ impl SuiReadClient {
             })
     }
 
-    // /// Returns the digest of the package at `package_path` for the currently active sui network.
-    // pub async fn compute_package_digest(&self, package_path: PathBuf) -> SuiClientResult<[u8; 32]> {
-    //     // Compile package to get the digest.
-    //     let chain_id = self
-    //         .retriable_sui_client()
-    //         .get_chain_identifier()
-    //         .await
-    //         .ok();
-    //     tracing::info!(?chain_id, "chain identifier");
-    //     let (compiled_package, _build_config) =
-    //         system_setup::compile_package(package_path, Default::default(), chain_id).await?;
-    //     let digest = compiled_package.get_package_digest(false);
-    //     Ok(digest)
-    // }
-
     pub(crate) async fn get_compatible_gas_coins(
         &self,
         sender_address: SuiAddress,
