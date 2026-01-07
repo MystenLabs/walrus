@@ -633,10 +633,9 @@ mod commands {
             let chain_id = contract_client
                 .retriable_sui_client()
                 .get_chain_identifier()
-                .await
-                .ok();
-            let (compiled_package, _build_config) =
-                compile_package(contract_dir, Default::default(), chain_id).await?;
+                .await?;
+            let environment = move_package_alt::schema::Environment::new(chain_id.clone(), chain_id);
+            let compiled_package = compile_package(contract_dir, environment).await?;
 
             let sender = sender.unwrap_or(contract_client.address());
             let mut pt_builder = WalrusPtbBuilder::new(contract_client.read_client, sender);
