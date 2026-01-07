@@ -1959,7 +1959,6 @@ impl ClientCommandRunner {
             }
             NodeAdminCommands::PackageDigest { package_path } => {
                 let digest = sui_client
-                    .read_client()
                     .compute_package_digest(package_path.clone())
                     .await?;
                 println!(

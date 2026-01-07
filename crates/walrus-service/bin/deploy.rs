@@ -619,8 +619,8 @@ mod commands {
     ) -> anyhow::Result<()> {
         utils::init_tracing_subscriber()?;
 
-        let wallet =
-            load_wallet_context_from_path(wallet_path, None).context("unable to load wallet")?;
+        let wallet = load_wallet_context_from_path(wallet_path.clone(), None)
+            .context("unable to load wallet")?;
         let contract_config = ContractConfig::new(system_object_id, staking_object_id);
 
         let rpc_urls = &[wallet.get_rpc_url().to_string()];
@@ -635,8 +635,10 @@ mod commands {
                 .get_chain_identifier()
                 .await
                 .ok();
+            let wallet = load_wallet_context_from_path(wallet_path, None)
+                .context("unable to load wallet")?;
             let (compiled_package, _build_config) =
-                compile_package(contract_dir, Default::default(), chain_id).await?;
+                compile_package(contract_dir, Default::default(), chain_id, &wallet).await?;
 
             let sender = sender.unwrap_or(contract_client.address());
             let mut pt_builder = WalrusPtbBuilder::new(contract_client.read_client, sender);
