@@ -1,0 +1,84 @@
+# Walrus Docs
+
+Where the world's data becomes reliable, valuable, and governable
+
+## Design
+
+- [Basic Architecture and Security Assumptions](/design/architecture): Overview of Walrus system architecture including users, storage nodes, aggregators, and security assumptions for Byzantine fault tolerance.
+- [Encoding, Overheads, and Verification](/design/encoding): Technical details of Walrus encoding using RedStuff erasure codes, data authentication, integrity checks, and consistency verification.
+- [Objectives and Use Cases](/design/objectives_use_cases): Overview of Walrus objectives, use cases, and applications including NFT storage, AI datasets, and decentralized web hosting.
+- [Off-Chain Operations](/design/operations-off-chain): Detailed explanation of Walrus off-chain operations including write paths, read operations, and storage node interactions.
+- [Operations on Sui](/design/operations-sui): Walrus operations on Sui blockchain including storage resource lifecycle, smart contracts, and governance mechanisms.
+- [Operations](/design/operations): Overview of Walrus operations including Sui chain interactions for coordination and off-chain interactions between clients and storage nodes.
+- [System Overview](/design/overview): Overview of Walrus system architecture and encoding mechanisms for decentralized blob storage.
+- [Walrus Assurance and Security Properties](/design/properties): Detailed security properties and assurances of Walrus including point of availability, consistency guarantees, and Byzantine fault tolerance.
+
+## Dev guide
+
+- [Components](/dev-guide/components): Overview of Walrus components including Sui objects, storage nodes, aggregators, and client binaries for developers.
+- [Storage Costs](/dev-guide/costs): Comprehensive guide to Walrus storage costs including WAL tokens, SUI gas fees, and cost optimization strategies.
+- [Data Security](/dev-guide/data-security): Security guarantees and best practices for Walrus including availability, integrity, and encryption with Seal for access control.
+- [Developer Guide](/dev-guide/dev-guide): Comprehensive guide for developers building applications using Walrus as a storage or availability layer.
+- [Operations](/dev-guide/dev-operations): Developer guide to Walrus operations including store, read, certify availability, and delete operations for blob management.
+- [Sui Structures](/dev-guide/sui-struct): Technical reference for Walrus Sui smart contracts including blob objects, storage resources, and system events for developers.
+
+## Intro
+
+- [Walrus](/intro): Developer documentation for Walrus, a decentralized storage and data availability protocol designed for large binary files and blobs.
+
+## Legal
+
+- [WALRUS PRIVACY POLICY](/legal/privacy): This Privacy Policy is designed to help you understand how Walrus Foundation (collectively called the “**Organization**", "**we**," "**us**," and "**our**") collects, uses, and shares your personal information and to help you understand and exercise your privacy rights in accordance with applicable law. This Policy applies when you use the Website, contact our team members, engage with us on social media or otherwise interact with us. Any capitalized terms that are undefined shall have the meaning as set forth in the Walrus Airdrop Terms and Conditions
+- [TESTNET TERMS OF SERVICE - WALRUS](/legal/testnet_tos): Last updated: March 26, 2025
+- [Walrus General Terms of Service](/legal/walrus_general_tos): Please read these Terms of Service (the “Terms”) and our Privacy Policy carefully because they govern your use of the website, the user interface, and other offerings located at walrus.xyz, (the to read, the Site and our services (including Beta Services) are collectively called the protocols, maintained by third party open source communities, which we do not own or control (the games, DeFi apps, marketplaces, automated market makers, website hosting, data storage providers, and wallets. BY USING THESE SERVICES, YOU REPRESENT THAT YOU ARE NOT A PERSON OR ENTITY WHO IS RESIDENT IN, A CITIZEN OF, IS LOCATED IN, IS INCORPORATED IN, OR HAS A REGISTERED OFFICE IN ANY RESTRICTED TERRITORY, AS DEFINED BELOW (ANY SUCH PERSON OR ENTITY FROM A RESTRICTED TERRITORY, ARE REFERRED TO HEREIN AS A “RESTRICTED PERSON”).WHEN YOU AGREE TO THESE TERMS, YOU ARE AGREEING (WITH LIMITED EXCEPTION) TO RESOLVE ANY DISPUTE BETWEEN YOU AND WALRUS FOUNDATION THROUGH BINDING, INDIVIDUAL ARBITRATION RATHER THAN IN COURT. PLEASE REVIEW CAREFULLY SECTION 15 “DISPUTE RESOLUTION” BELOW FOR DETAILS REGARDING ARBITRATION. HOWEVER, IF YOU ARE A RESIDENT OF A JURISDICTION WHERE APPLICABLE LAW PROHIBITS ARBITRATION OF DISPUTES, THE AGREEMENT TO ARBITRATE IN SECTION 16 WILL NOT APPLY TO YOU, BUT THE PROVISIONS OF SECTION 15 (GOVERNING LAW) WILL APPLY INSTEAD.
+
+## Operator guide
+
+- [Operating an Aggregator or Publisher](/operator-guide/aggregator): Detailed guide for operating Walrus aggregators and publishers including daemon configuration, metrics, and advanced features.
+- [The Authenticated Publisher](/operator-guide/auth-publisher): Guide to setting up and using authenticated Walrus publishers with JWT authentication for controlled blob storage access.
+- [Backup and Restore Guide](/operator-guide/backup-restore-guide): Comprehensive guide for backing up and restoring Walrus storage node databases with automated and manual procedures.
+- [Commission and Governance](/operator-guide/commission-governance): Guide to managing storage node commission collection and governance operations including authorization and contract upgrades.
+- [Operator Guide](/operator-guide/operator-guide): Comprehensive guide for operating Walrus network services including storage nodes, aggregators, and publishers.
+- [Operating a Storage Node](/operator-guide/storage-node): Guide for operating Walrus storage nodes including commission governance, backup and restore procedures.
+- [The Walrus Upload Relay](/operator-guide/upload-relay): Complete guide to operating Walrus upload relays for facilitating browser-based blob storage with tip configuration and payment systems.
+
+## Tusky migration guide
+
+- [Tusky Migration Guide](/tusky-migration-guide): During the Tusky sunsetting period, you can continue reading your data and migrate to using Walrus directly or through alternative tooling.
+
+## Usage
+
+- [Using the Walrus Client](/usage/client-cli): Comprehensive guide to using the Walrus CLI for storing, reading, and managing blobs with detailed command examples.
+- [Examples](/usage/examples): Collection of code examples for Walrus integration including Python, JavaScript, and Move smart contract examples.
+- [Glossary](/usage/glossary): Comprehensive glossary of Walrus and blockchain storage terminology including technical definitions and concepts.
+- [JSON Mode](/usage/json-api): Guide to using Walrus client in JSON mode for programmatic access with JSON formatted input and output.
+- [Available Networks](/usage/networks): Overview of Walrus networks including Mainnet and Testnet configurations, parameters, and setup instructions.
+- [Quilt: Walrus Native Batch Store Tool](/usage/quilt): Comprehensive guide to Walrus Quilt for batch storage of multiple small blobs with cost optimization and metadata management.
+- [Software Development Kits (SDKs) and Other Tools](/usage/sdks): Overview of official and community-maintained SDKs, tools, and explorers for Walrus development and integration.
+- [Advanced Setup](/usage/setup): Advanced setup options for Walrus including building from source, binary installation, and configuration.
+- [Staking and Unstaking](/usage/stake): Complete guide to staking and unstaking WAL tokens with storage nodes using the Walrus staking dApp.
+- [Getting Started with Walrus](/usage/started): Complete getting started guide for Walrus including installation, configuration, storing and retrieving blobs on testnet and mainnet.
+- [Troubleshooting](/usage/troubleshooting): Troubleshooting guide for common Walrus issues including configuration, binary compatibility, and network problems.
+- [HTTP API](/usage/web-api): Learn how to use the Walrus HTTP API for public services, store and read operations, and quilt management.
+
+## Walrus sites
+
+- [Site Data Authentication](/walrus-sites/authentication): Guide to Walrus Sites data authentication mechanisms using SHA-256 hashes for content verification and integrity.
+- [Avoiding Duplicate-Content SEO in Custom Portals](/walrus-sites/avoid-duplicate-content-seo): Best practices for preventing duplicate content SEO issues in custom Walrus Sites portals with canonical domains and redirects.
+- [Bringing Your Own Domain](/walrus-sites/bring-your-own-domain): Guide to configuring custom domains for Walrus Sites using your own DNS and portal configuration.
+- [Configuring the Site Builder](/walrus-sites/builder-config): Complete guide to configuring the Walrus Sites site builder including wallet setup, package configuration, and advanced options.
+- [Preparing Your Deployment Credentials](/walrus-sites/ci-cd-gh-secrets-vars): Guide to setting up GitHub secrets and variables for secure Walrus Sites deployment with Sui wallet credentials.
+- [Writing Your Workflow](/walrus-sites/ci-cd-gh-workflow): Guide to creating GitHub Actions workflows for automated Walrus Sites deployment using the official GitHub Action.
+- [CI/CD](/walrus-sites/ci-cd): Guide to setting up continuous integration and deployment for Walrus Sites using GitHub Actions.
+- [Site Builder Commands](/walrus-sites/commands): Complete reference for Walrus Sites site builder CLI commands including deploy, publish, update, and management operations.
+- [Introduction to Walrus Sites](/walrus-sites/intro): Introduction to Walrus Sites - decentralized websites using Sui and Walrus for hosting static web content.
+- [Linking from and to Walrus Sites](/walrus-sites/linking): Guide to creating links within Walrus Sites including relative links, external links, and cross-site linking.
+- [Technical Overview](/walrus-sites/overview): Technical deep dive into Walrus Sites architecture, Sui objects, resource storage, and site rendering pathways.
+- [Walrus Sites Portal](/walrus-sites/portal): Guide to Walrus Sites portals including server-side, service-worker portals, local deployment, and configuration options.
+- [Redirecting Objects to Walrus Sites](/walrus-sites/redirects): Guide to creating personalized Walrus Sites for NFTs and objects using redirect links and Display properties.
+- [Known Restrictions](/walrus-sites/restrictions): Overview of known restrictions and limitations when developing and deploying Walrus Sites.
+- [Specifying Headers, Routing, and Metadata](/walrus-sites/routing): Guide to configuring custom headers, client-side routing, and metadata for Walrus Sites using ws-resources.json.
+- [Installing the Site Builder](/walrus-sites/tutorial-install): Step-by-step guide to installing and setting up the Walrus Sites site-builder tool for development.
+- [Publishing a Walrus Site](/walrus-sites/tutorial-publish): Tutorial for publishing your first Walrus Site using the site-builder tool with example projects.
+- [Set a SuiNS Name](/walrus-sites/tutorial-suins): Guide to setting up SuiNS names for human-readable Walrus Sites domain names and portal browsing.
+- [Your First Walrus Site](/walrus-sites/tutorial): Step-by-step tutorial for creating and publishing your first Walrus Site with SuiNS domain setup.
