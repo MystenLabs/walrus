@@ -634,7 +634,8 @@ mod commands {
                 .retriable_sui_client()
                 .get_chain_identifier()
                 .await?;
-            let environment = move_package_alt::schema::Environment::new(chain_id.clone(), chain_id);
+            let environment =
+                move_package_alt::schema::Environment::new(chain_id.clone(), chain_id);
             let compiled_package = compile_package(contract_dir, environment).await?;
 
             let sender = sender.unwrap_or(contract_client.address());

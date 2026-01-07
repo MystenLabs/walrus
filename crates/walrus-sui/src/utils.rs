@@ -483,4 +483,3 @@ pub fn generate_proof_of_possession_for_address(
         bls_sk.public().clone(),
     ))
 }
-
