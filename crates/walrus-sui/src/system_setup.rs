@@ -118,7 +118,7 @@ fn compile_package_inner_blocking(
         std::io::Stdout,
         SuiFlavor,
     >(&root_pkg, &build_config, &mut stdout)
-    .unwrap();
+    .expect("Compilation should succeed");
 
     let package_dependencies = PackageDependencies::new(&root_pkg)?;
     if !package_dependencies.unpublished.is_empty() {
