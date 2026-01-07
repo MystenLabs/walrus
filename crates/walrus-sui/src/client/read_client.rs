@@ -733,15 +733,13 @@ impl SuiReadClient {
 
     /// Returns the digest of the package at `package_path` for the currently active sui network.
     pub async fn compute_package_digest(&self, package_path: PathBuf) -> SuiClientResult<[u8; 32]> {
+        use move_package_alt::schema::Environment;
+
         // Compile package to get the digest.
-        let chain_id = self
-            .retriable_sui_client()
-            .get_chain_identifier()
-            .await
-            .ok();
+        let chain_id = self.retriable_sui_client().get_chain_identifier().await?;
         tracing::info!(?chain_id, "chain identifier");
-        let (compiled_package, _build_config) =
-            system_setup::compile_package(package_path, Default::default(), chain_id).await?;
+        let environment = Environment::new(chain_id.clone(), chain_id);
+        let compiled_package = system_setup::compile_package(package_path, environment).await?;
         let digest = compiled_package.get_package_digest(false);
         Ok(digest)
     }

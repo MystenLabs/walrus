@@ -13483,6 +13483,8 @@ dependencies = [
  "jsonrpsee",
  "move-core-types",
  "move-package",
+ "move-package-alt",
+ "move-package-alt-compilation",
  "mysten-metrics",
  "prometheus",
  "rand 0.8.5",

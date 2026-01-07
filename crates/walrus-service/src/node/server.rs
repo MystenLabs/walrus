@@ -190,7 +190,7 @@ pub struct RestApiServer<S> {
     state: RestApiState<S>,
     metrics: MetricsMiddlewareState,
     cancel_token: CancellationToken,
-    handle: Mutex<Option<Handle>>,
+    handle: Mutex<Option<Handle<SocketAddr>>>,
 }
 
 impl<S> RestApiServer<S>
@@ -267,7 +267,13 @@ where
             .map_err(|error| anyhow!(error))
     }
 
-    fn configure_server<A>(&self, mut server: axum_server::Server<A>) -> axum_server::Server<A> {
+    fn configure_server<Addr, Acc>(
+        &self,
+        mut server: axum_server::Server<Addr, Acc>,
+    ) -> axum_server::Server<Addr, Acc>
+    where
+        Addr: axum_server::Address,
+    {
         let config = &self.config().http2_config;
         let mut http2_builder = server.http_builder().http2();
         http2_builder
@@ -280,7 +286,7 @@ where
     }
 
     async fn handle_shutdown_signal(
-        handle: Handle,
+        handle: Handle<SocketAddr>,
         cancel_token: CancellationToken,
         shutdown_duration: Option<Duration>,
     ) {
@@ -304,7 +310,7 @@ where
         handle.graceful_shutdown(shutdown_duration);
     }
 
-    async fn init_handle(&self) -> Handle {
+    async fn init_handle(&self) -> Handle<SocketAddr> {
         let new_handle = Handle::new();
         let mut handle = self.handle.lock().await;
         *handle = Some(new_handle.clone());

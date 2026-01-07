@@ -56,9 +56,9 @@ use sui_types::{
     dynamic_field::derive_dynamic_field_id,
     event::EventID,
     object::Owner,
-    quorum_driver_types::ExecuteTransactionRequestType::WaitForLocalExecution,
     sui_serde::BigInt,
     transaction::{Transaction, TransactionData, TransactionKind},
+    transaction_driver_types::ExecuteTransactionRequestType::WaitForLocalExecution,
 };
 use tracing::Level;
 use walrus_core::ensure;

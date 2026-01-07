@@ -8,7 +8,6 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use sui_package_management::LockCommand;
 use sui_sdk::{
     rpc_types::{SuiObjectData, SuiTransactionBlockResponse},
     sui_client_config::SuiEnv,
@@ -102,27 +101,6 @@ impl Wallet {
         self.wallet_context
             .gas_for_owner_budget(address, budget, forbidden_gas_objects)
             .await
-    }
-
-    /// Update the `Move.lock` file with automated address management info. See
-    /// [`sui_package_management::update_lock_file`] for details.
-    // TODO: WAL-821 After we bring in Sui v1.50, we should remove this method in favor of
-    // update_lock_file_for_chain_env.
-    pub async fn update_lock_file(
-        &self,
-        lock_command: LockCommand,
-        install_dir: Option<PathBuf>,
-        lock_file: Option<PathBuf>,
-        response: &SuiTransactionBlockResponse,
-    ) -> Result<(), WalletError> {
-        sui_package_management::update_lock_file(
-            &self.wallet_context,
-            lock_command,
-            install_dir,
-            lock_file,
-            response,
-        )
-        .await
     }
 
     /// Get the rpc_url for the active environment.

@@ -11,16 +11,9 @@ use std::{
 };
 
 use anyhow::{Context, Result, anyhow, bail};
-use move_core_types::account_address::AccountAddress;
-use move_package::BuildConfig as MoveBuildConfig;
-use sui_move_build::{
-    BuildConfig,
-    CompiledPackage,
-    build_from_resolution_graph,
-    check_invalid_dependencies,
-    check_unpublished_dependencies,
-    gather_published_ids,
-};
+use move_package_alt::schema::Environment;
+use move_package_alt_compilation::build_config::BuildConfig as MoveBuildConfig;
+use sui_move_build::{BuildConfig, CompiledPackage};
 use sui_sdk::{
     rpc_types::{SuiExecutionStatus, SuiTransactionBlockEffectsAPI, SuiTransactionBlockResponse},
     types::{
@@ -45,7 +38,7 @@ use crate::{
         retriable_sui_client::{GasBudgetAndPrice, LazySuiClientBuilder},
     },
     contracts::{self, StructTag},
-    utils::{get_created_sui_object_ids_by_type, resolve_lock_file_path},
+    utils::get_created_sui_object_ids_by_type,
     wallet::Wallet,
 };
 
@@ -78,21 +71,18 @@ pub(crate) async fn publish_package_with_default_build_config(
     package_path: PathBuf,
     gas_budget: Option<u64>,
 ) -> Result<SuiTransactionBlockResponse> {
-    publish_package(wallet, package_path, Default::default(), gas_budget).await
+    publish_package(wallet, package_path, gas_budget).await
 }
 
-/// Compiles a package and returns the compiled package, and build config.
+/// Compiles a package and returns the compiled package.
+///
+/// The lock file is automatically updated by the build process.
 pub async fn compile_package(
     package_path: PathBuf,
-    build_config: MoveBuildConfig,
-    chain_id: Option<String>,
-) -> Result<(CompiledPackage, MoveBuildConfig)> {
+    environment: Environment,
+) -> Result<CompiledPackage> {
     tokio::task::spawn_blocking(|| {
-        sui_macros::nondeterministic!(compile_package_inner_blocking(
-            package_path,
-            build_config,
-            chain_id
-        ))
+        sui_macros::nondeterministic!(compile_package_inner_blocking(package_path, environment))
     })
     .await?
 }
@@ -101,69 +91,29 @@ pub async fn compile_package(
 /// using `tokio::task::spawn_blocking` or similar methods.
 fn compile_package_inner_blocking(
     package_path: PathBuf,
-    build_config: MoveBuildConfig,
-    chain_id: Option<String>,
-) -> Result<(CompiledPackage, MoveBuildConfig)> {
-    let build_config = resolve_lock_file_path(build_config, &package_path)?;
-
-    // Set the package ID to zero.
-    let previous_id = if let Some(ref chain_id) = chain_id {
-        sui_package_management::set_package_id(
-            &package_path,
-            build_config.install_dir.clone(),
-            chain_id,
-            AccountAddress::ZERO,
-        )?
-    } else {
-        None
-    };
-
-    let run_bytecode_verifier = true;
-    let print_diags_to_stderr = false;
+    environment: Environment,
+) -> Result<CompiledPackage> {
     let config = BuildConfig {
-        config: build_config.clone(),
-        run_bytecode_verifier,
-        print_diags_to_stderr,
-        chain_id: chain_id.clone(),
+        config: MoveBuildConfig::default(),
+        run_bytecode_verifier: true,
+        print_diags_to_stderr: false,
+        environment,
     };
-    let resolution_graph = config.resolution_graph(&package_path, chain_id.clone())?;
-    let (_, dependencies) = gather_published_ids(&resolution_graph, chain_id.clone());
 
-    // Check that the dependencies have a valid published address.
-    check_invalid_dependencies(&dependencies.invalid)?;
-    // Check that all dependencies are published.
-    check_unpublished_dependencies(&dependencies.unpublished)?;
-
-    let compiled_package = build_from_resolution_graph(
-        resolution_graph,
-        run_bytecode_verifier,
-        print_diags_to_stderr,
-        chain_id.clone(),
-    )?;
+    let compiled_package = config.build(&package_path)?;
 
     ensure!(
         compiled_package.published_root_module().is_none(),
         "package was already published, modules must all have 0x0 as their addresses."
     );
 
-    // Restore original ID.
-    if let (Some(chain_id), Some(previous_id)) = (chain_id, previous_id) {
-        let _ = sui_package_management::set_package_id(
-            &package_path,
-            build_config.install_dir.clone(),
-            &chain_id,
-            previous_id,
-        )?;
-    }
-
-    Ok((compiled_package, build_config))
+    Ok(compiled_package)
 }
 
-#[tracing::instrument(err, skip(wallet, build_config))]
+#[tracing::instrument(err, skip(wallet))]
 pub(crate) async fn publish_package(
     wallet: &mut Wallet,
     package_path: PathBuf,
-    build_config: MoveBuildConfig,
     gas_budget: Option<u64>,
 ) -> Result<SuiTransactionBlockResponse> {
     let sender = wallet.active_address();
@@ -172,10 +122,11 @@ pub(crate) async fn publish_package(
         Default::default(),
     )?;
 
-    let chain_id = retry_client.get_chain_identifier().await.ok();
+    let chain_id = retry_client.get_chain_identifier().await?;
+    let environment = Environment::new(chain_id.clone(), chain_id);
 
-    let (compiled_package, build_config) =
-        compile_package(package_path, build_config, chain_id).await?;
+    // The lock file is automatically updated by the build process.
+    let compiled_package = compile_package(package_path, environment).await?;
 
     let compiled_modules = compiled_package.get_package_bytes(false);
 
@@ -224,17 +175,6 @@ pub(crate) async fn publish_package(
     let response = wallet
         .execute_transaction_may_fail(wallet.sign_transaction(&tx_data).await)
         .await?;
-
-    // Update the lock file with the new package ID.
-    wallet
-        .update_lock_file(
-            sui_package_management::LockCommand::Publish,
-            build_config.install_dir,
-            build_config.lock_file,
-            &response,
-        )
-        .await
-        .context("failed to update Move.lock")?;
 
     Ok(response)
 }

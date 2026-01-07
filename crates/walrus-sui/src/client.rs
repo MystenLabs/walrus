@@ -16,10 +16,8 @@ use std::{
 
 use anyhow::{Context, Result, anyhow};
 use contract_config::ContractConfig;
-use move_package::BuildConfig as MoveBuildConfig;
 use retry_client::{RetriableSuiClient, retriable_sui_client::MAX_GAS_PAYMENT_OBJECTS};
 use serde::{Deserialize, Serialize};
-use sui_package_management::LockCommand;
 use sui_sdk::{
     rpc_types::{SuiExecutionStatus, SuiTransactionBlockEffectsAPI, SuiTransactionBlockResponse},
     types::base_types::ObjectID,
@@ -2107,14 +2105,12 @@ impl SuiContractClientInner {
         package_path: PathBuf,
         upgrade_type: UpgradeType,
     ) -> SuiClientResult<ObjectID> {
-        // Compile package
-        let chain_id = self
-            .retriable_sui_client()
-            .get_chain_identifier()
-            .await
-            .ok();
-        let (compiled_package, build_config) =
-            compile_package(package_path, Default::default(), chain_id).await?;
+        use move_package_alt::schema::Environment;
+
+        // Compile package (lock file is automatically updated during build)
+        let chain_id = self.retriable_sui_client().get_chain_identifier().await?;
+        let environment = Environment::new(chain_id.clone(), chain_id);
+        let compiled_package = compile_package(package_path, environment).await?;
 
         let mut pt_builder = self.transaction_builder();
 
@@ -2126,8 +2122,19 @@ impl SuiContractClientInner {
         let response = self
             .sign_and_send_transaction(transaction, "upgrade")
             .await?;
-        self.post_upgrade_lock_file_update(&response, build_config)
-            .await
+
+        // Extract and return the new package ID from the transaction response
+        let new_package_id = response
+            .get_new_package_obj()
+            .ok_or_else(|| {
+                anyhow!(
+                    "no new package ID found in the transaction response: {:?}",
+                    response
+                )
+            })?
+            .0;
+
+        Ok(new_package_id)
     }
 
     /// Set the migration epoch on the staking object to the following epoch.
@@ -2961,34 +2968,6 @@ impl SuiContractClientInner {
             }
         }
         Ok(())
-    }
-
-    /// Updates the lock file after an upgrade and returns the new package ID.
-    async fn post_upgrade_lock_file_update(
-        &mut self,
-        response: &SuiTransactionBlockResponse,
-        build_config: MoveBuildConfig,
-    ) -> SuiClientResult<ObjectID> {
-        let new_package_id = response
-            .get_new_package_obj()
-            .ok_or_else(|| {
-                anyhow!(
-                    "no new package ID found in the transaction response: {:?}",
-                    response
-                )
-            })?
-            .0;
-
-        // Update the lock file with the upgraded package info.
-        self.wallet
-            .update_lock_file(
-                LockCommand::Upgrade,
-                build_config.install_dir,
-                build_config.lock_file,
-                response,
-            )
-            .await?;
-        Ok(new_package_id)
     }
 }
 
