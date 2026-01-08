@@ -39,8 +39,8 @@ jobs:
 
       - name: Run cache inference
         run: |
-          npx ts-node scripts/cache-inference/cache-inference.ts $MAINNET_BLOB_ID $TESTNET_BLOB_ID > docs/book/assets/new-operators.json
-          mv docs/book/assets/new-operators.json docs/book/assets/operators.json
+          npx ts-node scripts/cache-inference/cache-inference.ts $MAINNET_BLOB_ID $TESTNET_BLOB_ID > docs/site/static/new-operators.json
+          mv docs/site/static/new-operators.json docs/site/static/operators.json
 
       - name: Create Pull Request
         uses: peter-evans/create-pull-request@98357b18bf14b5342f975ff684046ec3b2a07725 # pin@v8.0.0
