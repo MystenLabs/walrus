@@ -9,6 +9,7 @@
 .cache-loader
 src/.generated/*
 
+
 # Misc
 .DS_Store
 .env.local
