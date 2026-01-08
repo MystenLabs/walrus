@@ -49,6 +49,7 @@ use super::{
     retry_client::RetriableSuiClient,
 };
 use crate::{
+    client::retry_client::retriable_sui_client::get_initial_version_from_object_response,
     contracts::{self, AssociatedContractStruct, AssociatedContractStructWithPkgId, TypeOriginMap},
     types::{
         BlobEvent,
@@ -78,7 +79,7 @@ use crate::{
             WalrusSubsidiesInner,
         },
     },
-    utils::{get_sui_object_from_object_response, handle_pagination},
+    utils::{get_sui_object_from_bcs, get_sui_object_from_object_response, handle_pagination},
 };
 
 const EVENT_MODULE: &str = "events";
@@ -394,11 +395,11 @@ impl SuiReadClient {
             get_sui_object_from_object_response(system_object_response)?;
         let walrus_package_id = system_object_for_deserialization.package_id;
         let system_object_initial_version =
-            sui_client.get_initial_version_from_object_response(system_object_response)?;
+            get_initial_version_from_object_response(system_object_response)?;
         let staking_object_for_deserialization: StakingObjectForDeserialization =
             get_sui_object_from_object_response(staking_object_response)?;
         let staking_object_initial_version =
-            sui_client.get_initial_version_from_object_response(staking_object_response)?;
+            get_initial_version_from_object_response(staking_object_response)?;
 
         let (system_object, staking_object, type_origin_map, wal_type) = tokio::try_join!(
             // Boxing the futures here to avoid making this future too large.
@@ -1263,6 +1264,7 @@ impl ReadClient for SuiReadClient {
             .sui_client
             .get_current_client()
             .await
+            .sui_client
             .event_api()
             .clone();
 
@@ -1339,26 +1341,22 @@ impl ReadClient for SuiReadClient {
         &self,
         blob_object_id: &ObjectID,
     ) -> SuiClientResult<BlobWithAttribute> {
-        let blob_object_response = self
+        let blob: Blob = self
             .sui_client
-            .get_object_with_options(
-                *blob_object_id,
-                SuiObjectDataOptions::new().with_bcs().with_type(),
-            )
+            .get_move_object_from_bcs(*blob_object_id, false, |object_id, bcs| {
+                Ok(if let Ok(blob) = get_sui_object_from_bcs(bcs) {
+                    blob
+                } else {
+                    let shared_blob: SharedBlob =
+                        get_sui_object_from_bcs(bcs).with_context(|| {
+                            format!(
+                                "could not retrieve blob or shared blob from object id {object_id}"
+                            )
+                        })?;
+                    shared_blob.blob
+                })
+            })
             .await?;
-        let blob = if let Ok(blob) =
-            get_sui_object_from_object_response::<Blob>(&blob_object_response)
-        {
-            blob
-        } else {
-            let shared_blob = get_sui_object_from_object_response::<SharedBlob>(
-                &blob_object_response,
-            )
-            .map_err(|_| {
-                anyhow!("could not retrieve blob or shared blob from object id {blob_object_id}")
-            })?;
-            shared_blob.blob
-        };
         let attribute = self.get_blob_attribute(&blob.id).await?;
         Ok(BlobWithAttribute { blob, attribute })
     }

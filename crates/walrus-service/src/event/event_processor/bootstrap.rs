@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! Bootstrap module for getting the initial committee and checkpoint information.
-use anyhow::{Result, anyhow};
-use sui_sdk::rpc_types::{SuiObjectDataOptions, SuiTransactionBlockResponseOptions};
+use anyhow::{Context as _, Result};
+use sui_sdk::rpc_types::SuiTransactionBlockResponseOptions;
 use sui_types::{
     base_types::ObjectID,
     committee::Committee,
@@ -25,24 +25,13 @@ pub async fn get_bootstrap_committee_and_checkpoint(
     rpc_client: RetriableRpcClient,
     system_pkg_id: ObjectID,
 ) -> Result<(Committee, VerifiedCheckpoint)> {
-    let object_options = SuiObjectDataOptions::new()
-        .with_bcs()
-        .with_type()
-        .with_previous_transaction();
-    let object = sui_client
-        .get_object_with_options(system_pkg_id, object_options)
-        .await?;
+    let txn_digest = sui_client.get_previous_transaction(system_pkg_id).await?;
     let txn_options = SuiTransactionBlockResponseOptions::new();
-    let txn_digest = object
-        .data
-        .ok_or(anyhow!("No object data"))?
-        .previous_transaction
-        .ok_or(anyhow!("No transaction data"))?;
     let txn = sui_client
         .get_transaction_with_options(txn_digest, txn_options)
         .await?;
     let checkpoint_data = rpc_client
-        .get_full_checkpoint(txn.checkpoint.ok_or(anyhow!("No checkpoint data"))?)
+        .get_full_checkpoint(txn.checkpoint.context("No checkpoint data")?)
         .await?;
     let epoch = checkpoint_data.checkpoint_summary.epoch;
     let checkpoint_summary = checkpoint_data.checkpoint_summary.clone();
