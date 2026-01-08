@@ -317,7 +317,13 @@ pub(crate) async fn publish_coin_and_system_package(
         // The local copy should be pointed to by the SUI_REPO environment variable, and it should
         // match the sui version used by the walrus. The pulling logic is implemented in the
         // cargo-simtest script.
-        for package in ["wal", "wal_exchange", "subsidies", "walrus_subsidies"] {
+        for package in [
+            "wal",
+            "walrus",
+            "wal_exchange",
+            "subsidies",
+            "walrus_subsidies",
+        ] {
             update_contract_sui_dependency_to_local_copy(walrus_contract_directory.join(package))?;
         }
     }
