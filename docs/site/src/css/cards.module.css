@@ -1,21 +1,22 @@
 /*
-// Copyright (c) Walrus Foundation
-// SPDX-License-Identifier: Apache-2.0
+  Copyright (c) Walrus Foundation
+  SPDX-License-Identifier: Apache-2.0
 */
+
 :root {
-  --sui-cards-border-color: transparent;
-  --sui-cards-background: #F4F5F7;
-  --sui-cards-header: #298DFF;
-  --sui-cards-copy: #6C7584;
-  --sui-cards-background-hover: #E0E2E6;
+  --walrus-cards-border-color: transparent;
+  --walrus-cards-background: var(--color-wal-gray-5);
+  --walrus-cards-header: var(--color-wal-link);
+  --walrus-cards-copy: var(--color-wal-gray-60);
+  --walrus-cards-background-hover: var(--color-wal-gray-10);
 }
 
 [data-theme='dark'] {
-    --sui-cards-border-color: #343940;
-    --sui-cards-background: #222529;
-    --sui-cards-background-hover: #343940;
-    --sui-cards-header: #5CA9FF;
-    --sui-cards-copy: #89919F;
+    --walrus-cards-border-color: var(--color-wal-white-5);
+    --walrus-cards-background: var(--color-wal-white-5);
+    --walrus-cards-background-hover: var(--color-wal-white-10);
+    --walrus-cards-header: var(--color-wal-link);
+    --walrus-cards-copy: var(--color-wal-white-70);
 }
 
 .card {
@@ -26,26 +27,26 @@
     border-radius: 20px;
     padding: 1.25rem;
     padding-bottom: 1.5rem;
-    background: var(--sui-cards-background);
+    background: var(--walrus-cards-background);
     cursor: pointer;
     transition: background .25s ease-in-out;
-    border: solid 1px var(--sui-cards-border-color);
+    border: solid 1px var(--walrus-cards-border-color);
 }
 .card:hover {
-    background: var(--sui-cards-background-hover);
+    background: var(--walrus-cards-background-hover);
 }
 
 .card__header__copy {
     margin: 0;
     font-size: 1.125rem;
     line-height: 1.25rem;
-    color: var(--sui-cards-header);
+    color: var(--walrus-cards-header);
 }
 
 .card__copy {
     font-size: .8125rem;
     line-height: 1.3125rem;
-    color: var(--sui-cards-copy);
+    color: var(--walrus-cards-copy);
 }
 
 /* Step Cards for Docusaurus */
@@ -66,9 +67,9 @@
   bottom: 2.5rem;
   width: 2px;
   background: linear-gradient(180deg,
-    #298DFF 0%,
-    #E0E2E6 50%,
-    #343940 100%
+    var(--color-wal-link) 0%,
+    var(--color-wal-gray-20) 50%,
+    var(--color-wal-gray-80) 100%
   );
   opacity: 0.2;
   z-index: 0;
@@ -78,11 +79,11 @@
 .step-card-container > div[class*='card_'] {
   position: relative;
   padding: 1.25rem 1.5rem 1.25rem 4.5rem !important;
-  border: 1px solid #E0E2E6 !important;
+  border: 1px solid var(--color-wal-gray-10) !important;
   border-radius: 0.625rem !important;
   background: linear-gradient(135deg,
-    #ffffff 0%,
-    #F4F5F7 100%
+    var(--color-wal-white-90) 0%,
+    var(--color-wal-white-100) 100%
   ) !important;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
   overflow: visible !important;
@@ -102,12 +103,12 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #298DFF;
-  color: #ffffff;
+  background: var(--color-wal-purple);
+  color: var(--color-wal-white-100);
   font-weight: 700;
   font-size: 0.813rem;
   border-radius: 0.5rem;
-  box-shadow: 0 4px 12px rgba(41, 141, 255, 0.3);
+  box-shadow: 0 4px 12px var(--color-wal-purple-dark);
   z-index: 2;
   transition: all 0.3s ease;
 }
@@ -120,9 +121,9 @@
   width: 3px;
   height: 100%;
   background: linear-gradient(180deg,
-    #298DFF 0%,
-    #5CA9FF 50%,
-    rgba(41, 141, 255, 0) 100%
+    var(--color-wal-purple) 0%,
+    var(--color-wal-purple-dark) 50%,
+    transparent 100%
   );
   opacity: 0;
   transition: opacity 0.3s ease;
@@ -130,20 +131,20 @@
 }
 
 .step-card-container > div[class*='card_']:hover {
-  border-color: #8FCBFF !important;
+  border-color: var(--color-wal-purple-light) !important;
   background: linear-gradient(135deg,
-    #ffffff 0%,
-    #F4F5F7 100%
+    var(--color-wal-white-100) 0%,
+    var(--color-wal-white-100) 100%
   ) !important;
   box-shadow:
-    0 4px 16px rgba(41, 141, 255, 0.12),
-    0 0 0 1px #8FCBFF !important;
+    0 4px 16px var(--color-wal-purple-dark),
+    0 0 0 1px var(--color-wal-purple-light) !important;
   transform: translateX(4px) !important;
 }
 
 .step-card-container > div[class*='card_']:hover::before {
   transform: translateY(-50%) scale(1.1);
-  box-shadow: 0 6px 20px rgba(41, 141, 255, 0.4);
+  box-shadow: 0 6px 20px var(--color-wal-purple-dark);
 }
 
 .step-card-container > div[class*='card_']:hover::after {
@@ -159,7 +160,7 @@
 .step-card-container div[class*='card__copy'] {
   font-size: 0.875rem;
   line-height: 1.5;
-  color: #4B515B;
+  color: var(--color-wal-gray-80);
 }
 
 /* Dark mode */
@@ -168,26 +169,26 @@
 }
 
 [data-theme='dark'] .step-card-container > div[class*='card_'] {
-  border-color: #343940 !important;
+  border-color: var(--color-wal-white-10) !important;
   background: linear-gradient(135deg,
-    #222529 0%,
-    #131518 100%
+    var(--color-wal-gray-90) 0%,
+    var(--color-wal-gray-100) 100%
   ) !important;
 }
 
 [data-theme='dark'] .step-card-container > div[class*='card_']:hover {
-  border-color: #5CA9FF !important;
+  border-color: var(--color-wal-purple-dark) !important;
   background: linear-gradient(135deg,
-    #222529 0%,
-    #131518 100%
+    var(--color-wal-gray-80) 0%,
+    var(--color-wal-gray-100) 100%
   ) !important;
   box-shadow:
-    0 4px 16px rgba(41, 141, 255, 0.2),
-    0 0 0 1px #5CA9FF !important;
+    0 4px 16px var(--color-wal-purple-darker),
+    0 0 0 1px var(--color-wal-purple-dark) !important;
 }
 
 [data-theme='dark'] .step-card-container div[class*='card__copy'] {
-  color: #E0E2E6;
+  color: var(--color-wal-white-80);
 }
 
 /* Responsive */
@@ -221,16 +222,16 @@
 .card-container > a[class*='card_'] {
   position: relative;
   padding: 1.25rem 1.5rem !important;
-  border: 1px solid #E0E2E6 !important;
+  border: 1px solid var(--color-wal-gray-10) !important;
   border-radius: 0.625rem !important;
   background: linear-gradient(135deg,
-    #ffffff 0%,
-    #F4F5F7 100%
+    var(--color-wal-white-90) 0%,
+    var(--color-wal-white-100) 100%
   ) !important;
   backdrop-filter: blur(10px);
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
   text-decoration: none !important;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.04) !important;
+  box-shadow: 0 2px 4px var(--color-wal-gray-5) !important;
   height: 100%;
 }
 
@@ -243,9 +244,9 @@
   width: 3px;
   height: 100%;
   background: linear-gradient(180deg,
-    #298DFF 0%,
-    #5CA9FF 50%,
-    rgba(41, 141, 255, 0) 100%);
+    var(--color-wal-green-dark) 0%,
+    var(--color-wal-green) 50%,
+    transparent 100%);
   opacity: 0;
   transition: opacity 0.3s ease;
   border-radius: 0.625rem 0 0 0.625rem;
@@ -253,14 +254,14 @@
 
 .card-container > div[class*='card_']:hover,
 .card-container > a[class*='card_']:hover {
-  border-color: #8FCBFF !important;
+  border-color: var(--color-wal-green) !important;
   background: linear-gradient(135deg,
-    #ffffff 0%,
-    #F4F5F7 100%
+    var(--color-wal-white-100) 0%,
+    var(--color-wal-white-100) 100%
   ) !important;
   box-shadow:
-    0 4px 12px rgba(41, 141, 255, 0.12),
-    0 2px 4px rgba(0, 0, 0, 0.04) !important;
+    0 4px 12px var(--color-wal-green-dark),
+    0 2px 4px var(--color-wal-gray-5) !important;
   transform: translateY(-2px) !important;
 }
 
@@ -278,34 +279,34 @@
 .card-container div[class*='card__copy'] {
   font-size: 0.875rem;
   line-height: 1.5;
-  color: #4B515B;
+  color: var(--color-wal-gray-80);
 }
 
 /* Dark mode */
 [data-theme='dark'] .card-container > div[class*='card_'],
 [data-theme='dark'] .card-container > a[class*='card_'] {
-  border-color: #343940 !important;
+  border-color: var(--color-wal-white-10) !important;
   background: linear-gradient(135deg,
-    #222529 0%,
-    #131518 100%
+    var(--color-wal-gray-90) 0%,
+    var(--color-wal-gray-100) 100%
   ) !important;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2) !important;
+  box-shadow: 0 2px 4px var(--color-wal-black) !important;
 }
 
 [data-theme='dark'] .card-container > div[class*='card_']:hover,
 [data-theme='dark'] .card-container > a[class*='card_']:hover {
-  border-color: #5CA9FF !important;
+  border-color: var(--color-wal-green-dark) !important;
   background: linear-gradient(135deg,
-    #222529 0%,
-    #131518 100%
+    var(--color-wal-gray-80) 0%,
+    var(--color-wal-gray-100) 100%
   ) !important;
   box-shadow:
-    0 4px 12px rgba(41, 141, 255, 0.2),
-    0 2px 4px rgba(0, 0, 0, 0.15) !important;
+    0 4px 12px var(--color-wal-green-darker),
+    0 2px 4px var(--color-wal-black) !important;
 }
 
 [data-theme='dark'] .card-container div[class*='card__copy'] {
-  color: #E0E2E6;
+  color: var(--color-wal-white-80);
 }
 
 /* Responsive */
