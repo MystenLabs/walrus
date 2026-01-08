@@ -3,7 +3,6 @@ Copyright (c) Walrus Foundation
 SPDX-License-Identifier: Apache-2.0
 */
 
-
 import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
 import useBaseUrl from "@docusaurus/useBaseUrl";
 
