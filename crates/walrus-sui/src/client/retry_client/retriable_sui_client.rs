@@ -1340,7 +1340,7 @@ fn maybe_return_injected_error_in_stake_pool_transaction(
             .transaction_data()
             .move_calls()
             .iter()
-            .any(|(_, _, function_name)| {
+            .any(|(_, _, _, function_name)| {
                 *function_name == crate::contracts::staking::stake_with_pool.name
             });
 

@@ -195,6 +195,7 @@ pub async fn create_and_init_system(
     init_system_params: InitSystemParams,
     gas_budget: Option<u64>,
 ) -> Result<(SystemContext, SuiContractClient)> {
+    tracing::info!("ZZZZZZ init_system_params {:?}", init_system_params);
     let init_system_params_cloned = init_system_params.clone();
     let n_shards = init_system_params.n_shards;
     let PublishSystemPackageResult {

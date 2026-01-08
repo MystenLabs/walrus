@@ -77,6 +77,7 @@ pub(crate) async fn publish_package_with_default_build_config(
     package_path: PathBuf,
     gas_budget: Option<u64>,
 ) -> Result<SuiTransactionBlockResponse> {
+    tracing::info!("ZZZZZZ package_path {:?}", package_path);
     publish_package(wallet, package_path, Default::default(), gas_budget).await
 }
 
@@ -89,31 +90,34 @@ pub async fn compile_package(
 ) -> Result<(CompiledPackage, MoveBuildConfig, RootPackage<SuiFlavor>)> {
     // TODO: branch here depending on the environment or pass a flag for testing
 
-    // let env = find_environment(
-    //     &package_path,
-    //     build_config.environment.clone(),
-    //     wallet.wallet_context(),
-    // )
-    // .await?;
-
-    // let root_pkg: RootPackage<SuiFlavor> = build_config
-    //     .package_loader(&package_path, &env)
-    //     .load()
-    //     .await?;
-
-    let pubfile_path = PathBuf::from(package_path.join("Pub.localnet.toml"));
-    tracing::info!("ZZZZZZ pubfile_path {:?}", pubfile_path);
-
-    // TODO: make this clean, only for testing
-    let root_pkg = PackageLoader::new_ephemeral(
-        package_path.clone(),
-        Some(String::from("localnet")),
-        chain_id.clone().unwrap(),
-        pubfile_path,
+    let env = find_environment(
+        &package_path,
+        build_config.environment.clone(),
+        wallet.wallet_context(),
     )
-    .modes(build_config.mode_set())
-    .load()
     .await?;
+
+    let build_config_clone = build_config.clone();
+    let package_path_clone = package_path.clone();
+
+    let root_pkg: RootPackage<SuiFlavor> = build_config_clone
+        .package_loader(&package_path_clone, &env)
+        .load()
+        .await?;
+
+    // let pubfile_path = PathBuf::from(package_path.join("Pub.localnet.toml"));
+    // tracing::info!("ZZZZZZ pubfile_path {:?}", pubfile_path);
+
+    // // TODO: make this clean, only for testing
+    // let root_pkg = PackageLoader::new_ephemeral(
+    //     package_path.clone(),
+    //     Some(String::from("localnet")),
+    //     chain_id.clone().unwrap(),
+    //     pubfile_path,
+    // )
+    // .modes(build_config.mode_set())
+    // .load()
+    // .await?;
 
     let result = tokio::task::spawn_blocking(|| {
         sui_macros::nondeterministic!(compile_package_inner_blocking(
@@ -240,6 +244,55 @@ pub(crate) async fn publish_package(
     )?;
 
     let chain_id = retry_client.get_chain_identifier().await.ok();
+
+    // Replace Move.toml with Move.test.toml and substitute the chain_id
+    let move_toml_path = package_path.join("Move.toml");
+    let move_test_toml_path = package_path.join("Move.test.toml");
+
+    if move_test_toml_path.exists() {
+        let test_toml_content = std::fs::read_to_string(&move_test_toml_path)
+            .context("Failed to read Move.test.toml")?;
+
+        let updated_content = if let Some(ref chain_id_str) = chain_id {
+            test_toml_content.replace("ReplaceChainId", chain_id_str.as_str())
+        } else {
+            bail!("Chain ID is required but was not available");
+        };
+
+        std::fs::write(&move_toml_path, updated_content)
+            .context("Failed to write updated Move.toml")?;
+    }
+
+    if cfg!(msim) {
+        if let Some(sui_repo) = std::env::var("SUI_REPO").ok() {
+            // Replace git-based dependencies with local paths for msim testing
+            if move_toml_path.exists() {
+                let toml_content = std::fs::read_to_string(&move_toml_path)
+                    .context("Failed to read Move.toml for dependency replacement")?;
+
+                // Pattern to match git-based Sui dependencies
+                // Matches: package = { git = "...", subdir = "...", rev = "..." }
+                let pattern = regex::Regex::new(
+                    r#"(\w+)\s*=\s*\{\s*git\s*=\s*"https://github\.com/MystenLabs/sui\.git"\s*,\s*subdir\s*=\s*"([^"]+)"\s*,\s*rev\s*=\s*"[^"]+"\s*\}"#
+                ).unwrap();
+
+                let updated_content =
+                    pattern.replace_all(&toml_content, |caps: &regex::Captures| {
+                        let package_name = &caps[1];
+                        let subdir = &caps[2];
+                        format!(
+                            r#"{} = {{ local = "{}/{}" }}"#,
+                            package_name, sui_repo, subdir
+                        )
+                    });
+
+                tracing::info!("ZZZZZZ updated_content {:?}", updated_content);
+
+                std::fs::write(&move_toml_path, updated_content.as_ref())
+                    .context("Failed to write Move.toml with local dependencies")?;
+            }
+        }
+    }
 
     let (compiled_package, final_build_config, mut root_package) =
         compile_package(package_path, build_config, chain_id.clone(), wallet).await?;
