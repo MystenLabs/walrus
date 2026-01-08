@@ -12,7 +12,7 @@ use std::{
 
 use anyhow::{Context, Result, anyhow, bail};
 use move_package_alt::{
-    package::{RootPackage, package_loader::PackageLoader},
+    package::RootPackage,
     schema::{OriginalID, Publication, PublishAddresses, PublishedID},
 };
 use move_package_alt_compilation::build_config::BuildConfig as MoveBuildConfig;
@@ -119,7 +119,7 @@ pub async fn compile_package(
     // .load()
     // .await?;
 
-    let result = tokio::task::spawn_blocking(|| {
+    tokio::task::spawn_blocking(|| {
         sui_macros::nondeterministic!(compile_package_inner_blocking(
             package_path,
             build_config,
@@ -127,9 +127,7 @@ pub async fn compile_package(
             root_pkg
         ))
     })
-    .await?;
-
-    result
+    .await?
 }
 
 /// Synchronous method to compile the package. Should only be called from an async context
@@ -192,7 +190,7 @@ pub fn update_publication(
     let (published_id, version, _) = response.get_new_package_obj().ok_or_else(|| {
         anyhow!(
             "Expected a valid published package response but didn't see \
-         one when attempting to update the `Move.lock`."
+        one when attempting to update the `Move.lock`."
         )
     })?;
 
@@ -263,34 +261,33 @@ pub(crate) async fn publish_package(
             .context("Failed to write updated Move.toml")?;
     }
 
-    if cfg!(msim) {
-        if let Some(sui_repo) = std::env::var("SUI_REPO").ok() {
-            // Replace git-based dependencies with local paths for msim testing
-            if move_toml_path.exists() {
-                let toml_content = std::fs::read_to_string(&move_toml_path)
-                    .context("Failed to read Move.toml for dependency replacement")?;
+    if cfg!(msim)
+        && let Ok(sui_repo) = std::env::var("SUI_REPO")
+    {
+        // Replace git-based dependencies with local paths for msim testing
+        if move_toml_path.exists() {
+            let toml_content = std::fs::read_to_string(&move_toml_path)
+                .context("Failed to read Move.toml for dependency replacement")?;
 
-                // Pattern to match git-based Sui dependencies
-                // Matches: package = { git = "...", subdir = "...", rev = "..." }
-                let pattern = regex::Regex::new(
+            // Pattern to match git-based Sui dependencies
+            // Matches: package = { git = "...", subdir = "...", rev = "..." }
+            let pattern = regex::Regex::new(
                     r#"(\w+)\s*=\s*\{\s*git\s*=\s*"https://github\.com/MystenLabs/sui\.git"\s*,\s*subdir\s*=\s*"([^"]+)"\s*,\s*rev\s*=\s*"[^"]+"\s*\}"#
-                ).unwrap();
+                ).expect("Failed to create regex");
 
-                let updated_content =
-                    pattern.replace_all(&toml_content, |caps: &regex::Captures| {
-                        let package_name = &caps[1];
-                        let subdir = &caps[2];
-                        format!(
-                            r#"{} = {{ local = "{}/{}" }}"#,
-                            package_name, sui_repo, subdir
-                        )
-                    });
+            let updated_content = pattern.replace_all(&toml_content, |caps: &regex::Captures| {
+                let package_name = &caps[1];
+                let subdir = &caps[2];
+                format!(
+                    r#"{} = {{ local = "{}/{}" }}"#,
+                    package_name, sui_repo, subdir
+                )
+            });
 
-                tracing::info!("ZZZZZZ updated_content {:?}", updated_content);
+            tracing::info!("ZZZZZZ updated_content {:?}", updated_content);
 
-                std::fs::write(&move_toml_path, updated_content.as_ref())
-                    .context("Failed to write Move.toml with local dependencies")?;
-            }
+            std::fs::write(&move_toml_path, updated_content.as_ref())
+                .context("Failed to write Move.toml with local dependencies")?;
         }
     }
 
@@ -350,7 +347,7 @@ pub(crate) async fn publish_package(
     // TODO: duplicate update_publication, and return root_package from compile_package
     // (or construct it above and pass it to compile_package)
     let publish_data = update_publication(
-        chain_id.clone().unwrap().as_str(),
+        chain_id.clone().expect("Chain ID is required").as_str(),
         LockCommand::Publish,
         &response,
         &final_build_config,
