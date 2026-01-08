@@ -1,6 +1,6 @@
 /*
-// Copyright (c) Walrus Foundation
-// SPDX-License-Identifier: Apache-2.0
+Copyright (c) Walrus Foundation
+SPDX-License-Identifier: Apache-2.0
 */
 
 import React, { PropsWithChildren, useId, useMemo } from "react";
