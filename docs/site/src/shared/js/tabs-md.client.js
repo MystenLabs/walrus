@@ -1,7 +1,5 @@
-/*
-Copyright (c) Walrus Foundation
-SPDX-License-Identifier: Apache-2.0
-*/
+// Copyright (c) Walrus Foundation
+// SPDX-License-Identifier: Apache-2.0
 
 //
 // This code ensures that <Tabs> and <TabItems> are formatted correctly in

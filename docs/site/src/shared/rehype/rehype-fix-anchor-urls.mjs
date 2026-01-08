@@ -1,7 +1,5 @@
-/*
-Copyright (c) Walrus Foundation
-SPDX-License-Identifier: Apache-2.0
-*/
+// Copyright (c) Walrus Foundation
+// SPDX-License-Identifier: Apache-2.0
 
 
 // This plugin does error checking to
