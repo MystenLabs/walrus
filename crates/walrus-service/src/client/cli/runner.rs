@@ -215,9 +215,11 @@ fn default_child_process_uploads(config: &ClientConfig) -> bool {
 #[allow(missing_debug_implementations)]
 pub struct ClientCommandRunner {
     /// The Sui wallet for the client.
-    wallet: Result<Wallet>,
+    wallet: Option<Wallet>,
     /// The config for the client.
-    config: Result<ClientConfig>,
+    config: Option<ClientConfig>,
+    /// Any error that occurred during initialization.
+    initialization_error: Option<anyhow::Error>,
     /// Whether to output JSON.
     json: bool,
     /// The gas budget for the client commands.
@@ -248,10 +250,15 @@ impl ClientCommandRunner {
                 .ok()
                 .and_then(|config| config.communication_config.sui_client_request_timeout),
         );
-
+        let initialization_error = match (&config, &wallet) {
+            (Err(e), _) => Some(anyhow::anyhow!("Failed to load client config: {}", e)),
+            (_, Err(e)) => Some(anyhow::anyhow!("Failed to load wallet: {}", e)),
+            _ => None,
+        };
         Self {
-            wallet,
-            config,
+            wallet: wallet.ok(),
+            config: config.ok(),
+            initialization_error,
             gas_budget,
             json,
         }
