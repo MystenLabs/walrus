@@ -17,7 +17,7 @@ add_header() {
   local file="$1"
   local ext="${file##*.}"
   local temp_file=$(mktemp)
-  
+
   # Determine comment style based on extension
   case "$ext" in
     js|jsx|ts|tsx|mjs)
@@ -47,7 +47,7 @@ $LICENSE_HEADER
       cat "$temp_file" >> "$file"
       ;;
   esac
-  
+
   rm -f "$temp_file"
 }
 
