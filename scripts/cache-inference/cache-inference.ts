@@ -3,7 +3,7 @@
 
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
-import mdbookOperatorsJson from '../../docs/book/assets/operators.json';
+import mdbookOperatorsJson from '../../docs/site/static/operators.json';
 import { AggregatorData, HeaderValue, Operators } from './types';
 
 type HeaderMatch = {

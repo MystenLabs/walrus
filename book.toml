@@ -43,6 +43,6 @@ after = ["links"]
 
 [preprocessor.template]
 command = "mdbook-template"
-paths = ["docs/book/assets/operators.json", "docs/book/assets/portals.json"]
+paths = ["docs/site/static/operators.json", "docs/site/static/portals.json"]
 
 [preprocessor.tabs]
