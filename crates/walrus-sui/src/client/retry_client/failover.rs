@@ -17,13 +17,13 @@ pub trait LazyClientBuilder<C> {
     /// Should lazily create a new client instance.
     fn lazy_build_client(&self) -> impl Future<Output = Result<Arc<C>, FailoverError>>;
     /// Should return the RPC URL of the client, if one exists.
-    fn get_rpc_url(&self) -> Option<&str>;
+    fn get_rpc_url(&self) -> &str;
 }
 
 /// The inner state of the FailoverWrapper.
 struct FailoverState<ClientT> {
     client: Arc<ClientT>,
-    rpc_url: Option<String>,
+    rpc_url: String,
     current_index: usize,
 }
 
@@ -131,10 +131,7 @@ impl<ClientT, BuilderT: LazyClientBuilder<ClientT> + std::fmt::Debug>
     // This is a helper function is mainly used for logging.
     pub async fn get_current_rpc_url(&self) -> anyhow::Result<String> {
         match self.state.lock().await.as_ref() {
-            Some(state) => state
-                .rpc_url
-                .clone()
-                .ok_or_else(|| anyhow::anyhow!("no rpc url specified in failover state")),
+            Some(state) => Ok(state.rpc_url.clone()),
             None => Err(anyhow::anyhow!("no client initialized in failover wrapper")),
         }
     }
@@ -213,9 +210,7 @@ impl<ClientT, BuilderT: LazyClientBuilder<ClientT> + std::fmt::Debug>
                     // Log the error and failover to the next client.
                     tracing::info!(
                         "failed to get client from url {}, error: {}, failover to next client",
-                        self.lazy_client_builders[next_index]
-                            .get_rpc_url()
-                            .unwrap_or("unknown"),
+                        self.lazy_client_builders[next_index].get_rpc_url(),
                         error
                     );
                     next_index = (next_index + 1) % self.client_count();
@@ -228,7 +223,8 @@ impl<ClientT, BuilderT: LazyClientBuilder<ClientT> + std::fmt::Debug>
                 client: client.clone(),
                 rpc_url: self.lazy_client_builders[next_index]
                     .get_rpc_url()
-                    .map(|s| s.to_string()),
+                    .to_string(),
+
                 current_index: next_index,
             });
 
@@ -416,8 +412,8 @@ mod tests {
         async fn lazy_build_client(&self) -> Result<Arc<MockClient>, FailoverError> {
             Ok(self.clone())
         }
-        fn get_rpc_url(&self) -> Option<&str> {
-            Some("mock_rpc_url")
+        fn get_rpc_url(&self) -> &str {
+            "mock_rpc_url"
         }
     }
 

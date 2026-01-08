@@ -7,7 +7,6 @@
 use std::{
     cmp::Reverse,
     collections::{BTreeMap, BinaryHeap, HashMap},
-    fmt,
     pin::pin,
     str::FromStr,
     sync::Arc,
@@ -109,45 +108,18 @@ const RPC_MAX_TRIES: u32 = 3;
 
 /// [`LazySuiClientBuilder`] has enough information to create a [`SuiClient`], when its
 /// [`LazyClientBuilder`] trait implementation is used.
-#[derive(Clone)]
-pub enum LazySuiClientBuilder {
-    /// A client that is built dynamically from a URL.
-    Url {
-        /// The URL of the RPC server.
-        rpc_url: String,
-        /// Override the default timeout for any requests.
-        request_timeout: Option<Duration>,
-    },
-    /// Use a pre-existing client.
-    Client(Arc<SuiClient>),
-}
-
-impl fmt::Debug for LazySuiClientBuilder {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Url {
-                rpc_url,
-                request_timeout,
-            } => f
-                .debug_tuple("Url")
-                .field(rpc_url)
-                .field(request_timeout)
-                .finish(),
-            Self::Client(_) => f.debug_tuple("Client").finish(),
-        }
-    }
-}
-
-impl From<SuiClient> for LazySuiClientBuilder {
-    fn from(client: SuiClient) -> Self {
-        Self::Client(Arc::new(client))
-    }
+#[derive(Debug, Clone)]
+pub struct LazySuiClientBuilder {
+    /// The URL of the RPC server.
+    rpc_url: String,
+    /// Override the default timeout for any requests.
+    request_timeout: Option<Duration>,
 }
 
 impl LazySuiClientBuilder {
     /// Creates a new [`LazySuiClientBuilder`] from a URL and an optional `request_timeout`.
     pub fn new(rpc_url: impl AsRef<str>, request_timeout: Option<Duration>) -> Self {
-        Self::Url {
+        Self {
             rpc_url: rpc_url.as_ref().to_string(),
             request_timeout,
         }
@@ -187,48 +159,37 @@ impl LazyClientBuilder<SuiClient> for LazySuiClientBuilder {
             }
         }
 
-        match self {
-            Self::Client(client) => Ok(client.clone()),
-            Self::Url {
-                rpc_url,
-                request_timeout,
-            } => {
-                let sui_client = retry_rpc_errors(
-                    ExponentialBackoffConfig::new(
-                        CLIENT_BUILD_RETRY_MIN_DELAY,
-                        CLIENT_BUILD_RETRY_MAX_DELAY,
-                        Some(RPC_MAX_TRIES),
-                    )
-                    .get_strategy(StdRng::from_entropy().next_u64()),
-                    || async {
-                        let mut client_builder = SuiClientBuilder::default();
-                        if let Some(request_timeout) = request_timeout {
-                            client_builder = client_builder.request_timeout(*request_timeout);
-                        }
-                        client_builder.build(rpc_url).await
-                    },
-                    None,
-                    "build_sui_client",
-                )
-                .await
-                .map_err(|e| {
-                    tracing::info!(
-                        "failed to get sui client from url {}, error: {}",
-                        rpc_url,
-                        e
-                    );
-                    FailoverError::FailedToGetClient(e.to_string())
-                })?;
-                Ok(Arc::new(sui_client))
-            }
-        }
+        let sui_client = retry_rpc_errors(
+            ExponentialBackoffConfig::new(
+                CLIENT_BUILD_RETRY_MIN_DELAY,
+                CLIENT_BUILD_RETRY_MAX_DELAY,
+                Some(RPC_MAX_TRIES),
+            )
+            .get_strategy(StdRng::from_entropy().next_u64()),
+            || async {
+                let mut client_builder = SuiClientBuilder::default();
+                if let Some(request_timeout) = self.request_timeout {
+                    client_builder = client_builder.request_timeout(request_timeout);
+                }
+                client_builder.build(&self.rpc_url).await
+            },
+            None,
+            "build_sui_client",
+        )
+        .await
+        .map_err(|e| {
+            tracing::info!(
+                "failed to get sui client from url {}, error: {}",
+                self.rpc_url,
+                e
+            );
+            FailoverError::FailedToGetClient(e.to_string())
+        })?;
+        Ok(Arc::new(sui_client))
     }
 
-    fn get_rpc_url(&self) -> Option<&str> {
-        match self {
-            Self::Url { rpc_url, .. } => Some(rpc_url.as_str()),
-            Self::Client(_) => None,
-        }
+    fn get_rpc_url(&self) -> &str {
+        self.rpc_url.as_str()
     }
 }
 
