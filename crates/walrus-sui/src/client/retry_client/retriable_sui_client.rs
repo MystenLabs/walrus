@@ -139,13 +139,8 @@ impl LazyClientBuilder<SuiClient> for LazySuiClientBuilder {
             sui_macros::fail_point_arg!(
                 "failpoint_sui_client_build_client",
                 |url_to_fail: String| {
-                    match self {
-                        Self::Url { rpc_url, .. } => {
-                            if *rpc_url == url_to_fail {
-                                fail_client_creation = true;
-                            }
-                        }
-                        Self::Client(_) => {}
+                    if self.rpc_url == url_to_fail {
+                        fail_client_creation = true;
                     }
                 }
             );
