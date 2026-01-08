@@ -11,6 +11,7 @@ use std::{
     sync::Arc,
 };
 
+use anyhow::Context as _;
 use fastcrypto::traits::ToFromBytes;
 use sui_move_build::CompiledPackage;
 use sui_sdk::rpc_types::SuiObjectDataOptions;
@@ -18,7 +19,7 @@ use sui_types::{
     Identifier,
     SUI_CLOCK_OBJECT_ID,
     SUI_CLOCK_OBJECT_SHARED_VERSION,
-    base_types::{ObjectID, ObjectType, SuiAddress},
+    base_types::{ObjectID, ObjectInfo, ObjectRef, SuiAddress},
     programmable_transaction_builder::ProgrammableTransactionBuilder,
     transaction::{
         Argument,
@@ -1130,24 +1131,22 @@ impl WalrusPtbBuilder {
     /// argument (instead of allowing an `ArgumentOrOwnedObject`).
     pub async fn authenticate_with_object(
         &mut self,
-        object: ObjectID,
+        object_id: ObjectID,
     ) -> SuiClientResult<Argument> {
-        let object_data = self
+        let object = self
             .read_client
             .retriable_sui_client()
-            .get_object_with_options(object, SuiObjectDataOptions::new().with_type())
-            .await?
-            .data
-            .ok_or_else(|| anyhow::anyhow!("no object data returned"))?;
-        let ObjectType::Struct(object_type) = object_data.object_type()? else {
-            return Err(anyhow::anyhow!("object is not a struct").into());
-        };
-        let object_ref = object_data.object_ref();
+            .get_object_with_options(object_id, SuiObjectDataOptions::new().with_type())
+            .await?;
+        let move_object_type = object.type_().context("no object data type returned")?;
+        let object_info = ObjectInfo::from_object(&object);
+        let object_ref: ObjectRef = object_info.into();
         let object_arg = self
             .pt_builder
             .obj(ObjectArg::ImmOrOwnedObject(object_ref))?;
         let result_arg = self.walrus_move_call(
-            contracts::auth::authenticate_with_object.with_type_params(&[object_type.into()]),
+            contracts::auth::authenticate_with_object
+                .with_type_params(&[move_object_type.clone().into()]),
             vec![object_arg],
         )?;
         Ok(result_arg)
@@ -1631,7 +1630,7 @@ impl WalrusPtbBuilder {
                 self.authenticate_sender()
             }
             Authorized::Object(receiver) => {
-                let object = self
+                let object: sui_types::object::Object = self
                     .read_client
                     .retriable_sui_client()
                     .get_object_with_options(receiver, SuiObjectDataOptions::default().with_owner())
@@ -1639,8 +1638,9 @@ impl WalrusPtbBuilder {
                 ensure!(
                     object
                         .owner()
-                        .ok_or_else(|| anyhow::anyhow!("no object owner returned from rpc"))?
-                        .get_owner_address()?
+                        // REVIEW(wbbradley): should we be using .get_address_owner_address() here?
+                        .get_owner_address()
+                        .context("no object owner address returned from rpc")?
                         == self.sender_address,
                     SuiClientError::NotAuthorizedForPool(node_id)
                 );

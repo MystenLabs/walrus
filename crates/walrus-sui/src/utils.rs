@@ -12,7 +12,7 @@ use std::{
     time::Duration,
 };
 
-use anyhow::{Result, anyhow};
+use anyhow::{Context as _, Result, anyhow};
 use move_core_types::language_storage::StructTag as MoveStructTag;
 use serde::{Deserialize, Serialize};
 use sui_config::{Config, SUI_KEYSTORE_FILENAME, sui_config_dir};
@@ -23,6 +23,7 @@ use sui_keys::keystore::{
     GeneratedKey,
     Keystore,
 };
+use sui_rpc::proto::sui::rpc::v2::Bcs;
 use sui_sdk::{
     rpc_types::{ObjectChange, Page, SuiObjectResponse, SuiTransactionBlockResponse},
     sui_client_config::{SuiClientConfig, SuiEnv},
@@ -95,15 +96,12 @@ pub fn write_price_for_encoded_length(encoded_length: u64, price_per_unit_size: 
 /// Gets the package address from an object response.
 ///
 /// Note: This returns the package address from the object type, not the newest package ID.
-pub(crate) fn get_package_id_from_object_response(
-    object_response: &SuiObjectResponse,
-) -> Result<ObjectID> {
-    let sui_types::base_types::ObjectType::Struct(move_object_type) =
-        object_response.object()?.object_type()?
-    else {
-        anyhow::bail!("response does not contain a move struct object");
-    };
-    Ok(move_object_type.address().into())
+pub(crate) fn get_package_id_from_object(object: &sui_types::object::Object) -> Result<ObjectID> {
+    Ok(object
+        .struct_tag()
+        .context("object does not have a struct tag")?
+        .address
+        .into())
 }
 
 /// Gets the objects of the given type that were created in a transaction.
@@ -160,6 +158,18 @@ where
         )
         .into()
     })
+}
+
+pub(crate) fn get_sui_object_from_bcs<U>(bcs: &Bcs) -> SuiClientResult<U>
+where
+    U: AssociatedContractStruct,
+{
+    Ok(bcs.deserialize::<U>().with_context(|| {
+        format!(
+            "could not convert object to expected type {}",
+            U::CONTRACT_STRUCT
+        )
+    })?)
 }
 
 pub(crate) async fn handle_pagination<F, T, C, Fut, ErrorT>(

@@ -82,6 +82,8 @@ use crate::{
     wallet::Wallet,
 };
 
+pub mod dual_client;
+
 mod read_client;
 pub use read_client::{
     CoinType,
