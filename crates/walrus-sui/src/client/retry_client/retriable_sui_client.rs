@@ -52,7 +52,15 @@ use sui_sdk::{
 use sui_types::transaction::TransactionDataAPI;
 use sui_types::{
     TypeTag,
-    base_types::{ObjectID, ObjectRef, ObjectType, SequenceNumber, SuiAddress, TransactionDigest},
+    base_types::{
+        ObjectID,
+        ObjectInfo,
+        ObjectRef,
+        ObjectType,
+        SequenceNumber,
+        SuiAddress,
+        TransactionDigest,
+    },
     dynamic_field::derive_dynamic_field_id,
     event::EventID,
     object::Owner,
