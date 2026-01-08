@@ -272,8 +272,22 @@ pub(crate) async fn publish_package(
             // Pattern to match git-based Sui dependencies
             // Matches: package = { git = "...", subdir = "...", rev = "..." }
             let pattern = regex::Regex::new(
-                    r#"(\w+)\s*=\s*\{\s*git\s*=\s*"https://github\.com/MystenLabs/sui\.git"\s*,\s*subdir\s*=\s*"([^"]+)"\s*,\s*rev\s*=\s*"[^"]+"\s*\}"#
-                ).expect("Failed to create regex");
+                r#"(?x)               # Enable verbose mode
+                    (\w+)             # Package name
+                    \s*=\s*           # Equals sign with optional whitespace
+                    \{                # Opening brace
+                    \s*git\s*=\s*     # git field
+                    "https://github\.com/MystenLabs/sui\.git"  # Git URL
+                    \s*,\s*           # Comma separator
+                    subdir\s*=\s*     # subdir field
+                    "([^"]+)"         # Subdir value (capture group 2)
+                    \s*,\s*           # Comma separator
+                    rev\s*=\s*        # rev field
+                    "[^"]+"           # Rev value
+                    \s*\}             # Closing brace
+                "#,
+            )
+            .expect("Failed to create regex");
 
             let updated_content = pattern.replace_all(&toml_content, |caps: &regex::Captures| {
                 let package_name = &caps[1];

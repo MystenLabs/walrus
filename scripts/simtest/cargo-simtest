@@ -131,4 +131,3 @@ cargo "${cargo_command[@]}" \
   --config "build.rustflags = [$(IFS=, ; echo "${rust_flags[*]}")]" \
   "${cargo_patch_args[@]}" \
   "$@"
-  
