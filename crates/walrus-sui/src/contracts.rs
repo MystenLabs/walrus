@@ -119,7 +119,7 @@ impl FunctionTag<'_> {
 pub(crate) type TypeOriginMap = BTreeMap<(String, String), ObjectID>;
 
 /// Tag identifying contract structs based on their name and module.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct StructTag<'a> {
     /// Move struct name.
     pub name: &'a str,
@@ -132,7 +132,7 @@ impl StructTag<'_> {
     ///
     /// Use [`Self::to_move_struct_tag_with_type_map`] if the type origin map is available.
     pub(crate) fn to_move_struct_tag_with_package(
-        &self,
+        self,
         package: ObjectID,
         type_params: &[TypeTag],
     ) -> Result<MoveStructTag> {
@@ -151,7 +151,7 @@ impl StructTag<'_> {
     /// Converts a [`StructTag`] to a [`MoveStructTag`] using the matching package ID from the given
     /// type origin map.
     pub(crate) fn to_move_struct_tag_with_type_map(
-        &self,
+        self,
         type_origin_map: &TypeOriginMap,
         type_params: &[TypeTag],
     ) -> Result<MoveStructTag> {
