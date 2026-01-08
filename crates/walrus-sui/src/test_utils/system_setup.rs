@@ -538,3 +538,66 @@ async fn publish_with_default_system_with_epoch_duration(
 
     Ok((system_context, contract_client))
 }
+
+/// Updates the Sui dependency in the `Move.toml` file to use a local copy of the sui repository.
+// TODO(WAL-1125): remove once the new sui package management system introduced in 1.63 can
+// support external dependencies.
+pub fn update_contract_sui_dependency_to_local_copy(package_path: PathBuf) -> Result<()> {
+    if !cfg!(msim) {
+        // Only update the dependency in simtest.
+        tracing::info!("not updating dependency in non-simtest");
+        return Ok(());
+    }
+
+    let Ok(sui_repo) = std::env::var("SUI_REPO") else {
+        return Err(anyhow::anyhow!("SUI_REPO environment variable is not set"));
+    };
+
+    tracing::info!(
+        "update package {:?} to use local copy of sui repository at {:?}",
+        package_path,
+        sui_repo
+    );
+
+    let move_toml_path = package_path.join("Move.toml");
+
+    let toml_content = std::fs::read_to_string(&move_toml_path)?;
+
+    // Pattern to match git-based Sui dependencies
+    // Matches: package = { git = "...", subdir = "...", rev = "..." }
+    let pattern = regex::Regex::new(
+        r#"(?x)               # Enable verbose mode
+                (\w+)             # Package name
+                \s*=\s*           # Equals sign with optional whitespace
+                \{                # Opening brace
+                \s*git\s*=\s*     # git field
+                "https://github\.com/MystenLabs/sui\.git"  # Git URL
+                \s*,\s*           # Comma separator
+                subdir\s*=\s*     # subdir field
+                "([^"]+)"         # Subdir value (capture group 2)
+                \s*,\s*           # Comma separator
+                rev\s*=\s*        # rev field
+                "[^"]+"           # Rev value
+                \s*\}             # Closing brace
+            "#,
+    )?;
+
+    let updated_content = pattern.replace_all(&toml_content, |caps: &regex::Captures| {
+        let package_name = &caps[1];
+        let subdir = &caps[2];
+        format!(
+            r#"{} = {{ local = "{}/{}" }}"#,
+            package_name, sui_repo, subdir
+        )
+    });
+
+    tracing::debug!(
+        "update package {:?} Move.toml to {:?}",
+        package_path,
+        updated_content
+    );
+
+    std::fs::write(&move_toml_path, updated_content.as_ref())?;
+
+    Ok(())
+}

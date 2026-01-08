@@ -45,6 +45,7 @@ use crate::{
         retriable_sui_client::{GasBudgetAndPrice, LazySuiClientBuilder},
     },
     contracts::{self, StructTag},
+    test_utils::system_setup::update_contract_sui_dependency_to_local_copy,
     utils::{get_created_sui_object_ids_by_type, resolve_lock_file_path},
     wallet::Wallet,
 };
@@ -308,6 +309,24 @@ pub(crate) async fn publish_coin_and_system_package(
     } else {
         contract_dir
     };
+
+    if cfg!(msim) {
+        // TODO(WAL-1125): before the new sui package management system introduced in 1.63 can
+        // support external dependencies, in simtest, we have to update all the implicit
+        // dependencies to sui using a local copy of the sui repository.
+        // The local copy should be pointed to by the SUI_REPO environment variable, and it should
+        // match the sui version used by the walrus. The pulling logic is implemented in the
+        // cargo-simtest script.
+        for package in [
+            "wal",
+            "walrus",
+            "wal_exchange",
+            "subsidies",
+            "walrus_subsidies",
+        ] {
+            update_contract_sui_dependency_to_local_copy(walrus_contract_directory.join(package))?;
+        }
+    }
 
     if !use_existing_wal_token {
         // Publish `wal` package.
