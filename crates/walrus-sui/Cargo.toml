@@ -23,6 +23,7 @@ anyhow.workspace = true
 async-trait.workspace = true
 atomic-time.workspace = true
 bcs.workspace = true
+bytes.workspace = true
 chrono.workspace = true
 clap.workspace = true
 fastcrypto.workspace = true
