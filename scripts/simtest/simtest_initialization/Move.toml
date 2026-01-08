@@ -4,6 +4,4 @@ version = "0.0.1"
 license = "Apache-2.0"
 authors = ["Mysten Labs <build@mystenlabs.com>"]
 edition = "2024"
-
-[addresses]
-simtest_initialization = "0x0"
+implicit-dependencies = false
