@@ -271,10 +271,16 @@ pub enum ClientErrorKind {
     /// An error occurred while reading a byte range from a blob.
     #[error("byte range read error: {0}")]
     ByteRangeReadError(String),
+    /// An error occurred during Walrus client initialization.
+    #[error("an error occurred during Walrus client initialization: {0}")]
+    InitializationError(String),
+    /// An error occurred while initializing the [`Wallet`][walrus_sui::client::Wallet].
+    #[error("error while initializing the WalrusNodeClient: {0}")]
+    WalrusNodeClientInitializationError(String),
     /// An error occurred while initializing the
     /// [`WalrusNodeClient`][crate::node_client::WalrusNodeClient] in the background task.
     #[error("error while initializing the Walrus client in the background task: {0}")]
-    ClientInitializationError(String),
+    WalrusNodeClientBackgroundInitializationError(String),
     /// An error occurred while validating the input for byte range read.
     #[error("byte range read input error: {0}")]
     ByteRangeReadInputError(String),

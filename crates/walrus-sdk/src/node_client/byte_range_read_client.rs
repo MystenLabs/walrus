@@ -55,12 +55,12 @@ impl Default for ByteRangeReadClientConfig {
 
 /// A client for reading specific byte ranges from blobs.
 #[derive(Debug, Clone)]
-pub struct ByteRangeReadClient<'a, T> {
+pub struct ByteRangeReadClient<'a, T: Send + Sync> {
     client: &'a WalrusNodeClient<T>,
     config: ByteRangeReadClientConfig,
 }
 
-impl<'a, T> ByteRangeReadClient<'a, T> {
+impl<'a, T: Send + Sync> ByteRangeReadClient<'a, T> {
     /// Creates a new ByteRangeReadClient.
     pub fn new(client: &'a WalrusNodeClient<T>, config: ByteRangeReadClientConfig) -> Self {
         Self { client, config }

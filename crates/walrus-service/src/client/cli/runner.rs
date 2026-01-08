@@ -12,7 +12,7 @@ use std::{
     time::Duration,
 };
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use chrono::{DateTime, Utc};
 use fastcrypto::encoding::Encoding;
 use itertools::Itertools as _;
@@ -41,7 +41,7 @@ use walrus_core::{
 };
 use walrus_sdk::{
     SuiReadClient,
-    config::load_configuration,
+    client::{WalrusClient, get_read_client, get_sui_read_client_from_rpc_node_or_wallet},
     error::ClientErrorKind,
     node_client::{
         NodeCommunicationFactory,
@@ -76,7 +76,7 @@ use walrus_sdk::{
     utils::styled_spinner,
 };
 use walrus_storage_node_client::api::BlobStatus;
-use walrus_sui::{client::rpc_client, wallet::Wallet};
+use walrus_sui::{client::rpc_client, types::StakingObject, wallet::Wallet};
 use walrus_utils::{metrics::Registry, read_blob_from_file};
 
 use super::{
@@ -103,7 +103,6 @@ use super::{
 };
 use crate::{
     client::{
-        ClientConfig,
         ClientDaemon,
         cli::{
             BlobIdDecimal,
@@ -116,9 +115,6 @@ use crate::{
             QuiltPatchByTag,
             QuiltPatchSelector,
             args::{CommonStoreOptions, TraceExporter},
-            get_contract_client,
-            get_read_client,
-            get_sui_read_client_from_rpc_node_or_wallet,
             internal_run::{
                 ChildUploaderEvent,
                 InternalRunContext,
@@ -164,10 +160,8 @@ use crate::{
 /// A helper struct to run commands for the Walrus client.
 #[allow(missing_debug_implementations)]
 pub struct ClientCommandRunner {
-    /// The Sui wallet for the client.
-    wallet: Result<Wallet>,
-    /// The config for the client.
-    config: Result<ClientConfig>,
+    /// The Walrus client.
+    walrus_client: WalrusClient,
     /// Whether to output JSON.
     json: bool,
     /// The gas budget for the client commands.
@@ -177,33 +171,16 @@ pub struct ClientCommandRunner {
 impl ClientCommandRunner {
     /// Creates a new client runner, loading the configuration and wallet context.
     pub fn new(
-        config_path: &Option<PathBuf>,
+        config_path: &Option<impl AsRef<Path>>,
         context: Option<&str>,
-        wallet_override: &Option<PathBuf>,
+        wallet_override: &Option<impl AsRef<Path>>,
         gas_budget: Option<u64>,
         json: bool,
     ) -> Self {
-        let config = load_configuration(config_path.as_ref(), context);
-        let wallet_config = wallet_override
-            .as_ref()
-            .map(WalletConfig::from_path)
-            .or(config
-                .as_ref()
-                .ok()
-                .and_then(|config: &ClientConfig| config.wallet_config.clone()));
-        let wallet = WalletConfig::load_wallet(
-            wallet_config.as_ref(),
-            config
-                .as_ref()
-                .ok()
-                .and_then(|config| config.communication_config.sui_client_request_timeout),
-        );
-
         Self {
-            wallet,
-            config,
-            gas_budget,
+            walrus_client: WalrusClient::new(config_path, context, wallet_override),
             json,
+            gas_budget,
         }
     }
 
@@ -373,15 +350,11 @@ impl ClientCommandRunner {
                 shared_blob_obj_id,
                 amount,
             } => {
-                let sui_client = self
-                    .config?
-                    .new_contract_client(self.wallet?, self.gas_budget)
-                    .await?;
                 let spinner = styled_spinner();
                 spinner.set_message("funding blob...");
 
-                sui_client
-                    .fund_shared_blob(shared_blob_obj_id, amount)
+                self.walrus_client
+                    .fund_shared_blob(shared_blob_obj_id, amount, self.gas_budget)
                     .await?;
 
                 spinner.finish_with_message("done");
@@ -393,20 +366,12 @@ impl ClientCommandRunner {
                 shared,
                 epochs_extended,
             } => {
-                let sui_client = self
-                    .config?
-                    .new_contract_client(self.wallet?, self.gas_budget)
-                    .await?;
                 let spinner = styled_spinner();
                 spinner.set_message("extending blob...");
 
-                if shared {
-                    sui_client
-                        .extend_shared_blob(blob_obj_id, epochs_extended)
-                        .await?;
-                } else {
-                    sui_client.extend_blob(blob_obj_id, epochs_extended).await?;
-                }
+                self.walrus_client
+                    .extend_blob(blob_obj_id, shared, epochs_extended, self.gas_budget)
+                    .await?;
 
                 spinner.finish_with_message("done");
                 ExtendBlobOutput { epochs_extended }.print_output(self.json)
@@ -417,8 +382,8 @@ impl ClientCommandRunner {
                 amount,
             } => {
                 let sui_client = self
-                    .config?
-                    .new_contract_client(self.wallet?, self.gas_budget)
+                    .walrus_client
+                    .new_sui_write_client("share", self.gas_budget)
                     .await?;
                 let spinner = styled_spinner();
                 spinner.set_message("sharing blob...");
@@ -436,9 +401,10 @@ impl ClientCommandRunner {
             }
 
             CliCommands::GetBlobAttribute { blob_obj_id } => {
-                let sui_read_client =
-                    get_sui_read_client_from_rpc_node_or_wallet(&self.config?, None, self.wallet)
-                        .await?;
+                let sui_read_client = self
+                    .walrus_client
+                    .new_sui_read_client("get_blob_attribute", None)
+                    .await?;
                 let attribute = sui_read_client.get_blob_attribute(&blob_obj_id).await?;
                 GetBlobAttributeOutput { attribute }.print_output(self.json)
             }
@@ -447,21 +413,19 @@ impl ClientCommandRunner {
                 blob_obj_id,
                 attributes,
             } => {
-                let pairs: Vec<(String, String)> = attributes
+                if attributes.len() % 2 != 0 {
+                    bail!("attributes must be provided as key-value pairs");
+                }
+                let key_value_pairs: Vec<(String, String)> = attributes
                     .chunks_exact(2)
                     .map(|chunk| (chunk[0].clone(), chunk[1].clone()))
                     .collect();
-                let mut sui_client = self
-                    .config?
-                    .new_contract_client(self.wallet?, self.gas_budget)
-                    .await?;
-                let attribute = BlobAttribute::from(pairs);
-                sui_client
-                    .insert_or_update_blob_attribute_pairs(blob_obj_id, attribute.iter(), true)
+                self.walrus_client
+                    .set_blob_attributes(blob_obj_id, key_value_pairs, self.gas_budget)
                     .await?;
                 if !self.json {
                     println!(
-                        "{} Successfully added attribute for blob object {}",
+                        "{} Successfully added attributes to blob object {}",
                         success(),
                         blob_obj_id
                     );
@@ -471,8 +435,8 @@ impl ClientCommandRunner {
 
             CliCommands::RemoveBlobAttributeFields { blob_obj_id, keys } => {
                 let mut sui_client = self
-                    .config?
-                    .new_contract_client(self.wallet?, self.gas_budget)
+                    .walrus_client
+                    .new_sui_write_client("remove_blob_attribute_pairs", self.gas_budget)
                     .await?;
                 sui_client
                     .remove_blob_attribute_pairs(blob_obj_id, keys)
@@ -489,8 +453,8 @@ impl ClientCommandRunner {
 
             CliCommands::RemoveBlobAttribute { blob_obj_id } => {
                 let mut sui_client = self
-                    .config?
-                    .new_contract_client(self.wallet?, self.gas_budget)
+                    .walrus_client
+                    .new_sui_write_client("remove_blob_attribute_pairs", self.gas_budget)
                     .await?;
                 sui_client.remove_blob_attribute(blob_obj_id).await?;
                 if !self.json {
@@ -563,15 +527,19 @@ impl ClientCommandRunner {
     }
 
     fn maybe_export_contract_info(&mut self, registry: &Registry) {
-        let Ok(config) = self.config.as_ref() else {
+        #[allow(deprecated)]
+        let Ok(config) = self
+            .walrus_client
+            .required_config("maybe_export_contract_info")
+        else {
             return;
         };
         utils::export_contract_info(
             registry,
             &config.contract_config.system_object,
             &config.contract_config.staking_object,
-            self.wallet
-                .as_ref()
+            self.walrus_client
+                .required_wallet()
                 .map(|wallet| wallet.active_address())
                 .ok(),
         );
@@ -586,7 +554,10 @@ impl ClientCommandRunner {
         rpc_url: Option<String>,
         consistency_check: ConsistencyCheckType,
     ) -> Result<()> {
-        let client = get_read_client(self.config?, rpc_url, self.wallet, &None, None).await?;
+        let client = self
+            .walrus_client
+            .walrus_node_read_client("read", rpc_url)
+            .await?;
 
         let start_timer = std::time::Instant::now();
         let blob = client
@@ -614,11 +585,10 @@ impl ClientCommandRunner {
         out: Option<PathBuf>,
         rpc_url: Option<String>,
     ) -> Result<()> {
-        let config = self.config?;
-        let sui_read_client =
-            get_sui_read_client_from_rpc_node_or_wallet(&config, rpc_url, self.wallet).await?;
-        let read_client =
-            WalrusNodeClient::new_read_client_with_refresher(config, sui_read_client).await?;
+        let read_client = self
+            .walrus_client
+            .walrus_node_read_client("read_quilt", rpc_url)
+            .await?;
 
         let quilt_read_client = read_client.quilt_client();
 
@@ -661,11 +631,10 @@ impl ClientCommandRunner {
         quilt_id: BlobId,
         rpc_url: Option<String>,
     ) -> Result<()> {
-        let config = self.config?;
-        let sui_read_client =
-            get_sui_read_client_from_rpc_node_or_wallet(&config, rpc_url, self.wallet).await?;
-        let read_client =
-            WalrusNodeClient::new_read_client_with_refresher(config, sui_read_client).await?;
+        let read_client = self
+            .walrus_client
+            .walrus_node_read_client("list_patches_in_quilt", rpc_url)
+            .await?;
 
         let quilt_read_client = read_client.quilt_client();
         let quilt_metadata = quilt_read_client.get_quilt_metadata(&quilt_id).await?;
@@ -705,8 +674,9 @@ impl ClientCommandRunner {
 
         let encoding_type = encoding_type.unwrap_or(DEFAULT_ENCODING);
 
-        let config = self.config?;
-        let wallet = self.wallet?;
+        #[allow(deprecated)]
+        let (wallet, config) = self.walrus_client.required_both("store")?;
+
         let active_address = wallet.active_address();
         let mut client_created_in_bg = WalrusNodeClientCreatedInBackground::new(
             get_contract_client(config.clone(), wallet, self.gas_budget),
@@ -1060,8 +1030,10 @@ impl ClientCommandRunner {
         }
 
         let encoding_type = encoding_type.unwrap_or(DEFAULT_ENCODING);
-        let config = self.config?;
-        let wallet = self.wallet?;
+
+        #[allow(deprecated)]
+        let (wallet, config) = self.walrus_client.required_both("store_quilt")?;
+
         let active_address = wallet.active_address();
         let mut client_created_in_bg = WalrusNodeClientCreatedInBackground::new(
             get_contract_client(config.clone(), wallet, self.gas_budget),
@@ -1424,28 +1396,29 @@ impl ClientCommandRunner {
         encoding_type: Option<EncodingType>,
     ) -> Result<()> {
         tracing::debug!(?file_or_blob_id, "getting blob status");
-        let config = self.config?;
-        let sui_read_client =
-            get_sui_read_client_from_rpc_node_or_wallet(&config, rpc_url, self.wallet).await?;
 
-        let encoding_type = encoding_type.unwrap_or(DEFAULT_ENCODING);
-
-        let refresher_handle = config
-            .build_refresher_and_run(sui_read_client.clone())
+        let read_toolkit = self
+            .walrus_client
+            .walrus_only_read_toolkit("blob_status", rpc_url)
             .await?;
-        let client = WalrusNodeClient::new(config, refresher_handle)?;
 
         let file = file_or_blob_id.file.clone();
-        let blob_id =
-            file_or_blob_id.get_or_compute_blob_id(client.encoding_config(), encoding_type)?;
+        let encoding_type = encoding_type.unwrap_or(DEFAULT_ENCODING);
 
-        let status = client
-            .get_verified_blob_status(&blob_id, &sui_read_client, timeout)
+        let blob_id = file_or_blob_id.get_or_compute_blob_id(
+            read_toolkit.walrus_node_client.encoding_config(),
+            encoding_type,
+        )?;
+
+        let status = read_toolkit
+            .walrus_node_client
+            .get_verified_blob_status(&blob_id, &read_toolkit.sui_read_client, timeout)
             .await?;
 
         // Compute estimated blob expiry in DateTime if it is a permanent blob.
         let estimated_expiry_timestamp = if let BlobStatus::Permanent { end_epoch, .. } = status {
-            let staking_object = sui_read_client.get_staking_object().await?;
+            let staking_object: StakingObject =
+                read_toolkit.sui_read_client.get_staking_object().await?;
             let epoch_duration = staking_object.epoch_duration();
             let epoch_state = staking_object.epoch_state();
             let current_epoch = staking_object.epoch();

@@ -243,7 +243,7 @@ impl ConfirmationCollection {
 
 /// A client to communicate with Walrus shards and storage nodes.
 #[derive(Debug, Clone)]
-pub struct WalrusNodeClient<T> {
+pub struct WalrusNodeClient<T: Send + Sync> {
     config: ClientConfig,
     sui_client: T,
     communication_limits: CommunicationLimits,
@@ -1628,7 +1628,7 @@ impl WalrusNodeClient<SuiContractClient> {
     }
 }
 
-impl<T> WalrusNodeClient<T> {
+impl<T: Send + Sync> WalrusNodeClient<T> {
     /// Adds a [`Blocklist`] to the client that will be checked when storing or reading blobs.
     ///
     /// This can be called again to replace the blocklist.
@@ -2859,11 +2859,74 @@ impl<T> WalrusNodeClient<T> {
     }
 }
 
+pub trait LazyWalrusNodeClient<T: Send + Sync + 'static> {
+    fn client(&self) -> impl Future<Output = ClientResult<&WalrusNodeClient<T>>> + Send;
+    /// Encodes the blobs, reserves & registers the space on chain, stores the slivers to the
+    /// storage nodes, and certifies the blobs.
+    ///
+    /// Returns a vector of [`BlobStoreResult`]s, in the same order as the input blobs. The
+    /// length of the output vector is the same as the input vector.
+    fn reserve_and_store_blobs_inner(
+        &self,
+        walrus_store_blobs: Vec<WalrusStoreBlobMaybeFinished<UnencodedBlob>>,
+        store_args: &StoreArgs,
+        perform_retries: bool,
+    ) -> impl Future<Output = ClientResult<Vec<BlobStoreResult>>> + Send {
+        async move {
+            let blobs_count = walrus_store_blobs.len();
+            if blobs_count == 0 {
+                tracing::debug!("no blobs provided to store");
+                return Ok(vec![]);
+            }
+            let start = Instant::now();
+
+            let upload_relay_client = store_args.upload_relay_client.clone();
+            let encoding_event_tx = store_args.encoding_event_tx.clone();
+            let maybe_encoded_blobs = tokio::task::spawn_blocking(move || {
+                encode_blobs(
+                    walrus_store_blobs,
+                    upload_relay_client,
+                    encoding_event_tx.as_ref(),
+                )
+            })
+            .await
+            .map_err(ClientError::other)??;
+            let (encoded_blobs, mut results) =
+                client_types::partition_unfinished_finished(maybe_encoded_blobs);
+            store_args.maybe_observe_encoding_latency(start.elapsed());
+
+            let client = self.client().await?;
+
+            if !encoded_blobs.is_empty() {
+                let store_results = if perform_retries {
+                    client
+                        .retry_if_error_epoch_change(|| {
+                            client
+                                .reserve_and_store_encoded_blobs(encoded_blobs.clone(), store_args)
+                        })
+                        .await?
+                } else {
+                    client
+                        .reserve_and_store_encoded_blobs(encoded_blobs.clone(), store_args)
+                        .await?
+                };
+                results.extend(store_results);
+            }
+
+            debug_assert_eq!(results.len(), blobs_count);
+            // Make sure the output order is the same as the input order.
+            results.sort_by_key(|blob| blob.common.identifier.to_string());
+
+            Ok(results.into_iter().map(|blob| blob.state).collect())
+        }
+    }
+}
+
 /// A wrapper for a [`WalrusNodeClient`] that may be created in a background task.
 // INV: either client is initialized xor the join handle is Some.
 // INV: if the encoding_config is not initialized, the join handle is Some.
 #[derive(Debug)]
-pub struct WalrusNodeClientCreatedInBackground<T> {
+pub struct WalrusNodeClientCreatedInBackground<T: Send + Sync> {
     encoding_config: OnceLock<EncodingConfig>,
     /// Contains the result of the background task if was already completed. If it returned an
     /// error, the error is stored as a string.
@@ -2875,7 +2938,7 @@ pub struct WalrusNodeClientCreatedInBackground<T> {
 
 impl<T> WalrusNodeClientCreatedInBackground<T>
 where
-    T: Debug + Send + 'static,
+    T: Debug + Send + Sync + 'static,
 {
     /// Creates a new [`WalrusNodeClientCreatedInBackground`] that will create the
     /// [`WalrusNodeClient`] in a background task using the provided future.
@@ -2908,7 +2971,9 @@ where
         }
         Ok(self.client().await?.encoding_config())
     }
+}
 
+impl<T: Send + Sync + 'static> LazyWalrusNodeClient<T> for WalrusNodeClientCreatedInBackground<T> {
     /// Returns a reference to the [`WalrusNodeClient`].
     ///
     /// If the [`WalrusNodeClient`] is not yet created, this will wait for the background task to
@@ -2926,7 +2991,7 @@ where
         skip_all,
         level = Level::DEBUG,
     )]
-    pub async fn client(&self) -> ClientResult<&WalrusNodeClient<T>> {
+    async fn client(&self) -> ClientResult<&WalrusNodeClient<T>> {
         if let Some(result) = self.client.get() {
             return Self::convert_result_ref(result);
         }
@@ -2953,15 +3018,17 @@ where
             waiting_duration = ?start.elapsed(),
             "finished initializing the WalrusNodeClient"
         );
-        Ok(client)
+        Ok(client.clone())
     }
+}
 
+impl<T: Send + Sync> WalrusNodeClientCreatedInBackground<T> {
     fn convert_result_ref(
         result: &Result<WalrusNodeClient<T>, String>,
     ) -> ClientResult<&WalrusNodeClient<T>> {
-        result
-            .as_ref()
-            .map_err(|e| ClientErrorKind::ClientInitializationError(e.clone()).into())
+        result.as_ref().map_err(|e| {
+            ClientErrorKind::WalrusNodeClientBackgroundInitializationError(e.clone()).into()
+        })
     }
 
     /// Returns the [`WalrusNodeClient`].
@@ -2978,7 +3045,9 @@ where
     #[tracing::instrument(skip_all, level = Level::DEBUG)]
     pub async fn into_client(self) -> ClientResult<WalrusNodeClient<T>> {
         if let Some(client) = self.client.into_inner() {
-            return client.map_err(|e| ClientErrorKind::ClientInitializationError(e).into());
+            return client.map_err(|e| {
+                ClientErrorKind::WalrusNodeClientBackgroundInitializationError(e).into()
+            });
         }
         let start = Instant::now();
         let join_handle = self
@@ -2999,91 +3068,10 @@ where
     }
 }
 
-mod internal {
-    use super::*;
-
-    pub trait StoreBlobApiInternal: Sync {
-        /// Returns the [`WalrusNodeClient`].
-        fn client(
-            &self,
-        ) -> impl Future<Output = ClientResult<&WalrusNodeClient<SuiContractClient>>> + Send;
-
-        /// Encodes the blobs, reserves & registers the space on chain, stores the slivers to the
-        /// storage nodes, and certifies the blobs.
-        ///
-        /// Returns a vector of [`BlobStoreResult`]s, in the same order as the input blobs. The
-        /// length of the output vector is the same as the input vector.
-        fn reserve_and_store_blobs_inner(
-            &self,
-            walrus_store_blobs: Vec<WalrusStoreBlobMaybeFinished<UnencodedBlob>>,
-            store_args: &StoreArgs,
-            perform_retries: bool,
-        ) -> impl Future<Output = ClientResult<Vec<BlobStoreResult>>> + Send {
-            async move {
-                let blobs_count = walrus_store_blobs.len();
-                if blobs_count == 0 {
-                    tracing::debug!("no blobs provided to store");
-                    return Ok(vec![]);
-                }
-                let start = Instant::now();
-
-                let upload_relay_client = store_args.upload_relay_client.clone();
-                let encoding_event_tx = store_args.encoding_event_tx.clone();
-                let maybe_encoded_blobs = tokio::task::spawn_blocking(move || {
-                    encode_blobs(
-                        walrus_store_blobs,
-                        upload_relay_client,
-                        encoding_event_tx.as_ref(),
-                    )
-                })
-                .await
-                .map_err(ClientError::other)??;
-                let (encoded_blobs, mut results) =
-                    client_types::partition_unfinished_finished(maybe_encoded_blobs);
-                store_args.maybe_observe_encoding_latency(start.elapsed());
-
-                let client = self.client().await?;
-
-                if !encoded_blobs.is_empty() {
-                    let store_results = if perform_retries {
-                        client
-                            .retry_if_error_epoch_change(|| {
-                                client.reserve_and_store_encoded_blobs(
-                                    encoded_blobs.clone(),
-                                    store_args,
-                                )
-                            })
-                            .await?
-                    } else {
-                        client
-                            .reserve_and_store_encoded_blobs(encoded_blobs.clone(), store_args)
-                            .await?
-                    };
-                    results.extend(store_results);
-                }
-
-                debug_assert_eq!(results.len(), blobs_count);
-                // Make sure the output order is the same as the input order.
-                results.sort_by_key(|blob| blob.common.identifier.to_string());
-
-                Ok(results.into_iter().map(|blob| blob.state).collect())
-            }
-        }
-    }
-}
-
 /// A trait containing functions to store blobs to Walrus.
-pub trait StoreBlobsApi: internal::StoreBlobApiInternal + Sized {
+pub trait StoreBlobsApi: LazyWalrusNodeClient<SuiContractClient> + Sized {
     /// Returns the encoding config used by the client.
     fn encoding_config(&self) -> impl Future<Output = ClientResult<&EncodingConfig>> + Send;
-
-    /// Returns the [`WalrusNodeClient`]. If the [`WalrusNodeClient`] is not yet created, this will
-    /// wait for the background task to complete.
-    fn client(
-        &self,
-    ) -> impl Future<Output = ClientResult<&WalrusNodeClient<SuiContractClient>>> + Send {
-        internal::StoreBlobApiInternal::client(self)
-    }
 
     /// Stores a list of blobs to Walrus, retrying if it fails because of epoch change.
     #[tracing::instrument(skip_all, fields(blob_id))]
@@ -3165,11 +3153,6 @@ pub trait StoreBlobsApi: internal::StoreBlobApiInternal + Sized {
     }
 }
 
-impl internal::StoreBlobApiInternal for WalrusNodeClientCreatedInBackground<SuiContractClient> {
-    async fn client(&self) -> ClientResult<&WalrusNodeClient<SuiContractClient>> {
-        self.client().await
-    }
-}
 impl StoreBlobsApi for WalrusNodeClientCreatedInBackground<SuiContractClient> {
     async fn encoding_config(&self) -> ClientResult<&EncodingConfig> {
         self.encoding_config()
@@ -3178,8 +3161,8 @@ impl StoreBlobsApi for WalrusNodeClientCreatedInBackground<SuiContractClient> {
     }
 }
 
-impl internal::StoreBlobApiInternal for WalrusNodeClient<SuiContractClient> {
-    async fn client(&self) -> ClientResult<&WalrusNodeClient<SuiContractClient>> {
+impl<T: Send + Sync> LazyWalrusNodeClient<T> for WalrusNodeClient<T> {
+    async fn client(&self) -> ClientResult<&WalrusNodeClient<T>> {
         Ok(self)
     }
 }
@@ -3187,6 +3170,104 @@ impl internal::StoreBlobApiInternal for WalrusNodeClient<SuiContractClient> {
 impl StoreBlobsApi for WalrusNodeClient<SuiContractClient> {
     async fn encoding_config(&self) -> ClientResult<&EncodingConfig> {
         Ok(&self.encoding_config)
+    }
+
+    #[doc = " Stores a list of blobs to Walrus, retrying if it fails because of epoch change."]
+    fn reserve_and_store_blobs_retry_committees(
+        &self,
+        blobs: Vec<Vec<u8>>,
+        attributes: Vec<BlobAttribute>,
+        store_args: &StoreArgs,
+    ) -> impl Future<Output = ClientResult<Vec<BlobStoreResult>>> + Send {
+        async move {
+            let __tracing_attr_span = ::tracing::span!(target:module_path!(), ::tracing::Level::INFO,"reserve_and_store_blobs_retry_committees",blob_id =  ::tracing::field::Empty);
+            let __tracing_instrument_future = async move {
+                let walrus_store_blobs =
+                    WalrusStoreBlobMaybeFinished::unencoded_blobs_with_default_identifiers(
+                        blobs,
+                        attributes,
+                        self.encoding_config()
+                            .get_for_type(store_args.encoding_type),
+                    );
+                self.reserve_and_store_blobs_inner(walrus_store_blobs, store_args, true)
+                    .await
+            };
+            if !__tracing_attr_span.is_disabled() {
+                ::tracing::Instrument::instrument(__tracing_instrument_future, __tracing_attr_span)
+                    .await
+            } else {
+                __tracing_instrument_future.await
+            }
+        }
+    }
+
+    #[doc = " Stores a list of blobs to Walrus, retrying if it fails because of epoch change."]
+    #[doc = " Similar to `[Client::reserve_and_store_blobs_retry_committees]`, except the result"]
+    #[doc = " includes the corresponding path for blob."]
+    fn reserve_and_store_blobs_retry_committees_with_path(
+        &self,
+        blobs_with_paths: Vec<(PathBuf, Vec<u8>)>,
+        store_args: &StoreArgs,
+    ) -> impl Future<Output = ClientResult<Vec<BlobStoreResultWithPath>>> + Send {
+        async move {
+            let __tracing_attr_span = ::tracing::span!(target:module_path!(), ::tracing::Level::INFO,"reserve_and_store_blobs_retry_committees_with_path",blob_id =  ::tracing::field::Empty);
+            let __tracing_instrument_future = async move {
+                let (paths, blobs): (Vec<_>, Vec<_>) = blobs_with_paths.into_iter().unzip();
+                let walrus_store_blobs =
+                    WalrusStoreBlobMaybeFinished::unencoded_blobs_with_default_identifiers(
+                        blobs,
+                        vec![],
+                        self.encoding_config()
+                            .await?
+                            .get_for_type(store_args.encoding_type),
+                    );
+                let completed_blobs = self
+                    .reserve_and_store_blobs_inner(walrus_store_blobs, store_args, true)
+                    .await?;
+                Ok(completed_blobs
+                    .into_iter()
+                    .zip(paths.into_iter())
+                    .map(|(blob_store_result, path)| blob_store_result.with_path(path))
+                    .collect())
+            };
+            if !__tracing_attr_span.is_disabled() {
+                ::tracing::Instrument::instrument(__tracing_instrument_future, __tracing_attr_span)
+                    .await
+            } else {
+                __tracing_instrument_future.await
+            }
+        }
+    }
+
+    #[doc = " Encodes the blob, reserves & registers the space on chain, and stores the slivers to the"]
+    #[doc = " storage nodes. Finally, the function aggregates the storage confirmations and posts the"]
+    #[doc = " [`ConfirmationCertificate`] on chain."]
+    fn reserve_and_store_blobs(
+        &self,
+        blobs: Vec<Vec<u8>>,
+        store_args: &StoreArgs,
+    ) -> impl Future<Output = ClientResult<Vec<BlobStoreResult>>> + Send {
+        async move {
+            let __tracing_attr_span = ::tracing::span!(target:module_path!(), ::tracing::Level::INFO,"reserve_and_store_blobs",blob_id =  ::tracing::field::Empty);
+            let __tracing_instrument_future = async move {
+                let walrus_store_blobs =
+                    WalrusStoreBlobMaybeFinished::unencoded_blobs_with_default_identifiers(
+                        blobs,
+                        vec![],
+                        self.encoding_config()
+                            .await?
+                            .get_for_type(store_args.encoding_type),
+                    );
+                self.reserve_and_store_blobs_inner(walrus_store_blobs, store_args, false)
+                    .await
+            };
+            if !__tracing_attr_span.is_disabled() {
+                ::tracing::Instrument::instrument(__tracing_instrument_future, __tracing_attr_span)
+                    .await
+            } else {
+                __tracing_instrument_future.await
+            }
+        }
     }
 }
 

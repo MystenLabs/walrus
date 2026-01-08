@@ -4,7 +4,7 @@
 //! Blocklist for blob IDs.
 use std::{
     collections::HashSet,
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::{Arc, RwLock},
     time::Duration,
 };
@@ -41,7 +41,7 @@ impl Blocklist {
     /// If no path is provided, the returned blocklist is empty.
     ///
     /// Returns an error if the file is not found or parsing fails.
-    pub fn new(path: &Option<PathBuf>) -> Result<Self> {
+    pub fn new(path: &Option<impl AsRef<Path>>) -> Result<Self> {
         Self::new_with_metrics(path, None)
     }
 
@@ -53,7 +53,7 @@ impl Blocklist {
     ///
     /// Returns an error if the file is not found or parsing fails.
     pub fn new_with_metrics(
-        path: &Option<PathBuf>,
+        path: &Option<impl AsRef<Path>>,
         metrics_registry: Option<&Registry>,
     ) -> Result<Self> {
         let blocklist_size_metric = metrics_registry.map(|registry| {
@@ -82,7 +82,7 @@ impl Blocklist {
 
         let blocklist = Self {
             blocked_blobs: Arc::new(RwLock::new(HashSet::new())),
-            deny_list_path: path.clone(),
+            deny_list_path: path.as_ref().into(),
             shutdown: CancellationToken::new(),
             blocklist_size_metric,
         };
