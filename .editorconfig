@@ -31,6 +31,9 @@ max_line_length = 150
 [Dockerfile*]
 max_line_length = 120
 
+[Cargo.toml]
+max_line_length = 140
+
 [crates/walrus-orchestrator/src/monitor.rs]
 indent_size = unset
 

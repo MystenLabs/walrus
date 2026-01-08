@@ -3,6 +3,7 @@
 
 //! Bindings to call the Walrus contracts from Rust.
 
+#![recursion_limit = "256"]
 #![warn(clippy::large_futures)]
 
 #[macro_use]

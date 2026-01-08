@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! Contains end-to-end tests for the epoch change mechanism.
-
+#![recursion_limit = "256"]
 #[ignore = "ignore E2E tests by default"]
 #[cfg(msim)]
 #[walrus_proc_macros::walrus_simtest]

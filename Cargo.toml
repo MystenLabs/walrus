@@ -130,8 +130,13 @@ sui-package-alt = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1
 sui-package-management = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.64.0" }
 sui-package-resolver = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.64.0" }
 sui-protocol-config = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.64.0" }
+sui-rpc = { git = "https://github.com/MystenLabs/sui-rust-sdk.git", rev = "9d9539e620b8b668c1a19528d9700be3f35f269e" }
 sui-rpc-api = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.64.0" }
 sui-sdk = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.64.0" }
+sui-sdk-types = { git = "https://github.com/MystenLabs/sui-rust-sdk.git", rev = "9d9539e620b8b668c1a19528d9700be3f35f269e", features = [
+  "hash",
+  "serde",
+] }
 sui-simulator = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.64.0" }
 sui-storage = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.64.0" }
 sui-types = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.64.0" }
