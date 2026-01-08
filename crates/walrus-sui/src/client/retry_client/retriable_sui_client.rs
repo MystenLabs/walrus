@@ -52,7 +52,15 @@ use sui_sdk::{
 use sui_types::transaction::TransactionDataAPI;
 use sui_types::{
     TypeTag,
-    base_types::{ObjectID, ObjectRef, ObjectType, SequenceNumber, SuiAddress, TransactionDigest},
+    base_types::{
+        ObjectID,
+        ObjectInfo,
+        ObjectRef,
+        ObjectType,
+        SequenceNumber,
+        SuiAddress,
+        TransactionDigest,
+    },
     dynamic_field::derive_dynamic_field_id,
     event::EventID,
     object::Owner,
@@ -74,7 +82,10 @@ use super::{
     retry_rpc_errors,
 };
 use crate::{
-    client::{SuiClientMetricSet, dual_client::DualClient},
+    client::{
+        SuiClientMetricSet,
+        dual_client::{BcsDatapack, DualClient},
+    },
     contracts::{self, AssociatedContractStruct, MoveConversionError, TypeOriginMap},
     types::{
         BlobEvent,
@@ -82,6 +93,7 @@ use crate::{
             BlobAttribute,
             Credits,
             Key,
+            StakingObjectForDeserialization,
             StakingPool,
             StorageNode,
             SuiDynamicField,
@@ -192,7 +204,7 @@ pub struct GasBudgetAndPrice {
     pub gas_price: u64,
 }
 
-/// gRPC migration levels. They increase monotonically.
+/// gRPC Client Migration levels.
 ///
 /// Note that values in this enum are cumulative, so higher levels include all the migrations of the
 /// lower levels.
@@ -201,6 +213,7 @@ pub struct GrpcMigrationLevel(u32);
 
 const GRPC_MIGRATION_LEVEL_LEGACY_U32: u32 = 0;
 const GRPC_MIGRATION_LEVEL_GET_OBJECT: GrpcMigrationLevel = GrpcMigrationLevel(1);
+const GRPC_MIGRATION_LEVEL_BATCH_OBJECTS: GrpcMigrationLevel = GrpcMigrationLevel(2);
 
 impl Default for GrpcMigrationLevel {
     fn default() -> Self {
@@ -298,6 +311,50 @@ impl RetriableSuiClient {
         Ok(Self::new(failover_clients, backoff_config)?)
     }
 
+    /// Fetches both the system object and the staking object.
+    pub async fn fetch_system_and_staking_objects(
+        &self,
+        system_object_id: ObjectID,
+        staking_object_id: ObjectID,
+    ) -> SuiClientResult<(
+        SystemObjectForDeserialization,
+        SequenceNumber,
+        StakingObjectForDeserialization,
+        SequenceNumber,
+        ObjectID,
+    )> {
+        let object_responses = self
+            .multi_get_object_with_options(
+                &[system_object_id, staking_object_id],
+                SuiObjectDataOptions::new()
+                    .with_owner()
+                    .with_bcs()
+                    .with_type(),
+            )
+            .await?;
+        let [system_object_response, staking_object_response] = object_responses.as_slice() else {
+            return Err(SuiClientError::Internal(anyhow::anyhow!(
+                "received an unexpected response when getting the system and staking objects",
+            )));
+        };
+
+        let system_object_for_deserialization: SystemObjectForDeserialization =
+            get_sui_object_from_object_response(system_object_response)?;
+        let walrus_package_id = system_object_for_deserialization.package_id;
+        let system_object_initial_version =
+            get_initial_version_from_object_response(system_object_response)?;
+        let staking_object_for_deserialization: StakingObjectForDeserialization =
+            get_sui_object_from_object_response(staking_object_response)?;
+        let staking_object_initial_version =
+            get_initial_version_from_object_response(staking_object_response)?;
+        Ok((
+            system_object_for_deserialization,
+            system_object_initial_version,
+            staking_object_for_deserialization,
+            staking_object_initial_version,
+            walrus_package_id,
+        ))
+    }
     // Re-implementation of the `SuiClient` methods.
 
     /// Return a list of coins for the given address, or an error upon failure.
@@ -741,6 +798,62 @@ impl RetriableSuiClient {
             .await
     }
 
+    /// Return a list of Objects from the given vector of [ObjectID]s.
+    #[tracing::instrument(level = Level::DEBUG, skip_all)]
+    pub async fn multi_get_objects(
+        &self,
+        object_ids: &[ObjectID],
+    ) -> SuiClientResult<Vec<sui_types::object::Object>> {
+        async fn make_request(
+            client: Arc<DualClient>,
+            object_ids: &[ObjectID],
+        ) -> SuiClientResult<Vec<sui_types::object::Object>> {
+            client.multi_get_objects(object_ids).await
+        }
+
+        let request = move |client: Arc<DualClient>, method| {
+            let object_ids = object_ids;
+            retry_rpc_errors(
+                self.get_strategy(),
+                move || make_request(client.clone(), object_ids),
+                self.metrics.clone(),
+                method,
+            )
+        };
+        self.failover_sui_client
+            .with_failover(request, None, "multi_get_objects")
+            .await
+    }
+
+    /// Return a list of [SuiObjectResponse] from the given vector of [ObjectID]s.
+    ///
+    /// Calls [`sui_sdk::apis::ReadApi::multi_get_object_with_options`] internally.
+    #[tracing::instrument(level = Level::DEBUG, skip_all)]
+    async fn multi_get_objects_bcs_versions(
+        &self,
+        object_ids: &[ObjectID],
+    ) -> SuiClientResult<Vec<BcsDatapack>> {
+        async fn make_request(
+            client: Arc<DualClient>,
+            object_ids: &[ObjectID],
+        ) -> SuiClientResult<Vec<BcsDatapack>> {
+            client.multi_get_objects_contents_bcs(object_ids).await
+        }
+
+        let request = move |client: Arc<DualClient>, method| {
+            let object_ids = object_ids;
+            retry_rpc_errors(
+                self.get_strategy(),
+                move || make_request(client.clone(), object_ids),
+                self.metrics.clone(),
+                method,
+            )
+        };
+        self.failover_sui_client
+            .with_failover(request, None, "multi_get_objects_bcs_versions")
+            .await
+    }
+
     /// Return a list of [SuiObjectResponse] from the given vector of [ObjectID]s.
     ///
     /// Calls [`sui_sdk::apis::ReadApi::multi_get_object_with_options`] internally.
@@ -1003,16 +1116,32 @@ impl RetriableSuiClient {
     where
         U: AssociatedContractStruct,
     {
-        let responses = self
-            .multi_get_object_with_options_batched(
-                object_ids,
-                SuiObjectDataOptions::new().with_bcs().with_type(),
-            )
-            .await?;
-        responses
-            .into_iter()
-            .map(|r| get_sui_object_from_object_response(&r))
-            .collect::<Result<Vec<_>, _>>()
+        if self.grpc_migration_level >= GRPC_MIGRATION_LEVEL_BATCH_OBJECTS {
+            let bcs_datapacks = self.multi_get_objects_bcs_versions(object_ids).await?;
+            bcs_datapacks
+                .into_iter()
+                .map(|bcs_datapack| {
+                    get_sui_object_from_bcs::<U>(
+                        &bcs_datapack
+                            .bcs
+                            .value
+                            .context("missing bcs data on object")?,
+                        &bcs_datapack.struct_tag,
+                    )
+                })
+                .collect()
+        } else {
+            let responses = self
+                .multi_get_object_with_options_batched(
+                    object_ids,
+                    SuiObjectDataOptions::new().with_bcs().with_type(),
+                )
+                .await?;
+            responses
+                .into_iter()
+                .map(|r| get_sui_object_from_object_response(&r))
+                .collect::<Result<Vec<_>, _>>()
+        }
     }
 
     /// Returns the [`ObjectRef`]s of the Sui Objects with the provided [`ObjectID`]s.
@@ -1020,17 +1149,29 @@ impl RetriableSuiClient {
         &self,
         object_ids: &[ObjectID],
     ) -> SuiClientResult<Vec<ObjectRef>> {
-        let responses = self
-            .multi_get_object_with_options_batched(object_ids, SuiObjectDataOptions::new())
-            .await?;
-        responses
-            .into_iter()
-            .map(|r| {
-                Ok(r.into_object()
-                    .map_err(|e| SuiClientError::Internal(e.into()))?
-                    .object_ref())
-            })
-            .collect()
+        if self.grpc_migration_level >= GRPC_MIGRATION_LEVEL_BATCH_OBJECTS {
+            let objects = self.multi_get_objects(object_ids).await?;
+            objects
+                .into_iter()
+                .map(|object| {
+                    let object_info = ObjectInfo::from_object(&object);
+                    let object_ref: ObjectRef = object_info.into();
+                    Ok(object_ref)
+                })
+                .collect()
+        } else {
+            let responses = self
+                .multi_get_object_with_options_batched(object_ids, SuiObjectDataOptions::new())
+                .await?;
+            responses
+                .into_iter()
+                .map(|r| {
+                    Ok(r.into_object()
+                        .map_err(|e| SuiClientError::Internal(e.into()))?
+                        .object_ref())
+                })
+                .collect()
+        }
     }
 
     /// Returns the chain identifier.
@@ -1520,25 +1661,34 @@ impl RetriableSuiClient {
         I: IntoIterator<Item = ObjectID>,
     {
         let node_ids = node_ids.into_iter().collect::<Vec<_>>();
-
-        futures::future::try_join_all(node_ids.chunks(MULTI_GET_OBJ_LIMIT).map(
-            |obj_id_batch| async move {
-                self.multi_get_object_with_options(
-                    obj_id_batch,
-                    SuiObjectDataOptions::new().with_type().with_bcs(),
-                )
-                .await
-            },
-        ))
-        .await?
-        .into_iter()
-        .flat_map(|responses| {
-            responses
+        if self.grpc_migration_level >= GRPC_MIGRATION_LEVEL_BATCH_OBJECTS {
+            self.get_sui_objects(&node_ids)
+                .await?
                 .into_iter()
-                .map(|response| get_sui_object_from_object_response::<StakingPool>(&response))
-        })
-        .map(|result| result.map(|pool| (pool.id, pool)))
-        .collect()
+                .map(|pool: StakingPool| Ok((pool.id, pool)))
+                .collect()
+        } else {
+            let sui_object_responses =
+                futures::future::try_join_all(node_ids.chunks(MULTI_GET_OBJ_LIMIT).map(
+                    |obj_id_batch| async move {
+                        self.multi_get_object_with_options(
+                            obj_id_batch,
+                            SuiObjectDataOptions::new().with_type().with_bcs(),
+                        )
+                        .await
+                    },
+                ))
+                .await?;
+            sui_object_responses
+                .into_iter()
+                .flat_map(|responses| {
+                    responses.into_iter().map(|response| {
+                        get_sui_object_from_object_response::<StakingPool>(&response)
+                    })
+                })
+                .map(|result| result.map(|pool| (pool.id, pool)))
+                .collect()
+        }
     }
 
     /// Returns the blob event with the given Event ID.

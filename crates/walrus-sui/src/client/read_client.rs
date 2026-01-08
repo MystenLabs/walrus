@@ -376,30 +376,15 @@ impl SuiReadClient {
         let system_object_id = contract_config.system_object;
         let staking_object_id = contract_config.staking_object;
 
-        let object_responses = sui_client
-            .multi_get_object_with_options(
-                &[system_object_id, staking_object_id],
-                SuiObjectDataOptions::new()
-                    .with_owner()
-                    .with_bcs()
-                    .with_type(),
-            )
+        let (
+            system_object_for_deserialization,
+            system_object_initial_version,
+            staking_object_for_deserialization,
+            staking_object_initial_version,
+            walrus_package_id,
+        ) = sui_client
+            .fetch_system_and_staking_objects(system_object_id, staking_object_id)
             .await?;
-        let [system_object_response, staking_object_response] = object_responses.as_slice() else {
-            return Err(SuiClientError::Internal(anyhow::anyhow!(
-                "received an unexpected response when getting the system and staking objects",
-            )));
-        };
-
-        let system_object_for_deserialization: SystemObjectForDeserialization =
-            get_sui_object_from_object_response(system_object_response)?;
-        let walrus_package_id = system_object_for_deserialization.package_id;
-        let system_object_initial_version =
-            get_initial_version_from_object_response(system_object_response)?;
-        let staking_object_for_deserialization: StakingObjectForDeserialization =
-            get_sui_object_from_object_response(staking_object_response)?;
-        let staking_object_initial_version =
-            get_initial_version_from_object_response(staking_object_response)?;
 
         let (system_object, staking_object, type_origin_map, wal_type) = tokio::try_join!(
             // Boxing the futures here to avoid making this future too large.
