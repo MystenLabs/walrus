@@ -8,9 +8,6 @@
 .docusaurus
 .cache-loader
 src/.generated/*
-static/glossary.json
-static/operators.json
-static/portals.json
 
 # Misc
 .DS_Store
