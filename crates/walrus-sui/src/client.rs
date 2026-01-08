@@ -852,56 +852,62 @@ impl SuiContractClient {
             .await
             .ok();
         tracing::info!(?chain_id, "chain identifier");
-        if cfg!(msim) {
-            // Replace Move.toml with Move.test.toml and substitute the chain_id
-            let move_toml_path = package_path.join("Move.toml");
-            let move_test_toml_path = package_path.join("Move.test.toml");
+        // if cfg!(msim) {
+        //     // Replace Move.toml with Move.test.toml and substitute the chain_id
+        //     let move_toml_path = package_path.join("Move.toml");
+        //     let move_test_toml_path = package_path.join("Move.test.toml");
 
-            if move_test_toml_path.exists() {
-                let test_toml_content = std::fs::read_to_string(&move_test_toml_path)
-                    .context("Failed to read Move.test.toml")?;
+        //     if move_test_toml_path.exists() {
+        //         let test_toml_content = std::fs::read_to_string(&move_test_toml_path)
+        //             .context("Failed to read Move.test.toml")?;
 
-                let updated_content = if let Some(ref chain_id_str) = chain_id {
-                    test_toml_content.replace("ReplaceChainId", chain_id_str.as_str())
-                } else {
-                    return Err(SuiClientError::Internal(anyhow!(
-                        "Chain ID is required but was not available"
-                    )));
-                };
+        //         let updated_content = if let Some(ref chain_id_str) = chain_id {
+        //             test_toml_content.replace("ReplaceChainId", chain_id_str.as_str())
+        //         } else {
+        //             return Err(SuiClientError::Internal(anyhow!(
+        //                 "Chain ID is required but was not available"
+        //             )));
+        //         };
+        //         tracing::info!("ZZZZZZ updated_content {:?}", updated_content);
 
-                std::fs::write(&move_toml_path, updated_content)
-                    .context("Failed to write updated Move.toml")?;
-            }
+        //         std::fs::write(&move_toml_path, updated_content)
+        //             .context("Failed to write updated Move.toml")?;
 
-            if let Some(sui_repo) = std::env::var("SUI_REPO").ok() {
-                // Replace git-based dependencies with local paths for msim testing
-                if move_toml_path.exists() {
-                    let toml_content = std::fs::read_to_string(&move_toml_path)
-                        .context("Failed to read Move.toml for dependency replacement")?;
+        //         tracing::info!("ZZZZZZ updated Move.toml, package path: {:?}", package_path);
+        //     } else {
+        //         tracing::info!("ZZZZZZ Move.test.toml does not exist");
+        //     }
 
-                    // Pattern to match git-based Sui dependencies
-                    // Matches: package = { git = "...", subdir = "...", rev = "..." }
-                    let pattern = regex::Regex::new(
-                        r#"(\w+)\s*=\s*\{\s*git\s*=\s*"https://github\.com/MystenLabs/sui\.git"\s*,\s*subdir\s*=\s*"([^"]+)"\s*,\s*rev\s*=\s*"[^"]+"\s*\}"#
-                    ).unwrap();
+        //     if let Some(sui_repo) = std::env::var("SUI_REPO").ok() {
+        //         // Replace git-based dependencies with local paths for msim testing
+        //         if move_toml_path.exists() {
+        //             let toml_content = std::fs::read_to_string(&move_toml_path)
+        //                 .context("Failed to read Move.toml for dependency replacement")?;
 
-                    let updated_content =
-                        pattern.replace_all(&toml_content, |caps: &regex::Captures| {
-                            let package_name = &caps[1];
-                            let subdir = &caps[2];
-                            format!(
-                                r#"{} = {{ local = "{}/{}" }}"#,
-                                package_name, sui_repo, subdir
-                            )
-                        });
+        //             // Pattern to match git-based Sui dependencies
+        //             // Matches: package = { git = "...", subdir = "...", rev = "..." }
+        //             let pattern = regex::Regex::new(
+        //                 r#"(\w+)\s*=\s*\{\s*git\s*=\s*"https://github\.com/MystenLabs/sui\.git"\s*,\s*subdir\s*=\s*"([^"]+)"\s*,\s*rev\s*=\s*"[^"]+"\s*\}"#
+        //             ).unwrap();
 
-                    tracing::info!("ZZZZZZ updated_content {:?}", updated_content);
+        //             let updated_content =
+        //                 pattern.replace_all(&toml_content, |caps: &regex::Captures| {
+        //                     let package_name = &caps[1];
+        //                     let subdir = &caps[2];
+        //                     format!(
+        //                         r#"{} = {{ local = "{}/{}" }}"#,
+        //                         package_name, sui_repo, subdir
+        //                     )
+        //                 });
 
-                    std::fs::write(&move_toml_path, updated_content.as_ref())
-                        .context("Failed to write Move.toml with local dependencies")?;
-                }
-            }
-        }
+        //             tracing::info!("ZZZZZZ updated_content {:?}", updated_content);
+
+        //             std::fs::write(&move_toml_path, updated_content.as_ref())
+        //                 .context("Failed to write Move.toml with local dependencies")?;
+        //         }
+        //     }
+        // }
+
         let (compiled_package, _build_config, _root_package) = system_setup::compile_package(
             package_path,
             Default::default(),
@@ -2181,6 +2187,11 @@ impl SuiContractClientInner {
             .ok();
         let (compiled_package, _build_config, _root_package) =
             compile_package(package_path, Default::default(), chain_id, &self.wallet).await?;
+
+        tracing::info!(
+            "ZZZZZZ compiled_package: {:?}",
+            compiled_package.get_package_digest(false)
+        );
 
         let mut pt_builder = self.transaction_builder();
 

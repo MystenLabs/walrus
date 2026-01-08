@@ -7,6 +7,7 @@ implicit-dependencies = false
 
 [dependencies]
 sui = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/sui-framework", rev = "testnet-v1.63.1" }
+std = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/move-stdlib", rev = "testnet-v1.63.1" }
 wal = { local = "../wal" }
 walrus = { local = "../walrus" }
 

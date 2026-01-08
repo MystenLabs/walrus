@@ -16,6 +16,7 @@ mod tests {
         time::{Duration, Instant},
     };
 
+    use anyhow::Context;
     use rand::{Rng, SeedableRng, seq::SliceRandom};
     use sui_macros::{
         clear_fail_point,
@@ -1120,12 +1121,53 @@ mod tests {
         let upgrade_dir = TempDir::new()?;
         copy_recursively(development_contract_dir()?, upgrade_dir.path()).await?;
 
+        let chain_id = Some(
+            client
+                .inner
+                .sui_client()
+                .retriable_sui_client()
+                .get_chain_identifier()
+                .await?,
+        );
+
         // Copy Move.lock files of walrus contract and dependencies to new directory
         for contract in ["wal", "walrus"] {
             std::fs::copy(
                 deploy_dir.path().join(contract).join("Move.lock"),
                 upgrade_dir.path().join(contract).join("Move.lock"),
             )?;
+
+            if contract == "wal" {
+                std::fs::copy(
+                    deploy_dir.path().join(contract).join("Published.toml"),
+                    upgrade_dir.path().join(contract).join("Published.toml"),
+                )?;
+            }
+
+            let package_path = upgrade_dir.path().join(contract);
+
+            // Replace Move.toml with Move.test.toml and substitute the chain_id
+            let move_toml_path = package_path.join("Move.toml");
+            let move_test_toml_path = package_path.join("Move.test.toml");
+
+            if move_test_toml_path.exists() {
+                let test_toml_content = std::fs::read_to_string(&move_test_toml_path)
+                    .context("Failed to read Move.test.toml")?;
+
+                let updated_content = if let Some(ref chain_id_str) = chain_id {
+                    test_toml_content.replace("ReplaceChainId", chain_id_str.as_str())
+                } else {
+                    anyhow::bail!("Chain ID is required but was not available");
+                };
+                tracing::info!("ZZZZZZ updated_content {:?}", updated_content);
+
+                std::fs::write(&move_toml_path, updated_content)
+                    .context("Failed to write updated Move.toml")?;
+
+                tracing::info!("ZZZZZZ updated Move.toml, package path: {:?}", package_path);
+            } else {
+                tracing::info!("ZZZZZZ Move.test.toml does not exist");
+            }
 
             // TODO(WAL-1125): remove once the new sui package management system can pull external
             // dependencies.
@@ -1144,6 +1186,8 @@ mod tests {
             .sui_client()
             .compute_package_digest(walrus_package_path.clone())
             .await?;
+
+        tracing::info!("ZZZZZZ digest: {:?}", digest);
 
         for node in walrus_cluster.nodes.iter() {
             let node_id = node

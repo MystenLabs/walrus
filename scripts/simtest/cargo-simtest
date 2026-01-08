@@ -131,6 +131,4 @@ cargo "${cargo_command[@]}" \
   --config "build.rustflags = [$(IFS=, ; echo "${rust_flags[*]}")]" \
   "${cargo_patch_args[@]}" \
   "$@"
-
-# automatically delete $TMPDIR after the script exits
-trap 'rm -rf "$TMPDIR"' EXIT
+  
