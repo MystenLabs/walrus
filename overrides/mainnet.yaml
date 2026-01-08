@@ -1,0 +1,6 @@
+# Mainnet overrides (empty for now).
+# live_upload_deferral:
+#   enabled: true
+#   buckets: []
+#   max_total_defer_millis: 300000
+#   max_checkpoint_lag: 32

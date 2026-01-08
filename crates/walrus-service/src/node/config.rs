@@ -15,7 +15,7 @@ use std::{
 
 use anyhow::{Context, anyhow};
 use p256::pkcs8::DecodePrivateKey;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, ser::SerializeStruct};
 use serde_with::{
     DeserializeAs,
     DurationSeconds,
@@ -39,6 +39,7 @@ use walrus_sui::types::{
     NodeUpdateParams,
     move_structs::{NodeMetadata, VotingParams},
 };
+use walrus_utils::config::Config as _;
 
 use super::{
     consistency_check::StorageNodeConsistencyCheckConfig,
@@ -48,7 +49,7 @@ use super::{
 use crate::{
     common::{config::SuiConfig, utils},
     event::event_processor::config::EventProcessorConfig,
-    node::db_checkpoint::DbCheckpointConfig,
+    node::{db_checkpoint::DbCheckpointConfig, network_overrides},
 };
 
 /// Configuration for the config synchronizer.
@@ -267,6 +268,25 @@ impl walrus_utils::config::Config for StorageNodeConfig {
 }
 
 impl StorageNodeConfig {
+    /// Loads the config from a file, applying per-network overrides before deserialization.
+    pub fn load_config(path: impl AsRef<Path>) -> anyhow::Result<Self> {
+        let path = path.as_ref();
+        let config_str = std::fs::read_to_string(path)
+            .with_context(|| format!("unable to load config from {}", path.display()))?;
+        let raw_value: serde_yaml::Value = serde_yaml::from_str(&config_str)
+            .with_context(|| format!("unable to parse config from {}", path.display()))?;
+
+        let network_kind = network_overrides::detect_network_kind(&raw_value);
+        tracing::info!("detected network kind: {network_kind:?}");
+        let mut merged_value = network_overrides::overrides_for(network_kind)?;
+        merge_yaml(&mut merged_value, raw_value);
+
+        let config: StorageNodeConfig = serde_yaml::from_value(merged_value.clone())
+            .with_context(|| format!("unable to deserialize merged config: {merged_value:?}",))?;
+        config.validate()?;
+        Ok(config)
+    }
+
     /// Loads the config from a file.
     /// Rotates the protocol key pair.
     pub fn rotate_protocol_key_pair(&mut self) {
@@ -443,6 +463,24 @@ impl StorageNodeConfig {
                 &synced_config.commission_rate_data,
                 self.commission_rate,
             ),
+        }
+    }
+}
+
+fn merge_yaml(base: &mut serde_yaml::Value, overlay: serde_yaml::Value) {
+    match (base, overlay) {
+        (serde_yaml::Value::Mapping(base_map), serde_yaml::Value::Mapping(overlay_map)) => {
+            for (key, value) in overlay_map {
+                match base_map.get_mut(&key) {
+                    Some(base_value) => merge_yaml(base_value, value),
+                    None => {
+                        base_map.insert(key, value);
+                    }
+                }
+            }
+        }
+        (base_value, overlay_value) => {
+            *base_value = overlay_value;
         }
     }
 }
@@ -832,40 +870,146 @@ impl Default for BlobEventProcessorConfig {
 }
 
 /// Entry defining a size bucket and the corresponding deferral duration.
-#[serde_as]
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SizeDeferralEntry {
     /// Maximum unencoded blob size (inclusive) in bytes for this bucket.
     pub max_unencoded_bytes: u64,
-    /// Deferral duration to apply for this bucket.
-    #[serde_as(as = "DurationSeconds<u64>")]
-    #[serde(rename = "defer_secs")]
+    /// Deferral duration to apply for this bucket, in milliseconds.
     pub defer: Duration,
 }
 
+#[derive(Deserialize)]
+struct SizeDeferralEntryYaml {
+    max_unencoded_bytes: u64,
+    #[serde(default)]
+    defer_millis: Option<u64>,
+    #[serde(default)]
+    defer_secs: Option<u64>,
+}
+
+impl<'de> Deserialize<'de> for SizeDeferralEntry {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let helper = SizeDeferralEntryYaml::deserialize(deserializer)?;
+        let defer = match (helper.defer_secs, helper.defer_millis) {
+            (Some(_), Some(_)) => {
+                return Err(serde::de::Error::custom(
+                    "provide only one of defer_secs or defer_millis",
+                ));
+            }
+            (Some(secs), None) => Duration::from_secs(secs),
+            (None, Some(millis)) => Duration::from_millis(millis),
+            (None, None) => {
+                return Err(serde::de::Error::custom(
+                    "missing defer_secs or defer_millis",
+                ));
+            }
+        };
+
+        Ok(Self {
+            max_unencoded_bytes: helper.max_unencoded_bytes,
+            defer,
+        })
+    }
+}
+
+impl Serialize for SizeDeferralEntry {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let defer_millis = u64::try_from(self.defer.as_millis())
+            .map_err(|_| serde::ser::Error::custom("defer_millis overflows u64"))?;
+
+        let mut state = serializer.serialize_struct("SizeDeferralEntry", 2)?;
+        state.serialize_field("max_unencoded_bytes", &self.max_unencoded_bytes)?;
+        state.serialize_field("defer_millis", &defer_millis)?;
+        state.end()
+    }
+}
+
 /// Configuration that controls deferring recovery when a live client upload is likely.
-#[serde_as]
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(default)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LiveUploadDeferralConfig {
     /// Enables applying a deferral window based on blob size.
     pub enabled: bool,
     /// Lookup table from size upper-bounds to deferral durations. Earlier entries take precedence.
     /// When empty, [`LiveUploadDeferralConfig::max_total_defer`] is applied uniformly
     /// regardless of blob size.
-    #[serde(alias = "table")]
     pub buckets: Vec<SizeDeferralEntry>,
-    /// Maximum total deferral to apply, acting as an upper bound.
-    #[serde_as(as = "DurationSeconds<u64>")]
-    #[serde(rename = "max_total_defer_secs")]
+    /// Maximum total deferral to apply, in milliseconds, acting as an upper bound.
     pub max_total_defer: Duration,
     /// Maximum Sui checkpoint lag (inclusive) that still qualifies for a live-upload deferral.
-    #[serde(default = "default_max_checkpoint_lag")]
     pub max_checkpoint_lag: u64,
 }
 
 const fn default_max_checkpoint_lag() -> u64 {
     32
+}
+
+#[derive(Deserialize)]
+struct LiveUploadDeferralConfigYaml {
+    #[serde(default)]
+    enabled: bool,
+    #[serde(default, alias = "table")]
+    buckets: Vec<SizeDeferralEntry>,
+    #[serde(default)]
+    max_total_defer_millis: Option<u64>,
+    #[serde(default)]
+    max_total_defer_secs: Option<u64>,
+    #[serde(default = "default_max_checkpoint_lag")]
+    max_checkpoint_lag: u64,
+}
+
+impl<'de> Deserialize<'de> for LiveUploadDeferralConfig {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let helper = LiveUploadDeferralConfigYaml::deserialize(deserializer)?;
+        let mut config = LiveUploadDeferralConfig {
+            enabled: helper.enabled,
+            buckets: helper.buckets,
+            max_checkpoint_lag: helper.max_checkpoint_lag,
+            ..Default::default()
+        };
+
+        match (helper.max_total_defer_secs, helper.max_total_defer_millis) {
+            (Some(_), Some(_)) => {
+                return Err(serde::de::Error::custom(
+                    "provide only one of max_total_defer_secs or max_total_defer_millis",
+                ));
+            }
+            (Some(secs), None) => {
+                config.max_total_defer = Duration::from_secs(secs);
+            }
+            (None, Some(millis)) => {
+                config.max_total_defer = Duration::from_millis(millis);
+            }
+            (None, None) => {}
+        }
+
+        Ok(config)
+    }
+}
+
+impl Serialize for LiveUploadDeferralConfig {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let max_total_defer_millis = u64::try_from(self.max_total_defer.as_millis())
+            .map_err(|_| serde::ser::Error::custom("max_total_defer_millis overflows u64"))?;
+
+        let mut state = serializer.serialize_struct("LiveUploadDeferralConfig", 4)?;
+        state.serialize_field("enabled", &self.enabled)?;
+        state.serialize_field("buckets", &self.buckets)?;
+        state.serialize_field("max_total_defer_millis", &max_total_defer_millis)?;
+        state.serialize_field("max_checkpoint_lag", &self.max_checkpoint_lag)?;
+        state.end()
+    }
 }
 
 impl Default for LiveUploadDeferralConfig {
@@ -1611,6 +1755,64 @@ mod tests {
         let _: StorageNodeConfig = serde_yaml::from_str(yaml)?;
 
         Ok(())
+    }
+
+    #[test]
+    fn merged_config_resolves_precedence_and_defaults() -> TestResult {
+        let overrides_value: serde_yaml::Value = serde_yaml::from_str(indoc! {"
+            commission_rate: 7
+            garbage_collection:
+                enable_random_delay: false
+        "})?;
+        let user_value: serde_yaml::Value = serde_yaml::from_str(&base_user_yaml(indoc! {"
+                commission_rate: 9
+                blob_recovery:
+                    monitor_interval_secs: 2
+            "}))?;
+
+        let mut merged_value = overrides_value;
+        merge_yaml(&mut merged_value, user_value);
+
+        let config: StorageNodeConfig = serde_yaml::from_value(merged_value)?;
+
+        assert_eq!(config.commission_rate, 9, "user overrides win");
+        assert!(
+            !config.garbage_collection.enable_random_delay,
+            "override-only values are preserved"
+        );
+        assert_eq!(
+            config.blob_recovery.monitor_interval,
+            Duration::from_secs(2),
+            "user-only values are preserved"
+        );
+        assert_eq!(
+            config.live_upload_deferral,
+            LiveUploadDeferralConfig::default(),
+            "missing values fall back to defaults"
+        );
+        Ok(())
+    }
+
+    fn base_user_yaml(extra: &str) -> String {
+        let base = indoc! {"
+            name: test-node
+            storage_path: /tmp/walrus-db
+            protocol_key_pair:
+                path: /tmp/protocol.key
+            network_key_pair:
+                path: /tmp/network.key
+            public_host: 127.0.0.1
+            public_port: 9185
+            voting_params:
+                storage_price: 1
+                write_price: 1
+                node_capacity: 1
+        "};
+        if extra.trim().is_empty() {
+            base.to_string()
+        } else {
+            format!("{base}\n{extra}")
+        }
     }
 
     #[test]

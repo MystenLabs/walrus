@@ -1,0 +1,7 @@
+# Testnet overrides.
+# This file is applied on top of the defaults.
+# live_upload_deferral:
+#   enabled: true
+#   buckets: []
+#   max_total_defer_millis: 300000
+#   max_checkpoint_lag: 32
