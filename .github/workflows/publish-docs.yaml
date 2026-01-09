@@ -65,9 +65,6 @@ jobs:
     name: Update Walrus Site
     runs-on: ubuntu-ghcloud
     if: ${{ github.event_name == 'push' || github.event_name == 'schedule' || inputs.update-walrus-site == true }}
-    permissions:
-      contents: write
-      pull-requests: write
     concurrency:
       group: sui-wallet-operations
       cancel-in-progress: false
@@ -101,4 +98,3 @@ jobs:
           EPOCHS: "10"
           GAS_BUDGET: "1000000000"
           SITE_BUILDER_VERSION: v2
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
