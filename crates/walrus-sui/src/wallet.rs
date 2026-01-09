@@ -8,7 +8,10 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use sui_package_management::LockCommand;
+use anyhow::Result;
+use move_package_alt::schema::Environment;
+use move_package_alt_compilation::build_config::BuildConfig as MoveBuildConfig;
+use sui_package_alt::find_environment;
 use sui_sdk::{
     rpc_types::{SuiObjectData, SuiTransactionBlockResponse},
     sui_client_config::SuiEnv,
@@ -104,27 +107,6 @@ impl Wallet {
             .await
     }
 
-    /// Update the `Move.lock` file with automated address management info. See
-    /// [`sui_package_management::update_lock_file`] for details.
-    // TODO: WAL-821 After we bring in Sui v1.50, we should remove this method in favor of
-    // update_lock_file_for_chain_env.
-    pub async fn update_lock_file(
-        &self,
-        lock_command: LockCommand,
-        install_dir: Option<PathBuf>,
-        lock_file: Option<PathBuf>,
-        response: &SuiTransactionBlockResponse,
-    ) -> Result<(), WalletError> {
-        sui_package_management::update_lock_file(
-            &self.wallet_context,
-            lock_command,
-            install_dir,
-            lock_file,
-            response,
-        )
-        .await
-    }
-
     /// Get the rpc_url for the active environment.
     pub fn get_rpc_url(&self) -> &str {
         &self.active_env.rpc
@@ -138,5 +120,20 @@ impl Wallet {
     /// Get the active environment.
     pub fn get_active_env(&self) -> &SuiEnv {
         &self.active_env
+    }
+
+    /// Constructs the environment for the package management system based on the package path,
+    /// the build config, and the wallet context.
+    pub async fn find_package_environment(
+        &self,
+        package_path: &Path,
+        build_config: &MoveBuildConfig,
+    ) -> Result<Environment, WalletError> {
+        find_environment(
+            package_path,
+            build_config.environment.clone(),
+            &self.wallet_context,
+        )
+        .await
     }
 }

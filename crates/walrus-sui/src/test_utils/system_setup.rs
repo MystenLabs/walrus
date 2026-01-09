@@ -601,3 +601,47 @@ pub fn update_contract_sui_dependency_to_local_copy(package_path: PathBuf) -> Re
 
     Ok(())
 }
+
+/// Helper function to add a localnet environment to the Move.toml file so that contract publishing.
+// At sui 1.63, ephemeral publishing dependency management does not work with Walrus contract
+// setup in tests, so we need to explicitly add a localnet environment to the Move.toml file so
+// that contract publishing and dependency management works.
+//
+// What this function expects is that in the contract directory, there is a Move.test.toml file that
+// contains the proper formatted Move.toml file with the chain_id marked as `ReplaceChainId`.
+// This function will then replace `ReplaceChainId` with the actual chain_id
+//
+// TODO(WAL-1126): this is a temporary workaround and should be removed once sui publish works with
+// ephemeral publishing.
+pub fn add_localnet_env_to_contract_toml(package_path: PathBuf, chain_id: String) -> Result<()> {
+    // Replace Move.toml with Move.test.toml and substitute the chain_id
+    let move_toml_path = package_path.join("Move.toml");
+    let move_test_toml_path = package_path.join("Move.test.toml");
+
+    if move_test_toml_path.exists() {
+        let test_toml_content = std::fs::read_to_string(&move_test_toml_path)?;
+        let updated_content = test_toml_content.replace("ReplaceChainId", chain_id.as_str());
+        tracing::debug!(
+            "updated Move.toml localnet environment with new content {:?}",
+            updated_content
+        );
+
+        std::fs::write(&move_toml_path, updated_content)?;
+        tracing::info!(
+            "Updated Move.toml localnet environment with chain_id {:?}, package path: {:?}",
+            chain_id,
+            package_path
+        );
+    } else {
+        tracing::info!(
+            "Move.test.toml does not exist in package {:?}",
+            package_path
+        );
+        return Err(anyhow::anyhow!(
+            "Move.test.toml does not exist in package {:?}",
+            package_path
+        ));
+    }
+
+    Ok(())
+}

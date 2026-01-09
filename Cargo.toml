@@ -33,7 +33,7 @@ async-trait = "0.1.89"
 atomic-time = "0.1.5"
 axum = { version = "0.8", default-features = false, features = ["http2", "tokio"] }
 axum-extra = { version = "0.10" }
-axum-server = { version = "0.7.2", default-features = false }
+axum-server = { version = "0.8.0", default-features = false }
 base64 = "0.22.1"
 bcs = "0.1.6"
 bimap = "0.6.3"
@@ -82,6 +82,8 @@ mime = "0.3.17"
 mockall = "0.12.1"
 move-core-types = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.63.1" }
 move-package = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.63.1" }
+move-package-alt = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.63.1" }
+move-package-alt-compilation = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.63.1" }
 mysten-metrics = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.63.1" }
 num-bigint = { version = "0.4.5", default-features = false }
 object_store = { version = "0.11.2", features = ["gcp"] }
@@ -124,6 +126,7 @@ sui-json-rpc-types = { git = "https://github.com/MystenLabs/sui", tag = "testnet
 sui-keys = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.63.1" }
 sui-macros = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.63.1" }
 sui-move-build = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.63.1" }
+sui-package-alt = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.63.1" }
 sui-package-management = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.63.1" }
 sui-package-resolver = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.63.1" }
 sui-protocol-config = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.63.1" }

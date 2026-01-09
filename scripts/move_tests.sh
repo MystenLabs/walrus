@@ -34,8 +34,8 @@ for dir in $ROOT_DIR/*/; do
     if [ -f "$dir/Move.toml" ]; then
       echo -e "\nTesting $dir..."
       cd $dir
-      sui move build
-      sui move test $COVERAGE_ARG
+      sui move build --allow-dirty -e testnet
+      sui move test $COVERAGE_ARG --allow-dirty -e testnet
       [ $? -ne 0 ] && error=1
       cd -
     fi
