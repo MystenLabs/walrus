@@ -3,7 +3,7 @@
 
 //! Infrastructure for retrying RPC calls with backoff, in case there are network errors.
 //!
-//! Wraps the [`SuiClient`] to introduce retries.
+//! Wraps the [`DualClient`] to introduce retries.
 use std::{
     cmp::Reverse,
     collections::{BTreeMap, BinaryHeap, HashMap},
