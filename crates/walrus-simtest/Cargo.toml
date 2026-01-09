@@ -12,7 +12,6 @@ futures.workspace = true
 itertools.workspace = true
 prometheus.workspace = true
 rand.workspace = true
-regex.workspace = true
 # explicitly import reqwest in test to disable its system proxy cache. It causes indeterminism in simtest.
 reqwest = { version = "0.12.12", default-features = false, features = ["__internal_proxy_sys_no_cache", "http2", "json", "rustls-tls"] }
 rocksdb.workspace = true

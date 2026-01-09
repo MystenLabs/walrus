@@ -316,7 +316,6 @@ mod commands {
             transaction_builder::WalrusPtbBuilder,
         },
         config::load_wallet_context_from_path,
-        system_setup::compile_package,
     };
     use walrus_utils::{backoff::ExponentialBackoffConfig, load_from_yaml};
 
@@ -630,15 +629,9 @@ mod commands {
                 .await?;
         if serialize_unsigned {
             // Compile package
-            let chain_id = contract_client
-                .retriable_sui_client()
-                .get_chain_identifier()
-                .await
-                .ok();
-            let wallet = load_wallet_context_from_path(wallet_path, None)
-                .context("unable to load wallet")?;
-            let (compiled_package, _build_config, _root_package) =
-                compile_package(contract_dir, Default::default(), chain_id, &wallet).await?;
+            let (compiled_package, _build_config, _root_package) = contract_client
+                .compile_package(contract_dir, Default::default())
+                .await?;
 
             let sender = sender.unwrap_or(contract_client.address());
             let mut pt_builder = WalrusPtbBuilder::new(contract_client.read_client, sender);

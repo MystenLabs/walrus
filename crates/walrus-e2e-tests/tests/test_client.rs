@@ -53,7 +53,7 @@ use walrus_sdk::{
     client::{
         Blocklist,
         StoreArgs,
-        StoreBlobsApi,
+        StoreBlobsApi as _,
         WalrusNodeClient,
         client_types::WalrusStoreBlob,
         quilt_client::QuiltClientConfig,

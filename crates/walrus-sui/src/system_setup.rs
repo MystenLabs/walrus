@@ -17,7 +17,7 @@ use move_package_alt::{
 };
 use move_package_alt_compilation::build_config::BuildConfig as MoveBuildConfig;
 use sui_move_build::{CompiledPackage, PackageDependencies};
-use sui_package_alt::{BuildParams, SuiFlavor, find_environment};
+use sui_package_alt::{BuildParams, SuiFlavor};
 use sui_package_management::LockCommand;
 use sui_sdk::{
     rpc_types::{SuiExecutionStatus, SuiTransactionBlockEffectsAPI, SuiTransactionBlockResponse},
@@ -43,7 +43,7 @@ use crate::{
         retriable_sui_client::{GasBudgetAndPrice, LazySuiClientBuilder},
     },
     contracts::{self, StructTag},
-    test_utils::system_setup::update_contract_sui_dependency_to_local_copy,
+    test_utils::system_setup,
     utils::get_created_sui_object_ids_by_type,
     wallet::Wallet,
 };
@@ -77,25 +77,21 @@ pub(crate) async fn publish_package_with_default_build_config(
     package_path: PathBuf,
     gas_budget: Option<u64>,
 ) -> Result<SuiTransactionBlockResponse> {
-    tracing::info!("ZZZZZZ package_path {:?}", package_path);
     publish_package(wallet, package_path, Default::default(), gas_budget).await
 }
 
 /// Compiles a package and returns the compiled package, and build config.
+/// `env` is the environment to use for the package management system, and should be derived
+/// from the wallet that performs the publish/upgrade.
 pub async fn compile_package(
     package_path: PathBuf,
     build_config: MoveBuildConfig,
     chain_id: Option<String>,
     wallet: &Wallet,
 ) -> Result<(CompiledPackage, MoveBuildConfig, RootPackage<SuiFlavor>)> {
-    // TODO: branch here depending on the environment or pass a flag for testing
-
-    let env = find_environment(
-        &package_path,
-        build_config.environment.clone(),
-        wallet.wallet_context(),
-    )
-    .await?;
+    let env = wallet
+        .find_package_environment(&package_path, &build_config)
+        .await?;
 
     let build_config_clone = build_config.clone();
     let package_path_clone = package_path.clone();
@@ -104,20 +100,6 @@ pub async fn compile_package(
         .package_loader(&package_path_clone, &env)
         .load()
         .await?;
-
-    // let pubfile_path = PathBuf::from(package_path.join("Pub.localnet.toml"));
-    // tracing::info!("ZZZZZZ pubfile_path {:?}", pubfile_path);
-
-    // // TODO: make this clean, only for testing
-    // let root_pkg = PackageLoader::new_ephemeral(
-    //     package_path.clone(),
-    //     Some(String::from("localnet")),
-    //     chain_id.clone().unwrap(),
-    //     pubfile_path,
-    // )
-    // .modes(build_config.mode_set())
-    // .load()
-    // .await?;
 
     tokio::task::spawn_blocking(|| {
         sui_macros::nondeterministic!(compile_package_inner_blocking(
@@ -133,9 +115,9 @@ pub async fn compile_package(
 /// Synchronous method to compile the package. Should only be called from an async context
 /// using `tokio::task::spawn_blocking` or similar methods.
 fn compile_package_inner_blocking(
-    _package_path: PathBuf,
+    package_path: PathBuf,
     build_config: MoveBuildConfig,
-    _chain_id: Option<String>,
+    chain_id: Option<String>,
     root_pkg: RootPackage<SuiFlavor>,
 ) -> Result<(CompiledPackage, MoveBuildConfig, RootPackage<SuiFlavor>)> {
     let mut stdout = std::io::stdout();
@@ -146,19 +128,26 @@ fn compile_package_inner_blocking(
     .expect("Compilation should succeed");
 
     let package_dependencies = PackageDependencies::new(&root_pkg)?;
-    tracing::info!("ZZZZZZ package_dependencies {:?}", package_dependencies);
-    // if !package_dependencies.unpublished.is_empty() {
-    //     bail!(
-    //         "Walrus packages must not have unpublished dependencies. Unpublished dependencies: {}
-    //     ",
-    //         package_dependencies
-    //             .unpublished
-    //             .into_iter()
-    //             .map(|n| n.to_string())
-    //             .collect::<Vec<_>>()
-    //             .join(", ")
-    //     );
-    // }
+    tracing::info!(
+        "package path {:?}, chain_id {:?}, package_dependencies {:?}",
+        package_path,
+        chain_id,
+        package_dependencies
+    );
+
+    // Check that all dependencies are published.
+    if !package_dependencies.unpublished.is_empty() {
+        bail!(
+            "Walrus packages must not have unpublished dependencies. Unpublished dependencies: {}
+        ",
+            package_dependencies
+                .unpublished
+                .into_iter()
+                .map(|n| n.to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+    }
 
     let published_at = root_pkg
         .publication()
@@ -178,6 +167,10 @@ fn compile_package_inner_blocking(
     Ok((compiled_package, build_config, root_pkg))
 }
 
+// TODO(WAL-1127): this is a complete copy of the function from
+// https://github.com/MystenLabs/sui/blob/a5ee2b9b736e712dfc917c5226ae1d835c59abd9/
+// crates/sui/src/client_commands.rs#L3548
+// Make that function in sui publicly accessible and use it here.
 /// Return the update publication data, without writing it to lockfile
 pub fn update_publication(
     chain_id: &str,
@@ -228,6 +221,8 @@ pub fn update_publication(
     }
 }
 
+// This function is used to publish walrus packages in a local environment such as integration
+// test or local testbed. This cannot be used in production environments.
 #[tracing::instrument(err, skip(wallet, build_config))]
 pub(crate) async fn publish_package(
     wallet: &mut Wallet,
@@ -241,72 +236,27 @@ pub(crate) async fn publish_package(
         Default::default(),
     )?;
 
-    let chain_id = retry_client.get_chain_identifier().await.ok();
+    let chain_id = retry_client.get_chain_identifier().await?;
 
-    // Replace Move.toml with Move.test.toml and substitute the chain_id
-    let move_toml_path = package_path.join("Move.toml");
-    let move_test_toml_path = package_path.join("Move.test.toml");
+    // TODO(WAL-1126): this is a temporary workaround and should be removed once sui publish works
+    // with ephemeral publishing.
+    system_setup::add_localnet_env_to_contract_toml(package_path.clone(), chain_id.clone())?;
 
-    if move_test_toml_path.exists() {
-        let test_toml_content = std::fs::read_to_string(&move_test_toml_path)
-            .context("Failed to read Move.test.toml")?;
-
-        let updated_content = if let Some(ref chain_id_str) = chain_id {
-            test_toml_content.replace("ReplaceChainId", chain_id_str.as_str())
-        } else {
-            bail!("Chain ID is required but was not available");
-        };
-
-        std::fs::write(&move_toml_path, updated_content)
-            .context("Failed to write updated Move.toml")?;
-    }
-
-    if cfg!(msim)
-        && let Ok(sui_repo) = std::env::var("SUI_REPO")
-    {
-        // Replace git-based dependencies with local paths for msim testing
-        if move_toml_path.exists() {
-            let toml_content = std::fs::read_to_string(&move_toml_path)
-                .context("Failed to read Move.toml for dependency replacement")?;
-
-            // Pattern to match git-based Sui dependencies
-            // Matches: package = { git = "...", subdir = "...", rev = "..." }
-            let pattern = regex::Regex::new(
-                r#"(?x)               # Enable verbose mode
-                    (\w+)             # Package name
-                    \s*=\s*           # Equals sign with optional whitespace
-                    \{                # Opening brace
-                    \s*git\s*=\s*     # git field
-                    "https://github\.com/MystenLabs/sui\.git"  # Git URL
-                    \s*,\s*           # Comma separator
-                    subdir\s*=\s*     # subdir field
-                    "([^"]+)"         # Subdir value (capture group 2)
-                    \s*,\s*           # Comma separator
-                    rev\s*=\s*        # rev field
-                    "[^"]+"           # Rev value
-                    \s*\}             # Closing brace
-                "#,
-            )
-            .expect("Failed to create regex");
-
-            let updated_content = pattern.replace_all(&toml_content, |caps: &regex::Captures| {
-                let package_name = &caps[1];
-                let subdir = &caps[2];
-                format!(
-                    r#"{} = {{ local = "{}/{}" }}"#,
-                    package_name, sui_repo, subdir
-                )
-            });
-
-            tracing::info!("ZZZZZZ updated_content {:?}", updated_content);
-
-            std::fs::write(&move_toml_path, updated_content.as_ref())
-                .context("Failed to write Move.toml with local dependencies")?;
-        }
+    if cfg!(msim) {
+        // TODO(WAL-1125): before the new sui package management system introduced in 1.63 can
+        // support external dependencies, in simtest, we have to update all the implicit
+        // dependencies to sui using a local copy of the sui repository.
+        // The local copy should be pointed to by the SUI_REPO environment variable, and it should
+        // match the sui version used by the walrus. The pulling logic is implemented in the
+        // cargo-simtest script.
+        //
+        // Note that this must be done after the localnet environment is added to the Move.toml
+        // file.
+        system_setup::update_contract_sui_dependency_to_local_copy(package_path.clone())?;
     }
 
     let (compiled_package, final_build_config, mut root_package) =
-        compile_package(package_path, build_config, chain_id.clone(), wallet).await?;
+        compile_package(package_path, build_config, Some(chain_id.clone()), wallet).await?;
 
     let compiled_modules = compiled_package.get_package_bytes(false);
 
@@ -356,12 +306,9 @@ pub(crate) async fn publish_package(
         .execute_transaction_may_fail(wallet.sign_transaction(&tx_data).await)
         .await?;
 
-    tracing::info!("ZZZZZZ response {:?}", response);
-
-    // TODO: duplicate update_publication, and return root_package from compile_package
-    // (or construct it above and pass it to compile_package)
+    // Write published data.
     let publish_data = update_publication(
-        chain_id.clone().expect("Chain ID is required").as_str(),
+        chain_id.as_str(),
         LockCommand::Publish,
         &response,
         &final_build_config,
@@ -442,24 +389,6 @@ pub(crate) async fn publish_coin_and_system_package(
     } else {
         contract_dir
     };
-
-    if cfg!(msim) {
-        // TODO(WAL-1125): before the new sui package management system introduced in 1.63 can
-        // support external dependencies, in simtest, we have to update all the implicit
-        // dependencies to sui using a local copy of the sui repository.
-        // The local copy should be pointed to by the SUI_REPO environment variable, and it should
-        // match the sui version used by the walrus. The pulling logic is implemented in the
-        // cargo-simtest script.
-        for package in [
-            "wal",
-            "walrus",
-            "wal_exchange",
-            "subsidies",
-            "walrus_subsidies",
-        ] {
-            update_contract_sui_dependency_to_local_copy(walrus_contract_directory.join(package))?;
-        }
-    }
 
     if !use_existing_wal_token {
         // Publish `wal` package.

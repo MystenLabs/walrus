@@ -8,6 +8,10 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use anyhow::Result;
+use move_package_alt::schema::Environment;
+use move_package_alt_compilation::build_config::BuildConfig as MoveBuildConfig;
+use sui_package_alt::find_environment;
 use sui_sdk::{
     rpc_types::{SuiObjectData, SuiTransactionBlockResponse},
     sui_client_config::SuiEnv,
@@ -56,11 +60,6 @@ impl Wallet {
     /// Get the active address.
     pub fn active_address(&self) -> SuiAddress {
         self.active_address
-    }
-
-    /// Get the wallet context.
-    pub fn wallet_context(&self) -> &WalletContext {
-        &self.wallet_context
     }
 
     /// Passes through to the `WalletContext` to sign a transaction.
@@ -121,5 +120,20 @@ impl Wallet {
     /// Get the active environment.
     pub fn get_active_env(&self) -> &SuiEnv {
         &self.active_env
+    }
+
+    /// Constructs the environment for the package management system based on the package path,
+    /// the build config, and the wallet context.
+    pub async fn find_package_environment(
+        &self,
+        package_path: &Path,
+        build_config: &MoveBuildConfig,
+    ) -> Result<Environment, WalletError> {
+        find_environment(
+            package_path,
+            build_config.environment.clone(),
+            &self.wallet_context,
+        )
+        .await
     }
 }

@@ -13378,7 +13378,6 @@ dependencies = [
  "itertools 0.14.0",
  "prometheus",
  "rand 0.8.5",
- "regex",
  "reqwest",
  "rocksdb",
  "sui-macros",
