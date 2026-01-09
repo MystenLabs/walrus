@@ -47,7 +47,6 @@ impl DualClient {
         let rpc_url = rpc_url.as_ref();
         let sui_client = client_builder.build(rpc_url).await?;
         // REVIEW(wbbradley): How do we set request timeout in SuiClient?
-        // REVIEW(wbbradley): See if we can get rid of all this async machinery here.
         // REVIEW(wbbradley): Do we need to set headers or max decoding message size?
         let grpc_client = GrpcClient::new(rpc_url).context("unable to create grpc client")?;
         Ok(Self {
