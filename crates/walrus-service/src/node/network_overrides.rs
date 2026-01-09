@@ -1,14 +1,15 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-//! Network overrides for the storage node config.
+//! Network-specific defaults for the storage node config.
 
 use std::sync::OnceLock;
 
-use anyhow::{Context, Result, anyhow};
 use serde::Deserialize;
-use serde_yaml::{Mapping, Value};
+use serde_yaml::Value;
 use sui_types::base_types::ObjectID;
+
+use crate::node::config::StorageNodeConfig;
 
 const MAINNET_CLIENT_CONFIG_YAML: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -18,24 +19,8 @@ const TESTNET_CLIENT_CONFIG_YAML: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../setup/client_config_testnet.yaml"
 ));
-const MAINNET_OVERRIDES_YAML: &str = include_str!(concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/../../overrides/mainnet.yaml"
-));
-const TESTNET_OVERRIDES_YAML: &str = include_str!(concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/../../overrides/testnet.yaml"
-));
-const TESTS_OVERRIDES_YAML: &str = include_str!(concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/../../overrides/tests.yaml"
-));
-const SIMTEST_OVERRIDES_YAML: &str = include_str!(concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/../../overrides/simtest.yaml"
-));
 
-/// Known network categories for per-network overrides.
+/// Known network categories for per-network defaults.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NetworkKind {
     /// Mainnet network kind.
@@ -51,19 +36,9 @@ pub enum NetworkKind {
 }
 
 /// Detects the network kind based on build flags and the provided config value.
-pub fn detect_network_kind(config_value: &Value) -> NetworkKind {
-    if cfg!(msim) {
-        return NetworkKind::Simtest;
-    }
-    if cfg!(test) {
-        return NetworkKind::Tests;
-    }
-    detect_network_kind_from_ids(config_value)
-}
-
-fn detect_network_kind_from_ids(config_value: &Value) -> NetworkKind {
+pub(crate) fn detect_network_kind(config_value: &Value) -> NetworkKind {
     let Some(config_ids) = extract_contract_ids(config_value) else {
-        return NetworkKind::Default;
+        return default_network_kind();
     };
     let known = known_network_ids();
     if known.mainnet.as_ref() == Some(&config_ids) {
@@ -72,20 +47,28 @@ fn detect_network_kind_from_ids(config_value: &Value) -> NetworkKind {
     if known.testnet.as_ref() == Some(&config_ids) {
         return NetworkKind::Testnet;
     }
+    default_network_kind()
+}
+
+pub(crate) fn default_network_kind() -> NetworkKind {
+    if cfg!(msim) {
+        return NetworkKind::Simtest;
+    }
+    if cfg!(test) {
+        return NetworkKind::Tests;
+    }
     NetworkKind::Default
 }
 
-/// Returns per-network overrides as a YAML value.
-pub fn overrides_for(kind: NetworkKind) -> Result<Value> {
-    let overrides_yaml = match kind {
-        NetworkKind::Mainnet => MAINNET_OVERRIDES_YAML,
-        NetworkKind::Testnet => TESTNET_OVERRIDES_YAML,
-        NetworkKind::Tests => TESTS_OVERRIDES_YAML,
-        NetworkKind::Simtest => SIMTEST_OVERRIDES_YAML,
-        NetworkKind::Default => "",
-    };
-    let overrides = parse_overrides_yaml(overrides_yaml, kind)?;
-    Ok(Value::Mapping(overrides))
+/// Returns per-network defaults for the storage node config.
+pub fn defaults_for(kind: NetworkKind) -> StorageNodeConfig {
+    match kind {
+        NetworkKind::Mainnet => StorageNodeConfig::default_mainnet(),
+        NetworkKind::Testnet => StorageNodeConfig::default_testnet(),
+        NetworkKind::Tests => StorageNodeConfig::default_tests(),
+        NetworkKind::Simtest => StorageNodeConfig::default_simtest(),
+        NetworkKind::Default => StorageNodeConfig::default(),
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -121,19 +104,6 @@ fn load_contract_ids(label: &'static str, yaml: &'static str) -> Option<Contract
     }
 }
 
-fn parse_overrides_yaml(yaml: &str, kind: NetworkKind) -> Result<Mapping> {
-    if yaml.trim().is_empty() {
-        return Ok(Mapping::new());
-    }
-    let value: Value = serde_yaml::from_str(yaml)
-        .with_context(|| format!("failed to parse overrides for {kind:?}"))?;
-    match value {
-        Value::Null => Ok(Mapping::new()),
-        Value::Mapping(map) => Ok(map),
-        _ => Err(anyhow!("overrides for {kind:?} must be a mapping or empty")),
-    }
-}
-
 fn extract_contract_ids(config_value: &Value) -> Option<ContractIds> {
     let sui = config_value
         .as_mapping()?
@@ -156,47 +126,36 @@ fn object_id_from_value(value: &Value) -> Option<ObjectID> {
 
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
+    use std::time::Duration;
 
+    use anyhow::Result;
     use rand::{SeedableRng as _, rngs::StdRng};
 
     use super::*;
 
     #[test]
-    fn test_overrides_for_dir_accepts_dummy_overrides() -> Result<()> {
-        let dir = tempfile::tempdir()?;
-        std::fs::write(
-            dir.path().join("tests.yaml"),
-            "live_upload_deferral:\n  enabled: true\n  max_total_defer_millis: 50\n",
-        )?;
-
-        let overrides = overrides_for_dir(NetworkKind::Tests, dir.path())?;
-        let Value::Mapping(map) = overrides else {
-            panic!("expected overrides mapping for Tests");
-        };
-        let live_upload_deferral = map
-            .get(Value::String("live_upload_deferral".to_string()))
-            .expect("live_upload_deferral should exist")
-            .as_mapping()
-            .expect("live_upload_deferral should be a mapping");
-        let max_total_defer_millis = live_upload_deferral
-            .get(Value::String("max_total_defer_millis".to_string()))
-            .and_then(Value::as_u64)
-            .expect("max_total_defer_millis should be a u64");
-
-        assert_eq!(max_total_defer_millis, 50);
-        Ok(())
+    fn test_defaults_for_simtest_include_defaults() {
+        let config = defaults_for(NetworkKind::Simtest);
+        assert!(config.live_upload_deferral.enabled);
+        assert_eq!(
+            config.blob_recovery.monitor_interval,
+            Duration::from_secs(5)
+        );
+        assert_eq!(
+            config.shard_sync_config.shard_sync_retry_min_backoff,
+            Duration::from_secs(1)
+        );
     }
 
     #[test]
-    fn test_overrides_for_dir_missing_file_is_empty() -> Result<()> {
-        let dir = tempfile::tempdir()?;
-        let overrides = overrides_for_dir(NetworkKind::Mainnet, dir.path())?;
-        let Value::Mapping(map) = overrides else {
-            panic!("expected overrides mapping for Mainnet");
-        };
-        assert!(map.is_empty(), "expected empty overrides for Mainnet");
-        Ok(())
+    fn test_defaults_for_tests_include_defaults() {
+        let config = defaults_for(NetworkKind::Tests);
+        assert!(config.live_upload_deferral.enabled);
+        assert_eq!(
+            config.blob_recovery.monitor_interval,
+            Duration::from_secs(5)
+        );
+        assert!(config.consistency_check.enable_blob_info_invariants_check);
     }
 
     #[test]
@@ -224,35 +183,9 @@ mod tests {
         let testnet_value: Value = serde_yaml::from_str(&testnet_yaml)?;
         let unknown_value: Value = serde_yaml::from_str(&unknown_yaml)?;
 
-        assert_eq!(
-            detect_network_kind_from_ids(&mainnet_value),
-            NetworkKind::Mainnet
-        );
-        assert_eq!(
-            detect_network_kind_from_ids(&testnet_value),
-            NetworkKind::Testnet
-        );
-        assert_eq!(
-            detect_network_kind_from_ids(&unknown_value),
-            NetworkKind::Default
-        );
+        assert_eq!(detect_network_kind(&mainnet_value), NetworkKind::Mainnet);
+        assert_eq!(detect_network_kind(&testnet_value), NetworkKind::Testnet);
+        assert_eq!(detect_network_kind(&unknown_value), NetworkKind::Tests);
         Ok(())
-    }
-
-    fn overrides_for_dir(kind: NetworkKind, overrides_dir: &Path) -> Result<Value> {
-        let overrides_yaml = match kind {
-            NetworkKind::Mainnet => overrides_dir.join("mainnet.yaml"),
-            NetworkKind::Testnet => overrides_dir.join("testnet.yaml"),
-            NetworkKind::Tests => overrides_dir.join("tests.yaml"),
-            NetworkKind::Simtest => overrides_dir.join("simtest.yaml"),
-            NetworkKind::Default => return Ok(Value::Mapping(Mapping::new())),
-        };
-        let overrides_yaml = if overrides_yaml.exists() {
-            std::fs::read_to_string(&overrides_yaml)?
-        } else {
-            String::new()
-        };
-        let overrides = parse_overrides_yaml(&overrides_yaml, kind)?;
-        Ok(Value::Mapping(overrides))
     }
 }

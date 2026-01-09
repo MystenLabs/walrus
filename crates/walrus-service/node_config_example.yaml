@@ -93,7 +93,7 @@ db_config:
 live_upload_deferral:
   enabled: false
   buckets: []
-  max_total_defer_millis: 300000
+  max_total_defer_secs: 300
   max_checkpoint_lag: 32
 protocol_key_pair:
   path: /opt/walrus/config/protocol.key
