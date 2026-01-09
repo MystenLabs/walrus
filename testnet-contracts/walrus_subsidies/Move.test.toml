@@ -1,0 +1,15 @@
+[package]
+name = "walrus_subsidies"
+license = "Apache-2.0"
+authors = ["Mysten Labs <build@mystenlabs.com>"]
+edition = "2024"
+implicit-dependencies = false
+
+[dependencies]
+std = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/move-stdlib", rev = "testnet-v1.63.1" }
+sui = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/sui-framework", rev = "testnet-v1.63.1" }
+wal = { local = "../wal" }
+walrus = { local = "../walrus" }
+
+[environments]
+localnet = "ReplaceChainId"

@@ -64,11 +64,7 @@ mod tests {
     use walrus_sui::{
         client::{BlobPersistence, PostStoreAction, ReadClient, SuiContractClient, UpgradeType},
         system_setup::copy_recursively,
-        test_utils::system_setup::{
-            development_contract_dir,
-            testnet_contract_dir,
-            update_contract_sui_dependency_to_local_copy,
-        },
+        test_utils::system_setup::{self, development_contract_dir, testnet_contract_dir},
         types::{Blob, move_structs::EventBlob},
     };
     use walrus_test_utils::{
@@ -1120,16 +1116,44 @@ mod tests {
         let upgrade_dir = TempDir::new()?;
         copy_recursively(development_contract_dir()?, upgrade_dir.path()).await?;
 
-        // Copy Move.lock files of walrus contract and dependencies to new directory
+        let chain_id = client
+            .inner
+            .sui_client()
+            .retriable_sui_client()
+            .get_chain_identifier()
+            .await?;
+
+        // Copy Move.lock and after Sui 1.63, Published.toml files of walrus contract and
+        // dependencies to new directory. This links the already published packages with the
+        // package that is about to be upgraded.
         for contract in ["wal", "walrus"] {
             std::fs::copy(
                 deploy_dir.path().join(contract).join("Move.lock"),
                 upgrade_dir.path().join(contract).join("Move.lock"),
             )?;
 
+            // After Sui 1.63, we only copy the Published.toml file for the wal contract, since this
+            // is the dependency of the walrus contract, and it needs to be already published when
+            // upgrading the walrus contract.
+            // TODO(WAL-1126): revisit once sui publish works with ephemeral publishing.
+            if contract == "wal" {
+                std::fs::copy(
+                    deploy_dir.path().join(contract).join("Published.toml"),
+                    upgrade_dir.path().join(contract).join("Published.toml"),
+                )?;
+            }
+
+            let package_path = upgrade_dir.path().join(contract);
+
+            // TODO(WAL-1126): remove once sui publish works with ephemeral publishing.
+            system_setup::add_localnet_env_to_contract_toml(
+                package_path.clone(),
+                chain_id.clone(),
+            )?;
+
             // TODO(WAL-1125): remove once the new sui package management system can pull external
             // dependencies.
-            update_contract_sui_dependency_to_local_copy(upgrade_dir.path().join(contract))?;
+            system_setup::update_contract_sui_dependency_to_local_copy(package_path)?;
         }
 
         // Change the version in the contracts
@@ -1142,7 +1166,6 @@ mod tests {
             .as_ref()
             .inner
             .sui_client()
-            .read_client()
             .compute_package_digest(walrus_package_path.clone())
             .await?;
 

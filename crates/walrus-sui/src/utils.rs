@@ -14,7 +14,6 @@ use std::{
 
 use anyhow::{Result, anyhow};
 use move_core_types::language_storage::StructTag as MoveStructTag;
-use move_package::{BuildConfig as MoveBuildConfig, source_package::layout::SourcePackageLayout};
 use serde::{Deserialize, Serialize};
 use sui_config::{Config, SUI_KEYSTORE_FILENAME, sui_config_dir};
 use sui_keys::keystore::{
@@ -483,18 +482,4 @@ pub fn generate_proof_of_possession_for_address(
         sui_address.to_inner(),
         bls_sk.public().clone(),
     ))
-}
-
-/// Resolve Move.lock file path in package directory (where Move.toml is).
-/// Taken with small modifications (no rerooting/changing current directory) from
-/// `sui_move::manage_package::resolve_lock_file_path` to avoid adding a dependency.
-pub(crate) fn resolve_lock_file_path(
-    mut build_config: MoveBuildConfig,
-    package_path: &Path,
-) -> Result<MoveBuildConfig, anyhow::Error> {
-    if build_config.lock_file.is_none() {
-        let lock_file_path = package_path.join(SourcePackageLayout::Lock.path());
-        build_config.lock_file = Some(lock_file_path);
-    }
-    Ok(build_config)
 }

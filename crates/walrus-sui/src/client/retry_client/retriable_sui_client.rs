@@ -56,9 +56,9 @@ use sui_types::{
     dynamic_field::derive_dynamic_field_id,
     event::EventID,
     object::Owner,
-    quorum_driver_types::ExecuteTransactionRequestType::WaitForLocalExecution,
     sui_serde::BigInt,
     transaction::{Transaction, TransactionData, TransactionKind},
+    transaction_driver_types::ExecuteTransactionRequestType::WaitForLocalExecution,
 };
 use tracing::Level;
 use walrus_core::ensure;
@@ -1340,7 +1340,7 @@ fn maybe_return_injected_error_in_stake_pool_transaction(
             .transaction_data()
             .move_calls()
             .iter()
-            .any(|(_, _, function_name)| {
+            .any(|(_, _, _, function_name)| {
                 *function_name == crate::contracts::staking::stake_with_pool.name
             });
 
