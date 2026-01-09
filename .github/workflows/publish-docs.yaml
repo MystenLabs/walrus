@@ -97,5 +97,6 @@ jobs:
           DIST: docs/site/build
           WS_RESOURCES: docs/site/ws-resources.json
           EPOCHS: "10"
+          GAS_BUDGET: "1000000000"
           SITE_BUILDER_VERSION: v2
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
