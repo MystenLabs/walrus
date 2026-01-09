@@ -871,23 +871,11 @@ impl SuiContractClient {
     /// Returns the digest of the package at `package_path` for the active network identified by
     /// the enclosed wallet.
     pub async fn compute_package_digest(&self, package_path: PathBuf) -> SuiClientResult<[u8; 32]> {
-        // Compile package to get the digest.
-        let chain_id = self
-            .retriable_sui_client()
-            .get_chain_identifier()
-            .await
-            .ok();
-        tracing::info!(?chain_id, "chain identifier");
-        let (compiled_package, _build_config, _root_package) = system_setup::compile_package(
-            package_path,
-            Default::default(),
-            chain_id,
-            &self.inner.lock().await.wallet,
-        )
-        .await?;
+        let (compiled_package, _build_config, _root_package) = self
+            .compile_package(package_path, Default::default())
+            .await?;
 
-        let digest = compiled_package.get_package_digest(false);
-        Ok(digest)
+        Ok(compiled_package.get_package_digest(false))
     }
 
     /// Vote as node `node_id` for upgrading the walrus package to the package at
