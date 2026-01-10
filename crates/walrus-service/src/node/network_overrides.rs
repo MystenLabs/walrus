@@ -159,6 +159,43 @@ mod tests {
     }
 
     #[test]
+    fn known_network_ids_match_expected() {
+        const MAINNET_SYSTEM_OBJECT: &str =
+            "0x2134d52768ea07e8c43570ef975eb3e4c27a39fa6396bef985b5abc58d03ddd2";
+        const MAINNET_STAKING_OBJECT: &str =
+            "0x10b9d30c28448939ce6c4d6c6e0ffce4a7f8a4ada8248bdad09ef8b70e4a3904";
+        const TESTNET_SYSTEM_OBJECT: &str =
+            "0x6c2547cbbc38025cf3adac45f63cb0a8d12ecf777cdc75a4971612bf97fdf6af";
+        const TESTNET_STAKING_OBJECT: &str =
+            "0xbe46180321c30aab2f8b3501e24048377287fa708018a5b7c2792b35fe339ee3";
+
+        let known = known_network_ids();
+        let mainnet = known.mainnet.as_ref().expect("mainnet ids available");
+        let testnet = known.testnet.as_ref().expect("testnet ids available");
+
+        assert_eq!(
+            mainnet.system_object,
+            ObjectID::from_hex_literal(MAINNET_SYSTEM_OBJECT)
+                .expect("valid mainnet system object id")
+        );
+        assert_eq!(
+            mainnet.staking_object,
+            ObjectID::from_hex_literal(MAINNET_STAKING_OBJECT)
+                .expect("valid mainnet staking object id")
+        );
+        assert_eq!(
+            testnet.system_object,
+            ObjectID::from_hex_literal(TESTNET_SYSTEM_OBJECT)
+                .expect("valid testnet system object id")
+        );
+        assert_eq!(
+            testnet.staking_object,
+            ObjectID::from_hex_literal(TESTNET_STAKING_OBJECT)
+                .expect("valid testnet staking object id")
+        );
+    }
+
+    #[test]
     fn test_detects_network_kind_from_ids() -> Result<()> {
         let known = known_network_ids();
         let mainnet = known.mainnet.as_ref().expect("mainnet ids available");

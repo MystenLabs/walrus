@@ -1813,6 +1813,7 @@ mod tests {
         assert_eq!(
             config.blob_recovery.monitor_interval,
             Duration::from_secs(5),
+            // In unit tests, default_network_kind() resolves to Tests, which uses a 5s interval.
             "network defaults apply when user omits a field"
         );
         assert_eq!(
@@ -1835,7 +1836,7 @@ mod tests {
         let cases = vec![
             (network_overrides::NetworkKind::Mainnet, mainnet_ids),
             (network_overrides::NetworkKind::Testnet, testnet_ids),
-            (network_overrides::NetworkKind::Default, default_ids),
+            (network_overrides::default_network_kind(), default_ids),
         ];
 
         let dir = TempDir::new()?;
@@ -1850,7 +1851,14 @@ mod tests {
             "},
             );
             let config_path = dir.path().join(format!("node-{expected_kind:?}.yaml"));
-            std::fs::write(&config_path, yaml)?;
+            std::fs::write(&config_path, yaml.clone())?;
+
+            let raw_value: serde_yaml::Value = serde_yaml::from_str(&yaml)?;
+            assert_eq!(
+                network_overrides::detect_network_kind(&raw_value),
+                expected_kind,
+                "network kind is detected from contract ids"
+            );
 
             let config = StorageNodeConfig::load_config(&config_path)?;
 
@@ -1863,7 +1871,7 @@ mod tests {
 
             let expected_defaults = network_overrides::defaults_for(expected_kind);
             assert_eq!(
-                config.pending_metadata_cache, expected_defaults.pending_metadata_cache,
+                config.live_upload_deferral.enabled, expected_defaults.live_upload_deferral.enabled,
                 "default-only values are preserved"
             );
         }

@@ -84,15 +84,4 @@ pub trait Config: DeserializeOwned {
     fn validate(&self) -> anyhow::Result<()> {
         Ok(())
     }
-
-    /// Loads the configuration from a file and validates it.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the configuration cannot be read or parsed, or if the config is invalid.
-    fn load_and_validate(path: impl AsRef<Path>) -> anyhow::Result<Self> {
-        let config: Self = super::load_from_yaml(path)?;
-        config.validate()?;
-        Ok(config)
-    }
 }
