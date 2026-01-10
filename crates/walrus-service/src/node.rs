@@ -211,6 +211,7 @@ mod blob_sync;
 mod config_synchronizer;
 mod epoch_change_driver;
 mod garbage_collector;
+mod network_overrides;
 mod node_recovery;
 mod pending_metadata_cache;
 mod pending_sliver_cache;
