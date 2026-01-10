@@ -50,16 +50,6 @@ use walrus_core::{
 };
 use walrus_proc_macros::walrus_simtest;
 use walrus_sdk::{
-    client::{
-        Blocklist,
-        StoreArgs,
-        StoreBlobsApi as _,
-        WalrusNodeClient,
-        client_types::WalrusStoreBlob,
-        quilt_client::QuiltClientConfig,
-        responses::{BlobStoreResult, QuiltStoreResult},
-        upload_relay_client::UploadRelayClient,
-    },
     config::ClientConfig,
     error::{
         ClientError,
@@ -70,6 +60,16 @@ use walrus_sdk::{
             NotEnoughConfirmations,
             NotEnoughSlivers,
         },
+    },
+    node_client::{
+        Blocklist,
+        StoreArgs,
+        StoreBlobsApi as _,
+        WalrusNodeClient,
+        client_types::WalrusStoreBlob,
+        quilt_client::QuiltClientConfig,
+        responses::{BlobStoreResult, QuiltStoreResult},
+        upload_relay_client::UploadRelayClient,
     },
     store_optimizations::StoreOptimizations,
     upload_relay::tip_config::{TipConfig, TipKind},
@@ -805,7 +805,7 @@ async fn test_store_with_existing_storage_resource(
             )
         })
         .collect();
-    let encoded_blobs = walrus_sdk::client::encode_blobs(unencoded_blobs, None, None)?;
+    let encoded_blobs = walrus_sdk::node_client::encode_blobs(unencoded_blobs, None, None)?;
     let encoded_sizes = encoded_blobs
         .iter()
         .map(|blob| {

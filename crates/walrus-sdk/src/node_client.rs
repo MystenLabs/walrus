@@ -74,7 +74,9 @@ use walrus_utils::{backoff::BackoffStrategy, metrics::Registry};
 
 use crate::{
     active_committees::ActiveCommittees,
-    client::{
+    config::CommunicationLimits,
+    error::{ClientError, ClientErrorKind, ClientResult, StoreError},
+    node_client::{
         auto_tune::AutoTuneHandle,
         byte_range_read_client::ByteRangeReadClient,
         client_types::{
@@ -97,8 +99,6 @@ use crate::{
         responses::{BlobStoreResult, BlobStoreResultWithPath},
         upload_relay_client::UploadRelayClient,
     },
-    config::CommunicationLimits,
-    error::{ClientError, ClientErrorKind, ClientResult, StoreError},
     uploader::{DistributedUploader, RunOutput, TailHandling, UploaderEvent},
     utils::{
         self,
@@ -2329,7 +2329,7 @@ impl<T> WalrusNodeClient<T> {
     /// [`NodeCommunication::get_confirmation_with_retries`][gcwr], which internally verifies them
     /// to check the blob ID, epoch, and blob persistence type.
     ///
-    /// [gcwr]: crate::client::communication::NodeCommunication::get_confirmation_with_retries
+    /// [gcwr]: crate::node_client::communication::NodeCommunication::get_confirmation_with_retries
     fn confirmations_to_certificate<E: Display>(
         &self,
         confirmations: Vec<NodeResult<SignedStorageConfirmation, E>>,

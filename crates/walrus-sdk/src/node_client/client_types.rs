@@ -34,7 +34,7 @@ use super::{
     responses::{BlobStoreResult, EventOrObjectId},
 };
 use crate::{
-    client::{store_args::StoreArgs, upload_relay_client::UploadRelayClient},
+    node_client::{store_args::StoreArgs, upload_relay_client::UploadRelayClient},
     utils::Either,
 };
 
