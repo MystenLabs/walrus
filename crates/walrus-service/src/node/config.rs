@@ -221,7 +221,29 @@ impl StorageNodeConfig {
 
     /// Returns the default configuration for the testnet network.
     pub fn default_testnet() -> Self {
-        Self::default()
+        Self {
+            garbage_collection: GarbageCollectionConfig {
+                enable_blob_info_cleanup: true,
+                enable_data_deletion: true,
+                ..Default::default()
+            },
+            live_upload_deferral: LiveUploadDeferralConfig {
+                enabled: true,
+                buckets: vec![
+                    SizeDeferralEntry {
+                        max_unencoded_bytes: 100 * 1024 * 1024,
+                        defer: Duration::from_secs(15),
+                    },
+                    SizeDeferralEntry {
+                        max_unencoded_bytes: 4 * 1024 * 1024 * 1024,
+                        defer: Duration::from_secs(30),
+                    },
+                ],
+                max_total_defer: Duration::from_secs(120),
+                max_checkpoint_lag: 1500,
+            },
+            ..Default::default()
+        }
     }
 
     /// Returns the default configuration for the simtest network.
