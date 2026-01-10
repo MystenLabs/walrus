@@ -1340,7 +1340,10 @@ impl ReadClient for SuiReadClient {
         &self,
         blob_object_id: &ObjectID,
     ) -> SuiClientResult<BlobWithAttribute> {
-        let blob_object_bcs = self.sui_client.get_object_bcs(*blob_object_id).await?;
+        let blob_object_bcs = self
+            .sui_client
+            .get_object_contents_bcs(*blob_object_id)
+            .await?;
         let blob: Blob = if let Ok(blob) = get_sui_object_from_bcs(&blob_object_bcs) {
             blob
         } else {

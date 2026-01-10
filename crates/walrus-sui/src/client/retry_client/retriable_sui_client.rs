@@ -590,6 +590,31 @@ impl RetriableSuiClient {
             .await
     }
 
+    /// Returns a [`SuiObjectResponse`] based on the provided [`ObjectID`].
+    ///
+    /// Calls [`sui_sdk::apis::ReadApi::get_object_with_options`] internally.
+    #[tracing::instrument(level = Level::DEBUG, skip(self))]
+    pub async fn get_object_contents_bcs(&self, object_id: ObjectID) -> SuiClientResult<Bcs> {
+        async fn make_request(
+            client: Arc<DualClient>,
+            object_id: ObjectID,
+        ) -> SuiClientResult<Bcs> {
+            client.get_object_contents_bcs(object_id).await
+        }
+
+        let request = move |client: Arc<DualClient>, method| {
+            retry_rpc_errors(
+                self.get_strategy(),
+                move || make_request(client.clone(), object_id),
+                self.metrics.clone(),
+                method,
+            )
+        };
+        self.failover_sui_client
+            .with_failover(request, None, "get_object_bcs")
+            .await
+    }
+
     /// Returns a [`SuiTransactionBlockResponse`] based on the provided [`TransactionDigest`].
     ///
     /// Calls [`sui_sdk::apis::ReadApi::get_transaction_with_options`] internally.
@@ -829,7 +854,7 @@ impl RetriableSuiClient {
     where
         U: AssociatedContractStruct,
     {
-        let bcs = self.get_object_bcs(object_id).await?;
+        let bcs = self.get_object_contents_bcs(object_id).await?;
         get_sui_object_from_bcs(&bcs)
     }
 

@@ -5,7 +5,7 @@
 //! migration from Sui JSON RPC to gRPC by gradually migrating callsites away from the JSON RPC
 //! Client [`SuiClient`].
 
-use std::{sync::Arc, time::Duration};
+use std::time::Duration;
 
 use anyhow::Context;
 use sui_rpc::{
@@ -15,7 +15,6 @@ use sui_rpc::{
 };
 use sui_sdk::{SuiClient, SuiClientBuilder};
 use sui_types::base_types::ObjectID;
-use tokio::sync::Mutex;
 
 use crate::client::SuiClientError;
 
@@ -25,7 +24,7 @@ use crate::client::SuiClientError;
 pub struct DualClient {
     /// The Sui SDK client for JSON RPC calls. This will eventually be removed.
     pub sui_client: SuiClient,
-    grpc_client: Arc<Mutex<GrpcClient>>,
+    grpc_client: GrpcClient,
 }
 
 impl std::fmt::Debug for DualClient {
@@ -51,7 +50,7 @@ impl DualClient {
         let grpc_client = GrpcClient::new(rpc_url).context("unable to create grpc client")?;
         Ok(Self {
             sui_client,
-            grpc_client: Arc::new(Mutex::new(grpc_client)),
+            grpc_client,
         })
     }
 
@@ -63,10 +62,8 @@ impl DualClient {
         .with_read_mask(FieldMask::from_paths([Object::path_builder()
             .bcs()
             .finish()]));
-        let response = self
-            .grpc_client
-            .lock()
-            .await
+        let mut grpc_client = self.grpc_client.clone();
+        let response = grpc_client
             .ledger_client()
             .get_object(request)
             .await
@@ -77,6 +74,31 @@ impl DualClient {
             .context("no object in get_object_response")?
             .bcs
             .context("no bcs in object")?)
+    }
+
+    /// Get the BCS representation of an object's contents from the Sui network.
+    pub async fn get_object_contents_bcs(
+        &self,
+        object_id: ObjectID,
+    ) -> Result<Bcs, SuiClientError> {
+        let request = GetObjectRequest::new(&sui_sdk_types::Address::from(
+            <[u8; 32]>::try_from(object_id.as_slice()).context("invalid object_id: {e}")?,
+        ))
+        .with_read_mask(FieldMask::from_paths([Object::path_builder()
+            .contents()
+            .finish()]));
+        let mut grpc_client = self.grpc_client.clone();
+        let response = grpc_client
+            .ledger_client()
+            .get_object(request)
+            .await
+            .context("grpc request error")?;
+        Ok(response
+            .into_inner()
+            .object
+            .context("no contents in get_object_response")?
+            .contents
+            .context("no contents in object")?)
     }
 
     /// Get the full object from the Sui network.
