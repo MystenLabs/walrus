@@ -3,12 +3,12 @@
 
 //! A client daemon who serves a set of simple HTTP endpoints to store, encode, or read blobs.
 
-use std::{collections::HashSet, fmt::Debug, net::SocketAddr, str::FromStr, sync::Arc};
+use std::{collections::HashSet, fmt::Debug, net::SocketAddr, pin::Pin, str::FromStr, sync::Arc};
 
 use axum::{
     BoxError,
     Router,
-    body::HttpBody,
+    body::{Bytes, HttpBody},
     error_handling::HandleErrorLayer,
     extract::{DefaultBodyLimit, Query, Request, State},
     http::HeaderName,
@@ -20,6 +20,7 @@ use axum_extra::{
     TypedHeader,
     headers::{Authorization, authorization::Bearer},
 };
+use futures::Stream;
 use openapi::{AggregatorApiDoc, DaemonApiDoc, PublisherApiDoc};
 use reqwest::StatusCode;
 use routes::{
@@ -28,6 +29,7 @@ use routes::{
     BLOB_GET_ENDPOINT,
     BLOB_OBJECT_GET_ENDPOINT,
     BLOB_PUT_ENDPOINT,
+    BLOB_STREAM_ENDPOINT,
     LIST_PATCHES_IN_QUILT_ENDPOINT,
     QUILT_PATCH_BY_ID_GET_ENDPOINT,
     QUILT_PATCH_BY_IDENTIFIER_GET_ENDPOINT,
@@ -65,6 +67,7 @@ use walrus_sdk::{
         WalrusNodeClient,
         byte_range_read_client::ReadByteRangeResult,
         responses::{BlobStoreResult, QuiltStoreResult},
+        streaming::start_streaming_blob,
     },
     error::{ClientError, ClientResult},
     store_optimizations::StoreOptimizations,
@@ -89,6 +92,9 @@ pub(crate) mod cache;
 pub(crate) use cache::{CacheConfig, CacheHandle};
 mod openapi;
 mod routes;
+
+/// Type alias for a boxed stream of blob data chunks.
+pub type BlobStream = Pin<Box<dyn Stream<Item = Result<Bytes, ClientError>> + Send>>;
 
 pub trait WalrusReadClient {
     /// Reads a blob from Walrus.
@@ -133,6 +139,18 @@ pub trait WalrusReadClient {
         &self,
         _quilt_id: &BlobId,
     ) -> impl std::future::Future<Output = ClientResult<Vec<QuiltPatchItem>>> + Send;
+
+    /// Streams a blob sliver-by-sliver.
+    ///
+    /// Returns a stream that yields blob data chunks in order, with prefetching
+    /// and aggressive retry logic for improved performance on large blobs.
+    ///
+    /// Takes `Arc<Self>` to allow spawning background tasks for prefetching.
+    /// Returns the stream and the total blob size in bytes (for progress tracking).
+    fn stream_blob(
+        self: Arc<Self>,
+        blob_id: &BlobId,
+    ) -> impl std::future::Future<Output = ClientResult<(BlobStream, u64)>> + Send;
 }
 
 /// Trait representing a client that can write blobs to Walrus.
@@ -170,7 +188,7 @@ pub trait WalrusWriteClient: WalrusReadClient {
     fn default_post_store_action(&self) -> PostStoreAction;
 }
 
-impl<T: ReadClient> WalrusReadClient for WalrusNodeClient<T> {
+impl<T: ReadClient + Send + Sync + 'static> WalrusReadClient for WalrusNodeClient<T> {
     async fn read_blob(
         &self,
         blob_id: &BlobId,
@@ -249,6 +267,13 @@ impl<T: ReadClient> WalrusReadClient for WalrusNodeClient<T> {
         };
 
         Ok(patches)
+    }
+
+    async fn stream_blob(self: Arc<Self>, blob_id: &BlobId) -> ClientResult<(BlobStream, u64)> {
+        let config = self.config().streaming_config.clone();
+        let (stream, blob_size) = start_streaming_blob(self, config, *blob_id).await?;
+
+        Ok((Box::pin(stream), blob_size))
     }
 }
 
@@ -434,6 +459,10 @@ impl<T: WalrusReadClient + Send + Sync + 'static> ClientDaemon<T> {
             .route(
                 BLOB_BYTE_RANGE_GET_ENDPOINT,
                 get(routes::get_blob_byte_range).route_layer(aggregator_layers.clone()),
+            )
+            .route(
+                BLOB_STREAM_ENDPOINT,
+                get(routes::stream_blob).route_layer(aggregator_layers.clone()),
             )
             .route(
                 BLOB_CONCAT_ENDPOINT,
@@ -808,6 +837,13 @@ mod tests {
             &self,
             _quilt_id: &BlobId,
         ) -> ClientResult<Vec<QuiltPatchItem>> {
+            unimplemented!("not needed for rate limit tests")
+        }
+
+        async fn stream_blob(
+            self: Arc<Self>,
+            _blob_id: &BlobId,
+        ) -> ClientResult<(BlobStream, u64)> {
             unimplemented!("not needed for rate limit tests")
         }
     }

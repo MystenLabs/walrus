@@ -113,6 +113,7 @@ use crate::{
 pub mod byte_range_read_client;
 pub mod client_types;
 pub mod communication;
+pub mod streaming;
 pub use communication::NodeCommunicationFactory;
 pub mod metrics;
 pub mod quilt_client;
