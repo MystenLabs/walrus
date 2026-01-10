@@ -13,7 +13,7 @@ use prometheus::core::{AtomicU64, GenericGauge};
 use sui_types::base_types::ObjectID;
 use tokio::fs;
 use tracing;
-use walrus_utils::{load_from_yaml, metrics::Registry};
+use walrus_utils::metrics::Registry;
 use x509_cert::certificate::Certificate;
 
 use super::{
@@ -58,7 +58,7 @@ impl StorageNodeConfigLoader {
 #[async_trait]
 impl ConfigLoader for StorageNodeConfigLoader {
     async fn load_storage_node_config(&self) -> anyhow::Result<StorageNodeConfig> {
-        let mut config: StorageNodeConfig = load_from_yaml(&self.config_path)?;
+        let mut config = StorageNodeConfig::load_config(&self.config_path)?;
         config.load_keys()?;
         Ok(config)
     }
