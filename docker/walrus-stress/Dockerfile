@@ -13,6 +13,7 @@ RUN apt-get update && apt-get install -y cmake clang
 
 COPY Cargo.toml Cargo.lock ./
 COPY crates crates
+COPY setup setup
 COPY contracts contracts
 
 RUN cargo build --profile $PROFILE --bin walrus-stress --bin walrus
