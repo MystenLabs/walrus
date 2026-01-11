@@ -135,6 +135,12 @@ sui-sdk = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.63.1" }
 sui-simulator = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.63.1" }
 sui-storage = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.63.1" }
 sui-types = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.63.1" }
+
+# core-types from the new sdk for use in gRPC
+sui-sdk-types = { git = "https://github.com/MystenLabs/sui-rust-sdk.git", rev = "8c76dfd0261479523a6283049129981838676b0b", features = [ "hash", "serde" ] }
+sui-crypto = { git = "https://github.com/MystenLabs/sui-rust-sdk.git", rev = "8c76dfd0261479523a6283049129981838676b0b", features = [ "ed25519", "secp256r1", "secp256k1", "passkey", "zklogin" ] }
+sui-rpc = { git = "https://github.com/MystenLabs/sui-rust-sdk.git", rev = "8c76dfd0261479523a6283049129981838676b0b" }
+
 syn = "2.0"
 tap = "1.0.1"
 telemetry-subscribers = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.63.1" }

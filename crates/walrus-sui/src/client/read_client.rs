@@ -78,7 +78,7 @@ use crate::{
             WalrusSubsidiesInner,
         },
     },
-    utils::{get_sui_object_from_object_response, handle_pagination},
+    utils::{get_sui_object_from_bcs, get_sui_object_from_object_response, handle_pagination},
 };
 
 const EVENT_MODULE: &str = "events";
@@ -1263,6 +1263,7 @@ impl ReadClient for SuiReadClient {
             .sui_client
             .get_current_client()
             .await
+            .sui_client
             .event_api()
             .clone();
 
@@ -1339,24 +1340,19 @@ impl ReadClient for SuiReadClient {
         &self,
         blob_object_id: &ObjectID,
     ) -> SuiClientResult<BlobWithAttribute> {
-        let blob_object_response = self
+        let blob_object_bcs = self
             .sui_client
-            .get_object_with_options(
-                *blob_object_id,
-                SuiObjectDataOptions::new().with_bcs().with_type(),
-            )
+            .get_object_contents_bcs(*blob_object_id)
             .await?;
-        let blob = if let Ok(blob) =
-            get_sui_object_from_object_response::<Blob>(&blob_object_response)
-        {
+        let blob: Blob = if let Ok(blob) = get_sui_object_from_bcs(&blob_object_bcs) {
             blob
         } else {
-            let shared_blob = get_sui_object_from_object_response::<SharedBlob>(
-                &blob_object_response,
-            )
-            .map_err(|_| {
-                anyhow!("could not retrieve blob or shared blob from object id {blob_object_id}")
-            })?;
+            let shared_blob: SharedBlob =
+                get_sui_object_from_bcs(&blob_object_bcs).with_context(|| {
+                    format!(
+                        "could not retrieve blob or shared blob from object id {blob_object_id}"
+                    )
+                })?;
             shared_blob.blob
         };
         let attribute = self.get_blob_attribute(&blob.id).await?;

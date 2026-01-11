@@ -10114,7 +10114,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "signature 2.2.0",
- "sui-sdk-types",
+ "sui-sdk-types 0.1.1",
 ]
 
 [[package]]
@@ -10987,7 +10987,28 @@ dependencies = [
  "prost-types 0.14.1",
  "serde",
  "serde_json",
- "sui-sdk-types",
+ "sui-sdk-types 0.1.1",
+ "tap",
+ "tokio",
+ "tonic 0.14.2",
+ "tonic-prost",
+]
+
+[[package]]
+name = "sui-rpc"
+version = "0.2.0"
+source = "git+https://github.com/MystenLabs/sui-rust-sdk.git?rev=8c76dfd0261479523a6283049129981838676b0b#8c76dfd0261479523a6283049129981838676b0b"
+dependencies = [
+ "base64 0.22.1",
+ "bcs",
+ "bytes",
+ "futures",
+ "http 1.3.1",
+ "prost 0.14.1",
+ "prost-types 0.14.1",
+ "serde",
+ "serde_json",
+ "sui-sdk-types 0.2.0",
  "tap",
  "tokio",
  "tonic 0.14.2",
@@ -11027,8 +11048,8 @@ dependencies = [
  "sui-name-service",
  "sui-package-resolver",
  "sui-protocol-config",
- "sui-rpc",
- "sui-sdk-types",
+ "sui-rpc 0.1.1",
+ "sui-sdk-types 0.1.1",
  "sui-types",
  "tap",
  "thiserror 1.0.69",
@@ -11084,6 +11105,27 @@ dependencies = [
 name = "sui-sdk-types"
 version = "0.1.1"
 source = "git+https://github.com/MystenLabs/sui-rust-sdk.git?rev=339c2272fd5b8fb4e1fa6662cfa9acdbb0d05704#339c2272fd5b8fb4e1fa6662cfa9acdbb0d05704"
+dependencies = [
+ "base64ct",
+ "bcs",
+ "blake2",
+ "bnum",
+ "bs58 0.5.1",
+ "bytes",
+ "bytestring",
+ "itertools 0.14.0",
+ "roaring 0.11.2",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "serde_with",
+ "winnow 0.7.12",
+]
+
+[[package]]
+name = "sui-sdk-types"
+version = "0.2.0"
+source = "git+https://github.com/MystenLabs/sui-rust-sdk.git?rev=8c76dfd0261479523a6283049129981838676b0b#8c76dfd0261479523a6283049129981838676b0b"
 dependencies = [
  "base64ct",
  "bcs",
@@ -11414,8 +11456,8 @@ dependencies = [
  "sui-enum-compat-util",
  "sui-macros",
  "sui-protocol-config",
- "sui-rpc",
- "sui-sdk-types",
+ "sui-rpc 0.1.1",
+ "sui-sdk-types 0.1.1",
  "tap",
  "thiserror 1.0.69",
  "tonic 0.14.2",
@@ -13501,8 +13543,10 @@ dependencies = [
  "sui-move-build",
  "sui-package-alt",
  "sui-package-management",
+ "sui-rpc 0.2.0",
  "sui-rpc-api",
  "sui-sdk",
+ "sui-sdk-types 0.2.0",
  "sui-simulator",
  "sui-storage",
  "sui-types",

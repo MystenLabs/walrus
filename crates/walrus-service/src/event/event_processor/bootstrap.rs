@@ -33,11 +33,7 @@ pub async fn get_bootstrap_committee_and_checkpoint(
         .get_object_with_options(system_pkg_id, object_options)
         .await?;
     let txn_options = SuiTransactionBlockResponseOptions::new();
-    let txn_digest = object
-        .data
-        .ok_or(anyhow!("No object data"))?
-        .previous_transaction
-        .ok_or(anyhow!("No transaction data"))?;
+    let txn_digest = object.previous_transaction;
     let txn = sui_client
         .get_transaction_with_options(txn_digest, txn_options)
         .await?;
