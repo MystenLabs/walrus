@@ -384,6 +384,31 @@ pub(crate) async fn publish_coin_and_system_package(
     gas_budget: Option<u64>,
 ) -> Result<PublishSystemPackageResult> {
     let walrus_contract_directory = if let Some(deploy_directory) = deploy_directory {
+        // Clear the deploy directory before copying to avoid stale files
+        if deploy_directory.exists() {
+            // TODO(WAL-1126): remove this once sui publish works with ephemeral publishing.
+            // If the contract directory already exists and has been used for publishing, all the
+            // published info will be stored in the contract directory, which will make all the
+            // contracts appear as published. The root cause is that sui publish does not support
+            // ephemeral publishing yet.
+            //
+            // To make this work, we should clear the published info from the contract directory.
+            // This should not be needed if we can use ephemeral publishing.
+            tracing::warn!(
+                "clearing deploy directory {:?} before copying to it",
+                deploy_directory
+            );
+            // Clear all contents inside the directory without removing the directory itself
+            for entry in std::fs::read_dir(&deploy_directory)? {
+                let entry = entry?;
+                let path = entry.path();
+                if path.is_dir() {
+                    std::fs::remove_dir_all(path)?;
+                } else {
+                    std::fs::remove_file(path)?;
+                }
+            }
+        }
         copy_recursively(&contract_dir, &deploy_directory).await?;
         deploy_directory
     } else {
