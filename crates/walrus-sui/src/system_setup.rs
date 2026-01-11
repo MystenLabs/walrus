@@ -398,7 +398,16 @@ pub(crate) async fn publish_coin_and_system_package(
                 "clearing deploy directory {:?} before copying to it",
                 deploy_directory
             );
-            std::fs::remove_dir_all(&deploy_directory)?;
+            // Clear all contents inside the directory without removing the directory itself
+            for entry in std::fs::read_dir(&deploy_directory)? {
+                let entry = entry?;
+                let path = entry.path();
+                if path.is_dir() {
+                    std::fs::remove_dir_all(path)?;
+                } else {
+                    std::fs::remove_file(path)?;
+                }
+            }
         }
         copy_recursively(&contract_dir, &deploy_directory).await?;
         deploy_directory
