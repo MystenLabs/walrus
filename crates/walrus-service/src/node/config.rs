@@ -222,11 +222,6 @@ impl StorageNodeConfig {
     /// Returns the default configuration for the testnet network.
     pub fn default_testnet() -> Self {
         Self {
-            garbage_collection: GarbageCollectionConfig {
-                enable_blob_info_cleanup: true,
-                enable_data_deletion: true,
-                ..Default::default()
-            },
             live_upload_deferral: LiveUploadDeferralConfig {
                 enabled: true,
                 buckets: vec![
