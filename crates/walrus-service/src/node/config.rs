@@ -278,12 +278,7 @@ impl StorageNodeConfig {
             blob_event_processor_config: BlobEventProcessorConfig {
                 num_workers: NonZeroUsize::new(3).expect("3 is non-zero"),
             },
-            garbage_collection: GarbageCollectionConfig {
-                randomization_time_window: Some(Duration::from_secs(1)),
-                blob_objects_batch_size: 10,
-                data_deletion_batch_size: 5,
-                ..Default::default()
-            },
+            garbage_collection: GarbageCollectionConfig::default_for_test(),
             ..Default::default()
         }
     }
@@ -309,12 +304,7 @@ impl StorageNodeConfig {
                 enable_sliver_data_existence_check: true,
                 ..Default::default()
             },
-            garbage_collection: GarbageCollectionConfig {
-                randomization_time_window: Some(Duration::from_secs(1)),
-                blob_objects_batch_size: 10,
-                data_deletion_batch_size: 5,
-                ..Default::default()
-            },
+            garbage_collection: GarbageCollectionConfig::default_for_test(),
             ..Default::default()
         }
     }
