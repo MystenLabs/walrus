@@ -49,7 +49,10 @@ use super::{
 use crate::{
     common::{config::SuiConfig, utils},
     event::event_processor::config::EventProcessorConfig,
-    node::{db_checkpoint::DbCheckpointConfig, network_overrides},
+    node::{
+        db_checkpoint::DbCheckpointConfig,
+        network_overrides::{self, NetworkKind},
+    },
 };
 
 /// Configuration for the config synchronizer.
@@ -369,9 +372,22 @@ impl walrus_utils::config::Config for StorageNodeConfig {
     }
 }
 
+/// A struct that holds the loaded config information.
+// This struct is currently used to pass config information to the node runtime, so that the
+// information can be logged after the logging runtime starts.
+#[derive(Debug)]
+pub struct LoadedConfig {
+    /// The path to the config file.
+    pub config_path: PathBuf,
+    /// The loaded config that will be used to run the node.
+    pub config: StorageNodeConfig,
+    /// The network kind.
+    pub network_kind: NetworkKind,
+}
+
 impl StorageNodeConfig {
     /// Loads the config from a file, applying per-network defaults before deserialization.
-    pub fn load_config(path: impl AsRef<Path>) -> anyhow::Result<Self> {
+    pub fn load_config(path: impl AsRef<Path>) -> anyhow::Result<LoadedConfig> {
         let path = path.as_ref();
         let config_str = std::fs::read_to_string(path)
             .with_context(|| format!("unable to load config from {}", path.display()))?;
@@ -390,7 +406,11 @@ impl StorageNodeConfig {
         let config: StorageNodeConfig = serde_yaml::from_value(merged_value.clone())
             .with_context(|| format!("unable to deserialize merged config: {merged_value:?}",))?;
         config.validate()?;
-        Ok(config)
+        Ok(LoadedConfig {
+            config_path: path.to_path_buf(),
+            config,
+            network_kind,
+        })
     }
 
     /// Loads the config from a file.
@@ -1804,20 +1824,20 @@ mod tests {
         "});
         std::fs::write(&config_path, yaml)?;
 
-        let config = StorageNodeConfig::load_config(&config_path)?;
+        let loaded_config = StorageNodeConfig::load_config(&config_path)?;
 
         assert!(
-            !config.live_upload_deferral.enabled,
+            !loaded_config.config.live_upload_deferral.enabled,
             "user values override network defaults"
         );
         assert_eq!(
-            config.blob_recovery.monitor_interval,
+            loaded_config.config.blob_recovery.monitor_interval,
             Duration::from_secs(5),
             // In unit tests, default_network_kind() resolves to Tests, which uses a 5s interval.
             "network defaults apply when user omits a field"
         );
         assert_eq!(
-            config.pending_metadata_cache,
+            loaded_config.config.pending_metadata_cache,
             PendingMetadataCacheConfig::default(),
             "defaults apply when neither network defaults nor user provide a value"
         );
@@ -1860,18 +1880,23 @@ mod tests {
                 "network kind is detected from contract ids"
             );
 
-            let config = StorageNodeConfig::load_config(&config_path)?;
+            let loaded_config = StorageNodeConfig::load_config(&config_path)?;
+            assert_eq!(loaded_config.network_kind, expected_kind);
 
-            assert_eq!(config.commission_rate, 9, "user values override defaults");
             assert_eq!(
-                config.blob_recovery.monitor_interval,
+                loaded_config.config.commission_rate, 9,
+                "user values override defaults"
+            );
+            assert_eq!(
+                loaded_config.config.blob_recovery.monitor_interval,
                 Duration::from_secs(2),
                 "user values override defaults"
             );
 
             let expected_defaults = network_overrides::defaults_for(expected_kind);
             assert_eq!(
-                config.live_upload_deferral.enabled, expected_defaults.live_upload_deferral.enabled,
+                loaded_config.config.live_upload_deferral.enabled,
+                expected_defaults.live_upload_deferral.enabled,
                 "default-only values are preserved"
             );
         }
