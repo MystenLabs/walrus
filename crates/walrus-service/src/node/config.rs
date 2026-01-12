@@ -218,6 +218,11 @@ impl StorageNodeConfig {
                 enable_data_deletion: false,
                 ..Default::default()
             },
+            // TODO(WAL-708): Enable sliver data existence check by default on mainnet.
+            consistency_check: StorageNodeConsistencyCheckConfig {
+                enable_sliver_data_existence_check: false,
+                ..Default::default()
+            },
             ..Default::default()
         }
     }
