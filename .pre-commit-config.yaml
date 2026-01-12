@@ -50,7 +50,7 @@ repos:
         language: python
         types: [toml]
         args: []
-        additional_dependencies: ["taplo==0.9.3"]
+        additional_dependencies: ["taplo==0.10.0"]
       - id: shellcheck
         args: ["--severity=error"]
         name: shellcheck
