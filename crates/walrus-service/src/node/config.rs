@@ -1217,7 +1217,7 @@ pub mod defaults {
 }
 
 /// Enum that represents a configuration value being preset or at a path.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum PathOrInPlace<T> {
     /// The value was present in-place in the config, without a filename.
@@ -1235,6 +1235,25 @@ pub enum PathOrInPlace<T> {
         #[serde(skip, default = "Option::default")]
         value: Option<T>,
     },
+}
+
+/// Debug implementation for `PathOrInPlace`.
+// This struct is mainly use to load keys from disk. Although fastcrypto natively supports do not
+// print private keys, we want to be extra careful and omit the value completely in debug prints.
+impl<T> std::fmt::Debug for PathOrInPlace<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PathOrInPlace::InPlace(_) => f
+                .debug_tuple("InPlace")
+                .field(&"value is omitted in PathOrInPlace debug print")
+                .finish(),
+            PathOrInPlace::Path { path, .. } => f
+                .debug_struct("Path")
+                .field("path", path)
+                .field("value", &"value is omitted in PathOrInPlace debug print")
+                .finish(),
+        }
+    }
 }
 
 impl<T> PathOrInPlace<T> {
@@ -1824,20 +1843,20 @@ mod tests {
         "});
         std::fs::write(&config_path, yaml)?;
 
-        let loaded_config = StorageNodeConfig::load_config(&config_path)?;
+        let config = StorageNodeConfig::load_config(&config_path)?.config;
 
         assert!(
-            !loaded_config.config.live_upload_deferral.enabled,
+            !config.live_upload_deferral.enabled,
             "user values override network defaults"
         );
         assert_eq!(
-            loaded_config.config.blob_recovery.monitor_interval,
+            config.blob_recovery.monitor_interval,
             Duration::from_secs(5),
             // In unit tests, default_network_kind() resolves to Tests, which uses a 5s interval.
             "network defaults apply when user omits a field"
         );
         assert_eq!(
-            loaded_config.config.pending_metadata_cache,
+            config.pending_metadata_cache,
             PendingMetadataCacheConfig::default(),
             "defaults apply when neither network defaults nor user provide a value"
         );

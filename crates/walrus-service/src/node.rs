@@ -451,7 +451,7 @@ impl StorageNodeBuilder {
         config: &StorageNodeConfig,
         metrics_registry: Registry,
     ) -> Result<StorageNode, anyhow::Error> {
-        tracing::info!("Building storage node with config: {:#?}", config);
+        tracing::info!("building storage node with config: {:#?}", config);
         let protocol_key_pair = config
             .protocol_key_pair
             .get()
