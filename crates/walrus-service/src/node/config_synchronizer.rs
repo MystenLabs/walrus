@@ -58,7 +58,7 @@ impl StorageNodeConfigLoader {
 #[async_trait]
 impl ConfigLoader for StorageNodeConfigLoader {
     async fn load_storage_node_config(&self) -> anyhow::Result<StorageNodeConfig> {
-        let mut config = StorageNodeConfig::load_config(&self.config_path)?;
+        let mut config = StorageNodeConfig::load_config(&self.config_path)?.config;
         config.load_keys()?;
         Ok(config)
     }
