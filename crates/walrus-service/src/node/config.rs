@@ -49,7 +49,10 @@ use super::{
 use crate::{
     common::{config::SuiConfig, utils},
     event::event_processor::config::EventProcessorConfig,
-    node::{db_checkpoint::DbCheckpointConfig, network_overrides},
+    node::{
+        db_checkpoint::DbCheckpointConfig,
+        network_overrides::{self, NetworkKind},
+    },
 };
 
 /// Configuration for the config synchronizer.
@@ -368,9 +371,22 @@ impl walrus_utils::config::Config for StorageNodeConfig {
     }
 }
 
+/// A struct that holds the loaded config information.
+// This struct is currently used to pass config information to the node runtime, so that the
+// information can be logged after the logging runtime starts.
+#[derive(Debug)]
+pub struct LoadedConfig {
+    /// The path to the config file.
+    pub config_path: PathBuf,
+    /// The loaded config that will be used to run the node.
+    pub config: StorageNodeConfig,
+    /// The network kind.
+    pub network_kind: NetworkKind,
+}
+
 impl StorageNodeConfig {
     /// Loads the config from a file, applying per-network defaults before deserialization.
-    pub fn load_config(path: impl AsRef<Path>) -> anyhow::Result<Self> {
+    pub fn load_config(path: impl AsRef<Path>) -> anyhow::Result<LoadedConfig> {
         let path = path.as_ref();
         let config_str = std::fs::read_to_string(path)
             .with_context(|| format!("unable to load config from {}", path.display()))?;
@@ -389,7 +405,11 @@ impl StorageNodeConfig {
         let config: StorageNodeConfig = serde_yaml::from_value(merged_value.clone())
             .with_context(|| format!("unable to deserialize merged config: {merged_value:?}",))?;
         config.validate()?;
-        Ok(config)
+        Ok(LoadedConfig {
+            config_path: path.to_path_buf(),
+            config,
+            network_kind,
+        })
     }
 
     /// Loads the config from a file.
@@ -1196,7 +1216,7 @@ pub mod defaults {
 }
 
 /// Enum that represents a configuration value being preset or at a path.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum PathOrInPlace<T> {
     /// The value was present in-place in the config, without a filename.
@@ -1214,6 +1234,25 @@ pub enum PathOrInPlace<T> {
         #[serde(skip, default = "Option::default")]
         value: Option<T>,
     },
+}
+
+/// Debug implementation for `PathOrInPlace`.
+// This struct is mainly use to load keys from disk. Although fastcrypto natively supports do not
+// print private keys, we want to be extra careful and omit the value completely in debug prints.
+impl<T> std::fmt::Debug for PathOrInPlace<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PathOrInPlace::InPlace(_) => f
+                .debug_tuple("InPlace")
+                .field(&"value is omitted in PathOrInPlace debug print")
+                .finish(),
+            PathOrInPlace::Path { path, .. } => f
+                .debug_struct("Path")
+                .field("path", path)
+                .field("value", &"value is omitted in PathOrInPlace debug print")
+                .finish(),
+        }
+    }
 }
 
 impl<T> PathOrInPlace<T> {
@@ -1803,7 +1842,7 @@ mod tests {
         "});
         std::fs::write(&config_path, yaml)?;
 
-        let config = StorageNodeConfig::load_config(&config_path)?;
+        let config = StorageNodeConfig::load_config(&config_path)?.config;
 
         assert!(
             !config.live_upload_deferral.enabled,
@@ -1859,18 +1898,23 @@ mod tests {
                 "network kind is detected from contract ids"
             );
 
-            let config = StorageNodeConfig::load_config(&config_path)?;
+            let loaded_config = StorageNodeConfig::load_config(&config_path)?;
+            assert_eq!(loaded_config.network_kind, expected_kind);
 
-            assert_eq!(config.commission_rate, 9, "user values override defaults");
             assert_eq!(
-                config.blob_recovery.monitor_interval,
+                loaded_config.config.commission_rate, 9,
+                "user values override defaults"
+            );
+            assert_eq!(
+                loaded_config.config.blob_recovery.monitor_interval,
                 Duration::from_secs(2),
                 "user values override defaults"
             );
 
             let expected_defaults = network_overrides::defaults_for(expected_kind);
             assert_eq!(
-                config.live_upload_deferral.enabled, expected_defaults.live_upload_deferral.enabled,
+                loaded_config.config.live_upload_deferral.enabled,
+                expected_defaults.live_upload_deferral.enabled,
                 "default-only values are preserved"
             );
         }
