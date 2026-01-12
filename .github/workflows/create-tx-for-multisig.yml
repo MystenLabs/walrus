@@ -9,11 +9,6 @@ on:
         options:
           - upgrade-walrus-subsidies
           - set-walrus-subsidy-rates
-      rpc:
-        description: "RPC url"
-        required: true
-        default: "https://fullnode.mainnet.sui.io:443"
-        type: string
       gas_object_id:
         description: "object id to get gas from for multisig transaction"
         required: false
@@ -60,7 +55,6 @@ jobs:
 
       - name: Setup sui client config
         run: |
-          sui client --yes new-env --rpc ${{ inputs.rpc }} --alias mainnet
           sui client switch --env mainnet
 
       - name: Create unsigned transaction for multisig
