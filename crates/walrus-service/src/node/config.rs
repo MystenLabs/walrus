@@ -211,13 +211,6 @@ impl StorageNodeConfig {
     /// Returns the default configuration for the mainnet network.
     pub fn default_mainnet() -> Self {
         Self {
-            // Disable garbage collection by default on mainnet.
-            // TODO(WAL-1105): Enable GC by default on mainnet.
-            garbage_collection: GarbageCollectionConfig {
-                enable_blob_info_cleanup: false,
-                enable_data_deletion: false,
-                ..Default::default()
-            },
             // TODO(WAL-708): Enable sliver data existence check by default on mainnet.
             consistency_check: StorageNodeConsistencyCheckConfig {
                 enable_sliver_data_existence_check: false,
