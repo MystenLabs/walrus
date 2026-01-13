@@ -87,7 +87,7 @@ jobs:
       - name: Build site
         run: cd docs/site && pnpm run build
       - name: Deploy to Walrus
-        uses: MystenLabs/walrus-sites-github-actions/deploy@v1
+        uses: MystenLabs/walrus-sites-github-actions/deploy@b803ef35a1e8524431682c7ad6e5f710a41a51ff # v1
         with:
           SUI_ADDRESS: "${{ vars.SUI_ADDRESS }}"
           SUI_KEYSTORE: "${{ secrets.SUI_KEYSTORE }}"
@@ -98,4 +98,5 @@ jobs:
           EPOCHS: "10"
           GAS_BUDGET: "1000000000"
           SITE_BUILDER_VERSION: v2
-          OBJECT_ID: "0xbd6014d74e37d94a299c932e70e0b009979d9c6dc6d941eb4afe4995b8df242c"
+          OBJECT_ID: "${{ vars.WALRUS_SITE_OBJECT_DOCS }}"
+          GITHUB_TOKEN: "${{ !vars.WALRUS_SITE_OBJECT_DOCS && secrets.GITHUB_TOKEN || '' }}"
