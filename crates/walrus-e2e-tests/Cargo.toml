@@ -11,6 +11,7 @@ anyhow.workspace = true
 prometheus.workspace = true
 rand.workspace = true
 # explicitly import reqwest in test to disable its system proxy cache. It causes indeterminism in simtest.
+bytes.workspace = true
 futures.workspace = true
 hex.workspace = true
 indicatif.workspace = true
@@ -34,7 +35,6 @@ walrus-sui.workspace = true
 walrus-test-utils.workspace = true
 walrus-upload-relay = { workspace = true }
 walrus-utils.workspace = true
-bytes.workspace = true
 
 [lints]
 workspace = true
