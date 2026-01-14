@@ -223,6 +223,18 @@ impl StorageNodeConfig {
                 enable_sliver_data_existence_check: false,
                 ..Default::default()
             },
+            pending_sliver_cache: PendingSliverCacheConfig {
+                cache_ttl: Duration::from_secs(0),
+                ..Default::default()
+            },
+            pending_metadata_cache: PendingMetadataCacheConfig {
+                cache_ttl: Duration::from_secs(0),
+                ..Default::default()
+            },
+            live_upload_deferral: LiveUploadDeferralConfig {
+                enabled: false,
+                ..Default::default()
+            },
             ..Default::default()
         }
     }
@@ -230,21 +242,6 @@ impl StorageNodeConfig {
     /// Returns the default configuration for the testnet network.
     pub fn default_testnet() -> Self {
         Self {
-            live_upload_deferral: LiveUploadDeferralConfig {
-                enabled: true,
-                buckets: vec![
-                    SizeDeferralEntry {
-                        max_unencoded_bytes: 100 * 1024 * 1024,
-                        defer: Duration::from_secs(15),
-                    },
-                    SizeDeferralEntry {
-                        max_unencoded_bytes: 4 * 1024 * 1024 * 1024,
-                        defer: Duration::from_secs(30),
-                    },
-                ],
-                max_total_defer: Duration::from_secs(120),
-                max_checkpoint_lag: 1500,
-            },
             ..Default::default()
         }
     }
@@ -336,7 +333,6 @@ impl Default for StorageNodeConfig {
             storage_path: PathBuf::from("/opt/walrus/db"),
             blocklist_path: Default::default(),
             db_config: Default::default(),
-            live_upload_deferral: Default::default(),
             protocol_key_pair: PathOrInPlace::from_path("/opt/walrus/config/protocol.key"),
             next_protocol_key_pair: None,
             network_key_pair: PathOrInPlace::from_path("/opt/walrus/config/network.key"),
@@ -351,8 +347,31 @@ impl Default for StorageNodeConfig {
             tls: Default::default(),
             shard_sync_config: Default::default(),
             event_processor_config: Default::default(),
-            pending_sliver_cache: Default::default(),
-            pending_metadata_cache: Default::default(),
+            pending_sliver_cache: PendingSliverCacheConfig {
+                max_cached_slivers: 20_480,
+                max_cached_bytes: 1024 * 1024 * 1024,
+                max_cached_sliver_bytes: 4 * 1024 * 1024,
+                cache_ttl: Duration::from_secs(60),
+            },
+            pending_metadata_cache: PendingMetadataCacheConfig {
+                cache_ttl: Duration::from_secs(60),
+                max_cached_entries: 1024,
+            },
+            live_upload_deferral: LiveUploadDeferralConfig {
+                enabled: true,
+                buckets: vec![
+                    SizeDeferralEntry {
+                        max_unencoded_bytes: 100 * 1024 * 1024,
+                        defer: Duration::from_secs(15),
+                    },
+                    SizeDeferralEntry {
+                        max_unencoded_bytes: 4 * 1024 * 1024 * 1024,
+                        defer: Duration::from_secs(30),
+                    },
+                ],
+                max_total_defer: Duration::from_secs(120),
+                max_checkpoint_lag: 1500,
+            },
             disable_event_blob_writer: Default::default(),
             commission_rate: defaults::commission_rate(),
             voting_params: VotingParams {
@@ -1875,11 +1894,6 @@ mod tests {
             Duration::from_secs(5),
             // In unit tests, default_network_kind() resolves to Tests, which uses a 5s interval.
             "network defaults apply when user omits a field"
-        );
-        assert_eq!(
-            config.pending_metadata_cache,
-            PendingMetadataCacheConfig::default(),
-            "defaults apply when neither network defaults nor user provide a value"
         );
         Ok(())
     }
