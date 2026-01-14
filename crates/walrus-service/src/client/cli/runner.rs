@@ -228,7 +228,7 @@ impl ClientCommandRunner {
                 None => (),
             }
             // Since we may export OTLP, this needs to be initialised in an async context.
-            let _guard = subscriber_builder.init()?;
+            let _guard = subscriber_builder.init_scoped()?;
 
             self.run_cli_app_inner(command).await
         };
