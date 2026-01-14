@@ -27,7 +27,7 @@ use reqwest::Url;
 #[cfg(msim)]
 use sui_macros::{clear_fail_point, register_fail_point_if};
 use sui_types::base_types::{SUI_ADDRESS_LENGTH, SuiAddress};
-use tokio::sync::Mutex;
+use tokio::{sync::Mutex, time::Instant};
 use tokio_stream::StreamExt;
 use walrus_core::{
     BlobId,
@@ -3031,6 +3031,7 @@ async fn test_streaming_blob() -> TestResult {
     let arc_client = Arc::new(read_client);
 
     // Call start_streaming_blob directly
+    let start = Instant::now();
     let (stream, returned_size) =
         start_streaming_blob(arc_client, streaming_config, blob_id).await?;
 
@@ -3046,6 +3047,11 @@ async fn test_streaming_blob() -> TestResult {
         .collect()
         .await;
 
+    tracing::info!(
+        "Collected {} chunks in {:?}",
+        collected.len(),
+        start.elapsed()
+    );
     // Concatenate all chunks
     let streamed_data: Vec<u8> = collected.into_iter().flat_map(|b| b.to_vec()).collect();
 
