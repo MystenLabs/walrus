@@ -34,6 +34,7 @@ walrus-sui.workspace = true
 walrus-test-utils.workspace = true
 walrus-upload-relay = { workspace = true }
 walrus-utils.workspace = true
+bytes.workspace = true
 
 [lints]
 workspace = true

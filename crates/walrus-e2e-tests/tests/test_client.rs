@@ -21,6 +21,7 @@ use std::{
     time::Duration,
 };
 
+use bytes::Bytes;
 use rand::{Rng, random, seq::SliceRandom, thread_rng};
 use reqwest::Url;
 #[cfg(msim)]
@@ -58,6 +59,7 @@ use walrus_sdk::{
         client_types::WalrusStoreBlob,
         quilt_client::QuiltClientConfig,
         responses::{BlobStoreResult, QuiltStoreResult},
+        streaming::start_streaming_blob,
         upload_relay_client::UploadRelayClient,
     },
     config::ClientConfig,
@@ -2988,5 +2990,75 @@ async fn test_byte_range_read_size_too_large() -> TestResult {
                 .to_vec()
         );
     }
+    Ok(())
+}
+
+/// Tests that streaming a blob returns the correct data.
+#[ignore = "ignore E2E tests by default"]
+#[walrus_simtest]
+async fn test_streaming_blob() -> TestResult {
+    walrus_test_utils::init_tracing();
+
+    // Setup test cluster
+    let (_sui_cluster_handle, _cluster, client, _) =
+        test_cluster::E2eTestSetupBuilder::new().build().await?;
+
+    // Generate and store a test blob (~100KB to span multiple slivers)
+    let blob_size = 100_000;
+    let original_data = walrus_test_utils::random_data(blob_size);
+
+    let store_args = StoreArgs::default_with_epochs(5).with_encoding_type(DEFAULT_ENCODING);
+
+    let store_results = client
+        .inner
+        .reserve_and_store_blobs(vec![original_data.clone()], &store_args)
+        .await?;
+
+    let blob_id = store_results
+        .into_iter()
+        .next()
+        .expect("should have one blob store result")
+        .blob_id()
+        .expect("blob ID should be present");
+
+    // Create a read-only client for streaming (SuiReadClient implements Clone)
+    let sui_read_client = client.inner.sui_client().read_client().clone();
+    let config = client.inner.config().clone();
+    let streaming_config = config.streaming_config.clone();
+
+    let read_client =
+        WalrusNodeClient::new_read_client_with_refresher(config, sui_read_client).await?;
+    let arc_client = Arc::new(read_client);
+
+    // Call start_streaming_blob directly
+    let (stream, returned_size) =
+        start_streaming_blob(arc_client, streaming_config, blob_id).await?;
+
+    // Verify returned blob size matches
+    assert_eq!(
+        returned_size, blob_size as u64,
+        "returned blob size should match"
+    );
+
+    // Collect stream chunks
+    let collected: Vec<Bytes> = stream
+        .map(|result| result.expect("stream chunk should succeed"))
+        .collect()
+        .await;
+
+    // Concatenate all chunks
+    let streamed_data: Vec<u8> = collected.into_iter().flat_map(|b| b.to_vec()).collect();
+
+    // Verify data matches original
+    assert_eq!(
+        streamed_data.len(),
+        original_data.len(),
+        "streamed data length should match original"
+    );
+    assert_eq!(
+        streamed_data, original_data,
+        "streamed data should match original blob"
+    );
+
     Ok(())
 }
