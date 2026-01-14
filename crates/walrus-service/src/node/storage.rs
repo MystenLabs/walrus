@@ -43,7 +43,7 @@ use self::{
         PerObjectBlobInfo,
         PerObjectBlobInfoIterator,
     },
-    blob_manager_info::{BlobManagerTable, StoredBlobManagerInfo},
+    blob_manager_info::{StoredUnifiedStorageInfo, UnifiedStorageTable},
     constants::{
         metadata_cf_name,
         node_status_cf_name,
@@ -177,7 +177,7 @@ pub struct Storage {
     node_status: DBMap<(), NodeStatus>,
     metadata: DBMap<BlobId, BlobMetadata>,
     blob_info: BlobInfoTable,
-    blob_managers: BlobManagerTable,
+    unified_storage_table: UnifiedStorageTable,
     event_cursor: EventCursorTable,
     shards: Arc<RwLock<HashMap<ShardIndex, Arc<ShardStorage>>>>,
     db_table_opts_factory: DatabaseTableOptionsFactory,
@@ -258,6 +258,8 @@ impl Storage {
         let blob_info_column_families = BlobInfoTable::options(&db_table_opts_factory);
         let blob_managers_cf_name = constants::blob_managers_cf_name();
         let blob_managers_options = db_table_opts_factory.blob_managers();
+        let blob_manager_index_cf_name = constants::blob_manager_index_cf_name();
+        let blob_manager_index_options = db_table_opts_factory.blob_manager_index();
         let (event_cursor_cf_name, event_cursor_options) =
             EventCursorTable::options(&db_table_opts_factory);
 
@@ -268,6 +270,7 @@ impl Storage {
                 (node_status_cf_name, node_status_options),
                 (metadata_cf_name, metadata_options),
                 (blob_managers_cf_name, blob_managers_options),
+                (blob_manager_index_cf_name, blob_manager_index_options),
                 (event_cursor_cf_name, event_cursor_options),
             ])
             .chain(blob_info_column_families)
@@ -307,8 +310,8 @@ impl Storage {
         )?;
 
         let event_cursor = EventCursorTable::reopen(&database)?;
-        let blob_managers = BlobManagerTable::reopen(&database)?;
-        let blob_info = BlobInfoTable::reopen(&database, blob_managers.clone())?;
+        let unified_storage_table = UnifiedStorageTable::reopen(&database)?;
+        let blob_info = BlobInfoTable::reopen(&database, unified_storage_table.clone())?;
         let shards = Arc::new(RwLock::new(
             existing_shards_ids
                 .into_iter()
@@ -330,7 +333,7 @@ impl Storage {
             node_status,
             metadata,
             blob_info,
-            blob_managers,
+            unified_storage_table,
             event_cursor,
             shards,
             db_table_opts_factory,
@@ -361,33 +364,33 @@ impl Storage {
         self.blob_info.clear()
     }
 
-    /// Gets the info for a specific BlobManager.
+    /// Gets the info for a specific UnifiedStorage.
     #[allow(dead_code)]
-    pub(crate) fn get_blob_manager_info(
+    pub(crate) fn get_unified_storage_info(
         &self,
-        manager_id: &ObjectID,
-    ) -> Result<Option<StoredBlobManagerInfo>, TypedStoreError> {
-        self.blob_managers.get(manager_id)
+        storage_id: &ObjectID,
+    ) -> Result<Option<StoredUnifiedStorageInfo>, TypedStoreError> {
+        self.unified_storage_table.get(storage_id)
     }
 
-    /// Inserts or updates a BlobManager's info.
+    /// Inserts or updates a UnifiedStorage's info.
     #[allow(dead_code)]
-    pub(crate) fn insert_blob_manager_info(
+    pub(crate) fn insert_unified_storage_info(
         &self,
-        manager_id: ObjectID,
-        info: StoredBlobManagerInfo,
+        storage_id: ObjectID,
+        info: StoredUnifiedStorageInfo,
     ) -> Result<(), TypedStoreError> {
-        self.blob_managers.insert(manager_id, info)
+        self.unified_storage_table.insert(storage_id, info)
     }
 
-    /// Returns the gc_eligible_epoch for a BlobManager, if it exists.
-    pub(crate) fn get_blob_manager_gc_eligible_epoch(
+    /// Returns the gc_eligible_epoch for a UnifiedStorage, if it exists.
+    pub(crate) fn get_unified_storage_gc_eligible_epoch(
         &self,
-        manager_id: &ObjectID,
+        storage_id: &ObjectID,
     ) -> Result<Option<Epoch>, TypedStoreError> {
         Ok(self
-            .blob_managers
-            .get(manager_id)?
+            .unified_storage_table
+            .get(storage_id)?
             .map(|info| info.gc_eligible_epoch()))
     }
 
@@ -653,7 +656,7 @@ impl Storage {
         }
     }
 
-    /// Processes BlobManager events to update the blob_managers table.
+    /// Processes BlobManager events to update the unified_storage_table.
     /// This should be called for BlobManagerCreated and BlobManagerUpdated events.
     #[tracing::instrument(skip_all)]
     pub fn process_blob_manager_event(
@@ -664,24 +667,41 @@ impl Storage {
 
         match event {
             BlobManagerEvent::Created(e) => {
-                // When a BlobManager is created, store its initial end_epoch.
-                let info = StoredBlobManagerInfo::new(e.end_epoch);
-                self.blob_managers.insert(e.blob_manager_id, info)?;
+                // When a BlobManager is created, store its UnifiedStorage info.
+                let info = StoredUnifiedStorageInfo::new(e.end_epoch, Some(e.blob_manager_id));
+                self.unified_storage_table.insert(e.storage_id, info)?;
                 tracing::debug!(
                     blob_manager_id = %e.blob_manager_id,
+                    storage_id = %e.storage_id,
                     end_epoch = e.end_epoch,
                     "Processed BlobManagerCreated event"
                 );
             }
             BlobManagerEvent::Updated(e) => {
                 // When a BlobManager is updated, update its end_epoch.
-                self.blob_managers
-                    .update_blob_manager_info(&e.blob_manager_id, e.new_end_epoch)?;
-                tracing::debug!(
-                    blob_manager_id = %e.blob_manager_id,
-                    new_end_epoch = e.new_end_epoch,
-                    "Processed BlobManagerUpdated event"
-                );
+                // We need to look up the existing info to preserve the blob_manager_id and find the storage_id.
+                // Use secondary index to find storage_id from blob_manager_id.
+                if let Some(storage_id) = self
+                    .unified_storage_table
+                    .get_storage_id(&e.blob_manager_id)?
+                {
+                    self.unified_storage_table.update_storage_info(
+                        &storage_id,
+                        e.new_end_epoch,
+                        Some(e.blob_manager_id),
+                    )?;
+                    tracing::debug!(
+                        blob_manager_id = %e.blob_manager_id,
+                        storage_id = %storage_id,
+                        new_end_epoch = e.new_end_epoch,
+                        "Processed BlobManagerUpdated event"
+                    );
+                } else {
+                    tracing::warn!(
+                        blob_manager_id = %e.blob_manager_id,
+                        "BlobManagerUpdated event for unknown BlobManager"
+                    );
+                }
             }
         }
         Ok(())
@@ -750,13 +770,13 @@ impl Storage {
                 }
             };
 
-            // For managed blobs, find and remove expired BlobManagers.
+            // For managed blobs, find and remove expired UnifiedStorage instances.
             if let Some(managed_info) = blob_info.managed_blob_info_mut() {
-                // Find all BlobManagers that have passed their gc_eligible_epoch.
-                let expired_blob_manager_ids: Vec<ObjectID> = managed_info
-                    .all_blob_manager_ids()
-                    .filter(|manager_id| {
-                        self.get_blob_manager_gc_eligible_epoch(manager_id)
+                // Find all UnifiedStorage instances that have passed their gc_eligible_epoch.
+                let expired_storage_ids: Vec<ObjectID> = managed_info
+                    .all_storage_ids()
+                    .filter(|storage_id| {
+                        self.get_unified_storage_gc_eligible_epoch(storage_id)
                             .ok()
                             .flatten()
                             .is_some_and(|gc_epoch| current_epoch >= gc_epoch)
@@ -764,21 +784,21 @@ impl Storage {
                     .cloned()
                     .collect();
 
-                // If there are expired BlobManagers, submit the merge operator and update local
-                // copy.
-                if !expired_blob_manager_ids.is_empty() {
-                    // Remove the expired managers from our local copy to simulate the deletion.
-                    managed_info.remove_blob_managers(&expired_blob_manager_ids);
+                // If there are expired UnifiedStorage instances, submit the merge operator and
+                // update local copy.
+                if !expired_storage_ids.is_empty() {
+                    // Remove the expired storages from our local copy to simulate the deletion.
+                    managed_info.remove_storages(&expired_storage_ids);
 
                     // Submit the merge operator to the database.
                     if let Err(e) = self
                         .blob_info
-                        .remove_expired_blob_managers(&blob_id, expired_blob_manager_ids)
+                        .remove_expired_storages(&blob_id, expired_storage_ids)
                     {
                         tracing::error!(
                             ?e,
                             %blob_id,
-                            "failed to remove expired blob managers from managed blob"
+                            "failed to remove expired storages from managed blob"
                         );
                         continue;
                     }
@@ -2315,18 +2335,18 @@ pub(crate) mod tests {
     }
 
     #[tokio::test]
-    async fn test_managed_blob_registered_creates_managed_blob_info() -> TestResult {
-        use walrus_sui::types::ManagedBlobRegistered;
+    async fn test_blob_v2_registered_creates_managed_blob_info() -> TestResult {
+        use walrus_sui::types::BlobV2Registered;
 
         let storage = empty_storage().await;
         let blob_id = BlobId([7; 32]);
-        let blob_manager_id = ObjectID::from_bytes([1; 32]).unwrap();
+        let storage_id = ObjectID::from_bytes([1; 32]).unwrap();
         let object_id = ObjectID::from_bytes([10; 32]).unwrap();
 
-        // Create a ManagedBlobRegistered event.
-        let event = ManagedBlobRegistered {
+        // Create a BlobV2Registered event.
+        let event = BlobV2Registered {
             epoch: 1,
-            blob_manager_id,
+            storage_id,
             blob_id,
             size: 1024,
             encoding_type: walrus_core::EncodingType::RS2,
@@ -2340,7 +2360,7 @@ pub(crate) mod tests {
         // Update blob info with the event.
         storage.inner.update_blob_info(
             1,
-            &walrus_sui::types::BlobEvent::ManagedBlobRegistered(event.clone()),
+            &walrus_sui::types::BlobEvent::BlobV2Registered(event.clone()),
         )?;
 
         // Managed blobs do NOT create per_object_blob_info entries.

@@ -4,18 +4,19 @@
 /// Inner implementation for BlobManager (V1).
 /// This module contains the actual business logic, stored as a dynamic field of BlobManager.
 /// The outer BlobManager interface handles versioning and capability checking.
-module walrus::blob_manager_inner_v1;
+module blob_manager::blob_manager_inner_v1;
 
 use std::string::String;
 use sui::{coin::{Self, Coin}, sui::SUI, table::{Self, Table}};
 use wal::wal::WAL;
-use walrus::{
-    blob_storage::{Self, BlobStorage, CapacityInfo},
+use blob_manager::{
     coin_stash::{Self, BlobManagerCoinStash},
-    events,
-    storage_purchase_policy::{Self, StoragePurchasePolicy},
+    storage_purchase_policy::{Self, StoragePurchasePolicy}
+};
+use walrus::{
     storage_resource::Storage,
-    system::{Self, System}
+    system::{Self, System},
+    unified_storage::{Self, UnifiedStorage, CapacityInfo}
 };
 
 // === Constants ===
@@ -59,11 +60,11 @@ const EInvalidBlobManagerId: u64 = 15;
 /// The inner implementation of BlobManager containing all business logic fields.
 /// Stored as a dynamic field of BlobManager, keyed by version number.
 public struct BlobManagerInnerV1 has store {
-    /// Unified storage that handles both capacity management and blob storage.
-    storage: BlobStorage,
+    /// The UnifiedStorage that holds the actual blobs and capacity.
+    storage: UnifiedStorage,
     /// Coin stash for community funding - embedded directly.
     coin_stash: BlobManagerCoinStash,
-    /// Storage purchase policy controlling both capacity purchases and time extensions.
+    /// Storage purchase policy for this BlobManager.
     storage_purchase_policy: StoragePurchasePolicy,
     /// Maps capability IDs to their info, including revocation status.
     caps_info: Table<ID, CapInfo>,
@@ -76,30 +77,17 @@ public struct CapInfo has drop, store {
 
 // === Constructor ===
 
-/// Creates a new BlobManagerInnerV1 with the given initial storage.
+/// Creates a new BlobManagerInnerV1 that owns a UnifiedStorage.
 /// Called by the BlobManager interface during creation.
-/// Returns the inner and the end_epoch for event emission.
+/// Returns the inner.
 public(package) fun new(
-    initial_storage: Storage,
+    storage: UnifiedStorage,
     initial_wal: Coin<WAL>,
-    system: &System,
     ctx: &mut TxContext,
-): (BlobManagerInnerV1, u32) {
-    // Check minimum capacity before consuming the storage.
-    let capacity = initial_storage.size();
-    assert!(capacity >= MIN_INITIAL_CAPACITY, EInitialBlobManagerCapacityTooSmall);
-
-    let current_epoch = system::epoch(system);
-    let end_epoch = initial_storage.end_epoch();
-    assert!(end_epoch > current_epoch, EStorageExpired);
-
+): BlobManagerInnerV1 {
     let mut inner = BlobManagerInnerV1 {
-        storage: blob_storage::new_unified_blob_storage(initial_storage, current_epoch, ctx),
+        storage,
         coin_stash: coin_stash::new(),
-        // Default storage purchase policy:
-        // - Capacity: constrained with 15GB threshold and 15GB max
-        // - Extensions: allowed within 2 epochs of expiry, max 5 epochs
-        // - Tip: 10 WAL base with 2x multiplier in last epoch
         storage_purchase_policy: storage_purchase_policy::default(),
         caps_info: table::new(ctx),
     };
@@ -107,7 +95,7 @@ public(package) fun new(
     // Deposit initial WAL to the coin stash.
     inner.coin_stash.deposit_wal(initial_wal);
 
-    (inner, end_epoch)
+    inner
 }
 
 // === Capability Registry Operations ===
@@ -145,7 +133,6 @@ public(package) fun revoke_cap(self: &mut BlobManagerInnerV1, cap_id: ID) {
 ///   - Inconsistency detected in blob storage
 public(package) fun register_blob(
     self: &mut BlobManagerInnerV1,
-    manager_id: ID,
     system: &mut System,
     blob_id: u256,
     root_hash: u256,
@@ -163,35 +150,28 @@ public(package) fun register_blob(
         return
     };
 
-    let capacity_info = self.storage.capacity_info();
-    let end_epoch_at_registration = capacity_info.capacity_end_epoch();
-
     // Calculate write price and withdraw from coin stash.
     let n_shards = system::n_shards(system);
     let encoded_size = walrus::encoding::encoded_blob_length(size, encoding_type, n_shards);
-    assert!(capacity_info.available() >= encoded_size, EInsufficientBlobManagerCapacity);
     let write_price = system::write_price(system, encoded_size);
     let mut payment = self.coin_stash.withdraw_wal(write_price, ctx);
 
     // Register managed blob with the system.
-    let managed_blob = system.register_managed_blob(
-        manager_id,
+    // This atomically: creates the blob, does capacity check, and adds to storage.
+    system.register_managed_blob(
+        &mut self.storage,
         blob_id,
         root_hash,
         size,
         encoding_type,
         deletable,
         blob_type,
-        end_epoch_at_registration,
         &mut payment,
         ctx,
     );
 
     // Deposit the remaining WAL back to the coin stash, if any.
     self.coin_stash.deposit_wal(payment);
-
-    // Add blob to storage with atomic allocation (BlobManager now owns it).
-    self.storage.add_blob(managed_blob);
 }
 
 /// Certifies a managed blob.
@@ -240,10 +220,9 @@ public(package) fun make_blob_permanent(
 
     let current_epoch = system::epoch(system);
     let end_epoch = self.storage.end_epoch();
-    let managed_blob = self.storage.get_mut_blob(blob_id);
 
-    // Call the managed_blob function to make it permanent and emit event.
-    managed_blob.make_permanent(current_epoch, end_epoch);
+    // Use the UnifiedStorage facade to make the blob permanent.
+    self.storage.make_blob_permanent(blob_id, current_epoch, end_epoch);
 }
 
 /// Deletes a managed blob from the BlobManager.
@@ -257,15 +236,10 @@ public(package) fun delete_blob(
 ) {
     self.verify_storage(system);
 
-    // Remove the blob from storage and atomically release storage.
-    let managed_blob = self.storage.remove_blob(blob_id);
-    assert!(managed_blob.blob_manager_id() == manager_id, EInvalidBlobManagerId);
-
-    // Emit the deletion event directly.
+    // Use the UnifiedStorage facade to delete the blob.
+    // This will remove it from storage, emit the deletion event, and destroy it.
     let epoch = system::epoch(system);
-
-    // The blob must be destroyed.
-    managed_blob.delete_internal(epoch);
+    self.storage.delete_blob(blob_id, epoch);
 }
 
 /// Moves a regular blob (which owns Storage directly) into a BlobManager.
@@ -301,7 +275,7 @@ public(package) fun move_blob_into_manager(
     // Convert the regular blob to a managed blob and extract storage.
     let (managed_blob, mut storage) = system.convert_blob_to_managed(
         blob,
-        manager_id,
+        &self.storage,
         ctx,
     );
 
@@ -352,7 +326,7 @@ fun verify_storage(self: &BlobManagerInnerV1, system: &System) {
 fun purchase_storage_from_stash(
     coin_stash: &mut BlobManagerCoinStash,
     storage_purchase_policy: &StoragePurchasePolicy,
-    storage: &BlobStorage,
+    storage: &UnifiedStorage,
     system: &mut System,
     amount: u64,
     start_epoch: u32,
@@ -521,8 +495,8 @@ fun execute_extension(
     );
     let tip_coin = self.coin_stash.withdraw_wal_for_tip(tip_amount, ctx);
 
-    // Emit BlobManagerUpdated event.
-    events::emit_blob_manager_updated(
+    // Emit BlobManagerUpdated event using UnifiedStorage facade.
+    unified_storage::emit_blob_manager_updated(
         current_epoch,
         manager_id,
         new_end_epoch,
@@ -626,8 +600,8 @@ public(package) fun adjust_storage(
     // Return unused funds to stash.
     self.coin_stash.deposit_wal(payment);
 
-    // Emit BlobManagerUpdated event.
-    events::emit_blob_manager_updated(
+    // Emit BlobManagerUpdated event using UnifiedStorage facade.
+    unified_storage::emit_blob_manager_updated(
         current_epoch,
         manager_id,
         new_end_epoch,

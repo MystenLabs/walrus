@@ -14,7 +14,7 @@ use walrus::{
     event_blob::{Self, EventBlobCertificationState, new_attestation},
     events,
     extended_field::{Self, ExtendedField},
-    managed_blob,
+    blob_v2,
     messages,
     storage_accounting::{Self, FutureAccountingRingBuffer},
     storage_node::StorageNodeCap,
@@ -340,23 +340,23 @@ public(package) fun register_blob(
     blob
 }
 
-/// Registers a managed blob without a Storage object.
+/// Registers a managed blob and returns it.
 /// Used by BlobManager for blobs with accounting-based storage.
+/// The caller (System) is responsible for adding the blob to the storage via add_blob().
 public(package) fun register_managed_blob(
     self: &mut SystemStateInnerV1,
-    blob_manager_id: ID,
+    storage_id: ID,
+    end_epoch_at_registration: u32,
     blob_id: u256,
     root_hash: u256,
     size: u64,
     encoding_type: u8,
     deletable: bool,
     blob_type: u8,
-    end_epoch_at_registration: u32,
     write_payment_coin: &mut Coin<WAL>,
     ctx: &mut TxContext,
-): managed_blob::ManagedBlob {
-    let managed_blob = managed_blob::new(
-        blob_manager_id,
+): blob_v2::BlobV2 {
+    let managed_blob = blob_v2::new(
         blob_id,
         root_hash,
         size,
@@ -364,12 +364,13 @@ public(package) fun register_managed_blob(
         deletable,
         blob_type,
         end_epoch_at_registration,
-        self.epoch(),
+        self.epoch(),  // registered_epoch
+        storage_id,
         self.n_shards(),
         ctx,
     );
 
-    // Calculate and charge for storage
+    // Calculate and charge for write fee.
     let encoded_size = managed_blob.encoded_size();
     let write_price = self.write_price(encoded_size);
     let payment = write_payment_coin.balance_mut().split(write_price);
@@ -402,11 +403,11 @@ public(package) fun certify_blob(
 }
 
 /// Certifies a managed blob.
-/// Similar to certify_blob but takes a mutable reference to ManagedBlob instead
+/// Similar to certify_blob but takes a mutable reference to BlobV2 instead
 /// of taking ownership. The blob must already be registered in the system.
 public(package) fun certify_managed_blob(
     self: &SystemStateInnerV1,
-    managed_blob: &mut managed_blob::ManagedBlob,
+    managed_blob: &mut blob_v2::BlobV2,
     end_epoch_at_certify: u32,
     signature: vector<u8>,
     signers_bitmap: vector<u8>,

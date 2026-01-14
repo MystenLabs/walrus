@@ -7,6 +7,7 @@ use walrus_core::ShardIndex;
 const AGGREGATE_BLOB_INFO_COLUMN_FAMILY_NAME: &str = "aggregate_blob_info";
 const PER_OBJECT_BLOB_INFO_COLUMN_FAMILY_NAME: &str = "per_object_blob_info";
 const BLOB_MANAGERS_COLUMN_FAMILY_NAME: &str = "blob_managers";
+const BLOB_MANAGER_INDEX_COLUMN_FAMILY_NAME: &str = "blob_manager_index";
 const NODE_STATUS_COLUMN_FAMILY_NAME: &str = "node_status";
 const METADATA_COLUMN_FAMILY_NAME: &str = "metadata";
 const EVENT_INDEX_COLUMN_FAMILY_NAME: &str = "latest_handled_event_index";
@@ -39,6 +40,11 @@ pub fn per_object_blob_info_cf_name() -> &'static str {
 /// Returns the name of the blob managers column family.
 pub fn blob_managers_cf_name() -> &'static str {
     BLOB_MANAGERS_COLUMN_FAMILY_NAME
+}
+
+/// Returns the name of the blob manager index column family.
+pub fn blob_manager_index_cf_name() -> &'static str {
+    BLOB_MANAGER_INDEX_COLUMN_FAMILY_NAME
 }
 
 /// Returns the name of the node status column family.

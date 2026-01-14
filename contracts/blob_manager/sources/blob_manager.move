@@ -5,16 +5,16 @@
 /// This module provides a stable interface for blob management operations.
 /// The actual implementation is stored in BlobManagerInnerV1 as a dynamic field,
 /// allowing for future upgrades without breaking external contracts.
-module walrus::blobmanager;
+module blob_manager::blobmanager;
 
 use std::string::String;
 use sui::{coin::Coin, dynamic_field, sui::SUI};
 use wal::wal::WAL;
+use blob_manager::blob_manager_inner_v1::{Self, BlobManagerInnerV1};
 use walrus::{
-    blob_manager_inner_v1::{Self, BlobManagerInnerV1},
-    events,
     storage_resource::Storage,
-    system::{Self, System}
+    system::{Self, System},
+    unified_storage::{Self, UnifiedStorage}
 };
 
 // === Version Constants ===
@@ -81,11 +81,16 @@ public fun new_with_unified_storage(
     system: &System,
     ctx: &mut TxContext,
 ): BlobManagerCap {
-    // Create the inner implementation.
-    let (inner, end_epoch) = blob_manager_inner_v1::new(
-        initial_storage,
+    // Create UnifiedStorage from the initial storage.
+    let current_epoch = system::epoch(system);
+    let unified_storage = unified_storage::new(initial_storage, current_epoch, ctx);
+    let end_epoch = unified_storage.end_epoch();
+    let storage_id = object::id(&unified_storage);
+
+    // Create the inner implementation with the unified storage.
+    let inner = blob_manager_inner_v1::new(
+        unified_storage,
         initial_wal,
-        system,
         ctx,
     );
 
@@ -112,11 +117,12 @@ public fun new_with_unified_storage(
     // Register the initial admin cap in the inner's caps_info.
     manager.inner_mut().register_cap(object::id(&cap));
 
-    // Emit creation event.
+    // Emit creation event using UnifiedStorage facade.
     let current_epoch = system::epoch(system);
-    events::emit_blob_manager_created(
+    unified_storage::emit_blob_manager_created(
         current_epoch,
         manager_object_id,
+        storage_id,
         end_epoch,
     );
 
@@ -220,11 +226,9 @@ public fun register_blob(
 ) {
     check_cap(self, cap);
 
-    let manager_id = object::id(self);
     self
         .inner_mut()
         .register_blob(
-            manager_id,
             system,
             blob_id,
             root_hash,

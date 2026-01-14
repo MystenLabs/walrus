@@ -45,39 +45,37 @@ public struct BlobDeleted has copy, drop {
     was_certified: bool,
 }
 
-/// Signals that a managed blob has been registered.
-public struct ManagedBlobRegistered has copy, drop {
+/// Signals that a BlobV2 has been registered.
+public struct BlobV2Registered has copy, drop {
     epoch: u32,
-    blob_manager_id: ID,
+    storage_id: ID,
     blob_id: u256,
-    size: u64,
+    object_id: ID,
     encoding_type: u8,
-    deletable: bool,
     blob_type: u8,
+    deletable: bool,
+    size: u64,
     end_epoch_at_registration: u32,
-    // The object id of the related `ManagedBlob` object.
-    object_id: ID,
 }
 
-/// Signals that a managed blob is certified.
-/// Note: end_epoch is managed at the BlobManager level, not per blob.
-public struct ManagedBlobCertified has copy, drop {
+/// Signals that a BlobV2 is certified.
+/// Note: end_epoch is managed at the UnifiedStorage level, not per blob.
+public struct BlobV2Certified has copy, drop {
     epoch: u32,
-    blob_manager_id: ID,
+    storage_id: ID,
     blob_id: u256,
-    deletable: bool,
+    object_id: ID,
     blob_type: u8,
+    deletable: bool,
     end_epoch_at_certify: u32,
-    // The object id of the related `ManagedBlob` object.
-    object_id: ID,
 }
 
-/// Signals that a managed blob has been deleted.
-public struct ManagedBlobDeleted has copy, drop {
+/// Signals that a BlobV2 has been deleted.
+public struct BlobV2Deleted has copy, drop {
     epoch: u32,
-    blob_manager_id: ID,
+    storage_id: ID,
     blob_id: u256,
-    // The object ID of the related `ManagedBlob` object.
+    // The object ID of the related `BlobV2` object.
     object_id: ID,
     // If the blob object was previously certified.
     was_certified: bool,
@@ -94,6 +92,7 @@ public struct BlobManagerUpdated has copy, drop {
 public struct BlobManagerCreated has copy, drop {
     epoch: u32,
     blob_manager_id: ID,
+    storage_id: ID,
     end_epoch: u32,
 }
 
@@ -103,27 +102,27 @@ public struct InvalidBlobID has copy, drop {
     blob_id: u256,
 }
 
-/// Signals that a regular blob has been moved into a BlobManager.
-public struct BlobMovedIntoBlobManager has copy, drop {
+/// Signals that a regular blob has been moved into a UnifiedStorage.
+public struct BlobMovedIntoUnifiedStorage has copy, drop {
     epoch: u32,
+    storage_id: ID,
     blob_id: u256,
-    blob_manager_id: ID,
     original_object_id: ID, // Original Blob's ObjectID
-    size: u64,
+    new_object_id: ID, // New BlobV2's ObjectID
     encoding_type: u8,
-    new_object_id: ID, // New ManagedBlob's ObjectID
-    deletable: bool, // Whether the blob is deletable
+    deletable: bool,
+    size: u64,
 }
 
-/// Signals that a managed blob has been converted from deletable to permanent.
+/// Signals that a BlobV2 has been converted from deletable to permanent.
 /// This is a one-way operation - permanent blobs cannot be made deletable again.
-public struct ManagedBlobMadePermanent has copy, drop {
+public struct BlobV2MadePermanent has copy, drop {
     epoch: u32,
-    blob_manager_id: ID,
+    storage_id: ID,
     blob_id: u256,
-    /// The object id of the related `ManagedBlob` object.
+    /// The object id of the related `BlobV2` object.
     object_id: ID,
-    /// The BlobManager's end_epoch at the time of conversion.
+    /// The UnifiedStorage's end_epoch at the time of conversion.
     end_epoch: u32,
 }
 
@@ -250,82 +249,82 @@ public(package) fun emit_blob_deleted(
     event::emit(BlobDeleted { epoch, blob_id, end_epoch, object_id, was_certified });
 }
 
-public(package) fun emit_blob_moved_into_blob_manager(
+public(package) fun emit_blob_moved_into_unified_storage(
     epoch: u32,
+    storage_id: ID,
     blob_id: u256,
-    blob_manager_id: ID,
     original_object_id: ID,
-    size: u64,
-    encoding_type: u8,
     new_object_id: ID,
-    deletable: bool,
-) {
-    event::emit(BlobMovedIntoBlobManager {
-        epoch,
-        blob_id,
-        blob_manager_id,
-        original_object_id,
-        size,
-        encoding_type,
-        new_object_id,
-        deletable,
-    });
-}
-
-public(package) fun emit_managed_blob_registered(
-    epoch: u32,
-    blob_manager_id: ID,
-    blob_id: u256,
-    size: u64,
     encoding_type: u8,
     deletable: bool,
-    blob_type: u8,
-    end_epoch_at_registration: u32,
-    object_id: ID,
+    size: u64,
 ) {
-    event::emit(ManagedBlobRegistered {
+    event::emit(BlobMovedIntoUnifiedStorage {
         epoch,
-        blob_manager_id,
+        storage_id,
         blob_id,
-        size,
+        original_object_id,
+        new_object_id,
         encoding_type,
         deletable,
-        blob_type,
-        end_epoch_at_registration,
-        object_id,
+        size,
     });
 }
 
-public(package) fun emit_managed_blob_certified(
+public(package) fun emit_blob_v2_registered(
     epoch: u32,
-    blob_manager_id: ID,
+    storage_id: ID,
     blob_id: u256,
-    deletable: bool,
-    blob_type: u8,
-    end_epoch_at_certify: u32,
     object_id: ID,
+    encoding_type: u8,
+    blob_type: u8,
+    deletable: bool,
+    size: u64,
+    end_epoch_at_registration: u32,
 ) {
-    event::emit(ManagedBlobCertified {
+    event::emit(BlobV2Registered {
         epoch,
-        blob_manager_id,
+        storage_id,
         blob_id,
-        deletable,
-        blob_type,
-        end_epoch_at_certify,
         object_id,
+        encoding_type,
+        blob_type,
+        deletable,
+        size,
+        end_epoch_at_registration,
     });
 }
 
-public(package) fun emit_managed_blob_deleted(
+public(package) fun emit_blob_v2_certified(
     epoch: u32,
-    blob_manager_id: ID,
+    storage_id: ID,
+    blob_id: u256,
+    object_id: ID,
+    blob_type: u8,
+    deletable: bool,
+    end_epoch_at_certify: u32,
+) {
+    event::emit(BlobV2Certified {
+        epoch,
+        storage_id,
+        blob_id,
+        object_id,
+        blob_type,
+        deletable,
+        end_epoch_at_certify,
+    });
+}
+
+public(package) fun emit_blob_v2_deleted(
+    epoch: u32,
+    storage_id: ID,
     blob_id: u256,
     object_id: ID,
     was_certified: bool,
 ) {
-    event::emit(ManagedBlobDeleted {
+    event::emit(BlobV2Deleted {
         epoch,
-        blob_manager_id,
+        storage_id,
         blob_id,
         object_id,
         was_certified,
@@ -340,24 +339,30 @@ public(package) fun emit_blob_manager_updated(epoch: u32, blob_manager_id: ID, n
     });
 }
 
-public(package) fun emit_blob_manager_created(epoch: u32, blob_manager_id: ID, end_epoch: u32) {
+public(package) fun emit_blob_manager_created(
+    epoch: u32,
+    blob_manager_id: ID,
+    storage_id: ID,
+    end_epoch: u32,
+) {
     event::emit(BlobManagerCreated {
         epoch,
         blob_manager_id,
+        storage_id,
         end_epoch,
     });
 }
 
-public(package) fun emit_managed_blob_made_permanent(
+public(package) fun emit_blob_v2_made_permanent(
     epoch: u32,
-    blob_manager_id: ID,
+    storage_id: ID,
     blob_id: u256,
     object_id: ID,
     end_epoch: u32,
 ) {
-    event::emit(ManagedBlobMadePermanent {
+    event::emit(BlobV2MadePermanent {
         epoch,
-        blob_manager_id,
+        storage_id,
         blob_id,
         object_id,
         end_epoch,

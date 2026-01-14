@@ -1,7 +1,7 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-//! Storage for BlobManager metadata in the database.
+//! Storage for UnifiedStorage metadata in the database.
 
 use std::sync::Arc;
 
@@ -16,26 +16,31 @@ use walrus_core::Epoch;
 
 use super::constants;
 
-/// Information about a BlobManager stored in the database.
+/// Information about a UnifiedStorage stored in the database.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct StoredBlobManagerInfo {
-    /// The end epoch for this BlobManager's storage.
+pub struct StoredUnifiedStorageInfo {
+    /// The end epoch for this UnifiedStorage.
     pub end_epoch: Epoch,
+    /// The BlobManager ID that owns this storage, if any.
+    pub blob_manager_id: Option<ObjectID>,
 }
 
-impl StoredBlobManagerInfo {
-    /// Creates a new StoredBlobManagerInfo.
-    pub fn new(end_epoch: Epoch) -> Self {
-        Self { end_epoch }
+impl StoredUnifiedStorageInfo {
+    /// Creates a new StoredUnifiedStorageInfo.
+    pub fn new(end_epoch: Epoch, blob_manager_id: Option<ObjectID>) -> Self {
+        Self {
+            end_epoch,
+            blob_manager_id,
+        }
     }
 
-    /// Returns the epoch at which managed blobs become eligible for GC.
+    /// Returns the epoch at which blobs in this storage become eligible for GC.
     /// With no grace period, GC is eligible at end_epoch.
     pub fn gc_eligible_epoch(&self) -> Epoch {
         self.end_epoch
     }
 
-    /// Returns true if the given epoch is valid for this BlobManager.
+    /// Returns true if the given epoch is valid for this storage.
     #[allow(dead_code)]
     pub fn is_epoch_valid(&self, epoch: Epoch) -> bool {
         epoch < self.end_epoch
@@ -48,67 +53,95 @@ impl StoredBlobManagerInfo {
     }
 }
 
-/// Table for storing BlobManager information.
+/// Table for storing UnifiedStorage information.
 #[derive(Debug, Clone)]
-pub struct BlobManagerTable {
-    blob_managers: DBMap<ObjectID, StoredBlobManagerInfo>,
+pub struct UnifiedStorageTable {
+    storages: DBMap<ObjectID, StoredUnifiedStorageInfo>,
+    // Secondary index: blob_manager_id -> storage_id
+    blob_manager_index: DBMap<ObjectID, ObjectID>,
 }
 
-impl BlobManagerTable {
-    /// Reopens an existing BlobManagerTable from the database.
+impl UnifiedStorageTable {
+    /// Reopens an existing UnifiedStorageTable from the database.
     pub fn reopen(database: &Arc<RocksDB>) -> Result<Self, TypedStoreError> {
-        let blob_managers = DBMap::reopen(
+        let storages = DBMap::reopen(
             database,
-            Some(constants::blob_managers_cf_name()),
+            Some(constants::blob_managers_cf_name()), // Reusing existing CF name
+            &ReadWriteOptions::default(),
+            false,
+        )?;
+        let blob_manager_index = DBMap::reopen(
+            database,
+            Some(constants::blob_manager_index_cf_name()),
             &ReadWriteOptions::default(),
             false,
         )?;
 
-        Ok(Self { blob_managers })
+        Ok(Self {
+            storages,
+            blob_manager_index,
+        })
     }
 
-    /// Gets the info for a specific BlobManager.
+    /// Gets the info for a specific UnifiedStorage.
     pub fn get(
         &self,
-        manager_id: &ObjectID,
-    ) -> Result<Option<StoredBlobManagerInfo>, TypedStoreError> {
-        self.blob_managers.get(manager_id)
+        storage_id: &ObjectID,
+    ) -> Result<Option<StoredUnifiedStorageInfo>, TypedStoreError> {
+        self.storages.get(storage_id)
     }
 
-    /// Inserts or updates a BlobManager's info.
+    /// Inserts or updates a UnifiedStorage's info.
     pub fn insert(
         &self,
-        manager_id: ObjectID,
-        info: StoredBlobManagerInfo,
+        storage_id: ObjectID,
+        info: StoredUnifiedStorageInfo,
     ) -> Result<(), TypedStoreError> {
-        self.blob_managers.insert(&manager_id, &info)
+        let mut batch = self.storages.batch();
+        batch.insert_batch(&self.storages, [(&storage_id, &info)])?;
+
+        // Update secondary index if blob_manager_id is present.
+        if let Some(manager_id) = info.blob_manager_id {
+            batch.insert_batch(&self.blob_manager_index, [(&manager_id, &storage_id)])?;
+        }
+
+        batch.write()
     }
 
-    /// Updates the end_epoch for a BlobManager.
-    pub fn update_blob_manager_info(
+    /// Gets the storage_id for a given blob_manager_id.
+    pub fn get_storage_id(
         &self,
-        manager_id: &ObjectID,
+        blob_manager_id: &ObjectID,
+    ) -> Result<Option<ObjectID>, TypedStoreError> {
+        self.blob_manager_index.get(blob_manager_id)
+    }
+
+    /// Updates the end_epoch and potentially the blob_manager_id for a UnifiedStorage.
+    pub fn update_storage_info(
+        &self,
+        storage_id: &ObjectID,
         new_end_epoch: Epoch,
+        blob_manager_id: Option<ObjectID>,
     ) -> Result<(), TypedStoreError> {
-        let info = StoredBlobManagerInfo::new(new_end_epoch);
-        self.blob_managers.insert(manager_id, &info)
+        let info = StoredUnifiedStorageInfo::new(new_end_epoch, blob_manager_id);
+        self.storages.insert(storage_id, &info)
     }
 
-    /// Removes a BlobManager from the table.
+    /// Removes a UnifiedStorage from the table.
     #[allow(dead_code)]
-    pub fn remove(&self, manager_id: &ObjectID) -> Result<(), TypedStoreError> {
-        self.blob_managers.remove(manager_id)
+    pub fn remove(&self, storage_id: &ObjectID) -> Result<(), TypedStoreError> {
+        self.storages.remove(storage_id)
     }
 
-    /// Checks if a BlobManager exists.
+    /// Checks if a UnifiedStorage exists.
     #[allow(dead_code)]
-    pub fn contains(&self, manager_id: &ObjectID) -> Result<bool, TypedStoreError> {
-        self.blob_managers.contains_key(manager_id)
+    pub fn contains(&self, storage_id: &ObjectID) -> Result<bool, TypedStoreError> {
+        self.storages.contains_key(storage_id)
     }
 
-    /// Returns the number of BlobManagers stored.
+    /// Returns the number of UnifiedStorage instances stored.
     #[allow(dead_code)]
     pub fn count(&self) -> Result<usize, TypedStoreError> {
-        Ok(self.blob_managers.safe_iter()?.count())
+        Ok(self.storages.safe_iter()?.count())
     }
 }

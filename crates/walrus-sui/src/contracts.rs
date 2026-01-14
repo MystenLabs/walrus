@@ -353,11 +353,11 @@ pub mod events {
     contract_ident!(struct events::BlobCertified);
     contract_ident!(struct events::BlobRegistered);
     contract_ident!(struct events::BlobDeleted);
-    contract_ident!(struct events::ManagedBlobRegistered);
-    contract_ident!(struct events::ManagedBlobCertified);
-    contract_ident!(struct events::ManagedBlobDeleted);
-    contract_ident!(struct events::ManagedBlobMadePermanent);
-    contract_ident!(struct events::BlobMovedIntoBlobManager);
+    contract_ident!(struct events::BlobV2Registered);
+    contract_ident!(struct events::BlobV2Certified);
+    contract_ident!(struct events::BlobV2Deleted);
+    contract_ident!(struct events::BlobV2MadePermanent);
+    contract_ident!(struct events::BlobMovedIntoUnifiedStorage);
     contract_ident!(struct events::BlobManagerUpdated);
     contract_ident!(struct events::BlobManagerCreated);
     contract_ident!(struct events::InvalidBlobID);

@@ -1,20 +1,21 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-module walrus::managed_blob;
+module walrus::blob_v2;
 
 use std::string::String;
 use sui::vec_map::{Self, VecMap};
 use walrus::{
-    blob,
+    blob::{Self, Blob},
     encoding,
     events::{
-        emit_managed_blob_registered,
-        emit_managed_blob_certified,
-        emit_managed_blob_deleted,
-        emit_managed_blob_made_permanent
+        emit_blob_v2_registered,
+        emit_blob_v2_certified,
+        emit_blob_v2_deleted,
+        emit_blob_v2_made_permanent
     },
-    messages::CertifiedBlobMessage
+    messages::CertifiedBlobMessage,
+    storage_resource::Storage
 };
 
 // Error codes
@@ -32,7 +33,9 @@ const EResourceSize: u64 = 3;
 const EAlreadyCertified: u64 = 5;
 /// The blob ID is incorrect.
 const EInvalidBlobId: u64 = 6;
-// Error codes 7-8 are available.
+/// Invalid blob type value.
+const EInvalidBlobType: u64 = 7;
+// Error code 8 is available.
 /// The blob persistence type of the blob does not match the certificate.
 const EInvalidBlobPersistenceType: u64 = 9;
 /// The blob object ID of a deletable blob does not match the ID in the certificate.
@@ -56,7 +59,9 @@ const MAX_ATTRIBUTE_VALUE_LENGTH: u64 = 1024;
 
 // === Blob Type ===
 
-/// Type of blob: Regular or Quilt (composite blob).
+/// Type of blob: Regular or Quilt.
+/// Note the blob type is reported by the client, and is not verified by the contract or the Walrus
+/// system.
 public enum BlobType has copy, drop, store {
     Regular,
     Quilt,
@@ -74,89 +79,88 @@ public fun blob_type_quilt(): BlobType {
 
 // === Object definitions ===
 
-/// The managed blob structure represents a blob that has been registered with
-/// some storage managed by a BlobManager, and then may eventually be certified
-/// as being available in the system.
-public struct ManagedBlob has key, store {
-    id: UID,
-    registered_epoch: u32,
+/// BlobV2 represents a blob backed by a shared storage resource.
+public struct BlobV2 has store {
+    /// Unique identifier for this blob object.
+    object_id: ID,
+    /// The content-derived blob ID.
     blob_id: u256,
-    // Unencoded size.
-    size: u64,
+    /// Encoding type used for this blob.
     encoding_type: u8,
-    // Encoded size (cached to avoid recalculation).
+    /// Unencoded size of the blob.
+    size: u64,
+    /// Encoded size.
     encoded_size: u64,
-    // Stores the epoch first certified.
-    certified_epoch: option::Option<u32>,
-    // TODO(heliu): Generic ownership.
-    // The ID of the BlobManager that manages this blob's storage.
-    blob_manager_id: ID,
-    // Marks if this blob can be deleted.
+    /// Epoch when this blob was registered.
+    registered_epoch: u32,
+    /// Whether this blob can be deleted.
     deletable: bool,
-    // Type of blob: Regular or Quilt (composite blob).
+    /// Type of blob: Regular or Quilt.
     blob_type: BlobType,
-    // Internal attributes map for efficient single-read access.
-    // Limits: max 100 entries, max 1KB per key, max 1KB per value.
+    /// Epoch when certified (None if uncertified).
+    certified_epoch: option::Option<u32>,
+    /// Internal attributes map for efficient single-read access.
+    /// Limits: max 100 entries, max 1KB per key, max 1KB per value.
     attributes: VecMap<String, String>,
+    /// ID of the UnifiedStorage that contains this blob.
+    storage_id: ID,
 }
 
 // === Accessors ===
 
-public fun object_id(self: &ManagedBlob): ID {
-    object::id(self)
+public fun object_id(self: &BlobV2): ID {
+    self.object_id
 }
 
-public fun registered_epoch(self: &ManagedBlob): u32 {
+public fun registered_epoch(self: &BlobV2): u32 {
     self.registered_epoch
 }
 
-public fun blob_id(self: &ManagedBlob): u256 {
+public fun blob_id(self: &BlobV2): u256 {
     self.blob_id
 }
 
-public fun size(self: &ManagedBlob): u64 {
+public fun size(self: &BlobV2): u64 {
     self.size
 }
 
-public fun encoding_type(self: &ManagedBlob): u8 {
+public fun encoding_type(self: &BlobV2): u8 {
     self.encoding_type
 }
 
-public fun certified_epoch(self: &ManagedBlob): &Option<u32> {
+public fun certified_epoch(self: &BlobV2): &Option<u32> {
     &self.certified_epoch
 }
 
-public fun blob_manager_id(self: &ManagedBlob): ID {
-    self.blob_manager_id
+public fun storage_id(self: &BlobV2): ID {
+    self.storage_id
 }
 
-public fun is_deletable(self: &ManagedBlob): bool {
+public fun is_deletable(self: &BlobV2): bool {
     self.deletable
 }
 
-public fun blob_type(self: &ManagedBlob): BlobType {
+public fun blob_type(self: &BlobV2): BlobType {
     self.blob_type
 }
 
-// Removed is_quilt() - use blob_type() and match on BlobType enum directly if needed
-
 /// Returns a reference to the internal attributes map.
-public fun attributes(self: &ManagedBlob): &VecMap<String, String> {
+public fun attributes(self: &BlobV2): &VecMap<String, String> {
     &self.attributes
 }
 
 /// Returns the number of attributes.
-public fun attributes_count(self: &ManagedBlob): u64 {
+public fun attributes_count(self: &BlobV2): u64 {
     self.attributes.length()
 }
 
 /// Checks if an attribute key exists.
-public fun has_attribute(self: &ManagedBlob, key: &String): bool {
+public fun has_attribute(self: &BlobV2, key: &String): bool {
     self.attributes.contains(key)
 }
 
 /// Gets the value for an attribute key, if it exists.
-public fun get_attribute(self: &ManagedBlob, key: &String): Option<String> {
+public fun get_attribute(self: &BlobV2, key: &String): Option<String> {
     if (self.attributes.contains(key)) {
         let idx = self.attributes.get_idx(key);
         let (_, value) = self.attributes.get_entry_by_idx(idx);
@@ -166,28 +170,15 @@ public fun get_attribute(self: &ManagedBlob, key: &String): Option<String> {
     }
 }
 
-public fun encoded_size(self: &ManagedBlob): u64 {
+public fun encoded_size(self: &BlobV2): u64 {
     // Direct getter for cached encoded_size without n_shards parameter.
     self.encoded_size
 }
 
-/// Aborts if the blob is not certified.
-/// Note: Expiration is checked at the BlobManager level, not here.
-public(package) fun assert_certified(self: &ManagedBlob) {
-    // Assert this is a certified blob
-    assert!(self.certified_epoch.is_some(), ENotCertified);
-}
-
-/// Derives the blob_id for a blob given the root_hash, encoding_type and size.
-public fun derive_blob_id(root_hash: u256, encoding_type: u8, size: u64): u256 {
-    blob::derive_blob_id(root_hash, encoding_type, size)
-}
-
-/// Creates a new managed blob in `registered_epoch`.
+/// Creates a new BlobV2 in `registered_epoch`.
 /// `size` is the size of the unencoded blob.
-/// The blob's storage is managed by the BlobManager identified by `blob_manager_id`.
+/// The blob is associated with a UnifiedStorage identified by storage_id.
 public(package) fun new(
-    blob_manager_id: ID,
     blob_id: u256,
     root_hash: u256,
     size: u64,
@@ -196,102 +187,114 @@ public(package) fun new(
     blob_type: u8,
     end_epoch_at_registration: u32,
     registered_epoch: u32,
+    storage_id: ID,
     n_shards: u16,
     ctx: &mut TxContext,
-): ManagedBlob {
-    let id = object::new(ctx);
+): BlobV2 {
+    let object_id = ctx.fresh_object_address().to_id();
 
     // Cryptographically verify that the Blob ID authenticates
     // both the size and encoding_type (sanity check).
-    assert!(derive_blob_id(root_hash, encoding_type, size) == blob_id, EInvalidBlobId);
+    assert!(blob::derive_blob_id(root_hash, encoding_type, size) == blob_id, EInvalidBlobId);
 
     // Calculate encoded size once during creation.
     let encoded_size = encoding::encoded_blob_length(size, encoding_type, n_shards);
 
     // Convert u8 to BlobType enum (0 = Regular, 1 = Quilt)
-    let blob_type_enum = if (blob_type == 1) {
+    let blob_type_enum = if (blob_type == 0) {
+        BlobType::Regular
+    } else if (blob_type == 1) {
         BlobType::Quilt
     } else {
-        BlobType::Regular
+        abort EInvalidBlobType
     };
 
     // Emit register event (event uses u8 for blob_type)
-    emit_managed_blob_registered(
+    // Use the storage_id as the owner_id in the event
+    emit_blob_v2_registered(
         registered_epoch,
-        blob_manager_id,
+        storage_id,
         blob_id,
-        size,
+        object_id,
         encoding_type,
-        deletable,
         blob_type,
+        deletable,
+        size,
         end_epoch_at_registration,
-        id.to_inner(),
     );
 
-    ManagedBlob {
-        id,
+    BlobV2 {
+        object_id,
         registered_epoch,
         blob_id,
         size,
         encoding_type,
         encoded_size,
         certified_epoch: option::none(),
-        blob_manager_id,
         deletable,
         blob_type: blob_type_enum,
         attributes: vec_map::empty(),
+        storage_id,
     }
 }
 
-/// Creates a ManagedBlob from a regular Blob that is being moved into a BlobManager.
+/// Creates a BlobV2 from a regular Blob that is being moved into UnifiedStorage.
 /// This preserves the certification status and registration epoch from the original blob.
+/// Returns the new BlobV2 and the extracted Storage from the original blob.
 public(package) fun new_from_regular(
-    blob_id: u256,
-    size: u64,
-    encoding_type: u8,
-    blob_manager_id: ID,
-    certified_epoch: Option<u32>,
-    registered_epoch: u32,
-    deletable: bool,
-    blob_type: BlobType,
+    blob: Blob,
+    storage_id: ID,
     n_shards: u16,
     ctx: &mut TxContext,
-): ManagedBlob {
-    let id = object::new(ctx);
+): (BlobV2, Storage) {
+    let object_id = ctx.fresh_object_address().to_id();
+
+    // Extract metadata from the blob.
+    let blob_id = blob.blob_id();
+    let size = blob.size();
+    let encoding_type = blob.encoding_type();
+    let certified_epoch = *blob.certified_epoch();
+    let registered_epoch = blob.registered_epoch();
+    let deletable = blob.is_deletable();
 
     // Calculate encoded size once during creation.
     let encoded_size = encoding::encoded_blob_length(size, encoding_type, n_shards);
 
-    ManagedBlob {
-        id,
+    // Extract storage from the blob (this destroys the blob).
+    let storage = blob.burn_and_extract_storage();
+
+    let blob_v2 = BlobV2 {
+        object_id,
         registered_epoch,
         blob_id,
         size,
         encoding_type,
         encoded_size,
         certified_epoch,
-        blob_manager_id,
         deletable,
-        blob_type,
+        blob_type: BlobType::Regular,
         attributes: vec_map::empty(),
-    }
+        storage_id,
+    };
+
+    (blob_v2, storage)
 }
 
 /// Certifies that a blob will be available in the storage system.
-/// Note: Storage validity is checked at the BlobManager level.
-public fun certify_with_certified_msg(
-    self: &mut ManagedBlob,
+/// Note: Storage validity is checked at the UnifiedStorage level.
+public(package) fun certify_with_certified_msg(
+    self: &mut BlobV2,
     current_epoch: u32,
     end_epoch_at_certify: u32,
     message: CertifiedBlobMessage,
 ) {
-    // Check that the blob is registered in the system
+    // Check that the blob is registered in the system.
     assert!(self.blob_id == message.certified_blob_id(), EInvalidBlobId);
 
-    // Check that the blob is not already certified
+    // Check that the blob is not already certified.
     assert!(!self.certified_epoch.is_some(), EAlreadyCertified);
 
-    // Check the blob persistence type
+    // Check the blob persistence type.
     assert!(
         self.deletable == message.blob_persistence_type().is_deletable(),
         EInvalidBlobPersistenceType,
@@ -301,96 +304,87 @@ public fun certify_with_certified_msg(
     // BlobPersistenceType).
     if (self.deletable) {
         assert!(
-            message.blob_persistence_type().object_id() == object::id(self),
+            message.blob_persistence_type().object_id() == self.object_id,
             EInvalidBlobObject,
         );
     };
 
-    // Mark the blob as certified
+    // Mark the blob as certified.
     self.certified_epoch.fill(current_epoch);
 
     self.emit_certified(end_epoch_at_certify);
 }
 
 /// Internal function to delete a deletable blob.
-/// Used by system_state_inner::delete_managed_blob.
-/// Aborts if the ManagedBlob is not deletable.
-public(package) fun delete_internal(self: ManagedBlob, epoch: u32) {
-    let ManagedBlob {
-        id,
+/// Used by UnifiedStorage when removing blobs.
+/// Aborts if the BlobV2 is not deletable.
+public(package) fun delete_internal(self: BlobV2, epoch: u32) {
+    let BlobV2 {
+        object_id,
         blob_id: deleted_blob_id,
         certified_epoch,
         deletable,
-        blob_manager_id,
-        ..,
+        storage_id,
+        ..
     } = self;
 
     assert!(deletable, EBlobNotDeletable);
 
-    let object_id = id.to_inner();
     let was_certified = certified_epoch.is_some();
 
     // Emit the deletion event before destroying the object.
-    emit_managed_blob_deleted(
+    emit_blob_v2_deleted(
         epoch,
-        blob_manager_id,
+        storage_id,  // Use storage_id as the owner_id in the event
         deleted_blob_id,
         object_id,
         was_certified,
     );
-
-    id.delete();
 }
 
-/// Allow the owner of a managed blob object to destroy it.
-///
-/// Note: This does not destroy the storage since it's managed by another object.
-public fun burn(self: ManagedBlob) {
-    let ManagedBlob { id, .. } = self;
-    id.delete();
-}
-
-/// Emits a `ManagedBlobCertified` event for the given blob.
-public(package) fun emit_certified(self: &ManagedBlob, end_epoch_at_certify: u32) {
-    // Emit certified event
-    // Convert BlobType enum to u8 for event (event uses u8 for blob_type)
+/// Emits a `BlobV2Certified` event for the given blob.
+public(package) fun emit_certified(self: &BlobV2, end_epoch_at_certify: u32) {
+    // Emit certified event.
+    // Convert BlobType enum to u8 for event (event uses u8 for blob_type).
     let blob_type_u8 = match (self.blob_type) {
         BlobType::Quilt => 1,
         BlobType::Regular => 0,
     };
-    emit_managed_blob_certified(
+
+    // Use storage_id as the owner_id in the event.
+    emit_blob_v2_certified(
         *self.certified_epoch.borrow(),
-        self.blob_manager_id,
+        self.storage_id,
         self.blob_id,
-        self.deletable,
+        self.object_id,
         blob_type_u8,
+        self.deletable,
         end_epoch_at_certify,
-        self.id.to_inner(),
     );
 }
 
 /// Converts a deletable blob to permanent.
 /// This is a one-way operation - permanent blobs cannot be made deletable again.
 /// Aborts if the blob is already permanent (not deletable).
-public(package) fun make_permanent(self: &mut ManagedBlob, current_epoch: u32, end_epoch: u32) {
+public(package) fun make_permanent(self: &mut BlobV2, current_epoch: u32, end_epoch: u32) {
     // Check that the blob is currently deletable.
     assert!(self.deletable, EBlobAlreadyPermanent);
 
     // Convert to permanent.
     self.deletable = false;
 
-    // Emit the event.
-    emit_managed_blob_made_permanent(
+    // Use storage_id as the owner_id in the event.
+    emit_blob_v2_made_permanent(
         current_epoch,
-        self.blob_manager_id,
+        self.storage_id,
         self.blob_id,
-        self.id.to_inner(),
+        self.object_id,
         end_epoch,
     );
 }
 
 // === Internal Attributes ===
-// These are stored directly in the ManagedBlob for efficient single-read access.
+// These are stored directly in the BlobV2 for efficient single-read access.
 // Limits: max 100 entries, max 1KB per key, max 1KB per value.
 
 /// Validates attribute key and value lengths.
@@ -404,13 +398,12 @@ fun validate_attribute_lengths(key: &String, value: &String) {
 /// If the key already exists, the value is updated.
 /// If the key doesn't exist and we're at the limit, aborts with ETooManyAttributes.
 /// Aborts if key or value exceeds size limits.
-public fun set_attribute(self: &mut ManagedBlob, key: String, value: String) {
+public fun set_attribute(self: &mut BlobV2, key: String, value: String) {
     validate_attribute_lengths(&key, &value);
 
     if (self.attributes.contains(&key)) {
-        // Update existing - remove and re-insert.
-        self.attributes.remove(&key);
-        self.attributes.insert(key, value);
+        // Update existing value.
+        *self.attributes.get_mut(&key) = value;
     } else {
         // Adding new - check count limit.
         assert!(self.attributes.length() < MAX_ATTRIBUTES, ETooManyAttributes);
@@ -422,14 +415,14 @@ public fun set_attribute(self: &mut ManagedBlob, key: String, value: String) {
 ///
 /// Returns the removed key-value pair.
 /// Aborts if the key doesn't exist.
-public fun remove_attribute(self: &mut ManagedBlob, key: &String): (String, String) {
+public fun remove_attribute(self: &mut BlobV2, key: &String): (String, String) {
     self.attributes.remove(key)
 }
 
 /// Removes an attribute by key if it exists.
 ///
 /// Returns the removed value if the key existed, None otherwise.
-public fun remove_attribute_if_exists(self: &mut ManagedBlob, key: &String): Option<String> {
+public fun remove_attribute_if_exists(self: &mut BlobV2, key: &String): Option<String> {
     if (self.attributes.contains(key)) {
         let (_, value) = self.attributes.remove(key);
         option::some(value)
@@ -439,7 +432,7 @@ public fun remove_attribute_if_exists(self: &mut ManagedBlob, key: &String): Opt
 }
 
 /// Clears all attributes.
-public fun clear_attributes(self: &mut ManagedBlob) {
+public fun clear_attributes(self: &mut BlobV2) {
     while (!self.attributes.is_empty()) {
         self.attributes.pop();
     }
@@ -447,7 +440,7 @@ public fun clear_attributes(self: &mut ManagedBlob) {
 
 #[test_only]
 public fun certify_with_certified_msg_for_testing(
-    blob: &mut ManagedBlob,
+    blob: &mut BlobV2,
     current_epoch: u32,
     end_epoch_at_certify: u32,
     message: CertifiedBlobMessage,

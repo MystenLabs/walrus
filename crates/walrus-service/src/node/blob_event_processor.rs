@@ -15,7 +15,7 @@ use tokio::{
     task::JoinHandle,
 };
 use walrus_core::{BlobId, Epoch};
-use walrus_sui::types::{BlobCertified, BlobEvent, InvalidBlobId, ManagedBlobCertified};
+use walrus_sui::types::{BlobCertified, BlobEvent, BlobV2Certified, InvalidBlobId};
 use walrus_utils::metrics::monitored_scope;
 
 use super::{StorageNodeInner, blob_sync::BlobSyncHandler, metrics, system_events::EventHandle};
@@ -186,38 +186,37 @@ impl BackgroundEventProcessor {
                 // TODO (WAL-424): Implement DenyListBlobDeleted event handling.
                 todo!("DenyListBlobDeleted event handling is not yet implemented");
             }
-            BlobEvent::Registered(_) | BlobEvent::ManagedBlobRegistered(_) => {
+            BlobEvent::Registered(_) | BlobEvent::BlobV2Registered(_) => {
                 unreachable!("registered event should be processed immediately");
             }
-            BlobEvent::ManagedBlobCertified(event) => {
-                let _scope = monitored_scope::monitored_scope(
-                    "ProcessEvent::BlobEvent::ManagedBlobCertified",
-                );
-                self.process_managed_blob_certified_event(event_handle, event)
+            BlobEvent::BlobV2Certified(event) => {
+                let _scope =
+                    monitored_scope::monitored_scope("ProcessEvent::BlobEvent::BlobV2Certified");
+                self.process_blob_v2_certified_event(event_handle, event)
                     .await?;
             }
-            BlobEvent::ManagedBlobDeleted(event) => {
+            BlobEvent::BlobV2Deleted(event) => {
                 let _scope =
-                    monitored_scope::monitored_scope("ProcessEvent::BlobEvent::ManagedBlobDeleted");
+                    monitored_scope::monitored_scope("ProcessEvent::BlobEvent::BlobV2Deleted");
                 self.process_blob_deleted_event(event_handle, event.blob_id, event.epoch)
                     .await?;
             }
-            BlobEvent::ManagedBlobMadePermanent(event) => {
+            BlobEvent::BlobV2MadePermanent(event) => {
                 let _scope = monitored_scope::monitored_scope(
-                    "ProcessEvent::BlobEvent::ManagedBlobMadePermanent",
+                    "ProcessEvent::BlobEvent::BlobV2MadePermanent",
                 );
                 // The merge operator handles the conversion from deletable to permanent.
                 // No additional processing needed here - just update blob info.
                 tracing::debug!(
                     blob_id = %event.blob_id,
-                    blob_manager_id = %event.blob_manager_id,
-                    "Processed ManagedBlobMadePermanent event"
+                    storage_id = %event.storage_id,
+                    "Processed BlobV2MadePermanent event"
                 );
             }
-            BlobEvent::BlobMovedIntoBlobManager(_) => {
-                // TODO: Implement BlobMovedIntoBlobManager event handling.
-                // This event occurs when a regular certified blob is moved into a BlobManager.
-                todo!("BlobMovedIntoBlobManager event handling is not yet implemented");
+            BlobEvent::BlobMovedIntoUnifiedStorage(_) => {
+                // TODO: Implement BlobMovedIntoUnifiedStorage event handling.
+                // This event occurs when a regular certified blob is moved into a UnifiedStorage.
+                todo!("BlobMovedIntoUnifiedStorage event handling is not yet implemented");
             }
         }
 
@@ -293,10 +292,10 @@ impl BackgroundEventProcessor {
 
     /// Processes a managed blob certified event.
     #[tracing::instrument(skip_all)]
-    async fn process_managed_blob_certified_event(
+    async fn process_blob_v2_certified_event(
         &self,
         event_handle: EventHandle,
-        event: ManagedBlobCertified,
+        event: BlobV2Certified,
     ) -> anyhow::Result<()> {
         let start = tokio::time::Instant::now();
 
@@ -307,8 +306,8 @@ impl BackgroundEventProcessor {
         // started), we always start the blob sync.
         let current_event_epoch = self.node.try_get_current_event_epoch();
 
-        // Note: ManagedBlobCertified doesn't have is_extension field (unlike BlobCertified).
-        // Managed blobs don't support extension operations.
+        // Note: BlobV2Certified doesn't have is_extension field (unlike BlobCertified).
+        // BlobV2 (managed) blobs don't support extension operations.
 
         if
         // When the certify event arrives, it is already expired. So we don't need to sync it.
@@ -513,7 +512,7 @@ impl BlobEventProcessor {
             .storage
             .update_blob_info(event_handle.index(), &blob_event)?;
 
-        if let BlobEvent::Registered(_) | BlobEvent::ManagedBlobRegistered(_) = &blob_event {
+        if let BlobEvent::Registered(_) | BlobEvent::BlobV2Registered(_) = &blob_event {
             // Registered event is marked as complete immediately. We need to process registered
             // events as fast as possible to catch up to the latest event in order to not miss
             // blob sliver uploads.

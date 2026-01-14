@@ -38,6 +38,12 @@ The outer `BlobManager` struct serves as a stable interface, while the actual im
 in `BlobManagerInnerV1` as a dynamic field. This allows the implementation to be upgraded without
 breaking external contracts.
 
+The BlobManager owns a UnifiedStorage instance which manages the actual storage pool:
+
+- **UnifiedStorage** (in Walrus package): Core storage abstraction with `key, store` abilities
+- **BlobManager** (in separate package): Owns UnifiedStorage, enforces policies
+- **BlobV2**: References UnifiedStorage via `storage_id` field
+
 ```move
 /// The stable interface object.
 public struct BlobManager has key, store {
@@ -48,8 +54,8 @@ public struct BlobManager has key, store {
 
 /// The implementation stored as a dynamic field of BlobManager.
 public struct BlobManagerInnerV1 has store {
-    /// Unified storage pool for all managed blobs.
-    storage: BlobStorage,
+    /// Unified storage pool (from Walrus package).
+    storage: UnifiedStorage,
     /// Coin stash for community funding (WAL for storage, tips).
     coin_stash: BlobManagerCoinStash,
     /// Combined policy controlling both capacity purchases and time extensions.
@@ -208,6 +214,8 @@ blob_manager_client.buy_storage_from_stash(500_000_000).await?;
 
 The BlobManager implements a **unified storage purchase policy** that controls both capacity
 purchases and time extensions. This policy prevents abuse and ensures fair access to storage resources.
+The policy module is part of the BlobManager package (not the Walrus package), giving BlobManager
+full control over its storage management policies.
 
 **Capacity Policy Types:**
 

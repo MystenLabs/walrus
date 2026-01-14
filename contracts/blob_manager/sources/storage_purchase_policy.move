@@ -3,7 +3,7 @@
 
 /// Storage purchase policy controls both capacity purchases and time extensions
 /// for BlobManager storage. This prevents abuse and incentivizes community participation.
-module walrus::storage_purchase_policy;
+module blob_manager::storage_purchase_policy;
 
 // === Error Codes ===
 

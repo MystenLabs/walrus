@@ -204,11 +204,11 @@ pub struct DenyListBlobDeleted {
 /// Sui event that a managed blob has been registered.
 /// Note: This event is currently discarded by storage nodes.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ManagedBlobRegistered {
+pub struct BlobV2Registered {
     /// The epoch in which the blob has been registered.
     pub epoch: Epoch,
-    /// The ID of the BlobManager that manages this blob.
-    pub blob_manager_id: ObjectID,
+    /// The ID of the UnifiedStorage that stores this blob.
+    pub storage_id: ObjectID,
     /// The blob ID.
     pub blob_id: BlobId,
     /// The (unencoded) size of the blob.
@@ -227,11 +227,11 @@ pub struct ManagedBlobRegistered {
     pub event_id: EventID,
 }
 
-impl AssociatedSuiEvent for ManagedBlobRegistered {
-    const EVENT_STRUCT: StructTag<'static> = contracts::events::ManagedBlobRegistered;
+impl AssociatedSuiEvent for BlobV2Registered {
+    const EVENT_STRUCT: StructTag<'static> = contracts::events::BlobV2Registered;
 }
 
-impl TryFrom<SuiEvent> for ManagedBlobRegistered {
+impl TryFrom<SuiEvent> for BlobV2Registered {
     type Error = MoveConversionError;
 
     fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
@@ -239,19 +239,19 @@ impl TryFrom<SuiEvent> for ManagedBlobRegistered {
 
         let (
             epoch,
-            blob_manager_id,
+            storage_id,
             blob_id,
-            size,
-            encoding_type,
-            deletable,
-            blob_type,
-            end_epoch_at_registration,
             object_id,
+            encoding_type,
+            blob_type,
+            deletable,
+            size,
+            end_epoch_at_registration,
         ) = bcs::from_bytes(sui_event.bcs.bytes())?;
 
         Ok(Self {
             epoch,
-            blob_manager_id,
+            storage_id,
             blob_id,
             size,
             encoding_type,
@@ -266,11 +266,11 @@ impl TryFrom<SuiEvent> for ManagedBlobRegistered {
 
 /// Sui event that a managed blob has been certified.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ManagedBlobCertified {
+pub struct BlobV2Certified {
     /// The epoch in which the blob was certified.
     pub epoch: Epoch,
-    /// The ID of the BlobManager that manages this blob.
-    pub blob_manager_id: ObjectID,
+    /// The ID of the UnifiedStorage that stores this blob.
+    pub storage_id: ObjectID,
     /// The blob ID.
     pub blob_id: BlobId,
     /// Marks the blob as deletable.
@@ -285,29 +285,22 @@ pub struct ManagedBlobCertified {
     pub event_id: EventID,
 }
 
-impl AssociatedSuiEvent for ManagedBlobCertified {
-    const EVENT_STRUCT: StructTag<'static> = contracts::events::ManagedBlobCertified;
+impl AssociatedSuiEvent for BlobV2Certified {
+    const EVENT_STRUCT: StructTag<'static> = contracts::events::BlobV2Certified;
 }
 
-impl TryFrom<SuiEvent> for ManagedBlobCertified {
+impl TryFrom<SuiEvent> for BlobV2Certified {
     type Error = MoveConversionError;
 
     fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
         ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
 
-        let (
-            epoch,
-            blob_manager_id,
-            blob_id,
-            deletable,
-            blob_type,
-            end_epoch_at_certify,
-            object_id,
-        ) = bcs::from_bytes(sui_event.bcs.bytes())?;
+        let (epoch, storage_id, blob_id, object_id, blob_type, deletable, end_epoch_at_certify) =
+            bcs::from_bytes(sui_event.bcs.bytes())?;
 
         Ok(Self {
             epoch,
-            blob_manager_id,
+            storage_id,
             blob_id,
             deletable,
             blob_type,
@@ -320,11 +313,11 @@ impl TryFrom<SuiEvent> for ManagedBlobCertified {
 
 /// Sui event that a managed blob has been deleted.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ManagedBlobDeleted {
+pub struct BlobV2Deleted {
     /// The epoch in which the blob was deleted.
     pub epoch: Epoch,
-    /// The ID of the BlobManager that manages this blob.
-    pub blob_manager_id: ObjectID,
+    /// The ID of the UnifiedStorage that stores this blob.
+    pub storage_id: ObjectID,
     /// The blob ID.
     pub blob_id: BlobId,
     /// The object id of the related `ManagedBlob` object.
@@ -335,22 +328,22 @@ pub struct ManagedBlobDeleted {
     pub event_id: EventID,
 }
 
-impl AssociatedSuiEvent for ManagedBlobDeleted {
-    const EVENT_STRUCT: StructTag<'static> = contracts::events::ManagedBlobDeleted;
+impl AssociatedSuiEvent for BlobV2Deleted {
+    const EVENT_STRUCT: StructTag<'static> = contracts::events::BlobV2Deleted;
 }
 
-impl TryFrom<SuiEvent> for ManagedBlobDeleted {
+impl TryFrom<SuiEvent> for BlobV2Deleted {
     type Error = MoveConversionError;
 
     fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
         ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
 
-        let (epoch, blob_manager_id, blob_id, object_id, was_certified) =
+        let (epoch, storage_id, blob_id, object_id, was_certified) =
             bcs::from_bytes(sui_event.bcs.bytes())?;
 
         Ok(Self {
             epoch,
-            blob_manager_id,
+            storage_id,
             blob_id,
             object_id,
             was_certified,
@@ -362,11 +355,11 @@ impl TryFrom<SuiEvent> for ManagedBlobDeleted {
 /// Sui event that a managed blob has been converted from deletable to permanent.
 /// This is a one-way operation.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ManagedBlobMadePermanent {
+pub struct BlobV2MadePermanent {
     /// The epoch in which the blob was made permanent.
     pub epoch: Epoch,
-    /// The ID of the BlobManager that manages this blob.
-    pub blob_manager_id: ObjectID,
+    /// The ID of the UnifiedStorage that stores this blob.
+    pub storage_id: ObjectID,
     /// The blob ID.
     pub blob_id: BlobId,
     /// The object id of the related `ManagedBlob` object.
@@ -377,22 +370,22 @@ pub struct ManagedBlobMadePermanent {
     pub event_id: EventID,
 }
 
-impl AssociatedSuiEvent for ManagedBlobMadePermanent {
-    const EVENT_STRUCT: StructTag<'static> = contracts::events::ManagedBlobMadePermanent;
+impl AssociatedSuiEvent for BlobV2MadePermanent {
+    const EVENT_STRUCT: StructTag<'static> = contracts::events::BlobV2MadePermanent;
 }
 
-impl TryFrom<SuiEvent> for ManagedBlobMadePermanent {
+impl TryFrom<SuiEvent> for BlobV2MadePermanent {
     type Error = MoveConversionError;
 
     fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
         ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
 
-        let (epoch, blob_manager_id, blob_id, object_id, end_epoch) =
+        let (epoch, storage_id, blob_id, object_id, end_epoch) =
             bcs::from_bytes(sui_event.bcs.bytes())?;
 
         Ok(Self {
             epoch,
-            blob_manager_id,
+            storage_id,
             blob_id,
             object_id,
             end_epoch,
@@ -403,32 +396,32 @@ impl TryFrom<SuiEvent> for ManagedBlobMadePermanent {
 
 /// Sui event that a regular blob has been moved into a BlobManager.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct BlobMovedIntoBlobManager {
+pub struct BlobMovedIntoUnifiedStorage {
     /// The epoch in which the blob was moved.
     pub epoch: Epoch,
+    /// The ID of the UnifiedStorage that stores this blob.
+    pub storage_id: ObjectID,
     /// The blob ID.
     pub blob_id: BlobId,
-    /// The ID of the BlobManager that now manages this blob.
-    pub blob_manager_id: ObjectID,
     /// The original Blob object ID.
     pub original_object_id: ObjectID,
-    /// The (unencoded) size of the blob.
-    pub size: u64,
-    /// The erasure coding type used for the blob.
-    pub encoding_type: EncodingType,
     /// The new ManagedBlob object ID.
     pub new_object_id: ObjectID,
+    /// The erasure coding type used for the blob.
+    pub encoding_type: EncodingType,
     /// Whether the blob is deletable.
     pub deletable: bool,
+    /// The (unencoded) size of the blob.
+    pub size: u64,
     /// The ID of the event.
     pub event_id: EventID,
 }
 
-impl AssociatedSuiEvent for BlobMovedIntoBlobManager {
-    const EVENT_STRUCT: StructTag<'static> = contracts::events::BlobMovedIntoBlobManager;
+impl AssociatedSuiEvent for BlobMovedIntoUnifiedStorage {
+    const EVENT_STRUCT: StructTag<'static> = contracts::events::BlobMovedIntoUnifiedStorage;
 }
 
-impl TryFrom<SuiEvent> for BlobMovedIntoBlobManager {
+impl TryFrom<SuiEvent> for BlobMovedIntoUnifiedStorage {
     type Error = MoveConversionError;
 
     fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
@@ -436,24 +429,24 @@ impl TryFrom<SuiEvent> for BlobMovedIntoBlobManager {
 
         let (
             epoch,
+            storage_id,
             blob_id,
-            blob_manager_id,
             original_object_id,
-            size,
-            encoding_type,
             new_object_id,
+            encoding_type,
             deletable,
+            size,
         ) = bcs::from_bytes(sui_event.bcs.bytes())?;
 
         Ok(Self {
             epoch,
+            storage_id,
             blob_id,
-            blob_manager_id,
             original_object_id,
-            size,
-            encoding_type,
             new_object_id,
+            encoding_type,
             deletable,
+            size,
             event_id: sui_event.id,
         })
     }
@@ -519,6 +512,8 @@ pub struct BlobManagerCreated {
     pub epoch: Epoch,
     /// The ID of the BlobManager.
     pub blob_manager_id: ObjectID,
+    /// The ID of the UnifiedStorage.
+    pub storage_id: ObjectID,
     /// The end epoch of the BlobManager's initial storage.
     pub end_epoch: Epoch,
     /// The ID of the event.
@@ -535,11 +530,13 @@ impl TryFrom<SuiEvent> for BlobManagerCreated {
     fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
         ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
 
-        let (epoch, blob_manager_id, end_epoch) = bcs::from_bytes(sui_event.bcs.bytes())?;
+        let (epoch, blob_manager_id, storage_id, end_epoch) =
+            bcs::from_bytes(sui_event.bcs.bytes())?;
 
         Ok(Self {
             epoch,
             blob_manager_id,
+            storage_id,
             end_epoch,
             event_id: sui_event.id,
         })
@@ -623,15 +620,15 @@ pub enum BlobEvent {
     /// A deny list blob deleted event.
     DenyListBlobDeleted(DenyListBlobDeleted),
     /// A managed blob registered event.
-    ManagedBlobRegistered(ManagedBlobRegistered),
+    BlobV2Registered(BlobV2Registered),
     /// A managed blob certified event.
-    ManagedBlobCertified(ManagedBlobCertified),
+    BlobV2Certified(BlobV2Certified),
     /// A managed blob deleted event.
-    ManagedBlobDeleted(ManagedBlobDeleted),
+    BlobV2Deleted(BlobV2Deleted),
     /// A managed blob made permanent event.
-    ManagedBlobMadePermanent(ManagedBlobMadePermanent),
+    BlobV2MadePermanent(BlobV2MadePermanent),
     /// A blob moved into BlobManager event.
-    BlobMovedIntoBlobManager(BlobMovedIntoBlobManager),
+    BlobMovedIntoUnifiedStorage(BlobMovedIntoUnifiedStorage),
 }
 
 impl From<BlobRegistered> for BlobEvent {
@@ -694,15 +691,15 @@ impl From<DenyListBlobDeleted> for BlobEvent {
     }
 }
 
-impl From<ManagedBlobCertified> for BlobEvent {
-    fn from(value: ManagedBlobCertified) -> Self {
-        Self::ManagedBlobCertified(value)
+impl From<BlobV2Certified> for BlobEvent {
+    fn from(value: BlobV2Certified) -> Self {
+        Self::BlobV2Certified(value)
     }
 }
 
-impl From<BlobMovedIntoBlobManager> for BlobEvent {
-    fn from(value: BlobMovedIntoBlobManager) -> Self {
-        Self::BlobMovedIntoBlobManager(value)
+impl From<BlobMovedIntoUnifiedStorage> for BlobEvent {
+    fn from(value: BlobMovedIntoUnifiedStorage) -> Self {
+        Self::BlobMovedIntoUnifiedStorage(value)
     }
 }
 
@@ -715,11 +712,11 @@ impl BlobEvent {
             BlobEvent::Deleted(event) => event.blob_id,
             BlobEvent::InvalidBlobID(event) => event.blob_id,
             BlobEvent::DenyListBlobDeleted(event) => event.blob_id,
-            BlobEvent::ManagedBlobRegistered(event) => event.blob_id,
-            BlobEvent::ManagedBlobCertified(event) => event.blob_id,
-            BlobEvent::ManagedBlobDeleted(event) => event.blob_id,
-            BlobEvent::ManagedBlobMadePermanent(event) => event.blob_id,
-            BlobEvent::BlobMovedIntoBlobManager(event) => event.blob_id,
+            BlobEvent::BlobV2Registered(event) => event.blob_id,
+            BlobEvent::BlobV2Certified(event) => event.blob_id,
+            BlobEvent::BlobV2Deleted(event) => event.blob_id,
+            BlobEvent::BlobV2MadePermanent(event) => event.blob_id,
+            BlobEvent::BlobMovedIntoUnifiedStorage(event) => event.blob_id,
         }
     }
 
@@ -731,12 +728,12 @@ impl BlobEvent {
             BlobEvent::Deleted(event) => Some(event.object_id),
             BlobEvent::InvalidBlobID(_) => None,
             BlobEvent::DenyListBlobDeleted(_) => None,
-            BlobEvent::ManagedBlobRegistered(event) => Some(event.object_id),
-            BlobEvent::ManagedBlobCertified(event) => Some(event.object_id),
-            BlobEvent::ManagedBlobDeleted(event) => Some(event.object_id),
-            BlobEvent::ManagedBlobMadePermanent(event) => Some(event.object_id),
+            BlobEvent::BlobV2Registered(event) => Some(event.object_id),
+            BlobEvent::BlobV2Certified(event) => Some(event.object_id),
+            BlobEvent::BlobV2Deleted(event) => Some(event.object_id),
+            BlobEvent::BlobV2MadePermanent(event) => Some(event.object_id),
             // Return the new ManagedBlob's object ID.
-            BlobEvent::BlobMovedIntoBlobManager(event) => Some(event.new_object_id),
+            BlobEvent::BlobMovedIntoUnifiedStorage(event) => Some(event.new_object_id),
         }
     }
 
@@ -744,11 +741,11 @@ impl BlobEvent {
     pub fn is_managed_blob(&self) -> bool {
         matches!(
             self,
-            BlobEvent::ManagedBlobRegistered(_)
-                | BlobEvent::ManagedBlobCertified(_)
-                | BlobEvent::ManagedBlobDeleted(_)
-                | BlobEvent::ManagedBlobMadePermanent(_)
-                | BlobEvent::BlobMovedIntoBlobManager(_)
+            BlobEvent::BlobV2Registered(_)
+                | BlobEvent::BlobV2Certified(_)
+                | BlobEvent::BlobV2Deleted(_)
+                | BlobEvent::BlobV2MadePermanent(_)
+                | BlobEvent::BlobMovedIntoUnifiedStorage(_)
         )
     }
 
@@ -760,11 +757,11 @@ impl BlobEvent {
             BlobEvent::Deleted(event) => event.event_id,
             BlobEvent::InvalidBlobID(event) => event.event_id,
             BlobEvent::DenyListBlobDeleted(event) => event.event_id,
-            BlobEvent::ManagedBlobRegistered(event) => event.event_id,
-            BlobEvent::ManagedBlobCertified(event) => event.event_id,
-            BlobEvent::ManagedBlobDeleted(event) => event.event_id,
-            BlobEvent::ManagedBlobMadePermanent(event) => event.event_id,
-            BlobEvent::BlobMovedIntoBlobManager(event) => event.event_id,
+            BlobEvent::BlobV2Registered(event) => event.event_id,
+            BlobEvent::BlobV2Certified(event) => event.event_id,
+            BlobEvent::BlobV2Deleted(event) => event.event_id,
+            BlobEvent::BlobV2MadePermanent(event) => event.event_id,
+            BlobEvent::BlobMovedIntoUnifiedStorage(event) => event.event_id,
         }
     }
 
@@ -785,11 +782,11 @@ impl BlobEvent {
             BlobEvent::Deleted(event) => Some(event.epoch),
             BlobEvent::InvalidBlobID(event) => Some(event.epoch),
             BlobEvent::DenyListBlobDeleted(event) => Some(event.epoch),
-            BlobEvent::ManagedBlobRegistered(event) => Some(event.epoch),
-            BlobEvent::ManagedBlobCertified(event) => Some(event.epoch),
-            BlobEvent::ManagedBlobDeleted(event) => Some(event.epoch),
-            BlobEvent::ManagedBlobMadePermanent(event) => Some(event.epoch),
-            BlobEvent::BlobMovedIntoBlobManager(event) => Some(event.epoch),
+            BlobEvent::BlobV2Registered(event) => Some(event.epoch),
+            BlobEvent::BlobV2Certified(event) => Some(event.epoch),
+            BlobEvent::BlobV2Deleted(event) => Some(event.epoch),
+            BlobEvent::BlobV2MadePermanent(event) => Some(event.epoch),
+            BlobEvent::BlobMovedIntoUnifiedStorage(event) => Some(event.epoch),
         }
     }
 
@@ -801,11 +798,11 @@ impl BlobEvent {
             BlobEvent::Deleted(_) => "BlobDeleted",
             BlobEvent::InvalidBlobID(_) => "InvalidBlobID",
             BlobEvent::DenyListBlobDeleted(_) => "DenyListBlobDeleted",
-            BlobEvent::ManagedBlobRegistered(_) => "ManagedBlobRegistered",
-            BlobEvent::ManagedBlobCertified(_) => "ManagedBlobCertified",
-            BlobEvent::ManagedBlobDeleted(_) => "ManagedBlobDeleted",
-            BlobEvent::ManagedBlobMadePermanent(_) => "ManagedBlobMadePermanent",
-            BlobEvent::BlobMovedIntoBlobManager(_) => "BlobMovedIntoBlobManager",
+            BlobEvent::BlobV2Registered(_) => "BlobV2Registered",
+            BlobEvent::BlobV2Certified(_) => "BlobV2Certified",
+            BlobEvent::BlobV2Deleted(_) => "BlobV2Deleted",
+            BlobEvent::BlobV2MadePermanent(_) => "BlobV2MadePermanent",
+            BlobEvent::BlobMovedIntoUnifiedStorage(_) => "BlobMovedIntoUnifiedStorage",
         }
     }
 
@@ -830,8 +827,8 @@ impl TryFrom<SuiEvent> for BlobEvent {
             contracts::events::DenyListBlobDeleted => {
                 Ok(BlobEvent::DenyListBlobDeleted(value.try_into()?))
             }
-            contracts::events::BlobMovedIntoBlobManager => {
-                Ok(BlobEvent::BlobMovedIntoBlobManager(value.try_into()?))
+            contracts::events::BlobMovedIntoUnifiedStorage => {
+                Ok(BlobEvent::BlobMovedIntoUnifiedStorage(value.try_into()?))
             }
             _ => Err(anyhow!("could not convert to blob event: {}", value)),
         }
@@ -1467,68 +1464,79 @@ impl TryFrom<SuiEvent> for ContractEvent {
             )),
             // ManagedBlobRegistered events are discarded for now - storage nodes don't process them
             // TODO: Implement proper handling of ManagedBlobRegistered events
-            contracts::events::ManagedBlobRegistered => {
+            contracts::events::BlobV2Registered => {
                 // Parse the event but discard it - storage nodes ignore ManagedBlob events for now
                 // We'll return an InvalidBlobID event with zero blob_id as a sentinel that storage
                 // nodes can filter out. This allows the event to be parsed successfully but
                 // prevents storage nodes from processing it.
-                // Note: The event itself is still accessible via ManagedBlobRegistered::try_from()
+                // Note: The event itself is still accessible via BlobV2Registered::try_from()
                 // for clients that need to extract object IDs
-                let managed_blob_event: ManagedBlobRegistered = value.try_into()?;
+                let managed_blob_event: BlobV2Registered = value.try_into()?;
                 tracing::debug!(
                     blob_id = %managed_blob_event.blob_id,
-                    blob_manager_id = %managed_blob_event.blob_manager_id,
+                    storage_id = %managed_blob_event.storage_id,
                     object_id = %managed_blob_event.object_id,
-                    "Discarding ManagedBlobRegistered event (storage nodes don't process it yet)"
+                    "Discarding BlobV2Registered event (storage nodes don't process it yet)"
                 );
                 // Return InvalidBlobID with ZERO blob_id as a sentinel for filtering
-                Ok(ContractEvent::BlobEvent(BlobEvent::ManagedBlobRegistered(
+                Ok(ContractEvent::BlobEvent(BlobEvent::BlobV2Registered(
                     managed_blob_event,
                 )))
             }
-            // ManagedBlobCertified events are discarded for now - storage nodes don't process them
-            // TODO: Implement proper handling of ManagedBlobCertified events
-            contracts::events::ManagedBlobCertified => {
+            // BlobV2Certified events are discarded for now - storage nodes don't process them
+            // TODO: Implement proper handling of BlobV2Certified events
+            contracts::events::BlobV2Certified => {
                 // Parse the event but discard it - storage nodes ignore ManagedBlob events for now
                 // We'll return an InvalidBlobID event with zero blob_id as a sentinel that storage
                 // nodes can filter out. This allows the event to be parsed successfully but
                 // prevents storage nodes from processing it.
-                // Note: The event itself is still accessible via ManagedBlobCertified::try_from()
+                // Note: The event itself is still accessible via BlobV2Certified::try_from()
                 // for clients that need to extract object IDs
-                let managed_blob_event: ManagedBlobCertified = value.try_into()?;
+                let managed_blob_event: BlobV2Certified = value.try_into()?;
                 tracing::debug!(
                     blob_id = %managed_blob_event.blob_id,
-                    blob_manager_id = %managed_blob_event.blob_manager_id,
+                    storage_id = %managed_blob_event.storage_id,
                     object_id = %managed_blob_event.object_id,
-                    "Discarding ManagedBlobCertified event (storage nodes don't process it yet)"
+                    "Discarding BlobV2Certified event (storage nodes don't process it yet)"
                 );
                 // Return InvalidBlobID with ZERO blob_id as a sentinel for filtering
-                Ok(ContractEvent::BlobEvent(BlobEvent::ManagedBlobCertified(
+                Ok(ContractEvent::BlobEvent(BlobEvent::BlobV2Certified(
                     managed_blob_event,
                 )))
             }
-            contracts::events::ManagedBlobDeleted => {
-                let managed_blob_event: ManagedBlobDeleted = value.try_into()?;
+            contracts::events::BlobV2Deleted => {
+                let managed_blob_event: BlobV2Deleted = value.try_into()?;
                 tracing::debug!(
                     blob_id = %managed_blob_event.blob_id,
-                    blob_manager_id = %managed_blob_event.blob_manager_id,
+                    storage_id = %managed_blob_event.storage_id,
                     object_id = %managed_blob_event.object_id,
-                    "Processing ManagedBlobDeleted event"
+                    "Processing BlobV2Deleted event"
                 );
-                Ok(ContractEvent::BlobEvent(BlobEvent::ManagedBlobDeleted(
+                Ok(ContractEvent::BlobEvent(BlobEvent::BlobV2Deleted(
                     managed_blob_event,
                 )))
             }
-            contracts::events::ManagedBlobMadePermanent => {
-                let managed_blob_event: ManagedBlobMadePermanent = value.try_into()?;
+            contracts::events::BlobV2MadePermanent => {
+                let managed_blob_event: BlobV2MadePermanent = value.try_into()?;
                 tracing::debug!(
                     blob_id = %managed_blob_event.blob_id,
-                    blob_manager_id = %managed_blob_event.blob_manager_id,
+                    storage_id = %managed_blob_event.storage_id,
                     object_id = %managed_blob_event.object_id,
-                    "Processing ManagedBlobMadePermanent event"
+                    "Processing BlobV2MadePermanent event"
+                );
+                Ok(ContractEvent::BlobEvent(BlobEvent::BlobV2MadePermanent(
+                    managed_blob_event,
+                )))
+            }
+            contracts::events::BlobMovedIntoUnifiedStorage => {
+                let managed_blob_event: BlobMovedIntoUnifiedStorage = value.try_into()?;
+                tracing::debug!(
+                    blob_id = %managed_blob_event.blob_id,
+                    storage_id = %managed_blob_event.storage_id,
+                    "Processing BlobMovedIntoUnifiedStorage event"
                 );
                 Ok(ContractEvent::BlobEvent(
-                    BlobEvent::ManagedBlobMadePermanent(managed_blob_event),
+                    BlobEvent::BlobMovedIntoUnifiedStorage(managed_blob_event),
                 ))
             }
             contracts::events::BlobManagerCreated => Ok(ContractEvent::BlobManagerEvent(

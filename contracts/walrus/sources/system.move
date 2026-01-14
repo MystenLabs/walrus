@@ -12,11 +12,12 @@ use walrus::{
     bls_aggregate::BlsCommittee,
     epoch_parameters::EpochParams,
     events,
-    managed_blob::{Self, ManagedBlob},
+    blob_v2::{Self, BlobV2},
     storage_accounting::FutureAccountingRingBuffer,
     storage_node::StorageNodeCap,
     storage_resource::Storage,
-    system_state_inner::{Self, SystemStateInnerV1}
+    system_state_inner::{Self, SystemStateInnerV1},
+    unified_storage
 };
 
 // Error codes
@@ -65,7 +66,9 @@ public(package) fun advance_epoch(
     self.inner_mut().advance_epoch(new_committee, new_epoch_params)
 }
 
-public(package) fun write_price(self: &System, write_size: u64): u64 {
+/// Returns the write price for a given write size.
+/// Public so external packages (like BlobManager) can compute write fees.
+public fun write_price(self: &System, write_size: u64): u64 {
     self.inner().write_price(write_size)
 }
 
@@ -162,37 +165,43 @@ public fun register_blob(
         )
 }
 
-/// Registers a managed blob without a Storage object.
+/// Registers a managed blob with atomic storage accounting.
 /// Used by BlobManager for blobs with accounting-based storage.
+/// Requires &mut UnifiedStorage to prove ownership and ensure atomic storage accounting.
 /// Note: the sender of the register transaction pays for the write fee, although the storage space
-/// is accounted from the blob manager's storage.
+/// is accounted from the unified storage pool.
 public fun register_managed_blob(
     self: &mut System,
-    blob_manager_id: ID,
+    storage: &mut unified_storage::UnifiedStorage,
     blob_id: u256,
     root_hash: u256,
     size: u64,
     encoding_type: u8,
     deletable: bool,
     blob_type: u8,
-    end_epoch_at_registration: u32,
     write_payment: &mut Coin<WAL>,
     ctx: &mut TxContext,
-): ManagedBlob {
-    self
+) {
+    let storage_id = object::id(storage);
+    let end_epoch_at_registration = storage.end_epoch();
+
+    let managed_blob = self
         .inner_mut()
         .register_managed_blob(
-            blob_manager_id,
+            storage_id,
+            end_epoch_at_registration,
             blob_id,
             root_hash,
             size,
             encoding_type,
             deletable,
             blob_type,
-            end_epoch_at_registration,
             write_payment,
             ctx,
-        )
+        );
+
+    // Atomically add blob to storage (does capacity check, accounting, and storage_id validation).
+    storage.add_blob(managed_blob);
 }
 
 /// Certify that a blob will be available in the storage system until the end epoch of the
@@ -208,11 +217,11 @@ public fun certify_blob(
 }
 
 /// Certifies a managed blob.
-/// Similar to certify_blob but takes a mutable reference to ManagedBlob instead
+/// Similar to certify_blob but takes a mutable reference to BlobV2 instead
 /// of taking ownership. The blob must already be registered in the system.
 public fun certify_managed_blob(
     self: &System,
-    managed_blob: &mut ManagedBlob,
+    managed_blob: &mut BlobV2,
     end_epoch_at_certify: u32,
     signature: vector<u8>,
     signers_bitmap: vector<u8>,
@@ -348,43 +357,30 @@ public fun version(system: &System): u64 {
     system.version
 }
 
-/// Converts a regular Blob to a ManagedBlob and extracts its Storage.
-/// Returns the new ManagedBlob and the extracted Storage object.
+/// Converts a regular Blob to a BlobV2 and extracts its Storage.
+/// Returns the new BlobV2 and the extracted Storage object.
 /// The blob must be certified before it can be converted.
 /// The caller is responsible for managing the returned Storage object
-/// (e.g., aligning epochs, splitting excess).
+/// (e.g., aligning epochs, splitting excess) and adding the blob via add_blob().
+/// Requires &UnifiedStorage to derive storage_id and prove the target storage exists.
 public fun convert_blob_to_managed(
     self: &System,
     blob: Blob,
-    blob_manager_id: ID,
+    storage: &unified_storage::UnifiedStorage,
     ctx: &mut TxContext,
-): (ManagedBlob, Storage) {
+): (BlobV2, Storage) {
     // Ensure the blob is certified before conversion.
     assert!(blob.is_certified(), EBlobNotCertified);
 
-    // Extract the metadata from the blob.
+    let storage_id = object::id(storage);
+
+    // Extract the metadata from the blob for event emission.
     let original_object_id = blob.object_id();
-    let blob_id = blob.blob_id();
-    let size = blob.size();
-    let encoding_type = blob.encoding_type();
-    let certified_epoch = *blob.certified_epoch();
-    let registered_epoch = blob.registered_epoch();
-    let deletable = blob.is_deletable();
-    let blob_type = managed_blob::blob_type_regular();
 
-    // Extract storage from the blob (this destroys the blob).
-    let storage = blob.burn_and_extract_storage();
-
-    // Create a new ManagedBlob from the regular blob's data.
-    let managed_blob = managed_blob::new_from_regular(
-        blob_id,
-        size,
-        encoding_type,
-        blob_manager_id,
-        certified_epoch,
-        registered_epoch,
-        deletable,
-        blob_type,
+    // Create a new BlobV2 from the regular blob (extracts storage internally).
+    let (managed_blob, extracted_storage) = blob_v2::new_from_regular(
+        blob,
+        storage_id,
         self.n_shards(),
         ctx,
     );
@@ -392,19 +388,19 @@ public fun convert_blob_to_managed(
     // Get the new object ID from the managed blob.
     let new_object_id = managed_blob.object_id();
 
-    // Emit event for blob being moved into BlobManager.
-    events::emit_blob_moved_into_blob_manager(
+    // Emit event for blob being moved into UnifiedStorage.
+    events::emit_blob_moved_into_unified_storage(
         self.epoch(),
-        blob_id,
-        blob_manager_id,
+        storage_id,
+        managed_blob.blob_id(),
         original_object_id,
-        size,
-        encoding_type,
         new_object_id,
-        deletable,
+        managed_blob.encoding_type(),
+        managed_blob.is_deletable(),
+        managed_blob.size(),
     );
 
-    (managed_blob, storage)
+    (managed_blob, extracted_storage)
 }
 
 // === Upgrade ===

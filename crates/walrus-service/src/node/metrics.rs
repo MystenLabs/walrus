@@ -271,11 +271,11 @@ impl TelemetryLabel for BlobEvent {
             BlobEvent::Deleted(_) => "deleted",
             BlobEvent::InvalidBlobID(_) => "invalid-blob",
             BlobEvent::DenyListBlobDeleted(_) => "deny-list-deleted",
-            BlobEvent::ManagedBlobRegistered(_) => "managed-registered",
-            BlobEvent::ManagedBlobCertified(_) => "managed-certified",
-            BlobEvent::ManagedBlobDeleted(_) => "managed-deleted",
-            BlobEvent::ManagedBlobMadePermanent(_) => "managed-made-permanent",
-            BlobEvent::BlobMovedIntoBlobManager(_) => "blob-moved-into-manager",
+            BlobEvent::BlobV2Registered(_) => "v2-registered",
+            BlobEvent::BlobV2Certified(_) => "v2-certified",
+            BlobEvent::BlobV2Deleted(_) => "v2-deleted",
+            BlobEvent::BlobV2MadePermanent(_) => "v2-made-permanent",
+            BlobEvent::BlobMovedIntoUnifiedStorage(_) => "blob-moved-into-unified-storage",
         }
     }
 }

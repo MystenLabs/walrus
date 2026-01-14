@@ -338,6 +338,8 @@ pub struct DatabaseConfig {
     pub(super) per_object_blob_info: Option<DatabaseTableOptions>,
     /// Blob managers database options.
     pub(super) blob_managers: Option<DatabaseTableOptions>,
+    /// Blob manager index database options.
+    pub(super) blob_manager_index: Option<DatabaseTableOptions>,
     /// Event cursor database options.
     pub(super) event_cursor: Option<DatabaseTableOptions>,
     /// Shard database options.
@@ -442,6 +444,11 @@ impl DatabaseConfig {
         Self::inherit_from_or_use_template(&self.blob_managers, self.standard())
     }
 
+    /// Returns the blob manager index database option.
+    pub fn blob_manager_index(&self) -> DatabaseTableOptions {
+        Self::inherit_from_or_use_template(&self.blob_manager_index, self.standard())
+    }
+
     /// Returns the event cursor database option.
     pub fn event_cursor(&self) -> DatabaseTableOptions {
         Self::inherit_from_or_use_template(&self.event_cursor, self.standard())
@@ -525,6 +532,7 @@ impl Default for DatabaseConfig {
             blob_info: None,
             per_object_blob_info: None,
             blob_managers: None,
+            blob_manager_index: None,
             event_cursor: None,
             shard: None,
             shard_status: None,
@@ -710,6 +718,11 @@ impl DatabaseTableOptionsFactory {
     /// Returns the blob managers database option with shared cache.
     pub fn blob_managers(&self) -> Options {
         self.to_options(&self.config.blob_managers(), false)
+    }
+
+    /// Returns the blob manager index database option with shared cache.
+    pub fn blob_manager_index(&self) -> Options {
+        self.to_options(&self.config.blob_manager_index(), false)
     }
 
     /// Returns the event cursor database option with shared cache.

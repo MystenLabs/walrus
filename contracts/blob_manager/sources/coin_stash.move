@@ -4,7 +4,7 @@
 /// Coin stash implementation for BlobManager.
 /// Allows anyone to deposit SUI and WAL coins that can be used by anyone to extend or buy storage.
 /// The coin stash exists independently and can survive BlobManager destruction.
-module walrus::coin_stash;
+module blob_manager::coin_stash;
 
 use sui::{balance::{Self, Balance}, coin::{Self, Coin}, sui::SUI};
 use wal::wal::WAL;
