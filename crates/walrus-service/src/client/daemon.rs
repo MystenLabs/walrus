@@ -3,7 +3,15 @@
 
 //! A client daemon who serves a set of simple HTTP endpoints to store, encode, or read blobs.
 
-use std::{collections::HashSet, fmt::Debug, net::SocketAddr, pin::Pin, str::FromStr, sync::Arc};
+use std::{
+    collections::HashSet,
+    fmt::Debug,
+    future::Future,
+    net::SocketAddr,
+    pin::Pin,
+    str::FromStr,
+    sync::Arc,
+};
 
 use axum::{
     BoxError,
@@ -102,7 +110,7 @@ pub trait WalrusReadClient {
         &self,
         blob_id: &BlobId,
         consistency_check: ConsistencyCheckType,
-    ) -> impl std::future::Future<Output = ClientResult<Vec<u8>>> + Send;
+    ) -> impl Future<Output = ClientResult<Vec<u8>>> + Send;
 
     /// Reads a specific byte range from a blob.
     fn read_byte_range(
@@ -110,21 +118,21 @@ pub trait WalrusReadClient {
         blob_id: &BlobId,
         start_byte_position: u64,
         byte_length: u64,
-    ) -> impl std::future::Future<Output = ClientResult<ReadByteRangeResult>> + Send;
+    ) -> impl Future<Output = ClientResult<ReadByteRangeResult>> + Send;
 
     /// Returns the blob object and its associated attributes given the object ID of either
     /// a blob object or a shared blob.
     fn get_blob_by_object_id(
         &self,
         blob_object_id: &ObjectID,
-    ) -> impl std::future::Future<Output = ClientResult<BlobWithAttribute>> + Send;
+    ) -> impl Future<Output = ClientResult<BlobWithAttribute>> + Send;
 
     /// Retrieves blobs from quilt by their patch IDs.
     /// Default implementation returns an error indicating quilt is not supported.
     fn get_blobs_by_quilt_patch_ids(
         &self,
         _quilt_patch_ids: &[QuiltPatchId],
-    ) -> impl std::future::Future<Output = ClientResult<Vec<QuiltStoreBlob<'static>>>> + Send;
+    ) -> impl Future<Output = ClientResult<Vec<QuiltStoreBlob<'static>>>> + Send;
 
     /// Retrieves a blob from quilt by quilt ID and identifier.
     /// Default implementation returns an error indicating quilt is not supported.
@@ -132,13 +140,13 @@ pub trait WalrusReadClient {
         &self,
         _quilt_id: &BlobId,
         _identifier: &str,
-    ) -> impl std::future::Future<Output = ClientResult<QuiltStoreBlob<'static>>> + Send;
+    ) -> impl Future<Output = ClientResult<QuiltStoreBlob<'static>>> + Send;
 
     /// Lists patches in a quilt.
     fn list_patches_in_quilt(
         &self,
         _quilt_id: &BlobId,
-    ) -> impl std::future::Future<Output = ClientResult<Vec<QuiltPatchItem>>> + Send;
+    ) -> impl Future<Output = ClientResult<Vec<QuiltPatchItem>>> + Send;
 
     /// Streams a blob sliver-by-sliver.
     ///
@@ -150,7 +158,7 @@ pub trait WalrusReadClient {
     fn stream_blob(
         self: Arc<Self>,
         blob_id: &BlobId,
-    ) -> impl std::future::Future<Output = ClientResult<(BlobStream, u64)>> + Send;
+    ) -> impl Future<Output = ClientResult<(BlobStream, u64)>> + Send;
 }
 
 /// Trait representing a client that can write blobs to Walrus.
@@ -164,14 +172,14 @@ pub trait WalrusWriteClient: WalrusReadClient {
         store_optimizations: StoreOptimizations,
         persistence: BlobPersistence,
         post_store: PostStoreAction,
-    ) -> impl std::future::Future<Output = ClientResult<BlobStoreResult>> + Send;
+    ) -> impl Future<Output = ClientResult<BlobStoreResult>> + Send;
 
     /// Constructs a quilt from blobs.
     fn construct_quilt<V: QuiltVersion>(
         &self,
         blobs: &[QuiltStoreBlob<'_>],
         encoding_type: Option<EncodingType>,
-    ) -> impl std::future::Future<Output = ClientResult<V::Quilt>> + Send;
+    ) -> impl Future<Output = ClientResult<V::Quilt>> + Send;
 
     /// Writes a quilt to Walrus.
     fn write_quilt<V: QuiltVersion>(
@@ -182,7 +190,7 @@ pub trait WalrusWriteClient: WalrusReadClient {
         store_optimizations: StoreOptimizations,
         persistence: BlobPersistence,
         post_store: PostStoreAction,
-    ) -> impl std::future::Future<Output = ClientResult<QuiltStoreResult>> + Send;
+    ) -> impl Future<Output = ClientResult<QuiltStoreResult>> + Send;
 
     /// Returns the default [`PostStoreAction`] for this client.
     fn default_post_store_action(&self) -> PostStoreAction;
