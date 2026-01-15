@@ -236,6 +236,15 @@ fn parse_range_header(range_value: &HeaderValue) -> Result<ParsedRangeHeader, Ge
     })
 }
 
+// Helper function to create a response from a blob.
+fn create_response_from_blob(status: StatusCode, blob: Vec<u8>) -> Response {
+    // Note that this function wraps the blob in the axum Body type. This does not set the
+    // Content-Type header. The caller is responsible for setting the Content-Type header.
+    // Without wrapping the blob in the Body type, Vec<u8> will automatically set the Content-Type
+    // header to application/octet-stream.
+    (status, Body::from(blob)).into_response()
+}
+
 /// Helper function to parse an ID string and resolve it to a BlobId.
 /// Tries to parse as BlobId first, then as ObjectID if that fails.
 /// Returns the BlobId and optionally the BlobAttribute if the ID was an ObjectID.
@@ -335,7 +344,7 @@ pub(super) async fn get_blob<T: WalrusReadClient>(
             }
         };
 
-        let mut response = (StatusCode::PARTIAL_CONTENT, read_result.data).into_response();
+        let mut response = create_response_from_blob(StatusCode::PARTIAL_CONTENT, read_result.data);
 
         // Create the Content-Range header: "bytes start-end/total"
         let content_range_header =
@@ -355,7 +364,7 @@ pub(super) async fn get_blob<T: WalrusReadClient>(
         response
     } else {
         match client.read_blob(&blob_id, consistency_check).await {
-            Ok(blob) => (StatusCode::OK, blob).into_response(),
+            Ok(blob) => create_response_from_blob(StatusCode::OK, blob),
             Err(error) => {
                 tracing::debug!(?error, "failed to read blob");
                 return GetBlobError::from(error).to_response();
@@ -659,7 +668,7 @@ pub(super) async fn get_blob_byte_range<T: WalrusReadClient>(
 
             // Use StatusCode::OK instead of StatusCode::PARTIAL_CONTENT so that the response
             // can be cached by the CDN.
-            let mut response = (StatusCode::OK, result.data).into_response();
+            let mut response = create_response_from_blob(StatusCode::OK, result.data);
             let headers = response.headers_mut();
             populate_response_headers_from_request(
                 request_method,
@@ -1313,7 +1322,7 @@ fn build_quilt_patch_response(
     let identifier = blob.identifier().to_string();
     let blob_attribute: BlobAttribute = blob.tags().clone().into();
     let blob_data = blob.into_data();
-    let mut response = (StatusCode::OK, blob_data).into_response();
+    let mut response = create_response_from_blob(StatusCode::OK, blob_data);
     populate_response_headers_from_request(
         request_method,
         request_headers,
@@ -2117,5 +2126,21 @@ mod tests {
         // All headers should be present when no filter is applied.
         assert_eq!(headers_all.len(), 5);
         assert!(headers_all.get("not-allowed-header").is_some());
+    }
+
+    #[test]
+    fn test_create_response_from_blob_does_not_set_content_type() {
+        // Create a response using create_response_from_blob
+        let blob_data = vec![1, 2, 3, 4, 5];
+        let response = create_response_from_blob(StatusCode::OK, blob_data);
+
+        // Verify that the Content-Type header is not set
+        assert!(
+            response.headers().get(CONTENT_TYPE).is_none(),
+            "Content-Type header should not be set by create_response_from_blob"
+        );
+
+        // Verify the status code is correct
+        assert_eq!(response.status(), StatusCode::OK);
     }
 }
