@@ -23,7 +23,9 @@ use bimap::BiMap;
 use futures::{
     Future,
     FutureExt,
+    StreamExt,
     future::{Either, select},
+    stream::FuturesUnordered,
 };
 use indicatif::MultiProgress;
 use rand::{RngCore as _, rngs::ThreadRng};
@@ -45,9 +47,12 @@ use walrus_core::{
     Sliver,
     SliverIndex,
     bft,
+    by_axis::ByAxis,
     encoding::{
         ConsistencyCheckType,
         DecodeError,
+        DecodingSymbol,
+        EitherDecodingSymbol,
         EncodingAxis,
         EncodingConfig,
         EncodingConfigEnum,
@@ -786,25 +791,38 @@ impl<T: ReadClient> WalrusNodeClient<T> {
             }
 
             tracing::debug!(?sliver_selector, "retrieving slivers");
+            // match self
+            //     .retrieve_slivers(
+            //         metadata,
+            //         &sliver_selector,
+            //         certified_epoch,
+            //         timeout_duration - start_time.elapsed(),
+            //     )
+            //     .await
+            // {
+            //     Ok(new_slivers) => {
+            //         // Track which indices we've successfully retrieved.
+            //         for sliver in new_slivers {
+            //             sliver_selector.remove_sliver(&sliver.index);
+            //             all_slivers.push(sliver);
+            //         }
+            //     }
+            //     Err(error) => {
+            //         // TODO(WAL-685): if the error is not retriable, return the error immediately.
+            //         tracing::warn!(?error, "error retrieving slivers");
+            //         last_error = Some(error);
+            //     }
+            // }
+
             match self
-                .retrieve_slivers(
-                    metadata,
-                    &sliver_selector,
-                    certified_epoch,
-                    timeout_duration - start_time.elapsed(),
-                )
+                .recover_slivers(metadata, sliver_indices, certified_epoch, timeout_duration)
                 .await
             {
-                Ok(new_slivers) => {
-                    // Track which indices we've successfully retrieved.
-                    for sliver in new_slivers {
-                        sliver_selector.remove_sliver(&sliver.index);
-                        all_slivers.push(sliver);
-                    }
+                Ok(recovered_slivers) => {
+                    all_slivers.extend(recovered_slivers);
                 }
                 Err(error) => {
-                    // TODO(WAL-685): if the error is not retriable, return the error immediately.
-                    tracing::warn!(?error, "error retrieving slivers");
+                    tracing::warn!(?error, "error recovering slivers");
                     last_error = Some(error);
                 }
             }
@@ -913,6 +931,159 @@ impl<T: ReadClient> WalrusNodeClient<T> {
             .collect::<Vec<_>>();
 
         Ok(slivers)
+    }
+
+    async fn recover_slivers<E: EncodingAxis>(
+        &self,
+        metadata: &VerifiedBlobMetadataWithId,
+        slivers_to_recover: &[SliverIndex],
+        certified_epoch: Epoch,
+        timeout_duration: Duration,
+    ) -> ClientResult<Vec<SliverData<E>>> {
+        let committees = self.get_committees().await?;
+        let comms = self
+            .communication_factory
+            .node_read_communications(&committees, certified_epoch)?;
+        let retrieve_decoding_symbols_futures = comms.iter().map(|n| {
+            n.retrieve_decoding_symbols::<E>(metadata.blob_id(), slivers_to_recover)
+                .instrument(n.span.clone())
+        });
+
+        let RequiredCount::Exact(required_symbols) = self
+            .encoding_config
+            .get_for_type(metadata.metadata().encoding_type())
+            .n_symbols_for_recovery::<E>();
+
+        // Execute up to 20 retrieve_decoding_symbols futures concurrently using a semaphore
+        let semaphore = Arc::new(Semaphore::new(20));
+        let mut futures_unordered = FuturesUnordered::new();
+
+        // Collect all successful responses
+        // Initialize with empty symbols for all slivers to recover. This is to make sure that for
+        // a sliver that does not have any symbols retrieved, we won't miss it in the later steps.
+        let symbols_by_sliver: Arc<Mutex<HashMap<SliverIndex, Vec<EitherDecodingSymbol>>>> =
+            Arc::new(Mutex::new(
+                slivers_to_recover
+                    .iter()
+                    .map(|&sliver_index| (sliver_index, Vec::new()))
+                    .collect(),
+            ));
+
+        let all_slivers_have_enough_symbols =
+            |symbols_by_sliver: &HashMap<SliverIndex, Vec<EitherDecodingSymbol>>,
+             required_symbols: usize| {
+                symbols_by_sliver
+                    .iter()
+                    .all(|(_sliver_index, symbols)| symbols.len() >= required_symbols)
+            };
+
+        let mut all_slivers_have_enough_symbols_retrieved = false;
+
+        for future in retrieve_decoding_symbols_futures {
+            let permit = semaphore.clone().acquire_owned().await.unwrap();
+            let symbols_by_sliver_clone = symbols_by_sliver.clone();
+            futures_unordered.push(async move {
+                let result = future.await;
+                drop(permit);
+
+                match result.result {
+                    Ok(node_result) => {
+                        for (sliver_index, symbols) in node_result {
+                            symbols_by_sliver_clone
+                                .lock()
+                                .await
+                                .entry(sliver_index)
+                                .or_insert_with(Vec::new)
+                                .extend(symbols);
+                        }
+                        Ok(())
+                    }
+                    Err(error) => Err(error),
+                }
+            });
+
+            {
+                let guard = symbols_by_sliver.lock().await;
+                if all_slivers_have_enough_symbols(&guard, required_symbols) {
+                    all_slivers_have_enough_symbols_retrieved = true;
+                    break;
+                }
+            }
+        }
+
+        if !all_slivers_have_enough_symbols_retrieved {
+            while let Some(result) = futures_unordered.next().await {
+                if result.is_ok() {
+                    let guard = symbols_by_sliver.lock().await;
+                    if all_slivers_have_enough_symbols(&guard, required_symbols) {
+                        all_slivers_have_enough_symbols_retrieved = true;
+                        break;
+                    }
+                }
+            }
+        }
+
+        if !all_slivers_have_enough_symbols_retrieved {
+            let guard = symbols_by_sliver.lock().await;
+            let sliver_indices_without_enough_symbols = guard
+                .iter()
+                .filter_map(|(sliver_index, symbols)| {
+                    if symbols.len() < required_symbols {
+                        Some(sliver_index)
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Vec<_>>();
+            return Err(ClientErrorKind::NotEnoughSymbolsToDecodeSliver(
+                format!("{:?}", sliver_indices_without_enough_symbols).into(),
+            )
+            .into());
+        }
+
+        // Recover each sliver
+        let mut recovered_slivers = Vec::with_capacity(slivers_to_recover.len());
+        for &sliver_index in slivers_to_recover {
+            let symbols = symbols_by_sliver
+                .lock()
+                .await
+                .remove(&sliver_index)
+                .expect("symbols_by_sliver is created using slivers_to_recover");
+
+            // Check if we have enough symbols
+            if symbols.len() < required_symbols {
+                return Err(ClientErrorKind::NotEnoughSymbolsToDecodeSliver(
+                    format!("{:?}", sliver_index).into(),
+                )
+                .into());
+            }
+
+            // TODO: do error checking that E is indeed primary or secondary.
+            let decoding_symbols: Vec<DecodingSymbol<E>> = symbols
+                .into_iter()
+                .map(|symbol| match symbol {
+                    ByAxis::Primary(symbol) => DecodingSymbol::<E>::new(symbol.index, symbol.data),
+                    ByAxis::Secondary(symbol) => {
+                        DecodingSymbol::<E>::new(symbol.index, symbol.data)
+                    }
+                })
+                .collect();
+
+            // Try to recover the sliver
+            let recovered_sliver = SliverData::<E>::try_recover_sliver_from_decoding_symbols(
+                decoding_symbols,
+                sliver_index,
+                metadata.metadata(),
+                &self.encoding_config,
+            );
+
+            match recovered_sliver {
+                Ok(sliver) => recovered_slivers.push(sliver),
+                Err(error) => return Err(ClientErrorKind::DecodeSliverError(error).into()),
+            }
+        }
+
+        Ok(recovered_slivers)
     }
 
     /// Encodes the blob and sends metadata and slivers to the selected nodes.

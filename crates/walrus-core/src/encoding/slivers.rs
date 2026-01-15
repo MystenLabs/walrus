@@ -29,7 +29,8 @@ use super::{
 use crate::{
     SliverIndex,
     SliverPairIndex,
-    encoding::{DecodeError, RequiredCount},
+    by_axis,
+    encoding::{DecodeError, EitherDecodingSymbol, RequiredCount},
     ensure,
     inconsistency::{InconsistencyProof, SliverOrInconsistencyProof},
     merkle::{DIGEST_LEN, MerkleAuth, MerkleProof, MerkleTree, Node},
@@ -345,6 +346,40 @@ impl<T: EncodingAxis> SliverData<T> {
             // Any other error indicates an internal problem, not an inconsistent blob.
             Err(e) => Err(e.into()),
         }
+    }
+
+    /// Attempts to recover a sliver from the provided recovery symbols.
+    pub fn try_recover_sliver_from_decoding_symbols<I>(
+        decoding_symbols: I,
+        target_index: SliverIndex,
+        metadata: &BlobMetadata,
+        encoding_config: &EncodingConfig,
+    ) -> Result<SliverData<T>, SliverRecoveryOrVerificationError>
+    where
+        I: IntoIterator,
+        I::IntoIter: Iterator<Item = DecodingSymbol<T>> + ExactSizeIterator,
+    {
+        let symbol_size = metadata.symbol_size(encoding_config)?;
+        let config_enum = encoding_config.get_for_type(metadata.encoding_type());
+
+        // Note: The following code may have to be changed if we add encodings that require a
+        // variable number of symbols to recover a sliver.
+        let RequiredCount::Exact(n_symbols_required) = config_enum.n_symbols_for_recovery::<T>();
+        let decoding_symbols: Vec<_> = decoding_symbols
+            .into_iter()
+            .take(n_symbols_required)
+            .collect();
+
+        let sliver = Self::recover_sliver_from_decoding_symbols(
+            decoding_symbols,
+            target_index,
+            symbol_size,
+            config_enum,
+        )
+        .map_err(|_| SliverRecoveryError::DecodingFailure)?;
+
+        sliver.verify(encoding_config, metadata)?;
+        Ok(sliver)
     }
 
     /// Computes the Merkle root [`Node`][`crate::merkle::Node`] of the
