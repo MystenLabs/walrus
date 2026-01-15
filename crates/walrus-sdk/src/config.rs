@@ -555,6 +555,46 @@ mod tests {
     }
 
     #[test]
+    fn multi_config_applies_testnet_defaults_and_user_overrides() -> TestResult {
+        let default_config: ClientConfig = serde_yaml::from_str(TESTNET_CLIENT_CONFIG_YAML)?;
+
+        let dir = TempDir::new()?;
+        let filename = dir.path().join("client_config.yaml");
+
+        let yaml = format!(
+            indoc! {"
+                contexts:
+                    testnet:
+                        system_object: {system_object}
+                        staking_object: {staking_object}
+                        rpc_urls:
+                            - https://override.testnet.sui.io:443
+                        max_epochs_ahead: 99
+                default_context: testnet
+            "},
+            system_object = default_config.contract_config.system_object,
+            staking_object = default_config.contract_config.staking_object,
+        );
+        std::fs::write(filename.as_path(), yaml.as_bytes())?;
+
+        let (config, context) = ClientConfig::load_from_multi_config(filename, None)?;
+
+        assert_eq!(context.as_deref(), Some("testnet"));
+        assert_eq!(
+            config.rpc_urls,
+            vec!["https://override.testnet.sui.io:443".to_string()]
+        );
+        assert_eq!(config.contract_config.max_epochs_ahead, Some(99));
+        assert_eq!(config.exchange_objects, default_config.exchange_objects);
+        assert_eq!(
+            config.contract_config.n_shards,
+            default_config.contract_config.n_shards
+        );
+
+        Ok(())
+    }
+
+    #[test]
     fn parses_minimal_config_file() -> TestResult {
         let yaml = indoc! {"
             system_object: 0xa2637d13d171b278eadfa8a3fbe8379b5e471e1f3739092e5243da17fc8090eb
