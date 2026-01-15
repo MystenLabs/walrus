@@ -7,7 +7,7 @@ use walrus_core::{BlobId, EncodingType, Epoch, SliverPairIndex, SliverType, enco
 use walrus_storage_node_client::error::{ClientBuildError, NodeError};
 use walrus_sui::client::{MIN_STAKING_THRESHOLD, SuiClientError};
 
-use crate::client::upload_relay_client::UploadRelayClientError;
+use crate::node_client::upload_relay_client::UploadRelayClientError;
 
 /// Storing the metadata and the set of sliver pairs onto the storage node, and retrieving the
 /// storage confirmation, failed.
@@ -272,7 +272,7 @@ pub enum ClientErrorKind {
     #[error("byte range read error: {0}")]
     ByteRangeReadError(String),
     /// An error occurred while initializing the
-    /// [`WalrusNodeClient`][crate::client::WalrusNodeClient] in the background task.
+    /// [`WalrusNodeClient`][crate::node_client::WalrusNodeClient] in the background task.
     #[error("error while initializing the Walrus client in the background task: {0}")]
     ClientInitializationError(String),
     /// An error occurred while validating the input for byte range read.

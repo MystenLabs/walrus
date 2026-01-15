@@ -10,7 +10,7 @@ use std::{
 
 use anyhow::Result;
 use walrus_core::{BlobId, Epoch, encoding::ConsistencyCheckType};
-use walrus_sdk::{client::WalrusNodeClient, error::ClientResult};
+use walrus_sdk::{error::ClientResult, node_client::WalrusNodeClient};
 use walrus_sui::{
     client::{ReadClient, SuiReadClient},
     types::move_structs::EventBlob,

@@ -59,14 +59,14 @@ use walrus_core::{
     },
 };
 use walrus_sdk::{
-    client::{
+    error::{ClientError, ClientResult},
+    node_client::{
         StoreArgs,
         StoreBlobsApi as _,
         WalrusNodeClient,
         byte_range_read_client::ReadByteRangeResult,
         responses::{BlobStoreResult, QuiltStoreResult},
     },
-    error::{ClientError, ClientResult},
     store_optimizations::StoreOptimizations,
 };
 use walrus_sui::{
