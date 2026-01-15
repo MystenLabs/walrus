@@ -13042,6 +13042,7 @@ name = "walrus-e2e-tests"
 version = "1.41.0"
 dependencies = [
  "anyhow",
+ "bytes",
  "futures",
  "hex",
  "indicatif 0.17.11",

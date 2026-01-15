@@ -2998,6 +2998,7 @@ pub mod test_cluster {
                 refresh_config: Default::default(),
                 quilt_client_config: Default::default(),
                 byte_range_read_client_config: Default::default(),
+                streaming_config: Default::default(),
             };
 
             let client = admin_contract_client
