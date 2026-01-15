@@ -11,3 +11,8 @@ n_shards: 1000
 max_epochs_ahead: 53
 rpc_urls:
   - https://fullnode.testnet.sui.io:443
+communication_config:
+  tail_handling: detached
+  upload_mode: aggressive
+  data_in_flight_auto_tune:
+    enabled: true

@@ -1203,9 +1203,16 @@ pub struct CommonStoreOptions {
     pub skip_tip_confirmation: bool,
     /// Spawn a helper process that continues detached tail uploads after quorum is reached.
     /// This is only effective when tail handling is configured as `detached`.
-    #[arg(long)]
+    /// Defaults to enabled on testnet and disabled otherwise.
+    /// Use `--child-process-uploads=false` to disable it explicitly.
+    #[arg(
+        long,
+        num_args = 0..=1,
+        default_missing_value = "true",
+        value_parser = clap::value_parser!(bool)
+    )]
     #[serde(default)]
-    pub child_process_uploads: bool,
+    pub child_process_uploads: Option<bool>,
     /// Internal flag to signal the process is running as a child for background uploads.
     #[arg(long, hide = true)]
     #[serde(default)]
@@ -1951,7 +1958,7 @@ mod tests {
                 encoding_type: Default::default(),
                 upload_relay: None,
                 skip_tip_confirmation: false,
-                child_process_uploads: false,
+                child_process_uploads: None,
                 internal_run: false,
             },
         })
