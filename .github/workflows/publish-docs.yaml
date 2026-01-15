@@ -98,5 +98,3 @@ jobs:
           EPOCHS: "10"
           GAS_BUDGET: "1000000000"
           SITE_BUILDER_VERSION: v2
-          OBJECT_ID: "${{ vars.WALRUS_SITE_OBJECT_DOCS }}"
-          GITHUB_TOKEN: "${{ !vars.WALRUS_SITE_OBJECT_DOCS && secrets.GITHUB_TOKEN || '' }}"
