@@ -33,6 +33,7 @@ use walrus_utils::{
     backoff::ExponentialBackoffConfig,
     config::path_or_defaults_if_exist,
     is_internal_run,
+    load_from_yaml_str,
 };
 
 use crate::client::{
@@ -158,17 +159,13 @@ impl ClientConfig {
         context: Option<&str>,
     ) -> anyhow::Result<(Self, Option<String>)> {
         let path = path.as_ref();
-        let config = match load_multi_config_with_defaults(path) {
-            Ok(config) => config,
-            Err(e) => {
-                bail!(
-                    "unable to parse the client config file: [config_filename='{}', error='{}']\n\
-                    see https://docs.wal.app/usage/setup.html#configuration for the correct format",
-                    path.display(),
-                    e
-                )
-            }
-        };
+        let config = load_multi_config_with_defaults(path).with_context(|| {
+            format!(
+                "unable to parse the client config file: [config_filename='{}']\n\
+                see https://docs.wal.app/usage/setup.html#configuration for the correct format",
+                path.display(),
+            )
+        })?;
         match config {
             MultiClientConfig::SingletonConfig(mut config) => {
                 if let Some(context) = context {
@@ -321,22 +318,17 @@ struct KnownNetworkIds {
 fn known_network_ids() -> &'static KnownNetworkIds {
     static KNOWN: OnceLock<KnownNetworkIds> = OnceLock::new();
     KNOWN.get_or_init(|| KnownNetworkIds {
-        mainnet: load_contract_ids("mainnet", MAINNET_CLIENT_CONFIG_YAML),
-        testnet: load_contract_ids("testnet", TESTNET_CLIENT_CONFIG_YAML),
+        mainnet: load_from_yaml_str(
+            "mainnet client config",
+            MAINNET_CLIENT_CONFIG_YAML,
+            "contract ids",
+        ),
+        testnet: load_from_yaml_str(
+            "testnet client config",
+            TESTNET_CLIENT_CONFIG_YAML,
+            "contract ids",
+        ),
     })
-}
-
-fn load_contract_ids(label: &'static str, yaml: &'static str) -> Option<ContractIds> {
-    match serde_yaml::from_str::<ContractIds>(yaml) {
-        Ok(ids) => Some(ids),
-        Err(err) => {
-            tracing::warn!(
-                error = %err,
-                "failed to parse contract ids from {label} client config"
-            );
-            None
-        }
-    }
 }
 
 fn detect_network_kind(config_value: &Value) -> ClientNetworkKind {
@@ -371,22 +363,17 @@ fn object_id_from_value(value: &Value) -> Option<ObjectID> {
 
 fn defaults_value_for(kind: ClientNetworkKind) -> Option<Value> {
     match kind {
-        ClientNetworkKind::Mainnet => load_defaults_value("mainnet", MAINNET_CLIENT_CONFIG_YAML),
-        ClientNetworkKind::Testnet => load_defaults_value("testnet", TESTNET_CLIENT_CONFIG_YAML),
+        ClientNetworkKind::Mainnet => load_from_yaml_str(
+            "mainnet client config",
+            MAINNET_CLIENT_CONFIG_YAML,
+            "default values",
+        ),
+        ClientNetworkKind::Testnet => load_from_yaml_str(
+            "testnet client config",
+            TESTNET_CLIENT_CONFIG_YAML,
+            "default values",
+        ),
         ClientNetworkKind::Default => None,
-    }
-}
-
-fn load_defaults_value(label: &'static str, yaml: &'static str) -> Option<Value> {
-    match serde_yaml::from_str::<Value>(yaml) {
-        Ok(value) => Some(value),
-        Err(err) => {
-            tracing::warn!(
-                error = %err,
-                "failed to parse default values from {label} client config"
-            );
-            None
-        }
     }
 }
 
