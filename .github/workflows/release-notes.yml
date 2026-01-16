@@ -69,6 +69,8 @@ jobs:
       - uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548 # pin@v6.1.0
         with:
           python-version: 3.10.10
+      - name: Install pytest
+        run: pip install pytest
       - name: Run release notes script tests
         working-directory: scripts
         run: |
