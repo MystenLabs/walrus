@@ -9,6 +9,7 @@ COPY .git/ .git/
 COPY Cargo.toml Cargo.lock ./
 COPY crates crates
 COPY contracts contracts
+COPY setup setup
 
 RUN cargo build --profile ${PROFILE} --bin walrus-proxy
 

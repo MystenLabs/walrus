@@ -13,7 +13,7 @@ RUN apt-get update && apt-get install -y cmake clang
 
 COPY Cargo.toml Cargo.lock ./
 COPY crates crates
-
+COPY setup setup
 RUN cargo build --profile $PROFILE --bin walrus-orchestrator
 
 # Production Image for walrus orchestrator

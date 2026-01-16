@@ -19,6 +19,7 @@ RUN apt-get update && apt-get install -y cmake clang
 # Copy project files
 COPY Cargo.toml Cargo.lock ./
 COPY crates crates
+COPY setup setup
 COPY contracts ./contracts
 # Note: Duplicate contracts copy can be removed
 COPY contracts /contracts
