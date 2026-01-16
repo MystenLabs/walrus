@@ -29,8 +29,7 @@ use super::{
 use crate::{
     SliverIndex,
     SliverPairIndex,
-    by_axis,
-    encoding::{DecodeError, EitherDecodingSymbol, RequiredCount},
+    encoding::{DecodeError, RequiredCount},
     ensure,
     inconsistency::{InconsistencyProof, SliverOrInconsistencyProof},
     merkle::{DIGEST_LEN, MerkleAuth, MerkleProof, MerkleTree, Node},

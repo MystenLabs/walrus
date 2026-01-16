@@ -195,6 +195,11 @@ impl<E: EncodingAxis> SliverSelector<E> {
             .remove_by_left(sliver_index)
             .is_some()
     }
+
+    /// Returns the slivers in the selector.
+    pub fn slivers(&self) -> Vec<SliverIndex> {
+        self.indices_and_shards.left_values().cloned().collect()
+    }
 }
 
 type PendingUploadFuture<'a> =
@@ -717,6 +722,7 @@ impl<T: ReadClient> WalrusNodeClient<T> {
         certified_epoch: Epoch,
         max_attempts: usize,
         timeout_duration: Duration,
+        recover_unavailable_slivers: bool,
     ) -> Result<Vec<SliverData<E>>, ClientError>
     where
         SliverData<E>: TryFrom<Sliver>,
@@ -728,6 +734,7 @@ impl<T: ReadClient> WalrusNodeClient<T> {
                 certified_epoch,
                 max_attempts,
                 timeout_duration,
+                recover_unavailable_slivers,
             )
         })
         .await
@@ -747,6 +754,7 @@ impl<T: ReadClient> WalrusNodeClient<T> {
         certified_epoch: Epoch,
         max_attempts: usize,
         timeout_duration: Duration,
+        recover_unavailable_slivers: bool,
     ) -> Result<Vec<SliverData<E>>, ClientError>
     where
         SliverData<E>: TryFrom<walrus_core::Sliver>,
@@ -791,45 +799,65 @@ impl<T: ReadClient> WalrusNodeClient<T> {
             }
 
             tracing::debug!(?sliver_selector, "retrieving slivers");
-            // match self
-            //     .retrieve_slivers(
-            //         metadata,
-            //         &sliver_selector,
-            //         certified_epoch,
-            //         timeout_duration - start_time.elapsed(),
-            //     )
-            //     .await
-            // {
-            //     Ok(new_slivers) => {
-            //         // Track which indices we've successfully retrieved.
-            //         for sliver in new_slivers {
-            //             sliver_selector.remove_sliver(&sliver.index);
-            //             all_slivers.push(sliver);
-            //         }
-            //     }
-            //     Err(error) => {
-            //         // TODO(WAL-685): if the error is not retriable, return the error immediately.
-            //         tracing::warn!(?error, "error retrieving slivers");
-            //         last_error = Some(error);
-            //     }
-            // }
-
             match self
-                .recover_slivers(metadata, sliver_indices, certified_epoch, timeout_duration)
+                .retrieve_slivers(
+                    metadata,
+                    &sliver_selector,
+                    certified_epoch,
+                    timeout_duration - start_time.elapsed(),
+                )
                 .await
             {
-                Ok(recovered_slivers) => {
-                    all_slivers.extend(recovered_slivers);
+                Ok(new_slivers) => {
+                    // Track which indices we've successfully retrieved.
+                    for sliver in new_slivers {
+                        sliver_selector.remove_sliver(&sliver.index);
+                        all_slivers.push(sliver);
+                    }
                 }
                 Err(error) => {
-                    tracing::warn!(?error, "error recovering slivers");
+                    // TODO(WAL-685): if the error is not retriable, return the error immediately.
+                    tracing::warn!(?error, "error retrieving slivers");
                     last_error = Some(error);
                 }
             }
 
             attempts += 1;
             if all_slivers.len() != num_unique_slivers {
+                tracing::info!(
+                    "sleeping for 1 second, all_slivers.len() = {}, num_unique_slivers = {}",
+                    all_slivers.len(),
+                    num_unique_slivers
+                );
                 tokio::time::sleep(RETRIEVE_SLIVERS_RETRY_DELAY).await;
+            }
+        }
+
+        if recover_unavailable_slivers && !sliver_selector.is_empty() {
+            let slivers_to_recover = sliver_selector.slivers();
+            let recover_timeout = timeout_duration - start_time.elapsed();
+            let recover_result = tokio::time::timeout(
+                recover_timeout,
+                self.recover_slivers(metadata, &slivers_to_recover, certified_epoch),
+            )
+            .await;
+            match recover_result {
+                Ok(Ok(recovered_slivers)) => {
+                    for sliver in recovered_slivers.iter() {
+                        sliver_selector.remove_sliver(&sliver.index);
+                    }
+                    all_slivers.extend(recovered_slivers.into_iter());
+                }
+                Ok(Err(error)) => {
+                    tracing::warn!(?error, "error recovering slivers");
+                    last_error = Some(error);
+                }
+                Err(timeout_error) => {
+                    tracing::warn!(?timeout_error, "timeout recovering slivers");
+                    return Err(ClientError::from(ClientErrorKind::Other(
+                        timeout_error.into(),
+                    )));
+                }
             }
         }
 
@@ -932,14 +960,13 @@ impl<T: ReadClient> WalrusNodeClient<T> {
 
         Ok(slivers)
     }
-
     async fn recover_slivers<E: EncodingAxis>(
         &self,
         metadata: &VerifiedBlobMetadataWithId,
         slivers_to_recover: &[SliverIndex],
         certified_epoch: Epoch,
-        timeout_duration: Duration,
     ) -> ClientResult<Vec<SliverData<E>>> {
+        tracing::info!("starting to recover slivers {:?}", slivers_to_recover);
         let committees = self.get_committees().await?;
         let comms = self
             .communication_factory
@@ -969,18 +996,23 @@ impl<T: ReadClient> WalrusNodeClient<T> {
                     .collect(),
             ));
 
-        let all_slivers_have_enough_symbols =
-            |symbols_by_sliver: &HashMap<SliverIndex, Vec<EitherDecodingSymbol>>,
-             required_symbols: usize| {
-                symbols_by_sliver
-                    .iter()
-                    .all(|(_sliver_index, symbols)| symbols.len() >= required_symbols)
-            };
+        // let all_slivers_have_enough_symbols =
+        //     |sliver_symbols: &HashMap<SliverIndex, Vec<EitherDecodingSymbol>>,
+        //      required_symbols: usize|
+        //      -> bool {
+        //         sliver_symbols
+        //             .iter()
+        //             .all(|(_sliver_index, symbols)| symbols.len() >= required_symbols)
+        //     };
 
         let mut all_slivers_have_enough_symbols_retrieved = false;
 
         for future in retrieve_decoding_symbols_futures {
-            let permit = semaphore.clone().acquire_owned().await.unwrap();
+            let permit = semaphore
+                .clone()
+                .acquire_owned()
+                .await
+                .map_err(|e| ClientError::from(ClientErrorKind::Other(e.into())))?;
             let symbols_by_sliver_clone = symbols_by_sliver.clone();
             futures_unordered.push(async move {
                 let result = future.await;
@@ -1004,7 +1036,10 @@ impl<T: ReadClient> WalrusNodeClient<T> {
 
             {
                 let guard = symbols_by_sliver.lock().await;
-                if all_slivers_have_enough_symbols(&guard, required_symbols) {
+                if guard
+                    .iter()
+                    .all(|(_sliver_index, symbols)| symbols.len() >= required_symbols)
+                {
                     all_slivers_have_enough_symbols_retrieved = true;
                     break;
                 }
@@ -1015,7 +1050,10 @@ impl<T: ReadClient> WalrusNodeClient<T> {
             while let Some(result) = futures_unordered.next().await {
                 if result.is_ok() {
                     let guard = symbols_by_sliver.lock().await;
-                    if all_slivers_have_enough_symbols(&guard, required_symbols) {
+                    if guard
+                        .iter()
+                        .all(|(_sliver_index, symbols)| symbols.len() >= required_symbols)
+                    {
                         all_slivers_have_enough_symbols_retrieved = true;
                         break;
                     }
@@ -1035,9 +1073,10 @@ impl<T: ReadClient> WalrusNodeClient<T> {
                     }
                 })
                 .collect::<Vec<_>>();
-            return Err(ClientErrorKind::NotEnoughSymbolsToDecodeSliver(
-                format!("{:?}", sliver_indices_without_enough_symbols).into(),
-            )
+            return Err(ClientErrorKind::NotEnoughSymbolsToDecodeSliver(format!(
+                "{:?}",
+                sliver_indices_without_enough_symbols
+            ))
             .into());
         }
 
@@ -1052,9 +1091,10 @@ impl<T: ReadClient> WalrusNodeClient<T> {
 
             // Check if we have enough symbols
             if symbols.len() < required_symbols {
-                return Err(ClientErrorKind::NotEnoughSymbolsToDecodeSliver(
-                    format!("{:?}", sliver_index).into(),
-                )
+                return Err(ClientErrorKind::NotEnoughSymbolsToDecodeSliver(format!(
+                    "{:?}",
+                    sliver_index
+                ))
                 .into());
             }
 

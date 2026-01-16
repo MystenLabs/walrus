@@ -32,16 +32,8 @@ pub struct ByteRangeReadClientConfig {
     #[serde_as(as = "serde_with::DurationSeconds")]
     #[serde(rename = "timeout_secs")]
     pub timeout: Duration,
-}
-
-impl ByteRangeReadClientConfig {
-    /// Creates a new ByteRangeReadClientConfig.
-    pub fn new(max_retrieve_slivers_attempts: usize, timeout: Duration) -> Self {
-        Self {
-            max_retrieve_slivers_attempts,
-            timeout,
-        }
-    }
+    /// Whether to recover unavailable slivers.
+    pub recover_unavailable_slivers: bool,
 }
 
 impl Default for ByteRangeReadClientConfig {
@@ -49,6 +41,7 @@ impl Default for ByteRangeReadClientConfig {
         Self {
             max_retrieve_slivers_attempts: 2,
             timeout: Duration::from_secs(10),
+            recover_unavailable_slivers: true,
         }
     }
 }
@@ -209,6 +202,7 @@ impl<T: ReadClient> ByteRangeReadClient<'_, T> {
                 certified_epoch,
                 self.config.max_retrieve_slivers_attempts,
                 self.config.timeout,
+                self.config.recover_unavailable_slivers,
             )
             .await?;
 

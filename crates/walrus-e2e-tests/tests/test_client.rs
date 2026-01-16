@@ -1147,9 +1147,10 @@ async fn test_store_quilt(blobs_to_create: u32) -> TestResult {
         .collect::<Vec<_>>();
 
     // Store the quilt.
-    let quilt_client = client
-        .quilt_client()
-        .with_config(QuiltClientConfig::new(6, Duration::from_mins(1)));
+    let quilt_client =
+        client
+            .quilt_client()
+            .with_config(QuiltClientConfig::new(6, Duration::from_mins(1), true));
     let quilt = quilt_client
         .construct_quilt::<QuiltVersionV1>(&quilt_store_blobs, encoding_type)
         .await?;
