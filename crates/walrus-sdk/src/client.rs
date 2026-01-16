@@ -960,7 +960,14 @@ impl<T: ReadClient> WalrusNodeClient<T> {
 
         Ok(slivers)
     }
-    async fn recover_slivers<E: EncodingAxis>(
+
+    /// Recovers the specified slivers by retrieving decoding symbols from storage nodes and
+    /// reconstructing the slivers using erasure coding.
+    ///
+    /// This method fetches decoding symbols from multiple storage nodes concurrently and uses
+    /// them to recover the requested slivers. It requires enough symbols to meet the recovery
+    /// threshold for the encoding type.
+    pub async fn recover_slivers<E: EncodingAxis>(
         &self,
         metadata: &VerifiedBlobMetadataWithId,
         slivers_to_recover: &[SliverIndex],
@@ -995,15 +1002,6 @@ impl<T: ReadClient> WalrusNodeClient<T> {
                     .map(|&sliver_index| (sliver_index, Vec::new()))
                     .collect(),
             ));
-
-        // let all_slivers_have_enough_symbols =
-        //     |sliver_symbols: &HashMap<SliverIndex, Vec<EitherDecodingSymbol>>,
-        //      required_symbols: usize|
-        //      -> bool {
-        //         sliver_symbols
-        //             .iter()
-        //             .all(|(_sliver_index, symbols)| symbols.len() >= required_symbols)
-        //     };
 
         let mut all_slivers_have_enough_symbols_retrieved = false;
 
