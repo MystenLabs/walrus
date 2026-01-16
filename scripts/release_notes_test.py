@@ -90,12 +90,13 @@ class TestParseNotes(unittest.TestCase):
 
     def test_release_notes_with_multiline_note(self):
         """Test parsing release notes with multiline content."""
-        body = """## Release notes
-- [x] Storage node: This is a long note
-  that spans multiple lines
-  with additional details
-- [ ] CLI: No changes
-"""
+        body = (
+            "## Release notes\n"
+            "- [x] Storage node: This is a long note\n"
+            "    that spans multiple lines\n"
+            "    with additional details\n"
+            "- [ ] CLI: No changes\n"
+        )
         pr, result = parse_notes(123, body)
         self.assertIn("Storage node", result)
         note = result["Storage node"].note
