@@ -292,7 +292,7 @@ pub trait ServiceState {
         blob_id: &BlobId,
         sliver_pair_index: SliverPairIndex,
         sliver_type: SliverType,
-    ) -> impl Future<Output = Result<Sliver, RetrieveSliverError>> + Send;
+    ) -> impl Future<Output = Result<Arc<Sliver>, RetrieveSliverError>> + Send;
 
     /// Stores the primary or secondary encoding for a blob for a shard held by this storage node.
     fn store_sliver(
@@ -3202,7 +3202,7 @@ impl StorageNodeInner {
         blob_id: &BlobId,
         sliver_pair_index: SliverPairIndex,
         sliver_type: SliverType,
-    ) -> Result<Sliver, RetrieveSliverError> {
+    ) -> Result<Arc<Sliver>, RetrieveSliverError> {
         let shard_storage = self
             .get_shard_for_sliver_pair(sliver_pair_index, blob_id)
             .await?;
@@ -3218,10 +3218,15 @@ impl StorageNodeInner {
         .await;
 
         match result {
-            Ok(result) => result.inspect(|sliver| {
-                walrus_utils::with_label!(self.metrics.slivers_retrieved_total, sliver.r#type())
+            Ok(result) => result
+                .inspect(|sliver| {
+                    walrus_utils::with_label!(
+                        self.metrics.slivers_retrieved_total,
+                        sliver.r#type()
+                    )
                     .inc();
-            }),
+                })
+                .map(Arc::new),
             Err(e) => {
                 if e.is_panic() {
                     std::panic::resume_unwind(e.into_panic());
@@ -3328,7 +3333,7 @@ impl StorageNodeInner {
     /// Returns a map of target sliver indexes to decoding symbols.
     fn extract_decoding_symbols_for_target_sliver_into_output<T: EncodingAxis>(
         &self,
-        sliver: SliverData<T>,
+        sliver: &SliverData<T>,
         target_sliver_indexes: &[SliverIndex],
     ) -> Result<BTreeMap<SliverIndex, EitherDecodingSymbol>, ListSymbolsError>
     where
@@ -3641,7 +3646,7 @@ impl ServiceState for StorageNode {
         blob_id: &BlobId,
         sliver_pair_index: SliverPairIndex,
         sliver_type: SliverType,
-    ) -> impl Future<Output = Result<Sliver, RetrieveSliverError>> + Send {
+    ) -> impl Future<Output = Result<Arc<Sliver>, RetrieveSliverError>> + Send {
         self.inner
             .retrieve_sliver(blob_id, sliver_pair_index, sliver_type)
     }
@@ -3868,7 +3873,7 @@ impl ServiceState for StorageNodeInner {
         blob_id: &BlobId,
         sliver_pair_index: SliverPairIndex,
         sliver_type: SliverType,
-    ) -> Result<Sliver, RetrieveSliverError> {
+    ) -> Result<Arc<Sliver>, RetrieveSliverError> {
         self.check_index(sliver_pair_index)?;
 
         self.validate_blob_access(
@@ -4161,11 +4166,12 @@ impl ServiceState for StorageNodeInner {
                 }
             };
 
-            let extracted_symbols = by_axis::flat_map!(sliver_result, |sliver| self
-                .extract_decoding_symbols_for_target_sliver_into_output(
-                    sliver,
-                    &target_sliver_indexes,
-                ))?;
+            let extracted_symbols =
+                by_axis::flat_map!(sliver_result.as_ref().as_ref(), |sliver| self
+                    .extract_decoding_symbols_for_target_sliver_into_output(
+                        sliver,
+                        &target_sliver_indexes,
+                    ))?;
 
             for (target_sliver_index, decoding_symbol) in extracted_symbols {
                 output
@@ -6282,7 +6288,9 @@ mod tests {
 
         assert_eq!(
             blob.assigned_sliver_pair(ShardIndex(0)).primary,
-            sliver.try_into().expect("Sliver conversion failed.")
+            Arc::unwrap_or_clone(sliver)
+                .try_into()
+                .expect("Sliver conversion failed.")
         );
 
         Ok(())
