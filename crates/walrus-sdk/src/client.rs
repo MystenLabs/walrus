@@ -1198,7 +1198,9 @@ impl WalrusNodeClient<SuiContractClient> {
             pending_blobs = pending_blobs.len(),
             "starting pending upload task"
         );
-        let (tx, _rx) = tokio::sync::mpsc::channel(pending_blobs.len().max(1));
+        let (tx, mut rx) = tokio::sync::mpsc::channel(pending_blobs.len().max(1));
+        // Drain progress events so pending uploads don't emit SendError warnings.
+        tokio::spawn(async move { while rx.recv().await.is_some() {} });
         let cancel = CancellationToken::new();
         let future = Box::pin(self.distributed_upload_without_confirmation(
             pending_blobs,
