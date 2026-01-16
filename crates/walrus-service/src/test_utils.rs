@@ -2681,12 +2681,13 @@ pub(crate) fn test_committee_with_epoch(weights: &[u16], epoch: Epoch) -> Commit
 /// A module for creating a Walrus test cluster.
 #[cfg(all(feature = "client", feature = "node"))]
 pub mod test_cluster {
-    use std::{iter::once, sync::OnceLock};
+    use std::{iter::once, net::SocketAddr, sync::OnceLock};
 
     use futures::future;
     use tokio::sync::Mutex as TokioMutex;
+    use tokio_util::sync::CancellationToken;
     use walrus_sdk::{
-        client::{self, ClientCommunicationConfig, ClientConfig},
+        client::{self, ClientCommunicationConfig, ClientConfig, WalrusNodeClient},
         sui::{
             client::{SuiContractClient, SuiReadClient},
             test_utils::{
@@ -2704,12 +2705,37 @@ pub mod test_cluster {
 
     use super::*;
     use crate::{
+        client::{ClientDaemon, cli::AggregatorArgs},
         event::event_processor::{
             config::{EventProcessorConfig, EventProcessorRuntimeConfig, SystemConfig},
             processor::EventProcessor,
         },
         node::{committee::DefaultNodeServiceFactory, contract_service::SuiSystemContractService},
     };
+
+    /// Handle for an aggregator HTTP server started during e2e tests.
+    #[derive(Debug)]
+    pub struct AggregatorHandle {
+        /// The socket address the aggregator is listening on.
+        pub address: SocketAddr,
+        /// Join handle for the spawned server task.
+        pub task_handle: JoinHandle<Result<(), std::io::Error>>,
+        /// Cancellation token to gracefully stop the server.
+        pub cancel_token: CancellationToken,
+    }
+
+    impl AggregatorHandle {
+        /// Returns the base URL for HTTP requests to this aggregator.
+        pub fn base_url(&self) -> String {
+            format!("http://{}", self.address)
+        }
+
+        /// Cancels the aggregator server and waits for it to shut down.
+        pub async fn shutdown(self) -> Result<(), std::io::Error> {
+            self.cancel_token.cancel();
+            self.task_handle.await.expect("task should not panic")
+        }
+    }
 
     /// The weight of each storage node in the test cluster.
     pub const FROST_PER_NODE_WEIGHT: u64 = 1_000_000_000_000;
@@ -2732,6 +2758,8 @@ pub mod test_cluster {
         contract_directory: Option<PathBuf>,
         event_stream_catchup_min_checkpoint_lag: Option<u64>,
         max_epochs_ahead: Option<u32>,
+        with_aggregator: bool,
+        aggregator_allowed_headers: Vec<String>,
     }
 
     impl Default for E2eTestSetupBuilder {
@@ -2748,6 +2776,8 @@ pub mod test_cluster {
                 contract_directory: None,
                 event_stream_catchup_min_checkpoint_lag: None,
                 max_epochs_ahead: None,
+                with_aggregator: false,
+                aggregator_allowed_headers: Vec::new(),
             }
         }
     }
@@ -2769,6 +2799,7 @@ pub mod test_cluster {
             TestCluster<StorageNodeHandle>,
             WithTempDir<client::WalrusNodeClient<SuiContractClient>>,
             SystemContext,
+            Option<AggregatorHandle>,
         )> {
             self.build_generic().await
         }
@@ -2784,6 +2815,7 @@ pub mod test_cluster {
             TestCluster<T>,
             WithTempDir<client::WalrusNodeClient<SuiContractClient>>,
             SystemContext,
+            Option<AggregatorHandle>,
         )> {
             #[cfg(not(msim))]
             let sui_cluster = test_utils::using_tokio::global_sui_test_cluster();
@@ -3004,13 +3036,65 @@ pub mod test_cluster {
             let client = admin_contract_client
                 .and_then_async(|contract_client| {
                     client::WalrusNodeClient::new_contract_client_with_refresher(
-                        config,
+                        config.clone(),
                         contract_client,
                     )
                 })
                 .await?;
 
-            Ok((sui_cluster, cluster, client, system_ctx))
+            // Optionally start the aggregator HTTP server
+            let aggregator_handle = if self.with_aggregator {
+                // Use port 0 to let the OS assign an available port
+                let bind_address: SocketAddr = "127.0.0.1:0".parse().unwrap();
+
+                let aggregator_args = AggregatorArgs {
+                    allowed_headers: self.aggregator_allowed_headers.clone(),
+                    allow_quilt_patch_tags_in_response: false,
+                    max_blob_size: None,
+                    aggregator_max_request_buffer_size: 256,
+                    aggregator_max_concurrent_requests: 100,
+                };
+
+                let aggregator_registry = Registry::new(prometheus::Registry::new());
+
+                let aggregator_walrus_node_client =
+                    WalrusNodeClient::new_read_client_with_refresher(
+                        config,
+                        sui_read_client.clone(),
+                    )
+                    .await?;
+
+                let daemon = ClientDaemon::new_aggregator(
+                    aggregator_walrus_node_client,
+                    bind_address,
+                    &aggregator_registry,
+                    &aggregator_args,
+                );
+
+                let cancel_token = CancellationToken::new();
+                let cancel_clone = cancel_token.clone();
+
+                // Create channel for readiness signaling
+                let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
+
+                let task_handle =
+                    tokio::spawn(
+                        async move { daemon.run_for_testing(cancel_clone, ready_tx).await },
+                    );
+
+                // Wait for the server to signal it's ready and get the actual bound address
+                let actual_address = ready_rx.await.expect("aggregator should signal readiness");
+
+                Some(AggregatorHandle {
+                    address: actual_address,
+                    task_handle,
+                    cancel_token,
+                })
+            } else {
+                None
+            };
+
+            Ok((sui_cluster, cluster, client, system_ctx, aggregator_handle))
         }
 
         /// Sets the epoch duration for the tests, if not set, defaults to
@@ -3094,6 +3178,18 @@ pub mod test_cluster {
         /// Set the max epochs ahead for the cluster.
         pub fn with_max_epochs_ahead(mut self, max_epochs_ahead: EpochCount) -> Self {
             self.max_epochs_ahead = Some(max_epochs_ahead);
+            self
+        }
+
+        /// Configure the builder to start an aggregator HTTP server.
+        pub fn with_aggregator(mut self) -> Self {
+            self.with_aggregator = true;
+            self
+        }
+
+        /// Set the allowed headers for the aggregator responses.
+        pub fn with_aggregator_allowed_headers(mut self, headers: Vec<String>) -> Self {
+            self.aggregator_allowed_headers = headers;
             self
         }
     }

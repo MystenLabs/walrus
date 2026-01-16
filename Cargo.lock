@@ -13049,6 +13049,7 @@ dependencies = [
  "prometheus",
  "rand 0.8.5",
  "reqwest",
+ "serde_json",
  "serde_yaml 0.9.34+deprecated",
  "sui-macros",
  "sui-protocol-config",
