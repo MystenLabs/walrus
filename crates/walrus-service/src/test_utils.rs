@@ -388,7 +388,9 @@ pub struct StorageNodeHandle {
 impl Drop for StorageNodeHandle {
     fn drop(&mut self) {
         self.cancel.cancel();
+        tracing::info!("ZZZZZ cancelling node runtime handle");
         if let Some(handle) = self.node_runtime_handle.take() {
+            tracing::info!("ZZZZZ aborting node runtime handle");
             handle.abort();
         }
     }
