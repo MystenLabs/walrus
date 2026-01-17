@@ -64,6 +64,7 @@ async fn main() {
         .with_prom_registry(&walrus_registry)
         .with_json()
         .init();
+
     let registry = Registry::new(walrus_registry);
     let relay_config: WalrusUploadRelayConfig =
         load_from_yaml(args.relay_config).expect("failed to load relay config");

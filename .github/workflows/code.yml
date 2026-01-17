@@ -115,6 +115,8 @@ jobs:
       RUST_LOG: walrus=info,error,sui_=off,consensus_core=off
       OPENSSL_STATIC: "1"
       OPENSSL_NO_VENDOR: "0"
+      WALRUS_GRPC_GET_OBJECT: "1"
+      WALRUS_GRPC_TYPE_ORIGIN_MAP: "1"
     steps:
       - uses: taiki-e/install-action@970d55e3ce02a46d60ffae7b4fab3dedace6e769 # pin@v2.49.13
         with:
@@ -141,6 +143,8 @@ jobs:
     env:
       # Turn off Sui logging since it can be very distractive in CI
       RUST_LOG: simtest=info,error,sui_=off,consensus_core=off
+      WALRUS_GRPC_GET_OBJECT: "1"
+      WALRUS_GRPC_TYPE_ORIGIN_MAP: "1"
     steps:
       - uses: taiki-e/install-action@970d55e3ce02a46d60ffae7b4fab3dedace6e769 # pin@v2.49.13
         with:

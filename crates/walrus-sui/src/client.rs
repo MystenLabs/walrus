@@ -49,7 +49,7 @@ use walrus_core::{
 use walrus_utils::backoff::ExponentialBackoffConfig;
 
 use crate::{
-    contracts,
+    contracts::{self, MoveConversionError},
     system_setup::{self, compile_package},
     types::{
         BlobEvent,
@@ -81,6 +81,8 @@ use crate::{
     utils::get_created_sui_object_ids_by_type,
     wallet::Wallet,
 };
+
+pub mod dual_client;
 
 mod read_client;
 pub use read_client::{
@@ -200,6 +202,9 @@ pub enum SuiClientError {
         merging the coins in the wallet and retrying"
     )]
     InsufficientFundsWithMaxCoins(String),
+    /// Error returned when converting a Sui object or event to a rust struct.
+    #[error(transparent)]
+    MoveConversionError(#[from] MoveConversionError),
 }
 
 impl From<sui_types::error::SuiError> for SuiClientError {
