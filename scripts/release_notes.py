@@ -266,8 +266,9 @@ def extract_notes_for_commit(commit):
 
 def print_changelog(pr, log):
     if pr:
-        print(f"https://github.com/MystenLabs/walrus/pull/{pr}:")
-    print(log)
+        print(f"https://github.com/MystenLabs/walrus/pull/{pr}: {log}")
+    else:
+        print(log)
 
 def do_check(pr):
     """Check if the release notes section of a given PR is complete.
