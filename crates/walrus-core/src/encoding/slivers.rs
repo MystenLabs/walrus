@@ -269,8 +269,8 @@ impl<T: EncodingAxis> SliverData<T> {
     /// Returns the recovered [`SliverData`] if decoding succeeds or `None` if decoding fails.
     ///
     /// The recovery symbols are only the raw symbols without the Merkle proofs.
-    pub fn recover_sliver_from_decoding_symbols<I>(
-        recovery_symbols: I,
+    fn recover_sliver_from_decoding_symbols<I>(
+        decoding_symbols: I,
         target_index: SliverIndex,
         symbol_size: NonZeroU16,
         config: EncodingConfigEnum,
@@ -279,19 +279,58 @@ impl<T: EncodingAxis> SliverData<T> {
         I: IntoIterator,
         I::IntoIter: Iterator<Item = DecodingSymbol<T>> + ExactSizeIterator,
     {
-        let recovery_symbols = recovery_symbols.into_iter();
+        let decoding_symbols = decoding_symbols.into_iter();
 
         // Note: The following code may have to be changed if we add encodings that require a
         // variable number of symbols to recover a sliver.
         let RequiredCount::Exact(n_symbols_required) = config.n_symbols_for_recovery::<T>();
-        if recovery_symbols.len() < n_symbols_required {
+        if decoding_symbols.len() < n_symbols_required {
             // We don't even have to attempt decoding if we don't have enough recovery symbols.
             return Err(DecodeError::DecodingUnsuccessful);
         }
 
         config
-            .decode_from_decoding_symbols(symbol_size, recovery_symbols)
+            .decode_from_decoding_symbols(symbol_size, decoding_symbols)
             .map(|data| SliverData::new(data, symbol_size, target_index))
+    }
+
+    /// Attempts to recover a sliver from the provided decoding symbols.
+    ///
+    /// This is a user facing API that is used to reconstruct a sliver from decoding symbols
+    /// without per symbol Merkle proofs.
+    ///
+    /// The reconstructed sliver is verified against the metadata to ensure it is consistent.
+    pub fn try_recover_sliver_from_decoding_symbols<I>(
+        decoding_symbols: I,
+        target_index: SliverIndex,
+        metadata: &BlobMetadata,
+        encoding_config: &EncodingConfig,
+    ) -> Result<SliverData<T>, SliverRecoveryOrVerificationError>
+    where
+        I: IntoIterator,
+        I::IntoIter: Iterator<Item = DecodingSymbol<T>> + ExactSizeIterator,
+    {
+        let symbol_size = metadata.symbol_size(encoding_config)?;
+        let config_enum = encoding_config.get_for_type(metadata.encoding_type());
+
+        // // Note: The following code may have to be changed if we add encodings that require a
+        // // variable number of symbols to recover a sliver.
+        // let RequiredCount::Exact(n_symbols_required) = config_enum.n_symbols_for_recovery::<T>();
+        // let decoding_symbols: Vec<_> = decoding_symbols
+        //     .into_iter()
+        //     .take(n_symbols_required)
+        //     .collect();
+
+        let sliver = Self::recover_sliver_from_decoding_symbols(
+            decoding_symbols,
+            target_index,
+            symbol_size,
+            config_enum,
+        )
+        .map_err(|_| SliverRecoveryError::DecodingFailure)?;
+
+        sliver.verify(encoding_config, metadata)?;
+        Ok(sliver)
     }
 
     /// Attempts to recover a sliver from the provided recovery symbols.
@@ -345,40 +384,6 @@ impl<T: EncodingAxis> SliverData<T> {
             // Any other error indicates an internal problem, not an inconsistent blob.
             Err(e) => Err(e.into()),
         }
-    }
-
-    /// Attempts to recover a sliver from the provided recovery symbols.
-    pub fn try_recover_sliver_from_decoding_symbols<I>(
-        decoding_symbols: I,
-        target_index: SliverIndex,
-        metadata: &BlobMetadata,
-        encoding_config: &EncodingConfig,
-    ) -> Result<SliverData<T>, SliverRecoveryOrVerificationError>
-    where
-        I: IntoIterator,
-        I::IntoIter: Iterator<Item = DecodingSymbol<T>> + ExactSizeIterator,
-    {
-        let symbol_size = metadata.symbol_size(encoding_config)?;
-        let config_enum = encoding_config.get_for_type(metadata.encoding_type());
-
-        // Note: The following code may have to be changed if we add encodings that require a
-        // variable number of symbols to recover a sliver.
-        let RequiredCount::Exact(n_symbols_required) = config_enum.n_symbols_for_recovery::<T>();
-        let decoding_symbols: Vec<_> = decoding_symbols
-            .into_iter()
-            .take(n_symbols_required)
-            .collect();
-
-        let sliver = Self::recover_sliver_from_decoding_symbols(
-            decoding_symbols,
-            target_index,
-            symbol_size,
-            config_enum,
-        )
-        .map_err(|_| SliverRecoveryError::DecodingFailure)?;
-
-        sliver.verify(encoding_config, metadata)?;
-        Ok(sliver)
     }
 
     /// Computes the Merkle root [`Node`][`crate::merkle::Node`] of the
