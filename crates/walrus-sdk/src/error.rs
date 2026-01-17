@@ -288,6 +288,9 @@ pub enum ClientErrorKind {
     /// The client could not retrieve enough symbols to decode the sliver.
     #[error("could not retrieve enough symbols to decode the slivers: {0}")]
     NotEnoughSymbolsToDecodeSliver(String),
+    /// The symbol type is not supported for decoding the sliver.
+    #[error("wrong symbol type {0} to decode sliver type {1}")]
+    WrongSymbolTypeToDecodeSliver(SliverType, SliverType),
     /// An error occurred while decoding a sliver.
     #[error("error while decoding a sliver: {0}")]
     DecodeSliverError(SliverRecoveryOrVerificationError),

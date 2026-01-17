@@ -8761,7 +8761,6 @@ mod tests {
                 .await?;
 
         let blob_id = *blob_detail[0].blob_id();
-        let encoding_config = cluster.encoding_config().get_for_type(EncodingType::RS2);
         let n_shards_nonzero = NonZero::new(n_shards).unwrap();
 
         // Retrieve recovery symbols from both nodes
@@ -8787,12 +8786,11 @@ mod tests {
                     })
                     .collect();
 
-                let symbol_size = blob_detail[0].pairs[0].primary.symbols.symbol_size();
-                let recovered_sliver = SliverData::recover_sliver_from_decoding_symbols(
+                let recovered_sliver = SliverData::try_recover_sliver_from_decoding_symbols(
                     recovery_symbols,
                     target_sliver_index,
-                    symbol_size,
-                    encoding_config,
+                    blob_detail[0].metadata.metadata(),
+                    &cluster.encoding_config(),
                 )?;
 
                 let target_pair_index =
@@ -8815,12 +8813,11 @@ mod tests {
                     })
                     .collect();
 
-                let symbol_size = blob_detail[0].pairs[0].secondary.symbols.symbol_size();
-                let recovered_sliver = SliverData::recover_sliver_from_decoding_symbols(
+                let recovered_sliver = SliverData::try_recover_sliver_from_decoding_symbols(
                     recovery_symbols,
                     target_sliver_index,
-                    symbol_size,
-                    encoding_config,
+                    blob_detail[0].metadata.metadata(),
+                    &cluster.encoding_config(),
                 )?;
 
                 let target_pair_index =

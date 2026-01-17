@@ -426,6 +426,9 @@ impl TelemetryLabel for ClientErrorKind {
                 "not-enough-symbols-to-decode-sliver"
             }
             ClientErrorKind::DecodeSliverError(_) => "decode-sliver-error",
+            ClientErrorKind::WrongSymbolTypeToDecodeSliver(_, _) => {
+                "wrong-symbol-type-to-decode-sliver"
+            }
         }
     }
 }
