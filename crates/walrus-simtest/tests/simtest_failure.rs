@@ -40,7 +40,7 @@ mod tests {
     #[ignore = "ignore integration simtests by default"]
     #[walrus_simtest]
     async fn test_walrus_with_single_node_crash_and_restart() {
-        let (sui_cluster, _walrus_cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
+        let (sui_cluster, _walrus_cluster, client, _, _) = test_cluster::E2eTestSetupBuilder::new()
             .with_test_nodes_config(
                 TestNodesConfig::builder()
                     .with_node_weights(&[1, 2, 3, 3, 4])
@@ -216,7 +216,7 @@ mod tests {
                 max_concurrent_blob_syncs_during_recovery;
         }
 
-        let (_sui_cluster, walrus_cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
+        let (_sui_cluster, walrus_cluster, client, _, _) = test_cluster::E2eTestSetupBuilder::new()
             .with_epoch_duration(Duration::from_secs(30))
             .with_test_nodes_config(
                 TestNodesConfig::builder()
@@ -345,7 +345,7 @@ mod tests {
     async fn test_repeated_node_crash() {
         // We use a very short epoch duration of 10 seconds so that we can exercise more epoch
         // changes in the test.
-        let (_sui_cluster, walrus_cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
+        let (_sui_cluster, walrus_cluster, client, _, _) = test_cluster::E2eTestSetupBuilder::new()
             .with_epoch_duration(Duration::from_secs(10))
             .with_test_nodes_config(
                 TestNodesConfig::builder()
@@ -510,7 +510,7 @@ mod tests {
     async fn test_checkpoint_lag_error() {
         // We use a very short epoch duration of 10 seconds so that we can exercise more epoch
         // changes in the test.
-        let (_sui_cluster, walrus_cluster, _, _) = test_cluster::E2eTestSetupBuilder::new()
+        let (_sui_cluster, walrus_cluster, _, _, _) = test_cluster::E2eTestSetupBuilder::new()
             .with_epoch_duration(Duration::from_secs(10))
             .with_test_nodes_config(
                 TestNodesConfig::builder()
@@ -603,7 +603,7 @@ mod tests {
                 max_concurrent_blob_syncs_during_recovery;
         }
 
-        let (_sui_cluster, walrus_cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
+        let (_sui_cluster, walrus_cluster, client, _, _) = test_cluster::E2eTestSetupBuilder::new()
             .with_epoch_duration(Duration::from_secs(30))
             .with_test_nodes_config(
                 TestNodesConfig::builder()
@@ -776,24 +776,25 @@ mod tests {
     #[walrus_simtest]
     async fn test_checkpoint_downloader_with_additional_fullnodes() {
         let checkpoints_per_event_blob = 20;
-        let (sui_cluster, mut walrus_cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
-            .with_epoch_duration(Duration::from_secs(15))
-            .with_test_nodes_config(
-                TestNodesConfig::builder()
-                    .with_node_weights(&[2, 2, 3, 3, 3])
-                    .with_enable_event_blob_writer()
-                    .build(),
-            )
-            .with_num_checkpoints_per_blob(checkpoints_per_event_blob)
-            .with_communication_config(
-                ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
-                    Duration::from_secs(2),
-                ),
-            )
-            .with_additional_fullnodes(4)
-            .build_generic::<SimStorageNodeHandle>()
-            .await
-            .unwrap();
+        let (sui_cluster, mut walrus_cluster, client, _, _) =
+            test_cluster::E2eTestSetupBuilder::new()
+                .with_epoch_duration(Duration::from_secs(15))
+                .with_test_nodes_config(
+                    TestNodesConfig::builder()
+                        .with_node_weights(&[2, 2, 3, 3, 3])
+                        .with_enable_event_blob_writer()
+                        .build(),
+                )
+                .with_num_checkpoints_per_blob(checkpoints_per_event_blob)
+                .with_communication_config(
+                    ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
+                        Duration::from_secs(2),
+                    ),
+                )
+                .with_additional_fullnodes(4)
+                .build_generic::<SimStorageNodeHandle>()
+                .await
+                .unwrap();
 
         // Register a fail point that will fail the first attempt.
         sui_macros::register_fail_point_if("fallback_client_inject_error", move || true);

@@ -47,6 +47,7 @@ use routes::{
 };
 pub use routes::{PublisherQuery, QuiltPatchItem};
 use sui_types::base_types::ObjectID;
+use tokio_util::sync::CancellationToken;
 use tower::{
     ServiceBuilder,
     buffer::BufferLayer,
@@ -524,6 +525,47 @@ impl<T: WalrusReadClient + Send + Sync + 'static> ClientDaemon<T> {
         .with_graceful_shutdown(async {
             let _ = tokio::signal::ctrl_c().await;
         })
+        .await
+    }
+
+    /// Runs the daemon with cancellation support and readiness signaling for tests.
+    ///
+    /// This method is intended for use in tests where:
+    /// - Graceful shutdown is controlled via `cancel_token`
+    /// - The caller needs to know when the server is ready to accept connections
+    ///
+    /// The `ready_tx` sender is used to signal that the TCP listener has bound
+    /// and the server is ready to accept connections. The actual bound address
+    /// is sent, which may differ from the requested address if port 0 was used.
+    pub async fn run_for_testing(
+        self,
+        cancel_token: CancellationToken,
+        ready_tx: tokio::sync::oneshot::Sender<SocketAddr>,
+    ) -> Result<(), std::io::Error> {
+        let listener = tokio::net::TcpListener::bind(self.network_address).await?;
+        let local_addr = listener.local_addr()?;
+        tracing::info!(address = %local_addr, "the client daemon is starting");
+
+        // Signal that we're ready to accept connections
+        let _ = ready_tx.send(local_addr);
+
+        let request_layers = ServiceBuilder::new()
+            .layer(middleware::from_fn_with_state(
+                self.metrics.clone(),
+                metrics_middleware,
+            ))
+            .layer(
+                TraceLayer::new_for_http()
+                    .make_span_with(MakeHttpSpan::new())
+                    .on_response(MakeHttpSpan::new()),
+            )
+            .layer(daemon_cors_layer());
+
+        axum::serve(
+            listener,
+            self.router.with_state(self.client).layer(request_layers),
+        )
+        .with_graceful_shutdown(cancel_token.cancelled_owned())
         .await
     }
 }

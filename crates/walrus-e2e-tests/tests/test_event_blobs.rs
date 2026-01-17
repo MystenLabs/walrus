@@ -19,7 +19,7 @@ use walrus_sui::client::ReadClient;
 #[tokio::test]
 #[ignore = "ignore E2E tests by default"]
 async fn test_event_blobs() -> anyhow::Result<()> {
-    let (_sui_cluster, _cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
+    let (_sui_cluster, _cluster, client, _, _) = test_cluster::E2eTestSetupBuilder::new()
         .with_test_nodes_config(
             TestNodesConfig::builder()
                 .with_node_weights(&[2, 2])
@@ -80,7 +80,7 @@ async fn test_event_blobs() -> anyhow::Result<()> {
 #[tokio::test]
 #[ignore = "ignore E2E tests by default"]
 async fn test_disabled_event_blob_writer() -> anyhow::Result<()> {
-    let (_sui_cluster, _cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
+    let (_sui_cluster, _cluster, client, _, _) = test_cluster::E2eTestSetupBuilder::new()
         .with_test_nodes_config(
             TestNodesConfig::builder()
                 .with_node_weights(&[1, 1])

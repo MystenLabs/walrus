@@ -103,7 +103,7 @@ mod tests {
 
         let blob_info_consistency_check = BlobInfoConsistencyCheck::new();
 
-        let (_sui_cluster, _cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
+        let (_sui_cluster, _cluster, client, _, _) = test_cluster::E2eTestSetupBuilder::new()
             .with_test_nodes_config(
                 TestNodesConfig::builder()
                     .with_node_weights(&[1, 2, 3, 3, 4])
@@ -165,7 +165,7 @@ mod tests {
         // We use a very short epoch duration of 60 seconds so that we can exercise more epoch
         // changes in the test.
         let mut node_weights = vec![2, 2, 3, 3, 3];
-        let (_sui_cluster, walrus_cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
+        let (_sui_cluster, walrus_cluster, client, _, _) = test_cluster::E2eTestSetupBuilder::new()
             .with_epoch_duration(Duration::from_secs(30))
             .with_test_nodes_config(
                 TestNodesConfig::builder()
@@ -286,7 +286,7 @@ mod tests {
                 max_concurrent_blob_syncs_during_recovery;
         }
 
-        let (_sui_cluster, mut walrus_cluster, client, _) =
+        let (_sui_cluster, mut walrus_cluster, client, _, _) =
             test_cluster::E2eTestSetupBuilder::new()
                 .with_epoch_duration(Duration::from_secs(30))
                 .with_test_nodes_config(
@@ -503,7 +503,7 @@ mod tests {
             });
         }
 
-        let (_sui_cluster, mut walrus_cluster, client, _) =
+        let (_sui_cluster, mut walrus_cluster, client, _, _) =
             test_cluster::E2eTestSetupBuilder::new()
                 .with_epoch_duration(EPOCH_DURATION)
                 .with_max_epochs_ahead(MAX_EPOCHS_AHEAD)
@@ -672,7 +672,7 @@ mod tests {
         blob_2_deletable: bool,
     ) {
         const EPOCH_DURATION: Duration = Duration::from_secs(30);
-        let (_sui_cluster, walrus_cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
+        let (_sui_cluster, walrus_cluster, client, _, _) = test_cluster::E2eTestSetupBuilder::new()
             .with_epoch_duration(EPOCH_DURATION)
             .with_test_nodes_config(
                 TestNodesConfig::builder()
@@ -794,7 +794,7 @@ mod tests {
                 max_concurrent_blob_syncs_during_recovery;
         }
 
-        let (_sui_cluster, walrus_cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
+        let (_sui_cluster, walrus_cluster, client, _, _) = test_cluster::E2eTestSetupBuilder::new()
             .with_epoch_duration(Duration::from_secs(30))
             .with_test_nodes_config(
                 TestNodesConfig::builder()
@@ -895,7 +895,7 @@ mod tests {
             .await;
         });
 
-        let (_sui_cluster, walrus_cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
+        let (_sui_cluster, walrus_cluster, client, _, _) = test_cluster::E2eTestSetupBuilder::new()
             .with_test_nodes_config(
                 TestNodesConfig::builder()
                     .with_node_weights(&[1, 2, 3, 3, 4])
@@ -959,7 +959,7 @@ mod tests {
     #[ignore = "ignore integration simtests by default"]
     #[walrus_simtest]
     async fn test_recovery_in_progress_with_node_restart() {
-        let (_sui_cluster, walrus_cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
+        let (_sui_cluster, walrus_cluster, client, _, _) = test_cluster::E2eTestSetupBuilder::new()
             .with_epoch_duration(Duration::from_secs(30))
             .with_test_nodes_config(
                 TestNodesConfig::builder()
@@ -1089,7 +1089,7 @@ mod tests {
         walrus_test_utils::init_tracing();
         let deploy_dir = tempfile::TempDir::new().unwrap();
         let epoch_duration = Duration::from_secs(30);
-        let (_sui_cluster_handle, mut walrus_cluster, client, system_ctx) =
+        let (_sui_cluster_handle, mut walrus_cluster, client, system_ctx, _) =
             test_cluster::E2eTestSetupBuilder::new()
                 .with_deploy_directory(deploy_dir.path().to_path_buf())
                 .with_delegate_governance_to_admin_wallet()
@@ -1336,7 +1336,7 @@ mod tests {
             ))
         };
 
-        let (_sui_cluster, cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
+        let (_sui_cluster, cluster, client, _, _) = test_cluster::E2eTestSetupBuilder::new()
             .with_test_nodes_config(
                 TestNodesConfig::builder()
                     .with_node_weights(&[10; 7])
@@ -1444,7 +1444,7 @@ mod tests {
     async fn test_single_client_workload() {
         let blob_info_consistency_check = BlobInfoConsistencyCheck::new();
 
-        let (_sui_cluster, _cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
+        let (_sui_cluster, _cluster, client, _, _) = test_cluster::E2eTestSetupBuilder::new()
             .with_test_nodes_config(
                 TestNodesConfig::builder()
                     .with_node_weights(&[1, 2, 3, 3, 4])

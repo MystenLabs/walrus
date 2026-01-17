@@ -192,7 +192,7 @@ mod tests {
     //#[ignore = "ignore integration simtests by default"]
     #[walrus_simtest]
     async fn test_event_blob_fork_recovery() {
-        let (_sui_cluster, mut walrus_cluster, client, _) =
+        let (_sui_cluster, mut walrus_cluster, client, _, _) =
             test_cluster::E2eTestSetupBuilder::new()
                 .with_epoch_duration(Duration::from_secs(15))
                 .with_test_nodes_config(
@@ -248,7 +248,7 @@ mod tests {
     #[ignore = "ignore integration simtests by default"]
     #[walrus_simtest]
     async fn test_event_blob_local_fork_recovery() {
-        let (_sui_cluster, mut walrus_cluster, client, _) =
+        let (_sui_cluster, mut walrus_cluster, client, _, _) =
             test_cluster::E2eTestSetupBuilder::new()
                 .with_epoch_duration(Duration::from_secs(15))
                 .with_test_nodes_config(
@@ -302,7 +302,7 @@ mod tests {
     async fn test_runtime_catchup_triggers_on_tailing_pause() {
         use walrus_service::client::ClientCommunicationConfig;
 
-        let (_sui_cluster, mut walrus_cluster, client, _) =
+        let (_sui_cluster, mut walrus_cluster, client, _, _) =
             test_cluster::E2eTestSetupBuilder::new()
                 .with_epoch_duration(Duration::from_secs(15))
                 .with_num_checkpoints_per_blob(20)
