@@ -400,7 +400,7 @@ impl CommunicationLimits {
         concurrency
     }
 
-    /// This computes the maximum number of concurrent sliver writes based on the unencoded blob
+    /// This computes the maximum number of concurrent sliver reads based on the unencoded blob
     /// size.
     ///
     /// This applies two limits:
