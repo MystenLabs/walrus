@@ -260,6 +260,23 @@ pub enum CliCommands {
         #[arg(long, num_args = 0.., conflicts_with = "paths")]
         #[serde(default)]
         blobs: Vec<QuiltBlobInput>,
+        /// Path to write the quilt blob to a local file.
+        /// When provided, the quilt is written to disk instead of uploading to Walrus.
+        #[arg(long)]
+        #[serde(
+            default,
+            deserialize_with = "walrus_utils::config::resolve_home_dir_option"
+        )]
+        file: Option<PathBuf>,
+        /// The number of shards (required when using --file for fully offline operation,
+        /// otherwise read from chain).
+        #[arg(long)]
+        #[serde(default)]
+        n_shards: Option<NonZeroU16>,
+        /// The URL of the Sui RPC node to use (only needed when using --file without --n-shards).
+        #[command(flatten)]
+        #[serde(flatten)]
+        rpc_arg: RpcArg,
         /// Common options shared between store and store-quilt commands.
         #[command(flatten)]
         #[serde(flatten)]

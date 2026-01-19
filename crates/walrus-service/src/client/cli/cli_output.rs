@@ -68,6 +68,7 @@ use crate::client::{
         StakeOutput,
         StorageNodeInfo,
         StoreQuiltDryRunOutput,
+        StoreQuiltToFileOutput,
         WalletOutput,
     },
 };
@@ -324,6 +325,27 @@ impl CliOutput for StoreQuiltDryRunOutput {
         construct_stored_quilt_patch_table(&client_types::get_stored_quilt_patches(
             &self.quilt_index,
             self.quilt_blob_output.blob_id,
+        ))
+        .printstd();
+    }
+}
+
+impl CliOutput for StoreQuiltToFileOutput {
+    fn print_cli_output(&self) {
+        printdoc!(
+            "{} Quilt written to file
+            Quilt blob ID: {}
+            Unencoded size: {}
+            Written to: {}
+            ",
+            success(),
+            self.blob_id,
+            HumanReadableBytes(self.unencoded_size),
+            self.file.display(),
+        );
+        construct_stored_quilt_patch_table(&client_types::get_stored_quilt_patches(
+            &self.quilt_index,
+            self.blob_id,
         ))
         .printstd();
     }

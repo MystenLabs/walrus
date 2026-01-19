@@ -35,7 +35,15 @@ use walrus_core::{
         EncodingFactory as _,
         Primary,
         encoded_blob_length_for_n_shards,
-        quilt_encoding::{QuiltApi, QuiltStoreBlob, QuiltV1, QuiltVersionV1},
+        quilt_encoding::{
+            QuiltApi,
+            QuiltConfigApi,
+            QuiltEncoderApi,
+            QuiltStoreBlob,
+            QuiltV1,
+            QuiltVersion,
+            QuiltVersionV1,
+        },
     },
     ensure,
     metadata::{BlobMetadataApi as _, QuiltIndex},
@@ -156,6 +164,7 @@ use crate::{
             ShareBlobOutput,
             StakeOutput,
             StoreQuiltDryRunOutput,
+            StoreQuiltToFileOutput,
             WalletOutput,
         },
     },
@@ -336,10 +345,25 @@ impl ClientCommandRunner {
             CliCommands::StoreQuilt {
                 paths,
                 blobs,
+                file,
+                n_shards,
+                rpc_arg: RpcArg { rpc_url },
                 common_options,
             } => {
-                self.store_quilt(paths, blobs, common_options.try_into()?)
+                if let Some(file_path) = file {
+                    self.store_quilt_to_file(
+                        paths,
+                        blobs,
+                        file_path,
+                        n_shards,
+                        common_options.encoding_type,
+                        rpc_url,
+                    )
                     .await
+                } else {
+                    self.store_quilt(paths, blobs, common_options.try_into()?)
+                        .await
+                }
             }
 
             CliCommands::BlobStatus {
@@ -1500,6 +1524,74 @@ impl ClientCommandRunner {
         } else {
             anyhow::bail!("either paths or blob_inputs must be provided");
         }
+    }
+
+    /// Writes a quilt to a local file instead of uploading to Walrus.
+    async fn store_quilt_to_file(
+        self,
+        paths: Vec<PathBuf>,
+        blobs: Vec<QuiltBlobInput>,
+        file: PathBuf,
+        n_shards: Option<NonZeroU16>,
+        encoding_type: Option<EncodingType>,
+        rpc_url: Option<String>,
+    ) -> Result<()> {
+        // Get n_shards either from the argument or from the chain
+        let n_shards = match n_shards {
+            Some(n) => n,
+            None => {
+                let config = match self.config.as_ref() {
+                    Ok(config) => config,
+                    Err(e) => bail!("failed to load client config: {e}"),
+                };
+                let sui_read_client =
+                    get_sui_read_client_from_rpc_node_or_wallet(config, rpc_url, self.wallet)
+                        .await?;
+                tracing::debug!("reading `n_shards` from chain");
+                sui_read_client.current_committee().await?.n_shards()
+            }
+        };
+
+        // Load blobs from paths/blob inputs
+        let quilt_store_blobs = Self::load_blobs_for_quilt(&paths, blobs)?;
+
+        // Create encoding config and construct quilt
+        let encoding_type = encoding_type.unwrap_or(DEFAULT_ENCODING);
+        let encoding_config = EncodingConfig::new(n_shards).get_for_type(encoding_type);
+
+        // Construct the quilt using the encoder directly
+        let encoder = <QuiltVersionV1 as QuiltVersion>::QuiltConfig::get_encoder(
+            encoding_config,
+            &quilt_store_blobs,
+        );
+        let quilt = encoder.construct_quilt()?;
+
+        // Compute metadata to get blob ID
+        let encoding_config = EncodingConfig::new(n_shards).get_for_type(encoding_type);
+        let metadata = encoding_config.compute_metadata(quilt.data())?;
+        let blob_id = *metadata.blob_id();
+        let unencoded_size = metadata.metadata().unencoded_length();
+        let quilt_index = quilt.quilt_index()?.clone();
+
+        // Write quilt data to file
+        std::fs::write(&file, quilt.data())
+            .with_context(|| format!("failed to write quilt to file: {}", file.display()))?;
+
+        tracing::info!(
+            %blob_id,
+            unencoded_size,
+            "quilt written to file: {}",
+            file.display()
+        );
+
+        let output = StoreQuiltToFileOutput {
+            file,
+            blob_id,
+            unencoded_size,
+            quilt_index: QuiltIndex::V1(quilt_index),
+        };
+
+        output.print_output(self.json)
     }
 
     /// Performs a dry run of storing a quilt.
