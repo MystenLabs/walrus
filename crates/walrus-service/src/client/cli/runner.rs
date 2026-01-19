@@ -12,7 +12,7 @@ use std::{
     time::Duration,
 };
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use chrono::{DateTime, Utc};
 use fastcrypto::encoding::Encoding;
 use itertools::Itertools as _;
@@ -35,10 +35,18 @@ use walrus_core::{
         EncodingFactory as _,
         Primary,
         encoded_blob_length_for_n_shards,
-        quilt_encoding::{QuiltApi, QuiltStoreBlob, QuiltVersionV1},
+        quilt_encoding::{
+            QuiltApi,
+            QuiltConfigApi,
+            QuiltEncoderApi,
+            QuiltStoreBlob,
+            QuiltV1,
+            QuiltVersion,
+            QuiltVersionV1,
+        },
     },
     ensure,
-    metadata::{BlobMetadataApi as _, QuiltIndex},
+    metadata::{BlobMetadataApi as _, QuiltIndex, QuiltMetadata, QuiltMetadataV1},
 };
 use walrus_sdk::{
     SuiReadClient,
@@ -111,6 +119,7 @@ use crate::{
             CliOutput,
             HumanReadableFrost,
             HumanReadableMist,
+            LocalFileQuiltQuery,
             QuiltBlobInput,
             QuiltPatchByIdentifier,
             QuiltPatchByPatchId,
@@ -155,6 +164,7 @@ use crate::{
             ShareBlobOutput,
             StakeOutput,
             StoreQuiltDryRunOutput,
+            StoreQuiltToFileOutput,
             WalletOutput,
         },
     },
@@ -309,14 +319,35 @@ impl ClientCommandRunner {
                 out,
                 rpc_arg: RpcArg { rpc_url },
             } => {
-                self.read_quilt(quilt_patch_query.into_selector()?, out, rpc_url)
-                    .await
+                if let Some(file_path) = quilt_patch_query.file.clone() {
+                    // Read from local file
+                    let n_shards = quilt_patch_query.n_shards;
+                    let query = quilt_patch_query.into_local_file_query()?;
+                    self.read_quilt_from_file(file_path, n_shards, query, out, rpc_url)
+                        .await
+                } else {
+                    // Fetch from network
+                    self.read_quilt(quilt_patch_query.into_selector()?, out, rpc_url)
+                        .await
+                }
             }
 
             CliCommands::ListPatchesInQuilt {
                 quilt_id,
+                file,
+                n_shards,
                 rpc_arg: RpcArg { rpc_url },
-            } => self.list_patches_in_quilt(quilt_id, rpc_url).await,
+            } => {
+                if let Some(file_path) = file {
+                    self.list_patches_in_quilt_from_file(file_path, n_shards, rpc_url)
+                        .await
+                } else {
+                    let quilt_id = quilt_id.ok_or_else(|| {
+                        anyhow::anyhow!("either --file or quilt_id must be provided")
+                    })?;
+                    self.list_patches_in_quilt(quilt_id, rpc_url).await
+                }
+            }
 
             CliCommands::Store {
                 files,
@@ -326,10 +357,25 @@ impl ClientCommandRunner {
             CliCommands::StoreQuilt {
                 paths,
                 blobs,
+                file,
+                n_shards,
+                rpc_arg: RpcArg { rpc_url },
                 common_options,
             } => {
-                self.store_quilt(paths, blobs, common_options.try_into()?)
+                if let Some(file_path) = file {
+                    self.store_quilt_to_file(
+                        paths,
+                        blobs,
+                        file_path,
+                        n_shards,
+                        common_options.encoding_type,
+                        rpc_url,
+                    )
                     .await
+                } else {
+                    self.store_quilt(paths, blobs, common_options.try_into()?)
+                        .await
+                }
             }
 
             CliCommands::BlobStatus {
@@ -706,6 +752,74 @@ impl ClientCommandRunner {
         ReadQuiltOutput::new(out.clone(), retrieved_blobs).print_output(self.json)
     }
 
+    /// Reads quilt patches from a local file instead of fetching from the network.
+    pub(crate) async fn read_quilt_from_file(
+        self,
+        file: PathBuf,
+        n_shards: Option<NonZeroU16>,
+        query: LocalFileQuiltQuery,
+        out: Option<PathBuf>,
+        rpc_url: Option<String>,
+    ) -> Result<()> {
+        // Get n_shards either from the argument or from the chain
+        let n_shards = match n_shards {
+            Some(n) => n,
+            None => {
+                let config = match self.config.as_ref() {
+                    Ok(config) => config,
+                    Err(e) => bail!("failed to load client config: {e}"),
+                };
+                let sui_read_client =
+                    get_sui_read_client_from_rpc_node_or_wallet(config, rpc_url, self.wallet)
+                        .await?;
+                tracing::debug!("reading `n_shards` from chain");
+                sui_read_client.current_committee().await?.n_shards()
+            }
+        };
+
+        // Read the quilt blob from the file
+        let quilt_blob = read_blob_from_file(&file)?;
+        tracing::info!(
+            "read quilt blob from file: {} ({} bytes)",
+            file.display(),
+            quilt_blob.len()
+        );
+
+        // Create the encoding config and parse the quilt
+        let encoding_config = EncodingConfig::new(n_shards).get_for_type(DEFAULT_ENCODING);
+        let quilt =
+            QuiltV1::new_from_quilt_blob(quilt_blob, encoding_config).with_context(|| {
+                format!(
+                    "failed to parse quilt from file: {}. \
+                    Make sure the file contains valid quilt data and n_shards ({}) is correct.",
+                    file.display(),
+                    n_shards
+                )
+            })?;
+
+        // Query the blobs based on the query type
+        let mut retrieved_blobs = match query {
+            LocalFileQuiltQuery::ByIdentifiers(identifiers) => {
+                let ids: Vec<&str> = identifiers.iter().map(|s| s.as_str()).collect();
+                quilt.get_blobs_by_identifiers(&ids)?
+            }
+            LocalFileQuiltQuery::ByTag { tag, value } => quilt.get_blobs_by_tag(&tag, &value)?,
+            LocalFileQuiltQuery::ByPatchIds(patch_ids) => patch_ids
+                .iter()
+                .map(|id| quilt.get_blob_by_patch_internal_id(id))
+                .collect::<Result<Vec<_>, _>>()?,
+            LocalFileQuiltQuery::All => quilt.get_all_blobs()?,
+        };
+
+        tracing::info!("retrieved {} blobs from quilt file", retrieved_blobs.len());
+
+        if let Some(out) = out.as_ref() {
+            Self::write_blobs_dedup(&mut retrieved_blobs, out)?;
+        }
+
+        ReadQuiltOutput::new(out.clone(), retrieved_blobs).print_output(self.json)
+    }
+
     pub(crate) async fn list_patches_in_quilt(
         self,
         quilt_id: BlobId,
@@ -723,6 +837,63 @@ impl ClientCommandRunner {
         quilt_metadata.print_output(self.json)?;
 
         Ok(())
+    }
+
+    /// Lists patches in a quilt from a local file instead of fetching from the network.
+    pub(crate) async fn list_patches_in_quilt_from_file(
+        self,
+        file: PathBuf,
+        n_shards: Option<NonZeroU16>,
+        rpc_url: Option<String>,
+    ) -> Result<()> {
+        // Get n_shards either from the argument or from the chain
+        let n_shards = match n_shards {
+            Some(n) => n,
+            None => {
+                let config = match self.config.as_ref() {
+                    Ok(config) => config,
+                    Err(e) => bail!("failed to load client config: {e}"),
+                };
+                let sui_read_client =
+                    get_sui_read_client_from_rpc_node_or_wallet(config, rpc_url, self.wallet)
+                        .await?;
+                tracing::debug!("reading `n_shards` from chain");
+                sui_read_client.current_committee().await?.n_shards()
+            }
+        };
+
+        // Read the quilt blob from the file
+        let quilt_blob = read_blob_from_file(&file)?;
+        tracing::info!(
+            "read quilt blob from file: {} ({} bytes)",
+            file.display(),
+            quilt_blob.len()
+        );
+
+        // Create the encoding config and parse the quilt
+        let encoding_config = EncodingConfig::new(n_shards).get_for_type(DEFAULT_ENCODING);
+        let quilt =
+            QuiltV1::new_from_quilt_blob(quilt_blob, encoding_config).with_context(|| {
+                format!(
+                    "failed to parse quilt from file: {}. \
+                    Make sure the file contains valid quilt data and n_shards ({}) is correct.",
+                    file.display(),
+                    n_shards
+                )
+            })?;
+
+        // Compute metadata to get blob_id
+        let metadata = encoding_config.compute_metadata(quilt.data())?;
+        let blob_id = *metadata.blob_id();
+
+        // Build QuiltMetadataV1 from the parsed quilt
+        let quilt_metadata = QuiltMetadataV1 {
+            quilt_id: blob_id,
+            metadata: metadata.metadata().clone(),
+            index: quilt.quilt_index()?.clone(),
+        };
+
+        QuiltMetadata::V1(quilt_metadata).print_output(self.json)
     }
 
     // TODO(WAL-1098): Refactor this function and reduce duplication with `store_quilt`.
@@ -1422,6 +1593,74 @@ impl ClientCommandRunner {
         } else {
             anyhow::bail!("either paths or blob_inputs must be provided");
         }
+    }
+
+    /// Writes a quilt to a local file instead of uploading to Walrus.
+    async fn store_quilt_to_file(
+        self,
+        paths: Vec<PathBuf>,
+        blobs: Vec<QuiltBlobInput>,
+        file: PathBuf,
+        n_shards: Option<NonZeroU16>,
+        encoding_type: Option<EncodingType>,
+        rpc_url: Option<String>,
+    ) -> Result<()> {
+        // Get n_shards either from the argument or from the chain
+        let n_shards = match n_shards {
+            Some(n) => n,
+            None => {
+                let config = match self.config.as_ref() {
+                    Ok(config) => config,
+                    Err(e) => bail!("failed to load client config: {e}"),
+                };
+                let sui_read_client =
+                    get_sui_read_client_from_rpc_node_or_wallet(config, rpc_url, self.wallet)
+                        .await?;
+                tracing::debug!("reading `n_shards` from chain");
+                sui_read_client.current_committee().await?.n_shards()
+            }
+        };
+
+        // Load blobs from paths/blob inputs
+        let quilt_store_blobs = Self::load_blobs_for_quilt(&paths, blobs)?;
+
+        // Create encoding config and construct quilt
+        let encoding_type = encoding_type.unwrap_or(DEFAULT_ENCODING);
+        let encoding_config = EncodingConfig::new(n_shards).get_for_type(encoding_type);
+
+        // Construct the quilt using the encoder directly
+        let encoder = <QuiltVersionV1 as QuiltVersion>::QuiltConfig::get_encoder(
+            encoding_config,
+            &quilt_store_blobs,
+        );
+        let quilt = encoder.construct_quilt()?;
+
+        // Compute metadata to get blob ID
+        let encoding_config = EncodingConfig::new(n_shards).get_for_type(encoding_type);
+        let metadata = encoding_config.compute_metadata(quilt.data())?;
+        let blob_id = *metadata.blob_id();
+        let unencoded_size = metadata.metadata().unencoded_length();
+        let quilt_index = quilt.quilt_index()?.clone();
+
+        // Write quilt data to file
+        std::fs::write(&file, quilt.data())
+            .with_context(|| format!("failed to write quilt to file: {}", file.display()))?;
+
+        tracing::info!(
+            %blob_id,
+            unencoded_size,
+            "quilt written to file: {}",
+            file.display()
+        );
+
+        let output = StoreQuiltToFileOutput {
+            file,
+            blob_id,
+            unencoded_size,
+            quilt_index: QuiltIndex::V1(quilt_index),
+        };
+
+        output.print_output(self.json)
     }
 
     /// Performs a dry run of storing a quilt.
