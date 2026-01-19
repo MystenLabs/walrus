@@ -46,7 +46,7 @@ use walrus_core::{
         },
     },
     ensure,
-    metadata::{BlobMetadataApi as _, QuiltIndex},
+    metadata::{BlobMetadataApi as _, QuiltIndex, QuiltMetadata, QuiltMetadataV1},
 };
 use walrus_sdk::{
     SuiReadClient,
@@ -334,8 +334,20 @@ impl ClientCommandRunner {
 
             CliCommands::ListPatchesInQuilt {
                 quilt_id,
+                file,
+                n_shards,
                 rpc_arg: RpcArg { rpc_url },
-            } => self.list_patches_in_quilt(quilt_id, rpc_url).await,
+            } => {
+                if let Some(file_path) = file {
+                    self.list_patches_in_quilt_from_file(file_path, n_shards, rpc_url)
+                        .await
+                } else {
+                    let quilt_id = quilt_id.ok_or_else(|| {
+                        anyhow::anyhow!("either --file or quilt_id must be provided")
+                    })?;
+                    self.list_patches_in_quilt(quilt_id, rpc_url).await
+                }
+            }
 
             CliCommands::Store {
                 files,
@@ -825,6 +837,63 @@ impl ClientCommandRunner {
         quilt_metadata.print_output(self.json)?;
 
         Ok(())
+    }
+
+    /// Lists patches in a quilt from a local file instead of fetching from the network.
+    pub(crate) async fn list_patches_in_quilt_from_file(
+        self,
+        file: PathBuf,
+        n_shards: Option<NonZeroU16>,
+        rpc_url: Option<String>,
+    ) -> Result<()> {
+        // Get n_shards either from the argument or from the chain
+        let n_shards = match n_shards {
+            Some(n) => n,
+            None => {
+                let config = match self.config.as_ref() {
+                    Ok(config) => config,
+                    Err(e) => bail!("failed to load client config: {e}"),
+                };
+                let sui_read_client =
+                    get_sui_read_client_from_rpc_node_or_wallet(config, rpc_url, self.wallet)
+                        .await?;
+                tracing::debug!("reading `n_shards` from chain");
+                sui_read_client.current_committee().await?.n_shards()
+            }
+        };
+
+        // Read the quilt blob from the file
+        let quilt_blob = read_blob_from_file(&file)?;
+        tracing::info!(
+            "read quilt blob from file: {} ({} bytes)",
+            file.display(),
+            quilt_blob.len()
+        );
+
+        // Create the encoding config and parse the quilt
+        let encoding_config = EncodingConfig::new(n_shards).get_for_type(DEFAULT_ENCODING);
+        let quilt =
+            QuiltV1::new_from_quilt_blob(quilt_blob, encoding_config).with_context(|| {
+                format!(
+                    "failed to parse quilt from file: {}. \
+                    Make sure the file contains valid quilt data and n_shards ({}) is correct.",
+                    file.display(),
+                    n_shards
+                )
+            })?;
+
+        // Compute metadata to get blob_id
+        let metadata = encoding_config.compute_metadata(quilt.data())?;
+        let blob_id = *metadata.blob_id();
+
+        // Build QuiltMetadataV1 from the parsed quilt
+        let quilt_metadata = QuiltMetadataV1 {
+            quilt_id: blob_id,
+            metadata: metadata.metadata().clone(),
+            index: quilt.quilt_index()?.clone(),
+        };
+
+        QuiltMetadata::V1(quilt_metadata).print_output(self.json)
     }
 
     // TODO(WAL-1098): Refactor this function and reduce duplication with `store_quilt`.

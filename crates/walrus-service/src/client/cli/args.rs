@@ -350,10 +350,26 @@ pub enum CliCommands {
     /// List the blobs in a quilt.
     #[command(alias("resolve-quilt"))]
     ListPatchesInQuilt {
-        /// The quilt ID to be inspected.
-        #[serde_as(as = "DisplayFromStr")]
+        /// The quilt ID to be inspected (required when fetching from network).
+        #[serde_as(as = "Option<DisplayFromStr>")]
         #[arg(allow_hyphen_values = true, value_parser = parse_blob_id)]
-        quilt_id: BlobId,
+        quilt_id: Option<BlobId>,
+
+        /// Path to a local quilt file to read from.
+        /// When provided, reads from disk instead of fetching from the network.
+        #[arg(long)]
+        #[serde(
+            default,
+            deserialize_with = "walrus_utils::config::resolve_home_dir_option"
+        )]
+        file: Option<PathBuf>,
+
+        /// The number of shards (required when using --file for fully offline operation,
+        /// otherwise read from chain).
+        #[arg(long)]
+        #[serde(default)]
+        n_shards: Option<NonZeroU16>,
+
         /// The URL of the Sui RPC node to use.
         #[command(flatten)]
         #[serde(flatten)]
