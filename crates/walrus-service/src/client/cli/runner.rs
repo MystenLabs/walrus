@@ -12,7 +12,7 @@ use std::{
     time::Duration,
 };
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use chrono::{DateTime, Utc};
 use fastcrypto::encoding::Encoding;
 use itertools::Itertools as _;
@@ -35,7 +35,7 @@ use walrus_core::{
         EncodingFactory as _,
         Primary,
         encoded_blob_length_for_n_shards,
-        quilt_encoding::{QuiltApi, QuiltStoreBlob, QuiltVersionV1},
+        quilt_encoding::{QuiltApi, QuiltStoreBlob, QuiltV1, QuiltVersionV1},
     },
     ensure,
     metadata::{BlobMetadataApi as _, QuiltIndex},
@@ -111,6 +111,7 @@ use crate::{
             CliOutput,
             HumanReadableFrost,
             HumanReadableMist,
+            LocalFileQuiltQuery,
             QuiltBlobInput,
             QuiltPatchByIdentifier,
             QuiltPatchByPatchId,
@@ -309,8 +310,17 @@ impl ClientCommandRunner {
                 out,
                 rpc_arg: RpcArg { rpc_url },
             } => {
-                self.read_quilt(quilt_patch_query.into_selector()?, out, rpc_url)
-                    .await
+                if let Some(file_path) = quilt_patch_query.file.clone() {
+                    // Read from local file
+                    let n_shards = quilt_patch_query.n_shards;
+                    let query = quilt_patch_query.into_local_file_query()?;
+                    self.read_quilt_from_file(file_path, n_shards, query, out, rpc_url)
+                        .await
+                } else {
+                    // Fetch from network
+                    self.read_quilt(quilt_patch_query.into_selector()?, out, rpc_url)
+                        .await
+                }
             }
 
             CliCommands::ListPatchesInQuilt {
@@ -698,6 +708,74 @@ impl ClientCommandRunner {
         };
 
         tracing::info!("retrieved {} blobs from quilt", retrieved_blobs.len());
+
+        if let Some(out) = out.as_ref() {
+            Self::write_blobs_dedup(&mut retrieved_blobs, out)?;
+        }
+
+        ReadQuiltOutput::new(out.clone(), retrieved_blobs).print_output(self.json)
+    }
+
+    /// Reads quilt patches from a local file instead of fetching from the network.
+    pub(crate) async fn read_quilt_from_file(
+        self,
+        file: PathBuf,
+        n_shards: Option<NonZeroU16>,
+        query: LocalFileQuiltQuery,
+        out: Option<PathBuf>,
+        rpc_url: Option<String>,
+    ) -> Result<()> {
+        // Get n_shards either from the argument or from the chain
+        let n_shards = match n_shards {
+            Some(n) => n,
+            None => {
+                let config = match self.config.as_ref() {
+                    Ok(config) => config,
+                    Err(e) => bail!("failed to load client config: {e}"),
+                };
+                let sui_read_client =
+                    get_sui_read_client_from_rpc_node_or_wallet(config, rpc_url, self.wallet)
+                        .await?;
+                tracing::debug!("reading `n_shards` from chain");
+                sui_read_client.current_committee().await?.n_shards()
+            }
+        };
+
+        // Read the quilt blob from the file
+        let quilt_blob = read_blob_from_file(&file)?;
+        tracing::info!(
+            "read quilt blob from file: {} ({} bytes)",
+            file.display(),
+            quilt_blob.len()
+        );
+
+        // Create the encoding config and parse the quilt
+        let encoding_config = EncodingConfig::new(n_shards).get_for_type(DEFAULT_ENCODING);
+        let quilt =
+            QuiltV1::new_from_quilt_blob(quilt_blob, encoding_config).with_context(|| {
+                format!(
+                    "failed to parse quilt from file: {}. \
+                    Make sure the file contains valid quilt data and n_shards ({}) is correct.",
+                    file.display(),
+                    n_shards
+                )
+            })?;
+
+        // Query the blobs based on the query type
+        let mut retrieved_blobs = match query {
+            LocalFileQuiltQuery::ByIdentifiers(identifiers) => {
+                let ids: Vec<&str> = identifiers.iter().map(|s| s.as_str()).collect();
+                quilt.get_blobs_by_identifiers(&ids)?
+            }
+            LocalFileQuiltQuery::ByTag { tag, value } => quilt.get_blobs_by_tag(&tag, &value)?,
+            LocalFileQuiltQuery::ByPatchIds(patch_ids) => patch_ids
+                .iter()
+                .map(|id| quilt.get_blob_by_patch_internal_id(id))
+                .collect::<Result<Vec<_>, _>>()?,
+            LocalFileQuiltQuery::All => quilt.get_all_blobs()?,
+        };
+
+        tracing::info!("retrieved {} blobs from quilt file", retrieved_blobs.len());
 
         if let Some(out) = out.as_ref() {
             Self::write_blobs_dedup(&mut retrieved_blobs, out)?;
