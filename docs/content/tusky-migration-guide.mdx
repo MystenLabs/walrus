@@ -38,7 +38,7 @@ During this sunset period, you must:
 
 ## Important note on encryption (applies to all migration options)
 
-Tusky supports self-hosted keys and keys supplied by the user but [stored on Tusky and password protected](https://github.com/tusky-io/ts-sdk?tab=readme-ov-file#encryption). They implement server-side encryption and decryption of blobs with those keys, which means that a user or app client does not need to do the actual encryption or decryption on their end. 
+Tusky supports self-hosted keys and keys supplied by the user but [stored encrypted on Tusky and password protected](https://github.com/tusky-io/ts-sdk?tab=readme-ov-file#encryption). All encryption and decryption of blobs happens on the client side and is handled by Tusky SDK.
 
 **This means once you download your data from Tusky, it should already be decrypted.**
 
