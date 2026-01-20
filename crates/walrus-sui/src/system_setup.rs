@@ -12,7 +12,7 @@ use std::{
 
 use anyhow::{Context, Result, anyhow, bail};
 use move_package_alt::{
-    package::RootPackage,
+    RootPackage,
     schema::{OriginalID, Publication, PublishAddresses, PublishedID},
 };
 use move_package_alt_compilation::build_config::BuildConfig as MoveBuildConfig;
