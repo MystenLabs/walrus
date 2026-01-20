@@ -313,14 +313,6 @@ impl<T: EncodingAxis> SliverData<T> {
         let symbol_size = metadata.symbol_size(encoding_config)?;
         let config_enum = encoding_config.get_for_type(metadata.encoding_type());
 
-        // // Note: The following code may have to be changed if we add encodings that require a
-        // // variable number of symbols to recover a sliver.
-        // let RequiredCount::Exact(n_symbols_required) = config_enum.n_symbols_for_recovery::<T>();
-        // let decoding_symbols: Vec<_> = decoding_symbols
-        //     .into_iter()
-        //     .take(n_symbols_required)
-        //     .collect();
-
         let sliver = Self::recover_sliver_from_decoding_symbols(
             decoding_symbols,
             target_index,

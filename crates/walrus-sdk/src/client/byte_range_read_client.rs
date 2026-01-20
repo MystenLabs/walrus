@@ -34,6 +34,8 @@ pub struct ByteRangeReadClientConfig {
     pub timeout: Duration,
     /// Whether to recover unavailable slivers.
     pub recover_unavailable_slivers: bool,
+    /// The maximum number of unavailable slivers to recover.
+    pub max_unavailable_slivers_to_recover: usize,
 }
 
 impl Default for ByteRangeReadClientConfig {
@@ -42,6 +44,7 @@ impl Default for ByteRangeReadClientConfig {
             max_retrieve_slivers_attempts: 2,
             timeout: Duration::from_secs(10),
             recover_unavailable_slivers: true,
+            max_unavailable_slivers_to_recover: 100,
         }
     }
 }
@@ -203,6 +206,7 @@ impl<T: ReadClient> ByteRangeReadClient<'_, T> {
                 self.config.max_retrieve_slivers_attempts,
                 self.config.timeout,
                 self.config.recover_unavailable_slivers,
+                self.config.max_unavailable_slivers_to_recover,
             )
             .await?;
 

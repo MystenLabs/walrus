@@ -239,6 +239,7 @@ where
                 self.config.max_retrieve_slivers_attempts,
                 self.config.timeout,
                 self.config.recover_unavailable_slivers,
+                self.config.max_unavailable_slivers_to_recover,
             )
             .await;
 
@@ -355,6 +356,8 @@ pub struct QuiltClientConfig {
     pub timeout: Duration,
     /// Whether to recover unavailable slivers.
     pub recover_unavailable_slivers: bool,
+    /// The maximum number of unavailable slivers to recover.
+    pub max_unavailable_slivers_to_recover: usize,
 }
 
 impl QuiltClientConfig {
@@ -368,6 +371,7 @@ impl QuiltClientConfig {
             max_retrieve_slivers_attempts,
             timeout,
             recover_unavailable_slivers,
+            max_unavailable_slivers_to_recover: 100,
         }
     }
 }
@@ -378,6 +382,7 @@ impl Default for QuiltClientConfig {
             max_retrieve_slivers_attempts: 2,
             timeout: Duration::from_secs(10),
             recover_unavailable_slivers: true,
+            max_unavailable_slivers_to_recover: 100,
         }
     }
 }
@@ -468,6 +473,7 @@ impl<T: ReadClient> QuiltClient<'_, WalrusNodeClient<T>> {
                 self.config.max_retrieve_slivers_attempts,
                 self.config.timeout,
                 self.config.recover_unavailable_slivers,
+                self.config.max_unavailable_slivers_to_recover,
             )
             .await?;
 
@@ -512,6 +518,7 @@ impl<T: ReadClient> QuiltClient<'_, WalrusNodeClient<T>> {
                             self.config.max_retrieve_slivers_attempts,
                             self.config.timeout,
                             self.config.recover_unavailable_slivers,
+                            self.config.max_unavailable_slivers_to_recover,
                         )
                         .await?,
                 );

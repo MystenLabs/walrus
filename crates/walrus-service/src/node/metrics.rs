@@ -422,13 +422,7 @@ impl TelemetryLabel for ClientErrorKind {
             ClientErrorKind::ByteRangeReadError(_) => "byte-range-read-error",
             ClientErrorKind::ClientInitializationError(_) => "client-initialization-error",
             ClientErrorKind::ByteRangeReadInputError(_) => "byte-range-read-input-error",
-            ClientErrorKind::NotEnoughSymbolsToDecodeSliver(_) => {
-                "not-enough-symbols-to-decode-sliver"
-            }
-            ClientErrorKind::DecodeSliverError(_) => "decode-sliver-error",
-            ClientErrorKind::WrongSymbolTypeToDecodeSliver(_, _) => {
-                "wrong-symbol-type-to-decode-sliver"
-            }
+            ClientErrorKind::ReconstructSliverError(_) => "reconstruct-sliver-error",
         }
     }
 }

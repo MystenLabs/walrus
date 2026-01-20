@@ -58,6 +58,7 @@ use walrus_sdk::{
         StoreArgs,
         StoreBlobsApi as _,
         WalrusNodeClient,
+        byte_range_read_client::{ByteRangeReadClient, ByteRangeReadClientConfig},
         client_types::WalrusStoreBlob,
         quilt_client::QuiltClientConfig,
         responses::{BlobStoreResult, QuiltStoreResult},
@@ -3575,5 +3576,59 @@ async fn test_client_recover_slivers() -> TestResult {
         run_test_client_recover_slivers::<Secondary>(client).await?;
     }
 
+    Ok(())
+}
+
+/// Test client side recovery with short timeout returns proper error.
+#[ignore = "ignore E2E tests by default"]
+#[walrus_simtest]
+async fn test_client_recover_slivers_timeout() -> TestResult {
+    walrus_test_utils::init_tracing();
+
+    let test_nodes_config = TestNodesConfig::builder()
+        .with_node_weights(&[7, 7, 7, 7, 7])
+        .build();
+    let test_cluster_builder =
+        test_cluster::E2eTestSetupBuilder::new().with_test_nodes_config(test_nodes_config);
+    let (_sui_cluster_handle, _cluster, client, _) = test_cluster_builder.build().await?;
+    let client = client.as_ref();
+
+    // Generate a random blob.
+    let blob_size: u64 = 10000;
+    let blobs = walrus_test_utils::random_data_list(
+        usize::try_from(blob_size).expect("blob size should be valid"),
+        1,
+    );
+
+    // Store the blob on Walrus.
+    let blob_read_result = client
+        .reserve_and_store_blobs_retry_committees(
+            blobs.clone(),
+            vec![],
+            &StoreArgs::default_with_epochs(5).with_persistence(BlobPersistence::Permanent),
+        )
+        .await?;
+
+    let blob_id = blob_read_result[0]
+        .blob_id()
+        .expect("blob ID should be present");
+
+    let byte_range_client = ByteRangeReadClient::new(
+        client,
+        ByteRangeReadClientConfig {
+            timeout: Duration::from_secs(0),
+            ..Default::default()
+        },
+    );
+
+    // Given that the timeout is 0, the read byte range should fail with error.
+    let result = byte_range_client.read_byte_range(&blob_id, 0, 100).await;
+    assert!(
+        result.is_err()
+            && result
+                .unwrap_err()
+                .to_string()
+                .contains("failed to retrieve some slivers")
+    );
     Ok(())
 }

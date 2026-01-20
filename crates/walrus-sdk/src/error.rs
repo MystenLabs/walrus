@@ -183,6 +183,14 @@ impl From<SuiClientError> for ClientError {
     }
 }
 
+impl From<ReconstructSliverError> for ClientError {
+    fn from(value: ReconstructSliverError) -> Self {
+        ClientError {
+            kind: Box::new(ClientErrorKind::ReconstructSliverError(value)),
+        }
+    }
+}
+
 /// Inner error type, raised when the client operation fails.
 #[derive(Debug, thiserror::Error)]
 #[error(transparent)]
@@ -285,6 +293,14 @@ pub enum ClientErrorKind {
     /// An error occurred while validating the input for byte range read.
     #[error("byte range read input error: {0}")]
     ByteRangeReadInputError(String),
+    /// An error occurred while reconstructing a sliver in the client.
+    #[error("decode sliver error: {0}")]
+    ReconstructSliverError(#[from] ReconstructSliverError),
+}
+
+/// An error occurred while reconstructing a sliver in the client.
+#[derive(Debug, thiserror::Error)]
+pub enum ReconstructSliverError {
     /// The client could not retrieve enough symbols to decode the sliver.
     #[error("could not retrieve enough symbols to decode the slivers: {0}")]
     NotEnoughSymbolsToDecodeSliver(String),
@@ -294,4 +310,10 @@ pub enum ClientErrorKind {
     /// An error occurred while decoding a sliver.
     #[error("error while decoding a sliver: {0}")]
     DecodeSliverError(SliverRecoveryOrVerificationError),
+    /// Too many unavailable slivers to recover.
+    #[error("too many unavailable slivers to recover ({0}/{1}); unavailable slivers: {2}")]
+    TooManyUnavailableSliversToRecover(usize, usize, String),
+    /// An error occurred while fetching symbols from the storage nodes.
+    #[error("error while fetching symbols: {0}")]
+    FetchingSymbolsError(#[from] NodeError),
 }

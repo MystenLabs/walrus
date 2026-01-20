@@ -50,6 +50,8 @@ pub struct StreamingConfig {
     pub prefetch_count: u16,
     /// Whether to recover unavailable slivers.
     pub recover_unavailable_slivers: bool,
+    /// The maximum number of unavailable slivers to recover.
+    pub max_unavailable_slivers_to_recover: usize,
 }
 
 impl Default for StreamingConfig {
@@ -59,6 +61,7 @@ impl Default for StreamingConfig {
             sliver_timeout: Duration::from_secs(30),
             prefetch_count: 4,
             recover_unavailable_slivers: true,
+            max_unavailable_slivers_to_recover: 100,
         }
     }
 }
@@ -376,6 +379,7 @@ async fn retrieve_single_sliver_with_retry<T: ReadClient + Sync + Send + 'static
             config.max_sliver_retry_attempts, // Single attempt per round
             config.sliver_timeout,
             config.recover_unavailable_slivers,
+            config.max_unavailable_slivers_to_recover,
         )
         .await?;
     slivers.into_iter().next().ok_or_else(|| {

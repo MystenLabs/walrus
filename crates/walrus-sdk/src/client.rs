@@ -102,7 +102,7 @@ use crate::{
         upload_relay_client::UploadRelayClient,
     },
     config::CommunicationLimits,
-    error::{ClientError, ClientErrorKind, ClientResult, StoreError},
+    error::{ClientError, ClientErrorKind, ClientResult, ReconstructSliverError, StoreError},
     uploader::{DistributedUploader, RunOutput, TailHandling, UploaderEvent},
     utils::{
         self,
@@ -195,9 +195,9 @@ impl<E: EncodingAxis> SliverSelector<E> {
             .is_some()
     }
 
-    /// Returns all the currentslivers in the selector.
+    /// Returns all the current slivers in the selector.
     pub fn slivers(&self) -> Vec<SliverIndex> {
-        self.indices_and_shards.left_values().cloned().collect()
+        self.indices_and_shards.left_values().copied().collect()
     }
 }
 
@@ -714,6 +714,8 @@ impl<T: ReadClient> WalrusNodeClient<T> {
         }
     }
 
+    // TODO(WAL-1136): cleanup function signaltures by bundling the parameters into a struct.
+    #[allow(clippy::too_many_arguments)]
     async fn retrieve_slivers_retry_committees<E: EncodingAxis>(
         &self,
         metadata: &VerifiedBlobMetadataWithId,
@@ -722,6 +724,7 @@ impl<T: ReadClient> WalrusNodeClient<T> {
         max_attempts: usize,
         timeout_duration: Duration,
         recover_unavailable_slivers: bool,
+        max_unavailable_slivers_to_recover: usize,
     ) -> Result<Vec<SliverData<E>>, ClientError>
     where
         SliverData<E>: TryFrom<Sliver>,
@@ -734,6 +737,7 @@ impl<T: ReadClient> WalrusNodeClient<T> {
                 max_attempts,
                 timeout_duration,
                 recover_unavailable_slivers,
+                max_unavailable_slivers_to_recover,
             )
         })
         .await
@@ -746,6 +750,8 @@ impl<T: ReadClient> WalrusNodeClient<T> {
     /// number of attempts is reached or the timeout is reached.
     ///
     /// Returned slivers may not be in the same order as the sliver_indices.
+    // TODO(WAL-1136): cleanup function signaltures by bundling the parameters into a struct.
+    #[allow(clippy::too_many_arguments)]
     async fn retrieve_slivers_with_retry<E: EncodingAxis>(
         &self,
         metadata: &VerifiedBlobMetadataWithId,
@@ -754,6 +760,7 @@ impl<T: ReadClient> WalrusNodeClient<T> {
         max_attempts: usize,
         timeout_duration: Duration,
         recover_unavailable_slivers: bool,
+        max_unavailable_slivers_to_recover: usize,
     ) -> Result<Vec<SliverData<E>>, ClientError>
     where
         SliverData<E>: TryFrom<walrus_core::Sliver>,
@@ -827,10 +834,26 @@ impl<T: ReadClient> WalrusNodeClient<T> {
             }
         }
 
-        if recover_unavailable_slivers && !sliver_selector.is_empty() {
+        if sliver_selector.len() > max_unavailable_slivers_to_recover {
+            tracing::debug!(
+                "too many unavailable slivers to recover ({}/{}); unavailable slivers: {:?}; \
+                skipping recovery",
+                sliver_selector.len(),
+                max_unavailable_slivers_to_recover,
+                sliver_selector.slivers(),
+            );
+            return Err(ReconstructSliverError::TooManyUnavailableSliversToRecover(
+                sliver_selector.len(),
+                max_unavailable_slivers_to_recover,
+                format!("{:?}", sliver_selector.slivers()),
+            )
+            .into());
+        }
+
+        while recover_unavailable_slivers && !sliver_selector.is_empty() {
             // Try to recover the unavailable slivers.
             let slivers_to_recover = sliver_selector.slivers();
-            let recover_timeout = timeout_duration - start_time.elapsed();
+            let recover_timeout = timeout_duration.saturating_sub(start_time.elapsed());
             let recover_result = tokio::time::timeout(
                 recover_timeout,
                 self.recover_slivers(metadata, &slivers_to_recover, certified_epoch),
@@ -844,14 +867,14 @@ impl<T: ReadClient> WalrusNodeClient<T> {
                     all_slivers.extend(recovered_slivers.into_iter());
                 }
                 Ok(Err(error)) => {
-                    tracing::warn!(?error, "error recovering slivers");
+                    tracing::debug!(?error, "error recovering slivers");
                     last_error = Some(error);
+                    // Retry recovering the unavailable slivers.
+                    // TODO(WAL-1135): we should save any slivers that have been recovered so far.
                 }
                 Err(timeout_error) => {
-                    tracing::warn!(?timeout_error, "timeout recovering slivers");
-                    return Err(ClientError::from(ClientErrorKind::Other(
-                        timeout_error.into(),
-                    )));
+                    tracing::debug!(?timeout_error, "timeout recovering slivers");
+                    break;
                 }
             }
         }
@@ -994,7 +1017,7 @@ impl<T: ReadClient> WalrusNodeClient<T> {
         // Collect all successful responses
         // Initialize with empty symbols for all slivers to recover. This is to make sure that for
         // a sliver that does not have any symbols retrieved, we won't miss it in the later steps.
-        let symbols_by_sliver: Arc<Mutex<HashMap<SliverIndex, Vec<EitherDecodingSymbol>>>> =
+        let symbols_by_sliver: Arc<Mutex<HashMap<SliverIndex, Vec<DecodingSymbol<E>>>>> =
             Arc::new(Mutex::new(
                 slivers_to_recover
                     .iter()
@@ -1027,7 +1050,7 @@ impl<T: ReadClient> WalrusNodeClient<T> {
                     .instrument(one_node_comm.span.clone())
                     .await;
                 drop(permit);
-                Self::process_decoding_symbols_result(result, symbols_by_sliver_clone).await
+                Self::process_decoding_symbols_result::<E>(result, symbols_by_sliver_clone).await
             });
 
             // Stop creating more requests if all slivers have fetched enough symbols.
@@ -1064,17 +1087,22 @@ impl<T: ReadClient> WalrusNodeClient<T> {
             let sliver_indices_without_enough_symbols =
                 Self::slivers_needs_more_symbols(symbols_by_sliver.clone(), required_symbol_count)
                     .await;
-            return Err(ClientErrorKind::NotEnoughSymbolsToDecodeSliver(format!(
-                "{:?}",
-                sliver_indices_without_enough_symbols
-            ))
-            .into());
+            return Err(
+                ReconstructSliverError::NotEnoughSymbolsToDecodeSliver(format!(
+                    "{:?}",
+                    sliver_indices_without_enough_symbols
+                ))
+                .into(),
+            );
         }
+
+        // Abort all remaining tasks.
+        execution_set.abort_all();
 
         // Now, recover each sliver
         let mut recovered_slivers = Vec::with_capacity(slivers_to_recover.len());
         for &sliver_index in slivers_to_recover {
-            let symbols = symbols_by_sliver
+            let decoding_symbols = symbols_by_sliver
                 .lock()
                 .await
                 .remove(&sliver_index)
@@ -1082,12 +1110,9 @@ impl<T: ReadClient> WalrusNodeClient<T> {
 
             // Sanity check that we have enough symbols.
             debug_assert!(
-                symbols.len() >= required_symbol_count,
+                decoding_symbols.len() >= required_symbol_count,
                 "should have enough symbols"
             );
-
-            let decoding_symbols =
-                Self::convert_either_decoding_symbols_to_decoding_symbols::<E>(symbols)?;
 
             // Try to recover the sliver
             let recovered_sliver = SliverData::<E>::try_recover_sliver_from_decoding_symbols(
@@ -1100,7 +1125,7 @@ impl<T: ReadClient> WalrusNodeClient<T> {
             // TODO(WAL-1133): consider if we should return a partial result instead of an error.
             match recovered_sliver {
                 Ok(sliver) => recovered_slivers.push(sliver),
-                Err(error) => return Err(ClientErrorKind::DecodeSliverError(error).into()),
+                Err(error) => return Err(ReconstructSliverError::DecodeSliverError(error).into()),
             }
         }
 
@@ -1109,29 +1134,31 @@ impl<T: ReadClient> WalrusNodeClient<T> {
 
     /// Processes retrieve_decoding_symbols result containing decoding symbols and merges them into
     /// the shared symbols_by_sliver map.
-    async fn process_decoding_symbols_result(
+    async fn process_decoding_symbols_result<E: EncodingAxis>(
         result: NodeResult<BTreeMap<SliverIndex, Vec<EitherDecodingSymbol>>, NodeError>,
-        symbols_by_sliver: Arc<Mutex<HashMap<SliverIndex, Vec<EitherDecodingSymbol>>>>,
-    ) -> Result<(), NodeError> {
+        symbols_by_sliver: Arc<Mutex<HashMap<SliverIndex, Vec<DecodingSymbol<E>>>>>,
+    ) -> Result<(), ClientError> {
         match result.result {
             Ok(node_result) => {
                 for (sliver_index, symbols) in node_result {
+                    let decoded_symbols =
+                        Self::convert_either_decoding_symbols_to_decoding_symbols::<E>(symbols)?;
                     symbols_by_sliver
                         .lock()
                         .await
                         .entry(sliver_index)
                         .or_insert_with(Vec::new)
-                        .extend(symbols);
+                        .extend(decoded_symbols);
                 }
                 Ok(())
             }
-            Err(error) => Err(error),
+            Err(error) => Err(ReconstructSliverError::FetchingSymbolsError(error).into()),
         }
     }
 
     /// Checks if all slivers have enough symbols retrieved.
-    async fn slivers_needs_more_symbols(
-        symbols_by_sliver: Arc<Mutex<HashMap<SliverIndex, Vec<EitherDecodingSymbol>>>>,
+    async fn slivers_needs_more_symbols<E: EncodingAxis>(
+        symbols_by_sliver: Arc<Mutex<HashMap<SliverIndex, Vec<DecodingSymbol<E>>>>>,
         required_symbol_count: usize,
     ) -> Vec<SliverIndex> {
         let guard = symbols_by_sliver.lock().await;
@@ -1157,7 +1184,7 @@ impl<T: ReadClient> WalrusNodeClient<T> {
                 ByAxis::Primary(symbol) => {
                     if !E::IS_PRIMARY {
                         return Err::<DecodingSymbol<E>, ClientError>(
-                            ClientErrorKind::WrongSymbolTypeToDecodeSliver(
+                            ReconstructSliverError::WrongSymbolTypeToDecodeSliver(
                                 E::sliver_type(),
                                 SliverType::Primary,
                             )
@@ -1169,7 +1196,7 @@ impl<T: ReadClient> WalrusNodeClient<T> {
                 ByAxis::Secondary(symbol) => {
                     if E::IS_PRIMARY {
                         return Err::<DecodingSymbol<E>, ClientError>(
-                            ClientErrorKind::WrongSymbolTypeToDecodeSliver(
+                            ReconstructSliverError::WrongSymbolTypeToDecodeSliver(
                                 E::sliver_type(),
                                 SliverType::Secondary,
                             )
