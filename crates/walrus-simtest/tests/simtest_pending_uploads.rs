@@ -48,7 +48,7 @@ mod tests {
             .backoff_config
             .max_backoff = Duration::from_millis(100);
 
-        let (_sui_cluster, mut walrus_cluster, client, _) =
+        let (_sui_cluster, mut walrus_cluster, client, _, _) =
             test_cluster::E2eTestSetupBuilder::new()
                 .with_test_nodes_config(
                     TestNodesConfig::builder()
