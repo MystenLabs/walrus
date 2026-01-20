@@ -177,7 +177,7 @@ def pr_has_release_notes(pr):
     json_data = gh_api(f"/repos/MystenLabs/walrus/pulls/{pr}")
     if not json_data:
         return False
-    body = json_data.get("body", "")
+    body = json_data.get("body")
     if not body:
         return False
 
@@ -260,8 +260,8 @@ def extract_notes_for_commit(commit):
     if not json_data:
         return parse_notes(None, "")
 
-    message = json_data[0].get("body") if json_data else ""
-    pr = json_data[0].get("number") if json_data else None
+    message = json_data[0].get("body")
+    pr = json_data[0].get("number")
     return parse_notes(pr, message)
 
 def print_changelog(pr, log):
