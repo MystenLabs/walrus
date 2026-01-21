@@ -140,11 +140,11 @@ tap = "1.0.1"
 telemetry-subscribers = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.64.0" }
 tempfile = "3.24.0"
 test-cluster = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.64.0" }
-thiserror = "2.0.17"
+thiserror = "2.0.18"
 tokio = { version = "=1.47.1", features = ["macros", "rt-multi-thread", "signal"] }
-tokio-metrics = { version = "0.4.6", default-features = false }
-tokio-stream = "0.1.13"
-tokio-util = "0.7.13"
+tokio-metrics = { version = "0.4.7", default-features = false }
+tokio-stream = "0.1.18"
+tokio-util = "0.7.18"
 tonic = { version = "0.14.2", default-features = false }
 tower = "0.5"
 tower-http = { version = "0.5.2", features = ["cors", "timeout", "trace"] }
