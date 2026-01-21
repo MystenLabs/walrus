@@ -16,7 +16,7 @@ use std::{
 
 use anyhow::{Context, Result, anyhow};
 use contract_config::ContractConfig;
-use move_package_alt::package::RootPackage;
+use move_package_alt::RootPackage;
 use move_package_alt_compilation::build_config::BuildConfig as MoveBuildConfig;
 use retry_client::{RetriableSuiClient, retriable_sui_client::MAX_GAS_PAYMENT_OBJECTS};
 use serde::{Deserialize, Serialize};
