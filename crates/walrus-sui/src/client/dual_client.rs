@@ -12,7 +12,14 @@ use move_core_types::{account_address::AccountAddress, language_storage::StructT
 use sui_rpc::{
     Client as GrpcClient,
     field::{FieldMask, FieldMaskUtil},
-    proto::sui::rpc::v2::{Bcs, GetObjectRequest, Object},
+    proto::sui::rpc::v2::{
+        BatchGetObjectsRequest,
+        Bcs,
+        GetObjectRequest,
+        GetObjectResult,
+        Object,
+        get_object_result,
+    },
 };
 use sui_sdk::{SuiClient, SuiClientBuilder};
 use sui_types::base_types::ObjectID;
@@ -41,6 +48,15 @@ fn address_from_object_id(object_id: sui_types::base_types::ObjectID) -> sui_sdk
     sui_sdk_types::Address::from(<[u8; sui_sdk_types::Address::LENGTH]>::from(
         AccountAddress::from(object_id),
     ))
+}
+
+/// A BCS-encoded object along with its version.
+#[derive(Debug)]
+pub struct BcsVersion {
+    /// The BCS-encoded object.
+    pub bcs: Bcs,
+    /// The version of the object.
+    pub version: u64,
 }
 
 impl DualClient {
@@ -132,6 +148,64 @@ impl DualClient {
             .await?
             .deserialize()
             .context("failed to deserialize object from BCS")?)
+    }
+
+    /// Get multiple objects' BCS representations and versions from the Sui network.
+    pub async fn multi_get_objects_bcs(
+        &self,
+        object_ids: Vec<ObjectID>,
+    ) -> Result<Vec<BcsVersion>, SuiClientError> {
+        let mut grpc_client: GrpcClient = self.grpc_client.clone();
+        let requests: Vec<_> = object_ids
+            .into_iter()
+            .map(|object_id| {
+                GetObjectRequest::new(&address_from_object_id(object_id)).with_read_mask(
+                    FieldMask::from_paths([
+                        Object::path_builder().bcs().finish(),
+                        Object::path_builder().version(),
+                    ]),
+                )
+            })
+            .collect();
+
+        let batch_get_objects = BatchGetObjectsRequest::default()
+            .with_requests(requests)
+            .with_read_mask(FieldMask::from_paths([
+                BatchGetObjectsRequest::path_builder().requests().finish(),
+            ]));
+
+        let response = grpc_client
+            .ledger_client()
+            .batch_get_objects(batch_get_objects)
+            .await
+            .context("grpc request error")?;
+
+        response
+            .into_inner()
+            .objects
+            .into_iter()
+            .map(|get_object_result: GetObjectResult| {
+                match get_object_result
+                    .result
+                    .context("no result in get_object_result")?
+                {
+                    get_object_result::Result::Object(object) => Ok(BcsVersion {
+                        bcs: object.bcs.context("no bcs in object")?,
+                        version: object.version.context("no version in object")?,
+                    }),
+                    get_object_result::Result::Error(status) => Err(anyhow::anyhow!(
+                        "error getting object: code {}, message {}, details {:?}",
+                        status.code,
+                        status.message,
+                        status.details
+                    )
+                    .into()),
+                    _ => {
+                        Err(anyhow::anyhow!("encountered unknown get_object_result variant").into())
+                    }
+                }
+            })
+            .collect()
     }
 
     /// Get the type origin map for a package from the Sui network.
