@@ -17,14 +17,17 @@ mod blob {
 
     walrus_test_utils::param_test! {
         blob_upload_latency -> TestResult: [
-            payload_1ki: (ByteSize::kibi(1), SAMPLE_SIZE_FAST, 3),
-            payload_100ki: (ByteSize::kibi(100), SAMPLE_SIZE_FAST, 3),
-            payload_1mi: (ByteSize::mebi(1), SAMPLE_SIZE_FAST, 3),
-            payload_10mi: (ByteSize::mebi(10), SAMPLE_SIZE_FAST, 3),
-            payload_100mi: (ByteSize::mebi(100), SAMPLE_SIZE_SLOW, 1),
-            payload_500mi: (ByteSize::mebi(500), SAMPLE_SIZE_VERY_SLOW, 1),
-            payload_1gi: (ByteSize::gibi(1), SAMPLE_SIZE_VERY_SLOW, 1),
-            payload_2gi: (ByteSize::gibi(2), SAMPLE_SIZE_VERY_SLOW, 1),
+            payload_1ki: (ByteSize::kibi(1), 10, 1),
+            payload_100ki: (ByteSize::kibi(100), 10, 1),
+            payload_1mi: (ByteSize::mebi(1), 10, 1),
+            payload_10mi: (ByteSize::mebi(10), 10, 1),
+            payload_100mi: (ByteSize::mebi(100), 10, 1),
+            payload_200mi: (ByteSize::mebi(200), 10, 1),
+            payload_300mi: (ByteSize::mebi(300), 10, 1),
+            payload_400mi: (ByteSize::mebi(400), 10, 1),
+            payload_500mi: (ByteSize::mebi(500), 10, 1),
+            payload_1gi: (ByteSize::gibi(1), 10, 1),
+            payload_2gi: (ByteSize::gibi(2), 10, 1),
         ]
     }
     fn blob_upload_latency(
