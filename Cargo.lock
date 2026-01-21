@@ -2025,7 +2025,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "117725a109d387c937a1533ce01b450cbde6b88abceea8473c4d7a85853cda3c"
 dependencies = [
  "lazy_static",
- "windows-sys 0.59.0",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]
@@ -2134,7 +2134,6 @@ dependencies = [
  "encode_unicode",
  "libc",
  "once_cell",
- "unicode-width 0.2.1",
  "windows-sys 0.59.0",
 ]
 
@@ -2676,7 +2675,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8d162beedaa69905488a8da94f5ac3edb4dd4788b732fadb7bd120b2625c1976"
 dependencies = [
  "data-encoding",
- "syn 2.0.106",
+ "syn 1.0.109",
 ]
 
 [[package]]
@@ -3497,7 +3496,7 @@ checksum = "0ce92ff622d6dadf7349484f42c93271a0d49b7cc4d466a936405bacbe10aa78"
 dependencies = [
  "cfg-if",
  "rustix",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -4493,19 +4492,6 @@ dependencies = [
 
 [[package]]
 name = "indicatif"
-version = "0.17.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "183b3088984b400f4cfac3620d5e076c84da5364016b4f49473de574b2586235"
-dependencies = [
- "console 0.15.11",
- "number_prefix",
- "portable-atomic",
- "unicode-width 0.2.1",
- "web-time",
-]
-
-[[package]]
-name = "indicatif"
 version = "0.18.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9375e112e4b463ec1b1c6c011953545c65a30164fbab5b581df32b3abf0dcb88"
@@ -4645,7 +4631,7 @@ checksum = "e04d7f318608d35d4b61ddd75cbdaee86b023ebe2bd5a66ee0915f0bf93095a9"
 dependencies = [
  "hermit-abi",
  "libc",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -6791,12 +6777,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "number_prefix"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "830b246a0e5f20af87141b25c173cd1b609bd7779a4617d6ec582abaf90870f3"
-
-[[package]]
 name = "objc2-core-foundation"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7994,7 +7974,7 @@ dependencies = [
  "once_cell",
  "socket2 0.5.10",
  "tracing",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -8671,7 +8651,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs 0.26.11",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -9535,7 +9515,7 @@ dependencies = [
  "cfg-if",
  "libc",
  "psm",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -10895,7 +10875,7 @@ dependencies = [
  "bytes",
  "fastcrypto",
  "futures",
- "indicatif 0.18.3",
+ "indicatif",
  "integer-encoding 3.0.4",
  "num_enum",
  "object_store",
@@ -10932,7 +10912,7 @@ dependencies = [
  "futures",
  "hyper",
  "hyper-rustls",
- "indicatif 0.18.3",
+ "indicatif",
  "integer-encoding 3.0.4",
  "itertools 0.13.0",
  "lru 0.10.1",
@@ -12801,7 +12781,7 @@ dependencies = [
  "bytes",
  "futures",
  "hex",
- "indicatif 0.17.11",
+ "indicatif",
  "prometheus",
  "rand 0.8.5",
  "reqwest",
@@ -12957,7 +12937,7 @@ dependencies = [
  "home",
  "humantime",
  "indexmap 2.13.0",
- "indicatif 0.17.11",
+ "indicatif",
  "indoc",
  "itertools 0.14.0",
  "jsonwebtoken",
@@ -13024,7 +13004,7 @@ dependencies = [
  "http-range-header",
  "humantime",
  "indexmap 2.13.0",
- "indicatif 0.17.11",
+ "indicatif",
  "indoc",
  "integer-encoding 4.1.0",
  "itertools 0.14.0",
@@ -13180,7 +13160,7 @@ dependencies = [
  "clap",
  "futures",
  "humantime",
- "indicatif 0.17.11",
+ "indicatif",
  "mysten-metrics",
  "prometheus",
  "rand 0.8.5",
@@ -13563,7 +13543,7 @@ version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf221c93e13a30d793f7645a0e7762c55d169dbb0a49671918a2319d289b10bb"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]
