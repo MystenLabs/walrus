@@ -1154,7 +1154,7 @@ async fn test_store_quilt(blobs_to_create: u32) -> TestResult {
     let quilt_client =
         client
             .quilt_client()
-            .with_config(QuiltClientConfig::new(6, Duration::from_mins(1), true));
+            .with_config(QuiltClientConfig::new(6, Duration::from_mins(1), 100));
     let quilt = quilt_client
         .construct_quilt::<QuiltVersionV1>(&quilt_store_blobs, encoding_type)
         .await?;
@@ -3568,7 +3568,7 @@ async fn test_client_recover_slivers() -> TestResult {
         .build();
     let test_cluster_builder =
         test_cluster::E2eTestSetupBuilder::new().with_test_nodes_config(test_nodes_config);
-    let (_sui_cluster_handle, _cluster, client, _) = test_cluster_builder.build().await?;
+    let (_sui_cluster_handle, _cluster, client, _, _) = test_cluster_builder.build().await?;
     let client = client.as_ref();
 
     for _ in 0..10 {
@@ -3590,7 +3590,7 @@ async fn test_client_recover_slivers_timeout() -> TestResult {
         .build();
     let test_cluster_builder =
         test_cluster::E2eTestSetupBuilder::new().with_test_nodes_config(test_nodes_config);
-    let (_sui_cluster_handle, _cluster, client, _) = test_cluster_builder.build().await?;
+    let (_sui_cluster_handle, _cluster, client, _, _) = test_cluster_builder.build().await?;
     let client = client.as_ref();
 
     // Generate a random blob.

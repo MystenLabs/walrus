@@ -723,7 +723,6 @@ impl<T: ReadClient> WalrusNodeClient<T> {
         certified_epoch: Epoch,
         max_attempts: usize,
         timeout_duration: Duration,
-        recover_unavailable_slivers: bool,
         max_unavailable_slivers_to_recover: usize,
     ) -> Result<Vec<SliverData<E>>, ClientError>
     where
@@ -736,7 +735,6 @@ impl<T: ReadClient> WalrusNodeClient<T> {
                 certified_epoch,
                 max_attempts,
                 timeout_duration,
-                recover_unavailable_slivers,
                 max_unavailable_slivers_to_recover,
             )
         })
@@ -759,7 +757,6 @@ impl<T: ReadClient> WalrusNodeClient<T> {
         certified_epoch: Epoch,
         max_attempts: usize,
         timeout_duration: Duration,
-        recover_unavailable_slivers: bool,
         max_unavailable_slivers_to_recover: usize,
     ) -> Result<Vec<SliverData<E>>, ClientError>
     where
@@ -850,7 +847,7 @@ impl<T: ReadClient> WalrusNodeClient<T> {
             .into());
         }
 
-        while recover_unavailable_slivers && !sliver_selector.is_empty() {
+        while !sliver_selector.is_empty() {
             // Try to recover the unavailable slivers.
             let slivers_to_recover = sliver_selector.slivers();
             let recover_timeout = timeout_duration.saturating_sub(start_time.elapsed());
@@ -874,6 +871,11 @@ impl<T: ReadClient> WalrusNodeClient<T> {
                 }
                 Err(timeout_error) => {
                     tracing::debug!(?timeout_error, "timeout recovering slivers");
+                    if last_error.is_none() {
+                        last_error = Some(ClientError::from(ClientErrorKind::Other(
+                            timeout_error.into(),
+                        )));
+                    }
                     break;
                 }
             }
