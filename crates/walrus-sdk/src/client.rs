@@ -1171,7 +1171,7 @@ impl WalrusNodeClient<SuiContractClient> {
             })
             .collect();
 
-        tracing::debug!(
+        tracing::info!(
             pending_candidates = pending.len(),
             pending_enabled = pending_uploads_enabled,
             pending_uploads = store_args.store_optimizations.pending_uploads_enabled(),
@@ -2058,6 +2058,7 @@ impl<T> WalrusNodeClient<T> {
             let missing: Vec<NodeIndex> = (0..all_nodes)
                 .filter(|idx| !success_set.contains(idx))
                 .collect();
+            let missing_count = missing.len();
             if !missing.is_empty() {
                 missing_nodes = Some(missing);
             }
@@ -2070,6 +2071,14 @@ impl<T> WalrusNodeClient<T> {
             if weight > 0 {
                 initial_completed_weight = Some(HashMap::from([(*metadata.blob_id(), weight)]));
             }
+            tracing::info!(
+                blob_id = %metadata.blob_id(),
+                pending_success_nodes = success_nodes.len(),
+                pending_success_weight = weight,
+                pending_missing_nodes = missing_count,
+                pending_required_weight = committees.min_n_correct(),
+                "pending upload seeded immediate upload"
+            );
         }
         let target_nodes = missing_nodes
             .as_ref()
