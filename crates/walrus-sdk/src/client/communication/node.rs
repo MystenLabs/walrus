@@ -268,11 +268,11 @@ impl<W> NodeCommunication<W> {
     pub async fn retrieve_decoding_symbols<A: EncodingAxis>(
         &self,
         blob_id: &BlobId,
-        target_slivers: Vec<SliverIndex>,
+        target_slivers: &[SliverIndex],
     ) -> NodeResult<BTreeMap<SliverIndex, Vec<EitherDecodingSymbol>>, NodeError> {
         tracing::debug!(%blob_id, "retrieving decoding symbols");
         let filter = DecodingSymbolsFilter {
-            target_slivers,
+            target_slivers: target_slivers.to_vec(),
             target_type: A::sliver_type(),
         };
         let symbols = self.client.list_decoding_symbols(blob_id, &filter).await;

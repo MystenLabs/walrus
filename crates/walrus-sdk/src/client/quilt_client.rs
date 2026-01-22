@@ -238,6 +238,7 @@ where
                 certified_epoch,
                 self.config.max_retrieve_slivers_attempts,
                 self.config.timeout,
+                self.config.max_unavailable_slivers_to_recover,
             )
             .await;
 
@@ -352,14 +353,21 @@ pub struct QuiltClientConfig {
     #[serde_as(as = "serde_with::DurationSeconds")]
     #[serde(rename = "timeout_secs")]
     pub timeout: Duration,
+    /// The maximum number of unavailable slivers to recover.
+    pub max_unavailable_slivers_to_recover: usize,
 }
 
 impl QuiltClientConfig {
     /// Creates a new QuiltClientConfig.
-    pub fn new(max_retrieve_slivers_attempts: usize, timeout: Duration) -> Self {
+    pub fn new(
+        max_retrieve_slivers_attempts: usize,
+        timeout: Duration,
+        max_unavailable_slivers_to_recover: usize,
+    ) -> Self {
         Self {
             max_retrieve_slivers_attempts,
             timeout,
+            max_unavailable_slivers_to_recover,
         }
     }
 }
@@ -369,6 +377,7 @@ impl Default for QuiltClientConfig {
         Self {
             max_retrieve_slivers_attempts: 2,
             timeout: Duration::from_secs(10),
+            max_unavailable_slivers_to_recover: 100,
         }
     }
 }
@@ -458,6 +467,7 @@ impl<T: ReadClient> QuiltClient<'_, WalrusNodeClient<T>> {
                 certified_epoch,
                 self.config.max_retrieve_slivers_attempts,
                 self.config.timeout,
+                self.config.max_unavailable_slivers_to_recover,
             )
             .await?;
 
@@ -501,6 +511,7 @@ impl<T: ReadClient> QuiltClient<'_, WalrusNodeClient<T>> {
                             certified_epoch,
                             self.config.max_retrieve_slivers_attempts,
                             self.config.timeout,
+                            self.config.max_unavailable_slivers_to_recover,
                         )
                         .await?,
                 );
