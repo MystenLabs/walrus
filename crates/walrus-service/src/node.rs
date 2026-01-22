@@ -10,6 +10,7 @@ use std::{
     pin::Pin,
     sync::{
         Arc,
+        Weak,
         atomic::{AtomicBool, Ordering},
     },
     time::Duration,
@@ -31,6 +32,7 @@ use futures::{
     stream::{self, FuturesOrdered},
 };
 use itertools::Either;
+use moka::{future::Cache, policy::EvictionPolicy};
 use node_recovery::NodeRecoveryHandler;
 use rand::{Rng, SeedableRng, rngs::StdRng, thread_rng};
 use recovery_symbol_service::{RecoverySymbolRequest, RecoverySymbolService};
@@ -46,7 +48,7 @@ use system_events::{CompletableHandle, EVENT_ID_FOR_CHECKPOINT_EVENTS, EventHand
 use thread_pool::{BoundedThreadPool, ThreadPoolBuilder};
 use tokio::{
     select,
-    sync::{Notify, watch},
+    sync::{Notify, RwLock, watch},
     time::Instant,
 };
 use tokio_metrics::TaskMonitor;
@@ -579,7 +581,8 @@ type RecoveryDeferralEntry = (
     std::sync::Arc<tokio_util::sync::CancellationToken>,
 );
 type RecoveryDeferralMap = std::collections::HashMap<BlobId, RecoveryDeferralEntry>;
-type RecoveryDeferrals = std::sync::Arc<tokio::sync::RwLock<RecoveryDeferralMap>>;
+type RecoveryDeferrals = std::sync::Arc<RwLock<RecoveryDeferralMap>>;
+type SliverRefCacheKey = (BlobId, SliverPairIndex, SliverType);
 
 /// The internal state of a Walrus storage node.
 #[derive(Debug)]
@@ -617,6 +620,7 @@ pub struct StorageNodeInner {
     recovery_deferral_notify: Arc<Notify>,
     recovery_deferral_cleanup_token: CancellationToken,
     live_upload_deferral_config: LiveUploadDeferralConfig,
+    sliver_ref_cache: Cache<SliverRefCacheKey, Arc<RwLock<Weak<Sliver>>>>,
 }
 
 /// Parameters for configuring and initializing a node.
@@ -771,10 +775,15 @@ impl StorageNode {
             consistency_check_config: config.consistency_check.clone(),
             checkpoint_manager,
             garbage_collection_config: config.garbage_collection,
-            recovery_deferrals: std::sync::Arc::new(tokio::sync::RwLock::new(Default::default())),
+            recovery_deferrals: std::sync::Arc::new(RwLock::new(Default::default())),
             recovery_deferral_notify: Arc::new(Notify::new()),
             recovery_deferral_cleanup_token: CancellationToken::new(),
             live_upload_deferral_config: config.live_upload_deferral.clone(),
+            sliver_ref_cache: Cache::builder()
+                .name("sliver-refs")
+                .eviction_policy(EvictionPolicy::lru())
+                .max_capacity(2 << 16) // Around 65k pointer entries
+                .build(),
         });
 
         blocklist.start_refresh_task();
@@ -3203,6 +3212,29 @@ impl StorageNodeInner {
         sliver_pair_index: SliverPairIndex,
         sliver_type: SliverType,
     ) -> Result<Arc<Sliver>, RetrieveSliverError> {
+        // Check the cache for the sliver before going to the database.
+        let key = (*blob_id, sliver_pair_index, sliver_type);
+        let cached_entry = self
+            .sliver_ref_cache
+            .get_with(key, async { Arc::new(RwLock::new(Weak::new())) })
+            .await;
+
+        if let Some(sliver) = cached_entry.read().await.upgrade() {
+            return Ok(sliver);
+        }
+
+        // The sliver was not cached, or the cached weak is no longer usable, so we need to fetch
+        // from the database. Before fetching, however, we need a write guard.
+        let mut weak_sliver_guard = cached_entry.write().await;
+
+        // It's possible that between us dropping the read guard and acquiring the write guard,
+        // another writer has already replaced the Weak with one that is still alive, so attempt to
+        // upgrade the pointer once more.
+        if let Some(sliver) = weak_sliver_guard.upgrade() {
+            return Ok(sliver);
+        }
+
+        // Okay, the weak that's stored really is not upgradeable, so access the database.
         let shard_storage = self
             .get_shard_for_sliver_pair(sliver_pair_index, blob_id)
             .await?;
@@ -3218,17 +3250,18 @@ impl StorageNodeInner {
         .await;
 
         match result {
-            Ok(result) => result
-                .inspect(|sliver| {
-                    walrus_utils::with_label!(
-                        self.metrics.slivers_retrieved_total,
-                        sliver.r#type()
-                    )
+            Ok(Err(err)) => Err(err),
+            Ok(Ok(sliver)) => {
+                walrus_utils::with_label!(self.metrics.slivers_retrieved_total, sliver.r#type())
                     .inc();
-                })
-                .map(Arc::new),
+                let shared_sliver = Arc::new(sliver);
+                *weak_sliver_guard = Arc::downgrade(&shared_sliver);
+
+                Ok(shared_sliver)
+            }
             Err(e) => {
                 if e.is_panic() {
+                    drop(weak_sliver_guard); // Because no need to panic while holding the guard.
                     std::panic::resume_unwind(e.into_panic());
                 }
                 Err(e)
