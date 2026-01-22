@@ -5604,8 +5604,8 @@ packages:
   posthog-js@1.306.0:
     resolution: {integrity: sha512-sjsy0El4HL6PgbyWiUF0CaKb2d1Q8okbSeT4eajan3QSvkWus6ygHQuW2l4lfvp6NLRQrIZKH/0sUanhASptUQ==}
 
-  preact@10.28.0:
-    resolution: {integrity: sha512-rytDAoiXr3+t6OIP3WGlDd0ouCUG1iCWzkcY3++Nreuoi17y6T5i/zRhe6uYfoVcxq6YU+sBtJouuRDsq8vvqA==}
+  preact@10.28.2:
+    resolution: {integrity: sha512-lbteaWGzGHdlIuiJ0l2Jq454m6kcpI1zNje6d8MlGAFlYvP2GO4ibnat7P74Esfz4sPTdM6UxtTwh/d3pwM9JA==}
 
   pretty-error@4.0.0:
     resolution: {integrity: sha512-AoJ5YMAcXKYxKhuJGdcvse+Voc6v1RgnsR3nWcYU7q4t6z0Q6T86sv5Zq8VIRbOWWFpvdGE83LtdSMNd+6Y0xw==}
@@ -12134,7 +12134,7 @@ snapshots:
       hogan.js: 3.0.2
       htm: 3.1.1
       instantsearch-ui-components: 0.15.2(react@19.2.3)
-      preact: 10.28.0
+      preact: 10.28.2
       qs: 6.9.7
       react: 19.2.3
       search-insights: 2.17.3
@@ -13766,10 +13766,10 @@ snapshots:
       '@posthog/core': 1.7.1
       core-js: 3.47.0
       fflate: 0.4.8
-      preact: 10.28.0
+      preact: 10.28.2
       web-vitals: 4.2.4
 
-  preact@10.28.0: {}
+  preact@10.28.2: {}
 
   pretty-error@4.0.0:
     dependencies:

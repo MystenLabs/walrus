@@ -16,10 +16,12 @@ use std::{
 
 use anyhow::{Context, Result, anyhow};
 use contract_config::ContractConfig;
-use move_package::BuildConfig as MoveBuildConfig;
+use move_package_alt::RootPackage;
+use move_package_alt_compilation::build_config::BuildConfig as MoveBuildConfig;
 use retry_client::{RetriableSuiClient, retriable_sui_client::MAX_GAS_PAYMENT_OBJECTS};
 use serde::{Deserialize, Serialize};
-use sui_package_management::LockCommand;
+use sui_move_build::CompiledPackage;
+use sui_package_alt::SuiFlavor;
 use sui_sdk::{
     rpc_types::{SuiExecutionStatus, SuiTransactionBlockEffectsAPI, SuiTransactionBlockResponse},
     types::base_types::ObjectID,
@@ -48,7 +50,7 @@ use walrus_utils::backoff::ExponentialBackoffConfig;
 
 use crate::{
     contracts,
-    system_setup::compile_package,
+    system_setup::{self, compile_package},
     types::{
         BlobEvent,
         Committee,
@@ -845,6 +847,37 @@ impl SuiContractClient {
         .await
     }
 
+    /// Compiles a package using the environment defined by wallet enclosed in this
+    /// SuiContractClient.
+    pub async fn compile_package(
+        &self,
+        package_path: PathBuf,
+        build_config: MoveBuildConfig,
+    ) -> SuiClientResult<(CompiledPackage, MoveBuildConfig, RootPackage<SuiFlavor>)> {
+        let chain_id = self
+            .retriable_sui_client()
+            .get_chain_identifier()
+            .await
+            .ok();
+        Ok(system_setup::compile_package(
+            package_path,
+            build_config,
+            chain_id,
+            &self.inner.lock().await.wallet,
+        )
+        .await?)
+    }
+
+    /// Returns the digest of the package at `package_path` for the active network identified by
+    /// the enclosed wallet.
+    pub async fn compute_package_digest(&self, package_path: PathBuf) -> SuiClientResult<[u8; 32]> {
+        let (compiled_package, _build_config, _root_package) = self
+            .compile_package(package_path, Default::default())
+            .await?;
+
+        Ok(compiled_package.get_package_digest(false))
+    }
+
     /// Vote as node `node_id` for upgrading the walrus package to the package at
     /// `package_path`.
     /// Returns the digest of the package.
@@ -854,10 +887,7 @@ impl SuiContractClient {
         node_id: ObjectID,
         package_path: PathBuf,
     ) -> SuiClientResult<[u8; 32]> {
-        let digest = self
-            .read_client
-            .compute_package_digest(package_path)
-            .await?;
+        let digest = self.compute_package_digest(package_path).await?;
         self.retry_on_wrong_version(|| async {
             self.inner
                 .lock()
@@ -2113,8 +2143,8 @@ impl SuiContractClientInner {
             .get_chain_identifier()
             .await
             .ok();
-        let (compiled_package, build_config) =
-            compile_package(package_path, Default::default(), chain_id).await?;
+        let (compiled_package, _build_config, _root_package) =
+            compile_package(package_path, Default::default(), chain_id, &self.wallet).await?;
 
         let mut pt_builder = self.transaction_builder();
 
@@ -2126,8 +2156,17 @@ impl SuiContractClientInner {
         let response = self
             .sign_and_send_transaction(transaction, "upgrade")
             .await?;
-        self.post_upgrade_lock_file_update(&response, build_config)
-            .await
+
+        // Return the new package ID parsed from the transaction response.
+        Ok(response
+            .get_new_package_obj()
+            .ok_or_else(|| {
+                anyhow!(
+                    "no new package ID found in the transaction response: {:?}",
+                    response
+                )
+            })?
+            .0)
     }
 
     /// Set the migration epoch on the staking object to the following epoch.
@@ -2961,34 +3000,6 @@ impl SuiContractClientInner {
             }
         }
         Ok(())
-    }
-
-    /// Updates the lock file after an upgrade and returns the new package ID.
-    async fn post_upgrade_lock_file_update(
-        &mut self,
-        response: &SuiTransactionBlockResponse,
-        build_config: MoveBuildConfig,
-    ) -> SuiClientResult<ObjectID> {
-        let new_package_id = response
-            .get_new_package_obj()
-            .ok_or_else(|| {
-                anyhow!(
-                    "no new package ID found in the transaction response: {:?}",
-                    response
-                )
-            })?
-            .0;
-
-        // Update the lock file with the upgraded package info.
-        self.wallet
-            .update_lock_file(
-                LockCommand::Upgrade,
-                build_config.install_dir,
-                build_config.lock_file,
-                response,
-            )
-            .await?;
-        Ok(new_package_id)
     }
 }
 

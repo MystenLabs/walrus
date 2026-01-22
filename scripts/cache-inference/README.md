@@ -29,7 +29,7 @@ npx ts-node scripts/cache-inference/cache-inference.ts <mainnetBlobId> [testnetB
 
 ## How It Works
 
-1. Reads aggregator URLs from `docs/book/assets/operators.json`
+1. Reads aggregator URLs from `docs/site/static/operators.json`
 1. For each aggregator:
    - Makes two requests to `v1/blobs/{blobId}`
    - Checks headers and timing

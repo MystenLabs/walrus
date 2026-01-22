@@ -63,6 +63,13 @@ refresh_config:
 quilt_client_config:
   max_retrieve_slivers_attempts: 2
   timeout_secs: 10
+  max_unavailable_slivers_to_recover: 100
 byte_range_read_client_config:
   max_retrieve_slivers_attempts: 2
   timeout_secs: 10
+  max_unavailable_slivers_to_recover: 100
+streaming_config:
+  max_sliver_retry_attempts: 5
+  sliver_timeout_secs: 30
+  prefetch_count: 4
+  max_unavailable_slivers_to_recover: 100

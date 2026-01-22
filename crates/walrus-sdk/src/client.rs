@@ -4,7 +4,7 @@
 //! Low-level client for use when communicating directly with Walrus nodes.
 
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     fmt::{Debug, Display},
     marker::PhantomData,
     num::NonZeroU16,
@@ -31,7 +31,7 @@ use rayon::{iter::IntoParallelIterator, prelude::*};
 use sui_types::base_types::ObjectID;
 use tokio::{
     sync::{Mutex, Semaphore},
-    task::JoinHandle,
+    task::{JoinHandle, JoinSet},
     time::Duration,
 };
 use tokio_util::sync::CancellationToken;
@@ -44,10 +44,14 @@ use walrus_core::{
     ShardIndex,
     Sliver,
     SliverIndex,
+    SliverType,
     bft,
+    by_axis::ByAxis,
     encoding::{
         ConsistencyCheckType,
         DecodeError,
+        DecodingSymbol,
+        EitherDecodingSymbol,
         EncodingAxis,
         EncodingConfig,
         EncodingConfigEnum,
@@ -98,7 +102,7 @@ use crate::{
         upload_relay_client::UploadRelayClient,
     },
     config::CommunicationLimits,
-    error::{ClientError, ClientErrorKind, ClientResult, StoreError},
+    error::{ClientError, ClientErrorKind, ClientResult, ReconstructSliverError, StoreError},
     uploader::{DistributedUploader, RunOutput, TailHandling, UploaderEvent},
     utils::{
         self,
@@ -113,6 +117,7 @@ use crate::{
 pub mod byte_range_read_client;
 pub mod client_types;
 pub mod communication;
+pub mod streaming;
 pub use communication::NodeCommunicationFactory;
 pub mod metrics;
 pub mod quilt_client;
@@ -188,6 +193,11 @@ impl<E: EncodingAxis> SliverSelector<E> {
         self.indices_and_shards
             .remove_by_left(sliver_index)
             .is_some()
+    }
+
+    /// Returns all the current slivers in the selector.
+    pub fn slivers(&self) -> Vec<SliverIndex> {
+        self.indices_and_shards.left_values().copied().collect()
     }
 }
 
@@ -704,6 +714,8 @@ impl<T: ReadClient> WalrusNodeClient<T> {
         }
     }
 
+    // TODO(WAL-1136): cleanup function signaltures by bundling the parameters into a struct.
+    #[allow(clippy::too_many_arguments)]
     async fn retrieve_slivers_retry_committees<E: EncodingAxis>(
         &self,
         metadata: &VerifiedBlobMetadataWithId,
@@ -711,6 +723,7 @@ impl<T: ReadClient> WalrusNodeClient<T> {
         certified_epoch: Epoch,
         max_attempts: usize,
         timeout_duration: Duration,
+        max_unavailable_slivers_to_recover: usize,
     ) -> Result<Vec<SliverData<E>>, ClientError>
     where
         SliverData<E>: TryFrom<Sliver>,
@@ -722,6 +735,7 @@ impl<T: ReadClient> WalrusNodeClient<T> {
                 certified_epoch,
                 max_attempts,
                 timeout_duration,
+                max_unavailable_slivers_to_recover,
             )
         })
         .await
@@ -734,6 +748,8 @@ impl<T: ReadClient> WalrusNodeClient<T> {
     /// number of attempts is reached or the timeout is reached.
     ///
     /// Returned slivers may not be in the same order as the sliver_indices.
+    // TODO(WAL-1136): cleanup function signaltures by bundling the parameters into a struct.
+    #[allow(clippy::too_many_arguments)]
     async fn retrieve_slivers_with_retry<E: EncodingAxis>(
         &self,
         metadata: &VerifiedBlobMetadataWithId,
@@ -741,6 +757,7 @@ impl<T: ReadClient> WalrusNodeClient<T> {
         certified_epoch: Epoch,
         max_attempts: usize,
         timeout_duration: Duration,
+        max_unavailable_slivers_to_recover: usize,
     ) -> Result<Vec<SliverData<E>>, ClientError>
     where
         SliverData<E>: TryFrom<walrus_core::Sliver>,
@@ -814,12 +831,64 @@ impl<T: ReadClient> WalrusNodeClient<T> {
             }
         }
 
+        if sliver_selector.len() > max_unavailable_slivers_to_recover {
+            tracing::debug!(
+                "too many unavailable slivers to recover ({}/{}); unavailable slivers: {:?}; \
+                skipping recovery",
+                sliver_selector.len(),
+                max_unavailable_slivers_to_recover,
+                sliver_selector.slivers(),
+            );
+            return Err(ReconstructSliverError::TooManyUnavailableSliversToRecover(
+                sliver_selector.len(),
+                max_unavailable_slivers_to_recover,
+                format!("{:?}", sliver_selector.slivers()),
+            )
+            .into());
+        }
+
+        while !sliver_selector.is_empty() {
+            // Try to recover the unavailable slivers.
+            let slivers_to_recover = sliver_selector.slivers();
+            let recover_timeout = timeout_duration.saturating_sub(start_time.elapsed());
+            let recover_result = tokio::time::timeout(
+                recover_timeout,
+                self.recover_slivers(metadata, &slivers_to_recover, certified_epoch),
+            )
+            .await;
+            match recover_result {
+                Ok(Ok(recovered_slivers)) => {
+                    for sliver in recovered_slivers.iter() {
+                        sliver_selector.remove_sliver(&sliver.index);
+                    }
+                    all_slivers.extend(recovered_slivers.into_iter());
+                }
+                Ok(Err(error)) => {
+                    tracing::debug!(?error, "error recovering slivers");
+                    last_error = Some(error);
+                    // Retry recovering the unavailable slivers.
+                    // TODO(WAL-1135): we should save any slivers that have been recovered so far.
+                }
+                Err(timeout_error) => {
+                    tracing::debug!(?timeout_error, "timeout recovering slivers");
+                    if last_error.is_none() {
+                        last_error = Some(ClientError::from(ClientErrorKind::Other(
+                            timeout_error.into(),
+                        )));
+                    }
+                    break;
+                }
+            }
+        }
+
         if all_slivers.len() != num_unique_slivers {
             Err(ClientError::from(ClientErrorKind::Other(
                 format!(
-                    "failed to retrieve some slivers ({}/{} successful): {:?}",
+                    "failed to retrieve some slivers ({}/{} successful), unavailable \
+                    slivers: {:?}, error: {:?}",
                     all_slivers.len(),
                     num_unique_slivers,
+                    sliver_selector.slivers(),
                     last_error
                 )
                 .into(),
@@ -912,6 +981,234 @@ impl<T: ReadClient> WalrusNodeClient<T> {
             .collect::<Vec<_>>();
 
         Ok(slivers)
+    }
+
+    /// Recovers the specified slivers by retrieving decoding symbols from storage nodes and
+    /// reconstructing the slivers using erasure coding.
+    ///
+    /// This method fetches decoding symbols from multiple storage nodes concurrently and uses
+    /// them to recover the requested slivers. It requires enough symbols to meet the recovery
+    /// threshold for the encoding type.
+    ///
+    /// When multiple slivers are requested to be recovered, the method will batch the requests
+    /// to the storage nodes to retrieve the decoding symbols for all slivers.
+    pub async fn recover_slivers<E: EncodingAxis>(
+        &self,
+        metadata: &VerifiedBlobMetadataWithId,
+        slivers_to_recover: &[SliverIndex],
+        certified_epoch: Epoch,
+    ) -> ClientResult<Vec<SliverData<E>>> {
+        tracing::debug!("starting to recover slivers {:?}", slivers_to_recover);
+        let committees = self.get_committees().await?;
+        let comms = self
+            .communication_factory
+            .node_read_communications(&committees, certified_epoch)?;
+
+        let RequiredCount::Exact(required_symbol_count) = self
+            .encoding_config
+            .get_for_type(metadata.metadata().encoding_type())
+            .n_symbols_for_recovery::<E>();
+
+        // TODO (WAL-1132): we may need a dedicated parameter for fetching symbols. See if this is
+        // needed.
+        let semaphore = Arc::new(Semaphore::new(
+            self.communication_limits.max_concurrent_sliver_reads,
+        ));
+        let mut execution_set = JoinSet::new();
+
+        // Collect all successful responses
+        // Initialize with empty symbols for all slivers to recover. This is to make sure that for
+        // a sliver that does not have any symbols retrieved, we won't miss it in the later steps.
+        let symbols_by_sliver: Arc<Mutex<HashMap<SliverIndex, Vec<DecodingSymbol<E>>>>> =
+            Arc::new(Mutex::new(
+                slivers_to_recover
+                    .iter()
+                    .map(|&sliver_index| (sliver_index, Vec::new()))
+                    .collect(),
+            ));
+
+        let mut all_slivers_have_enough_symbols_retrieved = false;
+
+        for one_node_comm in comms.into_iter() {
+            // Wait until we have enough permits to fire another task.
+            // The weight of the future is the number of shards owned by the node.
+            let permit = semaphore
+                .clone()
+                .acquire_many_owned(one_node_comm.n_owned_shards().get().into())
+                .await
+                .map_err(|e| ClientError::from(ClientErrorKind::Other(e.into())))?;
+
+            // Clone info to be used in the tokio task. Should be cheap to make a copy of these
+            // information, since they are small.
+            let symbols_by_sliver_clone = symbols_by_sliver.clone();
+            let blob_id = *metadata.blob_id();
+            let slivers_to_recover_clone = slivers_to_recover.to_vec();
+
+            // Fire off a task to retrieve the decoding symbols for the slivers. The task will run
+            // immediately.
+            execution_set.spawn(async move {
+                let result = one_node_comm
+                    .retrieve_decoding_symbols::<E>(&blob_id, &slivers_to_recover_clone)
+                    .instrument(one_node_comm.span.clone())
+                    .await;
+                drop(permit);
+                Self::process_decoding_symbols_result::<E>(result, symbols_by_sliver_clone).await
+            });
+
+            // Stop creating more requests if all slivers have fetched enough symbols.
+            if Self::slivers_needs_more_symbols(symbols_by_sliver.clone(), required_symbol_count)
+                .await
+                .is_empty()
+            {
+                all_slivers_have_enough_symbols_retrieved = true;
+                break;
+            }
+        }
+
+        if !all_slivers_have_enough_symbols_retrieved {
+            // Continue waiting until all slivers have fetched enough symbols.
+            while let Some(result) = execution_set.join_next().await {
+                if result.is_ok()
+                    && Self::slivers_needs_more_symbols(
+                        symbols_by_sliver.clone(),
+                        required_symbol_count,
+                    )
+                    .await
+                    .is_empty()
+                {
+                    all_slivers_have_enough_symbols_retrieved = true;
+                    break;
+                }
+            }
+        }
+
+        // There are still slivers that do not have enough symbols retrieved.
+        // Return an error.
+        // TODO(WAL-1133): consider if we should return a partial result instead of an error.
+        if !all_slivers_have_enough_symbols_retrieved {
+            let sliver_indices_without_enough_symbols =
+                Self::slivers_needs_more_symbols(symbols_by_sliver.clone(), required_symbol_count)
+                    .await;
+            return Err(
+                ReconstructSliverError::NotEnoughSymbolsToDecodeSliver(format!(
+                    "{:?}",
+                    sliver_indices_without_enough_symbols
+                ))
+                .into(),
+            );
+        }
+
+        // Abort all remaining tasks.
+        execution_set.abort_all();
+
+        // Now, recover each sliver
+        let mut recovered_slivers = Vec::with_capacity(slivers_to_recover.len());
+        for &sliver_index in slivers_to_recover {
+            let decoding_symbols = symbols_by_sliver
+                .lock()
+                .await
+                .remove(&sliver_index)
+                .expect("symbols_by_sliver is created using slivers_to_recover");
+
+            // Sanity check that we have enough symbols.
+            debug_assert!(
+                decoding_symbols.len() >= required_symbol_count,
+                "should have enough symbols"
+            );
+
+            // Try to recover the sliver
+            let recovered_sliver = SliverData::<E>::try_recover_sliver_from_decoding_symbols(
+                decoding_symbols,
+                sliver_index,
+                metadata.metadata(),
+                &self.encoding_config,
+            );
+
+            // TODO(WAL-1133): consider if we should return a partial result instead of an error.
+            match recovered_sliver {
+                Ok(sliver) => recovered_slivers.push(sliver),
+                Err(error) => return Err(ReconstructSliverError::DecodeSliverError(error).into()),
+            }
+        }
+
+        Ok(recovered_slivers)
+    }
+
+    /// Processes retrieve_decoding_symbols result containing decoding symbols and merges them into
+    /// the shared symbols_by_sliver map.
+    async fn process_decoding_symbols_result<E: EncodingAxis>(
+        result: NodeResult<BTreeMap<SliverIndex, Vec<EitherDecodingSymbol>>, NodeError>,
+        symbols_by_sliver: Arc<Mutex<HashMap<SliverIndex, Vec<DecodingSymbol<E>>>>>,
+    ) -> Result<(), ClientError> {
+        match result.result {
+            Ok(node_result) => {
+                for (sliver_index, symbols) in node_result {
+                    let decoded_symbols =
+                        Self::convert_either_decoding_symbols_to_decoding_symbols::<E>(symbols)?;
+                    symbols_by_sliver
+                        .lock()
+                        .await
+                        .entry(sliver_index)
+                        .or_insert_with(Vec::new)
+                        .extend(decoded_symbols);
+                }
+                Ok(())
+            }
+            Err(error) => Err(ReconstructSliverError::FetchingSymbolsError(error).into()),
+        }
+    }
+
+    /// Checks if all slivers have enough symbols retrieved.
+    async fn slivers_needs_more_symbols<E: EncodingAxis>(
+        symbols_by_sliver: Arc<Mutex<HashMap<SliverIndex, Vec<DecodingSymbol<E>>>>>,
+        required_symbol_count: usize,
+    ) -> Vec<SliverIndex> {
+        let guard = symbols_by_sliver.lock().await;
+        guard
+            .iter()
+            .filter_map(|(sliver_index, symbols)| {
+                if symbols.len() < required_symbol_count {
+                    Some(*sliver_index)
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>()
+    }
+
+    /// Converts symbols from EitherDecodingSymbol to DecodingSymbol to be used for decoding.
+    fn convert_either_decoding_symbols_to_decoding_symbols<E: EncodingAxis>(
+        symbols: Vec<EitherDecodingSymbol>,
+    ) -> Result<Vec<DecodingSymbol<E>>, ClientError> {
+        symbols
+            .into_iter()
+            .map(|symbol| match symbol {
+                ByAxis::Primary(symbol) => {
+                    if !E::IS_PRIMARY {
+                        return Err::<DecodingSymbol<E>, ClientError>(
+                            ReconstructSliverError::WrongSymbolTypeToDecodeSliver(
+                                E::sliver_type(),
+                                SliverType::Primary,
+                            )
+                            .into(),
+                        );
+                    }
+                    Ok(DecodingSymbol::<E>::new(symbol.index, symbol.data))
+                }
+                ByAxis::Secondary(symbol) => {
+                    if E::IS_PRIMARY {
+                        return Err::<DecodingSymbol<E>, ClientError>(
+                            ReconstructSliverError::WrongSymbolTypeToDecodeSliver(
+                                E::sliver_type(),
+                                SliverType::Secondary,
+                            )
+                            .into(),
+                        );
+                    }
+                    Ok(DecodingSymbol::<E>::new(symbol.index, symbol.data))
+                }
+            })
+            .collect::<Result<Vec<DecodingSymbol<E>>, ClientError>>()
     }
 
     /// Encodes the blob and sends metadata and slivers to the selected nodes.
@@ -1197,7 +1494,9 @@ impl WalrusNodeClient<SuiContractClient> {
             pending_blobs = pending_blobs.len(),
             "starting pending upload task"
         );
-        let (tx, _rx) = tokio::sync::mpsc::channel(pending_blobs.len().max(1));
+        let (tx, mut rx) = tokio::sync::mpsc::channel(pending_blobs.len().max(1));
+        tokio::spawn(async move { while rx.recv().await.is_some() {} });
+
         let cancel = CancellationToken::new();
         let future = Box::pin(self.distributed_upload_without_confirmation(
             pending_blobs,

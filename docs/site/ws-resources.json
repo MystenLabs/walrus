@@ -64,6 +64,7 @@
     "/docs/operator-guide/upload-relay": "/docs/operator-guide/upload-relay.html",
     "/docs/snippets/blob-object-id": "/docs/snippets/blob-object-id.html",
     "/docs/snippets/blog-note-edit": "/docs/snippets/blog-note-edit.html",
+    "/docs/tusky-migration-guide": "/docs/tusky-migration-guide.html",
     "/docs/usage/client-cli": "/docs/usage/client-cli.html",
     "/docs/usage/examples": "/docs/usage/examples.html",
     "/docs/usage/glossary": "/docs/usage/glossary.html",
@@ -96,7 +97,6 @@
     "/docs/walrus-sites/tutorial-install": "/docs/walrus-sites/tutorial-install.html",
     "/docs/walrus-sites/tutorial-publish": "/docs/walrus-sites/tutorial-publish.html",
     "/docs/walrus-sites/tutorial-suins": "/docs/walrus-sites/tutorial-suins.html",
-    "/docs/tusky-migration-guide": "/docs/tusky-migration-guide.html",
     "/index": "/index.html",
     "/intro": "/intro.html",
     "/intro.html": "/intro/index.html",
@@ -187,5 +187,6 @@
     "/walrus-sites/tutorial-suins/index": "/walrus-sites/tutorial-suins/index.html",
     "/walrus-sites/tutorial.html": "/walrus-sites/tutorial/index.html",
     "/walrus-sites/tutorial/index": "/walrus-sites/tutorial/index.html"
-  }
+  },
+  "object_id": "0xbd6014d74e37d94a299c932e70e0b009979d9c6dc6d941eb4afe4995b8df242c"
 }

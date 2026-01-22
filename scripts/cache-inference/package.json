@@ -1,7 +1,7 @@
 {
   "name": "cache-inference",
   "version": "1.1.0",
-  "description": "Infers cache status for aggregators in docs/book/assets/operators.json.",
+  "description": "Infers cache status for aggregators in docs/site/static/operators.json.",
   "main": "cache-inference.ts",
   "scripts": {
     "lint": "eslint .",

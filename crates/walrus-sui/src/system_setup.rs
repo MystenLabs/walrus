@@ -11,16 +11,14 @@ use std::{
 };
 
 use anyhow::{Context, Result, anyhow, bail};
-use move_core_types::account_address::AccountAddress;
-use move_package::BuildConfig as MoveBuildConfig;
-use sui_move_build::{
-    BuildConfig,
-    CompiledPackage,
-    build_from_resolution_graph,
-    check_invalid_dependencies,
-    check_unpublished_dependencies,
-    gather_published_ids,
+use move_package_alt::{
+    RootPackage,
+    schema::{OriginalID, Publication, PublishAddresses, PublishedID},
 };
+use move_package_alt_compilation::build_config::BuildConfig as MoveBuildConfig;
+use sui_move_build::{CompiledPackage, PackageDependencies};
+use sui_package_alt::{BuildParams, SuiFlavor};
+use sui_package_management::LockCommand;
 use sui_sdk::{
     rpc_types::{SuiExecutionStatus, SuiTransactionBlockEffectsAPI, SuiTransactionBlockResponse},
     types::{
@@ -45,7 +43,8 @@ use crate::{
         retriable_sui_client::{GasBudgetAndPrice, LazySuiClientBuilder},
     },
     contracts::{self, StructTag},
-    utils::{get_created_sui_object_ids_by_type, resolve_lock_file_path},
+    test_utils::system_setup,
+    utils::get_created_sui_object_ids_by_type,
     wallet::Wallet,
 };
 
@@ -82,16 +81,32 @@ pub(crate) async fn publish_package_with_default_build_config(
 }
 
 /// Compiles a package and returns the compiled package, and build config.
+/// `env` is the environment to use for the package management system, and should be derived
+/// from the wallet that performs the publish/upgrade.
 pub async fn compile_package(
     package_path: PathBuf,
     build_config: MoveBuildConfig,
     chain_id: Option<String>,
-) -> Result<(CompiledPackage, MoveBuildConfig)> {
+    wallet: &Wallet,
+) -> Result<(CompiledPackage, MoveBuildConfig, RootPackage<SuiFlavor>)> {
+    let env = wallet
+        .find_package_environment(&package_path, &build_config)
+        .await?;
+
+    let build_config_clone = build_config.clone();
+    let package_path_clone = package_path.clone();
+
+    let root_pkg: RootPackage<SuiFlavor> = build_config_clone
+        .package_loader(&package_path_clone, &env)
+        .load()
+        .await?;
+
     tokio::task::spawn_blocking(|| {
         sui_macros::nondeterministic!(compile_package_inner_blocking(
             package_path,
             build_config,
-            chain_id
+            chain_id,
+            root_pkg
         ))
     })
     .await?
@@ -103,62 +118,111 @@ fn compile_package_inner_blocking(
     package_path: PathBuf,
     build_config: MoveBuildConfig,
     chain_id: Option<String>,
-) -> Result<(CompiledPackage, MoveBuildConfig)> {
-    let build_config = resolve_lock_file_path(build_config, &package_path)?;
+    root_pkg: RootPackage<SuiFlavor>,
+) -> Result<(CompiledPackage, MoveBuildConfig, RootPackage<SuiFlavor>)> {
+    let mut stdout = std::io::stdout();
+    let package = move_package_alt_compilation::compile_from_root_package::<
+        std::io::Stdout,
+        SuiFlavor,
+    >(&root_pkg, &build_config, &mut stdout)
+    .expect("Compilation should succeed");
 
-    // Set the package ID to zero.
-    let previous_id = if let Some(ref chain_id) = chain_id {
-        sui_package_management::set_package_id(
-            &package_path,
-            build_config.install_dir.clone(),
-            chain_id,
-            AccountAddress::ZERO,
-        )?
-    } else {
-        None
-    };
+    let package_dependencies = PackageDependencies::new(&root_pkg)?;
+    tracing::info!(
+        "package path {:?}, chain_id {:?}, package_dependencies {:?}",
+        package_path,
+        chain_id,
+        package_dependencies
+    );
 
-    let run_bytecode_verifier = true;
-    let print_diags_to_stderr = false;
-    let config = BuildConfig {
-        config: build_config.clone(),
-        run_bytecode_verifier,
-        print_diags_to_stderr,
-        chain_id: chain_id.clone(),
-    };
-    let resolution_graph = config.resolution_graph(&package_path, chain_id.clone())?;
-    let (_, dependencies) = gather_published_ids(&resolution_graph, chain_id.clone());
-
-    // Check that the dependencies have a valid published address.
-    check_invalid_dependencies(&dependencies.invalid)?;
     // Check that all dependencies are published.
-    check_unpublished_dependencies(&dependencies.unpublished)?;
+    if !package_dependencies.unpublished.is_empty() {
+        bail!(
+            "Walrus packages must not have unpublished dependencies. Unpublished dependencies: {}
+        ",
+            package_dependencies
+                .unpublished
+                .into_iter()
+                .map(|n| n.to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+    }
 
-    let compiled_package = build_from_resolution_graph(
-        resolution_graph,
-        run_bytecode_verifier,
-        print_diags_to_stderr,
-        chain_id.clone(),
-    )?;
+    let published_at = root_pkg
+        .publication()
+        .map(|p| ObjectID::from_address(p.addresses.published_at.0));
+
+    let compiled_package = CompiledPackage {
+        package,
+        published_at,
+        dependency_ids: package_dependencies,
+    };
 
     ensure!(
         compiled_package.published_root_module().is_none(),
         "package was already published, modules must all have 0x0 as their addresses."
     );
 
-    // Restore original ID.
-    if let (Some(chain_id), Some(previous_id)) = (chain_id, previous_id) {
-        let _ = sui_package_management::set_package_id(
-            &package_path,
-            build_config.install_dir.clone(),
-            &chain_id,
-            previous_id,
-        )?;
-    }
-
-    Ok((compiled_package, build_config))
+    Ok((compiled_package, build_config, root_pkg))
 }
 
+// TODO(WAL-1127): this is a complete copy of the function from
+// https://github.com/MystenLabs/sui/blob/a5ee2b9b736e712dfc917c5226ae1d835c59abd9/
+// crates/sui/src/client_commands.rs#L3548
+// Make that function in sui publicly accessible and use it here.
+/// Return the update publication data, without writing it to lockfile
+pub fn update_publication(
+    chain_id: &str,
+    command: LockCommand,
+    response: &SuiTransactionBlockResponse,
+    _build_config: &MoveBuildConfig,
+    publication: Option<&mut Publication<SuiFlavor>>,
+) -> Result<Publication<SuiFlavor>, anyhow::Error> {
+    // Get the published package ID and version from the response
+    let (published_id, version, _) = response.get_new_package_obj().ok_or_else(|| {
+        anyhow!(
+            "Expected a valid published package response but didn't see \
+        one when attempting to update the `Move.lock`."
+        )
+    })?;
+
+    match command {
+        LockCommand::Publish => {
+            let (upgrade_cap, _, _) = response
+                .get_new_package_upgrade_cap()
+                .ok_or_else(|| anyhow!("Expected a valid published package with a upgrade cap"))?;
+            Ok(Publication::<SuiFlavor> {
+                chain_id: chain_id.to_string(),
+                metadata: sui_package_alt::PublishedMetadata {
+                    toolchain_version: Some(env!("CARGO_PKG_VERSION").into()),
+                    build_config: Some(sui_package_alt::BuildParams::default()),
+                    upgrade_capability: Some(upgrade_cap),
+                },
+                addresses: PublishAddresses {
+                    published_at: PublishedID(*published_id),
+                    original_id: OriginalID(*published_id),
+                },
+                version: version.value(),
+            })
+        }
+        LockCommand::Upgrade => {
+            let publication =
+                publication.expect("for upgrade there should already exist publication info");
+            publication.addresses.published_at = PublishedID(*published_id);
+            publication.version = version.value();
+            // TODO: fix build config data
+            publication.metadata.build_config = Some(BuildParams::default());
+            publication.metadata.toolchain_version = Some(env!("CARGO_PKG_VERSION").into());
+            // TODO: fix this, we should return a mut publication instead of creating a new one in
+            // the Publish case
+            Ok(publication.clone())
+        }
+    }
+}
+
+// This function is used to publish walrus packages in a local environment such as integration
+// test or local testbed. This cannot be used in production environments.
 #[tracing::instrument(err, skip(wallet, build_config))]
 pub(crate) async fn publish_package(
     wallet: &mut Wallet,
@@ -172,10 +236,27 @@ pub(crate) async fn publish_package(
         Default::default(),
     )?;
 
-    let chain_id = retry_client.get_chain_identifier().await.ok();
+    let chain_id = retry_client.get_chain_identifier().await?;
 
-    let (compiled_package, build_config) =
-        compile_package(package_path, build_config, chain_id).await?;
+    // TODO(WAL-1126): this is a temporary workaround and should be removed once sui publish works
+    // with ephemeral publishing.
+    system_setup::add_localnet_env_to_contract_toml(package_path.clone(), chain_id.clone())?;
+
+    if cfg!(msim) {
+        // TODO(WAL-1125): before the new sui package management system introduced in 1.63 can
+        // support external dependencies, in simtest, we have to update all the implicit
+        // dependencies to sui using a local copy of the sui repository.
+        // The local copy should be pointed to by the SUI_REPO environment variable, and it should
+        // match the sui version used by the walrus. The pulling logic is implemented in the
+        // cargo-simtest script.
+        //
+        // Note that this must be done after the localnet environment is added to the Move.toml
+        // file.
+        system_setup::update_contract_sui_dependency_to_local_copy(package_path.clone())?;
+    }
+
+    let (compiled_package, final_build_config, mut root_package) =
+        compile_package(package_path, build_config, Some(chain_id.clone()), wallet).await?;
 
     let compiled_modules = compiled_package.get_package_bytes(false);
 
@@ -225,16 +306,16 @@ pub(crate) async fn publish_package(
         .execute_transaction_may_fail(wallet.sign_transaction(&tx_data).await)
         .await?;
 
-    // Update the lock file with the new package ID.
-    wallet
-        .update_lock_file(
-            sui_package_management::LockCommand::Publish,
-            build_config.install_dir,
-            build_config.lock_file,
-            &response,
-        )
-        .await
-        .context("failed to update Move.lock")?;
+    // Write published data.
+    let publish_data = update_publication(
+        chain_id.as_str(),
+        LockCommand::Publish,
+        &response,
+        &final_build_config,
+        None,
+    )?;
+
+    root_package.write_publish_data(publish_data)?;
 
     Ok(response)
 }
@@ -303,6 +384,31 @@ pub(crate) async fn publish_coin_and_system_package(
     gas_budget: Option<u64>,
 ) -> Result<PublishSystemPackageResult> {
     let walrus_contract_directory = if let Some(deploy_directory) = deploy_directory {
+        // Clear the deploy directory before copying to avoid stale files
+        if deploy_directory.exists() {
+            // TODO(WAL-1126): remove this once sui publish works with ephemeral publishing.
+            // If the contract directory already exists and has been used for publishing, all the
+            // published info will be stored in the contract directory, which will make all the
+            // contracts appear as published. The root cause is that sui publish does not support
+            // ephemeral publishing yet.
+            //
+            // To make this work, we should clear the published info from the contract directory.
+            // This should not be needed if we can use ephemeral publishing.
+            tracing::warn!(
+                "clearing deploy directory {:?} before copying to it",
+                deploy_directory
+            );
+            // Clear all contents inside the directory without removing the directory itself
+            for entry in std::fs::read_dir(&deploy_directory)? {
+                let entry = entry?;
+                let path = entry.path();
+                if path.is_dir() {
+                    std::fs::remove_dir_all(path)?;
+                } else {
+                    std::fs::remove_file(path)?;
+                }
+            }
+        }
         copy_recursively(&contract_dir, &deploy_directory).await?;
         deploy_directory
     } else {

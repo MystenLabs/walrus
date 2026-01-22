@@ -6,13 +6,14 @@ use std::{
     collections::HashMap,
     iter::once,
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, OnceLock},
 };
 
 use anyhow::{Context, Result, anyhow, bail};
 use indexmap::IndexSet;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
+use serde_yaml::Value;
 use sui_types::base_types::ObjectID;
 use tokio::sync::{Notify, mpsc};
 use tracing::Level;
@@ -32,12 +33,14 @@ use walrus_utils::{
     backoff::ExponentialBackoffConfig,
     config::path_or_defaults_if_exist,
     is_internal_run,
+    load_from_yaml_str,
 };
 
 use crate::client::{
     byte_range_read_client::ByteRangeReadClientConfig,
     quilt_client::QuiltClientConfig,
     refresh::{CommitteesRefresher, CommitteesRefresherHandle},
+    streaming::StreamingConfig,
 };
 
 mod committees_refresh_config;
@@ -124,6 +127,9 @@ pub struct ClientConfig {
     /// The configuration of the ByteRangeReadClient.
     #[serde(default)]
     pub byte_range_read_client_config: ByteRangeReadClientConfig,
+    /// The configuration of the StreamingReadClient.
+    #[serde(default)]
+    pub streaming_config: StreamingConfig,
 }
 
 impl ClientConfig {
@@ -139,6 +145,7 @@ impl ClientConfig {
             refresh_config: Default::default(),
             quilt_client_config: Default::default(),
             byte_range_read_client_config: Default::default(),
+            streaming_config: Default::default(),
         }
     }
 
@@ -157,8 +164,15 @@ impl ClientConfig {
         context: Option<&str>,
     ) -> anyhow::Result<(Self, Option<String>)> {
         let path = path.as_ref();
-        match walrus_utils::load_from_yaml(path) {
-            Ok(MultiClientConfig::SingletonConfig(mut config)) => {
+        let config = load_multi_config_with_defaults(path).with_context(|| {
+            format!(
+                "unable to parse the client config file: [config_filename='{}']\n\
+                see https://docs.wal.app/usage/setup.html#configuration for the correct format",
+                path.display(),
+            )
+        })?;
+        match config {
+            MultiClientConfig::SingletonConfig(mut config) => {
                 if let Some(context) = context {
                     bail!(
                         "cannot specify context when using a single-context configuration file \
@@ -170,10 +184,10 @@ impl ClientConfig {
                 config.apply_upload_mode_preset();
                 Ok((config, None))
             }
-            Ok(MultiClientConfig::MultiConfig {
+            MultiClientConfig::MultiConfig {
                 contexts,
                 default_context,
-            }) => {
+            } => {
                 let target_context = context.unwrap_or(&default_context);
                 let mut config = contexts.get(target_context).cloned().ok_or_else(|| {
                     anyhow::anyhow!(
@@ -187,12 +201,6 @@ impl ClientConfig {
                 config.apply_upload_mode_preset();
                 Ok((config, Some(target_context.to_string())))
             }
-            Err(e) => bail!(
-                "unable to parse the client config file: [config_filename='{}', error='{}']\n\
-                see https://docs.wal.app/usage/setup.html#configuration for the correct format",
-                path.display(),
-                e
-            ),
         }
     }
 
@@ -284,6 +292,151 @@ impl ClientConfig {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ClientNetworkKind {
+    Mainnet,
+    Testnet,
+    Default,
+}
+
+const MAINNET_CLIENT_CONFIG_YAML: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../setup/client_config_mainnet.yaml"
+));
+const TESTNET_CLIENT_CONFIG_YAML: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../setup/client_config_testnet.yaml"
+));
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+struct ContractIds {
+    system_object: ObjectID,
+    staking_object: ObjectID,
+}
+
+#[derive(Debug)]
+struct KnownNetworkIds {
+    mainnet: Option<ContractIds>,
+    testnet: Option<ContractIds>,
+}
+
+fn known_network_ids() -> &'static KnownNetworkIds {
+    static KNOWN: OnceLock<KnownNetworkIds> = OnceLock::new();
+    KNOWN.get_or_init(|| KnownNetworkIds {
+        mainnet: load_from_yaml_str(
+            "mainnet client config",
+            MAINNET_CLIENT_CONFIG_YAML,
+            "contract ids",
+        ),
+        testnet: load_from_yaml_str(
+            "testnet client config",
+            TESTNET_CLIENT_CONFIG_YAML,
+            "contract ids",
+        ),
+    })
+}
+
+fn detect_network_kind(config_value: &Value) -> ClientNetworkKind {
+    let Some(config_ids) = extract_contract_ids(config_value) else {
+        return ClientNetworkKind::Default;
+    };
+    let known = known_network_ids();
+    if known.mainnet.as_ref() == Some(&config_ids) {
+        return ClientNetworkKind::Mainnet;
+    }
+    if known.testnet.as_ref() == Some(&config_ids) {
+        return ClientNetworkKind::Testnet;
+    }
+    ClientNetworkKind::Default
+}
+
+fn extract_contract_ids(config_value: &Value) -> Option<ContractIds> {
+    let map = config_value.as_mapping()?;
+    let system_object = object_id_from_value(map.get(Value::String("system_object".into()))?)?;
+    let staking_object = object_id_from_value(map.get(Value::String("staking_object".into()))?)?;
+    Some(ContractIds {
+        system_object,
+        staking_object,
+    })
+}
+
+fn object_id_from_value(value: &Value) -> Option<ObjectID> {
+    value
+        .as_str()
+        .and_then(|value| ObjectID::from_hex_literal(value).ok())
+}
+
+fn defaults_value_for(kind: ClientNetworkKind) -> Option<Value> {
+    match kind {
+        ClientNetworkKind::Mainnet => load_from_yaml_str(
+            "mainnet client config",
+            MAINNET_CLIENT_CONFIG_YAML,
+            "default values",
+        ),
+        ClientNetworkKind::Testnet => load_from_yaml_str(
+            "testnet client config",
+            TESTNET_CLIENT_CONFIG_YAML,
+            "default values",
+        ),
+        ClientNetworkKind::Default => None,
+    }
+}
+
+fn apply_network_defaults(mut raw_value: Value) -> Value {
+    if let Value::Mapping(map) = &mut raw_value
+        && let Some(Value::Mapping(contexts)) = map.get_mut(Value::String("contexts".to_string()))
+    {
+        for (_, context_value) in contexts.iter_mut() {
+            apply_network_defaults_to_value(context_value);
+        }
+        return raw_value;
+    }
+    apply_network_defaults_to_value(&mut raw_value);
+    raw_value
+}
+
+fn apply_network_defaults_to_value(value: &mut Value) {
+    let kind = detect_network_kind(value);
+    let Some(mut defaults_value) = defaults_value_for(kind) else {
+        return;
+    };
+    let user_value = std::mem::replace(value, Value::Null);
+    merge_yaml(&mut defaults_value, user_value);
+    *value = defaults_value;
+}
+
+fn load_multi_config_with_defaults(path: &Path) -> anyhow::Result<MultiClientConfig> {
+    let config_str = std::fs::read_to_string(path)
+        .with_context(|| format!("unable to load config from {}", path.display()))?;
+    let raw_value: Value = serde_yaml::from_str(&config_str)
+        .with_context(|| format!("unable to parse config from {}", path.display()))?;
+    let merged_value = apply_network_defaults(raw_value);
+    serde_yaml::from_value(merged_value).with_context(|| {
+        format!(
+            "unable to deserialize merged config from {}",
+            path.display()
+        )
+    })
+}
+
+fn merge_yaml(base: &mut Value, overlay: Value) {
+    match (base, overlay) {
+        (Value::Mapping(base_map), Value::Mapping(overlay_map)) => {
+            for (key, value) in overlay_map {
+                match base_map.get_mut(&key) {
+                    Some(base_value) => merge_yaml(base_value, value),
+                    None => {
+                        base_map.insert(key, value);
+                    }
+                }
+            }
+        }
+        (base_value, overlay_value) => {
+            *base_value = overlay_value;
+        }
+    }
+}
+
 /// Combines the main RPC URL with additional RPC endpoints, ensuring uniqueness of each URL string.
 pub fn combine_rpc_urls(rpc: impl AsRef<str>, additional_rpc_endpoints: &[String]) -> Vec<String> {
     once(rpc.as_ref().to_string())
@@ -354,6 +507,7 @@ mod tests {
             refresh_config: Default::default(),
             quilt_client_config: Default::default(),
             byte_range_read_client_config: Default::default(),
+            streaming_config: Default::default(),
         };
 
         walrus_test_utils::overwrite_file_and_fail_if_not_equal(
@@ -390,6 +544,46 @@ mod tests {
     ) -> TestResult {
         let (_config, context) = ClientConfig::load_from_multi_config(path, input_context)?;
         assert_eq!(context.as_deref(), expected_context);
+        Ok(())
+    }
+
+    #[test]
+    fn multi_config_applies_testnet_defaults_and_user_overrides() -> TestResult {
+        let default_config: ClientConfig = serde_yaml::from_str(TESTNET_CLIENT_CONFIG_YAML)?;
+
+        let dir = TempDir::new()?;
+        let filename = dir.path().join("client_config.yaml");
+
+        let yaml = format!(
+            indoc! {"
+                contexts:
+                    testnet:
+                        system_object: {system_object}
+                        staking_object: {staking_object}
+                        rpc_urls:
+                            - https://override.testnet.sui.io:443
+                        max_epochs_ahead: 99
+                default_context: testnet
+            "},
+            system_object = default_config.contract_config.system_object,
+            staking_object = default_config.contract_config.staking_object,
+        );
+        std::fs::write(filename.as_path(), yaml.as_bytes())?;
+
+        let (config, context) = ClientConfig::load_from_multi_config(filename, None)?;
+
+        assert_eq!(context.as_deref(), Some("testnet"));
+        assert_eq!(
+            config.rpc_urls,
+            vec!["https://override.testnet.sui.io:443".to_string()]
+        );
+        assert_eq!(config.contract_config.max_epochs_ahead, Some(99));
+        assert_eq!(config.exchange_objects, default_config.exchange_objects);
+        assert_eq!(
+            config.contract_config.n_shards,
+            default_config.contract_config.n_shards
+        );
+
         Ok(())
     }
 

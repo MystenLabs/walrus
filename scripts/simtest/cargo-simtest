@@ -33,6 +33,12 @@ cd "$STARTING_DIR" || die "failed to cd to '$STARTING_DIR'"
 cleanup () (
   cd "$MANIFEST_DIR" || die "failed to cd to '$MANIFEST_DIR'"
   git checkout -- Cargo.lock > /dev/null
+
+  # Clean up temporary directory if it exists
+  if [[ -n "$TMPDIR" ]]; then
+    echo "Cleaning up temporary directory: $TMPDIR"
+    rm -rf "$TMPDIR"
+  fi
 )
 
 trap cleanup EXIT
@@ -54,9 +60,9 @@ if [[ -n "$LOCAL_MSIM_PATH" ]]; then
 else
   cargo_patch_args=(
     --config 'patch.crates-io.tokio.git = "https://github.com/MystenLabs/mysten-sim.git"'
-    --config 'patch.crates-io.tokio.rev = "427147994705914a2f5afa42bc140794e31113b9"'
+    --config 'patch.crates-io.tokio.rev = "9d787303d855f6cec92eb94933717d4ee1963548"'
     --config 'patch.crates-io.futures-timer.git = "https://github.com/MystenLabs/mysten-sim.git"'
-    --config 'patch.crates-io.futures-timer.rev = "427147994705914a2f5afa42bc140794e31113b9"'
+    --config 'patch.crates-io.futures-timer.rev = "9d787303d855f6cec92eb94933717d4ee1963548"'
   )
 fi
 
@@ -103,10 +109,23 @@ fi
 TMPDIR="$(mktemp -d)"
 export TMPDIR
 
+SUI_VERSION="testnet-v1.63.1"
+
+# TODO(WAL-1125): remove the cloning after sui package management system can work with simtest
+#                 pulling dependency from external repository.
+#                 Also see if we can only pull the necessary packages for simtest.
+# Clone sui repository
+git clone --depth 1 --branch "$SUI_VERSION" https://github.com/MystenLabs/sui "$TMPDIR/sui"
+# Expose the sui repository as SUI_REPO environment variable
+export SUI_REPO="$TMPDIR/sui"
+echo "Clone Sui version $SUI_VERSION to $SUI_REPO"
+
 # Set the example move package for the simtest static initializer
 # https://github.com/MystenLabs/sui/blob/7bc276d534c6c758ac2cfefe96431c2b1318ca01/crates/sui-proc-macros/src/lib.rs#L52
+# TODO(WAL-1125): set this back to the walrus package once sui package management system can work
+#                 with simtest pulling dependency from external repository.
 root_dir=$(git rev-parse --show-toplevel)
-export SIMTEST_STATIC_INIT_MOVE=$root_dir"/contracts/walrus"
+export SIMTEST_STATIC_INIT_MOVE=$root_dir"/scripts/simtest/simtest_initialization"
 
 cargo "${cargo_command[@]}" \
   --config "build.rustflags = [$(IFS=, ; echo "${rust_flags[*]}")]" \

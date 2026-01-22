@@ -20,7 +20,7 @@ reorder_keys = true
 trailing_newline = true
 
 [[rule]]
-include = ["**/Cargo.toml", "**/Move.toml"]
+include = ["**/Cargo.toml", "**/Move.test.toml", "**/Move.toml"]
 keys = ["bench", "package", "workspace.package"]
 
 [rule.formatting]

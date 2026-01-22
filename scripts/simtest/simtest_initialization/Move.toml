@@ -1,0 +1,7 @@
+[package]
+name = "simtest_initialization"
+version = "0.0.1"
+license = "Apache-2.0"
+authors = ["Mysten Labs <build@mystenlabs.com>"]
+edition = "2024"
+implicit-dependencies = false

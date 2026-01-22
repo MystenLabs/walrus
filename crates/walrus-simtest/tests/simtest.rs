@@ -64,7 +64,7 @@ mod tests {
     use walrus_sui::{
         client::{BlobPersistence, PostStoreAction, ReadClient, SuiContractClient, UpgradeType},
         system_setup::copy_recursively,
-        test_utils::system_setup::{development_contract_dir, testnet_contract_dir},
+        test_utils::system_setup::{self, development_contract_dir, testnet_contract_dir},
         types::{Blob, move_structs::EventBlob},
     };
     use walrus_test_utils::{
@@ -103,7 +103,7 @@ mod tests {
 
         let blob_info_consistency_check = BlobInfoConsistencyCheck::new();
 
-        let (_sui_cluster, _cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
+        let (_sui_cluster, _cluster, client, _, _) = test_cluster::E2eTestSetupBuilder::new()
             .with_test_nodes_config(
                 TestNodesConfig::builder()
                     .with_node_weights(&[1, 2, 3, 3, 4])
@@ -165,7 +165,7 @@ mod tests {
         // We use a very short epoch duration of 60 seconds so that we can exercise more epoch
         // changes in the test.
         let mut node_weights = vec![2, 2, 3, 3, 3];
-        let (_sui_cluster, walrus_cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
+        let (_sui_cluster, walrus_cluster, client, _, _) = test_cluster::E2eTestSetupBuilder::new()
             .with_epoch_duration(Duration::from_secs(30))
             .with_test_nodes_config(
                 TestNodesConfig::builder()
@@ -286,7 +286,7 @@ mod tests {
                 max_concurrent_blob_syncs_during_recovery;
         }
 
-        let (_sui_cluster, mut walrus_cluster, client, _) =
+        let (_sui_cluster, mut walrus_cluster, client, _, _) =
             test_cluster::E2eTestSetupBuilder::new()
                 .with_epoch_duration(Duration::from_secs(30))
                 .with_test_nodes_config(
@@ -503,7 +503,7 @@ mod tests {
             });
         }
 
-        let (_sui_cluster, mut walrus_cluster, client, _) =
+        let (_sui_cluster, mut walrus_cluster, client, _, _) =
             test_cluster::E2eTestSetupBuilder::new()
                 .with_epoch_duration(EPOCH_DURATION)
                 .with_max_epochs_ahead(MAX_EPOCHS_AHEAD)
@@ -672,7 +672,7 @@ mod tests {
         blob_2_deletable: bool,
     ) {
         const EPOCH_DURATION: Duration = Duration::from_secs(30);
-        let (_sui_cluster, walrus_cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
+        let (_sui_cluster, walrus_cluster, client, _, _) = test_cluster::E2eTestSetupBuilder::new()
             .with_epoch_duration(EPOCH_DURATION)
             .with_test_nodes_config(
                 TestNodesConfig::builder()
@@ -794,7 +794,7 @@ mod tests {
                 max_concurrent_blob_syncs_during_recovery;
         }
 
-        let (_sui_cluster, walrus_cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
+        let (_sui_cluster, walrus_cluster, client, _, _) = test_cluster::E2eTestSetupBuilder::new()
             .with_epoch_duration(Duration::from_secs(30))
             .with_test_nodes_config(
                 TestNodesConfig::builder()
@@ -895,7 +895,7 @@ mod tests {
             .await;
         });
 
-        let (_sui_cluster, walrus_cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
+        let (_sui_cluster, walrus_cluster, client, _, _) = test_cluster::E2eTestSetupBuilder::new()
             .with_test_nodes_config(
                 TestNodesConfig::builder()
                     .with_node_weights(&[1, 2, 3, 3, 4])
@@ -959,7 +959,7 @@ mod tests {
     #[ignore = "ignore integration simtests by default"]
     #[walrus_simtest]
     async fn test_recovery_in_progress_with_node_restart() {
-        let (_sui_cluster, walrus_cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
+        let (_sui_cluster, walrus_cluster, client, _, _) = test_cluster::E2eTestSetupBuilder::new()
             .with_epoch_duration(Duration::from_secs(30))
             .with_test_nodes_config(
                 TestNodesConfig::builder()
@@ -1089,7 +1089,7 @@ mod tests {
         walrus_test_utils::init_tracing();
         let deploy_dir = tempfile::TempDir::new().unwrap();
         let epoch_duration = Duration::from_secs(30);
-        let (_sui_cluster_handle, mut walrus_cluster, client, system_ctx) =
+        let (_sui_cluster_handle, mut walrus_cluster, client, system_ctx, _) =
             test_cluster::E2eTestSetupBuilder::new()
                 .with_deploy_directory(deploy_dir.path().to_path_buf())
                 .with_delegate_governance_to_admin_wallet()
@@ -1116,12 +1116,44 @@ mod tests {
         let upgrade_dir = TempDir::new()?;
         copy_recursively(development_contract_dir()?, upgrade_dir.path()).await?;
 
-        // Copy Move.lock files of walrus contract and dependencies to new directory
+        let chain_id = client
+            .inner
+            .sui_client()
+            .retriable_sui_client()
+            .get_chain_identifier()
+            .await?;
+
+        // Copy Move.lock and after Sui 1.63, Published.toml files of walrus contract and
+        // dependencies to new directory. This links the already published packages with the
+        // package that is about to be upgraded.
         for contract in ["wal", "walrus"] {
             std::fs::copy(
                 deploy_dir.path().join(contract).join("Move.lock"),
                 upgrade_dir.path().join(contract).join("Move.lock"),
             )?;
+
+            // After Sui 1.63, we only copy the Published.toml file for the wal contract, since this
+            // is the dependency of the walrus contract, and it needs to be already published when
+            // upgrading the walrus contract.
+            // TODO(WAL-1126): revisit once sui publish works with ephemeral publishing.
+            if contract == "wal" {
+                std::fs::copy(
+                    deploy_dir.path().join(contract).join("Published.toml"),
+                    upgrade_dir.path().join(contract).join("Published.toml"),
+                )?;
+            }
+
+            let package_path = upgrade_dir.path().join(contract);
+
+            // TODO(WAL-1126): remove once sui publish works with ephemeral publishing.
+            system_setup::add_localnet_env_to_contract_toml(
+                package_path.clone(),
+                chain_id.clone(),
+            )?;
+
+            // TODO(WAL-1125): remove once the new sui package management system can pull external
+            // dependencies.
+            system_setup::update_contract_sui_dependency_to_local_copy(package_path)?;
         }
 
         // Change the version in the contracts
@@ -1134,7 +1166,6 @@ mod tests {
             .as_ref()
             .inner
             .sui_client()
-            .read_client()
             .compute_package_digest(walrus_package_path.clone())
             .await?;
 
@@ -1305,7 +1336,7 @@ mod tests {
             ))
         };
 
-        let (_sui_cluster, cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
+        let (_sui_cluster, cluster, client, _, _) = test_cluster::E2eTestSetupBuilder::new()
             .with_test_nodes_config(
                 TestNodesConfig::builder()
                     .with_node_weights(&[10; 7])
@@ -1413,7 +1444,7 @@ mod tests {
     async fn test_single_client_workload() {
         let blob_info_consistency_check = BlobInfoConsistencyCheck::new();
 
-        let (_sui_cluster, _cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
+        let (_sui_cluster, _cluster, client, _, _) = test_cluster::E2eTestSetupBuilder::new()
             .with_test_nodes_config(
                 TestNodesConfig::builder()
                     .with_node_weights(&[1, 2, 3, 3, 4])

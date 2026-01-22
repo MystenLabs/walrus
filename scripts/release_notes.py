@@ -32,6 +32,9 @@ RE_NOTE = re.compile(
     re.MULTILINE | re.IGNORECASE,
 )
 
+# Regex to check if a PR has a checked release notes checkbox
+RE_CHECKED = re.compile(r"^\s*-\s*\[x\]\s*", re.MULTILINE | re.IGNORECASE)
+
 # Only commits that affect changes in these directories will be
 # considered when generating release notes.
 INTERESTING_DIRECTORIES = [
@@ -100,11 +103,92 @@ def parse_args():
         help="The PR to check.",
     )
 
+    list_prs_p = sub_parser.add_parser(
+        "list-prs",
+        description=(
+            "Lists PRs with checked release notes between two commits, "
+            "outputs JSON array for CI workflows."
+        ),
+    )
+
+    list_prs_p.add_argument(
+        "from",
+        help="The commit to start from (exclusive)",
+    )
+
+    list_prs_p.add_argument(
+        "to",
+        nargs="?",
+        default="HEAD",
+        help="The commit to end at (inclusive), defaults to HEAD.",
+    )
+
+    get_notes_p = sub_parser.add_parser(
+        "get-notes",
+        description="Get formatted release notes for a specific PR.",
+    )
+
+    get_notes_p.add_argument(
+        "pr",
+        help="The PR to get notes for.",
+    )
+
     return vars(parser.parse_args())
 
 def git(*args):
     """Run a git command and return the output as a string."""
     return subprocess.check_output(["git"] + list(args)).decode().strip()
+
+
+def gh_api(endpoint):
+    """Make a GitHub API request and return the JSON response.
+
+    Uses the WALRUS_REPO_TOKEN environment variable for authentication,
+    or falls back to using the gh CLI tool.
+    """
+    gh_token = os.getenv('WALRUS_REPO_TOKEN')
+    if gh_token:
+        url = f"https://api.github.com{endpoint}"
+        curl_command = [
+            "curl", "-s",
+            "-H", "Accept: application/vnd.github.groot-preview+json",
+            "-H", f"Authorization: Bearer {gh_token}",
+            url
+        ]
+        result = subprocess.run(
+            curl_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+        )
+        return json.loads(result.stdout) if result.stdout else None
+    else:
+        # Fall back to using gh CLI
+        result = subprocess.run(
+            ["gh", "api", endpoint],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+        )
+        return json.loads(result.stdout) if result.stdout else None
+
+
+def pr_has_release_notes(pr):
+    """Check if a PR has checked release notes.
+
+    Returns True if the PR body contains at least one checked release notes
+    checkbox (i.e., `- [x]` pattern).
+    """
+    json_data = gh_api(f"/repos/MystenLabs/walrus/pulls/{pr}")
+    if not json_data:
+        return False
+    body = json_data.get("body")
+    if not body:
+        return False
+
+    # Check if there's a release notes section
+    match = RE_HEADING.search(body)
+    if not match:
+        return False
+
+    # Check if there's at least one checked checkbox in the release notes section
+    notes_section = match.group(1)
+    return bool(RE_CHECKED.search(notes_section))
 
 def parse_notes(pr, notes):
     result = {}
@@ -154,23 +238,9 @@ def extract_notes_for_pr(pr):
     whether it has a note and whether it was checked (ticked).
 
     """
-
-    gh_token = os.getenv('WALRUS_REPO_TOKEN')
-    if not gh_token:
-        raise ValueError("The environment variable WALRUS_REPO_TOKEN is not set!")
-    auth_header = f"Authorization: Bearer {gh_token}"
-
-    url = f"https://api.github.com/repos/MystenLabs/walrus/pulls/{pr}"
-    curl_command = [
-        "curl", "-s",
-        "-H", "Accept: application/vnd.github.groot-preview+json",
-        "-H", auth_header,
-        url
-    ]
-
-    # Execute the curl command
-    result = subprocess.run(curl_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-    json_data = json.loads(result.stdout)
+    json_data = gh_api(f"/repos/MystenLabs/walrus/pulls/{pr}")
+    if not json_data:
+        return parse_notes(pr, None)
     notes = json_data.get("body")
     return parse_notes(pr, notes)
 
@@ -186,44 +256,19 @@ def extract_notes_for_commit(commit):
     whether it has a note and whether it was checked (ticked).
 
     """
+    json_data = gh_api(f"/repos/MystenLabs/walrus/commits/{commit}/pulls")
+    if not json_data:
+        return parse_notes(None, "")
 
-    gh_token = os.getenv('WALRUS_REPO_TOKEN')
-    if not gh_token:
-        raise ValueError("The environment variable WALRUS_REPO_TOKEN is not set!")
-    auth_header = f"Authorization: Bearer {gh_token}"
-
-    url = f"https://api.github.com/repos/MystenLabs/walrus/commits/{commit}/pulls"
-    curl_command = [
-        "curl", "-s",
-        "-H", "Accept: application/vnd.github.groot-preview+json",
-        "-H", auth_header,
-        url
-    ]
-
-    # Execute the curl command
-    result = subprocess.run(curl_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-    json_data = json.loads(result.stdout)
-    message = json_data[0].get("body") if json_data else ""
-
-    # Get PR number
-    url = f"https://api.github.com/repos/MystenLabs/walrus/commits/{commit}/pulls"
-    curl_command = [
-        "curl", "-s",
-        "-H", "Accept: application/vnd.github.groot-preview+json",
-        "-H", auth_header,
-        url
-    ]
-
-    # Execute the curl command
-    result = subprocess.run(curl_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-    json_data = json.loads(result.stdout)
-    pr = json_data[0].get("number") if json_data else ""
+    message = json_data[0].get("body")
+    pr = json_data[0].get("number")
     return parse_notes(pr, message)
 
 def print_changelog(pr, log):
     if pr:
-        print(f"https://github.com/MystenLabs/walrus/pull/{pr}:")
-    print(log)
+        print(f"https://github.com/MystenLabs/walrus/pull/{pr}: {log}")
+    else:
+        print(log)
 
 def do_check(pr):
     """Check if the release notes section of a given PR is complete.
@@ -308,8 +353,67 @@ def do_generate(from_, to):
             print_changelog(pr, note)
             print()
 
-args = parse_args()
-if args["command"] == "generate":
-    do_generate(args["from"], args["to"])
-elif args["command"] == "check":
-    do_check(args["pr"])
+def do_list_prs(from_, to):
+    """List PRs with checked release notes between two commits.
+
+    Outputs a JSON array of PR numbers that have checked release notes,
+    suitable for use in CI workflows.
+    """
+    root = git("rev-parse", "--show-toplevel")
+    os.chdir(root)
+
+    commits = git(
+        "log",
+        "--pretty=format:%H",
+        f"{from_}..{to}",
+        "--",
+        *INTERESTING_DIRECTORIES,
+    ).strip()
+
+    if not commits:
+        print("[]")
+        return
+
+    prs_with_notes = []
+    seen_prs = set()
+
+    for commit in commits.split("\n"):
+        json_data = gh_api(f"/repos/MystenLabs/walrus/commits/{commit}/pulls")
+        if not json_data:
+            continue
+
+        for pr_data in json_data:
+            pr_number = pr_data.get("number")
+            if pr_number and pr_number not in seen_prs:
+                seen_prs.add(pr_number)
+                if pr_has_release_notes(pr_number):
+                    prs_with_notes.append(pr_number)
+
+    print(json.dumps(prs_with_notes))
+
+
+def do_get_notes(pr):
+    """Get formatted release notes for a specific PR.
+
+    Extracts and prints the release notes that are checked,
+    in the format "impacted: note".
+    """
+    pr, notes = extract_notes_for_pr(pr)
+    for impacted, note in notes.items():
+        if note.checked and note.note:
+            print(f"{impacted}: {note.note}")
+
+
+if __name__ == "__main__":
+    args = parse_args()
+    if args["command"] == "generate":
+        do_generate(args["from"], args["to"])
+    elif args["command"] == "check":
+        do_check(args["pr"])
+    elif args["command"] == "list-prs":
+        do_list_prs(args["from"], args["to"])
+    elif args["command"] == "get-notes":
+        do_get_notes(args["pr"])
+    else:
+        print("No command specified. Use --help for usage information.")
+        sys.exit(1)

@@ -10,6 +10,9 @@ outputs:
   isReleaseNotesEligible:
     description: True when changes happened in paths eligible for release notes
     value: "${{ steps.diff.outputs.isReleaseNotesEligible }}"
+  isReleaseNotesScript:
+    description: True when changes happened in release notes scripts
+    value: "${{ steps.diff.outputs.isReleaseNotesScript }}"
   isDenyConfig:
     description: True when changes happened in the configuration for `cargo-deny`
     value: "${{ steps.diff.outputs.isDenyConfig }}"
@@ -60,6 +63,9 @@ runs:
             - 'crates/**'
             - 'docker/**'
             - 'docs/**'
+          isReleaseNotesScript:
+            - 'scripts/release_notes.py'
+            - 'scripts/release_notes_test.py'
           isDenyConfig:
             - 'deny.toml'
           isTestConfig:

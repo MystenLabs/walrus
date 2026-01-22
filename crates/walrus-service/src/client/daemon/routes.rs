@@ -29,7 +29,15 @@ use http_range_header::{EndPosition, StartPosition};
 use jsonwebtoken::{DecodingKey, Validation};
 use reqwest::{
     Method,
-    header::{ACCEPT, CACHE_CONTROL, CONTENT_TYPE, ETAG, RANGE, X_CONTENT_TYPE_OPTIONS},
+    header::{
+        ACCEPT,
+        CACHE_CONTROL,
+        CONTENT_LENGTH,
+        CONTENT_TYPE,
+        ETAG,
+        RANGE,
+        X_CONTENT_TYPE_OPTIONS,
+    },
 };
 use serde::{Deserialize, Serialize};
 use serde_with::{DisplayFromStr, serde_as};
@@ -97,6 +105,8 @@ pub const QUILT_PATCH_BY_IDENTIFIER_GET_ENDPOINT: &str =
 pub const LIST_PATCHES_IN_QUILT_ENDPOINT: &str = "/v1/quilts/{quilt_id}/patches";
 /// The path to read a byte range from a blob.
 pub const BLOB_BYTE_RANGE_GET_ENDPOINT: &str = "/v1/blobs/{blob_id}/byte-range";
+/// The path to stream a blob sliver-by-sliver.
+pub const BLOB_STREAM_ENDPOINT: &str = "/v1alpha/blobs/{blob_id}/stream";
 /// Custom header for quilt patch identifier.
 const X_QUILT_PATCH_IDENTIFIER: &str = "X-Quilt-Patch-Identifier";
 
@@ -226,6 +236,15 @@ fn parse_range_header(range_value: &HeaderValue) -> Result<ParsedRangeHeader, Ge
     })
 }
 
+// Helper function to create a response from a blob.
+fn create_response_from_blob(status: StatusCode, blob: Vec<u8>) -> Response {
+    // Note that this function wraps the blob in the axum Body type. This does not set the
+    // Content-Type header. The caller is responsible for setting the Content-Type header.
+    // Without wrapping the blob in the Body type, Vec<u8> will automatically set the Content-Type
+    // header to application/octet-stream.
+    (status, Body::from(blob)).into_response()
+}
+
 /// Helper function to parse an ID string and resolve it to a BlobId.
 /// Tries to parse as BlobId first, then as ObjectID if that fails.
 /// Returns the BlobId and optionally the BlobAttribute if the ID was an ObjectID.
@@ -325,7 +344,7 @@ pub(super) async fn get_blob<T: WalrusReadClient>(
             }
         };
 
-        let mut response = (StatusCode::PARTIAL_CONTENT, read_result.data).into_response();
+        let mut response = create_response_from_blob(StatusCode::PARTIAL_CONTENT, read_result.data);
 
         // Create the Content-Range header: "bytes start-end/total"
         let content_range_header =
@@ -345,7 +364,7 @@ pub(super) async fn get_blob<T: WalrusReadClient>(
         response
     } else {
         match client.read_blob(&blob_id, consistency_check).await {
-            Ok(blob) => (StatusCode::OK, blob).into_response(),
+            Ok(blob) => create_response_from_blob(StatusCode::OK, blob),
             Err(error) => {
                 tracing::debug!(?error, "failed to read blob");
                 return GetBlobError::from(error).to_response();
@@ -359,6 +378,7 @@ pub(super) async fn get_blob<T: WalrusReadClient>(
         request_method,
         &request_headers,
         &blob_id.to_string(),
+        None,
         headers,
     );
     response
@@ -368,6 +388,7 @@ fn populate_response_headers_from_request(
     request_method: Method,
     request_headers: &HeaderMap,
     etag: &str,
+    blob_size: Option<u64>,
     headers: &mut HeaderMap,
 ) {
     // Prevent the browser from trying to guess the MIME type to avoid dangerous inferences.
@@ -388,6 +409,12 @@ fn populate_response_headers_from_request(
         HeaderValue::from_str(etag)
             .expect("the blob ID string only contains visible ASCII characters"),
     );
+
+    // Certain codepaths may provide the content-length (e.g., streaming reads).
+    if let Some(content_length) = blob_size.map(HeaderValue::from) {
+        headers.insert(CONTENT_LENGTH, content_length);
+    }
+
     // Mirror the content type in various ways.
     if let Some(accept) = request_headers.get(ACCEPT)
         && !accept.as_bytes().contains(&b'*')
@@ -641,12 +668,13 @@ pub(super) async fn get_blob_byte_range<T: WalrusReadClient>(
 
             // Use StatusCode::OK instead of StatusCode::PARTIAL_CONTENT so that the response
             // can be cached by the CDN.
-            let mut response = (StatusCode::OK, result.data).into_response();
+            let mut response = create_response_from_blob(StatusCode::OK, result.data);
             let headers = response.headers_mut();
             populate_response_headers_from_request(
                 request_method,
                 &request_headers,
                 &etag,
+                None,
                 headers,
             );
             response
@@ -657,6 +685,107 @@ pub(super) async fn get_blob_byte_range<T: WalrusReadClient>(
             tracing::debug!(?etag, ?error, "error retrieving byte range");
 
             error.to_response()
+        }
+    }
+}
+
+/// Errors that can occur when streaming a blob.
+#[derive(Debug, thiserror::Error, RestApiError)]
+#[rest_api_error(domain = ERROR_DOMAIN)]
+pub(crate) enum StreamBlobError {
+    /// The requested blob has not yet been stored on Walrus.
+    #[error("the requested blob ID does not exist on Walrus")]
+    #[rest_api_error(reason = "BLOB_NOT_FOUND", status = ApiStatusCode::NotFound)]
+    BlobNotFound,
+
+    /// The blob cannot be returned as it has been blocked.
+    #[error("the requested blob is blocked")]
+    #[rest_api_error(reason = "FORBIDDEN_BLOB", status = ApiStatusCode::UnavailableForLegalReasons)]
+    Blocked,
+
+    /// Failed to retrieve one or more slivers after retries.
+    #[error("failed to retrieve sliver after retries: {message}")]
+    #[rest_api_error(reason = "SLIVER_RETRIEVAL_FAILED", status = ApiStatusCode::Internal)]
+    SliverRetrievalFailed { message: String },
+
+    /// The blob size exceeds the maximum allowed size.
+    #[error("the blob size exceeds the maximum allowed size: {0}")]
+    #[rest_api_error(reason = "BLOB_TOO_LARGE", status = ApiStatusCode::SizeExceeded)]
+    BlobTooLarge(u64),
+}
+
+impl From<ClientError> for StreamBlobError {
+    fn from(error: ClientError) -> Self {
+        match error.kind() {
+            ClientErrorKind::BlobIdDoesNotExist => Self::BlobNotFound,
+            ClientErrorKind::BlobIdBlocked(_) => Self::Blocked,
+            ClientErrorKind::BlobTooLarge(max_blob_size) => Self::BlobTooLarge(*max_blob_size),
+            _ => Self::SliverRetrievalFailed {
+                message: error.to_string(),
+            },
+        }
+    }
+}
+
+/// Stream a Walrus blob sliver-by-sliver.
+///
+/// Reconstructs and streams the blob identified by the provided blob ID from Walrus.
+/// Data is streamed progressively as slivers are retrieved, reducing time-to-first-byte
+/// for large blobs.
+///
+/// This endpoint uses aggressive retry logic with longer timeouts for each sliver,
+/// and prefetches slivers ahead of the current streaming position to minimize wait time.
+///
+/// If a sliver cannot be retrieved after multiple retries, the stream will abort with an error.
+/// Clients should be prepared to handle partial data in case of failures.
+#[tracing::instrument(level = Level::ERROR, skip_all, fields(%blob_id))]
+#[utoipa::path(
+    get,
+    path = BLOB_STREAM_ENDPOINT,
+    params(("blob_id" = BlobId,)),
+    responses(
+        (status = 200, description = "Blob streaming started successfully", body = [u8]),
+        StreamBlobError,
+    ),
+)]
+pub(super) async fn stream_blob<T: WalrusReadClient + Send + Sync + 'static>(
+    request_method: Method,
+    request_headers: HeaderMap,
+    State(client): State<Arc<T>>,
+    Path(BlobIdString(blob_id)): Path<BlobIdString>,
+) -> Response {
+    tracing::debug!("starting to stream blob");
+
+    match client.stream_blob(&blob_id).await {
+        Ok((stream, blob_size)) => {
+            use futures::StreamExt;
+            // Wrap stream to convert ClientError to axum-compatible errors
+            let byte_stream = StreamExt::map(stream, |result: Result<Bytes, ClientError>| {
+                result.map_err(|e: ClientError| {
+                    tracing::error!(error = ?e, "error during blob streaming");
+                    std::io::Error::other(e.to_string())
+                })
+            });
+
+            let mut response = (StatusCode::OK, Body::from_stream(byte_stream)).into_response();
+            let headers = response.headers_mut();
+            populate_response_headers_from_request(
+                request_method,
+                &request_headers,
+                &blob_id.to_string(),
+                Some(blob_size),
+                headers,
+            );
+            // Add streaming-specific headers
+            headers.insert(
+                HeaderName::from_static("x-walrus-streaming"),
+                HeaderValue::from_static("true"),
+            );
+            response
+        }
+        Err(error) => {
+            tracing::debug!(?error, "failed to start blob stream");
+            StreamBlobError::from(error).to_response()
         }
     }
 }
@@ -836,7 +965,7 @@ async fn concat_blobs_impl<T: WalrusReadClient + Send + Sync + 'static>(
 
     let mut response = (StatusCode::OK, Body::from_stream(stream)).into_response();
     let headers = response.headers_mut();
-    populate_response_headers_from_request(request_method, &request_headers, &etag, headers);
+    populate_response_headers_from_request(request_method, &request_headers, &etag, None, headers);
 
     if let Some(attribute) = first_attribute {
         populate_response_headers_from_attributes(
@@ -1193,11 +1322,12 @@ fn build_quilt_patch_response(
     let identifier = blob.identifier().to_string();
     let blob_attribute: BlobAttribute = blob.tags().clone().into();
     let blob_data = blob.into_data();
-    let mut response = (StatusCode::OK, blob_data).into_response();
+    let mut response = create_response_from_blob(StatusCode::OK, blob_data);
     populate_response_headers_from_request(
         request_method,
         request_headers,
         etag,
+        None,
         response.headers_mut(),
     );
     populate_response_headers_from_attributes(
@@ -1996,5 +2126,21 @@ mod tests {
         // All headers should be present when no filter is applied.
         assert_eq!(headers_all.len(), 5);
         assert!(headers_all.get("not-allowed-header").is_some());
+    }
+
+    #[test]
+    fn test_create_response_from_blob_does_not_set_content_type() {
+        // Create a response using create_response_from_blob
+        let blob_data = vec![1, 2, 3, 4, 5];
+        let response = create_response_from_blob(StatusCode::OK, blob_data);
+
+        // Verify that the Content-Type header is not set
+        assert!(
+            response.headers().get(CONTENT_TYPE).is_none(),
+            "Content-Type header should not be set by create_response_from_blob"
+        );
+
+        // Verify the status code is correct
+        assert_eq!(response.status(), StatusCode::OK);
     }
 }
