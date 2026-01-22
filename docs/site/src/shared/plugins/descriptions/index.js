@@ -1,4 +1,4 @@
-// Copyright (c) Mysten Labs, Inc.
+// Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
 // This plugin gets the descriptions from yaml header and
@@ -98,12 +98,6 @@ const descriptionPlugin = (context, options) => {
 
       // Collect .md/.mdx, skipping known heavy/irrelevant trees
       const EXCLUDES = [
-        "/sui-api/sui-graphql/",
-        "/content/snippets/",
-        "/references/framework/",
-        "/standards/deepbook-ref/",
-        "/submodules/",
-        "/app-examples/ts-sdk-ref/",
       ].map((s) => s.replace(/\\/g, "/"));
 
       const mdFiles = walk(docsRootAbs, (abs) => {
