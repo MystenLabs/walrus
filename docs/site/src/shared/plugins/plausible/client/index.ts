@@ -1,7 +1,6 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-
 import ExecutionEnvironment from "@docusaurus/ExecutionEnvironment";
 
 declare global {
