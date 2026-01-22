@@ -249,8 +249,6 @@ pub(crate) fn get_initial_version_from_object_response(
 pub(crate) fn get_initial_version_from_grpc_object(
     object: &sui_types::object::Object,
 ) -> SuiClientResult<SequenceNumber> {
-    // REVIEW(wbbradley): might be simpler to call object.owner().start_version(), but it's unclear
-    // if that's incorrect/harmful due to its extra handling of ConsensusAddressOwner.
     if let Owner::Shared {
         initial_shared_version,
     } = object.owner()
