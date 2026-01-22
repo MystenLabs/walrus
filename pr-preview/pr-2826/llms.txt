@@ -42,6 +42,11 @@ Where the world's data becomes reliable, valuable, and governable
 - [Operating a Storage Node](/operator-guide/storage-node): Guide for operating Walrus storage nodes including commission governance, backup and restore procedures.
 - [The Walrus Upload Relay](/operator-guide/upload-relay): Complete guide to operating Walrus upload relays for facilitating browser-based blob storage with tip configuration and payment systems.
 
+## Snippets
+
+- [No title](/snippets/blob-object-id): After you upload a blob to Walrus, it has 2 identifiers:
+- [Blog Post Notice](/snippets/blog-note-edit): Notice about legacy blog post content that may contain outdated information or broken links.
+
 ## Tusky migration guide
 
 - [Tusky Migration Guide](/tusky-migration-guide): During the Tusky sunsetting period, you can continue reading your data and migrate to using Walrus directly or through alternative tooling.
