@@ -65,17 +65,13 @@ jobs:
     name: Update Walrus Site
     runs-on: ubuntu-ghcloud
     if: ${{ github.event_name == 'push' || github.event_name == 'schedule' || inputs.update-walrus-site == true }}
-    env:
-      # Colors don't seem to work properly with the multiline commands.
-      NO_COLOR: 1
-      RUST_LOG: info
-      EPOCHS: 10
-      BUILD_DIR: docs/site/build
     concurrency:
       group: sui-wallet-operations
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # pin@v6.0.1
+        with:
+          persist-credentials: false
       - name: Install pnpm
         uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # pin@v4.2.0
         with:
@@ -90,16 +86,15 @@ jobs:
         run: cd docs/site && pnpm install --frozen-lockfile
       - name: Build site
         run: cd docs/site && pnpm run build
-      - uses: ./.github/actions/set-up-walrus
+      - name: Deploy to Walrus
+        uses: MystenLabs/walrus-sites-github-actions/deploy@b803ef35a1e8524431682c7ad6e5f710a41a51ff # v1
         with:
           SUI_ADDRESS: "${{ vars.SUI_ADDRESS }}"
           SUI_KEYSTORE: "${{ secrets.SUI_KEYSTORE }}"
           WALRUS_CONFIG: "${{ vars.WALRUS_CONFIG }}"
           SUI_NETWORK: mainnet
+          DIST: docs/site/build
+          WS_RESOURCES: docs/site/ws-resources.json
+          EPOCHS: "10"
+          GAS_BUDGET: "1000000000"
           SITE_BUILDER_VERSION: v2
-
-      - name: Update Walrus Site
-        run: >
-          site-builder --gas-budget 1000000000
-          update ${{ env.BUILD_DIR }} ${{ vars.WALRUS_SITE_OBJECT_DOCS }}
-          --epochs ${{ env.EPOCHS }} --ws-resources docs/site/ws-resources.json
