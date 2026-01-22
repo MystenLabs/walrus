@@ -8,7 +8,7 @@ use std::{
     iter,
     num::NonZeroU16,
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, OnceLock},
     time::Duration,
 };
 
@@ -18,6 +18,7 @@ use fastcrypto::encoding::Encoding;
 use itertools::Itertools as _;
 use rand::seq::SliceRandom;
 use reqwest::Url;
+use serde::Deserialize;
 use serde_json;
 use sui_config::{SUI_CLIENT_CONFIG, sui_config_dir};
 use sui_types::base_types::ObjectID;
@@ -77,7 +78,7 @@ use walrus_sdk::{
 };
 use walrus_storage_node_client::api::BlobStatus;
 use walrus_sui::{client::rpc_client, wallet::Wallet};
-use walrus_utils::{metrics::Registry, read_blob_from_file};
+use walrus_utils::{load_from_yaml_str, metrics::Registry, read_blob_from_file};
 
 use super::{
     args::{
@@ -161,6 +162,55 @@ use crate::{
     utils::{self, MetricsAndLoggingRuntime, generate_sui_wallet},
 };
 
+const MAINNET_CLIENT_CONFIG_YAML: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../setup/client_config_mainnet.yaml"
+));
+const TESTNET_CLIENT_CONFIG_YAML: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../setup/client_config_testnet.yaml"
+));
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+struct ContractIds {
+    system_object: ObjectID,
+    staking_object: ObjectID,
+}
+
+#[derive(Debug)]
+struct KnownNetworkIds {
+    mainnet: Option<ContractIds>,
+    testnet: Option<ContractIds>,
+}
+
+fn known_network_ids() -> &'static KnownNetworkIds {
+    static KNOWN: OnceLock<KnownNetworkIds> = OnceLock::new();
+    KNOWN.get_or_init(|| KnownNetworkIds {
+        mainnet: load_from_yaml_str(
+            "mainnet client config",
+            MAINNET_CLIENT_CONFIG_YAML,
+            "contract ids",
+        ),
+        testnet: load_from_yaml_str(
+            "testnet client config",
+            TESTNET_CLIENT_CONFIG_YAML,
+            "contract ids",
+        ),
+    })
+}
+
+fn default_child_process_uploads(config: &ClientConfig) -> bool {
+    let config_ids = ContractIds {
+        system_object: config.contract_config.system_object,
+        staking_object: config.contract_config.staking_object,
+    };
+    let known = known_network_ids();
+    if known.mainnet.as_ref() == Some(&config_ids) {
+        return false;
+    }
+    known.testnet.as_ref() == Some(&config_ids)
+}
+
 /// A helper struct to run commands for the Walrus client.
 #[allow(missing_debug_implementations)]
 pub struct ClientCommandRunner {
@@ -228,7 +278,7 @@ impl ClientCommandRunner {
                 None => (),
             }
             // Since we may export OTLP, this needs to be initialised in an async context.
-            let _guard = subscriber_builder.init()?;
+            let _guard = subscriber_builder.init_scoped()?;
 
             self.run_cli_app_inner(command).await
         };
@@ -706,6 +756,9 @@ impl ClientCommandRunner {
         let encoding_type = encoding_type.unwrap_or(DEFAULT_ENCODING);
 
         let config = self.config?;
+        let child_process_uploads = child_process_uploads
+            .unwrap_or_else(|| default_child_process_uploads(&config))
+            && !internal_run;
         let wallet = self.wallet?;
         let active_address = wallet.active_address();
         let mut client_created_in_bg = WalrusNodeClientCreatedInBackground::new(
@@ -1061,6 +1114,9 @@ impl ClientCommandRunner {
 
         let encoding_type = encoding_type.unwrap_or(DEFAULT_ENCODING);
         let config = self.config?;
+        let child_process_uploads = child_process_uploads
+            .unwrap_or_else(|| default_child_process_uploads(&config))
+            && !internal_run;
         let wallet = self.wallet?;
         let active_address = wallet.active_address();
         let mut client_created_in_bg = WalrusNodeClientCreatedInBackground::new(
@@ -1959,7 +2015,6 @@ impl ClientCommandRunner {
             }
             NodeAdminCommands::PackageDigest { package_path } => {
                 let digest = sui_client
-                    .read_client()
                     .compute_package_digest(package_path.clone())
                     .await?;
                 println!(
@@ -2017,7 +2072,7 @@ struct StoreOptions {
     encoding_type: Option<EncodingType>,
     upload_relay: Option<Url>,
     confirmation: UserConfirmation,
-    child_process_uploads: bool,
+    child_process_uploads: Option<bool>,
     internal_run: bool,
 }
 
@@ -2040,8 +2095,6 @@ impl TryFrom<CommonStoreOptions> for StoreOptions {
             internal_run,
         }: CommonStoreOptions,
     ) -> Result<Self, Self::Error> {
-        let child_process_uploads = child_process_uploads && !internal_run;
-
         Ok(Self {
             epoch_arg,
             dry_run,

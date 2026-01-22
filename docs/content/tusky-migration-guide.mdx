@@ -38,9 +38,9 @@ During this sunset period, you must:
 
 ## Important note on encryption (applies to all migration options)
 
-Tusky supports self-hosted keys and keys supplied by the user but [stored on Tusky and password protected](https://github.com/tusky-io/ts-sdk?tab=readme-ov-file#encryption). They implement server-side encryption and decryption of blobs with those keys, which means that a user or app client does not need to do the actual encryption or decryption on their end. 
+Tusky supports self-hosted keys and keys supplied by the user but [stored encrypted on Tusky and password protected](https://github.com/tusky-io/ts-sdk?tab=readme-ov-file#encryption). All encryption and decryption of blobs happens on the client side and is handled by Tusky SDK.
 
-**This means once you download your data from Tusky, it should already be decrypted.**
+**This means once you download your data from Tusky via SDK, it should already be decrypted.**
 
 Based on your needs for data management going forward, you can choose to encrypt your data using an alternative mechanism as mentioned in the migration options. If you request the Tusky-stored encryption keys from them before they shut down the service, you may choose to reuse those keys with the relevant alternatives.
 
@@ -80,7 +80,7 @@ Based on your needs for data management going forward, you can choose to encrypt
 Available options:
 
   - [Nami Cloud](https://docs.nami.cloud/introduction)
-  - [Zark Lab](https://zarklab.ai): Refer to the [Getting Started with Zark guide](./zark.pdf).
+  - [Zark Lab](https://zarklab.ai): Refer to the [Getting Started with Zark guide](https://zarklab.mintlify.app/data-storage/walrus/walrus-integration-overview).
   - [Pawtato](https://pawtato.app/board/walrus/upload)
 
 :::tip

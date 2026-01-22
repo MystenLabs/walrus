@@ -40,7 +40,7 @@ jobs:
 
       - name: Install taplo
         run: |
-          url="https://github.com/tamasfe/taplo/releases/download/0.9.3/taplo-linux-x86_64.gz"
+          url="https://github.com/tamasfe/taplo/releases/download/0.10.0/taplo-linux-x86_64.gz"
           curl -sSL "$url" | gunzip > taplo
           chmod +x taplo
       - name: Check formatting of all TOML files

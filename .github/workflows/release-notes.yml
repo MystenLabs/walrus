@@ -1,0 +1,77 @@
+name: Release Notes
+
+on:
+  push:
+    branches:
+      - 'main'
+      - 'devnet'
+      - 'testnet'
+      - 'mainnet'
+  pull_request:
+    types: [opened, synchronize, reopened, edited, ready_for_review]
+  workflow_dispatch:
+    inputs:
+      sui_repo_ref:
+        description: "Branch / commit to test"
+        type: string
+        required: false
+        default: ''
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  diff:
+    name: Determine PR eligibility for ${{ github.event.pull_request.number }}
+    if: github.event.pull_request.number != ''
+    runs-on: [ubuntu-latest]
+    outputs:
+      isReleaseNotesEligible: ${{ steps.diff.outputs.isReleaseNotesEligible }}
+      isReleaseNotesScript: ${{ steps.diff.outputs.isReleaseNotesScript }}
+    steps:
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # pin@v6.0.1
+        with:
+          ref: ${{ github.event.inputs.sui_repo_ref || github.ref }}
+      - name: Detect Changes
+        uses: './.github/actions/diffs'
+        id: diff
+
+  release-notes-description-check:
+    name: Validate Release Notes in ${{ github.event.pull_request.number }}
+    needs: diff
+    if: needs.diff.outputs.isReleaseNotesEligible == 'true' && github.event.pull_request.number != ''
+    permissions:
+      contents: read
+      pull-requests: read
+    runs-on: [ubuntu-latest]
+    steps:
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # pin@v6.0.1
+        with:
+          ref: ${{ github.event.inputs.sui_repo_ref || github.ref }}
+      - uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548 # pin@v6.1.0
+        with:
+          python-version: 3.10.10
+      - name: Validate PR's release notes
+        shell: bash
+        run: |
+          WALRUS_REPO_TOKEN=${{ secrets.GITHUB_TOKEN }} python ./scripts/release_notes.py check ${{ github.event.pull_request.number }}
+
+  release-notes-script-test:
+    name: Test Release Notes Script
+    needs: diff
+    if: needs.diff.outputs.isReleaseNotesScript == 'true'
+    runs-on: [ubuntu-latest]
+    steps:
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # pin@v6.0.1
+        with:
+          ref: ${{ github.event.inputs.sui_repo_ref || github.ref }}
+      - uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548 # pin@v6.1.0
+        with:
+          python-version: 3.10.10
+      - name: Install pytest
+        run: pip install pytest
+      - name: Run release notes script tests
+        working-directory: scripts
+        run: |
+          python -m pytest release_notes_test.py -v

@@ -21,12 +21,13 @@ use std::{
     time::Duration,
 };
 
+use bytes::Bytes;
 use rand::{Rng, random, seq::SliceRandom, thread_rng};
 use reqwest::Url;
 #[cfg(msim)]
 use sui_macros::{clear_fail_point, register_fail_point_if};
 use sui_types::base_types::{SUI_ADDRESS_LENGTH, SuiAddress};
-use tokio::sync::Mutex;
+use tokio::{sync::Mutex, time::Instant};
 use tokio_stream::StreamExt;
 use walrus_core::{
     BlobId,
@@ -38,9 +39,11 @@ use walrus_core::{
     SliverPairIndex,
     encoding::{
         BLOB_TYPE_ATTRIBUTE_KEY,
+        EncodingAxis,
         EncodingFactory as _,
         Primary,
         QUILT_TYPE_VALUE,
+        Secondary,
         encoded_blob_length_for_n_shards,
         quilt_encoding::{QuiltApi, QuiltStoreBlob, QuiltVersionV1},
     },
@@ -55,9 +58,11 @@ use walrus_sdk::{
         StoreArgs,
         StoreBlobsApi as _,
         WalrusNodeClient,
+        byte_range_read_client::{ByteRangeReadClient, ByteRangeReadClientConfig},
         client_types::WalrusStoreBlob,
         quilt_client::QuiltClientConfig,
         responses::{BlobStoreResult, QuiltStoreResult},
+        streaming::start_streaming_blob,
         upload_relay_client::UploadRelayClient,
     },
     config::ClientConfig,
@@ -77,6 +82,7 @@ use walrus_sdk::{
 };
 use walrus_service::test_utils::{
     StorageNodeHandleTrait,
+    TestCluster,
     TestNodesConfig,
     UnusedSocketAddress,
     test_cluster::{self, FROST_PER_NODE_WEIGHT},
@@ -273,7 +279,7 @@ async fn run_store_and_read_with_crash_failures(
 ) -> TestResult {
     walrus_test_utils::init_tracing();
 
-    let (_sui_cluster_handle, mut cluster, client, _) =
+    let (_sui_cluster_handle, mut cluster, client, _, _) =
         test_cluster::E2eTestSetupBuilder::new().build().await?;
     // Stop the nodes in the write failure set.
     failed_shards_write
@@ -309,7 +315,7 @@ async_param_test! {
 async fn test_inconsistency(failed_nodes: &[usize]) -> TestResult {
     walrus_test_utils::init_tracing();
 
-    let (_sui_cluster_handle, mut cluster, mut client, _) =
+    let (_sui_cluster_handle, mut cluster, mut client, _, _) =
         test_cluster::E2eTestSetupBuilder::new().build().await?;
 
     // Store a blob and get confirmations from each node.
@@ -487,7 +493,7 @@ async fn test_store_with_existing_blob_resource(
 ) -> TestResult {
     walrus_test_utils::init_tracing();
 
-    let (_sui_cluster_handle, _cluster, client, _) =
+    let (_sui_cluster_handle, _cluster, client, _, _) =
         test_cluster::E2eTestSetupBuilder::new().build().await?;
 
     let blobs = walrus_test_utils::random_data_list(31415, 4);
@@ -625,7 +631,7 @@ async fn store_blob(
 pub async fn test_store_and_read_duplicate_blobs() -> TestResult {
     walrus_test_utils::init_tracing();
 
-    let (_sui_cluster_handle, _cluster, client, _) =
+    let (_sui_cluster_handle, _cluster, client, _, _) =
         test_cluster::E2eTestSetupBuilder::new().build().await?;
     let client = client.as_ref();
 
@@ -689,7 +695,7 @@ async_param_test! {
 async fn test_store_with_existing_blobs(persistence: BlobPersistence) -> TestResult {
     walrus_test_utils::init_tracing();
 
-    let (_sui_cluster_handle, _cluster, client, _) =
+    let (_sui_cluster_handle, _cluster, client, _, _) =
         test_cluster::E2eTestSetupBuilder::new().build().await?;
 
     let blobs = walrus_test_utils::random_data_list(31415, 5);
@@ -784,7 +790,7 @@ async fn test_store_with_existing_storage_resource(
 ) -> TestResult {
     walrus_test_utils::init_tracing();
 
-    let (_sui_cluster_handle, _cluster, client, _) =
+    let (_sui_cluster_handle, _cluster, client, _, _) =
         test_cluster::E2eTestSetupBuilder::new().build().await?;
 
     let blobs = walrus_test_utils::random_data_list(31415, 4);
@@ -862,7 +868,7 @@ async_param_test! {
 /// Tests blob object deletion.
 async fn test_delete_blob(blobs_to_create: u32) -> TestResult {
     walrus_test_utils::init_tracing();
-    let (_sui_cluster_handle, _cluster, client, _) =
+    let (_sui_cluster_handle, _cluster, client, _, _) =
         test_cluster::E2eTestSetupBuilder::new().build().await?;
     let blobs = walrus_test_utils::random_data_list(314, 1);
 
@@ -921,7 +927,7 @@ async fn test_delete_blob(blobs_to_create: u32) -> TestResult {
 #[walrus_simtest]
 async fn test_storage_nodes_do_not_serve_data_for_deleted_blobs() -> TestResult {
     walrus_test_utils::init_tracing();
-    let (_sui_cluster_handle, _cluster, client, _) =
+    let (_sui_cluster_handle, _cluster, client, _, _) =
         test_cluster::E2eTestSetupBuilder::new().build().await?;
     let client = client.as_ref();
     let blob = walrus_test_utils::random_data(314);
@@ -954,7 +960,7 @@ async fn test_storage_nodes_do_not_serve_data_for_deleted_blobs() -> TestResult 
 async fn test_storage_nodes_do_not_serve_data_for_expired_deletable_blobs() -> TestResult {
     walrus_test_utils::init_tracing();
     let epoch_duration = Duration::from_secs(15);
-    let (_sui_cluster_handle, cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
+    let (_sui_cluster_handle, cluster, client, _, _) = test_cluster::E2eTestSetupBuilder::new()
         .with_epoch_duration(epoch_duration)
         .build()
         .await?;
@@ -1127,7 +1133,7 @@ async fn test_store_quilt(blobs_to_create: u32) -> TestResult {
         .build();
     let test_cluster_builder =
         test_cluster::E2eTestSetupBuilder::new().with_test_nodes_config(test_nodes_config);
-    let (_sui_cluster_handle, _cluster, client, _) = test_cluster_builder.build().await?;
+    let (_sui_cluster_handle, _cluster, client, _, _) = test_cluster_builder.build().await?;
     let client = client.as_ref();
     let blobs = walrus_test_utils::random_data_list(314, blobs_to_create as usize);
     let encoding_type = DEFAULT_ENCODING;
@@ -1145,9 +1151,10 @@ async fn test_store_quilt(blobs_to_create: u32) -> TestResult {
         .collect::<Vec<_>>();
 
     // Store the quilt.
-    let quilt_client = client
-        .quilt_client()
-        .with_config(QuiltClientConfig::new(6, Duration::from_mins(1)));
+    let quilt_client =
+        client
+            .quilt_client()
+            .with_config(QuiltClientConfig::new(6, Duration::from_mins(1), 100));
     let quilt = quilt_client
         .construct_quilt::<QuiltVersionV1>(&quilt_store_blobs, encoding_type)
         .await?;
@@ -1255,7 +1262,7 @@ async fn test_store_quilt(blobs_to_create: u32) -> TestResult {
 async fn test_blocklist() -> TestResult {
     walrus_test_utils::init_tracing();
     let blocklist_dir = tempfile::tempdir().expect("temporary directory creation must succeed");
-    let (_sui_cluster_handle, _cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
+    let (_sui_cluster_handle, _cluster, client, _, _) = test_cluster::E2eTestSetupBuilder::new()
         .with_test_nodes_config(
             TestNodesConfig::builder()
                 .with_blocklist_dir(blocklist_dir.path().to_path_buf())
@@ -1345,7 +1352,7 @@ async fn test_blocklist() -> TestResult {
 #[walrus_simtest]
 async fn test_blob_operations_with_credits() -> TestResult {
     walrus_test_utils::init_tracing();
-    let (_sui_cluster_handle, _cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
+    let (_sui_cluster_handle, _cluster, client, _, _) = test_cluster::E2eTestSetupBuilder::new()
         .with_credits()
         .build()
         .await?;
@@ -1411,7 +1418,7 @@ async fn test_blob_operations_with_credits() -> TestResult {
 async fn test_walrus_subsidies_get_called_by_node() -> TestResult {
     walrus_test_utils::init_tracing();
 
-    let (_sui_cluster_handle, cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
+    let (_sui_cluster_handle, cluster, client, _, _) = test_cluster::E2eTestSetupBuilder::new()
         .with_epoch_duration(Duration::from_secs(20))
         .build()
         .await?;
@@ -1455,7 +1462,7 @@ async fn test_walrus_subsidies_get_called_by_node() -> TestResult {
 #[walrus_simtest]
 async fn test_multiple_stores_same_blob() -> TestResult {
     walrus_test_utils::init_tracing();
-    let (_sui_cluster_handle, _cluster, client, _) =
+    let (_sui_cluster_handle, _cluster, client, _, _) =
         test_cluster::E2eTestSetupBuilder::new().build().await?;
     let client = client.as_ref();
     let blobs = walrus_test_utils::random_data_list(314, 1);
@@ -1594,15 +1601,16 @@ async fn test_multiple_stores_same_blob() -> TestResult {
 #[walrus_simtest]
 async fn test_repeated_shard_move() -> TestResult {
     walrus_test_utils::init_tracing();
-    let (_sui_cluster_handle, walrus_cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
-        .with_epoch_duration(Duration::from_secs(20))
-        .with_test_nodes_config(
-            TestNodesConfig::builder()
-                .with_node_weights(&[1, 1])
-                .build(),
-        )
-        .build()
-        .await?;
+    let (_sui_cluster_handle, walrus_cluster, client, _, _) =
+        test_cluster::E2eTestSetupBuilder::new()
+            .with_epoch_duration(Duration::from_secs(20))
+            .with_test_nodes_config(
+                TestNodesConfig::builder()
+                    .with_node_weights(&[1, 1])
+                    .build(),
+            )
+            .build()
+            .await?;
 
     client
         .as_ref()
@@ -1674,7 +1682,7 @@ async fn test_burn_blobs() -> TestResult {
     const N_TO_DELETE: usize = 2;
     walrus_test_utils::init_tracing();
 
-    let (_sui_cluster_handle, _cluster, client, _) =
+    let (_sui_cluster_handle, _cluster, client, _, _) =
         test_cluster::E2eTestSetupBuilder::new().build().await?;
 
     let mut blob_object_ids = vec![];
@@ -1724,7 +1732,7 @@ async fn test_burn_blobs() -> TestResult {
 #[walrus_simtest]
 async fn test_extend_owned_blobs() -> TestResult {
     walrus_test_utils::init_tracing();
-    let (_sui_cluster_handle, _cluster, client, _) =
+    let (_sui_cluster_handle, _cluster, client, _, _) =
         test_cluster::E2eTestSetupBuilder::new().build().await?;
 
     let current_epoch = client.as_ref().sui_client().current_epoch().await?;
@@ -1788,7 +1796,7 @@ async fn test_share_blobs() -> TestResult {
     const INITIAL_FUNDS: u64 = 1000000000;
     walrus_test_utils::init_tracing();
 
-    let (_sui_cluster_handle, _cluster, client, _) =
+    let (_sui_cluster_handle, _cluster, client, _, _) =
         test_cluster::E2eTestSetupBuilder::new().build().await?;
 
     let blobs = walrus_test_utils::random_data_list(314, 1);
@@ -1885,7 +1893,7 @@ async fn test_post_store_action(
     n_target_blobs: usize,
 ) -> TestResult {
     walrus_test_utils::init_tracing();
-    let (_sui_cluster_handle, _cluster, client, _) =
+    let (_sui_cluster_handle, _cluster, client, _, _) =
         test_cluster::E2eTestSetupBuilder::new().build().await?;
     let target_address: SuiAddress = SuiAddress::from_bytes(TARGET_ADDRESS).expect("valid address");
 
@@ -1955,7 +1963,7 @@ async fn test_post_store_action(
 async fn test_store_blob_with_random_attributes() -> TestResult {
     walrus_test_utils::init_tracing();
 
-    let (_sui_cluster_handle, _cluster, client, _) =
+    let (_sui_cluster_handle, _cluster, client, _, _) =
         test_cluster::E2eTestSetupBuilder::new().build().await?;
 
     let num_attributes = thread_rng().gen_range(0..=10);
@@ -2184,7 +2192,7 @@ impl<'a> BlobAttributeTestContext<'a> {
 async fn test_blob_attribute_add_and_remove() -> TestResult {
     walrus_test_utils::init_tracing();
 
-    let (_sui_cluster_handle, _cluster, mut client, _) =
+    let (_sui_cluster_handle, _cluster, mut client, _, _) =
         test_cluster::E2eTestSetupBuilder::new().build().await?;
     let mut test_context = BlobAttributeTestContext::new(&mut client).await?;
 
@@ -2240,7 +2248,7 @@ async fn test_blob_attribute_add_and_remove() -> TestResult {
 async fn test_blob_attribute_fields_operations() -> TestResult {
     walrus_test_utils::init_tracing();
 
-    let (_sui_cluster_handle, _cluster, mut client, _) =
+    let (_sui_cluster_handle, _cluster, mut client, _, _) =
         test_cluster::E2eTestSetupBuilder::new().build().await?;
     let mut test_context = BlobAttributeTestContext::new(&mut client).await?;
 
@@ -2338,15 +2346,16 @@ async fn test_blob_attribute_fields_operations() -> TestResult {
 #[walrus_simtest]
 async fn test_shard_move_out_and_back_in_immediately() -> TestResult {
     walrus_test_utils::init_tracing();
-    let (_sui_cluster_handle, walrus_cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
-        .with_epoch_duration(Duration::from_secs(20))
-        .with_test_nodes_config(
-            TestNodesConfig::builder()
-                .with_node_weights(&[1, 1])
-                .build(),
-        )
-        .build()
-        .await?;
+    let (_sui_cluster_handle, walrus_cluster, client, _, _) =
+        test_cluster::E2eTestSetupBuilder::new()
+            .with_epoch_duration(Duration::from_secs(20))
+            .with_test_nodes_config(
+                TestNodesConfig::builder()
+                    .with_node_weights(&[1, 1])
+                    .build(),
+            )
+            .build()
+            .await?;
 
     walrus_cluster.wait_for_nodes_to_reach_epoch(2).await;
 
@@ -2442,7 +2451,7 @@ async fn test_shard_move_out_and_back_in_immediately() -> TestResult {
 #[walrus_simtest]
 async fn test_ptb_retriable_error() -> TestResult {
     // Set up test environment with cluster and client
-    let (_sui_cluster_handle, cluster, client, _) =
+    let (_sui_cluster_handle, cluster, client, _, _) =
         test_cluster::E2eTestSetupBuilder::new().build().await?;
 
     // Create an atomic counter to track number of failure attempts
@@ -2483,7 +2492,7 @@ async fn test_ptb_retriable_error() -> TestResult {
 #[walrus_simtest]
 pub async fn test_select_coins_max_objects() -> TestResult {
     walrus_test_utils::init_tracing();
-    let (sui_cluster_handle, _, _, _) = test_cluster::E2eTestSetupBuilder::new().build().await?;
+    let (sui_cluster_handle, _, _, _, _) = test_cluster::E2eTestSetupBuilder::new().build().await?;
 
     // Create a new wallet on the cluster.
     let mut cluster_wallet = walrus_sui::config::load_wallet_context_from_path(
@@ -2562,7 +2571,7 @@ async fn test_store_with_upload_relay_no_tip() {
     walrus_test_utils::init_tracing();
 
     // Start the Sui and Walrus clusters.
-    let (sui_cluster_handle, _cluster, cluster_client, _) =
+    let (sui_cluster_handle, _cluster, cluster_client, _, _) =
         test_cluster::E2eTestSetupBuilder::new()
             .build()
             .await
@@ -2683,7 +2692,7 @@ async fn test_store_with_upload_relay_with_tip() {
     walrus_test_utils::init_tracing();
 
     // Start the Sui and Walrus clusters.
-    let (sui_cluster_handle, _cluster, cluster_client, _system_context) =
+    let (sui_cluster_handle, _cluster, cluster_client, _system_context, _) =
         test_cluster::E2eTestSetupBuilder::new()
             .build()
             .await
@@ -2852,10 +2861,22 @@ async fn test_store_with_upload_relay_with_tip() {
         .expect("shutdown upload relay");
 }
 
-/// Tests client byte range read functionality.
-#[ignore = "ignore E2E tests by default"]
-#[walrus_simtest]
-async fn test_byte_range_read_client() -> TestResult {
+fn fail_random_node(walrus_cluster: &TestCluster) {
+    let node_to_stop = thread_rng().gen_range(0..5);
+    tracing::info!("failing node {node_to_stop}");
+    walrus_cluster.nodes[node_to_stop].cancel();
+}
+
+// Tests client byte range read functionality, with different node failure scenarios.
+async_param_test! {
+    #[ignore = "ignore E2E tests by default"]
+    #[walrus_simtest]
+    test_byte_range_read_client -> TestResult : [
+        with_node_failure: (true),
+        without_node_failure: (false),
+    ]
+}
+async fn test_byte_range_read_client(with_node_failure: bool) -> TestResult {
     walrus_test_utils::init_tracing();
 
     let test_nodes_config = TestNodesConfig::builder()
@@ -2863,11 +2884,11 @@ async fn test_byte_range_read_client() -> TestResult {
         .build();
     let test_cluster_builder =
         test_cluster::E2eTestSetupBuilder::new().with_test_nodes_config(test_nodes_config);
-    let (_sui_cluster_handle, _cluster, client, _) = test_cluster_builder.build().await?;
+    let (_sui_cluster_handle, walrus_cluster, client, _, _) = test_cluster_builder.build().await?;
     let client = client.as_ref();
 
     // Generate a non zero blob size.
-    let blob_size: u64 = thread_rng().gen_range(1..=1000000);
+    let blob_size: u64 = thread_rng().gen_range(100..=1000000);
     tracing::info!("blob size: {blob_size}");
     let blobs = walrus_test_utils::random_data_list(
         usize::try_from(blob_size).expect("blob size should be valid"),
@@ -2885,6 +2906,10 @@ async fn test_byte_range_read_client() -> TestResult {
     let blob_id = blob_read_result[0]
         .blob_id()
         .expect("blob ID should be present");
+
+    if with_node_failure {
+        fail_random_node(&walrus_cluster);
+    }
 
     // Test reading byte range from the blob. We do 20 randomly generated byte range reads and
     // verify that the data is correct.
@@ -2925,7 +2950,7 @@ async fn test_byte_range_read_size_too_large() -> TestResult {
         .build();
     let test_cluster_builder =
         test_cluster::E2eTestSetupBuilder::new().with_test_nodes_config(test_nodes_config);
-    let (_sui_cluster_handle, _cluster, mut client, _) = test_cluster_builder.build().await?;
+    let (_sui_cluster_handle, _cluster, mut client, _, _) = test_cluster_builder.build().await?;
     client.as_mut().set_max_blob_size(Some(1000));
     let client = client.as_ref();
 
@@ -2988,5 +3013,622 @@ async fn test_byte_range_read_size_too_large() -> TestResult {
                 .to_vec()
         );
     }
+    Ok(())
+}
+
+// Tests that streaming a blob returns the correct data.
+async_param_test! {
+    #[ignore = "ignore E2E tests by default"]
+    #[walrus_simtest]
+    test_streaming_blob -> TestResult : [
+        with_node_failure: (true),
+        without_node_failure: (false),
+    ]
+}
+async fn test_streaming_blob(with_node_failure: bool) -> TestResult {
+    walrus_test_utils::init_tracing();
+
+    // Create a test cluster with 5 nodes with the same weight. This makes sure that when losing
+    // any node, it still has a quorum.
+    let test_nodes_config = TestNodesConfig::builder()
+        .with_node_weights(&[7, 7, 7, 7, 7])
+        .build();
+
+    // Setup test cluster
+    let (_sui_cluster_handle, walrus_cluster, client, _, _) =
+        test_cluster::E2eTestSetupBuilder::new()
+            .with_test_nodes_config(test_nodes_config)
+            .build()
+            .await?;
+
+    // Generate and store a test blob (~100KB to span multiple slivers)
+    let blob_size = 100_000;
+    let original_data = walrus_test_utils::random_data(blob_size);
+
+    let store_args = StoreArgs::default_with_epochs(5).with_encoding_type(DEFAULT_ENCODING);
+
+    let store_results = client
+        .inner
+        .reserve_and_store_blobs(vec![original_data.clone()], &store_args)
+        .await?;
+
+    let blob_id = store_results
+        .into_iter()
+        .next()
+        .expect("should have one blob store result")
+        .blob_id()
+        .expect("blob ID should be present");
+
+    if with_node_failure {
+        fail_random_node(&walrus_cluster);
+    }
+
+    // Create a read-only client for streaming (SuiReadClient implements Clone)
+    let sui_read_client = client.inner.sui_client().read_client().clone();
+    let config = client.inner.config().clone();
+    let streaming_config = config.streaming_config.clone();
+
+    let read_client =
+        WalrusNodeClient::new_read_client_with_refresher(config, sui_read_client).await?;
+    let arc_client = Arc::new(read_client);
+
+    // Call start_streaming_blob directly
+    let start = Instant::now();
+    let (stream, returned_size) =
+        start_streaming_blob(arc_client, streaming_config, blob_id).await?;
+
+    // Verify returned blob size matches
+    assert_eq!(
+        returned_size, blob_size as u64,
+        "returned blob size should match"
+    );
+
+    // Collect stream chunks
+    let collected: Vec<Bytes> = stream
+        .map(|result| result.expect("stream chunk should succeed"))
+        .collect()
+        .await;
+
+    tracing::info!(
+        "Collected {} chunks in {:?}",
+        collected.len(),
+        start.elapsed()
+    );
+    // Concatenate all chunks
+    let streamed_data: Vec<u8> = collected.into_iter().flat_map(|b| b.to_vec()).collect();
+
+    // Verify data matches original
+    assert_eq!(
+        streamed_data.len(),
+        original_data.len(),
+        "streamed data length should match original"
+    );
+    assert_eq!(
+        streamed_data, original_data,
+        "streamed data should match original blob"
+    );
+
+    Ok(())
+}
+
+/// Tests that the aggregator returns the content-type header from blob attributes.
+#[ignore = "ignore E2E tests by default"]
+#[walrus_simtest]
+async fn test_aggregator_get_blob_by_object_id_content_type() -> TestResult {
+    walrus_test_utils::init_tracing();
+
+    let (_sui_cluster_handle, _cluster, client, _, aggregator_handle) =
+        test_cluster::E2eTestSetupBuilder::new()
+            .with_aggregator()
+            .with_aggregator_allowed_headers(vec!["Content-Type".to_string()])
+            .build()
+            .await?;
+
+    let aggregator = aggregator_handle.expect("aggregator should be started");
+
+    // Create test data
+    let test_content = b"Hello, Walrus!".to_vec();
+    let content_type = "text/plain";
+
+    // Create attribute with content-type
+    let mut attribute = BlobAttribute::default();
+    attribute.insert("Content-Type".to_string(), content_type.to_string());
+
+    // Store the blob with attributes
+    let store_args = StoreArgs::default_with_epochs(1);
+    let results = client
+        .as_ref()
+        .reserve_and_store_blobs_retry_committees(
+            vec![test_content.clone()],
+            vec![attribute],
+            &store_args,
+        )
+        .await?;
+
+    let blob_object = match &results[0] {
+        BlobStoreResult::NewlyCreated { blob_object, .. } => blob_object,
+        _ => panic!("Expected newly created blob"),
+    };
+
+    // Make HTTP request to the aggregator endpoint
+    let http_client = reqwest::Client::new();
+    let url = format!(
+        "{}/v1/blobs/by-object-id/{}",
+        aggregator.base_url(),
+        blob_object.id
+    );
+
+    let response = http_client
+        .get(&url)
+        .send()
+        .await
+        .expect("HTTP request should succeed");
+
+    // Verify status code
+    assert_eq!(response.status(), 200);
+
+    // Verify content-type header
+    let response_content_type = response
+        .headers()
+        .get("content-type")
+        .expect("Content-Type header should be present");
+    assert_eq!(response_content_type.to_str().unwrap(), content_type);
+
+    // Verify the body matches
+    let body = response.bytes().await?;
+    assert_eq!(body.as_ref(), test_content.as_slice());
+
+    // Test that Accept header overrides the stored Content-Type
+    let response_with_accept = http_client
+        .get(&url)
+        .header("Accept", "text/markdown")
+        .send()
+        .await
+        .expect("HTTP request with Accept header should succeed");
+
+    assert_eq!(response_with_accept.status(), 200);
+
+    // Accept header should override the stored content-type
+    let overridden_content_type = response_with_accept
+        .headers()
+        .get("content-type")
+        .expect("Content-Type header should be present");
+    assert_eq!(overridden_content_type.to_str().unwrap(), "text/markdown");
+
+    // Cleanup
+    aggregator.shutdown().await?;
+
+    Ok(())
+}
+
+/// Tests that headers not in allowed_headers are filtered from the response.
+#[ignore = "ignore E2E tests by default"]
+#[walrus_simtest]
+async fn test_aggregator_filters_disallowed_headers() -> TestResult {
+    walrus_test_utils::init_tracing();
+
+    let (_sui_cluster_handle, _cluster, client, _, aggregator_handle) =
+        test_cluster::E2eTestSetupBuilder::new()
+            .with_aggregator()
+            .with_aggregator_allowed_headers(vec!["Content-Type".to_string()])
+            .build()
+            .await?;
+
+    let aggregator = aggregator_handle.expect("aggregator should be started");
+
+    let test_content = b"Test content".to_vec();
+
+    // Create attribute with both allowed and disallowed headers
+    let mut attribute = BlobAttribute::default();
+    attribute.insert("Content-Type".to_string(), "text/plain".to_string());
+    attribute.insert("X-Secret-Header".to_string(), "secret-value".to_string());
+
+    let store_args = StoreArgs::default_with_epochs(1);
+    let results = client
+        .as_ref()
+        .reserve_and_store_blobs_retry_committees(vec![test_content], vec![attribute], &store_args)
+        .await?;
+
+    let blob_object = match &results[0] {
+        BlobStoreResult::NewlyCreated { blob_object, .. } => blob_object,
+        _ => panic!("Expected newly created blob"),
+    };
+
+    let http_client = reqwest::Client::new();
+    let url = format!(
+        "{}/v1/blobs/by-object-id/{}",
+        aggregator.base_url(),
+        blob_object.id
+    );
+
+    let response = http_client.get(&url).send().await?;
+
+    // Content-Type should be present (allowed)
+    assert!(response.headers().get("content-type").is_some());
+
+    // X-Secret-Header should NOT be present (not in allowed list)
+    assert!(response.headers().get("x-secret-header").is_none());
+
+    aggregator.shutdown().await?;
+
+    Ok(())
+}
+
+/// Tests getting a quilt patch by QuiltPatchId and listing patches in a quilt.
+#[ignore = "ignore E2E tests by default"]
+#[walrus_simtest]
+async fn test_aggregator_get_quilt_patch_by_id() -> TestResult {
+    walrus_test_utils::init_tracing();
+
+    let (_sui_cluster_handle, _cluster, client, _, aggregator_handle) =
+        test_cluster::E2eTestSetupBuilder::new()
+            .with_aggregator()
+            .build()
+            .await?;
+
+    let aggregator = aggregator_handle.expect("aggregator should be started");
+
+    // Create test blobs for quilt
+    let blob1 = b"Hello from patch 1".to_vec();
+    let blob2 = b"Hello from patch 2".to_vec();
+
+    let quilt_store_blobs = vec![
+        QuiltStoreBlob::new(&blob1, "patch-1.txt").expect("create blob 1"),
+        QuiltStoreBlob::new(&blob2, "patch-2.txt").expect("create blob 2"),
+    ];
+
+    // Store the quilt
+    let quilt_client = client.as_ref().quilt_client();
+    let quilt = quilt_client
+        .construct_quilt::<QuiltVersionV1>(&quilt_store_blobs, DEFAULT_ENCODING)
+        .await?;
+    let store_args = StoreArgs::default_with_epochs(1);
+    let QuiltStoreResult {
+        blob_store_result,
+        stored_quilt_blobs,
+    } = quilt_client
+        .reserve_and_store_quilt::<QuiltVersionV1>(quilt, &store_args)
+        .await?;
+
+    let quilt_blob_id = match &blob_store_result {
+        BlobStoreResult::NewlyCreated { blob_object, .. } => blob_object.blob_id,
+        _ => panic!("Expected newly created quilt"),
+    };
+
+    // Get first patch by QuiltPatchId
+    let patch_id = &stored_quilt_blobs[0].quilt_patch_id;
+    let http_client = reqwest::Client::new();
+    let url = format!(
+        "{}/v1/blobs/by-quilt-patch-id/{}",
+        aggregator.base_url(),
+        patch_id
+    );
+
+    let response = http_client.get(&url).send().await?;
+    assert_eq!(response.status(), 200);
+
+    let body = response.bytes().await?;
+    assert_eq!(body.as_ref(), blob1.as_slice());
+
+    // Test Accept header override on quilt patch endpoint
+    let response_with_accept = http_client
+        .get(&url)
+        .header("Accept", "text/markdown")
+        .send()
+        .await?;
+
+    let content_type = response_with_accept
+        .headers()
+        .get("content-type")
+        .expect("Content-Type should be present");
+    assert_eq!(content_type.to_str().unwrap(), "text/markdown");
+
+    // Test listing all patches in the quilt
+    let list_url = format!(
+        "{}/v1/quilts/{}/patches",
+        aggregator.base_url(),
+        quilt_blob_id
+    );
+
+    let list_response = http_client.get(&list_url).send().await?;
+    assert_eq!(list_response.status(), 200);
+
+    // Response should be JSON array of patches
+    let patches: serde_json::Value = list_response.json().await?;
+    let patches_array = patches.as_array().expect("response should be array");
+    assert_eq!(patches_array.len(), 2);
+
+    // Verify patch identifiers are present
+    let identifiers: Vec<&str> = patches_array
+        .iter()
+        .map(|p| p["identifier"].as_str().unwrap())
+        .collect();
+    assert!(identifiers.contains(&"patch-1.txt"));
+    assert!(identifiers.contains(&"patch-2.txt"));
+
+    aggregator.shutdown().await?;
+    Ok(())
+}
+
+/// Tests retrieving a byte range from a blob.
+#[ignore = "ignore E2E tests by default"]
+#[walrus_simtest]
+async fn test_aggregator_get_blob_byte_range() -> TestResult {
+    walrus_test_utils::init_tracing();
+
+    let (_sui_cluster_handle, _cluster, client, _, aggregator_handle) =
+        test_cluster::E2eTestSetupBuilder::new()
+            .with_aggregator()
+            .build()
+            .await?;
+
+    let aggregator = aggregator_handle.expect("aggregator should be started");
+
+    // Create a 100KB blob with known content
+    #[allow(clippy::cast_possible_truncation)]
+    let test_content: Vec<u8> = (0..100_000u32).map(|i| (i % 256) as u8).collect();
+
+    let store_args = StoreArgs::default_with_epochs(1);
+    let results = client
+        .as_ref()
+        .reserve_and_store_blobs_retry_committees(
+            vec![test_content.clone()],
+            vec![BlobAttribute::default()],
+            &store_args,
+        )
+        .await?;
+
+    let blob_id = match &results[0] {
+        BlobStoreResult::NewlyCreated { blob_object, .. } => blob_object.blob_id,
+        _ => panic!("Expected newly created blob"),
+    };
+
+    // Request byte range 20000-30000 (10KB)
+    let http_client = reqwest::Client::new();
+    let url = format!(
+        "{}/v1/blobs/{}/byte-range?start=20000&length=10000",
+        aggregator.base_url(),
+        blob_id
+    );
+
+    let response = http_client.get(&url).send().await?;
+    assert_eq!(response.status(), 200);
+
+    let body = response.bytes().await?;
+    assert_eq!(body.len(), 10000);
+    assert_eq!(body.as_ref(), &test_content[20000..30000]);
+
+    aggregator.shutdown().await?;
+    Ok(())
+}
+
+/// Tests getting a blob by blob_id (not object_id) with Accept header override.
+#[ignore = "ignore E2E tests by default"]
+#[walrus_simtest]
+async fn test_aggregator_get_blob_by_blob_id() -> TestResult {
+    walrus_test_utils::init_tracing();
+
+    let (_sui_cluster_handle, _cluster, client, _, aggregator_handle) =
+        test_cluster::E2eTestSetupBuilder::new()
+            .with_aggregator()
+            .build()
+            .await?;
+
+    let aggregator = aggregator_handle.expect("aggregator should be started");
+
+    let test_content = b"Hello, Walrus! Basic blob test.".to_vec();
+
+    let store_args = StoreArgs::default_with_epochs(1);
+    let results = client
+        .as_ref()
+        .reserve_and_store_blobs_retry_committees(
+            vec![test_content.clone()],
+            vec![BlobAttribute::default()],
+            &store_args,
+        )
+        .await?;
+
+    let blob_id = match &results[0] {
+        BlobStoreResult::NewlyCreated { blob_object, .. } => blob_object.blob_id,
+        _ => panic!("Expected newly created blob"),
+    };
+
+    // Get blob by blob_id (not object_id)
+    let http_client = reqwest::Client::new();
+    let url = format!("{}/v1/blobs/{}", aggregator.base_url(), blob_id);
+
+    let response = http_client.get(&url).send().await?;
+    assert_eq!(response.status(), 200);
+
+    let body = response.bytes().await?;
+    assert_eq!(body.as_ref(), test_content.as_slice());
+
+    // Also test Accept header
+    let response_with_accept = http_client
+        .get(&url)
+        .header("Accept", "application/json")
+        .send()
+        .await?;
+
+    let content_type = response_with_accept
+        .headers()
+        .get("content-type")
+        .expect("Content-Type should be present");
+    assert_eq!(content_type.to_str().unwrap(), "application/json");
+
+    aggregator.shutdown().await?;
+
+    Ok(())
+}
+
+// Tests client side recovering slivers and reconstructing the blob.
+// This test uploads a blob, recovers all slivers, and verifies the reconstructed blob
+// matches the original.
+async fn run_test_client_recover_slivers<E: EncodingAxis>(
+    client: &WalrusNodeClient<SuiContractClient>,
+) -> TestResult {
+    // Generate a random blob.
+    let blob_size: u64 = thread_rng().gen_range(10000..=100000);
+    tracing::info!("blob size: {blob_size}");
+    let blobs = walrus_test_utils::random_data_list(
+        usize::try_from(blob_size).expect("blob size should be valid"),
+        1,
+    );
+    let original_blob = &blobs[0];
+
+    // Store the blob on Walrus.
+    let blob_read_result = client
+        .reserve_and_store_blobs_retry_committees(
+            blobs.clone(),
+            vec![],
+            &StoreArgs::default_with_epochs(5).with_persistence(BlobPersistence::Permanent),
+        )
+        .await?;
+
+    let blob_id = blob_read_result[0]
+        .blob_id()
+        .expect("blob ID should be present");
+
+    tracing::info!("stored blob {blob_id}");
+    let current_epoch = client.sui_client().current_epoch().await?;
+    let metadata = client.retrieve_metadata(current_epoch, &blob_id).await?;
+
+    // Get encoding config and calculate the number of systematic slivers for the encoding axis.
+    let encoding_config = client
+        .encoding_config()
+        .get_for_type(metadata.metadata().encoding_type());
+    let n_systematic = encoding_config.n_systematic_slivers::<E>();
+
+    // Create a list of all systematic sliver indices.
+    let all_primary_sliver_indices: Vec<_> = (0..n_systematic.get())
+        .map(walrus_core::SliverIndex::new)
+        .collect();
+
+    tracing::info!("recovering {} slivers", n_systematic);
+
+    // Recover all primary slivers using the recover_slivers method.
+    let recovered_slivers = client
+        .recover_slivers::<E>(&metadata, &all_primary_sliver_indices, current_epoch)
+        .await?;
+
+    tracing::info!("recovered {} slivers", recovered_slivers.len());
+
+    // Verify we got all the slivers.
+    assert_eq!(
+        recovered_slivers.len(),
+        usize::from(n_systematic.get()),
+        "should recover all systematic slivers"
+    );
+
+    // Sort slivers by index to ensure they're in order.
+    let mut sorted_slivers = recovered_slivers;
+    sorted_slivers.sort_by_key(|s| s.index.get());
+
+    // Reconstruct the blob from the recovered slivers.
+    let mut reconstructed_blob = Vec::new();
+    if E::IS_PRIMARY {
+        for sliver in &sorted_slivers {
+            reconstructed_blob.extend_from_slice(sliver.symbols.data());
+        }
+    } else {
+        // For secondary slivers, slivers are in columns. So the reconstructed blob needs to
+        // first take the first bytes from each sliver to form a row, and then concatenate the rows
+        // to form the reconstructed blob.
+        let row_length = sorted_slivers[0].len() / sorted_slivers[0].symbols.symbol_usize();
+        for row in 0..row_length {
+            for sliver in sorted_slivers.iter() {
+                reconstructed_blob.extend_from_slice(
+                    &sliver.symbols.data()[row * sliver.symbols.symbol_usize()
+                        ..(row + 1) * sliver.symbols.symbol_usize()],
+                );
+            }
+        }
+    }
+
+    // Truncate to the original blob size (last sliver may have padding).
+    reconstructed_blob.truncate(original_blob.len());
+
+    // Verify the reconstructed blob matches the original.
+    assert_eq!(
+        reconstructed_blob, *original_blob,
+        "reconstructed blob should match original"
+    );
+
+    Ok(())
+}
+
+/// Tests client side recovering sliver functionality.
+#[ignore = "ignore E2E tests by default"]
+#[walrus_simtest]
+async fn test_client_recover_slivers() -> TestResult {
+    walrus_test_utils::init_tracing();
+
+    let test_nodes_config = TestNodesConfig::builder()
+        .with_node_weights(&[7, 7, 7, 7, 7])
+        .build();
+    let test_cluster_builder =
+        test_cluster::E2eTestSetupBuilder::new().with_test_nodes_config(test_nodes_config);
+    let (_sui_cluster_handle, _cluster, client, _, _) = test_cluster_builder.build().await?;
+    let client = client.as_ref();
+
+    for _ in 0..10 {
+        run_test_client_recover_slivers::<Primary>(client).await?;
+        run_test_client_recover_slivers::<Secondary>(client).await?;
+    }
+
+    Ok(())
+}
+
+/// Test client side recovery with short timeout returns proper error.
+#[ignore = "ignore E2E tests by default"]
+#[walrus_simtest]
+async fn test_client_recover_slivers_timeout() -> TestResult {
+    walrus_test_utils::init_tracing();
+
+    let test_nodes_config = TestNodesConfig::builder()
+        .with_node_weights(&[7, 7, 7, 7, 7])
+        .build();
+    let test_cluster_builder =
+        test_cluster::E2eTestSetupBuilder::new().with_test_nodes_config(test_nodes_config);
+    let (_sui_cluster_handle, _cluster, client, _, _) = test_cluster_builder.build().await?;
+    let client = client.as_ref();
+
+    // Generate a random blob.
+    let blob_size: u64 = 10000;
+    let blobs = walrus_test_utils::random_data_list(
+        usize::try_from(blob_size).expect("blob size should be valid"),
+        1,
+    );
+
+    // Store the blob on Walrus.
+    let blob_read_result = client
+        .reserve_and_store_blobs_retry_committees(
+            blobs.clone(),
+            vec![],
+            &StoreArgs::default_with_epochs(5).with_persistence(BlobPersistence::Permanent),
+        )
+        .await?;
+
+    let blob_id = blob_read_result[0]
+        .blob_id()
+        .expect("blob ID should be present");
+
+    let byte_range_client = ByteRangeReadClient::new(
+        client,
+        ByteRangeReadClientConfig {
+            timeout: Duration::from_secs(0),
+            ..Default::default()
+        },
+    );
+
+    // Given that the timeout is 0, the read byte range should fail with error.
+    let result = byte_range_client.read_byte_range(&blob_id, 0, 100).await;
+    assert!(
+        result.is_err()
+            && result
+                .unwrap_err()
+                .to_string()
+                .contains("failed to retrieve some slivers")
+    );
     Ok(())
 }

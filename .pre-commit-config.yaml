@@ -50,7 +50,8 @@ repos:
         language: python
         types: [toml]
         args: []
-        additional_dependencies: ["taplo==0.9.3"]
+        # Target the Taplo 0.10.0 commit SHA.
+        additional_dependencies: ["git+https://github.com/tamasfe/taplo@20a9145169437bb1a5629577094f20c01e83369b"]
       - id: shellcheck
         args: ["--severity=error"]
         name: shellcheck

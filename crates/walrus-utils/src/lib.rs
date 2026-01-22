@@ -61,6 +61,24 @@ pub fn load_from_yaml<P: AsRef<Path>, T: DeserializeOwned>(path: P) -> anyhow::R
     Ok(serde_yaml::from_reader(reader)?)
 }
 
+/// Load a YAML value from a string slice with contextual error logging.
+pub fn load_from_yaml_str<T>(label: &str, yaml: &str, description: &str) -> Option<T>
+where
+    T: DeserializeOwned,
+{
+    match serde_yaml::from_str::<T>(yaml) {
+        Ok(value) => Some(value),
+        Err(err) => {
+            tracing::warn!(
+                error = %err,
+                parsed_type = %std::any::type_name::<T>(),
+                "failed to parse {description} from {label}"
+            );
+            None
+        }
+    }
+}
+
 /// Reads a blob from the filesystem or returns a helpful error message.
 pub fn read_blob_from_file(path: impl AsRef<Path>) -> anyhow::Result<Vec<u8>> {
     fs::read(&path).context(format!(

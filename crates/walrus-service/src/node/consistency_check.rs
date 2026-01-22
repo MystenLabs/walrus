@@ -47,7 +47,7 @@ impl Default for StorageNodeConsistencyCheckConfig {
         Self {
             enable_consistency_check: true,
             enable_blob_info_invariants_check: false,
-            enable_sliver_data_existence_check: false,
+            enable_sliver_data_existence_check: true,
             sliver_data_existence_check_sample_rate_percentage: 100,
         }
     }

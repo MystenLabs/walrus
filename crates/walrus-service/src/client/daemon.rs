@@ -3,12 +3,20 @@
 
 //! A client daemon who serves a set of simple HTTP endpoints to store, encode, or read blobs.
 
-use std::{collections::HashSet, fmt::Debug, net::SocketAddr, str::FromStr, sync::Arc};
+use std::{
+    collections::HashSet,
+    fmt::Debug,
+    future::Future,
+    net::SocketAddr,
+    pin::Pin,
+    str::FromStr,
+    sync::Arc,
+};
 
 use axum::{
     BoxError,
     Router,
-    body::HttpBody,
+    body::{Bytes, HttpBody},
     error_handling::HandleErrorLayer,
     extract::{DefaultBodyLimit, Query, Request, State},
     http::HeaderName,
@@ -20,6 +28,7 @@ use axum_extra::{
     TypedHeader,
     headers::{Authorization, authorization::Bearer},
 };
+use futures::Stream;
 use openapi::{AggregatorApiDoc, DaemonApiDoc, PublisherApiDoc};
 use reqwest::StatusCode;
 use routes::{
@@ -28,6 +37,7 @@ use routes::{
     BLOB_GET_ENDPOINT,
     BLOB_OBJECT_GET_ENDPOINT,
     BLOB_PUT_ENDPOINT,
+    BLOB_STREAM_ENDPOINT,
     LIST_PATCHES_IN_QUILT_ENDPOINT,
     QUILT_PATCH_BY_ID_GET_ENDPOINT,
     QUILT_PATCH_BY_IDENTIFIER_GET_ENDPOINT,
@@ -37,6 +47,7 @@ use routes::{
 };
 pub use routes::{PublisherQuery, QuiltPatchItem};
 use sui_types::base_types::ObjectID;
+use tokio_util::sync::CancellationToken;
 use tower::{
     ServiceBuilder,
     buffer::BufferLayer,
@@ -65,6 +76,7 @@ use walrus_sdk::{
         WalrusNodeClient,
         byte_range_read_client::ReadByteRangeResult,
         responses::{BlobStoreResult, QuiltStoreResult},
+        streaming::start_streaming_blob,
     },
     error::{ClientError, ClientResult},
     store_optimizations::StoreOptimizations,
@@ -90,13 +102,16 @@ pub(crate) use cache::{CacheConfig, CacheHandle};
 mod openapi;
 mod routes;
 
+/// Type alias for a boxed stream of blob data chunks.
+pub type BlobStream = Pin<Box<dyn Stream<Item = Result<Bytes, ClientError>> + Send>>;
+
 pub trait WalrusReadClient {
     /// Reads a blob from Walrus.
     fn read_blob(
         &self,
         blob_id: &BlobId,
         consistency_check: ConsistencyCheckType,
-    ) -> impl std::future::Future<Output = ClientResult<Vec<u8>>> + Send;
+    ) -> impl Future<Output = ClientResult<Vec<u8>>> + Send;
 
     /// Reads a specific byte range from a blob.
     fn read_byte_range(
@@ -104,21 +119,21 @@ pub trait WalrusReadClient {
         blob_id: &BlobId,
         start_byte_position: u64,
         byte_length: u64,
-    ) -> impl std::future::Future<Output = ClientResult<ReadByteRangeResult>> + Send;
+    ) -> impl Future<Output = ClientResult<ReadByteRangeResult>> + Send;
 
     /// Returns the blob object and its associated attributes given the object ID of either
     /// a blob object or a shared blob.
     fn get_blob_by_object_id(
         &self,
         blob_object_id: &ObjectID,
-    ) -> impl std::future::Future<Output = ClientResult<BlobWithAttribute>> + Send;
+    ) -> impl Future<Output = ClientResult<BlobWithAttribute>> + Send;
 
     /// Retrieves blobs from quilt by their patch IDs.
     /// Default implementation returns an error indicating quilt is not supported.
     fn get_blobs_by_quilt_patch_ids(
         &self,
         _quilt_patch_ids: &[QuiltPatchId],
-    ) -> impl std::future::Future<Output = ClientResult<Vec<QuiltStoreBlob<'static>>>> + Send;
+    ) -> impl Future<Output = ClientResult<Vec<QuiltStoreBlob<'static>>>> + Send;
 
     /// Retrieves a blob from quilt by quilt ID and identifier.
     /// Default implementation returns an error indicating quilt is not supported.
@@ -126,13 +141,25 @@ pub trait WalrusReadClient {
         &self,
         _quilt_id: &BlobId,
         _identifier: &str,
-    ) -> impl std::future::Future<Output = ClientResult<QuiltStoreBlob<'static>>> + Send;
+    ) -> impl Future<Output = ClientResult<QuiltStoreBlob<'static>>> + Send;
 
     /// Lists patches in a quilt.
     fn list_patches_in_quilt(
         &self,
         _quilt_id: &BlobId,
-    ) -> impl std::future::Future<Output = ClientResult<Vec<QuiltPatchItem>>> + Send;
+    ) -> impl Future<Output = ClientResult<Vec<QuiltPatchItem>>> + Send;
+
+    /// Streams a blob sliver-by-sliver.
+    ///
+    /// Returns a stream that yields blob data chunks in order, with prefetching
+    /// and aggressive retry logic for improved performance on large blobs.
+    ///
+    /// Takes `Arc<Self>` to allow spawning background tasks for prefetching.
+    /// Returns the stream and the total blob size in bytes (for progress tracking).
+    fn stream_blob(
+        self: Arc<Self>,
+        blob_id: &BlobId,
+    ) -> impl Future<Output = ClientResult<(BlobStream, u64)>> + Send;
 }
 
 /// Trait representing a client that can write blobs to Walrus.
@@ -146,14 +173,14 @@ pub trait WalrusWriteClient: WalrusReadClient {
         store_optimizations: StoreOptimizations,
         persistence: BlobPersistence,
         post_store: PostStoreAction,
-    ) -> impl std::future::Future<Output = ClientResult<BlobStoreResult>> + Send;
+    ) -> impl Future<Output = ClientResult<BlobStoreResult>> + Send;
 
     /// Constructs a quilt from blobs.
     fn construct_quilt<V: QuiltVersion>(
         &self,
         blobs: &[QuiltStoreBlob<'_>],
         encoding_type: Option<EncodingType>,
-    ) -> impl std::future::Future<Output = ClientResult<V::Quilt>> + Send;
+    ) -> impl Future<Output = ClientResult<V::Quilt>> + Send;
 
     /// Writes a quilt to Walrus.
     fn write_quilt<V: QuiltVersion>(
@@ -164,13 +191,13 @@ pub trait WalrusWriteClient: WalrusReadClient {
         store_optimizations: StoreOptimizations,
         persistence: BlobPersistence,
         post_store: PostStoreAction,
-    ) -> impl std::future::Future<Output = ClientResult<QuiltStoreResult>> + Send;
+    ) -> impl Future<Output = ClientResult<QuiltStoreResult>> + Send;
 
     /// Returns the default [`PostStoreAction`] for this client.
     fn default_post_store_action(&self) -> PostStoreAction;
 }
 
-impl<T: ReadClient> WalrusReadClient for WalrusNodeClient<T> {
+impl<T: ReadClient + Send + Sync + 'static> WalrusReadClient for WalrusNodeClient<T> {
     async fn read_blob(
         &self,
         blob_id: &BlobId,
@@ -249,6 +276,13 @@ impl<T: ReadClient> WalrusReadClient for WalrusNodeClient<T> {
         };
 
         Ok(patches)
+    }
+
+    async fn stream_blob(self: Arc<Self>, blob_id: &BlobId) -> ClientResult<(BlobStream, u64)> {
+        let config = self.config().streaming_config.clone();
+        let (stream, blob_size) = start_streaming_blob(self, config, *blob_id).await?;
+
+        Ok((Box::pin(stream), blob_size))
     }
 }
 
@@ -436,6 +470,10 @@ impl<T: WalrusReadClient + Send + Sync + 'static> ClientDaemon<T> {
                 get(routes::get_blob_byte_range).route_layer(aggregator_layers.clone()),
             )
             .route(
+                BLOB_STREAM_ENDPOINT,
+                get(routes::stream_blob).route_layer(aggregator_layers.clone()),
+            )
+            .route(
                 BLOB_CONCAT_ENDPOINT,
                 get(routes::get_blobs_concat)
                     .post(routes::post_blobs_concat)
@@ -487,6 +525,47 @@ impl<T: WalrusReadClient + Send + Sync + 'static> ClientDaemon<T> {
         .with_graceful_shutdown(async {
             let _ = tokio::signal::ctrl_c().await;
         })
+        .await
+    }
+
+    /// Runs the daemon with cancellation support and readiness signaling for tests.
+    ///
+    /// This method is intended for use in tests where:
+    /// - Graceful shutdown is controlled via `cancel_token`
+    /// - The caller needs to know when the server is ready to accept connections
+    ///
+    /// The `ready_tx` sender is used to signal that the TCP listener has bound
+    /// and the server is ready to accept connections. The actual bound address
+    /// is sent, which may differ from the requested address if port 0 was used.
+    pub async fn run_for_testing(
+        self,
+        cancel_token: CancellationToken,
+        ready_tx: tokio::sync::oneshot::Sender<SocketAddr>,
+    ) -> Result<(), std::io::Error> {
+        let listener = tokio::net::TcpListener::bind(self.network_address).await?;
+        let local_addr = listener.local_addr()?;
+        tracing::info!(address = %local_addr, "the client daemon is starting");
+
+        // Signal that we're ready to accept connections
+        let _ = ready_tx.send(local_addr);
+
+        let request_layers = ServiceBuilder::new()
+            .layer(middleware::from_fn_with_state(
+                self.metrics.clone(),
+                metrics_middleware,
+            ))
+            .layer(
+                TraceLayer::new_for_http()
+                    .make_span_with(MakeHttpSpan::new())
+                    .on_response(MakeHttpSpan::new()),
+            )
+            .layer(daemon_cors_layer());
+
+        axum::serve(
+            listener,
+            self.router.with_state(self.client).layer(request_layers),
+        )
+        .with_graceful_shutdown(cancel_token.cancelled_owned())
         .await
     }
 }
@@ -808,6 +887,13 @@ mod tests {
             &self,
             _quilt_id: &BlobId,
         ) -> ClientResult<Vec<QuiltPatchItem>> {
+            unimplemented!("not needed for rate limit tests")
+        }
+
+        async fn stream_blob(
+            self: Arc<Self>,
+            _blob_id: &BlobId,
+        ) -> ClientResult<(BlobStream, u64)> {
             unimplemented!("not needed for rate limit tests")
         }
     }

@@ -39,6 +39,7 @@ use walrus_sui::types::{
     NodeUpdateParams,
     move_structs::{NodeMetadata, VotingParams},
 };
+use walrus_utils::config::Config as _;
 
 use super::{
     consistency_check::StorageNodeConsistencyCheckConfig,
@@ -48,7 +49,10 @@ use super::{
 use crate::{
     common::{config::SuiConfig, utils},
     event::event_processor::config::EventProcessorConfig,
-    node::db_checkpoint::DbCheckpointConfig,
+    node::{
+        db_checkpoint::DbCheckpointConfig,
+        network_overrides::{self, NetworkKind},
+    },
 };
 
 /// Configuration for the config synchronizer.
@@ -203,13 +207,125 @@ pub struct StorageNodeConfig {
     pub garbage_collection: GarbageCollectionConfig,
 }
 
+impl StorageNodeConfig {
+    /// Returns the default configuration for the mainnet network.
+    pub fn default_mainnet() -> Self {
+        Self {
+            // TODO(WAL-708): Enable sliver data existence check by default on mainnet.
+            consistency_check: StorageNodeConsistencyCheckConfig {
+                enable_sliver_data_existence_check: false,
+                ..Default::default()
+            },
+            pending_sliver_cache: PendingSliverCacheConfig {
+                cache_ttl: Duration::from_secs(0),
+                ..Default::default()
+            },
+            pending_metadata_cache: PendingMetadataCacheConfig {
+                cache_ttl: Duration::from_secs(0),
+                ..Default::default()
+            },
+            live_upload_deferral: LiveUploadDeferralConfig {
+                enabled: false,
+                ..Default::default()
+            },
+            ..Default::default()
+        }
+    }
+
+    /// Returns the default configuration for the testnet network.
+    pub fn default_testnet() -> Self {
+        Self {
+            ..Default::default()
+        }
+    }
+
+    /// Returns the default configuration for the simtest network.
+    pub fn default_simtest() -> Self {
+        Self {
+            live_upload_deferral: LiveUploadDeferralConfig {
+                enabled: true,
+                buckets: vec![SizeDeferralEntry {
+                    max_unencoded_bytes: u64::MAX,
+                    defer: Duration::from_millis(100),
+                }],
+                max_total_defer: Duration::from_millis(100),
+                max_checkpoint_lag: default_max_checkpoint_lag(),
+            },
+            rest_graceful_shutdown_period_secs: Some(Some(0)),
+            blob_recovery: BlobRecoveryConfig {
+                monitor_interval: Duration::from_secs(5),
+                ..Default::default()
+            },
+            shard_sync_config: ShardSyncConfig {
+                shard_sync_retry_min_backoff: Duration::from_secs(1),
+                shard_sync_retry_max_backoff: Duration::from_secs(3),
+                ..Default::default()
+            },
+            pending_sliver_cache: PendingSliverCacheConfig {
+                cache_ttl: Duration::from_secs(10),
+                ..Default::default()
+            },
+            pending_metadata_cache: PendingMetadataCacheConfig {
+                cache_ttl: Duration::from_secs(10),
+                ..Default::default()
+            },
+            commission_rate: 0,
+            voting_params: VotingParams {
+                storage_price: 5,
+                write_price: 1,
+                node_capacity: 1_000_000_000,
+            },
+            config_synchronizer: ConfigSynchronizerConfig {
+                interval: Duration::from_secs(5),
+                enabled: false,
+            },
+            num_uncertified_blob_threshold: Some(3),
+            consistency_check: StorageNodeConsistencyCheckConfig {
+                enable_blob_info_invariants_check: true,
+                enable_sliver_data_existence_check: true,
+                ..Default::default()
+            },
+            blob_event_processor_config: BlobEventProcessorConfig {
+                num_workers: NonZeroUsize::new(3).expect("3 is non-zero"),
+            },
+            garbage_collection: GarbageCollectionConfig::default_for_test(),
+            ..Default::default()
+        }
+    }
+
+    /// Returns the default configuration for the tests network.
+    pub fn default_tests() -> Self {
+        Self {
+            live_upload_deferral: LiveUploadDeferralConfig {
+                enabled: true,
+                buckets: vec![SizeDeferralEntry {
+                    max_unencoded_bytes: u64::MAX,
+                    defer: Duration::from_millis(100),
+                }],
+                max_total_defer: Duration::from_millis(100),
+                max_checkpoint_lag: default_max_checkpoint_lag(),
+            },
+            blob_recovery: BlobRecoveryConfig {
+                monitor_interval: Duration::from_secs(5),
+                ..Default::default()
+            },
+            consistency_check: StorageNodeConsistencyCheckConfig {
+                enable_blob_info_invariants_check: true,
+                enable_sliver_data_existence_check: true,
+                ..Default::default()
+            },
+            garbage_collection: GarbageCollectionConfig::default_for_test(),
+            ..Default::default()
+        }
+    }
+}
+
 impl Default for StorageNodeConfig {
     fn default() -> Self {
         Self {
             storage_path: PathBuf::from("/opt/walrus/db"),
             blocklist_path: Default::default(),
             db_config: Default::default(),
-            live_upload_deferral: Default::default(),
             protocol_key_pair: PathOrInPlace::from_path("/opt/walrus/config/protocol.key"),
             next_protocol_key_pair: None,
             network_key_pair: PathOrInPlace::from_path("/opt/walrus/config/network.key"),
@@ -224,8 +340,31 @@ impl Default for StorageNodeConfig {
             tls: Default::default(),
             shard_sync_config: Default::default(),
             event_processor_config: Default::default(),
-            pending_sliver_cache: Default::default(),
-            pending_metadata_cache: Default::default(),
+            pending_sliver_cache: PendingSliverCacheConfig {
+                max_cached_slivers: 20_480,
+                max_cached_bytes: 1024 * 1024 * 1024,
+                max_cached_sliver_bytes: 4 * 1024 * 1024,
+                cache_ttl: Duration::from_secs(60),
+            },
+            pending_metadata_cache: PendingMetadataCacheConfig {
+                cache_ttl: Duration::from_secs(60),
+                max_cached_entries: 1024,
+            },
+            live_upload_deferral: LiveUploadDeferralConfig {
+                enabled: true,
+                buckets: vec![
+                    SizeDeferralEntry {
+                        max_unencoded_bytes: 100 * 1024 * 1024,
+                        defer: Duration::from_secs(15),
+                    },
+                    SizeDeferralEntry {
+                        max_unencoded_bytes: 4 * 1024 * 1024 * 1024,
+                        defer: Duration::from_secs(30),
+                    },
+                ],
+                max_total_defer: Duration::from_secs(120),
+                max_checkpoint_lag: 1500,
+            },
             disable_event_blob_writer: Default::default(),
             commission_rate: defaults::commission_rate(),
             voting_params: VotingParams {
@@ -266,7 +405,47 @@ impl walrus_utils::config::Config for StorageNodeConfig {
     }
 }
 
+/// A struct that holds the loaded config information.
+// This struct is currently used to pass config information to the node runtime, so that the
+// information can be logged after the logging runtime starts.
+#[derive(Debug)]
+pub struct LoadedConfig {
+    /// The path to the config file.
+    pub config_path: PathBuf,
+    /// The loaded config that will be used to run the node.
+    pub config: StorageNodeConfig,
+    /// The network kind.
+    pub network_kind: NetworkKind,
+}
+
 impl StorageNodeConfig {
+    /// Loads the config from a file, applying per-network defaults before deserialization.
+    pub fn load_config(path: impl AsRef<Path>) -> anyhow::Result<LoadedConfig> {
+        let path = path.as_ref();
+        let config_str = std::fs::read_to_string(path)
+            .with_context(|| format!("unable to load config from {}", path.display()))?;
+        // Parse into raw YAML first so we can detect the network and preserve user-set fields
+        // before defaults are applied during deserialization.
+        let raw_value: serde_yaml::Value = serde_yaml::from_str(&config_str)
+            .with_context(|| format!("unable to parse config from {}", path.display()))?;
+
+        let network_kind = network_overrides::detect_network_kind(&raw_value);
+        tracing::info!("detected network kind: {network_kind:?}");
+        let defaults = network_overrides::defaults_for(network_kind);
+        let mut merged_value = serde_yaml::to_value(defaults)
+            .with_context(|| "unable to serialize network defaults")?;
+        merge_yaml(&mut merged_value, raw_value);
+
+        let config: StorageNodeConfig = serde_yaml::from_value(merged_value.clone())
+            .with_context(|| format!("unable to deserialize merged config: {merged_value:?}",))?;
+        config.validate()?;
+        Ok(LoadedConfig {
+            config_path: path.to_path_buf(),
+            config,
+            network_kind,
+        })
+    }
+
     /// Loads the config from a file.
     /// Rotates the protocol key pair.
     pub fn rotate_protocol_key_pair(&mut self) {
@@ -443,6 +622,24 @@ impl StorageNodeConfig {
                 &synced_config.commission_rate_data,
                 self.commission_rate,
             ),
+        }
+    }
+}
+
+fn merge_yaml(base: &mut serde_yaml::Value, overlay: serde_yaml::Value) {
+    match (base, overlay) {
+        (serde_yaml::Value::Mapping(base_map), serde_yaml::Value::Mapping(overlay_map)) => {
+            for (key, value) in overlay_map {
+                match base_map.get_mut(&key) {
+                    Some(base_value) => merge_yaml(base_value, value),
+                    None => {
+                        base_map.insert(key, value);
+                    }
+                }
+            }
+        }
+        (base_value, overlay_value) => {
+            *base_value = overlay_value;
         }
     }
 }
@@ -837,7 +1034,7 @@ impl Default for BlobEventProcessorConfig {
 pub struct SizeDeferralEntry {
     /// Maximum unencoded blob size (inclusive) in bytes for this bucket.
     pub max_unencoded_bytes: u64,
-    /// Deferral duration to apply for this bucket.
+    /// Deferral duration to apply for this bucket, in seconds.
     #[serde_as(as = "DurationSeconds<u64>")]
     #[serde(rename = "defer_secs")]
     pub defer: Duration,
@@ -853,9 +1050,9 @@ pub struct LiveUploadDeferralConfig {
     /// Lookup table from size upper-bounds to deferral durations. Earlier entries take precedence.
     /// When empty, [`LiveUploadDeferralConfig::max_total_defer`] is applied uniformly
     /// regardless of blob size.
-    #[serde(alias = "table")]
+    #[serde(default, alias = "table")]
     pub buckets: Vec<SizeDeferralEntry>,
-    /// Maximum total deferral to apply, acting as an upper bound.
+    /// Maximum total deferral to apply, in seconds, acting as an upper bound.
     #[serde_as(as = "DurationSeconds<u64>")]
     #[serde(rename = "max_total_defer_secs")]
     pub max_total_defer: Duration,
@@ -912,9 +1109,9 @@ impl LiveUploadDeferralConfig {
             enabled: true,
             buckets: vec![SizeDeferralEntry {
                 max_unencoded_bytes: u64::MAX,
-                defer: Duration::from_millis(100),
+                defer: Duration::from_secs(1),
             }],
-            max_total_defer: Duration::from_millis(100),
+            max_total_defer: Duration::from_secs(1),
             max_checkpoint_lag: default_max_checkpoint_lag(),
         }
     }
@@ -1053,7 +1250,7 @@ pub mod defaults {
 }
 
 /// Enum that represents a configuration value being preset or at a path.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum PathOrInPlace<T> {
     /// The value was present in-place in the config, without a filename.
@@ -1071,6 +1268,25 @@ pub enum PathOrInPlace<T> {
         #[serde(skip, default = "Option::default")]
         value: Option<T>,
     },
+}
+
+/// Debug implementation for `PathOrInPlace`.
+// This struct is mainly use to load keys from disk. Although fastcrypto natively supports do not
+// print private keys, we want to be extra careful and omit the value completely in debug prints.
+impl<T> std::fmt::Debug for PathOrInPlace<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PathOrInPlace::InPlace(_) => f
+                .debug_tuple("InPlace")
+                .field(&"value is omitted in PathOrInPlace debug print")
+                .finish(),
+            PathOrInPlace::Path { path, .. } => f
+                .debug_struct("Path")
+                .field("path", path)
+                .field("value", &"value is omitted in PathOrInPlace debug print")
+                .finish(),
+        }
+    }
 }
 
 impl<T> PathOrInPlace<T> {
@@ -1358,6 +1574,7 @@ mod tests {
     use indoc::indoc;
     use p256::{pkcs8, pkcs8::EncodePrivateKey};
     use rand::{SeedableRng as _, rngs::StdRng};
+    use serde::Deserialize;
     use sui_types::base_types::ObjectID;
     use tempfile::{NamedTempFile, TempDir};
     use walrus_core::test_utils;
@@ -1611,6 +1828,202 @@ mod tests {
         let _: StorageNodeConfig = serde_yaml::from_str(yaml)?;
 
         Ok(())
+    }
+
+    #[test]
+    fn merged_config_resolves_precedence_and_defaults() -> TestResult {
+        let defaults_value: serde_yaml::Value = serde_yaml::from_str(indoc! {"
+            commission_rate: 7
+            garbage_collection:
+                enable_random_delay: false
+        "})?;
+        let user_value: serde_yaml::Value = serde_yaml::from_str(&base_user_yaml(indoc! {"
+                commission_rate: 9
+                blob_recovery:
+                    monitor_interval_secs: 2
+            "}))?;
+
+        let mut merged_value = defaults_value;
+        merge_yaml(&mut merged_value, user_value);
+
+        let config: StorageNodeConfig = serde_yaml::from_value(merged_value)?;
+
+        assert_eq!(config.commission_rate, 9, "user values win");
+        assert!(
+            !config.garbage_collection.enable_random_delay,
+            "default-only values are preserved"
+        );
+        assert_eq!(
+            config.blob_recovery.monitor_interval,
+            Duration::from_secs(2),
+            "user-only values are preserved"
+        );
+        assert_eq!(
+            config.live_upload_deferral,
+            LiveUploadDeferralConfig::default(),
+            "missing values fall back to defaults"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn load_config_applies_network_defaults_and_user_values() -> TestResult {
+        let dir = TempDir::new()?;
+        let config_path = dir.path().join("node.yaml");
+        let yaml = base_user_yaml(indoc! {"
+            live_upload_deferral:
+                enabled: false
+        "});
+        std::fs::write(&config_path, yaml)?;
+
+        let config = StorageNodeConfig::load_config(&config_path)?.config;
+
+        assert!(
+            !config.live_upload_deferral.enabled,
+            "user values override network defaults"
+        );
+        assert_eq!(
+            config.blob_recovery.monitor_interval,
+            Duration::from_secs(5),
+            // In unit tests, default_network_kind() resolves to Tests, which uses a 5s interval.
+            "network defaults apply when user omits a field"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn load_config_e2e_detects_network_kind_from_ids() -> TestResult {
+        let mainnet_ids = contract_ids_from_yaml(MAINNET_CLIENT_CONFIG_YAML);
+        let testnet_ids = contract_ids_from_yaml(TESTNET_CLIENT_CONFIG_YAML);
+        let mut rng = StdRng::seed_from_u64(7);
+        let default_ids = ContractIds {
+            system_object: ObjectID::random_from_rng(&mut rng),
+            staking_object: ObjectID::random_from_rng(&mut rng),
+        };
+        let cases = vec![
+            (network_overrides::NetworkKind::Mainnet, mainnet_ids),
+            (network_overrides::NetworkKind::Testnet, testnet_ids),
+            (network_overrides::default_network_kind(), default_ids),
+        ];
+
+        let dir = TempDir::new()?;
+        for (expected_kind, ids) in cases {
+            let yaml = base_user_yaml_with_sui(
+                ids.system_object,
+                ids.staking_object,
+                indoc! {"
+                commission_rate: 9
+                blob_recovery:
+                    monitor_interval_secs: 2
+            "},
+            );
+            let config_path = dir.path().join(format!("node-{expected_kind:?}.yaml"));
+            std::fs::write(&config_path, yaml.clone())?;
+
+            let raw_value: serde_yaml::Value = serde_yaml::from_str(&yaml)?;
+            assert_eq!(
+                network_overrides::detect_network_kind(&raw_value),
+                expected_kind,
+                "network kind is detected from contract ids"
+            );
+
+            let loaded_config = StorageNodeConfig::load_config(&config_path)?;
+            assert_eq!(loaded_config.network_kind, expected_kind);
+
+            assert_eq!(
+                loaded_config.config.commission_rate, 9,
+                "user values override defaults"
+            );
+            assert_eq!(
+                loaded_config.config.blob_recovery.monitor_interval,
+                Duration::from_secs(2),
+                "user values override defaults"
+            );
+
+            let expected_defaults = network_overrides::defaults_for(expected_kind);
+            assert_eq!(
+                loaded_config.config.live_upload_deferral.enabled,
+                expected_defaults.live_upload_deferral.enabled,
+                "default-only values are preserved"
+            );
+        }
+        Ok(())
+    }
+
+    fn base_user_yaml(extra: &str) -> String {
+        let base = indoc! {"
+            name: test-node
+            storage_path: /tmp/walrus-db
+            protocol_key_pair:
+                path: /tmp/protocol.key
+            network_key_pair:
+                path: /tmp/network.key
+            public_host: 127.0.0.1
+            public_port: 9185
+            voting_params:
+                storage_price: 1
+                write_price: 1
+                node_capacity: 1
+        "};
+        if extra.trim().is_empty() {
+            base.to_string()
+        } else {
+            format!("{base}\n{extra}")
+        }
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct ContractIds {
+        system_object: ObjectID,
+        staking_object: ObjectID,
+    }
+
+    const MAINNET_CLIENT_CONFIG_YAML: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../setup/client_config_mainnet.yaml"
+    ));
+    const TESTNET_CLIENT_CONFIG_YAML: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../setup/client_config_testnet.yaml"
+    ));
+
+    fn contract_ids_from_yaml(yaml: &str) -> ContractIds {
+        serde_yaml::from_str(yaml).expect("client config ids parse")
+    }
+
+    fn base_user_yaml_with_sui(
+        system_object: ObjectID,
+        staking_object: ObjectID,
+        extra: &str,
+    ) -> String {
+        let base = format!(
+            indoc! {"
+                name: test-node
+                storage_path: /tmp/walrus-db
+                protocol_key_pair:
+                    path: /tmp/protocol.key
+                network_key_pair:
+                    path: /tmp/network.key
+                public_host: 127.0.0.1
+                public_port: 9185
+                voting_params:
+                    storage_price: 1
+                    write_price: 1
+                    node_capacity: 1
+                sui:
+                    rpc: https://fullnode.testnet.sui.io:443
+                    system_object: {system_object}
+                    staking_object: {staking_object}
+                    wallet_config: /tmp/wallet.yaml
+            "},
+            system_object = system_object,
+            staking_object = staking_object,
+        );
+        if extra.trim().is_empty() {
+            base
+        } else {
+            format!("{base}\n{extra}")
+        }
     }
 
     #[test]
