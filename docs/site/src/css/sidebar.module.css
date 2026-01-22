@@ -31,7 +31,7 @@
     var(--color-wal-white-100) 0%,
     var(--color-wal-gray-5) 100%
   );
-  border-color: var(--color-wal-link);
+  border-color: var(--color-wal-green-dark);
   box-shadow:
     0 4px 12px var(--color-wal-green-dark),
     0 0 0 1px var(--color-wal-green-light);
@@ -50,7 +50,7 @@
 
 .arrow {
   font-size: 0.875rem;
-  color: var(--color-wal-link);
+  color: var(--color-wal-green-dark);
   opacity: 0.6;
   transition: all 0.3s ease;
 }
@@ -139,7 +139,7 @@
 
 .closeButton:hover {
   background: var(--color-wal-gray-20);
-  color: var(--color-wal-link);
+  color: var(--color-wal-green-dark);
 }
 
 .iframeContainer {
@@ -170,7 +170,7 @@
     var(--color-wal-gray-90) 0%,
     var(--color-wal-gray-100) 100%
   );
-  border-color: var(--color-wal-link);
+  border-color: var(--color-wal-green-dark);
   box-shadow:
     0 4px 12px var(--color-wal-green-darker),
     0 0 0 1px var(--color-wal-green-dark);
@@ -199,7 +199,7 @@
 
 [data-theme='dark'] .closeButton:hover {
   background: var(--color-wal-white-20);
-  color: var(--color-wal-link);
+  color: var(--color-wal-green-dark);
 }
 
 /* Responsive */

@@ -6,7 +6,7 @@
 :root {
   --walrus-cards-border-color: transparent;
   --walrus-cards-background: var(--color-wal-gray-5);
-  --walrus-cards-header: var(--color-wal-link);
+  --walrus-cards-header: var(--color-wal-green-dark);
   --walrus-cards-copy: var(--color-wal-gray-60);
   --walrus-cards-background-hover: var(--color-wal-gray-10);
 }
@@ -15,7 +15,7 @@
     --walrus-cards-border-color: var(--color-wal-white-5);
     --walrus-cards-background: var(--color-wal-white-5);
     --walrus-cards-background-hover: var(--color-wal-white-10);
-    --walrus-cards-header: var(--color-wal-link);
+    --walrus-cards-header: var(--color-wal-green-dark);
     --walrus-cards-copy: var(--color-wal-white-70);
 }
 
@@ -67,7 +67,7 @@
   bottom: 2.5rem;
   width: 2px;
   background: linear-gradient(180deg,
-    var(--color-wal-link) 0%,
+    var(--color-wal-green-dark) 0%,
     var(--color-wal-gray-20) 50%,
     var(--color-wal-gray-80) 100%
   );
@@ -325,4 +325,10 @@
   .card-container > a[class*='card_'] {
     padding: 1rem 1.25rem !important;
   }
+}
+.card__header__copy {
+    margin: 0;
+    font-size: 1.125rem;
+    line-height: 1.5;  /* Changed from 1.25rem to 1.5 for better spacing */
+    color: var(--walrus-cards-header);
 }
