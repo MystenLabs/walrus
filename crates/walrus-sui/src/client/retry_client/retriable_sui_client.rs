@@ -631,7 +631,7 @@ impl RetriableSuiClient {
 
     /// Returns a [`sui_types::object::Object`] based on the provided [`ObjectID`].
     #[tracing::instrument(level = Level::DEBUG, skip(self))]
-    async fn get_object_ref_by_grpc(&self, object_id: ObjectID) -> SuiClientResult<ObjectRef> {
+    async fn get_object_ref_with_grpc(&self, object_id: ObjectID) -> SuiClientResult<ObjectRef> {
         debug_assert!(self.grpc_migration_level >= GRPC_MIGRATION_LEVEL_GET_OBJECT);
         async fn make_request(
             client: Arc<DualClient>,
@@ -1436,10 +1436,7 @@ impl RetriableSuiClient {
     #[tracing::instrument(skip(self), level = Level::DEBUG)]
     pub async fn get_object_ref(&self, object_id: ObjectID) -> Result<ObjectRef, anyhow::Error> {
         if self.grpc_migration_level >= GRPC_MIGRATION_LEVEL_GET_OBJECT {
-            let object = self.get_object_by_grpc(object_id).await?;
-            let object_info = ObjectInfo::from_object(&object);
-            let object_ref: ObjectRef = object_info.into();
-            Ok(object_ref)
+            Ok(self.get_object_ref_with_grpc(object_id).await?)
         } else {
             let object_data = self
                 .get_object_with_json_rpc(object_id, SuiObjectDataOptions::new().with_type())
