@@ -9,7 +9,7 @@ use std::{
     collections::{BTreeMap, BinaryHeap, HashMap},
     pin::pin,
     str::FromStr,
-    sync::Arc,
+    sync::{Arc, LazyLock},
     time::Duration,
 };
 
@@ -206,27 +206,18 @@ pub struct GasBudgetAndPrice {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Ord, PartialOrd)]
 pub struct GrpcMigrationLevel(u32);
 
-#[cfg(not(test))]
-const GRPC_MIGRATION_LEVEL_LEGACY: GrpcMigrationLevel = GrpcMigrationLevel(0);
+const GRPC_MIGRATION_LEVEL_LEGACY_U32: u32 = 0;
 const GRPC_MIGRATION_LEVEL_GET_OBJECT: GrpcMigrationLevel = GrpcMigrationLevel(1);
-#[cfg(test)]
-const GRPC_MIGRATION_LEVEL_MAX: GrpcMigrationLevel = GrpcMigrationLevel(u32::MAX);
 
 impl Default for GrpcMigrationLevel {
-    /// Enable all gRPC migration options in tests.
-    #[cfg(test)]
     fn default() -> Self {
-        GRPC_MIGRATION_LEVEL_MAX
-    }
-
-    /// Selectively set the gRPC migration level outside of tests.
-    #[cfg(not(test))]
-    fn default() -> Self {
-        std::env::var("WALRUS_GRPC_MIGRATION_LEVEL")
-            .ok()
-            .and_then(|v| v.parse().ok())
-            .map(Self)
-            .unwrap_or(GRPC_MIGRATION_LEVEL_LEGACY)
+        static VALUE: LazyLock<u32> = LazyLock::new(|| {
+            std::env::var("WALRUS_GRPC_MIGRATION_LEVEL")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(GRPC_MIGRATION_LEVEL_LEGACY_U32)
+        });
+        Self(*VALUE)
     }
 }
 
