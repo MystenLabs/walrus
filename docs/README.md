@@ -27,22 +27,3 @@ git subtree pull --prefix=docs/site/src/shared https://github.com/MystenLabs/ML-
 ```
 
 [Learn more about Git Subtrees](https://www.atlassian.com/git/tutorials/git-subtree).
-
-## Ongoing and planned updates
-
-- TODO(DOCS-345): Revisions to the information architecture.
-- TODO(DOCS-594): Revisions to design/operations-sui
-- TODO(DOCS-593): Revisions to walrus-sites/tutorial-install
-- TODO(DOCS-592): Revisions to walrus-sites/restrictions
-- TODO(DOCS-591): Revisions to /docs/walrus-sites/redirects
-- TODO(DOCS-590): Revisions to /docs/walrus-sites/bring-your-own-domain
-- TODO(DOCS-589): Fix outdated SuiNS tutorial
-- TODO(DOCS-585): Information about running a storage node
-- TODO(DOCS-584): Revisions to /docs/operator-guide/aggregator
-- TODO(DOCS-583): Revisions to /dev-guides/sui-struct
-- TODO(DOCS-582): Revisions to  /dev-guide/components
-- TODO(DOCS-617): Add blob sizes and memory requirements
-- TODO(DOCS-610): Plan expanded code examples
-- TODO(DOCS-611): Create new code examples
-- TODO(DOCS-609): Add HTTP API to introduction/onboarding
-- TODO(DOCS-608): Revise pages for Object Storage mention
