@@ -1099,21 +1099,15 @@ impl QuiltV1 {
     ///
     /// If the quilt index is not set, it will decode it from the quilt data, and set it.
     fn get_or_decode_quilt_index(&mut self) -> Result<&QuiltIndexV1, QuiltError> {
-        if self.quilt_index.is_some() {
-            return Ok(self
-                .quilt_index
-                .as_ref()
-                .expect("quilt index should be set"));
+        if self.quilt_index.is_none() {
+            let columns_size = self.data.len() / self.row_size * self.symbol_size;
+            let quilt_index = QuiltVersionV1::decode_quilt_index(self, columns_size)?;
+            self.quilt_index = Some(quilt_index);
         }
-
-        let columns_size = self.data.len() / self.row_size * self.symbol_size;
-        let quilt_index = QuiltVersionV1::decode_quilt_index(self, columns_size)?;
-        self.quilt_index = Some(quilt_index);
-
         Ok(self
             .quilt_index
             .as_ref()
-            .expect("quilt index should be set"))
+            .expect("quilt index was either set initially or has been set after decode"))
     }
 }
 
