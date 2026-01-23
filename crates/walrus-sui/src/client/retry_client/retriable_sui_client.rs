@@ -52,15 +52,7 @@ use sui_sdk::{
 use sui_types::transaction::TransactionDataAPI;
 use sui_types::{
     TypeTag,
-    base_types::{
-        ObjectID,
-        ObjectInfo,
-        ObjectRef,
-        ObjectType,
-        SequenceNumber,
-        SuiAddress,
-        TransactionDigest,
-    },
+    base_types::{ObjectID, ObjectRef, ObjectType, SequenceNumber, SuiAddress, TransactionDigest},
     dynamic_field::derive_dynamic_field_id,
     event::EventID,
     object::Owner,
@@ -1453,25 +1445,46 @@ impl RetriableSuiClient {
     pub async fn get_object_ref_and_type_tag(
         &self,
         object_id: ObjectID,
-    ) -> Result<(ObjectRef, TypeTag), anyhow::Error> {
+    ) -> Result<(ObjectRef, TypeTag), SuiClientError> {
         if self.grpc_migration_level >= GRPC_MIGRATION_LEVEL_GET_OBJECT {
-            let object = self.get_object_by_grpc(object_id).await?;
-            let move_object_type = object.type_().context("no object data type returned")?;
-            let object_info = ObjectInfo::from_object(&object);
-            let object_ref: ObjectRef = object_info.into();
-            Ok((object_ref, move_object_type.clone().into()))
+            self.get_object_ref_and_type_tag_with_grpc(object_id).await
         } else {
             let object_data = self
                 .get_object_with_json_rpc(object_id, SuiObjectDataOptions::new().with_type())
                 .await?
                 .data
-                .ok_or_else(|| anyhow::anyhow!("no object data returned"))?;
+                .context("no object data returned")?;
             let ObjectType::Struct(object_type) = object_data.object_type()? else {
-                return Err(anyhow::anyhow!("object is not a struct"));
+                return Err(anyhow::anyhow!("object is not a struct").into());
             };
             let object_ref = object_data.object_ref();
             Ok((object_ref, object_type.into()))
         }
+    }
+
+    async fn get_object_ref_and_type_tag_with_grpc(
+        &self,
+        object_id: ObjectID,
+    ) -> Result<(ObjectRef, TypeTag), SuiClientError> {
+        debug_assert!(self.grpc_migration_level >= GRPC_MIGRATION_LEVEL_GET_OBJECT);
+        async fn make_request(
+            client: Arc<DualClient>,
+            object_id: ObjectID,
+        ) -> SuiClientResult<(ObjectRef, TypeTag)> {
+            client.get_object_ref_and_type_tag(object_id).await
+        }
+
+        let request = move |client: Arc<DualClient>, method| {
+            retry_rpc_errors(
+                self.get_strategy(),
+                move || make_request(client.clone(), object_id),
+                self.metrics.clone(),
+                method,
+            )
+        };
+        self.failover_sui_client
+            .with_failover(request, None, "get_object_ref_and_type_tag")
+            .await
     }
 
     /// Returns the owner address of the given object.

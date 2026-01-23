@@ -16,6 +16,7 @@ use sui_rpc::{
 };
 use sui_sdk::{SuiClient, SuiClientBuilder};
 use sui_types::{
+    TypeTag,
     base_types::{ObjectID, ObjectRef},
     digests::TransactionDigest,
 };
@@ -168,6 +169,45 @@ impl DualClient {
                 .context("no digest in object")?
                 .parse()
                 .context("parsing digest")?,
+        ))
+    }
+
+    /// Get an [`ObjectRef`] from the Sui network.
+    pub async fn get_object_ref_and_type_tag(
+        &self,
+        object_id: ObjectID,
+    ) -> Result<(ObjectRef, TypeTag), SuiClientError> {
+        let request = GetObjectRequest::new(&address_from_object_id(object_id)).with_read_mask(
+            FieldMask::from_paths([
+                Object::path_builder().version(),
+                Object::path_builder().digest(),
+                Object::path_builder().object_type(),
+            ]),
+        );
+        let mut grpc_client: GrpcClient = self.grpc_client.clone();
+        let response = grpc_client.ledger_client().get_object(request).await?;
+        let object = response
+            .into_inner()
+            .object
+            .context("no object in get_object_response")?;
+        Ok((
+            // ObjectRef
+            (
+                object_id,
+                object.version.context("no version in object")?.into(),
+                object
+                    .digest
+                    .context("no digest in object")?
+                    .parse()
+                    .context("parsing digest")?,
+            ),
+            // TypeTag
+            object
+                .object_type
+                .context("no object_type in object")?
+                .parse::<StructTag>()
+                .context("parsing move object_type")?
+                .into(),
         ))
     }
 
