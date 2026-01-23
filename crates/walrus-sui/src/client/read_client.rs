@@ -1343,18 +1343,22 @@ impl ReadClient for SuiReadClient {
     ) -> SuiClientResult<BlobWithAttribute> {
         let blob: Blob = self
             .sui_client
-            .get_move_object_from_bcs(*blob_object_id, false, |object_id, bcs| {
-                Ok(if let Ok(blob) = get_sui_object_from_bcs(bcs) {
-                    blob
-                } else {
-                    let shared_blob: SharedBlob =
-                        get_sui_object_from_bcs(bcs).with_context(|| {
+            .get_move_object_from_bcs(*blob_object_id, |object_id, struct_tag, bcs| {
+                Ok(
+                    if let Ok(blob) = get_sui_object_from_bcs::<Blob>(bcs, struct_tag) {
+                        blob
+                    } else {
+                        let shared_blob = get_sui_object_from_bcs::<SharedBlob>(
+                            bcs, struct_tag,
+                        )
+                        .with_context(|| {
                             format!(
                                 "could not retrieve blob or shared blob from object id {object_id}"
                             )
                         })?;
-                    shared_blob.blob
-                })
+                        shared_blob.blob
+                    },
+                )
             })
             .await?;
         let attribute = self.get_blob_attribute(&blob.id).await?;

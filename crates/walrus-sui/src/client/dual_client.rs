@@ -16,7 +16,6 @@ use sui_rpc::{
 };
 use sui_sdk::{SuiClient, SuiClientBuilder};
 use sui_types::base_types::ObjectID;
-use walrus_core::ensure;
 
 use crate::{client::SuiClientError, contracts::TypeOriginMap};
 
@@ -83,16 +82,15 @@ impl DualClient {
             .context("no bcs in object")?)
     }
 
-    /// Get the BCS representation of an object's contents from the Sui network.
-    pub async fn get_object_contents_bcs<'a>(
-        &'a self,
+    /// Get the BCS representation of an object's contents and its type from the Sui network.
+    pub async fn get_object_contents(
+        &self,
         object_id: ObjectID,
-        expected_object_type: Option<crate::contracts::StructTag<'a>>,
-    ) -> Result<Bcs, SuiClientError> {
-        let mut paths = vec![Object::path_builder().contents().finish()];
-        if expected_object_type.is_some() {
-            paths.push(Object::path_builder().object_type());
-        }
+    ) -> Result<(StructTag, Bcs), SuiClientError> {
+        let paths = [
+            Object::path_builder().contents().finish(),
+            Object::path_builder().object_type(),
+        ];
         let request: GetObjectRequest = GetObjectRequest::new(&address_from_object_id(object_id))
             .with_read_mask(FieldMask::from_paths(&paths));
         let mut grpc_client: GrpcClient = self.grpc_client.clone();
@@ -105,21 +103,13 @@ impl DualClient {
             .into_inner()
             .object
             .context("no contents in get_object_response")?;
-
-        if let Some(expected_object_type) = expected_object_type {
-            let object_type: StructTag = object
+        Ok((
+            object
                 .object_type()
                 .parse()
-                .context("parsing move object_type")?;
-            ensure!(
-                object_type.module.as_str() == expected_object_type.module
-                    && object_type.name.as_str() == expected_object_type.name,
-                "object type mismatch: expected {:?}, got {:?}",
-                expected_object_type,
-                object_type
-            );
-        }
-        Ok(object.contents.context("no contents in object")?)
+                .context("parsing move object_type")?,
+            object.contents.context("no contents in object")?,
+        ))
     }
 
     /// Get the full object from the Sui network.

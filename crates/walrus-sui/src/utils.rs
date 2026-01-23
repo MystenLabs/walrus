@@ -38,6 +38,7 @@ use walrus_core::{
     Epoch,
     EpochCount,
     encoding::encoded_blob_length_for_n_shards,
+    ensure,
     keys::ProtocolKeyPair,
     messages::{ProofOfPossessionMsg, SignedMessage},
 };
@@ -45,7 +46,7 @@ use walrus_core::{
 use crate::{
     client::{SuiClientResult, SuiContractClient, retry_client::RetriableSuiClient},
     config::load_wallet_context_from_path,
-    contracts::AssociatedContractStruct,
+    contracts::{AssociatedContractStruct, MoveConversionError},
     wallet::Wallet,
 };
 
@@ -174,10 +175,28 @@ where
     )
 }
 
-pub(crate) fn get_sui_object_from_bcs<U>(bcs_data: &[u8]) -> SuiClientResult<U>
+pub(crate) fn get_sui_object_from_bcs<U>(
+    bcs_data: &[u8],
+    struct_tag: &MoveStructTag,
+) -> SuiClientResult<U>
 where
     U: AssociatedContractStruct,
 {
+    ensure!(
+        struct_tag.name.as_str() == U::CONTRACT_STRUCT.name
+            && struct_tag.module.as_str() == U::CONTRACT_STRUCT.module,
+        MoveConversionError::TypeMismatch {
+            expected: U::CONTRACT_STRUCT.to_string(),
+            actual: format!(
+                "{}::{} ({})",
+                struct_tag.module.as_str(),
+                struct_tag.name.as_str(),
+                struct_tag
+            ),
+        }
+        .into()
+    );
+
     Ok(bcs::from_bytes::<U>(bcs_data).with_context(|| {
         format!(
             "could not convert object to expected type {}",

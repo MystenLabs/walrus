@@ -15,6 +15,7 @@ use std::{
 
 use anyhow::Context;
 use futures::{Stream, StreamExt, future, stream};
+use move_core_types::language_storage::StructTag;
 use rand::{
     Rng as _,
     RngCore,
@@ -601,9 +602,7 @@ impl RetriableSuiClient {
             .await
     }
 
-    /// Returns a [`SuiObjectResponse`] based on the provided [`ObjectID`].
-    ///
-    /// Calls [`sui_sdk::apis::ReadApi::get_object_with_options`] internally.
+    /// Returns a [`sui_types::object::Object`] based on the provided [`ObjectID`].
     #[tracing::instrument(level = Level::DEBUG, skip(self))]
     async fn get_object_by_grpc(
         &self,
@@ -634,7 +633,7 @@ impl RetriableSuiClient {
     ///
     /// Calls [`sui_sdk::apis::ReadApi::get_object_with_options`] internally.
     #[tracing::instrument(level = Level::DEBUG, skip(self))]
-    async fn get_object_with_options(
+    async fn get_object_with_json_rpc(
         &self,
         object_id: ObjectID,
         options: SuiObjectDataOptions,
@@ -666,35 +665,29 @@ impl RetriableSuiClient {
             .await
     }
 
-    /// Returns a [`SuiObjectResponse`] based on the provided [`ObjectID`].
-    ///
-    /// Calls [`sui_sdk::apis::ReadApi::get_object_with_options`] internally.
+    /// Returns a [`Bcs`] based on the provided [`ObjectID`].
     #[tracing::instrument(level = Level::DEBUG, skip(self))]
-    pub async fn get_object_contents_bcs<'a>(
-        &'a self,
+    pub async fn get_object_contents(
+        &self,
         object_id: ObjectID,
-        expected_object_type: Option<crate::contracts::StructTag<'a>>,
-    ) -> SuiClientResult<Bcs> {
-        async fn make_request<'a>(
+    ) -> SuiClientResult<(StructTag, Bcs)> {
+        async fn make_request(
             client: Arc<DualClient>,
             object_id: ObjectID,
-            expected_object_type: Option<crate::contracts::StructTag<'a>>,
-        ) -> SuiClientResult<Bcs> {
-            client
-                .get_object_contents_bcs(object_id, expected_object_type)
-                .await
+        ) -> SuiClientResult<(StructTag, Bcs)> {
+            client.get_object_contents(object_id).await
         }
 
         let request = move |client: Arc<DualClient>, method| {
             retry_rpc_errors(
                 self.get_strategy(),
-                move || make_request(client.clone(), object_id, expected_object_type),
+                move || make_request(client.clone(), object_id),
                 self.metrics.clone(),
                 method,
             )
         };
         self.failover_sui_client
-            .with_failover(request, None, "get_object_contents_bcs")
+            .with_failover(request, None, "get_object_contents")
             .await
     }
 
@@ -937,8 +930,10 @@ impl RetriableSuiClient {
     where
         U: AssociatedContractStruct,
     {
-        self.get_move_object_from_bcs(object_id, true, |_, bcs| get_sui_object_from_bcs::<U>(bcs))
-            .await
+        self.get_move_object_from_bcs(object_id, |_, struct_tag, bcs| {
+            get_sui_object_from_bcs::<U>(bcs, struct_tag)
+        })
+        .await
     }
 
     /// Returns the Sui Object of type `U` with the provided [`ObjectID`] and a specified conversion
@@ -949,29 +944,19 @@ impl RetriableSuiClient {
     pub async fn get_move_object_from_bcs<F, U>(
         &self,
         object_id: ObjectID,
-        check_object_type: bool,
         conversion_fn: F,
     ) -> SuiClientResult<U>
     where
         U: AssociatedContractStruct,
-        F: FnOnce(ObjectID, &[u8]) -> SuiClientResult<U>,
+        F: FnOnce(ObjectID, &StructTag, &[u8]) -> SuiClientResult<U>,
     {
         if self.grpc_migration_level >= GRPC_MIGRATION_LEVEL_GET_OBJECT {
-            let expected_object_type = if check_object_type {
-                Some(U::CONTRACT_STRUCT)
-            } else {
-                None
-            };
-            conversion_fn(
-                object_id,
-                self.get_object_contents_bcs(object_id, expected_object_type)
-                    .await?
-                    .value(),
-            )
+            let (struct_tag, bcs) = self.get_object_contents(object_id).await?;
+            conversion_fn(object_id, &struct_tag, bcs.value())
         } else {
             use sui_sdk::rpc_types::SuiData as _;
             let sui_object_response: SuiObjectResponse = self
-                .get_object_with_options(
+                .get_object_with_json_rpc(
                     object_id,
                     SuiObjectDataOptions::new().with_bcs().with_type(),
                 )
@@ -986,25 +971,11 @@ impl RetriableSuiClient {
                 .try_as_move()
                 .ok_or(MoveConversionError::NotMoveObject)?;
 
-            if check_object_type {
-                let type_ = &sui_raw_move_object.type_;
-                ensure!(
-                    type_.name.as_str() == U::CONTRACT_STRUCT.name
-                        && type_.module.as_str() == U::CONTRACT_STRUCT.module,
-                    MoveConversionError::TypeMismatch {
-                        expected: U::CONTRACT_STRUCT.to_string(),
-                        actual: format!(
-                            "{}::{} ({})",
-                            type_.module.as_str(),
-                            type_.name.as_str(),
-                            type_
-                        ),
-                    }
-                    .into()
-                );
-            }
-
-            conversion_fn(object_id, &sui_raw_move_object.bcs_bytes)
+            conversion_fn(
+                object_id,
+                &sui_raw_move_object.type_,
+                &sui_raw_move_object.bcs_bytes,
+            )
         }
     }
 
@@ -1077,7 +1048,7 @@ impl RetriableSuiClient {
         } else {
             get_initial_version_from_object_response(
                 &self
-                    .get_object_with_options(object_id, SuiObjectDataOptions::new().with_owner())
+                    .get_object_with_json_rpc(object_id, SuiObjectDataOptions::new().with_owner())
                     .await?,
             )
         }
@@ -1179,7 +1150,7 @@ impl RetriableSuiClient {
             Ok(pkg_id)
         } else {
             let object = self
-                .get_object_with_options(
+                .get_object_with_json_rpc(
                     object_id,
                     SuiObjectDataOptions::default().with_type().with_bcs(),
                 )
@@ -1224,7 +1195,7 @@ impl RetriableSuiClient {
                 .await
         } else {
             let Ok(Some(SuiRawData::Package(raw_package))) = self
-                .get_object_with_options(
+                .get_object_with_json_rpc(
                     package_id,
                     SuiObjectDataOptions::default().with_type().with_bcs(),
                 )
@@ -1437,7 +1408,7 @@ impl RetriableSuiClient {
             Ok(object_ref)
         } else {
             let object_data = self
-                .get_object_with_options(object_id, SuiObjectDataOptions::new().with_type())
+                .get_object_with_json_rpc(object_id, SuiObjectDataOptions::new().with_type())
                 .await?
                 .data
                 .ok_or_else(|| anyhow::anyhow!("no object data returned"))?;
@@ -1460,7 +1431,7 @@ impl RetriableSuiClient {
             Ok((object_ref, move_object_type.clone().into()))
         } else {
             let object_data = self
-                .get_object_with_options(object_id, SuiObjectDataOptions::new().with_type())
+                .get_object_with_json_rpc(object_id, SuiObjectDataOptions::new().with_type())
                 .await?
                 .data
                 .ok_or_else(|| anyhow::anyhow!("no object data returned"))?;
@@ -1486,7 +1457,7 @@ impl RetriableSuiClient {
                 .context("no object owner address returned from rpc")?)
         } else {
             let object: SuiObjectResponse = self
-                .get_object_with_options(object_id, SuiObjectDataOptions::default().with_owner())
+                .get_object_with_json_rpc(object_id, SuiObjectDataOptions::default().with_owner())
                 .await?;
             Ok(object
                 .owner()
@@ -1577,7 +1548,7 @@ impl RetriableSuiClient {
                 .previous_transaction)
         } else {
             Ok(self
-                .get_object_with_options(
+                .get_object_with_json_rpc(
                     object_id,
                     SuiObjectDataOptions::new().with_previous_transaction(),
                 )
