@@ -15,7 +15,7 @@ use sui_rpc::{
     proto::sui::rpc::v2::{Bcs, GetObjectRequest, Object},
 };
 use sui_sdk::{SuiClient, SuiClientBuilder};
-use sui_types::base_types::ObjectID;
+use sui_types::base_types::{ObjectID, ObjectRef};
 
 use crate::{client::SuiClientError, contracts::TypeOriginMap};
 
@@ -121,6 +121,31 @@ impl DualClient {
             .await?
             .deserialize()
             .context("failed to deserialize object from BCS")?)
+    }
+
+    /// Get an [`ObjectRef`] from the Sui network.
+    pub async fn get_object_ref(&self, object_id: ObjectID) -> Result<ObjectRef, SuiClientError> {
+        let request = GetObjectRequest::new(&address_from_object_id(object_id)).with_read_mask(
+            FieldMask::from_paths([
+                Object::path_builder().version(),
+                Object::path_builder().digest(),
+            ]),
+        );
+        let mut grpc_client: GrpcClient = self.grpc_client.clone();
+        let response = grpc_client.ledger_client().get_object(request).await?;
+        let object = response
+            .into_inner()
+            .object
+            .context("no object in get_object_response")?;
+        Ok((
+            object_id,
+            object.version.context("no version in object")?.into(),
+            object
+                .digest
+                .context("no digest in object")?
+                .parse()
+                .context("parsing digest")?,
+        ))
     }
 
     /// Get the type origin map for a package from the Sui network.

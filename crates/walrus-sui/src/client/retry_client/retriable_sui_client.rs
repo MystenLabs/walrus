@@ -629,6 +629,30 @@ impl RetriableSuiClient {
             .await
     }
 
+    /// Returns a [`sui_types::object::Object`] based on the provided [`ObjectID`].
+    #[tracing::instrument(level = Level::DEBUG, skip(self))]
+    async fn get_object_ref_by_grpc(&self, object_id: ObjectID) -> SuiClientResult<ObjectRef> {
+        debug_assert!(self.grpc_migration_level >= GRPC_MIGRATION_LEVEL_GET_OBJECT);
+        async fn make_request(
+            client: Arc<DualClient>,
+            object_id: ObjectID,
+        ) -> SuiClientResult<ObjectRef> {
+            client.get_object_ref(object_id).await
+        }
+
+        let request = move |client: Arc<DualClient>, method| {
+            retry_rpc_errors(
+                self.get_strategy(),
+                move || make_request(client.clone(), object_id),
+                self.metrics.clone(),
+                method,
+            )
+        };
+        self.failover_sui_client
+            .with_failover(request, None, "get_object_ref")
+            .await
+    }
+
     /// Returns a [`SuiObjectResponse`] based on the provided [`ObjectID`].
     ///
     /// Calls [`sui_sdk::apis::ReadApi::get_object_with_options`] internally.
