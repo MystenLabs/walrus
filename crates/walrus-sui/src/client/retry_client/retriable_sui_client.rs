@@ -1426,15 +1426,15 @@ impl RetriableSuiClient {
 
     /// Get the latest object reference given an [`ObjectID`].
     #[tracing::instrument(skip(self), level = Level::DEBUG)]
-    pub async fn get_object_ref(&self, object_id: ObjectID) -> Result<ObjectRef, anyhow::Error> {
+    pub async fn get_object_ref(&self, object_id: ObjectID) -> SuiClientResult<ObjectRef> {
         if self.grpc_migration_level >= GRPC_MIGRATION_LEVEL_GET_OBJECT {
-            Ok(self.get_object_ref_with_grpc(object_id).await?)
+            self.get_object_ref_with_grpc(object_id).await
         } else {
             let object_data = self
                 .get_object_with_json_rpc(object_id, SuiObjectDataOptions::new().with_type())
                 .await?
                 .data
-                .ok_or_else(|| anyhow::anyhow!("no object data returned"))?;
+                .context("no object data returned")?;
             let object_ref = object_data.object_ref();
             Ok(object_ref)
         }
@@ -1555,11 +1555,10 @@ impl RetriableSuiClient {
     pub async fn get_storage_nodes_by_ids(
         &self,
         node_ids: &[ObjectID],
-    ) -> Result<Vec<StorageNode>, anyhow::Error> {
+    ) -> SuiClientResult<Vec<StorageNode>> {
         Ok(self
             .get_sui_objects::<StakingPool>(node_ids)
-            .await
-            .context("one or multiple node IDs were not found")?
+            .await?
             .into_iter()
             .map(|pool| pool.node_info)
             .collect())
