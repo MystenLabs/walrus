@@ -1,4 +1,4 @@
-Walrus developer documentation, hosted using Docusaurus deployed on a Walrus Site: https://docs.wal.app/index.html
+Walrus developer documentation, hosted using Docusaurus deployed on a Walrus Site: https://docs.wal.app/
 
 ## Content
 - `/docs/content/blog/`: Walrus blog posts.
@@ -10,19 +10,20 @@ Walrus developer documentation, hosted using Docusaurus deployed on a Walrus Sit
 - `/docs/content/walrus-sites/`: Walrus Sites documentation.
 
 ## Style guide
+
 The Walrus documentation uses the Sui Style Guide:
 https://docs.sui.io/style-guide
 
 ## Custom components
+
 This Docusaurus deployment uses custom TSX/JSX components that expand upon
 the basic Docusaurus features. These same components are also used by the Sui,
 SuiNS, and (soon) Seal documentation.
 
-To maintain these components, they will be consolidated into a central package
-and added as an NPM dependency. Work for this task is tracked via DOCS-365.
+To maintain these components, they are housed in a shared repo and pulled into this repo as a subtree using the command:
 
-## Ongoing and planned updates
-- TODO(DOCS-342) + DOCS-384 + DOCS-524: Revisions for style guide compliance,
-  readability, and other misc backlog edits.
-- TODO(DOCS-345): Revisions to the information architecture.
-- TODO(DOCS-365): Create central package for custom components.
+```
+git subtree pull --prefix=docs/site/src/shared https://github.com/MystenLabs/ML-Shared-Docusaurus.git master --squash
+```
+
+[Learn more about Git Subtrees](https://www.atlassian.com/git/tutorials/git-subtree).
