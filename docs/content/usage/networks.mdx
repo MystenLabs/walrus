@@ -47,7 +47,9 @@ Also see the [Testnet terms of service](/legal/testnet_tos.mdx) under which this
 
 ### Prerequisites: Sui wallet and Testnet SUI {#prerequisites}
 
-<Tabs className="tabsHeadingCentered--small">
+<div className="outlined-tabs">
+
+<Tabs>
 <TabItem value="prereq" label="Prerequisites">
 
 - [x] Download and install the [Sui CLI](/usage/started.mdx#step-1-install-tooling).
@@ -58,6 +60,8 @@ Also see the [Testnet terms of service](/legal/testnet_tos.mdx) under which this
 
 </TabItem>
 </Tabs>
+
+</div>
 
 ### Testnet parameters
 
@@ -100,7 +104,7 @@ By default, 0.5 SUI are exchanged for 0.5 WAL, but a different amount of SUI can
 
 ## Run a local Walrus network
 
-In addition to publicly deployed Walrus networks, you can deploy a Walrus network on your local machine for local testing. Run the script `scripts/local-testbed.sh` found in the [Walrus GitHub] repository](https://github.com/MystenLabs/walrus). See `scripts/local-testbed.sh -h` for further usage information.
+In addition to publicly deployed Walrus networks, you can deploy a Walrus network on your local machine for local testing. Run the script `scripts/local-testbed.sh` found in the [Walrus GitHub repository](https://github.com/MystenLabs/walrus). See `scripts/local-testbed.sh -h` for further usage information.
 
 The script generates configuration that you can use when [running the Walrus client](/usage/client-cli.mdx) and prints the path to that configuration file.
 

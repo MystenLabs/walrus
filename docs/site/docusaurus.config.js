@@ -8,7 +8,7 @@
 // See: https://docusaurus.io/docs/api/docusaurus-config
 
 import { themes as prismThemes } from "prism-react-renderer";
-import remarkGlossary from "./src/plugins/remark-glossary.js";
+import remarkGlossary from "./src/shared/plugins/remark-glossary.js";
 
 import path from "path";
 import { fileURLToPath } from "url";
@@ -52,7 +52,7 @@ const config = {
     plugins: [
         "docusaurus-plugin-copy-page-button",
         [
-            require.resolve("./src/plugins/plausible"),
+            require.resolve("./src/shared/plugins/plausible"),
             {
                 domain: "docs.wal.app",
                 enableInDev: false,
@@ -116,7 +116,7 @@ const config = {
                     {
                       loader: path.resolve(
                         __dirname,
-                        "./src/plugins/inject-code/stepLoader.js",
+                        "./src/shared/plugins/inject-code/stepLoader.js",
                       ),
                     },
                   ],
@@ -151,7 +151,7 @@ const config = {
         },
 
         path.resolve(__dirname, "./src/plugins/askcookbook/index.js"),
-        path.resolve(__dirname, "./src/plugins/descriptions"),
+        path.resolve(__dirname, "./src/shared/plugins/descriptions"),
     ],
 
     presets: [

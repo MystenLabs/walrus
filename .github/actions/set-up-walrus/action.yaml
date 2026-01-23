@@ -76,7 +76,6 @@ runs:
     - name: Determine site-builder version
       id: version
       env:
-        INPUT_SUI_NETWORK: ${{ inputs.SUI_NETWORK }}
         INPUT_SITE_BUILDER_VERSION: ${{ inputs.SITE_BUILDER_VERSION }}
       run: |
         if [[ -n "${INPUT_SITE_BUILDER_VERSION}" ]]; then
@@ -86,7 +85,7 @@ runs:
             exit 1
           fi
 
-          echo "🔍 Finding latest ${INPUT_SITE_BUILDER_VERSION}.x release for ${INPUT_SUI_NETWORK}..."
+          echo "🔍 Finding latest ${INPUT_SITE_BUILDER_VERSION}.x release..."
 
           # Fetch all releases from GitHub API
           if ! curl -sf https://api.github.com/repos/MystenLabs/walrus-sites/releases -o /tmp/releases.json; then
@@ -94,17 +93,18 @@ runs:
             exit 1
           fi
 
-          # Find the latest release tag matching the network and major version
-          VERSION_TAG=$(jq -r --arg network "${INPUT_SUI_NETWORK}" --arg version "${INPUT_SITE_BUILDER_VERSION}" \
+          # Find the latest release tag matching mainnet and major version
+          # Note: site-builder binaries work for all networks (network is specified at runtime via --context flag)
+          VERSION_TAG=$(jq -r --arg network "mainnet" --arg version "${INPUT_SITE_BUILDER_VERSION}" \
             '[.[] | select(.tag_name | startswith($network + "-" + $version + ".")) | .tag_name] |
             map(split("-")[1]) |
             sort_by(ltrimstr("v") | split(".") | map(tonumber)) |
             last' /tmp/releases.json)
 
           if [[ -z "$VERSION_TAG" || "$VERSION_TAG" == "null" ]]; then
-            echo "❌ ERROR: Could not find any ${INPUT_SITE_BUILDER_VERSION}.x release for network ${INPUT_SUI_NETWORK}"
+            echo "❌ ERROR: Could not find any ${INPUT_SITE_BUILDER_VERSION}.x release"
             echo "Available releases:"
-            jq -r '.[].tag_name' /tmp/releases.json | grep "^${INPUT_SUI_NETWORK}-" | head -10 || echo "No releases found"
+            jq -r '.[].tag_name' /tmp/releases.json | grep "^mainnet-" | head -10 || echo "No releases found"
             exit 1
           fi
 
@@ -118,13 +118,12 @@ runs:
     - name: Install site-builder from GitHub releases
       if: steps.version.outputs.use_github == 'true'
       env:
-        INPUT_SUI_NETWORK: ${{ inputs.SUI_NETWORK }}
         VERSION_TAG: ${{ steps.version.outputs.version_tag }}
       run: |
-        echo "Installing site-builder ${VERSION_TAG} for ${INPUT_SUI_NETWORK}..."
+        echo "Installing site-builder ${VERSION_TAG}..."
 
         BASE_URL="https://github.com/MystenLabs/walrus-sites/releases/download"
-        DOWNLOAD_URL="$BASE_URL/${INPUT_SUI_NETWORK}-${VERSION_TAG}/site-builder-${INPUT_SUI_NETWORK}-${VERSION_TAG}-ubuntu-x86_64.tgz"
+        DOWNLOAD_URL="$BASE_URL/mainnet-${VERSION_TAG}/site-builder-mainnet-${VERSION_TAG}-ubuntu-x86_64.tgz"
         echo "Downloading from: $DOWNLOAD_URL"
 
         curl -L "$DOWNLOAD_URL" -o /tmp/site-builder.tgz

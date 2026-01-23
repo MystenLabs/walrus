@@ -29,8 +29,8 @@
     --color-wal-purple: hsl(274, 86%, 74%);
     --color-wal-purple-dark: hsl(265, 82%, 69%);
     --color-wal-purple-darker: hsl(265, 90%, 30%);
-    --color-wal-link: hsl(211, 100%, 65%);
-    --color-wal-link-hover: hsl(211, 96%, 56%);
+    --color-wal-link: hsl(173, 75%, 77%);
+    --color-wal-link-hover: hsl(172, 90%, 30%);
     --color-wal-purple-link-dark: var(--color-wal-purple);
     --color-wal-green-lighter: hsl(173, 75%, 95%);
     --color-wal-green-light: hsl(172, 83%, 89%);
@@ -105,11 +105,17 @@
     --ifm-font-family-base: var(--font-sans);
     --ifm-font-family-monospace: var(--font-mono);
     --ifm-navbar-background-color: var(--color-wal-white-100);
-    --ifm-link-color: var(--color-wal-link);
+    --ifm-link-color: var(--color-wal-green-dark);
     --ifm-link-hover-color: var(--color-wal-link-hover);
     --ifm-pagination-nav-color-hover: var(--color-wal-green-dark);
-    --ifm-color-primary: var(--color-wal-link);
+    --ifm-color-primary: hsl(172, 56%, 49%);
+    --color-wal-link-hover: hsl(172, 90%, 30%);
+    --color-wal-link: hsl(172, 56%, 49%);
+    --color-wal-green-dark: hsl(172, 56%, 49%);
+    --ifm-link-color: var(--color-wal-green-dark);
+    --ifm-link-hover-color: var(--color-wal-link-hover);
 }
+
 
 body {
     @apply font-sans text-sm font-normal not-italic tracking-normal;
@@ -391,4 +397,24 @@ html.blog-list-page article {
   .navbar__search {
     max-width: 100px !important;
   }
+}
+
+/* Outlined tabs container */
+.outlined-tabs {
+  border: 1px solid var(--ifm-color-emphasis-300);
+  border-radius: 8px;
+  padding: 1rem;
+  margin: 1rem 0;
+}
+
+.outlined-tabs .tabs {
+  justify-content: left;
+}
+
+.outlined-tabs .tabs__item {
+  font-size: 0.875rem;
+}
+
+[data-theme='dark'] .outlined-tabs {
+  border-color: var(--ifm-color-emphasis-400);
 }
