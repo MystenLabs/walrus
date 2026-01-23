@@ -1327,7 +1327,7 @@ impl ReadClient for SuiReadClient {
     }
 
     async fn get_storage_nodes_by_ids(&self, node_ids: &[ObjectID]) -> Result<Vec<StorageNode>> {
-        self.sui_client.get_storage_nodes_by_ids(node_ids).await
+        Ok(self.sui_client.get_storage_nodes_by_ids(node_ids).await?)
     }
 
     async fn get_blob_attribute(
