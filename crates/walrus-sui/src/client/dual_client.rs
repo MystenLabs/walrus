@@ -76,11 +76,7 @@ impl DualClient {
             FieldMask::from_paths([Object::path_builder().bcs().finish()]),
         );
         let mut grpc_client: GrpcClient = self.grpc_client.clone();
-        let response = grpc_client
-            .ledger_client()
-            .get_object(request)
-            .await
-            .context("grpc request error")?;
+        let response = grpc_client.ledger_client().get_object(request).await?;
         Ok(response
             .into_inner()
             .object
@@ -101,11 +97,7 @@ impl DualClient {
         let request: GetObjectRequest = GetObjectRequest::new(&address_from_object_id(object_id))
             .with_read_mask(FieldMask::from_paths(&paths));
         let mut grpc_client: GrpcClient = self.grpc_client.clone();
-        let response = grpc_client
-            .ledger_client()
-            .get_object(request)
-            .await
-            .context("grpc request error")?;
+        let response = grpc_client.ledger_client().get_object(request).await?;
         let object = response
             .into_inner()
             .object
@@ -141,11 +133,7 @@ impl DualClient {
         );
 
         let mut grpc_client: GrpcClient = self.grpc_client.clone();
-        let response = grpc_client
-            .ledger_client()
-            .get_object(request)
-            .await
-            .context("grpc request error")?;
+        let response = grpc_client.ledger_client().get_object(request).await?;
 
         let package = response
             .into_inner()

@@ -205,6 +205,9 @@ pub enum SuiClientError {
     /// Error returned when converting a Sui object or event to a rust struct.
     #[error(transparent)]
     MoveConversionError(#[from] MoveConversionError),
+    /// A gRPC-related error has occurred.
+    #[error("gRPC error: {0}")]
+    GrpcError(#[from] tonic::Status),
 }
 
 impl From<sui_types::error::SuiError> for SuiClientError {

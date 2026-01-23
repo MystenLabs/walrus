@@ -25,9 +25,17 @@ pub trait RetriableRpcError: Debug {
 
 impl RetriableRpcError for anyhow::Error {
     fn is_retriable_rpc_error(&self) -> bool {
-        self.downcast_ref::<sui_sdk::error::Error>()
-            .map(|error| error.is_retriable_rpc_error())
-            .unwrap_or(false)
+        if let Some(error) = self.downcast_ref::<sui_sdk::error::Error>() {
+            error.is_retriable_rpc_error()
+        } else if let Some(tonic_status) = self.downcast_ref::<tonic::Status>() {
+            debug_assert!(
+                false,
+                "tonic::Status should be wrapped in SuiClientError::GrpcError"
+            );
+            tonic_status.is_retriable_rpc_error()
+        } else {
+            false
+        }
     }
 }
 
@@ -60,6 +68,7 @@ impl RetriableRpcError for SuiClientError {
     fn is_retriable_rpc_error(&self) -> bool {
         match self {
             SuiClientError::SuiSdkError(error) => error.is_retriable_rpc_error(),
+            SuiClientError::GrpcError(status) => status.is_retriable_rpc_error(),
             SuiClientError::Internal(error) => error.is_retriable_rpc_error(),
             _ => false,
         }
