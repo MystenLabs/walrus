@@ -4,6 +4,8 @@ description: "Developer guide to Walrus operations including store, read, certif
 keywords: ["walrus", "operations", "store", "read", "certify", "delete", "blob id", "encoding", "availability", "developer operations"]
 ---
 
+{/* https://linear.app/mysten-labs/issue/DOCS-632/system-overviewoperations */}
+
 Walrus stores blobs across storage nodes in an [encoded form](/design/encoding.mdx), and refers to blobs by their blob ID. The blob ID is deterministically derived from the content of a blob and the Walrus configuration. The blob ID of 2 files with the same content is the same.
 
 You can derive the blob ID of a file locally using the command: `walrus blob-id <file path>`.
