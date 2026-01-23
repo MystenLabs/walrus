@@ -15,7 +15,10 @@ use sui_rpc::{
     proto::sui::rpc::v2::{Bcs, GetObjectRequest, Object},
 };
 use sui_sdk::{SuiClient, SuiClientBuilder};
-use sui_types::base_types::{ObjectID, ObjectRef};
+use sui_types::{
+    base_types::{ObjectID, ObjectRef},
+    digests::TransactionDigest,
+};
 
 use crate::{client::SuiClientError, contracts::TypeOriginMap};
 
@@ -83,6 +86,26 @@ impl DualClient {
             .context("no object in get_object_response")?
             .bcs
             .context("no bcs in object")?)
+    }
+
+    /// Get the BCS representation of an object's contents and its type from the Sui network.
+    pub async fn get_previous_transaction(
+        &self,
+        object_id: ObjectID,
+    ) -> Result<TransactionDigest, SuiClientError> {
+        let paths = [Object::path_builder().previous_transaction()];
+        let request: GetObjectRequest = GetObjectRequest::new(&address_from_object_id(object_id))
+            .with_read_mask(FieldMask::from_paths(&paths));
+        let mut grpc_client: GrpcClient = self.grpc_client.clone();
+        let response = grpc_client.ledger_client().get_object(request).await?;
+        Ok(response
+            .into_inner()
+            .object
+            .context("no contents in get_object_response")?
+            .previous_transaction
+            .context("no previous_transaction in object")?
+            .parse()
+            .context("parsing previous_transaction")?)
     }
 
     /// Get the BCS representation of an object's contents and its type from the Sui network.

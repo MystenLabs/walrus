@@ -1573,10 +1573,7 @@ impl RetriableSuiClient {
         object_id: ObjectID,
     ) -> SuiClientResult<TransactionDigest> {
         if self.grpc_migration_level >= GRPC_MIGRATION_LEVEL_GET_OBJECT {
-            Ok(self
-                .get_object_by_grpc(object_id)
-                .await?
-                .previous_transaction)
+            Ok(self.get_previous_transaction_with_grpc(object_id).await?)
         } else {
             Ok(self
                 .get_object_with_json_rpc(
@@ -1589,6 +1586,31 @@ impl RetriableSuiClient {
                 .previous_transaction
                 .context("missing previous transaction on object")?)
         }
+    }
+
+    async fn get_previous_transaction_with_grpc(
+        &self,
+        object_id: ObjectID,
+    ) -> SuiClientResult<TransactionDigest> {
+        debug_assert!(self.grpc_migration_level >= GRPC_MIGRATION_LEVEL_GET_OBJECT);
+        async fn make_request(
+            client: Arc<DualClient>,
+            object_id: ObjectID,
+        ) -> SuiClientResult<TransactionDigest> {
+            client.get_previous_transaction(object_id).await
+        }
+
+        let request = move |client: Arc<DualClient>, method| {
+            retry_rpc_errors(
+                self.get_strategy(),
+                move || make_request(client.clone(), object_id),
+                self.metrics.clone(),
+                method,
+            )
+        };
+        self.failover_sui_client
+            .with_failover(request, None, "get_previous_transaction")
+            .await
     }
 }
 
