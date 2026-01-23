@@ -444,7 +444,7 @@ impl RetriableSuiClient {
                                     self.get_strategy(),
                                     || async {
                                         client
-                                            .sui_client
+                                            .sui_client()
                                             .coin_read_api()
                                             .get_coins(
                                                 owner,
@@ -501,7 +501,7 @@ impl RetriableSuiClient {
                         self.get_strategy(),
                         || async {
                             client
-                                .sui_client
+                                .sui_client()
                                 .coin_read_api()
                                 .get_balance(owner, coin_type.clone())
                                 .await
@@ -537,7 +537,7 @@ impl RetriableSuiClient {
             descending_order: bool,
         ) -> SuiClientResult<TransactionBlocksPage> {
             Ok(client
-                .sui_client
+                .sui_client()
                 .read_api()
                 .query_transaction_blocks(query.clone(), cursor, limit, descending_order)
                 .await?)
@@ -579,7 +579,7 @@ impl RetriableSuiClient {
             limit: Option<usize>,
         ) -> SuiClientResult<ObjectsPage> {
             Ok(client
-                .sui_client
+                .sui_client()
                 .read_api()
                 .get_owned_objects(address, query, cursor, limit)
                 .await?)
@@ -645,7 +645,7 @@ impl RetriableSuiClient {
             options: SuiObjectDataOptions,
         ) -> SuiClientResult<SuiObjectResponse> {
             Ok(client
-                .sui_client
+                .sui_client()
                 .read_api()
                 .get_object_with_options(object_id, options.clone())
                 .await?)
@@ -705,7 +705,7 @@ impl RetriableSuiClient {
             options: SuiTransactionBlockResponseOptions,
         ) -> SuiClientResult<SuiTransactionBlockResponse> {
             Ok(client
-                .sui_client
+                .sui_client()
                 .read_api()
                 .get_transaction_with_options(digest, options.clone())
                 .await?)
@@ -740,7 +740,7 @@ impl RetriableSuiClient {
             options: SuiObjectDataOptions,
         ) -> SuiClientResult<Vec<SuiObjectResponse>> {
             Ok(client
-                .sui_client
+                .sui_client()
                 .read_api()
                 .multi_get_object_with_options(object_ids.to_vec(), options)
                 .await?)
@@ -796,7 +796,7 @@ impl RetriableSuiClient {
             package_id: ObjectID,
         ) -> SuiClientResult<BTreeMap<String, SuiMoveNormalizedModule>> {
             Ok(client
-                .sui_client
+                .sui_client()
                 .read_api()
                 .get_normalized_move_modules_by_package(package_id)
                 .await?)
@@ -828,7 +828,7 @@ impl RetriableSuiClient {
             epoch: Option<BigInt<u64>>,
         ) -> SuiClientResult<SuiCommittee> {
             Ok(client
-                .sui_client
+                .sui_client()
                 .governance_api()
                 .get_committee_info(epoch)
                 .await?)
@@ -855,7 +855,7 @@ impl RetriableSuiClient {
     pub async fn get_reference_gas_price(&self) -> SuiClientResult<u64> {
         async fn make_request(client: Arc<DualClient>) -> SuiClientResult<u64> {
             Ok(client
-                .sui_client
+                .sui_client()
                 .read_api()
                 .get_reference_gas_price()
                 .await?)
@@ -888,7 +888,7 @@ impl RetriableSuiClient {
         ) -> SuiClientResult<DryRunTransactionBlockResponse> {
             let tx = TransactionData::clone(&transaction);
             Ok(client
-                .sui_client
+                .sui_client()
                 .read_api()
                 .dry_run_transaction_block(tx)
                 .await?)
@@ -1022,7 +1022,11 @@ impl RetriableSuiClient {
     /// Calls [`sui_sdk::apis::ReadApi::get_chain_identifier`] internally.
     pub async fn get_chain_identifier(&self) -> SuiClientResult<String> {
         async fn make_request(client: Arc<DualClient>) -> SuiClientResult<String> {
-            Ok(client.sui_client.read_api().get_chain_identifier().await?)
+            Ok(client
+                .sui_client()
+                .read_api()
+                .get_chain_identifier()
+                .await?)
         }
         let request = move |client: Arc<DualClient>, method| {
             retry_rpc_errors(
@@ -1344,7 +1348,7 @@ impl RetriableSuiClient {
                 maybe_return_injected_error_in_stake_pool_transaction(&transaction)?;
             }
             Ok(client
-                .sui_client
+                .sui_client()
                 .quorum_driver_api()
                 .execute_transaction_block(
                     transaction.clone(),
@@ -1386,7 +1390,13 @@ impl RetriableSuiClient {
                 async |client, method| {
                     retry_rpc_errors(
                         self.get_strategy(),
-                        || async { Ok(client.sui_client.event_api().get_events(tx_digest).await?) },
+                        || async {
+                            Ok(client
+                                .sui_client()
+                                .event_api()
+                                .get_events(tx_digest)
+                                .await?)
+                        },
                         self.metrics.clone(),
                         method,
                     )

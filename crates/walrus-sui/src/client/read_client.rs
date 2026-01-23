@@ -1264,7 +1264,7 @@ impl ReadClient for SuiReadClient {
             .sui_client
             .get_current_client()
             .await
-            .sui_client
+            .sui_client()
             .event_api()
             .clone();
 

@@ -257,7 +257,7 @@ pub(crate) async fn publish_package(
     let transaction_kind = retry_client
         .get_current_client()
         .await
-        .sui_client
+        .sui_client()
         .transaction_builder()
         .publish_tx_kind(
             sender,

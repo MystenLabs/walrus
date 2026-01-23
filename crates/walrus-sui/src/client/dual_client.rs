@@ -24,7 +24,7 @@ use crate::{client::SuiClientError, contracts::TypeOriginMap};
 #[derive(Clone)]
 pub struct DualClient {
     /// The Sui SDK client for JSON RPC calls. This will eventually be removed.
-    pub sui_client: SuiClient,
+    sui_client: Option<SuiClient>,
     grpc_client: GrpcClient,
 }
 
@@ -53,14 +53,21 @@ impl DualClient {
             client_builder = client_builder.request_timeout(request_timeout);
         }
         let rpc_url = rpc_url.as_ref();
-        let sui_client = client_builder.build(rpc_url).await?;
-        // REVIEW(wbbradley): How do we set request timeout in SuiClient?
-        // REVIEW(wbbradley): Do we need to set headers or max decoding message size?
+        let sui_client = Some(client_builder.build(rpc_url).await?);
         let grpc_client = GrpcClient::new(rpc_url).context("unable to create grpc client")?;
         Ok(Self {
             sui_client,
             grpc_client,
         })
+    }
+
+    /// Accessor for the SuiClient. Note that when the migration is complete, we will check the
+    /// migration level and if it is at its "max" setting, then we will not create SuiClients and
+    /// this method will panic if called.
+    pub fn sui_client(&self) -> &SuiClient {
+        self.sui_client
+            .as_ref()
+            .expect("DualClient should have a SuiClient until migration is complete")
     }
 
     /// Get the BCS representation of an object from the Sui network.
