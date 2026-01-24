@@ -28,16 +28,8 @@ impl RetriableRpcError for anyhow::Error {
         if let Some(error) = self.downcast_ref::<sui_sdk::error::Error>() {
             error.is_retriable_rpc_error()
         } else if let Some(sui_client_error) = self.downcast_ref::<SuiClientError>() {
-            debug_assert!(
-                false,
-                "SuiClientError should not be wrapped in anyhow::Error"
-            );
             sui_client_error.is_retriable_rpc_error()
         } else if let Some(tonic_status) = self.downcast_ref::<tonic::Status>() {
-            debug_assert!(
-                false,
-                "tonic::Status should be wrapped in SuiClientError::GrpcError"
-            );
             tonic_status.is_retriable_rpc_error()
         } else {
             false
