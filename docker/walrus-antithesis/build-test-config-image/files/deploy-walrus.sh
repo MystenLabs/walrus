@@ -16,7 +16,7 @@ rm -rf /opt/walrus/outputs/*
 ls -al /opt/walrus/contracts
 
 echo "Deploying system contract"
-/opt/walrus/bin/walrus-deploy deploy-system-contract \
+RUST_LOG=debug /opt/walrus/bin/walrus-deploy deploy-system-contract \
   --working-dir /opt/walrus/outputs \
   --contract-dir /opt/walrus/contracts \
   --do-not-copy-contracts \
