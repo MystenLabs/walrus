@@ -106,43 +106,19 @@ jobs:
       - name: Build Rust code
         run: cargo build --workspace --features "walrus-service/backup" --verbose
 
-  test-no-grpc:
-    name: Test Rust code - no gRPC migrations enabled
-    needs: diff
-    if: ${{ needs.diff.outputs.isRelevantForRustTests == 'true' }}
-    runs-on: ubuntu-ghcloud
-    env:
-      RUST_LOG: walrus=info,error,sui_=off,consensus_core=off
-      OPENSSL_STATIC: "1"
-      OPENSSL_NO_VENDOR: "0"
-    steps:
-      - uses: taiki-e/install-action@970d55e3ce02a46d60ffae7b4fab3dedace6e769 # pin@v2.49.13
-        with:
-          tool: cargo-nextest
-      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # pin@v6.0.1
-      - uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # pin@v2.8.2
-        with:
-          save-if: ${{ github.ref == 'refs/heads/main' && 'true' || 'false' }}
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libssl-dev pkg-config zlib1g-dev libpq-dev build-essential cmake
-      - name: Run tests
-        run: cargo nextest run --workspace --features "walrus-service/backup" --profile ci --run-ignored all --cargo-profile
-          test-opt
-      - name: Run all unit tests and doctests with `cargo test`
-        run: cargo test
-
   test:
-    name: Test Rust code - gRPC migrations enabled
+    name: Test Rust code (gRPC level ${{ matrix.grpc_migration_level }})
     needs: diff
     if: ${{ needs.diff.outputs.isRelevantForRustTests == 'true' }}
     runs-on: ubuntu-ghcloud
+    strategy:
+      matrix:
+        grpc_migration_level: [0, 1]
     env:
       RUST_LOG: walrus=info,error,sui_=off,consensus_core=off
       OPENSSL_STATIC: "1"
       OPENSSL_NO_VENDOR: "0"
-      WALRUS_GRPC_MIGRATION_LEVEL: "1"
+      WALRUS_GRPC_MIGRATION_LEVEL: "${{ matrix.grpc_migration_level }}"
     steps:
       - uses: taiki-e/install-action@970d55e3ce02a46d60ffae7b4fab3dedace6e769 # pin@v2.49.13
         with:
