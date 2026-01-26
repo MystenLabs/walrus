@@ -12,7 +12,7 @@ use std::{
     time::Duration,
 };
 
-use anyhow::{Result, anyhow};
+use anyhow::{Context as _, Result, anyhow};
 use move_core_types::language_storage::StructTag as MoveStructTag;
 use serde::{Deserialize, Serialize};
 use sui_config::{Config, SUI_KEYSTORE_FILENAME, sui_config_dir};
@@ -38,6 +38,7 @@ use walrus_core::{
     Epoch,
     EpochCount,
     encoding::encoded_blob_length_for_n_shards,
+    ensure,
     keys::ProtocolKeyPair,
     messages::{ProofOfPossessionMsg, SignedMessage},
 };
@@ -45,7 +46,7 @@ use walrus_core::{
 use crate::{
     client::{SuiClientResult, SuiContractClient, retry_client::RetriableSuiClient},
     config::load_wallet_context_from_path,
-    contracts::AssociatedContractStruct,
+    contracts::{AssociatedContractStruct, MoveConversionError},
     wallet::Wallet,
 };
 
@@ -106,6 +107,17 @@ pub(crate) fn get_package_id_from_object_response(
     Ok(move_object_type.address().into())
 }
 
+/// Gets the package address from an object.
+///
+/// Note: This returns the package address from the object type, not the newest package ID.
+pub(crate) fn get_package_id_from_object(object: &sui_types::object::Object) -> Result<ObjectID> {
+    Ok(object
+        .struct_tag()
+        .context("object does not have a struct tag")?
+        .address
+        .into())
+}
+
 /// Gets the objects of the given type that were created in a transaction.
 ///
 /// All the object ids of the objects created in the transaction, and of type represented by the
@@ -147,19 +159,50 @@ pub(crate) fn get_sui_object_from_object_response<U>(
 where
     U: AssociatedContractStruct,
 {
-    U::try_from_object_data(object_response.data.as_ref().ok_or_else(|| {
-        anyhow!(
-            "response does not contain object data [err={:?}]",
-            object_response.error
-        )
-    })?)
-    .map_err(|_e| {
-        anyhow!(
+    Ok(
+        U::try_from_object_data(object_response.data.as_ref().with_context(|| {
+            format!(
+                "response does not contain object data [err={:?}]",
+                object_response.error
+            )
+        })?)
+        .with_context(|| {
+            format!(
+                "could not convert object to expected type {}",
+                U::CONTRACT_STRUCT
+            )
+        })?,
+    )
+}
+
+pub(crate) fn get_sui_object_from_bcs<U>(
+    bcs_data: &[u8],
+    struct_tag: &MoveStructTag,
+) -> SuiClientResult<U>
+where
+    U: AssociatedContractStruct,
+{
+    ensure!(
+        struct_tag.name.as_str() == U::CONTRACT_STRUCT.name
+            && struct_tag.module.as_str() == U::CONTRACT_STRUCT.module,
+        MoveConversionError::TypeMismatch {
+            expected: U::CONTRACT_STRUCT.to_string(),
+            actual: format!(
+                "{}::{} ({})",
+                struct_tag.module.as_str(),
+                struct_tag.name.as_str(),
+                struct_tag
+            ),
+        }
+        .into()
+    );
+
+    Ok(bcs::from_bytes::<U>(bcs_data).with_context(|| {
+        format!(
             "could not convert object to expected type {}",
             U::CONTRACT_STRUCT
         )
-        .into()
-    })
+    })?)
 }
 
 pub(crate) async fn handle_pagination<F, T, C, Fut, ErrorT>(

@@ -107,14 +107,18 @@ jobs:
         run: cargo build --workspace --features "walrus-service/backup" --verbose
 
   test:
-    name: Test Rust code
+    name: Test Rust code (gRPC level ${{ matrix.grpc_migration_level }})
     needs: diff
     if: ${{ needs.diff.outputs.isRelevantForRustTests == 'true' }}
     runs-on: ubuntu-ghcloud
+    strategy:
+      matrix:
+        grpc_migration_level: [0, 1]
     env:
       RUST_LOG: walrus=info,error,sui_=off,consensus_core=off
       OPENSSL_STATIC: "1"
       OPENSSL_NO_VENDOR: "0"
+      WALRUS_GRPC_MIGRATION_LEVEL: "${{ matrix.grpc_migration_level }}"
     steps:
       - uses: taiki-e/install-action@970d55e3ce02a46d60ffae7b4fab3dedace6e769 # pin@v2.49.13
         with:
@@ -132,6 +136,7 @@ jobs:
           test-opt
       - name: Run all unit tests and doctests with `cargo test`
         run: cargo test
+
 
   simtests:
     name: Run all simtests
@@ -155,12 +160,12 @@ jobs:
         run: MSIM_TEST_SEED=1 cargo simtest simtest --profile simtest
       - name: Run tests (seed=2)
         run: MSIM_TEST_SEED=2 cargo simtest simtest --profile simtest
-      - name: Run tests (seed=3)
-        run: MSIM_TEST_SEED=3 cargo simtest simtest --profile simtest
-      - name: Run tests (seed=4)
-        run: MSIM_TEST_SEED=4 cargo simtest simtest --profile simtest
-      - name: Run tests (seed=5)
-        run: MSIM_TEST_SEED=5 cargo simtest simtest --profile simtest
+      - name: Run tests (seed=3, grpc-client-enabled)
+        run: MSIM_TEST_SEED=3 WALRUS_GRPC_MIGRATION_LEVEL=1 cargo simtest simtest --profile simtest
+      - name: Run tests (seed=4, grpc-client-enabled)
+        run: MSIM_TEST_SEED=4 WALRUS_GRPC_MIGRATION_LEVEL=1 cargo simtest simtest --profile simtest
+      - name: Run tests (seed=5, grpc-client-enabled)
+        run: MSIM_TEST_SEED=5 WALRUS_GRPC_MIGRATION_LEVEL=1 cargo simtest simtest --profile simtest
 
   simtests-build:
     name: Build all simtests
