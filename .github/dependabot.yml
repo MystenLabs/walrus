@@ -28,6 +28,8 @@ updates:
       - dependency-name: test-cluster
       - dependency-name: tokio
       - dependency-name: typed-store
+      - dependency-name: tokio-stream # cannot always update to latest version due to simtest
+      - dependency-name: tokio-util # cannot always update to latest version due to simtest
 
   - package-ecosystem: "github-actions"
     directory: "/"
