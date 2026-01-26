@@ -4,7 +4,7 @@ title: Storing Blobs
 
 {/* https://linear.app/mysten-labs/issue/DOCS-639/walrus-clientstoring-blobs */}
 
-Use the command-line interface (CLI) to interact with the Walrus client. The CLI is available through installing the `walrus` binary. See the [getting started documentation](/usage/started.mdx) for prerequisites, installation, and configuration.
+Use the command-line interface (CLI) to interact with the Walrus client. The CLI is available through installing the `walrus` binary. See the [getting started documentation](/getting-started/index.mdx) for prerequisites, installation, and configuration.
 
 Detailed usage information including a full list of available commands can be viewed using: 
 
@@ -19,7 +19,7 @@ If you have multiple contexts in your configuration file, you can specify the co
 
 ## Store blobs
 
-All blobs stored in Walrus are public and discoverable by all. To store sensitive data, use [Seal](/dev-guide/data-security.mdx#seal-data-confidentially-and-access-control) or [Nautilus](/dev-guide/data-security.mdx#nautilus-secure-and-verifiable-off-chain-computation) to encrypt the data before storing it on Walrus.
+All blobs stored in Walrus are public and discoverable by all. To store sensitive data, use [Seal](/data-security.mdx#seal-data-confidentially-and-access-control) or [Nautilus](/data-security.mdx#nautilus-secure-and-verifiable-off-chain-computation) to encrypt the data before storing it on Walrus.
 
 Store blobs on Walrus with the following command:
 
@@ -79,7 +79,7 @@ View technical details on how the tip is [computed and paid](/operator-guide/upl
 
 ## Store blobs as a quilt
 
-For efficiently storing large numbers of small blobs, Walrus provides the Quilt. It batches multiple blobs into a single storage unit, significantly reducing overhead and cost. You can find a more detailed overview of the feature [Quilt](/usage/quilt.mdx).
+For efficiently storing large numbers of small blobs, Walrus provides the Quilt. It batches multiple blobs into a single storage unit, significantly reducing overhead and cost. You can find a more detailed overview of the feature [Quilt](/system-overview/quilt.mdx).
 
 You can interact with quilts using a dedicated set of `walrus` subcommands.
 

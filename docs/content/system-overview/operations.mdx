@@ -14,11 +14,11 @@ Blobs can be interacted with through familiar file system operations such as upl
 
 ## Store
 
-The steps involved in a store operation can be executed by the binary client or a publisher that accepts and publishes blobs through [HTTP](/usage/web-api.mdx).
+The steps involved in a store operation can be executed by the binary client or a publisher that accepts and publishes blobs through [HTTP](/http-api/storing-blobs.mdx).
 
 :::danger 
 
-**All blobs stored in Walrus are public and discoverable by all.** Do not use Walrus to store anything that contains secrets or private data without additional measures to protect confidentiality, such as encrypting data with [Seal](/dev-guide/data-security.mdx).
+**All blobs stored in Walrus are public and discoverable by all.** Do not use Walrus to store anything that contains secrets or private data without additional measures to protect confidentiality, such as encrypting data with [Seal](/data-security.mdx).
 
 :::
 
@@ -30,7 +30,7 @@ A blob is considered available on Walrus once the corresponding Sui blob object 
 
 ### Maximum blob size 
 
-The maximum blob size can be queried through the [`walrus info`](/usage/client-cli.mdx#walrus-system-information) CLI command. The maximum blob size is currently 13.3&nbsp;GB. You can store larger blobs by splitting them into smaller chunks.
+The maximum blob size can be queried through the [`walrus info`](/walrus-client/storing-blobs.mdx#walrus-system-information) CLI command. The maximum blob size is currently 13.3&nbsp;GB. You can store larger blobs by splitting them into smaller chunks.
 
 Blobs are stored for a certain number of epochs which is specified at the time they are stored. Walrus storage nodes ensure that within these epochs a read succeeds. Mainnet uses an epoch duration of 2 weeks.
 

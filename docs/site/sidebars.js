@@ -34,7 +34,7 @@ const sidebars = {
     {
       type: 'category',
       label: 'System Overview',
-      collapsed: false,
+      collapsed: true,
       items: [
         'system-overview/core-concepts',
         'system-overview/components',
@@ -50,7 +50,7 @@ const sidebars = {
     {
       type: 'category',
       label: 'Walrus Client',
-      collapsed: false,
+      collapsed: true,
       items: [
         'walrus-client/storing-blobs',
         'walrus-client/reading-blobs',
@@ -63,7 +63,7 @@ const sidebars = {
     {
       type: 'category',
       label: 'HTTP API',
-      collapsed: false,
+      collapsed: true,
       items: [
         'http-api/storing-blobs',
         'http-api/reading-blobs',
@@ -74,7 +74,7 @@ const sidebars = {
     {
       type: 'category',
       label: 'TypeScript SDK',
-      collapsed: false,
+      collapsed: true,
       items: [
         'typescript-sdk/installation-and-setup',
         'typescript-sdk/storing-blobs',
@@ -87,12 +87,13 @@ const sidebars = {
     },
     'data-security',
     'tusky-migration-guide',
+    'troubleshooting/index',
     {
       type: 'category',
       label: 'Troubleshooting',
       collapsed: true,
       items: [
-        'troubleshooting/index',
+
         'troubleshooting/network-errors',
         'troubleshooting/error-handling',
       ],
@@ -112,7 +113,7 @@ const sidebars = {
     {
       type: 'category',
       label: 'Getting Started',
-      collapsed: false,
+      collapsed: true,
       items: [
         'sites/getting-started/installing-the-site-builder',
         'sites/getting-started/using-the-site-builder',
@@ -124,7 +125,7 @@ const sidebars = {
     {
       type: 'category',
       label: 'Walrus Portals',
-      collapsed: false,
+      collapsed: true,
       items: [
         'sites/portals/deploy-locally',
         'sites/portals/mainnet-testnet',
@@ -133,7 +134,7 @@ const sidebars = {
     {
       type: 'category',
       label: 'Site Configuration',
-      collapsed: false,
+      collapsed: true,
       items: [
         'sites/configuration/configuration-file-reference',
         'sites/configuration/specifying-http-headers',
@@ -144,7 +145,7 @@ const sidebars = {
     {
       type: 'category',
       label: 'Custom Domains',
-      collapsed: false,
+      collapsed: true,
       items: [
         'sites/custom-domains/setting-a-suins-name',
         'sites/custom-domains/bringing-your-own-domain',

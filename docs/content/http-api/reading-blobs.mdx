@@ -50,4 +50,4 @@ Downloading blobs by object ID allows setting some HTTP headers. The aggregator 
 
 ### Consistency checks
 
-The consistency checks performed by the aggregator are the same as the ones [performed by the CLI](/usage/client-cli.mdx#consistency-checks). For special use cases, the [strict consistency check](/design/encoding.mdx) can be enabled by adding a query parameter `strict_consistency_check=true` (starting with `v1.35`). If the writer of the blob is known and trusted, you can disable the consistency check by adding a query parameter `skip_consistency_check=true` (starting with `v1.36`).
+The consistency checks performed by the aggregator are the same as the ones [performed by the CLI](/walrus-client/storing-blobs.mdx#consistency-checks). For special use cases, the [strict consistency check](/design/encoding.mdx) can be enabled by adding a query parameter `strict_consistency_check=true` (starting with `v1.35`). If the writer of the blob is known and trusted, you can disable the consistency check by adding a query parameter `skip_consistency_check=true` (starting with `v1.36`).

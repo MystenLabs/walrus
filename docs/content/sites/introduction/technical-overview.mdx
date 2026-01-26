@@ -75,7 +75,7 @@ Walrus Sites also work without SuiNS. When a site is accessed through a self-hos
 
 :::danger
 
-The `wal.app` portal does not support Base36 domain resolution. https://58gr4pinoayuijgdixud23441t55jd94ugep68fsm72b8mwmq2.wal.app is not a valid URL. If you want to access such a site, you should either use another portal or [host your own](/walrus-sites/portal.mdx#running-a-local-portal).
+The `wal.app` portal does not support Base36 domain resolution. https://58gr4pinoayuijgdixud23441t55jd94ugep68fsm72b8mwmq2.wal.app is not a valid URL. If you want to access such a site, you should either use another portal or [host your own](/sites/portals/deploy-locally.mdx#running-a-local-portal).
 
 :::
 
@@ -99,13 +99,13 @@ The following section shows in greater detail how a Walrus Site is rendered in a
 
 The steps below all reference the following figure:
 
-![Walrus Site resolution](./images/walrus-sites-portal-diagram-with-quilts.svg)
+![Walrus Site resolution](images/walrus-sites-portal-diagram-with-quilts.svg)
 
 1. **Site publishing** (step 0 in the diagram): The site developer publishes the Walrus Site using the [`site-builder`](#the-site-builder), or making use of a publisher. Assume the developer uses the SuiNS name `dapp.sui` to point to the object ID of the created Walrus Site.
 
 2. **Browsing starts** (step 1 in the diagram): A client browses `dapp.wal.app/index.html` in their browser.
 
-3. **Site resolution** (steps 2-6 in the diagram): The portal interprets its origin `dapp.wal.app`, and makes a SuiNS resolution for `dapp.sui`, obtaining the related object ID. Using the object ID, it then fetches the dynamic fields of the object, also checking [redirects](/walrus-sites/portal.mdx). From the dynamic fields, it selects the one for `/index.html`, and extracts its Walrus blob ID and headers (see the [advanced section on headers](/walrus-sites/routing.mdx)).
+3. **Site resolution** (steps 2-6 in the diagram): The portal interprets its origin `dapp.wal.app`, and makes a SuiNS resolution for `dapp.sui`, obtaining the related object ID. Using the object ID, it then fetches the dynamic fields of the object, also checking [redirects](/sites/portals/deploy-locally.mdx). From the dynamic fields, it selects the one for `/index.html`, and extracts its Walrus blob ID and headers (see the [advanced section on headers](/sites/configuration/setting-up-routing-rules.mdx)).
 
 - **Blob fetch** (steps 7-11 in the diagram): Given the blob ID, the portal queries a Walrus aggregator for the blob data.
 
@@ -115,4 +115,4 @@ These steps are executed for all resources the browser might query thereafter, f
 
 ## `site-builder`
 
-To facilitate the creation of Walrus Sites, the `site-builder` tool is provided. The `site-builder` takes care of creating Walrus Sites object on Sui, with the correct structure, and stores the site resources to Walrus. Refer to the [tutorial](/walrus-sites/tutorial.mdx) for setup and usage instructions.
+To facilitate the creation of Walrus Sites, the `site-builder` tool is provided. The `site-builder` takes care of creating Walrus Sites object on Sui, with the correct structure, and stores the site resources to Walrus. Refer to the [tutorial](/sites.mdx) for setup and usage instructions.
