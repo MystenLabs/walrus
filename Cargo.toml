@@ -77,7 +77,7 @@ itertools = "0.14.0"
 jsonrpsee = "0.24.9"
 jsonwebtoken = "9.3.1"
 libc = "0.2"
-md5 = "0.7.0"
+md5 = "0.8.0"
 mime = "0.3.17"
 mockall = "0.12.1"
 move-core-types = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.64.0" }
