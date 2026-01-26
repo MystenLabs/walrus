@@ -31,35 +31,24 @@ use sui_sdk::{
 use sui_types::{
     SUI_CLOCK_OBJECT_ID,
     SUI_CLOCK_OBJECT_SHARED_VERSION,
-    SUI_FRAMEWORK_ADDRESS,
     transaction::{ObjectArg, SharedObjectMutability, TransactionKind},
 };
 use walkdir::WalkDir;
 use walrus_core::{EpochCount, ensure};
 
+#[cfg(any(test, feature = "test-utils"))]
+use crate::test_utils::system_setup;
 use crate::{
     client::retry_client::{
         RetriableSuiClient,
         retriable_sui_client::{GasBudgetAndPrice, LazySuiClientBuilder},
     },
-    contracts::{self, StructTag},
-    test_utils::system_setup,
+    contracts,
     utils::get_created_sui_object_ids_by_type,
     wallet::Wallet,
 };
 
-const INIT_MODULE: &str = "init";
-
-const INIT_CAP_TAG: StructTag<'_> = StructTag {
-    name: "InitCap",
-    module: INIT_MODULE,
-};
-
-const UPGRADE_CAP_TAG: StructTag<'_> = StructTag {
-    name: "UpgradeCap",
-    module: "package",
-};
-
+#[cfg(any(test, feature = "test-utils"))]
 fn get_pkg_id_from_tx_response(tx_response: &SuiTransactionBlockResponse) -> Result<ObjectID> {
     tx_response
         .effects
@@ -72,6 +61,7 @@ fn get_pkg_id_from_tx_response(tx_response: &SuiTransactionBlockResponse) -> Res
         .ok_or_else(|| anyhow!("no immutable object was created"))
 }
 
+#[cfg(any(test, feature = "test-utils"))]
 pub(crate) async fn publish_package_with_default_build_config(
     wallet: &mut Wallet,
     package_path: PathBuf,
@@ -223,6 +213,7 @@ pub fn update_publication(
 
 // This function is used to publish walrus packages in a local environment such as integration
 // test or local testbed. This cannot be used in production environments.
+#[cfg(any(test, feature = "test-utils"))]
 #[tracing::instrument(err, skip(wallet, build_config))]
 pub(crate) async fn publish_package(
     wallet: &mut Wallet,
@@ -320,6 +311,7 @@ pub(crate) async fn publish_package(
     Ok(response)
 }
 
+#[cfg(any(test, feature = "test-utils"))]
 pub(crate) struct PublishSystemPackageResult {
     pub walrus_pkg_id: ObjectID,
     pub wal_exchange_pkg_id: Option<ObjectID>,
@@ -369,6 +361,7 @@ fn copy_recursively_inner_blocking(
 ///
 /// If `use_existing_wal_token` is set, skips the deployment of the `wal` package. This requires
 /// the package address to be set in the `wal/Move.lock` file for the current network.
+#[cfg(any(test, feature = "test-utils"))]
 #[tracing::instrument(err, skip(wallet))]
 pub(crate) async fn publish_coin_and_system_package(
     wallet: &mut Wallet,
@@ -383,6 +376,20 @@ pub(crate) async fn publish_coin_and_system_package(
     }: InitSystemParams,
     gas_budget: Option<u64>,
 ) -> Result<PublishSystemPackageResult> {
+    use sui_types::SUI_FRAMEWORK_ADDRESS;
+
+    use crate::contracts::StructTag;
+
+    const INIT_MODULE: &str = "init";
+    const INIT_CAP_TAG: StructTag<'_> = StructTag {
+        name: "InitCap",
+        module: INIT_MODULE,
+    };
+    const UPGRADE_CAP_TAG: StructTag<'_> = StructTag {
+        name: "UpgradeCap",
+        module: "package",
+    };
+
     let walrus_contract_directory = if let Some(deploy_directory) = deploy_directory {
         // Clear the deploy directory before copying to avoid stale files
         if deploy_directory.exists() {
