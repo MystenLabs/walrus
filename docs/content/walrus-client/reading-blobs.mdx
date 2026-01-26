@@ -1,6 +1,68 @@
 ---
 title: Reading Blobs
-draft: true
+description: Comprehensive guide to using the Walrus CLI for reading blobs with detailed command examples.
+keywords: ["walrus", "cli", "client", "command line", "store", "read", "delete", "extend", "blob management", "quilt", "batch storage"]
 ---
 
-https://linear.app/mysten-labs/issue/DOCS-640/walrus-clientreading-blobs
+{/* https://linear.app/mysten-labs/issue/DOCS-640/walrus-clientreading-blobs */}
+
+The status of a blob can be queried through one of the following commands:
+
+```sh
+$ walrus blob-status --blob-id <BLOB_ID>
+$ walrus blob-status --file <FILE>
+```
+
+Each command returns output that indicates whether the specified blob is stored and its availability period. If you specify a file with the `--file` option, the CLI re-encodes the content of the file and derives the blob ID before checking the status.
+
+When a blob is available, the `blob-status` command also returns the `BlobCertified` Sui event ID, which consists of a transaction ID and a sequence number in the events emitted by the transaction. The existence of this event certifies the availability of the blob.
+
+## Read blobs
+
+Reading blobs from Walrus can be achieved using the following command:
+
+```sh
+$ walrus read <some blob ID>
+```
+
+By default, blob data is written to the standard output. The `--out <OUT>` CLI option can be used to specify an output file name. The `--rpc-url <URL>` can be used to specify a Sui RPC node to use instead of the currently configured RPC node set in the CLI configuration file or wallet configuration.
+
+### Check consistency
+
+Walrus performs integrity and consistency checks to ensure that any data read from Walrus is what the writer intended, and that the writer encoded the blob correctly. See the [data consistency](/design/encoding.mdx) documentation for further details. 
+
+Prior to `v1.37`, the Walrus CLI and aggregator always performed the [strict consistency check](/design/encoding.mdx). Starting with `v1.37`, the default is a [more performant consistency check](/design/encoding.mdx), which is sufficient for the majority of cases. The strict consistency check can be enabled through the flag `--strict-consistency-check`.
+
+Consistency checks can be disabled completely with the flag `--skip-consistency-check`. This should only be used if the writer of the blob is known and trusted.
+
+### Read blobs from a quilt
+
+You can retrieve individual blobs from a quilt without downloading the entire quilt. The `read-quilt` command allows you to query for specific blobs by their identifier, tags, or unique blob ID.
+
+To read blobs by their identifiers, use the `--identifiers` flag:
+
+```sh
+$ walrus read-quilt --out <download dir> \
+    --quilt-id 057MX9PAaUIQLliItM_khR_cp5jPHzJWf-CuJr1z1ik --identifiers walrus.jpg another-walrus.jpg
+```
+
+Blobs within a quilt can be accessed and filtered based on their tags. For instance, if you have a collection of animal images stored in a quilt, each labeled with a species tag such as `species=cat`, you can download all images labeled as cats with the following command:
+
+```sh
+$ walrus read-quilt --out <download dir> \
+    --quilt-id 057MX9PAaUIQLliItM_khR_cp5jPHzJWf-CuJr1z1ik --tag species cat
+```
+
+You can also read a blob using its `QuiltPatchId`, which can be retrieved using `walrus list-patches-in-quilt`:
+
+```sh
+$ walrus read-quilt --out <download dir> \
+  --quilt-patch-ids GRSuRSQ_hLYR9nyo7mlBlS7MLQVSSXRrfPVOxF6n6XcBuQG8AQ \
+  GRSuRSQ_hLYR9nyo7mlBlS7MLQVSSXRrfPVOxF6n6XcBwgHHAQ
+```
+
+To see all the patches contained within a quilt, along with their identifiers and `QuiltPatchIds`, use the `list-patches-in-quilt` command.
+
+```sh
+$ walrus list-patches-in-quilt 057MX9PAaUIQLliItM_khR_cp5jPHzJWf-CuJr1z1ik
+```

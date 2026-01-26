@@ -70,6 +70,7 @@ const sidebars = {
         'http-api/managing-blobs',
       ],
     },
+    "typescript-sdk/sdks",
     {
       type: 'category',
       label: 'TypeScript SDK',
@@ -91,6 +92,7 @@ const sidebars = {
       label: 'Troubleshooting',
       collapsed: true,
       items: [
+        'troubleshooting/index',
         'troubleshooting/network-errors',
         'troubleshooting/error-handling',
       ],
