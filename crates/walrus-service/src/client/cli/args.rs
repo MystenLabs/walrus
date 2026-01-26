@@ -714,12 +714,7 @@ impl CliCommands {
 #[serde(rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum InfoCommands {
     /// Print all information listed below.
-    All {
-        /// Sort configuration for committee information
-        #[command(flatten)]
-        #[serde(flatten)]
-        sort: SortBy<NodeSortBy>,
-    },
+    All(InfoCommitteeArgs),
     /// Print epoch information.
     Epoch,
     /// Print storage information.
@@ -731,12 +726,20 @@ pub enum InfoCommands {
     /// Print byzantine fault tolerance (BFT) information.
     Bft,
     /// Print committee information.
-    Committee {
-        /// Sort configuration
-        #[command(flatten)]
-        #[serde(flatten)]
-        sort: SortBy<NodeSortBy>,
-    },
+    Committee(InfoCommitteeArgs),
+}
+
+#[derive(Debug, Clone, Args, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct InfoCommitteeArgs {
+    /// Sort configuration for committee information.
+    #[command(flatten)]
+    #[serde(flatten)]
+    pub sort: SortBy<NodeSortBy>,
+    /// Hide node details from the output. Has no effect when `--json` is used.
+    #[arg(long)]
+    #[serde(default)]
+    pub hide_details: bool,
 }
 
 /// Subcommands for the `node-admin` command.
