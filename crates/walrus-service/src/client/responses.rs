@@ -188,13 +188,21 @@ impl InfoOutput {
         dev: bool,
         sort: SortBy<NodeSortBy>,
         encoding_types: &[EncodingType],
+        print_committee_details: bool,
     ) -> anyhow::Result<Self> {
         let epoch_info = InfoEpochOutput::get_epoch_info(sui_read_client).await?;
         let storage_info = InfoStorageOutput::get_storage_info(sui_read_client).await?;
         let size_info = InfoSizeOutput::get_size_info(sui_read_client).await?;
         let price_info = InfoPriceOutput::get_price_info(sui_read_client, encoding_types).await?;
         let committee_info: Option<InfoCommitteeOutput> = if dev {
-            Some(InfoCommitteeOutput::get_committee_info(sui_read_client, sort).await?)
+            Some(
+                InfoCommitteeOutput::get_committee_info(
+                    sui_read_client,
+                    sort,
+                    print_committee_details,
+                )
+                .await?,
+            )
         } else {
             None
         };
@@ -404,19 +412,25 @@ pub(crate) struct InfoCommitteeOutput {
     pub(crate) metadata_storage_size: u64,
     pub(crate) max_encoded_blob_size: u64,
     pub(crate) current_storage_nodes: Vec<StorageNodeInfo>,
-    pub(crate) next_storage_nodes: Option<Vec<StorageNodeInfo>>,
+    pub(crate) next_storage_nodes: Vec<StorageNodeInfo>,
+    #[serde(skip_serializing)]
+    pub(crate) print_details: bool,
 }
 
 impl InfoCommitteeOutput {
     pub async fn get_committee_info(
         sui_read_client: &impl ReadClient,
         sort: SortBy<NodeSortBy>,
+        print_details: bool,
     ) -> anyhow::Result<Self> {
         let staking_object = sui_read_client.read_client().get_staking_object().await?;
         let n_shards = staking_object.n_shards();
         let current_committee_shard_assignment =
             staking_object.current_committee_shard_assignment();
-        let next_committee_shard_assignment = staking_object.next_committee_shard_assignment();
+        let next_committee_shard_assignment = staking_object
+            .next_committee_shard_assignment()
+            .cloned()
+            .unwrap_or_default();
         let stake_assignment = sui_read_client.stake_assignment().await?;
 
         let (n_primary_source_symbols, n_secondary_source_symbols) =
@@ -428,10 +442,12 @@ impl InfoCommitteeOutput {
         let max_encoded_blob_size =
             encoded_blob_length_for_n_shards(n_shards, max_blob_size, DEFAULT_ENCODING)
                 .expect("we can compute the encoded length of the max blob size");
+        let metadata_storage_size =
+            u64::from(n_shards.get()) * metadata_length_for_n_shards(n_shards);
 
         let all_node_ids = current_committee_shard_assignment
             .iter()
-            .chain(next_committee_shard_assignment.into_iter().flatten())
+            .chain(next_committee_shard_assignment.iter())
             .map(|(node_id, _)| *node_id)
             .unique();
 
@@ -440,44 +456,31 @@ impl InfoCommitteeOutput {
             .retriable_sui_client()
             .get_node_objects(all_node_ids)
             .await?;
+
+        let get_staking_pool_with_shard_assignment = |node_id: &ObjectID, shard_ids: &[u16]| {
+            staking_pools
+                .get(node_id)
+                .ok_or_else(|| anyhow::anyhow!("staking pool not found for node ID {node_id}"))
+                .cloned()
+                .map(|mut pool| {
+                    pool.node_info.shard_ids = shard_ids.iter().map(|index| index.into()).collect();
+                    pool
+                })
+        };
+
         let current_committee_staking_pools = current_committee_shard_assignment
             .iter()
-            .map(|(node_id, shard_ids)| {
-                staking_pools
-                    .get(node_id)
-                    .ok_or(anyhow::anyhow!(
-                        "staking pool not found for node ID {}",
-                        node_id
-                    ))
-                    .cloned()
-                    .map(|mut pool| {
-                        pool.node_info.shard_ids =
-                            shard_ids.iter().map(|index| index.into()).collect();
-                        pool
-                    })
-            })
+            .map(|(node_id, shard_ids)| get_staking_pool_with_shard_assignment(node_id, shard_ids))
             .collect::<Result<Vec<_>, _>>()?;
         let mut current_storage_nodes =
             merge_pools_and_stake(current_committee_staking_pools, &stake_assignment);
+
         let next_committee_staking_pools = next_committee_shard_assignment
-            .as_ref()
-            .map(|next_committee| {
-                next_committee
-                    .iter()
-                    .map(|(node_id, _)| {
-                        staking_pools
-                            .get(node_id)
-                            .ok_or(anyhow::anyhow!(
-                                "staking pool not found for node ID {}",
-                                node_id
-                            ))
-                            .cloned()
-                    })
-                    .collect::<Result<Vec<_>, _>>()
-            })
-            .transpose()?;
-        let mut next_storage_nodes = next_committee_staking_pools
-            .map(|next_committee| merge_pools_and_stake(next_committee, &stake_assignment));
+            .iter()
+            .map(|(node_id, shard_ids)| get_staking_pool_with_shard_assignment(node_id, shard_ids))
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut next_storage_nodes =
+            merge_pools_and_stake(next_committee_staking_pools, &stake_assignment);
 
         // Sort nodes if sort_by is specified
         let cmp = |a: &StorageNodeInfo, b: &StorageNodeInfo| match sort.sort_by {
@@ -493,12 +496,9 @@ impl InfoCommitteeOutput {
 
         current_storage_nodes.sort_by(|a, b| if sort.desc { cmp(b, a) } else { cmp(a, b) });
 
-        if let Some(ref mut next_storage_nodes) = next_storage_nodes {
+        if !next_storage_nodes.is_empty() {
             next_storage_nodes.sort_by(|a, b| if sort.desc { cmp(b, a) } else { cmp(a, b) });
         }
-
-        let metadata_storage_size =
-            u64::from(n_shards.get()) * metadata_length_for_n_shards(n_shards);
 
         Ok(Self {
             n_shards,
@@ -509,6 +509,7 @@ impl InfoCommitteeOutput {
             max_encoded_blob_size,
             current_storage_nodes,
             next_storage_nodes,
+            print_details,
         })
     }
 }
