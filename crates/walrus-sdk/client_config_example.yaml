@@ -46,6 +46,8 @@ communication_config:
     min_blob_size_bytes: 52428800
   upload_mode: balanced
   pending_uploads_enabled: false
+  pending_upload_grace_millis: 0
+  confirmation_long_poll_millis: 0
   optimistic_upload_max_blob_bytes: 4194304
   registration_delay_millis: 200
   max_total_blob_size: 1073741824

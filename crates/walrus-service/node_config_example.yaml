@@ -93,10 +93,10 @@ db_config:
 live_upload_deferral:
   enabled: true
   buckets:
-  - max_unencoded_bytes: 104857600
-    defer_secs: 15
-  - max_unencoded_bytes: 4294967296
-    defer_secs: 30
+    - max_unencoded_bytes: 104857600
+      defer_secs: 15
+    - max_unencoded_bytes: 4294967296
+      defer_secs: 30
   max_total_defer_secs: 120
   max_checkpoint_lag: 1500
 protocol_key_pair:
@@ -115,6 +115,8 @@ rest_server:
   http2_max_pending_accept_reset_streams: 4294967295
   http2_adaptive_window: true
   experimental_max_active_recovery_symbols_requests: null
+  confirmation_long_poll_max_millis: 0
+  confirmation_long_poll_poll_millis: 100
 rest_graceful_shutdown_period_secs: 60
 sui:
   rpc: https://fullnode.testnet.sui.io:443
