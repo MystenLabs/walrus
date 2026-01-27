@@ -733,6 +733,15 @@ mod tests {
             }
         }
 
+        fn wait_for_registration(
+            &self,
+            blob_id: &BlobId,
+            _timeout: Duration,
+        ) -> impl std::future::Future<Output = bool> + Send {
+            let registered = blob_id.0[0] == 0;
+            async move { registered }
+        }
+
         /// Returns a "certified" blob status for blob ID starting with zero, `Nonexistent` when
         /// starting with 1, and otherwise an error.
         fn blob_status(&self, blob_id: &BlobId) -> Result<BlobStatus, BlobStatusError> {
