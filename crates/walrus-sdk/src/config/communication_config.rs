@@ -204,20 +204,6 @@ pub struct ClientCommunicationConfig {
     /// Allow pending (optimistic) uploads before registration is seen by storage nodes.
     #[serde(default)]
     pub pending_uploads_enabled: bool,
-    /// Grace period to allow pending uploads to continue after registration completes.
-    ///
-    /// Set to 0 to cancel immediately once registration finishes.
-    #[serde(default)]
-    #[serde(rename = "pending_upload_grace_millis")]
-    #[serde_as(as = "DurationMilliSeconds")]
-    pub pending_upload_grace: Duration,
-    /// Maximum time to long-poll confirmation requests for registration events.
-    ///
-    /// Set to 0 to disable long polling.
-    #[serde(default)]
-    #[serde(rename = "confirmation_long_poll_millis")]
-    #[serde_as(as = "DurationMilliSeconds")]
-    pub confirmation_long_poll: Duration,
     /// Maximum unencoded blob size (in bytes) to consider for optimistic uploads.
     #[serde(default = "default_optimistic_upload_max_blob_bytes")]
     pub optimistic_upload_max_blob_bytes: u64,
@@ -255,8 +241,6 @@ impl Default for ClientCommunicationConfig {
             data_in_flight_auto_tune: Default::default(),
             upload_mode: default_upload_mode(),
             pending_uploads_enabled: false,
-            pending_upload_grace: Duration::from_millis(0),
-            confirmation_long_poll: Duration::from_millis(0),
             optimistic_upload_max_blob_bytes: DEFAULT_OPTIMISTIC_UPLOAD_MAX_BLOB_BYTES,
             registration_delay: Duration::from_millis(200),
             max_total_blob_size: 1024 * 1024 * 1024, // 1GiB

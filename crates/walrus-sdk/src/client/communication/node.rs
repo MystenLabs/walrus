@@ -60,7 +60,6 @@ pub struct NodeResult<T, E> {
 }
 
 impl<T, E> NodeResult<T, E> {
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
         committee_epoch: Epoch,
         weight: usize,
@@ -100,7 +99,6 @@ pub struct NodeCommunication<W = ()> {
     pub client: StorageNodeClient,
     pub config: RequestRateConfig,
     pub sliver_status_check_threshold: usize,
-    pub confirmation_long_poll: Duration,
     pub(crate) auto_tune_handle: Option<AutoTuneHandle>,
     pub(crate) throughput_stats: Arc<Mutex<NodeThroughputStats>>,
     pub node_write_limit: W,
@@ -122,7 +120,6 @@ impl NodeReadCommunication {
     /// Creates a new [`NodeCommunication`].
     ///
     /// Returns `None` if the `node` has no shards.
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
         node_index: NodeIndex,
         committee_epoch: Epoch,
@@ -131,7 +128,6 @@ impl NodeReadCommunication {
         encoding_config: Arc<EncodingConfig>,
         config: RequestRateConfig,
         sliver_status_check_threshold: usize,
-        confirmation_long_poll: Duration,
     ) -> Option<Self> {
         if node.shard_ids.is_empty() {
             tracing::debug!("do not create NodeCommunication for node without shards");
@@ -160,7 +156,6 @@ impl NodeReadCommunication {
             config,
             auto_tune_handle: None,
             sliver_status_check_threshold,
-            confirmation_long_poll,
             throughput_stats: Arc::new(Mutex::new(NodeThroughputStats::default())),
             node_write_limit: (),
             sliver_write_limit: (),
@@ -182,7 +177,6 @@ impl NodeReadCommunication {
             client,
             config,
             sliver_status_check_threshold,
-            confirmation_long_poll,
             throughput_stats,
             ..
         } = self;
@@ -196,7 +190,6 @@ impl NodeReadCommunication {
             config,
             auto_tune_handle,
             sliver_status_check_threshold,
-            confirmation_long_poll,
             throughput_stats,
             node_write_limit,
             sliver_write_limit,
@@ -300,20 +293,8 @@ impl<W> NodeCommunication<W> {
         epoch: Epoch,
         blob_persistence_type: &BlobPersistenceType,
     ) -> Result<SignedStorageConfirmation, NodeError> {
-        let confirmation = backoff::retry(self.backoff_strategy(), || async {
-            if self.confirmation_long_poll.is_zero() {
-                self.client
-                    .get_confirmation(blob_id, blob_persistence_type)
-                    .await
-            } else {
-                self.client
-                    .get_confirmation_with_wait(
-                        blob_id,
-                        blob_persistence_type,
-                        self.confirmation_long_poll,
-                    )
-                    .await
-            }
+        let confirmation = backoff::retry(self.backoff_strategy(), || {
+            self.client.get_confirmation(blob_id, blob_persistence_type)
         })
         .await
         .map_err(|error| {

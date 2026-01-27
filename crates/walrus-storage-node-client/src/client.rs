@@ -3,7 +3,7 @@
 
 //! Client for interacting with the StorageNode API.
 
-use std::{collections::BTreeMap, sync::Arc, time::Duration};
+use std::{collections::BTreeMap, sync::Arc};
 
 use fastcrypto::traits::{EncodeDecodeBase64, KeyPair};
 use futures::TryFutureExt as _;
@@ -465,29 +465,6 @@ impl StorageNodeClient {
     ) -> Result<SignedStorageConfirmation, NodeError> {
         let (url, template) = self.endpoints.confirmation(blob_id, blob_persistence_type);
         // NOTE(giac): in the future additional values may be possible here.
-        let StorageConfirmation::Signed(confirmation) = self
-            .send_and_parse_service_response(Request::new(Method::GET, url), template)
-            .await?;
-        Ok(confirmation)
-    }
-
-    /// Requests a storage confirmation with optional long-polling for registration events.
-    #[tracing::instrument(skip_all, fields(walrus.blob_id = %blob_id), err(level = Level::DEBUG))]
-    pub async fn get_confirmation_with_wait(
-        &self,
-        blob_id: &BlobId,
-        blob_persistence_type: &BlobPersistenceType,
-        wait_for_registration: Duration,
-    ) -> Result<SignedStorageConfirmation, NodeError> {
-        let (mut url, template) = self.endpoints.confirmation(blob_id, blob_persistence_type);
-        if !wait_for_registration.is_zero() {
-            url.query_pairs_mut()
-                .append_pair("wait_for_registration", "true")
-                .append_pair(
-                    "wait_millis",
-                    &wait_for_registration.as_millis().to_string(),
-                );
-        }
         let StorageConfirmation::Signed(confirmation) = self
             .send_and_parse_service_response(Request::new(Method::GET, url), template)
             .await?;
