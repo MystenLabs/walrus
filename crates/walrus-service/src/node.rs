@@ -160,6 +160,7 @@ use self::{
     metrics::{NodeMetricSet, STATUS_PENDING, STATUS_PERSISTED, TelemetryLabel as _},
     pending_metadata_cache::PendingMetadataCache,
     pending_sliver_cache::{PendingSliverCache, PendingSliverCacheError},
+    registration_notifier::RegistrationNotifier,
     shard_sync::ShardSyncHandler,
     storage::{
         ShardStatus,
@@ -200,6 +201,7 @@ pub mod config;
 pub mod contract_service;
 pub mod dbtool;
 pub mod event_blob_writer;
+mod registration_notifier;
 pub mod server;
 pub mod system_events;
 
@@ -314,6 +316,15 @@ pub trait ServiceState {
         blob_id: &BlobId,
         blob_persistence_type: &BlobPersistenceType,
     ) -> impl Future<Output = Result<StorageConfirmation, ComputeStorageConfirmationError>> + Send;
+
+    /// Waits for the blob registration event to be observed by the node.
+    ///
+    /// Returns true if the blob is registered before the timeout elapses.
+    fn wait_for_registration(
+        &self,
+        blob_id: &BlobId,
+        timeout: Duration,
+    ) -> impl Future<Output = bool> + Send;
 
     /// Verifies an inconsistency proof and provides a signed attestation for it, if valid.
     fn verify_inconsistency_proof(
@@ -603,6 +614,7 @@ pub struct StorageNodeInner {
     blocklist: Arc<Blocklist>,
     node_capability: ObjectID,
     blob_retirement_notifier: Arc<BlobRetirementNotifier>,
+    registration_notifier: Arc<RegistrationNotifier>,
     symbol_service: RecoverySymbolService,
     thread_pool: BoundedThreadPool,
     registry: Registry,
@@ -756,6 +768,7 @@ impl StorageNode {
             blocklist: blocklist.clone(),
             node_capability: node_capability.id,
             blob_retirement_notifier: Arc::new(BlobRetirementNotifier::new(metrics.clone())),
+            registration_notifier: Arc::new(RegistrationNotifier::new()),
             symbol_service: RecoverySymbolService::new(
                 config.blob_recovery.max_proof_cache_elements,
                 encoding_config.clone(),
@@ -3168,6 +3181,28 @@ impl StorageNodeInner {
             .is_some_and(|blob_info| blob_info.is_registered(self.current_committee_epoch())))
     }
 
+    fn notify_registration(&self, blob_id: &BlobId) {
+        self.registration_notifier.notify_registered(blob_id);
+    }
+
+    async fn wait_for_registration_inner(&self, blob_id: &BlobId, timeout: Duration) -> bool {
+        if timeout.is_zero() {
+            return self.is_blob_registered(blob_id).unwrap_or(false);
+        }
+
+        let notify = self.registration_notifier.acquire(blob_id);
+        let notified = notify.notified();
+
+        if self.is_blob_registered(blob_id).unwrap_or(false) {
+            return true;
+        }
+
+        match tokio::time::timeout(timeout, notified).await {
+            Ok(()) => self.is_blob_registered(blob_id).unwrap_or(false),
+            Err(_) => false,
+        }
+    }
+
     fn is_blob_certified(&self, blob_id: &BlobId) -> Result<bool, anyhow::Error> {
         Ok(self
             .storage
@@ -3719,6 +3754,14 @@ impl ServiceState for StorageNode {
             .compute_storage_confirmation(blob_id, blob_persistence_type)
     }
 
+    fn wait_for_registration(
+        &self,
+        blob_id: &BlobId,
+        timeout: Duration,
+    ) -> impl Future<Output = bool> + Send {
+        self.inner.wait_for_registration_inner(blob_id, timeout)
+    }
+
     fn verify_inconsistency_proof(
         &self,
         blob_id: &BlobId,
@@ -4053,6 +4096,14 @@ impl ServiceState for StorageNodeInner {
         self.metrics.storage_confirmations_issued_total.inc();
 
         Ok(StorageConfirmation::Signed(signed))
+    }
+
+    fn wait_for_registration(
+        &self,
+        blob_id: &BlobId,
+        timeout: Duration,
+    ) -> impl Future<Output = bool> + Send {
+        self.wait_for_registration_inner(blob_id, timeout)
     }
 
     fn blob_status(&self, blob_id: &BlobId) -> Result<BlobStatus, BlobStatusError> {

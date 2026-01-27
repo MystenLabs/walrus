@@ -1,10 +1,7 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{
-    collections::BTreeMap,
-    time::{Duration, Instant},
-};
+use std::{collections::BTreeMap, time::Duration};
 
 use axum::{
     extract::{Path, Query, State},
@@ -495,33 +492,24 @@ async fn compute_confirmation_with_wait<S: SyncServiceState>(
         return initial.map(ApiSuccess::ok);
     }
 
-    let mut poll = state.config.confirmation_long_poll_poll_interval;
-    if poll.is_zero() {
-        poll = Duration::from_millis(10);
-    }
-
     tracing::debug!(
         %blob_id,
         wait_for = ?wait_for,
-        poll_interval = ?poll,
-        "long-polling confirmation while waiting for registration"
+        "waiting for registration before confirmation"
     );
 
-    let deadline = Instant::now() + wait_for;
-    loop {
-        if Instant::now() >= deadline {
-            return Err(ComputeStorageConfirmationError::NotCurrentlyRegistered);
-        }
-        tokio::time::sleep(poll).await;
-        match state
+    if state
+        .service
+        .wait_for_registration(&blob_id, wait_for)
+        .await
+    {
+        state
             .service
             .compute_storage_confirmation(&blob_id, &persistence)
             .await
-        {
-            Ok(confirmation) => return Ok(ApiSuccess::ok(confirmation)),
-            Err(ComputeStorageConfirmationError::NotCurrentlyRegistered) => continue,
-            Err(err) => return Err(err),
-        }
+            .map(ApiSuccess::ok)
+    } else {
+        Err(ComputeStorageConfirmationError::NotCurrentlyRegistered)
     }
 }
 

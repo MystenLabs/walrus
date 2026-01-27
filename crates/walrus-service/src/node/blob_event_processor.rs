@@ -417,6 +417,8 @@ impl BlobEventProcessor {
         // registered events.
         let _scope = monitored_scope::monitored_scope("ProcessEvent::BlobEvent::Registered");
 
+        self.node.notify_registration(&event.blob_id);
+
         if let Err(error) = self.dispatch_task(
             event.blob_id,
             BackgroundTask::FlushPendingCaches {

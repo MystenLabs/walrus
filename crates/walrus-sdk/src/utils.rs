@@ -76,6 +76,7 @@ pub(crate) struct WeightedFutures<I, Fut, T> {
     /// This is necessary to to keep track of the weight of successful results across calls to
     /// `next_threshold`. Calls to `execute_weight` begin by resetting `total_weight = 0`.
     total_weight: usize,
+    schedule_new: bool,
 }
 
 impl<I, Fut, T> WeightedFutures<I, Fut, T>
@@ -91,7 +92,13 @@ where
             being_executed: FuturesUnordered::new(),
             results: vec![],
             total_weight: 0,
+            schedule_new: true,
         }
+    }
+
+    /// Stops scheduling new futures while allowing already-started ones to complete.
+    pub fn stop_scheduling(&mut self) {
+        self.schedule_new = false;
     }
 
     /// Executes the futures until the provided `threshold` is met, the set `duration` is elapsed,
@@ -196,7 +203,7 @@ where
             return None;
         }
 
-        while self.being_executed.len() < n_concurrent {
+        while self.being_executed.len() < n_concurrent && self.schedule_new {
             if let Some(future) = self.futures.next() {
                 self.being_executed.push(future);
             } else {
@@ -205,7 +212,9 @@ where
         }
         if let Some(completed) = self.being_executed.next().await {
             // Add more futures to the ones being awaited.
-            if let Some(future) = self.futures.next() {
+            if self.schedule_new
+                && let Some(future) = self.futures.next()
+            {
                 self.being_executed.push(future);
             }
             if completed.is_ok() {
