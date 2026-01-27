@@ -285,6 +285,7 @@ impl NodeCommunicationFactory {
             Arc::clone(&self.encoding_config),
             self.config.request_rate_config.clone(),
             self.config.sliver_status_check_threshold,
+            self.config.confirmation_long_poll,
         ))
     }
 
