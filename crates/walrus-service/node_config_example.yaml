@@ -238,3 +238,4 @@ garbage_collection:
   randomization_time_window_secs: null
   blob_objects_batch_size: 5000
   data_deletion_batch_size: 2000
+sliver_reference_cache_max_entries: 65536

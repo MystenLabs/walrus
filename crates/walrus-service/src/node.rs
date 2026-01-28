@@ -782,7 +782,7 @@ impl StorageNode {
             sliver_ref_cache: Cache::builder()
                 .name("sliver-refs")
                 .eviction_policy(EvictionPolicy::lru())
-                .max_capacity(2 << 16) // Around 65k pointer entries
+                .max_capacity(config.sliver_reference_cache_max_entries)
                 .build(),
         });
 
