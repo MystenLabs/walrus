@@ -19,7 +19,7 @@
       },
       "https://aggregator.walrus-mainnet.tududes.com": {
         "operator": "TuDudes",
-        "cache": false
+        "cache": true
       },
       "https://aggregator.walrus-mainnet.walrus.space": {
         "operator": "Mysten Labs",
@@ -51,7 +51,7 @@
       },
       "https://sm1-walrus-mainnet-aggregator.stakesquid.com": {
         "operator": "StakeSquid",
-        "cache": true
+        "cache": false
       },
       "https://sui-walrus-mainnet-aggregator.bwarelabs.com": {
         "operator": "Alchemy Validators",
@@ -71,11 +71,11 @@
       },
       "https://walrus-agg.mainnet.obelisk.sh": {
         "operator": "Obelisk",
-        "cache": false
+        "cache": true
       },
       "https://walrus-aggregator-mainnet.chainode.tech:9002": {
         "operator": "ChainodeTech",
-        "functional": false
+        "cache": true
       },
       "https://walrus-aggregator.brightlystake.com": {
         "operator": "Brightlystake",
@@ -123,7 +123,7 @@
       },
       "https://walrus-aggregator.thcloud.ai": {
         "operator": "THCloudAI",
-        "cache": false
+        "cache": true
       },
       "https://walrus-aggregator.thepassivetrust.com": {
         "operator": "TPT",
@@ -215,7 +215,7 @@
       },
       "https://walrus.lionscraft.blockscape.network:9000": {
         "operator": "MINARA",
-        "cache": true
+        "functional": false
       },
       "https://walrus.prostaking.com:9443": {
         "operator": "ProStaking",
@@ -259,7 +259,7 @@
       },
       "https://aggregator.testnet.walrus.mirai.cloud": {
         "operator": "Studio Mirai",
-        "cache": false
+        "cache": true
       },
       "https://aggregator.walrus-01.tududes.com": {
         "operator": "TuDudes",
@@ -279,7 +279,7 @@
       },
       "https://sm1-walrus-testnet-aggregator.stakesquid.com": {
         "operator": "StakeSquid",
-        "cache": true
+        "cache": false
       },
       "https://sui-walrus-tn-aggregator.bwarelabs.com": {
         "operator": "Alchemy Validators",
@@ -295,7 +295,7 @@
       },
       "https://testnet-aggregator.walrus.graphyte.dev": {
         "operator": "Graphyte Labs",
-        "cache": true
+        "functional": false
       },
       "https://testnet-walrus.globalstake.io": {
         "operator": "GlobalSTake",
@@ -343,7 +343,7 @@
       },
       "https://walrus-aggregator.thcloud.dev": {
         "operator": "THCloudAI",
-        "cache": false
+        "cache": true
       },
       "https://walrus-test-aggregator.thepassivetrust.com": {
         "operator": "TPT",
@@ -355,7 +355,7 @@
       },
       "https://walrus-testnet-aggregator.brightlystake.com": {
         "operator": "Brightlystake",
-        "cache": true
+        "cache": false
       },
       "https://walrus-testnet-aggregator.chainbase.online": {
         "operator": "Chainbase Staking",
@@ -419,7 +419,7 @@
       },
       "https://walrus-testnet-aggregator.stakeme.pro": {
         "operator": "STAKEME",
-        "cache": true
+        "functional": false
       },
       "https://walrus-testnet-aggregator.stakin-nodes.com": {
         "operator": "Stakin",
@@ -431,7 +431,7 @@
       },
       "https://walrus-testnet-aggregator.starduststaking.com": {
         "operator": "Stardust Staking",
-        "cache": true
+        "functional": false
       },
       "https://walrus-testnet-aggregator.talentum.id": {
         "operator": "Talentum",
@@ -439,7 +439,7 @@
       },
       "https://walrus-testnet-aggregator.trusted-point.com": {
         "operator": "TrustedPoint",
-        "cache": true
+        "functional": false
       },
       "https://walrus-testnet.blockscope.net": {
         "operator": "Blockscope.net",
@@ -447,7 +447,7 @@
       },
       "https://walrus-testnet.lionscraft.blockscape.network:9000": {
         "operator": "MINARA",
-        "cache": true
+        "functional": false
       },
       "https://walrus-testnet.validators.services.kyve.network/aggregate": {
         "operator": "KYVE Foundation",
@@ -459,7 +459,7 @@
       },
       "https://walrus-tn.juicystake.io:9443": {
         "operator": "ProStaking",
-        "functional": false
+        "cache": true
       },
       "https://walrus.testnet.aggregator.stakepool.dev.br": {
         "operator": "StakePool",
