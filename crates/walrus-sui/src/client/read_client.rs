@@ -380,10 +380,11 @@ impl SuiReadClient {
             system_object_initial_version,
             staking_object_for_deserialization,
             staking_object_initial_version,
-            walrus_package_id,
         ) = sui_client
             .fetch_system_and_staking_objects(system_object_id, staking_object_id)
             .await?;
+
+        let walrus_package_id = system_object_for_deserialization.package_id;
 
         let (system_object, staking_object, type_origin_map, wal_type) = tokio::try_join!(
             // Boxing the futures here to avoid making this future too large.

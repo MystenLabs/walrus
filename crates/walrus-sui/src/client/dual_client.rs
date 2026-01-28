@@ -65,6 +65,8 @@ pub struct BcsDatapack {
     pub struct_tag: StructTag,
     /// The version of the object.
     pub version: u64,
+    /// Expected to be equivalent to owner's `initial_shared_version` for shared objects.
+    pub owner_version: u64,
 }
 
 impl DualClient {
@@ -165,7 +167,7 @@ impl DualClient {
             .get_object_bcs(object_id)
             .await?
             .deserialize()
-            .context("failed to deserialize object from BCS")?)
+            .context("failed to deserialize object from bcs")?)
     }
 
     /// Get an [`ObjectRef`] from the Sui network.
@@ -264,6 +266,7 @@ impl DualClient {
                 Object::path_builder().contents().finish(),
                 Object::path_builder().object_type(),
                 Object::path_builder().version(),
+                Object::path_builder().owner().version(),
             ]),
             |object| {
                 Ok(BcsDatapack {
@@ -274,6 +277,11 @@ impl DualClient {
                         .parse()
                         .context("parsing move object_type")?,
                     version: object.version.context("no version in object")?,
+                    owner_version: object
+                        .owner
+                        .context("no owner in object")?
+                        .version
+                        .context("no owner_version in object")?,
                 })
             },
         )
