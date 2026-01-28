@@ -13,7 +13,7 @@ jobs:
       contents: read
       pull-requests: read
     steps:
-      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # pin@v6.0.1
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # pin@v6.0.2
         with:
           fetch-depth: 0
       - name: Check PR title
@@ -25,9 +25,9 @@ jobs:
     runs-on: ubuntu-latest
     name: Check formatting
     steps:
-      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # pin@v6.0.1
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # pin@v6.0.2
       - name: Set up Python
-        uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548 # pin@v6.1.0
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # pin@v6.2.0
         with:
           python-version: "3.x"
 
@@ -72,9 +72,9 @@ jobs:
       run:
         working-directory: ./contracts
     steps:
-      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # pin@v6.0.1
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # pin@v6.0.2
       - name: Use Node.js
-        uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # pin@v6.1.0
+        uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # pin@v6.2.0
       - run: npm install @mysten/prettier-plugin-move@0.3.0
       - run: npx prettier-move -c **/*.move
 
@@ -82,14 +82,14 @@ jobs:
     runs-on: ubuntu-latest
     name: Check spelling
     steps:
-      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # pin@v6.0.1
-      - uses: crate-ci/typos@2d0ce569feab1f8752f1dde43cc2f2aa53236e06 # pin@v1.40.0
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # pin@v6.0.2
+      - uses: crate-ci/typos@06d010dfe4c84fdab1a25ea02b57b3585018ba80 # pin@v1.42.3
 
   shellcheck:
     name: ShellCheck
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # pin@v6.0.1
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # pin@v6.0.2
       - name: Run ShellCheck
         run: find . -type f -name "*.sh" -exec shellcheck --severity=error {} +
 
@@ -97,7 +97,7 @@ jobs:
     runs-on: ubuntu-latest
     name: Check license headers
     steps:
-      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # pin@v6.0.1
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # pin@v6.0.2
       - name: Install licensesnip
         uses: taiki-e/install-action@970d55e3ce02a46d60ffae7b4fab3dedace6e769 # pin@v2.49.13
         with:

@@ -5,3 +5,6 @@ extend-exclude = [
   "mainnet-contracts/",
   "testnet-contracts/",
 ]
+
+[default.extend-identifiers]
+bimap = "bimap"

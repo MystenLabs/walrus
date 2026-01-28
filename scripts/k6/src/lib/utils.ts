@@ -202,7 +202,7 @@ export function createStages(params: StageConfig): Stage[] {
 
 /**
  * Creates thresholds for aborting a throughput test.
- * Aborting the test does not mean it failed, just that we see indiciations that the
+ * Aborting the test does not mean it failed, just that we see indications that the
  * service cannot keep up with the load (e.g., longer or failed requests), and therefore
  * need to end the test.
  * @param params - The start, step, and durations that were used to create the stages.
