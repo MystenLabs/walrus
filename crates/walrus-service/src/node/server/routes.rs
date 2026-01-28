@@ -509,6 +509,21 @@ async fn compute_confirmation_with_wait<S: SyncServiceState>(
         "waiting for registration before confirmation"
     );
 
+    let _permit = match state.confirmation_long_poll_limit.as_deref() {
+        Some(semaphore) => match semaphore.try_acquire() {
+            Ok(permit) => Some(permit),
+            Err(TryAcquireError::Closed) => panic!("the semaphore must not be closed"),
+            Err(TryAcquireError::NoPermits) => {
+                tracing::debug!(
+                    %blob_id,
+                    "confirmation long-poll limit reached; returning without waiting"
+                );
+                return initial;
+            }
+        },
+        None => None,
+    };
+
     let _scope =
         monitored_scope::monitored_scope("RestApi::ConfirmationLongPollWaitForRegistration");
     if state
