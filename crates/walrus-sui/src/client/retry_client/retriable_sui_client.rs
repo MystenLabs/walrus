@@ -863,7 +863,7 @@ impl RetriableSuiClient {
             client: Arc<DualClient>,
             object_ids: &[ObjectID],
         ) -> SuiClientResult<Vec<BcsDatapack>> {
-            client.multi_get_objects_contents_bcs(object_ids).await
+            client.multi_get_objects_bcs_datapacks(object_ids).await
         }
 
         let request = move |client: Arc<DualClient>, method| {
@@ -876,7 +876,7 @@ impl RetriableSuiClient {
             )
         };
         self.failover_sui_client
-            .with_failover(request, None, "multi_get_objects_bcs_versions")
+            .with_failover(request, None, "multi_get_objects_bcs_datapacks")
             .await
     }
 
