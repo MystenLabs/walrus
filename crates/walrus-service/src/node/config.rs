@@ -299,16 +299,7 @@ impl StorageNodeConfig {
             blob_event_processor_config: BlobEventProcessorConfig {
                 num_workers: NonZeroUsize::new(3).expect("3 is non-zero"),
             },
-            garbage_collection: {
-                #[cfg(any(test, feature = "test-utils"))]
-                {
-                    GarbageCollectionConfig::default_for_test()
-                }
-                #[cfg(not(any(test, feature = "test-utils")))]
-                {
-                    GarbageCollectionConfig::default()
-                }
-            },
+            garbage_collection: GarbageCollectionConfig::default_for_test(),
             ..Default::default()
         }
     }
@@ -334,16 +325,7 @@ impl StorageNodeConfig {
                 enable_sliver_data_existence_check: true,
                 ..Default::default()
             },
-            garbage_collection: {
-                #[cfg(any(test, feature = "test-utils"))]
-                {
-                    GarbageCollectionConfig::default_for_test()
-                }
-                #[cfg(not(any(test, feature = "test-utils")))]
-                {
-                    GarbageCollectionConfig::default()
-                }
-            },
+            garbage_collection: GarbageCollectionConfig::default_for_test(),
             ..Default::default()
         }
     }
