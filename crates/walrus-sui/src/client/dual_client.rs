@@ -258,7 +258,13 @@ impl DualClient {
                 .await
                 .context("grpc request error")?;
 
-            append_get_object_result_to_batch(&mut results, response)?;
+            append_batch_get_objects_response(&mut results, response, |object| {
+                object
+                    .bcs
+                    .context("no bcs in object")?
+                    .deserialize()
+                    .context("failed to deserialize object from BCS")
+            })?;
         }
         Ok(results)
     }
@@ -291,7 +297,17 @@ impl DualClient {
                 .await
                 .context("grpc request error")?;
 
-            append_get_object_contents_result_to_batch(&mut results, response)?;
+            append_batch_get_objects_response(&mut results, response, |object| {
+                Ok(BcsDatapack {
+                    bcs: object.contents.context("no contents in object")?,
+                    struct_tag: object
+                        .object_type
+                        .context("no object_type in object")?
+                        .parse()
+                        .context("parsing move object_type")?,
+                    version: object.version.context("no version in object")?,
+                })
+            })?;
         }
         Ok(results)
     }
@@ -339,9 +355,10 @@ impl DualClient {
     }
 }
 
-fn append_get_object_result_to_batch(
-    batch_results: &mut Vec<sui_types::object::Object>,
+fn append_batch_get_objects_response<T>(
+    batch_results: &mut Vec<T>,
     response: tonic::Response<BatchGetObjectsResponse>,
+    mut extract: impl FnMut(GrpcObject) -> anyhow::Result<T>,
 ) -> Result<(), SuiClientError> {
     use get_object_result::Result::{Error, Object};
 
@@ -350,53 +367,7 @@ fn append_get_object_result_to_batch(
             .result
             .context("no result in get_object_result")?
         {
-            Object(object) => batch_results.push(
-                object
-                    .bcs
-                    .context("no bcs in object")?
-                    .deserialize()
-                    .context("failed to deserialize object from BCS")?,
-            ),
-            Error(status) => {
-                return Err(anyhow::anyhow!(
-                    "error getting object: code {}, message {}, details {:?}",
-                    status.code,
-                    status.message,
-                    status.details
-                )
-                .into());
-            }
-            _ => {
-                return Err(
-                    anyhow::anyhow!("encountered unknown get_object_result variant").into(),
-                );
-            }
-        }
-    }
-    Ok(())
-}
-fn append_get_object_contents_result_to_batch(
-    batch_results: &mut Vec<BcsDatapack>,
-    response: tonic::Response<BatchGetObjectsResponse>,
-) -> Result<(), SuiClientError> {
-    use get_object_result::Result::{Error, Object};
-
-    for get_object_result in response.into_inner().objects.into_iter() {
-        match get_object_result
-            .result
-            .context("no result in get_object_result")?
-        {
-            Object(object) => {
-                batch_results.push(BcsDatapack {
-                    bcs: object.bcs.context("no bcs in object")?,
-                    struct_tag: object
-                        .object_type
-                        .context("no object_type in object")?
-                        .parse()
-                        .context("parsing move object_type")?,
-                    version: object.version.context("no version in object")?,
-                });
-            }
+            Object(object) => batch_results.push(extract(object)?),
             Error(status) => {
                 return Err(anyhow::anyhow!(
                     "error getting object: code {}, message {}, details {:?}",
