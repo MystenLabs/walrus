@@ -255,7 +255,7 @@ impl DualClient {
     }
 
     /// Get multiple objects' BCS representations and versions from the Sui network.
-    pub async fn multi_get_objects_contents_bcs(
+    pub async fn multi_get_objects_bcs_datapacks(
         &self,
         object_ids: &[ObjectID],
     ) -> Result<Vec<BcsDatapack>, SuiClientError> {
