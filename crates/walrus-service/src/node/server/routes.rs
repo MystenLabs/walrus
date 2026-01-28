@@ -42,8 +42,8 @@ use walrus_storage_node_client::{
     RecoverySymbolsFilter,
     api::{BlobStatus, ServiceHealthInfo, StoredOnNodeStatus},
 };
-use walrus_utils::metrics::monitored_scope;
 use walrus_sui::ObjectIdSchema;
+use walrus_utils::metrics::monitored_scope;
 
 use super::{
     RestApiState,
@@ -509,7 +509,8 @@ async fn compute_confirmation_with_wait<S: SyncServiceState>(
         "waiting for registration before confirmation"
     );
 
-    let _scope = monitored_scope::monitored_scope("RestApi::ConfirmationLongPollWaitForRegistration");
+    let _scope =
+        monitored_scope::monitored_scope("RestApi::ConfirmationLongPollWaitForRegistration");
     if state
         .service
         .wait_for_registration(&blob_id, wait_for)
