@@ -323,11 +323,11 @@ impl RetriableSuiClient {
         SequenceNumber,
     )> {
         if self.grpc_migration_level >= GRPC_MIGRATION_LEVEL_BATCH_OBJECTS {
-            let objects_datapacks = self
+            let objects_bcs_datapacks = self
                 .multi_get_objects_bcs_versions(&[system_object_id, staking_object_id])
                 .await?;
             let [system_object_bcs_datapack, staking_object_bcs_datapack] =
-                objects_datapacks.as_slice()
+                objects_bcs_datapacks.as_slice()
             else {
                 return Err(SuiClientError::Internal(anyhow::anyhow!(
                     "received an unexpected response when getting the system and staking objects",
@@ -338,12 +338,18 @@ impl RetriableSuiClient {
                     system_object_bcs_datapack.bcs.value(),
                     &system_object_bcs_datapack.struct_tag,
                 )?,
-                system_object_bcs_datapack.owner_version.into(),
+                system_object_bcs_datapack
+                    .owner_version
+                    .context("system object has missing owner_version")?
+                    .into(),
                 get_sui_object_from_bcs(
                     staking_object_bcs_datapack.bcs.value(),
                     &staking_object_bcs_datapack.struct_tag,
                 )?,
-                staking_object_bcs_datapack.owner_version.into(),
+                staking_object_bcs_datapack
+                    .owner_version
+                    .context("staking object has missing owner_version")?
+                    .into(),
             ))
         } else {
             let object_responses = self
@@ -848,9 +854,6 @@ impl RetriableSuiClient {
             .await
     }
 
-    /// Return a list of [SuiObjectResponse] from the given vector of [ObjectID]s.
-    ///
-    /// Calls [`sui_sdk::apis::ReadApi::multi_get_object_with_options`] internally.
     #[tracing::instrument(level = Level::DEBUG, skip_all)]
     async fn multi_get_objects_bcs_versions(
         &self,
