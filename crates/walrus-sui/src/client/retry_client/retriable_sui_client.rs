@@ -321,39 +321,62 @@ impl RetriableSuiClient {
         SequenceNumber,
         StakingObjectForDeserialization,
         SequenceNumber,
-        ObjectID,
     )> {
-        let object_responses = self
-            .multi_get_object_with_options(
-                &[system_object_id, staking_object_id],
-                SuiObjectDataOptions::new()
-                    .with_owner()
-                    .with_bcs()
-                    .with_type(),
-            )
-            .await?;
-        let [system_object_response, staking_object_response] = object_responses.as_slice() else {
-            return Err(SuiClientError::Internal(anyhow::anyhow!(
-                "received an unexpected response when getting the system and staking objects",
-            )));
-        };
+        if self.grpc_migration_level >= GRPC_MIGRATION_LEVEL_BATCH_OBJECTS {
+            let objects_datapacks = self
+                .multi_get_objects_bcs_versions(&[system_object_id, staking_object_id])
+                .await?;
+            let [system_object_bcs_datapack, staking_object_bcs_datapack] =
+                objects_datapacks.as_slice()
+            else {
+                return Err(SuiClientError::Internal(anyhow::anyhow!(
+                    "received an unexpected response when getting the system and staking objects",
+                )));
+            };
+            Ok((
+                get_sui_object_from_bcs(
+                    system_object_bcs_datapack.bcs.value(),
+                    &system_object_bcs_datapack.struct_tag,
+                )?,
+                system_object_bcs_datapack.owner_version.into(),
+                get_sui_object_from_bcs(
+                    staking_object_bcs_datapack.bcs.value(),
+                    &staking_object_bcs_datapack.struct_tag,
+                )?,
+                staking_object_bcs_datapack.owner_version.into(),
+            ))
+        } else {
+            let object_responses = self
+                .multi_get_object_with_options(
+                    &[system_object_id, staking_object_id],
+                    SuiObjectDataOptions::new()
+                        .with_owner()
+                        .with_bcs()
+                        .with_type(),
+                )
+                .await?;
+            let [system_object_response, staking_object_response] = object_responses.as_slice()
+            else {
+                return Err(SuiClientError::Internal(anyhow::anyhow!(
+                    "received an unexpected response when getting the system and staking objects",
+                )));
+            };
 
-        let system_object_for_deserialization: SystemObjectForDeserialization =
-            get_sui_object_from_object_response(system_object_response)?;
-        let walrus_package_id = system_object_for_deserialization.package_id;
-        let system_object_initial_version =
-            get_initial_version_from_object_response(system_object_response)?;
-        let staking_object_for_deserialization: StakingObjectForDeserialization =
-            get_sui_object_from_object_response(staking_object_response)?;
-        let staking_object_initial_version =
-            get_initial_version_from_object_response(staking_object_response)?;
-        Ok((
-            system_object_for_deserialization,
-            system_object_initial_version,
-            staking_object_for_deserialization,
-            staking_object_initial_version,
-            walrus_package_id,
-        ))
+            let system_object_for_deserialization: SystemObjectForDeserialization =
+                get_sui_object_from_object_response(system_object_response)?;
+            let system_object_initial_version =
+                get_initial_version_from_object_response(system_object_response)?;
+            let staking_object_for_deserialization: StakingObjectForDeserialization =
+                get_sui_object_from_object_response(staking_object_response)?;
+            let staking_object_initial_version =
+                get_initial_version_from_object_response(staking_object_response)?;
+            Ok((
+                system_object_for_deserialization,
+                system_object_initial_version,
+                staking_object_for_deserialization,
+                staking_object_initial_version,
+            ))
+        }
     }
     // Re-implementation of the `SuiClient` methods.
 
