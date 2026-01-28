@@ -17,7 +17,7 @@ use sui_rpc::{
         BatchGetObjectsResponse,
         Bcs,
         GetObjectRequest,
-        Object as GrpcObject,
+        Object,
         get_object_result,
     },
 };
@@ -98,7 +98,7 @@ impl DualClient {
     /// Get the BCS representation of an object from the Sui network.
     pub async fn get_object_bcs(&self, object_id: ObjectID) -> Result<Bcs, SuiClientError> {
         let request = GetObjectRequest::new(&address_from_object_id(object_id)).with_read_mask(
-            FieldMask::from_paths([GrpcObject::path_builder().bcs().finish()]),
+            FieldMask::from_paths([Object::path_builder().bcs().finish()]),
         );
         let mut grpc_client: GrpcClient = self.grpc_client.clone();
         let response = grpc_client.ledger_client().get_object(request).await?;
@@ -115,7 +115,7 @@ impl DualClient {
         &self,
         object_id: ObjectID,
     ) -> Result<TransactionDigest, SuiClientError> {
-        let paths = [GrpcObject::path_builder().previous_transaction()];
+        let paths = [Object::path_builder().previous_transaction()];
         let request: GetObjectRequest = GetObjectRequest::new(&address_from_object_id(object_id))
             .with_read_mask(FieldMask::from_paths(&paths));
         let mut grpc_client: GrpcClient = self.grpc_client.clone();
@@ -136,8 +136,8 @@ impl DualClient {
         object_id: ObjectID,
     ) -> Result<(StructTag, Bcs), SuiClientError> {
         let paths = [
-            GrpcObject::path_builder().contents().finish(),
-            GrpcObject::path_builder().object_type(),
+            Object::path_builder().contents().finish(),
+            Object::path_builder().object_type(),
         ];
         let request: GetObjectRequest = GetObjectRequest::new(&address_from_object_id(object_id))
             .with_read_mask(FieldMask::from_paths(&paths));
@@ -172,8 +172,8 @@ impl DualClient {
     pub async fn get_object_ref(&self, object_id: ObjectID) -> Result<ObjectRef, SuiClientError> {
         let request = GetObjectRequest::new(&address_from_object_id(object_id)).with_read_mask(
             FieldMask::from_paths([
-                GrpcObject::path_builder().version(),
-                GrpcObject::path_builder().digest(),
+                Object::path_builder().version(),
+                Object::path_builder().digest(),
             ]),
         );
         let mut grpc_client: GrpcClient = self.grpc_client.clone();
@@ -200,9 +200,9 @@ impl DualClient {
     ) -> Result<(ObjectRef, TypeTag), SuiClientError> {
         let request = GetObjectRequest::new(&address_from_object_id(object_id)).with_read_mask(
             FieldMask::from_paths([
-                GrpcObject::path_builder().version(),
-                GrpcObject::path_builder().digest(),
-                GrpcObject::path_builder().object_type(),
+                Object::path_builder().version(),
+                Object::path_builder().digest(),
+                Object::path_builder().object_type(),
             ]),
         );
         let mut grpc_client: GrpcClient = self.grpc_client.clone();
@@ -248,7 +248,7 @@ impl DualClient {
 
             let batch_get_objects = BatchGetObjectsRequest::default()
                 .with_requests(requests)
-                .with_read_mask(FieldMask::from_paths([GrpcObject::path_builder()
+                .with_read_mask(FieldMask::from_paths([Object::path_builder()
                     .bcs()
                     .finish()]));
 
@@ -286,9 +286,9 @@ impl DualClient {
             let batch_get_objects = BatchGetObjectsRequest::default()
                 .with_requests(requests)
                 .with_read_mask(FieldMask::from_paths([
-                    GrpcObject::path_builder().contents().finish(),
-                    GrpcObject::path_builder().object_type(),
-                    GrpcObject::path_builder().version(),
+                    Object::path_builder().contents().finish(),
+                    Object::path_builder().object_type(),
+                    Object::path_builder().version(),
                 ]));
 
             let response = grpc_client
@@ -318,7 +318,7 @@ impl DualClient {
         package_id: ObjectID,
     ) -> Result<TypeOriginMap, SuiClientError> {
         let request = GetObjectRequest::new(&address_from_object_id(package_id)).with_read_mask(
-            FieldMask::from_paths([GrpcObject::path_builder().package().type_origins().finish()]),
+            FieldMask::from_paths([Object::path_builder().package().type_origins().finish()]),
         );
 
         let mut grpc_client: GrpcClient = self.grpc_client.clone();
@@ -358,17 +358,17 @@ impl DualClient {
 fn append_batch_get_objects_response<T>(
     batch_results: &mut Vec<T>,
     response: tonic::Response<BatchGetObjectsResponse>,
-    mut extract: impl FnMut(GrpcObject) -> anyhow::Result<T>,
+    mut extract: impl FnMut(Object) -> anyhow::Result<T>,
 ) -> Result<(), SuiClientError> {
-    use get_object_result::Result::{Error, Object};
+    use get_object_result::Result as GetObjectResult;
 
     for get_object_result in response.into_inner().objects.into_iter() {
         match get_object_result
             .result
             .context("no result in get_object_result")?
         {
-            Object(object) => batch_results.push(extract(object)?),
-            Error(status) => {
+            GetObjectResult::Object(object) => batch_results.push(extract(object)?),
+            GetObjectResult::Error(status) => {
                 return Err(anyhow::anyhow!(
                     "error getting object: code {}, message {}, details {:?}",
                     status.code,
