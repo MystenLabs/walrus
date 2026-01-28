@@ -91,7 +91,7 @@ once_cell = { version = "1.21.3" }
 opentelemetry = { version = "=0.27", default-features = false, features = ["trace"] }
 opentelemetry-otlp = { version = "=0.27" }
 opentelemetry-proto = { version = "=0.27", default-features = false }
-opentelemetry-semantic-conventions = "=0.27"
+opentelemetry-semantic-conventions = "=0.31"
 opentelemetry_sdk = "=0.27"
 p256 = { version = "0.13.2", default-features = false }
 pin-project = "1.1.10"
