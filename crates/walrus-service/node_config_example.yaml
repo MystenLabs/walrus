@@ -116,7 +116,6 @@ rest_server:
   http2_adaptive_window: true
   experimental_max_active_recovery_symbols_requests: null
   confirmation_long_poll_max_millis: 0
-  confirmation_long_poll_poll_millis: 100
 rest_graceful_shutdown_period_secs: 60
 sui:
   rpc: https://fullnode.testnet.sui.io:443

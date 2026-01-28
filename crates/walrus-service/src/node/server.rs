@@ -80,9 +80,6 @@ pub struct RestApiConfig {
 
     /// Maximum duration to long-poll confirmation requests while waiting for registration.
     pub confirmation_long_poll_max: Duration,
-
-    /// Poll interval used while long-polling confirmations.
-    pub confirmation_long_poll_poll_interval: Duration,
 }
 
 impl From<&StorageNodeConfig> for RestApiConfig {
@@ -127,9 +124,6 @@ impl From<&StorageNodeConfig> for RestApiConfig {
             live_upload_deferral: config.live_upload_deferral.clone(),
             confirmation_long_poll_max: Duration::from_millis(
                 config.rest_server.confirmation_long_poll_max_millis,
-            ),
-            confirmation_long_poll_poll_interval: Duration::from_millis(
-                config.rest_server.confirmation_long_poll_poll_millis,
             ),
         }
     }

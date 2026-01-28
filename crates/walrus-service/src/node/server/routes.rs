@@ -42,6 +42,7 @@ use walrus_storage_node_client::{
     RecoverySymbolsFilter,
     api::{BlobStatus, ServiceHealthInfo, StoredOnNodeStatus},
 };
+use walrus_utils::metrics::monitored_scope;
 use walrus_sui::ObjectIdSchema;
 
 use super::{
@@ -415,7 +416,15 @@ pub async fn get_permanent_blob_confirmation<S: SyncServiceState>(
     Path(BlobIdString(blob_id)): Path<BlobIdString>,
     ExtraQuery(wait): ExtraQuery<ConfirmationWaitQuery>,
 ) -> Result<ApiSuccess<StorageConfirmation>, ComputeStorageConfirmationError> {
-    compute_confirmation_with_wait(&state, blob_id, BlobPersistenceType::Permanent, wait).await
+    let confirmation = compute_confirmation_with_wait(
+        &state,
+        blob_id,
+        BlobPersistenceType::Permanent,
+        wait.wait_for_registration,
+        wait.wait_millis,
+    )
+    .await?;
+    Ok(ApiSuccess::ok(confirmation))
 }
 
 /// Get storage confirmation for deletable blobs.
@@ -448,23 +457,26 @@ pub async fn get_deletable_blob_confirmation<S: SyncServiceState>(
     ExtraQuery(wait): ExtraQuery<ConfirmationWaitQuery>,
 ) -> Result<ApiSuccess<StorageConfirmation>, ComputeStorageConfirmationError> {
     let blob_id = blob_id_string.0;
-    compute_confirmation_with_wait(
+    let confirmation = compute_confirmation_with_wait(
         &state,
         blob_id,
         BlobPersistenceType::Deletable {
             object_id: object_id.into(),
         },
-        wait,
+        wait.wait_for_registration,
+        wait.wait_millis,
     )
-    .await
+    .await?;
+    Ok(ApiSuccess::ok(confirmation))
 }
 
 async fn compute_confirmation_with_wait<S: SyncServiceState>(
     state: &RestApiState<S>,
     blob_id: BlobId,
     persistence: BlobPersistenceType,
-    wait: ConfirmationWaitQuery,
-) -> Result<ApiSuccess<StorageConfirmation>, ComputeStorageConfirmationError> {
+    wait_for_registration: bool,
+    wait_millis: Option<u64>,
+) -> Result<StorageConfirmation, ComputeStorageConfirmationError> {
     let initial = state
         .service
         .compute_storage_confirmation(&blob_id, &persistence)
@@ -474,22 +486,21 @@ async fn compute_confirmation_with_wait<S: SyncServiceState>(
         initial,
         Err(ComputeStorageConfirmationError::NotCurrentlyRegistered)
     ) {
-        return initial.map(ApiSuccess::ok);
+        return initial;
     }
 
     let max_wait = state.config.confirmation_long_poll_max;
-    if !wait.wait_for_registration || max_wait.is_zero() {
-        return initial.map(ApiSuccess::ok);
+    if !wait_for_registration || max_wait.is_zero() {
+        return initial;
     }
 
-    let wait_for = wait
-        .wait_millis
+    let wait_for = wait_millis
         .map(Duration::from_millis)
         .unwrap_or(max_wait)
         .min(max_wait);
 
     if wait_for.is_zero() {
-        return initial.map(ApiSuccess::ok);
+        return initial;
     }
 
     tracing::debug!(
@@ -498,6 +509,7 @@ async fn compute_confirmation_with_wait<S: SyncServiceState>(
         "waiting for registration before confirmation"
     );
 
+    let _scope = monitored_scope::monitored_scope("RestApi::ConfirmationLongPollWaitForRegistration");
     if state
         .service
         .wait_for_registration(&blob_id, wait_for)
@@ -507,7 +519,6 @@ async fn compute_confirmation_with_wait<S: SyncServiceState>(
             .service
             .compute_storage_confirmation(&blob_id, &persistence)
             .await
-            .map(ApiSuccess::ok)
     } else {
         Err(ComputeStorageConfirmationError::NotCurrentlyRegistered)
     }
