@@ -235,6 +235,10 @@ impl StorageNodeConfig {
                 enabled: false,
                 ..Default::default()
             },
+            rest_server: RestServerConfig {
+                confirmation_long_poll_max_millis: 0,
+                ..Default::default()
+            },
             ..Default::default()
         }
     }
@@ -242,11 +246,6 @@ impl StorageNodeConfig {
     /// Returns the default configuration for the testnet network.
     pub fn default_testnet() -> Self {
         Self {
-            rest_server: RestServerConfig {
-                confirmation_long_poll_max_millis: 5_000,
-                confirmation_long_poll_max_in_flight_requests: Some(256),
-                ..Default::default()
-            },
             ..Default::default()
         }
     }
@@ -1210,7 +1209,7 @@ pub mod defaults {
 
     /// Returns the default maximum long-poll duration for confirmations (milliseconds).
     pub fn confirmation_long_poll_max_millis() -> u64 {
-        0
+        5_000
     }
 
     /// Returns the default maximum number of slivers retained in the pending sliver cache.
