@@ -324,7 +324,7 @@ impl RetriableSuiClient {
     )> {
         if self.grpc_migration_level >= GRPC_MIGRATION_LEVEL_BATCH_OBJECTS {
             let objects_bcs_datapacks = self
-                .multi_get_objects_bcs_versions(&[system_object_id, staking_object_id])
+                .multi_get_objects_bcs_datapacks(&[system_object_id, staking_object_id])
                 .await?;
             let [system_object_bcs_datapack, staking_object_bcs_datapack] =
                 objects_bcs_datapacks.as_slice()
@@ -855,7 +855,7 @@ impl RetriableSuiClient {
     }
 
     #[tracing::instrument(level = Level::DEBUG, skip_all)]
-    async fn multi_get_objects_bcs_versions(
+    async fn multi_get_objects_bcs_datapacks(
         &self,
         object_ids: &[ObjectID],
     ) -> SuiClientResult<Vec<BcsDatapack>> {
@@ -1143,7 +1143,7 @@ impl RetriableSuiClient {
         U: AssociatedContractStruct,
     {
         if self.grpc_migration_level >= GRPC_MIGRATION_LEVEL_BATCH_OBJECTS {
-            let bcs_datapacks = self.multi_get_objects_bcs_versions(object_ids).await?;
+            let bcs_datapacks = self.multi_get_objects_bcs_datapacks(object_ids).await?;
             bcs_datapacks
                 .into_iter()
                 .map(|bcs_datapack| {
