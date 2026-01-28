@@ -18,7 +18,6 @@ use sui_rpc::{
         Bcs,
         GetObjectRequest,
         Object as GrpcObject,
-        Object,
         get_object_result,
     },
 };

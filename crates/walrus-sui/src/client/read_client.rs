@@ -49,7 +49,6 @@ use super::{
     retry_client::RetriableSuiClient,
 };
 use crate::{
-    client::retry_client::retriable_sui_client::get_initial_version_from_object_response,
     contracts::{self, AssociatedContractStruct, AssociatedContractStructWithPkgId, TypeOriginMap},
     types::{
         BlobEvent,
@@ -79,7 +78,7 @@ use crate::{
             WalrusSubsidiesInner,
         },
     },
-    utils::{get_sui_object_from_bcs, get_sui_object_from_object_response, handle_pagination},
+    utils::{get_sui_object_from_bcs, handle_pagination},
 };
 
 const EVENT_MODULE: &str = "events";
