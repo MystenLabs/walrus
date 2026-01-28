@@ -256,7 +256,7 @@ pub async fn get_sliver<S: SyncServiceState>(
         .await?;
 
     debug_assert_eq!(sliver.r#type(), sliver_type, "invalid sliver type fetched");
-    match sliver {
+    match sliver.as_ref() {
         Sliver::Primary(inner) => Ok(Bcs(inner).into_response()),
         Sliver::Secondary(inner) => Ok(Bcs(inner).into_response()),
     }

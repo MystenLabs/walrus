@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::{
+    marker::PhantomData,
     sync::Arc,
     task::{self, Context, Poll},
 };
@@ -17,7 +18,10 @@ use walrus_core::{
     Sliver,
     SliverId,
     SliverPairIndex,
-    by_axis::{self},
+    by_axis::{
+        Axis,
+        {self},
+    },
     encoding::{
         DecodingSymbol,
         EitherDecodingSymbol,
@@ -26,7 +30,9 @@ use walrus_core::{
         EncodingConfigEnum,
         EncodingFactory,
         GeneralRecoverySymbol,
+        Primary,
         RecoverySymbolError,
+        Secondary,
         SliverData,
         Symbols,
     },
@@ -64,7 +70,7 @@ pub(crate) struct RecoverySymbolRequest {
     /// The blob ID from which the sliver is taken.
     pub blob_id: BlobId,
     /// The source sliver from which the recovery symbol is taken.
-    pub source_sliver: Sliver,
+    pub source_sliver: Arc<Sliver>,
     /// The encoding type of the source sliver.
     pub encoding_type: EncodingType,
     /// The index of the sliver on the orthogonal axis which is being recovered.
@@ -160,43 +166,53 @@ impl RecoverySymbolService {
 
         let cache_key = CacheKey {
             blob_id: req.blob_id,
-            source_id: by_axis::map!(req.source_sliver.as_ref(), |s| s.index),
+            source_id: by_axis::map!(req.source_sliver.as_ref().as_ref(), |s| s.index),
         };
 
         self.metrics.requests_total.inc();
 
-        by_axis::flat_map!(req.source_sliver, |sliver| self.get_recovery_symbol(
-            cache_key.clone(),
-            sliver,
-            req.target_pair_index,
-            &config
-        ))
+        match req.source_sliver.r#type() {
+            Axis::Primary => self.get_recovery_symbol(
+                cache_key.clone(),
+                SharedSliverData::<Primary>::new(req.source_sliver),
+                req.target_pair_index,
+                &config,
+            ),
+            Axis::Secondary => self.get_recovery_symbol(
+                cache_key.clone(),
+                SharedSliverData::<Secondary>::new(req.source_sliver),
+                req.target_pair_index,
+                &config,
+            ),
+        }
     }
 
     fn get_recovery_symbol<T: EncodingAxis>(
         &self,
         cache_key: CacheKey,
-        sliver: SliverData<T>,
+        sliver: SharedSliverData<T>,
         target_pair_index: SliverPairIndex,
         config: &EncodingConfigEnum,
     ) -> Result<GeneralRecoverySymbol, RecoverySymbolError>
     where
         DecodingSymbol<T::OrthogonalAxis>: Into<EitherDecodingSymbol>,
+        SharedSliverData<T>: AsRef<SliverData<T>>,
     {
+        let sliver_ref = sliver.as_ref();
         let target_sliver_index =
             target_pair_index.to_sliver_index::<T::OrthogonalAxis>(config.n_shards());
-        let is_source_target = usize::from(target_sliver_index.get()) < sliver.symbols.len();
+        let is_source_target = usize::from(target_sliver_index.get()) < sliver_ref.symbols.len();
 
         if is_source_target {
-            let symbol_bytes = sliver.symbols[target_sliver_index.as_usize()].to_vec();
-            let sliver_index = sliver.index;
+            let symbol_bytes = sliver_ref.symbols[target_sliver_index.as_usize()].to_vec();
+            let sliver_index = sliver_ref.index;
             let decoding_symbol =
                 DecodingSymbol::<T::OrthogonalAxis>::new(sliver_index.get(), symbol_bytes);
 
             let proof = self.proof_from_cache_or_build(
                 cache_key,
                 target_sliver_index.as_usize(),
-                move || sliver.recovery_symbols(config),
+                move || sliver.as_ref().recovery_symbols(config),
             )?;
 
             Ok(GeneralRecoverySymbol::from_recovery_symbol(
@@ -206,9 +222,9 @@ impl RecoverySymbolService {
         } else {
             // Compute recovery symbols to derive the decoding symbol, and pass them to the cache
             // on miss to build the proof merkle tree.
-            let recovery_symbols = sliver.recovery_symbols(config)?;
+            let recovery_symbols = sliver_ref.recovery_symbols(config)?;
             let decoding_symbol = recovery_symbols
-                .decoding_symbol_at(target_sliver_index.as_usize(), sliver.index.into())
+                .decoding_symbol_at(target_sliver_index.as_usize(), sliver_ref.index.into())
                 .expect("we have exactly `n_shards` symbols and the bound was checked");
 
             let proof = self.proof_from_cache_or_build(
@@ -252,6 +268,51 @@ impl Service<RecoverySymbolRequest> for RecoverySymbolService {
                 .await
         }
         .boxed()
+    }
+}
+
+#[derive(Debug, Clone)]
+struct SharedSliverData<T> {
+    // INV: The Sliver's inner type always matches T
+    inner: Arc<Sliver>,
+    _phantom: PhantomData<T>,
+}
+
+impl SharedSliverData<Primary> {
+    fn new(inner: Arc<Sliver>) -> Self {
+        assert!(matches!(inner.as_ref(), by_axis::ByAxis::Primary(_)));
+        Self {
+            inner,
+            _phantom: Default::default(),
+        }
+    }
+}
+
+impl SharedSliverData<Secondary> {
+    fn new(inner: Arc<Sliver>) -> Self {
+        assert!(matches!(inner.as_ref(), by_axis::ByAxis::Secondary(_)));
+        Self {
+            inner,
+            _phantom: Default::default(),
+        }
+    }
+}
+
+impl AsRef<SliverData<Primary>> for SharedSliverData<Primary> {
+    fn as_ref(&self) -> &SliverData<Primary> {
+        match self.inner.as_ref() {
+            by_axis::ByAxis::Primary(primary) => primary,
+            by_axis::ByAxis::Secondary(_) => unreachable!("cannot be constructed"),
+        }
+    }
+}
+
+impl AsRef<SliverData<Secondary>> for SharedSliverData<Secondary> {
+    fn as_ref(&self) -> &SliverData<Secondary> {
+        match self.inner.as_ref() {
+            by_axis::ByAxis::Secondary(secondary) => secondary,
+            by_axis::ByAxis::Primary(_) => unreachable!("cannot be constructed"),
+        }
     }
 }
 
@@ -336,7 +397,7 @@ mod tests {
     fn arbitrary_request() -> RecoverySymbolRequest {
         RecoverySymbolRequest {
             blob_id: walrus_core::test_utils::blob_id_from_u64(7),
-            source_sliver: walrus_core::test_utils::sliver(),
+            source_sliver: Arc::new(walrus_core::test_utils::sliver()),
             target_pair_index: SliverPairIndex(0),
             encoding_type: EncodingType::RS2,
         }
@@ -395,7 +456,7 @@ mod tests {
         let response = service
             .call(RecoverySymbolRequest {
                 blob_id: *blob_info.metadata.blob_id(),
-                source_sliver: sliver.into(),
+                source_sliver: Arc::new(sliver.into()),
                 target_pair_index,
                 encoding_type: blob_info.encoding_type(),
             })
@@ -435,7 +496,7 @@ mod tests {
 
         let initial_request = RecoverySymbolRequest {
             blob_id: *blob_info.metadata.blob_id(),
-            source_sliver: sliver.into(),
+            source_sliver: Arc::new(sliver.into()),
             target_pair_index: first_target_id.pair_index(n_shards),
             encoding_type: blob_info.encoding_type(),
         };
@@ -486,7 +547,7 @@ mod tests {
 
         let initial_request = RecoverySymbolRequest {
             blob_id: *blob_info.metadata.blob_id(),
-            source_sliver: first_sliver.into(),
+            source_sliver: Arc::new(first_sliver.into()),
             target_pair_index: target_id.pair_index(n_shards),
             encoding_type: blob_info.encoding_type(),
         };
@@ -495,7 +556,7 @@ mod tests {
             .call_all(stream::iter([
                 initial_request.clone(),
                 RecoverySymbolRequest {
-                    source_sliver: second_sliver.into(),
+                    source_sliver: Arc::new(second_sliver.into()),
                     ..initial_request
                 },
             ]))

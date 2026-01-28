@@ -205,6 +205,9 @@ pub struct StorageNodeConfig {
     /// Configuration for garbage collection and related tasks.
     #[serde(default, skip_serializing_if = "defaults::is_default")]
     pub garbage_collection: GarbageCollectionConfig,
+    /// Capacity of the sliver-reference cache.
+    #[serde(default = "defaults::sliver_reference_cache_max_entries")]
+    pub sliver_reference_cache_max_entries: u64,
 }
 
 impl StorageNodeConfig {
@@ -386,6 +389,7 @@ impl Default for StorageNodeConfig {
             node_recovery_config: Default::default(),
             blob_event_processor_config: Default::default(),
             garbage_collection: Default::default(),
+            sliver_reference_cache_max_entries: defaults::sliver_reference_cache_max_entries(),
         }
     }
 }
@@ -1148,6 +1152,8 @@ pub mod defaults {
     pub const PENDING_SLIVER_CACHE_MAX_SLIVER_BYTES: usize = 4 * 1024 * 1024;
     /// Default capacity for the pending metadata cache (number of entries).
     pub const PENDING_METADATA_CACHE_MAX_ENTRIES: usize = 512;
+    /// Default capacity for the sliver reference cache in number of entries.
+    pub const SLIVER_REFERENCE_CACHE_MAX_ENTRIES: u64 = 2 << 15; // around 65 K
 
     /// Returns the default metrics port.
     pub fn metrics_port() -> u16 {
@@ -1157,6 +1163,11 @@ pub mod defaults {
     /// Returns the default REST API port.
     pub fn rest_api_port() -> u16 {
         REST_API_PORT
+    }
+
+    /// Returns the default capacity for the sliver reference cache.
+    pub const fn sliver_reference_cache_max_entries() -> u64 {
+        SLIVER_REFERENCE_CACHE_MAX_ENTRIES
     }
 
     /// Returns the default metrics address.
