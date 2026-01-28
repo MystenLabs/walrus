@@ -260,6 +260,23 @@ pub enum CliCommands {
         #[arg(long, num_args = 0.., conflicts_with = "paths")]
         #[serde(default)]
         blobs: Vec<QuiltBlobInput>,
+        /// Path to write the quilt blob to a local file.
+        /// When provided, the quilt is written to disk instead of uploading to Walrus.
+        #[arg(long)]
+        #[serde(
+            default,
+            deserialize_with = "walrus_utils::config::resolve_home_dir_option"
+        )]
+        file: Option<PathBuf>,
+        /// The number of shards (required when using --file for fully offline operation,
+        /// otherwise read from chain).
+        #[arg(long)]
+        #[serde(default)]
+        n_shards: Option<NonZeroU16>,
+        /// The URL of the Sui RPC node to use (only needed when using --file without --n-shards).
+        #[command(flatten)]
+        #[serde(flatten)]
+        rpc_arg: RpcArg,
         /// Common options shared between store and store-quilt commands.
         #[command(flatten)]
         #[serde(flatten)]
@@ -333,10 +350,26 @@ pub enum CliCommands {
     /// List the blobs in a quilt.
     #[command(alias("resolve-quilt"))]
     ListPatchesInQuilt {
-        /// The quilt ID to be inspected.
-        #[serde_as(as = "DisplayFromStr")]
+        /// The quilt ID to be inspected (required when fetching from network).
+        #[serde_as(as = "Option<DisplayFromStr>")]
         #[arg(allow_hyphen_values = true, value_parser = parse_blob_id)]
-        quilt_id: BlobId,
+        quilt_id: Option<BlobId>,
+
+        /// Path to a local quilt file to read from.
+        /// When provided, reads from disk instead of fetching from the network.
+        #[arg(long)]
+        #[serde(
+            default,
+            deserialize_with = "walrus_utils::config::resolve_home_dir_option"
+        )]
+        file: Option<PathBuf>,
+
+        /// The number of shards (required when using --file for fully offline operation,
+        /// otherwise read from chain).
+        #[arg(long)]
+        #[serde(default)]
+        n_shards: Option<NonZeroU16>,
+
         /// The URL of the Sui RPC node to use.
         #[command(flatten)]
         #[serde(flatten)]
@@ -1297,14 +1330,15 @@ impl FromStr for QuiltBlobInput {
 pub struct QuiltPatchQuery {
     /// The quilt ID, which is the BlobID of the quilt.
     ///
-    /// It is required unless `--quilt-patch-id` is used.
+    /// It is required unless `--quilt-patch-id` or `--file` is used.
     #[serde_as(as = "Option<DisplayFromStr>")]
     #[arg(
         long,
         allow_hyphen_values = true,
         value_parser = parse_blob_id,
         conflicts_with = "quilt_patch_ids",
-        required_unless_present = "quilt_patch_ids",
+        conflicts_with = "file",
+        required_unless_present_any = ["quilt_patch_ids", "file"],
         help_heading = "Arguments",
     )]
     quilt_id: Option<BlobId>,
@@ -1352,6 +1386,21 @@ pub struct QuiltPatchQuery {
     )]
     #[serde(default)]
     quilt_patch_ids: Vec<QuiltPatchId>,
+
+    /// Path to a local quilt file to read from.
+    /// When provided, the quilt is read from disk instead of fetching from the network.
+    #[arg(long, help_heading = "Arguments")]
+    #[serde(
+        default,
+        deserialize_with = "walrus_utils::config::resolve_home_dir_option"
+    )]
+    pub file: Option<PathBuf>,
+
+    /// The number of shards (required when using --file for fully offline operation,
+    /// otherwise read from chain).
+    #[arg(long, requires = "file")]
+    #[serde(default)]
+    pub n_shards: Option<NonZeroU16>,
 }
 
 impl QuiltPatchQuery {
@@ -1408,6 +1457,56 @@ impl QuiltPatchQuery {
             - quiltPatchIds: {{\"quiltPatchIds\": [\"<PATCH_ID>\", ...]}}\n\
             - quiltId only: {{\"quiltId\": \"<ID>\"}}"
         )
+    }
+
+    /// Converts the query to a `LocalFileQuiltQuery` for reading from a local file.
+    ///
+    /// This method is used when reading from a local file instead of fetching from the network.
+    pub fn into_local_file_query(mut self) -> Result<LocalFileQuiltQuery> {
+        // quilt_id should not be provided when using --file
+        if self.quilt_id.is_some() {
+            return Err(anyhow!(
+                "--quilt-id cannot be used with --file. \
+                The quilt data is read from the file directly."
+            ));
+        }
+
+        match (
+            !self.identifiers.is_empty(),
+            !self.tag.is_empty(),
+            !self.quilt_patch_ids.is_empty(),
+        ) {
+            // identifiers provided
+            (true, false, false) => Ok(LocalFileQuiltQuery::ByIdentifiers(self.identifiers)),
+
+            // tag provided
+            (false, true, false) => {
+                if self.tag.len() != 2 {
+                    return Err(anyhow!("Only one tag is supported for now."));
+                }
+                let value = self.tag.pop().expect("value should be present");
+                let tag = self.tag.pop().expect("tag should be present");
+                Ok(LocalFileQuiltQuery::ByTag { tag, value })
+            }
+
+            // quilt_patch_ids provided - extract patch_id_bytes for local lookup
+            (false, false, true) => {
+                let patch_ids = self
+                    .quilt_patch_ids
+                    .into_iter()
+                    .map(|qpi| qpi.patch_id_bytes)
+                    .collect();
+                Ok(LocalFileQuiltQuery::ByPatchIds(patch_ids))
+            }
+
+            // nothing provided - get all blobs
+            (false, false, false) => Ok(LocalFileQuiltQuery::All),
+
+            // multiple query types provided - invalid
+            _ => Err(anyhow!(
+                "Only one of --identifiers, --tag, or --quilt-patch-ids can be used with --file."
+            )),
+        }
     }
 }
 
@@ -1486,6 +1585,24 @@ pub enum QuiltPatchSelector {
     ByPatchId(QuiltPatchByPatchId),
     /// Read 'em all.
     All(BlobId),
+}
+
+/// Selector for quilt patches when reading from a local file.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LocalFileQuiltQuery {
+    /// Query by identifiers.
+    ByIdentifiers(Vec<String>),
+    /// Query by tag key and value.
+    ByTag {
+        /// The tag key.
+        tag: String,
+        /// The tag value.
+        value: String,
+    },
+    /// Query by patch internal IDs (extracted from QuiltPatchIds).
+    ByPatchIds(Vec<Vec<u8>>),
+    /// Get all blobs.
+    All,
 }
 
 #[serde_as]
