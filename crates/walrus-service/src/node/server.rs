@@ -636,8 +636,8 @@ mod tests {
             _blob_id: &BlobId,
             _sliver_pair_index: SliverPairIndex,
             _sliver_type: SliverType,
-        ) -> Result<Sliver, RetrieveSliverError> {
-            Ok(walrus_core::test_utils::sliver())
+        ) -> Result<Arc<Sliver>, RetrieveSliverError> {
+            Ok(Arc::new(walrus_core::test_utils::sliver()))
         }
 
         async fn retrieve_multiple_recovery_symbols(
