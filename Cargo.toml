@@ -48,7 +48,7 @@ clap_complete = "4.5.65"
 collectable = "0.0.2"
 colored = "2.2.0"
 const-str = "0.6.4"
-criterion = "0.5.1"
+criterion = "0.8.1"
 diesel = { version = "2.2", features = ["chrono", "postgres", "serde_json", "uuid"] }
 diesel-async = { version = "0.5", features = ["postgres"] }
 diesel_migrations = { version = "2.2.0", features = ["postgres"] }

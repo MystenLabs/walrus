@@ -1194,7 +1194,7 @@ impl SuiReadClient {
     }
 
     /// Returns the backoff configuration for the inner client.
-    #[cfg(feature = "test-utils")]
+    #[cfg(any(test, feature = "test-utils"))]
     pub(crate) fn backoff_config(&self) -> &ExponentialBackoffConfig {
         self.sui_client.backoff_config()
     }
