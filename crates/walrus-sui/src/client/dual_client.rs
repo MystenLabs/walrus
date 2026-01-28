@@ -277,7 +277,7 @@ impl DualClient {
                         .parse()
                         .context("parsing move object_type")?,
                     version: object.version.context("no version in object")?,
-                    owner_version: object.owner.context("no owner in object")?.version,
+                    owner_version: object.owner.and_then(|owner| owner.version),
                 })
             },
         )
