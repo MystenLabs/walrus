@@ -1208,11 +1208,6 @@ pub mod defaults {
         0
     }
 
-    /// Returns the default poll interval for confirmation long-polling (milliseconds).
-    pub fn confirmation_long_poll_poll_millis() -> u64 {
-        100
-    }
-
     /// Returns the default maximum number of slivers retained in the pending sliver cache.
     pub const fn pending_sliver_cache_max_cached_slivers() -> usize {
         PENDING_SLIVER_CACHE_MAX_SLIVERS
@@ -1540,13 +1535,6 @@ pub struct RestServerConfig {
         skip_serializing_if = "defaults::is_default"
     )]
     pub confirmation_long_poll_max_millis: u64,
-
-    /// Poll interval (in milliseconds) while long-polling confirmations.
-    #[serde(
-        default = "defaults::confirmation_long_poll_poll_millis",
-        skip_serializing_if = "defaults::is_default"
-    )]
-    pub confirmation_long_poll_poll_millis: u64,
 }
 
 /// Configuration of the HTTP/2 connections established by the REST API.
