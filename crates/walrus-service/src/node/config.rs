@@ -242,6 +242,10 @@ impl StorageNodeConfig {
     /// Returns the default configuration for the testnet network.
     pub fn default_testnet() -> Self {
         Self {
+            rest_server: RestServerConfig {
+                confirmation_long_poll_max_millis: 5_000,
+                ..Default::default()
+            },
             ..Default::default()
         }
     }
