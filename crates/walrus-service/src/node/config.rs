@@ -244,6 +244,7 @@ impl StorageNodeConfig {
         Self {
             rest_server: RestServerConfig {
                 confirmation_long_poll_max_millis: 5_000,
+                confirmation_long_poll_max_in_flight_requests: Some(256),
                 ..Default::default()
             },
             ..Default::default()
@@ -299,7 +300,16 @@ impl StorageNodeConfig {
             blob_event_processor_config: BlobEventProcessorConfig {
                 num_workers: NonZeroUsize::new(3).expect("3 is non-zero"),
             },
-            garbage_collection: GarbageCollectionConfig::default_for_test(),
+            garbage_collection: {
+                #[cfg(any(test, feature = "test-utils"))]
+                {
+                    GarbageCollectionConfig::default_for_test()
+                }
+                #[cfg(not(any(test, feature = "test-utils")))]
+                {
+                    GarbageCollectionConfig::default()
+                }
+            },
             ..Default::default()
         }
     }
@@ -1530,6 +1540,15 @@ pub struct RestServerConfig {
         skip_serializing_if = "defaults::is_default"
     )]
     pub confirmation_long_poll_max_millis: u64,
+
+    /// Maximum number of concurrent long-poll confirmation requests.
+    ///
+    /// When the limit is reached, additional confirmation requests that opt into long polling will
+    /// behave as if long polling is disabled.
+    ///
+    /// An unset value means it is unlimited.
+    #[serde(skip_serializing_if = "defaults::is_none")]
+    pub confirmation_long_poll_max_in_flight_requests: Option<usize>,
 }
 
 /// Configuration of the HTTP/2 connections established by the REST API.
