@@ -619,7 +619,7 @@ impl StakingObject {
 
 /// Sui type for outer staking object. Used for deserialization.
 #[derive(Debug, Deserialize)]
-pub(crate) struct StakingObjectForDeserialization {
+pub struct StakingObjectForDeserialization {
     pub(crate) id: ObjectID,
     pub(crate) version: u64,
     pub(crate) package_id: ObjectID,
@@ -834,7 +834,7 @@ impl SystemObject {
 
 /// Sui type for outer system object. Used for deserialization.
 #[derive(Debug, Deserialize)]
-pub(crate) struct SystemObjectForDeserialization {
+pub struct SystemObjectForDeserialization {
     pub(crate) id: ObjectID,
     pub(crate) version: u64,
     pub(crate) package_id: ObjectID,
