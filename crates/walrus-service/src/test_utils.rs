@@ -13,6 +13,7 @@
 use std::{
     borrow::Borrow,
     default::Default,
+    fmt::Debug,
     net::{SocketAddr, TcpStream},
     num::{NonZeroU16, NonZeroUsize},
     path::{Path, PathBuf},
@@ -866,6 +867,8 @@ pub struct StorageNodeHandleBuilder {
     node_recovery_config: Option<NodeRecoveryConfig>,
     event_stream_catchup_min_checkpoint_lag: Option<u64>,
     max_epochs_ahead: Option<u32>,
+    modify_config:
+        Option<OmitDebug<Box<dyn FnOnce(StorageNodeConfig) -> StorageNodeConfig + Send>>>,
 }
 
 impl StorageNodeHandleBuilder {
@@ -1036,6 +1039,16 @@ impl StorageNodeHandleBuilder {
         self
     }
 
+    /// Sets a function that can be used to modify the storage node's config before building the
+    /// storage node.
+    pub fn modify_config<F>(mut self, func: F) -> Self
+    where
+        F: FnOnce(StorageNodeConfig) -> StorageNodeConfig + 'static + Send,
+    {
+        self.modify_config = Some(OmitDebug(Box::new(func)));
+        self
+    }
+
     /// Creates the configured [`StorageNodeHandle`].
     pub async fn build(self) -> anyhow::Result<StorageNodeHandle> {
         // Identify the storage being used, as it allows us to extract the shards
@@ -1122,6 +1135,10 @@ impl StorageNodeHandleBuilder {
             garbage_collection: GarbageCollectionConfig::default_for_test(),
             ..storage_node_config().inner
         };
+
+        if let Some(OmitDebug(modify_config)) = self.modify_config {
+            config = (modify_config)(std::mem::take(&mut config));
+        }
 
         if cfg!(msim) {
             randomize_sliver_recovery_additional_symbols(&mut config);
@@ -1388,6 +1405,7 @@ impl Default for StorageNodeHandleBuilder {
             node_recovery_config: None,
             event_stream_catchup_min_checkpoint_lag: None,
             max_epochs_ahead: None,
+            modify_config: None,
         }
     }
 }
@@ -3369,6 +3387,15 @@ pub async fn create_test_node_with_contract_service(
         .with_system_contract_service(stub_contract_service)
         .build()
         .await
+}
+
+#[derive(Clone)]
+struct OmitDebug<T>(T);
+
+impl<T> Debug for OmitDebug<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("OmitDebug").field(&"<omitted>").finish()
+    }
 }
 
 #[cfg(test)]

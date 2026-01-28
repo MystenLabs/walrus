@@ -4350,6 +4350,8 @@ mod tests {
     use chrono::Utc;
     use config::ShardSyncConfig;
     use contract_service::MockSystemContractService;
+    use futures::stream::FuturesUnordered;
+    use rand::rngs::SmallRng;
     use storage::{
         ShardStatus,
         tests::{BLOB_ID, OTHER_SHARD_INDEX, SHARD_INDEX, WhichSlivers, populated_storage},
@@ -4362,7 +4364,14 @@ mod tests {
         Sliver,
         SliverType,
         by_axis::ByAxis,
-        encoding::{EncodingFactory as _, Primary, Secondary, SliverData, SliverPair},
+        encoding::{
+            EncodingFactory as _,
+            Primary,
+            Secondary,
+            SliverData,
+            SliverPair,
+            max_sliver_size_for_n_shards,
+        },
         messages::{SyncShardMsg, SyncShardRequest},
         test_utils::{generate_config_metadata_and_valid_recovery_symbols, random_blob_id},
     };
@@ -4380,7 +4389,7 @@ mod tests {
             move_structs::EpochState,
         },
     };
-    use walrus_test_utils::{Result as TestResult, WithTempDir, async_param_test};
+    use walrus_test_utils::{Result as TestResult, WithTempDir, async_param_test, nonzero};
 
     use super::*;
     use crate::test_utils::{
@@ -8902,6 +8911,88 @@ mod tests {
             );
         }
 
+        Ok(())
+    }
+
+    async_param_test! {
+        concurrent_symbol_requests_for_large_slivers_succeeds -> TestResult: [
+            sliver_ref_cache_enabled: (true),
+            sliver_ref_cache_disabled: (false),
+        ]
+    }
+    async fn concurrent_symbol_requests_for_large_slivers_succeeds(
+        is_sliver_ref_cache_enabled: bool,
+    ) -> TestResult {
+        // Some parameters for the test
+        let n_shards = nonzero!(1000);
+        // Reverse the range so that the storage node has shard 999 and so infers 1000 shards.
+        // This should result in the server having around 20 shards.
+        let server_shards: Vec<_> = ShardIndex::range(0..1000).rev().step_by(50).collect();
+        let stored_sliver_size = max_sliver_size_for_n_shards(n_shards) as usize;
+
+        let mut rng = SmallRng::seed_from_u64(72);
+        let mut storage = storage::tests::empty_storage().await;
+        let storage_ref = storage.as_mut();
+
+        storage_ref
+            .create_storage_for_shards(&server_shards)
+            .await
+            .unwrap();
+
+        for server_shard in server_shards.iter() {
+            let shard_storage = storage_ref.shard_storage(*server_shard).await.unwrap();
+            let server_sliver_pair = server_shard.to_pair_index(n_shards, &BLOB_ID);
+            let sliver_index = server_sliver_pair.to_sliver_index::<Primary>(n_shards);
+
+            let mut sliver_bytes = vec![0u8; stored_sliver_size];
+            rng.fill(sliver_bytes.as_mut_slice());
+
+            let sliver = Sliver::Primary(SliverData::new(
+                sliver_bytes,
+                NonZero::new(EncodingType::RS2.max_symbol_size()).unwrap(),
+                sliver_index,
+            ));
+            shard_storage.put_sliver(BLOB_ID, sliver).await?;
+        }
+
+        let storage_node = StorageNodeHandle::builder()
+            .with_storage(storage)
+            .with_system_event_provider(vec![BlobRegistered::for_testing(BLOB_ID).into()])
+            .with_node_started(true)
+            .with_rest_api_started(true)
+            .modify_config(move |mut config| {
+                if !is_sliver_ref_cache_enabled {
+                    config.sliver_reference_cache_max_entries = 0;
+                }
+                config
+            })
+            .build()
+            .await
+            .expect("storage node creation in setup should not fail");
+
+        let slivers_to_recover = (0..1000).step_by(50);
+
+        let futures: FuturesUnordered<_> = slivers_to_recover
+            .map(|index| {
+                let client = storage_node.client().clone();
+                async move {
+                    client
+                        .list_recovery_symbols(
+                            &BLOB_ID,
+                            &RecoverySymbolsFilter::recovers(SliverIndex(index), Axis::Secondary),
+                        )
+                        .await
+                }
+            })
+            .collect();
+
+        if let Some(err) = futures
+            .filter_map(|result| std::future::ready(result.err()))
+            .next()
+            .await
+        {
+            panic!("symbol requests should succeed: {:?}", err);
+        }
         Ok(())
     }
 }
