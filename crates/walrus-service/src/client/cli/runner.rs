@@ -1540,14 +1540,19 @@ impl ClientCommandRunner {
                 false,
                 SortBy::default(),
                 SUPPORTED_ENCODING_TYPES,
+                false,
             )
             .await?
             .print_output(self.json),
-            Some(InfoCommands::All { sort }) => {
-                InfoOutput::get_system_info(&sui_read_client, true, sort, SUPPORTED_ENCODING_TYPES)
-                    .await?
-                    .print_output(self.json)
-            }
+            Some(InfoCommands::All(args)) => InfoOutput::get_system_info(
+                &sui_read_client,
+                true,
+                args.sort,
+                SUPPORTED_ENCODING_TYPES,
+                !args.hide_details,
+            )
+            .await?
+            .print_output(self.json),
             Some(InfoCommands::Epoch) => InfoEpochOutput::get_epoch_info(&sui_read_client)
                 .await?
                 .print_output(self.json),
@@ -1562,11 +1567,13 @@ impl ClientCommandRunner {
                     .await?
                     .print_output(self.json)
             }
-            Some(InfoCommands::Committee { sort }) => {
-                InfoCommitteeOutput::get_committee_info(&sui_read_client, sort)
-                    .await?
-                    .print_output(self.json)
-            }
+            Some(InfoCommands::Committee(args)) => InfoCommitteeOutput::get_committee_info(
+                &sui_read_client,
+                args.sort,
+                !args.hide_details,
+            )
+            .await?
+            .print_output(self.json),
             Some(InfoCommands::Bft) => InfoBftOutput::get_bft_info(&sui_read_client)
                 .await?
                 .print_output(self.json),
