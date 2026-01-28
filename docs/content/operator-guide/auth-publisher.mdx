@@ -4,6 +4,8 @@ description: "Guide to setting up and using authenticated Walrus publishers with
 keywords: ["walrus", "authenticated publisher", "jwt", "authentication", "access control", "mainnet", "security", "token verification"]
 ---
 
+{/* https://linear.app/mysten-labs/issue/DOCS-690/operator-guideauth-publisher */}
+
 The authenticated publisher requires HTTP requests to store a blob to be authenticated. Use an authenticated publisher as a building block for services that require storing over HTTP on Walrus Mainnet, where an open publisher is undesirable because of the SUI and WAL cost of publishing to Walrus.
 
 Configure the Walrus Publisher to require a JWT (JSON Web Token) with each HTTP request for user authentication. The authentication system ensures that only authorized clients can store blobs and allows for fine-grained control over storage parameters through JWT claims.

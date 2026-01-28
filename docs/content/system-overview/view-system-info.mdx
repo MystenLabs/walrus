@@ -1,0 +1,43 @@
+---
+title: View System Information
+---
+
+{/* https://linear.app/mysten-labs/issue/DOCS-636/system-overviewview-system-info */}
+
+Information about the Walrus system is available through the `walrus info` command. It provides an overview of current system parameters, such as the current epoch, the number of storage nodes and shards in the system, the maximum blob size, and the current cost in WAL for storing blobs:
+
+```sh
+$ walrus info
+```
+
+The console responds:
+
+```sh
+Walrus system information
+
+Epochs and storage duration
+Current epoch: 1
+Start time: 2025-03-25 15:00:24.408 UTC
+End time: 2025-04-08 15:00:24.408 UTC
+Epoch duration: 14days
+Blobs can be stored for at most 53 epochs in the future.
+
+Storage nodes
+Number of storage nodes: 103
+Number of shards: 1000
+
+Blob size
+Maximum blob size: 13.6 GiB (14,599,533,452 B)
+Storage unit: 1.00 MiB
+
+Storage prices per epoch
+(Conversion rate: 1 WAL = 1,000,000,000 FROST)
+Price per encoded storage unit: 0.0001 WAL
+Additional price for each write: 20,000 FROST
+
+...
+```
+
+You can view additional information with various subcommands, including encoding parameters and sizes, BFT system information, and details about storage nodes in the current committee and next committee, if already selected. This information includes node IDs, stake distribution, and shard allocation. Run `walrus info --help` for a complete list of available subcommands. 
+
+The health of storage nodes can be checked with the `walrus health` command. This command takes different options to select nodes to check, for example, `walrus health --committee` checks the status of all current committee members.

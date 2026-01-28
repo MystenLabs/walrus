@@ -12,10 +12,10 @@ The Walrus architecture is built on the following key actors:
 
 ## Users
 
-**Users** [interact with Walrus](/usage/client-cli.mdx) through **clients** to store and read **blobs**, which are identified by their **blob ID**. Users engage with the system in two primary ways:
+**Users** [interact with Walrus](/walrus-client/storing-blobs.mdx) through **clients** to store and read **blobs**, which are identified by their **blob ID**. Users engage with the system in two primary ways:
 
-- **Storage:** Users store new blobs and pay [required costs](/dev-guide/costs.mdx) for [write](/dev-guide/dev-operations.mdx#store) and [non-best-effort read](/dev-guide/dev-operations.mdx#read) operations.
-- **Availability:** Users can [prove a blob's availability to third parties](/dev-guide/dev-operations.mdx#certify-availability) without the cost of transmitting the full blob.
+- **Storage:** Users store new blobs and pay [required costs](/system-overview/storage-costs.mdx) for [write](/system-overview/operations.mdx#store) and [non-best-effort read](/system-overview/operations.mdx#read) operations.
+- **Availability:** Users can [prove a blob's availability to third parties](/system-overview/operations.mdx#certify-availability) without the cost of transmitting the full blob.
 
 Users might also exhibit malicious behavior, including:
 - Refusing to pay for services
