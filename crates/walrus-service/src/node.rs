@@ -3197,6 +3197,14 @@ impl StorageNodeInner {
             return true;
         }
 
+        if !self.pending_sliver_cache.has_blob(blob_id).await {
+            tracing::debug!(
+                %blob_id,
+                "wait_for_registration: skipping wait because no pending slivers are buffered"
+            );
+            return false;
+        }
+
         match tokio::time::timeout(timeout, notified).await {
             Ok(()) => self.is_blob_registered(blob_id).unwrap_or(false),
             Err(_) => false,
