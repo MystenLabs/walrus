@@ -751,6 +751,7 @@ pub async fn create_storage_node_configs(
             blob_event_processor_config: Default::default(),
             garbage_collection: Default::default(),
             sliver_reference_cache_max_entries: defaults::SLIVER_REFERENCE_CACHE_MAX_ENTRIES,
+            wal_price_monitor: None,
         });
     }
 

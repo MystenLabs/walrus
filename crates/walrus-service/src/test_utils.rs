@@ -3308,6 +3308,7 @@ pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
             live_upload_deferral: LiveUploadDeferralConfig::default_for_test(),
             pending_metadata_cache: Default::default(),
             sliver_reference_cache_max_entries: defaults::SLIVER_REFERENCE_CACHE_MAX_ENTRIES,
+            wal_price_monitor: None,
         },
         temp_dir,
     }
