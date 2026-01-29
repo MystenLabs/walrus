@@ -22,7 +22,7 @@ Create as many sidebars as you want.
 
 const sidebars = {
     docsSidebar: [
- {
+  {
       type: 'category',
       label: 'Getting Started',
       collapsed: false,
@@ -186,7 +186,7 @@ const sidebars = {
     'sites/troubleshooting',
   ],
     examplesSidebar: [
-   {
+    {
       type: 'category',
       label: 'Examples',
       collapsed: false,
