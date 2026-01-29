@@ -52,10 +52,10 @@ Based on your needs for data management going forward, you can choose to encrypt
   - Use the Tusky app, HTTP API, or SDK for bulk export. [Refer to the Tusky documentation for more information](https://docs.tusky.io/tusky-shutdown/tusky-shutting-down-how-to-retrieve-your-data) or view the [video tutorial](https://www.youtube.com/watch?v=2cur04QKUCA).
 
 2. Set up a Walrus client
-  - Install Walrus [CLI](/walrus-client/storing-blobs.mdx) or [SDK](/typescript-sdk/sdks.mdx), or use the [web API](/http-api/storing-blobs.mdx): https://docs.wal.app/docs/getting-started/index 
+  - Install Walrus [CLI](/docs/walrus-client/storing-blobs.mdx) or [SDK](/typescript-sdk/sdks.mdx), or use the [web API](/docs/http-api/storing-blobs.mdx): https://docs.wal.app/docs/getting-started/index 
 
 3. Re-upload to Walrus
-  - Use the [CLI](/walrus-client/storing-blobs.mdx), [SDK](/typescript-sdk/sdks.mdx), or [web API](/http-api/storing-blobs.mdx).
+  - Use the [CLI](/docs/walrus-client/storing-blobs.mdx), [SDK](/typescript-sdk/sdks.mdx), or [web API](/docs/http-api/storing-blobs.mdx).
 
   - For encryption, either:
     - Use a third-party library (like [CryptoES](https://www.npmjs.com/package/crypto-es) or [Node’s Crypto Module](https://medium.com/@tony.infisical/guide-to-nodes-crypto-module-for-encryption-decryption-65c077176980) for symmetric key based encryption before upload. You can optionally use the keys that you might have retrieved from Tusky.
@@ -67,10 +67,10 @@ Based on your needs for data management going forward, you can choose to encrypt
 1. Extract blob or patch IDs and metadata from Tusky (through their app, API, or SDK).
 
 2. Fetch blobs or quilt patches directly from Walrus using:
-  - [Walrus CLI](/walrus-client/storing-blobs.mdx)
-  - [Walrus HTTP API](/http-api/storing-blobs.mdx)
+  - [Walrus CLI](/docs/walrus-client/storing-blobs.mdx)
+  - [Walrus HTTP API](/docs/http-api/storing-blobs.mdx)
   - [Walrus SDKs](/typescript-sdk/sdks.mdx)
-  - [Walrus Quilt](/system-overview/quilt)
+  - [Walrus Quilt](/docs/system-overview/quilt)
 
 3. Validate integrity and availability of the data.
   - You might have to decrypt your data using encryption keys that you have retrieved from Tusky. Make sure you request these **before** their service is shut down.

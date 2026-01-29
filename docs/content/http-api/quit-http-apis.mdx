@@ -4,7 +4,7 @@ title: Quilt HTTP APIs
 
 {/* https://linear.app/mysten-labs/issue/DOCS-646/http-apireading-blobs */}
 
-Walrus supports storing and retrieving multiple blobs as a single unit called a [quilt](/system-overview/quilt.mdx). Publishers and aggregators both support quilt operations.
+Walrus supports storing and retrieving multiple blobs as a single unit called a [quilt](/docs/system-overview/quilt.mdx). Publishers and aggregators both support quilt operations.
 
 ### Storing quilts
 
@@ -19,7 +19,7 @@ $ curl -X PUT "$PUBLISHER/v1/quilts?epochs=5" \
   -F "logo-2024=@image.png"
 ```
 
-Identifiers must be unique within a quilt and cannot start with `_`. The field name `_metadata` is reserved for Walrus native metadata and does not conflict with user-defined identifiers. See the [Quilt documentation](/system-overview/quilt.mdx) for complete identifier restrictions.
+Identifiers must be unique within a quilt and cannot start with `_`. The field name `_metadata` is reserved for Walrus native metadata and does not conflict with user-defined identifiers. See the [Quilt documentation](/docs/system-overview/quilt.mdx) for complete identifier restrictions.
 
 ```sh
 # Store 2 files with Walrus-native metadata. `_metadata` must be used as the field name for Walrus native metadata
@@ -99,7 +99,7 @@ Each blob in a quilt has a unique patch ID. You can retrieve a specific blob usi
 $ curl "$AGGREGATOR/v1/blobs/by-quilt-patch-id/6XUOE-Q5-nAXHRifN6n9nomVDtHZQbGuAkW3PjlBuKoBAQDQAA" \
 ```
 
-You can obtain `QuiltPatchIds` from the store quilt output or by using the [`list-patches-in-quilt`](/walrus-client/storing-blobs.mdx#batch-store) CLI command.
+You can obtain `QuiltPatchIds` from the store quilt output or by using the [`list-patches-in-quilt`](/docs/walrus-client/storing-blobs.mdx#batch-store) CLI command.
 
 ##### Quilt ID and identifier
 
