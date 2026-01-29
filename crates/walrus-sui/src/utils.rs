@@ -44,7 +44,11 @@ use walrus_core::{
 };
 
 use crate::{
-    client::{SuiClientResult, SuiContractClient, retry_client::RetriableSuiClient},
+    client::{
+        SuiClientResult,
+        SuiContractClient,
+        retry_client::{RetriableSuiClient, retriable_sui_client::MAX_GAS_PAYMENT_OBJECTS},
+    },
     config::load_wallet_context_from_path,
     contracts::{AssociatedContractStruct, MoveConversionError},
     wallet::Wallet,
@@ -478,7 +482,13 @@ pub async fn get_sui_from_wallet_or_faucet(
         let ptb = ptb.finish();
         let gas_budget = one_sui / 2;
         let gas_coins = client
-            .select_coins(sender, None, u128::from(gas_budget + one_sui), vec![])
+            .select_coins(
+                sender,
+                None,
+                u128::from(gas_budget + one_sui),
+                vec![],
+                MAX_GAS_PAYMENT_OBJECTS,
+            )
             .await?
             .iter()
             .map(|coin| coin.object_ref())
