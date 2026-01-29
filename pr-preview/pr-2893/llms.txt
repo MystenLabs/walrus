@@ -10,7 +10,6 @@ Where the world's data becomes reliable, valuable, and governable
 ## Configuration
 
 - [Adding Metadata](/sites/configuration/adding-metadata): It's possible to make your Site object prettier by displaying information about it on Sui explorers and wallets by using the metadata field. This is useful for adding human-readable information about the site. For example, you can add a link to your site's homepage, an image of your site's logo, and so on.
-- [Configuration File Reference](/sites/configuration/configuration-file-reference): The site-builder tool requires a configuration file to know which package to use on Sui, which wallet to use, the gas budget, and other operational details. Most of these are abstracted away through sensible defaults, so you should not need to touch them. Yet, for completeness, this document provides the details for all the configuration options.
 - [Setting Up Routing Rules](/sites/configuration/setting-up-routing-rules): Guide to configuring client-side routing for Walrus Sites using ws-resources.json.
 - [Specifying HTTP Headers](/sites/configuration/specifying-http-headers): The headers section allows you to specify custom HTTP response headers for specific resources. The keys in the headers object are the paths of the resources, and the values are lists of key-value pairs corresponding to the headers that the portal attaches to the response.
 
@@ -50,6 +49,7 @@ Where the world's data becomes reliable, valuable, and governable
 
 - [Advanced Setup](/getting-started/advanced-setup): Advanced setup options for Walrus including building from source, binary installation, and configuration.
 - [Getting Started with Walrus](/getting-started): Complete getting started guide for Walrus including installation, configuration, storing and retrieving blobs on testnet and mainnet.
+- [Site Builder Configuration](/sites/getting-started/configuration-file-reference): The site-builder tool requires a configuration file to know which package to use on Sui, which wallet to use, the gas budget, and other operational details. Most of these are abstracted away through sensible defaults, so you should not need to touch them. Yet, for completeness, this document provides the details for all the configuration options.
 - [Installing the Site Builder](/sites/getting-started/installing-the-site-builder): Step-by-step guide to installing and setting up the Walrus Sites site-builder tool for development.
 - [Publishing a Walrus Site](/sites/getting-started/publishing-your-first-site): Tutorial for publishing your first Walrus Site using the site-builder tool with example projects.
 - [Using the Site Builder](/sites/getting-started/using-the-site-builder): Complete guide to configuring the Walrus Sites site builder including wallet setup, package configuration, and advanced options.
