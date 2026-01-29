@@ -14,8 +14,8 @@ The Walrus architecture is built on the following key actors:
 
 **Users** [interact with Walrus](/docs/walrus-client/storing-blobs) through **clients** to store and read **blobs**, which are identified by their **blob ID**. Users engage with the system in two primary ways:
 
-- **Storage:** Users store new blobs and pay [required costs](/system-overview/storage-costs) for [write](/system-overview/operations#store) and [non-best-effort read](/system-overview/operations#read) operations.
-- **Availability:** Users can [prove a blob's availability to third parties](/system-overview/operations#certify-availability) without the cost of transmitting the full blob.
+- **Storage:** Users store new blobs and pay [required costs](/docs/system-overview/storage-costs) for [write](/docs/system-overview/operations#store) and [non-best-effort read](/docs/system-overview/operations#read) operations.
+- **Availability:** Users can [prove a blob's availability to third parties](/docs/system-overview/operations#certify-availability) without the cost of transmitting the full blob.
 
 Users might also exhibit malicious behavior, including:
 - Refusing to pay for services
@@ -25,7 +25,7 @@ Users might also exhibit malicious behavior, including:
 
 ## Storage nodes
 
-**Storage nodes** manage the actual data storage on Walrus. Each storage node holds one or more **shards** during a [storage epoch](/blog/04_testnet_update). Each blob undergoes [erasure encoding](/design/encoding), which splits it into many **slivers**. These slivers from each stored blob become distributed across all shards in the system. At any given storage epoch, a storage node associates with one or more shards. The node stores all slivers belonging to its assigned shards and serves them upon request.
+**Storage nodes** manage the actual data storage on Walrus. Each storage node holds one or more **shards** during a [storage epoch](/docs/blog/04_testnet_update). Each blob undergoes [erasure encoding](/docs/design/encoding), which splits it into many **slivers**. These slivers from each stored blob become distributed across all shards in the system. At any given storage epoch, a storage node associates with one or more shards. The node stores all slivers belonging to its assigned shards and serves them upon request.
 
 ## Blockchain coordination
 
@@ -67,6 +67,6 @@ Publishers are clients that help end users store blobs through Web2 technologies
 5. Aggregating signatures into a certificate
 6. Performing all required on-chain actions
 
-Publishers are optional because users can directly interact with Sui and storage nodes to store blobs. An end user can always verify that a publisher performed their duties correctly by checking that an event associated with the **[point of availability](/design/properties)** for the blob exists on-chain, and then either performing a read to see if Walrus returns the blob, or encoding the blob and comparing the result to the blob ID in the certificate.
+Publishers are optional because users can directly interact with Sui and storage nodes to store blobs. An end user can always verify that a publisher performed their duties correctly by checking that an event associated with the **[point of availability](/docs/design/properties)** for the blob exists on-chain, and then either performing a read to see if Walrus returns the blob, or encoding the blob and comparing the result to the blob ID in the certificate.
 
 Aggregators, publishers, and end users are not considered trusted system components, and they might arbitrarily deviate from protocol. However, some of the security properties of Walrus only hold for honest end users that use honest intermediaries (caches and publishers). Walrus provides a means for end users to audit the correct operation of both caches and publishers.

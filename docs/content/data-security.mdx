@@ -16,11 +16,11 @@ Each blob has a point of availability (PoA) observable through an event on Sui. 
 
 If a blob is incorrectly encoded, storage nodes can produce an inconsistency proof. Reads for blob IDs with inconsistency proofs return `None`. Correctly stored blobs cannot have inconsistency proofs generated for them.
 
-You can learn more in the [whitepaper](/walrus.pdf) and in the [design properties documentation](/design/properties).
+You can learn more in the [whitepaper](/docs/walrus.pdf) and in the [design properties documentation](/docs/design/properties).
 
 ## Data integrity
 
-Walrus guarantees that any data read corresponds to what the user who uploaded the data intended. As the encoding is done by the client, it is possible that this encoding is incorrect, either by mistake or on purpose. This causes some subtleties, which are described in the [encoding documentation](/design/encoding).
+Walrus guarantees that any data read corresponds to what the user who uploaded the data intended. As the encoding is done by the client, it is possible that this encoding is incorrect, either by mistake or on purpose. This causes some subtleties, which are described in the [encoding documentation](/docs/design/encoding).
 
 ## Seal: Data confidentially and access control 
 

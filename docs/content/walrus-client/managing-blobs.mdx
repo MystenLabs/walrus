@@ -22,7 +22,7 @@ $ walrus delete --blob-id <BLOB_ID>
 
 The delete command can also be invoked by specifying a `--file <PATH>` option to derive the blob ID from a file, or using `--object-id <SUI_ID>`. Before deleting a blob, the `walrus delete` command asks for confirmation unless the `--yes` option is specified.
 
-The `delete` command reclaims the storage object associated with the deleted blob, which is re-used to store new blobs automatically. The delete operation provides flexibility around managing [storage costs](/system-overview/storage-costs) and re-using storage.
+The `delete` command reclaims the storage object associated with the deleted blob, which is re-used to store new blobs automatically. The delete operation provides flexibility around managing [storage costs](/docs/system-overview/storage-costs) and re-using storage.
 
 The delete operation has limited utility for privacy. It only deletes slivers from the current epoch storage nodes, and subsequent epoch storage nodes, if no other user has uploaded a copy of the same blob. If another copy of the same blob exists in Walrus, the delete operation does not make the blob unavailable for download, and `walrus read` invocations will still download it. After the deletion is finished, the CLI checks the updated status of the blob to see if it is still accessible in Walrus, unless the `--no-status-check` option was specified. However, even if the blob is not accessible, copies of the public blob might be cached or downloaded by users, and these copies are not deleted.
 

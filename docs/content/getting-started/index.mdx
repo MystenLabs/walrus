@@ -18,7 +18,7 @@ Sui and Walrus are both decentralized, distributed systems made up of many indep
 
 ### Available networks
 
-Sui and Walrus each have the following available [networks](/system-overview/available-networks):
+Sui and Walrus each have the following available [networks](/docs/system-overview/available-networks):
 
 - **Testnet** is a sandbox-like network where you can receive test tokens for free to use for the network's fees. You can build, test, and debug software packages on Testnet. Testnet does not guarantee data persistence and might wipe data at any time without warning.
 - **Mainnet** is a production environment where you use real tokens and users or other applications rely on consistent functionality.
@@ -180,7 +180,7 @@ Replace `file.txt` with the file you want to store on Walrus. You can store any 
 
 You must specify the `--epochs` flag, as the system stores blobs for a certain number of epochs. An epoch is a certain period of time on the network. On Testnet, epochs are 1 day, and on Mainnet epochs are 2 weeks. You can extend the number of epochs the system stores a blob indefinitely.
 
-The system uploads a blob in slivers, which are small pieces of the file the system stores on different servers through erasure coding. [Learn more](/design/encoding) about the Walrus architecture and how the system implements erasure coding.
+The system uploads a blob in slivers, which are small pieces of the file the system stores on different servers through erasure coding. [Learn more](/docs/design/encoding) about the Walrus architecture and how the system implements erasure coding.
 
 <ImportContent source="blob-object-id" mode="snippet" />
 

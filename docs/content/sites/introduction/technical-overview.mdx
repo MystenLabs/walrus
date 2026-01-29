@@ -75,7 +75,7 @@ Walrus Sites also work without SuiNS. When a site is accessed through a self-hos
 
 :::danger
 
-The `wal.app` portal does not support Base36 domain resolution. https://58gr4pinoayuijgdixud23441t55jd94ugep68fsm72b8mwmq2.wal.app is not a valid URL. If you want to access such a site, you should either use another portal or [host your own](/sites/portals/deploy-locally#running-a-local-portal).
+The `wal.app` portal does not support Base36 domain resolution. https://58gr4pinoayuijgdixud23441t55jd94ugep68fsm72b8mwmq2.wal.app is not a valid URL. If you want to access such a site, you should either use another portal or [host your own](/docs/sites/portals/deploy-locally#running-a-local-portal).
 
 :::
 
@@ -105,7 +105,7 @@ The steps below all reference the following figure:
 
 2. **Browsing starts** (step 1 in the diagram): A client browses `dapp.wal.app/index.html` in their browser.
 
-3. **Site resolution** (steps 2-6 in the diagram): The portal interprets its origin `dapp.wal.app`, and makes a SuiNS resolution for `dapp.sui`, obtaining the related object ID. Using the object ID, it then fetches the dynamic fields of the object, also checking [redirects](/sites/portals/deploy-locally). From the dynamic fields, it selects the one for `/index.html`, and extracts its Walrus blob ID and headers (see the [advanced section on headers](/sites/configuration/setting-up-routing-rules)).
+3. **Site resolution** (steps 2-6 in the diagram): The portal interprets its origin `dapp.wal.app`, and makes a SuiNS resolution for `dapp.sui`, obtaining the related object ID. Using the object ID, it then fetches the dynamic fields of the object, also checking [redirects](/docs/sites/portals/deploy-locally). From the dynamic fields, it selects the one for `/index.html`, and extracts its Walrus blob ID and headers (see the [advanced section on headers](/docs/sites/configuration/setting-up-routing-rules)).
 
 - **Blob fetch** (steps 7-11 in the diagram): Given the blob ID, the portal queries a Walrus aggregator for the blob data.
 

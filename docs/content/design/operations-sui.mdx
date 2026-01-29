@@ -6,7 +6,7 @@ keywords: ["walrus", "sui blockchain", "smart contracts", "storage resources", "
 
 Walrus uses [Sui smart contracts](https://docs.sui.io/guides/developer/sui-101/move-package-management) to coordinate storage resource lifecycle operations and payments. Smart contracts also facilitate governance to determine the storage nodes holding each storage shard. This page outlines these operations and refers to them as part of the read and write paths.
 
-Metadata is the only blob element ever exposed to Sui or [its validators](https://docs.sui.io/guides/operator/validator-index), as the content of blobs is always stored off-chain on Walrus storage nodes and caches. The storage nodes or caches do not have to overlap with any Sui infrastructure components (such as validators), and the [storage epochs](/blog/04_testnet_update#epochs) can have different lengths and timing than [Sui epochs](https://docs.sui.io/concepts/sui-architecture/epochs).
+Metadata is the only blob element ever exposed to Sui or [its validators](https://docs.sui.io/guides/operator/validator-index), as the content of blobs is always stored off-chain on Walrus storage nodes and caches. The storage nodes or caches do not have to overlap with any Sui infrastructure components (such as validators), and the [storage epochs](/docs/blog/04_testnet_update#epochs) can have different lengths and timing than [Sui epochs](https://docs.sui.io/concepts/sui-architecture/epochs).
 
 ## Sui smart contracts
 
@@ -45,7 +45,7 @@ After uploading blob data off-chain, availability is certified on Sui:
 4. System checks certificate against the current Walrus committee.
 5. If valid, system emits an **availability event** for the blob ID.
 
-The availability event marks the [point of availability](/design/properties) for the blob, after which Walrus guarantees its availability for the specified duration.
+The availability event marks the [point of availability](/docs/design/properties) for the blob, after which Walrus guarantees its availability for the specified duration.
 
 ### Extending storage
 
@@ -53,7 +53,7 @@ At a later time, you can extend a certified blob's storage by adding a storage o
 
 ### Handling inconsistent blobs
 
-In case a blob ID is not correctly encoded, an [**inconsistency proof certificate**](/design/encoding) can be uploaded on-chain at a later time. This action emits an **inconsistent blob event** signaling that the blob ID read results always return `None`. This indicates that storage nodes can delete its slivers, except for an indicator to return `None`.
+In case a blob ID is not correctly encoded, an [**inconsistency proof certificate**](/docs/design/encoding) can be uploaded on-chain at a later time. This action emits an **inconsistent blob event** signaling that the blob ID read results always return `None`. This indicates that storage nodes can delete its slivers, except for an indicator to return `None`.
 
 ### Interacting with Walrus
 

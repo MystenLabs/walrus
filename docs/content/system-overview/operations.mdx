@@ -6,7 +6,7 @@ keywords: ["walrus", "operations", "store", "read", "certify", "delete", "blob i
 
 {/* https://linear.app/mysten-labs/issue/DOCS-632/system-overviewoperations */}
 
-Walrus stores blobs across storage nodes in an [encoded form](/design/encoding), and refers to blobs by their blob ID. The blob ID is deterministically derived from the content of a blob and the Walrus configuration. The blob ID of 2 files with the same content is the same.
+Walrus stores blobs across storage nodes in an [encoded form](/docs/design/encoding), and refers to blobs by their blob ID. The blob ID is deterministically derived from the content of a blob and the Walrus configuration. The blob ID of 2 files with the same content is the same.
 
 You can derive the blob ID of a file locally using the command: `walrus blob-id <file path>`.
 
@@ -18,7 +18,7 @@ The steps involved in a store operation can be executed by the binary client or 
 
 :::danger 
 
-**All blobs stored in Walrus are public and discoverable by all.** Do not use Walrus to store anything that contains secrets or private data without additional measures to protect confidentiality, such as encrypting data with [Seal](/data-security).
+**All blobs stored in Walrus are public and discoverable by all.** Do not use Walrus to store anything that contains secrets or private data without additional measures to protect confidentiality, such as encrypting data with [Seal](/docs/data-security).
 
 :::
 

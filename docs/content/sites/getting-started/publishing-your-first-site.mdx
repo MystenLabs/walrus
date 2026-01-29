@@ -28,7 +28,7 @@ After deploying, how you access your site depends on which network you used:
 
 - **Mainnet sites**: Can be accessed through any mainnet portal. https://wal.app serves Walrus Sites on mainnet by resolving SuiNS names that point to them.
 
-- **Testnet sites**: Can be accessed through any testnet portal. Walrus Foundation does not operate a testnet portal. You can [self-host or run one locally](/sites/portals/deploy-locally).
+- **Testnet sites**: Can be accessed through any testnet portal. Walrus Foundation does not operate a testnet portal. You can [self-host or run one locally](/docs/sites/portals/deploy-locally).
 
 The end of the output should look like the following:
 
@@ -52,17 +52,17 @@ New site object ID: 0x617221edd060dafb4070b73160ebf535e1516bf7f246890ed35190eba7
 
     📖 Setup instructions: https://docs.wal.app/docs/sites/portals/deploy-locally.html#running-the-portal-locally
 
-    💡 Tip: You may also bring your own domain (/sites/custom-domains/bringing-your-own-domain)
+    💡 Tip: You may also bring your own domain (/docs/sites/custom-domains/bringing-your-own-domain)
             or find third-party hosted testnet portals.
 ```
 
-Keep in mind that option 2 is only available on `mainnet`. For testnet sites, use option 1; see the [portal setup guide](/sites/portals/deploy-locally) for instructions.
+Keep in mind that option 2 is only available on `mainnet`. For testnet sites, use option 1; see the [portal setup guide](/docs/sites/portals/deploy-locally) for instructions.
 
 This output tells you that, for each file in the folder, a new Walrus quilt was created with a respective quilt ID. Further, it prints the object ID of the Walrus Site object on Sui so you can look in an explorer and use it to set the SuiNS name. Finally, the URL at which you can browse the site is displayed. The `deploy` command also saves this new site object ID to the `ws-resources.json`.
 
-Here the default `sites-config.yaml` is implicitly used as the config for the `site-builder` that was set up previously in the [installation section](/sites/getting-started/installing-the-site-builder). The configuration file is necessary to ensure that the `site-builder` knows the correct Sui package for the Walrus Sites logic.
+Here the default `sites-config.yaml` is implicitly used as the config for the `site-builder` that was set up previously in the [installation section](/docs/sites/getting-started/installing-the-site-builder). The configuration file is necessary to ensure that the `site-builder` knows the correct Sui package for the Walrus Sites logic.
 
-More details on the configuration of the `site-builder` can be found under the [advanced configuration](/sites/configuration/configuration-file-reference) section.
+More details on the configuration of the `site-builder` can be found under the [advanced configuration](/docs/sites/configuration/configuration-file-reference) section.
 
 ## Update the site
 
@@ -101,7 +101,7 @@ Site object ID: 0x4a1be0fb330215c532d74c70d34bc35f185cc7ce025e04b9ad42bc4ac8eda5
 
     📖 Setup instructions: https://docs.wal.app/walrus-sites/portal.html#running-the-portal-locally
 
-    💡 Tip: You may also bring your own domain (/sites/custom-domains/bringing-your-own-domain)
+    💡 Tip: You may also bring your own domain (/docs/sites/custom-domains/bringing-your-own-domain)
             or find third-party hosted testnet portals.
 ```
 
