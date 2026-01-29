@@ -6,7 +6,7 @@ keywords: ["walrus", "setup", "installation", "configuration", "build from sourc
 
 {/* https://linear.app/mysten-labs/issue/DOCS-629/getting-startedadvanced-setup */}
 
-This page covers advanced setup options for Walrus, including building from source, installing from binaries, or using Cargo. For standard setup instructions, see the Walrus [Getting Started](/getting-started/index.mdx) guide.
+This page covers advanced setup options for Walrus, including building from source, installing from binaries, or using Cargo. For standard setup instructions, see the Walrus [Getting Started](/getting-started/index) guide.
 
 Walrus is open source under an Apache 2 license. You can download and install it through [`suiup`](https://github.com/MystenLabs/suiup) on GitHub, or you can build and install it from the Rust source code through Cargo.
 
@@ -103,7 +103,7 @@ curl --create-dirs https://docs.wal.app/setup/client_config.yaml -o ~/.config/wa
 
 :::
 
-The Walrus client needs to know about the Sui objects that store the Walrus system and staking information, see the [developer guide](/system-overview/core-concepts.mdx#system-and-staking-information). Configure these in a file at `~/.config/walrus/client_config.yaml`.
+The Walrus client needs to know about the Sui objects that store the Walrus system and staking information, see the [developer guide](/system-overview/core-concepts#system-and-staking-information). Configure these in a file at `~/.config/walrus/client_config.yaml`.
 
 You can access Testnet and Mainnet through the following configuration. This example Walrus CLI configuration refers to the standard location for Sui configuration (`"~/.sui/sui_config/client.yaml"`).
 

@@ -56,7 +56,7 @@ The store HTTP API endpoints return information about stored blobs in JSON forma
 $ curl -X PUT "$PUBLISHER/v1/blobs" -d "some other string"
 ```
 
-If successful, the console responds with the information stored in the content of the blob's corresponding [Sui object](/system-overview/core-concepts.mdx).
+If successful, the console responds with the information stored in the content of the blob's corresponding [Sui object](/system-overview/core-concepts).
 :
 
 ```sh
@@ -103,5 +103,5 @@ When the publisher finds a certified blob with the same blob ID and a sufficient
 }
 ```
 
-The field `event` returns the [Sui event ID](/system-overview/core-concepts.mdx) that can be used to find the object creation transaction using a [Sui Explorer](https://suiscan.xyz/) or using a [Sui SDK](https://docs.sui.io/references/sui-sdks).
+The field `event` returns the [Sui event ID](/system-overview/core-concepts) that can be used to find the object creation transaction using a [Sui Explorer](https://suiscan.xyz/) or using a [Sui SDK](https://docs.sui.io/references/sui-sdks).
 

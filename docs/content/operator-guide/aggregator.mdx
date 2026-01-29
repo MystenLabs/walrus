@@ -6,7 +6,7 @@ keywords: ["walrus", "aggregator", "publisher", "daemon", "http api", "systemd",
 
 {/* https://linear.app/mysten-labs/issue/DOCS-689/operator-guideaggregator */}
 
-Run a Walrus aggregator or publisher to expose the [HTTP API](/docs/http-api/storing-blobs.mdx).
+Run a Walrus aggregator or publisher to expose the [HTTP API](/docs/http-api/storing-blobs).
 
 ## Start a local daemon {#local-daemon}
 
@@ -247,18 +247,18 @@ Each store operation in Walrus creates a `Blob` object on Sui. This blob object 
 
 When the publisher stores a blob on behalf of a client, the `Blob` object is initially owned by the sub-wallet that stored the blob. Then, the following cases are possible, depending on the configuration:
 
-- If the client requests to store a blob and specifies the `send_object_to` query parameter (see [the relevant section](/docs/http-api/storing-blobs.mdx#store) for examples), then the `Blob` object is transferred to the specified address. This is a way for clients to get back the created object for their data.
+- If the client requests to store a blob and specifies the `send_object_to` query parameter (see [the relevant section](/docs/http-api/storing-blobs#store) for examples), then the `Blob` object is transferred to the specified address. This is a way for clients to get back the created object for their data.
 - If the `send_object_to` query parameter is not specified, two cases are possible:
   - By default the sub-wallet transfers the newly-created blob object to the main wallet, such that all these objects are kept there. Change this behavior by setting the `--burn-after-store` flag, and the blob object is then immediately deleted.
   - However, this flag does not affect the use of the `send_object_to` query parameter. Regardless of this flag's status, the publisher sends created objects to the address in the `send_object_to` query parameter, if it is specified in the PUT request.
 
 ### Use authenticated publishers
 
-The setup and use of an authenticated publisher is covered in a [separate section](/operator-guide/auth-publisher.mdx).
+The setup and use of an authenticated publisher is covered in a [separate section](/operator-guide/auth-publisher).
 
 ## Limitations
 
-By default, [store blob](/docs/http-api/storing-blobs.mdx#store) requests are limited to 10 MiB. Increase this limit through the `--max-body-size` option. [Store quilt](/docs/http-api/storing-blobs.mdx#storing-quilts) requests are limited to 100 MiB by default, and you can increase them using the `--max-quilt-body-size` option.
+By default, [store blob](/docs/http-api/storing-blobs#store) requests are limited to 10 MiB. Increase this limit through the `--max-body-size` option. [Store quilt](/docs/http-api/storing-blobs#storing-quilts) requests are limited to 100 MiB by default, and you can increase them using the `--max-quilt-body-size` option.
 
 If the aggregator or publisher is hosted on a third-party platform, ensure that any additional platform-imposed limits or constraints are compatible with your intended use case.
 

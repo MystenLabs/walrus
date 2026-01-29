@@ -29,9 +29,9 @@ By default, blob data is written to the standard output. The `--out <OUT>` CLI o
 
 ### Check consistency
 
-Walrus performs integrity and consistency checks to ensure that any data read from Walrus is what the writer intended, and that the writer encoded the blob correctly. See the [data consistency](/design/encoding.mdx) documentation for further details. 
+Walrus performs integrity and consistency checks to ensure that any data read from Walrus is what the writer intended, and that the writer encoded the blob correctly. See the [data consistency](/design/encoding) documentation for further details. 
 
-Prior to `v1.37`, the Walrus CLI and aggregator always performed the [strict consistency check](/design/encoding.mdx). Starting with `v1.37`, the default is a [more performant consistency check](/design/encoding.mdx), which is sufficient for the majority of cases. The strict consistency check can be enabled through the flag `--strict-consistency-check`.
+Prior to `v1.37`, the Walrus CLI and aggregator always performed the [strict consistency check](/design/encoding). Starting with `v1.37`, the default is a [more performant consistency check](/design/encoding), which is sufficient for the majority of cases. The strict consistency check can be enabled through the flag `--strict-consistency-check`.
 
 Consistency checks can be disabled completely with the flag `--skip-consistency-check`. This should only be used if the writer of the blob is known and trusted.
 

@@ -19,7 +19,7 @@ Important fixed system parameters for Mainnet and Testnet are summarized in the 
 | Epoch duration                                           | 2 weeks | 1 day   |
 | Maximum number of epochs for which storage can be bought | 53      | 53      |
 
-Many other parameters, including the system capacity and prices, are dynamic. Such parameters are stored in the [system object](/system-overview/core-concepts.mdx#system-and-staking-information) and can be viewed with tools like the [Walruscan explorer](https://walruscan.com/).
+Many other parameters, including the system capacity and prices, are dynamic. Such parameters are stored in the [system object](/system-overview/core-concepts#system-and-staking-information) and can be viewed with tools like the [Walruscan explorer](https://walruscan.com/).
 
 ## Mainnet configuration
 
@@ -37,7 +37,7 @@ In case you wish to explore the Walrus contracts, their package IDs are:
 
 As these are inferred automatically from the object IDs above, there is no need to manually input them into the Walrus client configuration file. The latest published package IDs can also be found in the `Move.lock` files in the subdirectories of the [`contracts` directory on GitHub](https://github.com/MystenLabs/walrus/tree/main/contracts).
 
-The configuration file described on the [setup page](/getting-started/index.mdx) includes both Mainnet and Testnet configuration.
+The configuration file described on the [setup page](/getting-started/index) includes both Mainnet and Testnet configuration.
 
 ## Testnet configuration
 
@@ -45,7 +45,7 @@ All transactions are executed on the Sui Testnet and use Testnet WAL and SUI whi
 
 New features on Testnet might break deployed Testnet apps, since this is the network in which new updates are tested for compatibility with eco-system applications.
 
-Also see the [Testnet terms of service](/legal/testnet_tos.mdx) under which this Testnet is made available.
+Also see the [Testnet terms of service](/legal/testnet_tos) under which this Testnet is made available.
 
 ### Prerequisites: Sui wallet and Testnet SUI {#prerequisites}
 
@@ -54,11 +54,11 @@ Also see the [Testnet terms of service](/legal/testnet_tos.mdx) under which this
 <Tabs>
 <TabItem value="prereq" label="Prerequisites">
 
-- [x] Download and install the [Sui CLI](/getting-started/index.mdx#step-1-install-tooling).
+- [x] Download and install the [Sui CLI](/getting-started/index#step-1-install-tooling).
 
-- [x] Create a [Sui account](/getting-started/index.mdx#step-3-understanding-your-sui-account).
+- [x] Create a [Sui account](/getting-started/index#step-3-understanding-your-sui-account).
 
-- [x] Obtain [Testnet SUI](/getting-started/index.mdx#step-4-fund-sui-account-with-tokens).
+- [x] Obtain [Testnet SUI](/getting-started/index#step-4-fund-sui-account-with-tokens).
 
 </TabItem>
 </Tabs>
@@ -67,7 +67,7 @@ Also see the [Testnet terms of service](/legal/testnet_tos.mdx) under which this
 
 ### Testnet parameters
 
-The configuration parameters for the Walrus Testnet are included in the configuration file described on the [getting started guide](/getting-started/index.mdx#step-2-configure-tooling-for-walrus-testnet). If you want only the Testnet configuration, you can get the Testnet-only configuration file. The parameters are:
+The configuration parameters for the Walrus Testnet are included in the configuration file described on the [getting started guide](/getting-started/index#step-2-configure-tooling-for-walrus-testnet). If you want only the Testnet configuration, you can get the Testnet-only configuration file. The parameters are:
 
 <ImportContent source="/setup/client_config_testnet.yaml" mode="code"/>
 
@@ -108,7 +108,7 @@ By default, 0.5 SUI are exchanged for 0.5 WAL, but a different amount of SUI can
 
 In addition to publicly deployed Walrus networks, you can deploy a Walrus network on your local machine for local testing. Run the script `scripts/local-testbed.sh` found in the [Walrus GitHub repository](https://github.com/MystenLabs/walrus). See `scripts/local-testbed.sh -h` for further usage information.
 
-The script generates configuration that you can use when [running the Walrus client](/docs/walrus-client/storing-blobs.mdx) and prints the path to that configuration file.
+The script generates configuration that you can use when [running the Walrus client](/docs/walrus-client/storing-blobs) and prints the path to that configuration file.
 
 You can also spin up a local Grafana instance to visualize the metrics collected by the storage nodes. This can be done through `cd docker/grafana-local; docker compose up`. This should work with the default storage node configuration.
 

@@ -4,7 +4,7 @@ title: Storing Blobs
 
 {/* https://linear.app/mysten-labs/issue/DOCS-639/walrus-clientstoring-blobs */}
 
-Use the command-line interface (CLI) to interact with the Walrus client. The CLI is available through installing the `walrus` binary. See the [getting started documentation](/getting-started/index.mdx) for prerequisites, installation, and configuration.
+Use the command-line interface (CLI) to interact with the Walrus client. The CLI is available through installing the `walrus` binary. See the [getting started documentation](/getting-started/index) for prerequisites, installation, and configuration.
 
 Detailed usage information including a full list of available commands can be viewed using: 
 
@@ -19,7 +19,7 @@ If you have multiple contexts in your configuration file, you can specify the co
 
 ## Store blobs
 
-All blobs stored in Walrus are public and discoverable by all. To store sensitive data, use [Seal](/data-security.mdx#seal-data-confidentially-and-access-control) or [Nautilus](/data-security.mdx#nautilus-secure-and-verifiable-off-chain-computation) to encrypt the data before storing it on Walrus.
+All blobs stored in Walrus are public and discoverable by all. To store sensitive data, use [Seal](/data-security#seal-data-confidentially-and-access-control) or [Nautilus](/data-security#nautilus-secure-and-verifiable-off-chain-computation) to encrypt the data before storing it on Walrus.
 
 Store blobs on Walrus with the following command:
 
@@ -27,7 +27,7 @@ Store blobs on Walrus with the following command:
 $ walrus store <FILES> --epochs <EPOCHS>
 ```
 
-<ImportContent source="blob-object-id.mdx" mode="snippet" />
+<ImportContent source="blob-object-id" mode="snippet" />
 
 You can store a single file or multiple files, separated by spaces. Notably, this is compatible with glob patterns; for example, `walrus store *.png --epochs <EPOCHS>` stores all PNG files in the current directory.
 
@@ -67,7 +67,7 @@ When storing a blob, the client performs a number of automatic optimizations, in
 
 A Walrus upload relay is a third party service that can help clients with limited bandwidth and networking capabilities such as a browser, for example, in storing blobs on Walrus.
 
-Asset management on-chain still happens on the client. The upload relay just takes the unencoded blob, encodes it, and sends the slivers to the storage nodes, before returning the certificate. See in-depth details in the [Walrus upload relay](/operator-guide/upload-relay.mdx) documentation.
+Asset management on-chain still happens on the client. The upload relay just takes the unencoded blob, encodes it, and sends the slivers to the storage nodes, before returning the certificate. See in-depth details in the [Walrus upload relay](/operator-guide/upload-relay) documentation.
 
 When storing blobs with the `walrus store` command, and also when [storing quilts](#store-blobs-as-a-quilt), you can use the `--upload-relay` flag with a URL to specify an upload relay server be used by the CLI.
 
@@ -75,11 +75,11 @@ The Walrus upload relay functionality is only available in the Walrus CLI versio
 
 The upload relay is a third party service that might require a fee or tip. This tip might be a constant SUI amount per blob stored, or it might be dependent on the size of the blob being stored. The Walrus CLI shows you how much tip the upload relay requires and asks for confirmation before continuing.
 
-View technical details on how the tip is [computed and paid](/operator-guide/upload-relay.mdx).
+View technical details on how the tip is [computed and paid](/operator-guide/upload-relay).
 
 ## Store blobs as a quilt
 
-For efficiently storing large numbers of small blobs, Walrus provides the Quilt. It batches multiple blobs into a single storage unit, significantly reducing overhead and cost. You can find a more detailed overview of the feature [Quilt](/docs/system-overview/quilt.mdx).
+For efficiently storing large numbers of small blobs, Walrus provides the Quilt. It batches multiple blobs into a single storage unit, significantly reducing overhead and cost. You can find a more detailed overview of the feature [Quilt](/docs/system-overview/quilt).
 
 You can interact with quilts using a dedicated set of `walrus` subcommands.
 

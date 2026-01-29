@@ -4,7 +4,7 @@ description: "Detailed explanation of Walrus off-chain operations including writ
 keywords: ["walrus", "off-chain operations", "write paths", "read operations", "storage nodes", "slivers", "availability certificate", "challenge mechanism"]
 ---
 
-Walrus operations primarily occur off-chain on storage nodes, though they interact with the [Sui blockchain](https://docs.sui.io/) for [resource lifecycle management](/design/operations-sui.mdx). This page describes the complete off-chain operations for writing, reading, and managing blobs.
+Walrus operations primarily occur off-chain on storage nodes, though they interact with the [Sui blockchain](https://docs.sui.io/) for [resource lifecycle management](/design/operations-sui). This page describes the complete off-chain operations for writing, reading, and managing blobs.
 
 ## Write operations
 
@@ -32,13 +32,13 @@ A storage node managing a shard receives a sliver and checks it against the blob
 
 ### Certify blob ID
 
-Submit an availability certificate to the chain. When the certificate is verified on-chain, an availability event for the blob ID is emitted, and all other storage nodes seek to download any missing shards for the blob ID. This event emitted by Sui is the [point of availability (PoA)](/design/properties.mdx) for the blob ID.
+Submit an availability certificate to the chain. When the certificate is verified on-chain, an availability event for the blob ID is emitted, and all other storage nodes seek to download any missing shards for the blob ID. This event emitted by Sui is the [point of availability (PoA)](/design/properties) for the blob ID.
 
 After the PoA, and without your involvement, storage nodes sync and recover any missing metadata and slivers.
 
 ### Effects certificate proves availability
 
-The certificate of availability is created from 2/3 of the returned shard signatures. The erasure code rate is below 1/3, meaning that reconstruction is allowed even if only 1/3 of shards return the sliver for a read. [Because at most 1/3 of the storage nodes can fail](/design/architecture.mdx#byzantine-fault-tolerance), this ensures reconstruction if you request slivers from all storage nodes. A publisher can mediate the full process by receiving a blob and driving the process to completion.
+The certificate of availability is created from 2/3 of the returned shard signatures. The erasure code rate is below 1/3, meaning that reconstruction is allowed even if only 1/3 of shards return the sliver for a read. [Because at most 1/3 of the storage nodes can fail](/design/architecture#byzantine-fault-tolerance), this ensures reconstruction if you request slivers from all storage nodes. A publisher can mediate the full process by receiving a blob and driving the process to completion.
 
 ## Read operations
 
@@ -62,7 +62,7 @@ The flow is as follows:
 1. A storage node fails to reconstruct a sliver, and instead computes an inconsistency proof.
 2. The storage node sends the blob ID and inconsistency proof to all storage nodes of the Walrus epoch. The storage nodes verify the proof and sign it.
 3. The storage node that found the inconsistency aggregates the signatures into an inconsistency certificate and sends it to the [Sui smart contract](https://docs.sui.io/guides/developer/sui-101/move-package-management), which verifies it and emits an inconsistent resource event.
-4. Upon receiving an inconsistent resource event, correct storage nodes delete sliver data for the blob ID and record in the metadata to return `None` for the blob during the [availability period](/design/properties.mdx). No storage attestation challenges are issued for this blob ID.
+4. Upon receiving an inconsistent resource event, correct storage nodes delete sliver data for the blob ID and record in the metadata to return `None` for the blob during the [availability period](/design/properties). No storage attestation challenges are issued for this blob ID.
 
 ### Reading inconsistent blobs
 
