@@ -136,6 +136,13 @@ pub(crate) enum ChildUploaderEvent {
         #[serde(default)]
         total_cost: u64,
     },
+    /// The final JSON output for the command that the child process is running.
+    ///
+    /// This is used to ensure `--json` output stays clean (only JSON on stdout) when the parent
+    /// process is delegating work to a child process.
+    CommandOutput {
+        output: serde_json::Value,
+    },
 }
 
 /// Emits an event to the stdout of the child process.
@@ -226,15 +233,28 @@ pub(crate) async fn process_child_stdout_events<F, Fut>(
     stdout: ChildStdout,
     on_quorum: F,
     expected_blobs: usize,
-) where
+    json_output: bool,
+) -> Option<serde_json::Value>
+where
     F: Fn(BlobId, std::time::Duration) -> Fut,
     Fut: std::future::Future<Output = ()>,
 {
-    process_child_stdout_reader(BufReader::new(stdout), on_quorum, expected_blobs).await;
+    process_child_stdout_reader(
+        BufReader::new(stdout),
+        on_quorum,
+        expected_blobs,
+        json_output,
+    )
+    .await
 }
 
 /// Processes the stdout events of the child process.
-async fn process_child_stdout_reader<R, F, Fut>(reader: R, on_quorum: F, expected_blobs: usize)
+async fn process_child_stdout_reader<R, F, Fut>(
+    reader: R,
+    on_quorum: F,
+    expected_blobs: usize,
+    json_output: bool,
+) -> Option<serde_json::Value>
 where
     R: AsyncBufRead + Unpin,
     F: Fn(BlobId, std::time::Duration) -> Fut,
@@ -242,6 +262,7 @@ where
 {
     let mut lines = reader.lines();
     let mut certified_count = 0;
+    let mut command_output: Option<serde_json::Value> = None;
     let multi = MultiProgress::new();
     let mut per_blob_bars: HashMap<String, ProgressBar> = HashMap::new();
     let mut encoding_spinner: Option<ProgressBar> = None;
@@ -342,6 +363,9 @@ where
                     encoding_type,
                     operation_note,
                 } => {
+                    if json_output {
+                        continue;
+                    }
                     println!(
                         "{} {} blob stored successfully.\n\
                         \nPath: {}\n\
@@ -379,6 +403,9 @@ where
                     end_epoch,
                     event_or_object,
                 } => {
+                    if json_output {
+                        continue;
+                    }
                     println!(
                         "{} Blob already certified.\n\
                         \nPath: {}\n\
@@ -401,6 +428,10 @@ where
                     total_cost,
                 } => {
                     tracing::debug!(?ok, ?error, "child: done event received");
+
+                    if json_output {
+                        return command_output;
+                    }
 
                     if newly_certified > 0 || reuse_and_extend_count > 0 {
                         let mut parts = Vec::new();
@@ -430,7 +461,10 @@ where
                         );
                     }
 
-                    return;
+                    return command_output;
+                }
+                ChildUploaderEvent::CommandOutput { output } => {
+                    command_output = Some(output);
                 }
             },
             Err(e) => {
@@ -442,6 +476,8 @@ where
     for (_, pb) in per_blob_bars.into_iter() {
         pb.finish_and_clear();
     }
+
+    command_output
 }
 
 /// Applies the common store child arguments to the command.
@@ -600,6 +636,7 @@ pub(crate) async fn maybe_spawn_child_upload_process<F>(
     post_store: PostStoreAction,
     upload_relay: Option<&Url>,
     internal_run: bool,
+    json_output: bool,
     command_name: &str,
     add_command_args: F,
     num_blobs: usize,
@@ -686,15 +723,22 @@ where
             }
 
             if let Some(stdout) = child_stdout {
-                process_child_stdout_events(
+                let output = process_child_stdout_events(
                     stdout,
                     |blob_id, extra| async move {
                         tracing::info!(%blob_id, extra_ms = extra.as_millis(),
                             "child quorum reached; tail uploads continuing");
                     },
                     num_blobs,
+                    json_output,
                 )
                 .await;
+
+                if json_output {
+                    let output = output.context("child process did not emit command output")?;
+                    serde_json::to_writer_pretty(std::io::stdout(), &output)
+                        .context("write JSON output from child process")?;
+                }
 
                 tracing::info!(concat!(
                     "All blobs are now certified and the parent process is exiting, ",
@@ -959,6 +1003,7 @@ mod tests {
                 }
             },
             1,
+            false,
         )
         .await;
 
@@ -968,6 +1013,43 @@ mod tests {
         assert_eq!(observed_blob, &BlobId::from_str(blob_id)?);
         assert_eq!(*extra_ms, 10);
 
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn process_child_events_returns_command_output_in_json_mode() -> Result<()> {
+        let output = serde_json::json!([
+            {
+                "blobStoreResult": {
+                    "alreadyCertified": {
+                        "blobId": "XbN7UoXgqlvlfUNwQ1I-iR5T87tfjIBSZ0FL9MPgu2k",
+                        "object": "0x23b47c2f56a8262d4692287f487d2f8b916623618d135e09fcf08a239123",
+                        "endEpoch": 303
+                    }
+                },
+                "path": "random_file.bin"
+            }
+        ]);
+        let command_output = serde_json::json!({
+            "type": "command_output",
+            "output": output.clone(),
+        });
+        let done = serde_json::json!({
+            "type": "done",
+            "ok": true,
+            "error": null,
+        });
+
+        let json = vec![command_output, done]
+            .into_iter()
+            .map(|v| v.to_string())
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        let reader = BufReader::new(Cursor::new(json));
+        let observed = process_child_stdout_reader(reader, |_blob, _extra| async {}, 1, true).await;
+
+        assert_eq!(observed, Some(output));
         Ok(())
     }
 }
