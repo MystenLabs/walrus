@@ -224,12 +224,6 @@ const config = {
                         label: "Operators",
                         position: "right",
                     },
-                    {
-                        type: "docSidebar",
-                        sidebarId: "examplesSidebar",
-                        label: "Example Apps",
-                        position: "right",
-                    },
                     { to: "/blog", label: "Blog", position: "right" },
                     {
                         href: "https://github.com/MystenLabs/walrus",

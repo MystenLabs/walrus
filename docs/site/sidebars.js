@@ -104,10 +104,13 @@ const sidebars = {
     {
       type: 'category',
       label: 'Introduction to Walrus Sites',
+      link: {
+        type: "doc",
+        id:'sites/introduction/components',
+      },
       collapsed: false,
       items: [
         'sites/introduction/technical-overview',
-        'sites/introduction/components',
       ],
     },
     {
@@ -120,12 +123,17 @@ const sidebars = {
         'sites/getting-started/publishing-your-first-site',
         'sites/getting-started/viewing-and-testing-your-site',
         'sites/getting-started/updating-an-existing-site',
+        'sites/getting-started/configuration-file-reference',
       ],
     },
     {
       type: 'category',
       label: 'Walrus Portals',
       collapsed: true,
+      link: {
+        type: "doc",
+        id: "sites/portals/deploy-locally",
+      },
       items: [
         'sites/portals/deploy-locally',
         'sites/portals/mainnet-testnet',
@@ -136,7 +144,6 @@ const sidebars = {
       label: 'Site Configuration',
       collapsed: true,
       items: [
-        'sites/configuration/configuration-file-reference',
         'sites/configuration/specifying-http-headers',
         'sites/configuration/setting-up-routing-rules',
         'sites/configuration/adding-metadata',
@@ -185,17 +192,6 @@ const sidebars = {
     'sites/known-restrictions',
     'sites/troubleshooting',
   ],
-    examplesSidebar: [
-    {
-      type: 'category',
-      label: 'Examples',
-      collapsed: false,
-      items: [
-        'example-1',
-        'example-2',
-      ],
-    },
-    ],
     operatorSidebar: [
     {
         type: "category",

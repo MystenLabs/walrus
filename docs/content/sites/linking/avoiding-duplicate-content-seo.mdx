@@ -35,7 +35,7 @@ To solve this, add a canonical hint in the HTML `<head>` so crawlers know which 
 
 **Canonical host policy:** Choose 1 hostname type per site. Custom domain > SuiNS > base36 is a good priority ranking. All other hosts should include canonical hints pointing to that choice.
 
-**Base36 subdomains: Disable if not needed: `B36_DOMAIN_RESOLUTION_SUPPORT=false`. If enabled, add canonical hints (`<link rel="canonical">` or `Link: rel="canonical"`). Optionally, block them from indexing with `X-Robots-Tag: noindex
+**Base36 subdomains**: Disable if not needed: `B36_DOMAIN_RESOLUTION_SUPPORT=false`. If enabled, add canonical hints (`<link rel="canonical">` or `Link: rel="canonical"`). Optionally, block them from indexing with `X-Robots-Tag: noindex
 
 **Custom domains**: Setting `BRING_YOUR_OWN_DOMAIN=true` makes the portal serve only your configured custom domain (single-site mode). Other domains, including SuiNS and base36, are not resolved by that portal. It's always a good practice to add canonical hints in your HTML or headers pointing to your chosen custom domain to avoid duplicate indexing across different hosts.
 
