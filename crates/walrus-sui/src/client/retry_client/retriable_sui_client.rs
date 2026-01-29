@@ -378,32 +378,49 @@ impl RetriableSuiClient {
     }
     // Re-implementation of the `SuiClient` methods.
 
-    /// Return a list of coins for the given address, or an error upon failure.
-    ///
-    /// Reimplements the functionality of [`sui_sdk::apis::CoinReadApi::select_coins`] with the
-    /// addition of retries on network errors.
-    #[tracing::instrument(skip(self, address, exclude), level = Level::DEBUG)]
-    pub async fn select_coins(
+    /// Returns a list of coins for the given address, or an error upon failure. This method always
+    /// filters on coin types. When `coin_type` is `None`, it will filter for SUI. Otherwise, it
+    /// will filter to the given coin type. It will attempt to gather coins to satisfy the given
+    /// `amount`. `exclude` is a list of coin object IDs to exclude from the result. `max_num_coins`
+    /// puts a hard cap on the number of coins returned.
+    pub fn select_coins(
         &self,
         address: SuiAddress,
         coin_type: Option<String>,
         amount: u128,
         exclude: Vec<ObjectID>,
+        max_num_coins: usize,
+    ) -> impl Future<Output = SuiClientResult<Vec<Coin>>> {
+        // NB: this function will serve as the branching point for gRPC implementation of
+        // select_coins.
+        self.select_coins_with_json_rpc(address, coin_type, amount, exclude, max_num_coins)
+    }
+
+    /// Reimplements the functionality of [`sui_sdk::apis::CoinReadApi::select_coins`] with the
+    /// addition of retries on network errors.
+    #[tracing::instrument(skip(self, address, exclude), level = Level::DEBUG)]
+    async fn select_coins_with_json_rpc(
+        &self,
+        address: SuiAddress,
+        coin_type: Option<String>,
+        amount: u128,
+        exclude: Vec<ObjectID>,
+        max_num_coins: usize,
     ) -> SuiClientResult<Vec<Coin>> {
         retry_rpc_errors(
             self.get_strategy(),
             || async {
-                self.select_coins_with_limit(
+                self.select_coins_with_json_rpc_impl(
                     address,
                     coin_type.clone(),
                     amount,
                     exclude.clone(),
-                    MAX_GAS_PAYMENT_OBJECTS,
+                    max_num_coins,
                 )
                 .await
             },
             self.metrics.clone(),
-            "select_coins",
+            "select_coins_with_json_rpc",
         )
         .await
     }
@@ -424,12 +441,7 @@ impl RetriableSuiClient {
         Ok(selected_coins)
     }
 
-    /// Returns a list of coins for the given address, or an error upon failure. This method always
-    /// filters on coin types. When `coin_type` is `None`, it will filter for SUI. Otherwise, it
-    /// will filter to the given coin type. It will attempt to gather coins to satisfy the given
-    /// `amount`. `exclude` is a list of coin object IDs to exclude from the result.
-    /// `max_num_coins` puts a hard cap on the number of coins returned.
-    pub async fn select_coins_with_limit(
+    async fn select_coins_with_json_rpc_impl(
         &self,
         address: SuiAddress,
         coin_type: Option<String>,
