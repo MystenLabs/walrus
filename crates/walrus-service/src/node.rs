@@ -190,6 +190,7 @@ use crate::{
         config::LiveUploadDeferralConfig,
         event_blob_writer::EventBlobWriter,
         garbage_collector::GarbageCollector,
+        wal_price_monitor::WalPriceMonitor,
     },
     utils::ShardDiffCalculator,
 };
@@ -222,6 +223,7 @@ mod shard_sync;
 mod start_epoch_change_finisher;
 mod storage;
 mod thread_pool;
+mod wal_price_monitor;
 
 pub use config_synchronizer::{ConfigLoader, ConfigSynchronizer, StorageNodeConfigLoader};
 pub use garbage_collector::GarbageCollectionConfig;
@@ -574,6 +576,7 @@ pub struct StorageNode {
     garbage_collector: GarbageCollector,
     event_blob_writer_factory: Option<EventBlobWriterFactory>,
     config_synchronizer: Option<Arc<ConfigSynchronizer>>,
+    _wal_price_monitor: Option<WalPriceMonitor>,
 }
 
 type RecoveryDeferralEntry = (
@@ -854,6 +857,16 @@ impl StorageNode {
             None
         };
 
+        // Initialize WAL price monitor if enabled
+        let wal_price_monitor = if config.wal_price_monitor.enable_wal_price_monitor {
+            Some(WalPriceMonitor::start(
+                config.wal_price_monitor.clone(),
+                metrics.clone(),
+            ))
+        } else {
+            None
+        };
+
         let garbage_collector =
             GarbageCollector::new(config.garbage_collection, inner.clone(), metrics);
 
@@ -869,6 +882,7 @@ impl StorageNode {
             garbage_collector,
             event_blob_writer_factory,
             config_synchronizer,
+            _wal_price_monitor: wal_price_monitor,
         })
     }
 

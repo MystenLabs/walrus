@@ -52,6 +52,7 @@ use crate::{
     node::{
         db_checkpoint::DbCheckpointConfig,
         network_overrides::{self, NetworkKind},
+        wal_price_monitor::WalPriceMonitorConfig,
     },
 };
 
@@ -208,6 +209,9 @@ pub struct StorageNodeConfig {
     /// Capacity of the sliver-reference cache.
     #[serde(default = "defaults::sliver_reference_cache_max_entries")]
     pub sliver_reference_cache_max_entries: u64,
+    /// Configuration for the WAL price monitor.
+    #[serde(default, skip_serializing_if = "defaults::is_default")]
+    pub wal_price_monitor: WalPriceMonitorConfig,
 }
 
 impl StorageNodeConfig {
@@ -390,6 +394,7 @@ impl Default for StorageNodeConfig {
             blob_event_processor_config: Default::default(),
             garbage_collection: Default::default(),
             sliver_reference_cache_max_entries: defaults::sliver_reference_cache_max_entries(),
+            wal_price_monitor: Default::default(),
         }
     }
 }
