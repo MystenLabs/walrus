@@ -93,7 +93,9 @@ impl RegistrationNotify {
 impl Clone for RegistrationNotify {
     fn clone(&self) -> Self {
         let mut ref_count = self.ref_count.lock().expect("mutex should not be poisoned");
-        *ref_count = ref_count.checked_add(1).unwrap_or(0);
+        *ref_count = ref_count
+            .checked_add(1)
+            .expect("RegistrationNotify ref_count overflow");
         Self {
             blob_id: self.blob_id,
             notify: self.notify.clone(),
@@ -107,16 +109,14 @@ impl Drop for RegistrationNotify {
     fn drop(&mut self) {
         let new_ref_count = {
             let mut ref_count = self.ref_count.lock().expect("mutex should not be poisoned");
-            if *ref_count == 0 {
-                tracing::error!(
-                    %self.blob_id,
-                    "RegistrationNotifier drop: ref count is 0",
-                );
-            }
-            *ref_count = ref_count.checked_sub(1).unwrap_or(0);
+            *ref_count = ref_count
+                .checked_sub(1)
+                .expect("RegistrationNotify ref_count underflow");
             *ref_count
         };
 
+        // The `registered_blobs` map itself holds one `RegistrationNotify` clone. When the last
+        // external clone is dropped, the refcount becomes 1 and we remove the map entry.
         if new_ref_count == 1 {
             self.node_wide_registration_notifier
                 .cleanup_registration_notify(&self.blob_id);
