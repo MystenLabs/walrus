@@ -16,6 +16,12 @@ const COINGECKO_API_URL: &str =
 /// Coinbase API URL for fetching WAL price
 const COINBASE_API_URL: &str = "https://api.coinbase.com/v2/prices/WAL-USD/spot";
 
+/// Pyth Hermes API URL for fetching WAL price
+const PYTH_HERMES_API_URL: &str = concat!(
+    "https://hermes.pyth.network/v2/updates/price/latest?ids[]=",
+    "eba0732395fae9dec4bae12e52760b35fc1c5671e2da8b449c9af4efe5d54341"
+);
+
 /// Trait for fetching WAL token prices from different data sources
 trait WalPriceFetcher: Send + Sync {
     /// Returns the name of the price source
@@ -124,6 +130,63 @@ impl WalPriceFetcher for CoinbasePriceFetcher {
     }
 }
 
+/// Helper struct for fetching prices from Pyth Hermes with metrics
+#[derive(Clone)]
+struct PythHermesPriceFetcher {
+    metrics: Arc<NodeMetricSet>,
+}
+
+impl PythHermesPriceFetcher {
+    fn new(metrics: Arc<NodeMetricSet>) -> Self {
+        Self { metrics }
+    }
+}
+
+impl WalPriceFetcher for PythHermesPriceFetcher {
+    fn source(&self) -> &str {
+        "pyth_hermes"
+    }
+
+    fn fetch(&self) -> Pin<Box<dyn Future<Output = Result<f64, anyhow::Error>> + Send + '_>> {
+        Box::pin(async move {
+            let client = reqwest::Client::new();
+            let response = client
+                .get(PYTH_HERMES_API_URL)
+                .header(reqwest::header::USER_AGENT, "Walrus (walrus.xyz)")
+                .send()
+                .await?;
+
+            let json_response: serde_json::Value = response.json().await?;
+
+            let (price_mantissa, expo) = json_response
+                .get("parsed")
+                .and_then(|v| v.as_array())
+                .and_then(|arr| arr.first())
+                .and_then(|parsed| parsed.get("price"))
+                .and_then(|price_obj| {
+                    Some((
+                        price_obj.get("price")?.as_str()?.parse::<f64>().ok()?,
+                        price_obj.get("expo")?.as_i64()?.try_into().ok()?,
+                    ))
+                })
+                .ok_or_else(|| {
+                    anyhow::anyhow!("Failed to parse price from Pyth Hermes response")
+                })?;
+            let price = price_mantissa * 10_f64.powi(expo);
+
+            tracing::debug!("Fetched WAL price from {}: ${:.6}", self.source(), price);
+
+            // Update metrics
+            self.metrics
+                .current_monitored_wal_price
+                .with_label_values(&[self.source()])
+                .set(price);
+
+            Ok(price)
+        })
+    }
+}
+
 /// Configuration for the WAL price monitor
 #[serde_as]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -191,6 +254,7 @@ impl WalPriceMonitor {
         let fetchers: Vec<Box<dyn WalPriceFetcher>> = vec![
             Box::new(CoinGeckoPriceFetcher::new(metrics.clone())),
             Box::new(CoinbasePriceFetcher::new(metrics.clone())),
+            Box::new(PythHermesPriceFetcher::new(metrics.clone())),
         ];
 
         tracing::info!(
@@ -291,100 +355,67 @@ impl Drop for WalPriceMonitor {
 mod tests {
     use super::*;
 
-    // The goal of this test is to catch any issues with the CoinGecko API or the price fetching
-    // logic itself.
-    #[tokio::test]
-    async fn test_fetch_from_coingecko() {
-        // This test makes a real API call to CoinGecko
-        use walrus_utils::metrics::Registry;
+    /// Expands to a #[tokio::test] that fetches WAL price from a source and checks that the
+    /// associated metric was updated correctly.
+    macro_rules! test_fetch_from_source {
+        ($test_name:ident, $fetcher_type:ty, $source:expr) => {
+            #[tokio::test]
+            async fn $test_name() {
+                use walrus_utils::metrics::Registry;
 
-        // Set up test environment
-        let registry = Registry::default();
-        let metrics = Arc::new(NodeMetricSet::new(&registry));
+                let _ = tracing_subscriber::fmt::try_init();
 
-        // Create CoinGecko fetcher and fetch the price
-        let fetcher = CoinGeckoPriceFetcher::new(metrics.clone());
-        let result = fetcher.fetch().await;
+                let registry = Registry::default();
+                let metrics = Arc::new(NodeMetricSet::new(&registry));
 
-        // Assert that the fetch was successful
-        assert!(
-            result.is_ok(),
-            "Failed to fetch WAL price from CoinGecko: {:?}",
-            result.err()
-        );
+                let fetcher = <$fetcher_type>::new(metrics.clone());
+                let result = fetcher.fetch().await;
 
-        let price = result.unwrap();
+                assert!(
+                    result.is_ok(),
+                    "Failed to fetch WAL price from {}: {:?}",
+                    $source,
+                    result.err()
+                );
 
-        // Assert that the price is a positive number
-        assert!(price > 0.0, "WAL price should be positive, got: {}", price);
+                let price = result.unwrap();
 
-        // Assert that the price is within a reasonable range (e.g., between $0.001 and $1000)
-        assert!(
-            (0.001..=5.0).contains(&price),
-            "WAL price seems unreasonable: ${}",
-            price
-        );
+                assert!(price > 0.0, "WAL price should be positive, got: {}", price);
+                assert!(
+                    (0.001..=5.0).contains(&price),
+                    "WAL price seems unreasonable: ${}",
+                    price
+                );
 
-        // Verify that the metric was updated
-        let metric_value = metrics
-            .current_monitored_wal_price
-            .with_label_values(&["coingecko"])
-            .get();
-        assert_eq!(
-            metric_value, price,
-            "Metric value should match fetched price"
-        );
+                let metric_value = metrics
+                    .current_monitored_wal_price
+                    .with_label_values(&[$source])
+                    .get();
+                assert_eq!(
+                    metric_value, price,
+                    "Metric value should match fetched price"
+                );
 
-        tracing::info!("Successfully fetched WAL price: ${:.6}", price);
+                tracing::info!(
+                    "Successfully fetched WAL price from {}: ${:.6}",
+                    $source,
+                    price
+                );
+            }
+        };
     }
 
-    #[tokio::test]
-    async fn test_fetch_from_coinbase() {
-        // This test makes a real API call to Coinbase
-        use walrus_utils::metrics::Registry;
-
-        // Set up test environment
-        let registry = Registry::default();
-        let metrics = Arc::new(NodeMetricSet::new(&registry));
-
-        // Create Coinbase fetcher and fetch the price
-        let fetcher = CoinbasePriceFetcher::new(metrics.clone());
-        let result = fetcher.fetch().await;
-
-        // Assert that the fetch was successful
-        assert!(
-            result.is_ok(),
-            "Failed to fetch WAL price from Coinbase: {:?}",
-            result.err()
-        );
-
-        let price = result.unwrap();
-
-        // Assert that the price is a positive number
-        assert!(price > 0.0, "WAL price should be positive, got: {}", price);
-
-        // Assert that the price is within a reasonable range (e.g., between $0.001 and $100)
-        assert!(
-            (0.001..=5.0).contains(&price),
-            "WAL price seems unreasonable: ${}",
-            price
-        );
-
-        // Verify that the metric was updated
-        let metric_value = metrics
-            .current_monitored_wal_price
-            .with_label_values(&["coinbase"])
-            .get();
-        assert_eq!(
-            metric_value, price,
-            "Metric value should match fetched price"
-        );
-
-        tracing::info!(
-            "Successfully fetched WAL price from Coinbase: ${:.6}",
-            price
-        );
-    }
+    test_fetch_from_source!(
+        test_fetch_from_coingecko,
+        CoinGeckoPriceFetcher,
+        "coingecko"
+    );
+    test_fetch_from_source!(test_fetch_from_coinbase, CoinbasePriceFetcher, "coinbase");
+    test_fetch_from_source!(
+        test_fetch_from_pyth_hermes,
+        PythHermesPriceFetcher,
+        "pyth_hermes"
+    );
 
     #[test]
     fn test_calculate_median() {
