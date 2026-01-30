@@ -52,15 +52,7 @@ use sui_sdk::{
 use sui_types::transaction::TransactionDataAPI;
 use sui_types::{
     TypeTag,
-    base_types::{
-        ObjectID,
-        ObjectInfo,
-        ObjectRef,
-        ObjectType,
-        SequenceNumber,
-        SuiAddress,
-        TransactionDigest,
-    },
+    base_types::{ObjectID, ObjectRef, ObjectType, SequenceNumber, SuiAddress, TransactionDigest},
     dynamic_field::derive_dynamic_field_id,
     event::EventID,
     object::Owner,
@@ -827,17 +819,17 @@ impl RetriableSuiClient {
             .await
     }
 
-    /// Return a list of Objects from the given vector of [ObjectID]s.
+    /// Return a list of ObjectRefs from the given vector of [ObjectID]s.
     #[tracing::instrument(level = Level::DEBUG, skip_all)]
-    pub async fn multi_get_objects(
+    pub async fn get_object_refs_with_grpc(
         &self,
         object_ids: &[ObjectID],
-    ) -> SuiClientResult<Vec<sui_types::object::Object>> {
+    ) -> SuiClientResult<Vec<ObjectRef>> {
         async fn make_request(
             client: Arc<DualClient>,
             object_ids: &[ObjectID],
-        ) -> SuiClientResult<Vec<sui_types::object::Object>> {
-            client.multi_get_objects(object_ids).await
+        ) -> SuiClientResult<Vec<ObjectRef>> {
+            client.get_object_refs(object_ids).await
         }
 
         let request = move |client: Arc<DualClient>, method| {
@@ -850,7 +842,7 @@ impl RetriableSuiClient {
             )
         };
         self.failover_sui_client
-            .with_failover(request, None, "multi_get_objects")
+            .with_failover(request, None, "get_object_refs")
             .await
     }
 
@@ -1176,15 +1168,7 @@ impl RetriableSuiClient {
         object_ids: &[ObjectID],
     ) -> SuiClientResult<Vec<ObjectRef>> {
         if self.grpc_migration_level >= GRPC_MIGRATION_LEVEL_BATCH_OBJECTS {
-            let objects = self.multi_get_objects(object_ids).await?;
-            objects
-                .into_iter()
-                .map(|object| {
-                    let object_info = ObjectInfo::from_object(&object);
-                    let object_ref: ObjectRef = object_info.into();
-                    Ok(object_ref)
-                })
-                .collect()
+            self.get_object_refs_with_grpc(object_ids).await
         } else {
             let responses = self
                 .multi_get_object_with_options_batched(object_ids, SuiObjectDataOptions::new())

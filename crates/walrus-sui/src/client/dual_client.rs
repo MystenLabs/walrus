@@ -30,7 +30,7 @@ use sui_types::{
 
 use crate::{client::SuiClientError, contracts::TypeOriginMap};
 
-/// The maximum number of objects to request in a single `multi_get_objects_bcs` gRPC call.
+/// The maximum number of objects to request in a single "batch" gRPC call.
 pub const MAX_GET_OBJECTS_BATCH_SIZE: usize = 100;
 
 /// A client that combines the Sui SDK client and a gRPC client in order to facilitate a migration
@@ -234,21 +234,33 @@ impl DualClient {
         ))
     }
 
-    /// Get multiple objects' Sui objects.
-    pub async fn multi_get_objects(
+    /// Get multiple objects' Sui ObjectRefs.
+    pub async fn get_object_refs(
         &self,
         object_ids: &[ObjectID],
-    ) -> Result<Vec<sui_types::object::Object>, SuiClientError> {
+    ) -> Result<Vec<ObjectRef>, SuiClientError> {
         batch_get_objects(
             self.grpc_client.clone(),
             object_ids,
-            FieldMask::from_paths([Object::path_builder().bcs().finish()]),
+            FieldMask::from_paths([
+                Object::path_builder().object_id(),
+                Object::path_builder().version(),
+                Object::path_builder().digest(),
+            ]),
             |object| {
-                object
-                    .bcs
-                    .context("no bcs in object")?
-                    .deserialize()
-                    .context("failed to deserialize object from BCS")
+                Ok((
+                    object
+                        .object_id
+                        .context("no object_id in object")?
+                        .parse()
+                        .context("parsing object_id")?,
+                    object.version.context("no version in object")?.into(),
+                    object
+                        .digest
+                        .context("no digest in object")?
+                        .parse()
+                        .context("parsing digest")?,
+                ))
             },
         )
         .await
