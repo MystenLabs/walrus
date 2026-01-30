@@ -331,7 +331,7 @@ impl RetriableSuiClient {
                     &system_object_bcs_datapack.struct_tag,
                 )?,
                 system_object_bcs_datapack
-                    .owner_version
+                    .initial_shared_version
                     .context("system object has missing owner_version")?
                     .into(),
                 get_sui_object_from_bcs(
@@ -339,7 +339,7 @@ impl RetriableSuiClient {
                     &staking_object_bcs_datapack.struct_tag,
                 )?,
                 staking_object_bcs_datapack
-                    .owner_version
+                    .initial_shared_version
                     .context("staking object has missing owner_version")?
                     .into(),
             ))

@@ -65,8 +65,8 @@ pub struct BcsDatapack {
     pub struct_tag: StructTag,
     /// The version of the object.
     pub version: u64,
-    /// Expected to be equivalent to owner's `initial_shared_version` for shared objects.
-    pub owner_version: Option<u64>,
+    /// `initial_shared_version` for shared objects.
+    pub initial_shared_version: Option<u64>,
 }
 
 impl DualClient {
@@ -289,7 +289,7 @@ impl DualClient {
                         .parse()
                         .context("parsing move object_type")?,
                     version: object.version.context("no version in object")?,
-                    owner_version: object.owner.and_then(|owner| owner.version),
+                    initial_shared_version: object.owner.and_then(|owner| owner.version),
                 })
             },
         )
