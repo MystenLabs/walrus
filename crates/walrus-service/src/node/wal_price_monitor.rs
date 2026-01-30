@@ -13,6 +13,9 @@ use crate::node::metrics::NodeMetricSet;
 const COINGECKO_API_URL: &str =
     "https://api.coingecko.com/api/v3/simple/price?ids=walrus-2&vs_currencies=usd";
 
+/// Coinbase API URL for fetching WAL price
+const COINBASE_API_URL: &str = "https://api.coinbase.com/v2/prices/WAL-USD/spot";
+
 /// Trait for fetching WAL token prices from different data sources
 trait WalPriceFetcher: Send + Sync {
     /// Returns the name of the price source
@@ -71,6 +74,56 @@ impl WalPriceFetcher for CoinGeckoPriceFetcher {
     }
 }
 
+/// Helper struct for fetching prices from Coinbase with metrics
+#[derive(Clone)]
+struct CoinbasePriceFetcher {
+    metrics: Arc<NodeMetricSet>,
+}
+
+impl CoinbasePriceFetcher {
+    fn new(metrics: Arc<NodeMetricSet>) -> Self {
+        Self { metrics }
+    }
+}
+
+impl WalPriceFetcher for CoinbasePriceFetcher {
+    fn source(&self) -> &str {
+        "coinbase"
+    }
+
+    fn fetch(&self) -> Pin<Box<dyn Future<Output = Result<f64, anyhow::Error>> + Send + '_>> {
+        Box::pin(async move {
+            let client = reqwest::Client::new();
+            let response = client
+                .get(COINBASE_API_URL)
+                .header(reqwest::header::USER_AGENT, "Walrus (walrus.xyz)")
+                .send()
+                .await?;
+
+            let json_response: serde_json::Value = response.json().await?;
+
+            let price = json_response
+                .get("data")
+                .and_then(|v| v.get("amount"))
+                .and_then(|v| v.as_str())
+                .and_then(|s| s.parse::<f64>().ok())
+                .ok_or(anyhow::anyhow!(
+                    "Failed to parse price from Coinbase response"
+                ))?;
+
+            tracing::debug!("Fetched WAL price from {}: ${:.6}", self.source(), price);
+
+            // Update metrics
+            self.metrics
+                .current_monitored_wal_price
+                .with_label_values(&[self.source()])
+                .set(price);
+
+            Ok(price)
+        })
+    }
+}
+
 /// Configuration for the WAL price monitor
 #[serde_as]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -91,6 +144,14 @@ impl Default for WalPriceMonitorConfig {
             check_interval: Duration::from_secs(600), // Default: check every 10 minutes
         }
     }
+}
+
+/// Gets the current WAL price based on the list of fetched prices
+fn get_current_wal_price(prices: Vec<f64>) -> Option<f64> {
+    // We are currently using the median price as the current WAL price, but the algorithm here
+    // can be more sophisticated when we have more data points. We can detect abnormal prices and
+    // outliers to make the WAL price more accurate.
+    calculate_median(prices)
 }
 
 /// Calculates the median value from a list of prices
@@ -127,8 +188,10 @@ impl WalPriceMonitor {
         let current_price = Arc::new(RwLock::new(None));
 
         // Create the list of WAL price fetchers
-        let fetchers: Vec<Box<dyn WalPriceFetcher>> =
-            vec![Box::new(CoinGeckoPriceFetcher::new(metrics.clone()))];
+        let fetchers: Vec<Box<dyn WalPriceFetcher>> = vec![
+            Box::new(CoinGeckoPriceFetcher::new(metrics.clone())),
+            Box::new(CoinbasePriceFetcher::new(metrics.clone())),
+        ];
 
         tracing::info!(
             "WAL price monitor started with {} fetcher(s) and check interval: {:?}",
@@ -185,22 +248,21 @@ impl WalPriceMonitor {
                     }
                 }
 
-                // Calculate median if we have at least one successful fetch
-                if let Some(median_price) = calculate_median(prices.clone()) {
+                if let Some(price) = get_current_wal_price(prices.clone()) {
                     tracing::info!(
-                        "Calculated median WAL price from {} source(s): ${:.6}",
+                        "Calculated WAL price from {} source(s): ${:.6}",
                         prices.len(),
-                        median_price
+                        price
                     );
 
                     // Update current price
-                    *current_price.write().await = Some(median_price);
+                    *current_price.write().await = Some(price);
 
                     // Update aggregate metric
                     metrics
                         .current_monitored_wal_price
-                        .with_label_values(&["median"])
-                        .set(median_price);
+                        .with_label_values(&["aggregated_price"])
+                        .set(price);
                 } else {
                     tracing::warn!("No successful price fetches from any source");
                 }
@@ -258,7 +320,7 @@ mod tests {
 
         // Assert that the price is within a reasonable range (e.g., between $0.001 and $1000)
         assert!(
-            (0.001..=100.0).contains(&price),
+            (0.001..=5.0).contains(&price),
             "WAL price seems unreasonable: ${}",
             price
         );
@@ -274,6 +336,54 @@ mod tests {
         );
 
         tracing::info!("Successfully fetched WAL price: ${:.6}", price);
+    }
+
+    #[tokio::test]
+    async fn test_fetch_from_coinbase() {
+        // This test makes a real API call to Coinbase
+        use walrus_utils::metrics::Registry;
+
+        // Set up test environment
+        let registry = Registry::default();
+        let metrics = Arc::new(NodeMetricSet::new(&registry));
+
+        // Create Coinbase fetcher and fetch the price
+        let fetcher = CoinbasePriceFetcher::new(metrics.clone());
+        let result = fetcher.fetch().await;
+
+        // Assert that the fetch was successful
+        assert!(
+            result.is_ok(),
+            "Failed to fetch WAL price from Coinbase: {:?}",
+            result.err()
+        );
+
+        let price = result.unwrap();
+
+        // Assert that the price is a positive number
+        assert!(price > 0.0, "WAL price should be positive, got: {}", price);
+
+        // Assert that the price is within a reasonable range (e.g., between $0.001 and $100)
+        assert!(
+            (0.001..=5.0).contains(&price),
+            "WAL price seems unreasonable: ${}",
+            price
+        );
+
+        // Verify that the metric was updated
+        let metric_value = metrics
+            .current_monitored_wal_price
+            .with_label_values(&["coinbase"])
+            .get();
+        assert_eq!(
+            metric_value, price,
+            "Metric value should match fetched price"
+        );
+
+        tracing::info!(
+            "Successfully fetched WAL price from Coinbase: ${:.6}",
+            price
+        );
     }
 
     #[test]
