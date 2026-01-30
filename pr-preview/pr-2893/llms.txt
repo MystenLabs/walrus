@@ -137,6 +137,10 @@ Where the world's data becomes reliable, valuable, and governable
 
 - [Software Development Kits (SDKs) and Other Tools](/typescript-sdk/sdks): Overview of official and community-maintained SDKs, tools, and explorers for Walrus development and integration.
 
+## Usage
+
+- [Redirecting…](/usage/troubleshooting): Redirecting… If you are not redirected, go to /docs/troubleshooting.
+
 ## Walrus client
 
 - [Configuration](/walrus-client/configuration): Use the --config option to specify a custom path to the configuration location.
