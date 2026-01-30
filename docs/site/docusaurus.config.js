@@ -150,7 +150,6 @@ const config = {
             };
         },
 
-        path.resolve(__dirname, "./src/plugins/askcookbook/index.js"),
         path.resolve(__dirname, "./src/shared/plugins/descriptions"),
     ],
 
@@ -210,18 +209,12 @@ const config = {
                         type: "docSidebar",
                         sidebarId: "docsSidebar",
                         position: "right",
-                        label: "Data Storage",
+                        label: "Docs",
                     },
                     {
                         type: "docSidebar",
                         sidebarId: "sitesSidebar",
-                        label: "Walrus Sites",
-                        position: "right",
-                    },
-                    {
-                        type: "docSidebar",
-                        sidebarId: "operatorSidebar",
-                        label: "Operators",
+                        label: "Sites",
                         position: "right",
                     },
                     { to: "/blog", label: "Blog", position: "right" },
