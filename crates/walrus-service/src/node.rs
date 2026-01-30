@@ -857,11 +857,15 @@ impl StorageNode {
             None
         };
 
-        // Initialize WAL price monitor if configured
-        let wal_price_monitor = config
-            .wal_price_monitor
-            .clone()
-            .map(|cfg| WalPriceMonitor::start(cfg, metrics.clone()));
+        // Initialize WAL price monitor if enabled
+        let wal_price_monitor = if config.wal_price_monitor.enable_wal_price_monitor {
+            Some(WalPriceMonitor::start(
+                config.wal_price_monitor.clone(),
+                metrics.clone(),
+            ))
+        } else {
+            None
+        };
 
         let garbage_collector =
             GarbageCollector::new(config.garbage_collection, inner.clone(), metrics);

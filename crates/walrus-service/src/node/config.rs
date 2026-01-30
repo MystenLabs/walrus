@@ -210,8 +210,8 @@ pub struct StorageNodeConfig {
     #[serde(default = "defaults::sliver_reference_cache_max_entries")]
     pub sliver_reference_cache_max_entries: u64,
     /// Configuration for the WAL price monitor.
-    #[serde(default, skip_serializing_if = "defaults::is_none")]
-    pub wal_price_monitor: Option<WalPriceMonitorConfig>,
+    #[serde(default, skip_serializing_if = "defaults::is_default")]
+    pub wal_price_monitor: WalPriceMonitorConfig,
 }
 
 impl StorageNodeConfig {
@@ -394,7 +394,7 @@ impl Default for StorageNodeConfig {
             blob_event_processor_config: Default::default(),
             garbage_collection: Default::default(),
             sliver_reference_cache_max_entries: defaults::sliver_reference_cache_max_entries(),
-            wal_price_monitor: None,
+            wal_price_monitor: Default::default(),
         }
     }
 }

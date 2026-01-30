@@ -239,4 +239,6 @@ garbage_collection:
   blob_objects_batch_size: 5000
   data_deletion_batch_size: 2000
 sliver_reference_cache_max_entries: 65536
-wal_price_monitor: null
+wal_price_monitor:
+  enable_wal_price_monitor: false
+  check_interval_secs: 600

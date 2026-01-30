@@ -1,7 +1,7 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{sync::Arc, time::Duration};
+use std::{future::Future, pin::Pin, sync::Arc, time::Duration};
 
 use serde::{Deserialize, Serialize};
 use serde_with::{DurationSeconds, serde_as};
@@ -13,6 +13,15 @@ use crate::node::metrics::NodeMetricSet;
 const COINGECKO_API_URL: &str =
     "https://api.coingecko.com/api/v3/simple/price?ids=walrus-2&vs_currencies=usd";
 
+/// Trait for fetching WAL token prices from different data sources
+trait WalPriceFetcher: Send + Sync {
+    /// Returns the name of the price source
+    fn source(&self) -> &str;
+
+    /// Fetches the current WAL price in USD
+    fn fetch(&self) -> Pin<Box<dyn Future<Output = Result<f64, anyhow::Error>> + Send + '_>>;
+}
+
 /// Helper struct for fetching prices from CoinGecko with metrics
 #[derive(Clone)]
 struct CoinGeckoPriceFetcher {
@@ -23,35 +32,42 @@ impl CoinGeckoPriceFetcher {
     fn new(metrics: Arc<NodeMetricSet>) -> Self {
         Self { metrics }
     }
+}
 
-    /// Fetches WAL price from CoinGecko API
-    async fn fetch(&self) -> Result<f64, anyhow::Error> {
-        let client = reqwest::Client::new();
-        let response = client
-            .get(COINGECKO_API_URL)
-            .header(reqwest::header::USER_AGENT, "Walrus (walrus.xyz)")
-            .send()
-            .await?;
+impl WalPriceFetcher for CoinGeckoPriceFetcher {
+    fn source(&self) -> &str {
+        "coingecko"
+    }
 
-        let json_response: serde_json::Value = response.json().await?;
+    fn fetch(&self) -> Pin<Box<dyn Future<Output = Result<f64, anyhow::Error>> + Send + '_>> {
+        Box::pin(async move {
+            let client = reqwest::Client::new();
+            let response = client
+                .get(COINGECKO_API_URL)
+                .header(reqwest::header::USER_AGENT, "Walrus (walrus.xyz)")
+                .send()
+                .await?;
 
-        let price = json_response
-            .get("walrus-2")
-            .and_then(|v| v.get("usd"))
-            .and_then(|v| v.as_f64())
-            .ok_or(anyhow::anyhow!(
-                "Failed to parse price from CoinGecko response"
-            ))?;
+            let json_response: serde_json::Value = response.json().await?;
 
-        tracing::debug!("Fetched WAL price from CoinGecko: ${:.6}", price);
+            let price = json_response
+                .get("walrus-2")
+                .and_then(|v| v.get("usd"))
+                .and_then(|v| v.as_f64())
+                .ok_or(anyhow::anyhow!(
+                    "Failed to parse price from CoinGecko response"
+                ))?;
 
-        // Update metrics
-        self.metrics
-            .current_monitored_wal_price
-            .with_label_values(&["coingecko"])
-            .set(price);
+            tracing::debug!("Fetched WAL price from {}: ${:.6}", self.source(), price);
 
-        Ok(price)
+            // Update metrics
+            self.metrics
+                .current_monitored_wal_price
+                .with_label_values(&[self.source()])
+                .set(price);
+
+            Ok(price)
+        })
     }
 }
 
@@ -60,6 +76,8 @@ impl CoinGeckoPriceFetcher {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct WalPriceMonitorConfig {
+    /// Whether to enable WAL price monitoring
+    pub enable_wal_price_monitor: bool,
     /// How often to check the WAL price
     #[serde_as(as = "DurationSeconds<u64>")]
     #[serde(rename = "check_interval_secs")]
@@ -69,9 +87,30 @@ pub struct WalPriceMonitorConfig {
 impl Default for WalPriceMonitorConfig {
     fn default() -> Self {
         Self {
-            check_interval: Duration::from_secs(60), // Default: check every minute
+            enable_wal_price_monitor: false,
+            check_interval: Duration::from_secs(600), // Default: check every 10 minutes
         }
     }
+}
+
+/// Calculates the median value from a list of prices
+fn calculate_median(mut prices: Vec<f64>) -> Option<f64> {
+    if prices.is_empty() {
+        return None;
+    }
+
+    prices.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+
+    let len = prices.len();
+    let median = if len.is_multiple_of(2) {
+        // Even number of elements: average of the two middle values
+        (prices[len / 2 - 1] + prices[len / 2]) / 2.0
+    } else {
+        // Odd number of elements: middle value
+        prices[len / 2]
+    };
+
+    Some(median)
 }
 
 /// Monitors the WAL token price periodically
@@ -87,13 +126,18 @@ impl WalPriceMonitor {
     pub fn start(config: WalPriceMonitorConfig, metrics: Arc<NodeMetricSet>) -> Self {
         let current_price = Arc::new(RwLock::new(None));
 
+        // Create the list of WAL price fetchers
+        let fetchers: Vec<Box<dyn WalPriceFetcher>> =
+            vec![Box::new(CoinGeckoPriceFetcher::new(metrics.clone()))];
+
         tracing::info!(
-            "WAL price monitor started with check interval: {:?}",
+            "WAL price monitor started with {} fetcher(s) and check interval: {:?}",
+            fetchers.len(),
             config.check_interval
         );
 
         let task_handle =
-            Self::spawn_monitoring_task(config, current_price.clone(), metrics.clone());
+            Self::spawn_monitoring_task(config, current_price.clone(), fetchers, metrics.clone());
 
         Self {
             _current_price: current_price,
@@ -105,25 +149,60 @@ impl WalPriceMonitor {
     fn spawn_monitoring_task(
         config: WalPriceMonitorConfig,
         current_price: Arc<RwLock<Option<f64>>>,
+        fetchers: Vec<Box<dyn WalPriceFetcher>>,
         metrics: Arc<NodeMetricSet>,
     ) -> JoinHandle<()> {
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(config.check_interval);
             interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
-            // Create the list of WAL price fetchers
-            let coin_gecko_fetcher = CoinGeckoPriceFetcher::new(metrics);
-
             loop {
                 interval.tick().await;
 
-                match coin_gecko_fetcher.fetch().await {
-                    Ok(price) => {
-                        *current_price.write().await = Some(price);
+                // Fetch prices from all sources concurrently
+                let fetch_tasks: Vec<_> = fetchers.iter().map(|f| f.fetch()).collect();
+                let results = futures::future::join_all(fetch_tasks).await;
+
+                // Collect successful price fetches
+                let mut prices = Vec::new();
+                for (fetcher, result) in fetchers.iter().zip(results.into_iter()) {
+                    match result {
+                        Ok(price) => {
+                            tracing::debug!(
+                                "Fetcher '{}' returned price: ${:.6}",
+                                fetcher.source(),
+                                price
+                            );
+                            prices.push(price);
+                        }
+                        Err(e) => {
+                            tracing::error!(
+                                "Fetcher '{}' failed to fetch WAL price: {}",
+                                fetcher.source(),
+                                e
+                            );
+                        }
                     }
-                    Err(e) => {
-                        tracing::error!("Failed to fetch WAL price: {}", e);
-                    }
+                }
+
+                // Calculate median if we have at least one successful fetch
+                if let Some(median_price) = calculate_median(prices.clone()) {
+                    tracing::info!(
+                        "Calculated median WAL price from {} source(s): ${:.6}",
+                        prices.len(),
+                        median_price
+                    );
+
+                    // Update current price
+                    *current_price.write().await = Some(median_price);
+
+                    // Update aggregate metric
+                    metrics
+                        .current_monitored_wal_price
+                        .with_label_values(&["median"])
+                        .set(median_price);
+                } else {
+                    tracing::warn!("No successful price fetches from any source");
                 }
             }
         })
@@ -195,5 +274,25 @@ mod tests {
         );
 
         tracing::info!("Successfully fetched WAL price: ${:.6}", price);
+    }
+
+    #[test]
+    fn test_calculate_median() {
+        // Test with empty list
+        assert_eq!(calculate_median(vec![]), None);
+
+        // Test with single value
+        assert_eq!(calculate_median(vec![5.0]), Some(5.0));
+
+        // Test with odd number of values
+        assert_eq!(calculate_median(vec![1.0, 3.0, 5.0]), Some(3.0));
+        assert_eq!(calculate_median(vec![5.0, 1.0, 3.0]), Some(3.0)); // Unsorted
+
+        // Test with even number of values
+        assert_eq!(calculate_median(vec![1.0, 2.0, 3.0, 4.0]), Some(2.5));
+        assert_eq!(calculate_median(vec![4.0, 1.0, 3.0, 2.0]), Some(2.5)); // Unsorted
+
+        // Test with duplicate values
+        assert_eq!(calculate_median(vec![2.0, 2.0, 2.0]), Some(2.0));
     }
 }
