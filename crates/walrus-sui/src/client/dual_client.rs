@@ -31,6 +31,7 @@ use sui_types::{
     base_types::{ObjectID, ObjectRef},
     digests::TransactionDigest,
 };
+use walrus_core::ensure;
 
 use crate::{client::SuiClientError, contracts::TypeOriginMap};
 
@@ -399,35 +400,43 @@ impl DualClient {
                 if let Some(next_page_token) = next_page_token {
                     request = request.with_page_token(next_page_token);
                 }
-                request =
-                    request.with_object_type(if let Some(coin_type) = &stream_state.coin_type {
-                        coin_type.clone()
-                    } else {
-                        "0x2::coin::Coin".to_string()
-                    });
+                request = request.with_object_type(
+                    stream_state
+                        .coin_type
+                        .as_deref()
+                        .unwrap_or("0x2::coin::Coin")
+                        .to_string(),
+                );
 
                 match state_client.list_owned_objects(request).await {
                     Ok(response) => {
                         let list_owned_objects_response = response.into_inner();
                         for object in list_owned_objects_response.objects {
-                            stream_state.queue.push_back(Coin {
-                                coin_type: todo!(),
-                                coin_object_id: todo!(),
-                                version: todo!(),
-                                digest: todo!(),
-                                balance: todo!(),
-                                previous_transaction: todo!(),
-                            })
+                            match convert_to_coin(object) {
+                                Ok(coin) => stream_state.queue.push_back(coin),
+                                Err(error) => {
+                                    tracing::error!(
+                                        owner = ?stream_state.owner,
+                                        coin_type = stream_state.coin_type.as_deref(),
+                                        ?error,
+                                        "error converting object to coin for owner",
+                                    );
+                                }
+                            }
                         }
-                        let coin = todo!();
-                        Some((coin, stream_state))
+
+                        if let Some(item) = stream_state.queue.pop_front() {
+                            Some((Coin::from(item), stream_state))
+                        } else {
+                            None
+                        }
                     }
-                    Err(err) => {
+                    Err(error) => {
                         tracing::error!(
-                            "Error listing owned objects for owner {:?}, coin_type {:?}: {:?}",
-                            stream_state.owner,
-                            stream_state.coin_type,
-                            err
+                            owner = ?stream_state.owner,
+                            coin_type = stream_state.coin_type.as_deref(),
+                            ?error,
+                            "error listing owned objects for owner",
                         );
                         None
                     }
@@ -435,6 +444,38 @@ impl DualClient {
             }
         })
     }
+}
+
+fn convert_to_coin(object: Object) -> Result<Coin, anyhow::Error> {
+    let struct_tag = object
+        .object_type
+        .context("no object_type in object")?
+        .parse::<StructTag>()
+        .context("parsing move object_type")?;
+    ensure!(
+        struct_tag.module.as_str() == "coin" && struct_tag.name.as_str() == "Coin",
+        "object is not a coin"
+    );
+    Ok(Coin {
+        coin_type: struct_tag.to_string(),
+        coin_object_id: object
+            .object_id
+            .context("no object_id in object")?
+            .parse()
+            .context("parsing object_id")?,
+        version: object.version.context("no version in object")?.into(),
+        digest: object
+            .digest
+            .context("no digest in object")?
+            .parse()
+            .context("parsing digest")?,
+        balance: object.balance.context("no balance in object")?,
+        previous_transaction: object
+            .previous_transaction
+            .context("no previous_transaction in object")?
+            .parse()
+            .context("parsing previous_transaction")?,
+    })
 }
 
 async fn batch_get_objects<T>(
