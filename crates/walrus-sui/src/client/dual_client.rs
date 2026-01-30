@@ -12,7 +12,14 @@ use move_core_types::{account_address::AccountAddress, language_storage::StructT
 use sui_rpc::{
     Client as GrpcClient,
     field::{FieldMask, FieldMaskUtil},
-    proto::sui::rpc::v2::{Bcs, GetObjectRequest, Object},
+    proto::sui::rpc::v2::{
+        BatchGetObjectsRequest,
+        BatchGetObjectsResponse,
+        Bcs,
+        GetObjectRequest,
+        Object,
+        get_object_result,
+    },
 };
 use sui_sdk::{SuiClient, SuiClientBuilder};
 use sui_types::{
@@ -22,6 +29,9 @@ use sui_types::{
 };
 
 use crate::{client::SuiClientError, contracts::TypeOriginMap};
+
+/// The maximum number of objects to request in a single "batch" gRPC call.
+pub const MAX_GET_OBJECTS_BATCH_SIZE: usize = 100;
 
 /// A client that combines the Sui SDK client and a gRPC client in order to facilitate a migration
 /// from Sui JSON RPC to gRPC by gradually migrating callsites away from [`SuiClient`].
@@ -44,6 +54,19 @@ fn address_from_object_id(object_id: sui_types::base_types::ObjectID) -> sui_sdk
     sui_sdk_types::Address::from(<[u8; sui_sdk_types::Address::LENGTH]>::from(
         AccountAddress::from(object_id),
     ))
+}
+
+/// A BCS-encoded object along with its version, and type.
+#[derive(Debug)]
+pub struct BcsDatapack {
+    /// The BCS-encoded object.
+    pub bcs: Bcs,
+    /// The BCS-encoded object's type.
+    pub struct_tag: StructTag,
+    /// The version of the object.
+    pub version: u64,
+    /// `initial_shared_version` for shared objects.
+    pub initial_shared_version: Option<u64>,
 }
 
 impl DualClient {
@@ -144,7 +167,7 @@ impl DualClient {
             .get_object_bcs(object_id)
             .await?
             .deserialize()
-            .context("failed to deserialize object from BCS")?)
+            .context("failed to deserialize object from bcs")?)
     }
 
     /// Get an [`ObjectRef`] from the Sui network.
@@ -211,6 +234,68 @@ impl DualClient {
         ))
     }
 
+    /// Get multiple objects' Sui ObjectRefs.
+    pub async fn get_object_refs(
+        &self,
+        object_ids: &[ObjectID],
+    ) -> Result<Vec<ObjectRef>, SuiClientError> {
+        batch_get_objects(
+            self.grpc_client.clone(),
+            object_ids,
+            FieldMask::from_paths([
+                Object::path_builder().object_id(),
+                Object::path_builder().version(),
+                Object::path_builder().digest(),
+            ]),
+            |object| {
+                Ok((
+                    object
+                        .object_id
+                        .context("no object_id in object")?
+                        .parse()
+                        .context("parsing object_id")?,
+                    object.version.context("no version in object")?.into(),
+                    object
+                        .digest
+                        .context("no digest in object")?
+                        .parse()
+                        .context("parsing digest")?,
+                ))
+            },
+        )
+        .await
+    }
+
+    /// Get multiple objects' BCS representations and versions from the Sui network.
+    pub async fn multi_get_objects_bcs_datapacks(
+        &self,
+        object_ids: &[ObjectID],
+    ) -> Result<Vec<BcsDatapack>, SuiClientError> {
+        batch_get_objects(
+            self.grpc_client.clone(),
+            object_ids,
+            FieldMask::from_paths([
+                Object::path_builder().contents().finish(),
+                Object::path_builder().object_type(),
+                Object::path_builder().version(),
+                Object::path_builder().owner().version(),
+            ]),
+            |object| {
+                Ok(BcsDatapack {
+                    bcs: object.contents.context("no contents in object")?,
+                    struct_tag: object
+                        .object_type
+                        .context("no object_type in object")?
+                        .parse()
+                        .context("parsing move object_type")?,
+                    version: object.version.context("no version in object")?,
+                    initial_shared_version: object.owner.and_then(|owner| owner.version),
+                })
+            },
+        )
+        .await
+    }
+
     /// Get the type origin map for a package from the Sui network.
     pub async fn get_type_origin_map_for_package(
         &self,
@@ -252,4 +337,65 @@ impl DualClient {
         }
         Ok(type_origins)
     }
+}
+
+async fn batch_get_objects<T>(
+    mut grpc_client: GrpcClient,
+    object_ids: &[ObjectID],
+    read_mask: FieldMask,
+    mut extract: impl FnMut(Object) -> anyhow::Result<T>,
+) -> Result<Vec<T>, SuiClientError> {
+    let mut results: Vec<T> = Vec::with_capacity(object_ids.len());
+
+    for chunk in object_ids.chunks(MAX_GET_OBJECTS_BATCH_SIZE) {
+        let requests: Vec<_> = chunk
+            .iter()
+            .map(|object_id| GetObjectRequest::new(&address_from_object_id(*object_id)))
+            .collect();
+
+        let batch_get_objects = BatchGetObjectsRequest::default()
+            .with_requests(requests)
+            .with_read_mask(read_mask.clone());
+
+        let response = grpc_client
+            .ledger_client()
+            .batch_get_objects(batch_get_objects)
+            .await
+            .context("grpc request error")?;
+
+        append_batch_get_objects_response(&mut results, response, &mut extract)?;
+    }
+    Ok(results)
+}
+
+fn append_batch_get_objects_response<T>(
+    batch_results: &mut Vec<T>,
+    response: tonic::Response<BatchGetObjectsResponse>,
+    mut extract: impl FnMut(Object) -> anyhow::Result<T>,
+) -> Result<(), SuiClientError> {
+    use get_object_result::Result as GetObjectResult;
+
+    for get_object_result in response.into_inner().objects.into_iter() {
+        match get_object_result
+            .result
+            .context("no result in get_object_result")?
+        {
+            GetObjectResult::Object(object) => batch_results.push(extract(object)?),
+            GetObjectResult::Error(status) => {
+                return Err(anyhow::anyhow!(
+                    "error getting object: code {}, message {}, details {:?}",
+                    status.code,
+                    status.message,
+                    status.details
+                )
+                .into());
+            }
+            _ => {
+                return Err(
+                    anyhow::anyhow!("encountered unknown get_object_result variant").into(),
+                );
+            }
+        }
+    }
+    Ok(())
 }

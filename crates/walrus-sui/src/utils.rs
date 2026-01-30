@@ -13,7 +13,7 @@ use std::{
 };
 
 use anyhow::{Context as _, Result, anyhow};
-use move_core_types::language_storage::StructTag as MoveStructTag;
+use move_core_types::language_storage::StructTag;
 use serde::{Deserialize, Serialize};
 use sui_config::{Config, SUI_KEYSTORE_FILENAME, sui_config_dir};
 use sui_keys::keystore::{
@@ -124,7 +124,7 @@ pub(crate) fn get_package_id_from_object(object: &sui_types::object::Object) -> 
 /// `struct_tag`, are taken from the [`SuiTransactionBlockResponse`].
 pub(crate) fn get_created_sui_object_ids_by_type(
     response: &SuiTransactionBlockResponse,
-    struct_tag: &MoveStructTag,
+    struct_tag: &StructTag,
 ) -> Result<Vec<ObjectID>> {
     match response.object_changes.as_ref() {
         Some(changes) => Ok(changes
@@ -177,7 +177,7 @@ where
 
 pub(crate) fn get_sui_object_from_bcs<U>(
     bcs_data: &[u8],
-    struct_tag: &MoveStructTag,
+    struct_tag: &StructTag,
 ) -> SuiClientResult<U>
 where
     U: AssociatedContractStruct,
