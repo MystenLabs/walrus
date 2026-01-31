@@ -5,7 +5,10 @@
 //! migration from Sui JSON RPC to gRPC by gradually migrating callsites away from the JSON RPC
 //! Client [`SuiClient`].
 
-use std::time::Duration;
+use std::{
+    collections::{LinkedList, VecDeque},
+    time::Duration,
+};
 
 use anyhow::Context;
 use move_core_types::{account_address::AccountAddress, language_storage::StructTag};
@@ -17,6 +20,7 @@ use sui_rpc::{
         BatchGetObjectsResponse,
         Bcs,
         GetObjectRequest,
+        ListOwnedObjectsRequest,
         Object,
         get_object_result,
     },
@@ -27,6 +31,7 @@ use sui_types::{
     base_types::{ObjectID, ObjectRef},
     digests::TransactionDigest,
 };
+use walrus_core::ensure;
 
 use crate::{client::SuiClientError, contracts::TypeOriginMap};
 
@@ -337,6 +342,140 @@ impl DualClient {
         }
         Ok(type_origins)
     }
+
+    /// Returns a stream of coins for the given address.
+    ///
+    /// This is a re-implementation of the [`sui_sdk::apis::CoinReadApi::get_coins_stream`] method
+    /// in the [`sui_sdk::SuiClient`] struct. Unlike the original implementation, this version will
+    /// retry failed RPC calls.
+    pub fn get_coins_stream_retry(
+        &self,
+        owner: SuiAddress,
+        coin_type: Option<String>,
+    ) -> impl Stream<Item = Coin> + '_ {
+        #[derive(Clone)]
+        enum Cursor {
+            Init,
+            NextToken(bytes::Bytes),
+            Done,
+        }
+        struct StreamState {
+            queue: LinkedList<Coin>,
+            cursor: Cursor,
+            owner: SuiAddress,
+            coin_type: Option<String>,
+            grpc_client: GrpcClient,
+        }
+
+        let stream_state = StreamState {
+            queue: LinkedList::new(),
+            cursor: Cursor::Init,
+            owner,
+            coin_type,
+            grpc_client: self.grpc_client.clone(),
+        };
+
+        stream::unfold(stream_state, |mut stream_state| async move {
+            if let Some(item) = stream_state.queue.pop_front() {
+                Some((Coin::from(item), stream_state))
+            } else {
+                let next_page_token = match stream_state.cursor {
+                    Cursor::Init => None,
+                    Cursor::NextToken(next_page_token) => Some(next_page_token),
+                    Cursor::Done => {
+                        return None;
+                    }
+                };
+                let mut state_client = stream_state.grpc_client.state_client();
+                let mut request = ListOwnedObjectsRequest::default()
+                    .with_owner(stream_state.owner.to_string())
+                    .with_read_mask(FieldMask::from_paths([
+                        Object::path_builder().object_type(),
+                        Object::path_builder().object_id(),
+                        Object::path_builder().version(),
+                        Object::path_builder().digest(),
+                        Object::path_builder().balance(),
+                        Object::path_builder().previous_transaction(),
+                    ]));
+                if let Some(next_page_token) = next_page_token {
+                    request = request.with_page_token(next_page_token);
+                }
+                request = request.with_object_type(
+                    stream_state
+                        .coin_type
+                        .as_deref()
+                        .unwrap_or("0x2::coin::Coin")
+                        .to_string(),
+                );
+
+                match state_client.list_owned_objects(request).await {
+                    Ok(response) => {
+                        let list_owned_objects_response = response.into_inner();
+                        for object in list_owned_objects_response.objects {
+                            match convert_to_coin(object) {
+                                Ok(coin) => stream_state.queue.push_back(coin),
+                                Err(error) => {
+                                    tracing::error!(
+                                        owner = ?stream_state.owner,
+                                        coin_type = stream_state.coin_type.as_deref(),
+                                        ?error,
+                                        "error converting object to coin for owner",
+                                    );
+                                }
+                            }
+                        }
+
+                        if let Some(item) = stream_state.queue.pop_front() {
+                            Some((Coin::from(item), stream_state))
+                        } else {
+                            None
+                        }
+                    }
+                    Err(error) => {
+                        tracing::error!(
+                            owner = ?stream_state.owner,
+                            coin_type = stream_state.coin_type.as_deref(),
+                            ?error,
+                            "error listing owned objects for owner",
+                        );
+                        None
+                    }
+                }
+            }
+        })
+    }
+}
+
+fn convert_to_coin(object: Object) -> Result<Coin, anyhow::Error> {
+    let struct_tag = object
+        .object_type
+        .context("no object_type in object")?
+        .parse::<StructTag>()
+        .context("parsing move object_type")?;
+    ensure!(
+        struct_tag.module.as_str() == "coin" && struct_tag.name.as_str() == "Coin",
+        "object is not a coin"
+    );
+    Ok(Coin {
+        coin_type: struct_tag.to_string(),
+        coin_object_id: object
+            .object_id
+            .context("no object_id in object")?
+            .parse()
+            .context("parsing object_id")?,
+        version: object.version.context("no version in object")?.into(),
+        digest: object
+            .digest
+            .context("no digest in object")?
+            .parse()
+            .context("parsing digest")?,
+        balance: object.balance.context("no balance in object")?,
+        previous_transaction: object
+            .previous_transaction
+            .context("no previous_transaction in object")?
+            .parse()
+            .context("parsing previous_transaction")?,
+    })
 }
 
 async fn batch_get_objects<T>(
