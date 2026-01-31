@@ -12436,6 +12436,7 @@ dependencies = [
  "tokio",
  "tracing",
  "uint 0.10.0",
+ "walrus-utils",
 ]
 
 [[package]]

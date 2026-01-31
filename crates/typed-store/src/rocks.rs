@@ -16,6 +16,7 @@ use std::{
     ops::{Bound, RangeBounds},
     path::{Path, PathBuf},
     sync::Arc,
+    time::Duration,
 };
 
 use bincode::Options;
@@ -49,6 +50,7 @@ use rocksdb::{
 use serde::{Serialize, de::DeserializeOwned};
 use tap::TapFallible;
 use tokio::sync::oneshot;
+use walrus_utils::tracing_sampled;
 
 use crate::{
     TypedStoreError,
@@ -75,6 +77,8 @@ const ENV_VAR_DB_WAL_SIZE: &str = "DB_WAL_SIZE_MB";
 const DEFAULT_DB_WAL_SIZE: usize = 1024;
 
 const ENV_VAR_DB_PARALLELISM: &str = "DB_PARALLELISM";
+
+const SLOW_OP_SAMPLED_TRACING_INTERVAL: Duration = Duration::from_secs(60);
 
 #[cfg(test)]
 mod tests;
@@ -1533,7 +1537,12 @@ impl DBBatch {
         }
         let elapsed = timer.stop_and_record();
         if elapsed > 1.0 {
-            tracing::warn!(?elapsed, ?db_name, "very slow batch write");
+            tracing_sampled::warn!(
+                SLOW_OP_SAMPLED_TRACING_INTERVAL,
+                ?elapsed,
+                ?db_name,
+                "very slow batch write"
+            );
             self.db_metrics
                 .op_metrics
                 .rocksdb_very_slow_batch_writes_count
@@ -1929,7 +1938,12 @@ where
 
         let elapsed = timer.stop_and_record();
         if elapsed > 1.0 {
-            tracing::warn!(?elapsed, cf = ?self.cf, "very slow insert");
+            tracing_sampled::warn!(
+                SLOW_OP_SAMPLED_TRACING_INTERVAL,
+                ?elapsed,
+                cf = ?self.cf,
+                "very slow insert"
+            );
             self.db_metrics
                 .op_metrics
                 .rocksdb_very_slow_puts_count
