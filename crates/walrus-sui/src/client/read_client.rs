@@ -48,6 +48,7 @@ use super::{
     retry_client::RetriableSuiClient,
 };
 use crate::{
+    client::retry_client::retriable_sui_client::MAX_GAS_PAYMENT_OBJECTS,
     coin::Coin,
     contracts::{self, AssociatedContractStruct, AssociatedContractStructWithPkgId, TypeOriginMap},
     types::{
@@ -701,7 +702,13 @@ impl SuiReadClient {
             CoinType::Sui => None,
         };
         self.sui_client
-            .select_coins(owner_address, coin_type_option, min_balance.into(), exclude)
+            .select_coins(
+                owner_address,
+                coin_type_option,
+                min_balance.into(),
+                exclude,
+                MAX_GAS_PAYMENT_OBJECTS,
+            )
             .await
             .map_err(|err| match err {
                 SuiClientError::SuiSdkError(sui_sdk::error::Error::InsufficientFund {
