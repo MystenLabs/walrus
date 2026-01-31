@@ -1,0 +1,47 @@
+---
+title: Examples
+description: Collection of code examples for Walrus integration including Python, JavaScript, and Move smart contract examples.
+keywords: ["walrus", "examples", "python", "javascript", "move", "smart contracts", "api", "integration", "code samples", "tutorial"]
+---
+
+This page shares several simple examples in different programming languages that showcase how to interact with Walrus through the various interfaces. They are located at https://github.com/MystenLabs/walrus/tree/main/docs/examples and described below.
+
+There are also actual applications built on top of Walrus, the primary example being [Walrus Sites](/docs/sites/introduction/components), a framework for deploying websites and hosting them through Walrus blobs. The code is available in the [Walrus Sites repository](https://github.com/MystenLabs/walrus-sites).
+
+For an example of how to build a static website and store it as a Walrus Site with GitHub actions, look at the [CI workflow](https://github.com/MystenLabs/walrus/blob/main/.github/workflows/publish-docs.yaml) used to publish this documentation site. There is also a [Walrus Sites GitHub action](https://github.com/zktx-io/walrus-sites-ga) created by the community. This action is not created or officially supported by the Walrus team.
+
+## Python
+
+The [Python examples](https://github.com/MystenLabs/walrus/tree/main/docs/examples/python) folder contains a number of examples:
+
+- How to use the HTTP API to store and read a blob.
+    <details>
+    <summary>
+    `hello_walrus_webapi.py`
+    </summary>
+    <ImportContent source="docs/examples/python/hello_walrus_webapi.py" mode="code" org="MystenLabs" repo="walrus" />
+    </details>
+- How to use the JSON API to store, read, and check the availability of a blob. Checking the certification of a blob illustrates reading the blob's corresponding Sui object.
+    <details>
+    <summary>
+    `hello_walrus_jsonapi.py`
+    </summary>
+    <ImportContent source="docs/examples/python/hello_walrus_jsonapi.py" mode="code" org="MystenLabs" repo="walrus" />
+    </details>
+- How to track Walrus related events.
+    <details>
+    <summary>
+    `track_walrus_events.py`
+    </summary>
+    <ImportContent source="docs/examples/python/track_walrus_events.py" mode="code" org="MystenLabs" repo="walrus" />
+    </details>
+
+## JavaScript
+
+A [JavaScript example](https://github.com/MystenLabs/walrus/tree/main/docs/examples/javascript) is provided showing how to upload and download a blob through a web form using the HTTP API.
+
+## Move
+
+For more complex applications, you might want to interact with Walrus on-chain objects. For that purpose, deployed Walrus contracts are included [in the Walrus GitHub repository](https://github.com/MystenLabs/walrus/tree/main/contracts).
+
+A basic [example contract](https://github.com/MystenLabs/walrus/tree/main/docs/examples/move) showcases how to import and use the Walrus objects.

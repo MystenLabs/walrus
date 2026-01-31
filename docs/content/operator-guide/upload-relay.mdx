@@ -3,6 +3,8 @@ title: The Walrus Upload Relay
 description: Complete guide to operating Walrus upload relays for facilitating browser-based blob storage with tip configuration and payment systems.
 ---
 
+{/* https://linear.app/mysten-labs/issue/DOCS-694/operator-guideupload-relay */}
+
 Walrus enables dApps to store data from within their end-users' browsers having low to moderate machine specifications (mobile devices, low-powered laptops, and so on). This browser-based scenario is difficult to achieve in practice with an in-browser process that directly communicates with the storage nodes due to the high number of network connections required to upload all slivers to all shards.
 
 The upload relay is a downloadable program that community members, Mysten Labs, and dApp writers themselves can run on internet-facing hosts to facilitate storing blob slivers onto the storage nodes on behalf of the end-users, thus mitigating browser resource consumption and enabling web-based store operations.
@@ -125,7 +127,7 @@ Below is an example of how you might place the configuration such that it is rea
 
 - `$HOME/.config/walrus/walrus_upload_relay_config.yaml` exists on the host machine and contains the configuration for the `walrus-upload-relay`, as described [in the configuration section](#configure-relay-specific-settings).
 
-- `$HOME/.config/walrus/client_config.yaml` exists on the host machine and contains Walrus client configuration as specified [in the CLI setup section](/usage/setup.mdx#configuration).
+- `$HOME/.config/walrus/client_config.yaml` exists on the host machine and contains Walrus client configuration as specified [in the CLI setup section](/docs/getting-started/advanced-setup#configuration).
 
 - Port 3000 is available for the relay to bind to. Change this to whichever port you'd like to expose from your host.
 

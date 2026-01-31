@@ -4,6 +4,8 @@ description: "Comprehensive guide for backing up and restoring Walrus storage no
 keywords: ["walrus", "backup", "restore", "storage node", "database", "recovery", "checkpoint", "administration", "operations"]
 ---
 
+{/* https://linear.app/mysten-labs/issue/DOCS-693/operator-guidebackup-restore-guide */}
+
 Walrus storage nodes provide backup and restore functionality for the primary database containing blob data. This guide covers configuration requirements, operational procedures, and best practices for both automated and manual backup processes, and restore operations.
 
 :::info
@@ -23,7 +25,7 @@ The current backup implementation creates full copies of the database files. Thi
 
 - [x] Unix or Linux operating system with support for Unix domain sockets.
 
-- [x] `walrus` [user account](/usage/started.mdx) with appropriate permissions.
+- [x] `walrus` [user account](/docs/getting-started) with appropriate permissions.
 
 - [x] Configure the local administration socket
 

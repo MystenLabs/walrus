@@ -1,0 +1,131 @@
+---
+title: Storage Costs
+description: "Comprehensive guide to Walrus storage costs including WAL tokens, SUI gas fees, and cost optimization strategies."
+keywords: ["walrus", "storage costs", "wal token", "sui gas", "cost optimization", "storage resources", "upload costs", "tokenomics"]
+---
+
+{/* https://linear.app/mysten-labs/issue/DOCS-633/system-overviewstorage-costs */}
+
+Storing blobs on Walrus Mainnet incurs two separate costs:
+
+1. WAL for the storage operation. You can learn more about the [WAL tokenomics](https://www.walrus.xyz/wal-token) and the role WAL plays in the [Walrus delegated proof of stake system](/walrus.pdf).
+
+1. SUI for executing transactions on Sui Mainnet. You can learn more about [SUI tokenomics](https://docs.sui.io/concepts/tokenomics) and how SUI [gas fees are calculated](https://docs.sui.io/concepts/tokenomics/gas-in-sui).
+
+:::caution 
+
+There are plans to stabilize costs to USD such that storage fees are not subject to WAL fluctuations. 
+
+:::
+
+## Cost calculator 
+
+Use the Walrus Cost Calculator for an interactive interface that can help estimate total storage costs: https://costcalculator.wal.app/
+
+For technical details on how costs are measured and calculated, refer to the [Measuring costs](#measuring-costs) section. 
+
+## Understanding sources of cost
+
+The sources of cost associated with Walrus Storage are:
+
+1. Acquiring storage resources
+
+1. Uploading blobs
+
+1. Creating Sui transactions
+
+1. Creating Sui objects on-chain
+
+### Storage resources 
+
+A storage resource is needed to store a blob, with an appropriate capacity and epoch duration. Storage resources can be acquired from the Walrus system contract while there is free space available on the system against some WAL. Other options are also available, such as receiving it from other parties, or splitting a larger resource bought occasionally into smaller resources.
+
+The size of the storage resource needed to store a blob and the size taken into account to pay for upload costs corresponds to the encoded size of a blob. The encoded size of a blob is the size of the erasure coded blob, which is about 5x larger than the unencoded original blob size, plus the size of metadata that is independent of the size of the blob. Since the fixed size per-blob metadata is quite large, at most about 64MB, the cost of storing small blobs (< 10MB) is dominated by this, and the size of storing larger blobs is dominated by their increasing size. See [Reducing costs for small blobs](#reducing-costs-for-small-blobs) for more information on cost optimization strategies.
+
+### Uploading blobs 
+
+Upon blob registration, some WAL is charged to cover the costs of data upload. This ensures that deleting blobs and reusing the same storage resource for storing a new blob is sustainable for the system.
+
+### Creating Sui transactions 
+
+Storing a blob involves up to 3 on-chain [transactions on Sui](https://docs.sui.io/concepts/transactions). One to acquire a storage resource, another that is possibly combined with the first to register the blob and associate it with a blob ID, and a final one to certify the blob as available. These incur gas fees in SUI to cover the costs of computation.
+
+### Creating Sui objects 
+
+Walrus blobs are represented as [Sui objects](https://docs.sui.io/guides/developer/objects/object-model) on-chain. Creating these objects sets aside some SUI into the [Sui storage fund](https://docs.sui.io/concepts/sui-architecture/sui-storage#storage-fund), and most of it is refunded when the objects are deleted after they are not needed anymore.
+
+## Measuring costs
+
+The most accurate way to measure costs is to upload a blob and observe the costs of SUI and WAL in a Sui explorer or directly through Sui RPC calls. Blob contents do not affect costs.
+
+For example, the following command results in 2 transactions:
+
+```
+$ walrus store <FILENAME> --epochs 1
+```
+
+1. The first transaction performs a `reserve_space` if no storage resource of appropriate size exists and `register_blob`. This affects the balances of both SUI and WAL. The SUI cost of `register_blob` is independent of blob size or epoch lifetime. The WAL costs of `register_blob` are linear in the encoded size of the blob, both erasure coding and metadata. Calls to `reserve_space` have SUI costs that grow in the number of epochs, and WAL costs linear with both encoded size and the number of epochs.
+
+2. The second performs a single call to `certify_blob` and only changes the SUI balance. The SUI cost of `certify_blob` is independent of blob size or epoch lifetime.
+
+You can observe the [storage rebate](https://docs.sui.io/concepts/sui-architecture/sui-storage#storage-rebates) on an explorer by burning the resulting blob objects using the command:
+
+```
+$ walrus burn-blobs --object-ids <BLOB_OBJECT_ID>
+```
+
+Burning the object on Sui does not delete the blob on Walrus.
+
+### Estimating costs programmatically
+
+A few commands output information that can assist in cost estimations without submitting transactions:
+
+- The `walrus info` command displays the current costs for buying storage resources from the system contract and cost of uploads.
+
+- The `walrus store --dry-run ...` command outputs the encoded size that is used in calculations of WAL costs. The `--dry-run` parameter ensures no transactions are submitted on-chain.
+
+## Acquiring storage resources
+
+You can acquire storage resources through different methods. Each method impacts the total storage cost:
+
+1. **Purchase from system contract**: Send WAL to the Walrus system contract to buy a storage resource for a specific size in bytes and lifetime in epochs. The `walrus info` command will display the current cost of buying storage resources from the storage contract.
+
+2. **Reuse existing resources you already own**: The CLI client automatically uses any user-owned storage resource of appropriate size and duration before purchasing new storage.
+
+3. **Transfer or trade**: Storage resources can be transferred between users or acquired through future marketplace implementations.
+
+## Optimizing storage resource costs
+
+The Walrus CLI uses strategies to lower costs, but is not guaranteed to be optimal for all use-cases. For high volume or other cost sensitive users, consider the following strategies to reduce costs.
+
+### Reducing costs for small blobs with Quilt
+
+Walrus [Quilt](/docs/system-overview/quilt) is a batch storage tool that reduces storage costs for small blobs. When multiple blobs are stored together, the metadata costs are amortized across the batch. Quilt can also significantly reduce Sui computation and storage costs.
+
+### Buy larger resources in bulk
+
+Acquiring resources from the system contract requires at least one Sui transaction with a complex shared object smart contract. Purchasing larger storage resources at once, both in size and duration, minimizes SUI gas costs. You can then split and merge these resources as needed for smaller blobs or shorter time periods.
+
+### Use Sui PTBs efficiently
+
+Pack multiple smart contract calls into a single Sui [programmable transaction block (PTB)](https://docs.sui.io/concepts/transactions/prog-txn-blocks) to manage storage resource acquisition, splitting, and merging. This approach reduces both latency and costs.
+
+### Reclaim and reuse storage
+
+Storage resources can be reclaimed and reused by deleting non-expired blobs that were configure as deletable when created.. If your dApp only needs to store data for less than a full epoch (2 weeks on Mainnet), you can reduce costs by actively deleting blobs and reusing the storage space.
+
+## Optimizing blob operation costs
+
+You can also reduce costs by optimizing blob operations.
+
+### Batch blob operations
+
+Registering and certifying blobs costs SUI for gas and WAL for uploads. While each blob must go through both operations, you can register or certify multiple blobs in a single Sui PTB to reduce latency and costs. The CLI client uses this approach when uploading multiple blobs simultaneously.
+
+### Manage blob objects efficiently 
+
+Each blob stored on Walrus creates a Sui object containing metadata. While these objects are small, storage on Sui is expensive and costs accumulate. Once a blob's validity period expires, burn the blob object to reclaim most of the Sui storage costs through a [storage rebate](https://docs.sui.io/concepts/sui-architecture/sui-storage#storage-rebates). This does not delete the blob data on Walrus.
+
+### Consider blob object lifecycle
+
+Blob objects manage blob lifecycle operations such as extending lifetimes, deleting blobs to reclaim storage, or adding attributes. If you no longer need these capabilities, burn the blob object through the CLI or a smart contract call to save on Sui storage costs. Depending on the relative costs of SUI and WAL, it might be cheaper to burn a long-lived blob object and re-register and re-certify it close to the end of its lifetime to extend storage.
