@@ -357,9 +357,12 @@ mod tests {
 
     /// Expands to a #[tokio::test] that fetches WAL price from a source and checks that the
     /// associated metric was updated correctly.
+    /// Note: this test is ignored by default because it hits external APIs. They will be run
+    /// in CI to make sure that the output from these data sources are parsed correctly.
     macro_rules! test_fetch_from_source {
         ($test_name:ident, $fetcher_type:ty, $source:expr) => {
             #[tokio::test]
+            #[ignore = "ignore tests that hit external APIs"]
             async fn $test_name() {
                 use walrus_utils::metrics::Registry;
 
