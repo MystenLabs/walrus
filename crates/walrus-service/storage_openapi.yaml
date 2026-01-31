@@ -30,6 +30,22 @@ paths:
         required: true
         schema:
           $ref: '#/components/schemas/ObjectID'
+      - name: wait_for_registration
+        in: query
+        description: Wait for registration events before returning a confirmation.
+        required: false
+        schema:
+          type: boolean
+        style: form
+      - name: wait_millis
+        in: query
+        description: Maximum time to wait (in milliseconds). Defaults to the server max if not set.
+        required: false
+        schema:
+          type: integer
+          format: int64
+          minimum: 0
+        style: form
       responses:
         '200':
           description: A signed confirmation of storage
@@ -64,6 +80,22 @@ paths:
         required: true
         schema:
           $ref: '#/components/schemas/BlobId'
+      - name: wait_for_registration
+        in: query
+        description: Wait for registration events before returning a confirmation.
+        required: false
+        schema:
+          type: boolean
+        style: form
+      - name: wait_millis
+        in: query
+        description: Maximum time to wait (in milliseconds). Defaults to the server max if not set.
+        required: false
+        schema:
+          type: integer
+          format: int64
+          minimum: 0
+        style: form
       responses:
         '200':
           description: A signed confirmation of storage
