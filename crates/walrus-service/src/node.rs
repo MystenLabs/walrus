@@ -201,6 +201,7 @@ pub mod config;
 pub mod contract_service;
 pub mod dbtool;
 pub mod event_blob_writer;
+mod ref_counted_notify_map;
 mod registration_notifier;
 pub mod server;
 pub mod system_events;
