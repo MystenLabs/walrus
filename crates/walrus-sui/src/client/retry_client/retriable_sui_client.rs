@@ -28,7 +28,6 @@ use sui_sdk::{
     error::Error as SuiSdkError,
     rpc_types::{
         Balance,
-        Coin,
         DryRunTransactionBlockResponse,
         ObjectsPage,
         SuiCommittee,
@@ -78,6 +77,7 @@ use crate::{
         SuiClientMetricSet,
         dual_client::{BcsDatapack, DualClient},
     },
+    coin::Coin,
     contracts::{self, AssociatedContractStruct, MoveConversionError, TypeOriginMap},
     types::{
         BlobEvent,
@@ -504,7 +504,7 @@ impl RetriableSuiClient {
             ),
             move |(mut data, cursor, has_next_page, coin_type)| async move {
                 if let Some(item) = data.pop() {
-                    Some((item, (data, cursor, has_next_page, coin_type)))
+                    Some((Coin::from(item), (data, cursor, has_next_page, coin_type)))
                 } else if has_next_page {
                     let page = self
                         .failover_sui_client
@@ -544,7 +544,7 @@ impl RetriableSuiClient {
                     data.reverse();
                     data.pop().map(|item| {
                         (
-                            item,
+                            Coin::from(item),
                             (data, page.next_cursor, page.has_next_page, coin_type),
                         )
                     })

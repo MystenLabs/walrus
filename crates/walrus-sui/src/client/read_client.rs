@@ -19,7 +19,6 @@ use futures::FutureExt as _;
 use sui_sdk::{
     apis::EventApi,
     rpc_types::{
-        Coin,
         EventFilter,
         SuiEvent,
         SuiObjectData,
@@ -49,6 +48,7 @@ use super::{
     retry_client::RetriableSuiClient,
 };
 use crate::{
+    coin::Coin,
     contracts::{self, AssociatedContractStruct, AssociatedContractStructWithPkgId, TypeOriginMap},
     types::{
         BlobEvent,
