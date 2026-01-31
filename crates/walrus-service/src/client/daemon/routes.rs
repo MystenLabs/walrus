@@ -1586,6 +1586,11 @@ pub struct PublisherQuery {
     /// number of epochs.
     #[serde(default)]
     pub force: bool,
+    /// If true, enable pending (optimistic) uploads for eligible blobs.
+    ///
+    /// Requires `communication_config.pending_uploads_enabled` in the client config.
+    #[serde(default)]
+    pub pending_uploads: bool,
     /// The quilt version to use (for quilt endpoints only).
     /// Valid values: "v1", "V1", or "1". Defaults to "v1" if not specified.
     #[serde(default)]
@@ -1610,6 +1615,7 @@ impl Default for PublisherQuery {
             deletable: false,
             permanent: false,
             force: false,
+            pending_uploads: false,
             quilt_version: None,
             send_or_share: None,
         }
@@ -1621,7 +1627,9 @@ impl PublisherQuery {
     ///
     /// The publisher always ignores existing resources.
     fn optimizations(&self) -> StoreOptimizations {
-        StoreOptimizations::none().with_check_status(!self.force)
+        StoreOptimizations::none()
+            .with_check_status(!self.force)
+            .with_optimistic_uploads(self.pending_uploads)
     }
 
     /// Returns the [`BlobPersistence`] value based on the query parameters.
@@ -1943,6 +1951,13 @@ mod tests {
                 Some(
                     PublisherQuery {
                         force: true,
+                        ..Default::default()
+            })),
+            pending_uploads: (
+                "pending_uploads=true",
+                Some(
+                    PublisherQuery {
+                        pending_uploads: true,
                         ..Default::default()
             })),
             share: (
