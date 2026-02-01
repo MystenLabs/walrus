@@ -43,7 +43,7 @@ bytes = { version = "1.11.0", default-features = false, features = ["serde"] }
 bytesize = "2.3"
 checkpoint-downloader = { path = "crates/checkpoint-downloader" }
 chrono = "0.4"
-clap = { version = "4.5.55", features = ["deprecated", "derive"] }
+clap = { version = "4.5.56", features = ["deprecated", "derive"] }
 clap_complete = "4.5.65"
 collectable = "0.0.2"
 colored = "2.2.0"
@@ -150,7 +150,7 @@ tokio = { version = "=1.47.1", features = ["macros", "rt-multi-thread", "signal"
 tokio-metrics = { version = "0.4.7", default-features = false }
 tokio-stream = "0.1.17"
 tokio-util = "0.7.16"
-tonic = { version = "0.14.2", default-features = false }
+tonic = { version = "0.14.3", default-features = false }
 tower = "0.5"
 tower-http = { version = "0.5.2", features = ["cors", "timeout", "trace"] }
 tracing = "0.1.44"
