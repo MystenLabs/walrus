@@ -9,6 +9,7 @@
 #[macro_use]
 pub mod utils;
 pub mod client;
+pub mod coin;
 pub mod config;
 pub mod contracts;
 pub mod system_setup;
