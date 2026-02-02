@@ -33,6 +33,14 @@ Where the world's data becomes reliable, valuable, and governable
 - [System Overview](/design/overview): Overview of Walrus system architecture and encoding mechanisms for decentralized blob storage.
 - [Walrus Assurance and Security Properties](/design/properties): Detailed security properties and assurances of Walrus including point of availability, consistency guarantees, and Byzantine fault tolerance.
 
+## Dev guide
+
+- [Redirecting...](/dev-guide/components)
+- [Redirecting...](/dev-guide/costs)
+- [Redirecting...](/dev-guide/data-security)
+- [Redirecting...](/dev-guide/dev-operations)
+- [Redirecting...](/dev-guide/sui-struct)
+
 ## Example 1
 
 - [No title](/example-1)
@@ -139,7 +147,17 @@ Where the world's data becomes reliable, valuable, and governable
 
 ## Usage
 
+- [Redirecting...](/usage/client-cli)
+- [Redirecting...](/usage/examples)
+- [Redirecting...](/usage/glossary)
+- [Redirecting...](/usage/json-api)
+- [Redirecting...](/usage/networks)
+- [Redirecting...](/usage/quilt)
+- [Redirecting...](/usage/sdks)
+- [Redirecting...](/usage/stake)
+- [Redirecting...](/usage/started)
 - [Redirecting…](/usage/troubleshooting): Redirecting… If you are not redirected, go to /docs/troubleshooting.
+- [Redirecting...](/usage/web-api)
 
 ## Walrus client
 
@@ -149,3 +167,26 @@ Where the world's data becomes reliable, valuable, and governable
 - [Managing Blobs](/walrus-client/managing-blobs): Walrus blob lifetimes can be extended using the walrus extend --blob-obj-id ... command as long as the blob is not expired. Both address owned blobs and shared blobs can have their lifetime extended. Shared blobs can be extended by anyone, but owned blobs can only be extended by their owner. When extending a shared blob, you need to supply the --shared flag to inform the command that the blob is shared.
 - [Reading Blobs](/walrus-client/reading-blobs): Comprehensive guide to using the Walrus CLI for reading blobs with detailed command examples.
 - [Storing Blobs](/walrus-client/storing-blobs): Use the command-line interface (CLI) to interact with the Walrus client. The CLI is available through installing the walrus binary. See the getting started documentation for prerequisites, installation, and configuration.
+
+## Walrus sites
+
+- [Redirecting...](/walrus-sites/advanced)
+- [Redirecting...](/walrus-sites/authentication)
+- [Redirecting...](/walrus-sites/avoid-duplicate-content-seo)
+- [Redirecting...](/walrus-sites/bring-your-own-domain)
+- [Redirecting...](/walrus-sites/builder-config)
+- [Redirecting...](/walrus-sites/ci-cd-gh-secrets-vars)
+- [Redirecting...](/walrus-sites/ci-cd-gh-workflow)
+- [Redirecting...](/walrus-sites/ci-cd)
+- [Redirecting...](/walrus-sites/commands)
+- [Redirecting...](/walrus-sites/intro)
+- [Redirecting...](/walrus-sites/linking)
+- [Redirecting...](/walrus-sites/overview)
+- [Redirecting...](/walrus-sites/portal)
+- [Redirecting...](/walrus-sites/redirects)
+- [Redirecting...](/walrus-sites/restrictions)
+- [Redirecting...](/walrus-sites/routing)
+- [Redirecting...](/walrus-sites/tutorial-install)
+- [Redirecting...](/walrus-sites/tutorial-publish)
+- [Redirecting...](/walrus-sites/tutorial-suins)
+- [Redirecting...](/walrus-sites/tutorial)
