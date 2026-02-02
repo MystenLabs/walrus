@@ -22,15 +22,8 @@ Create as many sidebars as you want.
 
 const sidebars = {
     docsSidebar: [
-  {
-      type: 'category',
-      label: 'Getting Started',
-      collapsed: false,
-      items: [
-        'getting-started/index',
-        'getting-started/advanced-setup',
-      ],
-    },
+      'getting-started/index',
+      'getting-started/advanced-setup',
     {
       type: 'category',
       label: 'System Overview',
