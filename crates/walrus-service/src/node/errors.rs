@@ -16,6 +16,8 @@ use walrus_core::{
     Epoch,
     SUPPORTED_ENCODING_TYPES,
     ShardIndex,
+    SliverIndex,
+    SliverPairIndex,
     encoding::SliverVerificationError,
     inconsistency::InconsistencyVerificationError,
     messages::MessageVerificationError,
@@ -309,6 +311,16 @@ pub enum StoreSliverError {
     #[error("the provided sliver is invalid: {0}")]
     #[rest_api_error(reason = "INVALID_SLIVER", status = ApiStatusCode::InvalidArgument)]
     InvalidSliver(#[from] SliverVerificationError),
+
+    /// The sliver's index is inconsistent with the requested sliver pair index.
+    #[error(
+        "sliver index {sliver_index} is inconsistent with sliver pair index {sliver_pair_index}"
+    )]
+    #[rest_api_error(reason = "SLIVER_INDEX_MISMATCH", status = ApiStatusCode::InvalidArgument)]
+    SliverIndexMismatch {
+        sliver_pair_index: SliverPairIndex,
+        sliver_index: SliverIndex,
+    },
 
     #[error(transparent)]
     #[rest_api_error(delegate)]
