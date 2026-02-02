@@ -5,7 +5,7 @@ on:
     branches:
       - "main"
     paths:
-      - "docs/site/**"
+      - "docs/**"
       - ".github/workflows/publish-docs.yaml"
   workflow_dispatch:
     inputs:
