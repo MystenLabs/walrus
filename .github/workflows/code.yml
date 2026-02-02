@@ -137,7 +137,6 @@ jobs:
       - name: Run all unit tests and doctests with `cargo test`
         run: cargo test
 
-
   simtests:
     name: Run all simtests
     needs: diff
