@@ -236,6 +236,10 @@ public(package) fun voting_end(self: &mut StakingInnerV1, clock: &Clock) {
 }
 
 /// Selects the committee for the next epoch.
+///
+/// Price votes (storage and write prices) are no longer computed here, as they take effect
+/// immediately when a price vote is cast via `set_storage_price_vote` or
+/// `set_write_price_vote`. Only capacity votes are computed for the next epoch parameters.
 public(package) fun select_committee_and_calculate_votes(self: &mut StakingInnerV1) {
     assert!(self.next_committee.is_none(), ECommitteeSelected);
 
@@ -245,13 +249,11 @@ public(package) fun select_committee_and_calculate_votes(self: &mut StakingInner
     let (node_ids, shard_assignments) = (*committee.inner()).into_keys_values();
 
     // Prepare voting parameters.
-    let mut write_prices = priority_queue::new(vector[]);
-    let mut storage_prices = priority_queue::new(vector[]);
     let mut capacity_votes = priority_queue::new(vector[]);
 
     // Iterate over the next committee to do the following:
     // - store the next epoch public keys for the nodes
-    // - calculate the votes for the next epoch parameters
+    // - calculate the capacity votes for the next epoch parameters
     node_ids.length().do!(|idx| {
         let id = node_ids[idx];
         let pool = &self.pools[id];
@@ -263,9 +265,6 @@ public(package) fun select_committee_and_calculate_votes(self: &mut StakingInner
         // Store the public key for the node.
         public_keys.push_back(*pool.node_info().next_epoch_public_key());
 
-        // Perform calculation of the votes.
-        write_prices.insert(pool.write_price(), weight);
-        storage_prices.insert(pool.storage_price(), weight);
         // Perform calculation for the capacity vote on u128 to prevent overflows.
         let capacity_vote =
             (pool.node_capacity() as u128 * (self.n_shards as u128)) / (weight as u128);
@@ -279,10 +278,12 @@ public(package) fun select_committee_and_calculate_votes(self: &mut StakingInner
     self.next_epoch_public_keys.swap(public_keys);
     self.next_committee = option::some(committee);
 
+    // Prices are no longer part of next_epoch_params; they are applied immediately
+    // when votes are cast. Only capacity is computed for the next epoch.
     let epoch_params = epoch_parameters::new(
         quorum_above(&mut capacity_votes, self.n_shards),
-        quorum_below(&mut storage_prices, self.n_shards),
-        quorum_below(&mut write_prices, self.n_shards),
+        0, // storage price - not used, prices are set immediately on vote
+        0, // write price - not used, prices are set immediately on vote
     );
 
     self.next_epoch_params = option::some(epoch_params);
@@ -357,21 +358,65 @@ public(package) fun set_next_commission(
 }
 
 /// Sets the storage price vote for the pool.
+/// After storing the vote, recalculates the quorum price from the current committee
+/// and returns it so it can be applied immediately to the system.
 public(package) fun set_storage_price_vote(
     self: &mut StakingInnerV1,
     cap: &StorageNodeCap,
     storage_price: u64,
-) {
+): u64 {
     self.pools[cap.node_id()].set_next_storage_price(storage_price);
+    self.recalculate_storage_price()
 }
 
 /// Sets the write price vote for the pool.
+/// After storing the vote, recalculates the quorum price from the current committee
+/// and returns it so it can be applied immediately to the system.
 public(package) fun set_write_price_vote(
     self: &mut StakingInnerV1,
     cap: &StorageNodeCap,
     write_price: u64,
-) {
+): u64 {
     self.pools[cap.node_id()].set_next_write_price(write_price);
+    self.recalculate_write_price()
+}
+
+/// Recalculates a quorum price from the current committee using `quorum_below`.
+/// The `$get_price` closure extracts the relevant price from a `StakingPool`.
+/// Returns 0 if the committee is empty (e.g., during epoch 0 before the first committee
+/// is formed).
+macro fun recalculate_quorum_price(
+    $self: &StakingInnerV1,
+    $get_price: |&staking_pool::StakingPool| -> u64,
+): u64 {
+    let self_ref = $self;
+    let committee_inner = self_ref.committee.inner();
+    let size = committee_inner.length();
+
+    // No committee yet (epoch 0), cannot compute quorum.
+    if (size == 0) {
+        0
+    } else {
+        let mut prices = priority_queue::new(vector[]);
+        size.do!(|idx| {
+            let (node_id, shards) = committee_inner.get_entry_by_idx(idx);
+            let weight = shards.length();
+            let pool = &self_ref.pools[*node_id];
+            prices.insert($get_price(pool), weight);
+        });
+
+        quorum_below(&mut prices, self_ref.n_shards)
+    }
+}
+
+/// Recalculates the storage price quorum from the current committee's voted prices.
+fun recalculate_storage_price(self: &StakingInnerV1): u64 {
+    self.recalculate_quorum_price!(|pool| pool.storage_price())
+}
+
+/// Recalculates the write price quorum from the current committee's voted prices.
+fun recalculate_write_price(self: &StakingInnerV1): u64 {
+    self.recalculate_quorum_price!(|pool| pool.write_price())
 }
 
 /// Sets the node capacity vote for the pool.
@@ -619,11 +664,12 @@ fun max_shards_per_node(n_nodes: u64, n_shards: u64): u64 {
 }
 
 /// Initiates the epoch change if the current time allows.
+/// Returns (new_storage_price, new_write_price) recalculated from the new committee.
 public(package) fun initiate_epoch_change(
     self: &mut StakingInnerV1,
     clock: &Clock,
     rewards: VecMap<ID, Balance<WAL>>,
-) {
+): (u64, u64) {
     let last_epoch_change = match (self.epoch_state) {
         EpochState::NextParamsSelected(last_epoch_change) => last_epoch_change,
         _ => abort EWrongEpochState,
@@ -634,11 +680,16 @@ public(package) fun initiate_epoch_change(
     if (self.epoch == 0) assert!(now >= self.first_epoch_start, EWrongEpochState)
     else assert!(now >= last_epoch_change + self.epoch_duration, EWrongEpochState);
 
-    self.advance_epoch(rewards);
+    self.advance_epoch(rewards)
 }
 
 /// Sets the next epoch of the system and emits the epoch change start event.
-public(package) fun advance_epoch(self: &mut StakingInnerV1, rewards: VecMap<ID, Balance<WAL>>) {
+/// Returns (new_storage_price, new_write_price) recalculated from the new committee
+/// so the caller can apply them to the system immediately.
+public(package) fun advance_epoch(
+    self: &mut StakingInnerV1,
+    rewards: VecMap<ID, Balance<WAL>>,
+): (u64, u64) {
     assert!(self.next_committee.is_some(), EWrongEpochState);
 
     self.epoch = self.epoch + 1;
@@ -671,6 +722,11 @@ public(package) fun advance_epoch(self: &mut StakingInnerV1, rewards: VecMap<ID,
 
     // Emit epoch change start event.
     events::emit_epoch_change_start(self.epoch);
+
+    // Recalculate prices from the new committee so they can be applied immediately.
+    let new_storage_price = self.recalculate_storage_price();
+    let new_write_price = self.recalculate_write_price();
+    (new_storage_price, new_write_price)
 }
 
 /// Signals to the contract that the node has received all its shards for the new epoch.

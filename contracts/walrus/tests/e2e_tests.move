@@ -281,13 +281,16 @@ fun node_voting_parameters() {
         nodes.do_ref!(|node| assert!(system.committee().contains(&node.node_id())));
     });
 
-    runner.tx!(admin, |staking, _, _| {
+    // After initiate_epoch_change, prices are immediately applied to the system
+    // from the new committee's quorum calculation.
+    // values are: 1000, 2000, 3000, 4000, 5000, 6000, 7000 (picked), 8000, 9000, 10000
+    runner.tx!(admin, |staking, system, _| {
         let inner = staking.inner_for_testing();
         let params = inner.next_epoch_params();
 
-        // values are: 1000, 2000, 3000, 4000, 5000, 6000, 7000 (picked), 8000, 9000, 10000
-        assert_eq!(params.storage_price(), 7000);
-        assert_eq!(params.write_price(), 7000);
+        // Prices are no longer set in next_epoch_params (they take effect immediately).
+        assert_eq!(params.storage_price(), 0);
+        assert_eq!(params.write_price(), 0);
 
         // node capacities are: 1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 10000
         // votes:  10000, 20000, 30000, 40000 (picked), 50000, 60000, 70000, 80000, 90000, 100000

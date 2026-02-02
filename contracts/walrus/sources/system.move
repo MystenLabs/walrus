@@ -49,6 +49,18 @@ public(package) fun create_empty(max_epochs_ahead: u32, package_id: ID, ctx: &mu
     transfer::share_object(system);
 }
 
+/// Sets the storage price per unit size. Called when a price vote is cast and the quorum
+/// price is recalculated from the current committee.
+public(package) fun set_storage_price(self: &mut System, price: u64) {
+    self.inner_mut().set_storage_price(price);
+}
+
+/// Sets the write price per unit size. Called when a price vote is cast and the quorum
+/// price is recalculated from the current committee.
+public(package) fun set_write_price(self: &mut System, price: u64) {
+    self.inner_mut().set_write_price(price);
+}
+
 /// Update epoch to next epoch, and update the committee, price and capacity.
 ///
 /// Called by the epoch change function that connects `Staking` and `System`. Returns
