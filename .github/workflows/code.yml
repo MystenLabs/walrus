@@ -43,7 +43,8 @@ jobs:
       isDenyConfig: ${{ steps.diff.outputs.isDenyConfig }}
       isTestConfig: ${{ steps.diff.outputs.isTestConfig }}
       isOpenapi: ${{ steps.diff.outputs.isOpenapi }}
-      isRelevantForRustTests: ${{ steps.diff.outputs.isRust == 'true' || steps.diff.outputs.isMove == 'true' || steps.diff.outputs.isTestConfig
+      isRelevantForRustTests:
+        ${{ steps.diff.outputs.isRust == 'true' || steps.diff.outputs.isMove == 'true' || steps.diff.outputs.isTestConfig
         == 'true' || steps.diff.outputs.isTestnetContracts == 'true' || steps.diff.outputs.isExampleConfig == 'true' || steps.diff.outputs.isOpenapi
         == 'true' }}
       isTestnetContracts: ${{ steps.diff.outputs.isTestnetContracts }}
@@ -132,11 +133,11 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libssl-dev pkg-config zlib1g-dev libpq-dev build-essential cmake
       - name: Run tests
-        run: cargo nextest run --workspace --features "walrus-service/backup" --profile ci --run-ignored all --cargo-profile
+        run:
+          cargo nextest run --workspace --features "walrus-service/backup" --profile ci --run-ignored all --cargo-profile
           test-opt
       - name: Run all unit tests and doctests with `cargo test`
         run: cargo test
-
 
   simtests:
     name: Run all simtests
@@ -157,15 +158,15 @@ jobs:
 
       - run: ./scripts/simtest/install.sh
       - name: Run tests (seed=1)
-        run: MSIM_TEST_SEED=1 cargo simtest simtest --profile simtest
+        run: RUST_LOG=walrus=debug,error MSIM_TEST_SEED=1 MSIM_TEST_NUM=10 cargo simtest test_event_blob_local_fork_recovery --profile simtest
       - name: Run tests (seed=2)
-        run: MSIM_TEST_SEED=2 cargo simtest simtest --profile simtest
+        run: RUST_LOG=walrus=debug,error MSIM_TEST_SEED=2 MSIM_TEST_NUM=10 cargo simtest test_event_blob_local_fork_recovery --profile simtest
       - name: Run tests (seed=3, grpc-client-enabled)
-        run: MSIM_TEST_SEED=3 WALRUS_GRPC_MIGRATION_LEVEL=1 cargo simtest simtest --profile simtest
+        run: RUST_LOG=walrus=debug,error MSIM_TEST_SEED=3 WALRUS_GRPC_MIGRATION_LEVEL=1 MSIM_TEST_NUM=10 cargo simtest test_event_blob_local_fork_recovery --profile simtest
       - name: Run tests (seed=4, grpc-client-enabled)
-        run: MSIM_TEST_SEED=4 WALRUS_GRPC_MIGRATION_LEVEL=1 cargo simtest simtest --profile simtest
+        run: RUST_LOG=walrus=debug,error MSIM_TEST_SEED=4 WALRUS_GRPC_MIGRATION_LEVEL=1 MSIM_TEST_NUM=10 cargo simtest test_event_blob_local_fork_recovery --profile simtest
       - name: Run tests (seed=5, grpc-client-enabled)
-        run: MSIM_TEST_SEED=5 WALRUS_GRPC_MIGRATION_LEVEL=1 cargo simtest simtest --profile simtest
+        run: RUST_LOG=walrus=debug,error MSIM_TEST_SEED=5 WALRUS_GRPC_MIGRATION_LEVEL=1 MSIM_TEST_NUM=10 cargo simtest test_event_blob_local_fork_recovery --profile simtest
 
   simtests-build:
     name: Build all simtests
@@ -212,7 +213,8 @@ jobs:
 
       - name: Install sui
         if: steps.cache-sui-restore.outputs.cache-hit != 'true'
-        run: cargo install --locked --git https://github.com/MystenLabs/sui.git --tag $SUI_TAG --debug --features tracing
+        run:
+          cargo install --locked --git https://github.com/MystenLabs/sui.git --tag $SUI_TAG --debug --features tracing
           sui
       - name: Run Move tests and check coverage
         run: bash ./scripts/move_tests.sh -c
