@@ -135,10 +135,18 @@ mod tests {
             .join("db");
         let file_path = path.join("last_certified_blob_without_metadata");
         if file_path.exists() {
+            tracing::error!(
+                "removing last_certified_blob_without_metadata file: path={:?}",
+                file_path
+            );
             fs::remove_file(file_path).unwrap();
         }
         let file_path = path.join("last_certified_blob_with_metadata");
         if file_path.exists() {
+            tracing::error!(
+                "removing last_certified_blob_with_metadata file: path={:?}",
+                file_path
+            );
             fs::remove_file(file_path).unwrap();
         }
     }
@@ -271,29 +279,45 @@ mod tests {
                 .await
                 .unwrap();
 
+        tracing::error!("ZZZZZ 1");
+
         let client = Arc::new(client);
+
+        tracing::error!("ZZZZZ 2");
 
         // Run workload to get some event blobs certified
         tokio::time::sleep(Duration::from_secs(30)).await;
 
+        tracing::error!("ZZZZZ 3");
+
         // Restart nodes with different checkpoint numbers to create fork
         simtest_utils::restart_node_with_checkpoints(&mut walrus_cluster, 0, |i| 30 + i as u32)
             .await;
+
+        tracing::error!("ZZZZZ 4");
 
         // Wait for event blob certification to get stuck
         wait_for_event_blob_writer_to_fork(&mut walrus_cluster, &client, 0)
             .await
             .unwrap();
 
+        tracing::error!("ZZZZZ 5");
+
         remove_both_recovery_files_before_start(&walrus_cluster.nodes[0]);
+
+        tracing::error!("ZZZZZ 6");
 
         // Restart nodes with same checkpoint number to recover
         simtest_utils::restart_node_with_checkpoints(&mut walrus_cluster, 0, |_| 20).await;
+
+        tracing::error!("ZZZZZ 7");
 
         // Verify recovery
         wait_for_event_blob_writer_to_recover(&walrus_cluster.nodes[0])
             .await
             .unwrap();
+
+        tracing::error!("ZZZZZ 8");
     }
 
     /// This integration test simulates pausing checkpoint tailing to trigger runtime catchup.
