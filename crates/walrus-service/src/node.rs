@@ -75,9 +75,7 @@ use walrus_core::{
         EncodingAxis,
         EncodingConfig,
         GeneralRecoverySymbol,
-        Primary,
         RecoverySymbolError,
-        Secondary,
         SliverData,
         source_symbols_for_n_shards,
     },
@@ -3285,11 +3283,11 @@ impl StorageNodeInner {
 
         let primary_index = symbol_id.primary_sliver_index();
         self.check_index(primary_index)?;
-        let primary_pair_index = primary_index.to_pair_index::<Primary>(n_shards);
+        let primary_pair_index = primary_index.to_pair_index(n_shards, SliverType::Primary);
 
         let secondary_index = symbol_id.secondary_sliver_index();
         self.check_index(secondary_index)?;
-        let secondary_pair_index = secondary_index.to_pair_index::<Secondary>(n_shards);
+        let secondary_pair_index = secondary_index.to_pair_index(n_shards, SliverType::Secondary);
 
         let owned_shards = self.owned_shards_at_latest_epoch();
 
@@ -3426,11 +3424,12 @@ impl StorageNodeInner {
                     match *target_type {
                         SliverType::Primary => SymbolId::new(
                             *target,
-                            pair_stored.to_sliver_index::<Secondary>(n_shards),
+                            pair_stored.to_sliver_index(n_shards, SliverType::Secondary),
                         ),
-                        SliverType::Secondary => {
-                            SymbolId::new(pair_stored.to_sliver_index::<Primary>(n_shards), *target)
-                        }
+                        SliverType::Secondary => SymbolId::new(
+                            pair_stored.to_sliver_index(n_shards, SliverType::Primary),
+                            *target,
+                        ),
                     }
                 };
                 Either::Right(self.owned_shards_at_latest_epoch().into_iter().map(map_fn))
@@ -3927,6 +3926,13 @@ impl ServiceState for StorageNodeInner {
         intent: UploadIntent,
     ) -> Result<bool, StoreSliverError> {
         self.check_index(sliver_pair_index)?;
+        let n_shards = self.n_shards();
+        let sliver_index = sliver.sliver_index();
+        ensure!(
+            sliver_pair_index == sliver_index.to_pair_index(n_shards, sliver.r#type()),
+            anyhow!("sliver index mismatch").into()
+        );
+
         let (metadata_persisted, persisted) = self
             .resolve_metadata_for_sliver(&blob_id, intent.is_pending())
             .await?;
@@ -8835,7 +8841,7 @@ mod tests {
                 )?;
 
                 let target_pair_index =
-                    target_sliver_index.to_pair_index::<Primary>(n_shards_nonzero);
+                    target_sliver_index.to_pair_index(n_shards_nonzero, SliverType::Primary);
                 let expected_sliver = &blob_detail[0]
                     .pairs
                     .iter()
@@ -8862,7 +8868,7 @@ mod tests {
                 )?;
 
                 let target_pair_index =
-                    target_sliver_index.to_pair_index::<Secondary>(n_shards_nonzero);
+                    target_sliver_index.to_pair_index(n_shards_nonzero, SliverType::Secondary);
                 let expected_sliver = &blob_detail[0]
                     .pairs
                     .iter()

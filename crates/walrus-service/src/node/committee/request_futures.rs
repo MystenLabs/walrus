@@ -272,12 +272,7 @@ where
         shared: &'a NodeCommitteeServiceInner<T>,
     ) -> Self {
         Self {
-            target_index: match target_sliver_type {
-                SliverType::Primary => sliver_id.to_sliver_index::<Primary>(metadata.n_shards()),
-                SliverType::Secondary => {
-                    sliver_id.to_sliver_index::<Secondary>(metadata.n_shards())
-                }
-            },
+            target_index: sliver_id.to_sliver_index(metadata.n_shards(), target_sliver_type),
             target_sliver_type,
             epoch_certified,
             backoff: ExponentialBackoffState::new_infinite(
@@ -668,10 +663,10 @@ impl<'a, T: NodeService> CollectRecoverySymbols<'a, T> {
         match self.target_sliver_type() {
             SliverType::Primary => SymbolId::new(
                 self.target_index(),
-                pair_at_shard.to_sliver_index::<Secondary>(n_shards),
+                pair_at_shard.to_sliver_index(n_shards, SliverType::Secondary),
             ),
             SliverType::Secondary => SymbolId::new(
-                pair_at_shard.to_sliver_index::<Primary>(n_shards),
+                pair_at_shard.to_sliver_index(n_shards, SliverType::Primary),
                 self.target_index(),
             ),
         }

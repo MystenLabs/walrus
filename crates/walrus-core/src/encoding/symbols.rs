@@ -520,12 +520,9 @@ impl<U: MerkleAuth> GeneralRecoverySymbol<U> {
         let source_index = SliverIndex(self.symbol.index());
 
         let source_sliver_type = self.symbol.source_type();
-        let source_index = match source_sliver_type {
-            SliverType::Primary => source_index.to_pair_index::<Primary>(n_shards),
-            SliverType::Secondary => source_index.to_pair_index::<Secondary>(n_shards),
-        };
+        let source_pair_index = source_index.to_pair_index(n_shards, source_sliver_type);
 
-        metadata.get_sliver_hash(source_index, source_sliver_type)
+        metadata.get_sliver_hash(source_pair_index, source_sliver_type)
     }
 }
 
@@ -630,11 +627,12 @@ impl<T: EncodingAxis, U: MerkleAuth> RecoverySymbol<T, U> {
         if self.symbol.len() != expected_symbol_size {
             return Err(SymbolVerificationError::SymbolSizeMismatch);
         }
+        let verification_axis = T::OrthogonalAxis::sliver_type();
         self.verify_proof(
             metadata
                 .get_sliver_hash(
-                    SliverIndex(self.symbol.index).to_pair_index::<T::OrthogonalAxis>(n_shards),
-                    T::OrthogonalAxis::sliver_type(),
+                    SliverIndex(self.symbol.index).to_pair_index(n_shards, verification_axis),
+                    verification_axis,
                 )
                 .ok_or(SymbolVerificationError::InvalidMetadata)?,
             n_shards.get().into(),
@@ -797,7 +795,8 @@ mod tests {
         let (sliver_pairs, metadata) = config_enum.encode_with_metadata(blob)?;
 
         let sliver = sliver_pairs[0].secondary.clone();
-        let source_index = SliverPairIndex(0).to_sliver_index::<Secondary>(config.n_shards);
+        let source_index =
+            SliverPairIndex(0).to_sliver_index(config.n_shards, SliverType::Secondary);
 
         for index in 0..n_shards {
             let target_index = SliverIndex(index);

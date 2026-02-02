@@ -24,6 +24,7 @@ use super::{
 use crate::{
     SliverIndex,
     SliverPairIndex,
+    SliverType,
     encoding::{ReedSolomonEncoder, config::EncodingFactory as _},
     ensure,
     merkle::{MerkleTree, Node, leaf_hash},
@@ -670,7 +671,7 @@ impl<'a> ExpandedMessageMatrix<'a> {
                 .map(move |row| {
                     row[SliverPairIndex::try_from(col_index)
                         .expect("size has already been checked")
-                        .to_sliver_index::<Secondary>(self.config.n_shards())
+                        .to_sliver_index(self.config.n_shards(), SliverType::Secondary)
                         .as_usize()]
                     .as_ref()
                 })

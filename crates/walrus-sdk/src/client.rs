@@ -159,7 +159,7 @@ impl<E: EncodingAxis> SliverSelector<E> {
         let indices_and_shards = sliver_indices
             .iter()
             .map(|sliver_index| {
-                let pair_index = sliver_index.to_pair_index::<E>(n_shards);
+                let pair_index = sliver_index.to_pair_index(n_shards, E::sliver_type());
                 let shard_index = pair_index.to_shard_index(n_shards, blob_id);
                 (*sliver_index, shard_index)
             })

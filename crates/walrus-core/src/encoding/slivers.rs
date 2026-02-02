@@ -29,6 +29,7 @@ use super::{
 use crate::{
     SliverIndex,
     SliverPairIndex,
+    SliverType,
     encoding::{DecodeError, RequiredCount},
     ensure,
     inconsistency::{InconsistencyProof, SliverOrInconsistencyProof},
@@ -130,7 +131,7 @@ impl<T: EncodingAxis> SliverData<T> {
             .hashes()
             .get(
                 self.index
-                    .to_pair_index::<T>(encoding_config.n_shards())
+                    .to_pair_index(encoding_config.n_shards(), T::sliver_type())
                     .as_usize(),
             )
             .expect("hash must exist if all size checks have been performed");
@@ -198,7 +199,7 @@ impl<T: EncodingAxis> SliverData<T> {
 
         let recovery_symbols = self.recovery_symbols(config)?;
         let target_sliver_index =
-            target_pair_index.to_sliver_index::<T::OrthogonalAxis>(config.n_shards());
+            target_pair_index.to_sliver_index(config.n_shards(), T::OrthogonalAxis::sliver_type());
 
         Ok(recovery_symbols
             .decoding_symbol_at(target_sliver_index.as_usize(), self.index.into())
@@ -226,7 +227,7 @@ impl<T: EncodingAxis> SliverData<T> {
     ) -> Result<DecodingSymbol<T::OrthogonalAxis>, RecoverySymbolError> {
         Self::check_index(target_pair_index.into(), config.n_shards())?;
         let target_sliver_index =
-            target_pair_index.to_sliver_index::<T::OrthogonalAxis>(config.n_shards());
+            target_pair_index.to_sliver_index(config.n_shards(), T::OrthogonalAxis::sliver_type());
 
         Ok(DecodingSymbol::<T::OrthogonalAxis>::new(
             self.index.get(),
@@ -457,7 +458,7 @@ impl SliverPair {
             secondary: SliverData::new_empty(
                 config.n_primary_source_symbols().get(),
                 symbol_size,
-                index.to_sliver_index::<Secondary>(config.n_shards()),
+                index.to_sliver_index(config.n_shards(), SliverType::Secondary),
             ),
         }
     }
