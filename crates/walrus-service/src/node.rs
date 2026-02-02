@@ -3187,6 +3187,9 @@ impl StorageNodeInner {
     }
 
     async fn wait_for_registration_inner(&self, blob_id: &BlobId, timeout: Duration) -> bool {
+        // TODO: For deletable blobs, confirmations are per-object (not per-blob). This wait is only
+        // blob scoped, so it can return `true` due to registration of a different object that
+        // references the same `BlobId`.
         if timeout.is_zero() {
             return self.is_blob_registered(blob_id).unwrap_or(false);
         }
@@ -3198,10 +3201,17 @@ impl StorageNodeInner {
             return true;
         }
 
-        if !self.pending_sliver_cache.has_blob(blob_id).await {
+        // Only long-poll if we've actually buffered any data for this blob. This prevents clients
+        // from tying up the server by waiting on arbitrary blob IDs that the node hasn't seen.
+        //
+        // Note: this is best-effort; caches are bounded and time-based. If entries are evicted, we
+        // may skip waiting even if the blob later becomes registered.
+        if !self.pending_sliver_cache.has_blob(blob_id).await
+            && self.pending_metadata_cache.get(blob_id).await.is_none()
+        {
             tracing::debug!(
                 %blob_id,
-                "wait_for_registration: skipping wait because no pending slivers are buffered"
+                "wait_for_registration: skipping wait because no pending data is buffered"
             );
             return false;
         }
