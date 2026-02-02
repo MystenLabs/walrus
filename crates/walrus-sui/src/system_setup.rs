@@ -41,7 +41,7 @@ use crate::test_utils::system_setup;
 use crate::{
     client::retry_client::{
         RetriableSuiClient,
-        retriable_sui_client::{GasBudgetAndPrice, LazySuiClientBuilder},
+        retriable_sui_client::{GasBudgetAndPrice, LazySuiClientBuilder, MAX_GAS_PAYMENT_OBJECTS},
     },
     contracts,
     utils::get_created_sui_object_ids_by_type,
@@ -278,7 +278,13 @@ pub(crate) async fn publish_package(
         .await?;
 
     let gas_coins = retry_client
-        .select_coins(sender, None, u128::from(gas_budget), vec![])
+        .select_coins(
+            sender,
+            None,
+            u128::from(gas_budget),
+            vec![],
+            MAX_GAS_PAYMENT_OBJECTS,
+        )
         .await?
         .into_iter()
         .map(|coin| coin.object_ref())
@@ -613,7 +619,13 @@ pub async fn create_system_and_staking_objects(
         .await?;
 
     let gas_coins = retry_client
-        .select_coins(address, None, u128::from(gas_budget), vec![])
+        .select_coins(
+            address,
+            None,
+            u128::from(gas_budget),
+            vec![],
+            MAX_GAS_PAYMENT_OBJECTS,
+        )
         .await?
         .into_iter()
         .map(|coin| coin.object_ref())
