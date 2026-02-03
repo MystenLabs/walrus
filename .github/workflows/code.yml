@@ -158,15 +158,15 @@ jobs:
 
       - run: ./scripts/simtest/install.sh
       - name: Run tests (seed=1)
-        run: RUST_LOG=walrus=debug,error MSIM_TEST_SEED=1 MSIM_TEST_NUM=10 cargo simtest test_event_blob_local_fork_recovery --profile simtest
+        run: RUST_LOG=walrus=debug,error MSIM_TEST_SEED=1 cargo simtest simtest --profile simtest
       - name: Run tests (seed=2)
-        run: RUST_LOG=walrus=debug,error MSIM_TEST_SEED=2 MSIM_TEST_NUM=10 cargo simtest test_event_blob_local_fork_recovery --profile simtest
+        run: RUST_LOG=walrus=debug,error MSIM_TEST_SEED=2 cargo simtest simtest --profile simtest
       - name: Run tests (seed=3, grpc-client-enabled)
-        run: RUST_LOG=walrus=debug,error MSIM_TEST_SEED=3 WALRUS_GRPC_MIGRATION_LEVEL=1 MSIM_TEST_NUM=10 cargo simtest test_event_blob_local_fork_recovery --profile simtest
+        run: RUST_LOG=walrus=debug,error MSIM_TEST_SEED=3 WALRUS_GRPC_MIGRATION_LEVEL=1 cargo simtest simtest --profile simtest
       - name: Run tests (seed=4, grpc-client-enabled)
-        run: RUST_LOG=walrus=debug,error MSIM_TEST_SEED=4 WALRUS_GRPC_MIGRATION_LEVEL=1 MSIM_TEST_NUM=10 cargo simtest test_event_blob_local_fork_recovery --profile simtest
+        run: RUST_LOG=walrus=debug,error MSIM_TEST_SEED=4 WALRUS_GRPC_MIGRATION_LEVEL=1 cargo simtest simtest --profile simtest
       - name: Run tests (seed=5, grpc-client-enabled)
-        run: RUST_LOG=walrus=debug,error MSIM_TEST_SEED=5 WALRUS_GRPC_MIGRATION_LEVEL=1 MSIM_TEST_NUM=10 cargo simtest test_event_blob_local_fork_recovery --profile simtest
+        run: RUST_LOG=walrus=debug,error MSIM_TEST_SEED=5 WALRUS_GRPC_MIGRATION_LEVEL=1 cargo simtest simtest --profile simtest
 
   simtests-build:
     name: Build all simtests
