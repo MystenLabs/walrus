@@ -154,6 +154,7 @@ Where the world's data becomes reliable, valuable, and governable
 - [Redirecting...](/usage/networks)
 - [Redirecting...](/usage/quilt)
 - [Redirecting...](/usage/sdks)
+- [Redirecting...](/usage/setup)
 - [Redirecting...](/usage/stake)
 - [Redirecting...](/usage/started)
 - [Redirecting…](/usage/troubleshooting): Redirecting… If you are not redirected, go to /docs/troubleshooting.
