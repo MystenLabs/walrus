@@ -545,17 +545,18 @@ impl RetriableSuiClient {
                                         .fetch_batch_of_coins(
                                             stream_state.owner,
                                             stream_state.coin_type.clone(),
-                                            next_page_token.clone()
-
+                                            next_page_token.clone(),
                                         )
                                         .await
                                 },
                                 self.metrics.clone(),
-                                method
-                            ).await
-                        .inspect_err(|error| {
-                            tracing::warn!(%error, "failed to get goins via grpc after retries");
-                        })
+                                method,
+                            )
+                            .await
+                            .inspect_err(|error| {
+                                tracing::warn!(%error,
+                                    "failed to get goins via grpc after retries");
+                            })
                         },
                         None,
                         "fetch_batch_of_coins",
