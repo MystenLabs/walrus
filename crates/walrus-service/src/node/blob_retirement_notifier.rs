@@ -27,19 +27,25 @@ pub enum ExecutionResultWithRetirementCheck<T> {
 #[derive(Clone, Debug)]
 pub struct BlobRetirementNotifier {
     registered_blobs: RefCountedNotifyMap<BlobId>,
+    metrics: Arc<NodeMetricSet>,
 }
 
 impl BlobRetirementNotifier {
     /// Create a new BlobRetirementNotifier.
-    pub fn new(_metrics: Arc<NodeMetricSet>) -> Self {
+    pub fn new(metrics: Arc<NodeMetricSet>) -> Self {
         Self {
             registered_blobs: RefCountedNotifyMap::new(),
+            metrics,
         }
     }
 
     /// Acquire a BlobRetirementNotify for a blob.
     fn acquire_blob_retirement_notify(&self, blob_id: &BlobId) -> BlobRetirementNotify {
-        self.registered_blobs.acquire(blob_id)
+        let notify = self.registered_blobs.acquire(blob_id);
+        self.metrics
+            .blob_retirement_notifier_registered_blobs
+            .set(i64::try_from(self.registered_blobs.len()).unwrap_or(i64::MAX));
+        notify
     }
 
     /// Notify all BlobRetirementNotify for a blob.
@@ -70,6 +76,10 @@ impl BlobRetirementNotifier {
         for notify in self.registered_blobs.take_many(notify_blob_ids) {
             notify.notify_waiters();
         }
+
+        self.metrics
+            .blob_retirement_notifier_registered_blobs
+            .set(i64::try_from(self.registered_blobs.len()).unwrap_or(i64::MAX));
 
         Ok(())
     }

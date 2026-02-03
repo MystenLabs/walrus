@@ -128,7 +128,6 @@ where
             .collect()
     }
 
-    #[cfg(test)]
     pub(crate) fn len(&self) -> usize {
         self.inner
             .waiters
@@ -147,6 +146,8 @@ struct RefCountedNotifyMapInner<K>
 where
     K: Clone + Eq + Hash,
 {
+    // TODO: Consider switching to `tokio::sync::Mutex` (and making APIs async) to avoid blocking
+    // an async executor thread; the `Drop`-based cleanup will need refactoring.
     waiters: Mutex<HashMap<K, Weak<Notify>>>,
 }
 
