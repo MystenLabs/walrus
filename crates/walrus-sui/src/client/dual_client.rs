@@ -365,6 +365,14 @@ impl DualClient {
         );
         let mut grpc_client = self.grpc_client.clone();
         let state_client = grpc_client.state_client();
+
+        // NB: in the event of failover handled at the callsite, the `page_token` here might have
+        // come from a previous gRPC response from a different host. The token is intentionally
+        // opaque to us, but according to current Sui gRPC server semantics, it should be valid
+        // across different servers - but this is not by design, and may change in the future, so
+        // this is something to keep an eye on. If pagination tokens become server-specific, we may
+        // need to rewrite the client to perform a full retry of the stream from the beginning,
+        // instead of using this incremental approach across servers.
         let response =
             list_owned_coin_objects(owner, coin_type.as_deref(), page_token, state_client).await;
 
