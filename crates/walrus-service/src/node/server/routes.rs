@@ -1,7 +1,7 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, time::Duration};
 
 use axum::{
     extract::{Path, Query, State},
@@ -43,6 +43,7 @@ use walrus_storage_node_client::{
     api::{BlobStatus, ServiceHealthInfo, StoredOnNodeStatus},
 };
 use walrus_sui::ObjectIdSchema;
+use walrus_utils::metrics::monitored_scope;
 
 use super::{
     RestApiState,
@@ -110,6 +111,19 @@ impl UploadIntentQuery {
     fn intent(&self) -> UploadIntent {
         UploadIntent::from_pending_flag(self.pending.unwrap_or(false))
     }
+}
+
+/// Query parameters to optionally long-poll confirmation requests.
+#[derive(Debug, Default, Deserialize, IntoParams, utoipa::ToSchema)]
+#[serde(default)]
+#[into_params(parameter_in = Query, style = Form)]
+pub(crate) struct ConfirmationWaitQuery {
+    /// Wait for registration events before returning a confirmation.
+    #[serde(default)]
+    pub wait_for_registration: bool,
+    /// Maximum time to wait (in milliseconds). Defaults to the server max if not set.
+    #[serde(default)]
+    pub wait_millis: Option<u64>,
 }
 
 /// Convenience trait to apply bounds on the ServiceState.
@@ -389,7 +403,7 @@ pub async fn get_sliver_status<S: SyncServiceState>(
 #[utoipa::path(
     get,
     path = PERMANENT_BLOB_CONFIRMATION_ENDPOINT,
-    params(("blob_id" = BlobId,)),
+    params(("blob_id" = BlobId,), ConfirmationWaitQuery),
     responses(
         (status = 200, description = "A signed confirmation of storage",
         body = ApiSuccess<StorageConfirmation>),
@@ -400,12 +414,16 @@ pub async fn get_sliver_status<S: SyncServiceState>(
 pub async fn get_permanent_blob_confirmation<S: SyncServiceState>(
     State(state): State<RestApiState<S>>,
     Path(BlobIdString(blob_id)): Path<BlobIdString>,
+    ExtraQuery(wait): ExtraQuery<ConfirmationWaitQuery>,
 ) -> Result<ApiSuccess<StorageConfirmation>, ComputeStorageConfirmationError> {
-    let confirmation = state
-        .service
-        .compute_storage_confirmation(&blob_id, &BlobPersistenceType::Permanent)
-        .await?;
-
+    let confirmation = compute_confirmation_with_wait(
+        &state,
+        blob_id,
+        BlobPersistenceType::Permanent,
+        wait.wait_for_registration,
+        wait.wait_millis,
+    )
+    .await?;
     Ok(ApiSuccess::ok(confirmation))
 }
 
@@ -421,7 +439,11 @@ pub async fn get_permanent_blob_confirmation<S: SyncServiceState>(
 #[utoipa::path(
     get,
     path = DELETABLE_BLOB_CONFIRMATION_ENDPOINT,
-    params(("blob_id" = BlobId,), ("object_id" = ObjectIdSchema,)),
+    params(
+        ("blob_id" = BlobId,),
+        ("object_id" = ObjectIdSchema,),
+        ConfirmationWaitQuery
+    ),
     responses(
         (status = 200, description = "A signed confirmation of storage",
         body = ApiSuccess<StorageConfirmation>),
@@ -432,19 +454,90 @@ pub async fn get_permanent_blob_confirmation<S: SyncServiceState>(
 pub async fn get_deletable_blob_confirmation<S: SyncServiceState>(
     State(state): State<RestApiState<S>>,
     Path((blob_id_string, object_id)): Path<(BlobIdString, ObjectID)>,
+    ExtraQuery(wait): ExtraQuery<ConfirmationWaitQuery>,
 ) -> Result<ApiSuccess<StorageConfirmation>, ComputeStorageConfirmationError> {
     let blob_id = blob_id_string.0;
-    let confirmation = state
-        .service
-        .compute_storage_confirmation(
-            &blob_id,
-            &BlobPersistenceType::Deletable {
-                object_id: object_id.into(),
-            },
-        )
-        .await?;
-
+    let confirmation = compute_confirmation_with_wait(
+        &state,
+        blob_id,
+        BlobPersistenceType::Deletable {
+            object_id: object_id.into(),
+        },
+        wait.wait_for_registration,
+        wait.wait_millis,
+    )
+    .await?;
     Ok(ApiSuccess::ok(confirmation))
+}
+
+async fn compute_confirmation_with_wait<S: SyncServiceState>(
+    state: &RestApiState<S>,
+    blob_id: BlobId,
+    persistence: BlobPersistenceType,
+    wait_for_registration: bool,
+    wait_millis: Option<u64>,
+) -> Result<StorageConfirmation, ComputeStorageConfirmationError> {
+    let initial = state
+        .service
+        .compute_storage_confirmation(&blob_id, &persistence)
+        .await;
+
+    if !matches!(
+        initial,
+        Err(ComputeStorageConfirmationError::NotCurrentlyRegistered)
+    ) {
+        return initial;
+    }
+
+    let max_wait = state.config.confirmation_long_poll_max;
+    if !wait_for_registration || max_wait.is_zero() {
+        return initial;
+    }
+
+    let wait_for = wait_millis
+        .map(Duration::from_millis)
+        .unwrap_or(max_wait)
+        .min(max_wait);
+
+    if wait_for.is_zero() {
+        return initial;
+    }
+
+    tracing::debug!(
+        %blob_id,
+        wait_for = ?wait_for,
+        "waiting for registration before confirmation"
+    );
+
+    let _permit = match state.confirmation_long_poll_limit.as_deref() {
+        Some(semaphore) => match semaphore.try_acquire() {
+            Ok(permit) => Some(permit),
+            Err(TryAcquireError::Closed) => panic!("the semaphore must not be closed"),
+            Err(TryAcquireError::NoPermits) => {
+                tracing::debug!(
+                    %blob_id,
+                    "confirmation long-poll limit reached; returning without waiting"
+                );
+                return initial;
+            }
+        },
+        None => None,
+    };
+
+    let _scope =
+        monitored_scope::monitored_scope("RestApi::ConfirmationLongPollWaitForRegistration");
+    if state
+        .service
+        .wait_for_registration(&blob_id, wait_for)
+        .await
+    {
+        state
+            .service
+            .compute_storage_confirmation(&blob_id, &persistence)
+            .await
+    } else {
+        Err(ComputeStorageConfirmationError::NotCurrentlyRegistered)
+    }
 }
 
 /// Specifies the set of recovery symbols to be returned.
