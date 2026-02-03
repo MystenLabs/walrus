@@ -658,6 +658,18 @@ public(package) fun set_write_price(self: &mut SystemStateInnerV1, price: u64) {
 }
 
 #[test_only]
+/// Returns the raw storage price per unit size.
+public(package) fun storage_price_per_unit_size(self: &SystemStateInnerV1): u64 {
+    self.storage_price_per_unit_size
+}
+
+#[test_only]
+/// Returns the raw write price per unit size.
+public(package) fun write_price_per_unit_size(self: &SystemStateInnerV1): u64 {
+    self.write_price_per_unit_size
+}
+
+#[test_only]
 public(package) fun deny_list_sizes(self: &SystemStateInnerV1): &VecMap<ID, u64> {
     self.deny_list_sizes.borrow()
 }

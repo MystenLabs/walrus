@@ -387,6 +387,18 @@ public(package) fun new_package_id(system: &System): Option<ID> {
 }
 
 #[test_only]
+/// Returns the raw storage price per unit size.
+public fun storage_price_per_unit_size(self: &System): u64 {
+    self.inner().storage_price_per_unit_size()
+}
+
+#[test_only]
+/// Returns the raw write price per unit size.
+public fun write_price_per_unit_size(self: &System): u64 {
+    self.inner().write_price_per_unit_size()
+}
+
+#[test_only]
 public(package) fun destroy_for_testing(self: System) {
     sui::test_utils::destroy(self);
 }

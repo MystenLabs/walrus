@@ -282,8 +282,8 @@ public(package) fun select_committee_and_calculate_votes(self: &mut StakingInner
     // when votes are cast. Only capacity is computed for the next epoch.
     let epoch_params = epoch_parameters::new(
         quorum_above(&mut capacity_votes, self.n_shards),
-        0, // storage price - not used, prices are set immediately on vote
-        0, // write price - not used, prices are set immediately on vote
+        std::u64::max_value!(), // storage price - not used, prices are set immediately on vote
+        std::u64::max_value!(), // write price - not used, prices are set immediately on vote
     );
 
     self.next_epoch_params = option::some(epoch_params);
