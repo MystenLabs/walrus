@@ -46,7 +46,7 @@ impl BlobRetirementNotifier {
     pub fn notify_blob_retirement(&self, blob_id: &BlobId) {
         if self.registered_blobs.notify(blob_id) {
             tracing::debug!(%blob_id, "notify blob retirement");
-        };
+        }
     }
 
     /// Notify all BlobRetirementNotify for all blobs.
@@ -56,14 +56,20 @@ impl BlobRetirementNotifier {
         node: Arc<StorageNodeInner>,
     ) -> anyhow::Result<()> {
         let _scope = monitored_scope::monitored_scope("EpochChange::NotifyRetiredBlobs");
-        self.registered_blobs
-            .notify_matching(|blob_id| -> Result<bool, anyhow::Error> {
-                if !node.is_blob_certified(blob_id)? {
-                    tracing::debug!(%blob_id, "epoch change notify blob retirement");
-                    return Ok(true);
-                }
-                Ok(false)
-            })?;
+
+        let blob_ids = self.registered_blobs.keys();
+
+        let mut notify_blob_ids = Vec::new();
+        for blob_id in blob_ids {
+            if !node.is_blob_certified(&blob_id)? {
+                tracing::debug!(%blob_id, "epoch change notify blob retirement");
+                notify_blob_ids.push(blob_id);
+            }
+        }
+
+        for notify in self.registered_blobs.take_many(notify_blob_ids) {
+            notify.notify_waiters();
+        }
 
         Ok(())
     }
