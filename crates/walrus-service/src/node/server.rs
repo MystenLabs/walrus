@@ -77,6 +77,14 @@ pub struct RestApiConfig {
 
     /// Live-upload based deferral policy.
     pub live_upload_deferral: crate::node::config::LiveUploadDeferralConfig,
+
+    /// Maximum duration to long-poll confirmation requests while waiting for registration.
+    pub confirmation_long_poll_max: Duration,
+
+    /// Maximum number of in-flight confirmation long-poll requests.
+    ///
+    /// If the limit is reached, additional requests behave as if long polling is disabled.
+    pub confirmation_long_poll_max_in_flight_requests: Option<usize>,
 }
 
 impl From<&StorageNodeConfig> for RestApiConfig {
@@ -119,6 +127,12 @@ impl From<&StorageNodeConfig> for RestApiConfig {
                 .rest_server
                 .experimental_max_active_recovery_symbols_requests,
             live_upload_deferral: config.live_upload_deferral.clone(),
+            confirmation_long_poll_max: Duration::from_millis(
+                config.rest_server.confirmation_long_poll_max_millis,
+            ),
+            confirmation_long_poll_max_in_flight_requests: config
+                .rest_server
+                .confirmation_long_poll_max_in_flight_requests,
         }
     }
 }
@@ -160,6 +174,7 @@ pub(crate) struct RestApiState<S> {
     service: Arc<S>,
     config: Arc<RestApiConfig>,
     recovery_symbols_limit: Option<Arc<Semaphore>>,
+    confirmation_long_poll_limit: Option<Arc<Semaphore>>,
 }
 
 impl<S> RestApiState<S> {
@@ -168,6 +183,9 @@ impl<S> RestApiState<S> {
             service,
             recovery_symbols_limit: config
                 .max_active_recovery_symbols_requests
+                .map(|limit| Arc::new(Semaphore::new(limit))),
+            confirmation_long_poll_limit: config
+                .confirmation_long_poll_max_in_flight_requests
                 .map(|limit| Arc::new(Semaphore::new(limit))),
             config,
         }
@@ -180,6 +198,7 @@ impl<S> Clone for RestApiState<S> {
             service: self.service.clone(),
             config: self.config.clone(),
             recovery_symbols_limit: self.recovery_symbols_limit.clone(),
+            confirmation_long_poll_limit: self.confirmation_long_poll_limit.clone(),
         }
     }
 }
@@ -719,6 +738,15 @@ mod tests {
             } else {
                 Err(anyhow::anyhow!("Invalid shard").into())
             }
+        }
+
+        fn wait_for_registration(
+            &self,
+            blob_id: &BlobId,
+            _timeout: Duration,
+        ) -> impl std::future::Future<Output = bool> + Send {
+            let registered = blob_id.0[0] == 0;
+            async move { registered }
         }
 
         /// Returns a "certified" blob status for blob ID starting with zero, `Nonexistent` when
