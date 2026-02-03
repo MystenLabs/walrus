@@ -118,7 +118,7 @@ macro_rules! debug {
 
 /// Shorthand for [`log`] with `warn` level.
 #[macro_export]
-macro_rules! warning {
+macro_rules! warn {
     ($interval:expr, $($fields_and_message:tt)*) => {
         $crate::tracing_sampled::log!($interval, warn, $($fields_and_message)*)
     };
@@ -140,7 +140,7 @@ macro_rules! trace {
     };
 }
 
-pub use crate::{debug, error, info, log, trace, warning};
+pub use crate::{debug, error, info, log, trace, warn};
 
 #[cfg(test)]
 mod tests {

@@ -25,6 +25,7 @@ tap.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["full", "test-util"] }
 tracing.workspace = true
+walrus-utils = { workspace = true, features = ["log"] }
 
 [dev-dependencies]
 once_cell.workspace = true
