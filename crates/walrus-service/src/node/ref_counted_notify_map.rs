@@ -90,7 +90,7 @@ where
 
     /// Removes the entry for `key` (if present) and notifies any waiters.
     pub(crate) fn notify(&self, key: &K) -> bool {
-        let notify = self.remove_notify(key);
+        let notify = self.get_notify(key);
         if let Some(notify) = notify {
             notify.notify_waiters();
             true
@@ -99,13 +99,13 @@ where
         }
     }
 
-    pub(crate) fn remove_notify(&self, key: &K) -> Option<Arc<Notify>> {
-        let mut waiters = self
+    pub(crate) fn get_notify(&self, key: &K) -> Option<Arc<Notify>> {
+        let waiters = self
             .inner
             .waiters
             .lock()
             .expect("mutex should not be poisoned");
-        waiters.remove(key).and_then(|weak| weak.upgrade())
+        waiters.get(key).and_then(|weak| weak.upgrade())
     }
 
     pub(crate) fn keys(&self) -> Vec<K> {
@@ -291,6 +291,28 @@ mod tests {
             timeout(Duration::from_secs(1), wait_notified_3)
                 .await
                 .is_ok()
+        );
+    }
+
+    /// Test that a waiter attaching after notify does not get woken without a new notify.
+    #[tokio::test]
+    async fn test_late_waiter_does_not_wake() {
+        let map = RefCountedNotifyMap::<BlobId>::default();
+        let blob_id = random_blob_id();
+
+        let notify = map.acquire(&blob_id);
+        let notified = notify.notified();
+
+        assert!(map.notify(&blob_id));
+        assert!(timeout(Duration::from_secs(1), notified).await.is_ok());
+
+        // A waiter created after the notify should not be awakened unless notify is called again.
+        let late_notify = map.acquire(&blob_id);
+        let late_notified = late_notify.notified();
+        assert!(
+            timeout(Duration::from_millis(200), late_notified)
+                .await
+                .is_err()
         );
     }
 
