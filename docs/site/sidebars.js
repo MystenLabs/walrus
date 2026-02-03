@@ -22,148 +22,202 @@ Create as many sidebars as you want.
 
 const sidebars = {
     docsSidebar: [
-        "usage/started",
-        {
-            type: "category",
-            label: "Advanced Setup",
-            link: {
-                type: "doc",
-                id: "usage/setup",
-            },
-            items: ["usage/networks"],
-        },
-        {
-            type: "category",
-            label: "Interacting with Walrus",
-            items: ["usage/client-cli", "usage/json-api", "usage/web-api", "usage/sdks"],
-        },
-        {
-            type: "category",
-            label: "Developer Guide",
-            link: {
-                type: "doc",
-                id: "dev-guide/dev-guide",
-            },
-            items: [
-                "dev-guide/components",
-                "dev-guide/dev-operations",
-                "dev-guide/costs",
-                "dev-guide/sui-struct",
-                "dev-guide/data-security",
-                "usage/quilt",
-            ],
-        },
-        {
-            type: "category",
-            label: "Operator Guide",
-            link: {
-                type: "doc",
-                id: "operator-guide/operator-guide",
-            },
-            items: [
-                {
-                    type: "category",
-                    label: "Operating an Aggregator or Publisher",
-                    link: {
-                        type: "doc",
-                        id: "operator-guide/aggregator",
-                    },
-                    items: ["operator-guide/auth-publisher"],
-                },
-                {
-                    type: "category",
-                    label: "Operating a Storage Node",
-                    link: {
-                        type: "doc",
-                        id: "operator-guide/storage-node",
-                    },
-                    items: [
-                        "operator-guide/commission-governance",
-                        "operator-guide/backup-restore-guide",
-                    ],
-                },
-                "operator-guide/upload-relay",
-            ],
-        },
-        "usage/stake",
-        "usage/examples",
-        "tusky-migration-guide",
-        "usage/troubleshooting",
-        "usage/glossary",
+      'getting-started/index',
+      'getting-started/advanced-setup',
+    {
+      type: 'category',
+      label: 'System Overview',
+      collapsed: true,
+      items: [
+        'system-overview/core-concepts',
+        'system-overview/components',
+        'system-overview/operations',
+        'system-overview/storage-costs',
+        'system-overview/sui-object-and-blob-ids',
+        'system-overview/public-aggregators-and-publishers',
+        'system-overview/view-system-info',
+        'system-overview/available-networks',
+        'system-overview/quilt',
+      ],
+    },
+    {
+      type: 'category',
+      label: 'Walrus Client',
+      collapsed: true,
+      items: [
+        'walrus-client/storing-blobs',
+        'walrus-client/reading-blobs',
+        'walrus-client/managing-blobs',
+        'walrus-client/json-mode',
+        'walrus-client/configuration',
+        'walrus-client/logging-and-metrics',
+      ],
+    },
+    {
+      type: 'category',
+      label: 'HTTP API',
+      collapsed: true,
+      items: [
+        'http-api/storing-blobs',
+        'http-api/reading-blobs',
+        'http-api/managing-blobs',
+      ],
+    },
+    "typescript-sdk/sdks",
+    {
+      type: 'category',
+      label: 'TypeScript SDK',
+      collapsed: true,
+      items: [
+        'typescript-sdk/installation-and-setup',
+        'typescript-sdk/storing-blobs',
+        'typescript-sdk/reading-blobs',
+        'typescript-sdk/managing-blobs',
+        'typescript-sdk/configuring-network-requests',
+        'typescript-sdk/wasm-module-loading',
+        'typescript-sdk/fetch-limitations',
+      ],
+    },
+    'data-security',
+    'tusky-migration-guide',
+    'troubleshooting/index',
+    {
+      type: 'category',
+      label: 'Troubleshooting',
+      collapsed: true,
+      items: [
+
+        'troubleshooting/network-errors',
+        'troubleshooting/error-handling',
+      ],
+    },
+    'glossary',
     ],
-    sitesSidebar: [
-        "walrus-sites/intro",
-        {
-            type: "category",
-            label: "Your First Walrus Site",
-            link: {
-                type: "doc",
-                id: "walrus-sites/tutorial",
-            },
-            items: [
-                "walrus-sites/tutorial-install",
-                "walrus-sites/tutorial-publish",
-                "walrus-sites/tutorial-suins",
-            ],
+      sitesSidebar: [
+    {
+      type: 'category',
+      label: 'Introduction to Walrus Sites',
+      link: {
+        type: "doc",
+        id:'sites/introduction/components',
+      },
+      collapsed: false,
+      items: [
+        'sites/introduction/technical-overview',
+      ],
+    },
+    {
+      type: 'category',
+      label: 'Getting Started',
+      collapsed: true,
+      items: [
+        'sites/getting-started/installing-the-site-builder',
+        'sites/getting-started/using-the-site-builder',
+        'sites/getting-started/publishing-your-first-site',
+        'sites/getting-started/viewing-and-testing-your-site',
+        'sites/getting-started/updating-an-existing-site',
+        'sites/getting-started/configuration-file-reference',
+      ],
+    },
+    {
+      type: 'category',
+      label: 'Walrus Portals',
+      collapsed: true,
+      link: {
+        type: "doc",
+        id: "sites/portals/deploy-locally",
+      },
+      items: [
+        'sites/portals/deploy-locally',
+        'sites/portals/mainnet-testnet',
+      ],
+    },
+    {
+      type: 'category',
+      label: 'Site Configuration',
+      collapsed: true,
+      items: [
+        'sites/configuration/specifying-http-headers',
+        'sites/configuration/setting-up-routing-rules',
+        'sites/configuration/adding-metadata',
+      ],
+    },
+    {
+      type: 'category',
+      label: 'Custom Domains',
+      collapsed: true,
+      items: [
+        'sites/custom-domains/setting-a-suins-name',
+        'sites/custom-domains/bringing-your-own-domain',
+        'sites/custom-domains/dns-configuration',
+      ],
+    },
+    {
+      type: 'category',
+      label: 'Linking and Navigation',
+      collapsed: true,
+      items: [
+        'sites/linking/linking-from-walrus-sites',
+        'sites/linking/linking-to-walrus-sites',
+        'sites/linking/redirects',
+        'sites/linking/avoiding-duplicate-content-seo',
+      ],
+    },
+    {
+      type: 'category',
+      label: 'CI/CD and Automation',
+      collapsed: true,
+      items: [
+        'sites/ci-cd/preparing-deployment-credentials',
+        'sites/ci-cd/github-actions-workflow',
+        'sites/ci-cd/other-ci-cd-platforms',
+      ],
+    },
+    {
+      type: 'category',
+      label: 'Security and Authentication',
+      collapsed: true,
+      items: [
+        'sites/security/site-data-authentication',
+        'sites/security/access-control-options',
+      ],
+    },
+    'sites/known-restrictions',
+    'sites/troubleshooting',
+  ],
+    operatorSidebar: [
+    {
+        type: "category",
+        label: "Operator Guide",
+        link: {
+            type: "doc",
+            id: "operator-guide/operator-guide",
         },
-        {
-            type: "category",
-            label: "Advanced Functionality",
-            items: [
-                "walrus-sites/commands",
-                "walrus-sites/builder-config",
-                "walrus-sites/routing",
-                "walrus-sites/linking",
-                "walrus-sites/redirects",
-                {
-                    type: "category",
-                    label: "CI/CD",
-                    link: {
-                        type: "doc",
-                        id: "walrus-sites/ci-cd",
-                    },
-                    items: ["walrus-sites/ci-cd-gh-secrets-vars", "walrus-sites/ci-cd-gh-workflow"],
+        items: [
+            {
+                type: "category",
+                label: "Operating an Aggregator or Publisher",
+                link: {
+                    type: "doc",
+                    id: "operator-guide/aggregator",
                 },
-                {
-                    type: "category",
-                    label: "Technical Overview",
-                    link: {
-                        type: "doc",
-                        id: "walrus-sites/overview",
-                    },
-                    items: [
-                        "walrus-sites/portal",
-                        "walrus-sites/bring-your-own-domain",
-                        "walrus-sites/authentication",
-                        "walrus-sites/avoid-duplicate-content-seo",
-                        "walrus-sites/restrictions",
-                    ],
+                items: ["operator-guide/auth-publisher"],
+            },
+            {
+                type: "category",
+                label: "Operating a Storage Node",
+                link: {
+                    type: "doc",
+                    id: "operator-guide/storage-node",
                 },
-            ],
-        },
-    ],
-    designSidebar: [
-        "design/objectives_use_cases",
-        {
-            type: "category",
-            label: "Overview",
-            link: {
-                type: "doc",
-                id: "design/overview",
+                items: [
+                    "operator-guide/commission-governance",
+                    "operator-guide/backup-restore-guide",
+                ],
             },
-            items: ["design/architecture", "design/encoding"],
-        },
-        {
-            type: "category",
-            label: "Operations",
-            link: {
-                type: "doc",
-                id: "design/operations",
-            },
-            items: ["design/operations-sui", "design/operations-off-chain"],
-        },
-        "design/properties",
-        "design/future",
+            "operator-guide/upload-relay",
+        ],
+    },
     ],
 };
 

@@ -418,3 +418,7 @@ html.blog-list-page article {
 [data-theme='dark'] .outlined-tabs {
   border-color: var(--ifm-color-emphasis-400);
 }
+
+.lightToggleIcon_pgEs {
+  color: #000000;
+}

@@ -1,41 +1,8 @@
 ---
-title: Components
-description: "Overview of Walrus components including Sui objects, storage nodes, aggregators, and client binaries for developers."
-keywords: ["walrus", "components", "sui objects", "storage nodes", "aggregators", "publishers", "client binaries", "system architecture"]
+title: Redirecting...
+sidebar_class_name: hidden
 ---
 
-From a developer perspective, some Walrus components are objects and smart contracts on Sui, and some components are Walrus-specific binaries and services. As a rule, Sui is used to manage blob and storage node metadata, while Walrus-specific services are used to store and read blob contents, which can be very large.
+import {Redirect} from '@docusaurus/router';
 
-## Sui components
-
-Walrus defines a number of [objects and smart contracts](/dev-guide/sui-struct.mdx) on Sui:
-
-- A shared [system object](/design/operations-sui.mdx) records and manages the current committee of [storage nodes](/design/architecture.mdx).
-
-- [Storage resources](/design/operations-sui.mdx) represent empty storage space that you can use to store blobs.
-
-- [Blob resources](/design/operations-off-chain.mdx) represent blobs being registered and [certified](/design/operations-sui.mdx) as stored.
-
-- Changes to these objects emit [Walrus-related events](/dev-guide/sui-struct.mdx#events).
-
-You can find the Walrus system object ID in the Walrus [`client_config.yaml` file](/usage/setup.mdx#configuration). You can use any [Sui explorer](https://suivision.xyz/) to look at its content. There is more information about these in the [quick reference to the Walrus Sui structures].
-
-## Walrus components 
-
-Walrus is also composed of a number of Walrus-specific services and binaries:
-
-- A client (binary) can be executed locally and provides the following tools to perform Walrus operations:
-
-  - A [command line interface (CLI)](/usage/client-cli.mdx).
-
-  - A [JSON API](/usage/json-api.mdx).
-  
-  - An [HTTP API](/usage/web-api.mdx) .
-
-- [Aggregator services](/design/architecture.mdx) that allow reading blobs through HTTP requests.
-
-- [Publisher services](/design/architecture.mdx) used to store blobs to Walrus.
-
-- A set of [storage nodes](/design/encoding.mdx) that store encoded blobs. These nodes form the decentralized storage infrastructure of Walrus.
-
-Aggregators, publishers, and other services use the client APIs to interact with Walrus. End users of services using Walrus interact with the store through custom services, aggregators, or publishers that expose HTTP APIs to avoid the need to run a binary client locally.
+<Redirect to="/docs/system-overview/components" />

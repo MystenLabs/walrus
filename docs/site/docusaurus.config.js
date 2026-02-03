@@ -25,6 +25,9 @@ const config = {
     // Future flags, see https://docusaurus.io/docs/api/docusaurus-config#future
     future: {
         v4: true, // Improve compatibility with the upcoming Docusaurus v4
+        experimental_faster: {
+        swcJsMinimizer: true,
+    },
     },
 
     // Set the production url of your site here
@@ -150,7 +153,6 @@ const config = {
             };
         },
 
-        path.resolve(__dirname, "./src/plugins/askcookbook/index.js"),
         path.resolve(__dirname, "./src/shared/plugins/descriptions"),
     ],
 
@@ -194,6 +196,27 @@ const config = {
         ],
     ],
 
+    scripts: [
+        {
+      src: "https://widget.kapa.ai/kapa-widget.bundle.js",
+      "data-website-id": "206d9923-4daf-4f2e-aeac-e7683daf5088",
+      "data-project-name": "Walrus Knowledge",
+      "data-project-color": "#37c3b0ff",
+      "data-button-hide": "true",
+      "data-modal-title": "Ask Walrus AI",
+      "data-modal-ask-ai-input-placeholder": "Ask me anything about Walrus!",
+      "data-modal-example-questions":"How do I store data on Walrus?,What is a blob?,What are Walrus Sites?,How much does storage cost?",
+      "data-modal-body-bg-color": "#E0E2E6",
+      "data-source-link-bg-color": "#FFFFFF",
+      "data-source-link-border": "#37c3b0ff",
+      "data-answer-feedback-button-bg-color": "#FFFFFF",
+      "data-answer-copy-button-bg-color" : "#FFFFFF",
+      "data-thread-clear-button-bg-color" : "#FFFFFF",
+      "data-modal-image": "/img/logo.svg",
+      async: true,
+    },
+    ],
+
     themeConfig:
         /** @type {import('@docusaurus/preset-classic').ThemeConfig} */
         ({
@@ -210,18 +233,18 @@ const config = {
                         type: "docSidebar",
                         sidebarId: "docsSidebar",
                         position: "right",
-                        label: "Docs",
+                        label: "Data Storage",
                     },
                     {
                         type: "docSidebar",
                         sidebarId: "sitesSidebar",
-                        label: "Sites",
+                        label: "Walrus Sites",
                         position: "right",
                     },
                     {
                         type: "docSidebar",
-                        sidebarId: "designSidebar",
-                        label: "Design",
+                        sidebarId: "operatorSidebar",
+                        label: "Service Providers",
                         position: "right",
                     },
                     { to: "/blog", label: "Blog", position: "right" },

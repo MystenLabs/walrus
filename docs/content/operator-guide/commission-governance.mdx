@@ -3,6 +3,8 @@ title: Commission and Governance
 description: Guide to managing storage node commission collection and governance operations including authorization and contract upgrades.
 ---
 
+{/* https://linear.app/mysten-labs/issue/DOCS-692/operator-guidecommission-governance */}
+
 While most node parameters can be changed using `StorageNodeCap` and are automatically updated based on the values in the node configuration, authorization for contract upgrades and withdrawing the storage node's commission is handled separately to ensure that the hot wallet on the storage node does not need to be authorized for these operations.
 
 All node operators are strongly recommended to designate secure wallets for these operations that are not stored on the storage node machines.
@@ -23,7 +25,7 @@ To set the authorization to receive the commission and perform governance operat
 
 ### Use the CLI
 
-The following assumes that you have the `walrus` binary [correctly set up](/usage/setup.mdx), using the wallet that is currently authorized to perform these operations. If this is the first time updating the authorized entities, this is the wallet that you used to set up the storage node. To specify a wallet and config that are not in the standard locations, you can specify them using the `--wallet` and `--config` command line arguments.
+The following assumes that you have the `walrus` binary [correctly set up](/docs/getting-started/advanced-setup), using the wallet that is currently authorized to perform these operations. If this is the first time updating the authorized entities, this is the wallet that you used to set up the storage node. To specify a wallet and config that are not in the standard locations, you can specify them using the `--wallet` and `--config` command line arguments.
 
 The authorized entities for commission and governance are independent and do not need to be set to the same address or object.
 
@@ -76,7 +78,7 @@ The vote needs to complete within 1 epoch, otherwise the committee changes and t
 
 ### Compute the upgrade digest
 
-Operators should compute the package digest of the package to upgrade. The same compiler version must be used and the correct Sui network must be specified. If you use a standard [Walrus configuration](/usage/setup.mdx#configuration), the Sui network is selected automatically when specifying the Walrus network using the `--context` flag and using the up-to-date `walrus` version ensures that the compiler version is consistent across all voters.
+Operators should compute the package digest of the package to upgrade. The same compiler version must be used and the correct Sui network must be specified. If you use a standard [Walrus configuration](/docs/getting-started/advanced-setup#configuration), the Sui network is selected automatically when specifying the Walrus network using the `--context` flag and using the up-to-date `walrus` version ensures that the compiler version is consistent across all voters.
 
 To compute the digest of a proposed upgrade, use the `walrus node-admin` command. Assuming that your current working directory is the root of the Walrus repository and you have checked out the correct commit, use the following command for Testnet upgrades:
 
