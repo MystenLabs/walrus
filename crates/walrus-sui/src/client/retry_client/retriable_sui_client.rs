@@ -555,7 +555,7 @@ impl RetriableSuiClient {
                             .await
                             .inspect_err(|error| {
                                 tracing::warn!(%error,
-                                    "failed to get goins via grpc after retries");
+                                    "failed to get coins via grpc after retries");
                             })
                         },
                         None,
