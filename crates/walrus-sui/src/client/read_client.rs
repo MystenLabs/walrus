@@ -48,6 +48,7 @@ use super::{
     retry_client::RetriableSuiClient,
 };
 use crate::{
+    balance::Balance,
     client::retry_client::retriable_sui_client::MAX_GAS_PAYMENT_OBJECTS,
     coin::Coin,
     contracts::{self, AssociatedContractStruct, AssociatedContractStructWithPkgId, TypeOriginMap},
@@ -671,18 +672,35 @@ impl SuiReadClient {
         &self,
         owner_address: SuiAddress,
         coin_type: CoinType,
+    ) -> SuiClientResult<Balance> {
+        let coin_type_option = match coin_type {
+            CoinType::Wal => Some(self.wal_coin_type().to_owned()),
+            CoinType::Sui => {
+                // NB: None -> "0x2::sui::SUI"
+                None
+            }
+        };
+        self.sui_client
+            .get_balance(owner_address, coin_type_option)
+            .await
+    }
+
+    /// Returns the balance of the owner for the given coin type.
+    pub(crate) async fn total_balance(
+        &self,
+        owner_address: SuiAddress,
+        coin_type: CoinType,
     ) -> SuiClientResult<u64> {
         let coin_type_option = match coin_type {
             CoinType::Wal => Some(self.wal_coin_type().to_owned()),
-            CoinType::Sui => None,
+            CoinType::Sui => {
+                // NB: None -> "0x2::sui::SUI"
+                None
+            }
         };
-        Ok(self
-            .sui_client
-            .get_balance(owner_address, coin_type_option)
-            .await?
-            .total_balance
-            .try_into()
-            .expect("balances should fit into a u64"))
+        self.sui_client
+            .get_total_balance(owner_address, coin_type_option)
+            .await
     }
 
     /// Returns a vector of coins of provided `coin_type` whose total balance is at least `balance`.

@@ -17,6 +17,7 @@ use sui_rpc::{
         BatchGetObjectsRequest,
         BatchGetObjectsResponse,
         Bcs,
+        GetBalanceRequest,
         GetObjectRequest,
         ListOwnedObjectsRequest,
         ListOwnedObjectsResponse,
@@ -407,6 +408,29 @@ impl DualClient {
             )
             .into()),
         }
+    }
+
+    /// Get the total balance for a given owner and coin type. This routine avoids enumerating all
+    /// the coin objects on the client side by using the gRPC `GetBalance` method.
+    pub async fn get_total_balance(
+        &self,
+        owner: SuiAddress,
+        coin_type: Option<String>,
+    ) -> Result<u64, SuiClientError> {
+        let coin_type_for_request = coin_type.unwrap_or_else(|| "0x2::sui::SUI".to_string());
+        let get_balance_request = GetBalanceRequest::default()
+            .with_owner(owner.to_string())
+            .with_coin_type(coin_type_for_request);
+        let mut grpc_client: GrpcClient = self.grpc_client.clone();
+        let mut state_client = grpc_client.state_client();
+        let coin_balance = state_client
+            .get_balance(get_balance_request)
+            .await
+            .context("failed to get total balance")?
+            .into_inner()
+            .balance()
+            .coin_balance();
+        Ok(coin_balance)
     }
 }
 

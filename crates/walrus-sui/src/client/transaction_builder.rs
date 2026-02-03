@@ -52,6 +52,7 @@ use super::{
 };
 use crate::{
     client::retry_client::retriable_sui_client::GasBudgetAndPrice,
+    coin::Coin,
     contracts::{self, FunctionTag},
     types::{
         NetworkAddress,
@@ -163,32 +164,53 @@ impl WalrusPtbBuilder {
         }
     }
 
+    /// Calls `fill_wal_balance_with_provided_coins` with no provided coins.
+    pub fn fill_wal_balance(
+        &mut self,
+        min_balance: u64,
+    ) -> impl Future<Output = SuiClientResult<()>> {
+        self.fill_wal_balance_with_provided_coins(min_balance, None)
+    }
+
     /// Fills up the WAL coin argument of the PTB to at least `min_balance`.
     ///
     /// This function merges additional coins if necessary and is a no-op if the current available
     /// balance (that has already been added to the PTB and hasn't been consumed yet) is larger than
     /// `min_balance`.
     ///
+    /// When passed a list of `coins`, those coins are used to fill the balance. Otherwise, coins
+    /// are fetched from the network.
+    ///
+    /// # Returns a boolean indicating whether any coins were added.
+    ///
     /// # Errors
     ///
     /// Returns a [`SuiClientError::NoCompatibleWalCoins`] if no WAL coins with sufficient balance
     /// can be found.
-    pub async fn fill_wal_balance(&mut self, min_balance: u64) -> SuiClientResult<()> {
+    pub async fn fill_wal_balance_with_provided_coins(
+        &mut self,
+        min_balance: u64,
+        coins: Option<Vec<Coin>>,
+    ) -> SuiClientResult<()> {
         // If we already have a wal_coin_arg and sufficient balance, we're done
         if min_balance <= self.tx_wal_balance && self.wal_coin_arg.is_some() {
             return Ok(());
         }
 
         let additional_balance = min_balance - self.tx_wal_balance;
-        let mut coins = self
-            .read_client
-            .get_coins_with_total_balance(
-                self.sender_address,
-                CoinType::Wal,
-                additional_balance,
-                self.used_wal_coins.iter().cloned().collect(),
-            )
-            .await?;
+        let mut coins = if let Some(coins) = coins {
+            coins
+        } else {
+            self.read_client
+                .get_coins_with_total_balance(
+                    self.sender_address,
+                    CoinType::Wal,
+                    additional_balance,
+                    self.used_wal_coins.iter().cloned().collect(),
+                )
+                .await?
+        };
+
         let mut added_balance = 0;
         let main_coin = if let Some(coin_arg) = self.wal_coin_arg {
             coin_arg
@@ -1587,7 +1609,7 @@ impl WalrusPtbBuilder {
         self,
         gas_budget: Option<u64>,
     ) -> SuiClientResult<TransactionData> {
-        self.transfer_outputs_and_build_transaction_data(gas_budget, 0)
+        self.transfer_outputs_and_build_transaction_data(gas_budget, 0, None)
             .await
     }
 
@@ -1599,6 +1621,7 @@ impl WalrusPtbBuilder {
         mut self,
         gas_budget: Option<u64>,
         minimum_gas_coin_balance: u64,
+        gas_coins: Option<Vec<Coin>>,
     ) -> SuiClientResult<TransactionData> {
         self.transfer_remaining_outputs(None).await?;
         let programmable_transaction = self.pt_builder.finish();
@@ -1610,6 +1633,7 @@ impl WalrusPtbBuilder {
             gas_budget,
             minimum_gas_coin_balance,
             self.tx_sui_cost,
+            gas_coins,
         )
         .await
     }
@@ -1795,6 +1819,7 @@ pub async fn build_transaction_data_with_min_gas_balance(
     gas_budget: Option<u64>,
     minimum_gas_coin_balance: u64,
     tx_sui_cost: u64,
+    gas_coins: Option<Vec<Coin>>,
 ) -> SuiClientResult<TransactionData> {
     // Estimate the gas budget unless explicitly set.
     let GasBudgetAndPrice {
@@ -1811,12 +1836,23 @@ pub async fn build_transaction_data_with_min_gas_balance(
 
     let minimum_gas_coin_balance = minimum_gas_coin_balance.max(gas_budget + tx_sui_cost);
 
+    let gas_payment = {
+        if let Some(gas_coins) = gas_coins {
+            gas_coins
+                .into_iter()
+                .map(|coin| coin.object_ref())
+                .collect()
+        } else {
+            read_client
+                .get_compatible_gas_coins(sender_address, minimum_gas_coin_balance)
+                .await?
+        }
+    };
+
     // Construct the transaction with gas coins that meet the minimum balance requirement
     Ok(TransactionData::new_programmable(
         sender_address,
-        read_client
-            .get_compatible_gas_coins(sender_address, minimum_gas_coin_balance)
-            .await?,
+        gas_payment,
         programmable_transaction,
         gas_budget,
         gas_price,

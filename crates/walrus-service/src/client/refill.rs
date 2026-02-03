@@ -227,9 +227,9 @@ pub async fn should_refill(
     min_balance: u64,
 ) -> bool {
     sui_client
-        .get_balance(address, coin_type)
+        .get_total_balance(address, coin_type)
         .await
-        .map(|balance| balance.total_balance < u128::from(min_balance))
+        .map(|balance| balance < min_balance)
         .inspect_err(|error| {
             tracing::debug!(
                 ?error,

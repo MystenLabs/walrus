@@ -113,7 +113,7 @@ jobs:
     runs-on: ubuntu-ghcloud
     strategy:
       matrix:
-        grpc_migration_level: [0, 1]
+        grpc_migration_level: [0, 100]
     env:
       RUST_LOG: walrus=info,error,sui_=off,consensus_core=off
       OPENSSL_STATIC: "1"
@@ -161,11 +161,11 @@ jobs:
       - name: Run tests (seed=2)
         run: MSIM_TEST_SEED=2 cargo simtest simtest --profile simtest
       - name: Run tests (seed=3, grpc-client-enabled)
-        run: MSIM_TEST_SEED=3 WALRUS_GRPC_MIGRATION_LEVEL=1 cargo simtest simtest --profile simtest
+        run: MSIM_TEST_SEED=3 WALRUS_GRPC_MIGRATION_LEVEL=100 cargo simtest simtest --profile simtest
       - name: Run tests (seed=4, grpc-client-enabled)
-        run: MSIM_TEST_SEED=4 WALRUS_GRPC_MIGRATION_LEVEL=1 cargo simtest simtest --profile simtest
+        run: MSIM_TEST_SEED=4 WALRUS_GRPC_MIGRATION_LEVEL=100 cargo simtest simtest --profile simtest
       - name: Run tests (seed=5, grpc-client-enabled)
-        run: MSIM_TEST_SEED=5 WALRUS_GRPC_MIGRATION_LEVEL=1 cargo simtest simtest --profile simtest
+        run: MSIM_TEST_SEED=5 WALRUS_GRPC_MIGRATION_LEVEL=100 cargo simtest simtest --profile simtest
 
   simtests-build:
     name: Build all simtests

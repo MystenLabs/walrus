@@ -2527,8 +2527,8 @@ pub async fn test_select_coins_max_objects() -> TestResult {
         ExponentialBackoffConfig::default(),
     )?;
 
-    let balance = retry_client.get_balance(address, None).await?;
-    assert_eq!(balance.total_balance, u128::from(sui(4)));
+    let balance = retry_client.get_total_balance(address, None).await?;
+    assert_eq!(balance, sui(4));
 
     // The maximum number of coins that can be selected to reach the amount.
     let max_num_coins = 2;
@@ -2796,10 +2796,9 @@ async fn test_store_with_upload_relay_with_tip() {
 
     // Get initial balance of relay wallet to verify tip payment
     let initial_relay_balance = retry_client
-        .get_balance(relay_address, None)
+        .get_total_balance(relay_address, None)
         .await
-        .expect("get balance")
-        .total_balance;
+        .expect("get balance");
 
     const BLOB_SIZE: usize = 40000;
     match basic_store_and_read(
@@ -2819,10 +2818,9 @@ async fn test_store_with_upload_relay_with_tip() {
 
     // Verify that the relay wallet received a tip
     let final_relay_balance = retry_client
-        .get_balance(relay_address, None)
+        .get_total_balance(relay_address, None)
         .await
-        .expect("get balance")
-        .total_balance;
+        .expect("get balance");
 
     tracing::info!(
         "Relay address balance - Initial: {initial_relay_balance}, Final: {final_relay_balance}",
@@ -2839,8 +2837,7 @@ async fn test_store_with_upload_relay_with_tip() {
         encoded_blob_length_for_n_shards(n_shards, BLOB_SIZE as u64, EncodingType::RS2)
             .expect("encoded blob size should be valid");
 
-    let expected_tip_lower_bound =
-        u128::from(TIP_BASE + encoded_blob_size.div_ceil(1024) * TIP_MULTIPLIER);
+    let expected_tip_lower_bound = TIP_BASE + encoded_blob_size.div_ceil(1024) * TIP_MULTIPLIER;
     let actual_tip = final_relay_balance - initial_relay_balance;
 
     tracing::info!(

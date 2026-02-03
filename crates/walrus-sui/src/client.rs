@@ -49,6 +49,7 @@ use walrus_core::{
 use walrus_utils::backoff::ExponentialBackoffConfig;
 
 use crate::{
+    balance::{Balance, BalanceRetrievalError},
     contracts::{self, MoveConversionError},
     system_setup::{self, compile_package},
     types::{
@@ -208,6 +209,9 @@ pub enum SuiClientError {
     /// A gRPC-related error has occurred.
     #[error("gRPC error: {0}")]
     GrpcError(#[from] tonic::Status),
+    /// A balance retrieval error has occurred.
+    #[error(transparent)]
+    BalanceRetrievalError(#[from] BalanceRetrievalError),
 }
 
 impl From<sui_types::error::SuiError> for SuiClientError {
@@ -581,9 +585,16 @@ impl SuiContractClient {
     }
 
     /// Returns the balance of the owner for the given coin type.
-    pub async fn balance(&self, coin_type: CoinType) -> SuiClientResult<u64> {
+    pub async fn balance(&self, coin_type: CoinType) -> SuiClientResult<Balance> {
         self.read_client
             .balance(self.wallet_address, coin_type)
+            .await
+    }
+
+    /// Returns the balance of the owner for the given coin type.
+    pub async fn total_balance(&self, coin_type: CoinType) -> SuiClientResult<u64> {
+        self.read_client
+            .total_balance(self.wallet_address, coin_type)
             .await
     }
 
@@ -2435,26 +2446,24 @@ impl SuiContractClientInner {
             .get_balance(address, Some(self.read_client().wal_coin_type().to_owned()))
             .await?;
 
-        if wal_balance.coin_object_count > 1 {
+        let wal_coin_object_count = wal_balance.coin_object_count();
+        if wal_coin_object_count > 1 {
             tx_builder
-                .fill_wal_balance(
-                    wal_balance
-                        .total_balance
-                        .try_into()
-                        .expect("this is always smaller than u64::MAX"),
+                .fill_wal_balance_with_provided_coins(
+                    wal_balance.total_balance(),
+                    wal_balance.coins(),
                 )
                 .await?;
         }
 
-        if sui_balance.coin_object_count > 1 || wal_balance.coin_object_count > 1 {
+        let sui_coin_object_count = sui_balance.coin_object_count();
+        if sui_coin_object_count > 1 || wal_coin_object_count > 1 {
             self.sign_and_send_transaction(
                 tx_builder
                     .transfer_outputs_and_build_transaction_data(
                         self.gas_budget,
-                        sui_balance
-                            .total_balance
-                            .try_into()
-                            .expect("this is always smaller than u64::MAX"),
+                        sui_balance.total_balance(),
+                        sui_balance.coins(),
                     )
                     .await?,
                 "merge_coins",
