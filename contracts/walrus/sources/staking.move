@@ -182,34 +182,27 @@ public fun compute_next_committee(staking: &Staking): Committee {
 // === Voting ===
 
 /// Sets the storage price vote for the pool.
-/// After storing the vote, immediately recalculates the quorum storage price from the
-/// current committee and applies it to the system.
-public fun set_storage_price_vote(
-    self: &mut Staking,
-    system: &mut System,
-    cap: &StorageNodeCap,
-    storage_price: u64,
-) {
-    let new_price = self.inner_mut().set_storage_price_vote(cap, storage_price);
-    system.set_storage_price(new_price);
+public fun set_storage_price_vote(self: &mut Staking, cap: &StorageNodeCap, storage_price: u64) {
+    self.inner_mut().set_storage_price_vote(cap, storage_price);
 }
 
 /// Sets the write price vote for the pool.
-/// After storing the vote, immediately recalculates the quorum write price from the
-/// current committee and applies it to the system.
-public fun set_write_price_vote(
-    self: &mut Staking,
-    system: &mut System,
-    cap: &StorageNodeCap,
-    write_price: u64,
-) {
-    let new_price = self.inner_mut().set_write_price_vote(cap, write_price);
-    system.set_write_price(new_price);
+public fun set_write_price_vote(self: &mut Staking, cap: &StorageNodeCap, write_price: u64) {
+    self.inner_mut().set_write_price_vote(cap, write_price);
 }
 
 /// Sets the node capacity vote for the pool.
 public fun set_node_capacity_vote(self: &mut Staking, cap: &StorageNodeCap, node_capacity: u64) {
     self.inner_mut().set_node_capacity_vote(cap, node_capacity);
+}
+
+/// Recalculates the quorum storage and write prices from the current committee
+/// and applies them to the system. Should be called after price votes are cast
+/// (in the same PTB) and is also called during epoch change.
+public fun update_prices(staking: &mut Staking, system: &mut System) {
+    let (storage_price, write_price) = staking.inner().recalculate_prices();
+    system.set_storage_price(storage_price);
+    system.set_write_price(write_price);
 }
 
 // === Get/ Update Node Parameters ===
@@ -269,19 +262,18 @@ public fun voting_end(staking: &mut Staking, clock: &Clock) {
 ///
 /// Emits the `EpochChangeStart` event.
 public fun initiate_epoch_change(staking: &mut Staking, system: &mut System, clock: &Clock) {
-    let staking_inner = staking.inner_mut();
-    let rewards = system.advance_epoch(
-        staking_inner.next_bls_committee(),
-        staking_inner.next_epoch_params(),
-    );
+    {
+        let staking_inner = staking.inner_mut();
+        let rewards = system.advance_epoch(
+            staking_inner.next_bls_committee(),
+            staking_inner.next_epoch_params(),
+        );
 
-    let (new_storage_price, new_write_price) = staking_inner.initiate_epoch_change(
-        clock,
-        rewards,
-    );
-    // Apply the recalculated prices from the new committee immediately.
-    system.set_storage_price(new_storage_price);
-    system.set_write_price(new_write_price);
+        staking_inner.initiate_epoch_change(clock, rewards);
+    };
+
+    // Recalculate and apply prices from the new committee.
+    update_prices(staking, system);
 }
 
 /// Signals to the contract that the node has received all its shards for the new epoch.

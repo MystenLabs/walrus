@@ -793,3 +793,112 @@ fun sign(nodes: &vector<TestStorageNode>, message: vector<u8>): (vector<u8>, vec
 
     (signature, members_bitmap)
 }
+
+#[test]
+/// Tests that price votes take effect immediately on the system without
+/// waiting for `voting_end` or `initiate_epoch_change`.
+fun immediate_price_change_on_vote() {
+    let (mut runner, mut nodes) = e2e_runner::setup_committee_for_epoch_one();
+    let admin = @0xA11CE;
+
+    // After epoch 1 setup, all 10 nodes have storage_price=10_000 and write_price=20_000.
+    // The system should reflect these quorum prices after initiate_epoch_change.
+    runner.tx!(admin, |_, system, _| {
+        assert_eq!(system.storage_price_per_unit_size(), 10_000);
+        assert_eq!(system.write_price_per_unit_size(), 20_000);
+    });
+
+    // === Test 1: Change storage price only ===
+    // Have a quorum of nodes (7 out of 10, each with equal shards) vote for a new
+    // storage price of 50_000. With quorum_below, the price picked is the one at
+    // which a quorum (2/3) of shard weight votes at or below that value.
+    // 7 nodes vote 50_000, 3 nodes still vote 10_000.
+    // Sorted: 10000, 10000, 10000, 50000, 50000, 50000, 50000, 50000, 50000, 50000
+    // quorum_below picks the value at the 2/3 threshold from the top = 50_000.
+    let mut i = 0;
+    nodes.do_mut!(|node| {
+        if (i < 7) {
+            runner.tx!(node.sui_address(), |staking, system, _| {
+                staking.set_storage_price_vote(node.cap(), 50_000);
+                staking.update_prices(system);
+            });
+        };
+        i = i + 1;
+    });
+
+    // Verify: storage price changed immediately, write price unchanged.
+    runner.tx!(admin, |_, system, _| {
+        assert_eq!(system.storage_price_per_unit_size(), 50_000);
+        assert_eq!(system.write_price_per_unit_size(), 20_000);
+    });
+
+    // === Test 2: Change write price only ===
+    // Have all 10 nodes vote for a new write price of 100_000.
+    nodes.do_mut!(|node| {
+        runner.tx!(node.sui_address(), |staking, system, _| {
+            staking.set_write_price_vote(node.cap(), 100_000);
+            staking.update_prices(system);
+        });
+    });
+
+    // Verify: write price changed immediately, storage price still 50_000.
+    runner.tx!(admin, |_, system, _| {
+        assert_eq!(system.storage_price_per_unit_size(), 50_000);
+        assert_eq!(system.write_price_per_unit_size(), 100_000);
+    });
+
+    // === Test 3: Incremental vote changes ===
+    // Only 1 node changes its storage price to 1. This should NOT change the
+    // quorum price because 1 node out of 10 is not enough to shift quorum_below.
+    // Current votes: 7 nodes at 50_000, 3 nodes at 10_000.
+    // After: 6 nodes at 50_000, 3 nodes at 10_000, 1 node at 1.
+    // Sorted: 1, 10000, 10000, 10000, 50000, 50000, 50000, 50000, 50000, 50000
+    // quorum_below still picks 50_000.
+    runner.tx!(nodes[0].sui_address(), |staking, system, _| {
+        staking.set_storage_price_vote(nodes[0].cap(), 1);
+        staking.update_prices(system);
+    });
+
+    runner.tx!(admin, |_, system, _| {
+        assert_eq!(system.storage_price_per_unit_size(), 50_000);
+    });
+
+    // === Test 4: Enough votes shift the quorum ===
+    // Now have 4 more nodes (total 5 including the one above) vote for storage price 1.
+    // After: 5 nodes at 1, 2 nodes at 10_000, 3 remaining at 50_000 (wait, let me recount).
+    // Original: nodes 0-6 voted 50_000, nodes 7-9 still at 10_000.
+    // Node 0 just changed to 1. So: node 0 at 1, nodes 1-6 at 50_000, nodes 7-9 at 10_000.
+    // Now change nodes 1-4 to 1 as well.
+    // After: nodes 0-4 at 1, nodes 5-6 at 50_000, nodes 7-9 at 10_000.
+    // Sorted: 1, 1, 1, 1, 1, 10000, 10000, 10000, 50000, 50000
+    // With equal shards (100 each), quorum_below picks the value where cumulative
+    // weight from the top first reaches > n_shards/3 = 334 shards.
+    // From top: 50000(100), 50000(200), 10000(300), 10000(400) -> 10_000 at 400 > 334.
+    // So quorum_below should return 10_000.
+    let mut j = 1;
+    while (j <= 4) {
+        runner.tx!(nodes[j].sui_address(), |staking, system, _| {
+            staking.set_storage_price_vote(nodes[j].cap(), 1);
+            staking.update_prices(system);
+        });
+        j = j + 1;
+    };
+
+    runner.tx!(admin, |_, system, _| {
+        assert_eq!(system.storage_price_per_unit_size(), 10_000);
+    });
+
+    // === Test 5: Prices persist across epoch change ===
+    // Advance to epoch 2 and verify prices are maintained from the new committee's votes.
+    runner.next_epoch();
+
+    runner.tx!(admin, |_, system, _| {
+        // After epoch change, prices are recalculated from the new committee.
+        // The votes haven't changed, so prices should be the same.
+        assert_eq!(system.storage_price_per_unit_size(), 10_000);
+        assert_eq!(system.write_price_per_unit_size(), 100_000);
+    });
+
+    nodes.destroy!(|node| node.destroy());
+    runner.destroy();
+}
