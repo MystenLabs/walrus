@@ -6,15 +6,16 @@
 //! Wraps the [`DualClient`] to introduce retries.
 use std::{
     cmp::Reverse,
-    collections::{BTreeMap, BinaryHeap, HashMap},
-    pin::pin,
+    collections::{BTreeMap, BinaryHeap, HashMap, VecDeque},
+    pin::Pin,
     str::FromStr,
     sync::{Arc, LazyLock},
     time::Duration,
 };
 
 use anyhow::Context;
-use futures::{Stream, StreamExt, future, stream};
+use bytes::Bytes;
+use futures::{Stream, StreamExt, stream};
 use move_core_types::language_storage::StructTag;
 use rand::{
     Rng as _,
@@ -75,7 +76,7 @@ use super::{
 use crate::{
     client::{
         SuiClientMetricSet,
-        dual_client::{BcsDatapack, DualClient},
+        dual_client::{BcsDatapack, CoinBatch, DualClient},
     },
     coin::Coin,
     contracts::{self, AssociatedContractStruct, MoveConversionError, TypeOriginMap},
@@ -206,6 +207,7 @@ pub struct GrpcMigrationLevel(u32);
 const GRPC_MIGRATION_LEVEL_LEGACY_U32: u32 = 0;
 const GRPC_MIGRATION_LEVEL_GET_OBJECT: GrpcMigrationLevel = GrpcMigrationLevel(1);
 const GRPC_MIGRATION_LEVEL_BATCH_OBJECTS: GrpcMigrationLevel = GrpcMigrationLevel(2);
+const GRPC_MIGRATION_LEVEL_SELECT_COINS: GrpcMigrationLevel = GrpcMigrationLevel(3);
 
 impl Default for GrpcMigrationLevel {
     fn default() -> Self {
@@ -383,23 +385,8 @@ impl RetriableSuiClient {
     /// will filter to the given coin type. It will attempt to gather coins to satisfy the given
     /// `amount`. `exclude` is a list of coin object IDs to exclude from the result. `max_num_coins`
     /// puts a hard cap on the number of coins returned.
-    pub fn select_coins(
-        &self,
-        address: SuiAddress,
-        coin_type: Option<String>,
-        amount: u128,
-        exclude: Vec<ObjectID>,
-        max_num_coins: usize,
-    ) -> impl Future<Output = SuiClientResult<Vec<Coin>>> {
-        // NB: this function will serve as the branching point for gRPC implementation of
-        // select_coins.
-        self.select_coins_with_json_rpc(address, coin_type, amount, exclude, max_num_coins)
-    }
-
-    /// Reimplements the functionality of [`sui_sdk::apis::CoinReadApi::select_coins`] with the
-    /// addition of retries on network errors.
     #[tracing::instrument(skip(self, address, exclude), level = Level::DEBUG)]
-    async fn select_coins_with_json_rpc(
+    pub async fn select_coins(
         &self,
         address: SuiAddress,
         coin_type: Option<String>,
@@ -410,7 +397,7 @@ impl RetriableSuiClient {
         retry_rpc_errors(
             self.get_strategy(),
             || async {
-                self.select_coins_with_json_rpc_impl(
+                self.select_coins_with_filter(
                     address,
                     coin_type.clone(),
                     amount,
@@ -420,9 +407,21 @@ impl RetriableSuiClient {
                 .await
             },
             self.metrics.clone(),
-            "select_coins_with_json_rpc",
+            "select_coins_with_filter",
         )
         .await
+    }
+
+    fn get_coins_stream_retry(
+        &self,
+        owner: SuiAddress,
+        coin_type: Option<String>,
+    ) -> Pin<Box<dyn Stream<Item = Coin> + Send + '_>> {
+        if self.grpc_migration_level >= GRPC_MIGRATION_LEVEL_SELECT_COINS {
+            self.get_coins_stream_retry_with_grpc(owner, coin_type)
+        } else {
+            self.get_coins_stream_retry_with_json_rpc(owner, coin_type)
+        }
     }
 
     /// Returns a list of all coins for the given address, with a filter on the coin type. Note
@@ -432,16 +431,16 @@ impl RetriableSuiClient {
         address: SuiAddress,
         coin_type: Option<String>,
     ) -> SuiClientResult<Vec<Coin>> {
-        let mut coins_stream = pin!(self.get_coins_stream_retry(address, coin_type.clone()));
+        let mut coins_stream = self.get_coins_stream_retry(address, coin_type.clone());
 
         let mut selected_coins = Vec::new();
-        while let Some(coin) = coins_stream.as_mut().next().await {
+        while let Some(coin) = coins_stream.next().await {
             selected_coins.push(coin);
         }
         Ok(selected_coins)
     }
 
-    async fn select_coins_with_json_rpc_impl(
+    async fn select_coins_with_filter(
         &self,
         address: SuiAddress,
         coin_type: Option<String>,
@@ -449,17 +448,17 @@ impl RetriableSuiClient {
         exclude: Vec<ObjectID>,
         max_num_coins: usize,
     ) -> SuiClientResult<Vec<Coin>> {
-        let mut coins_stream = pin!(
-            self.get_coins_stream_retry(address, coin_type.clone())
-                .filter(|coin: &Coin| future::ready(!exclude.contains(&coin.coin_object_id)))
-        );
+        let mut coins_stream = self.get_coins_stream_retry(address, coin_type.clone());
 
         let mut selected_coins: BinaryHeap<Reverse<OrderedCoin>> = BinaryHeap::new();
 
         let mut total_selected = 0u128;
         let mut total_available = 0u128;
 
-        while let Some(coin) = coins_stream.as_mut().next().await {
+        while let Some(coin) = coins_stream.next().await {
+            if exclude.contains(&coin.coin_object_id) {
+                continue;
+            }
             let coin_balance = u128::from(coin.balance);
             total_available += coin_balance;
             if selected_coins.len() >= max_num_coins {
@@ -498,16 +497,99 @@ impl RetriableSuiClient {
     }
 
     /// Returns a stream of coins for the given address.
+    fn get_coins_stream_retry_with_grpc(
+        &self,
+        owner: SuiAddress,
+        coin_type: Option<String>,
+    ) -> Pin<Box<dyn Stream<Item = Coin> + Send + '_>> {
+        let stream_state = StreamState {
+            queue: VecDeque::new(),
+            cursor: Cursor::Init,
+            owner,
+            coin_type,
+        };
+
+        Box::pin(stream::unfold(
+            stream_state,
+            move |mut stream_state| async move {
+                // If we've got a coin from a prior batch, let's stream it.
+                if let Some(item) = stream_state.queue.pop_front() {
+                    return Some((item, stream_state));
+                }
+
+                // Figure out the next page to ask for.
+                let next_page_token = {
+                    let mut cursor = Cursor::Done;
+                    std::mem::swap(&mut cursor, &mut stream_state.cursor);
+                    match cursor {
+                        Cursor::Init => None,
+                        Cursor::NextToken(next_page_token) => Some(next_page_token),
+                        Cursor::Done => {
+                            return None;
+                        }
+                    }
+                };
+
+                // Fetch a batch of coins.
+                let CoinBatch {
+                    coins,
+                    next_page_token,
+                } = self
+                    .failover_sui_client
+                    .with_failover(
+                        async |client, method| {
+                            retry_rpc_errors(
+                                self.get_strategy(),
+                                || async {
+                                    client
+                                        .fetch_batch_of_coins(
+                                            stream_state.owner,
+                                            stream_state.coin_type.clone(),
+                                            next_page_token.clone(),
+                                        )
+                                        .await
+                                },
+                                self.metrics.clone(),
+                                method,
+                            )
+                            .await
+                            .inspect_err(|error| {
+                                tracing::warn!(%error,
+                                    "failed to get coins via grpc after retries");
+                            })
+                        },
+                        None,
+                        "fetch_batch_of_coins",
+                    )
+                    .await
+                    .ok()?;
+
+                // Collect our new coins, and advance the cursor.
+                stream_state.queue.extend(coins);
+                if let Some(next_page_token) = next_page_token {
+                    stream_state.cursor = Cursor::NextToken(next_page_token);
+                } else {
+                    stream_state.cursor = Cursor::Done;
+                }
+                stream_state
+                    .queue
+                    .pop_front()
+                    .map(|item| (item, stream_state))
+            },
+        ))
+    }
+
+    /// Returns a stream of coins for the given address.
     ///
     /// This is a re-implementation of the [`sui_sdk::apis::CoinReadApi::get_coins_stream`] method
     /// in the [`sui_sdk::SuiClient`] struct. Unlike the original implementation, this version will
     /// retry failed RPC calls.
-    fn get_coins_stream_retry(
+    fn get_coins_stream_retry_with_json_rpc(
         &self,
         owner: SuiAddress,
         coin_type: Option<String>,
-    ) -> impl Stream<Item = Coin> + '_ {
-        stream::unfold(
+    ) -> Pin<Box<dyn Stream<Item = Coin> + Send + '_>> {
+        Box::pin(stream::unfold(
             (
                 vec![],
                 /* cursor */ None,
@@ -564,7 +646,7 @@ impl RetriableSuiClient {
                     None
                 }
             },
-        )
+        ))
     }
 
     /// Returns the balance for the given coin type owned by address.
@@ -1796,6 +1878,21 @@ impl RetriableSuiClient {
             .with_failover(request, None, "get_previous_transaction")
             .await
     }
+}
+
+#[derive(Clone)]
+pub(crate) enum Cursor {
+    Init,
+    NextToken(Bytes),
+    Done,
+}
+
+#[derive(Clone)]
+pub(crate) struct StreamState {
+    pub queue: VecDeque<Coin>,
+    pub cursor: Cursor,
+    pub owner: SuiAddress,
+    pub coin_type: Option<String>,
 }
 
 /// Injects a simulated error for testing retry behavior executing sui transactions.

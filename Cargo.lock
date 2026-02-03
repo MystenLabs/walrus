@@ -13237,6 +13237,7 @@ dependencies = [
  "async-trait",
  "atomic-time",
  "bcs",
+ "bytes",
  "chrono",
  "clap",
  "fastcrypto",

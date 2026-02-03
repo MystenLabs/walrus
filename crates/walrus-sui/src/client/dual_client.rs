@@ -8,6 +8,7 @@
 use std::time::Duration;
 
 use anyhow::Context;
+use bytes::Bytes;
 use move_core_types::{account_address::AccountAddress, language_storage::StructTag};
 use sui_rpc::{
     Client as GrpcClient,
@@ -17,21 +18,27 @@ use sui_rpc::{
         BatchGetObjectsResponse,
         Bcs,
         GetObjectRequest,
+        ListOwnedObjectsRequest,
+        ListOwnedObjectsResponse,
         Object,
         get_object_result,
+        state_service_client::StateServiceClient,
     },
 };
 use sui_sdk::{SuiClient, SuiClientBuilder};
 use sui_types::{
     TypeTag,
-    base_types::{ObjectID, ObjectRef},
+    base_types::{ObjectID, ObjectRef, SuiAddress},
     digests::TransactionDigest,
 };
+use tonic::service::interceptor::InterceptedService;
+use walrus_core::ensure;
 
-use crate::{client::SuiClientError, contracts::TypeOriginMap};
+use crate::{client::SuiClientError, coin::Coin, contracts::TypeOriginMap};
 
 /// The maximum number of objects to request in a single "batch" gRPC call.
 pub const MAX_GET_OBJECTS_BATCH_SIZE: usize = 100;
+const MAX_SELECT_COINS_BATCH_SIZE: u32 = 1000;
 
 /// A client that combines the Sui SDK client and a gRPC client in order to facilitate a migration
 /// from Sui JSON RPC to gRPC by gradually migrating callsites away from [`SuiClient`].
@@ -67,6 +74,12 @@ pub struct BcsDatapack {
     pub version: u64,
     /// `initial_shared_version` for shared objects.
     pub initial_shared_version: Option<u64>,
+}
+
+/// A batch of coins returned from Sui via gRPC.
+pub(crate) struct CoinBatch {
+    pub coins: Vec<Coin>,
+    pub next_page_token: Option<Bytes>,
 }
 
 impl DualClient {
@@ -337,6 +350,128 @@ impl DualClient {
         }
         Ok(type_origins)
     }
+
+    pub(crate) async fn fetch_batch_of_coins(
+        &self,
+        owner: SuiAddress,
+        coin_type: Option<String>,
+        page_token: Option<Bytes>,
+    ) -> Result<CoinBatch, SuiClientError> {
+        tracing::debug!(
+            ?owner,
+            ?coin_type,
+            ?page_token,
+            "DualClient::fetch_batch_of_coins called"
+        );
+        let mut grpc_client = self.grpc_client.clone();
+        let state_client = grpc_client.state_client();
+
+        // NB: in the event of failover handled at the callsite, the `page_token` here might have
+        // come from a previous gRPC response from a different host. The token is intentionally
+        // opaque to us, but according to current Sui gRPC server semantics, it should be valid
+        // across different servers - but this is not by design, and may change in the future, so
+        // this is something to keep an eye on. If pagination tokens become server-specific, we may
+        // need to rewrite the client to perform a full retry of the stream from the beginning,
+        // instead of using this incremental approach across servers.
+        let response =
+            list_owned_coin_objects(owner, coin_type.as_deref(), page_token, state_client).await;
+
+        let mut coins = Vec::new();
+        match response {
+            Ok(response) => {
+                let list_owned_objects_response = response.into_inner();
+                for object in list_owned_objects_response.objects {
+                    match convert_grpc_object_to_coin(object) {
+                        Ok(coin) => coins.push(coin),
+                        Err(error) => {
+                            return Err(anyhow::anyhow!(
+                                "error converting object to coin for owner \
+                                    [owner={:?}, coin_type={:?}]: {error:?}",
+                                owner,
+                                coin_type.as_deref(),
+                            )
+                            .into());
+                        }
+                    }
+                }
+
+                Ok(CoinBatch {
+                    coins,
+                    next_page_token: list_owned_objects_response.next_page_token,
+                })
+            }
+            Err(error) => Err(anyhow::anyhow!(
+                "error listing owned objects for owner [owner={:?}, coin_type={:?}]: {error:?}",
+                owner,
+                coin_type.as_deref(),
+            )
+            .into()),
+        }
+    }
+}
+
+async fn list_owned_coin_objects(
+    owner: SuiAddress,
+    coin_type: Option<&str>,
+    next_page_token: Option<Bytes>,
+    mut state_client: StateServiceClient<
+        InterceptedService<&mut tonic::transport::Channel, &sui_rpc::client::HeadersInterceptor>,
+    >,
+) -> Result<tonic::Response<ListOwnedObjectsResponse>, tonic::Status> {
+    let mut request = ListOwnedObjectsRequest::default()
+        .with_owner(owner.to_string())
+        .with_read_mask(FieldMask::from_paths([
+            Object::path_builder().object_type(),
+            Object::path_builder().object_id(),
+            Object::path_builder().version(),
+            Object::path_builder().digest(),
+            Object::path_builder().balance(),
+            Object::path_builder().previous_transaction(),
+        ]))
+        .with_page_size(MAX_SELECT_COINS_BATCH_SIZE)
+        .with_object_type(wrap_coin_typename(coin_type));
+    if let Some(next_page_token) = next_page_token {
+        request = request.with_page_token(next_page_token);
+    }
+    state_client.list_owned_objects(request).await
+}
+
+fn wrap_coin_typename(coin_type: Option<&str>) -> String {
+    coin_type
+        .map(|coin_type| format!("0x2::coin::Coin<{coin_type}>"))
+        .unwrap_or_else(|| "0x2::coin::Coin".to_string())
+}
+
+fn convert_grpc_object_to_coin(object: Object) -> Result<Coin, anyhow::Error> {
+    let struct_tag = object
+        .object_type
+        .context("no object_type in object")?
+        .parse::<StructTag>()
+        .context("parsing move object_type")?;
+    ensure!(
+        struct_tag.module.as_str() == "coin" && struct_tag.name.as_str() == "Coin",
+        "object is not a coin"
+    );
+    Ok(Coin {
+        coin_type: struct_tag.to_string(),
+        coin_object_id: object
+            .object_id
+            .context("no object_id in object")?
+            .parse()
+            .context("parsing object_id")?,
+        version: object.version.context("no version in object")?.into(),
+        digest: object
+            .digest
+            .context("no digest in object")?
+            .parse()
+            .context("parsing digest")?,
+        balance: object.balance.context("no balance in object")?,
+        previous_transaction: object
+            .previous_transaction
+            .context("no previous_transaction in object")?
+            .parse()
+            .context("parsing previous_transaction")?,
+    })
 }
 
 async fn batch_get_objects<T>(
