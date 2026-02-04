@@ -26,8 +26,6 @@ const EInvalidMigration: u64 = 0;
 const EWrongVersion: u64 = 1;
 /// The migration epoch is not set or has not started yet.
 const EInvalidMigrationEpoch: u64 = 2;
-/// The function is deprecated.
-const EDeprecatedFunction: u64 = 3;
 
 /// Flag to indicate the version of the Walrus system.
 const VERSION: u64 = 3;
@@ -260,9 +258,14 @@ public fun voting_end(staking: &mut Staking, clock: &Clock) {
     staking.inner_mut().voting_end(clock)
 }
 
-/// Deprecated: use `initiate_epoch_change_v2` instead.
+/// TODO: Deprecated: use `initiate_epoch_change_v2` instead.
 public fun initiate_epoch_change(staking: &mut Staking, system: &mut System, clock: &Clock) {
-    abort EDeprecatedFunction
+    let staking_inner = staking.inner_mut();
+    let rewards = system.advance_epoch(
+        staking_inner.next_bls_committee(),
+        staking_inner.next_epoch_params(),
+    );
+    staking_inner.initiate_epoch_change(clock, rewards);
 }
 
 /// Initiates the epoch change if the current time allows.
@@ -277,7 +280,7 @@ public fun initiate_epoch_change_v2(
 ) {
     {
         let staking_inner = staking.inner_mut();
-        let (committee_rewards, burn_balance) = system.advance_epoch(
+        let (committee_rewards, burn_balance) = system.advance_epoch_V2(
             staking_inner.next_bls_committee(),
             staking_inner.next_epoch_params(),
         );
@@ -286,6 +289,8 @@ public fun initiate_epoch_change_v2(
 
         staking_inner.initiate_epoch_change(clock, committee_rewards);
     };
+
+    // Recalculate and apply prices from the new committee.
     update_prices(staking, system);
 }
 
@@ -506,7 +511,7 @@ public fun initiate_epoch_change_for_testing(
     clock: &Clock,
 ) {
     let staking_inner = staking.inner_mut();
-    let (committee_rewards, burn_balance) = system.advance_epoch(
+    let (committee_rewards, burn_balance) = system.advance_epoch_V2(
         staking_inner.next_bls_committee(),
         staking_inner.next_epoch_params(),
     );

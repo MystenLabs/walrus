@@ -114,6 +114,91 @@ public(package) fun advance_epoch(
     self: &mut SystemStateInnerV1,
     new_committee: BlsCommittee,
     new_epoch_params: &EpochParams,
+): VecMap<ID, Balance<WAL>> {
+    // Check new committee is valid, the existence of a committee for the next
+    // epoch is proof that the time has come to move epochs.
+    let old_epoch = self.epoch();
+    let new_epoch = old_epoch + 1;
+    let old_committee = self.committee;
+
+    assert!(new_committee.epoch() == new_epoch, EIncorrectCommittee);
+
+    // === Update the system object ===
+    self.committee = new_committee;
+
+    let accounts_old_epoch = self.future_accounting.ring_pop_expand();
+
+    // Make sure that we have the correct epoch
+    assert!(accounts_old_epoch.epoch() == old_epoch, EInvalidAccountingEpoch);
+
+    // Stop tracking all event blobs
+    self.event_blob_certification_state.reset();
+
+    // Update storage based on the accounts data.
+    let old_epoch_used_capacity = accounts_old_epoch.used_capacity();
+
+    // Update used capacity size to the new epoch without popping the ring buffer.
+    self.used_capacity_size = self.future_accounting.ring_lookup_mut(0).used_capacity();
+
+    // Update capacity and prices.
+    self.total_capacity_size = new_epoch_params.capacity().max(self.used_capacity_size);
+    self.storage_price_per_unit_size = new_epoch_params.storage_price();
+    self.write_price_per_unit_size = new_epoch_params.write_price();
+
+    // === Rewards distribution ===
+
+    let mut total_rewards = accounts_old_epoch.unwrap_balance();
+
+    // to perform the calculation of rewards, we account for the deny list sizes
+    // in comparison to the used capacity size, and the weights of the nodes in
+    // the committee.
+    //
+    // specific reward for a node is calculated as:
+    // reward = (weight * (used_capacity_size - deny_list_size)) / total_stored * total_rewards
+    // where `total_stored` is the sum of all nodes' values.
+    //
+    // leftover rewards are added to the next epoch's accounting to avoid rounding errors.
+
+    let deny_list_sizes = self.deny_list_sizes.borrow();
+    let (node_ids, weights) = old_committee.to_vec_map().into_keys_values();
+    let mut stored_vec = vector[];
+    let mut total_stored = 0;
+
+    node_ids.zip_do!(weights, |node_id, weight| {
+        let deny_list_size = deny_list_sizes.try_get(&node_id).destroy_or!(0);
+        // The deny list size cannot exceed the used capacity.
+        let deny_list_size = deny_list_size.min(old_epoch_used_capacity);
+        // The total encoded size of all blobs excluding the ones on the nodes deny list.
+        let stored = old_epoch_used_capacity - deny_list_size;
+        let stored_weighted = (weight as u128) * (stored as u128);
+
+        total_stored = total_stored + stored_weighted;
+        stored_vec.push_back(stored_weighted);
+    });
+
+    let total_stored = total_stored.max(1); // avoid division by zero
+    let total_rewards_value = total_rewards.value() as u128;
+    let reward_values = stored_vec.map!(|stored| {
+        total_rewards.split((stored * total_rewards_value / total_stored) as u64)
+    });
+
+    // add the leftover rewards to the next epoch
+    self.future_accounting.ring_lookup_mut(0).rewards_balance().join(total_rewards);
+    vec_map::from_keys_values(node_ids, reward_values)
+}
+
+/// Update epoch to next epoch, and update the committee, price and capacity.
+///
+/// Called by the epoch change function that connects `Staking` and `System`.
+/// Returns the mapping of node IDs from the old committee to the rewards they
+/// received in the epoch.
+///
+/// Note: VecMap must contain values only for the nodes from the previous
+/// committee, the `staking` part of the system relies on this assumption.
+public(package) fun advance_epoch_V2(
+    self: &mut SystemStateInnerV1,
+    new_committee: BlsCommittee,
+    new_epoch_params: &EpochParams,
 ): (VecMap<ID, Balance<WAL>>, Balance<WAL>) {
     // Check new committee is valid, the existence of a committee for the next
     // epoch is proof that the time has come to move epochs.

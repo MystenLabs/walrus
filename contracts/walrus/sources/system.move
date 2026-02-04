@@ -69,8 +69,20 @@ public(package) fun advance_epoch(
     self: &mut System,
     new_committee: BlsCommittee,
     new_epoch_params: &EpochParams,
-): (VecMap<ID, Balance<WAL>>, Balance<WAL>) {
+): VecMap<ID, Balance<WAL>> {
     self.inner_mut().advance_epoch(new_committee, new_epoch_params)
+}
+
+/// Update epoch to next epoch, and update the committee, price and capacity.
+///
+/// Called by the epoch change function that connects `Staking` and `System`. Returns
+/// the balance of the rewards from the previous epoch.
+public(package) fun advance_epoch_V2(
+    self: &mut System,
+    new_committee: BlsCommittee,
+    new_epoch_params: &EpochParams,
+): (VecMap<ID, Balance<WAL>>, Balance<WAL>) {
+    self.inner_mut().advance_epoch_V2(new_committee, new_epoch_params)
 }
 
 /// === Public Functions ===
@@ -414,7 +426,7 @@ public fun advance_epoch_for_testing(
     committee: BlsCommittee,
     epoch_params: &EpochParams,
 ) {
-    let (committee_rewards, burn_balance) = self.advance_epoch(committee, epoch_params);
+    let (committee_rewards, burn_balance) = self.advance_epoch_V2(committee, epoch_params);
     let (_, balances) = committee_rewards.into_keys_values();
     balances.do!(|b| { b.destroy_for_testing(); });
     burn_balance.destroy_for_testing();
