@@ -1107,7 +1107,7 @@ mod tests {
 
         let blob_id = blob_id_for_valid_response();
         let _confirmation = client
-            .get_confirmation(&blob_id, &BlobPersistenceType::Permanent)
+            .get_confirmation(&blob_id, &BlobPersistenceType::Permanent, None)
             .await
             .expect("should return a signed confirmation");
     }
@@ -1123,7 +1123,7 @@ mod tests {
         let client = storage_node_client(config.as_ref());
 
         let err = client
-            .get_confirmation(&blob_id, &BlobPersistenceType::Permanent)
+            .get_confirmation(&blob_id, &BlobPersistenceType::Permanent, None)
             .await
             .expect_err("confirmation request should fail");
 
