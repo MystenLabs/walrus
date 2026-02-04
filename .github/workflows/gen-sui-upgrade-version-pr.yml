@@ -79,68 +79,21 @@ jobs:
 
   notify:
     needs: bump
-    name: Notify oncall via Slack
+    name: Notify oncall via sui-operations
     runs-on: ubuntu-latest
     if: success() && needs.bump.outputs.pr_url != ''
 
     steps:
-      - name: Get link to logs
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh_job_link=$(gh api -X GET 'repos/MystenLabs/walrus/actions/runs/${{ github.run_id }}/jobs' --jq '.jobs.[0].html_url')
-          echo "gh_job_link=${gh_job_link}" >> $GITHUB_ENV
-
-      - name: Get current Walrus oncall
-        run: |
-          export current_oncall=$(curl -s --request GET \
-            --url 'https://api.pagerduty.com/oncalls?schedule_ids[]=P9LNVEM' \
-            --header 'Accept: application/json' \
-            --header 'Authorization: Token token=${{ secrets.PAGERDUTY_ACCESS_KEY }}' \
-            --header 'Content-Type: application/json' \
-            | jq '.oncalls[].user.summary' | tr -d '"' | head -n 1)
-          echo "current_oncall=$(echo ${current_oncall})" >> $GITHUB_ENV
-
-          export oncall_name=$(curl -s --request GET \
-            --url 'https://api.pagerduty.com/oncalls?schedule_ids[]=P9LNVEM' \
-            --header 'Accept: application/json' \
-            --header 'Authorization: Token token=${{ secrets.PAGERDUTY_ACCESS_KEY }}' \
-            --header 'Content-Type: application/json' \
-            | jq '.oncalls[].escalation_policy.summary' | tr -d '"' | head -n 1)
-          echo "oncall_name=$(echo ${oncall_name})" >> $GITHUB_ENV
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # pin v5.1.1
+      - name: Dispatch notification to sui-operations
+        uses: peter-evans/repository-dispatch@ff45666b9427631e3450c54a1bcbee4d9ff4d7c0 # pin@v3.0.0
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: us-west-2
-
-      - name: Get slack id for the oncall
-        env:
-          current_oncall: ${{ env.current_oncall }}
-        run: |
-          export slack_id=$(aws s3 cp \
-            s3://mysten-employees-dir/employees.json - \
-            | jq --arg ONCALL "${{ env.current_oncall }}" \
-              '.[] | if .name == $ONCALL then .slack_id else empty end')
-          echo "slack_id=$(echo ${slack_id} | tr -d '"')" >> $GITHUB_ENV
-
-      - name: Post to slack
-        uses: slackapi/slack-github-action@485a9d42d3a73031f12ec201c457e2162c45d02d # pin@v2.1.1
-        env:
-          GH_JOB_LINK: ${{ env.gh_job_link }}
-          SLACK_ID: ${{ env.slack_id }}
-          ONCALL_NAME: ${{ env.oncall_name }}
-        with:
-          method: chat.postMessage
-          token: ${{ secrets.SLACK_BOT_TOKEN }}
-          payload: |
-            channel: "walrus-ci"
-            text: |
-              <!here> :walrus_face::rocket: New Sui version `${{ env.NEW_TAG }}` bump PR created: ${{ needs.bump.outputs.pr_url }} for walrus
-              <@${{ env.SLACK_ID }}>, current `${{ env.ONCALL_NAME }}` oncall, please do the following:
-              1. Trigger the CI to run on the PR by checking out the PR branch and running:
-                `git commit --allow-empty -m "Empty commit to trigger CI" && git push`
-              2. Approve and merge the PR if CI passes.
-              Run: <${{ env.GH_JOB_LINK }}|${{ github.run_id }}>
+          token: ${{ secrets.SUI_OPERATIONS_DISPATCH_TOKEN }}
+          repository: MystenLabs/sui-operations
+          event-type: walrus-sui-upgrade-notify
+          client-payload: |-
+            {
+              "pr_url": "${{ needs.bump.outputs.pr_url }}",
+              "new_tag": "${{ env.NEW_TAG }}",
+              "run_url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+              "run_id": "${{ github.run_id }}"
+            }
