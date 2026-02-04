@@ -200,7 +200,7 @@ impl RecoverySymbolService {
     {
         let sliver_ref = sliver.as_ref();
         let target_sliver_index =
-            target_pair_index.to_sliver_index::<T::OrthogonalAxis>(config.n_shards());
+            target_pair_index.to_sliver_index(config.n_shards(), T::OrthogonalAxis::sliver_type());
         let is_source_target = usize::from(target_sliver_index.get()) < sliver_ref.symbols.len();
 
         if is_source_target {

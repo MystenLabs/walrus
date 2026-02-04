@@ -448,7 +448,7 @@ fn recovery_symbols_by_shard(
     let blob = walrus_test_utils::random_data(314);
     let n_shards = NonZero::new(n_shards).unwrap();
     let target_sliver_index = SliverIndex(0);
-    let target_sliver_pair_index = target_sliver_index.to_pair_index::<Primary>(n_shards);
+    let target_sliver_pair_index = target_sliver_index.to_pair_index(n_shards, SliverType::Primary);
 
     let encoding_config = EncodingConfig::new(n_shards);
     let encoding_config_enum = encoding_config.get_for_type(DEFAULT_ENCODING);

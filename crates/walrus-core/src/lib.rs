@@ -26,12 +26,10 @@ use encoding::{
     EncodingAxis,
     EncodingConfig,
     EncodingConfigEnum,
-    Primary,
     PrimaryRecoverySymbol,
     PrimarySliver,
     QuiltError,
     RecoverySymbolError,
-    Secondary,
     SecondaryRecoverySymbol,
     SecondarySliver,
     SliverVerificationError,
@@ -484,11 +482,10 @@ impl SliverPairIndex {
     /// # Panics
     ///
     /// Panics if the index is greater than or equal to `n_shards`.
-    pub fn to_sliver_index<E: EncodingAxis>(self, n_shards: NonZeroU16) -> SliverIndex {
-        if E::IS_PRIMARY {
-            self.into()
-        } else {
-            (n_shards.get() - self.0 - 1).into()
+    pub fn to_sliver_index(self, n_shards: NonZeroU16, sliver_type: SliverType) -> SliverIndex {
+        match sliver_type {
+            SliverType::Primary => self.into(),
+            SliverType::Secondary => (n_shards.get() - self.0 - 1).into(),
         }
     }
 }
@@ -503,11 +500,10 @@ impl SliverIndex {
     /// # Panics
     ///
     /// Panics if the index is greater than or equal to `n_shards`.
-    pub fn to_pair_index<E: EncodingAxis>(self, n_shards: NonZeroU16) -> SliverPairIndex {
-        if E::IS_PRIMARY {
-            self.into()
-        } else {
-            (n_shards.get() - self.0 - 1).into()
+    pub fn to_pair_index(self, n_shards: NonZeroU16, sliver_type: SliverType) -> SliverPairIndex {
+        match sliver_type {
+            SliverType::Primary => self.into(),
+            SliverType::Secondary => (n_shards.get() - self.0 - 1).into(),
         }
     }
 }
@@ -596,6 +592,11 @@ impl Sliver {
         metadata: &BlobMetadata,
     ) -> Result<(), SliverVerificationError> {
         by_axis::flat_map!(self.as_ref(), |x| x.verify(encoding_config, metadata))
+    }
+
+    /// Returns the [`SliverIndex`] of this sliver (primary or secondary).
+    pub fn sliver_index(&self) -> SliverIndex {
+        by_axis::flat_map!(self.as_ref(), |x| x.index)
     }
 
     /// Returns the [`Sliver<T>`][Sliver] contained within the enum.
@@ -933,10 +934,7 @@ impl SliverId {
 
     /// Returns the [`SliverPairIndex`] of the identified sliver.
     pub fn pair_index(&self, n_shards: NonZeroU16) -> SliverPairIndex {
-        match self {
-            ByAxis::Primary(value) => value.to_pair_index::<Primary>(n_shards),
-            ByAxis::Secondary(value) => value.to_pair_index::<Secondary>(n_shards),
-        }
+        self.into_inner().to_pair_index(n_shards, self.r#type())
     }
 }
 
