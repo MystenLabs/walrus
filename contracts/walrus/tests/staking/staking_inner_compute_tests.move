@@ -3,7 +3,8 @@
 
 module walrus::staking_inner_compute_tests;
 
-use sui::{clock, test_utils::destroy};
+use std::unit_test::destroy;
+use sui::clock;
 use walrus::{staking_inner, test_utils as test};
 
 const EPOCH_DURATION: u64 = 7 * 24 * 60 * 60 * 1000;

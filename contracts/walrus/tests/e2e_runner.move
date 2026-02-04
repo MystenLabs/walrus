@@ -3,7 +3,7 @@
 
 module walrus::e2e_runner;
 
-use sui::{clock::{Self, Clock}, test_scenario::{Self, Scenario}, test_utils};
+use sui::{clock::{Self, Clock}, test_scenario::{Self, Scenario}};
 use walrus::{
     init,
     node_metadata,
@@ -48,7 +48,7 @@ public struct InitBuilder {
 ///    .n_shards(100)
 ///    .build();
 ///
-/// runner.tx!(admin, |staking, system, ctx| { /* ... */ });
+/// runner.tx!(admin, |staking, system, treasury, clock, ctx| { /* ... */ });
 /// ```
 public fun prepare(admin: address): InitBuilder {
     InitBuilder {
@@ -191,7 +191,7 @@ public fun next_epoch(self: &mut TestRunner) {
     let sender = self.admin;
     self.tx!(sender, |staking, system, _| {
         staking.voting_end(self.clock());
-        staking.initiate_epoch_change(system, self.clock());
+        staking.initiate_epoch_change_for_testing(system, self.clock());
     });
 }
 
@@ -213,7 +213,7 @@ public fun send_epoch_sync_done_messages(
 
 /// Destroy the test runner and all resources.
 public fun destroy(self: TestRunner) {
-    test_utils::destroy(self)
+    std::unit_test::destroy(self)
 }
 
 #[allow(lint(self_transfer), unused_mut_ref)]
@@ -267,7 +267,7 @@ public fun setup_committee_for_epoch_one(): (TestRunner, vector<TestStorageNode>
     runner.clock().increment_for_testing(DEFAULT_EPOCH_ZERO_DURATION);
     runner.tx!(admin, |staking, system, _| {
         staking.voting_end(runner.clock());
-        staking.initiate_epoch_change(system, runner.clock());
+        staking.initiate_epoch_change_for_testing(system, runner.clock());
         nodes.do_ref!(|node| assert!(system.committee().contains(&node.node_id())));
     });
 

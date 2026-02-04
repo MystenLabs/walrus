@@ -65,7 +65,7 @@ fun init_and_first_epoch_change() {
     runner.clock().increment_for_testing(EPOCH_ZERO_DURATION);
     runner.tx!(admin, |staking, system, _| {
         staking.voting_end(runner.clock());
-        staking.initiate_epoch_change(system, runner.clock());
+        staking.initiate_epoch_change_for_testing(system, runner.clock());
 
         assert!(system.epoch() == 1);
         assert!(system.committee().n_shards() == N_SHARDS);
@@ -95,7 +95,7 @@ fun init_and_first_epoch_change() {
 
     runner.clock().increment_for_testing(EPOCH_DURATION - PARAM_SELECTION_DELTA);
     runner.tx!(admin, |staking, system, _| {
-        staking.initiate_epoch_change(system, runner.clock());
+        staking.initiate_epoch_change_for_testing(system, runner.clock());
 
         assert!(system.epoch() == 2);
         assert!(system.committee().n_shards() == N_SHARDS);
@@ -184,7 +184,7 @@ fun stake_after_committee_selection() {
     // === check if epoch state is changed correctly ==
 
     runner.tx!(admin, |staking, system, _| {
-        staking.initiate_epoch_change(system, runner.clock());
+        staking.initiate_epoch_change_for_testing(system, runner.clock());
 
         assert!(system.epoch() == 1);
         assert!(system.committee().n_shards() == N_SHARDS);
@@ -209,7 +209,7 @@ fun stake_after_committee_selection() {
     runner.clock().increment_for_testing(EPOCH_DURATION);
     runner.tx!(admin, |staking, system, _| {
         staking.voting_end(runner.clock());
-        staking.initiate_epoch_change(system, runner.clock());
+        staking.initiate_epoch_change_for_testing(system, runner.clock());
 
         assert!(system.epoch() == 2);
         assert!(system.committee().n_shards() == N_SHARDS);
@@ -273,7 +273,7 @@ fun node_voting_parameters() {
     runner.clock().increment_for_testing(EPOCH_ZERO_DURATION);
     runner.tx!(admin, |staking, system, _| {
         staking.voting_end(runner.clock());
-        staking.initiate_epoch_change(system, runner.clock());
+        staking.initiate_epoch_change_for_testing(system, runner.clock());
 
         assert!(system.epoch() == 1);
         assert!(system.committee().n_shards() == N_SHARDS);
@@ -341,7 +341,7 @@ fun first_epoch_too_soon_fail() {
     runner.clock().increment_for_testing(EPOCH_ZERO_DURATION - 1);
     runner.tx!(admin, |staking, system, _| {
         staking.voting_end(runner.clock());
-        staking.initiate_epoch_change(system, runner.clock());
+        staking.initiate_epoch_change_for_testing(system, runner.clock());
     });
 
     abort
@@ -394,7 +394,7 @@ fun epoch_change_with_rewards_and_commission() {
     runner.clock().increment_for_testing(EPOCH_ZERO_DURATION);
     runner.tx!(admin, |staking, system, _| {
         staking.voting_end(runner.clock());
-        staking.initiate_epoch_change(system, runner.clock());
+        staking.initiate_epoch_change_for_testing(system, runner.clock());
 
         assert!(system.epoch() == 1);
         assert!(system.committee().n_shards() == N_SHARDS);
@@ -456,7 +456,7 @@ fun epoch_change_with_rewards_and_commission() {
         // check the VecMap with sizes
         let deny_list_sizes = system.inner().deny_list_sizes();
 
-        assert_eq!(deny_list_sizes.size(), 1);
+        assert_eq!(deny_list_sizes.length(), 1);
         assert!(deny_list_sizes.contains(&node.node_id()));
         assert_eq!(*deny_list_sizes.get(&node.node_id()), 10_000_000);
     });
@@ -479,7 +479,7 @@ fun epoch_change_with_rewards_and_commission() {
 
     runner.clock().increment_for_testing(EPOCH_DURATION - PARAM_SELECTION_DELTA);
     runner.tx!(admin, |staking, system, _| {
-        staking.initiate_epoch_change(system, runner.clock());
+        staking.initiate_epoch_change_for_testing(system, runner.clock());
 
         assert_eq!(system.epoch(), 2);
         assert_eq!(system.committee().n_shards(), N_SHARDS);
@@ -502,6 +502,8 @@ fun epoch_change_with_rewards_and_commission() {
     // === check rewards for each node ===
 
     // each node is getting 470 in rewards, 10% of that is - 47 - commission
+    // Half of the commission is burned.
+    // TODO: document exactly how the final value is calculated.
     nodes.do_mut!(|node| {
         runner.tx!(node.sui_address(), |staking, _, ctx| {
             let auth = auth::authenticate_with_object(node.cap());
@@ -510,9 +512,9 @@ fun epoch_change_with_rewards_and_commission() {
             // deny_list_node has 10% less rewards
             // all nodes claim 100% of their rewards
             if (node.node_id() == deny_list_node) {
-                assert_eq!(commission.burn_for_testing(), 472);
+                assert_eq!(commission.burn_for_testing(), 236);
             } else {
-                assert_eq!(commission.burn_for_testing(), 477);
+                assert_eq!(commission.burn_for_testing(), 238);
             };
         });
     });
@@ -711,7 +713,7 @@ fun withdraw_rewards_before_joining_committee() {
     runner.clock().increment_for_testing(EPOCH_ZERO_DURATION);
     runner.tx!(admin, |staking, system, _| {
         staking.voting_end(runner.clock());
-        staking.initiate_epoch_change(system, runner.clock());
+        staking.initiate_epoch_change_for_testing(system, runner.clock());
     });
 
     // === send epoch sync done messages from all nodes in the committee ===
@@ -735,7 +737,7 @@ fun withdraw_rewards_before_joining_committee() {
     runner.clock().increment_for_testing(EPOCH_DURATION);
     runner.tx!(admin, |staking, system, _| {
         staking.voting_end(runner.clock());
-        staking.initiate_epoch_change(system, runner.clock());
+        staking.initiate_epoch_change_for_testing(system, runner.clock());
     });
 
     // === send epoch sync done messages from all nodes in the committee ===
@@ -768,7 +770,7 @@ fun withdraw_rewards_before_joining_committee() {
     runner.clock().increment_for_testing(EPOCH_DURATION);
     runner.tx!(admin, |staking, system, _| {
         staking.voting_end(runner.clock());
-        staking.initiate_epoch_change(system, runner.clock());
+        staking.initiate_epoch_change_for_testing(system, runner.clock());
 
         // previously excluded node is now also in the committee
         assert!(system.committee().contains(&excluded_node.node_id()));

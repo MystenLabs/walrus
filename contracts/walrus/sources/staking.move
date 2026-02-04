@@ -7,7 +7,7 @@ module walrus::staking;
 
 use std::string::String;
 use sui::{balance::Balance, clock::Clock, coin::Coin, dynamic_field as df};
-use wal::wal::WAL;
+use wal::wal::{WAL, ProtectedTreasury};
 use walrus::{
     auth::{Self, Authenticated, Authorized},
     committee::Committee,
@@ -26,6 +26,8 @@ const EInvalidMigration: u64 = 0;
 const EWrongVersion: u64 = 1;
 /// The migration epoch is not set or has not started yet.
 const EInvalidMigrationEpoch: u64 = 2;
+/// The function is deprecated.
+const EDeprecatedFunction: u64 = 3;
 
 /// Flag to indicate the version of the Walrus system.
 const VERSION: u64 = 3;
@@ -258,21 +260,32 @@ public fun voting_end(staking: &mut Staking, clock: &Clock) {
     staking.inner_mut().voting_end(clock)
 }
 
+/// Deprecated: use `initiate_epoch_change_v2` instead.
+public fun initiate_epoch_change(staking: &mut Staking, system: &mut System, clock: &Clock) {
+    abort EDeprecatedFunction
+}
+
 /// Initiates the epoch change if the current time allows.
 ///
 /// Emits the `EpochChangeStart` event.
-public fun initiate_epoch_change(staking: &mut Staking, system: &mut System, clock: &Clock) {
+public fun initiate_epoch_change_v2(
+    staking: &mut Staking,
+    system: &mut System,
+    clock: &Clock,
+    treasury: &mut ProtectedTreasury,
+    ctx: &mut TxContext,
+) {
     {
         let staking_inner = staking.inner_mut();
-        let rewards = system.advance_epoch(
+        let (committee_rewards, burn_balance) = system.advance_epoch(
             staking_inner.next_bls_committee(),
             staking_inner.next_epoch_params(),
         );
 
-        staking_inner.initiate_epoch_change(clock, rewards);
-    };
+        wal::wal::burn(treasury, burn_balance.into_coin(ctx));
 
-    // Recalculate and apply prices from the new committee.
+        staking_inner.initiate_epoch_change(clock, committee_rewards);
+    };
     update_prices(staking, system);
 }
 
@@ -484,4 +497,21 @@ public(package) fun new_package_id(staking: &Staking): Option<ID> {
 #[test_only]
 public fun pool_commission(staking: &Staking, node_id: ID): u64 {
     staking.inner().pool_commission(node_id)
+}
+
+#[test_only]
+public fun initiate_epoch_change_for_testing(
+    staking: &mut Staking,
+    system: &mut System,
+    clock: &Clock,
+) {
+    let staking_inner = staking.inner_mut();
+    let (committee_rewards, burn_balance) = system.advance_epoch(
+        staking_inner.next_bls_committee(),
+        staking_inner.next_epoch_params(),
+    );
+
+    burn_balance.destroy_for_testing();
+
+    staking_inner.initiate_epoch_change(clock, committee_rewards);
 }

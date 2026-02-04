@@ -123,7 +123,7 @@ public fun test_upgrade_wrong_epoch() {
     runner.clock().increment_for_testing(e2e_runner::default_epoch_duration());
     runner.tx!(nodes[0].sui_address(), |staking, system, _| {
         staking.voting_end(runner.clock());
-        staking.initiate_epoch_change(system, runner.clock());
+        staking.initiate_epoch_change_for_testing(system, runner.clock());
         assert_eq!(system.epoch(), 2);
     });
 

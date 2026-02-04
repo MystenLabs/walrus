@@ -114,7 +114,7 @@ public(package) fun advance_epoch(
     self: &mut SystemStateInnerV1,
     new_committee: BlsCommittee,
     new_epoch_params: &EpochParams,
-): VecMap<ID, Balance<WAL>> {
+): (VecMap<ID, Balance<WAL>>, Balance<WAL>) {
     // Check new committee is valid, the existence of a committee for the next
     // epoch is proof that the time has come to move epochs.
     let old_epoch = self.epoch();
@@ -147,6 +147,10 @@ public(package) fun advance_epoch(
     // === Rewards distribution ===
 
     let mut total_rewards = accounts_old_epoch.unwrap_balance();
+
+    // Burn 50% of total rewards before distribution.
+    let burn_amount = total_rewards.value() / 2;
+    let burn_balance = total_rewards.split(burn_amount);
 
     // to perform the calculation of rewards, we account for the deny list sizes
     // in comparison to the used capacity size, and the weights of the nodes in
@@ -183,7 +187,7 @@ public(package) fun advance_epoch(
 
     // add the leftover rewards to the next epoch
     self.future_accounting.ring_lookup_mut(0).rewards_balance().join(total_rewards);
-    vec_map::from_keys_values(node_ids, reward_values)
+    (vec_map::from_keys_values(node_ids, reward_values), burn_balance)
 }
 
 /// Allow buying a storage reservation for a given period of epochs.
@@ -859,5 +863,5 @@ public(package) fun future_accounting_mut(
 
 #[test_only]
 public(package) fun destroy_for_testing(s: SystemStateInnerV1) {
-    sui::test_utils::destroy(s)
+    std::unit_test::destroy(s)
 }

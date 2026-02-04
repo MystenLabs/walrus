@@ -69,7 +69,7 @@ public(package) fun advance_epoch(
     self: &mut System,
     new_committee: BlsCommittee,
     new_epoch_params: &EpochParams,
-): VecMap<ID, Balance<WAL>> {
+): (VecMap<ID, Balance<WAL>>, Balance<WAL>) {
     self.inner_mut().advance_epoch(new_committee, new_epoch_params)
 }
 
@@ -400,10 +400,22 @@ public fun write_price_per_unit_size(self: &System): u64 {
 
 #[test_only]
 public(package) fun destroy_for_testing(self: System) {
-    sui::test_utils::destroy(self);
+    std::unit_test::destroy(self);
 }
 
 #[test_only]
 public fun get_system_rewards_balance(self: &mut System, epoch_in_future: u32): &mut Balance<WAL> {
     self.inner_mut().future_accounting_mut().ring_lookup_mut(epoch_in_future).rewards_balance()
+}
+
+#[test_only]
+public fun advance_epoch_for_testing(
+    self: &mut System,
+    committee: BlsCommittee,
+    epoch_params: &EpochParams,
+) {
+    let (committee_rewards, burn_balance) = self.advance_epoch(committee, epoch_params);
+    let (_, balances) = committee_rewards.into_keys_values();
+    balances.do!(|b| { b.destroy_for_testing(); });
+    burn_balance.destroy_for_testing();
 }
