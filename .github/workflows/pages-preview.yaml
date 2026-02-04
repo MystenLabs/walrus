@@ -8,7 +8,7 @@ on:
       - synchronize
       - closed
     paths:
-      - "docs/site/**"
+      - "docs/**"
       - ".github/workflows/pages-preview.yaml"
 
 concurrency: preview-${{ github.ref }}
