@@ -127,12 +127,31 @@ cosign verify-blob \
 
 ## Docker images
 
-Signed Docker images are available with the `-signed` suffix:
+Signed Docker images are published to Docker Hub with the `-signed` suffix.
 
-- `mysten/walrus-service:<sha>-signed` - Walrus storage node service
-- `mysten/walrus-upload-relay:<sha>-signed` - Walrus upload relay service
+### Available images
 
-Where `<sha>` is the git commit SHA used to build the image.
+| Image | Description |
+|-------|-------------|
+| `mysten/walrus-service` | Walrus storage node service |
+| `mysten/walrus-upload-relay` | Walrus upload relay service |
+
+### Image tags
+
+Each image is tagged in two ways:
+
+- **By commit SHA:** `mysten/walrus-service:<full-sha>-signed` (e.g., `a5a6dc7b1234abcd-signed`)
+- **By version:** `mysten/walrus-service:v<version>-signed` (e.g., `v1.0.0-signed`)
+
+### Pull a signed image
+
+```bash
+# Pull by version
+docker pull mysten/walrus-service:v1.0.0-signed
+
+# Pull by commit SHA
+docker pull mysten/walrus-service:a5a6dc7b12345678-signed
+```
 
 ### Verify a Docker image
 
@@ -141,7 +160,7 @@ Where `<sha>` is the git commit SHA used to build the image.
 curl -sSfL https://docs.walrus.site/walrus-signing.pub -o walrus-signing.pub
 
 # Verify the image
-cosign verify --key walrus-signing.pub mysten/walrus-service:abc123-signed
+cosign verify --key walrus-signing.pub mysten/walrus-service:v1.0.0-signed
 ```
 
 Or using GCP KMS key directly:
@@ -149,7 +168,7 @@ Or using GCP KMS key directly:
 ```bash
 cosign verify \
   --key gcpkms://projects/walrus-infra/locations/global/keyRings/walrus-signing/cryptoKeys/release-sign \
-  mysten/walrus-service:abc123-signed
+  mysten/walrus-service:v1.0.0-signed
 ```
 
 ### Verify the image digest matches
@@ -158,7 +177,7 @@ To ensure the image you pulled matches what was signed:
 
 ```bash
 # Get the digest of your local image
-docker inspect --format='{{index .RepoDigests 0}}' mysten/walrus-service:abc123-signed
+docker inspect --format='{{index .RepoDigests 0}}' mysten/walrus-service:v1.0.0-signed
 
 # Compare with the digest shown in the cosign verify output
 ```
