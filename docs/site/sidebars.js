@@ -217,6 +217,7 @@ const sidebars = {
                 ],
             },
             "operator-guide/upload-relay",
+            "operator-guide/signed-binaries",
         ],
     },
     ],
