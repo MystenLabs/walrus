@@ -56,10 +56,17 @@ jobs:
         if: ${{ env.NEW_TAG == '' }}
         run: |
           echo "No new tag provided, using current Sui testnet version."
-          CURRENT_TAG=$(curl -s https://api.github.com/repos/MystenLabs/sui/releases \
+          CURRENT_TAG=$(curl -sfS https://api.github.com/repos/MystenLabs/sui/releases \
             | jq -r '[.[] | select(.tag_name | startswith("testnet-")) | .tag_name] | first')
+
+          # Validate the response
+          if [[ -z "$CURRENT_TAG" || "$CURRENT_TAG" == "null" ]]; then
+            echo "Error: Failed to fetch current Sui testnet version from GitHub API" >&2
+            exit 1
+          fi
+
           echo "Current Sui testnet version is: $CURRENT_TAG"
-          echo "NEW_TAG=$CURRENT_TAG" >> $GITHUB_ENV
+          echo "NEW_TAG=$CURRENT_TAG" >> "$GITHUB_ENV"
 
       - name: Install ${{ env.NEW_TAG }} sui binary for move builds
         shell: bash
@@ -74,7 +81,7 @@ jobs:
           GITHUB_ACTOR: ${{ github.actor }}
         shell: bash
         run: |
-          export PR_URL=$(./scripts/bump_sui_testnet_version.sh "${{ env.NEW_TAG }}" | tail -1)
+          PR_URL=$(./scripts/bump_sui_testnet_version.sh "${{ env.NEW_TAG }}" | tail -1)
           echo "PR_URL=${PR_URL}" >> "$GITHUB_OUTPUT"
 
   notify:
