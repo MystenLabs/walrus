@@ -68,7 +68,7 @@ Where the world's data becomes reliable, valuable, and governable
 
 ## Http api
 
-- [Quilt HTTP APIs](/http-api/quit-http-apis): Walrus supports storing and retrieving multiple blobs as a single unit called a quilt. Publishers and aggregators both support quilt operations.
+- [Quilt HTTP APIs](/http-api/quilt-http-apis): Walrus supports storing and retrieving multiple blobs as a single unit called a quilt. Publishers and aggregators both support quilt operations.
 - [Reading Blobs](/http-api/reading-blobs): You can read blobs using HTTP GET requests and their blob ID or object ID.
 - [Storing Blobs](/http-api/storing-blobs): Learn how to use the Walrus HTTP API for public services, store and read operations, and quilt management.
 
