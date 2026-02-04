@@ -60,6 +60,7 @@ const sidebars = {
       items: [
         'http-api/storing-blobs',
         'http-api/reading-blobs',
+        'http-api/quilt-http-apis',
         'http-api/managing-blobs',
       ],
     },
