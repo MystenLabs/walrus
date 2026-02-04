@@ -70,11 +70,7 @@ This downloads the binary and signature, then verifies the signature using the p
 
 ## Manual verification
 
-If you prefer to verify manually without the script:
-
-### Download binaries
-
-Signed binaries are stored in Google Cloud Storage:
+If you prefer to verify manually without the script, first download the signed binaries from Google Cloud Storage:
 
 ```bash
 # Download the binary
@@ -84,7 +80,7 @@ gcloud storage cp gs://mysten-walrus-binaries/signed/<ref>/walrus-ubuntu-x86_64 
 gcloud storage cp gs://mysten-walrus-binaries/signed/<ref>/walrus-ubuntu-x86_64.sig ./walrus.sig
 ```
 
-### Verify using the public key
+Then verify them using the public key:
 
 ```bash
 # Download the public key
