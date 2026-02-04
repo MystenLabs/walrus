@@ -24,37 +24,35 @@ The easiest way to download and verify binaries is using the provided script:
 
 ```bash
 # Download the script
-curl -sSfL https://raw.githubusercontent.com/MystenLabs/walrus/main/scripts/verify-release.sh -o verify-release.sh
-chmod +x verify-release.sh
+curl -sSfL https://raw.githubusercontent.com/MystenLabs/walrus/main/scripts/download_and_verify_binary.sh \
+  -o download_and_verify_binary.sh
+chmod +x download_and_verify_binary.sh
+
+# Download and verify a binary
+./download_and_verify_binary.sh <ref> <binary_name>
 ```
 
-### List available binaries
+Where:
+- `<ref>` is a git reference (branch, tag, or commit SHA)
+- `<binary_name>` is the full binary name with platform suffix
+
+### Example
 
 ```bash
-./verify-release.sh list -r <ref>
+./download_and_verify_binary.sh v1.0.0 walrus-ubuntu-x86_64
 ```
 
-Where `<ref>` is a git reference (branch, tag, or commit SHA).
-
-### Download and verify a binary
-
-```bash
-# Download a binary
-./verify-release.sh download -r v1.0.0 -b walrus -p ubuntu-x86_64 -o ./walrus
-
-# Verify the downloaded binary
-./verify-release.sh verify -b ./walrus
-```
+This downloads the binary and signature, then verifies the signature using the public key.
 
 ### Available platforms
 
-| Platform | Option value |
-|----------|--------------|
-| Linux x86_64 | `ubuntu-x86_64` |
-| Linux ARM64 | `ubuntu-aarch64` |
-| macOS x86_64 | `macos-x86_64` |
-| macOS ARM64 | `macos-arm64` |
-| Windows x86_64 | `windows-x86_64.exe` |
+| Platform | Suffix |
+|----------|--------|
+| Linux x86_64 | `-ubuntu-x86_64` |
+| Linux ARM64 | `-ubuntu-aarch64` |
+| macOS x86_64 | `-macos-x86_64` |
+| macOS ARM64 | `-macos-arm64` |
+| Windows x86_64 | `-windows-x86_64.exe` |
 
 ### Available binaries
 
@@ -64,25 +62,10 @@ Where `<ref>` is a git reference (branch, tag, or commit SHA).
 | `walrus-node` | The Walrus storage node |
 | `walrus-upload-relay` | The Walrus upload relay service |
 
-### Verify a Docker image
-
-```bash
-# Verify a signed Docker image
-./verify-release.sh docker -i mysten/walrus-service:abc123-signed
-```
-
-### Using GCP KMS key directly
-
-If you have GCP access, you can verify using the KMS key directly:
-
-```bash
-# Authenticate with GCP first
-gcloud auth application-default login
-
-# Verify using KMS key
-./verify-release.sh verify -b ./walrus --use-kms
-./verify-release.sh docker -i mysten/walrus-service:abc123-signed --use-kms
-```
+Combine the binary name with the platform suffix. For example:
+- `walrus-ubuntu-x86_64`
+- `walrus-node-macos-arm64`
+- `walrus-upload-relay-ubuntu-aarch64`
 
 ## Manual verification
 
@@ -151,14 +134,19 @@ Signed Docker images are available with the `-signed` suffix:
 
 Where `<sha>` is the git commit SHA used to build the image.
 
-### Verify a Docker image manually
+### Verify a Docker image
 
 ```bash
-# Using the public key
+# Download the public key
 curl -sSfL https://docs.walrus.site/walrus-signing.pub -o walrus-signing.pub
-cosign verify --key walrus-signing.pub mysten/walrus-service:abc123-signed
 
-# Or using GCP KMS key directly
+# Verify the image
+cosign verify --key walrus-signing.pub mysten/walrus-service:abc123-signed
+```
+
+Or using GCP KMS key directly:
+
+```bash
 cosign verify \
   --key gcpkms://projects/walrus-infra/locations/global/keyRings/walrus-signing/cryptoKeys/release-sign \
   mysten/walrus-service:abc123-signed
