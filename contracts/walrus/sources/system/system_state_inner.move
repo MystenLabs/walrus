@@ -140,10 +140,9 @@ public(package) fun advance_epoch(
     // Update used capacity size to the new epoch without popping the ring buffer.
     self.used_capacity_size = self.future_accounting.ring_lookup_mut(0).used_capacity();
 
-    // Update capacity and prices.
+    // Update capacity. Prices are no longer updated here; they are applied immediately
+    // when price votes are cast via set_storage_price_vote / set_write_price_vote.
     self.total_capacity_size = new_epoch_params.capacity().max(self.used_capacity_size);
-    self.storage_price_per_unit_size = new_epoch_params.storage_price();
-    self.write_price_per_unit_size = new_epoch_params.write_price();
 
     // === Rewards distribution ===
 
@@ -644,6 +643,30 @@ public(package) fun n_shards(self: &SystemStateInnerV1): u16 {
 public(package) fun write_price(self: &SystemStateInnerV1, write_size: u64): u64 {
     let storage_units = storage_units_from_size!(write_size);
     self.write_price_per_unit_size * storage_units
+}
+
+/// Sets the storage price per unit size. Called when a price vote is cast and the quorum
+/// price is recalculated.
+public(package) fun set_storage_price(self: &mut SystemStateInnerV1, price: u64) {
+    self.storage_price_per_unit_size = price;
+}
+
+/// Sets the write price per unit size. Called when a price vote is cast and the quorum
+/// price is recalculated.
+public(package) fun set_write_price(self: &mut SystemStateInnerV1, price: u64) {
+    self.write_price_per_unit_size = price;
+}
+
+#[test_only]
+/// Returns the raw storage price per unit size.
+public(package) fun storage_price_per_unit_size(self: &SystemStateInnerV1): u64 {
+    self.storage_price_per_unit_size
+}
+
+#[test_only]
+/// Returns the raw write price per unit size.
+public(package) fun write_price_per_unit_size(self: &SystemStateInnerV1): u64 {
+    self.write_price_per_unit_size
 }
 
 #[test_only]
