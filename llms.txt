@@ -96,6 +96,7 @@ Where the world's data becomes reliable, valuable, and governable
 - [Backup and Restore Guide](/operator-guide/backup-restore-guide): Comprehensive guide for backing up and restoring Walrus storage node databases with automated and manual procedures.
 - [Commission and Governance](/operator-guide/commission-governance): Guide to managing storage node commission collection and governance operations including authorization and contract upgrades.
 - [Operator Guide](/operator-guide/operator-guide): Comprehensive guide for operating Walrus network services including storage nodes, aggregators, and publishers.
+- [Verifying Signed Binaries](/operator-guide/signed-binaries): How to download and verify signed Walrus binaries and Docker images using Cosign.
 - [Operating a Storage Node](/operator-guide/storage-node): Guide for operating Walrus storage nodes including commission governance, backup and restore procedures.
 - [The Walrus Upload Relay](/operator-guide/upload-relay): Complete guide to operating Walrus upload relays for facilitating browser-based blob storage with tip configuration and payment systems.
 
