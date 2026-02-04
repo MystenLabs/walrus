@@ -231,6 +231,10 @@ impl StorageNodeConfig {
                 enabled: false,
                 ..Default::default()
             },
+            rest_server: RestServerConfig {
+                confirmation_long_poll_max_millis: 0,
+                ..Default::default()
+            },
             ..Default::default()
         }
     }
@@ -291,7 +295,16 @@ impl StorageNodeConfig {
             blob_event_processor_config: BlobEventProcessorConfig {
                 num_workers: NonZeroUsize::new(3).expect("3 is non-zero"),
             },
-            garbage_collection: GarbageCollectionConfig::default_for_test(),
+            garbage_collection: {
+                #[cfg(any(test, feature = "test-utils"))]
+                {
+                    GarbageCollectionConfig::default_for_test()
+                }
+                #[cfg(not(any(test, feature = "test-utils")))]
+                {
+                    GarbageCollectionConfig::default()
+                }
+            },
             ..Default::default()
         }
     }
@@ -317,7 +330,16 @@ impl StorageNodeConfig {
                 enable_sliver_data_existence_check: true,
                 ..Default::default()
             },
-            garbage_collection: GarbageCollectionConfig::default_for_test(),
+            garbage_collection: {
+                #[cfg(any(test, feature = "test-utils"))]
+                {
+                    GarbageCollectionConfig::default_for_test()
+                }
+                #[cfg(not(any(test, feature = "test-utils")))]
+                {
+                    GarbageCollectionConfig::default()
+                }
+            },
             ..Default::default()
         }
     }
@@ -1180,6 +1202,11 @@ pub mod defaults {
         (Ipv4Addr::UNSPECIFIED, REST_API_PORT).into()
     }
 
+    /// Returns the default maximum long-poll duration for confirmations (milliseconds).
+    pub fn confirmation_long_poll_max_millis() -> u64 {
+        5_000
+    }
+
     /// Returns the default maximum number of slivers retained in the pending sliver cache.
     pub const fn pending_sliver_cache_max_cached_slivers() -> usize {
         PENDING_SLIVER_CACHE_MAX_SLIVERS
@@ -1499,6 +1526,23 @@ pub struct RestServerConfig {
     /// An unset value means it is unlimited.
     #[serde(skip_serializing_if = "defaults::is_none")]
     pub experimental_max_active_recovery_symbols_requests: Option<usize>,
+
+    /// Maximum time (in milliseconds) to long-poll confirmation requests while waiting for
+    /// registration events. Set to 0 to disable long polling.
+    #[serde(
+        default = "defaults::confirmation_long_poll_max_millis",
+        skip_serializing_if = "defaults::is_default"
+    )]
+    pub confirmation_long_poll_max_millis: u64,
+
+    /// Maximum number of concurrent long-poll confirmation requests.
+    ///
+    /// When the limit is reached, additional confirmation requests that opt into long polling will
+    /// behave as if long polling is disabled.
+    ///
+    /// An unset value means it is unlimited.
+    #[serde(skip_serializing_if = "defaults::is_none")]
+    pub confirmation_long_poll_max_in_flight_requests: Option<usize>,
 }
 
 /// Configuration of the HTTP/2 connections established by the REST API.
