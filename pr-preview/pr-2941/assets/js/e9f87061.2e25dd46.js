@@ -1,0 +1,1 @@
+"use strict";(globalThis.webpackChunkwalrus_docusaurus=globalThis.webpackChunkwalrus_docusaurus||[]).push([[1405],{3550(a){a.exports=JSON.parse('{"metadata":{"permalink":"/walrus/pr-preview/pr-2941/blog","page":1,"postsPerPage":6,"totalPages":1,"totalCount":6,"blogDescription":"Blog","blogTitle":"Blog"}}')}}]);
