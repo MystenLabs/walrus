@@ -221,15 +221,11 @@ const sidebars = {
     },
     ],
     examplesSidebar: [
-      {
-        items: [
-          'examples/checkpoint-data',
-          'examples/javascript',
-          'examples/move',
-          'examples/python',
-          'examples/walrus-relay'
-        ],
-      },
+      'examples/checkpoint-data',
+      'examples/javascript',
+      'examples/move',
+      'examples/python',
+      'examples/walrus-relay'
     ],
 };
 
