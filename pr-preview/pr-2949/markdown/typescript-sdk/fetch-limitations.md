@@ -1,1 +1,0 @@
-https://linear.app/mysten-labs/issue/DOCS-648/typescript-sdkinstallation-and-setup
