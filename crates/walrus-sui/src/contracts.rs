@@ -259,6 +259,7 @@ pub mod staking {
     contract_ident!(fn staking::set_governance_authorized);
     contract_ident!(fn staking::set_storage_price_vote);
     contract_ident!(fn staking::set_write_price_vote);
+    contract_ident!(fn staking::update_prices);
     contract_ident!(fn staking::set_node_capacity_vote);
     contract_ident!(fn staking::collect_commission);
     contract_ident!(fn staking::set_next_commission);

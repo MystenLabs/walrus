@@ -1406,6 +1406,17 @@ impl WalrusPtbBuilder {
         Ok(())
     }
 
+    /// Recalculates and updates the system storage and write prices based on the current
+    /// committee's price votes.
+    pub fn apply_system_prices(&mut self) -> SuiClientResult<()> {
+        let args = vec![
+            self.staking_arg(SharedObjectMutability::Mutable)?,
+            self.system_arg(SharedObjectMutability::Mutable)?,
+        ];
+        self.walrus_move_call(contracts::staking::update_prices, args)?;
+        Ok(())
+    }
+
     /// Votes for an upgrade of the system contract from the Node with `node_id`.
     pub async fn vote_for_upgrade(
         &mut self,
