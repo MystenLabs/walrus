@@ -692,11 +692,7 @@ impl RetriableSuiClient {
                 async |client, method| {
                     retry_rpc_errors(
                         self.get_strategy(),
-                        || async {
-                            client
-                                .get_total_balance(owner, Some(coin_type.to_string()))
-                                .await
-                        },
+                        || async { client.get_total_balance(owner, coin_type).await },
                         self.metrics.clone(),
                         method,
                     )

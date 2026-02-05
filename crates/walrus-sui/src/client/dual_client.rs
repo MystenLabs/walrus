@@ -414,12 +414,11 @@ impl DualClient {
     pub async fn get_total_balance(
         &self,
         owner: SuiAddress,
-        coin_type: Option<String>,
+        coin_type: &str,
     ) -> Result<u64, SuiClientError> {
-        let coin_type_for_request = coin_type.unwrap_or_else(|| "0x2::sui::SUI".to_string());
         let get_balance_request = GetBalanceRequest::default()
             .with_owner(owner.to_string())
-            .with_coin_type(coin_type_for_request);
+            .with_coin_type(coin_type.to_string());
         let mut grpc_client: GrpcClient = self.grpc_client.clone();
         let mut state_client = grpc_client.state_client();
         let coin_balance = state_client
@@ -452,7 +451,7 @@ async fn list_owned_coin_objects(
             Object::path_builder().previous_transaction(),
         ]))
         .with_page_size(MAX_SELECT_COINS_BATCH_SIZE)
-        .with_object_type(format!("0x2::coin::Coin<{coin_type}>"));
+        .with_object_type(Coin::format_object_type(coin_type));
     if let Some(next_page_token) = next_page_token {
         request = request.with_page_token(next_page_token);
     }

@@ -23,13 +23,18 @@ pub struct Coin {
 
 impl Coin {
     /// The SUI coin type string. Note that this is NOT the full object_type, which is
-    /// 0x2::coin::COIN<0x2::sui::SUI>.
+    /// 0x2::coin::Coin<0x2::sui::SUI>.
     pub const SUI: &str = "0x2::sui::SUI";
     // NB: WAL cannot be specified statically because the package address varies across networks.
 
     /// Returns the ObjectRef for this coin object.
     pub fn object_ref(&self) -> ObjectRef {
         (self.coin_object_id, self.version, self.digest)
+    }
+
+    /// Formats the full object type for a given coin type.
+    pub fn format_object_type(coin_type: &str) -> String {
+        format!("0x2::coin::Coin<{}>", coin_type)
     }
 }
 
