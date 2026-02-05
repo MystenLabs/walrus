@@ -27,6 +27,10 @@ if [[ ! "$NEW_TAG" =~ ^testnet-v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
   echo "Warning: NEW_TAG '$NEW_TAG' doesn't look like testnet-vX.Y.Z" >&2
 fi
 
+# Escape special sed characters in NEW_TAG for safe substitution.
+# This handles &, \, and | (our sed delimiter) which have special meaning in sed replacement.
+NEW_TAG_ESCAPED=$(printf '%s' "$NEW_TAG" | sed 's/[&|\]/\\&/g')
+
 # Make sure GITHUB_ACTOR is set.
 if [[ -z "${GITHUB_ACTOR:-}" ]]; then
   GITHUB_ACTOR="$(git config user.name 2>/dev/null || echo github-actions[bot])"
@@ -66,25 +70,34 @@ else
 
   for f in "${TARGETS[@]}"; do
     sed -i -E \
-      "s/(rev = \")testnet-v[0-9]+\.[0-9]+\.[0-9]+/\1${NEW_TAG}/g; \
-      s/(tag = \")testnet-v[0-9]+\.[0-9]+\.[0-9]+/\1${NEW_TAG}/g; \
-      s/(SUI_VERSION = \")testnet-v[0-9]+\.[0-9]+\.[0-9]+/\1${NEW_TAG}/g" "$f"
+      "s|(rev = \")testnet-v[0-9]+\.[0-9]+\.[0-9]+|\1${NEW_TAG_ESCAPED}|g; \
+      s|(tag = \")testnet-v[0-9]+\.[0-9]+\.[0-9]+|\1${NEW_TAG_ESCAPED}|g; \
+      s|(SUI_VERSION = \")testnet-v[0-9]+\.[0-9]+\.[0-9]+|\1${NEW_TAG_ESCAPED}|g" "$f"
   done
 fi
 
 # Update Cargo.lock files
 echo "Running cargo check ..."
-cargo check || true
+if ! cargo check; then
+  echo "Warning: cargo check failed, but continuing to update lock files" >&2
+fi
 
 # Find all directories that contain a Move.toml and generate Move.lock files.
 echo "Regenerating Move.lock files..."
+build_failures=0
 for toml in contracts/**/Move.toml testnet-contracts/**/Move.toml; do
   if [[ -f "$toml" ]]; then
     dir=$(dirname "$toml")
     echo "  -> building $dir"
-    (cd "$dir" && sui move build)
+    if ! (cd "$dir" && sui move build); then
+      echo "Warning: sui move build failed for $dir" >&2
+      ((build_failures++)) || true
+    fi
   fi
 done
+if [[ $build_failures -gt 0 ]]; then
+  echo "Warning: $build_failures Move build(s) failed" >&2
+fi
 
 # Staged all changes
 echo "Staging all changed files..."
@@ -126,6 +139,8 @@ else
 fi
 
 # Setting the PR to auto merge
-gh pr merge --auto --squash --delete-branch "$BRANCH"
+if ! gh pr merge --auto --squash --delete-branch "$BRANCH"; then
+  echo "Warning: Failed to enable auto-merge for PR" >&2
+fi
 
 echo "$PR_URL"
