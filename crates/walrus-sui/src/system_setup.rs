@@ -22,11 +22,14 @@ use sui_package_alt::{BuildParams, SuiFlavor};
 use sui_package_management::LockCommand;
 use sui_rpc_api::client::ExecutedTransaction;
 use sui_sdk::types::{
-    Identifier, base_types::ObjectID,
-    programmable_transaction_builder::ProgrammableTransactionBuilder, transaction::TransactionData,
+    Identifier,
+    base_types::ObjectID,
+    programmable_transaction_builder::ProgrammableTransactionBuilder,
+    transaction::TransactionData,
 };
 use sui_types::{
-    SUI_CLOCK_OBJECT_ID, SUI_CLOCK_OBJECT_SHARED_VERSION,
+    SUI_CLOCK_OBJECT_ID,
+    SUI_CLOCK_OBJECT_SHARED_VERSION,
     effects::TransactionEffectsAPI,
     execution_status::ExecutionStatus,
     transaction::{ObjectArg, SharedObjectMutability, TransactionKind},
@@ -51,6 +54,7 @@ fn get_created_object_ids_by_type(
     struct_tag: &StructTag,
 ) -> Result<Vec<ObjectID>> {
     use std::collections::HashSet;
+
     use sui_types::effects::TransactionEffectsAPI;
 
     let created_ids: HashSet<_> = response
