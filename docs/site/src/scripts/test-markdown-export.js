@@ -77,5 +77,5 @@ samplePaths.forEach(samplePath => {
 console.log('\n✅ Markdown export test completed');
 console.log('\n📖 To test locally:');
 console.log('   1. Run: pnpm serve');
-console.log('   2. Visit: http://localhost:3000/guides/getting-started.md');
+console.log('   2. Visit: http://localhost:3000/docs/data-security.md');
 console.log('   3. You should see raw markdown content');
