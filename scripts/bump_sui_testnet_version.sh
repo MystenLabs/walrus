@@ -28,8 +28,8 @@ if [[ ! "$NEW_TAG" =~ ^testnet-v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
 fi
 
 # Escape special sed characters in NEW_TAG for safe substitution.
-# This handles &, \, and / which have special meaning in sed replacement.
-NEW_TAG_ESCAPED=$(printf '%s' "$NEW_TAG" | sed 's/[&/\]/\\&/g')
+# This handles &, \, and | (our sed delimiter) which have special meaning in sed replacement.
+NEW_TAG_ESCAPED=$(printf '%s' "$NEW_TAG" | sed 's/[&|\]/\\&/g')
 
 # Make sure GITHUB_ACTOR is set.
 if [[ -z "${GITHUB_ACTOR:-}" ]]; then
