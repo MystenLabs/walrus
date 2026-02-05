@@ -54,6 +54,7 @@
         "@tailwindcss/postcss": "^4.1.18",
         "@types/react": "^19.2.9",
         "@types/react-dom": "^19.2.3",
+        "gray-matter": "^4.0.3",
         "postcss": "^8.5.6",
         "tailwindcss": "^4.1.18"
     },
