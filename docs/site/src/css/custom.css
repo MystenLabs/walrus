@@ -422,3 +422,7 @@ html.blog-list-page article {
 .lightToggleIcon_pgEs {
   color: #000000;
 }
+
+[data-theme='dark'] .lightToggleIcon_pgEs {
+  color: #ffffff;
+}
