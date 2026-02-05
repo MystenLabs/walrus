@@ -73,6 +73,12 @@ public(package) fun advance_epoch(
     self.inner_mut().advance_epoch(new_committee, new_epoch_params)
 }
 
+/// Extracts the balance that will be burned for the current epoch. This function is used when
+/// executing the epoch change.
+public(package) fun extract_burn_balance(self: &mut System): Balance<WAL> {
+    self.inner_mut().extract_burn_balance()
+}
+
 /// === Public Functions ===
 
 /// Marks blob as invalid given an invalid blob certificate.
@@ -400,7 +406,7 @@ public fun write_price_per_unit_size(self: &System): u64 {
 
 #[test_only]
 public(package) fun destroy_for_testing(self: System) {
-    sui::test_utils::destroy(self);
+    std::unit_test::destroy(self);
 }
 
 #[test_only]

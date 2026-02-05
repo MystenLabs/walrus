@@ -7,7 +7,7 @@ module walrus::staking;
 
 use std::string::String;
 use sui::{balance::Balance, clock::Clock, coin::Coin, dynamic_field as df};
-use wal::wal::WAL;
+use wal::wal::{WAL, ProtectedTreasury};
 use walrus::{
     auth::{Self, Authenticated, Authorized},
     committee::Committee,
@@ -258,9 +258,7 @@ public fun voting_end(staking: &mut Staking, clock: &Clock) {
     staking.inner_mut().voting_end(clock)
 }
 
-/// Initiates the epoch change if the current time allows.
-///
-/// Emits the `EpochChangeStart` event.
+/// TODO: Deprecated: use `initiate_epoch_change_v2` instead.
 public fun initiate_epoch_change(staking: &mut Staking, system: &mut System, clock: &Clock) {
     {
         let staking_inner = staking.inner_mut();
@@ -268,8 +266,37 @@ public fun initiate_epoch_change(staking: &mut Staking, system: &mut System, clo
             staking_inner.next_bls_committee(),
             staking_inner.next_epoch_params(),
         );
-
         staking_inner.initiate_epoch_change(clock, rewards);
+    };
+
+    // Recalculate and apply prices from the new committee.
+    update_prices(staking, system);
+}
+
+/// Initiates the epoch change if the current time allows.
+///
+/// Emits the `EpochChangeStart` event.
+public fun initiate_epoch_change_v2(
+    staking: &mut Staking,
+    system: &mut System,
+    treasury: &mut ProtectedTreasury,
+    clock: &Clock,
+    ctx: &mut TxContext,
+) {
+    {
+        // Calculate and burn rewards.
+        let burn_balance = system.extract_burn_balance();
+        wal::wal::burn(treasury, burn_balance.into_coin(ctx));
+
+        // After this point, the burned reward has been removed from the system's current epoch
+        // reward balance.
+        let staking_inner = staking.inner_mut();
+        let committee_rewards = system.advance_epoch(
+            staking_inner.next_bls_committee(),
+            staking_inner.next_epoch_params(),
+        );
+
+        staking_inner.initiate_epoch_change(clock, committee_rewards);
     };
 
     // Recalculate and apply prices from the new committee.

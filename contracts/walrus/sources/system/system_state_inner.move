@@ -186,6 +186,12 @@ public(package) fun advance_epoch(
     vec_map::from_keys_values(node_ids, reward_values)
 }
 
+/// Extracts the balance that will be burned for the current epoch. This function is used when
+/// executing the epoch change.
+public(package) fun extract_burn_balance(self: &mut SystemStateInnerV1): Balance<WAL> {
+    self.future_accounting.extract_burn_balance()
+}
+
 /// Allow buying a storage reservation for a given period of epochs.
 public(package) fun reserve_space(
     self: &mut SystemStateInnerV1,
@@ -859,5 +865,5 @@ public(package) fun future_accounting_mut(
 
 #[test_only]
 public(package) fun destroy_for_testing(s: SystemStateInnerV1) {
-    sui::test_utils::destroy(s)
+    std::unit_test::destroy(s)
 }

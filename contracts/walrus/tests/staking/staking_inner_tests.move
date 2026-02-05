@@ -3,8 +3,8 @@
 
 module walrus::staking_inner_tests;
 
-use std::unit_test::assert_eq;
-use sui::{clock, test_utils::destroy, vec_map};
+use std::unit_test::{assert_eq, destroy};
+use sui::{clock, vec_map};
 use walrus::{staking_inner, storage_node, test_utils::{Self as test, frost_per_wal}};
 
 const EPOCH_DURATION: u64 = 7 * 24 * 60 * 60 * 1000;
@@ -461,9 +461,9 @@ fun larger_dhondt_inputs(stake_basis_points: vector<u128>) {
     let stake = stake_basis_points.map!(|bp| (bp * total_stake / 10_000) as u64);
 
     let allocation = dhondt(shards, stake);
-    let mut with_shards = 0;
-    let mut large_allocations = 0;
-    let mut small_allocations = 0;
+    let mut with_shards: u64 = 0;
+    let mut large_allocations: u64 = 0;
+    let mut small_allocations: u64 = 0;
     allocation.do_ref!(|n| {
         if (*n > 0) with_shards = with_shards + 1;
         if (*n > 50) large_allocations = large_allocations + 1;

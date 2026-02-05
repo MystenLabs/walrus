@@ -3,7 +3,7 @@
 
 module walrus::staking_pool_tests;
 
-use sui::test_utils::destroy;
+use std::unit_test::destroy;
 use walrus::test_utils::{mint_wal_balance, pool, context_runner, assert_eq, frost_per_wal};
 
 #[test]

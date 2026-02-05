@@ -72,6 +72,12 @@ public fun burn(treasury: &mut ProtectedTreasury, coin: Coin<WAL>) {
     treasury.borrow_cap_mut().burn(coin);
 }
 
+/// Test helper to initialize the WAL token for tests in other packages.
+#[test_only]
+public fun init_for_testing(ctx: &mut TxContext) {
+    init(WAL {}, ctx);
+}
+
 // ===== Private Accessors =====
 
 /// Borrows the `TreasuryCap` from the `ProtectedTreasury`.

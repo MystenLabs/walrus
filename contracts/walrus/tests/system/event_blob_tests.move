@@ -6,6 +6,7 @@ module walrus::event_blob_tests;
 
 use walrus::{
     blob,
+    epoch_parameters::epoch_params_for_testing,
     storage_node,
     system::{Self, System},
     system_state_inner,
@@ -22,7 +23,7 @@ public fun test_event_blob_certify_happy_path() {
     let ctx = &mut tx_context::dummy();
     let mut system = system::new_for_testing_with_multiple_members(ctx);
     // Total of 10 nodes all with equal weights
-    assert!(system.committee().to_vec_map().size() == 10);
+    assert!(system.committee().to_vec_map().length() == 10);
     let mut nodes = test_nodes();
     set_storage_node_caps(&system, &mut nodes, ctx);
     let blob_id = blob::derive_blob_id(ROOT_HASH, RS2, SIZE);
@@ -56,7 +57,7 @@ public fun test_event_blob_certify_repeated_attestation() {
     let ctx = &mut tx_context::dummy();
     let mut system = system::new_for_testing_with_multiple_members(ctx);
     // Total of 10 nodes
-    assert!(system.committee().to_vec_map().size() == 10);
+    assert!(system.committee().to_vec_map().length() == 10);
     let mut nodes = test_nodes();
     set_storage_node_caps(&system, &mut nodes, ctx);
     let blob_id = blob::derive_blob_id(ROOT_HASH, RS2, SIZE);
@@ -93,7 +94,7 @@ public fun test_multiple_event_blobs_in_flight() {
     let ctx = &mut tx_context::dummy();
     let mut system = system::new_for_testing_with_multiple_members(ctx);
     // Total of 10 nodes
-    assert!(system.committee().to_vec_map().size() == 10);
+    assert!(system.committee().to_vec_map().length() == 10);
     let mut nodes = test_nodes();
     set_storage_node_caps(&system, &mut nodes, ctx);
     let blob1 = blob::derive_blob_id(0xabc, RS2, SIZE);
@@ -134,7 +135,7 @@ public fun test_event_blob_certify_change_epoch() {
     let ctx = &mut tx_context::dummy();
     let mut system = system::new_for_testing_with_multiple_members(ctx);
     // Total of 10 nodes
-    assert!(system.committee().to_vec_map().size() == 10);
+    assert!(system.committee().to_vec_map().length() == 10);
     let mut nodes = test_nodes();
     set_storage_node_caps(&system, &mut nodes, ctx);
     let blob_id = blob::derive_blob_id(ROOT_HASH, RS2, SIZE);
@@ -158,10 +159,10 @@ public fun test_event_blob_certify_change_epoch() {
     let mut new_committee = *system.committee();
     new_committee.increment_epoch_for_testing();
     let (_, balances) = system
-        .advance_epoch(new_committee, &walrus::epoch_parameters::epoch_params_for_testing())
+        .advance_epoch(new_committee, &epoch_params_for_testing())
         .into_keys_values();
-
     balances.do!(|b| { b.destroy_for_testing(); });
+
     // 7th node attesting is not going to certify the blob as all other nodes
     // attested
     // the blob in previous epoch
@@ -212,7 +213,7 @@ public fun test_certify_invalid_blob_id() {
     // Setup
     let ctx = &mut tx_context::dummy();
     let mut system = system::new_for_testing_with_multiple_members(ctx);
-    assert!(system.committee().to_vec_map().size() == 10);
+    assert!(system.committee().to_vec_map().length() == 10);
     let mut nodes = test_nodes();
     set_storage_node_caps(&system, &mut nodes, ctx);
 
@@ -281,7 +282,7 @@ public fun test_block_blob_events() {
     let ctx = &mut tx_context::dummy();
     // Initialize system with 10 nodes
     let mut system = system::new_for_testing_with_multiple_members(ctx);
-    assert!(system.committee().to_vec_map().size() == 10);
+    assert!(system.committee().to_vec_map().length() == 10);
     let mut nodes = test_nodes();
     set_storage_node_caps(&system, &mut nodes, ctx);
 
