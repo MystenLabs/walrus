@@ -41,17 +41,13 @@ Where the world's data becomes reliable, valuable, and governable
 - [Redirecting...](/dev-guide/dev-operations)
 - [Redirecting...](/dev-guide/sui-struct)
 
-## Example 1
-
-- [No title](/example-1)
-
-## Example 2
-
-- [No title](/example-2)
-
 ## Examples
 
-- [Examples](/examples): Collection of code examples for Walrus integration including Python, JavaScript, and Move smart contract examples.
+- [Sui Archival System](/examples/checkpoint-data): An example application that demonstrates archiving Sui blockchain checkpoint data on Walrus.
+- [Using Walrus with JavaScript](/examples/javascript): JavaScript code examples to demonstrate how to use Walrus from within a JavaScript application.
+- [Using Walrus with Move](/examples/move): Move code examples to demonstrate how to use Walrus from within a Move package.
+- [Using Walrus with Python](/examples/python): Python code examples to demonstrate how to use Walrus from within a Python application.
+- [Walrus Relay](/examples/walrus-relay): An example of a file upload web application that uses the Walrus Upload Relay.
 
 ## Getting started
 
