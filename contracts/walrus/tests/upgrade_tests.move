@@ -121,11 +121,14 @@ public fun test_upgrade_wrong_epoch() {
     // === advance clock and change epoch ===
 
     runner.clock().increment_for_testing(e2e_runner::default_epoch_duration());
-    runner.tx!(nodes[0].sui_address(), |staking, system, _| {
-        staking.voting_end(runner.clock());
-        staking.initiate_epoch_change_for_testing(system, runner.clock());
-        assert_eq!(system.epoch(), 2);
-    });
+    runner.tx_initiate_epoch_change!(
+        nodes[0].sui_address(),
+        |staking, system, protected_treasury, clock, ctx| {
+            staking.voting_end(clock);
+            staking.initiate_epoch_change_v2(system, protected_treasury, clock, ctx);
+            assert_eq!(system.epoch(), 2);
+        },
+    );
 
     // === try to commit upgrade with the package voted for in the previous epoch ===
 

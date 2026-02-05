@@ -4,6 +4,7 @@
 module walrus::e2e_runner;
 
 use sui::{clock::{Self, Clock}, test_scenario::{Self, Scenario}};
+use wal::wal::ProtectedTreasury;
 use walrus::{
     init,
     node_metadata,
@@ -48,7 +49,7 @@ public struct InitBuilder {
 ///    .n_shards(100)
 ///    .build();
 ///
-/// runner.tx!(admin, |staking, system, treasury, clock, ctx| { /* ... */ });
+/// runner.tx!(admin, |staking, system, ctx| { /* ... */ });
 /// ```
 public fun prepare(admin: address): InitBuilder {
     InitBuilder {
@@ -122,6 +123,11 @@ public fun scenario(self: &mut TestRunner): &mut Scenario { &mut self.scenario }
 /// Access runner's `Clock`.
 public fun clock(self: &mut TestRunner): &mut Clock { &mut self.clock }
 
+/// Access runner's `Scenario` and `Clock`.
+public fun scenario_and_clock(self: &mut TestRunner): (&mut Scenario, &mut Clock) {
+    (&mut self.scenario, &mut self.clock)
+}
+
 /// Access the current epoch of the system.
 public fun epoch(self: &mut TestRunner): u32 {
     self.scenario.next_tx(self.admin);
@@ -152,6 +158,30 @@ public macro fun tx(
 
     test_scenario::return_shared(staking);
     test_scenario::return_shared(system);
+}
+
+/// Run a transaction as a `sender`, and call the function `f` with the `Staking`,
+/// `System`, `ProtectedTreasury`, `Clock`, and `TxContext` as arguments.
+///
+/// This macro is primarily used to initiate the epoch change.
+public macro fun tx_initiate_epoch_change(
+    $runner: &mut TestRunner,
+    $sender: address,
+    $f: |&mut Staking, &mut System, &mut ProtectedTreasury, &Clock, &mut TxContext|,
+) {
+    let runner = $runner;
+    let (scenario, clock) = runner.scenario_and_clock();
+    scenario.next_tx($sender);
+    let mut staking = scenario.take_shared<Staking>();
+    let mut system = scenario.take_shared<System>();
+    let mut protected_treasury = scenario.take_shared<wal::wal::ProtectedTreasury>();
+    let ctx = scenario.ctx();
+
+    $f(&mut staking, &mut system, &mut protected_treasury, clock, ctx);
+
+    test_scenario::return_shared(staking);
+    test_scenario::return_shared(system);
+    test_scenario::return_shared(protected_treasury);
 }
 
 /// Returns TransactionEffects of the last transaction.
@@ -189,9 +219,9 @@ public fun next_epoch(self: &mut TestRunner) {
         self.clock().increment_for_testing(DEFAULT_EPOCH_DURATION);
     };
     let sender = self.admin;
-    self.tx!(sender, |staking, system, _| {
-        staking.voting_end(self.clock());
-        staking.initiate_epoch_change_for_testing(system, self.clock());
+    self.tx_initiate_epoch_change!(sender, |staking, system, protected_treasury, clock, ctx| {
+        staking.voting_end(clock);
+        staking.initiate_epoch_change_v2(system, protected_treasury, clock, ctx);
     });
 }
 
@@ -265,9 +295,9 @@ public fun setup_committee_for_epoch_one(): (TestRunner, vector<TestStorageNode>
     // === check if epoch state is changed correctly ==
 
     runner.clock().increment_for_testing(DEFAULT_EPOCH_ZERO_DURATION);
-    runner.tx!(admin, |staking, system, _| {
-        staking.voting_end(runner.clock());
-        staking.initiate_epoch_change_for_testing(system, runner.clock());
+    runner.tx_initiate_epoch_change!(admin, |staking, system, protected_treasury, clock, ctx| {
+        staking.voting_end(clock);
+        staking.initiate_epoch_change_v2(system, protected_treasury, clock, ctx);
         nodes.do_ref!(|node| assert!(system.committee().contains(&node.node_id())));
     });
 
