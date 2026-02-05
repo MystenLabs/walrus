@@ -223,11 +223,11 @@ const sidebars = {
      examplesSidebar: [
     {
       items: [
-        'examples/checkpoint-data.mdx',
-        'examples/javascript.mdx',
-        'examples/move.mdx',
-        'examples/python.mdx',
-        'examples/walrus-relay.mdx'
+        'examples/checkpoint-data',
+        'examples/javascript',
+        'examples/move',
+        'examples/python',
+        'examples/walrus-relay'
       ],
       },
     ],
