@@ -27,7 +27,6 @@ use sui_sdk::sui_client_config::SuiEnv;
 use sui_simulator::runtime::NodeHandle;
 use sui_types::{
     base_types::{ObjectID, SuiAddress},
-    crypto::ToFromBytes,
     digests::TransactionDigest,
     event::EventID,
     programmable_transaction_builder::ProgrammableTransactionBuilder,
@@ -554,7 +553,7 @@ pub async fn fund_addresses(
         .gas_for_owner_budget(sender, DEFAULT_GAS_BUDGET, BTreeSet::new())
         .await?
         .1
-        .object_ref();
+        .compute_object_reference();
 
     let mut ptb = ProgrammableTransactionBuilder::new();
 
@@ -726,14 +725,14 @@ impl TestNodeKeys {
     pub fn new(keys: Vec<ProtocolKeyPair>, committee: &Committee) -> anyhow::Result<Self> {
         let mut key_map: HashMap<_, _> = keys
             .into_iter()
-            .map(|key| (key.public().as_bytes().to_owned(), key))
+            .map(|key| (key.public().as_ref().to_owned(), key))
             .collect();
         let sorted_keys = committee
             .members()
             .iter()
             .map(|member| {
                 key_map
-                    .remove(member.public_key.as_bytes())
+                    .remove(member.public_key.as_ref())
                     .ok_or_else(|| anyhow!("no private key provided for committee member"))
             })
             .collect::<Result<Vec<_>, _>>()?;

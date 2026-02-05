@@ -304,6 +304,7 @@ impl RetriableRpcClient {
                     request_timeout,
                 )
                 .await
+                .map(CheckpointData::from)
                 .map_err(|status| CheckpointRpcError::from((status, sequence_number)).into())
         }
 
