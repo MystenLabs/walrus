@@ -422,3 +422,7 @@ html.blog-list-page article {
 .toggleButton_ZKVd {
   color: black;
 }
+
+[data-theme='dark'] .lightToggleIcon_pgEs {
+  color: #ffffff;
+}

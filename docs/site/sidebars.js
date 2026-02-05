@@ -221,6 +221,13 @@ const sidebars = {
         ],
     },
     ],
+    examplesSidebar: [
+      'examples/checkpoint-data',
+      'examples/javascript',
+      'examples/move',
+      'examples/python',
+      'examples/walrus-relay'
+    ],
 };
 
 export default sidebars;
