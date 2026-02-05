@@ -51,8 +51,8 @@ impl From<sui_sdk::rpc_types::Coin> for Coin {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 /// The type of coin.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CoinType {
     /// The WAL coin type.
     Wal,
