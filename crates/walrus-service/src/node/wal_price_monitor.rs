@@ -16,6 +16,9 @@ const COINGECKO_API_URL: &str =
 /// Coinbase API URL for fetching WAL price
 const COINBASE_API_URL: &str = "https://api.coinbase.com/v2/prices/WAL-USD/spot";
 
+/// Binance API URL for fetching WAL price
+const BINANCE_API_URL: &str = "https://api.binance.com/api/v3/ticker/price?symbol=WALUSDC";
+
 /// Pyth Hermes API URL for fetching WAL price
 const PYTH_HERMES_API_URL: &str = concat!(
     "https://hermes.pyth.network/v2/updates/price/latest?ids[]=",
@@ -64,7 +67,8 @@ impl WalPriceFetcher for CoinGeckoPriceFetcher {
                 .and_then(|v| v.get("usd"))
                 .and_then(|v| v.as_f64())
                 .ok_or(anyhow::anyhow!(
-                    "Failed to parse price from CoinGecko response"
+                    "Failed to parse price from CoinGecko response: {}",
+                    json_response
                 ))?;
 
             tracing::debug!("Fetched WAL price from {}: ${:.6}", self.source(), price);
@@ -114,7 +118,58 @@ impl WalPriceFetcher for CoinbasePriceFetcher {
                 .and_then(|v| v.as_str())
                 .and_then(|s| s.parse::<f64>().ok())
                 .ok_or(anyhow::anyhow!(
-                    "Failed to parse price from Coinbase response"
+                    "Failed to parse price from Coinbase response: {}",
+                    json_response
+                ))?;
+
+            tracing::debug!("Fetched WAL price from {}: ${:.6}", self.source(), price);
+
+            // Update metrics
+            self.metrics
+                .current_monitored_wal_price
+                .with_label_values(&[self.source()])
+                .set(price);
+
+            Ok(price)
+        })
+    }
+}
+
+/// Helper struct for fetching prices from Binance with metrics
+#[derive(Clone)]
+struct BinancePriceFetcher {
+    metrics: Arc<NodeMetricSet>,
+}
+
+impl BinancePriceFetcher {
+    fn new(metrics: Arc<NodeMetricSet>) -> Self {
+        Self { metrics }
+    }
+}
+
+impl WalPriceFetcher for BinancePriceFetcher {
+    fn source(&self) -> &str {
+        "binance"
+    }
+
+    fn fetch(&self) -> Pin<Box<dyn Future<Output = Result<f64, anyhow::Error>> + Send + '_>> {
+        Box::pin(async move {
+            let client = reqwest::Client::new();
+            let response = client
+                .get(BINANCE_API_URL)
+                .header(reqwest::header::USER_AGENT, "Walrus (walrus.xyz)")
+                .send()
+                .await?;
+
+            let json_response: serde_json::Value = response.json().await?;
+
+            let price = json_response
+                .get("price")
+                .and_then(|v| v.as_str())
+                .and_then(|s| s.parse::<f64>().ok())
+                .ok_or(anyhow::anyhow!(
+                    "Failed to parse price from Binance response: {}",
+                    json_response
                 ))?;
 
             tracing::debug!("Fetched WAL price from {}: ${:.6}", self.source(), price);
@@ -170,7 +225,10 @@ impl WalPriceFetcher for PythHermesPriceFetcher {
                     ))
                 })
                 .ok_or_else(|| {
-                    anyhow::anyhow!("Failed to parse price from Pyth Hermes response")
+                    anyhow::anyhow!(
+                        "Failed to parse price from Pyth Hermes response: {}",
+                        json_response
+                    )
                 })?;
             let price = price_mantissa * 10_f64.powi(expo);
 
@@ -254,6 +312,7 @@ impl WalPriceMonitor {
         let fetchers: Vec<Box<dyn WalPriceFetcher>> = vec![
             Box::new(CoinGeckoPriceFetcher::new(metrics.clone())),
             Box::new(CoinbasePriceFetcher::new(metrics.clone())),
+            Box::new(BinancePriceFetcher::new(metrics.clone())),
             Box::new(PythHermesPriceFetcher::new(metrics.clone())),
         ];
 
@@ -303,7 +362,9 @@ impl WalPriceMonitor {
                             prices.push(price);
                         }
                         Err(e) => {
-                            tracing::error!(
+                            // It is not guaranteed that all fetchers will work in all the places
+                            // around the world.
+                            tracing::debug!(
                                 "Fetcher '{}' failed to fetch WAL price: {}",
                                 fetcher.source(),
                                 e
