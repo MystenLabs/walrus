@@ -1,0 +1,33 @@
+The following properties are true for all storage epochs where at least 2/3 of shards are operated by storage nodes that faithfully and correctly follow the Walrus protocol.
+
+## Key concepts
+
+Each blob undergoes [erasure encoding](/docs/design/encoding) into slivers, and a blob ID is cryptographically derived from this encoding.
+
+### Point of availability (PoA)
+
+For each stored blob ID, Walrus defines a PoA that marks when the system takes responsibility for maintaining the blob's availability.
+
+The **availability period** specifies how long Walrus maintains a blob after its PoA. Both the PoA and availability period are observable through events on Sui.
+
+Before the PoA, the client is responsible for ensuring blob availability and uploading it to Walrus.
+
+After the PoA, Walrus is responsible for maintaining blob availability for the full availability period. The PoA is observable through an event on the Sui chain, and this event attests to the blob's availability in the system.
+
+## Read and write properties
+
+The following properties relate to the PoA:
+
+- **Read completion:** After the PoA for a blob ID, any correct user performing a read within the availability period will eventually terminate and receive a value \(V\). This value is either the blob contents \(F\) or `None`.
+- **Read consistency:** After the PoA, if two correct users perform reads and receive values \(V\) and \(V'\) respectively, then \(V = V'\). All correct readers see the same value.
+- **Correct storage guarantee:** A correct user with an appropriate storage resource can always perform a store operation for a blob \(F\) with a blob ID and advance the protocol until the PoA.
+- **Correct blob retrieval:** A read after the PoA for a blob \(F\) stored by a correct user will return \(F\). Correctly stored blobs are always retrievable.
+
+## Storage node assurance
+
+Some assurance properties ensure the correct internal processes of Walrus storage nodes. For the purposes of defining these, an **inconsistency proof** proves that a blob ID was stored by a user that incorrectly encoded a blob:
+
+- **Sliver recovery:** After the PoA, for a blob ID stored by a correct user, a storage node can always recover the correct slivers for its shards for this blob ID.
+- **Inconsistency detection:** After the PoA, if a correct storage node cannot recover a sliver, it can produce an inconsistency proof for the blob ID.
+- **Encoding protection:** If a blob ID is stored by a correct user, an inconsistency proof cannot be derived for it.
+- **Inconsistent blob handling:** A read by a correct user for a blob ID for which an inconsistency proof might exist returns `None`.
