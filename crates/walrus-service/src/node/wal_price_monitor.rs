@@ -469,6 +469,7 @@ mod tests {
         };
     }
 
+    // Skip testing for Binance because the API is not available in all regions.
     test_fetch_from_source!(
         test_fetch_from_coingecko,
         CoinGeckoPriceFetcher,
