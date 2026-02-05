@@ -63,7 +63,7 @@ fun init_and_first_epoch_change() {
     // === check if epoch state is changed correctly ==
 
     runner.clock().increment_for_testing(EPOCH_ZERO_DURATION);
-    runner.tx_initiate_epoch_change!(admin, |staking, system, protected_treasury, clock, ctx| {
+    runner.tx_with_wal_treasury!(admin, |staking, system, protected_treasury, clock, ctx| {
         staking.voting_end(clock);
         staking.initiate_epoch_change_v2(system, protected_treasury, clock, ctx);
 
@@ -94,7 +94,7 @@ fun init_and_first_epoch_change() {
     // === check if epoch was changed as expected ===
 
     runner.clock().increment_for_testing(EPOCH_DURATION - PARAM_SELECTION_DELTA);
-    runner.tx_initiate_epoch_change!(admin, |staking, system, protected_treasury, clock, ctx| {
+    runner.tx_with_wal_treasury!(admin, |staking, system, protected_treasury, clock, ctx| {
         staking.initiate_epoch_change_v2(system, protected_treasury, clock, ctx);
 
         assert!(system.epoch() == 2);
@@ -183,7 +183,7 @@ fun stake_after_committee_selection() {
     // === initiate epoch change ===
     // === check if epoch state is changed correctly ==
 
-    runner.tx_initiate_epoch_change!(admin, |staking, system, protected_treasury, clock, ctx| {
+    runner.tx_with_wal_treasury!(admin, |staking, system, protected_treasury, clock, ctx| {
         staking.initiate_epoch_change_v2(system, protected_treasury, clock, ctx);
 
         assert!(system.epoch() == 1);
@@ -207,7 +207,7 @@ fun stake_after_committee_selection() {
     // === check if previously excluded node is now also in the committee ===
 
     runner.clock().increment_for_testing(EPOCH_DURATION);
-    runner.tx_initiate_epoch_change!(admin, |staking, system, protected_treasury, clock, ctx| {
+    runner.tx_with_wal_treasury!(admin, |staking, system, protected_treasury, clock, ctx| {
         staking.voting_end(clock);
         staking.initiate_epoch_change_v2(system, protected_treasury, clock, ctx);
 
@@ -271,7 +271,7 @@ fun node_voting_parameters() {
     });
 
     runner.clock().increment_for_testing(EPOCH_ZERO_DURATION);
-    runner.tx_initiate_epoch_change!(admin, |staking, system, protected_treasury, clock, ctx| {
+    runner.tx_with_wal_treasury!(admin, |staking, system, protected_treasury, clock, ctx| {
         staking.voting_end(clock);
         staking.initiate_epoch_change_v2(system, protected_treasury, clock, ctx);
 
@@ -339,7 +339,7 @@ fun first_epoch_too_soon_fail() {
     // === advance clock, end voting and initialize epoch change ===
 
     runner.clock().increment_for_testing(EPOCH_ZERO_DURATION - 1);
-    runner.tx_initiate_epoch_change!(admin, |staking, system, protected_treasury, clock, ctx| {
+    runner.tx_with_wal_treasury!(admin, |staking, system, protected_treasury, clock, ctx| {
         staking.voting_end(clock);
         staking.initiate_epoch_change_v2(system, protected_treasury, clock, ctx);
     });
@@ -392,7 +392,7 @@ fun epoch_change_with_rewards_and_commission() {
     // === check if epoch state is changed correctly ==
 
     runner.clock().increment_for_testing(EPOCH_ZERO_DURATION);
-    runner.tx_initiate_epoch_change!(admin, |staking, system, protected_treasury, clock, ctx| {
+    runner.tx_with_wal_treasury!(admin, |staking, system, protected_treasury, clock, ctx| {
         staking.voting_end(clock);
         staking.initiate_epoch_change_v2(system, protected_treasury, clock, ctx);
 
@@ -478,7 +478,7 @@ fun epoch_change_with_rewards_and_commission() {
     // === check if epoch was changed as expected ===
 
     runner.clock().increment_for_testing(EPOCH_DURATION - PARAM_SELECTION_DELTA);
-    runner.tx_initiate_epoch_change!(admin, |staking, system, protected_treasury, clock, ctx| {
+    runner.tx_with_wal_treasury!(admin, |staking, system, protected_treasury, clock, ctx| {
         staking.initiate_epoch_change_v2(system, protected_treasury, clock, ctx);
 
         assert_eq!(system.epoch(), 2);
@@ -712,7 +712,7 @@ fun withdraw_rewards_before_joining_committee() {
     // === initiate epoch change ===
 
     runner.clock().increment_for_testing(EPOCH_ZERO_DURATION);
-    runner.tx_initiate_epoch_change!(admin, |staking, system, protected_treasury, clock, ctx| {
+    runner.tx_with_wal_treasury!(admin, |staking, system, protected_treasury, clock, ctx| {
         staking.voting_end(clock);
         staking.initiate_epoch_change_v2(system, protected_treasury, clock, ctx);
     });
@@ -736,7 +736,7 @@ fun withdraw_rewards_before_joining_committee() {
     // === initiate epoch change ===
 
     runner.clock().increment_for_testing(EPOCH_DURATION);
-    runner.tx_initiate_epoch_change!(admin, |staking, system, protected_treasury, clock, ctx| {
+    runner.tx_with_wal_treasury!(admin, |staking, system, protected_treasury, clock, ctx| {
         staking.voting_end(clock);
         staking.initiate_epoch_change_v2(system, protected_treasury, clock, ctx);
     });
@@ -769,7 +769,7 @@ fun withdraw_rewards_before_joining_committee() {
     // === check if previously excluded node is now also in the committee ===
 
     runner.clock().increment_for_testing(EPOCH_DURATION);
-    runner.tx_initiate_epoch_change!(admin, |staking, system, protected_treasury, clock, ctx| {
+    runner.tx_with_wal_treasury!(admin, |staking, system, protected_treasury, clock, ctx| {
         staking.voting_end(clock);
         staking.initiate_epoch_change_v2(system, protected_treasury, clock, ctx);
 

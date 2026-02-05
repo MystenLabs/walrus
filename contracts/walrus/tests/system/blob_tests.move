@@ -355,7 +355,11 @@ fun extend_blob_created_from_split_storage() {
 
     // advance_epoch to epoch 1 when the new storage is valid
     let cmt = test_utils::new_bls_committee_for_testing(1);
-    system.advance_epoch_for_testing(cmt, &epoch_parameters::new(1_000_000_000, 5, 1));
+    let (_, balances) = system
+        .advance_epoch(cmt, &epoch_parameters::new(1_000_000_000, 5, 1))
+        .into_keys_values();
+
+    balances.do!(|b| _ = b.destroy_for_testing());
 
     // register a blob with a split storage
     let mut blob = register_default_blob(&mut system, storage, false, ctx);
@@ -407,7 +411,11 @@ fun direct_extend_expired() {
 
     // Advance the epoch
     let committee = test_utils::new_bls_committee_for_testing(1);
-    system.advance_epoch_for_testing(committee, &epoch_params_for_testing());
+    let (_, balances) = system
+        .advance_epoch(committee, &epoch_params_for_testing())
+        .into_keys_values();
+
+    balances.do!(|b| { b.destroy_for_testing(); });
 
     let mut fake_coin = test_utils::mint_frost(N_COINS, &mut tx_context::dummy());
     // Now extend the blob with another 3 epochs. Test fails here.

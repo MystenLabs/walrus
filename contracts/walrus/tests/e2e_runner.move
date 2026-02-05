@@ -164,7 +164,7 @@ public macro fun tx(
 /// `System`, `ProtectedTreasury`, `Clock`, and `TxContext` as arguments.
 ///
 /// This macro is primarily used to initiate the epoch change.
-public macro fun tx_initiate_epoch_change(
+public macro fun tx_with_wal_treasury(
     $runner: &mut TestRunner,
     $sender: address,
     $f: |&mut Staking, &mut System, &mut ProtectedTreasury, &Clock, &mut TxContext|,
@@ -219,7 +219,7 @@ public fun next_epoch(self: &mut TestRunner) {
         self.clock().increment_for_testing(DEFAULT_EPOCH_DURATION);
     };
     let sender = self.admin;
-    self.tx_initiate_epoch_change!(sender, |staking, system, protected_treasury, clock, ctx| {
+    self.tx_with_wal_treasury!(sender, |staking, system, protected_treasury, clock, ctx| {
         staking.voting_end(clock);
         staking.initiate_epoch_change_v2(system, protected_treasury, clock, ctx);
     });
@@ -295,7 +295,7 @@ public fun setup_committee_for_epoch_one(): (TestRunner, vector<TestStorageNode>
     // === check if epoch state is changed correctly ==
 
     runner.clock().increment_for_testing(DEFAULT_EPOCH_ZERO_DURATION);
-    runner.tx_initiate_epoch_change!(admin, |staking, system, protected_treasury, clock, ctx| {
+    runner.tx_with_wal_treasury!(admin, |staking, system, protected_treasury, clock, ctx| {
         staking.voting_end(clock);
         staking.initiate_epoch_change_v2(system, protected_treasury, clock, ctx);
         nodes.do_ref!(|node| assert!(system.committee().contains(&node.node_id())));

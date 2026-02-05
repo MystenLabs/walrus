@@ -413,14 +413,3 @@ public(package) fun destroy_for_testing(self: System) {
 public fun get_system_rewards_balance(self: &mut System, epoch_in_future: u32): &mut Balance<WAL> {
     self.inner_mut().future_accounting_mut().ring_lookup_mut(epoch_in_future).rewards_balance()
 }
-
-#[test_only]
-public fun advance_epoch_for_testing(
-    self: &mut System,
-    committee: BlsCommittee,
-    epoch_params: &EpochParams,
-) {
-    let committee_rewards = self.advance_epoch(committee, epoch_params);
-    let (_, balances) = committee_rewards.into_keys_values();
-    balances.do!(|b| { b.destroy_for_testing(); });
-}

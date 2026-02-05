@@ -140,10 +140,11 @@ fun storage_capacity_at_epochs() {
 
     // next epoch: 1
     let cmt = test_utils::new_bls_committee_for_testing(1);
-    system.advance_epoch_for_testing(
-        cmt,
-        &epoch_parameters::new(10_000_000_000, 5, 1),
-    );
+    let (_, balances) = system
+        .advance_epoch(cmt, &epoch_parameters::new(10_000_000_000, 5, 1))
+        .into_keys_values();
+
+    balances.do!(|b| _ = b.destroy_for_testing());
 
     // check that the capacity is updated
     assert_eq!(system.used_capacity_size(), 500_000_000);
@@ -152,10 +153,11 @@ fun storage_capacity_at_epochs() {
 
     // next epoch: 2
     let cmt = test_utils::new_bls_committee_for_testing(2);
-    system.advance_epoch_for_testing(
-        cmt,
-        &epoch_parameters::new(10_000_000_000, 5, 1),
-    );
+    let (_, balances) = system
+        .advance_epoch(cmt, &epoch_parameters::new(10_000_000_000, 5, 1))
+        .into_keys_values();
+
+    balances.do!(|b| _ = b.destroy_for_testing());
 
     assert_eq!(system.used_capacity_size(), 0);
     assert_eq!(system.total_capacity_size(), 10_000_000_000);

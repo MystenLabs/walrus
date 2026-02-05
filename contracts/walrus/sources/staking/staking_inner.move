@@ -239,7 +239,8 @@ public(package) fun voting_end(self: &mut StakingInnerV1, clock: &Clock) {
 ///
 /// Price votes (storage and write prices) are no longer computed here, as they take effect
 /// immediately when a price vote is cast via `set_storage_price_vote` or
-/// `set_write_price_vote`. Only capacity votes are computed for the next epoch parameters.
+/// `set_write_price_vote`, and at the end of the epoch change transaction to account for
+/// committee changes. Only capacity votes are computed for the next epoch parameters.
 public(package) fun select_committee_and_calculate_votes(self: &mut StakingInnerV1) {
     assert!(self.next_committee.is_none(), ECommitteeSelected);
 

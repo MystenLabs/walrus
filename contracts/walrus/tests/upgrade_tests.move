@@ -121,7 +121,7 @@ public fun test_upgrade_wrong_epoch() {
     // === advance clock and change epoch ===
 
     runner.clock().increment_for_testing(e2e_runner::default_epoch_duration());
-    runner.tx_initiate_epoch_change!(
+    runner.tx_with_wal_treasury!(
         nodes[0].sui_address(),
         |staking, system, protected_treasury, clock, ctx| {
             staking.voting_end(clock);

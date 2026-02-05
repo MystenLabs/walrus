@@ -158,7 +158,10 @@ public fun test_event_blob_certify_change_epoch() {
     // increment epoch
     let mut new_committee = *system.committee();
     new_committee.increment_epoch_for_testing();
-    system.advance_epoch_for_testing(new_committee, &epoch_params_for_testing());
+    let (_, balances) = system
+        .advance_epoch(new_committee, &epoch_params_for_testing())
+        .into_keys_values();
+    balances.do!(|b| { b.destroy_for_testing(); });
 
     // 7th node attesting is not going to certify the blob as all other nodes
     // attested
