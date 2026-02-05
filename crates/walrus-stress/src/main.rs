@@ -28,7 +28,8 @@ use walrus_stress::single_client_workload::{
     single_client_workload_arg::SingleClientWorkloadArgs,
 };
 use walrus_sui::{
-    client::{CoinType, MIN_STAKING_THRESHOLD, ReadClient, SuiContractClient},
+    client::{MIN_STAKING_THRESHOLD, ReadClient, SuiContractClient},
+    coin::CoinType,
     config::WalletConfig,
     types::StorageNode,
     utils::SuiNetwork,

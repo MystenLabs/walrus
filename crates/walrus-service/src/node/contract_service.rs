@@ -21,7 +21,6 @@ use walrus_core::{Epoch, PublicKey, messages::InvalidBlobCertificate};
 use walrus_sui::{
     client::{
         BlobObjectMetadata,
-        CoinType,
         FixedSystemParameters,
         ReadClient,
         SuiClientError,
@@ -29,6 +28,7 @@ use walrus_sui::{
         SuiContractClient,
         SuiReadClient,
     },
+    coin::CoinType,
     types::{
         StorageNodeCap,
         UpdatePublicKeyParams,

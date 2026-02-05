@@ -50,6 +50,7 @@ use walrus_utils::backoff::ExponentialBackoffConfig;
 
 use crate::{
     balance::{Balance, BalanceRetrievalError},
+    coin::{Coin, CoinType},
     contracts::{self, MoveConversionError},
     system_setup::{self, compile_package},
     types::{
@@ -87,7 +88,6 @@ pub mod dual_client;
 
 mod read_client;
 pub use read_client::{
-    CoinType,
     CommitteesAndState,
     FixedSystemParameters,
     ReadClient,
@@ -2439,11 +2439,11 @@ impl SuiContractClientInner {
         let address = self.wallet.active_address();
         let sui_balance = self
             .retriable_sui_client()
-            .get_balance(address, None)
+            .get_balance(address, Coin::SUI)
             .await?;
         let wal_balance = self
             .retriable_sui_client()
-            .get_balance(address, Some(self.read_client().wal_coin_type().to_owned()))
+            .get_balance(address, self.read_client().wal_coin_type())
             .await?;
 
         let wal_coin_object_count = wal_balance.coin_object_count();

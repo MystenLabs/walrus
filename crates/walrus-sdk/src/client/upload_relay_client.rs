@@ -42,12 +42,7 @@ use crate::{
         metadata::{BlobMetadataApi, VerifiedBlobMetadataWithId},
     },
     sui::{
-        client::{
-            BlobPersistence,
-            CoinType,
-            SuiContractClient,
-            transaction_builder::WalrusPtbBuilder,
-        },
+        client::{BlobPersistence, SuiContractClient, transaction_builder::WalrusPtbBuilder},
         config::WalletConfig,
         types::{BlobEvent, BlobRegistered},
         wallet::Wallet,

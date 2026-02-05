@@ -50,7 +50,7 @@ use super::{
 use crate::{
     balance::Balance,
     client::retry_client::retriable_sui_client::MAX_GAS_PAYMENT_OBJECTS,
-    coin::Coin,
+    coin::{Coin, CoinType},
     contracts::{self, AssociatedContractStruct, AssociatedContractStructWithPkgId, TypeOriginMap},
     types::{
         BlobEvent,
@@ -84,15 +84,6 @@ use crate::{
 };
 
 const EVENT_MODULE: &str = "events";
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-/// The type of coin.
-pub enum CoinType {
-    /// The WAL coin type.
-    Wal,
-    /// The SUI coin type.
-    Sui,
-}
 
 /// The current, previous, and next committee, and the current epoch state.
 ///
@@ -673,15 +664,8 @@ impl SuiReadClient {
         owner_address: SuiAddress,
         coin_type: CoinType,
     ) -> SuiClientResult<Balance> {
-        let coin_type_option = match coin_type {
-            CoinType::Wal => Some(self.wal_coin_type().to_owned()),
-            CoinType::Sui => {
-                // NB: None -> "0x2::sui::SUI"
-                None
-            }
-        };
         self.sui_client
-            .get_balance(owner_address, coin_type_option)
+            .get_balance(owner_address, coin_type.as_str(self.wal_coin_type()))
             .await
     }
 
@@ -691,15 +675,8 @@ impl SuiReadClient {
         owner_address: SuiAddress,
         coin_type: CoinType,
     ) -> SuiClientResult<u64> {
-        let coin_type_option = match coin_type {
-            CoinType::Wal => Some(self.wal_coin_type().to_owned()),
-            CoinType::Sui => {
-                // NB: None -> "0x2::sui::SUI"
-                None
-            }
-        };
         self.sui_client
-            .get_total_balance(owner_address, coin_type_option)
+            .get_total_balance(owner_address, coin_type.as_str(self.wal_coin_type()))
             .await
     }
 
@@ -715,14 +692,10 @@ impl SuiReadClient {
         min_balance: u64,
         exclude: Vec<ObjectID>,
     ) -> SuiClientResult<Vec<Coin>> {
-        let coin_type_option = match coin_type {
-            CoinType::Wal => Some(self.wal_coin_type().to_owned()),
-            CoinType::Sui => None,
-        };
         self.sui_client
             .select_coins(
                 owner_address,
-                coin_type_option,
+                coin_type.as_str(self.wal_coin_type()),
                 min_balance.into(),
                 exclude,
                 MAX_GAS_PAYMENT_OBJECTS,

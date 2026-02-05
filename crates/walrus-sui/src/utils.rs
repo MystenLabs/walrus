@@ -49,6 +49,7 @@ use crate::{
         SuiContractClient,
         retry_client::{RetriableSuiClient, retriable_sui_client::MAX_GAS_PAYMENT_OBJECTS},
     },
+    coin::Coin,
     config::load_wallet_context_from_path,
     contracts::{AssociatedContractStruct, MoveConversionError},
     wallet::Wallet,
@@ -418,7 +419,7 @@ async fn sui_coin_set(
     address: SuiAddress,
 ) -> Result<HashSet<ObjectID>> {
     Ok(retriable_sui_client
-        .select_all_coins(address, None)
+        .select_all_coins(address, Coin::SUI)
         .await?
         .into_iter()
         .map(|coin| coin.coin_object_id)
@@ -475,7 +476,7 @@ pub async fn get_sui_from_wallet_or_faucet(
     let sender = wallet.active_address();
     let rpc_urls = &[wallet.get_rpc_url()];
     let client = RetriableSuiClient::new_for_rpc_urls(rpc_urls, Default::default(), None)?;
-    let balance = client.get_total_balance(sender, None).await?;
+    let balance = client.get_total_balance(sender, Coin::SUI).await?;
     if balance >= min_balance {
         let mut ptb = ProgrammableTransactionBuilder::new();
         ptb.transfer_sui(address, Some(sui_amount));
@@ -484,7 +485,7 @@ pub async fn get_sui_from_wallet_or_faucet(
         let gas_coins = client
             .select_coins(
                 sender,
-                None,
+                Coin::SUI,
                 u128::from(gas_budget + one_sui),
                 vec![],
                 MAX_GAS_PAYMENT_OBJECTS,

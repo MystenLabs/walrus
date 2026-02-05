@@ -43,6 +43,7 @@ use walrus_sui::{
         SuiReadClient,
         retry_client::RetriableSuiClient,
     },
+    coin::Coin,
     config::load_wallet_context_from_path,
     types::move_structs::BlobWithAttribute,
     utils::create_wallet,
@@ -496,13 +497,13 @@ impl<'a> SubClientLoader<'a> {
             self.config.communication_config.sui_client_request_timeout,
         )?;
 
-        if should_refill(&sui_client, address, None, min_balance).await {
+        if should_refill(&sui_client, address, Coin::SUI, min_balance).await {
             self.refiller.send_gas_request(address).await?;
         } else {
             tracing::debug!(%address, "sub-wallet has enough SUI, skipping refill");
         }
 
-        if should_refill(&sui_client, address, Some(wal_coin_type), min_balance).await {
+        if should_refill(&sui_client, address, wal_coin_type, min_balance).await {
             self.refiller.send_wal_request(address).await?;
         } else {
             tracing::debug!(%address, "sub-wallet has enough WAL, skipping refill");

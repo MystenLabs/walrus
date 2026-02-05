@@ -390,7 +390,7 @@ impl RetriableSuiClient {
     pub async fn select_coins(
         &self,
         address: SuiAddress,
-        coin_type: Option<String>,
+        coin_type: &str,
         amount: u128,
         exclude: Vec<ObjectID>,
         max_num_coins: usize,
@@ -400,7 +400,7 @@ impl RetriableSuiClient {
             || async {
                 self.select_coins_with_filter(
                     address,
-                    coin_type.clone(),
+                    coin_type,
                     amount,
                     exclude.clone(),
                     max_num_coins,
@@ -416,7 +416,7 @@ impl RetriableSuiClient {
     fn get_coins_stream_retry(
         &self,
         owner: SuiAddress,
-        coin_type: Option<String>,
+        coin_type: &str,
     ) -> Pin<Box<dyn Stream<Item = Coin> + Send + '_>> {
         if self.grpc_migration_level >= GRPC_MIGRATION_LEVEL_SELECT_COINS {
             self.get_coins_stream_retry_with_grpc(owner, coin_type)
@@ -430,9 +430,9 @@ impl RetriableSuiClient {
     pub async fn select_all_coins(
         &self,
         address: SuiAddress,
-        coin_type: Option<String>,
+        coin_type: &str,
     ) -> SuiClientResult<Vec<Coin>> {
-        let mut coins_stream = self.get_coins_stream_retry(address, coin_type.clone());
+        let mut coins_stream = self.get_coins_stream_retry(address, coin_type);
 
         let mut selected_coins = Vec::new();
         while let Some(coin) = coins_stream.next().await {
@@ -444,12 +444,12 @@ impl RetriableSuiClient {
     async fn select_coins_with_filter(
         &self,
         address: SuiAddress,
-        coin_type: Option<String>,
+        coin_type: &str,
         amount: u128,
         exclude: Vec<ObjectID>,
         max_num_coins: usize,
     ) -> SuiClientResult<Vec<Coin>> {
-        let mut coins_stream = self.get_coins_stream_retry(address, coin_type.clone());
+        let mut coins_stream = self.get_coins_stream_retry(address, coin_type);
 
         let mut selected_coins: BinaryHeap<Reverse<OrderedCoin>> = BinaryHeap::new();
 
@@ -492,7 +492,7 @@ impl RetriableSuiClient {
         } else {
             // We ran out of coins and cannot get to `amount` with `max_num_coins`.
             Err(SuiClientError::InsufficientFundsWithMaxCoins(
-                coin_type.unwrap_or_else(|| sui_sdk::SUI_COIN_TYPE.to_string()),
+                coin_type.to_owned(),
             ))
         }
     }
@@ -501,13 +501,13 @@ impl RetriableSuiClient {
     fn get_coins_stream_retry_with_grpc(
         &self,
         owner: SuiAddress,
-        coin_type: Option<String>,
+        coin_type: &str,
     ) -> Pin<Box<dyn Stream<Item = Coin> + Send + '_>> {
         let stream_state = StreamState {
             queue: VecDeque::new(),
             cursor: Cursor::Init,
             owner,
-            coin_type,
+            coin_type: coin_type.to_string(),
         };
 
         Box::pin(stream::unfold(
@@ -545,7 +545,7 @@ impl RetriableSuiClient {
                                     client
                                         .fetch_batch_of_coins(
                                             stream_state.owner,
-                                            stream_state.coin_type.clone(),
+                                            &stream_state.coin_type,
                                             next_page_token.clone(),
                                         )
                                         .await
@@ -588,8 +588,9 @@ impl RetriableSuiClient {
     fn get_coins_stream_retry_with_json_rpc(
         &self,
         owner: SuiAddress,
-        coin_type: Option<String>,
+        coin_type: &str,
     ) -> Pin<Box<dyn Stream<Item = Coin> + Send + '_>> {
+        let coin_type = coin_type.to_string();
         Box::pin(stream::unfold(
             (
                 vec![],
@@ -613,7 +614,7 @@ impl RetriableSuiClient {
                                             .coin_read_api()
                                             .get_coins(
                                                 owner,
-                                                coin_type.clone(),
+                                                Some(coin_type.clone()),
                                                 cursor.clone(),
                                                 Some(100),
                                             )
@@ -655,11 +656,10 @@ impl RetriableSuiClient {
     pub async fn get_balance(
         &self,
         owner: SuiAddress,
-        coin_type: Option<String>,
+        coin_type: &str,
     ) -> SuiClientResult<Balance> {
         if self.grpc_migration_level >= GRPC_MIGRATION_LEVEL_GET_BALANCE {
-            self.get_balance_with_grpc(owner, coin_type.as_deref().unwrap_or("0x2::sui::SUI"))
-                .await
+            self.get_balance_with_grpc(owner, coin_type).await
         } else {
             self.get_balance_with_json_rpc(owner, coin_type).await
         }
@@ -669,11 +669,10 @@ impl RetriableSuiClient {
     pub async fn get_total_balance(
         &self,
         owner: SuiAddress,
-        coin_type: Option<String>,
+        coin_type: &str,
     ) -> SuiClientResult<u64> {
         if self.grpc_migration_level >= GRPC_MIGRATION_LEVEL_GET_BALANCE {
-            self.get_total_balance_with_grpc(owner, coin_type.as_deref().unwrap_or("0x2::sui::SUI"))
-                .await
+            self.get_total_balance_with_grpc(owner, coin_type).await
         } else {
             Ok(self
                 .get_balance_with_json_rpc(owner, coin_type)
@@ -716,7 +715,7 @@ impl RetriableSuiClient {
         coin_type: &str,
     ) -> SuiClientResult<Balance> {
         let coins = self
-            .select_all_coins(owner, Some(coin_type.to_string()))
+            .select_all_coins(owner, coin_type)
             .await
             .context("selecting all coins for balance")?;
         Ok(Balance::try_from_coins(coins).context("get_balance_with_grpc")?)
@@ -726,7 +725,7 @@ impl RetriableSuiClient {
     async fn get_balance_with_json_rpc(
         &self,
         owner: SuiAddress,
-        coin_type: Option<String>,
+        coin_type: &str,
     ) -> SuiClientResult<Balance> {
         self.failover_sui_client
             .with_failover(
@@ -737,7 +736,7 @@ impl RetriableSuiClient {
                             client
                                 .sui_client()
                                 .coin_read_api()
-                                .get_balance(owner, coin_type.clone())
+                                .get_balance(owner, Some(coin_type.to_owned()))
                                 .await
                                 .map_err(|error| error.into())
                                 .and_then(|balance| Ok(Balance::try_from(balance)?))
@@ -1964,7 +1963,7 @@ pub(crate) struct StreamState {
     pub queue: VecDeque<Coin>,
     pub cursor: Cursor,
     pub owner: SuiAddress,
-    pub coin_type: Option<String>,
+    pub coin_type: String,
 }
 
 /// Injects a simulated error for testing retry behavior executing sui transactions.

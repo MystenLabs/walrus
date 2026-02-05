@@ -98,6 +98,7 @@ use walrus_sui::{
         SuiContractClient,
         retry_client::{RetriableSuiClient, retriable_sui_client::LazySuiClientBuilder},
     },
+    coin::Coin,
     config::WalletConfig,
     test_utils::{self, fund_addresses, wallet_for_testing},
     types::{
@@ -2527,19 +2528,19 @@ pub async fn test_select_coins_max_objects() -> TestResult {
         ExponentialBackoffConfig::default(),
     )?;
 
-    let balance = retry_client.get_total_balance(address, None).await?;
+    let balance = retry_client.get_total_balance(address, Coin::SUI).await?;
     assert_eq!(balance, sui(4));
 
     // The maximum number of coins that can be selected to reach the amount.
     let max_num_coins = 2;
 
     let result = retry_client
-        .select_coins(address, None, sui(1).into(), vec![], max_num_coins)
+        .select_coins(address, Coin::SUI, sui(1).into(), vec![], max_num_coins)
         .await;
     assert!(result.is_ok(), "1 SUI can be constructed with <= 2 coins");
 
     let result = retry_client
-        .select_coins(address, None, sui(3).into(), vec![], max_num_coins)
+        .select_coins(address, Coin::SUI, sui(3).into(), vec![], max_num_coins)
         .await;
     if let Err(error) = result {
         assert!(
@@ -2551,7 +2552,7 @@ pub async fn test_select_coins_max_objects() -> TestResult {
     }
 
     let result = retry_client
-        .select_coins(address, None, sui(5).into(), vec![], max_num_coins)
+        .select_coins(address, Coin::SUI, sui(5).into(), vec![], max_num_coins)
         .await;
     if let Err(error) = result {
         assert!(
@@ -2796,7 +2797,7 @@ async fn test_store_with_upload_relay_with_tip() {
 
     // Get initial balance of relay wallet to verify tip payment
     let initial_relay_balance = retry_client
-        .get_total_balance(relay_address, None)
+        .get_total_balance(relay_address, Coin::SUI)
         .await
         .expect("get balance");
 
@@ -2818,7 +2819,7 @@ async fn test_store_with_upload_relay_with_tip() {
 
     // Verify that the relay wallet received a tip
     let final_relay_balance = retry_client
-        .get_total_balance(relay_address, None)
+        .get_total_balance(relay_address, Coin::SUI)
         .await
         .expect("get balance");
 

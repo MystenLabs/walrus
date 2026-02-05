@@ -21,14 +21,8 @@ use walrus_core::{
     merkle::Node,
 };
 use walrus_sui::{
-    client::{
-        BlobObjectMetadata,
-        BlobPersistence,
-        CoinType,
-        PostStoreAction,
-        ReadClient,
-        SuiContractClient,
-    },
+    client::{BlobObjectMetadata, BlobPersistence, PostStoreAction, ReadClient, SuiContractClient},
+    coin::CoinType,
     test_utils::{
         TestClusterHandle,
         TestNodeKeys,
@@ -555,12 +549,16 @@ async fn test_automatic_wal_coin_squashing(
     let source_amount = 10_000 * n_target_coins;
     let target_amount = n_source_coins * source_amount / n_target_coins;
 
-    let (sui_cluster_handle, client_1, _, _) =
-        initialize_contract_and_wallet_with_single_node().await?;
+    let (sui_cluster_handle, client_1, _, _): (
+        Arc<tokio::sync::Mutex<TestClusterHandle>>,
+        WithTempDir<SuiContractClient>,
+        SystemContext,
+        TestNodeKeys,
+    ) = initialize_contract_and_wallet_with_single_node().await?;
 
     let original_balance = client_1.as_ref().total_balance(CoinType::Wal).await?;
 
-    let client_2 =
+    let client_2: WithTempDir<SuiContractClient> =
         new_contract_client_on_sui_test_cluster(sui_cluster_handle.clone(), client_1.as_ref())
             .await?;
 
@@ -575,12 +573,12 @@ async fn test_automatic_wal_coin_squashing(
 
     // Get the number of coins owned by the first wallet to check later that we received exactly
     // `n_target_coins` coins.
-    let n_coins = client_1
+    let n_coins: usize = client_1
         .as_ref()
         .retriable_sui_client()
         .get_balance(
             client_1_address,
-            Some(client_2.as_ref().read_client().wal_coin_type().to_owned()),
+            client_2.as_ref().read_client().wal_coin_type(),
         )
         .await?
         .coin_object_count();
@@ -630,7 +628,7 @@ async fn test_automatic_wal_coin_squashing(
             .retriable_sui_client()
             .get_balance(
                 client_1_address,
-                Some(client_2.as_ref().read_client().wal_coin_type().to_owned()),
+                client_2.as_ref().read_client().wal_coin_type(),
             )
             .await?
             .coin_object_count(),
