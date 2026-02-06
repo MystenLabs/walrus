@@ -98,6 +98,7 @@ use walrus_sui::{
         SuiContractClient,
         retry_client::{RetriableSuiClient, retriable_sui_client::LazySuiClientBuilder},
     },
+    coin::Coin,
     config::WalletConfig,
     test_utils::{self, fund_addresses, wallet_for_testing},
     types::{
@@ -2527,19 +2528,19 @@ pub async fn test_select_coins_max_objects() -> TestResult {
         ExponentialBackoffConfig::default(),
     )?;
 
-    let balance = retry_client.get_balance(address, None).await?;
-    assert_eq!(balance.total_balance, u128::from(sui(4)));
+    let balance = retry_client.get_total_balance(address, Coin::SUI).await?;
+    assert_eq!(balance, sui(4));
 
     // The maximum number of coins that can be selected to reach the amount.
     let max_num_coins = 2;
 
     let result = retry_client
-        .select_coins(address, None, sui(1).into(), vec![], max_num_coins)
+        .select_coins(address, Coin::SUI, sui(1).into(), vec![], max_num_coins)
         .await;
     assert!(result.is_ok(), "1 SUI can be constructed with <= 2 coins");
 
     let result = retry_client
-        .select_coins(address, None, sui(3).into(), vec![], max_num_coins)
+        .select_coins(address, Coin::SUI, sui(3).into(), vec![], max_num_coins)
         .await;
     if let Err(error) = result {
         assert!(
@@ -2551,7 +2552,7 @@ pub async fn test_select_coins_max_objects() -> TestResult {
     }
 
     let result = retry_client
-        .select_coins(address, None, sui(5).into(), vec![], max_num_coins)
+        .select_coins(address, Coin::SUI, sui(5).into(), vec![], max_num_coins)
         .await;
     if let Err(error) = result {
         assert!(
@@ -2796,10 +2797,9 @@ async fn test_store_with_upload_relay_with_tip() {
 
     // Get initial balance of relay wallet to verify tip payment
     let initial_relay_balance = retry_client
-        .get_balance(relay_address, None)
+        .get_total_balance(relay_address, Coin::SUI)
         .await
-        .expect("get balance")
-        .total_balance;
+        .expect("get balance");
 
     const BLOB_SIZE: usize = 40000;
     match basic_store_and_read(
@@ -2819,10 +2819,9 @@ async fn test_store_with_upload_relay_with_tip() {
 
     // Verify that the relay wallet received a tip
     let final_relay_balance = retry_client
-        .get_balance(relay_address, None)
+        .get_total_balance(relay_address, Coin::SUI)
         .await
-        .expect("get balance")
-        .total_balance;
+        .expect("get balance");
 
     tracing::info!(
         "Relay address balance - Initial: {initial_relay_balance}, Final: {final_relay_balance}",
@@ -2839,8 +2838,7 @@ async fn test_store_with_upload_relay_with_tip() {
         encoded_blob_length_for_n_shards(n_shards, BLOB_SIZE as u64, EncodingType::RS2)
             .expect("encoded blob size should be valid");
 
-    let expected_tip_lower_bound =
-        u128::from(TIP_BASE + encoded_blob_size.div_ceil(1024) * TIP_MULTIPLIER);
+    let expected_tip_lower_bound = TIP_BASE + encoded_blob_size.div_ceil(1024) * TIP_MULTIPLIER;
     let actual_tip = final_relay_balance - initial_relay_balance;
 
     tracing::info!(

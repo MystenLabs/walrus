@@ -17,6 +17,7 @@ use sui_rpc::{
         BatchGetObjectsRequest,
         BatchGetObjectsResponse,
         Bcs,
+        GetBalanceRequest,
         GetObjectRequest,
         ListOwnedObjectsRequest,
         ListOwnedObjectsResponse,
@@ -354,7 +355,7 @@ impl DualClient {
     pub(crate) async fn fetch_batch_of_coins(
         &self,
         owner: SuiAddress,
-        coin_type: Option<String>,
+        coin_type: &str,
         page_token: Option<Bytes>,
     ) -> Result<CoinBatch, SuiClientError> {
         tracing::debug!(
@@ -373,8 +374,7 @@ impl DualClient {
         // this is something to keep an eye on. If pagination tokens become server-specific, we may
         // need to rewrite the client to perform a full retry of the stream from the beginning,
         // instead of using this incremental approach across servers.
-        let response =
-            list_owned_coin_objects(owner, coin_type.as_deref(), page_token, state_client).await;
+        let response = list_owned_coin_objects(owner, coin_type, page_token, state_client).await;
 
         let mut coins = Vec::new();
         match response {
@@ -388,7 +388,7 @@ impl DualClient {
                                 "error converting object to coin for owner \
                                     [owner={:?}, coin_type={:?}]: {error:?}",
                                 owner,
-                                coin_type.as_deref(),
+                                coin_type,
                             )
                             .into());
                         }
@@ -403,16 +403,38 @@ impl DualClient {
             Err(error) => Err(anyhow::anyhow!(
                 "error listing owned objects for owner [owner={:?}, coin_type={:?}]: {error:?}",
                 owner,
-                coin_type.as_deref(),
+                coin_type,
             )
             .into()),
         }
+    }
+
+    /// Get the total balance for a given owner and coin type. This routine avoids enumerating all
+    /// the coin objects on the client side by using the gRPC `GetBalance` method.
+    pub async fn get_total_balance(
+        &self,
+        owner: SuiAddress,
+        coin_type: &str,
+    ) -> Result<u64, SuiClientError> {
+        let get_balance_request = GetBalanceRequest::default()
+            .with_owner(owner.to_string())
+            .with_coin_type(coin_type.to_string());
+        let mut grpc_client: GrpcClient = self.grpc_client.clone();
+        let mut state_client = grpc_client.state_client();
+        let coin_balance = state_client
+            .get_balance(get_balance_request)
+            .await
+            .context("failed to get total balance")?
+            .into_inner()
+            .balance()
+            .coin_balance();
+        Ok(coin_balance)
     }
 }
 
 async fn list_owned_coin_objects(
     owner: SuiAddress,
-    coin_type: Option<&str>,
+    coin_type: &str,
     next_page_token: Option<Bytes>,
     mut state_client: StateServiceClient<
         InterceptedService<&mut tonic::transport::Channel, &sui_rpc::client::HeadersInterceptor>,
@@ -429,17 +451,11 @@ async fn list_owned_coin_objects(
             Object::path_builder().previous_transaction(),
         ]))
         .with_page_size(MAX_SELECT_COINS_BATCH_SIZE)
-        .with_object_type(wrap_coin_typename(coin_type));
+        .with_object_type(Coin::format_object_type(coin_type));
     if let Some(next_page_token) = next_page_token {
         request = request.with_page_token(next_page_token);
     }
     state_client.list_owned_objects(request).await
-}
-
-fn wrap_coin_typename(coin_type: Option<&str>) -> String {
-    coin_type
-        .map(|coin_type| format!("0x2::coin::Coin<{coin_type}>"))
-        .unwrap_or_else(|| "0x2::coin::Coin".to_string())
 }
 
 fn convert_grpc_object_to_coin(object: Object) -> Result<Coin, anyhow::Error> {

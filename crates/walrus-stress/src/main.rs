@@ -28,7 +28,8 @@ use walrus_stress::single_client_workload::{
     single_client_workload_arg::SingleClientWorkloadArgs,
 };
 use walrus_sui::{
-    client::{CoinType, MIN_STAKING_THRESHOLD, ReadClient, SuiContractClient},
+    client::{MIN_STAKING_THRESHOLD, ReadClient, SuiContractClient},
+    coin::CoinType,
     config::WalletConfig,
     types::StorageNode,
     utils::SuiNetwork,
@@ -181,8 +182,8 @@ async fn run_stress(
     .context("Failed to load wallet context")?;
     let contract_client = client_config.new_contract_client(wallet, None).await?;
 
-    let wal_balance = contract_client.balance(CoinType::Wal).await?;
-    let sui_balance = contract_client.balance(CoinType::Sui).await?;
+    let wal_balance = contract_client.total_balance(CoinType::Wal).await?;
+    let sui_balance = contract_client.total_balance(CoinType::Sui).await?;
     tracing::info!(wal_balance, sui_balance, "initial balances");
 
     let refiller = Refiller::new(
@@ -240,8 +241,8 @@ async fn run_staking(config: ClientConfig, _metrics: Arc<ClientMetrics>) -> anyh
         tokio::time::sleep(restaking_period).await;
         let mut committee = contract_client.read_client().current_committee().await?;
         let current_epoch = committee.epoch;
-        let wal_balance = contract_client.balance(CoinType::Wal).await?;
-        let sui_balance = contract_client.balance(CoinType::Sui).await?;
+        let wal_balance = contract_client.total_balance(CoinType::Wal).await?;
+        let sui_balance = contract_client.total_balance(CoinType::Sui).await?;
         tracing::info!(current_epoch, ?mode, wal_balance, sui_balance, "woke up");
 
         match mode {

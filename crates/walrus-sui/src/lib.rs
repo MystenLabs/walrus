@@ -8,6 +8,7 @@
 
 #[macro_use]
 pub mod utils;
+pub mod balance;
 pub mod client;
 pub mod coin;
 pub mod config;

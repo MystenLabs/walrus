@@ -28,7 +28,6 @@ use sui_rpc::proto::sui::rpc::v2::Bcs;
 use sui_sdk::{
     error::Error as SuiSdkError,
     rpc_types::{
-        Balance,
         DryRunTransactionBlockResponse,
         ObjectsPage,
         SuiCommittee,
@@ -74,6 +73,7 @@ use super::{
     retry_rpc_errors,
 };
 use crate::{
+    balance::Balance,
     client::{
         SuiClientMetricSet,
         dual_client::{BcsDatapack, CoinBatch, DualClient},
@@ -208,6 +208,7 @@ const GRPC_MIGRATION_LEVEL_LEGACY_U32: u32 = 0;
 const GRPC_MIGRATION_LEVEL_GET_OBJECT: GrpcMigrationLevel = GrpcMigrationLevel(1);
 const GRPC_MIGRATION_LEVEL_BATCH_OBJECTS: GrpcMigrationLevel = GrpcMigrationLevel(2);
 const GRPC_MIGRATION_LEVEL_SELECT_COINS: GrpcMigrationLevel = GrpcMigrationLevel(3);
+const GRPC_MIGRATION_LEVEL_GET_BALANCE: GrpcMigrationLevel = GrpcMigrationLevel(4);
 
 impl Default for GrpcMigrationLevel {
     fn default() -> Self {
@@ -389,7 +390,7 @@ impl RetriableSuiClient {
     pub async fn select_coins(
         &self,
         address: SuiAddress,
-        coin_type: Option<String>,
+        coin_type: &str,
         amount: u128,
         exclude: Vec<ObjectID>,
         max_num_coins: usize,
@@ -399,7 +400,7 @@ impl RetriableSuiClient {
             || async {
                 self.select_coins_with_filter(
                     address,
-                    coin_type.clone(),
+                    coin_type,
                     amount,
                     exclude.clone(),
                     max_num_coins,
@@ -415,7 +416,7 @@ impl RetriableSuiClient {
     fn get_coins_stream_retry(
         &self,
         owner: SuiAddress,
-        coin_type: Option<String>,
+        coin_type: &str,
     ) -> Pin<Box<dyn Stream<Item = Coin> + Send + '_>> {
         if self.grpc_migration_level >= GRPC_MIGRATION_LEVEL_SELECT_COINS {
             self.get_coins_stream_retry_with_grpc(owner, coin_type)
@@ -429,9 +430,9 @@ impl RetriableSuiClient {
     pub async fn select_all_coins(
         &self,
         address: SuiAddress,
-        coin_type: Option<String>,
+        coin_type: &str,
     ) -> SuiClientResult<Vec<Coin>> {
-        let mut coins_stream = self.get_coins_stream_retry(address, coin_type.clone());
+        let mut coins_stream = self.get_coins_stream_retry(address, coin_type);
 
         let mut selected_coins = Vec::new();
         while let Some(coin) = coins_stream.next().await {
@@ -443,12 +444,12 @@ impl RetriableSuiClient {
     async fn select_coins_with_filter(
         &self,
         address: SuiAddress,
-        coin_type: Option<String>,
+        coin_type: &str,
         amount: u128,
         exclude: Vec<ObjectID>,
         max_num_coins: usize,
     ) -> SuiClientResult<Vec<Coin>> {
-        let mut coins_stream = self.get_coins_stream_retry(address, coin_type.clone());
+        let mut coins_stream = self.get_coins_stream_retry(address, coin_type);
 
         let mut selected_coins: BinaryHeap<Reverse<OrderedCoin>> = BinaryHeap::new();
 
@@ -491,7 +492,7 @@ impl RetriableSuiClient {
         } else {
             // We ran out of coins and cannot get to `amount` with `max_num_coins`.
             Err(SuiClientError::InsufficientFundsWithMaxCoins(
-                coin_type.unwrap_or_else(|| sui_sdk::SUI_COIN_TYPE.to_string()),
+                coin_type.to_owned(),
             ))
         }
     }
@@ -500,13 +501,13 @@ impl RetriableSuiClient {
     fn get_coins_stream_retry_with_grpc(
         &self,
         owner: SuiAddress,
-        coin_type: Option<String>,
+        coin_type: &str,
     ) -> Pin<Box<dyn Stream<Item = Coin> + Send + '_>> {
         let stream_state = StreamState {
             queue: VecDeque::new(),
             cursor: Cursor::Init,
             owner,
-            coin_type,
+            coin_type: coin_type.to_string(),
         };
 
         Box::pin(stream::unfold(
@@ -544,7 +545,7 @@ impl RetriableSuiClient {
                                     client
                                         .fetch_batch_of_coins(
                                             stream_state.owner,
-                                            stream_state.coin_type.clone(),
+                                            &stream_state.coin_type,
                                             next_page_token.clone(),
                                         )
                                         .await
@@ -587,8 +588,9 @@ impl RetriableSuiClient {
     fn get_coins_stream_retry_with_json_rpc(
         &self,
         owner: SuiAddress,
-        coin_type: Option<String>,
+        coin_type: &str,
     ) -> Pin<Box<dyn Stream<Item = Coin> + Send + '_>> {
+        let coin_type = coin_type.to_string();
         Box::pin(stream::unfold(
             (
                 vec![],
@@ -612,7 +614,7 @@ impl RetriableSuiClient {
                                             .coin_read_api()
                                             .get_coins(
                                                 owner,
-                                                coin_type.clone(),
+                                                Some(coin_type.clone()),
                                                 cursor.clone(),
                                                 Some(100),
                                             )
@@ -649,31 +651,96 @@ impl RetriableSuiClient {
         ))
     }
 
-    /// Returns the balance for the given coin type owned by address.
-    ///
-    /// Calls [`sui_sdk::apis::CoinReadApi::get_balance`] internally.
-    #[tracing::instrument(level = Level::TRACE, skip_all)]
+    /// Returns a [`Balance`] for the given coin type owned by address. This has a bit more
+    /// information than just the total balance. Not all callsites need this extra information.
     pub async fn get_balance(
         &self,
         owner: SuiAddress,
-        coin_type: Option<String>,
+        coin_type: &str,
+    ) -> SuiClientResult<Balance> {
+        if self.grpc_migration_level >= GRPC_MIGRATION_LEVEL_GET_BALANCE {
+            self.get_balance_with_grpc(owner, coin_type).await
+        } else {
+            self.get_balance_with_json_rpc(owner, coin_type).await
+        }
+    }
+
+    /// Returns the total balance for the given coin type owned by address.
+    pub async fn get_total_balance(
+        &self,
+        owner: SuiAddress,
+        coin_type: &str,
+    ) -> SuiClientResult<u64> {
+        if self.grpc_migration_level >= GRPC_MIGRATION_LEVEL_GET_BALANCE {
+            self.get_total_balance_with_grpc(owner, coin_type).await
+        } else {
+            Ok(self
+                .get_balance_with_json_rpc(owner, coin_type)
+                .await?
+                .total_balance())
+        }
+    }
+
+    #[tracing::instrument(level = Level::TRACE, skip_all)]
+    async fn get_total_balance_with_grpc(
+        &self,
+        owner: SuiAddress,
+        coin_type: &str,
+    ) -> SuiClientResult<u64> {
+        self.failover_sui_client
+            .with_failover(
+                async |client, method| {
+                    retry_rpc_errors(
+                        self.get_strategy(),
+                        || async { client.get_total_balance(owner, coin_type).await },
+                        self.metrics.clone(),
+                        method,
+                    )
+                    .await
+                },
+                None,
+                "get_balance",
+            )
+            .await
+    }
+
+    #[tracing::instrument(level = Level::TRACE, skip_all)]
+    async fn get_balance_with_grpc(
+        &self,
+        owner: SuiAddress,
+        coin_type: &str,
+    ) -> SuiClientResult<Balance> {
+        let coins = self
+            .select_all_coins(owner, coin_type)
+            .await
+            .context("selecting all coins for balance")?;
+        Ok(Balance::try_from_coins(coins).context("get_balance_with_grpc")?)
+    }
+
+    #[tracing::instrument(level = Level::TRACE, skip_all)]
+    async fn get_balance_with_json_rpc(
+        &self,
+        owner: SuiAddress,
+        coin_type: &str,
     ) -> SuiClientResult<Balance> {
         self.failover_sui_client
             .with_failover(
                 async |client, method| {
-                    Ok(retry_rpc_errors(
+                    retry_rpc_errors(
                         self.get_strategy(),
                         || async {
                             client
                                 .sui_client()
                                 .coin_read_api()
-                                .get_balance(owner, coin_type.clone())
+                                .get_balance(owner, Some(coin_type.to_owned()))
                                 .await
+                                .map_err(|error| error.into())
+                                .and_then(|balance| Ok(Balance::try_from(balance)?))
                         },
                         self.metrics.clone(),
                         method,
                     )
-                    .await?)
+                    .await
                 },
                 None,
                 "get_balance",
@@ -1892,7 +1959,7 @@ pub(crate) struct StreamState {
     pub queue: VecDeque<Coin>,
     pub cursor: Cursor,
     pub owner: SuiAddress,
-    pub coin_type: Option<String>,
+    pub coin_type: String,
 }
 
 /// Injects a simulated error for testing retry behavior executing sui transactions.

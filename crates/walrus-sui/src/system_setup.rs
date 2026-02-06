@@ -44,6 +44,7 @@ use crate::{
         RetriableSuiClient,
         retriable_sui_client::{GasBudgetAndPrice, LazySuiClientBuilder, MAX_GAS_PAYMENT_OBJECTS},
     },
+    coin::Coin,
     contracts,
     wallet::Wallet,
 };
@@ -307,7 +308,7 @@ pub(crate) async fn publish_package(
     let gas_coins = retry_client
         .select_coins(
             sender,
-            None,
+            Coin::SUI,
             u128::from(gas_budget),
             vec![],
             MAX_GAS_PAYMENT_OBJECTS,
@@ -648,7 +649,7 @@ pub async fn create_system_and_staking_objects(
     let gas_coins = retry_client
         .select_coins(
             address,
-            None,
+            Coin::SUI,
             u128::from(gas_budget),
             vec![],
             MAX_GAS_PAYMENT_OBJECTS,

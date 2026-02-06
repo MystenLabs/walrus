@@ -42,12 +42,7 @@ use crate::{
         metadata::{BlobMetadataApi, VerifiedBlobMetadataWithId},
     },
     sui::{
-        client::{
-            BlobPersistence,
-            CoinType,
-            SuiContractClient,
-            transaction_builder::WalrusPtbBuilder,
-        },
+        client::{BlobPersistence, SuiContractClient, transaction_builder::WalrusPtbBuilder},
         config::WalletConfig,
         types::{BlobEvent, BlobRegistered},
         wallet::Wallet,
@@ -221,6 +216,7 @@ impl UploadRelayClient {
             self.gas_budget,
             0, // No additional gas budget.
             tip_amount,
+            None,
         )
         .await?;
 

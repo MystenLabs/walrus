@@ -21,14 +21,8 @@ use walrus_core::{
     merkle::Node,
 };
 use walrus_sui::{
-    client::{
-        BlobObjectMetadata,
-        BlobPersistence,
-        CoinType,
-        PostStoreAction,
-        ReadClient,
-        SuiContractClient,
-    },
+    client::{BlobObjectMetadata, BlobPersistence, PostStoreAction, ReadClient, SuiContractClient},
+    coin::CoinType,
     test_utils::{
         TestClusterHandle,
         TestNodeKeys,
@@ -86,7 +80,7 @@ async fn test_register_certify_blob_100_percent_buyer_credits() -> anyhow::Resul
 
     let size = 10_000;
     // Send all WAL coins from admin wallet to a random wallet to ensure that we have a zero coin
-    let admin_balance = walrus_client.as_ref().balance(CoinType::Wal).await?;
+    let admin_balance = walrus_client.as_ref().total_balance(CoinType::Wal).await?;
     if admin_balance > 0 {
         let random_address = SuiAddress::random_for_testing_only();
 
@@ -97,7 +91,7 @@ async fn test_register_certify_blob_100_percent_buyer_credits() -> anyhow::Resul
             .await?;
 
         // Verify admin wallet now has zero balance
-        let new_admin_balance = walrus_client.as_ref().balance(CoinType::Wal).await?;
+        let new_admin_balance = walrus_client.as_ref().total_balance(CoinType::Wal).await?;
         assert_eq!(new_admin_balance, 0);
     }
 
@@ -475,13 +469,13 @@ async fn test_exchange_sui_for_wal() -> anyhow::Result<()> {
         .await?;
 
     let exchange_val = 100_000;
-    let pre_balance = walrus_client.as_ref().balance(CoinType::Wal).await?;
+    let pre_balance = walrus_client.as_ref().total_balance(CoinType::Wal).await?;
     walrus_client
         .as_ref()
         .exchange_sui_for_wal(exchange_id, exchange_val)
         .await?;
 
-    let post_balance = walrus_client.as_ref().balance(CoinType::Wal).await?;
+    let post_balance = walrus_client.as_ref().total_balance(CoinType::Wal).await?;
     assert_eq!(post_balance, pre_balance + exchange_val);
 
     Ok(())
@@ -555,12 +549,16 @@ async fn test_automatic_wal_coin_squashing(
     let source_amount = 10_000 * n_target_coins;
     let target_amount = n_source_coins * source_amount / n_target_coins;
 
-    let (sui_cluster_handle, client_1, _, _) =
-        initialize_contract_and_wallet_with_single_node().await?;
+    let (sui_cluster_handle, client_1, _, _): (
+        Arc<tokio::sync::Mutex<TestClusterHandle>>,
+        WithTempDir<SuiContractClient>,
+        SystemContext,
+        TestNodeKeys,
+    ) = initialize_contract_and_wallet_with_single_node().await?;
 
-    let original_balance = client_1.as_ref().balance(CoinType::Wal).await?;
+    let original_balance = client_1.as_ref().total_balance(CoinType::Wal).await?;
 
-    let client_2 =
+    let client_2: WithTempDir<SuiContractClient> =
         new_contract_client_on_sui_test_cluster(sui_cluster_handle.clone(), client_1.as_ref())
             .await?;
 
@@ -575,19 +573,19 @@ async fn test_automatic_wal_coin_squashing(
 
     // Get the number of coins owned by the first wallet to check later that we received exactly
     // `n_target_coins` coins.
-    let n_coins = client_1
+    let n_coins: usize = client_1
         .as_ref()
         .retriable_sui_client()
         .get_balance(
             client_1_address,
-            Some(client_2.as_ref().read_client().wal_coin_type().to_owned()),
+            client_2.as_ref().read_client().wal_coin_type(),
         )
         .await?
-        .coin_object_count;
+        .coin_object_count();
 
     // Check that we have the correct balance.
     assert_eq!(
-        client_2.as_ref().balance(CoinType::Wal).await?,
+        client_2.as_ref().total_balance(CoinType::Wal).await?,
         n_source_coins * source_amount
     );
 
@@ -615,11 +613,11 @@ async fn test_automatic_wal_coin_squashing(
         .await?;
 
     // Check that the second wallet has no WAL coins left.
-    assert_eq!(client_2.as_ref().balance(CoinType::Wal).await?, 0);
+    assert_eq!(client_2.as_ref().total_balance(CoinType::Wal).await?, 0);
 
     // Check that the first wallet has the correct balance.
     assert_eq!(
-        client_1.as_ref().balance(CoinType::Wal).await?,
+        client_1.as_ref().total_balance(CoinType::Wal).await?,
         original_balance
     );
 
@@ -630,10 +628,10 @@ async fn test_automatic_wal_coin_squashing(
             .retriable_sui_client()
             .get_balance(
                 client_1_address,
-                Some(client_2.as_ref().read_client().wal_coin_type().to_owned()),
+                client_2.as_ref().read_client().wal_coin_type(),
             )
             .await?
-            .coin_object_count,
+            .coin_object_count(),
         n_coins + usize::try_from(n_target_coins).unwrap()
     );
     Ok(())

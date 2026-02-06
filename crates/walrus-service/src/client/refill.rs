@@ -11,7 +11,10 @@ use sui_sdk::types::base_types::SuiAddress;
 use tokio::{task::JoinHandle, time::MissedTickBehavior};
 use tracing::Instrument;
 use walrus_sdk::client::metrics::ClientMetrics;
-use walrus_sui::client::{SuiContractClient, retry_client::RetriableSuiClient};
+use walrus_sui::{
+    client::{SuiContractClient, retry_client::RetriableSuiClient},
+    coin::Coin,
+};
 
 /// Refills gas and WAL for the clients.
 #[derive(Debug, Clone)]
@@ -77,7 +80,7 @@ impl Refiller {
             addresses,
             period,
             sui_client,
-            None, // Use SUI
+            Coin::SUI,
             self.min_balance,
             move |refiller, address| {
                 let metrics = metrics.clone();
@@ -103,7 +106,7 @@ impl Refiller {
             addresses,
             period,
             sui_client,
-            Some(self.wal_coin_type()),
+            self.wal_coin_type(),
             self.min_balance,
             move |refiller, address| {
                 let metrics = metrics.clone();
@@ -122,7 +125,7 @@ impl Refiller {
         addresses: Vec<SuiAddress>,
         period: Duration,
         sui_client: RetriableSuiClient,
-        coin_type: Option<String>,
+        coin_type: &str,
         min_coin_value: u64,
         inner_action: F,
     ) -> JoinHandle<anyhow::Result<()>>
@@ -134,6 +137,7 @@ impl Refiller {
         interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
         let refiller = self.contract_client.clone();
+        let coin_type = coin_type.to_owned();
         tokio::spawn(async move {
             loop {
                 let span =
@@ -143,17 +147,10 @@ impl Refiller {
                     interval.tick().await;
                     let sui_client = &sui_client;
                     let _ = try_join_all(addresses.iter().cloned().map(|address| {
-                        let coin_type_inner = coin_type.clone();
                         let inner_fut = inner_action(refiller.clone(), address);
-
+                        let coin_type = coin_type.clone();
                         async move {
-                            if should_refill(
-                                sui_client,
-                                address,
-                                coin_type_inner.clone(),
-                                min_coin_value,
-                            )
-                            .await
+                            if should_refill(sui_client, address, &coin_type, min_coin_value).await
                             {
                                 inner_fut.await
                             } else {
@@ -182,11 +179,8 @@ impl Refiller {
     }
 
     /// The WAL coin type.
-    pub fn wal_coin_type(&self) -> String {
-        self.contract_client
-            .read_client()
-            .wal_coin_type()
-            .to_owned()
+    pub fn wal_coin_type(&self) -> &str {
+        self.contract_client.read_client().wal_coin_type()
     }
 
     /// Sends SUI to the specified address.
@@ -223,13 +217,13 @@ pub struct RefillHandles {
 pub async fn should_refill(
     sui_client: &RetriableSuiClient,
     address: SuiAddress,
-    coin_type: Option<String>,
+    coin_type: &str,
     min_balance: u64,
 ) -> bool {
     sui_client
-        .get_balance(address, coin_type)
+        .get_total_balance(address, coin_type)
         .await
-        .map(|balance| balance.total_balance < u128::from(min_balance))
+        .map(|balance| balance < min_balance)
         .inspect_err(|error| {
             tracing::debug!(
                 ?error,

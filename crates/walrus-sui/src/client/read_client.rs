@@ -49,7 +49,7 @@ use super::{
 };
 use crate::{
     client::retry_client::retriable_sui_client::MAX_GAS_PAYMENT_OBJECTS,
-    coin::Coin,
+    coin::{Coin, CoinType},
     contracts::{self, AssociatedContractStruct, AssociatedContractStructWithPkgId, TypeOriginMap},
     types::{
         BlobEvent,
@@ -83,15 +83,6 @@ use crate::{
 };
 
 const EVENT_MODULE: &str = "events";
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-/// The type of coin.
-pub enum CoinType {
-    /// The WAL coin type.
-    Wal,
-    /// The SUI coin type.
-    Sui,
-}
 
 /// The current, previous, and next committee, and the current epoch state.
 ///
@@ -667,22 +658,14 @@ impl SuiReadClient {
     }
 
     /// Returns the balance of the owner for the given coin type.
-    pub(crate) async fn balance(
+    pub(crate) async fn total_balance(
         &self,
         owner_address: SuiAddress,
         coin_type: CoinType,
     ) -> SuiClientResult<u64> {
-        let coin_type_option = match coin_type {
-            CoinType::Wal => Some(self.wal_coin_type().to_owned()),
-            CoinType::Sui => None,
-        };
-        Ok(self
-            .sui_client
-            .get_balance(owner_address, coin_type_option)
-            .await?
-            .total_balance
-            .try_into()
-            .expect("balances should fit into a u64"))
+        self.sui_client
+            .get_total_balance(owner_address, coin_type.as_str(self.wal_coin_type()))
+            .await
     }
 
     /// Returns a vector of coins of provided `coin_type` whose total balance is at least `balance`.
@@ -697,14 +680,10 @@ impl SuiReadClient {
         min_balance: u64,
         exclude: Vec<ObjectID>,
     ) -> SuiClientResult<Vec<Coin>> {
-        let coin_type_option = match coin_type {
-            CoinType::Wal => Some(self.wal_coin_type().to_owned()),
-            CoinType::Sui => None,
-        };
         self.sui_client
             .select_coins(
                 owner_address,
-                coin_type_option,
+                coin_type.as_str(self.wal_coin_type()),
                 min_balance.into(),
                 exclude,
                 MAX_GAS_PAYMENT_OBJECTS,
