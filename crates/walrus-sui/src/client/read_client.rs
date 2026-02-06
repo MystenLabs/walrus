@@ -645,7 +645,8 @@ impl SuiReadClient {
             .expect("mutex should not be poisoned")
     }
 
-    pub(crate) fn type_origin_map(&self) -> RwLockReadGuard<'_, TypeOriginMap> {
+    /// Returns a read guard to the cached type origin map.
+    pub fn type_origin_map(&self) -> RwLockReadGuard<'_, TypeOriginMap> {
         self.type_origin_map
             .read()
             .expect("mutex should not be poisoned")

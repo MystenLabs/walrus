@@ -34,6 +34,8 @@ impl Coin {
 
     /// Formats the full object type for a given coin type.
     pub fn format_object_type(coin_type: &str) -> String {
+        #[cfg(test)]
+        assert!(!coin_type.starts_with("0x::coin::Coin"));
         format!("0x2::coin::Coin<{}>", coin_type)
     }
 }

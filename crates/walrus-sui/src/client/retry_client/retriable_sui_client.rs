@@ -29,7 +29,9 @@ use sui_sdk::{
     error::Error as SuiSdkError,
     rpc_types::{
         DryRunTransactionBlockResponse,
+        DynamicFieldInfo,
         ObjectsPage,
+        Page,
         SuiCommittee,
         SuiEvent,
         SuiMoveNormalizedModule,
@@ -104,7 +106,7 @@ const DUMMY_GAS_PRICE: u64 = 1000;
 /// The maximum number of gas payment objects allowed in a transaction by the Sui protocol
 /// configuration
 /// [here](https://github.com/MystenLabs/sui/blob/main/crates/sui-protocol-config/src/lib.rs#L2089).
-pub(crate) const MAX_GAS_PAYMENT_OBJECTS: usize = 256;
+pub const MAX_GAS_PAYMENT_OBJECTS: usize = 256;
 
 /// Default backoff delays used when building a `SuiClient`.
 const CLIENT_BUILD_RETRY_MIN_DELAY: Duration = Duration::from_secs(1);
@@ -497,25 +499,79 @@ impl RetriableSuiClient {
         }
     }
 
+    /// Returns a vector of owned object.
+    pub async fn get_owned_objects_of_type<U>(
+        &self,
+        owner: SuiAddress,
+        type_origin_map: &TypeOriginMap,
+        type_args: &[TypeTag],
+    ) -> SuiClientResult<Vec<(U, ObjectRef)>>
+    where
+        U: AssociatedContractStruct,
+    {
+        let object_type = U::CONTRACT_STRUCT
+            .to_move_struct_tag_with_type_map(type_origin_map, type_args)?
+            .to_string();
+        let mut result_objects_with_refs = Vec::new();
+
+        // Figure out the next page to ask for.
+        let mut next_page_token = None;
+
+        loop {
+            // Fetch a batch of coins.
+            let object_batch = self
+                .failover_sui_client
+                .with_failover(
+                    async |client, method| {
+                        retry_rpc_errors(
+                            self.get_strategy(),
+                            || async {
+                                client
+                                    .fetch_batch_of_objects(
+                                        owner,
+                                        &object_type,
+                                        next_page_token.clone(),
+                                    )
+                                    .await
+                            },
+                            self.metrics.clone(),
+                            method,
+                        )
+                        .await
+                        .inspect_err(|error| {
+                            tracing::warn!(%error,
+                                    "failed to get objects via grpc after retries");
+                        })
+                    },
+                    None,
+                    "fetch_batch_of_objects",
+                )
+                .await?;
+
+            // Collect our new objects, and advance the cursor.
+            result_objects_with_refs.extend(object_batch.objects_with_refs);
+            next_page_token = object_batch.next_page_token;
+            if next_page_token.is_none() {
+                break;
+            }
+        }
+        Ok(result_objects_with_refs)
+    }
+
     /// Returns a stream of coins for the given address.
     fn get_coins_stream_retry_with_grpc(
         &self,
         owner: SuiAddress,
         coin_type: &str,
     ) -> Pin<Box<dyn Stream<Item = Coin> + Send + '_>> {
-        let stream_state = StreamState {
-            queue: VecDeque::new(),
-            cursor: Cursor::Init,
-            owner,
-            coin_type: coin_type.to_string(),
-        };
+        let stream_state = StreamState::<Coin>::new_with_coin_type(owner, coin_type);
 
         Box::pin(stream::unfold(
             stream_state,
             move |mut stream_state| async move {
                 // If we've got a coin from a prior batch, let's stream it.
-                if let Some(item) = stream_state.queue.pop_front() {
-                    return Some((item, stream_state));
+                if let Some((coin, _)) = stream_state.queue.pop_front() {
+                    return Some((coin, stream_state));
                 }
 
                 // Figure out the next page to ask for.
@@ -545,7 +601,7 @@ impl RetriableSuiClient {
                                     client
                                         .fetch_batch_of_coins(
                                             stream_state.owner,
-                                            &stream_state.coin_type,
+                                            &stream_state.object_type,
                                             next_page_token.clone(),
                                         )
                                         .await
@@ -566,7 +622,10 @@ impl RetriableSuiClient {
                     .ok()?;
 
                 // Collect our new coins, and advance the cursor.
-                stream_state.queue.extend(coins);
+                stream_state.queue.extend(coins.into_iter().map(|coin| {
+                    let object_ref = coin.object_ref();
+                    (coin, object_ref)
+                }));
                 if let Some(next_page_token) = next_page_token {
                     stream_state.cursor = Cursor::NextToken(next_page_token);
                 } else {
@@ -575,7 +634,7 @@ impl RetriableSuiClient {
                 stream_state
                     .queue
                     .pop_front()
-                    .map(|item| (item, stream_state))
+                    .map(|(coin, _)| (coin, stream_state))
             },
         ))
     }
@@ -1369,9 +1428,8 @@ impl RetriableSuiClient {
             .await
     }
 
-    // Other wrapper methods.
-
-    pub(crate) async fn get_shared_object_initial_version(
+    /// Get the initial version of a shared object.
+    pub async fn get_shared_object_initial_version(
         &self,
         object_id: ObjectID,
     ) -> SuiClientResult<SequenceNumber> {
@@ -1386,7 +1444,8 @@ impl RetriableSuiClient {
         }
     }
 
-    pub(crate) async fn get_extended_field<V>(
+    /// Get an extended field value.
+    pub async fn get_extended_field<V>(
         &self,
         object_id: ObjectID,
         type_origin_map: &TypeOriginMap,
@@ -1400,8 +1459,8 @@ impl RetriableSuiClient {
             .await
     }
 
-    #[allow(unused)]
-    pub(crate) async fn get_dynamic_field_object<K, V>(
+    /// Returns a dynamic field object.
+    pub async fn get_dynamic_field_object<K, V>(
         &self,
         parent: ObjectID,
         key_type: TypeTag,
@@ -1419,7 +1478,8 @@ impl RetriableSuiClient {
         Ok(inner)
     }
 
-    pub(crate) async fn get_dynamic_field<K, V>(
+    /// Returns the value of a dynamic field. Pulls the value out of [`SuiDynamicField`].
+    pub async fn get_dynamic_field<K, V>(
         &self,
         parent: ObjectID,
         key_type: TypeTag,
@@ -1440,8 +1500,39 @@ impl RetriableSuiClient {
         Ok(field.value)
     }
 
+    /// Returns the dynamic fields for the object.
+    #[tracing::instrument(level = Level::DEBUG, skip_all)]
+    pub async fn get_dynamic_fields(
+        &self,
+        object_id: ObjectID,
+        cursor: Option<ObjectID>,
+        limit: Option<usize>,
+    ) -> SuiClientResult<Page<DynamicFieldInfo, ObjectID>> {
+        self.failover_sui_client
+            .with_failover(
+                async |client, method| {
+                    retry_rpc_errors(
+                        self.get_strategy(),
+                        || async {
+                            Ok(client
+                                .sui_client()
+                                .read_api()
+                                .get_dynamic_fields(object_id, cursor, limit)
+                                .await?)
+                        },
+                        self.metrics.clone(),
+                        method,
+                    )
+                    .await
+                },
+                None,
+                "get_events",
+            )
+            .await
+    }
+
     /// Checks if the Walrus system object exist on chain and returns the Walrus package ID.
-    pub(crate) async fn get_system_package_id_from_system_object(
+    pub async fn get_system_package_id_from_system_object(
         &self,
         system_object_id: ObjectID,
     ) -> SuiClientResult<ObjectID> {
@@ -1455,7 +1546,7 @@ impl RetriableSuiClient {
 
     /// Checks if the credits object (`subsidies::Subsidies` in Move) exist on chain and returns
     /// the object.
-    pub(crate) async fn get_credits_object(&self, object_id: ObjectID) -> SuiClientResult<Credits> {
+    pub async fn get_credits_object(&self, object_id: ObjectID) -> SuiClientResult<Credits> {
         self.get_sui_object::<Credits>(object_id).await
     }
 
@@ -1502,7 +1593,7 @@ impl RetriableSuiClient {
     }
 
     /// Gets the type origin map for a given package.
-    pub(crate) async fn type_origin_map_for_package(
+    pub async fn type_origin_map_for_package(
         &self,
         package_id: ObjectID,
     ) -> SuiClientResult<TypeOriginMap> {
@@ -1548,10 +1639,7 @@ impl RetriableSuiClient {
     /// Retrieves the WAL type from the walrus package by getting the type tag of the `Balance`
     /// in the `StakedWal` Move struct.
     #[tracing::instrument(err, skip(self))]
-    pub(crate) async fn wal_type_from_package(
-        &self,
-        package_id: ObjectID,
-    ) -> SuiClientResult<String> {
+    pub async fn wal_type_from_package(&self, package_id: ObjectID) -> SuiClientResult<String> {
         let normalized_move_modules = self
             .get_normalized_move_modules_by_package(package_id)
             .await?;
@@ -1602,7 +1690,7 @@ impl RetriableSuiClient {
     /// If the `gas_budget` is passed in, this returns the gas budget and the current gas price.
     /// Otherwise, it estimates the gas budget and the gas price concurrently.
     #[tracing::instrument(skip_all, level = Level::DEBUG)]
-    pub(crate) async fn gas_budget_and_price(
+    pub async fn gas_budget_and_price(
         &self,
         gas_budget: Option<u64>,
         signer: SuiAddress,
@@ -1662,7 +1750,7 @@ impl RetriableSuiClient {
 
     /// Executes a transaction.
     #[tracing::instrument(level = Level::DEBUG, err, skip(self, transaction))]
-    pub(crate) async fn execute_transaction(
+    pub async fn execute_transaction(
         &self,
         transaction: Transaction,
         method: &'static str,
@@ -1733,6 +1821,32 @@ impl RetriableSuiClient {
                 None,
                 "get_events",
             )
+            .await
+    }
+
+    /// Get an object from an [`ObjectID`].
+    #[tracing::instrument(skip(self), level = Level::DEBUG)]
+    pub async fn get_object(
+        &self,
+        object_id: ObjectID,
+    ) -> SuiClientResult<sui_types::object::Object> {
+        async fn make_request(
+            client: Arc<DualClient>,
+            object_id: ObjectID,
+        ) -> SuiClientResult<sui_types::object::Object> {
+            client.get_object(object_id).await
+        }
+
+        let request = move |client: Arc<DualClient>, method| {
+            retry_rpc_errors(
+                self.get_strategy(),
+                move || make_request(client.clone(), object_id),
+                self.metrics.clone(),
+                method,
+            )
+        };
+        self.failover_sui_client
+            .with_failover(request, None, "get_object")
             .await
     }
 
@@ -1955,11 +2069,22 @@ pub(crate) enum Cursor {
 }
 
 #[derive(Clone)]
-pub(crate) struct StreamState {
-    pub queue: VecDeque<Coin>,
+pub(crate) struct StreamState<U> {
+    pub queue: VecDeque<(U, ObjectRef)>,
     pub cursor: Cursor,
     pub owner: SuiAddress,
-    pub coin_type: String,
+    pub object_type: String,
+}
+
+impl StreamState<Coin> {
+    pub fn new_with_coin_type(owner: SuiAddress, coin_type: &str) -> Self {
+        Self {
+            queue: VecDeque::new(),
+            cursor: Cursor::Init,
+            owner,
+            object_type: Coin::format_object_type(coin_type),
+        }
+    }
 }
 
 /// Injects a simulated error for testing retry behavior executing sui transactions.
