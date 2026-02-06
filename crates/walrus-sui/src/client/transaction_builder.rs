@@ -224,15 +224,16 @@ impl WalrusPtbBuilder {
             coin_arg
         };
         if !coins.is_empty() {
-            let coin_args = coins
-                .into_iter()
-                .map(|coin| {
-                    // Make sure that we don't select the same coin later again.
-                    self.used_wal_coins.insert(coin.coin_object_id);
-                    added_balance += coin.balance;
-                    self.pt_builder.input(coin.object_ref().into())
-                })
-                .collect::<Result<Vec<_>, _>>()?;
+            let mut coin_args = Vec::new();
+            for coin in coins {
+                if self.tx_wal_balance + added_balance >= min_balance {
+                    break;
+                }
+                // Make sure that we don't select the same coin later again.
+                self.used_wal_coins.insert(coin.coin_object_id);
+                added_balance += coin.balance;
+                coin_args.push(self.pt_builder.input(coin.object_ref().into())?);
+            }
             self.pt_builder
                 .command(Command::MergeCoins(main_coin, coin_args));
         }
@@ -1838,7 +1839,11 @@ pub async fn build_transaction_data_with_min_gas_balance(
         if let Some(gas_coins) = gas_coins {
             gas_coins
                 .into_iter()
-                .map(|coin| coin.object_ref())
+                .scan(0, |total, coin| {
+                    let was_under = *total < minimum_gas_coin_balance;
+                    *total += coin.balance;
+                    was_under.then_some(coin.object_ref())
+                })
                 .collect()
         } else {
             read_client
