@@ -181,8 +181,6 @@ impl WalrusPtbBuilder {
     /// When passed a list of `coins`, those coins are used to fill the balance. Otherwise, coins
     /// are fetched from the network.
     ///
-    /// # Returns a boolean indicating whether any coins were added.
-    ///
     /// # Errors
     ///
     /// Returns a [`SuiClientError::NoCompatibleWalCoins`] if no WAL coins with sufficient balance

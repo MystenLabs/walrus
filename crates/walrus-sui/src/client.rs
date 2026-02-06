@@ -49,7 +49,7 @@ use walrus_core::{
 use walrus_utils::backoff::ExponentialBackoffConfig;
 
 use crate::{
-    balance::{Balance, BalanceRetrievalError},
+    balance::BalanceRetrievalError,
     coin::{Coin, CoinType},
     contracts::{self, MoveConversionError},
     system_setup::{self, compile_package},
@@ -582,13 +582,6 @@ impl SuiContractClient {
     /// Returns the active address of the client.
     pub fn address(&self) -> SuiAddress {
         self.wallet_address
-    }
-
-    /// Returns the balance of the owner for the given coin type.
-    pub async fn balance(&self, coin_type: CoinType) -> SuiClientResult<Balance> {
-        self.read_client
-            .balance(self.wallet_address, coin_type)
-            .await
     }
 
     /// Returns the balance of the owner for the given coin type.

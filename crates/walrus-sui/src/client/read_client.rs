@@ -48,7 +48,6 @@ use super::{
     retry_client::RetriableSuiClient,
 };
 use crate::{
-    balance::Balance,
     client::retry_client::retriable_sui_client::MAX_GAS_PAYMENT_OBJECTS,
     coin::{Coin, CoinType},
     contracts::{self, AssociatedContractStruct, AssociatedContractStructWithPkgId, TypeOriginMap},
@@ -656,17 +655,6 @@ impl SuiReadClient {
         self.type_origin_map
             .write()
             .expect("mutex should not be poisoned")
-    }
-
-    /// Returns the balance of the owner for the given coin type.
-    pub(crate) async fn balance(
-        &self,
-        owner_address: SuiAddress,
-        coin_type: CoinType,
-    ) -> SuiClientResult<Balance> {
-        self.sui_client
-            .get_balance(owner_address, coin_type.as_str(self.wal_coin_type()))
-            .await
     }
 
     /// Returns the balance of the owner for the given coin type.
