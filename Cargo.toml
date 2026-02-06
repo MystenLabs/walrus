@@ -27,7 +27,7 @@ license = "Apache-2.0"
 version = "1.43.0"
 
 [workspace.dependencies]
-anyhow = "1.0.100"
+anyhow = "1.0.101"
 async-channel = "2.5.0"
 async-trait = "0.1.89"
 atomic-time = "0.1.5"
@@ -39,16 +39,16 @@ bcs = "0.1.6"
 bimap = "0.6.3"
 bincode = "1.3.3"
 byteorder = "1.5.0"
-bytes = { version = "1.11.0", default-features = false, features = ["serde"] }
+bytes = { version = "1.11.1", default-features = false, features = ["serde"] }
 bytesize = "2.3"
 checkpoint-downloader = { path = "crates/checkpoint-downloader" }
 chrono = "0.4"
-clap = { version = "4.5.55", features = ["deprecated", "derive"] }
+clap = { version = "4.5.57", features = ["deprecated", "derive"] }
 clap_complete = "4.5.65"
 collectable = "0.0.2"
 colored = "2.2.0"
 const-str = "0.6.4"
-criterion = "0.8.1"
+criterion = "0.8.2"
 diesel = { version = "2.2", features = ["chrono", "postgres", "serde_json", "uuid"] }
 diesel-async = { version = "0.5", features = ["postgres"] }
 diesel_migrations = { version = "2.2.0", features = ["postgres"] }
@@ -150,7 +150,7 @@ tokio = { version = "=1.49.0", features = ["macros", "rt-multi-thread", "signal"
 tokio-metrics = { version = "0.4.7", default-features = false }
 tokio-stream = "0.1.17"
 tokio-util = "0.7.16"
-tonic = { version = "0.14.2", default-features = false }
+tonic = { version = "0.14.3", default-features = false }
 tower = "0.5"
 tower-http = { version = "0.5.2", features = ["cors", "timeout", "trace"] }
 tracing = "0.1.44"
