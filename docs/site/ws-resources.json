@@ -1,508 +1,508 @@
 {
-    "headers": {
+  "headers": {
     "/markdown/data-security.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/design/architecture.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/design/encoding.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/design/future.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/design/objectives_use_cases.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/design/operations-off-chain.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/design/operations-sui.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/design/operations.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/design/overview.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/design/properties.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/dev-guide/components.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/dev-guide/costs.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/dev-guide/data-security.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/dev-guide/dev-operations.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/dev-guide/sui-struct.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/example-1.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/example-2.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/examples.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/getting-started/advanced-setup.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/getting-started/index.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/glossary.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/http-api/managing-blobs.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/http-api/quilt-http-apis.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/http-api/reading-blobs.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/http-api/storing-blobs.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/legal/privacy.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/legal/testnet_tos.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/legal/walrus_general_tos.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/operator-guide/aggregator.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/operator-guide/auth-publisher.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/operator-guide/backup-restore-guide.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/operator-guide/commission-governance.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/operator-guide/operator-guide.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/operator-guide/storage-node.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/operator-guide/upload-relay.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/sites/ci-cd/github-actions-workflow.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/sites/ci-cd/other-ci-cd-platforms.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/sites/ci-cd/preparing-deployment-credentials.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/sites/configuration/adding-metadata.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/sites/configuration/setting-up-routing-rules.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/sites/configuration/specifying-http-headers.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/sites/custom-domains/bringing-your-own-domain.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/sites/custom-domains/dns-configuration.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/sites/custom-domains/setting-a-suins-name.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/sites/getting-started/configuration-file-reference.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/sites/getting-started/installing-the-site-builder.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/sites/getting-started/publishing-your-first-site.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/sites/getting-started/updating-an-existing-site.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/sites/getting-started/using-the-site-builder.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/sites/getting-started/viewing-and-testing-your-site.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/sites/index.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/sites/introduction/components.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/sites/introduction/technical-overview.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/sites/known-restrictions.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/sites/linking/avoiding-duplicate-content-seo.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/sites/linking/linking-from-walrus-sites.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/sites/linking/linking-to-walrus-sites.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/sites/linking/linking.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/sites/linking/redirects.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/sites/portals/deploy-locally.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/sites/portals/mainnet-testnet.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/sites/security/access-control-options.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/sites/security/site-data-authentication.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/sites/troubleshooting.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/snippets/blob-object-id.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/snippets/blog-note-edit.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/stake.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/system-overview/available-networks.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/system-overview/components.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/system-overview/core-concepts.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/system-overview/operations.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/system-overview/public-aggregators-and-publishers.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/system-overview/quilt.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/system-overview/storage-costs.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/system-overview/sui-object-and-blob-ids.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/system-overview/view-system-info.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/troubleshooting/error-handling.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/troubleshooting/index.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/troubleshooting/network-errors.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/tusky-migration-guide.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/typescript-sdk/configuring-network-requests.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/typescript-sdk/fetch-limitations.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/typescript-sdk/installation-and-setup.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/typescript-sdk/managing-blobs.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/typescript-sdk/reading-blobs.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/typescript-sdk/sdks.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/typescript-sdk/storing-blobs.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/typescript-sdk/wasm-module-loading.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/usage/client-cli.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/usage/examples.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/usage/glossary.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/usage/json-api.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/usage/networks.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/usage/quilt.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/usage/sdks.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/usage/setup.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/usage/stake.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/usage/started.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/usage/troubleshooting.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/usage/web-api.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/walrus-client/configuration.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/walrus-client/json-mode.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/walrus-client/logging-and-metrics.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/walrus-client/managing-blobs.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/walrus-client/reading-blobs.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/walrus-client/storing-blobs.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/walrus-sites/advanced.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/walrus-sites/authentication.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/walrus-sites/avoid-duplicate-content-seo.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/walrus-sites/bring-your-own-domain.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/walrus-sites/builder-config.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/walrus-sites/ci-cd-gh-secrets-vars.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/walrus-sites/ci-cd-gh-workflow.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/walrus-sites/ci-cd.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/walrus-sites/commands.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/walrus-sites/intro.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/walrus-sites/linking.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/walrus-sites/overview.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/walrus-sites/portal.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/walrus-sites/redirects.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/walrus-sites/restrictions.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/walrus-sites/routing.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/walrus-sites/tutorial-install.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/walrus-sites/tutorial-publish.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/walrus-sites/tutorial-suins.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     },
     "/markdown/walrus-sites/tutorial.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown"
+      "Content-Type": "text/markdown"
     }
   },
   "routes": {
@@ -569,9 +569,6 @@
     "/docs/dev-guide/dev-operations.md": "/markdown/dev-guide/dev-operations.md",
     "/docs/dev-guide/sui-struct": "/docs/dev-guide/sui-struct.html",
     "/docs/dev-guide/sui-struct.md": "/markdown/dev-guide/sui-struct.md",
-    "/docs/example-1.md": "/markdown/example-1.md",
-    "/docs/example-2.md": "/markdown/example-2.md",
-    "/docs/examples.md": "/markdown/examples.md",
     "/docs/getting-started/advanced-setup.md": "/markdown/getting-started/advanced-setup.md",
     "/docs/getting-started/index.md": "/markdown/getting-started/index.md",
     "/docs/glossary.md": "/markdown/glossary.md",
