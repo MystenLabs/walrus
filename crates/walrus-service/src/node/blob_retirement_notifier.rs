@@ -63,24 +63,17 @@ impl BlobRetirementNotifier {
     ) -> anyhow::Result<()> {
         let _scope = monitored_scope::monitored_scope("EpochChange::NotifyRetiredBlobs");
 
-        let blob_ids = self.registered_blobs.keys();
-
-        let mut notify_blob_ids = Vec::new();
-        for blob_id in blob_ids {
-            if !node.is_blob_certified(&blob_id)? {
-                tracing::debug!(%blob_id, "epoch change notify blob retirement");
-                notify_blob_ids.push(blob_id);
-            }
-        }
-
-        for notify in self.registered_blobs.take_many(notify_blob_ids) {
-            notify.notify_waiters();
-        }
-
+        self.registered_blobs
+            .notify_matching(|blob_id| -> Result<bool, anyhow::Error> {
+                if !node.is_blob_certified(blob_id)? {
+                    tracing::debug!(%blob_id, "epoch change notify blob retirement");
+                    return Ok(true);
+                }
+                Ok(false)
+            })?;
         self.metrics
             .blob_retirement_notifier_registered_blobs
             .set(i64::try_from(self.registered_blobs.len()).unwrap_or(i64::MAX));
-
         Ok(())
     }
 

@@ -25,7 +25,7 @@ where
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let len = self
             .inner
-            .waiters
+            .registered
             .lock()
             .expect("mutex should not be poisoned")
             .len();
@@ -51,86 +51,63 @@ where
     pub(crate) fn new() -> Self {
         Self {
             inner: Arc::new(RefCountedNotifyMapInner {
-                waiters: Mutex::new(HashMap::new()),
+                registered: Mutex::new(HashMap::new()),
             }),
         }
     }
 
     pub(crate) fn acquire(&self, key: &K) -> RefCountedNotify<K> {
-        let notify = {
-            let mut waiters = self
-                .inner
-                .waiters
-                .lock()
-                .expect("mutex should not be poisoned");
+        let mut registered = self
+            .inner
+            .registered
+            .lock()
+            .expect("mutex should not be poisoned");
 
-            match waiters.entry(key.clone()) {
-                Entry::Occupied(mut entry) => match entry.get().upgrade() {
-                    Some(notify) => notify,
-                    None => {
-                        let notify = Arc::new(Notify::new());
-                        entry.insert(Arc::downgrade(&notify));
-                        notify
-                    }
-                },
-                Entry::Vacant(entry) => {
-                    let notify = Arc::new(Notify::new());
-                    entry.insert(Arc::downgrade(&notify));
-                    notify
-                }
-            }
+        match registered.entry(key.clone()) {
+            Entry::Occupied(entry) => entry.get().clone(),
+            Entry::Vacant(entry) => entry
+                .insert(RefCountedNotify::new(
+                    key.clone(),
+                    Arc::downgrade(&self.inner),
+                ))
+                .clone(),
+        }
+    }
+
+    pub(crate) fn notify(&self, key: &K) -> bool {
+        let registered = self
+            .inner
+            .registered
+            .lock()
+            .expect("mutex should not be poisoned");
+        let Some(notify) = registered.get(key) else {
+            return false;
         };
 
-        RefCountedNotify {
-            key: key.clone(),
-            notify,
-            map: self.clone(),
+        notify.notify_waiters();
+        true
+    }
+
+    pub(crate) fn notify_matching<E>(
+        &self,
+        mut should_notify: impl FnMut(&K) -> Result<bool, E>,
+    ) -> Result<(), E> {
+        let notify_map = self
+            .inner
+            .registered
+            .lock()
+            .expect("mutex should not be poisoned");
+        for (key, notify) in notify_map.iter() {
+            if should_notify(key)? {
+                notify.notify_waiters();
+            }
         }
-    }
-
-    /// Removes the entry for `key` (if present) and notifies any waiters.
-    pub(crate) fn notify(&self, key: &K) -> bool {
-        let notify = self.get_notify(key);
-        if let Some(notify) = notify {
-            notify.notify_waiters();
-            true
-        } else {
-            false
-        }
-    }
-
-    pub(crate) fn get_notify(&self, key: &K) -> Option<Arc<Notify>> {
-        let waiters = self
-            .inner
-            .waiters
-            .lock()
-            .expect("mutex should not be poisoned");
-        waiters.get(key).and_then(|weak| weak.upgrade())
-    }
-
-    pub(crate) fn keys(&self) -> Vec<K> {
-        let waiters = self
-            .inner
-            .waiters
-            .lock()
-            .expect("mutex should not be poisoned");
-        waiters.keys().cloned().collect()
-    }
-
-    pub(crate) fn take_many(&self, keys: impl IntoIterator<Item = K>) -> Vec<Arc<Notify>> {
-        let mut waiters = self
-            .inner
-            .waiters
-            .lock()
-            .expect("mutex should not be poisoned");
-        keys.into_iter()
-            .filter_map(|key| waiters.remove(&key).and_then(|weak| weak.upgrade()))
-            .collect()
+        Ok(())
     }
 
     pub(crate) fn len(&self) -> usize {
         self.inner
-            .waiters
+            .registered
             .lock()
             .expect("mutex should not be poisoned")
             .len()
@@ -147,26 +124,79 @@ where
     K: Clone + Eq + Hash,
 {
     // TODO: Consider switching to `tokio::sync::Mutex` (and making APIs async) to avoid blocking
-    // an async executor thread; the `Drop`-based cleanup will need refactoring.
-    waiters: Mutex<HashMap<K, Weak<Notify>>>,
+    registered: Mutex<HashMap<K, RefCountedNotify<K>>>,
 }
 
-#[derive(Clone, Debug)]
+impl<K> RefCountedNotifyMapInner<K>
+where
+    K: Clone + Eq + Hash,
+{
+    fn cleanup(&self, key: &K) {
+        let mut registered = self
+            .registered
+            .lock()
+            .expect("mutex should not be poisoned");
+
+        if let Some(notify) = registered.get(key) {
+            let current_count = *notify
+                .ref_count
+                .lock()
+                .expect("mutex should not be poisoned");
+
+            if current_count == 1 {
+                registered.remove(key);
+            }
+        }
+    }
+}
+
 pub(crate) struct RefCountedNotify<K>
 where
     K: Clone + Eq + Hash,
 {
     key: K,
     notify: Arc<Notify>,
-    map: RefCountedNotifyMap<K>,
+    ref_count: Arc<Mutex<usize>>,
+    map: Weak<RefCountedNotifyMapInner<K>>,
 }
 
 impl<K> RefCountedNotify<K>
 where
     K: Clone + Eq + Hash,
 {
+    fn new(key: K, map: Weak<RefCountedNotifyMapInner<K>>) -> Self {
+        Self {
+            key,
+            notify: Arc::new(Notify::new()),
+            ref_count: Arc::new(Mutex::new(1)),
+            map,
+        }
+    }
+
     pub(crate) fn notified(&self) -> Notified<'_> {
         self.notify.notified()
+    }
+
+    fn notify_waiters(&self) {
+        self.notify.notify_waiters();
+    }
+}
+
+impl<K> Clone for RefCountedNotify<K>
+where
+    K: Clone + Eq + Hash,
+{
+    fn clone(&self) -> Self {
+        let mut ref_count = self.ref_count.lock().expect("mutex should not be poisoned");
+        *ref_count = ref_count
+            .checked_add(1)
+            .expect("RefCountedNotify ref_count overflow");
+        Self {
+            key: self.key.clone(),
+            notify: self.notify.clone(),
+            ref_count: self.ref_count.clone(),
+            map: self.map.clone(),
+        }
     }
 }
 
@@ -175,23 +205,21 @@ where
     K: Clone + Eq + Hash,
 {
     fn drop(&mut self) {
-        let mut waiters = self
-            .map
-            .inner
-            .waiters
-            .lock()
-            .expect("mutex should not be poisoned");
-
-        let Some(weak) = waiters.get(&self.key) else {
-            return;
+        let new_ref_count = {
+            let mut ref_count = self.ref_count.lock().expect("mutex should not be poisoned");
+            *ref_count = ref_count
+                .checked_sub(1)
+                .expect("RefCountedNotify ref_count underflow");
+            *ref_count
         };
 
-        if weak.as_ptr() != Arc::as_ptr(&self.notify) {
-            return;
-        }
-
-        if Arc::strong_count(&self.notify) == 1 {
-            waiters.remove(&self.key);
+        // The `registered` map itself holds one `RefCountedNotify` clone. When the last external
+        // clone is dropped, the refcount becomes 1 and we remove the map entry.
+        if new_ref_count == 1 {
+            let Some(map) = self.map.upgrade() else {
+                return;
+            };
+            map.cleanup(&self.key);
         }
     }
 }
@@ -441,6 +469,7 @@ mod tests {
         AcquireAndDrop,
         Notify,
         AcquireAndHoldAndDrop,
+        AcquireUntilNotify,
     }
 
     impl Distribution<TestOperation> for rand::distributions::Standard {
@@ -448,7 +477,8 @@ mod tests {
             match rng.gen_range(0..10) {
                 0 => TestOperation::Notify,                    // 10% notify
                 1..=3 => TestOperation::AcquireAndDrop,        // 30% acquire and drop
-                4..=9 => TestOperation::AcquireAndHoldAndDrop, // 60% acquire and hold and drop
+                4..=7 => TestOperation::AcquireAndHoldAndDrop, // 60% acquire and hold and drop
+                8..=9 => TestOperation::AcquireUntilNotify,    // 10% acquire until notify
                 _ => unreachable!(),
             }
         }
@@ -490,10 +520,20 @@ mod tests {
                                 _ = tokio::time::sleep(Duration::from_millis(5)) => (),
                             }
                         }
+                        TestOperation::AcquireUntilNotify => {
+                            let notify = map.acquire(&blob_id);
+                            tokio::task::yield_now().await;
+                            notify.notified().await;
+                        }
                     }
                 })
             })
             .collect();
+
+        tokio::time::sleep(Duration::from_secs(5)).await;
+        for blob_id in blob_ids {
+            map.notify(&blob_id);
+        }
 
         let result = timeout(TASK_TIMEOUT, async {
             for handle in handles {
