@@ -7082,6 +7082,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "opentelemetry"
+version = "0.31.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b84bcd6ae87133e903af7ef497404dda70c60d0ea14895fc8a5e6722754fc2a0"
+dependencies = [
+ "js-sys",
+]
+
+[[package]]
 name = "opentelemetry-otlp"
 version = "0.27.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7090,9 +7099,9 @@ dependencies = [
  "async-trait",
  "futures-core",
  "http 1.4.0",
- "opentelemetry",
- "opentelemetry-proto",
- "opentelemetry_sdk",
+ "opentelemetry 0.27.1",
+ "opentelemetry-proto 0.27.0",
+ "opentelemetry_sdk 0.27.1",
  "prost 0.13.5",
  "thiserror 1.0.69",
  "tokio",
@@ -7107,11 +7116,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a6e05acbfada5ec79023c85368af14abd0b307c015e9064d249b2a950ef459a6"
 dependencies = [
  "hex",
- "opentelemetry",
- "opentelemetry_sdk",
+ "opentelemetry 0.27.1",
+ "opentelemetry_sdk 0.27.1",
  "prost 0.13.5",
  "serde",
  "tonic 0.12.3",
+]
+
+[[package]]
+name = "opentelemetry-proto"
+version = "0.31.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a7175df06de5eaee9909d4805a3d07e28bb752c34cab57fa9cff549da596b30f"
+dependencies = [
+ "opentelemetry 0.31.0",
+ "opentelemetry_sdk 0.31.0",
 ]
 
 [[package]]
@@ -7131,7 +7150,7 @@ dependencies = [
  "futures-executor",
  "futures-util",
  "glob",
- "opentelemetry",
+ "opentelemetry 0.27.1",
  "percent-encoding",
  "rand 0.8.5",
  "serde_json",
@@ -7139,6 +7158,19 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "tracing",
+]
+
+[[package]]
+name = "opentelemetry_sdk"
+version = "0.31.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e14ae4f5991976fd48df6d843de219ca6d31b01daaab2dad5af2badeded372bd"
+dependencies = [
+ "futures-channel",
+ "futures-executor",
+ "futures-util",
+ "opentelemetry 0.31.0",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -11591,10 +11623,10 @@ dependencies = [
  "crossterm 0.25.0",
  "futures",
  "once_cell",
- "opentelemetry",
+ "opentelemetry 0.27.1",
  "opentelemetry-otlp",
- "opentelemetry-proto",
- "opentelemetry_sdk",
+ "opentelemetry-proto 0.27.0",
+ "opentelemetry_sdk 0.27.1",
  "prometheus",
  "prost 0.13.5",
  "tokio",
@@ -12469,8 +12501,8 @@ checksum = "97a971f6058498b5c0f1affa23e7ea202057a7301dbff68e968b2d578bcbd053"
 dependencies = [
  "js-sys",
  "once_cell",
- "opentelemetry",
- "opentelemetry_sdk",
+ "opentelemetry 0.27.1",
+ "opentelemetry_sdk 0.27.1",
  "smallvec",
  "tracing",
  "tracing-core",
@@ -13264,11 +13296,11 @@ dependencies = [
  "mysten-metrics",
  "num-bigint 0.4.6",
  "object_store 0.11.2",
- "opentelemetry",
+ "opentelemetry 0.27.1",
  "opentelemetry-otlp",
- "opentelemetry-proto",
+ "opentelemetry-proto 0.31.0",
  "opentelemetry-semantic-conventions",
- "opentelemetry_sdk",
+ "opentelemetry_sdk 0.27.1",
  "p256",
  "pin-project",
  "prettytable",
@@ -13372,7 +13404,7 @@ dependencies = [
  "futures",
  "http 1.4.0",
  "mime",
- "opentelemetry",
+ "opentelemetry 0.27.1",
  "p256",
  "pin-project",
  "prometheus",
