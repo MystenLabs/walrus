@@ -12,15 +12,13 @@ use anyhow::Result;
 use move_package_alt::schema::Environment;
 use move_package_alt_compilation::build_config::BuildConfig as MoveBuildConfig;
 use sui_package_alt::find_environment;
-use sui_sdk::{
-    rpc_types::{SuiObjectData, SuiTransactionBlockResponse},
-    sui_client_config::SuiEnv,
-    wallet_context::WalletContext,
-};
+use sui_rpc_api::client::ExecutedTransaction;
+use sui_sdk::{sui_client_config::SuiEnv, wallet_context::WalletContext};
 use sui_types::{
     base_types::{ObjectID, ObjectRef, SuiAddress},
     crypto::EmptySignInfo,
     message_envelope::Envelope,
+    object::Object,
     transaction::{SenderSignedData, Transaction, TransactionData},
 };
 
@@ -87,7 +85,7 @@ impl Wallet {
     pub async fn execute_transaction_may_fail(
         &self,
         signed_transaction: Envelope<SenderSignedData, EmptySignInfo>,
-    ) -> Result<SuiTransactionBlockResponse, WalletError> {
+    ) -> Result<ExecutedTransaction, WalletError> {
         self.wallet_context
             .execute_transaction_may_fail(signed_transaction)
             .await
@@ -101,7 +99,7 @@ impl Wallet {
         address: SuiAddress,
         budget: u64,
         forbidden_gas_objects: BTreeSet<ObjectID>,
-    ) -> Result<(u64, SuiObjectData), WalletError> {
+    ) -> Result<(u64, Object), WalletError> {
         self.wallet_context
             .gas_for_owner_budget(address, budget, forbidden_gas_objects)
             .await

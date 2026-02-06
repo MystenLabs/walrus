@@ -11,6 +11,7 @@ use std::{
 };
 
 use anyhow::{Context, Result, anyhow, bail};
+use move_core_types::language_storage::StructTag;
 use move_package_alt::{
     RootPackage,
     schema::{OriginalID, Publication, PublishAddresses, PublishedID},
@@ -19,18 +20,18 @@ use move_package_alt_compilation::build_config::BuildConfig as MoveBuildConfig;
 use sui_move_build::{CompiledPackage, PackageDependencies};
 use sui_package_alt::{BuildParams, SuiFlavor};
 use sui_package_management::LockCommand;
-use sui_sdk::{
-    rpc_types::{SuiExecutionStatus, SuiTransactionBlockEffectsAPI, SuiTransactionBlockResponse},
-    types::{
-        Identifier,
-        base_types::ObjectID,
-        programmable_transaction_builder::ProgrammableTransactionBuilder,
-        transaction::TransactionData,
-    },
+use sui_rpc_api::client::ExecutedTransaction;
+use sui_sdk::types::{
+    Identifier,
+    base_types::ObjectID,
+    programmable_transaction_builder::ProgrammableTransactionBuilder,
+    transaction::TransactionData,
 };
 use sui_types::{
     SUI_CLOCK_OBJECT_ID,
     SUI_CLOCK_OBJECT_SHARED_VERSION,
+    effects::TransactionEffectsAPI,
+    execution_status::ExecutionStatus,
     transaction::{ObjectArg, SharedObjectMutability, TransactionKind},
 };
 use walkdir::WalkDir;
@@ -44,21 +45,47 @@ use crate::{
         retriable_sui_client::{GasBudgetAndPrice, LazySuiClientBuilder, MAX_GAS_PAYMENT_OBJECTS},
     },
     contracts,
-    utils::get_created_sui_object_ids_by_type,
     wallet::Wallet,
 };
 
-#[cfg(any(test, feature = "test-utils"))]
-fn get_pkg_id_from_tx_response(tx_response: &SuiTransactionBlockResponse) -> Result<ObjectID> {
-    tx_response
+/// Gets the objects of the given type that were created in an [`ExecutedTransaction`].
+fn get_created_object_ids_by_type(
+    response: &ExecutedTransaction,
+    struct_tag: &StructTag,
+) -> Result<Vec<ObjectID>> {
+    use std::collections::HashSet;
+
+    use sui_types::effects::TransactionEffectsAPI;
+
+    let created_ids: HashSet<_> = response
         .effects
-        .as_ref()
-        .ok_or_else(|| anyhow!("could not read transaction effects"))?
         .created()
         .iter()
-        .find(|obj| obj.owner.is_immutable())
-        .map(|obj| obj.object_id())
-        .ok_or_else(|| anyhow!("no immutable object was created"))
+        .map(|(obj_ref, _)| obj_ref.0)
+        .collect();
+
+    let struct_tag_str = struct_tag.to_canonical_string(true);
+
+    Ok(response
+        .changed_objects
+        .iter()
+        .filter_map(|o| {
+            let id: ObjectID = o.object_id().parse().ok()?;
+            if created_ids.contains(&id) && o.object_type() == struct_tag_str {
+                Some(id)
+            } else {
+                None
+            }
+        })
+        .collect())
+}
+
+#[cfg(any(test, feature = "test-utils"))]
+fn get_pkg_id_from_tx_response(tx_response: &ExecutedTransaction) -> Result<ObjectID> {
+    tx_response
+        .get_new_package_obj()
+        .map(|(id, _, _)| id)
+        .ok_or_else(|| anyhow!("no package object was created"))
 }
 
 #[cfg(any(test, feature = "test-utils"))]
@@ -66,7 +93,7 @@ pub(crate) async fn publish_package_with_default_build_config(
     wallet: &mut Wallet,
     package_path: PathBuf,
     gas_budget: Option<u64>,
-) -> Result<SuiTransactionBlockResponse> {
+) -> Result<ExecutedTransaction> {
     publish_package(wallet, package_path, Default::default(), gas_budget).await
 }
 
@@ -165,7 +192,7 @@ fn compile_package_inner_blocking(
 pub fn update_publication(
     chain_id: &str,
     command: LockCommand,
-    response: &SuiTransactionBlockResponse,
+    response: &ExecutedTransaction,
     _build_config: &MoveBuildConfig,
     publication: Option<&mut Publication<SuiFlavor>>,
 ) -> Result<Publication<SuiFlavor>, anyhow::Error> {
@@ -220,7 +247,7 @@ pub(crate) async fn publish_package(
     package_path: PathBuf,
     build_config: MoveBuildConfig,
     gas_budget: Option<u64>,
-) -> Result<SuiTransactionBlockResponse> {
+) -> Result<ExecutedTransaction> {
     let sender = wallet.active_address();
     let retry_client = RetriableSuiClient::new(
         vec![LazySuiClientBuilder::new(wallet.get_rpc_url(), None)],
@@ -461,14 +488,14 @@ pub(crate) async fn publish_coin_and_system_package(
     .await?;
     let walrus_pkg_id = get_pkg_id_from_tx_response(&transaction_response)?;
 
-    let [init_cap_id] = get_created_sui_object_ids_by_type(
+    let [init_cap_id] = get_created_object_ids_by_type(
         &transaction_response,
         &INIT_CAP_TAG.to_move_struct_tag_with_package(walrus_pkg_id, &[])?,
     )?[..] else {
         bail!("unexpected number of InitCap objects created");
     };
 
-    let [upgrade_cap_id] = get_created_sui_object_ids_by_type(
+    let [upgrade_cap_id] = get_created_object_ids_by_type(
         &transaction_response,
         &UPGRADE_CAP_TAG.to_move_struct_tag_with_package(SUI_FRAMEWORK_ADDRESS.into(), &[])?,
     )?[..] else {
@@ -641,30 +668,25 @@ pub async fn create_system_and_staking_objects(
         .execute_transaction_may_fail(signed_transaction)
         .await?;
 
-    if let SuiExecutionStatus::Failure { error } = response
-        .effects
-        .as_ref()
-        .ok_or_else(|| anyhow!("No transaction effects in response"))?
-        .status()
-    {
-        bail!("Error during execution: {}", error);
+    if let ExecutionStatus::Failure { error, command } = response.effects.status() {
+        bail!("Error during execution (command {command:?}): {error}");
     }
 
-    let [staking_object_id] = get_created_sui_object_ids_by_type(
+    let [staking_object_id] = get_created_object_ids_by_type(
         &response,
         &contracts::staking::Staking.to_move_struct_tag_with_package(contract_pkg_id, &[])?,
     )?[..] else {
         bail!("unexpected number of staking objects created");
     };
 
-    let [system_object_id] = get_created_sui_object_ids_by_type(
+    let [system_object_id] = get_created_object_ids_by_type(
         &response,
         &contracts::system::System.to_move_struct_tag_with_package(contract_pkg_id, &[])?,
     )?[..] else {
         bail!("unexpected number of system objects created");
     };
 
-    let [upgrade_manager_object_id] = get_created_sui_object_ids_by_type(
+    let [upgrade_manager_object_id] = get_created_object_ids_by_type(
         &response,
         &contracts::upgrade::UpgradeManager
             .to_move_struct_tag_with_package(contract_pkg_id, &[])?,
