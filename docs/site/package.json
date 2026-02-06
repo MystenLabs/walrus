@@ -5,10 +5,10 @@
     "scripts": {
         "deploy-site": "site-builder deploy ./build --epochs 1",
         "docusaurus": "docusaurus",
-        "prestart": "node src/scripts/generate-import-context.js && node src/scripts/copy-yaml-files.js && node src/scripts/copy-markdown-files.js",
+        "prestart": "node src/scripts/generate-import-context.js && node src/scripts/copy-yaml-files.js",
         "start": "docusaurus start",
-        "prebuild": "node src/scripts/generate-import-context.js && node src/scripts/copy-yaml-files.js && node src/scripts/copy-markdown-files.js",
-        "build": "docusaurus build;",
+        "prebuild": "node src/scripts/generate-import-context.js && node src/scripts/copy-yaml-files.js",
+        "build": "node src/scripts/copy-markdown-files.js && docusaurus build;",
         "swizzle": "docusaurus swizzle",
         "deploy": "docusaurus deploy",
         "clear": "docusaurus clear",
