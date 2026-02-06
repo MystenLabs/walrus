@@ -1,0 +1,1 @@
+The following Move example showcases how to import and use Walrus on-chain objects.
