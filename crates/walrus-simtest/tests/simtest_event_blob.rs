@@ -111,18 +111,23 @@ mod tests {
         // Wait for 4 certified updates to ensure the node has recovered
         // and is certifying blobs again.
         while num_certified_updates < 4 {
+            // tracing::error!("ZZZZZ wait_for_event_blob_writer_to_recover {num_certified_updates}");
             if last_certified_blob.blob_id == previous_blob {
+                //tracing::error!("ZZZZZ wait_for_event_blob_writer_to_recover 0 ");
                 tokio::time::sleep(Duration::from_secs(1)).await;
                 last_certified_blob = get_last_certified_event_blob_from_node(node).await?;
+                //tracing::error!("ZZZZZ wait_for_event_blob_writer_to_recover 1 ");
                 // Check if the blob writer is recovering without metadata
                 // If so, return early because node is not going to recover
                 if check_blob_writer_recovery_without_metadata(node) {
+                    //tracing::error!("ZZZZZ wait_for_event_blob_writer_to_recover 2 ");
                     return Ok(());
                 }
                 continue;
             }
             previous_blob = last_certified_blob.blob_id;
             num_certified_updates += 1;
+            //tracing::error!("ZZZZZ wait_for_event_blob_writer_to_recover 3 ");
         }
         Ok(())
     }
@@ -135,10 +140,18 @@ mod tests {
             .join("db");
         let file_path = path.join("last_certified_blob_without_metadata");
         if file_path.exists() {
+            tracing::error!(
+                "removing last_certified_blob_without_metadata file: path={:?}",
+                file_path
+            );
             fs::remove_file(file_path).unwrap();
         }
         let file_path = path.join("last_certified_blob_with_metadata");
         if file_path.exists() {
+            tracing::error!(
+                "removing last_certified_blob_with_metadata file: path={:?}",
+                file_path
+            );
             fs::remove_file(file_path).unwrap();
         }
     }
@@ -163,6 +176,7 @@ mod tests {
             .join("db");
         let db_table_opts_factory =
             DatabaseTableOptionsFactory::new(DatabaseConfig::default(), false);
+        tracing::error!("ZZZZZ get_last_certified_event_blob_from_node 0 ");
         let db = Arc::new(rocksdb::DB::open_cf_with_opts_for_read_only(
             &RocksdbOptions::default(),
             db_path,
@@ -177,14 +191,18 @@ mod tests {
             ],
             false,
         )?);
+        tracing::error!("ZZZZZ get_last_certified_event_blob_from_node 1 ");
         let cf = db
             .cf_handle("certified_blob_store")
             .expect("Certified blob store column family should exist");
+        tracing::error!("ZZZZZ get_last_certified_event_blob_from_node 2 ");
         let key = be_fix_int_ser(&())?;
         let data = db
             .get_cf(&cf, &key)?
             .expect("Node certified blob should exist");
+        tracing::error!("ZZZZZ get_last_certified_event_blob_from_node 3 ");
         let metadata: CertifiedEventBlobMetadata = bcs::from_bytes(&data)?;
+        tracing::error!("ZZZZZ get_last_certified_event_blob_from_node 4 ");
         Ok(metadata)
     }
 
@@ -271,29 +289,45 @@ mod tests {
                 .await
                 .unwrap();
 
+        tracing::error!("ZZZZZ 1");
+
         let client = Arc::new(client);
+
+        tracing::error!("ZZZZZ 2");
 
         // Run workload to get some event blobs certified
         tokio::time::sleep(Duration::from_secs(30)).await;
 
+        tracing::error!("ZZZZZ 3");
+
         // Restart nodes with different checkpoint numbers to create fork
         simtest_utils::restart_node_with_checkpoints(&mut walrus_cluster, 0, |i| 30 + i as u32)
             .await;
+
+        tracing::error!("ZZZZZ 4");
 
         // Wait for event blob certification to get stuck
         wait_for_event_blob_writer_to_fork(&mut walrus_cluster, &client, 0)
             .await
             .unwrap();
 
+        tracing::error!("ZZZZZ 5");
+
         remove_both_recovery_files_before_start(&walrus_cluster.nodes[0]);
+
+        tracing::error!("ZZZZZ 6");
 
         // Restart nodes with same checkpoint number to recover
         simtest_utils::restart_node_with_checkpoints(&mut walrus_cluster, 0, |_| 20).await;
+
+        tracing::error!("ZZZZZ 7");
 
         // Verify recovery
         wait_for_event_blob_writer_to_recover(&walrus_cluster.nodes[0])
             .await
             .unwrap();
+
+        tracing::error!("ZZZZZ 8");
     }
 
     /// This integration test simulates pausing checkpoint tailing to trigger runtime catchup.
