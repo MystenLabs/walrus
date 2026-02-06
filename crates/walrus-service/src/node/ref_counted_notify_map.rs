@@ -123,6 +123,7 @@ struct RefCountedNotifyMapInner<K>
 where
     K: Clone + Eq + Hash,
 {
+    // TODO: Consider switching to `tokio::sync::Mutex` (and making APIs async) to avoid blocking
     registered: Mutex<HashMap<K, RefCountedNotify<K>>>,
 }
 
@@ -468,6 +469,7 @@ mod tests {
         AcquireAndDrop,
         Notify,
         AcquireAndHoldAndDrop,
+        AcquireUntilNotify,
     }
 
     impl Distribution<TestOperation> for rand::distributions::Standard {
@@ -475,7 +477,8 @@ mod tests {
             match rng.gen_range(0..10) {
                 0 => TestOperation::Notify,                    // 10% notify
                 1..=3 => TestOperation::AcquireAndDrop,        // 30% acquire and drop
-                4..=9 => TestOperation::AcquireAndHoldAndDrop, // 60% acquire and hold and drop
+                4..=7 => TestOperation::AcquireAndHoldAndDrop, // 60% acquire and hold and drop
+                8..=9 => TestOperation::AcquireUntilNotify,    // 10% acquire until notify
                 _ => unreachable!(),
             }
         }
@@ -517,10 +520,20 @@ mod tests {
                                 _ = tokio::time::sleep(Duration::from_millis(5)) => (),
                             }
                         }
+                        TestOperation::AcquireUntilNotify => {
+                            let notify = map.acquire(&blob_id);
+                            tokio::task::yield_now().await;
+                            notify.notified().await;
+                        }
                     }
                 })
             })
             .collect();
+
+        tokio::time::sleep(Duration::from_secs(5)).await;
+        for blob_id in blob_ids {
+            map.notify(&blob_id);
+        }
 
         let result = timeout(TASK_TIMEOUT, async {
             for handle in handles {

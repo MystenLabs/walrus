@@ -71,6 +71,9 @@ impl BlobRetirementNotifier {
                 }
                 Ok(false)
             })?;
+        self.metrics
+            .blob_retirement_notifier_registered_blobs
+            .set(i64::try_from(self.registered_blobs.len()).unwrap_or(i64::MAX));
         Ok(())
     }
 
