@@ -570,7 +570,7 @@
     "/docs/dev-guide/sui-struct": "/docs/dev-guide/sui-struct.html",
     "/docs/dev-guide/sui-struct.md": "/markdown/dev-guide/sui-struct.md",
     "/docs/getting-started/advanced-setup.md": "/markdown/getting-started/advanced-setup.md",
-    "/docs/getting-started/index.md": "/markdown/getting-started/index.md",
+    "/docs/getting-started.md": "/markdown/getting-started/index.md",
     "/docs/glossary.md": "/markdown/glossary.md",
     "/docs/http-api/managing-blobs.md": "/markdown/http-api/managing-blobs.md",
     "/docs/http-api/quilt-http-apis.md": "/markdown/http-api/quilt-http-apis.md",
