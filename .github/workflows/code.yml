@@ -201,7 +201,7 @@ jobs:
 
       - name: Restore cached sui binary
         id: cache-sui-restore
-        uses: actions/cache/restore@8b402f58fbc84540c8b491a91e594a4576fec3d7 # pin@v5.0.2
+        uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # pin@v5.0.3
         with:
           path: ${{ env.SUI_BIN }}
           key: ${{ runner.os }}-${{ runner.arch }}-${{ env.SUI_TAG }}
@@ -218,7 +218,7 @@ jobs:
         run: bash ./scripts/move_tests.sh -c
       - name: Cache sui binary
         if: ${{ github.ref == 'refs/heads/main' && steps.cache-sui-restore.outputs.cache-hit != 'true' }}
-        uses: actions/cache/save@8b402f58fbc84540c8b491a91e594a4576fec3d7 # pin@v5.0.2
+        uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # pin@v5.0.3
         with:
           path: ${{ env.SUI_BIN }}
           key: ${{ steps.cache-sui-restore.outputs.cache-primary-key }}
