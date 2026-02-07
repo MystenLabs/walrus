@@ -150,6 +150,22 @@ pub(crate) struct StoreQuiltDryRunOutput {
     pub(crate) quilt_index: QuiltIndex,
 }
 
+/// The output of the `store-quilt --file` command.
+#[serde_as]
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct StoreQuiltToFileOutput {
+    /// The file path to which the quilt was written.
+    pub(crate) file: PathBuf,
+    /// The blob ID.
+    #[serde_as(as = "DisplayFromStr")]
+    pub(crate) blob_id: BlobId,
+    /// The size of the unencoded blob (in bytes).
+    pub(crate) unencoded_size: u64,
+    /// The quilt index containing patch information.
+    pub(crate) quilt_index: QuiltIndex,
+}
+
 /// The output of the `blob-status` command.
 #[serde_as]
 #[derive(Debug, Clone, Serialize)]
