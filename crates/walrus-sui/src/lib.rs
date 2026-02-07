@@ -12,6 +12,7 @@ pub mod balance;
 pub mod client;
 pub mod coin;
 pub mod config;
+#[macro_use]
 pub mod contracts;
 pub mod system_setup;
 pub mod types;
