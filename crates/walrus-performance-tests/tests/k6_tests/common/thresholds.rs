@@ -11,10 +11,10 @@ type BlobThroughputThresholdsInner = [(K6Environment, ByteSize, usize, usize); 8
 /// These thresholds are taken from one set of nightly experiments (NightlyWithLatency), and it's
 /// expected that all tests that have enforced thresholds are lower than this.
 static BLOB_UPLOAD_DOWNLOAD_LATENCY_THRESHOLDS: BlobLatencyThresholdsInner = [
-    (ByteSize::kibi(1), 20, 2),
-    (ByteSize::mebi(10), 40, 3),
-    (ByteSize::mebi(100), 180, 35),
-    (ByteSize::mebi(500), 500, 110),
+    (ByteSize::kibi(1), 10, 3),
+    (ByteSize::mebi(10), 15, 3),
+    (ByteSize::mebi(100), 40, 15),
+    (ByteSize::mebi(500), 60, 15),
 ];
 
 static BLOB_UPLOAD_DOWNLOAD_TPUT_THRESHOLDS: BlobThroughputThresholdsInner = {
@@ -23,14 +23,14 @@ static BLOB_UPLOAD_DOWNLOAD_TPUT_THRESHOLDS: BlobThroughputThresholdsInner = {
         // The following must be sorted, within each env group.
         // Environment, key, up_throughput, down_throughput
         // ---- NightlyBaseline ----
-        (NightlyBaseline, ByteSize::kibi(1), 83, 330),
-        (NightlyBaseline, ByteSize::mebi(100), 40, 105),
+        (NightlyBaseline, ByteSize::kibi(1), 100, 400),
+        (NightlyBaseline, ByteSize::mebi(100), 48, 125),
         // ---- NightlyWithLatency ----
-        (NightlyWithLatency, ByteSize::kibi(1), 28, 280),
-        (NightlyWithLatency, ByteSize::mebi(100), 4, 76),
+        (NightlyWithLatency, ByteSize::kibi(1), 32, 350),
+        (NightlyWithLatency, ByteSize::mebi(100), 7, 92),
         // ---- TestnetFromCi ----
-        (TestnetFromCi, ByteSize::kibi(1), 20, 250),
-        (TestnetFromCi, ByteSize::mebi(100), 7, 70),
+        (TestnetFromCi, ByteSize::kibi(1), 24, 300),
+        (TestnetFromCi, ByteSize::mebi(100), 11, 86),
         // ---- Localhost ----
         (Localhost, ByteSize::kibi(1), 10, 10),
         (Localhost, ByteSize::mebi(100), 10, 10),
