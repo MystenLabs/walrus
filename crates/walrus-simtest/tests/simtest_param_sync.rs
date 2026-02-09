@@ -16,13 +16,19 @@ mod tests {
     use walrus_proc_macros::walrus_simtest;
     use walrus_service::{
         client::ClientCommunicationConfig,
-        node::config::{CommissionRateData, PathOrInPlace, StorageNodeConfig, SyncedNodeConfigSet},
+        node::config::{
+            CommissionRateData,
+            PathOrInPlace,
+            StorageNodeConfig,
+            SyncedNodeConfigSet,
+            VotingParams,
+        },
         test_utils::{SimStorageNodeHandle, TestNodesConfig, UnusedSocketAddress, test_cluster},
     };
     use walrus_simtest::test_utils::simtest_utils::{self, BlobInfoConsistencyCheck};
     use walrus_sui::{
         client::SuiContractClient,
-        types::{NetworkAddress, NodeMetadata, move_structs::VotingParams},
+        types::{NetworkAddress, NodeMetadata},
     };
     use walrus_test_utils::async_param_test;
 

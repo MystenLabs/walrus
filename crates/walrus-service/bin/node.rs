@@ -44,7 +44,7 @@ use walrus_service::{
         ConfigLoader,
         StorageNode,
         StorageNodeConfigLoader,
-        config::{self, StorageNodeConfig, defaults::REST_API_PORT},
+        config::{self, StorageNodeConfig, VotingParamsConfig, defaults::REST_API_PORT},
         dbtool::DbToolCommands,
         server::{RestApiConfig, RestApiServer},
         system_events::EventManager,
@@ -61,7 +61,6 @@ use walrus_service::{
 };
 use walrus_sui::{
     client::{SuiContractClient, rpc_config::RpcFallbackConfigArgs},
-    types::move_structs::VotingParams,
     utils::SuiNetwork,
 };
 // Define the `GIT_REVISION` and `VERSION` consts
@@ -1033,7 +1032,7 @@ mod commands {
                 certificate_path,
                 ..Default::default()
             },
-            voting_params: VotingParams {
+            voting_params: VotingParamsConfig {
                 storage_price,
                 write_price,
                 node_capacity: node_capacity.as_u64(),

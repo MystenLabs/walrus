@@ -71,7 +71,7 @@ use walrus_sui::{
         NodeRegistrationParams,
         StorageNode as SuiStorageNode,
         StorageNodeCap,
-        move_structs::{EpochState, EventBlob, NodeMetadata, VotingParams},
+        move_structs::{EpochState, EventBlob, NodeMetadata},
     },
 };
 use walrus_test_utils::WithTempDir;
@@ -112,6 +112,7 @@ use crate::{
             NodeRecoveryConfig,
             ShardSyncConfig,
             StorageNodeConfig,
+            VotingParamsConfig,
             defaults,
         },
         consistency_check::StorageNodeConsistencyCheckConfig,
@@ -1847,6 +1848,15 @@ impl SystemContractService for StubContractService {
     async fn flush_cache(&self) {
         // No-op
     }
+
+    async fn update_price_votes(
+        &self,
+        _node_capability_object_id: ObjectID,
+        _storage_price: u64,
+        _write_price: u64,
+    ) -> anyhow::Result<()> {
+        anyhow::bail!("stub service cannot update price votes")
+    }
 }
 
 /// Specifies what kind of IP address to use when looking for an unused socket address.
@@ -2644,6 +2654,18 @@ where
     async fn flush_cache(&self) {
         self.as_ref().inner.flush_cache().await;
     }
+
+    async fn update_price_votes(
+        &self,
+        node_capability_object_id: ObjectID,
+        storage_price: u64,
+        write_price: u64,
+    ) -> anyhow::Result<()> {
+        self.as_ref()
+            .inner
+            .update_price_votes(node_capability_object_id, storage_price, write_price)
+            .await
+    }
 }
 
 /// Returns a test-committee with members with the specified number of shards ehortach.
@@ -3281,7 +3303,7 @@ pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
             pending_sliver_cache: Default::default(),
             disable_event_blob_writer: false,
             commission_rate: 0,
-            voting_params: VotingParams {
+            voting_params: VotingParamsConfig {
                 storage_price: 5,
                 write_price: 1,
                 node_capacity: 1_000_000_000,

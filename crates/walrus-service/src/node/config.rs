@@ -56,6 +56,32 @@ use crate::{
     },
 };
 
+/// The voting parameters for the storage node configuration.
+///
+/// This is a local configuration struct that mirrors the on-chain [`VotingParams`][onchain]
+/// but is decoupled from it for configuration purposes.
+///
+/// [onchain]: walrus_sui::types::move_structs::VotingParams
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VotingParamsConfig {
+    /// Voting: storage price for the next epoch.
+    pub storage_price: u64,
+    /// Voting: write price for the next epoch.
+    pub write_price: u64,
+    /// Voting: node capacity for the next epoch.
+    pub node_capacity: u64,
+}
+
+impl From<VotingParams> for VotingParamsConfig {
+    fn from(params: VotingParams) -> Self {
+        Self {
+            storage_price: params.storage_price,
+            write_price: params.write_price,
+            node_capacity: params.node_capacity,
+        }
+    }
+}
+
 /// Configuration for the config synchronizer.
 #[serde_as]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -160,7 +186,7 @@ pub struct StorageNodeConfig {
     #[serde(default = "defaults::commission_rate")]
     pub commission_rate: u16,
     /// The parameters for the staking pool.
-    pub voting_params: VotingParams,
+    pub voting_params: VotingParamsConfig,
     /// Metadata of the storage node.
     #[serde(default, skip_serializing_if = "defaults::is_default")]
     pub metadata: NodeMetadata,
@@ -281,7 +307,7 @@ impl StorageNodeConfig {
                 ..Default::default()
             },
             commission_rate: 0,
-            voting_params: VotingParams {
+            voting_params: VotingParamsConfig {
                 storage_price: 5,
                 write_price: 1,
                 node_capacity: 1_000_000_000,
@@ -396,7 +422,7 @@ impl Default for StorageNodeConfig {
             },
             disable_event_blob_writer: Default::default(),
             commission_rate: defaults::commission_rate(),
-            voting_params: VotingParams {
+            voting_params: VotingParamsConfig {
                 storage_price: defaults::storage_price(),
                 write_price: defaults::write_price(),
                 node_capacity: 250_000_000_000,
@@ -706,7 +732,7 @@ pub struct SyncedNodeConfigSet {
     pub next_public_key: Option<PublicKey>,
     /// The voting parameters of the storage node, it corresponds to
     /// `[StorageNodeConfig::voting_params]`.
-    pub voting_params: VotingParams,
+    pub voting_params: VotingParamsConfig,
     /// The metadata of the storage node, it corresponds to `[StorageNodeConfig::metadata]`.
     pub metadata: NodeMetadata,
     /// The commission rate data for the storage node.
@@ -2114,7 +2140,7 @@ mod tests {
 
     // Test data setup functions
     fn create_test_config() -> StorageNodeConfig {
-        let new_voting_params = VotingParams {
+        let new_voting_params = VotingParamsConfig {
             storage_price: 150,
             write_price: 250,
             node_capacity: 2000,
@@ -2165,7 +2191,7 @@ mod tests {
 
         // Test 2: All fields need updating
         let old_network_keypair = NetworkKeyPair::generate();
-        let old_voting_params = VotingParams {
+        let old_voting_params = VotingParamsConfig {
             storage_price: 100,
             write_price: 200,
             node_capacity: 1000,
@@ -2320,7 +2346,7 @@ mod tests {
             network_key_pair: PathOrInPlace::InPlace(test_utils::network_key_pair()),
             public_host: "localhost".to_string(),
             public_port: 9185,
-            voting_params: VotingParams {
+            voting_params: VotingParamsConfig {
                 storage_price: 100,
                 write_price: 2000,
                 node_capacity: 250_000_000,
