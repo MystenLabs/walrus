@@ -732,6 +732,7 @@ pub async fn create_storage_node_configs(
                 storage_price: node.storage_price,
                 write_price: node.write_price,
                 node_capacity: node.node_capacity,
+                stable_pricing_config: None,
             },
             metrics_push: None,
             metadata: Default::default(),

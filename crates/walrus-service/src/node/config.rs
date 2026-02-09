@@ -56,6 +56,18 @@ use crate::{
     },
 };
 
+/// Configuration for stable pricing votes.
+///
+/// When enabled, these prices are used as the node's vote for stable pricing
+/// instead of the regular `storage_price` and `write_price` fields.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StablePricingConfig {
+    /// The storage price vote for stable pricing.
+    pub storage_price: u64,
+    /// The write price vote for stable pricing.
+    pub write_price: u64,
+}
+
 /// The voting parameters for the storage node configuration.
 ///
 /// This is a local configuration struct that mirrors the on-chain [`VotingParams`][onchain]
@@ -70,6 +82,9 @@ pub struct VotingParamsConfig {
     pub write_price: u64,
     /// Voting: node capacity for the next epoch.
     pub node_capacity: u64,
+    /// Optional stable pricing configuration.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stable_pricing_config: Option<StablePricingConfig>,
 }
 
 impl From<VotingParams> for VotingParamsConfig {
@@ -78,6 +93,7 @@ impl From<VotingParams> for VotingParamsConfig {
             storage_price: params.storage_price,
             write_price: params.write_price,
             node_capacity: params.node_capacity,
+            stable_pricing_config: None,
         }
     }
 }
@@ -311,6 +327,7 @@ impl StorageNodeConfig {
                 storage_price: 5,
                 write_price: 1,
                 node_capacity: 1_000_000_000,
+                stable_pricing_config: None,
             },
             config_synchronizer: ConfigSynchronizerConfig {
                 interval: Duration::from_secs(5),
@@ -426,6 +443,7 @@ impl Default for StorageNodeConfig {
                 storage_price: defaults::storage_price(),
                 write_price: defaults::write_price(),
                 node_capacity: 250_000_000_000,
+                stable_pricing_config: None,
             },
             name: Default::default(),
             metrics_push: None,
@@ -2144,6 +2162,7 @@ mod tests {
             storage_price: 150,
             write_price: 250,
             node_capacity: 2000,
+            stable_pricing_config: None,
         };
         let new_metadata = NodeMetadata::new(
             "https://new-image.com".to_string(),
@@ -2195,6 +2214,7 @@ mod tests {
             storage_price: 100,
             write_price: 200,
             node_capacity: 1000,
+            stable_pricing_config: None,
         };
         let old_metadata = NodeMetadata::new(
             "https://old-image.com".to_string(),
@@ -2350,6 +2370,7 @@ mod tests {
                 storage_price: 100,
                 write_price: 2000,
                 node_capacity: 250_000_000,
+                stable_pricing_config: None,
             },
             ..Default::default()
         };
@@ -2386,5 +2407,52 @@ mod tests {
         file.write_all(ProtocolKeyPair::generate().to_base64().as_bytes())?;
 
         Ok(())
+    }
+
+    #[test]
+    fn voting_params_config_backward_compatibility() {
+        // Test that existing configs without stable_pricing_config can still be deserialized
+        let yaml_without_stable_pricing = indoc! {"
+            storage_price: 100
+            write_price: 200
+            node_capacity: 1000000
+        "};
+
+        let config: VotingParamsConfig =
+            serde_yaml::from_str(yaml_without_stable_pricing).expect("should deserialize");
+        assert_eq!(config.storage_price, 100);
+        assert_eq!(config.write_price, 200);
+        assert_eq!(config.node_capacity, 1000000);
+        assert_eq!(config.stable_pricing_config, None);
+
+        // Test that configs with stable_pricing_config can be deserialized
+        let yaml_with_stable_pricing = indoc! {"
+            storage_price: 100
+            write_price: 200
+            node_capacity: 1000000
+            stable_pricing_config:
+              storage_price: 50
+              write_price: 75
+        "};
+
+        let config: VotingParamsConfig =
+            serde_yaml::from_str(yaml_with_stable_pricing).expect("should deserialize");
+        assert_eq!(config.storage_price, 100);
+        assert_eq!(config.write_price, 200);
+        assert_eq!(config.node_capacity, 1000000);
+        assert!(config.stable_pricing_config.is_some());
+        let stable = config.stable_pricing_config.unwrap();
+        assert_eq!(stable.storage_price, 50);
+        assert_eq!(stable.write_price, 75);
+
+        // Test that serializing without stable_pricing_config doesn't include it
+        let config_without = VotingParamsConfig {
+            storage_price: 100,
+            write_price: 200,
+            node_capacity: 1000000,
+            stable_pricing_config: None,
+        };
+        let serialized = serde_yaml::to_string(&config_without).expect("should serialize");
+        assert!(!serialized.contains("stable_pricing_config"));
     }
 }

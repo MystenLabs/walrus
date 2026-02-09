@@ -378,6 +378,7 @@ mod tests {
                 storage_price: 150,
                 write_price: 2300,
                 node_capacity: 251_000_000,
+                stable_pricing_config: None,
             },
             metadata: Default::default(),
             commission_rate_data: Default::default(),

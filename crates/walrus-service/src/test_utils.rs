@@ -3307,6 +3307,7 @@ pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
                 storage_price: 5,
                 write_price: 1,
                 node_capacity: 1_000_000_000,
+                stable_pricing_config: None,
             },
             public_host: rest_api_address.ip().to_string(),
             public_port: rest_api_address.port(),

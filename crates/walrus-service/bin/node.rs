@@ -1036,6 +1036,7 @@ mod commands {
                 storage_price,
                 write_price,
                 node_capacity: node_capacity.as_u64(),
+                stable_pricing_config: None,
             },
             commission_rate,
             name,
