@@ -134,6 +134,15 @@ pub trait SystemContractService: std::fmt::Debug + Sync + Send {
 
     /// Flushes any cached data to ensure that the next requests are not affected by stale data.
     async fn flush_cache(&self);
+
+    /// Updates the storage and write price votes for a storage node and applies the new system
+    /// prices.
+    async fn update_price_votes(
+        &self,
+        node_capability_object_id: ObjectID,
+        storage_price: u64,
+        write_price: u64,
+    ) -> anyhow::Result<()>;
 }
 
 walrus_utils::metrics::define_metric_set! {
@@ -643,6 +652,20 @@ impl SystemContractService for SuiSystemContractService {
 
     async fn flush_cache(&self) {
         self.read_client.flush_cache().await;
+    }
+
+    async fn update_price_votes(
+        &self,
+        node_capability_object_id: ObjectID,
+        storage_price: u64,
+        write_price: u64,
+    ) -> anyhow::Result<()> {
+        self.contract_tx_client
+            .lock()
+            .await
+            .update_prices(node_capability_object_id, storage_price, write_price)
+            .await
+            .context("failed to update price votes")
     }
 }
 

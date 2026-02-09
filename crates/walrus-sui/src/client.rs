@@ -1211,6 +1211,23 @@ impl SuiContractClient {
         .await
     }
 
+    /// Updates the storage and write prices for a storage node and applies the new system prices.
+    pub async fn update_prices(
+        &self,
+        node_capability_object_id: ObjectID,
+        storage_price: u64,
+        write_price: u64,
+    ) -> SuiClientResult<()> {
+        self.retry_on_wrong_version(|| async {
+            self.inner
+                .lock()
+                .await
+                .update_prices(node_capability_object_id, storage_price, write_price)
+                .await
+        })
+        .await
+    }
+
     /// Collects the commission for the pool with id `node_id` and returns the
     /// withdrawn amount in FROST.
     pub async fn collect_commission(&self, node_id: ObjectID) -> SuiClientResult<u64> {
@@ -2701,6 +2718,37 @@ impl SuiContractClientInner {
         pt_builder.apply_system_prices()?;
         let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
         self.sign_and_send_transaction(transaction, "apply_system_prices")
+            .await?;
+        Ok(())
+    }
+
+    /// Updates the storage and write prices for a storage node and applies the new system prices.
+    pub async fn update_prices(
+        &mut self,
+        node_capability_object_id: ObjectID,
+        storage_price: u64,
+        write_price: u64,
+    ) -> SuiClientResult<()> {
+        let wallet_address = self.wallet.active_address();
+
+        tracing::debug!(
+            ?wallet_address,
+            storage_price,
+            write_price,
+            "updating prices"
+        );
+
+        let mut pt_builder = self.transaction_builder();
+        let storage_node_cap = node_capability_object_id.into();
+        pt_builder
+            .update_storage_price(&storage_node_cap, storage_price)
+            .await?;
+        pt_builder
+            .update_write_price(&storage_node_cap, write_price)
+            .await?;
+        pt_builder.apply_system_prices()?;
+        let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
+        self.sign_and_send_transaction(transaction, "update_prices")
             .await?;
         Ok(())
     }

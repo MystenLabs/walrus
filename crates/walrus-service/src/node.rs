@@ -877,6 +877,8 @@ impl StorageNode {
             Some(WalPriceMonitor::start(
                 config.wal_price_monitor.clone(),
                 metrics.clone(),
+                contract_service.clone(),
+                node_capability.id,
             ))
         } else {
             None
