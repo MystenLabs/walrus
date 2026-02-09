@@ -1,36 +1,48 @@
 ---
-title: Publishing a Walrus Site
-description: "Tutorial for publishing your first Walrus Site using the site-builder tool with example projects."
-keywords: ["walrus sites", "publishing", "deployment", "site builder", "tutorial", "walrus snake", "examples"]
+title: Deploying a Walrus Site
+description: "Tutorial for publishing, viewing, and updating your first Walrus Site using the site-builder tool with example projects."
+keywords: ["walrus sites", "publishing", "deployment", "view", "update", "site builder", "tutorial", "walrus snake", "examples"]
 ---
 
-{/* https://linear.app/mysten-labs/issue/DOCS-665/sitesgetting-startedpublishing-your-first-site */}
+The `site-builder` uploads your web framework's output directory to Walrus and stores the metadata on Sui. Your directory needs an `index.html` file at the root to serve as the entry point. You can find various examples in the [Walrus Sites example repository](https://github.com/MystenLabs/example-walrus-sites).
 
-The `site-builder` works by uploading a directory of files produced by any web framework to Walrus and adding the relevant metadata to Sui. This directory should have a file called `index.html` in its root, which is the entry point to the Walrus Site. The [example Walrus sites](https://github.com/MystenLabs/example-walrus-sites) repository contains multiple kinds of sites that you can use for reference.
+To learn the basics of publishing and updating a Walrus Site, deploy the `walrus-snake` game from the example repository.
 
-Start by publishing the site for the `walrus-snake` game.
+## Clone and deploy `walrus-snake`
 
-First, clone the repository of the examples:
+<Tabs>
+<TabItem value="prereq" label="Prerequisites">
+
+- [x] [Install and configure Walrus](/docs/getting-started/index).
+
+- [x] [Install and configure the `site-builder`](/docs/sites/getting-started/installing-the-site-builder).
+
+</TabItem>
+</Tabs>
+
+First, clone the Walrus Sites example repository:
 
 ```sh
 $ git clone https://github.com/MystenLabs/example-walrus-sites.git && cd example-walrus-sites
 ```
 
-Since the `walrus` and `site-builder` binaries and configuration are placed in their default locations, deploying the `./walrus-snake` site is as simple as calling again the deploy command:
+Since the `walrus` and `site-builder` binaries and configuration files are placed in their default locations, you can immediately use the [`deploy` command](/docs/sites/getting-started/using-the-site-builder#deploy) to publish the `./walrus-snake` site:
 
 ```sh
 $ site-builder --context=testnet deploy ./walrus-snake --epochs 1
 ```
 
-Depending on the network, the duration of an epoch might vary. Currently on Walrus Testnet, the duration of an epoch is 1 day. On Mainnet, the duration of an epoch is 2 weeks.
+Depending on the network, the duration of an epoch might vary. Visit the official [Walrus network release schedule](https://www.walrus.xyz/network-release-schedule) to view the most up-to-date epoch duration details.
 
-After deploying, how you access your site depends on which network you used:
+## View your deployed site
 
-- **Mainnet sites**: Can be accessed through any mainnet portal. https://wal.app serves Walrus Sites on mainnet by resolving SuiNS names that point to them.
+How you access your site depends on which network you used:
 
-- **Testnet sites**: Can be accessed through any testnet portal. Walrus Foundation does not operate a testnet portal. You can [self-host or run one locally](/docs/sites/portals/deploy-locally).
+- **Mainnet sites**: Can be accessed through any Mainnet portal. https://wal.app serves Walrus Sites on Mainnet by resolving SuiNS names that point to them.
 
-The end of the output should look like the following:
+- **Testnet sites**: Can be accessed through any Testnet portal. Walrus Foundation does not operate a Testnet portal. You can [self-host or run one locally](/docs/sites/portals/deploy-locally).
+
+The console output at the end of a successful Walrus Sites deployment should look like the following:
 
 ```sh
 Execution completed
@@ -56,19 +68,23 @@ New site object ID: 0x617221edd060dafb4070b73160ebf535e1516bf7f246890ed35190eba7
             or find third-party hosted testnet portals.
 ```
 
-Keep in mind that option 2 is only available on `mainnet`. For testnet sites, use option 1; see the [portal setup guide](/docs/sites/portals/deploy-locally) for instructions.
+:::info
 
-This output tells you that, for each file in the folder, a new Walrus quilt was created with a respective quilt ID. Further, it prints the object ID of the Walrus Site object on Sui so you can look in an explorer and use it to set the SuiNS name. Finally, the URL at which you can browse the site is displayed. The `deploy` command also saves this new site object ID to the `ws-resources.json`.
+The local development (option 1) link is for Testnet sites, and requires a self-hosted or local portal. The public sharing (option 2) link is only available on Mainnet.
 
-Here the default `sites-config.yaml` is implicitly used as the config for the `site-builder` that was set up previously in the [installation section](/docs/sites/getting-started/installing-the-site-builder). The configuration file is necessary to ensure that the `site-builder` knows the correct Sui package for the Walrus Sites logic.
+:::
 
-More details on the configuration of the `site-builder` can be found under the [advanced configuration](/docs/sites/getting-started/configuration-file-reference) section.
+This output tells you that, for each file in the folder, a new [Walrus quilt](/docs/system-overview/quilt) was created with a respective quilt ID. It also prints the Walrus Site object ID on Sui, which you can use to view the site in an explorer and link to a SuiNS name. Finally, the URL at which you can browse the site is displayed. The `deploy` command also saves this new site object ID to the `ws-resources.json`.
+
+Here the default `sites-config.yaml` is implicitly used as the config for the `site-builder` that was set up in the [installation guide](/docs/sites/getting-started/installing-the-site-builder). The configuration file is necessary to ensure that the `site-builder` knows the correct Sui package for the Walrus Sites logic.
+
+More details on the configuration of the `site-builder` can be found in the [advanced configuration](/docs/sites/getting-started/configuration-file-reference) section.
 
 ## Update the site
 
-If you want to update the content of the site, for example by changing the title from "eat all the blobs!" to "Glob all the Blobs!", first, make this text edit in the `./walrus-snake/index.html` file.
+To update your site content, like changing the title from "eat all the blobs!" to "Glob all the Blobs!", make the edit in the `./walrus-snake/index.html` file.
 
-Then, you can update the existing site by running the `deploy` command again. The `deploy` command uses the site object ID stored in `ws-resources.json` from the initial deployment to identify which site to update. You do not need to specify the object ID manually:
+You can then update the existing site by running the `deploy` command again. The `deploy` command uses the site object ID stored in `ws-resources.json` from the initial deployment to identify which site to update. You do not need to specify the object ID manually:
 
 ```sh
 site-builder --context=testnet deploy --epochs 1 ./walrus-snake
@@ -105,6 +121,6 @@ Site object ID: 0x4a1be0fb330215c532d74c70d34bc35f185cc7ce025e04b9ad42bc4ac8eda5
             or find third-party hosted testnet portals.
 ```
 
-Browsing to the provided URL should reflect the change. You've updated the site.
+Browsing the provided URL should reflect any changes you have made to the site.
 
-All site resources are deleted (because they all belong to the same quilt), even those that haven't been modified. They then get re-uploaded together as a single quilt, where each resource corresponds to a quilt patch. This happens because the `site-builder` stores files on Walrus using quilts. This approach offers significant benefits, including faster upload speeds and lower storage costs, especially when uploading many small files. The only disadvantage is that you cannot update a single file within a quilt. If even a tiny file changes, the entire quilt must be re-uploaded. Upcoming versions of the `site-builder` will introduce optimizations in the storage usage between updates. [View a detailed overview of Quilts](/docs/system-overview/quilt).
+During updates, the `site-builder` removes and re-uploads all site resources together as a single quilt, even files you haven't modified. This approach offers significant benefits, including faster upload speeds and lower storage costs, especially when uploading many small files. The drawback is that you cannot update files individually; changing one file means re-uploading the entire quilt.
