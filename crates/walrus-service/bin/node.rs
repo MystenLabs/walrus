@@ -383,11 +383,29 @@ struct ConfigArgs {
     #[arg(long)]
     gas_budget: Option<u64>,
     /// Initial vote for the storage price in FROST per MiB per epoch.
+    ///
+    /// This is ignored if `--stable-storage-price` is set.
     #[arg(long, default_value_t = config::defaults::storage_price())]
     storage_price: u64,
     /// Initial vote for the write price in FROST per MiB.
+    ///
+    /// This is ignored if `--stable-write-price` is set.
     #[arg(long, default_value_t = config::defaults::write_price())]
     write_price: u64,
+    /// Stable storage price in USD per MiB per epoch.
+    ///
+    /// When set along with `--stable-write-price`, enables stable pricing mode where prices
+    /// are automatically calculated based on the current WAL token price.
+    /// Supports up to 6 decimal places.
+    #[arg(long, requires = "stable_write_price")]
+    stable_storage_price: Option<f64>,
+    /// Stable write price in USD per MiB.
+    ///
+    /// When set along with `--stable-storage-price`, enables stable pricing mode where prices
+    /// are automatically calculated based on the current WAL token price.
+    /// Supports up to 6 decimal places.
+    #[arg(long, requires = "stable_storage_price")]
+    stable_write_price: Option<f64>,
     /// The commission rate of the storage node, in basis points (1% = 100 basis points).
     #[arg(long, default_value_t = config::defaults::commission_rate())]
     commission_rate: u16,
@@ -579,6 +597,7 @@ mod commands {
         MetricsPushConfig,
         NodeRegistrationParamsForThirdPartyRegistration,
         ServiceRole,
+        StablePricingConfig,
     };
     #[cfg(not(msim))]
     use tokio::task::JoinSet;
@@ -953,6 +972,8 @@ mod commands {
             gas_budget,
             storage_price,
             write_price,
+            stable_storage_price,
+            stable_write_price,
             commission_rate,
             name,
             image_url,
@@ -1036,7 +1057,19 @@ mod commands {
                 storage_price,
                 write_price,
                 node_capacity: node_capacity.as_u64(),
-                stable_pricing_config: None,
+                stable_pricing_config: match (stable_storage_price, stable_write_price) {
+                    (Some(storage), Some(write)) => {
+                        let stable_config = StablePricingConfig {
+                            storage_price: storage,
+                            write_price: write,
+                        };
+                        stable_config
+                            .validate()
+                            .context("invalid stable pricing config")?;
+                        Some(stable_config)
+                    }
+                    _ => None,
+                },
             },
             commission_rate,
             name,

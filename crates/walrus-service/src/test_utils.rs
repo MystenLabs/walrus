@@ -1775,6 +1775,7 @@ impl SystemContractService for StubContractService {
         &self,
         _config: &StorageNodeConfig,
         _node_capability_object_id: ObjectID,
+        _wal_price: Option<f64>,
     ) -> Result<(), SyncNodeConfigError> {
         Ok(())
     }
@@ -2565,10 +2566,11 @@ where
         &self,
         config: &StorageNodeConfig,
         node_capability_object_id: ObjectID,
+        wal_price: Option<f64>,
     ) -> Result<(), SyncNodeConfigError> {
         self.as_ref()
             .inner
-            .sync_node_params(config, node_capability_object_id)
+            .sync_node_params(config, node_capability_object_id, wal_price)
             .await
     }
 

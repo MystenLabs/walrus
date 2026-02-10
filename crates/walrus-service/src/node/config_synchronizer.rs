@@ -22,6 +22,7 @@ use super::{
     config::{StorageNodeConfig, TlsConfig},
     contract_service::SystemContractService,
 };
+use crate::node::wal_price_monitor::WalPriceMonitor;
 
 /// A warning is logged when the TLS certificate expires in less than this duration.
 const CERT_EXPIRATION_WARNING_THRESHOLD: Duration = Duration::from_secs(60 * 60 * 24 * 14);
@@ -81,6 +82,7 @@ pub struct ConfigSynchronizer {
     check_interval: Duration,
     node_capability_object_id: ObjectID,
     config_loader: Option<Arc<dyn ConfigLoader>>,
+    wal_price_monitor: Option<Arc<WalPriceMonitor>>,
     metrics: ConfigSynchronizerMetrics,
 }
 
@@ -92,6 +94,7 @@ impl ConfigSynchronizer {
         check_interval: Duration,
         node_capability_object_id: ObjectID,
         config_loader: Option<Arc<dyn ConfigLoader>>,
+        wal_price_monitor: Option<Arc<WalPriceMonitor>>,
         registry: &Registry,
     ) -> Self {
         Self {
@@ -100,6 +103,7 @@ impl ConfigSynchronizer {
             check_interval,
             node_capability_object_id,
             config_loader,
+            wal_price_monitor,
             metrics: ConfigSynchronizerMetrics::new(registry),
         }
     }
@@ -231,11 +235,15 @@ impl ConfigSynchronizer {
             };
 
             let config = config_loader.load_storage_node_config().await?;
+            let wal_price = match self.wal_price_monitor.as_ref() {
+                Some(monitor) => monitor.get_current_price().await,
+                None => None,
+            };
 
             tracing::debug!("config_synchronizer: syncing node params");
             if let Err(error) = self
                 .contract_service
-                .sync_node_params(&config, self.node_capability_object_id)
+                .sync_node_params(&config, self.node_capability_object_id, wal_price)
                 .await
             {
                 if matches!(
@@ -261,8 +269,12 @@ impl ConfigSynchronizer {
     pub async fn sync_node_params(&self) -> Result<(), SyncNodeConfigError> {
         if let Some(config_loader) = &self.config_loader {
             let config = config_loader.load_storage_node_config().await?;
+            let wal_price = match self.wal_price_monitor.as_ref() {
+                Some(monitor) => monitor.get_current_price().await,
+                None => None,
+            };
             self.contract_service
-                .sync_node_params(&config, self.node_capability_object_id)
+                .sync_node_params(&config, self.node_capability_object_id, wal_price)
                 .await
         } else {
             Ok(())
@@ -385,7 +397,7 @@ mod tests {
         };
 
         // Call generate_update_params() with the synced config.
-        let update_params = loaded_config.generate_update_params(&synced_config);
+        let update_params = loaded_config.generate_update_params(&synced_config, None);
 
         // Verify expected updates are generated.
         assert_eq!(update_params.name, Some("test-node".to_string()));
@@ -514,6 +526,7 @@ mod tests {
             Duration::from_secs(1),
             ObjectID::random(),
             Some(config_loader.clone()),
+            None, // wal_price_monitor
             &Registry::new(prometheus::Registry::new()),
         );
 

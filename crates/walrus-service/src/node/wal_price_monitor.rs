@@ -5,14 +5,9 @@ use std::{future::Future, pin::Pin, sync::Arc, time::Duration};
 
 use serde::{Deserialize, Serialize};
 use serde_with::{DurationSeconds, serde_as};
-use sui_types::base_types::ObjectID;
 use tokio::{sync::RwLock, task::JoinHandle};
 
-use super::contract_service::SystemContractService;
 use crate::node::metrics::NodeMetricSet;
-
-/// The threshold for price change that triggers a vote update (10%)
-const PRICE_CHANGE_THRESHOLD: f64 = 0.10;
 
 /// CoinGecko API URL for fetching WAL price
 const COINGECKO_API_URL: &str =
@@ -300,31 +295,17 @@ fn calculate_median(mut prices: Vec<f64>) -> Option<f64> {
     Some(median)
 }
 
-/// Tracks the last voted prices
-#[derive(Debug, Clone, Default)]
-struct LastVotedPrices {
-    /// Last voted storage price in USD
-    storage_price: Option<f64>,
-    /// Last voted write price in USD
-    write_price: Option<f64>,
-}
-
 /// Monitors the WAL token price periodically
 pub struct WalPriceMonitor {
     /// Current price (if available)
-    _current_price: Arc<RwLock<Option<f64>>>,
+    current_price: Arc<RwLock<Option<f64>>>,
     /// Background task handle
     task_handle: JoinHandle<()>,
 }
 
 impl WalPriceMonitor {
     /// Creates and starts a new WAL price monitor
-    pub fn start(
-        config: WalPriceMonitorConfig,
-        metrics: Arc<NodeMetricSet>,
-        contract_service: Arc<dyn SystemContractService>,
-        node_capability_object_id: ObjectID,
-    ) -> Self {
+    pub(crate) fn start(config: WalPriceMonitorConfig, metrics: Arc<NodeMetricSet>) -> Self {
         let current_price = Arc::new(RwLock::new(None));
 
         // Create the list of WAL price fetchers
@@ -341,19 +322,20 @@ impl WalPriceMonitor {
             config.check_interval
         );
 
-        let task_handle = Self::spawn_monitoring_task(
-            config,
-            current_price.clone(),
-            fetchers,
-            metrics.clone(),
-            contract_service,
-            node_capability_object_id,
-        );
+        let task_handle =
+            Self::spawn_monitoring_task(config, current_price.clone(), fetchers, metrics.clone());
 
         Self {
-            _current_price: current_price,
+            current_price,
             task_handle,
         }
+    }
+
+    /// Returns the current WAL price in USD, if available.
+    ///
+    /// This method is thread-safe and can be called from any context.
+    pub async fn get_current_price(&self) -> Option<f64> {
+        *self.current_price.read().await
     }
 
     /// Spawns the background monitoring task
@@ -362,14 +344,10 @@ impl WalPriceMonitor {
         current_price: Arc<RwLock<Option<f64>>>,
         fetchers: Vec<Box<dyn WalPriceFetcher>>,
         metrics: Arc<NodeMetricSet>,
-        contract_service: Arc<dyn SystemContractService>,
-        node_capability_object_id: ObjectID,
     ) -> JoinHandle<()> {
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(config.check_interval);
             interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-
-            let mut last_voted_prices = LastVotedPrices::default();
 
             loop {
                 interval.tick().await;
@@ -417,72 +395,11 @@ impl WalPriceMonitor {
                         .current_monitored_wal_price
                         .with_label_values(&["aggregated_price"])
                         .set(price);
-
-                    // Check if we need to vote for new prices
-                    // For now, we use the same price for both storage and write prices
-                    let should_vote = should_update_price_vote(
-                        price,
-                        last_voted_prices.storage_price,
-                    ) || should_update_price_vote(
-                        price,
-                        last_voted_prices.write_price,
-                    );
-
-                    if should_vote {
-                        // Convert USD price to the on-chain price unit (assumed to be in micro-units)
-                        // TODO: Implement proper price conversion based on the on-chain price format
-                        let price_u64 = (price * 1_000_000.0) as u64;
-
-                        tracing::info!(
-                            "Price changed by more than {}%, voting for new prices: \
-                             storage_price={}, write_price={}",
-                            PRICE_CHANGE_THRESHOLD * 100.0,
-                            price_u64,
-                            price_u64
-                        );
-
-                        match contract_service
-                            .update_price_votes(
-                                node_capability_object_id,
-                                price_u64,
-                                price_u64,
-                            )
-                            .await
-                        {
-                            Ok(()) => {
-                                tracing::info!(
-                                    "Successfully voted for new prices: storage_price={}, \
-                                     write_price={}",
-                                    price_u64,
-                                    price_u64
-                                );
-                                last_voted_prices.storage_price = Some(price);
-                                last_voted_prices.write_price = Some(price);
-                            }
-                            Err(e) => {
-                                tracing::warn!("Failed to vote for new prices: {}", e);
-                            }
-                        }
-                    }
                 } else {
                     tracing::warn!("No successful price fetches from any source");
                 }
             }
         })
-    }
-}
-
-/// Determines if we should update the price vote based on the threshold
-fn should_update_price_vote(current_price: f64, last_voted_price: Option<f64>) -> bool {
-    match last_voted_price {
-        None => true, // Always vote if we haven't voted before
-        Some(last_price) => {
-            if last_price == 0.0 {
-                return current_price != 0.0;
-            }
-            let change_ratio = (current_price - last_price).abs() / last_price;
-            change_ratio >= PRICE_CHANGE_THRESHOLD
-        }
     }
 }
 

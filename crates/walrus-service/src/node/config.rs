@@ -56,16 +56,77 @@ use crate::{
     },
 };
 
+/// Maximum number of decimal places allowed for stable pricing values.
+const MAX_STABLE_PRICE_DECIMALS: u32 = 6;
+
 /// Configuration for stable pricing votes.
 ///
 /// When enabled, these prices are used as the node's vote for stable pricing
 /// instead of the regular `storage_price` and `write_price` fields.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// The prices are specified in US dollars with at most 6 decimal places.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct StablePricingConfig {
-    /// The storage price vote for stable pricing.
-    pub storage_price: u64,
-    /// The write price vote for stable pricing.
-    pub write_price: u64,
+    /// The storage price vote for stable pricing, in US dollars.
+    pub storage_price: f64,
+    /// The write price vote for stable pricing, in US dollars.
+    pub write_price: f64,
+}
+
+impl StablePricingConfig {
+    /// Validates that the prices have at most 6 decimal places.
+    pub fn validate(&self) -> anyhow::Result<()> {
+        validate_decimal_places(self.storage_price, "storage_price")?;
+        validate_decimal_places(self.write_price, "write_price")?;
+        Ok(())
+    }
+}
+
+/// Validates that a f64 value has at most `MAX_STABLE_PRICE_DECIMALS` decimal places.
+fn validate_decimal_places(value: f64, field_name: &str) -> anyhow::Result<()> {
+    if value < 0.0 {
+        anyhow::bail!(
+            "stable_pricing_config.{} must be non-negative, got {}",
+            field_name,
+            value
+        );
+    }
+
+    // Multiply by 10^MAX_STABLE_PRICE_DECIMALS and check if it's effectively an integer
+    let multiplier = 10_f64.powi(MAX_STABLE_PRICE_DECIMALS as i32);
+    let scaled = value * multiplier;
+    let rounded = scaled.round();
+
+    // Check if the difference is significant (more than floating point epsilon)
+    if (scaled - rounded).abs() > 1e-9 {
+        anyhow::bail!(
+            "stable_pricing_config.{} has more than {} decimal places: {}",
+            field_name,
+            MAX_STABLE_PRICE_DECIMALS,
+            value
+        );
+    }
+
+    Ok(())
+}
+
+/// Calculates the price in WAL tokens given a USD price and the current WAL/USD exchange rate.
+///
+/// The `target_price_usd` is the price in US dollars, and `wal_price_usd` is the current
+/// WAL token price in USD. The result is the price in FROST (1e-9 WAL).
+fn calculate_price_in_wal(target_price_usd: f64, wal_price_usd: f64) -> u64 {
+    if wal_price_usd <= 0.0 || target_price_usd < 0.0 {
+        return 0;
+    }
+    // target_price_usd is in USD
+    // wal_price_usd is in USD per WAL
+    // Result should be in FROST (1e-9 WAL)
+    //
+    // price_in_wal = target_price_usd / wal_price_usd
+    // price_in_frost = price_in_wal * 1e9
+    //
+    // Combined: price_in_frost = (price_usd * 1e9) / wal_price_usd
+    let price_in_frost = (target_price_usd * 1_000_000_000.0) / wal_price_usd;
+    price_in_frost.round() as u64
 }
 
 /// The voting parameters for the storage node configuration.
@@ -74,7 +135,7 @@ pub struct StablePricingConfig {
 /// but is decoupled from it for configuration purposes.
 ///
 /// [onchain]: walrus_sui::types::move_structs::VotingParams
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct VotingParamsConfig {
     /// Voting: storage price for the next epoch.
     pub storage_price: u64,
@@ -476,6 +537,11 @@ impl walrus_utils::config::Config for StorageNodeConfig {
                 `garbage_collection.enable_data_deletion` to `false`"
             );
         }
+
+        if let Some(stable_pricing) = &self.voting_params.stable_pricing_config {
+            stable_pricing.validate()?;
+        }
+
         Ok(())
     }
 }
@@ -671,10 +737,56 @@ impl StorageNodeConfig {
     /// Compares the current node parameters with the passed-in parameters and generates the
     /// update params if there are any changes, so that the source of the passed-in parameters
     /// can be updated to the node parameters.
-    pub fn generate_update_params(&self, synced_config: &SyncedNodeConfigSet) -> NodeUpdateParams {
+    ///
+    /// If `wal_price` is provided and `stable_pricing_config` is set, the storage and write
+    /// prices will be calculated based on the stable pricing config and current WAL price.
+    pub fn generate_update_params(
+        &self,
+        synced_config: &SyncedNodeConfigSet,
+        wal_price: Option<f64>,
+    ) -> NodeUpdateParams {
         let local_network_public_key = self.network_key_pair().public();
         let local_public_address =
             NetworkAddress(format!("{}:{}", self.public_host, self.public_port));
+
+        // Calculate storage_price and write_price based on configuration
+        let (storage_price, write_price) = if let (Some(stable_pricing), Some(wal_price_usd)) =
+            (&self.voting_params.stable_pricing_config, wal_price)
+        {
+            // If stable pricing is configured and we have a WAL price, use it to calculate
+            // prices
+            let storage_price_in_wal =
+                calculate_price_in_wal(stable_pricing.storage_price, wal_price_usd);
+            let write_price_in_wal =
+                calculate_price_in_wal(stable_pricing.write_price, wal_price_usd);
+
+            tracing::info!(
+                wal_price_usd,
+                stable_storage_price_usd = stable_pricing.storage_price,
+                stable_write_price_usd = stable_pricing.write_price,
+                storage_price_in_wal,
+                write_price_in_wal,
+                "calculating prices based on stable pricing config"
+            );
+
+            (
+                (synced_config.voting_params.storage_price != storage_price_in_wal)
+                    .then_some(storage_price_in_wal),
+                (synced_config.voting_params.write_price != write_price_in_wal)
+                    .then_some(write_price_in_wal),
+            )
+        } else if self.voting_params.stable_pricing_config.is_none() {
+            // No stable pricing config, use the static prices from config
+            (
+                (synced_config.voting_params.storage_price != self.voting_params.storage_price)
+                    .then_some(self.voting_params.storage_price),
+                (synced_config.voting_params.write_price != self.voting_params.write_price)
+                    .then_some(self.voting_params.write_price),
+            )
+        } else {
+            // stable_pricing_config is set but no WAL price available, don't update prices
+            (None, None)
+        };
 
         NodeUpdateParams {
             name: (synced_config.name != self.name).then_some(self.name.clone()),
@@ -683,12 +795,8 @@ impl StorageNodeConfig {
             network_public_key: (&synced_config.network_public_key != local_network_public_key)
                 .then_some(local_network_public_key.clone()),
             update_public_key: None,
-            storage_price: (synced_config.voting_params.storage_price
-                != self.voting_params.storage_price)
-                .then_some(self.voting_params.storage_price),
-            write_price: (synced_config.voting_params.write_price
-                != self.voting_params.write_price)
-                .then_some(self.voting_params.write_price),
+            storage_price,
+            write_price,
             node_capacity: (synced_config.voting_params.node_capacity
                 != self.voting_params.node_capacity)
                 .then_some(self.voting_params.node_capacity),
@@ -732,7 +840,7 @@ pub struct CommissionRateData {
 ///
 /// The on-chain storage node config is updated if any parameter in this set is
 /// updated locally.
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 pub struct SyncedNodeConfigSet {
     /// The name of the storage node, it corresponds to `[StorageNodeConfig::name]`.
     pub name: String,
@@ -2138,7 +2246,7 @@ mod tests {
 
         // Run test cases
         for test_case in test_cases {
-            let result = test_config.generate_update_params(&test_case.synced_config);
+            let result = test_config.generate_update_params(&test_case.synced_config, None);
             assert_eq!(
                 result, test_case.expected_params,
                 "{}",
@@ -2431,8 +2539,8 @@ mod tests {
             write_price: 200
             node_capacity: 1000000
             stable_pricing_config:
-              storage_price: 50
-              write_price: 75
+                storage_price: 0.50
+                write_price: 0.75
         "};
 
         let config: VotingParamsConfig =
@@ -2442,8 +2550,8 @@ mod tests {
         assert_eq!(config.node_capacity, 1000000);
         assert!(config.stable_pricing_config.is_some());
         let stable = config.stable_pricing_config.unwrap();
-        assert_eq!(stable.storage_price, 50);
-        assert_eq!(stable.write_price, 75);
+        assert!((stable.storage_price - 0.50).abs() < f64::EPSILON);
+        assert!((stable.write_price - 0.75).abs() < f64::EPSILON);
 
         // Test that serializing without stable_pricing_config doesn't include it
         let config_without = VotingParamsConfig {
@@ -2454,5 +2562,369 @@ mod tests {
         };
         let serialized = serde_yaml::to_string(&config_without).expect("should serialize");
         assert!(!serialized.contains("stable_pricing_config"));
+    }
+
+    #[test]
+    fn stable_pricing_config_decimal_validation() {
+        // Valid: exactly 6 decimal places
+        let config = StablePricingConfig {
+            storage_price: 0.123456,
+            write_price: 0.654321,
+        };
+        assert!(config.validate().is_ok());
+
+        // Valid: fewer than 6 decimal places
+        let config = StablePricingConfig {
+            storage_price: 0.12,
+            write_price: 1.5,
+        };
+        assert!(config.validate().is_ok());
+
+        // Valid: whole numbers
+        let config = StablePricingConfig {
+            storage_price: 1.0,
+            write_price: 100.0,
+        };
+        assert!(config.validate().is_ok());
+
+        // Valid: zero
+        let config = StablePricingConfig {
+            storage_price: 0.0,
+            write_price: 0.0,
+        };
+        assert!(config.validate().is_ok());
+
+        // Invalid: more than 6 decimal places in storage_price
+        let config = StablePricingConfig {
+            storage_price: 0.1234567,
+            write_price: 0.5,
+        };
+        let err = config.validate().unwrap_err();
+        assert!(err.to_string().contains("storage_price"));
+        assert!(err.to_string().contains("more than 6 decimal places"));
+
+        // Invalid: more than 6 decimal places in write_price
+        let config = StablePricingConfig {
+            storage_price: 0.5,
+            write_price: 0.12345678,
+        };
+        let err = config.validate().unwrap_err();
+        assert!(err.to_string().contains("write_price"));
+        assert!(err.to_string().contains("more than 6 decimal places"));
+
+        // Invalid: negative storage_price
+        let config = StablePricingConfig {
+            storage_price: -0.5,
+            write_price: 0.5,
+        };
+        let err = config.validate().unwrap_err();
+        assert!(err.to_string().contains("storage_price"));
+        assert!(err.to_string().contains("non-negative"));
+
+        // Invalid: negative write_price
+        let config = StablePricingConfig {
+            storage_price: 0.5,
+            write_price: -0.5,
+        };
+        let err = config.validate().unwrap_err();
+        assert!(err.to_string().contains("write_price"));
+        assert!(err.to_string().contains("non-negative"));
+    }
+
+    #[test]
+    fn validate_decimal_places_edge_cases() {
+        // Test the validate_decimal_places function directly
+
+        // Exactly at the boundary (6 decimal places)
+        assert!(validate_decimal_places(0.000001, "test").is_ok());
+        assert!(validate_decimal_places(1.000001, "test").is_ok());
+        assert!(validate_decimal_places(999.999999, "test").is_ok());
+
+        // Just over the boundary (7 decimal places)
+        assert!(validate_decimal_places(0.0000001, "test").is_err());
+        assert!(validate_decimal_places(1.0000001, "test").is_err());
+
+        // Large numbers with valid decimals
+        assert!(validate_decimal_places(1000000.123456, "test").is_ok());
+
+        // Very small valid values
+        assert!(validate_decimal_places(0.000001, "test").is_ok());
+    }
+
+    #[test]
+    fn test_generate_update_params_without_stable_pricing() {
+        // Test case 1: If stable_pricing_config is not set, storage_price and write_price
+        // will be updated if the config differs from synced config
+        let config = StorageNodeConfig {
+            name: "test-node".to_string(),
+            public_host: "127.0.0.1".to_string(),
+            public_port: 9185,
+            protocol_key_pair: PathOrInPlace::InPlace(test_utils::protocol_key_pair()),
+            network_key_pair: PathOrInPlace::InPlace(test_utils::network_key_pair()),
+            voting_params: VotingParamsConfig {
+                storage_price: 200,
+                write_price: 300,
+                node_capacity: 1000,
+                stable_pricing_config: None, // No stable pricing
+            },
+            ..Default::default()
+        };
+
+        // Synced config has different prices
+        let synced_config = SyncedNodeConfigSet {
+            name: config.name.clone(),
+            network_address: NetworkAddress(format!(
+                "{}:{}",
+                config.public_host, config.public_port
+            )),
+            network_public_key: config.network_key_pair().public().clone(),
+            public_key: config.protocol_key_pair().public().clone(),
+            next_public_key: None,
+            voting_params: VotingParamsConfig {
+                storage_price: 100, // Different from config
+                write_price: 150,   // Different from config
+                node_capacity: 1000,
+                stable_pricing_config: None,
+            },
+            metadata: Default::default(),
+            commission_rate_data: Default::default(),
+        };
+
+        let result = config.generate_update_params(&synced_config, None);
+
+        // Prices should be updated to match config values
+        assert_eq!(
+            result.storage_price,
+            Some(200),
+            "storage_price should be updated when stable_pricing_config is not set"
+        );
+        assert_eq!(
+            result.write_price,
+            Some(300),
+            "write_price should be updated when stable_pricing_config is not set"
+        );
+    }
+
+    #[test]
+    fn test_generate_update_params_with_stable_pricing_no_wal_price() {
+        // Test case 2: If stable_pricing_config is set but wal_price is not set,
+        // no price updates despite synced config having different prices
+        let config = StorageNodeConfig {
+            name: "test-node".to_string(),
+            public_host: "127.0.0.1".to_string(),
+            public_port: 9185,
+            protocol_key_pair: PathOrInPlace::InPlace(test_utils::protocol_key_pair()),
+            network_key_pair: PathOrInPlace::InPlace(test_utils::network_key_pair()),
+            voting_params: VotingParamsConfig {
+                storage_price: 200,
+                write_price: 300,
+                node_capacity: 1000,
+                stable_pricing_config: Some(StablePricingConfig {
+                    storage_price: 1.0, // $1.00 USD
+                    write_price: 0.5,   // $0.50 USD
+                }),
+            },
+            ..Default::default()
+        };
+
+        // Synced config has different prices
+        let synced_config = SyncedNodeConfigSet {
+            name: config.name.clone(),
+            network_address: NetworkAddress(format!(
+                "{}:{}",
+                config.public_host, config.public_port
+            )),
+            network_public_key: config.network_key_pair().public().clone(),
+            public_key: config.protocol_key_pair().public().clone(),
+            next_public_key: None,
+            voting_params: VotingParamsConfig {
+                storage_price: 100, // Different from config
+                write_price: 150,   // Different from config
+                node_capacity: 1000,
+                stable_pricing_config: None,
+            },
+            metadata: Default::default(),
+            commission_rate_data: Default::default(),
+        };
+
+        // No WAL price provided
+        let result = config.generate_update_params(&synced_config, None);
+
+        // Prices should NOT be updated because we don't have WAL price
+        assert_eq!(
+            result.storage_price, None,
+            "storage_price should not be updated when stable_pricing_config is set but no wal_price"
+        );
+        assert_eq!(
+            result.write_price, None,
+            "write_price should not be updated when stable_pricing_config is set but no wal_price"
+        );
+    }
+
+    #[test]
+    fn test_generate_update_params_with_stable_pricing_and_wal_price() {
+        // Test case 3: If stable_pricing_config is set and wal_price is set,
+        // the updated storage/write price is based on WAL calculation,
+        // NOT local_config.storage_price and local_config.write_price
+        let config = StorageNodeConfig {
+            name: "test-node".to_string(),
+            public_host: "127.0.0.1".to_string(),
+            public_port: 9185,
+            protocol_key_pair: PathOrInPlace::InPlace(test_utils::protocol_key_pair()),
+            network_key_pair: PathOrInPlace::InPlace(test_utils::network_key_pair()),
+            voting_params: VotingParamsConfig {
+                storage_price: 999999, // This should be IGNORED when stable pricing is used
+                write_price: 888888,   // This should be IGNORED when stable pricing is used
+                node_capacity: 1000,
+                stable_pricing_config: Some(StablePricingConfig {
+                    storage_price: 1.0, // $1.00 USD
+                    write_price: 0.5,   // $0.50 USD
+                }),
+            },
+            ..Default::default()
+        };
+
+        // Synced config has different prices
+        let synced_config = SyncedNodeConfigSet {
+            name: config.name.clone(),
+            network_address: NetworkAddress(format!(
+                "{}:{}",
+                config.public_host, config.public_port
+            )),
+            network_public_key: config.network_key_pair().public().clone(),
+            public_key: config.protocol_key_pair().public().clone(),
+            next_public_key: None,
+            voting_params: VotingParamsConfig {
+                storage_price: 100,
+                write_price: 50,
+                node_capacity: 1000,
+                stable_pricing_config: None,
+            },
+            metadata: Default::default(),
+            commission_rate_data: Default::default(),
+        };
+
+        // WAL price is $0.50 USD
+        let wal_price = Some(0.50);
+        let result = config.generate_update_params(&synced_config, wal_price);
+
+        // Expected prices based on WAL calculation:
+        // storage_price: $1.00 USD / $0.50 WAL * 1e9 = 2,000,000,000 FROST
+        // write_price: $0.50 USD / $0.50 WAL * 1e9 = 1,000,000,000 FROST
+        let expected_storage_price = 2_000_000_000u64;
+        let expected_write_price = 1_000_000_000u64;
+
+        assert_eq!(
+            result.storage_price,
+            Some(expected_storage_price),
+            "storage_price should be calculated from stable_pricing_config, \
+            not config.voting_params"
+        );
+        assert_eq!(
+            result.write_price,
+            Some(expected_write_price),
+            "write_price should be calculated from stable_pricing_config, not config.voting_params"
+        );
+
+        // Verify the prices are NOT the static config values
+        assert_ne!(
+            result.storage_price,
+            Some(config.voting_params.storage_price),
+            "storage_price should NOT be the static config value"
+        );
+        assert_ne!(
+            result.write_price,
+            Some(config.voting_params.write_price),
+            "write_price should NOT be the static config value"
+        );
+    }
+
+    #[test]
+    fn test_generate_update_params_stable_pricing_no_update_when_matching() {
+        // Test that when stable pricing calculates the same price as synced, no update occurs
+        let config = StorageNodeConfig {
+            name: "test-node".to_string(),
+            public_host: "127.0.0.1".to_string(),
+            public_port: 9185,
+            protocol_key_pair: PathOrInPlace::InPlace(test_utils::protocol_key_pair()),
+            network_key_pair: PathOrInPlace::InPlace(test_utils::network_key_pair()),
+            voting_params: VotingParamsConfig {
+                storage_price: 0,
+                write_price: 0,
+                node_capacity: 1000,
+                stable_pricing_config: Some(StablePricingConfig {
+                    storage_price: 1.0, // $1.00 USD
+                    write_price: 0.5,   // $0.50 USD
+                }),
+            },
+            ..Default::default()
+        };
+
+        // With WAL at $0.50, calculated prices will be:
+        // storage: 2,000,000,000
+        // write: 1,000,000,000
+        let synced_config = SyncedNodeConfigSet {
+            name: config.name.clone(),
+            network_address: NetworkAddress(format!(
+                "{}:{}",
+                config.public_host, config.public_port
+            )),
+            network_public_key: config.network_key_pair().public().clone(),
+            public_key: config.protocol_key_pair().public().clone(),
+            next_public_key: None,
+            voting_params: VotingParamsConfig {
+                storage_price: 2_000_000_000, // Matches calculated price
+                write_price: 1_000_000_000,   // Matches calculated price
+                node_capacity: 1000,
+                stable_pricing_config: None,
+            },
+            metadata: Default::default(),
+            commission_rate_data: Default::default(),
+        };
+
+        let wal_price = Some(0.50);
+        let result = config.generate_update_params(&synced_config, wal_price);
+
+        // No updates should occur since calculated prices match synced prices
+        assert_eq!(
+            result.storage_price, None,
+            "storage_price should not be updated when calculated price matches synced"
+        );
+        assert_eq!(
+            result.write_price, None,
+            "write_price should not be updated when calculated price matches synced"
+        );
+    }
+
+    #[test]
+    fn test_calculate_price_in_wal() {
+        // Test with WAL price of $0.50
+        // If stable price is $1.00 USD and WAL is $0.50
+        // price_in_frost = (1.0 * 1e9) / 0.50 = 2,000,000,000 FROST = 2 WAL
+        assert_eq!(calculate_price_in_wal(1.0, 0.50), 2_000_000_000);
+
+        // Test with WAL price of $1.00
+        // price_in_frost = (1.0 * 1e9) / 1.00 = 1,000,000,000 FROST = 1 WAL
+        assert_eq!(calculate_price_in_wal(1.0, 1.00), 1_000_000_000);
+
+        // Test with WAL price of $0.25
+        // price_in_frost = (1.0 * 1e9) / 0.25 = 4,000,000,000 FROST = 4 WAL
+        assert_eq!(calculate_price_in_wal(1.0, 0.25), 4_000_000_000);
+
+        // Test with zero WAL price (should return 0 to avoid division by zero)
+        assert_eq!(calculate_price_in_wal(1.0, 0.0), 0);
+
+        // Test with negative WAL price (should return 0)
+        assert_eq!(calculate_price_in_wal(1.0, -0.50), 0);
+
+        // Test with negative USD price (should return 0)
+        assert_eq!(calculate_price_in_wal(-1.0, 0.50), 0);
+
+        // Test with smaller USD values
+        // $0.001 USD with WAL at $0.50 = 2,000,000 FROST
+        assert_eq!(calculate_price_in_wal(0.001, 0.50), 2_000_000);
+
+        // Test with $0.10 USD and WAL at $0.50 = 200,000,000 FROST
+        assert_eq!(calculate_price_in_wal(0.10, 0.50), 200_000_000);
     }
 }
