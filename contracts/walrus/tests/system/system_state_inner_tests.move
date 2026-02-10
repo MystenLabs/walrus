@@ -32,17 +32,17 @@ fun test_add_subsidy_uneven_distribution() {
 
     // Test adding rewards 1,001 WAL for 3 epochs ahead.
     let subsidy = mint_frost(rewards, ctx);
-    system.add_subsidy(subsidy, epochs_ahead);
+    system.add_subsidy_v2(subsidy, epochs_ahead);
 
     // Check rewards for the epochs ahead
     // The first epoch should get 2 more rewards than the others. They are the leftover_rewards.
     let first_epoch_rewards = reward_per_epoch + 2;
 
-    let rb0 = sa::rewards_balance(sa::ring_lookup_mut(system.future_accounting_mut(), 0));
+    let rb0 = sa::rewards_balance(sa::ring_lookup_mut(system.future_accounting_mut_v2(), 0));
     assert!(rb0.value() == first_epoch_rewards);
-    let rb1 = sa::rewards_balance(sa::ring_lookup_mut(system.future_accounting_mut(), 1));
+    let rb1 = sa::rewards_balance(sa::ring_lookup_mut(system.future_accounting_mut_v2(), 1));
     assert!(rb1.value() == reward_per_epoch);
-    let rb2 = sa::rewards_balance(sa::ring_lookup_mut(system.future_accounting_mut(), 2));
+    let rb2 = sa::rewards_balance(sa::ring_lookup_mut(system.future_accounting_mut_v2(), 2));
     assert!(rb2.value() == reward_per_epoch);
     system.destroy_for_testing()
 }
@@ -55,7 +55,7 @@ fun test_add_subsidy_zero_epochs_ahead_fail() {
     let subsidy = mint_frost(1000, ctx);
 
     // Test adding rewards for 0 epochs ahead (should fail)
-    system.add_subsidy(subsidy, 0);
+    system.add_subsidy_v2(subsidy, 0);
 
     abort
 }
@@ -68,12 +68,12 @@ fun add_subsidy_test(rewards: u64, epochs_ahead: u32) {
 
     // Mint the subsidy and add it to the system.
     let subsidy = mint_frost(rewards, ctx);
-    system.add_subsidy(subsidy, epochs_ahead);
+    system.add_subsidy_v2(subsidy, epochs_ahead);
 
     // Distribute the rewards across epochs.
     epochs_ahead.do!(|i| {
         let expected_reward = base_reward + if ((i as u64) < leftovers) { 1 } else { 0 };
-        let rb = sa::rewards_balance(sa::ring_lookup_mut(system.future_accounting_mut(), i));
+        let rb = sa::rewards_balance(sa::ring_lookup_mut(system.future_accounting_mut_v2(), i));
         assert_eq!(rb.value(), expected_reward);
     });
 

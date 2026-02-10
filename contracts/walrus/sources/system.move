@@ -58,7 +58,7 @@ public(package) fun set_storage_price(self: &mut System, price: u64) {
     if (self.version < V2_VERSION_START) {
         self.inner_mut_v1().set_storage_price(price);
     } else {
-        self.inner_mut_v2().set_storage_price(price);
+        self.inner_mut_v2().set_storage_price_v2(price);
     }
 }
 
@@ -68,7 +68,7 @@ public(package) fun set_write_price(self: &mut System, price: u64) {
     if (self.version < V2_VERSION_START) {
         self.inner_mut_v1().set_write_price(price);
     } else {
-        self.inner_mut_v2().set_write_price(price);
+        self.inner_mut_v2().set_write_price_v2(price);
     }
 }
 
@@ -84,18 +84,16 @@ public(package) fun advance_epoch(
     if (self.version < V2_VERSION_START) {
         self.inner_mut_v1().advance_epoch(new_committee, new_epoch_params)
     } else {
-        self.inner_mut_v2().advance_epoch(new_committee, new_epoch_params)
+        self.inner_mut_v2().advance_epoch_v2(new_committee, new_epoch_params)
     }
 }
 
 /// Extracts the balance that will be burned for the current epoch. This function is used when
 /// executing the epoch change.
 public(package) fun extract_burn_balance(self: &mut System): Balance<WAL> {
-    if (self.version < V2_VERSION_START) {
-        self.inner_mut_v1().extract_burn_balance()
-    } else {
-        self.inner_mut_v2().extract_burn_balance()
-    }
+    // Burn only supported in V2.
+    assert!(self.version >= V2_VERSION_START, EWrongVersion);
+    self.inner_mut_v2().extract_burn_balance_v2()
 }
 
 /// === Public Functions ===
@@ -110,7 +108,7 @@ public fun invalidate_blob_id(
     if (system.version < V2_VERSION_START) {
         system.inner_v1().invalidate_blob_id(signature, members_bitmap, message)
     } else {
-        system.inner_v2().invalidate_blob_id(signature, members_bitmap, message)
+        system.inner_v2().invalidate_blob_id_v2(signature, members_bitmap, message)
     }
 }
 
@@ -142,7 +140,7 @@ public fun certify_event_blob(
     } else {
         system
             .inner_mut_v2()
-            .certify_event_blob(
+            .certify_event_blob_v2(
                 cap,
                 blob_id,
                 root_hash,
@@ -166,7 +164,7 @@ public fun reserve_space(
     if (self.version < V2_VERSION_START) {
         self.inner_mut_v1().reserve_space(storage_amount, epochs_ahead, payment, ctx)
     } else {
-        self.inner_mut_v2().reserve_space(storage_amount, epochs_ahead, payment, ctx)
+        self.inner_mut_v2().reserve_space_v2(storage_amount, epochs_ahead, payment, ctx)
     }
 }
 
@@ -190,7 +188,7 @@ public fun reserve_space_for_epochs(
     } else {
         self
             .inner_mut_v2()
-            .reserve_space_for_epochs(storage_amount, start_epoch, end_epoch, payment, ctx)
+            .reserve_space_for_epochs_v2(storage_amount, start_epoch, end_epoch, payment, ctx)
     }
 }
 
@@ -224,7 +222,7 @@ public fun register_blob(
     } else {
         self
             .inner_mut_v2()
-            .register_blob(
+            .register_blob_v2(
                 storage,
                 blob_id,
                 root_hash,
@@ -249,7 +247,7 @@ public fun certify_blob(
     if (self.version < V2_VERSION_START) {
         self.inner_v1().certify_blob(blob, signature, signers_bitmap, message)
     } else {
-        self.inner_v2().certify_blob(blob, signature, signers_bitmap, message)
+        self.inner_v2().certify_blob_v2(blob, signature, signers_bitmap, message)
     }
 }
 
@@ -258,7 +256,7 @@ public fun delete_blob(self: &System, blob: Blob): Storage {
     if (self.version < V2_VERSION_START) {
         self.inner_v1().delete_blob(blob)
     } else {
-        self.inner_v2().delete_blob(blob)
+        self.inner_v2().delete_blob_v2(blob)
     }
 }
 
@@ -269,7 +267,7 @@ public fun extend_blob_with_resource(self: &System, blob: &mut Blob, extension: 
     if (self.version < V2_VERSION_START) {
         self.inner_v1().extend_blob_with_resource(blob, extension)
     } else {
-        self.inner_v2().extend_blob_with_resource(blob, extension)
+        self.inner_v2().extend_blob_with_resource_v2(blob, extension)
     }
 }
 
@@ -284,7 +282,7 @@ public fun extend_blob(
     if (self.version < V2_VERSION_START) {
         self.inner_mut_v1().extend_blob(blob, extended_epochs, payment)
     } else {
-        self.inner_mut_v2().extend_blob(blob, extended_epochs, payment)
+        self.inner_mut_v2().extend_blob_v2(blob, extended_epochs, payment)
     }
 }
 
@@ -295,7 +293,7 @@ public fun add_subsidy(system: &mut System, subsidy: Coin<WAL>, epochs_ahead: u3
     if (system.version < V2_VERSION_START) {
         system.inner_mut_v1().add_subsidy(subsidy, epochs_ahead)
     } else {
-        system.inner_mut_v2().add_subsidy(subsidy, epochs_ahead)
+        system.inner_mut_v2().add_subsidy_v2(subsidy, epochs_ahead)
     }
 }
 
@@ -305,7 +303,7 @@ public fun add_per_epoch_subsidies(system: &mut System, subsidies: vector<Balanc
     if (system.version < V2_VERSION_START) {
         system.inner_mut_v1().add_per_epoch_subsidies(subsidies)
     } else {
-        system.inner_mut_v2().add_per_epoch_subsidies(subsidies)
+        system.inner_mut_v2().add_per_epoch_subsidies_v2(subsidies)
     }
 }
 
@@ -322,7 +320,7 @@ public fun update_protocol_version(
     if (self.version < V2_VERSION_START) {
         self.inner_v1().update_protocol_version(cap, signature, members_bitmap, message)
     } else {
-        self.inner_v2().update_protocol_version(cap, signature, members_bitmap, message)
+        self.inner_v2().update_protocol_version_v2(cap, signature, members_bitmap, message)
     }
 }
 
@@ -336,9 +334,9 @@ public fun register_deny_list_update(
     deny_list_sequence: u64,
 ) {
     if (self.version < V2_VERSION_START) {
-        self.inner_mut_v1().register_deny_list_update(cap, deny_list_root, deny_list_sequence)
+        self.inner_v1().register_deny_list_update(cap, deny_list_root, deny_list_sequence)
     } else {
-        self.inner_mut_v2().register_deny_list_update(cap, deny_list_root, deny_list_sequence)
+        self.inner_v2().register_deny_list_update_v2(cap, deny_list_root, deny_list_sequence)
     }
 }
 
@@ -353,7 +351,7 @@ public fun update_deny_list(
     if (self.version < V2_VERSION_START) {
         self.inner_mut_v1().update_deny_list(cap, signature, members_bitmap, message)
     } else {
-        self.inner_mut_v2().update_deny_list(cap, signature, members_bitmap, message)
+        self.inner_mut_v2().update_deny_list_v2(cap, signature, members_bitmap, message)
     }
 }
 
@@ -367,7 +365,7 @@ public fun delete_deny_listed_blob(
     if (self.version < V2_VERSION_START) {
         self.inner_v1().delete_deny_listed_blob(signature, members_bitmap, message)
     } else {
-        self.inner_v2().delete_deny_listed_blob(signature, members_bitmap, message)
+        self.inner_v2().delete_deny_listed_blob_v2(signature, members_bitmap, message)
     }
 }
 
@@ -377,46 +375,42 @@ public fun delete_deny_listed_blob(
 /// The target must also be a current committee member. If the accumulated weight of votes
 /// against a target exceeds 2f+1 shards, the target will not receive rewards in the
 /// upcoming epoch change.
+/// Note: Slashing is only supported in V2.
 public fun vote_to_slash(self: &mut System, cap: &StorageNodeCap, target_node_id: ID) {
-    if (self.version < V2_VERSION_START) {
-        self.inner_mut_v1().vote_to_slash(cap, target_node_id)
-    } else {
-        self.inner_mut_v2().vote_to_slash(cap, target_node_id)
-    }
+    // Slashing only supported in V2.
+    assert!(self.version >= V2_VERSION_START, EWrongVersion);
+    self.inner_mut_v2().vote_to_slash(cap, target_node_id)
 }
 
 /// Returns the current slashing votes weight for a target node.
+/// Note: Returns 0 for V1 systems as slashing is not supported.
 public fun get_slashing_votes(self: &System, target_node_id: ID): u16 {
-    if (self.version < V2_VERSION_START) {
-        self.inner_v1().get_slashing_votes(target_node_id)
-    } else {
-        self.inner_v2().get_slashing_votes(target_node_id)
-    }
+    // Slashing only supported in V2.
+    assert!(self.version >= V2_VERSION_START, EWrongVersion);
+    self.inner_v2().get_slashing_votes(target_node_id)
 }
 
 /// Returns the set of node IDs that have been slashed (received 2f+1 votes).
+/// Note: Returns empty vector for V1 systems as slashing is not supported.
 public fun get_slashed_nodes(self: &System): vector<ID> {
-    if (self.version < V2_VERSION_START) {
-        self.inner_v1().get_slashed_nodes()
-    } else {
-        self.inner_v2().get_slashed_nodes()
-    }
+    // Slashing only supported in V2.
+    assert!(self.version >= V2_VERSION_START, EWrongVersion);
+    self.inner_v2().get_slashed_nodes()
 }
 
 /// Applies slashing to the rewards map. Slashed nodes have their rewards burned.
 /// Returns the modified rewards map with slashed nodes' rewards set to zero.
 /// Must be called before distributing rewards in epoch change.
+/// Note: For V1 systems, returns rewards unchanged as slashing is not supported.
 public(package) fun apply_slashing(
     self: &mut System,
     rewards: VecMap<ID, Balance<WAL>>,
     treasury: &mut ProtectedTreasury,
     ctx: &mut TxContext,
 ): VecMap<ID, Balance<WAL>> {
-    if (self.version < V2_VERSION_START) {
-        self.inner_mut_v1().apply_slashing(rewards, treasury, ctx)
-    } else {
-        self.inner_mut_v2().apply_slashing(rewards, treasury, ctx)
-    }
+    // Slashing only supported in V2.
+    assert!(self.version >= V2_VERSION_START, EWrongVersion);
+    self.inner_mut_v2().apply_slashing(rewards, treasury, ctx)
 }
 
 // === Public Accessors ===
@@ -426,7 +420,7 @@ public fun epoch(self: &System): u32 {
     if (self.version < V2_VERSION_START) {
         self.inner_v1().epoch()
     } else {
-        self.inner_v2().epoch()
+        self.inner_v2().epoch_v2()
     }
 }
 
@@ -435,7 +429,7 @@ public fun total_capacity_size(self: &System): u64 {
     if (self.version < V2_VERSION_START) {
         self.inner_v1().total_capacity_size()
     } else {
-        self.inner_v2().total_capacity_size()
+        self.inner_v2().total_capacity_size_v2()
     }
 }
 
@@ -444,7 +438,7 @@ public fun used_capacity_size(self: &System): u64 {
     if (self.version < V2_VERSION_START) {
         self.inner_v1().used_capacity_size()
     } else {
-        self.inner_v2().used_capacity_size()
+        self.inner_v2().used_capacity_size_v2()
     }
 }
 
@@ -453,7 +447,7 @@ public fun n_shards(self: &System): u16 {
     if (self.version < V2_VERSION_START) {
         self.inner_v1().n_shards()
     } else {
-        self.inner_v2().n_shards()
+        self.inner_v2().n_shards_v2()
     }
 }
 
@@ -462,7 +456,7 @@ public fun future_accounting(self: &System): &FutureAccountingRingBuffer {
     if (self.version < V2_VERSION_START) {
         self.inner_v1().future_accounting()
     } else {
-        self.inner_v2().future_accounting()
+        self.inner_v2().future_accounting_v2()
     }
 }
 
@@ -512,13 +506,13 @@ public(package) fun migrate(system: &mut System, ctx: &mut TxContext) {
 // === Internals ===
 
 /// Get a mutable reference to `SystemStateInner` from the `System`.
-fun inner_mut_v1(system: &mut System): &mut SystemStateInnerV2 {
+fun inner_mut_v1(system: &mut System): &mut SystemStateInnerV1 {
     assert!(system.version < 3, EWrongVersion);
     dynamic_field::borrow_mut(&mut system.id, VERSION)
 }
 
 /// Get an immutable reference to `SystemStateInner` from the `System`.
-public(package) fun inner_v1(system: &System): &SystemStateInnerV2 {
+public(package) fun inner_v1(system: &System): &SystemStateInnerV1 {
     assert!(system.version < 3, EWrongVersion);
     dynamic_field::borrow(&system.id, VERSION)
 }
@@ -543,7 +537,7 @@ public(package) fun committee(self: &System): &BlsCommittee {
     if (self.version < V2_VERSION_START) {
         self.inner_v1().committee()
     } else {
-        self.inner_v2().committee()
+        self.inner_v2().committee_v2()
     }
 }
 
@@ -552,7 +546,7 @@ public(package) fun committee_mut(self: &mut System): &mut BlsCommittee {
     if (self.version < V2_VERSION_START) {
         self.inner_mut_v1().committee_mut()
     } else {
-        self.inner_mut_v2().committee_mut()
+        self.inner_mut_v2().committee_mut_v2()
     }
 }
 
@@ -598,7 +592,7 @@ public fun storage_price_per_unit_size(self: &System): u64 {
     if (self.version < V2_VERSION_START) {
         self.inner_v1().storage_price_per_unit_size()
     } else {
-        self.inner_v2().storage_price_per_unit_size()
+        self.inner_v2().storage_price_per_unit_size_v2()
     }
 }
 
@@ -608,7 +602,7 @@ public fun write_price_per_unit_size(self: &System): u64 {
     if (self.version < V2_VERSION_START) {
         self.inner_v1().write_price_per_unit_size()
     } else {
-        self.inner_v2().write_price_per_unit_size()
+        self.inner_v2().write_price_per_unit_size_v2()
     }
 }
 
@@ -628,7 +622,7 @@ public fun get_system_rewards_balance(self: &mut System, epoch_in_future: u32): 
     } else {
         self
             .inner_mut_v2()
-            .future_accounting_mut()
+            .future_accounting_mut_v2()
             .ring_lookup_mut(epoch_in_future)
             .rewards_balance()
     }
