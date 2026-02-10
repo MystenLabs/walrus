@@ -1088,7 +1088,7 @@ mod tests {
     async fn test_quorum_contract_upgrade() -> anyhow::Result<()> {
         walrus_test_utils::init_tracing();
         let deploy_dir = tempfile::TempDir::new().unwrap();
-        let epoch_duration = Duration::from_secs(30);
+        let epoch_duration = Duration::from_secs(60);
         let (_sui_cluster_handle, mut walrus_cluster, client, system_ctx, _) =
             test_cluster::E2eTestSetupBuilder::new()
                 .with_deploy_directory(deploy_dir.path().to_path_buf())

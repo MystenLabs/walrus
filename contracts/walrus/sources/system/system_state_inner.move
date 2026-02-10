@@ -55,6 +55,12 @@ const EIncorrectDenyListNode: u64 = 10;
 const EInvalidResourceSize: u64 = 11;
 /// Trying to update the protocol version for an invalid start epoch.
 const EInvalidStartEpoch: u64 = 12;
+/// The node has already voted for slashing the target node.
+const EDuplicateSlashingVote: u64 = 13;
+/// Cannot vote to slash oneself.
+const ECannotSlashSelf: u64 = 14;
+/// Function is deprecated.
+const EDeprecatedFunction: u64 = 15;
 
 /// The inner object that is not present in signatures and can be versioned.
 /// V1 is the original version without slashing support (versions 1-2).
@@ -1294,6 +1300,7 @@ public(package) fun committee_mut_v2(self: &mut SystemStateInnerV2): &mut BlsCom
     &mut self.committee
 }
 
+// TODO: check if this function is used.
 public(package) fun write_price(self: &SystemStateInnerV2, write_size: u64): u64 {
     let storage_units = storage_units_from_size!(write_size);
     self.write_price_per_unit_size * storage_units
@@ -1596,11 +1603,6 @@ public(package) fun delete_deny_listed_blob_v2(
 }
 
 // === Slashing ===
-
-/// The node has already voted for slashing the target node.
-const EDuplicateSlashingVote: u64 = 13;
-/// Cannot vote to slash oneself.
-const ECannotSlashSelf: u64 = 14;
 
 /// Votes to slash a target node's reward. The voter must be a current committee member.
 /// The target must also be a current committee member. If the accumulated weight of votes

@@ -23,6 +23,7 @@ use walrus::{
 const EInvalidMigration: u64 = 0;
 /// The package version is not compatible with the system object.
 const EWrongVersion: u64 = 1;
+const EDeprecatedFunction: u64 = 2;
 
 /// Flag to indicate the version of the system.
 const VERSION: u64 = 3;
@@ -480,7 +481,11 @@ public(package) fun set_new_package_id(system: &mut System, new_package_id: ID) 
 ///
 /// This function sets the new package id and version and can be modified in future versions
 /// to migrate changes in the `system_state_inner` object if needed.
-public(package) fun migrate(system: &mut System, ctx: &mut TxContext) {
+public(package) fun migrate(system: &mut System) {
+    abort EDeprecatedFunction
+}
+
+public(package) fun migrate_v2(system: &mut System, ctx: &mut TxContext) {
     assert!(system.version < VERSION, EInvalidMigration);
 
     // Migrate the system state inner based on the old version.

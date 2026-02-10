@@ -13,6 +13,8 @@ use walrus::{display, events, staking::{Self, Staking}, system::{Self, System}, 
 const EInvalidMigration: u64 = 0;
 /// The provided upgrade cap does not belong to this package.
 const EInvalidUpgradeCap: u64 = 1;
+/// The function is deprecated and will be removed in the future.
+const EDeprecatedFunction: u64 = 2;
 
 /// The OTW to create `Publisher` and `Display` objects.
 public struct INIT has drop {}
@@ -70,9 +72,13 @@ public fun initialize_walrus(
 ///
 /// Requires the migration epoch to be set first on the staking object, which then
 /// enables the migration at the start of the next epoch.
-public fun migrate(staking: &mut Staking, system: &mut System, ctx: &mut TxContext) {
+public fun migrate(staking: &mut Staking, system: &mut System) {
+    abort EDeprecatedFunction
+}
+
+public fun migrate_v2(staking: &mut Staking, system: &mut System, ctx: &mut TxContext) {
     staking.migrate();
-    system.migrate(ctx);
+    system.migrate_v2(ctx);
     // Check that the package id and version are the same.
     assert!(staking.package_id() == system.package_id(), EInvalidMigration);
     assert!(staking.version() == system.version(), EInvalidMigration);
