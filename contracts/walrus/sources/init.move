@@ -70,9 +70,9 @@ public fun initialize_walrus(
 ///
 /// Requires the migration epoch to be set first on the staking object, which then
 /// enables the migration at the start of the next epoch.
-public fun migrate(staking: &mut Staking, system: &mut System) {
+public fun migrate(staking: &mut Staking, system: &mut System, ctx: &mut TxContext) {
     staking.migrate();
-    system.migrate();
+    system.migrate(ctx);
     // Check that the package id and version are the same.
     assert!(staking.package_id() == system.package_id(), EInvalidMigration);
     assert!(staking.version() == system.version(), EInvalidMigration);

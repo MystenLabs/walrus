@@ -6,7 +6,7 @@
 module walrus::system;
 
 use sui::{balance::Balance, coin::Coin, dynamic_field, vec_map::VecMap};
-use wal::wal::WAL;
+use wal::wal::{WAL, ProtectedTreasury};
 use walrus::{
     blob::Blob,
     bls_aggregate::BlsCommittee,
@@ -14,7 +14,7 @@ use walrus::{
     storage_accounting::FutureAccountingRingBuffer,
     storage_node::StorageNodeCap,
     storage_resource::Storage,
-    system_state_inner::{Self, SystemStateInnerV1}
+    system_state_inner::{Self, SystemStateInnerV1, SystemStateInnerV2}
 };
 
 // Error codes
@@ -25,7 +25,7 @@ const EInvalidMigration: u64 = 0;
 const EWrongVersion: u64 = 1;
 
 /// Flag to indicate the version of the system.
-const VERSION: u64 = 3;
+const VERSION: u64 = 4;
 
 /// The one and only system object.
 public struct System has key {
@@ -266,6 +266,38 @@ public fun delete_deny_listed_blob(
     self.inner().delete_deny_listed_blob(signature, members_bitmap, message)
 }
 
+// === Slashing ===
+
+/// Votes to slash a target node's reward. The voter must be a current committee member.
+/// The target must also be a current committee member. If the accumulated weight of votes
+/// against a target exceeds 2f+1 shards, the target will not receive rewards in the
+/// upcoming epoch change.
+public fun vote_to_slash(self: &mut System, cap: &StorageNodeCap, target_node_id: ID) {
+    self.inner_mut().vote_to_slash(cap, target_node_id);
+}
+
+/// Returns the current slashing votes weight for a target node.
+public fun get_slashing_votes(self: &System, target_node_id: ID): u16 {
+    self.inner().get_slashing_votes(target_node_id)
+}
+
+/// Returns the set of node IDs that have been slashed (received 2f+1 votes).
+public fun get_slashed_nodes(self: &System): vector<ID> {
+    self.inner().get_slashed_nodes()
+}
+
+/// Applies slashing to the rewards map. Slashed nodes have their rewards burned.
+/// Returns the modified rewards map with slashed nodes' rewards set to zero.
+/// Must be called before distributing rewards in epoch change.
+public(package) fun apply_slashing(
+    self: &mut System,
+    rewards: VecMap<ID, Balance<WAL>>,
+    treasury: &mut ProtectedTreasury,
+    ctx: &mut TxContext,
+): VecMap<ID, Balance<WAL>> {
+    self.inner_mut().apply_slashing(rewards, treasury, ctx)
+}
+
 // === Public Accessors ===
 
 /// Get epoch. Uses the committee to get the epoch.
@@ -313,15 +345,22 @@ public(package) fun set_new_package_id(system: &mut System, new_package_id: ID) 
 ///
 /// This function sets the new package id and version and can be modified in future versions
 /// to migrate changes in the `system_state_inner` object if needed.
-public(package) fun migrate(system: &mut System) {
+public(package) fun migrate(system: &mut System, ctx: &mut TxContext) {
     assert!(system.version < VERSION, EInvalidMigration);
 
-    // Move the old system state inner to the new version.
-    let system_state_inner: SystemStateInnerV1 = dynamic_field::remove(
-        &mut system.id,
-        system.version,
-    );
-    dynamic_field::add(&mut system.id, VERSION, system_state_inner);
+    // Migrate the system state inner based on the old version.
+    // Versions 1-2 use SystemStateInnerV1 (without slashing_votes).
+    // Version 3+ uses SystemStateInnerV2 (with slashing_votes).
+    let system_state_inner_v2 = if (system.version <= 2) {
+        // Migrate from V1 to V2: add slashing_votes field
+        let v1: SystemStateInnerV1 = dynamic_field::remove(&mut system.id, system.version);
+        system_state_inner::migrate_v1_to_v2(v1, ctx)
+    } else {
+        // Already V2, just move to new version key
+        dynamic_field::remove<u64, SystemStateInnerV2>(&mut system.id, system.version)
+    };
+
+    dynamic_field::add(&mut system.id, VERSION, system_state_inner_v2);
     system.version = VERSION;
 
     // Set the new package id.
@@ -332,13 +371,13 @@ public(package) fun migrate(system: &mut System) {
 // === Internals ===
 
 /// Get a mutable reference to `SystemStateInner` from the `System`.
-fun inner_mut(system: &mut System): &mut SystemStateInnerV1 {
+fun inner_mut(system: &mut System): &mut SystemStateInnerV2 {
     assert!(system.version == VERSION, EWrongVersion);
     dynamic_field::borrow_mut(&mut system.id, VERSION)
 }
 
 /// Get an immutable reference to `SystemStateInner` from the `System`.
-public(package) fun inner(system: &System): &SystemStateInnerV1 {
+public(package) fun inner(system: &System): &SystemStateInnerV2 {
     assert!(system.version == VERSION, EWrongVersion);
     dynamic_field::borrow(&system.id, VERSION)
 }

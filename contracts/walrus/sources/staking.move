@@ -296,6 +296,9 @@ public fun initiate_epoch_change_v2(
             staking_inner.next_epoch_params(),
         );
 
+        // Apply slashing: burn rewards for slashed nodes
+        let committee_rewards = system.apply_slashing(committee_rewards, treasury, ctx);
+
         staking_inner.initiate_epoch_change(clock, committee_rewards);
     };
 

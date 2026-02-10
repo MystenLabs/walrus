@@ -4,7 +4,7 @@
 #[allow(unused_variable, unused_mut_parameter, unused_field)]
 module walrus::system_state_inner;
 
-use sui::{balance::Balance, coin::Coin, vec_map::{Self, VecMap}};
+use sui::{balance::{Self, Balance}, coin::Coin, vec_map::{Self, VecMap}};
 use wal::wal::WAL;
 use walrus::{
     blob::{Self, Blob},
@@ -57,6 +57,7 @@ const EInvalidResourceSize: u64 = 11;
 const EInvalidStartEpoch: u64 = 12;
 
 /// The inner object that is not present in signatures and can be versioned.
+/// V1 is the original version without slashing support (versions 1-2).
 #[allow(unused_field)]
 public struct SystemStateInnerV1 has store {
     /// The current committee, with the current epoch.
@@ -83,14 +84,44 @@ public struct SystemStateInnerV1 has store {
     deny_list_sizes: ExtendedField<VecMap<ID, u64>>,
 }
 
+/// V2 adds slashing support (version 3+).
+#[allow(unused_field)]
+public struct SystemStateInnerV2 has store {
+    /// The current committee, with the current epoch.
+    committee: BlsCommittee,
+    /// Maximum capacity size for the current and future epochs.
+    /// Changed by voting on the epoch parameters.
+    total_capacity_size: u64,
+    /// Contains the used capacity size for the current epoch.
+    used_capacity_size: u64,
+    /// The price per unit size of storage.
+    storage_price_per_unit_size: u64,
+    /// The write price per unit size.
+    write_price_per_unit_size: u64,
+    /// Accounting ring buffer for future epochs.
+    future_accounting: FutureAccountingRingBuffer,
+    /// Event blob certification state
+    event_blob_certification_state: EventBlobCertificationState,
+    /// Sizes of deny lists for storage nodes. Only current committee members
+    /// can register their updates in this map. Hence, we don't expect it to bloat.
+    ///
+    /// Max number of stored entries is ~6500. If there's any concern about the
+    /// performance of the map, it can be cleaned up as a side effect of the
+    /// updates / registrations.
+    deny_list_sizes: ExtendedField<VecMap<ID, u64>>,
+    /// Slashing votes for the current epoch. Maps target node ID to a map of voter node ID to
+    /// their voting weight (number of shards). Votes are reset when apply_slashing is called.
+    slashing_votes: ExtendedField<VecMap<ID, VecMap<ID, u16>>>,
+}
+
 /// Creates an empty system state with a capacity of zero and an empty
 /// committee.
-public(package) fun create_empty(max_epochs_ahead: u32, ctx: &mut TxContext): SystemStateInnerV1 {
+public(package) fun create_empty(max_epochs_ahead: u32, ctx: &mut TxContext): SystemStateInnerV2 {
     let committee = bls_aggregate::new_bls_committee(0, vector[]);
     assert!(max_epochs_ahead <= MAX_MAX_EPOCHS_AHEAD, EInvalidMaxEpochsAhead);
     let future_accounting = storage_accounting::ring_new(max_epochs_ahead);
     let event_blob_certification_state = event_blob::create_with_empty_state();
-    SystemStateInnerV1 {
+    SystemStateInnerV2 {
         committee,
         total_capacity_size: 0,
         used_capacity_size: 0,
@@ -99,6 +130,36 @@ public(package) fun create_empty(max_epochs_ahead: u32, ctx: &mut TxContext): Sy
         future_accounting,
         event_blob_certification_state,
         deny_list_sizes: extended_field::new(vec_map::empty(), ctx),
+        slashing_votes: extended_field::new(vec_map::empty(), ctx),
+    }
+}
+
+/// Migrates SystemStateInnerV1 to SystemStateInnerV2 by adding the slashing_votes field.
+public(package) fun migrate_v1_to_v2(
+    v1: SystemStateInnerV1,
+    ctx: &mut TxContext,
+): SystemStateInnerV2 {
+    let SystemStateInnerV1 {
+        committee,
+        total_capacity_size,
+        used_capacity_size,
+        storage_price_per_unit_size,
+        write_price_per_unit_size,
+        future_accounting,
+        event_blob_certification_state,
+        deny_list_sizes,
+    } = v1;
+
+    SystemStateInnerV2 {
+        committee,
+        total_capacity_size,
+        used_capacity_size,
+        storage_price_per_unit_size,
+        write_price_per_unit_size,
+        future_accounting,
+        event_blob_certification_state,
+        deny_list_sizes,
+        slashing_votes: extended_field::new(vec_map::empty(), ctx),
     }
 }
 
@@ -111,7 +172,7 @@ public(package) fun create_empty(max_epochs_ahead: u32, ctx: &mut TxContext): Sy
 /// Note: VecMap must contain values only for the nodes from the previous
 /// committee, the `staking` part of the system relies on this assumption.
 public(package) fun advance_epoch(
-    self: &mut SystemStateInnerV1,
+    self: &mut SystemStateInnerV2,
     new_committee: BlsCommittee,
     new_epoch_params: &EpochParams,
 ): VecMap<ID, Balance<WAL>> {
@@ -188,13 +249,13 @@ public(package) fun advance_epoch(
 
 /// Extracts the balance that will be burned for the current epoch. This function is used when
 /// executing the epoch change.
-public(package) fun extract_burn_balance(self: &mut SystemStateInnerV1): Balance<WAL> {
+public(package) fun extract_burn_balance(self: &mut SystemStateInnerV2): Balance<WAL> {
     self.future_accounting.extract_burn_balance()
 }
 
 /// Allow buying a storage reservation for a given period of epochs.
 public(package) fun reserve_space(
-    self: &mut SystemStateInnerV1,
+    self: &mut SystemStateInnerV2,
     storage_amount: u64,
     epochs_ahead: u32,
     payment: &mut Coin<WAL>,
@@ -215,7 +276,7 @@ public(package) fun reserve_space(
 /// `end_epoch` (exclusive). If `start_epoch` has already passed, reserves space starting
 /// from the current epoch.
 public(package) fun reserve_space_for_epochs(
-    self: &mut SystemStateInnerV1,
+    self: &mut SystemStateInnerV2,
     storage_amount: u64,
     start_epoch: u32,
     end_epoch: u32,
@@ -245,7 +306,7 @@ public(package) fun reserve_space_for_epochs(
 /// Allow obtaining a storage reservation for a given period of epochs without
 /// payment. The epochs are provided as offsets from the current epoch.
 fun reserve_space_without_payment(
-    self: &mut SystemStateInnerV1,
+    self: &mut SystemStateInnerV2,
     storage_amount: u64,
     start_epoch_offset: u32,
     end_epoch_offset: u32,
@@ -289,7 +350,7 @@ fun reserve_space_without_payment(
 /// Processes invalid blob id message. Checks the certificate in the current
 /// committee and ensures that the epoch is correct before emitting an event.
 public(package) fun invalidate_blob_id(
-    self: &SystemStateInnerV1,
+    self: &SystemStateInnerV2,
     signature: vector<u8>,
     members_bitmap: vector<u8>,
     message: vector<u8>,
@@ -317,7 +378,7 @@ public(package) fun invalidate_blob_id(
 /// - `size` is the size of the unencoded blob.
 /// - The reserved space in `storage` must be at least the size of the encoded blob.
 public(package) fun register_blob(
-    self: &mut SystemStateInnerV1,
+    self: &mut SystemStateInnerV2,
     storage: Storage,
     blob_id: u256,
     root_hash: u256,
@@ -348,7 +409,7 @@ public(package) fun register_blob(
 /// epoch of the
 /// storage associated with it.
 public(package) fun certify_blob(
-    self: &SystemStateInnerV1,
+    self: &SystemStateInnerV2,
     blob: &mut Blob,
     signature: vector<u8>,
     signers_bitmap: vector<u8>,
@@ -368,7 +429,7 @@ public(package) fun certify_blob(
 }
 
 /// Deletes a deletable blob and returns the contained storage resource.
-public(package) fun delete_blob(self: &SystemStateInnerV1, blob: Blob): Storage {
+public(package) fun delete_blob(self: &SystemStateInnerV2, blob: Blob): Storage {
     blob.delete(self.epoch())
 }
 
@@ -376,7 +437,7 @@ public(package) fun delete_blob(self: &SystemStateInnerV1, blob: Blob): Storage 
 /// The new storage resource must be the same size as the storage resource
 /// used in the blob, and have a longer period of validity.
 public(package) fun extend_blob_with_resource(
-    self: &SystemStateInnerV1,
+    self: &SystemStateInnerV2,
     blob: &mut Blob,
     extension: Storage,
 ) {
@@ -386,7 +447,7 @@ public(package) fun extend_blob_with_resource(
 /// Extend the period of validity of a blob by extending its contained storage
 /// resource by `extended_epochs` epochs.
 public(package) fun extend_blob(
-    self: &mut SystemStateInnerV1,
+    self: &mut SystemStateInnerV2,
     blob: &mut Blob,
     extended_epochs: u32,
     payment: &mut Coin<WAL>,
@@ -427,7 +488,7 @@ public(package) fun extend_blob(
 }
 
 fun process_storage_payments(
-    self: &mut SystemStateInnerV1,
+    self: &mut SystemStateInnerV2,
     storage_size: u64,
     start_offset: u32,
     end_offset: u32,
@@ -446,7 +507,7 @@ fun process_storage_payments(
 }
 
 public(package) fun certify_event_blob(
-    self: &mut SystemStateInnerV1,
+    self: &mut SystemStateInnerV2,
     cap: &mut StorageNodeCap,
     blob_id: u256,
     root_hash: u256,
@@ -565,7 +626,7 @@ public(package) fun certify_event_blob(
 /// The rewards are split equally across the future accounting ring buffer up to the
 /// specified epoch.
 public(package) fun add_subsidy(
-    self: &mut SystemStateInnerV1,
+    self: &mut SystemStateInnerV2,
     subsidy: Coin<WAL>,
     epochs_ahead: u32,
 ) {
@@ -592,7 +653,7 @@ public(package) fun add_subsidy(
 /// Adds rewards to the system for future epochs, where `subsidies[i]` is added to the rewards
 /// of epoch `system.epoch() + i`.
 public(package) fun add_per_epoch_subsidies(
-    self: &mut SystemStateInnerV1,
+    self: &mut SystemStateInnerV2,
     subsidies: vector<Balance<WAL>>,
 ) {
     assert!(
@@ -613,81 +674,81 @@ public(package) fun add_per_epoch_subsidies(
 // === Accessors ===
 
 /// Get epoch. Uses the committee to get the epoch.
-public(package) fun epoch(self: &SystemStateInnerV1): u32 {
+public(package) fun epoch(self: &SystemStateInnerV2): u32 {
     self.committee.epoch()
 }
 
 /// Accessor for total capacity size.
-public(package) fun total_capacity_size(self: &SystemStateInnerV1): u64 {
+public(package) fun total_capacity_size(self: &SystemStateInnerV2): u64 {
     self.total_capacity_size
 }
 
 /// Accessor for used capacity size.
-public(package) fun used_capacity_size(self: &SystemStateInnerV1): u64 {
+public(package) fun used_capacity_size(self: &SystemStateInnerV2): u64 {
     self.used_capacity_size
 }
 
 /// An accessor for the current committee.
-public(package) fun committee(self: &SystemStateInnerV1): &BlsCommittee {
+public(package) fun committee(self: &SystemStateInnerV2): &BlsCommittee {
     &self.committee
 }
 
 /// Read-only access to the accounting ring buffer.
-public(package) fun future_accounting(self: &SystemStateInnerV1): &FutureAccountingRingBuffer {
+public(package) fun future_accounting(self: &SystemStateInnerV2): &FutureAccountingRingBuffer {
     &self.future_accounting
 }
 
 #[test_only]
-public(package) fun committee_mut(self: &mut SystemStateInnerV1): &mut BlsCommittee {
+public(package) fun committee_mut(self: &mut SystemStateInnerV2): &mut BlsCommittee {
     &mut self.committee
 }
 
-public(package) fun n_shards(self: &SystemStateInnerV1): u16 {
+public(package) fun n_shards(self: &SystemStateInnerV2): u16 {
     self.committee.n_shards()
 }
 
-public(package) fun write_price(self: &SystemStateInnerV1, write_size: u64): u64 {
+public(package) fun write_price(self: &SystemStateInnerV2, write_size: u64): u64 {
     let storage_units = storage_units_from_size!(write_size);
     self.write_price_per_unit_size * storage_units
 }
 
 /// Sets the storage price per unit size. Called when a price vote is cast and the quorum
 /// price is recalculated.
-public(package) fun set_storage_price(self: &mut SystemStateInnerV1, price: u64) {
+public(package) fun set_storage_price(self: &mut SystemStateInnerV2, price: u64) {
     self.storage_price_per_unit_size = price;
 }
 
 /// Sets the write price per unit size. Called when a price vote is cast and the quorum
 /// price is recalculated.
-public(package) fun set_write_price(self: &mut SystemStateInnerV1, price: u64) {
+public(package) fun set_write_price(self: &mut SystemStateInnerV2, price: u64) {
     self.write_price_per_unit_size = price;
 }
 
 #[test_only]
 /// Returns the raw storage price per unit size.
-public(package) fun storage_price_per_unit_size(self: &SystemStateInnerV1): u64 {
+public(package) fun storage_price_per_unit_size(self: &SystemStateInnerV2): u64 {
     self.storage_price_per_unit_size
 }
 
 #[test_only]
 /// Returns the raw write price per unit size.
-public(package) fun write_price_per_unit_size(self: &SystemStateInnerV1): u64 {
+public(package) fun write_price_per_unit_size(self: &SystemStateInnerV2): u64 {
     self.write_price_per_unit_size
 }
 
 #[test_only]
-public(package) fun deny_list_sizes(self: &SystemStateInnerV1): &VecMap<ID, u64> {
+public(package) fun deny_list_sizes(self: &SystemStateInnerV2): &VecMap<ID, u64> {
     self.deny_list_sizes.borrow()
 }
 
 #[test_only]
-public(package) fun deny_list_sizes_mut(self: &mut SystemStateInnerV1): &mut VecMap<ID, u64> {
+public(package) fun deny_list_sizes_mut(self: &mut SystemStateInnerV2): &mut VecMap<ID, u64> {
     self.deny_list_sizes.borrow_mut()
 }
 
 #[test_only]
 public(package) fun used_capacity_size_at_future_epoch(
-    self: &SystemStateInnerV1,
+    self: &SystemStateInnerV2,
     epochs_ahead: u32,
 ): u64 {
     self.future_accounting.ring_lookup(epochs_ahead).used_capacity()
@@ -702,7 +763,7 @@ macro fun storage_units_from_size($size: u64): u64 {
 
 /// Check quorum of committee members and emit the protocol version event.
 public(package) fun update_protocol_version(
-    self: &SystemStateInnerV1,
+    self: &SystemStateInnerV2,
     cap: &StorageNodeCap,
     signature: vector<u8>,
     members_bitmap: vector<u8>,
@@ -731,7 +792,7 @@ public(package) fun update_protocol_version(
 
 /// Announce a deny list update for a storage node.
 public(package) fun register_deny_list_update(
-    self: &SystemStateInnerV1,
+    self: &SystemStateInnerV2,
     cap: &StorageNodeCap,
     deny_list_root: u256,
     deny_list_sequence: u64,
@@ -750,7 +811,7 @@ public(package) fun register_deny_list_update(
 /// Perform the update of the deny list; register updated root and sequence in
 /// the `StorageNodeCap`.
 public(package) fun update_deny_list(
-    self: &mut SystemStateInnerV1,
+    self: &mut SystemStateInnerV2,
     cap: &mut StorageNodeCap,
     signature: vector<u8>,
     members_bitmap: vector<u8>,
@@ -796,7 +857,7 @@ public(package) fun update_deny_list(
 /// Certify that a blob is on the deny list for at least one honest node. Emit
 /// an event to mark it for deletion.
 public(package) fun delete_deny_listed_blob(
-    self: &SystemStateInnerV1,
+    self: &SystemStateInnerV2,
     signature: vector<u8>,
     members_bitmap: vector<u8>,
     message: vector<u8>,
@@ -813,16 +874,140 @@ public(package) fun delete_deny_listed_blob(
     events::emit_deny_listed_blob_deleted(epoch, message.blob_id());
 }
 
+// === Slashing ===
+
+/// The node has already voted for slashing the target node.
+const EDuplicateSlashingVote: u64 = 13;
+/// Cannot vote to slash oneself.
+const ECannotSlashSelf: u64 = 14;
+
+/// Votes to slash a target node's reward. The voter must be a current committee member.
+/// The target must also be a current committee member. If the accumulated weight of votes
+/// against a target exceeds 2f+1 shards, the target will not receive rewards in the
+/// upcoming epoch change.
+public(package) fun vote_to_slash(
+    self: &mut SystemStateInnerV2,
+    cap: &StorageNodeCap,
+    target_node_id: ID,
+) {
+    let voter_node_id = cap.node_id();
+
+    // Cannot slash yourself
+    assert!(voter_node_id != target_node_id, ECannotSlashSelf);
+
+    // Both voter and target must be in the current committee
+    assert!(self.committee.contains(&voter_node_id), ENotCommitteeMember);
+    assert!(self.committee.contains(&target_node_id), ENotCommitteeMember);
+
+    // Get voter's weight (number of shards)
+    let voter_weight = self.committee.get_member_weight(&voter_node_id);
+
+    // Record the vote
+    let slashing_votes = self.slashing_votes.borrow_mut();
+
+    if (!slashing_votes.contains(&target_node_id)) {
+        slashing_votes.insert(target_node_id, vec_map::empty());
+    };
+
+    let target_votes = &mut slashing_votes[&target_node_id];
+
+    // Check for duplicate vote
+    assert!(!target_votes.contains(&voter_node_id), EDuplicateSlashingVote);
+
+    // Record the vote
+    target_votes.insert(voter_node_id, voter_weight);
+}
+
+/// Calculates the total slashing weight for a target node.
+fun calculate_slashing_weight(votes: &VecMap<ID, u16>): u16 {
+    let mut total: u16 = 0;
+    votes.length().do!(|i| {
+        let (_, weight) = votes.get_entry_by_idx(i);
+        total = total + *weight;
+    });
+    total
+}
+
+/// Returns the slashing threshold (2f+1) for the given number of shards.
+fun slashing_threshold(n_shards: u16): u16 {
+    // 2f+1 where f = (n-1)/3, so 2f+1 = 2*(n-1)/3 + 1 = (2n-2+3)/3 = (2n+1)/3
+    // For n=1000, this is 667
+    ((2 * (n_shards as u64) + 1) / 3) as u16
+}
+
+/// Returns the set of node IDs that have been slashed (received 2f+1 votes).
+public(package) fun get_slashed_nodes(self: &SystemStateInnerV2): vector<ID> {
+    let slashing_votes = self.slashing_votes.borrow();
+    let mut slashed = vector[];
+    let slashing_threshold = slashing_threshold(self.n_shards());
+
+    slashing_votes.length().do!(|i| {
+        let (target_id, votes) = slashing_votes.get_entry_by_idx(i);
+        let total_weight = calculate_slashing_weight(votes);
+        if (total_weight >= slashing_threshold) {
+            slashed.push_back(*target_id);
+        };
+    });
+
+    slashed
+}
+
+/// Returns the current slashing votes for a target node.
+public(package) fun get_slashing_votes(self: &SystemStateInnerV2, target_node_id: ID): u16 {
+    let slashing_votes = self.slashing_votes.borrow();
+    if (!slashing_votes.contains(&target_node_id)) {
+        return 0
+    };
+    calculate_slashing_weight(&slashing_votes[&target_node_id])
+}
+
+/// Applies slashing to the rewards map. Slashed nodes have their rewards burned.
+/// Returns the modified rewards map with slashed nodes' rewards set to zero.
+/// Must be called before `advance_epoch` in staking.
+public(package) fun apply_slashing(
+    self: &mut SystemStateInnerV2,
+    rewards: VecMap<ID, Balance<WAL>>,
+    treasury: &mut wal::wal::ProtectedTreasury,
+    ctx: &mut TxContext,
+): VecMap<ID, Balance<WAL>> {
+    let slashed_nodes = self.get_slashed_nodes();
+
+    // Clear slashing votes for the next epoch
+    self.slashing_votes.swap(vec_map::empty());
+
+    // If no nodes are slashed, return rewards unchanged
+    if (slashed_nodes.is_empty()) {
+        return rewards
+    };
+
+    // Process rewards: burn slashed nodes' rewards
+    let (node_ids, rewards) = rewards.into_keys_values();
+    let mut result = vec_map::empty();
+
+    rewards.zip_do!(node_ids, |node_reward, node_id| {
+        if (slashed_nodes.contains(&node_id)) {
+            // Burn the slashed reward
+            wal::wal::burn(treasury, node_reward.into_coin(ctx));
+            // Add zero balance for this node
+            result.insert(node_id, balance::zero());
+        } else {
+            result.insert(node_id, node_reward);
+        };
+    });
+
+    result
+}
+
 // === Testing ===
 
 #[test_only]
 use walrus::test_utils;
 
 #[test_only]
-public(package) fun new_for_testing(): SystemStateInnerV1 {
+public(package) fun new_for_testing(): SystemStateInnerV2 {
     let committee = test_utils::new_bls_committee_for_testing(0);
     let ctx = &mut tx_context::dummy();
-    SystemStateInnerV1 {
+    SystemStateInnerV2 {
         committee,
         total_capacity_size: 1_000_000_000,
         used_capacity_size: 0,
@@ -831,13 +1016,14 @@ public(package) fun new_for_testing(): SystemStateInnerV1 {
         future_accounting: storage_accounting::ring_new(104),
         event_blob_certification_state: event_blob::create_with_empty_state(),
         deny_list_sizes: extended_field::new(vec_map::empty(), ctx),
+        slashing_votes: extended_field::new(vec_map::empty(), ctx),
     }
 }
 
 #[test_only]
-public(package) fun new_for_testing_with_multiple_members(ctx: &mut TxContext): SystemStateInnerV1 {
+public(package) fun new_for_testing_with_multiple_members(ctx: &mut TxContext): SystemStateInnerV2 {
     let committee = test_utils::new_bls_committee_with_multiple_members_for_testing(0, ctx);
-    SystemStateInnerV1 {
+    SystemStateInnerV2 {
         committee,
         total_capacity_size: 1_000_000_000,
         used_capacity_size: 0,
@@ -846,24 +1032,30 @@ public(package) fun new_for_testing_with_multiple_members(ctx: &mut TxContext): 
         future_accounting: storage_accounting::ring_new(104),
         event_blob_certification_state: event_blob::create_with_empty_state(),
         deny_list_sizes: extended_field::new(vec_map::empty(), ctx),
+        slashing_votes: extended_field::new(vec_map::empty(), ctx),
     }
+}
+
+#[test_only]
+public(package) fun clear_slashing_votes_for_testing(self: &mut SystemStateInnerV2) {
+    self.slashing_votes.swap(vec_map::empty());
 }
 
 #[test_only]
 public(package) fun event_blob_certification_state(
-    system: &SystemStateInnerV1,
+    system: &SystemStateInnerV2,
 ): &EventBlobCertificationState {
     &system.event_blob_certification_state
 }
 
 #[test_only]
 public(package) fun future_accounting_mut(
-    self: &mut SystemStateInnerV1,
+    self: &mut SystemStateInnerV2,
 ): &mut FutureAccountingRingBuffer {
     &mut self.future_accounting
 }
 
 #[test_only]
-public(package) fun destroy_for_testing(s: SystemStateInnerV1) {
+public(package) fun destroy_for_testing(s: SystemStateInnerV2) {
     std::unit_test::destroy(s)
 }
