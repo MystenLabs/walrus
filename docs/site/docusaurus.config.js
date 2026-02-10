@@ -197,7 +197,7 @@ const config = {
     ],
 
     scripts: [
-        '/gtm.js',
+        '/google-tag.js',
         {
       src: "https://widget.kapa.ai/kapa-widget.bundle.js",
       "data-website-id": "206d9923-4daf-4f2e-aeac-e7683daf5088",
