@@ -39,7 +39,7 @@ bcs = "0.1.6"
 bimap = "0.6.3"
 bincode = "1.3.3"
 byteorder = "1.5.0"
-bytes = { version = "1.11.0", default-features = false, features = ["serde"] }
+bytes = { version = "1.11.1", default-features = false, features = ["serde"] }
 bytesize = "2.3"
 checkpoint-downloader = { path = "crates/checkpoint-downloader" }
 chrono = "0.4"
