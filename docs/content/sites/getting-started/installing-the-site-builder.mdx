@@ -1,5 +1,5 @@
 ---
-title: Installing the Site Builder
+title: Install the Site Builder
 description: "Step-by-step guide to installing and setting up the Walrus Sites site-builder tool for development."
 keywords: ["walrus sites", "installation", "site-builder", "setup", "prerequisites", "binaries", "configuration"]
 ---
@@ -120,22 +120,85 @@ Then, install the `site-builder`:
 $ suiup install site-builder@mainnet
 ```
 
-## Configuration
+## Configuration file {#configuration}
 
-The `site-builder` tool requires the [configuration file](/docs/sites/getting-started/configuration-file-reference) `sites-config.yaml` to work properly.
+The `site-builder` tool requires a configuration file `sites-config.yaml` to specify which Sui package to use, which wallet to use, the gas budget, and other operational details. The following is an example `sites-config.yaml`:
 
-You can use `sites-config.yaml` to define different contexts and their configurations. The only required field is `package ID` as it represents the Sui object ID of the Walrus Sites smart contract. You can find the latest package ID in the [Walrus Sites repository](https://github.com/MystenLabs/walrus-sites/tree/mainnet) on the `mainnet` branch.
+```yaml
+contexts:
+  testnet:
+    # module: site
+    # portal: wal.app
+    package: 0xf99aee9f21493e1590e7e5a9aea6f343a1f381031a04a732724871fc294be799
+    staking_object: 0xbe46180321c30aab2f8b3501e24048377287fa708018a5b7c2792b35fe339ee3
+    general:
+        wallet_env: testnet
+        walrus_context: testnet # Assumes a Walrus CLI setup with a multi-config containing the "testnet" context.
+        walrus_package: 0xd84704c17fc870b8764832c535aa6b11f21a95cd6f5bb38a9b07d2cf42220c66
+        # wallet_address: 0x1234...
+        # rpc_url: https://fullnode.testnet.sui.io:443
+        # wallet: /path/to/.sui/sui_config/client.yaml
+        # walrus_binary: /path/to/walrus
+        # walrus_config: /path/to/testnet/client_config.yaml
+        # gas_budget: 500000000
+  mainnet:
+    # module: site
+    # portal: wal.app
+    package: 0x26eb7ee8688da02c5f671679524e379f0b837a12f1d1d799f255b7eea260ad27
+    staking_object: 0x10b9d30c28448939ce6c4d6c6e0ffce4a7f8a4ada8248bdad09ef8b70e4a3904
+    general:
+        wallet_env: mainnet
+        walrus_context: mainnet # Assumes a Walrus CLI setup with a multi-config containing the "mainnet" context.
+        walrus_package: 0xfdc88f7d7cf30afab2f82e8380d11ee8f70efb90e863d1de8616fae1bb09ea77
+        # wallet_address: 0x1234...
+        # rpc_url: https://fullnode.mainnet.sui.io:443
+        # wallet: /path/to/.sui/sui_config/client.yaml
+        # walrus_binary: /path/to/walrus
+        # walrus_config: /path/to/mainnet/client_config.yaml
+        # gas_budget: 500000000
 
-By default, the `site-builder` looks for the configuration file in the current directory, `$XDG_CONFIG_HOME/walrus/`, `~/.config/walrus/`, or `~/.walrus/`.
+default_context: mainnet
+```
 
-Download the `sites-config.yaml` file from the repository, and place it in one of the aforementioned default locations. For example:
+### Minimal configuration
+
+The `site-builder` expects the configuration file in one of the following default locations: 
+
+- The current directory
+- `$XDG_CONFIG_HOME/walrus/`
+- `~/.config/walrus/`
+- `~/.walrus/`
+
+For your first run, it should be sufficient to call the `site-builder` without specifying the configuration file explicitly. If you encounter errors, download the `sites-config.yaml` file from the repository, and place it in one of the aforementioned default locations. For example:
 
 ```sh
 $ curl https://raw.githubusercontent.com/MystenLabs/walrus-sites/refs/heads/mainnet/sites-config.yaml -o ~/.config/walrus/sites-config.yaml
 ```
 
-If you wish to specify a different `sites-config.yaml` location, use the `--config` flag to specify the path to the configuration file.
+Additionally, it is possible to specify a different directory by passing the `--config` flag to the `site-builder` command. 
 
 ```sh
-$ site-builder --config /path/to/sites-config.yaml publish <build-directory-of-a-site>
+$ site-builder --config /path/to/sites-config.yaml deploy <build-directory-of-a-site>
 ```
+
+If, for any reason, you did not add `walrus` to `$PATH`, make sure to configure a pointer to the binary.
+
+### Additional options
+
+If you want to have more control over the behavior of the `site-builder`, you can customize the following variables in the configuration file:
+
+- `package`: The object ID of the Walrus Sites package on Sui. This is always required, and is already appropriately configured in `./sites-config.yaml`. You can find the latest package ID in the [Walrus Sites repository](https://github.com/MystenLabs/walrus-sites/tree/mainnet) on the Mainnet branch.
+
+- `portal` (default: `wal.app`): The name of the portal through which you view the site. This only affects the output of the CLI and nothing else. All Walrus Sites are accessible through any portal independent of this setting.
+
+- `general`: These are general options that can be configured both through the CLI and the configuration file.
+
+  - `rpc_url`: The URL of the Sui RPC node to use. If not set, the `site-builder` infers it from the wallet.
+
+  - `wallet` (default: uses the system-wide wallet from `sui client addresses`): Pointer to the Sui wallet to be used.
+
+  - `walrus_binary` (default: runs from `$PATH`): Pointer to the `walrus` binary.
+
+  - `walrus_config`: The configuration for the `walrus` client binary.
+
+  - `gas_budget` (default: 500M MIST): The maximum amount of gas to spend for transactions.
