@@ -1,0 +1,33 @@
+{/* https://linear.app/mysten-labs/issue/DOCS-634/system-overviewsui-object-and-blob-ids */}
+
+## Use Sui object and blob ID utilities
+
+The command `walrus blob-id <FILE>` can be used to derive the blob ID of any file. The blob ID is a commitment to the file, and any blob with the same ID decodes to the same content. The blob ID is a 256 bit number and represented on some Sui explorers as a decimal large number. The command `walrus convert-blob-id <BLOB_ID_DECIMAL>` can be used to convert it to a base64 URL to be used by the command line tools and other APIs.
+
+The `walrus list-blobs` command lists all non-expired Sui objects that the current account owns, including their blob ID, object ID, and metadata about expiration and deletable status. The option `--include-expired` also lists expired Sui objects.
+
+The Sui storage cost associated with Sui objects can be reclaimed by burning the Sui object. This does not lead to the Walrus blob being deleted, but means that operations such as extending its lifetime, deleting it, or modifying attributes are not available. The `walrus burn-blobs --object-ids <SUI_OBJ_IDS>` command can be used to burn a specific list of Sui object IDs. The `--all` flag burns the Sui objects for all blobs under the user account, and `--all-expired` burns all expired blobs under the user account.
+
+## Manage blob attributes
+
+Walrus allows a set of key-value attribute pairs to be associated with a Sui object. While the keys and their values can be arbitrary strings to accommodate any needs, specific keys are converted to HTTP headers when serving blobs through aggregators. Each aggregator can decide which headers it allows through the `--allowed-headers` CLI option. The defaults can be viewed through `walrus aggregator --help`.
+
+The following command sets attributes `key1` and `key2` to values `value1` and `value2`, respectively. The command `walrus get-blob-attribute <SUI_OBJ_ID>` returns all attributes associated with a blob ID. 
+
+```sh
+$ walrus set-blob-attribute <SUI_OBJ_ID> --attr "key1" "value1" --attr "key2" "value2"
+```
+
+The following command deletes the attributes with keys listed, separated by commas or spaces. All attributes of a Sui object can be deleted by the command `walrus remove-blob-attribute <SUI_OBJ_ID>`.
+
+```sh
+$ walrus remove-blob-attribute-fields <SUI_OBJ_ID> --keys "key1,key2"
+```
+
+Attributes are associated with Sui object IDs rather than the blob themselves on Walrus. This means that the gas for storage is reclaimed by deleting attributes and that the same blob contents can have different attributes for different Sui objects for the same blob ID.
+
+## Change the default configuration
+
+Use the `--config` option to specify a custom path to the [configuration location](/docs/getting-started/advanced-setup#configuration).
+
+The `--wallet <WALLET>` argument can be used to specify a non-standard Sui wallet configuration file and a `--gas-budget <GAS_BUDGET>` argument can be used to change the maximum amount of Sui (in MIST) that the command is allowed to use.

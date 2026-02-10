@@ -1,0 +1,29 @@
+{/* https://linear.app/mysten-labs/issue/DOCS-670/sitesconfigurationconfiguration-file-reference */} 
+
+The `site-builder` tool requires a configuration file to know which package to use on Sui, which wallet to use, the gas budget, and other operational details. Most of these are abstracted away through sensible defaults, so you should not need to touch them. Yet, for completeness, this document provides the details for all the configuration options.
+
+## Minimal configuration
+
+The configuration file is expected to be in one of the [default locations](/docs/getting-started/advanced-setup#config-custom-path), however it is possible to point elsewhere by passing the `--config` flag to the `site-builder` command. For your first run, it should be sufficient to call the `site-builder` without specifying the configuration file explicitly, which is already configured if you followed thoroughly the [installation steps](/docs/sites/getting-started/installing-the-site-builder#configuration).
+
+If, for any reason, you didn't add `walrus` to `$PATH`, make sure to configure a pointer to the binary.
+
+## Additional options
+
+If you want to have more control over the behavior of the `site-builder`, you can customize the following variables in the configuration file:
+
+- `package`: The object ID of the Walrus Sites package on Sui. This must always be specified in the config, and is already appropriately configured in `./sites-config.yaml`. From time to time there are package upgrades requiring you to update this `package` field.
+
+- `portal`: (default: `wal.app`): The name of the portal through which the site is viewed. This only affects the output of the CLI and nothing else. All Walrus Sites are accessible through any portal independent of this setting.
+
+- `general`: These are general options that can be configured both through the CLI and the configuration.
+
+  - `rpc_url`: The URL of the Sui RPC node to use. If not set, the `site-builder` infers it from the wallet.
+
+  - `wallet`: (default: uses the system-wide wallet from `sui client addresses`): Pointer to the Sui wallet to be used. By 
+
+  - `walrus_binary`: (default: expected to be run from `$PATH`): Pointer to the `walrus` binary.
+
+  - `walrus_config`: The configuration for the `walrus` client binary.
+
+  - `gas_budget`: (default: 500M MIST): The maximum amount of gas to be spent for transactions
