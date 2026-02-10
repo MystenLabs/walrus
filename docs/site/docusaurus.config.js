@@ -42,7 +42,7 @@ const config = {
     // projectName: 'Walrus',
 
     onBrokenLinks: "throw",
-    onBrokenMarkdownLinks: "warn",
+    onBrokenMarkdownLinks: "throw",
 
     // Even if you don't use internationalization, you can use this field to set
     // useful metadata like html lang. For example, if your site is Chinese, you
@@ -197,6 +197,7 @@ const config = {
     ],
 
     scripts: [
+        '/gtm.js',
         {
       src: "https://widget.kapa.ai/kapa-widget.bundle.js",
       "data-website-id": "206d9923-4daf-4f2e-aeac-e7683daf5088",

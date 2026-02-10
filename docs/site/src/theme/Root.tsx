@@ -183,5 +183,20 @@ export default function Root({ children }: { children: React.ReactNode }) {
         };
     }, []);
 
-    return <GlossaryProvider>{children}</GlossaryProvider>;
+    return (
+        <>
+            {/* Google Tag Manager (noscript) */}
+            <noscript>
+                <iframe 
+                    src="https://www.googletagmanager.com/ns.html?id=GTM-M73JK866"
+                    height="0" 
+                    width="0" 
+                    style={{ display: 'none', visibility: 'hidden' }}
+                />
+            </noscript>
+            {/* End Google Tag Manager (noscript) */}
+            
+            <GlossaryProvider>{children}</GlossaryProvider>
+        </>
+    );
 }
