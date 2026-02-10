@@ -187,7 +187,7 @@ export default function Root({ children }: { children: React.ReactNode }) {
         <>
             {/* Google Tag Manager (noscript) */}
             <noscript>
-                <iframe 
+                <iframe
                     src="https://www.googletagmanager.com/ns.html?id=GTM-M73JK866"
                     height="0"
                     width="0"
@@ -195,7 +195,6 @@ export default function Root({ children }: { children: React.ReactNode }) {
                 />
             </noscript>
             {/* End Google Tag Manager (noscript) */}
-            
             <GlossaryProvider>{children}</GlossaryProvider>
         </>
     );
