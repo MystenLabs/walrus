@@ -322,6 +322,7 @@ impl WalPriceMonitor {
             config.check_interval
         );
 
+        // TODO(WAL-804): make sure that we get one round of prices before returning.
         let task_handle =
             Self::spawn_monitoring_task(config, current_price.clone(), fetchers, metrics.clone());
 

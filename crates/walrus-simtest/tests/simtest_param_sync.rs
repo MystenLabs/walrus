@@ -22,13 +22,15 @@ mod tests {
             StorageNodeConfig,
             SyncedNodeConfigSet,
             VotingParamsConfig,
+            VotingPrices,
+            VotingPricesConfig,
         },
         test_utils::{SimStorageNodeHandle, TestNodesConfig, UnusedSocketAddress, test_cluster},
     };
     use walrus_simtest::test_utils::simtest_utils::{self, BlobInfoConsistencyCheck};
     use walrus_sui::{
         client::SuiContractClient,
-        types::{NetworkAddress, NodeMetadata},
+        types::{NetworkAddress, NodeMetadata, move_structs::VotingParams},
     };
     use walrus_test_utils::async_param_test;
 
@@ -128,7 +130,10 @@ mod tests {
         }
 
         if let Some(voting_params) = &params.voting_params {
-            assert_ne!(&remote_config.voting_params, voting_params);
+            assert_ne!(
+                &remote_config.voting_params,
+                &VotingParams::from(voting_params.clone())
+            );
             config_write.voting_params = voting_params.clone();
         }
 
@@ -199,7 +204,8 @@ mod tests {
                         "{}:{}",
                         local_config.public_host, local_config.public_port
                     ))
-                && remote_config.voting_params == local_config.voting_params
+                && remote_config.voting_params
+                    == VotingParams::from(local_config.voting_params.clone())
                 && remote_config.metadata == local_config.metadata
                 && remote_config.commission_rate_data.commission_rate
                     == local_config.commission_rate
@@ -248,10 +254,11 @@ mod tests {
         let network_key_pair = walrus_core::keys::NetworkKeyPair::generate();
         // Generate random voting params
         let voting_params = VotingParamsConfig {
-            storage_price: rand::thread_rng().gen_range(1..1000),
-            write_price: rand::thread_rng().gen_range(1..100),
+            voting_prices: VotingPrices::FROST(VotingPricesConfig {
+                storage_price: rand::thread_rng().gen_range(1..1000),
+                write_price: rand::thread_rng().gen_range(1..100),
+            }),
             node_capacity: rand::thread_rng().gen_range(1_000_000..1_000_000_000),
-            stable_pricing_config: None,
         };
         let metadata = NodeMetadata::new(
             "https://walrus.io/images/walrus.jpg".to_string(),
@@ -652,10 +659,11 @@ mod tests {
             voting_params: (
                 &TestUpdateParams {
                     voting_params: Some(VotingParamsConfig {
-                        storage_price: 100,
-                        write_price: 100,
+                        voting_prices: VotingPrices::FROST(VotingPricesConfig {
+                            storage_price: 100,
+                            write_price: 100,
+                        }),
                         node_capacity: 100,
-                        stable_pricing_config: None,
                     }),
                     ..Default::default()
                 }
@@ -703,10 +711,11 @@ mod tests {
 
                     if rng.gen_bool(0.5) {
                         params.voting_params = Some(VotingParamsConfig {
-                            storage_price: rng.gen_range(1..1000),
-                            write_price: rng.gen_range(1..100),
+                            voting_prices: VotingPrices::FROST(VotingPricesConfig {
+                                storage_price: rng.gen_range(1..1000),
+                                write_price: rng.gen_range(1..100),
+                            }),
                             node_capacity: rng.gen_range(1_000_000..1_000_000_000),
-                            stable_pricing_config: None,
                         });
                     }
 

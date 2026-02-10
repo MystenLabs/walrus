@@ -337,13 +337,13 @@ mod tests {
     use serde_yaml;
     use tempfile::TempDir;
     use walrus_core::keys::{NetworkKeyPair, ProtocolKeyPair};
-    use walrus_sui::types::NetworkAddress;
+    use walrus_sui::types::{NetworkAddress, move_structs::VotingParams};
     use walrus_test_utils::async_param_test;
 
     use super::*;
     use crate::node::{
         committee::MockCommitteeService,
-        config::{PathOrInPlace, StorageNodeConfig, SyncedNodeConfigSet, VotingParamsConfig},
+        config::{PathOrInPlace, StorageNodeConfig, SyncedNodeConfigSet},
         contract_service::MockSystemContractService,
         server,
     };
@@ -386,11 +386,10 @@ mod tests {
             network_public_key: loaded_config.network_key_pair().public().clone(),
             public_key: loaded_config.protocol_key_pair().public().clone(),
             next_public_key: None,
-            voting_params: VotingParamsConfig {
+            voting_params: VotingParams {
                 storage_price: 150,
                 write_price: 2300,
                 node_capacity: 251_000_000,
-                stable_pricing_config: None,
             },
             metadata: Default::default(),
             commission_rate_data: Default::default(),
@@ -407,11 +406,11 @@ mod tests {
         );
         assert_eq!(
             update_params.storage_price,
-            Some(loaded_config.voting_params.storage_price)
+            Some(loaded_config.voting_params.voting_prices.storage_price())
         );
         assert_eq!(
             update_params.write_price,
-            Some(loaded_config.voting_params.write_price)
+            Some(loaded_config.voting_params.voting_prices.write_price())
         );
         assert_eq!(
             update_params.node_capacity,

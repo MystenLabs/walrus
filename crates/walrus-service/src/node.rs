@@ -693,14 +693,17 @@ impl StorageNode {
         .set(1);
 
         // Initialize WAL price monitor if enabled
-        let wal_price_monitor = if config.wal_price_monitor.enable_wal_price_monitor {
-            Some(Arc::new(WalPriceMonitor::start(
-                config.wal_price_monitor.clone(),
-                metrics.clone(),
-            )))
-        } else {
-            None
-        };
+        let (wal_price_monitor, current_wal_price) =
+            if config.wal_price_monitor.enable_wal_price_monitor {
+                let monitor = Arc::new(WalPriceMonitor::start(
+                    config.wal_price_monitor.clone(),
+                    metrics.clone(),
+                ));
+                let current_wal_price = monitor.get_current_price().await;
+                (Some(monitor), current_wal_price)
+            } else {
+                (None, None)
+            };
 
         let config_synchronizer =
             config
@@ -717,7 +720,7 @@ impl StorageNode {
                 )));
 
         contract_service
-            .sync_node_params(config, node_capability.id, None)
+            .sync_node_params(config, node_capability.id, current_wal_price)
             .await
             .or_else(|e| match e {
                 SyncNodeConfigError::ProtocolKeyPairRotationRequired => Err(e),

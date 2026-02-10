@@ -55,6 +55,8 @@ use crate::{
             PathOrInPlace,
             StorageNodeConfig,
             VotingParamsConfig,
+            VotingPrices,
+            VotingPricesConfig,
             defaults::{self, REST_API_PORT},
         },
         consistency_check::StorageNodeConsistencyCheckConfig,
@@ -729,10 +731,11 @@ pub async fn create_storage_node_configs(
             disable_event_blob_writer,
             commission_rate: node.commission_rate,
             voting_params: VotingParamsConfig {
-                storage_price: node.storage_price,
-                write_price: node.write_price,
+                voting_prices: VotingPrices::FROST(VotingPricesConfig {
+                    storage_price: node.storage_price,
+                    write_price: node.write_price,
+                }),
                 node_capacity: node.node_capacity,
-                stable_pricing_config: None,
             },
             metrics_push: None,
             metadata: Default::default(),

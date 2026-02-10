@@ -328,6 +328,16 @@ struct SetupArgs {
     registration_epoch: Epoch,
 }
 
+/// Currency unit for storage and write prices.
+#[derive(Debug, Clone, Copy, Default, clap::ValueEnum)]
+enum PriceCurrency {
+    /// Prices in FROST (1e9 FROST = 1 WAL)
+    #[default]
+    Frost,
+    /// Prices in NanoUSD (1e9 NanoUSD = 1 USD)
+    NanoUsd,
+}
+
 #[derive(Debug, Clone, clap::Args)]
 struct ConfigArgs {
     /// Object ID of the Walrus system object. If not provided, a dummy value is used and the
@@ -382,30 +392,21 @@ struct ConfigArgs {
     /// If not specified, the gas budget is estimated automatically.
     #[arg(long)]
     gas_budget: Option<u64>,
-    /// Initial vote for the storage price in FROST per MiB per epoch.
+    /// Initial vote for the storage price per MiB per epoch.
     ///
-    /// This is ignored if `--stable-storage-price` is set.
+    /// The unit is determined by `--price-currency` (FROST or NanoUSD).
     #[arg(long, default_value_t = config::defaults::storage_price())]
     storage_price: u64,
-    /// Initial vote for the write price in FROST per MiB.
+    /// Initial vote for the write price per MiB.
     ///
-    /// This is ignored if `--stable-write-price` is set.
+    /// The unit is determined by `--price-currency` (FROST or NanoUSD).
     #[arg(long, default_value_t = config::defaults::write_price())]
     write_price: u64,
-    /// Stable storage price in USD per MiB per epoch.
+    /// Currency unit for storage and write prices.
     ///
-    /// When set along with `--stable-write-price`, enables stable pricing mode where prices
-    /// are automatically calculated based on the current WAL token price.
-    /// Supports up to 6 decimal places.
-    #[arg(long, requires = "stable_write_price")]
-    stable_storage_price: Option<f64>,
-    /// Stable write price in USD per MiB.
-    ///
-    /// When set along with `--stable-storage-price`, enables stable pricing mode where prices
-    /// are automatically calculated based on the current WAL token price.
-    /// Supports up to 6 decimal places.
-    #[arg(long, requires = "stable_storage_price")]
-    stable_write_price: Option<f64>,
+    /// Use "frost" for FROST (1e9 FROST = 1 WAL) or "nano-usd" for NanoUSD (1e9 NanoUSD = 1 USD).
+    #[arg(long, value_enum, default_value_t = PriceCurrency::Frost)]
+    price_currency: PriceCurrency,
     /// The commission rate of the storage node, in basis points (1% = 100 basis points).
     #[arg(long, default_value_t = config::defaults::commission_rate())]
     commission_rate: u16,
@@ -597,7 +598,6 @@ mod commands {
         MetricsPushConfig,
         NodeRegistrationParamsForThirdPartyRegistration,
         ServiceRole,
-        StablePricingConfig,
     };
     #[cfg(not(msim))]
     use tokio::task::JoinSet;
@@ -612,7 +612,7 @@ mod commands {
         },
         node::{
             DatabaseConfig,
-            config::{LoadedConfig, TlsConfig},
+            config::{LoadedConfig, TlsConfig, VotingPrices, VotingPricesConfig},
         },
         utils,
     };
@@ -972,8 +972,7 @@ mod commands {
             gas_budget,
             storage_price,
             write_price,
-            stable_storage_price,
-            stable_write_price,
+            price_currency,
             commission_rate,
             name,
             image_url,
@@ -1054,22 +1053,17 @@ mod commands {
                 ..Default::default()
             },
             voting_params: VotingParamsConfig {
-                storage_price,
-                write_price,
-                node_capacity: node_capacity.as_u64(),
-                stable_pricing_config: match (stable_storage_price, stable_write_price) {
-                    (Some(storage), Some(write)) => {
-                        let stable_config = StablePricingConfig {
-                            storage_price: storage,
-                            write_price: write,
-                        };
-                        stable_config
-                            .validate()
-                            .context("invalid stable pricing config")?;
-                        Some(stable_config)
+                voting_prices: {
+                    let prices = VotingPricesConfig {
+                        storage_price,
+                        write_price,
+                    };
+                    match price_currency {
+                        PriceCurrency::Frost => VotingPrices::FROST(prices),
+                        PriceCurrency::NanoUsd => VotingPrices::NanoUsd(prices),
                     }
-                    _ => None,
                 },
+                node_capacity: node_capacity.as_u64(),
             },
             commission_rate,
             name,

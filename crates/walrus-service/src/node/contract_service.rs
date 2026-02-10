@@ -292,7 +292,7 @@ impl SuiSystemContractService {
             network_public_key: node_info.network_public_key,
             public_key: node_info.public_key,
             next_public_key: node_info.next_epoch_public_key,
-            voting_params: pool.voting_params.into(),
+            voting_params: pool.voting_params,
             metadata,
             commission_rate_data: CommissionRateData {
                 pending_commission_rate: pool.pending_commission_rate,

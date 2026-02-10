@@ -113,6 +113,8 @@ use crate::{
             ShardSyncConfig,
             StorageNodeConfig,
             VotingParamsConfig,
+            VotingPrices,
+            VotingPricesConfig,
             defaults,
         },
         consistency_check::StorageNodeConsistencyCheckConfig,
@@ -3285,10 +3287,11 @@ pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
             disable_event_blob_writer: false,
             commission_rate: 0,
             voting_params: VotingParamsConfig {
-                storage_price: 5,
-                write_price: 1,
+                voting_prices: VotingPrices::FROST(VotingPricesConfig {
+                    storage_price: 5,
+                    write_price: 1,
+                }),
                 node_capacity: 1_000_000_000,
-                stable_pricing_config: None,
             },
             public_host: rest_api_address.ip().to_string(),
             public_port: rest_api_address.port(),

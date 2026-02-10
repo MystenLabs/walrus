@@ -195,8 +195,11 @@ pending_metadata_cache:
 disable_event_blob_writer: false
 commission_rate: 6000
 voting_params:
-  storage_price: 100000
-  write_price: 20000
+  voting_prices:
+    currency: FROST
+    prices:
+      storage_price: 100000
+      write_price: 20000
   node_capacity: 250000000000
 metadata:
   image_url: ''
