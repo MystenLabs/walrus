@@ -44,6 +44,8 @@ use crate::contracts::{
     StructTag,
 };
 
+pub(crate) const SYSTEM_STATE_INNER_V2_VERSION_START: u64 = 3;
+
 /// Sui object for storage resources.
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -772,6 +774,58 @@ pub(crate) struct BlsCommittee {
     aggregated_keys: PublicKey,
 }
 
+/// Enum representing the versioned inner state of the system object.
+/// Provides dynamic dispatch for accessing common fields across versions.
+#[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
+pub(crate) enum SystemStateInner {
+    /// Version 1 of the system state (versions 1-2, without slashing).
+    V1(SystemStateInnerV1),
+    /// Version 2 of the system state (version 3+, with slashing support).
+    V2(SystemStateInnerV2),
+}
+
+impl SystemStateInner {
+    /// Returns a reference to the BLS committee.
+    pub(crate) fn committee(&self) -> &BlsCommittee {
+        match self {
+            SystemStateInner::V1(v1) => &v1.committee,
+            SystemStateInner::V2(v2) => &v2.committee,
+        }
+    }
+
+    /// Returns the storage price per unit size.
+    pub(crate) fn storage_price_per_unit_size(&self) -> u64 {
+        match self {
+            SystemStateInner::V1(v1) => v1.storage_price_per_unit_size,
+            SystemStateInner::V2(v2) => v2.storage_price_per_unit_size,
+        }
+    }
+
+    /// Returns the write price per unit size.
+    pub(crate) fn write_price_per_unit_size(&self) -> u64 {
+        match self {
+            SystemStateInner::V1(v1) => v1.write_price_per_unit_size,
+            SystemStateInner::V2(v2) => v2.write_price_per_unit_size,
+        }
+    }
+
+    /// Returns a reference to the future accounting ring buffer.
+    pub(crate) fn future_accounting(&self) -> &FutureAccountingRingBuffer {
+        match self {
+            SystemStateInner::V1(v1) => &v1.future_accounting,
+            SystemStateInner::V2(v2) => &v2.future_accounting,
+        }
+    }
+
+    /// Returns a reference to the event blob certification state.
+    pub(crate) fn event_blob_certification_state(&self) -> &EventBlobCertificationState {
+        match self {
+            SystemStateInner::V1(v1) => &v1.event_blob_certification_state,
+            SystemStateInner::V2(v2) => &v2.event_blob_certification_state,
+        }
+    }
+}
+
 /// Sui type for system object
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct SystemObject {
@@ -784,14 +838,14 @@ pub struct SystemObject {
     /// The new package ID of the system object.
     pub(crate) new_package_id: Option<ObjectID>,
     /// The inner system state.
-    pub(crate) inner: SystemStateInnerV1,
+    pub(crate) inner: SystemStateInner,
 }
 
 impl SystemObject {
     /// Returns the number of members in the committee.
     pub(crate) fn committee_size(&self) -> u16 {
         self.inner
-            .committee
+            .committee()
             .members
             .len()
             .try_into()
@@ -800,35 +854,35 @@ impl SystemObject {
 
     /// Returns the number of epochs ahead that can be used to extend a blob.
     pub fn max_epochs_ahead(&self) -> u32 {
-        self.inner.future_accounting.length()
+        self.inner.future_accounting().length()
     }
 
     /// Returns the storage price per unit size.
     pub fn storage_price_per_unit_size(&self) -> u64 {
-        self.inner.storage_price_per_unit_size
+        self.inner.storage_price_per_unit_size()
     }
 
     /// Returns the write price per unit size.
     pub fn write_price_per_unit_size(&self) -> u64 {
-        self.inner.write_price_per_unit_size
+        self.inner.write_price_per_unit_size()
     }
 
     /// Returns the latest certified event blob.
     pub fn latest_certified_event_blob(&self) -> Option<EventBlob> {
         self.inner
-            .event_blob_certification_state
+            .event_blob_certification_state()
             .latest_certified_blob
             .clone()
     }
 
     /// Returns the future accounting ring buffer.
     pub fn future_accounting(&self) -> &FutureAccountingRingBuffer {
-        &self.inner.future_accounting
+        self.inner.future_accounting()
     }
 
     /// Returns the current epoch.
     pub fn epoch(&self) -> Epoch {
-        self.inner.committee.epoch
+        self.inner.committee().epoch
     }
 }
 
@@ -874,6 +928,33 @@ pub(crate) struct SystemStateInnerV1 {
 
 impl AssociatedContractStruct for SystemStateInnerV1 {
     const CONTRACT_STRUCT: StructTag<'static> = contracts::system_state_inner::SystemStateInnerV1;
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
+pub(crate) struct SystemStateInnerV2 {
+    /// The current committee of the Walrus instance.
+    pub committee: BlsCommittee,
+    /// Total storage capacity of the Walrus instance.
+    pub total_capacity_size: u64,
+    /// Used storage capacity of the Walrus instance.
+    pub used_capacity_size: u64,
+    /// The price per unit of storage per epoch.
+    pub storage_price_per_unit_size: u64,
+    /// The write price per unit.
+    pub write_price_per_unit_size: u64,
+    /// The future accounting ring buffer to keep track of future rewards.
+    pub future_accounting: FutureAccountingRingBuffer,
+    /// Event blob certification state.
+    pub event_blob_certification_state: EventBlobCertificationState,
+    /// Extended field with the size of the deny list for committee members.
+    pub deny_list_sized: ObjectID,
+    /// Slashing votes for the current epoch. Maps target node ID to a map of voter node ID to
+    /// their voting weight (number of shards). Votes are reset when apply_slashing is called.
+    pub slashing_votes: ObjectID,
+}
+
+impl AssociatedContractStruct for SystemStateInnerV2 {
+    const CONTRACT_STRUCT: StructTag<'static> = contracts::system_state_inner::SystemStateInnerV2;
 }
 
 #[tracing::instrument(err, skip_all)]

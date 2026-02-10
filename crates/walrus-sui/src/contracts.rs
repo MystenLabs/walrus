@@ -228,6 +228,7 @@ pub mod system_state_inner {
     use super::*;
 
     contract_ident!(struct system_state_inner::SystemStateInnerV1);
+    contract_ident!(struct system_state_inner::SystemStateInnerV2);
 }
 
 /// Module for tags corresponding to the Move module `staking_pool`.

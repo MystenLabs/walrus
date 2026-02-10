@@ -67,13 +67,16 @@ use crate::{
             EpochState,
             EventBlob,
             NodeMetadata,
+            SYSTEM_STATE_INNER_V2_VERSION_START,
             SharedBlob,
             StakingInnerV1,
             StakingObjectForDeserialization,
             StakingPool,
             SubsidiesInnerKey,
             SystemObjectForDeserialization,
+            SystemStateInner,
             SystemStateInnerV1,
+            SystemStateInnerV2,
             WalrusSubsidies,
             WalrusSubsidiesForDeserialization,
             WalrusSubsidiesInner,
@@ -837,9 +840,17 @@ impl SuiReadClient {
             new_package_id,
         }: SystemObjectForDeserialization,
     ) -> SuiClientResult<SystemObject> {
-        let inner = sui_client
-            .get_dynamic_field::<u64, SystemStateInnerV1>(id, TypeTag::U64, version)
-            .await?;
+        let inner = if version < SYSTEM_STATE_INNER_V2_VERSION_START {
+            let inner = sui_client
+                .get_dynamic_field::<u64, SystemStateInnerV1>(id, TypeTag::U64, version)
+                .await?;
+            SystemStateInner::V1(inner)
+        } else {
+            let inner = sui_client
+                .get_dynamic_field::<u64, SystemStateInnerV2>(id, TypeTag::U64, version)
+                .await?;
+            SystemStateInner::V2(inner)
+        };
         Ok(SystemObject {
             id,
             version,
