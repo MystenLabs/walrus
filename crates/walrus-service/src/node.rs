@@ -4003,6 +4003,20 @@ impl ServiceState for StorageNodeInner {
         intent: UploadIntent,
     ) -> Result<bool, StoreSliverError> {
         self.check_index(sliver_pair_index)?;
+
+        let n_shards = self.n_shards();
+        let expected_pair_index = match sliver.r#type() {
+            SliverType::Primary => sliver.sliver_index().to_pair_index::<Primary>(n_shards),
+            SliverType::Secondary => sliver.sliver_index().to_pair_index::<Secondary>(n_shards),
+        };
+        ensure!(
+            sliver_pair_index == expected_pair_index,
+            StoreSliverError::SliverIndexMismatch {
+                sliver_pair_index,
+                sliver_index: sliver.sliver_index(),
+            }
+        );
+
         let (metadata_persisted, persisted) = self
             .resolve_metadata_for_sliver(&blob_id, intent.is_pending())
             .await?;
@@ -4424,7 +4438,9 @@ fn map_sliver_error_to_metadata(error: StoreSliverError) -> StoreMetadataError {
         StoreSliverError::UnsupportedEncodingType(kind) => {
             StoreMetadataError::UnsupportedEncodingType(kind)
         }
-        StoreSliverError::SliverOutOfRange(_) | StoreSliverError::InvalidSliver(_) => {
+        StoreSliverError::SliverOutOfRange(_)
+        | StoreSliverError::InvalidSliver(_)
+        | StoreSliverError::SliverIndexMismatch { .. } => {
             StoreMetadataError::Internal(anyhow!("sliver cache flush failed: {error:?}"))
         }
         StoreSliverError::ShardNotAssigned(inner) => StoreMetadataError::Internal(inner.into()),
@@ -4937,6 +4953,77 @@ mod tests {
         assert_eq!(stored_status, StoredOnNodeStatus::Stored);
         Ok(())
     }
+
+    #[tokio::test]
+    async fn store_sliver_rejects_inconsistent_sliver_pair_index() -> TestResult {
+        let (cluster, _) = cluster_at_epoch1_without_blobs(&[&[0, 1, 2, 3]], None).await?;
+        let storage_node = cluster.nodes[0].storage_node.clone();
+        let encoding_config = storage_node.as_ref().inner.encoding_config.as_ref().clone();
+        let encoded = EncodedBlob::new(BLOB, encoding_config);
+        let blob_id = *encoded.blob_id();
+        let pair_0 = encoded.assigned_sliver_pair(SHARD_INDEX);
+        let pair_1 = encoded.assigned_sliver_pair(OTHER_SHARD_INDEX);
+
+        assert!(
+            storage_node
+                .as_ref()
+                .store_metadata(
+                    encoded.metadata.clone().into_unverified(),
+                    UploadIntent::Pending
+                )
+                .await?
+        );
+
+        // Primary sliver from pair 0 has sliver index 0, so it must be stored with pair index 0.
+        // Passing pair_1.index() is inconsistent and must be rejected.
+        let err = storage_node
+            .as_ref()
+            .store_sliver(
+                blob_id,
+                pair_1.index(),
+                Sliver::Primary(pair_0.primary.clone()),
+                UploadIntent::Pending,
+            )
+            .await
+            .expect_err("store_sliver must reject inconsistent sliver pair index");
+        assert!(
+            matches!(err, StoreSliverError::SliverIndexMismatch { .. }),
+            "expected SliverIndexMismatch, got {err:?}"
+        );
+
+        // Secondary sliver from pair 0 has sliver index n_shards-1 (for pair index 0).
+        // Passing pair_1.index() is inconsistent and must be rejected.
+        let err = storage_node
+            .as_ref()
+            .store_sliver(
+                blob_id,
+                pair_1.index(),
+                Sliver::Secondary(pair_0.secondary.clone()),
+                UploadIntent::Pending,
+            )
+            .await
+            .expect_err("store_sliver must reject inconsistent sliver pair index for secondary");
+        assert!(
+            matches!(err, StoreSliverError::SliverIndexMismatch { .. }),
+            "expected SliverIndexMismatch, got {err:?}"
+        );
+
+        // Consistent indices must be accepted.
+        for pair in [pair_0, pair_1] {
+            storage_node
+                .as_ref()
+                .store_sliver(
+                    blob_id,
+                    pair.index(),
+                    Sliver::Primary(pair.primary.clone()),
+                    UploadIntent::Pending,
+                )
+                .await?;
+        }
+
+        Ok(())
+    }
+
     async fn check_sliver_status<A: EncodingAxis>(
         storage_node: &StorageNodeHandle,
         pair_index: SliverPairIndex,
