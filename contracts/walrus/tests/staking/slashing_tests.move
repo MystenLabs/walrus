@@ -4,7 +4,9 @@
 module walrus::slashing_tests;
 
 use std::unit_test::assert_eq;
-use walrus::{storage_node, system, system_state_inner};
+use sui::{test_scenario, vec_map};
+use wal::wal::ProtectedTreasury;
+use walrus::{storage_node, system, system_state_inner, test_utils};
 
 #[test]
 fun test_slashing_vote_basic() {
@@ -226,4 +228,101 @@ fun test_slashing_target_not_in_committee_fails() {
 
     cap.destroy_cap_for_testing();
     system.destroy_for_testing();
+}
+
+#[test]
+fun test_apply_slashing_burns_rewards() {
+    let admin = @0xAD;
+    let mut scenario = test_scenario::begin(admin);
+
+    // Initialize WAL token to get ProtectedTreasury
+    wal::wal::init_for_testing(scenario.ctx());
+    scenario.next_tx(admin);
+
+    // Take the treasury
+    let mut treasury = scenario.take_shared<ProtectedTreasury>();
+    let initial_supply = treasury.total_supply();
+
+    // Create system with test committee
+    let mut system = system::new_for_testing_with_multiple_members(scenario.ctx());
+
+    // Get node IDs
+    let slashed_node = system.committee().get_idx(0).node_id();
+    let normal_node_1 = system.committee().get_idx(1).node_id();
+    let normal_node_2 = system.committee().get_idx(2).node_id();
+    let voter_1 = system.committee().get_idx(3).node_id();
+    let voter_2 = system.committee().get_idx(4).node_id();
+    let voter_3 = system.committee().get_idx(5).node_id();
+    let voter_4 = system.committee().get_idx(6).node_id();
+    let voter_5 = system.committee().get_idx(7).node_id();
+    let voter_6 = system.committee().get_idx(8).node_id();
+    let voter_7 = system.committee().get_idx(9).node_id();
+
+    // Create caps and vote to slash the target (7 voters = 700 shards > 667 threshold)
+    let cap_1 = storage_node::new_cap(voter_1, scenario.ctx());
+    let cap_2 = storage_node::new_cap(voter_2, scenario.ctx());
+    let cap_3 = storage_node::new_cap(voter_3, scenario.ctx());
+    let cap_4 = storage_node::new_cap(voter_4, scenario.ctx());
+    let cap_5 = storage_node::new_cap(voter_5, scenario.ctx());
+    let cap_6 = storage_node::new_cap(voter_6, scenario.ctx());
+    let cap_7 = storage_node::new_cap(voter_7, scenario.ctx());
+
+    system.vote_to_slash(&cap_1, slashed_node);
+    system.vote_to_slash(&cap_2, slashed_node);
+    system.vote_to_slash(&cap_3, slashed_node);
+    system.vote_to_slash(&cap_4, slashed_node);
+    system.vote_to_slash(&cap_5, slashed_node);
+    system.vote_to_slash(&cap_6, slashed_node);
+    system.vote_to_slash(&cap_7, slashed_node);
+
+    // Verify node is slashed
+    let slashed = system.get_slashed_nodes();
+    assert_eq!(slashed.length(), 1);
+    assert!(slashed.contains(&slashed_node));
+
+    // Create rewards map: slashed node gets 1000 WAL, normal nodes get 500 WAL each
+    let slashed_reward_amount = 1000;
+    let normal_reward_amount = 500;
+    let mut rewards = vec_map::empty();
+    rewards.insert(slashed_node, test_utils::mint_wal_balance(slashed_reward_amount));
+    rewards.insert(normal_node_1, test_utils::mint_wal_balance(normal_reward_amount));
+    rewards.insert(normal_node_2, test_utils::mint_wal_balance(normal_reward_amount));
+
+    // Apply slashing - this should burn the slashed node's rewards
+    let result = system.apply_slashing(rewards, &mut treasury, scenario.ctx());
+
+    // Verify results:
+    // 1. Slashed node should have zero balance
+    let slashed_balance = result.get(&slashed_node);
+    assert_eq!(slashed_balance.value(), 0);
+
+    // 2. Normal nodes should keep their full rewards
+    let normal_1_balance = result.get(&normal_node_1);
+    assert_eq!(normal_1_balance.value(), test_utils::frost_per_wal() * normal_reward_amount);
+
+    let normal_2_balance = result.get(&normal_node_2);
+    assert_eq!(normal_2_balance.value(), test_utils::frost_per_wal() * normal_reward_amount);
+
+    // 3. Total supply should decrease by the burned amount
+    let expected_burned = test_utils::frost_per_wal() * slashed_reward_amount;
+    assert_eq!(treasury.total_supply(), initial_supply - expected_burned);
+
+    // 4. Slashing votes should be cleared after apply_slashing
+    assert_eq!(system.get_slashing_votes(slashed_node), 0);
+    assert_eq!(system.get_slashed_nodes().length(), 0);
+
+    // Cleanup
+    let (_, balances) = result.into_keys_values();
+    balances.do!(|b| b.destroy_for_testing());
+
+    cap_1.destroy_cap_for_testing();
+    cap_2.destroy_cap_for_testing();
+    cap_3.destroy_cap_for_testing();
+    cap_4.destroy_cap_for_testing();
+    cap_5.destroy_cap_for_testing();
+    cap_6.destroy_cap_for_testing();
+    cap_7.destroy_cap_for_testing();
+    system.destroy_for_testing();
+    test_scenario::return_shared(treasury);
+    scenario.end();
 }
