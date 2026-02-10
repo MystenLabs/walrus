@@ -929,22 +929,21 @@ fun calculate_slashing_weight(votes: &VecMap<ID, u16>): u16 {
 }
 
 /// Returns the slashing threshold (2f+1) for the given number of shards.
-fun slashing_threshold(n_shards: u16): u16 {
-    // 2f+1 where f = (n-1)/3, so 2f+1 = 2*(n-1)/3 + 1 = (2n-2+3)/3 = (2n+1)/3
-    // For n=1000, this is 667
-    ((2 * (n_shards as u64) + 1) / 3) as u16
+fun is_slashing_threshold_reached(n_shards: u16, total_weight: u16): bool {
+    // total_weight >= 2f + 1 = 2(n-1)/3 + 1
+    // total_weight * 3 >= 2n + 1
+    total_weight * 3 >= 2 * n_shards + 1
 }
 
 /// Returns the set of node IDs that have been slashed (received 2f+1 votes).
 public(package) fun get_slashed_nodes(self: &SystemStateInnerV2): vector<ID> {
     let slashing_votes = self.slashing_votes.borrow();
     let mut slashed = vector[];
-    let slashing_threshold = slashing_threshold(self.n_shards());
 
     slashing_votes.length().do!(|i| {
         let (target_id, votes) = slashing_votes.get_entry_by_idx(i);
         let total_weight = calculate_slashing_weight(votes);
-        if (total_weight >= slashing_threshold) {
+        if (is_slashing_threshold_reached(self.n_shards(), total_weight)) {
             slashed.push_back(*target_id);
         };
     });

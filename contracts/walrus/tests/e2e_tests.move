@@ -454,7 +454,7 @@ fun epoch_change_with_rewards_and_commission() {
         system.update_deny_list(node.cap_mut(), signature, members_bitmap, certified_message);
 
         // check the VecMap with sizes
-        let deny_list_sizes = system.inner().deny_list_sizes();
+        let deny_list_sizes = system.inner_v2().deny_list_sizes();
 
         assert_eq!(deny_list_sizes.length(), 1);
         assert!(deny_list_sizes.contains(&node.node_id()));

@@ -39,7 +39,7 @@ public fun test_event_blob_certify_happy_path() {
             0,
             ctx,
         );
-        let state = system.inner().event_blob_certification_state();
+        let state = system.inner_v2().event_blob_certification_state();
         if (index < 6) {
             assert!(state.get_latest_certified_checkpoint_sequence_number().is_none());
         } else {
@@ -122,7 +122,7 @@ public fun test_multiple_event_blobs_in_flight() {
             0,
             ctx,
         );
-        let state = system.inner().event_blob_certification_state();
+        let state = system.inner_v2().event_blob_certification_state();
         assert!(state.get_latest_certified_checkpoint_sequence_number().is_none());
         index = index + 1
     };
@@ -151,7 +151,7 @@ public fun test_event_blob_certify_change_epoch() {
             0,
             ctx,
         );
-        let state = system.inner().event_blob_certification_state();
+        let state = system.inner_v2().event_blob_certification_state();
         assert!(state.get_latest_certified_checkpoint_sequence_number().is_none());
         index = index + 1
     };
@@ -176,7 +176,7 @@ public fun test_event_blob_certify_change_epoch() {
         1,
         ctx,
     );
-    let state = system.inner().event_blob_certification_state();
+    let state = system.inner_v2().event_blob_certification_state();
     assert!(state.get_latest_certified_checkpoint_sequence_number().is_none());
     index = 0;
     // All nodes sign the blob in current epoch
@@ -196,7 +196,7 @@ public fun test_event_blob_certify_change_epoch() {
             1,
             ctx,
         );
-        let state = system.inner().event_blob_certification_state();
+        let state = system.inner_v2().event_blob_certification_state();
         if (index < 5) {
             assert!(state.get_latest_certified_checkpoint_sequence_number().is_none());
         } else {
@@ -244,7 +244,7 @@ public fun test_certify_invalid_blob_id() {
         };
 
         // Verify the good blob was certified
-        let state = system.inner().event_blob_certification_state();
+        let state = system.inner_v2().event_blob_certification_state();
         assert!(
             state.get_latest_certified_checkpoint_sequence_number() ==
             option::some(good_checkpoint
@@ -265,7 +265,7 @@ public fun test_certify_invalid_blob_id() {
         );
 
         // Verify the bad blob didn't affect the certification state
-        let state = system.inner().event_blob_certification_state();
+        let state = system.inner_v2().event_blob_certification_state();
         assert!(
             state.get_latest_certified_checkpoint_sequence_number() ==
             option::some(good_checkpoint),
@@ -306,7 +306,7 @@ public fun test_block_blob_events() {
             index = index + 1;
         };
 
-        let state = system.inner().event_blob_certification_state();
+        let state = system.inner_v2().event_blob_certification_state();
         assert!(state.get_latest_certified_checkpoint_sequence_number() == option::some(good_cp));
 
         // Derive a bad blob ID and attempt to certify it
@@ -326,7 +326,7 @@ public fun test_block_blob_events() {
             ctx,
         );
 
-        let state = system.inner().event_blob_certification_state();
+        let state = system.inner_v2().event_blob_certification_state();
         // Ensure no more than one blob is being tracked
         assert!(state.get_num_tracked_blobs() <= 1);
         i = i + 1;

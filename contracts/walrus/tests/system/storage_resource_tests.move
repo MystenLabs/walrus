@@ -124,8 +124,8 @@ fun storage_capacity_at_epochs() {
     assert_eq!(storage.end_epoch(), 2);
     assert_eq!(storage.size(), 500_000_000);
     assert_eq!(system.used_capacity_size(), 500_000_000);
-    assert_eq!(system.inner().used_capacity_size_at_future_epoch(1), 500_000_000);
-    assert_eq!(system.inner().used_capacity_size_at_future_epoch(2), 0);
+    assert_eq!(system.inner_v2().used_capacity_size_at_future_epoch(1), 500_000_000);
+    assert_eq!(system.inner_v2().used_capacity_size_at_future_epoch(2), 0);
     storage.destroy();
 
     // reserve more space for the current epoch
@@ -134,8 +134,8 @@ fun storage_capacity_at_epochs() {
     assert_eq!(storage.end_epoch(), 1);
     assert_eq!(storage.size(), 500_000_000);
     assert_eq!(system.used_capacity_size(), 1_000_000_000);
-    assert_eq!(system.inner().used_capacity_size_at_future_epoch(1), 500_000_000); // E1
-    assert_eq!(system.inner().used_capacity_size_at_future_epoch(2), 0);
+    assert_eq!(system.inner_v2().used_capacity_size_at_future_epoch(1), 500_000_000); // E1
+    assert_eq!(system.inner_v2().used_capacity_size_at_future_epoch(2), 0);
     storage.destroy();
 
     // next epoch: 1
@@ -149,7 +149,7 @@ fun storage_capacity_at_epochs() {
     // check that the capacity is updated
     assert_eq!(system.used_capacity_size(), 500_000_000);
     assert_eq!(system.total_capacity_size(), 10_000_000_000);
-    assert_eq!(system.inner().used_capacity_size_at_future_epoch(1), 0);
+    assert_eq!(system.inner_v2().used_capacity_size_at_future_epoch(1), 0);
 
     // next epoch: 2
     let cmt = test_utils::new_bls_committee_for_testing(2);
@@ -209,14 +209,14 @@ fun correct_capacity_when_reserving_future_epochs() {
     assert_eq!(system.used_capacity_size(), 0);
 
     // No storage capacity should be used before the start epoch.
-    start_epoch.do!(|i| assert_eq!(system.inner().used_capacity_size_at_future_epoch(i), 0));
+    start_epoch.do!(|i| assert_eq!(system.inner_v2().used_capacity_size_at_future_epoch(i), 0));
     // The storage capacity should be used in the storage period.
     start_epoch.range_do!(
         end_epoch,
-        |i| assert_eq!(system.inner().used_capacity_size_at_future_epoch(i), storage_amount),
+        |i| assert_eq!(system.inner_v2().used_capacity_size_at_future_epoch(i), storage_amount),
     );
     // The capacity should be freed again after the storage period (end_epoch is exclusive).
-    assert_eq!(system.inner().used_capacity_size_at_future_epoch(end_epoch), 0);
+    assert_eq!(system.inner_v2().used_capacity_size_at_future_epoch(end_epoch), 0);
 
     // Cleanup.
     storage.destroy();
