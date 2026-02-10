@@ -598,6 +598,11 @@ impl Sliver {
         by_axis::flat_map!(self.as_ref(), |x| x.verify(encoding_config, metadata))
     }
 
+    /// Returns the [`SliverIndex`] of this sliver (primary or secondary).
+    pub fn sliver_index(&self) -> SliverIndex {
+        by_axis::flat_map!(self.as_ref(), |x| x.index)
+    }
+
     /// Returns the [`Sliver<T>`][Sliver] contained within the enum.
     pub fn to_raw<T>(self) -> Result<encoding::SliverData<T>, WrongSliverVariantError>
     where
