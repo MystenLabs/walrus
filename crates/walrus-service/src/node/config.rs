@@ -57,7 +57,7 @@ use crate::{
 };
 
 /// Maximum number of decimal places allowed for stable pricing values.
-const MAX_STABLE_PRICE_DECIMALS: u32 = 6;
+const MAX_STABLE_PRICE_DECIMALS: i32 = 6;
 
 /// Configuration for stable pricing votes.
 ///
@@ -92,7 +92,7 @@ fn validate_decimal_places(value: f64, field_name: &str) -> anyhow::Result<()> {
     }
 
     // Multiply by 10^MAX_STABLE_PRICE_DECIMALS and check if it's effectively an integer
-    let multiplier = 10_f64.powi(MAX_STABLE_PRICE_DECIMALS as i32);
+    let multiplier = 10_f64.powi(MAX_STABLE_PRICE_DECIMALS);
     let scaled = value * multiplier;
     let rounded = scaled.round();
 
@@ -125,13 +125,18 @@ fn calculate_price_in_wal(target_price_usd: f64, wal_price_usd: f64) -> u64 {
     // price_in_frost = price_in_wal * 1e9
     //
     // Combined: price_in_frost = (price_usd * 1e9) / wal_price_usd
-    let price_in_frost = (target_price_usd * 1_000_000_000.0) / wal_price_usd;
-    price_in_frost.round() as u64
+    let price_in_frost_f64 = (target_price_usd * 1_000_000_000.0) / wal_price_usd;
+
+    // It is guaranteed that price_in_frost is not negative.
+    #[allow(clippy::cast_possible_truncation)]
+    let price_in_frost = price_in_frost_f64.round() as u64;
+
+    price_in_frost
 }
 
 /// The voting parameters for the storage node configuration.
 ///
-/// This is a local configuration struct that mirrors the on-chain [`VotingParams`][onchain]
+/// This is a local configuration struct that mirrors the on-chain [`VotingParams`]
 /// but is decoupled from it for configuration purposes.
 ///
 /// [onchain]: walrus_sui::types::move_structs::VotingParams
@@ -750,43 +755,46 @@ impl StorageNodeConfig {
             NetworkAddress(format!("{}:{}", self.public_host, self.public_port));
 
         // Calculate storage_price and write_price based on configuration
-        let (storage_price, write_price) = if let (Some(stable_pricing), Some(wal_price_usd)) =
-            (&self.voting_params.stable_pricing_config, wal_price)
-        {
-            // If stable pricing is configured and we have a WAL price, use it to calculate
-            // prices
-            let storage_price_in_wal =
-                calculate_price_in_wal(stable_pricing.storage_price, wal_price_usd);
-            let write_price_in_wal =
-                calculate_price_in_wal(stable_pricing.write_price, wal_price_usd);
+        let (storage_price, write_price, update_price_immediately) =
+            if let (Some(stable_pricing), Some(wal_price_usd)) =
+                (&self.voting_params.stable_pricing_config, wal_price)
+            {
+                // If stable pricing is configured and we have a WAL price, use it to calculate
+                // prices
+                let storage_price_in_wal =
+                    calculate_price_in_wal(stable_pricing.storage_price, wal_price_usd);
+                let write_price_in_wal =
+                    calculate_price_in_wal(stable_pricing.write_price, wal_price_usd);
 
-            tracing::info!(
-                wal_price_usd,
-                stable_storage_price_usd = stable_pricing.storage_price,
-                stable_write_price_usd = stable_pricing.write_price,
-                storage_price_in_wal,
-                write_price_in_wal,
-                "calculating prices based on stable pricing config"
-            );
+                tracing::info!(
+                    wal_price_usd,
+                    stable_storage_price_usd = stable_pricing.storage_price,
+                    stable_write_price_usd = stable_pricing.write_price,
+                    storage_price_in_wal,
+                    write_price_in_wal,
+                    "calculating prices based on stable pricing config"
+                );
 
-            (
-                (synced_config.voting_params.storage_price != storage_price_in_wal)
-                    .then_some(storage_price_in_wal),
-                (synced_config.voting_params.write_price != write_price_in_wal)
-                    .then_some(write_price_in_wal),
-            )
-        } else if self.voting_params.stable_pricing_config.is_none() {
-            // No stable pricing config, use the static prices from config
-            (
-                (synced_config.voting_params.storage_price != self.voting_params.storage_price)
-                    .then_some(self.voting_params.storage_price),
-                (synced_config.voting_params.write_price != self.voting_params.write_price)
-                    .then_some(self.voting_params.write_price),
-            )
-        } else {
-            // stable_pricing_config is set but no WAL price available, don't update prices
-            (None, None)
-        };
+                (
+                    (synced_config.voting_params.storage_price != storage_price_in_wal)
+                        .then_some(storage_price_in_wal),
+                    (synced_config.voting_params.write_price != write_price_in_wal)
+                        .then_some(write_price_in_wal),
+                    true,
+                )
+            } else if self.voting_params.stable_pricing_config.is_none() {
+                // No stable pricing config, use the static prices from config
+                (
+                    (synced_config.voting_params.storage_price != self.voting_params.storage_price)
+                        .then_some(self.voting_params.storage_price),
+                    (synced_config.voting_params.write_price != self.voting_params.write_price)
+                        .then_some(self.voting_params.write_price),
+                    false,
+                )
+            } else {
+                // stable_pricing_config is set but no WAL price available, don't update prices
+                (None, None, false)
+            };
 
         NodeUpdateParams {
             name: (synced_config.name != self.name).then_some(self.name.clone()),
@@ -797,6 +805,7 @@ impl StorageNodeConfig {
             update_public_key: None,
             storage_price,
             write_price,
+            update_price_immediately,
             node_capacity: (synced_config.voting_params.node_capacity
                 != self.voting_params.node_capacity)
                 .then_some(self.voting_params.node_capacity),
@@ -2355,6 +2364,7 @@ mod tests {
                 update_public_key: None,
                 storage_price: Some(config.voting_params.storage_price),
                 write_price: Some(config.voting_params.write_price),
+                update_price_immediately: false,
                 node_capacity: Some(config.voting_params.node_capacity),
                 metadata: Some(config.metadata.clone()),
                 commission_rate: None,
@@ -2387,6 +2397,7 @@ mod tests {
                 update_public_key: None,
                 storage_price: Some(config.voting_params.storage_price),
                 write_price: Some(config.voting_params.write_price),
+                update_price_immediately: false,
                 node_capacity: Some(config.voting_params.node_capacity),
                 metadata: Some(config.metadata.clone()),
                 commission_rate: None,
@@ -2419,6 +2430,7 @@ mod tests {
                 update_public_key: None,
                 storage_price: None,
                 write_price: None,
+                update_price_immediately: false,
                 node_capacity: None,
                 metadata: None,
                 commission_rate: Some(config.commission_rate),

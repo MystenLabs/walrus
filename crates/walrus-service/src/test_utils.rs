@@ -1849,15 +1849,6 @@ impl SystemContractService for StubContractService {
     async fn flush_cache(&self) {
         // No-op
     }
-
-    async fn update_price_votes(
-        &self,
-        _node_capability_object_id: ObjectID,
-        _storage_price: u64,
-        _write_price: u64,
-    ) -> anyhow::Result<()> {
-        anyhow::bail!("stub service cannot update price votes")
-    }
 }
 
 /// Specifies what kind of IP address to use when looking for an unused socket address.
@@ -2655,18 +2646,6 @@ where
 
     async fn flush_cache(&self) {
         self.as_ref().inner.flush_cache().await;
-    }
-
-    async fn update_price_votes(
-        &self,
-        node_capability_object_id: ObjectID,
-        storage_price: u64,
-        write_price: u64,
-    ) -> anyhow::Result<()> {
-        self.as_ref()
-            .inner
-            .update_price_votes(node_capability_object_id, storage_price, write_price)
-            .await
     }
 }
 

@@ -1293,14 +1293,24 @@ impl WalrusPtbBuilder {
                 .await?;
         }
 
+        let mut price_votes_updated = false;
         if let Some(storage_price) = params.storage_price {
             self.update_storage_price(&storage_node_cap, storage_price)
                 .await?;
+            price_votes_updated = true;
         }
 
         if let Some(write_price) = params.write_price {
             self.update_write_price(&storage_node_cap, write_price)
                 .await?;
+            price_votes_updated = true;
+        }
+
+        if price_votes_updated && params.update_price_immediately {
+            // We are using live stable pricing, so we need to call `update_prices` to apply the
+            // new prices.
+            // TODO(WAL-804): create a test to test updating prices immediately.
+            self.apply_system_prices()?;
         }
 
         if let Some(node_capacity) = params.node_capacity {

@@ -112,7 +112,7 @@ pub struct UpdatePublicKeyParams {
 }
 
 /// Parameters for updating a node's configuration.
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct NodeUpdateParams {
     /// The name of the storage node.
     pub name: Option<String>,
@@ -126,6 +126,8 @@ pub struct NodeUpdateParams {
     pub storage_price: Option<u64>,
     /// The write price to vote for.
     pub write_price: Option<u64>,
+    /// Whether to update the prices immediately.
+    pub update_price_immediately: bool,
     /// The node capacity to vote for.
     pub node_capacity: Option<u64>,
     /// The metadata of the storage node.
