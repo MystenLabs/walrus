@@ -192,6 +192,7 @@ impl DistributedUploader {
         upload_action: F,
         event_sender: tokio::sync::mpsc::Sender<UploaderEvent>,
         tail_handling: TailHandling,
+        stop_scheduling: Option<CancellationToken>,
         cancellation: Option<CancellationToken>,
     ) -> Result<RunOutput<R, E>, ClientError>
     where
@@ -222,79 +223,99 @@ impl DistributedUploader {
         let start = Instant::now();
         let n_shards: usize = self.committees.n_shards().get().into();
         let cancel_token = cancellation.unwrap_or_default();
+        let stop_token = stop_scheduling.unwrap_or_default();
+        let mut stop_scheduling = false;
+        let mut hard_cancelled = false;
 
         let mut blobs_at_quorum = self.progress.values().filter(|p| p.quorum_reached).count();
         let mut results: Vec<NodeResult<R, E>> = Vec::new();
 
-        while blobs_at_quorum < self.progress.len() {
-            tokio::select! {
-                _ = cancel_token.cancelled() => {
-                    tracing::debug!("uploader: cancellation requested; returning partial results");
-                    break;
-                }
-                maybe_result = requests.next(n_shards) => {
-                    let Some(node_result) = maybe_result else {
+        if blobs_at_quorum < self.progress.len() {
+            loop {
+                tokio::select! {
+                    _ = cancel_token.cancelled() => {
+                        tracing::debug!("uploader: cancellation requested;
+                        returning partial results",
+                        );
+                        hard_cancelled = true;
                         break;
-                    };
-                    if let Ok(successful_blobs) = &node_result.result {
-                        for &blob_id in successful_blobs.as_ref() {
-                            let prog = self.progress.entry(blob_id).or_default();
-                            prog.completed_weight += node_result.weight;
+                    }
+                    _ = stop_token.cancelled(), if !stop_scheduling => {
+                        stop_scheduling = true;
+                        requests.stop_scheduling();
+                        tracing::debug!(
+                            "uploader: stop scheduling requested; draining in-flight requests"
+                        );
+                    }
+                    maybe_result = requests.next(n_shards) => {
+                        let Some(node_result) = maybe_result else {
+                            break;
+                        };
+                        if let Ok(successful_blobs) = &node_result.result {
+                            for &blob_id in successful_blobs.as_ref() {
+                                let prog = self.progress.entry(blob_id).or_default();
+                                prog.completed_weight += node_result.weight;
 
-                            let required_weight = self.committees.min_n_correct();
-                            if let Err(err) = event_sender
-                                .send(UploaderEvent::BlobProgress {
-                                    blob_id,
-                                    completed_weight: prog.completed_weight,
-                                    required_weight,
-                                })
-                                .await
-                            {
-                                tracing::warn!(blob_id = %blob_id, ?err,
-                                    "failed to send blob progress event");
-                            }
-
-                            if !prog.quorum_reached
-                                && self
-                                    .committees
-                                    .write_committee()
-                                    .is_at_least_min_n_correct(prog.completed_weight)
-                            {
-                                prog.quorum_reached = true;
-                                blobs_at_quorum += 1;
-                                tracing::debug!(blob_id = %blob_id,
-                                    "sending blob quorum reached event");
+                                let required_weight = self.committees.min_n_correct();
                                 if let Err(err) = event_sender
-                                    .send(UploaderEvent::BlobQuorumReached {
+                                    .send(UploaderEvent::BlobProgress {
                                         blob_id,
-                                        elapsed: start.elapsed(),
+                                        completed_weight: prog.completed_weight,
+                                        required_weight,
                                     })
                                     .await
                                 {
                                     tracing::warn!(blob_id = %blob_id, ?err,
-                                        "failed to send blob quorum reached event");
-                                } else {
+                                        "failed to send blob progress event");
+                                }
+
+                                if !prog.quorum_reached
+                                    && self
+                                        .committees
+                                        .write_committee()
+                                        .is_at_least_min_n_correct(prog.completed_weight)
+                                {
+                                    prog.quorum_reached = true;
+                                    blobs_at_quorum += 1;
                                     tracing::debug!(blob_id = %blob_id,
-                                        "sent blob quorum reached event");
+                                        "sending blob quorum reached event");
+                                    if let Err(err) = event_sender
+                                        .send(UploaderEvent::BlobQuorumReached {
+                                            blob_id,
+                                            elapsed: start.elapsed(),
+                                        })
+                                        .await
+                                    {
+                                        tracing::warn!(blob_id = %blob_id, ?err,
+                                            "failed to send blob quorum reached event");
+                                    } else {
+                                        tracing::debug!(blob_id = %blob_id,
+                                            "sent blob quorum reached event");
+                                    }
                                 }
                             }
                         }
-                    }
 
-                    results.push(node_result);
+                        results.push(node_result);
+                    }
+                }
+
+                if !stop_scheduling && blobs_at_quorum >= self.progress.len() {
+                    break;
                 }
             }
         }
 
-        let cancelled = cancel_token.is_cancelled();
+        let cancelled = hard_cancelled || cancel_token.is_cancelled();
+        let stopped = stop_scheduling || stop_token.is_cancelled();
 
-        let extra_time = if cancelled {
+        let extra_time = if cancelled || stopped {
             Duration::ZERO
         } else {
             self.sliver_write_extra_time.extra_time(start.elapsed())
         };
 
-        let tail_handle = if cancelled {
+        let tail_handle = if cancelled || stopped {
             None
         } else if tail_handling == TailHandling::Detached && extra_time > Duration::from_millis(0) {
             tracing::debug!("uploader: spawning detached tail handle");

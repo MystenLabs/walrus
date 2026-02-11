@@ -3,7 +3,7 @@
 
 //! Client for interacting with the StorageNode API.
 
-use std::{collections::BTreeMap, sync::Arc};
+use std::{collections::BTreeMap, sync::Arc, time::Duration};
 
 use fastcrypto::traits::{EncodeDecodeBase64, KeyPair};
 use futures::TryFutureExt as _;
@@ -462,8 +462,17 @@ impl StorageNodeClient {
         &self,
         blob_id: &BlobId,
         blob_persistence_type: &BlobPersistenceType,
+        wait_for_registration: Option<Duration>,
     ) -> Result<SignedStorageConfirmation, NodeError> {
-        let (url, template) = self.endpoints.confirmation(blob_id, blob_persistence_type);
+        let (mut url, template) = self.endpoints.confirmation(blob_id, blob_persistence_type);
+        if let Some(wait_for_registration) = wait_for_registration.filter(|d| !d.is_zero()) {
+            url.query_pairs_mut()
+                .append_pair("wait_for_registration", "true")
+                .append_pair(
+                    "wait_millis",
+                    &wait_for_registration.as_millis().to_string(),
+                );
+        }
         // NOTE(giac): in the future additional values may be possible here.
         let StorageConfirmation::Signed(confirmation) = self
             .send_and_parse_service_response(Request::new(Method::GET, url), template)
@@ -489,7 +498,7 @@ impl StorageNodeClient {
         blob_persistence_type: BlobPersistenceType,
     ) -> Result<SignedStorageConfirmation, NodeError> {
         let confirmation = self
-            .get_confirmation(blob_id, &blob_persistence_type)
+            .get_confirmation(blob_id, &blob_persistence_type, None)
             .await?;
         let _ = confirmation
             .verify(public_key, epoch, *blob_id, blob_persistence_type)

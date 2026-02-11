@@ -209,6 +209,7 @@ struct UploadOptions<'a> {
     target_nodes: Option<(Epoch, &'a [NodeIndex])>,
     upload_intent: UploadIntent,
     initial_completed_weight: Option<&'a HashMap<BlobId, usize>>,
+    stop_scheduling: Option<CancellationToken>,
     cancellation: Option<CancellationToken>,
 }
 
@@ -231,6 +232,7 @@ struct PendingUploadContext {
 }
 
 struct PendingUploadHandle<'a> {
+    stop_scheduling: CancellationToken,
     cancel: CancellationToken,
     future: PendingUploadFuture<'a>,
 }
@@ -1497,6 +1499,7 @@ impl WalrusNodeClient<SuiContractClient> {
         let (tx, mut rx) = tokio::sync::mpsc::channel(pending_blobs.len().max(1));
         tokio::spawn(async move { while rx.recv().await.is_some() {} });
 
+        let stop_scheduling = CancellationToken::new();
         let cancel = CancellationToken::new();
         let future = Box::pin(self.distributed_upload_without_confirmation(
             pending_blobs,
@@ -1506,11 +1509,16 @@ impl WalrusNodeClient<SuiContractClient> {
                 target_nodes: None,
                 upload_intent: UploadIntent::Pending,
                 initial_completed_weight: None,
+                stop_scheduling: Some(stop_scheduling.clone()),
                 cancellation: Some(cancel.clone()),
             },
         ));
 
-        Some(PendingUploadHandle { cancel, future })
+        Some(PendingUploadHandle {
+            stop_scheduling,
+            cancel,
+            future,
+        })
     }
 
     async fn register_with_pending_uploads(
@@ -1537,11 +1545,11 @@ impl WalrusNodeClient<SuiContractClient> {
         if let Some(ref mut pending) = pending_upload_handle {
             tokio::pin!(registration_fut);
             let mut pending_upload_result = None;
+            let pending_grace = self.config.communication_config.pending_upload_grace;
             let registered_blobs = tokio::select! {
                 reg = &mut registration_fut => {
-                    // Cancel pending uploads once registration completes; if they already finished
-                    // we'll still await their output below.
-                    pending.cancel.cancel();
+                    // Stop scheduling new pending uploads once registration completes.
+                    pending.stop_scheduling.cancel();
                     reg
                 }
                 pending_res = pending.future.as_mut() => {
@@ -1553,12 +1561,30 @@ impl WalrusNodeClient<SuiContractClient> {
             }?;
 
             if pending_upload_result.is_none() {
-                // Registration finished first; still await the pending task to capture any
-                // completed work before or during cancellation.
-                pending.cancel.cancel();
-                match pending.future.as_mut().await {
-                    Ok(res) => pending_upload_result = Some(res),
-                    Err(err) => tracing::debug!(?err, "pending upload task failed or cancelled"),
+                // Registration finished first; allow in-flight pending uploads to finish for the
+                // grace period before hard-cancelling.
+                pending.stop_scheduling.cancel();
+                if pending_grace.is_zero() {
+                    pending.cancel.cancel();
+                    match pending.future.as_mut().await {
+                        Ok(res) => pending_upload_result = Some(res),
+                        Err(err) => {
+                            tracing::debug!(?err, "pending upload task failed or cancelled")
+                        }
+                    }
+                } else {
+                    match tokio::time::timeout(pending_grace, pending.future.as_mut()).await {
+                        Ok(res) => pending_upload_result = Some(res?),
+                        Err(_) => {
+                            pending.cancel.cancel();
+                            match pending.future.as_mut().await {
+                                Ok(res) => pending_upload_result = Some(res),
+                                Err(err) => {
+                                    tracing::debug!(?err, "pending upload failed or cancelled",)
+                                }
+                            }
+                        }
+                    }
                 }
             }
 
@@ -2079,6 +2105,7 @@ impl<T> WalrusNodeClient<T> {
                 target_nodes,
                 upload_intent: UploadIntent::Immediate,
                 initial_completed_weight,
+                stop_scheduling: None,
                 cancellation: None,
             },
         ));
@@ -2198,6 +2225,7 @@ impl<T> WalrusNodeClient<T> {
             target_nodes,
             upload_intent,
             initial_completed_weight,
+            stop_scheduling,
             cancellation,
         } = options;
         if blobs.is_empty() {
@@ -2321,6 +2349,7 @@ impl<T> WalrusNodeClient<T> {
                 },
                 event_sender,
                 tail_handling,
+                stop_scheduling,
                 cancellation,
             )
             .await?;
@@ -2504,6 +2533,7 @@ impl<T> WalrusNodeClient<T> {
                         target_nodes: Some((certified_epoch, &missing_nodes)),
                         upload_intent: UploadIntent::Immediate,
                         initial_completed_weight: initial_weight.as_ref(),
+                        stop_scheduling: None,
                         cancellation: None,
                     },
                 )
