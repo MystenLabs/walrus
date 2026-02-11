@@ -734,6 +734,12 @@ public(package) fun epoch_sync_done(
     events::emit_shards_received(self.epoch, *node_shards);
 }
 
+/// Burns the commission balance of the pool for the given node.
+/// Used by the slashing mechanism to penalize misbehaving nodes.
+public(package) fun burn_commission(self: &mut StakingInnerV1, node_id: ID): Balance<WAL> {
+    self.pools[node_id].burn_commission()
+}
+
 /// Adds `commissions[i]` to the commission of pool `node_ids[i]`.
 public(package) fun add_commission_to_pools(
     self: &mut StakingInnerV1,

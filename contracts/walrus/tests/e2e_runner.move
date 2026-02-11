@@ -8,6 +8,7 @@ use wal::wal::ProtectedTreasury;
 use walrus::{
     init,
     node_metadata,
+    slashing::{Self, SlashingManager},
     staking::Staking,
     system::System,
     test_node::{Self, TestStorageNode},
@@ -109,6 +110,7 @@ public fun build(self: InitBuilder): TestRunner {
     );
 
     transfer::public_transfer(emergency_upgrade_cap, admin);
+    slashing::new(ctx);
     scenario.next_tx(admin);
 
     TestRunner { scenario, clock, admin }
@@ -209,6 +211,50 @@ public macro fun tx_with_upgrade_manager(
     test_scenario::return_shared(upgrade_manager);
     test_scenario::return_shared(staking);
     test_scenario::return_shared(system);
+}
+
+/// Run a transaction as a `sender`, and call the function `f` with the `Staking`,
+/// `SlashingManager`, and `TxContext` as arguments.
+public macro fun tx_with_slashing_manager(
+    $runner: &mut TestRunner,
+    $sender: address,
+    $f: |&mut Staking, &mut SlashingManager, &mut TxContext|,
+) {
+    let runner = $runner;
+    let scenario = runner.scenario();
+    scenario.next_tx($sender);
+    let mut staking = scenario.take_shared<Staking>();
+    let mut slashing_manager = scenario.take_shared<SlashingManager>();
+    let ctx = scenario.ctx();
+
+    $f(&mut staking, &mut slashing_manager, ctx);
+
+    test_scenario::return_shared(slashing_manager);
+    test_scenario::return_shared(staking);
+}
+
+/// Run a transaction as a `sender`, and call the function `f` with the `Staking`,
+/// `SlashingManager`, `ProtectedTreasury`, and `TxContext` as arguments.
+///
+/// This macro is primarily used to execute slashing.
+public macro fun tx_with_slashing_manager_and_treasury(
+    $runner: &mut TestRunner,
+    $sender: address,
+    $f: |&mut Staking, &mut SlashingManager, &mut ProtectedTreasury, &mut TxContext|,
+) {
+    let runner = $runner;
+    let scenario = runner.scenario();
+    scenario.next_tx($sender);
+    let mut staking = scenario.take_shared<Staking>();
+    let mut slashing_manager = scenario.take_shared<SlashingManager>();
+    let mut protected_treasury = scenario.take_shared<wal::wal::ProtectedTreasury>();
+    let ctx = scenario.ctx();
+
+    $f(&mut staking, &mut slashing_manager, &mut protected_treasury, ctx);
+
+    test_scenario::return_shared(protected_treasury);
+    test_scenario::return_shared(slashing_manager);
+    test_scenario::return_shared(staking);
 }
 
 /// Progress to the next epoch.
