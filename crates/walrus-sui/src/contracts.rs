@@ -367,6 +367,7 @@ pub mod events {
     contract_ident!(struct events::ContractUpgradeProposed);
     contract_ident!(struct events::ContractUpgradeQuorumReached);
     contract_ident!(struct events::ProtocolVersionUpdated);
+    contract_ident!(struct events::PricesUpdated);
 }
 
 /// Module for tags corresponding to the Move module `auth`.

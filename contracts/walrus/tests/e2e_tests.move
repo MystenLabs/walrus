@@ -503,8 +503,8 @@ fun epoch_change_with_rewards_and_commission() {
 
     // each node is getting 477 in rewards (1_000_000_000 Bytes / 1 MiB * 5 MIST)
     // Deny list size is 1%, so the node with deny list gets 472 in rewards.
-    // Half of the commission is burned, which results in 236 for the node with deny list and 238
-    //for the other nodes.
+    // 3% of the commission is burned, which results in 458 for the node with deny list and 463
+    // for the other nodes.
     nodes.do_mut!(|node| {
         runner.tx!(node.sui_address(), |staking, _, ctx| {
             let auth = auth::authenticate_with_object(node.cap());
@@ -513,9 +513,9 @@ fun epoch_change_with_rewards_and_commission() {
             // deny_list_node has 10% less rewards
             // all nodes claim 100% of their rewards
             if (node.node_id() == deny_list_node) {
-                assert_eq!(commission.burn_for_testing(), 236);
+                assert_eq!(commission.burn_for_testing(), 458);
             } else {
-                assert_eq!(commission.burn_for_testing(), 238);
+                assert_eq!(commission.burn_for_testing(), 463);
             };
         });
     });

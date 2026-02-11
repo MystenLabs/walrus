@@ -361,6 +361,7 @@ impl TelemetryLabel for ProtocolEvent {
     fn label(&self) -> &'static str {
         match self {
             ProtocolEvent::ProtocolVersionUpdated(_) => "protocol-version-updated",
+            ProtocolEvent::PricesUpdated(_) => "prices-updated",
         }
     }
 }

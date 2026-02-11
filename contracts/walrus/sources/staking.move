@@ -11,6 +11,7 @@ use wal::wal::{WAL, ProtectedTreasury};
 use walrus::{
     auth::{Self, Authenticated, Authorized},
     committee::Committee,
+    events,
     node_metadata::NodeMetadata,
     staked_wal::StakedWal,
     staking_inner::{Self, StakingInnerV1},
@@ -203,6 +204,7 @@ public fun update_prices(staking: &mut Staking, system: &mut System) {
     let (storage_price, write_price) = staking.inner().recalculate_prices();
     system.set_storage_price(storage_price);
     system.set_write_price(write_price);
+    events::emit_prices_updated(staking.inner().epoch(), storage_price, write_price);
 }
 
 // === Get/ Update Node Parameters ===

@@ -3630,3 +3630,20 @@ async fn test_client_recover_slivers_timeout() -> TestResult {
     );
     Ok(())
 }
+
+#[ignore = "ignore E2E tests by default"]
+#[walrus_simtest]
+async fn test_apply_system_prices_does_not_crash_nodes() -> TestResult {
+    walrus_test_utils::init_tracing();
+
+    let (_sui_cluster_handle, _cluster, client, _, _) =
+        test_cluster::E2eTestSetupBuilder::new().build().await?;
+
+    // Call apply_system_prices, which emits a PricesUpdated event.
+    client.as_ref().sui_client().apply_system_prices().await?;
+
+    // Store and read a blob to verify nodes are still alive after processing the event.
+    basic_store_and_read(&client, 1, 1000, None, || Ok(())).await?;
+
+    Ok(())
+}

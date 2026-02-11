@@ -115,6 +115,7 @@ use walrus_sdk::{
             EpochChangeStart,
             GENESIS_EPOCH,
             PackageEvent,
+            ProtocolEvent,
         },
     },
 };
@@ -1547,6 +1548,11 @@ impl StorageNode {
             }
             EventStreamElement::ContractEvent(ContractEvent::DenyListEvent(_event)) => {
                 // TODO: Implement DenyListEvent handling (WAL-424)
+                event_handle.mark_as_complete();
+            }
+            EventStreamElement::ContractEvent(ContractEvent::ProtocolEvent(
+                ProtocolEvent::PricesUpdated(_),
+            )) => {
                 event_handle.mark_as_complete();
             }
             EventStreamElement::ContractEvent(ContractEvent::ProtocolEvent(event)) => {
