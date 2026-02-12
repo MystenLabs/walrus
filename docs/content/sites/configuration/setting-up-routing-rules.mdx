@@ -2,48 +2,8 @@
 title: Setting Up Routing Rules
 description: "Guide to configuring client-side routing for Walrus Sites using ws-resources.json."
 keywords: ["walrus sites", "headers", "routing", "metadata", "ws-resources", "configuration", "client-side routing", "spa"]
+draft: true
 ---
-
-{/* https://linear.app/mysten-labs/issue/DOCS-672/sitesconfigurationsetting-up-routing-rules */}
-
-In its base configuration, Walrus Sites serves static assets through a portal. However, many modern web applications require more advanced features, such as custom headers and client-side routing.
-
-Therefore, the `site-builder` can read a `ws-resources.json` configuration file, in which you can directly specify resource headers and routing rules.
-
-## The `ws-resources.json` file
-
-This file is optionally placed in the root of the site directory, and it is not uploaded with the site's resources. If you don't want to use this default location, you can specify the path to the configuration file with the `--ws-resources` flag when running the `deploy`, `publish` or `update` commands.
-
-The file is JSON-formatted, and looks like the following:
-
-```json
-{
-  "headers": {
-    "/index.html": {
-    "Content-Type": "text/html; charset=utf-8",
-    "Cache-Control": "max-age=3500"
-    }
-  },
-  "routes": {
-    "/*": "/index.html",
-    "/accounts/*": "/accounts.html",
-    "/path/assets/*": "/assets/asset_router.html"
-  },
-  "metadata": {
-    "link": "https://subdomain.wal.app",
-    "image_url": "https://www.walrus.xyz/walrus-site",
-    "description": "This is a walrus site.",
-    "project_url": "https://github.com/MystenLabs/walrus-sites/",
-    "creator": "MystenLabs"
-  },
-  "site_name": "My Walrus Site",
-  "object_id": "0xe674c144119a37a0ed9cef26a962c3fdfbdbfd86a3b3db562ee81d5542a4eccf",
-  "ignore": ["/private/*", "/secret.txt", "/images/tmp/*"]
-}
-```
-
-The `ws-resources.json` file expects the field names to be in `snake_case`.
-
 
 ## Specifying client-side routing (`routes`)
 
