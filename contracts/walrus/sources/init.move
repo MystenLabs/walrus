@@ -66,7 +66,7 @@ public fun initialize_walrus(
 
 /// Deprecated old migration function.
 public fun migrate(_staking: &mut Staking, _system: &mut System) {
-    abort EDeprecatedFunction;
+    abort EDeprecatedFunction
 }
 
 /// Migrates the staking and system objects to the new package ID.

@@ -25,8 +25,6 @@ use walrus::{
 const EInvalidMigration: u64 = 0;
 /// The package version is not compatible with the staking object.
 const EWrongVersion: u64 = 1;
-/// The migration epoch is not set or has not started yet.
-const EInvalidMigrationEpoch: u64 = 2;
 
 /// Flag to indicate the version of the Walrus system.
 const VERSION: u64 = 3;
