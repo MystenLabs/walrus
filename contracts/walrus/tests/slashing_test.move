@@ -7,6 +7,7 @@ module walrus::slashing_tests;
 use std::unit_test::assert_eq;
 use walrus::{auth, e2e_runner, slashing, test_utils as walrus_test_utils};
 
+// TODO(WAL-1147): merge this with setup_committee_for_epoch_one in e2e_tests.move.
 /// Helper: set up a committee with commission so that nodes accumulate commission.
 /// Returns a runner and nodes where each node has a 10% commission rate.
 fun setup_committee_with_commission(): (

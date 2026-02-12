@@ -449,9 +449,8 @@ public(package) fun add_commission(pool: &mut StakingPool, commission: Balance<W
     pool.commission.join(commission)
 }
 
-/// Burns the commission balance of the pool by withdrawing all and destroying it.
-/// Used by the slashing mechanism to penalize misbehaving nodes.
-public(package) fun burn_commission(pool: &mut StakingPool): Balance<WAL> {
+/// Extracts the commission balance of the pool for the slashing mechanism to burn.
+public(package) fun extract_commission_to_burn(pool: &mut StakingPool): Balance<WAL> {
     pool.commission.withdraw_all()
 }
 

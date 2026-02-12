@@ -366,7 +366,7 @@ public(package) fun burn_commission(
     treasury: &mut ProtectedTreasury,
     ctx: &mut TxContext,
 ) {
-    let balance = staking.inner_mut().burn_commission(node_id);
+    let balance = staking.inner_mut().extract_commission_to_burn(node_id);
     wal::wal::burn(treasury, balance.into_coin(ctx));
 }
 
