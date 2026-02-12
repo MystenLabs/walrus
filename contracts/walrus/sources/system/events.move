@@ -127,6 +127,13 @@ public struct ProtocolVersionUpdated has copy, drop {
     protocol_version: u64,
 }
 
+/// Signals that storage and write prices have been updated.
+public struct PricesUpdated has copy, drop {
+    epoch: u32,
+    storage_price: u64,
+    write_price: u64,
+}
+
 // === Functions to emit the events from other modules ===
 
 public(package) fun emit_blob_registered(
@@ -230,4 +237,8 @@ public(package) fun emit_contract_upgrade_proposed(epoch: u32, package_digest: v
 
 public(package) fun emit_contract_upgrade_quorum_reached(epoch: u32, package_digest: vector<u8>) {
     event::emit(ContractUpgradeQuorumReached { epoch, package_digest })
+}
+
+public(package) fun emit_prices_updated(epoch: u32, storage_price: u64, write_price: u64) {
+    event::emit(PricesUpdated { epoch, storage_price, write_price })
 }

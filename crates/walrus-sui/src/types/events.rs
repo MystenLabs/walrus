@@ -702,6 +702,39 @@ impl TryFrom<SuiEvent> for ProtocolVersionUpdatedEvent {
     }
 }
 
+/// Sui event that storage and write prices have been updated.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PricesUpdatedEvent {
+    /// The epoch in which the prices were updated.
+    pub epoch: Epoch,
+    /// The new storage price.
+    pub storage_price: u64,
+    /// The new write price.
+    pub write_price: u64,
+    /// The ID of the event.
+    pub event_id: EventID,
+}
+
+impl AssociatedSuiEvent for PricesUpdatedEvent {
+    const EVENT_STRUCT: StructTag<'static> = contracts::events::PricesUpdated;
+}
+
+impl TryFrom<SuiEvent> for PricesUpdatedEvent {
+    type Error = MoveConversionError;
+
+    fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
+        ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
+
+        let (epoch, storage_price, write_price) = bcs::from_bytes(sui_event.bcs.bytes())?;
+        Ok(Self {
+            epoch,
+            storage_price,
+            write_price,
+            event_id: sui_event.id,
+        })
+    }
+}
+
 /// Enum to wrap package events.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
@@ -857,6 +890,8 @@ impl DenyListEvent {
 pub enum ProtocolEvent {
     /// Protocol version updated.
     ProtocolVersionUpdated(ProtocolVersionUpdatedEvent),
+    /// Prices updated.
+    PricesUpdated(PricesUpdatedEvent),
 }
 
 impl ProtocolEvent {
@@ -864,6 +899,7 @@ impl ProtocolEvent {
     pub fn event_id(&self) -> EventID {
         match self {
             ProtocolEvent::ProtocolVersionUpdated(event) => event.event_id,
+            ProtocolEvent::PricesUpdated(event) => event.event_id,
         }
     }
 
@@ -871,6 +907,7 @@ impl ProtocolEvent {
     pub fn event_epoch(&self) -> Epoch {
         match self {
             ProtocolEvent::ProtocolVersionUpdated(event) => event.epoch,
+            ProtocolEvent::PricesUpdated(event) => event.epoch,
         }
     }
 
@@ -878,6 +915,7 @@ impl ProtocolEvent {
     pub fn name(&self) -> &'static str {
         match self {
             ProtocolEvent::ProtocolVersionUpdated(_) => "ProtocolVersionUpdated",
+            ProtocolEvent::PricesUpdated(_) => "PricesUpdated",
         }
     }
 
@@ -885,6 +923,7 @@ impl ProtocolEvent {
     pub fn protocol_version(&self) -> u64 {
         match self {
             ProtocolEvent::ProtocolVersionUpdated(event) => event.protocol_version,
+            ProtocolEvent::PricesUpdated(_) => 0,
         }
     }
 }
@@ -1006,6 +1045,9 @@ impl TryFrom<SuiEvent> for ContractEvent {
             )),
             contracts::events::ProtocolVersionUpdated => Ok(ContractEvent::ProtocolEvent(
                 ProtocolEvent::ProtocolVersionUpdated(value.try_into()?),
+            )),
+            contracts::events::PricesUpdated => Ok(ContractEvent::ProtocolEvent(
+                ProtocolEvent::PricesUpdated(value.try_into()?),
             )),
             _ => unreachable!("Encountered unexpected unrecognized events {}", value),
         }

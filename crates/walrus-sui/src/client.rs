@@ -1202,6 +1202,15 @@ impl SuiContractClient {
         .await
     }
 
+    /// Recalculates and applies the system storage and write prices based on the current
+    /// committee's price votes.
+    pub async fn apply_system_prices(&self) -> SuiClientResult<()> {
+        self.retry_on_wrong_version(|| async {
+            self.inner.lock().await.apply_system_prices().await
+        })
+        .await
+    }
+
     /// Collects the commission for the pool with id `node_id` and returns the
     /// withdrawn amount in FROST.
     pub async fn collect_commission(&self, node_id: ObjectID) -> SuiClientResult<u64> {
@@ -2681,6 +2690,17 @@ impl SuiContractClientInner {
             .await?;
         let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
         self.sign_and_send_transaction(transaction, "update_node_params")
+            .await?;
+        Ok(())
+    }
+
+    /// Recalculates and applies the system storage and write prices based on the current
+    /// committee's price votes.
+    pub async fn apply_system_prices(&mut self) -> SuiClientResult<()> {
+        let mut pt_builder = self.transaction_builder();
+        pt_builder.apply_system_prices()?;
+        let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
+        self.sign_and_send_transaction(transaction, "apply_system_prices")
             .await?;
         Ok(())
     }
