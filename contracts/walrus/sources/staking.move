@@ -206,7 +206,6 @@ public fun update_prices(staking: &mut Staking, system: &mut System) {
     let (storage_price, write_price) = staking.inner().recalculate_prices();
     system.set_storage_price(storage_price);
     system.set_write_price(write_price);
-    events::emit_prices_updated(staking.inner().epoch(), storage_price, write_price);
 }
 
 // === Get/ Update Node Parameters ===
