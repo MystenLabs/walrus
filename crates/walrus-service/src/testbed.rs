@@ -53,10 +53,10 @@ use crate::{
         config::{
             LiveUploadDeferralConfig,
             PathOrInPlace,
+            PriceCurrency,
             StorageNodeConfig,
             VotingParamsConfig,
             VotingPrices,
-            VotingPricesConfig,
             defaults::{self, REST_API_PORT},
         },
         consistency_check::StorageNodeConsistencyCheckConfig,
@@ -731,10 +731,11 @@ pub async fn create_storage_node_configs(
             disable_event_blob_writer,
             commission_rate: node.commission_rate,
             voting_params: VotingParamsConfig {
-                voting_prices: VotingPrices::FROST(VotingPricesConfig {
+                voting_prices: VotingPrices {
+                    currency: PriceCurrency::FROST,
                     storage_price: node.storage_price,
                     write_price: node.write_price,
-                }),
+                },
                 node_capacity: node.node_capacity,
             },
             metrics_push: None,

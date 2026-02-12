@@ -19,11 +19,11 @@ mod tests {
         node::config::{
             CommissionRateData,
             PathOrInPlace,
+            PriceCurrency,
             StorageNodeConfig,
             SyncedNodeConfigSet,
             VotingParamsConfig,
             VotingPrices,
-            VotingPricesConfig,
         },
         test_utils::{SimStorageNodeHandle, TestNodesConfig, UnusedSocketAddress, test_cluster},
     };
@@ -254,10 +254,11 @@ mod tests {
         let network_key_pair = walrus_core::keys::NetworkKeyPair::generate();
         // Generate random voting params
         let voting_params = VotingParamsConfig {
-            voting_prices: VotingPrices::FROST(VotingPricesConfig {
+            voting_prices: VotingPrices {
+                currency: PriceCurrency::FROST,
                 storage_price: rand::thread_rng().gen_range(1..1000),
                 write_price: rand::thread_rng().gen_range(1..100),
-            }),
+            },
             node_capacity: rand::thread_rng().gen_range(1_000_000..1_000_000_000),
         };
         let metadata = NodeMetadata::new(
@@ -659,10 +660,11 @@ mod tests {
             voting_params: (
                 &TestUpdateParams {
                     voting_params: Some(VotingParamsConfig {
-                        voting_prices: VotingPrices::FROST(VotingPricesConfig {
+                        voting_prices: VotingPrices {
+                            currency: PriceCurrency::FROST,
                             storage_price: 100,
                             write_price: 100,
-                        }),
+                        },
                         node_capacity: 100,
                     }),
                     ..Default::default()
@@ -711,10 +713,11 @@ mod tests {
 
                     if rng.gen_bool(0.5) {
                         params.voting_params = Some(VotingParamsConfig {
-                            voting_prices: VotingPrices::FROST(VotingPricesConfig {
+                            voting_prices: VotingPrices {
+                                currency: PriceCurrency::FROST,
                                 storage_price: rng.gen_range(1..1000),
                                 write_price: rng.gen_range(1..100),
-                            }),
+                            },
                             node_capacity: rng.gen_range(1_000_000..1_000_000_000),
                         });
                     }

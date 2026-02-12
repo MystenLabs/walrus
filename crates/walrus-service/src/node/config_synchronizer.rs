@@ -406,11 +406,11 @@ mod tests {
         );
         assert_eq!(
             update_params.storage_price,
-            Some(loaded_config.voting_params.voting_prices.storage_price())
+            Some(loaded_config.voting_params.voting_prices.storage_price)
         );
         assert_eq!(
             update_params.write_price,
-            Some(loaded_config.voting_params.voting_prices.write_price())
+            Some(loaded_config.voting_params.voting_prices.write_price)
         );
         assert_eq!(
             update_params.node_capacity,

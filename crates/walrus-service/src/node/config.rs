@@ -79,50 +79,34 @@ fn calculate_price_in_frost(target_price_nano_usd: u64, wal_price_usd: f64) -> u
     }
 }
 
-/// Configuration for the voting prices.
-/// The unit is determined by the currency unit.
-/// When defining a new currency, be mindful that the minimum unit is the smallest unit of the
-/// that can be used to represent the price.
+/// The currency unit for voting prices.
+#[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
+pub enum PriceCurrency {
+    /// FROST (1e9 FROST = 1 WAL)
+    #[default]
+    FROST,
+    /// NanoUSD (1e9 NanoUSD = 1 USD)
+    NanoUsd,
+}
+
+/// The prices that the storage node can vote for.
+/// The unit is determined by the currency field.
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
-pub struct VotingPricesConfig {
+pub struct VotingPrices {
+    /// The currency unit for the prices. Defaults to FROST for backward compatibility.
+    #[serde(default)]
+    pub currency: PriceCurrency,
     /// The storage price per MiB per epoch.
     pub storage_price: u64,
     /// The write price per MiB.
     pub write_price: u64,
 }
 
-/// The prices that the storage node can vote for.
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
-#[serde(tag = "currency", content = "prices")]
-pub enum VotingPrices {
-    /// FROST (1e9 FROST = 1 WAL)
-    FROST(VotingPricesConfig),
-    /// NanoUSD (1e9 NanoUSD = 1 USD)
-    NanoUsd(VotingPricesConfig),
-}
-
-impl VotingPrices {
-    /// Returns the storage price per MiB per epoch.
-    pub fn storage_price(&self) -> u64 {
-        match self {
-            VotingPrices::FROST(config) => config.storage_price,
-            VotingPrices::NanoUsd(config) => config.storage_price,
-        }
-    }
-
-    /// Returns the write price per MiB.
-    pub fn write_price(&self) -> u64 {
-        match self {
-            VotingPrices::FROST(config) => config.write_price,
-            VotingPrices::NanoUsd(config) => config.write_price,
-        }
-    }
-}
-
 /// Configuration for the voting parameters.
-#[derive(Debug, Clone, Serialize, PartialEq)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 pub struct VotingParamsConfig {
-    /// The prices that the storage node can vote for.
+    /// The prices that the storage node can vote for (flattened into this struct).
+    #[serde(flatten)]
     pub voting_prices: VotingPrices,
     /// The capacity of the node that determines the vote for the capacity
     /// after shards are assigned.
@@ -133,10 +117,11 @@ impl From<VotingParams> for VotingParamsConfig {
     fn from(params: VotingParams) -> Self {
         // Onchain VotingParams only tracks FROST prices.
         Self {
-            voting_prices: VotingPrices::FROST(VotingPricesConfig {
+            voting_prices: VotingPrices {
+                currency: PriceCurrency::FROST,
                 storage_price: params.storage_price,
                 write_price: params.write_price,
-            }),
+            },
             node_capacity: params.node_capacity,
         }
     }
@@ -147,70 +132,10 @@ impl From<VotingParams> for VotingParamsConfig {
 impl From<VotingParamsConfig> for VotingParams {
     fn from(config: VotingParamsConfig) -> Self {
         VotingParams {
-            storage_price: config.voting_prices.storage_price(),
-            write_price: config.voting_prices.write_price(),
+            storage_price: config.voting_prices.storage_price,
+            write_price: config.voting_prices.write_price,
             node_capacity: config.node_capacity,
         }
-    }
-}
-
-/// VotingParamsCompat is create to load the configuration from the old format and convert it to
-/// the new VotingParamsConfig when reading from the config file.
-#[derive(Debug, Deserialize)]
-#[serde(untagged)]
-enum VotingParamsCompat {
-    // Old format (flat)
-    FrostOnly {
-        storage_price: u64,
-        write_price: u64,
-        node_capacity: u64,
-    },
-
-    // New format (nested)
-    MultiCurrency {
-        voting_prices: VotingPrices,
-        node_capacity: u64,
-    },
-}
-
-impl From<VotingParamsCompat> for VotingParamsConfig {
-    fn from(v: VotingParamsCompat) -> Self {
-        match v {
-            VotingParamsCompat::FrostOnly {
-                storage_price,
-                write_price,
-                node_capacity,
-            } => {
-                VotingParamsConfig {
-                    // pick the default meaning of the old format:
-                    // here I assume legacy == FROST
-                    voting_prices: VotingPrices::FROST(VotingPricesConfig {
-                        storage_price,
-                        write_price,
-                    }),
-                    node_capacity,
-                }
-            }
-            VotingParamsCompat::MultiCurrency {
-                voting_prices,
-                node_capacity,
-            } => VotingParamsConfig {
-                voting_prices,
-                node_capacity,
-            },
-        }
-    }
-}
-
-/// Deserialize the VotingParamsConfig from the config file to be backward compatible with the old
-/// format.
-impl<'de> Deserialize<'de> for VotingParamsConfig {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let compat = VotingParamsCompat::deserialize(deserializer)?;
-        Ok(compat.into())
     }
 }
 
@@ -440,10 +365,11 @@ impl StorageNodeConfig {
             },
             commission_rate: 0,
             voting_params: VotingParamsConfig {
-                voting_prices: VotingPrices::FROST(VotingPricesConfig {
+                voting_prices: VotingPrices {
+                    currency: PriceCurrency::FROST,
                     storage_price: 5,
                     write_price: 1,
-                }),
+                },
                 node_capacity: 1_000_000_000,
             },
             config_synchronizer: ConfigSynchronizerConfig {
@@ -557,10 +483,11 @@ impl Default for StorageNodeConfig {
             disable_event_blob_writer: Default::default(),
             commission_rate: defaults::commission_rate(),
             voting_params: VotingParamsConfig {
-                voting_prices: VotingPrices::FROST(VotingPricesConfig {
+                voting_prices: VotingPrices {
+                    currency: PriceCurrency::FROST,
                     storage_price: defaults::storage_price(),
                     write_price: defaults::write_price(),
-                }),
+                },
                 node_capacity: 250_000_000_000,
             },
             name: Default::default(),
@@ -769,8 +696,8 @@ impl StorageNodeConfig {
             // vote should not significantly impact the quorum price. Once the node starts, and
             // started voting, it'll then update the prices to the correct USD values.
             // TODO(WAL-804): when currency is USD, try to calculate the correct FROST to use here.
-            storage_price: self.voting_params.voting_prices.storage_price(),
-            write_price: self.voting_params.voting_prices.write_price(),
+            storage_price: self.voting_params.voting_prices.storage_price,
+            write_price: self.voting_params.voting_prices.write_price,
             node_capacity: self.voting_params.node_capacity,
             metadata: self.metadata.clone(),
         }
@@ -810,51 +737,51 @@ impl StorageNodeConfig {
             NetworkAddress(format!("{}:{}", self.public_host, self.public_port));
 
         // Calculate storage_price and write_price based on configuration
-        let (storage_price, write_price, update_price_immediately) =
-            match &self.voting_params.voting_prices {
-                VotingPrices::FROST(config) => (
-                    (synced_config.voting_params.storage_price != config.storage_price)
-                        .then_some(config.storage_price),
-                    (synced_config.voting_params.write_price != config.write_price)
-                        .then_some(config.write_price),
-                    false,
-                ),
-                VotingPrices::NanoUsd(config) => {
-                    if let Some(wal_price_usd) = wal_price {
-                        // If stable pricing is configured and we have a WAL price, use it to
-                        // calculate prices.
-                        let storage_price_in_frost =
-                            calculate_price_in_frost(config.storage_price, wal_price_usd);
-                        let write_price_in_frost =
-                            calculate_price_in_frost(config.write_price, wal_price_usd);
+        let prices = &self.voting_params.voting_prices;
+        let (storage_price, write_price, update_price_immediately) = match prices.currency {
+            PriceCurrency::FROST => (
+                (synced_config.voting_params.storage_price != prices.storage_price)
+                    .then_some(prices.storage_price),
+                (synced_config.voting_params.write_price != prices.write_price)
+                    .then_some(prices.write_price),
+                false,
+            ),
+            PriceCurrency::NanoUsd => {
+                if let Some(wal_price_usd) = wal_price {
+                    // If stable pricing is configured and we have a WAL price, use it to
+                    // calculate prices.
+                    let storage_price_in_frost =
+                        calculate_price_in_frost(prices.storage_price, wal_price_usd);
+                    let write_price_in_frost =
+                        calculate_price_in_frost(prices.write_price, wal_price_usd);
 
-                        tracing::info!(
-                            wal_price_usd,
-                            stable_storage_price_nano_usd = config.storage_price,
-                            stable_write_price_nano_usd = config.write_price,
-                            storage_price_in_frost,
-                            write_price_in_frost,
-                            "calculating prices based on stable pricing config"
-                        );
+                    tracing::info!(
+                        wal_price_usd,
+                        stable_storage_price_nano_usd = prices.storage_price,
+                        stable_write_price_nano_usd = prices.write_price,
+                        storage_price_in_frost,
+                        write_price_in_frost,
+                        "calculating prices based on stable pricing config"
+                    );
 
-                        // TODO(WAL-804): update the prices only if the prices difference is
-                        // greater than a certain threshold.
-                        (
-                            (synced_config.voting_params.storage_price != storage_price_in_frost)
-                                .then_some(storage_price_in_frost),
-                            (synced_config.voting_params.write_price != write_price_in_frost)
-                                .then_some(write_price_in_frost),
-                            true,
-                        )
-                    } else {
-                        tracing::warn!(
-                            "configured to use NanoUSD pricing, but no WAL price \
-                            provided; will not update prices"
-                        );
-                        (None, None, false)
-                    }
+                    // TODO(WAL-804): update the prices only if the prices difference is
+                    // greater than a certain threshold.
+                    (
+                        (synced_config.voting_params.storage_price != storage_price_in_frost)
+                            .then_some(storage_price_in_frost),
+                        (synced_config.voting_params.write_price != write_price_in_frost)
+                            .then_some(write_price_in_frost),
+                        true,
+                    )
+                } else {
+                    tracing::warn!(
+                        "configured to use NanoUSD pricing, but no WAL price \
+                        provided; will not update prices"
+                    );
+                    (None, None, false)
                 }
-            };
+            }
+        };
 
         NodeUpdateParams {
             name: (synced_config.name != self.name).then_some(self.name.clone()),
@@ -2335,10 +2262,11 @@ mod tests {
     // Test data setup functions
     fn create_test_config() -> StorageNodeConfig {
         let new_voting_params = VotingParamsConfig {
-            voting_prices: VotingPrices::FROST(VotingPricesConfig {
+            voting_prices: VotingPrices {
+                currency: PriceCurrency::FROST,
                 storage_price: 150,
                 write_price: 250,
-            }),
+            },
             node_capacity: 2000,
         };
         let new_metadata = NodeMetadata::new(
@@ -2421,8 +2349,8 @@ mod tests {
                 ))),
                 network_public_key: Some(config.network_key_pair().public().clone()),
                 update_public_key: None,
-                storage_price: Some(config.voting_params.voting_prices.storage_price()),
-                write_price: Some(config.voting_params.voting_prices.write_price()),
+                storage_price: Some(config.voting_params.voting_prices.storage_price),
+                write_price: Some(config.voting_params.voting_prices.write_price),
                 update_price_immediately: false,
                 node_capacity: Some(config.voting_params.node_capacity),
                 metadata: Some(config.metadata.clone()),
@@ -2454,8 +2382,8 @@ mod tests {
                 network_address: None,
                 network_public_key: None,
                 update_public_key: None,
-                storage_price: Some(config.voting_params.voting_prices.storage_price()),
-                write_price: Some(config.voting_params.voting_prices.write_price()),
+                storage_price: Some(config.voting_params.voting_prices.storage_price),
+                write_price: Some(config.voting_params.voting_prices.write_price),
                 update_price_immediately: false,
                 node_capacity: Some(config.voting_params.node_capacity),
                 metadata: Some(config.metadata.clone()),
@@ -2546,10 +2474,11 @@ mod tests {
             public_host: "localhost".to_string(),
             public_port: 9185,
             voting_params: VotingParamsConfig {
-                voting_prices: VotingPrices::FROST(VotingPricesConfig {
+                voting_prices: VotingPrices {
+                    currency: PriceCurrency::FROST,
                     storage_price: 100,
                     write_price: 2000,
-                }),
+                },
                 node_capacity: 250_000_000,
             },
             ..Default::default()
@@ -2591,62 +2520,49 @@ mod tests {
 
     #[test]
     fn voting_params_config_backward_compatibility() {
-        // Test that existing configs without stable_pricing_config can still be deserialized
-        let yaml_without_stable_pricing = indoc! {"
+        // Test that existing configs without currency field can still be deserialized
+        // (currency defaults to FROST)
+        let yaml_without_currency = indoc! {"
             storage_price: 100
             write_price: 200
             node_capacity: 1000000
         "};
 
         let config: VotingParamsConfig =
-            serde_yaml::from_str(yaml_without_stable_pricing).expect("should deserialize");
-        if let VotingPrices::FROST(price_config) = config.voting_prices {
-            assert_eq!(price_config.storage_price, 100);
-            assert_eq!(price_config.write_price, 200);
-        } else {
-            panic!("Voting prices should be FROST");
-        }
+            serde_yaml::from_str(yaml_without_currency).expect("should deserialize");
+        assert_eq!(config.voting_prices.currency, PriceCurrency::FROST);
+        assert_eq!(config.voting_prices.storage_price, 100);
+        assert_eq!(config.voting_prices.write_price, 200);
         assert_eq!(config.node_capacity, 1000000);
 
-        // Test that configs with voting_prices using new adjacently tagged format can be
-        // deserialized.
+        // Test with explicit NanoUsd currency
         let yaml_with_nano_usd = indoc! {"
-            voting_prices:
-                currency: NanoUsd
-                prices:
-                    storage_price: 100
-                    write_price: 200
+            currency: NanoUsd
+            storage_price: 100
+            write_price: 200
             node_capacity: 1000000
         "};
 
         let config: VotingParamsConfig =
             serde_yaml::from_str(yaml_with_nano_usd).expect("should deserialize");
-        if let VotingPrices::NanoUsd(price_config) = config.voting_prices {
-            assert_eq!(price_config.storage_price, 100);
-            assert_eq!(price_config.write_price, 200);
-        } else {
-            panic!("Voting prices should be NanoUsd");
-        }
+        assert_eq!(config.voting_prices.currency, PriceCurrency::NanoUsd);
+        assert_eq!(config.voting_prices.storage_price, 100);
+        assert_eq!(config.voting_prices.write_price, 200);
         assert_eq!(config.node_capacity, 1000000);
 
-        // Test FROST with new format
+        // Test with explicit FROST currency
         let yaml_with_frost = indoc! {"
-            voting_prices:
-                currency: FROST
-                prices:
-                    storage_price: 300
-                    write_price: 400
+            currency: FROST
+            storage_price: 300
+            write_price: 400
             node_capacity: 2000000
         "};
 
         let config: VotingParamsConfig =
             serde_yaml::from_str(yaml_with_frost).expect("should deserialize");
-        if let VotingPrices::FROST(price_config) = config.voting_prices {
-            assert_eq!(price_config.storage_price, 300);
-            assert_eq!(price_config.write_price, 400);
-        } else {
-            panic!("Voting prices should be FROST");
-        }
+        assert_eq!(config.voting_prices.currency, PriceCurrency::FROST);
+        assert_eq!(config.voting_prices.storage_price, 300);
+        assert_eq!(config.voting_prices.write_price, 400);
         assert_eq!(config.node_capacity, 2000000);
     }
 
@@ -2661,10 +2577,11 @@ mod tests {
             protocol_key_pair: PathOrInPlace::InPlace(test_utils::protocol_key_pair()),
             network_key_pair: PathOrInPlace::InPlace(test_utils::network_key_pair()),
             voting_params: VotingParamsConfig {
-                voting_prices: VotingPrices::FROST(VotingPricesConfig {
+                voting_prices: VotingPrices {
+                    currency: PriceCurrency::FROST,
                     storage_price: 200,
                     write_price: 300,
-                }),
+                },
                 node_capacity: 1000,
             },
             ..Default::default()
@@ -2715,10 +2632,11 @@ mod tests {
             protocol_key_pair: PathOrInPlace::InPlace(test_utils::protocol_key_pair()),
             network_key_pair: PathOrInPlace::InPlace(test_utils::network_key_pair()),
             voting_params: VotingParamsConfig {
-                voting_prices: VotingPrices::NanoUsd(VotingPricesConfig {
+                voting_prices: VotingPrices {
+                    currency: PriceCurrency::NanoUsd,
                     storage_price: 100_000_000, // 0.1 USD
                     write_price: 150_000_000,   // 0.15 USD
-                }),
+                },
                 node_capacity: 1000,
             },
             ..Default::default()
@@ -2759,7 +2677,7 @@ mod tests {
 
     #[test]
     fn test_generate_update_params_with_nano_usd_and_wal_price() {
-        // Test case 3: If VotingPrices::NanoUsd is set and wal_price is set,
+        // Test case 3: If NanoUsd currency is set and wal_price is set,
         // the updated storage/write price is based on WAL calculation
         let config = StorageNodeConfig {
             name: "test-node".to_string(),
@@ -2769,10 +2687,11 @@ mod tests {
             network_key_pair: PathOrInPlace::InPlace(test_utils::network_key_pair()),
             voting_params: VotingParamsConfig {
                 // Prices in NanoUSD (1e9 NanoUSD = 1 USD)
-                voting_prices: VotingPrices::NanoUsd(VotingPricesConfig {
+                voting_prices: VotingPrices {
+                    currency: PriceCurrency::NanoUsd,
                     storage_price: 1_000_000_000, // 1 USD
                     write_price: 500_000_000,     // 0.5 USD
-                }),
+                },
                 node_capacity: 1000,
             },
             ..Default::default()
@@ -2830,10 +2749,11 @@ mod tests {
             network_key_pair: PathOrInPlace::InPlace(test_utils::network_key_pair()),
             voting_params: VotingParamsConfig {
                 // Prices in NanoUSD (1e9 NanoUSD = 1 USD)
-                voting_prices: VotingPrices::NanoUsd(VotingPricesConfig {
+                voting_prices: VotingPrices {
+                    currency: PriceCurrency::NanoUsd,
                     storage_price: 1_000_000_000, // 1 USD
                     write_price: 500_000_000,     // 0.5 USD
-                }),
+                },
                 node_capacity: 1000,
             },
             ..Default::default()
@@ -2901,10 +2821,11 @@ mod tests {
     fn test_voting_params_config_serialization_roundtrip() {
         // Test FROST serialization roundtrip
         let frost_config = VotingParamsConfig {
-            voting_prices: VotingPrices::FROST(VotingPricesConfig {
+            voting_prices: VotingPrices {
+                currency: PriceCurrency::FROST,
                 storage_price: 100,
                 write_price: 200,
-            }),
+            },
             node_capacity: 1000000,
         };
 
@@ -2915,10 +2836,11 @@ mod tests {
 
         // Test NanoUsd serialization roundtrip
         let nano_usd_config = VotingParamsConfig {
-            voting_prices: VotingPrices::NanoUsd(VotingPricesConfig {
+            voting_prices: VotingPrices {
+                currency: PriceCurrency::NanoUsd,
                 storage_price: 1_000_000_000,
                 write_price: 500_000_000,
-            }),
+            },
             node_capacity: 2000000,
         };
 
@@ -2938,10 +2860,11 @@ mod tests {
             protocol_key_pair: PathOrInPlace::InPlace(test_utils::protocol_key_pair()),
             network_key_pair: PathOrInPlace::InPlace(test_utils::network_key_pair()),
             voting_params: VotingParamsConfig {
-                voting_prices: VotingPrices::FROST(VotingPricesConfig {
+                voting_prices: VotingPrices {
+                    currency: PriceCurrency::FROST,
                     storage_price: 500,
                     write_price: 100,
-                }),
+                },
                 node_capacity: 1000,
             },
             ..Default::default()
@@ -2990,10 +2913,11 @@ mod tests {
             protocol_key_pair: PathOrInPlace::InPlace(test_utils::protocol_key_pair()),
             network_key_pair: PathOrInPlace::InPlace(test_utils::network_key_pair()),
             voting_params: VotingParamsConfig {
-                voting_prices: VotingPrices::NanoUsd(VotingPricesConfig {
+                voting_prices: VotingPrices {
+                    currency: PriceCurrency::NanoUsd,
                     storage_price: 1_000_000_000,
                     write_price: 500_000_000,
-                }),
+                },
                 node_capacity: 1000,
             },
             ..Default::default()
@@ -3043,13 +2967,10 @@ mod tests {
 
         let config: VotingParamsConfig = onchain_params.into();
 
-        // Should convert to FROST variant
-        if let VotingPrices::FROST(prices) = config.voting_prices {
-            assert_eq!(prices.storage_price, 12345);
-            assert_eq!(prices.write_price, 6789);
-        } else {
-            panic!("Expected FROST variant");
-        }
+        // Should convert to FROST currency
+        assert_eq!(config.voting_prices.currency, PriceCurrency::FROST);
+        assert_eq!(config.voting_prices.storage_price, 12345);
+        assert_eq!(config.voting_prices.write_price, 6789);
         assert_eq!(config.node_capacity, 999999);
     }
 

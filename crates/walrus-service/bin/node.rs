@@ -612,7 +612,7 @@ mod commands {
         },
         node::{
             DatabaseConfig,
-            config::{LoadedConfig, TlsConfig, VotingPrices, VotingPricesConfig},
+            config::{LoadedConfig, TlsConfig, VotingPrices},
         },
         utils,
     };
@@ -1053,15 +1053,13 @@ mod commands {
                 ..Default::default()
             },
             voting_params: VotingParamsConfig {
-                voting_prices: {
-                    let prices = VotingPricesConfig {
-                        storage_price,
-                        write_price,
-                    };
-                    match price_currency {
-                        PriceCurrency::Frost => VotingPrices::FROST(prices),
-                        PriceCurrency::NanoUsd => VotingPrices::NanoUsd(prices),
-                    }
+                voting_prices: VotingPrices {
+                    currency: match price_currency {
+                        PriceCurrency::Frost => config::PriceCurrency::FROST,
+                        PriceCurrency::NanoUsd => config::PriceCurrency::NanoUsd,
+                    },
+                    storage_price,
+                    write_price,
                 },
                 node_capacity: node_capacity.as_u64(),
             },
