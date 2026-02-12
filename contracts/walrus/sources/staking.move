@@ -131,6 +131,8 @@ public fun collect_commission(
     auth: Authenticated,
     ctx: &mut TxContext,
 ): Coin<WAL> {
+    // TODO(WAL-1147): node operators can only collect commission if the epoch is in
+    // NextParamsSelected.
     staking.inner_mut().collect_commission(node_id, auth).into_coin(ctx)
 }
 
@@ -356,6 +358,18 @@ public fun withdraw_stake(
 /// to the active set either the next time stake is added or by calling this function.
 public fun try_join_active_set(staking: &mut Staking, cap: &StorageNodeCap) {
     staking.inner_mut().try_join_active_set(cap)
+}
+
+/// Burns the commission balance of the pool for the given node.
+/// Used by the slashing mechanism to penalize misbehaving nodes.
+public(package) fun burn_commission(
+    staking: &mut Staking,
+    node_id: ID,
+    treasury: &mut ProtectedTreasury,
+    ctx: &mut TxContext,
+) {
+    let balance = staking.inner_mut().extract_commission_to_burn(node_id);
+    wal::wal::burn(treasury, balance.into_coin(ctx));
 }
 
 /// Adds `commissions[i]` to the commission of pool `node_ids[i]`.
