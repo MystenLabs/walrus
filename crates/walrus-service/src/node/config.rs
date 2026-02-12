@@ -65,9 +65,7 @@ const MAX_FROST_COUNT: u64 = 5_000_000_000 * 1_000_000_000;
 ///
 /// If the calculated price exceeds `MAX_FROST_COUNT`, returns `MAX_FROST_COUNT` instead.
 fn calculate_price_in_frost(target_price_nano_usd: u64, wal_price_usd: f64) -> u64 {
-    if wal_price_usd <= 0.0 {
-        return 0;
-    }
+    assert!(wal_price_usd > 0.0, "WAL price must be greater than 0");
 
     let price_in_frost = (target_price_nano_usd as f64 / wal_price_usd).ceil();
 
@@ -770,6 +768,7 @@ impl StorageNodeConfig {
             // This is ok since the onchain price is based on quorum price, so one inaccurate
             // vote should not significantly impact the quorum price. Once the node starts, and
             // started voting, it'll then update the prices to the correct USD values.
+            // TODO(WAL-804): when currency is USD, try to calculate the correct FROST to use here.
             storage_price: self.voting_params.voting_prices.storage_price(),
             write_price: self.voting_params.voting_prices.write_price(),
             node_capacity: self.voting_params.node_capacity,
@@ -2889,12 +2888,6 @@ mod tests {
         // Test with WAL price of $0.25
         // price_in_frost = (1.0 * 1e9) / 0.25 = 4,000,000,000 FROST = 4 WAL
         assert_eq!(calculate_price_in_frost(1_000_000_000, 0.25), 4_000_000_000);
-
-        // Test with zero WAL price (should return 0 to avoid division by zero)
-        assert_eq!(calculate_price_in_frost(1_000_000_000, 0.0), 0);
-
-        // Test with negative WAL price (should return 0)
-        assert_eq!(calculate_price_in_frost(1_000_000_000, -0.50), 0);
 
         // Test with smaller USD values
         // $0.001 USD with WAL at $0.50 = 2,000,000 FROST

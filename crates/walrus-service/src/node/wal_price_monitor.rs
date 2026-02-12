@@ -9,6 +9,9 @@ use tokio::{sync::RwLock, task::JoinHandle};
 
 use crate::node::metrics::NodeMetricSet;
 
+/// The minimum WAL price in USD below which the price is considered practically zero.
+const MIN_WAL_PRICE_USD: f64 = 1e-9;
+
 /// CoinGecko API URL for fetching WAL price
 const COINGECKO_API_URL: &str =
     "https://api.coingecko.com/api/v3/simple/price?ids=walrus-2&vs_currencies=usd";
@@ -291,6 +294,14 @@ fn calculate_median(mut prices: Vec<f64>) -> Option<f64> {
         // Odd number of elements: middle value
         prices[len / 2]
     };
+
+    if median < MIN_WAL_PRICE_USD {
+        tracing::warn!(
+            "WAL price is too low and practically zero: ${:.12}. Do not use this price.",
+            median
+        );
+        return None;
+    }
 
     Some(median)
 }
