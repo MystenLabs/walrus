@@ -44,7 +44,13 @@ use walrus_service::{
         ConfigLoader,
         StorageNode,
         StorageNodeConfigLoader,
-        config::{self, StorageNodeConfig, VotingParamsConfig, defaults::REST_API_PORT},
+        config::{
+            self,
+            PriceCurrency,
+            StorageNodeConfig,
+            VotingParamsConfig,
+            defaults::REST_API_PORT,
+        },
         dbtool::DbToolCommands,
         server::{RestApiConfig, RestApiServer},
         system_events::EventManager,
@@ -328,16 +334,6 @@ struct SetupArgs {
     registration_epoch: Epoch,
 }
 
-/// Currency unit for storage and write prices.
-#[derive(Debug, Clone, Copy, Default, clap::ValueEnum)]
-enum PriceCurrency {
-    /// Prices in FROST (1e9 FROST = 1 WAL)
-    #[default]
-    Frost,
-    /// Prices in NanoUSD (1e9 NanoUSD = 1 USD)
-    NanoUsd,
-}
-
 #[derive(Debug, Clone, clap::Args)]
 struct ConfigArgs {
     /// Object ID of the Walrus system object. If not provided, a dummy value is used and the
@@ -405,7 +401,7 @@ struct ConfigArgs {
     /// Currency unit for storage and write prices.
     ///
     /// Use "frost" for FROST (1e9 FROST = 1 WAL) or "nano-usd" for NanoUSD (1e9 NanoUSD = 1 USD).
-    #[arg(long, value_enum, default_value_t = PriceCurrency::Frost)]
+    #[arg(long, value_enum, default_value_t = PriceCurrency::FROST)]
     price_currency: PriceCurrency,
     /// The commission rate of the storage node, in basis points (1% = 100 basis points).
     #[arg(long, default_value_t = config::defaults::commission_rate())]
@@ -1054,10 +1050,7 @@ mod commands {
             },
             voting_params: VotingParamsConfig {
                 voting_prices: VotingPrices {
-                    currency: match price_currency {
-                        PriceCurrency::Frost => config::PriceCurrency::FROST,
-                        PriceCurrency::NanoUsd => config::PriceCurrency::NanoUsd,
-                    },
+                    currency: price_currency,
                     storage_price,
                     write_price,
                 },

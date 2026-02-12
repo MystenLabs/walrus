@@ -37,6 +37,7 @@ use walrus_sui::types::{
     NetworkAddress,
     NodeRegistrationParams,
     NodeUpdateParams,
+    TOTAL_FROST_SUPPLY,
     move_structs::{NodeMetadata, VotingParams},
 };
 use walrus_utils::config::Config as _;
@@ -56,37 +57,49 @@ use crate::{
     },
 };
 
-const MAX_FROST_COUNT: u64 = 5_000_000_000 * 1_000_000_000;
-
 /// Calculates the price in FROST given a USD price and the current WAL/USD exchange rate.
 ///
 /// The `target_price_usd` is the price in nano US dollars (1e-9 USD), and `wal_price_usd` is the
 /// current WAL token price in USD. The result is the price in FROST (1e-9 WAL).
 ///
-/// If the calculated price exceeds `MAX_FROST_COUNT`, returns `MAX_FROST_COUNT` instead.
+/// If the calculated price exceeds `TOTAL_FROST_SUPPLY`, returns `TOTAL_FROST_SUPPLY` instead.
 fn calculate_price_in_frost(target_price_nano_usd: u64, wal_price_usd: f64) -> u64 {
     assert!(wal_price_usd > 0.0, "WAL price must be greater than 0");
 
     let price_in_frost = (target_price_nano_usd as f64 / wal_price_usd).ceil();
 
-    // Cap at MAX_FROST_COUNT. MAX_FROST_COUNT is the total supply of FROST, and therefore it is
-    // impossible to exceed.
+    // Cap at TOTAL_FROST_SUPPLY. TOTAL_FROST_SUPPLY is the total supply of FROST, and therefore it
+    // is impossible to exceed.
     #[allow(clippy::cast_possible_truncation)]
-    if price_in_frost > MAX_FROST_COUNT as f64 {
-        MAX_FROST_COUNT
+    if price_in_frost > TOTAL_FROST_SUPPLY as f64 {
+        TOTAL_FROST_SUPPLY
     } else {
         price_in_frost as u64
     }
 }
 
 /// The currency unit for voting prices.
-#[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, Serialize, PartialEq, Eq, clap::ValueEnum)]
 pub enum PriceCurrency {
     /// FROST (1e9 FROST = 1 WAL)
     #[default]
     FROST,
     /// NanoUSD (1e9 NanoUSD = 1 USD)
     NanoUsd,
+}
+
+impl<'de> Deserialize<'de> for PriceCurrency {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        match s.to_lowercase().as_str() {
+            "frost" => Ok(PriceCurrency::FROST),
+            "nanousd" => Ok(PriceCurrency::NanoUsd),
+            _ => Err(serde::de::Error::unknown_variant(&s, &["FROST", "NanoUsd"])),
+        }
+    }
 }
 
 /// The prices that the storage node can vote for.
@@ -2567,6 +2580,41 @@ mod tests {
     }
 
     #[test]
+    fn test_price_currency_case_insensitive_deserialization() {
+        // Test various case variations for FROST
+        for variant in ["FROST", "frost", "Frost", "FrOsT"] {
+            let yaml = format!(
+                "currency: {}\nstorage_price: 100\nwrite_price: 200\nnode_capacity: 1000",
+                variant
+            );
+            let config: VotingParamsConfig = serde_yaml::from_str(&yaml)
+                .unwrap_or_else(|_| panic!("should deserialize '{}'", variant));
+            assert_eq!(
+                config.voting_prices.currency,
+                PriceCurrency::FROST,
+                "failed for variant: {}",
+                variant
+            );
+        }
+
+        // Test various case variations for NanoUsd
+        for variant in ["NanoUsd", "nanousd", "NANOUSD", "nAnOuSd"] {
+            let yaml = format!(
+                "currency: {}\nstorage_price: 100\nwrite_price: 200\nnode_capacity: 1000",
+                variant
+            );
+            let config: VotingParamsConfig = serde_yaml::from_str(&yaml)
+                .unwrap_or_else(|_| panic!("should deserialize '{}'", variant));
+            assert_eq!(
+                config.voting_prices.currency,
+                PriceCurrency::NanoUsd,
+                "failed for variant: {}",
+                variant
+            );
+        }
+    }
+
+    #[test]
     fn test_generate_update_params_without_stable_pricing() {
         // Test case 1: If stable_pricing_config is not set, storage_price and write_price
         // will be updated if the config differs from synced config
@@ -2990,26 +3038,23 @@ mod tests {
 
     #[test]
     fn test_calculate_price_in_frost_overflow_protection() {
-        // Test that very large values are capped at MAX_FROST_COUNT
-        const MAX_FROST_COUNT: u64 = 5_000_000_000 * 1_000_000_000;
-
         // Very large NanoUSD with very small WAL price should be capped
         let result = calculate_price_in_frost(u64::MAX, 0.0000001);
         assert_eq!(
-            result, MAX_FROST_COUNT,
-            "should be capped at MAX_FROST_COUNT"
+            result, TOTAL_FROST_SUPPLY,
+            "should be capped at TOTAL_FROST_SUPPLY"
         );
 
         // Another overflow case: large value divided by tiny WAL price
         let result = calculate_price_in_frost(1_000_000_000_000_000_000, 0.00001);
         assert_eq!(
-            result, MAX_FROST_COUNT,
-            "should be capped at MAX_FROST_COUNT"
+            result, TOTAL_FROST_SUPPLY,
+            "should be capped at TOTAL_FROST_SUPPLY"
         );
 
         // Normal case should not be affected
         let result = calculate_price_in_frost(1_000_000_000, 0.50);
         assert_eq!(result, 2_000_000_000);
-        assert!(result < MAX_FROST_COUNT);
+        assert!(result < TOTAL_FROST_SUPPLY);
     }
 }
