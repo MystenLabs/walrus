@@ -395,7 +395,7 @@ impl DualClient {
         .await
         .with_context(|| {
             format!(
-                "error listing owned objects for owner [owner={:?}, coin_type={:?}]",
+                "error listing owned objects for owner [owner={:?}, object_type={:?}]",
                 owner, object_type
             )
         })?;
@@ -516,7 +516,7 @@ async fn list_owned_objects(
         .with_read_mask(FieldMask::from_paths([
             Object::path_builder().object_type(),
             Object::path_builder().object_id(),
-            Object::path_builder().bcs().finish(),
+            Object::path_builder().contents().finish(),
             Object::path_builder().version(),
             Object::path_builder().digest(),
             Object::path_builder().balance(),
@@ -552,7 +552,7 @@ fn convert_grpc_object_to_object_with_ref<U: AssociatedContractStruct>(
     object: Object,
 ) -> Result<(U, ObjectRef), anyhow::Error> {
     let user_object: U = object
-        .bcs
+        .contents
         .context("no contents in object")?
         .deserialize()
         .with_context(|| {
