@@ -1,0 +1,54 @@
+Walrus uses [Sui smart contracts](https://docs.sui.io/guides/developer/sui-101/move-package-management) to coordinate storage resource lifecycle operations and payments. Smart contracts also facilitate governance to determine the storage nodes holding each storage shard. This page outlines these operations and refers to them as part of the read and write paths.
+
+Metadata is the only blob element ever exposed to Sui or [its validators](https://docs.sui.io/guides/operator/validator-index), as the content of blobs is always stored off-chain on Walrus storage nodes and caches. The storage nodes or caches do not have to overlap with any Sui infrastructure components (such as validators), and the [storage epochs](/blog/04_testnet_update#epochs) can have different lengths and timing than [Sui epochs](https://docs.sui.io/concepts/sui-architecture/epochs).
+
+## Sui smart contracts
+
+A number of Sui smart contracts hold the metadata of the Walrus system and all its entities.
+
+### Walrus system object
+
+Each Walrus storage epoch is represented by the [Walrus system object](https://walruscan.com/testnet/operators) that contains a storage committee and various metadata or storage nodes, including the mapping between shards and storage nodes, available space, and current costs. The system object also holds the total available space on Walrus, and the price per unit of storage. 
+
+These values are determined by 2/3 agreement between storage nodes for each storage epoch. You can pay to purchase storage space for specified durations. These space resources can be split, merged, and transferred. Later, you can use them to place a blob ID into Walrus.
+
+### Storage fund
+
+The **storage fund** holds funds for storing blobs over one or multiple storage epochs. You pay into the storage fund when purchasing storage space from the system object, and payments are separated and allocated across multiple storage epochs. 
+
+At the end of each epoch, funds are distributed to storage nodes based on performance. Storage nodes perform light audits of each other and suggest which nodes should be paid based on audit results.
+
+## Storage resource lifecycle
+
+Storage resources on Walrus have a defined lifecycle on Sui, from acquisition through certification to expiration.
+
+### Acquiring storage
+
+Purchase storage space from the system object by paying into the storage fund for a specified duration (one or more storage epochs). You can split, merge, or transfer storage, and the maximum number of storage epochs that you can purchase is approximately 2 years in advance.
+
+### Assigning a blob ID
+
+Once you acquire some storage, you can assign a blob ID to indicate intent to store. This emits a Move **resource event**, signaling to storage nodes that they should expect and authorize off-chain storage operations.
+
+### Certifying availability
+
+After uploading blob data off-chain, availability is certified on Sui:
+1. Upload blob slivers to storage nodes off-chain.
+2. Storage nodes provide an **availability certificate**.
+3. Upload the certificate on-chain.
+4. System checks certificate against the current Walrus committee.
+5. If valid, system emits an **availability event** for the blob ID.
+
+The availability event marks the [point of availability](/docs/design/properties) for the blob, after which Walrus guarantees its availability for the specified duration.
+
+### Extending storage
+
+At a later time, you can extend a certified blob's storage by adding a storage object to it with a longer expiry period. Smart contracts can use this mechanism to extend the availability of blobs stored in perpetuity, as long as funds exist to continue providing storage.
+
+### Handling inconsistent blobs
+
+In case a blob ID is not correctly encoded, an [**inconsistency proof certificate**](/docs/design/encoding) can be uploaded on-chain at a later time. This action emits an **inconsistent blob event** signaling that the blob ID read results always return `None`. This indicates that storage nodes can delete its slivers, except for an indicator to return `None`.
+
+### Interacting with Walrus
+
+When writing to Walrus, you need to perform Sui transactions to acquire storage and certify blobs. When creating or consuming proofs for attestations of blob availability, you read the chain only to prove or verify emission of events. Nodes read the blockchain to get committee metadata only once per epoch, and then request slivers directly from storage nodes by blob ID to perform reads on Walrus resources.

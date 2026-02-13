@@ -1,0 +1,1 @@
+https://linear.app/mysten-labs/issue/DOCS-650/typescript-sdkreading-blobs
