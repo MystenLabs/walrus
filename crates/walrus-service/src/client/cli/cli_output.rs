@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     io::{Write, stdout},
     num::NonZeroU16,
     path::PathBuf,
@@ -677,32 +677,48 @@ fn print_committee_changes(
         .filter(|n| !next_node_ids.contains(&n.node_id))
         .collect();
 
-    let shard_movements: Vec<_> = current_storage_nodes
+    let next_storage_nodes: HashMap<_, _> = next_storage_nodes
         .iter()
-        .filter_map(|current| {
-            next_storage_nodes
-                .iter()
-                .find(|next| next.node_id == current.node_id)
-                .and_then(|next| {
-                    let current_shards: HashSet<_> = current.shard_ids.iter().collect();
-                    let next_shards: HashSet<_> = next.shard_ids.iter().collect();
-
-                    let shards_lost: Vec<_> =
-                        current_shards.difference(&next_shards).copied().collect();
-                    let shards_gained: Vec<_> =
-                        next_shards.difference(&current_shards).copied().collect();
-
-                    if !shards_lost.is_empty() || !shards_gained.is_empty() {
-                        Some((current, shards_lost, shards_gained))
-                    } else {
-                        None
-                    }
-                })
-        })
+        .map(|n| (n.node_id, n.clone()))
         .collect();
+    let mut nodes_with_shards_gained: Vec<(&StorageNodeInfo, Vec<ShardIndex>)> = Vec::new();
+    let mut nodes_with_shards_lost: Vec<(&StorageNodeInfo, Vec<ShardIndex>)> = Vec::new();
+    for node_info in current_storage_nodes.iter() {
+        let Some(node_next_epoch_info) = next_storage_nodes.get(&node_info.node_id) else {
+            continue;
+        };
+        let current_shards: HashSet<_> = node_info.shard_ids.iter().collect();
+        let next_shards: HashSet<_> = node_next_epoch_info.shard_ids.iter().collect();
+
+        let shards_lost: Vec<ShardIndex> = current_shards
+            .difference(&next_shards)
+            .map(|s| **s)
+            .collect();
+        let shards_gained: Vec<ShardIndex> = next_shards
+            .difference(&current_shards)
+            .map(|s| **s)
+            .collect();
+
+        if !shards_lost.is_empty() {
+            nodes_with_shards_lost.push((node_info, shards_lost));
+        }
+        if !shards_gained.is_empty() {
+            nodes_with_shards_gained.push((node_info, shards_gained));
+        }
+    }
 
     // Print changes section if there are any and details are enabled
-    if onboarding.is_empty() && offboarding.is_empty() && shard_movements.is_empty() {
+    if onboarding.is_empty()
+        && offboarding.is_empty()
+        && nodes_with_shards_gained.is_empty()
+        && nodes_with_shards_lost.is_empty()
+    {
+        println!(
+            "\n{}",
+            "Committee members and shard distribution remain the same for next epoch."
+                .bold()
+                .walrus_purple()
+        );
         return;
     }
     println!(
@@ -746,34 +762,38 @@ fn print_committee_changes(
         }
     }
 
-    if !shard_movements.is_empty() {
+    if !nodes_with_shards_gained.is_empty() {
         println!(
             "\n  {} ({} node{s}):",
-            "Shard movements".bold().walrus_teal(),
-            shard_movements.len(),
-            s = plural_ending(&shard_movements),
+            "Nodes with shards gained".bold().walrus_teal(),
+            nodes_with_shards_gained.len(),
+            s = plural_ending(&nodes_with_shards_gained),
         );
-        for (node, shards_lost, shards_gained) in &shard_movements {
-            let mut changes = Vec::new();
-            if !shards_lost.is_empty() {
-                changes.push(format!(
-                    "losing shard{s}: {}",
-                    print_list(shards_lost),
-                    s = plural_ending(shards_lost),
-                ));
-            }
-            if !shards_gained.is_empty() {
-                changes.push(format!(
-                    "gaining shard{s}: {}",
-                    print_list(shards_gained),
-                    s = plural_ending(shards_gained),
-                ));
-            }
+        for (node, shards_gained) in &nodes_with_shards_gained {
             println!(
-                "    • {} (ID: {}) - {}",
+                "    • {} (ID: {}) - gaining shard{s}: {}",
                 node.name,
                 node.node_id,
-                changes.join(", ")
+                print_list(shards_gained),
+                s = plural_ending(shards_gained),
+            );
+        }
+    }
+
+    if !nodes_with_shards_lost.is_empty() {
+        println!(
+            "\n  {} ({} node{s}):",
+            "Nodes with shards lost".bold().walrus_teal(),
+            nodes_with_shards_lost.len(),
+            s = plural_ending(&nodes_with_shards_lost),
+        );
+        for (node, shards_lost) in &nodes_with_shards_lost {
+            println!(
+                "    • {} (ID: {}) - losing shard{s}: {}",
+                node.name,
+                node.node_id,
+                print_list(shards_lost),
+                s = plural_ending(shards_lost),
             );
         }
     }
