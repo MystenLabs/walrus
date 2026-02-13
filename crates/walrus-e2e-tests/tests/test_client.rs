@@ -1731,6 +1731,47 @@ async fn test_burn_blobs() -> TestResult {
 
 #[ignore = "ignore E2E tests by default"]
 #[walrus_simtest]
+async fn test_get_owned_objects_of_type_blob() -> TestResult {
+    walrus_test_utils::init_tracing();
+    let (_sui_cluster_handle, _cluster, client, _, _) =
+        test_cluster::E2eTestSetupBuilder::new().build().await?;
+
+    let blobs = walrus_test_utils::random_data_list(314, 1);
+    let store_args = StoreArgs::default_with_epochs(1).no_store_optimizations();
+    let result = client
+        .as_ref()
+        .reserve_and_store_blobs(blobs, &store_args)
+        .await?;
+    let BlobStoreResult::NewlyCreated { blob_object, .. } = result[0].clone() else {
+        panic!("expect newly stored blob")
+    };
+
+    let sui_client = client.as_ref().sui_client();
+    let type_origin_map = sui_client.read_client().type_origin_map().clone();
+    let owner = sui_client.address();
+    let blobs_with_refs = sui_client
+        .retriable_sui_client()
+        .get_owned_objects_of_type::<Blob>(owner, &type_origin_map, &[])
+        .await?;
+
+    // There should be exactly one blob owned by this address.
+    assert_eq!(blobs_with_refs.len(), 1);
+    let (fetched_blob, _obj_ref) = &blobs_with_refs[0];
+    assert_eq!(fetched_blob.blob_id, blob_object.blob_id);
+    assert_eq!(fetched_blob.id, blob_object.id);
+    assert_eq!(fetched_blob.size, blob_object.size);
+
+    // Cross-check with the JSON-RPC owned_blobs path.
+    let owned = sui_client
+        .owned_blobs(None, ExpirySelectionPolicy::Valid)
+        .await?;
+    assert_eq!(owned.len(), blobs_with_refs.len());
+
+    Ok(())
+}
+
+#[ignore = "ignore E2E tests by default"]
+#[walrus_simtest]
 async fn test_extend_owned_blobs() -> TestResult {
     walrus_test_utils::init_tracing();
     let (_sui_cluster_handle, _cluster, client, _, _) =
