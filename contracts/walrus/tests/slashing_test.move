@@ -7,69 +7,6 @@ module walrus::slashing_tests;
 use std::unit_test::assert_eq;
 use walrus::{auth, e2e_runner, slashing, test_utils as walrus_test_utils};
 
-// TODO(WAL-1147): merge this with setup_committee_for_epoch_one in e2e_tests.move.
-/// Helper: set up a committee with commission so that nodes accumulate commission.
-/// Returns a runner and nodes where each node has a 10% commission rate.
-fun setup_committee_with_commission(): (
-    e2e_runner::TestRunner,
-    vector<walrus::test_node::TestStorageNode>,
-) {
-    let admin = @0xA11CE;
-    let mut nodes = walrus::test_node::test_nodes();
-    let mut runner = e2e_runner::prepare(admin).build();
-    let commission_rate: u16 = 10_00; // 10%
-    let storage_price: u64 = 10_000;
-    let write_price: u64 = 20_000;
-    let node_capacity: u64 = 1_000_000_000_000;
-
-    // Register candidates with 10% commission.
-    let epoch = runner.epoch();
-    nodes.do_mut!(|node| {
-        runner.tx!(node.sui_address(), |staking, _, ctx| {
-            let cap = staking.register_candidate(
-                node.name(),
-                node.network_address(),
-                walrus::node_metadata::default(),
-                node.bls_pk(),
-                node.network_key(),
-                node.create_proof_of_possession(epoch),
-                commission_rate,
-                storage_price,
-                write_price,
-                node_capacity,
-                ctx,
-            );
-            node.set_storage_node_cap(cap);
-        });
-    });
-
-    // Stake with each node.
-    nodes.do_ref!(|node| {
-        runner.tx!(node.sui_address(), |staking, _, ctx| {
-            let coin = walrus_test_utils::mint_wal(1000, ctx);
-            let staked_wal = staking.stake_with_pool(coin, node.node_id(), ctx);
-            transfer::public_transfer(staked_wal, ctx.sender());
-        });
-    });
-
-    // Advance to epoch 1.
-    runner.clock().increment_for_testing(e2e_runner::default_epoch_duration());
-    runner.tx_with_wal_treasury!(admin, |staking, system, protected_treasury, clock, ctx| {
-        staking.voting_end(clock);
-        staking.initiate_epoch_change_v2(system, protected_treasury, clock, ctx);
-    });
-
-    // Send epoch sync done.
-    let epoch = runner.epoch();
-    nodes.do_mut!(|node| {
-        runner.tx!(node.sui_address(), |staking, _, _| {
-            staking.epoch_sync_done(node.cap_mut(), epoch, runner.clock());
-        });
-    });
-
-    (runner, nodes)
-}
-
 /// Add commission to a node's pool by calling add_commission_to_pools.
 fun add_commission_to_node(
     runner: &mut e2e_runner::TestRunner,
@@ -86,7 +23,7 @@ fun add_commission_to_node(
 
 #[test]
 public fun test_slashing_quorum_and_execute() {
-    let (mut runner, nodes) = setup_committee_with_commission();
+    let (mut runner, nodes) = e2e_runner::setup_committee_for_epoch_one_with_commission(10_00);
     let candidate = &nodes[0];
     let candidate_node_id = candidate.node_id();
 
@@ -130,7 +67,7 @@ public fun test_slashing_quorum_and_execute() {
 
 #[test]
 public fun test_slashing_vote_refreshes_on_epoch_change() {
-    let (mut runner, mut nodes) = setup_committee_with_commission();
+    let (mut runner, mut nodes) = e2e_runner::setup_committee_for_epoch_one_with_commission(10_00);
     let candidate = &nodes[0];
     let candidate_node_id = candidate.node_id();
 
@@ -175,7 +112,7 @@ public fun test_slashing_vote_refreshes_on_epoch_change() {
 
 #[test]
 public fun test_cleanup_slashing_proposals() {
-    let (mut runner, mut nodes) = setup_committee_with_commission();
+    let (mut runner, mut nodes) = e2e_runner::setup_committee_for_epoch_one_with_commission(10_00);
     let candidate = &nodes[0];
     let candidate_node_id = candidate.node_id();
 
@@ -210,7 +147,7 @@ public fun test_cleanup_slashing_proposals() {
 
 #[test]
 public fun test_cleanup_does_not_remove_current_epoch_proposals() {
-    let (mut runner, nodes) = setup_committee_with_commission();
+    let (mut runner, nodes) = e2e_runner::setup_committee_for_epoch_one_with_commission(10_00);
     let candidate = &nodes[0];
     let candidate_node_id = candidate.node_id();
 
@@ -243,7 +180,7 @@ public fun test_cleanup_does_not_remove_current_epoch_proposals() {
 
 #[test, expected_failure(abort_code = slashing::ENotEnoughVotes)]
 public fun test_slashing_insufficient_votes() {
-    let (mut runner, nodes) = setup_committee_with_commission();
+    let (mut runner, nodes) = e2e_runner::setup_committee_for_epoch_one_with_commission(10_00);
     let candidate = &nodes[0];
     let candidate_node_id = candidate.node_id();
 
@@ -270,7 +207,7 @@ public fun test_slashing_insufficient_votes() {
 
 #[test, expected_failure(abort_code = slashing::EWrongEpoch)]
 public fun test_slashing_wrong_epoch() {
-    let (mut runner, mut nodes) = setup_committee_with_commission();
+    let (mut runner, mut nodes) = e2e_runner::setup_committee_for_epoch_one_with_commission(10_00);
     let candidate = &nodes[0];
     let candidate_node_id = candidate.node_id();
 
@@ -311,7 +248,7 @@ public fun test_slashing_wrong_epoch() {
 
 #[test, expected_failure(abort_code = slashing::EDuplicateVote)]
 public fun test_slashing_duplicate_vote() {
-    let (mut runner, nodes) = setup_committee_with_commission();
+    let (mut runner, nodes) = e2e_runner::setup_committee_for_epoch_one_with_commission(10_00);
     let candidate = &nodes[0];
     let candidate_node_id = candidate.node_id();
 
@@ -333,7 +270,7 @@ public fun test_slashing_duplicate_vote() {
 
 #[test, expected_failure(abort_code = slashing::ENotAuthorized)]
 public fun test_slashing_not_authorized() {
-    let (mut runner, nodes) = setup_committee_with_commission();
+    let (mut runner, nodes) = e2e_runner::setup_committee_for_epoch_one_with_commission(10_00);
     let candidate = &nodes[0];
     let candidate_node_id = candidate.node_id();
 
@@ -356,7 +293,7 @@ public fun test_slashing_not_authorized() {
 
 #[test, expected_failure(abort_code = slashing::ENoProposalForNode)]
 public fun test_execute_slashing_no_proposal() {
-    let (mut runner, nodes) = setup_committee_with_commission();
+    let (mut runner, nodes) = e2e_runner::setup_committee_for_epoch_one_with_commission(10_00);
     let candidate_node_id = nodes[0].node_id();
 
     // Try to execute slashing without any votes.

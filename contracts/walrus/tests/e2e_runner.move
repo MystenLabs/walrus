@@ -298,10 +298,20 @@ public fun destroy(self: TestRunner) {
 /// This sets a commission of 0%, a storage price of 10k FROST, a write price of 20k FROST, and a
 /// node capacity of 1TB. The stake per node is 1000 WAL.
 public fun setup_committee_for_epoch_one(): (TestRunner, vector<TestStorageNode>) {
+    setup_committee_for_epoch_one_with_commission(0)
+}
+
+#[allow(lint(self_transfer), unused_mut_ref)]
+/// Setup a default committee with 10 nodes for epoch 1, with a custom commission rate.
+///
+/// This sets a storage price of 10k FROST, a write price of 20k FROST, and a node capacity of
+/// 1TB. The stake per node is 1000 WAL.
+public fun setup_committee_for_epoch_one_with_commission(
+    commission_rate: u16,
+): (TestRunner, vector<TestStorageNode>) {
     let admin = @0xA11CE;
     let mut nodes = test_node::test_nodes();
     let mut runner = prepare(admin).build();
-    let commission_rate: u16 = 0;
     let storage_price: u64 = 10_000;
     let write_price: u64 = 20_000;
     let node_capacity: u64 = 1_000_000_000_000; // 1TB
