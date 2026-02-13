@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::{
+    collections::{HashMap, HashSet},
     io::{Write, stdout},
     num::NonZeroU16,
     path::PathBuf,
@@ -223,7 +224,8 @@ impl CliOutput for BlobStoreResultWithPath {
                     operation_str,
                     blob_object.storage.end_epoch,
                     shared_blob_object
-                        .map_or_else(String::new, |id| format!("\nShared blob object ID: {id}")),
+                        .map(|id| format!("\nShared blob object ID: {id}"))
+                        .unwrap_or_default(),
                     blob_object.encoding_type,
                 )
             }
@@ -345,7 +347,8 @@ fn construct_stored_quilt_patch_table(quilt_patches: &[StoredQuiltPatch]) -> Tab
             quilt_patch.quilt_patch_id,
             quilt_patch
                 .range
-                .map_or_else(String::new, |range| format!("[{}, {})", range.0, range.1)),
+                .map(|range| format!("[{}, {})", range.0, range.1))
+                .unwrap_or_default(),
             quilt_patch.identifier,
         ]);
     }
@@ -356,11 +359,10 @@ fn construct_stored_quilt_patch_table(quilt_patches: &[StoredQuiltPatch]) -> Tab
 impl CliOutput for BlobStatusOutput {
     fn print_cli_output(&self) {
         let blob_str = blob_and_file_str(&self.blob_id, &self.file);
-        let expiry_str = if let Some(expiry) = self.estimated_expiry_timestamp {
-            format!("Estimated expiry timestamp: {}\n", expiry.to_rfc3339())
-        } else {
-            "".to_string()
-        };
+        let expiry_str = self
+            .estimated_expiry_timestamp
+            .map(|expiry| format!("Estimated expiry timestamp: {}\n", expiry.to_rfc3339()))
+            .unwrap_or_default();
         match self.status {
             BlobStatus::Nonexistent => println!("Blob ID {blob_str} is not stored on Walrus."),
             BlobStatus::Deletable {
@@ -371,11 +373,9 @@ impl CliOutput for BlobStatusOutput {
                         count_deletable_certified,
                     },
             } => {
-                let initial_certified_str = if let Some(epoch) = initial_certified_epoch {
-                    format!(", initially certified in epoch {epoch}")
-                } else {
-                    "".to_string()
-                };
+                let initial_certified_str = initial_certified_epoch
+                    .map(|epoch| format!(", initially certified in epoch {epoch}"))
+                    .unwrap_or_default();
                 println!(
                     "Blob ID {blob_str} is registered on Walrus, but only in one or more \
                     deletable Blob objects:\n\
@@ -401,11 +401,9 @@ impl CliOutput for BlobStatusOutput {
                     "registered"
                 })
                 .bold();
-                let initial_certified_str = if let Some(epoch) = initial_certified_epoch {
-                    format!("\nInitially certified in epoch: {epoch}",)
-                } else {
-                    "".to_string()
-                };
+                let initial_certified_str = initial_certified_epoch
+                    .map(|epoch| format!("\nInitially certified in epoch: {epoch}"))
+                    .unwrap_or_default();
                 println!(
                     "There is a {status} permanent Blob object for blob ID {blob_str}.\n\
                         Expiry epoch: {end_epoch}\n\
@@ -622,6 +620,7 @@ impl CliOutput for InfoCommitteeOutput {
             max_encoded_blob_size,
             current_storage_nodes,
             next_storage_nodes,
+            print_details,
         } = self;
 
         printdoc!(
@@ -644,21 +643,159 @@ impl CliOutput for InfoCommitteeOutput {
             max_sliver_size_sep = thousands_separator(*max_sliver_size),
             hr_encoded = HumanReadableBytes(*max_encoded_blob_size),
             max_encoded_blob_size_sep = thousands_separator(*max_encoded_blob_size),
-            node_heading = "Storage node details and shard distribution"
+            node_heading = "Current committee".bold().walrus_purple()
+        );
+
+        print_storage_node_info(n_shards, current_storage_nodes, *print_details);
+
+        if next_storage_nodes.is_empty() {
+            return;
+        }
+
+        println!("\n{}", "Next committee".bold().walrus_purple());
+        print_storage_node_info(n_shards, next_storage_nodes, *print_details);
+
+        print_committee_changes(current_storage_nodes, next_storage_nodes);
+    }
+}
+
+fn print_committee_changes(
+    current_storage_nodes: &[StorageNodeInfo],
+    next_storage_nodes: &[StorageNodeInfo],
+) {
+    // Detect changes between current and next committee
+    let current_node_ids: HashSet<_> = current_storage_nodes.iter().map(|n| n.node_id).collect();
+    let next_node_ids: HashSet<_> = next_storage_nodes.iter().map(|n| n.node_id).collect();
+
+    let onboarding: Vec<_> = next_storage_nodes
+        .iter()
+        .filter(|n| !current_node_ids.contains(&n.node_id))
+        .collect();
+
+    let offboarding: Vec<_> = current_storage_nodes
+        .iter()
+        .filter(|n| !next_node_ids.contains(&n.node_id))
+        .collect();
+
+    let next_storage_nodes: HashMap<_, _> = next_storage_nodes
+        .iter()
+        .map(|n| (n.node_id, n.clone()))
+        .collect();
+    let mut nodes_with_shards_gained: Vec<(&StorageNodeInfo, Vec<ShardIndex>)> = Vec::new();
+    let mut nodes_with_shards_lost: Vec<(&StorageNodeInfo, Vec<ShardIndex>)> = Vec::new();
+    for node_info in current_storage_nodes.iter() {
+        let Some(node_next_epoch_info) = next_storage_nodes.get(&node_info.node_id) else {
+            continue;
+        };
+        let current_shards: HashSet<_> = node_info.shard_ids.iter().collect();
+        let next_shards: HashSet<_> = node_next_epoch_info.shard_ids.iter().collect();
+
+        let shards_lost: Vec<ShardIndex> = current_shards
+            .difference(&next_shards)
+            .map(|s| **s)
+            .collect();
+        let shards_gained: Vec<ShardIndex> = next_shards
+            .difference(&current_shards)
+            .map(|s| **s)
+            .collect();
+
+        if !shards_lost.is_empty() {
+            nodes_with_shards_lost.push((node_info, shards_lost));
+        }
+        if !shards_gained.is_empty() {
+            nodes_with_shards_gained.push((node_info, shards_gained));
+        }
+    }
+
+    // Print changes section if there are any and details are enabled
+    if onboarding.is_empty()
+        && offboarding.is_empty()
+        && nodes_with_shards_gained.is_empty()
+        && nodes_with_shards_lost.is_empty()
+    {
+        println!(
+            "\n{}",
+            "Committee members and shard distribution remain the same for next epoch."
                 .bold()
                 .walrus_purple()
         );
+        return;
+    }
+    println!(
+        "\n{}",
+        "Committee changes for next epoch".bold().walrus_purple()
+    );
 
-        print_storage_node_table(n_shards, current_storage_nodes);
-        if let Some(storage_nodes) = next_storage_nodes.as_ref() {
+    if !onboarding.is_empty() {
+        println!(
+            "\n  {} ({}):",
+            "Nodes onboarding".bold().walrus_teal(),
+            onboarding.len()
+        );
+        for node in &onboarding {
             println!(
-                "{}",
-                "\nNext committee: Storage node details and shard distribution"
-                    .bold()
-                    .walrus_purple()
+                "    • {} (ID: {}) - {} shard{s}: {}",
+                node.name,
+                node.node_id,
+                node.n_shards,
+                print_list(&node.shard_ids),
+                s = plural_ending(&node.shard_ids),
             );
-            print_storage_node_table(n_shards, storage_nodes);
-        };
+        }
+    }
+
+    if !offboarding.is_empty() {
+        println!(
+            "\n  {} ({}):",
+            "Nodes offboarding".bold().walrus_teal(),
+            offboarding.len()
+        );
+        for node in &offboarding {
+            println!(
+                "    • {} (ID: {}) - {} shard{s}: {}",
+                node.name,
+                node.node_id,
+                node.n_shards,
+                print_list(&node.shard_ids),
+                s = plural_ending(&node.shard_ids),
+            );
+        }
+    }
+
+    if !nodes_with_shards_gained.is_empty() {
+        println!(
+            "\n  {} ({} node{s}):",
+            "Nodes with shards gained".bold().walrus_teal(),
+            nodes_with_shards_gained.len(),
+            s = plural_ending(&nodes_with_shards_gained),
+        );
+        for (node, shards_gained) in &nodes_with_shards_gained {
+            println!(
+                "    • {} (ID: {}) - gaining shard{s}: {}",
+                node.name,
+                node.node_id,
+                print_list(shards_gained),
+                s = plural_ending(shards_gained),
+            );
+        }
+    }
+
+    if !nodes_with_shards_lost.is_empty() {
+        println!(
+            "\n  {} ({} node{s}):",
+            "Nodes with shards lost".bold().walrus_teal(),
+            nodes_with_shards_lost.len(),
+            s = plural_ending(&nodes_with_shards_lost),
+        );
+        for (node, shards_lost) in &nodes_with_shards_lost {
+            println!(
+                "    • {} (ID: {}) - losing shard{s}: {}",
+                node.name,
+                node.node_id,
+                print_list(shards_lost),
+                s = plural_ending(shards_lost),
+            );
+        }
     }
 }
 
@@ -691,7 +828,11 @@ impl CliOutput for InfoBftOutput {
     }
 }
 
-fn print_storage_node_table(n_shards: &NonZeroU16, storage_nodes: &[StorageNodeInfo]) {
+fn print_storage_node_info(
+    n_shards: &NonZeroU16,
+    storage_nodes: &[StorageNodeInfo],
+    print_details: bool,
+) {
     let mut table = Table::new();
     table.set_format(default_table_format());
     table.set_titles(row![
@@ -713,8 +854,16 @@ fn print_storage_node_table(n_shards: &NonZeroU16, storage_nodes: &[StorageNodeI
         ]);
     }
     table.printstd();
-    for (i, node) in storage_nodes.iter().enumerate() {
-        print_storage_node_info(node, i, n_shards);
+    if print_details {
+        println!(
+            "\n{}",
+            "Storage node details and shard distribution"
+                .bold()
+                .walrus_purple(),
+        );
+        for (i, node) in storage_nodes.iter().enumerate() {
+            print_single_storage_node_info(node, i, n_shards);
+        }
     }
 }
 
@@ -825,7 +974,7 @@ fn removed_instance_string(blob_status: &BlobStatus) -> String {
                         deletable_counts_summary(deletable_counts)
                     )
                 } else {
-                    "".to_owned()
+                    String::new()
                 }
             )
         }
@@ -893,11 +1042,9 @@ impl CliOutput for ShareBlobOutput {
             "{} The blob has been shared, object id: {} {}",
             success(),
             self.shared_blob_object_id,
-            if let Some(amount) = self.amount {
-                format!(", funded with {}", HumanReadableFrost::from(amount))
-            } else {
-                "".to_string()
-            }
+            self.amount
+                .map(|amount| format!(", funded with {}", HumanReadableFrost::from(amount)))
+                .unwrap_or_default()
         );
     }
 }
@@ -981,9 +1128,9 @@ impl NodeHealthOutput {
                     node_status = health_info.node_status,
                     event_heading = "Event Progress".bold().walrus_teal(),
                     highest_finished_event_index_output = highest_finished_event_index
-                        .map_or("".to_string(), |index| format!(
+                        .map(|index| format!(
                             "\nHighest finished event index: {index}"
-                        )),
+                        )).unwrap_or_default(),
                     checkpoint_heading = "Checkpoint Downloading Progress".bold().walrus_teal(),
                     checkpoint_info = match (
                         latest_seq,
@@ -1108,7 +1255,7 @@ fn blob_and_file_str(blob_id: &BlobId, file: &Option<PathBuf>) -> String {
 }
 
 /// Print the full information of the storage node to stdout.
-fn print_storage_node_info(node: &StorageNodeInfo, node_idx: usize, n_shards: &NonZeroU16) {
+fn print_single_storage_node_info(node: &StorageNodeInfo, node_idx: usize, n_shards: &NonZeroU16) {
     let n_owned = node.n_shards;
     let n_owned_percent = (n_owned as f64) / f64::from(n_shards.get()) * 100.0;
     printdoc!(
@@ -1127,9 +1274,7 @@ fn print_storage_node_info(node: &StorageNodeInfo, node_idx: usize, n_shards: &N
         Storage price vote: {storage_price_vote}
         Node capacity vote: {node_capacity_vote}
         ",
-        heading = format!("{}: {}", node_idx, node.name)
-            .bold()
-            .walrus_purple(),
+        heading = format!("{}: {}", node_idx, node.name).bold().walrus_teal(),
         stake = HumanReadableFrost::from(node.stake),
         network_address = node.network_address,
         node_id = node.node_id,
@@ -1232,13 +1377,14 @@ impl CliOutput for ReadQuiltOutput {
     fn print_cli_output(&self) {
         if let Some(out) = &self.out {
             println!(
-                "Retrieved {} blobs and saved to directory: {}",
+                "Retrieved {} blob{s} and saved to directory: {}",
                 self.retrieved_blobs
                     .len()
                     .to_string()
                     .bold()
                     .walrus_purple(),
-                out.display().to_string().bold().walrus_purple()
+                out.display().to_string().bold().walrus_purple(),
+                s = plural_ending(&self.retrieved_blobs),
             );
             for (i, blob) in self.retrieved_blobs.iter().enumerate() {
                 println!("{}. Identifier: {}", i + 1, blob.identifier().bold());
@@ -1261,4 +1407,14 @@ impl CliOutput for ReadQuiltOutput {
             }
         }
     }
+}
+
+/// Prints a list of items separated by commas.
+fn print_list<T: ToString>(items: &[T]) -> String {
+    items.iter().map(ToString::to_string).join(", ")
+}
+
+/// Returns "s" if the number of items is not 1, otherwise an empty string.
+fn plural_ending<T>(items: &[T]) -> &'static str {
+    if items.len() == 1 { "" } else { "s" }
 }
