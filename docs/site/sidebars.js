@@ -120,6 +120,7 @@ const sidebars = {
         'sites/getting-started/configuration-file-reference',
       ],
     },
+    `sites/configuration/site-configuration`,
     {
       type: 'category',
       label: 'Walrus Portals',
@@ -131,16 +132,6 @@ const sidebars = {
       items: [
         'sites/portals/deploy-locally',
         'sites/portals/mainnet-testnet',
-      ],
-    },
-    {
-      type: 'category',
-      label: 'Site Configuration',
-      collapsed: true,
-      items: [
-        'sites/configuration/specifying-http-headers',
-        'sites/configuration/setting-up-routing-rules',
-        'sites/configuration/adding-metadata',
       ],
     },
     {

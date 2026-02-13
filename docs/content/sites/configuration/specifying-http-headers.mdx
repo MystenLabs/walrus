@@ -1,12 +1,13 @@
 ---
 title: Specifying HTTP Headers
+description: "Guide to specifying custom HTTP response headers."
+keywords: ["walrus sites", "headers", "content-type", "ws-resources", "configuration", "site-builder"]
+draft: true
 ---
-
-{/* https://linear.app/mysten-labs/issue/DOCS-671/sitesconfigurationspecifying-http-headers */}
 
 The `headers` section allows you to specify custom HTTP response headers for specific resources. The keys in the `headers` object are the paths of the resources, and the values are lists of key-value pairs corresponding to the headers that the portal attaches to the response.
 
-In the example, the file `index.html` is served with the `Content-Type` header set to `text/html; charset=utf-8` and the `Cache-Control` header set to `max-age=3500`. The resource path is always represented as starting from the root `/`.
+[In the `walrus-snake` example](/docs/sites/getting-started/publishing-your-first-site), the file `index.html` is served with the `Content-Type` header set to `text/html; charset=utf-8` and the `Cache-Control` header set to `max-age=3500`. The resource path is always represented as starting from the root `/`.
 
 This mechanism allows you to control various aspects of the resource delivery, such as caching, encoding, and content types.
 
