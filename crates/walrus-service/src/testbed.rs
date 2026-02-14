@@ -39,11 +39,7 @@ use walrus_sui::{
         end_epoch_zero,
         register_committee_and_stake,
     },
-    types::{
-        NetworkAddress,
-        NodeRegistrationParams,
-        move_structs::{NodeMetadata, VotingParams},
-    },
+    types::{NetworkAddress, NodeRegistrationParams, move_structs::NodeMetadata},
     utils::{SuiNetwork, create_wallet, get_sui_from_wallet_or_faucet, request_sui_from_faucet},
     wallet::Wallet,
 };
@@ -57,7 +53,10 @@ use crate::{
         config::{
             LiveUploadDeferralConfig,
             PathOrInPlace,
+            PriceCurrency,
             StorageNodeConfig,
+            VotingParamsConfig,
+            VotingPrices,
             defaults::{self, REST_API_PORT},
         },
         consistency_check::StorageNodeConsistencyCheckConfig,
@@ -731,9 +730,12 @@ pub async fn create_storage_node_configs(
             pending_metadata_cache: Default::default(),
             disable_event_blob_writer,
             commission_rate: node.commission_rate,
-            voting_params: VotingParams {
-                storage_price: node.storage_price,
-                write_price: node.write_price,
+            voting_params: VotingParamsConfig {
+                voting_prices: VotingPrices {
+                    currency: PriceCurrency::FROST,
+                    storage_price: node.storage_price,
+                    write_price: node.write_price,
+                },
                 node_capacity: node.node_capacity,
             },
             metrics_push: None,
