@@ -46,10 +46,7 @@ public struct SlashingManager has key {
     slashing_candidates: Table<ID, SlashingProposal>,
 }
 
-// TODO(WAL-1147): create a new slashing manager in the migration function during the next contract
-// upgrade.
 /// Create a new slashing manager and share it.
-
 public(package) fun new(ctx: &mut TxContext) {
     let slashing_manager = SlashingManager {
         id: object::new(ctx),

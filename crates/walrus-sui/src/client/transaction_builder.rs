@@ -1588,7 +1588,7 @@ impl WalrusPtbBuilder {
             self.staking_arg(SharedObjectMutability::Mutable)?,
             self.system_arg(SharedObjectMutability::Mutable)?,
         ];
-        self.move_call(new_package_id, contracts::init::migrate, args)?;
+        self.move_call(new_package_id, contracts::init::migrate_v2, args)?;
         Ok(())
     }
 

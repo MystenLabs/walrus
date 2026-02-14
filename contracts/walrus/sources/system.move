@@ -314,7 +314,10 @@ public(package) fun set_new_package_id(system: &mut System, new_package_id: ID) 
 /// This function sets the new package id and version and can be modified in future versions
 /// to migrate changes in the `system_state_inner` object if needed.
 public(package) fun migrate(system: &mut System) {
+    // Below logic is for upgrading to version 3. When upgrading to future versions, this function
+    // needs to be revisited to perform correct migration steps.
     assert!(system.version < VERSION, EInvalidMigration);
+    assert!(VERSION == 3, EInvalidMigration);
 
     // Move the old system state inner to the new version.
     let system_state_inner: SystemStateInnerV1 = dynamic_field::remove(
