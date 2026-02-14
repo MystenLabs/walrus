@@ -19,7 +19,7 @@
       },
       "https://aggregator.walrus-mainnet.tududes.com": {
         "operator": "TuDudes",
-        "cache": true
+        "cache": false
       },
       "https://aggregator.walrus-mainnet.walrus.space": {
         "operator": "Mysten Labs",
@@ -79,7 +79,7 @@
       },
       "https://walrus-aggregator.brightlystake.com": {
         "operator": "Brightlystake",
-        "cache": true
+        "functional": false
       },
       "https://walrus-aggregator.chainbase.online": {
         "operator": "Chainbase Staking",
@@ -159,7 +159,7 @@
       },
       "https://walrus-mainnet-aggregator.imperator.co": {
         "operator": "Imperator.co",
-        "cache": false
+        "cache": true
       },
       "https://walrus-mainnet-aggregator.luckyresearch.org": {
         "operator": "LuckyResearch Labs",
@@ -187,7 +187,7 @@
       },
       "https://walrus-mainnet-aggregator.stakeengine.co.uk": {
         "operator": "Stake Engine",
-        "functional": false
+        "cache": true
       },
       "https://walrus-mainnet-aggregator.stakingdefenseleague.com.": {
         "operator": "Staking Defense League",
@@ -295,7 +295,7 @@
       },
       "https://testnet-aggregator.walrus.graphyte.dev": {
         "operator": "Graphyte Labs",
-        "functional": false
+        "cache": true
       },
       "https://testnet-walrus.globalstake.io": {
         "operator": "GlobalSTake",
@@ -343,7 +343,7 @@
       },
       "https://walrus-aggregator.thcloud.dev": {
         "operator": "THCloudAI",
-        "cache": true
+        "cache": false
       },
       "https://walrus-test-aggregator.thepassivetrust.com": {
         "operator": "TPT",
