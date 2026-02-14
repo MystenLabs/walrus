@@ -37,6 +37,7 @@ pub use args::{
     Commands,
     DaemonCommands,
     HealthSortBy,
+    LocalFileQuiltQuery,
     NodeSelection,
     NodeSortBy,
     PublisherArgs,
