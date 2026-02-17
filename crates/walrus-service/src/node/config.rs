@@ -13,7 +13,7 @@ use std::{
     time::Duration,
 };
 
-use anyhow::{Context, anyhow};
+use anyhow::{Context, anyhow, ensure};
 use p256::pkcs8::DecodePrivateKey;
 use serde::{Deserialize, Serialize};
 use serde_with::{
@@ -63,19 +63,19 @@ use crate::{
 /// current WAL token price in USD. The result is the price in FROST (1e-9 WAL).
 ///
 /// If the calculated price exceeds `TOTAL_FROST_SUPPLY`, returns `TOTAL_FROST_SUPPLY` instead.
-fn calculate_price_in_frost(target_price_nano_usd: u64, wal_price_usd: f64) -> u64 {
-    assert!(wal_price_usd > 0.0, "WAL price must be greater than 0");
+fn calculate_price_in_frost(target_price_nano_usd: u64, wal_price_usd: f64) -> anyhow::Result<u64> {
+    ensure!(wal_price_usd > 0.0, "WAL price must be greater than 0");
 
     let price_in_frost = (target_price_nano_usd as f64 / wal_price_usd).ceil();
 
     // Cap at TOTAL_FROST_SUPPLY. TOTAL_FROST_SUPPLY is the total supply of FROST, and therefore it
     // is impossible to exceed.
     #[allow(clippy::cast_possible_truncation)]
-    if price_in_frost > TOTAL_FROST_SUPPLY as f64 {
+    Ok(if price_in_frost > TOTAL_FROST_SUPPLY as f64 {
         TOTAL_FROST_SUPPLY
     } else {
         price_in_frost as u64
-    }
+    })
 }
 
 /// The currency unit for voting prices.
@@ -763,29 +763,40 @@ impl StorageNodeConfig {
                 if let Some(wal_price_usd) = wal_price {
                     // If stable pricing is configured and we have a WAL price, use it to
                     // calculate prices.
-                    let storage_price_in_frost =
-                        calculate_price_in_frost(prices.storage_price, wal_price_usd);
-                    let write_price_in_frost =
-                        calculate_price_in_frost(prices.write_price, wal_price_usd);
+                    match (
+                        calculate_price_in_frost(prices.storage_price, wal_price_usd),
+                        calculate_price_in_frost(prices.write_price, wal_price_usd),
+                    ) {
+                        (Ok(storage_price_in_frost), Ok(write_price_in_frost)) => {
+                            tracing::info!(
+                                wal_price_usd,
+                                stable_storage_price_nano_usd = prices.storage_price,
+                                stable_write_price_nano_usd = prices.write_price,
+                                storage_price_in_frost,
+                                write_price_in_frost,
+                                "calculating prices based on stable pricing config"
+                            );
 
-                    tracing::info!(
-                        wal_price_usd,
-                        stable_storage_price_nano_usd = prices.storage_price,
-                        stable_write_price_nano_usd = prices.write_price,
-                        storage_price_in_frost,
-                        write_price_in_frost,
-                        "calculating prices based on stable pricing config"
-                    );
-
-                    // TODO(WAL-804): update the prices only if the prices difference is
-                    // greater than a certain threshold.
-                    (
-                        (synced_config.voting_params.storage_price != storage_price_in_frost)
-                            .then_some(storage_price_in_frost),
-                        (synced_config.voting_params.write_price != write_price_in_frost)
-                            .then_some(write_price_in_frost),
-                        true,
-                    )
+                            // TODO(WAL-804): update the prices only if the prices difference
+                            // is greater than a certain threshold.
+                            (
+                                (synced_config.voting_params.storage_price
+                                    != storage_price_in_frost)
+                                    .then_some(storage_price_in_frost),
+                                (synced_config.voting_params.write_price != write_price_in_frost)
+                                    .then_some(write_price_in_frost),
+                                true,
+                            )
+                        }
+                        (Err(e), _) | (_, Err(e)) => {
+                            tracing::warn!(
+                                wal_price_usd,
+                                "failed to calculate price in frost: {e:#}; \
+                                will not update prices"
+                            );
+                            (None, None, false)
+                        }
+                    }
                 } else {
                     tracing::warn!(
                         "configured to use NanoUSD pricing, but no WAL price \
@@ -2847,22 +2858,37 @@ mod tests {
         // Test with WAL price of $0.50
         // If stable price is $1.00 USD and WAL is $0.50
         // price_in_frost = (1.0 * 1e9) / 0.50 = 2,000,000,000 FROST = 2 WAL
-        assert_eq!(calculate_price_in_frost(1_000_000_000, 0.50), 2_000_000_000);
+        assert_eq!(
+            calculate_price_in_frost(1_000_000_000, 0.50).unwrap(),
+            2_000_000_000
+        );
 
         // Test with WAL price of $1.00
         // price_in_frost = (1.0 * 1e9) / 1.00 = 1,000,000,000 FROST = 1 WAL
-        assert_eq!(calculate_price_in_frost(1_000_000_000, 1.00), 1_000_000_000);
+        assert_eq!(
+            calculate_price_in_frost(1_000_000_000, 1.00).unwrap(),
+            1_000_000_000
+        );
 
         // Test with WAL price of $0.25
         // price_in_frost = (1.0 * 1e9) / 0.25 = 4,000,000,000 FROST = 4 WAL
-        assert_eq!(calculate_price_in_frost(1_000_000_000, 0.25), 4_000_000_000);
+        assert_eq!(
+            calculate_price_in_frost(1_000_000_000, 0.25).unwrap(),
+            4_000_000_000
+        );
 
         // Test with smaller USD values
         // $0.001 USD with WAL at $0.50 = 2,000,000 FROST
-        assert_eq!(calculate_price_in_frost(1_000_000, 0.50), 2_000_000);
+        assert_eq!(
+            calculate_price_in_frost(1_000_000, 0.50).unwrap(),
+            2_000_000
+        );
 
         // Test with $0.10 USD and WAL at $0.50 = 200,000,000 FROST
-        assert_eq!(calculate_price_in_frost(10_000_000, 0.50), 20_000_000);
+        assert_eq!(
+            calculate_price_in_frost(10_000_000, 0.50).unwrap(),
+            20_000_000
+        );
     }
 
     #[test]
@@ -3026,34 +3052,37 @@ mod tests {
     fn test_calculate_price_in_frost_ceiling() {
         // Test that calculate_price_in_frost uses ceiling (rounds up)
         // 1_000_000_001 NanoUSD / 1.0 WAL = 1_000_000_001 FROST (no rounding needed)
-        assert_eq!(calculate_price_in_frost(1_000_000_001, 1.0), 1_000_000_001);
+        assert_eq!(
+            calculate_price_in_frost(1_000_000_001, 1.0).unwrap(),
+            1_000_000_001
+        );
 
         // Test with a value that requires ceiling
         // 1 NanoUSD / 3.0 WAL = 0.333... → ceiling to 1 FROST
-        assert_eq!(calculate_price_in_frost(1, 3.0), 1);
+        assert_eq!(calculate_price_in_frost(1, 3.0).unwrap(), 1);
 
         // 10 NanoUSD / 3.0 WAL = 3.333... → ceiling to 4 FROST
-        assert_eq!(calculate_price_in_frost(10, 3.0), 4);
+        assert_eq!(calculate_price_in_frost(10, 3.0).unwrap(), 4);
     }
 
     #[test]
     fn test_calculate_price_in_frost_overflow_protection() {
         // Very large NanoUSD with very small WAL price should be capped
-        let result = calculate_price_in_frost(u64::MAX, 0.0000001);
+        let result = calculate_price_in_frost(u64::MAX, 0.0000001).unwrap();
         assert_eq!(
             result, TOTAL_FROST_SUPPLY,
             "should be capped at TOTAL_FROST_SUPPLY"
         );
 
         // Another overflow case: large value divided by tiny WAL price
-        let result = calculate_price_in_frost(1_000_000_000_000_000_000, 0.00001);
+        let result = calculate_price_in_frost(1_000_000_000_000_000_000, 0.00001).unwrap();
         assert_eq!(
             result, TOTAL_FROST_SUPPLY,
             "should be capped at TOTAL_FROST_SUPPLY"
         );
 
         // Normal case should not be affected
-        let result = calculate_price_in_frost(1_000_000_000, 0.50);
+        let result = calculate_price_in_frost(1_000_000_000, 0.50).unwrap();
         assert_eq!(result, 2_000_000_000);
         assert!(result < TOTAL_FROST_SUPPLY);
     }

@@ -284,6 +284,7 @@ fn calculate_median(mut prices: Vec<f64>) -> Option<f64> {
         return None;
     }
 
+    prices.retain(|p| !p.is_nan());
     prices.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
 
     let len = prices.len();

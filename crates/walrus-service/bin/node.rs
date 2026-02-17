@@ -400,7 +400,7 @@ struct ConfigArgs {
     write_price: u64,
     /// Currency unit for storage and write prices.
     ///
-    /// Use "frost" for FROST (1e9 FROST = 1 WAL) or "nano-usd" for NanoUSD (1e9 NanoUSD = 1 USD).
+    /// Use "frost" for FROST (1e9 FROST = 1 WAL) or "nanousd" for NanoUSD (1e9 NanoUSD = 1 USD).
     #[arg(long, value_enum, default_value_t = PriceCurrency::FROST)]
     price_currency: PriceCurrency,
     /// The commission rate of the storage node, in basis points (1% = 100 basis points).
