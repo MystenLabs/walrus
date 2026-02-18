@@ -579,6 +579,11 @@ impl WalrusPtbBuilder {
         I: IntoIterator<Item = (T, T)>,
         T: Into<String>,
     {
+        let pairs: Vec<_> = pairs.into_iter().collect();
+        if pairs.is_empty() {
+            return Ok(());
+        }
+
         let blob_arg = self.argument_from_arg_or_obj(blob_object).await?;
 
         for (key, value) in pairs {
