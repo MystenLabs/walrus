@@ -360,32 +360,38 @@ impl NodeWriteCommunication {
         pairs: impl IntoIterator<Item = &SliverPair>,
         intent: UploadIntent,
     ) -> NodeResult<(), StoreError> {
-        tracing::debug!(blob_id = %metadata.blob_id(), "storing metadata and sliver pairs");
+        let total_start = Instant::now();
+        tracing::info!(blob_id = %metadata.blob_id(), "storing metadata and sliver pairs");
         let result = async {
+            let metadata_start = Instant::now();
             let metadata_status = self
                 .store_metadata(metadata, intent)
                 .await
                 .map_err(StoreError::Metadata)?;
-            tracing::debug!(
+            tracing::info!(
                 node = %self.node.public_key,
                 ?metadata_status,
+                metadata_elapsed_millis = metadata_start.elapsed().as_millis(),
                 blob_id = %metadata.blob_id(),
                 "finished storing metadata on node");
 
+            let slivers_start = Instant::now();
             let n_stored_slivers = self
                 .store_pairs(metadata.blob_id(), &metadata_status, pairs, intent)
                 .await?;
-            tracing::debug!(
+            tracing::info!(
                 node = %self.node.public_key,
                 n_stored_slivers,
+                slivers_elapsed_millis = slivers_start.elapsed().as_millis(),
                 blob_id = %metadata.blob_id(),
                 "finished storing slivers on node");
             Ok(())
         }
         .await;
-        tracing::debug!(
+        tracing::info!(
             blob_id = %metadata.blob_id(),
             node = %self.node.public_key,
+            total_elapsed_millis = total_start.elapsed().as_millis(),
             ?result,
             "storing metadata and sliver pairs finished"
         );

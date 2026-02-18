@@ -8,9 +8,9 @@
 // payload size as the key.
 //
 import { loadEnvironment } from '../../config/environment.ts'
-import { putBlob } from '../../flows/publisher.ts'
 import * as fs from 'k6/experimental/fs';
-import { parseHumanFileSize, loadParameters, logObject, recordEndTime, recordStartTime }
+import http from 'k6/http';
+import { loadRandomData, parseHumanFileSize, loadParameters, logObject, recordEndTime, recordStartTime }
     from "../../lib/utils.ts"
 import { BlobHistory } from "../../lib/blob_history.ts"
 import { expect }
@@ -71,8 +71,11 @@ export function setup(): number {
 }
 
 export default async function (fileSizeBytes: number) {
-    const response = await putBlob(
-        dataFile, env.publisherUrl, fileSizeBytes, { timeout: params.timeout }
+    const blob = await loadRandomData(dataFile, fileSizeBytes);
+    const response = http.put(
+        `${env.publisherUrl}/v1/blobs?force=true`,
+        blob,
+        { timeout: params.timeout }
     );
 
     expect(response.status).toBe(200);
