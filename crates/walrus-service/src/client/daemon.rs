@@ -75,6 +75,7 @@ use walrus_sdk::{
         StoreBlobsApi as _,
         WalrusNodeClient,
         byte_range_read_client::ReadByteRangeResult,
+        metrics::ClientMetrics,
         responses::{BlobStoreResult, QuiltStoreResult},
         streaming::start_streaming_blob,
     },
@@ -173,6 +174,7 @@ pub trait WalrusWriteClient: WalrusReadClient {
         store_optimizations: StoreOptimizations,
         persistence: BlobPersistence,
         post_store: PostStoreAction,
+        metrics: Option<Arc<ClientMetrics>>,
     ) -> impl Future<Output = ClientResult<BlobStoreResult>> + Send;
 
     /// Constructs a quilt from blobs.
@@ -296,6 +298,7 @@ impl WalrusWriteClient for WalrusNodeClient<SuiContractClient> {
         store_optimizations: StoreOptimizations,
         persistence: BlobPersistence,
         post_store: PostStoreAction,
+        metrics: Option<Arc<ClientMetrics>>,
     ) -> ClientResult<BlobStoreResult> {
         let encoding_type = encoding_type.unwrap_or(DEFAULT_ENCODING);
         let tail_mode = self.config().communication_config.tail_handling;
@@ -307,6 +310,9 @@ impl WalrusWriteClient for WalrusNodeClient<SuiContractClient> {
             post_store,
         )
         .with_tail_handling(tail_mode);
+        if let Some(metrics) = metrics {
+            store_args.with_metrics(metrics);
+        }
         let result = self
             .reserve_and_store_blobs_retry_committees(vec![blob], vec![], &store_args)
             .await?;
