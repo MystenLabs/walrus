@@ -30,13 +30,12 @@ const sidebars = {
       collapsed: true,
       items: [
         'system-overview/core-concepts',
-        'system-overview/components',
+        'system-overview/encoding',
         'system-overview/operations',
+        'system-overview/available-networks',
         'system-overview/storage-costs',
-        'system-overview/sui-object-and-blob-ids',
         'system-overview/public-aggregators-and-publishers',
         'system-overview/view-system-info',
-        'system-overview/available-networks',
         'system-overview/quilt',
       ],
     },
@@ -60,7 +59,6 @@ const sidebars = {
       items: [
         'http-api/storing-blobs',
         'http-api/reading-blobs',
-        'http-api/quilt-http-apis',
         'http-api/managing-blobs',
       ],
     },
@@ -217,16 +215,8 @@ const sidebars = {
                 ],
             },
             "operator-guide/upload-relay",
-            "operator-guide/signed-binaries",
         ],
     },
-    ],
-    examplesSidebar: [
-      'examples/checkpoint-data',
-      'examples/javascript',
-      'examples/move',
-      'examples/python',
-      'examples/walrus-relay'
     ],
 };
 

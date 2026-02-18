@@ -1,62 +1,179 @@
 ---
-title: Core Concepts
+title: Walrus Fundamentals
 description: "Technical reference for Walrus Sui smart contracts including blob objects, storage resources, and system events for developers."
 keywords: ["walrus", "sui structures", "smart contracts", "blob objects", "storage resources", "events", "system object", "staking", "move contracts"]
 ---
 
-{/* https://linear.app/mysten-labs/issue/DOCS-630/system-overviewcore-concepts */}
+Data is stored on Walrus as blobs. Each blob is an immutable array of bytes. Any type of file, such as text, video, or source code, can be stored on Walrus. All blobs uploaded to Walrus are publicly available. To secure data on Walrus, consider an [encryption service like Seal](https://seal-docs.wal.app/).
 
-Walrus uses Sui to manage blob metadata. Smart contract developers can read information on Sui about the [Walrus system](https://github.com/MystenLabs/walrus/tree/main/contracts) and stored blobs, or you can interact with Walrus through the client CLI, JSON and HTTP APIs without querying or executing transactions directly on Sui. 
+Sui is a blockchain that supports [programmable transactions](https://docs.sui.io/concepts/transactions/prog-txn-blocks). Walrus binds all blobs to objects on Sui. Walrus blobs are represented as Sui objects of type `Blob`.
 
-The following sections demonstrate how you can use Walrus objects in your own Sui smart contracts. Alternatively, you can view an [example Sui smart contract](https://github.com/MystenLabs/walrus/tree/main/examples) that implements a [wrapped](https://docs.sui.io/guides/developer/objects/object-ownership/wrapped) blob.
+## Walrus architecture
 
-## Blob and storage objects
+The Walrus architecture is built on the following key actors:
 
-Walrus blobs are represented as Sui objects of type `Blob`. A blob is first registered, indicating that the storage nodes should expect slivers from a blob ID to be stored. Then a blob is certified, indicating that a sufficient number of slivers have been stored to guarantee the blob's availability. When a blob is certified, its `certified_epoch` field contains the epoch in which it was certified.
+- **Users:** Clients that store and retrieve data blobs.
 
-A `Blob` object is always associated with a `Storage` object, reserving enough space for the configured time period the blob will be stored. A certified blob remains available for the duration specified by its associated storage resource.
+- **Storage nodes:** Distributed storage nodes that hold erasure-coded data.
 
-Concretely, `Blob` and `Storage` objects have the following fields, which can be queried using the [Sui SDKs](https://sdk.mystenlabs.com/typescript):
+- **Blockchain coordination:** The [Sui blockchain](https://docs.sui.io/) manages payments, metadata, and system orchestration.
 
-```move
-/// Reservation for storage for a given period, which is inclusive start, exclusive end.
-public struct Storage has key, store {
-    id: UID,
-    start_epoch: u32,
-    end_epoch: u32,
-    storage_size: u64,
-}
+#### Users
 
-/// The blob structure represents a blob that has been registered to with some storage,
-/// and then may eventually be certified as being available in the system.
-public struct Blob has key, store {
-    id: UID,
-    registered_epoch: u32,
-    blob_id: u256,
-    size: u64,
-    encoding_type: u8,
-    // Stores the epoch first certified if any.
-    certified_epoch: option::Option<u32>,
-    storage: Storage,
-    // Marks if this blob can be deleted.
-    deletable: bool,
-}
-```
+Users [interact with Walrus](/docs/walrus-client/storing-blobs) through clients to store and read blobs, which are identified by their blob ID. Users engage with the system in 2 primary ways:
 
-Public functions associated with these objects can be found in the respective [`storage_resource`](https://github.com/MystenLabs/walrus/tree/main/contracts/walrus/sources/system/storage_resource.move) and [`blob`](https://github.com/MystenLabs/walrus/tree/main/contracts/walrus/sources/system/blob.move) Move modules. Storage resources can be split and merged in time and data capacity, and can be transferred between users allowing complex contracts to be created.
+- Storage: Users store new blobs and pay [required costs](/docs/system-overview/storage-costs) for [write](/docs/system-overview/operations#store) and [non-best-effort read](/docs/system-overview/operations#read) operations.
 
-## Events
+- Availability: Users can [prove a blob's availability to third parties](/docs/system-overview/operations#certify-availability) without the cost of transmitting the full blob.
 
-Walrus uses [custom Sui events](https://github.com/MystenLabs/walrus/blob/main/contracts/walrus/sources/system/events.move) to notify storage nodes of updates concerning stored blobs and the state of the network. Applications can also use [Sui RPC facilities](https://docs.sui.io/references/sui-api) to observe Walrus related events.
+Users might also exhibit malicious behavior, such as refusing to pay for services, modifying or deleting blobs without authorization, or exhausting storage node resources.
 
-When a blob is first registered, a [`BlobRegistered`](https://github.com/MystenLabs/walrus/blob/main/contracts/walrus/sources/system/events.move#L12-L23) event is emitted that informs storage nodes that they should expect slivers associated with its Blob ID. Eventually when the blob is certified, a [`BlobCertified`](https://github.com/MystenLabs/walrus/blob/main/contracts/walrus/sources/system/events.move#L25-L35) is emitted containing information about the blob ID and the epoch after which the blob is deleted. Before that epoch the blob is guaranteed to be available.
+#### Storage nodes
+
+Storage nodes manage the actual data storage on Walrus. Each storage node holds 1 or more shards during a storage epoch. At any given storage epoch, a storage node associates with 1 or more shards.
+
+Every blob undergoes [erasure encoding](/docs/design/encoding), which splits it into many **slivers**. The slivers from each stored blob are distributed across all shards in the system. A node stores all slivers belonging to its assigned shards and serves them upon request.
+
+A smart contract on Sui controls how shards are assigned to storage nodes. These assignments occur within storage epochs, which last 2 weeks on Mainnet. Walrus assumes that more than 2/3 of shards are managed by honest storage nodes within each storage epoch. The system tolerates up to 1/3 of shards being controlled by malicious or faulty storage nodes. This tolerance level applies both within individual storage epochs and across transitions between epochs.
+
+Some assurance properties ensure the correct internal processes of Walrus storage nodes. For the purposes of defining these, an **inconsistency proof** proves that a blob ID was stored by a user that incorrectly encoded a blob:
+
+- **Sliver recovery:** After the PoA, for a blob ID stored by a correct user, a storage node can always recover the correct slivers for its shards for this blob ID.
+
+- **Inconsistency detection:** After the PoA, if a correct storage node cannot recover a sliver, it can produce an inconsistency proof for the blob ID.
+
+- **Encoding protection:** If a blob ID is stored by a correct user, an inconsistency proof cannot be derived for it.
+
+- **Inconsistent blob handling:** A read by a correct user for a blob ID for which an inconsistency proof might exist returns `None`.
+
+#### Blockchain coordination
+
+All clients and storage nodes run an instance of the Sui client, which provides the coordination layer for the entire system. The Sui network manages several operations, including:
+
+- **Payments:** Processing storage fees and service payments.
+
+- **Resource management:** Allocating and tracking storage capacity.
+
+- **Shard assignment:** Mapping shards to storage nodes.
+
+- **Metadata management:** Storing blob certificates and system state.
+
+Walrus defines a number of objects and smart contracts on Sui:
+
+- A shared system object records and manages the current committee of storage nodes.
+
+- Storage resources represent empty storage space that you can use to store blobs.
+
+- Blob resources represent blobs being registered and certified as stored.
+
+Changes to these objects emit [Walrus-related events](#events).
+
+You can find the Walrus system object ID in the Walrus [`client_config.yaml` file](/docs/getting-started/advanced-setup#configuration). You can use any [Sui explorer](https://suivision.xyz/) to view its content.
+
+#### Events
+
+Storage nodes monitor blockchain events to coordinate their operations and respond to system changes. Walrus uses [custom Sui events](https://github.com/MystenLabs/walrus/blob/main/contracts/walrus/sources/system/events.move) to notify storage nodes of updates concerning stored blobs and the state of the network. Applications can also use [Sui RPC facilities](https://docs.sui.io/references/sui-api) to observe Walrus-related events.
+
+When a blob is first registered, a [`BlobRegistered`](https://github.com/MystenLabs/walrus/blob/main/contracts/walrus/sources/system/events.move#L12-L23) event is emitted that informs storage nodes that they should expect slivers associated with its blob ID. When the blob is certified, a [`BlobCertified`](https://github.com/MystenLabs/walrus/blob/main/contracts/walrus/sources/system/events.move#L25-L35) event is emitted containing information about the blob ID and the epoch after which the blob is deleted. Before that epoch, the blob is guaranteed to be available.
 
 The [`BlobCertified`](https://github.com/MystenLabs/walrus/blob/main/contracts/walrus/sources/system/events.move#L25-L35) event with `deletable` set to false and an `end_epoch` in the future indicates that the blob is available until this epoch. A light client proof that this event was emitted for a blob ID constitutes a proof of availability for the data with this blob ID. When a deletable blob is deleted, a [`BlobDeleted`](https://github.com/MystenLabs/walrus/blob/main/contracts/walrus/sources/system/events.move#L37-L46) event is emitted.
 
-The [`InvalidBlobID`](https://github.com/MystenLabs/walrus/blob/main/contracts/walrus/sources/system/events.move#L48-L52) event is emitted when storage nodes detect an incorrectly encoded blob. Anyone attempting a read on such a blob is guaranteed to also detect it as invalid.
+The [`InvalidBlobID`](https://github.com/MystenLabs/walrus/blob/main/contracts/walrus/sources/system/events.move#L48-L52) event is emitted when storage nodes detect an incorrectly encoded blob. Anyone attempting a read on such a blob also detects it as invalid.
 
-System level events such as [`EpochChangeStart`](https://github.com/MystenLabs/walrus/blob/main/contracts/walrus/sources/system/events.move#L54-L57) and [`EpochChangeDone`](https://github.com/MystenLabs/walrus/blob/main/contracts/walrus/sources/system/events.move#L59-L63) indicate transitions between epochs. And associated events such as [`ShardsReceived`](https://github.com/MystenLabs/walrus/blob/main/contracts/walrus/sources/system/events.move#L65-L69), [`EpochParametersSelected`](https://github.com/MystenLabs/walrus/blob/main/contracts/walrus/sources/system/events.move#L71-L74), and [`ShardRecoveryStart`](https://github.com/MystenLabs/walrus/blob/main/contracts/walrus/sources/system/events.move#L76-L80) indicate storage node level events related to epoch transitions, shard migrations, and epoch parameters.
+System-level events such as [`EpochChangeStart`](https://github.com/MystenLabs/walrus/blob/main/contracts/walrus/sources/system/events.move#L54-L57) and [`EpochChangeDone`](https://github.com/MystenLabs/walrus/blob/main/contracts/walrus/sources/system/events.move#L59-L63) indicate transitions between epochs. Associated events such as [`ShardsReceived`](https://github.com/MystenLabs/walrus/blob/main/contracts/walrus/sources/system/events.move#L65-L69), [`EpochParametersSelected`](https://github.com/MystenLabs/walrus/blob/main/contracts/walrus/sources/system/events.move#L71-L74), and [`ShardRecoveryStart`](https://github.com/MystenLabs/walrus/blob/main/contracts/walrus/sources/system/events.move#L76-L80) indicate storage node-level events related to epoch transitions, shard migrations, and epoch parameters.
 
-## System and staking information
+## Additional infrastructure
 
-The [Walrus system object](https://github.com/MystenLabs/walrus/blob/main/contracts/walrus/sources/system/system_state_inner.move) contains metadata about the available and used storage and the price of storage per KiB of storage in [FROST](/docs/walrus-client/storing-blobs). The committee structure within the system object can be used to read the current epoch number and information about the committee. Committee changes between epochs are managed by a set of [staking contracts](https://github.com/MystenLabs/walrus/tree/main/contracts/walrus/sources/staking) that implement a full delegated proof of stake system based on the WAL token.
+Walrus supports additional infrastructure actors that can operate in a permissionless way. These infrastructure components are optional.
+
+#### Aggregators
+
+Aggregators are clients that reconstruct blobs from individual slivers and serve them to users through protocols like HTTP. Aggregators are optional because end users can reconstruct blobs directly from storage nodes or run an instance of a local aggregator themselves.
+
+**Caches** are aggregators with additional caching functionality to decrease latency and reduce load on storage nodes. Cache infrastructures can also act as CDNs, split the cost of blob reconstruction over many requests, and provide better network connectivity. A client can always verify that reads from cache infrastructures are correct.
+
+#### Publishers
+
+Publishers are clients that help end users store blobs through protocols like HTTP while using less bandwidth and offering custom logic. Publishers are optional because users can directly interact with Sui and storage nodes to store blobs. End users can verify that a publisher performed correctly by checking for an on-chain event associated with the blob's **[point of availability](/docs/design/properties)**. Users can then either read the blob from Walrus to confirm it is accessible, or encode the blob themselves and compare the result to the blob ID in the certificate. Publishers streamline the storage process by:
+
+- Receiving a blob through protocols like HTTP
+
+- Encoding the blob into slivers
+
+- Distributing slivers to storage nodes
+
+- Collecting storage node signatures
+
+- Aggregating signatures into a certificate
+
+- Performing all required on-chain actions
+
+## Data storage process
+
+When data is uploaded to Walrus, the following process occurs:
+
+1. A user sends a request to upload data to Walrus through a Walrus client. A client binary can be run locally and provides the following tools to perform Walrus operations:
+
+    - A [command line interface (CLI)](/docs/walrus-client/storing-blobs).
+
+    - A [JSON API](/docs/walrus-client/json-mode).
+
+    - An [HTTP API](/docs/http-api/storing-blobs).
+
+    Alternatively, you can use a publisher service.
+
+1. The client or publisher service determines the required storage space for the data and purchases a `Storage` object on Sui to reserve that space for the configured storage duration. A `Blob` object is always associated with a `Storage` object.
+
+    The `Blob` and `Storage` objects have the following fields, which you can query using the [Sui SDKs](https://sdk.mystenlabs.com/typescript):
+```move
+    /// Reservation for storage for a given period, which is inclusive start, exclusive end.
+    public struct Storage has key, store {
+        id: UID,
+        start_epoch: u32,
+        end_epoch: u32,
+        storage_size: u64,
+    }
+
+    /// The blob structure represents a blob that has been registered to with some storage,
+    /// and then may eventually be certified as being available in the system.
+    public struct Blob has key, store {
+        id: UID,
+        registered_epoch: u32,
+        blob_id: u256,
+        size: u64,
+        encoding_type: u8,
+        // Stores the epoch first certified if any.
+        certified_epoch: option::Option<u32>,
+        storage: Storage,
+        // Marks if this blob can be deleted.
+        deletable: bool,
+    }
+```
+
+    Public functions associated with these objects can be found in the respective [`storage_resource`](https://github.com/MystenLabs/walrus/tree/main/contracts/walrus/sources/system/storage_resource.move) and [`blob`](https://github.com/MystenLabs/walrus/tree/main/contracts/walrus/sources/system/blob.move) Move modules. Storage resources can be split and merged in time and data capacity, and can be transferred between users, which allows complex contracts to be created.
+
+1. The blob is encoded, producing slivers and a blob ID. The same content always yields the same blob ID.
+
+1. The blob is registered, indicating to the storage nodes that they should expect slivers to be stored. The storage resource on Sui is updated with the blob's ID, size, and storage duration. This emits an event.
+
+1. Slivers are distributed to each node. When a node receives a sliver, it signs a receipt.
+
+1. 2/3 of the receipt signatures are aggregated into an availability certificate. The blob is certified, indicating that a sufficient number of slivers have been stored to guarantee the blob's availability. When a blob is certified, its `certified_epoch` field contains the epoch in which it was certified. A certified blob remains available for the duration specified by its associated storage resource.
+
+## Data retrieval process
+
+When data is retrieved from Walrus, the following process occurs:
+
+1. The client or an aggregator reads the blob ID of the blob to fetch.
+
+1. The client or aggregator queries Sui or a storage node to get the blob's metadata. The metadata includes the authenticated signatures for each sliver.
+
+1. The client sends read requests to storage nodes for the slivers corresponding to that blob ID.
+
+1. Each returned sliver is checked against its authenticated signature from the metadata to ensure integrity.
+
+1. Once enough valid slivers are collected (>1/3 quorum), the client runs the RedStuff decoding algorithm to reconstruct the original blob.
+
+1. The client verifies the reconstructed data by checking hashes of a subset of primary slivers (at least the first 334) against the metadata.
+
+1. If verification passes, the client returns the blob bytes to the caller. If verification fails or an inconsistency proof exists, the read returns an error or `None`.

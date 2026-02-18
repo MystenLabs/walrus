@@ -1,17 +1,19 @@
 ---
 title: View System Information
+description: "How to use the walrus info and walrus health commands to view Walrus system parameters, storage node details, epoch information, and current storage costs."
+keywords: ["walrus", "system information", "walrus info", "walrus health", "storage nodes", "epoch", "shards", "storage costs", "committee", "system object"]
 ---
 
-{/* https://linear.app/mysten-labs/issue/DOCS-636/system-overviewview-system-info */}
+The [Walrus system object](https://github.com/MystenLabs/walrus/blob/main/contracts/walrus/sources/system/system_state_inner.move) contains metadata about available and used storage and the price of storage per KB in [FROST](/docs/walrus-client/storing-blobs). These values are determined by 2/3 agreement between storage nodes for each storage epoch. You can pay to purchase storage space for specified durations. These space resources can be split, merged, and transferred, and can later be used to place a blob ID into Walrus.
 
-Information about the Walrus system is available through the `walrus info` command. It provides an overview of current system parameters, such as the current epoch, the number of storage nodes and shards in the system, the maximum blob size, and the current cost in WAL for storing blobs:
+Each Walrus storage epoch is represented by the Walrus system object, which contains a storage committee and various metadata about storage nodes, including the mapping between shards and storage nodes, available space, and current costs. Committee changes between epochs are managed by a set of [staking contracts](https://github.com/MystenLabs/walrus/tree/main/contracts/walrus/sources/staking) that implement a full delegated proof-of-stake system based on the WAL token.
 
+You can view information about the Walrus system through the `walrus info` command. It provides an overview of current system parameters, such as the current epoch, the number of storage nodes and shards in the system, the maximum blob size, and the current cost in WAL for storing blobs:
 ```sh
 $ walrus info
 ```
 
 The console responds:
-
 ```sh
 Walrus system information
 
@@ -38,6 +40,6 @@ Additional price for each write: 20,000 FROST
 ...
 ```
 
-You can view additional information with various subcommands, including encoding parameters and sizes, BFT system information, and details about storage nodes in the current committee and next committee, if already selected. This information includes node IDs, stake distribution, and shard allocation. Run `walrus info --help` for a complete list of available subcommands. 
+You can view additional information with various subcommands, including encoding parameters and sizes, BFT system information, and details about storage nodes in the current committee and next committee, if already selected. This information includes node IDs, stake distribution, and shard allocation. Run `walrus info --help` for a complete list of available subcommands.
 
-The health of storage nodes can be checked with the `walrus health` command. This command takes different options to select nodes to check, for example, `walrus health --committee` checks the status of all current committee members.
+You can check the health of storage nodes with the `walrus health` command. This command accepts different options to select which nodes to check. For example, `walrus health --committee` checks the status of all current committee members.

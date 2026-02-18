@@ -1,54 +1,93 @@
 ---
 title: Operations
-description: "Developer guide to Walrus operations including store, read, certify availability, and delete operations for blob management."
+description: Developer guide to Walrus operations for blob management.
 keywords: ["walrus", "operations", "store", "read", "certify", "delete", "blob id", "encoding", "availability", "developer operations"]
 ---
 
-{/* https://linear.app/mysten-labs/issue/DOCS-632/system-overviewoperations */}
+Blobs can be interacted with through familiar file system operations such as uploading, reading, downloading, and deleting.
 
-Walrus stores blobs across storage nodes in an [encoded form](/docs/design/encoding), and refers to blobs by their blob ID. The blob ID is deterministically derived from the content of a blob and the Walrus configuration. The blob ID of 2 files with the same content is the same.
+## Upload
 
-You can derive the blob ID of a file locally using the command: `walrus blob-id <file path>`.
+The steps involved in uploading data to Walrus can be executed by the binary client or a publisher that accepts and publishes blobs through HTTP. These steps are:
 
-Blobs can be interacted with through familiar file system operations such as uploading, reading, downloading, and deleting. 
+1. Acquire a storage resource of appropriate size and duration on-chain, either directly from the Walrus system object or a secondary market. Storage resources can be split, merged, and transferred.
 
-## Store
+1. Apply erasure coding to the blob, then compute the blob ID from the encoded data. The blob ID is a `u256` value typically encoded as a URL-safe base64 string. You can perform the remaining steps yourself or delegate them to a publisher.
 
-The steps involved in a store operation can be executed by the binary client or a publisher that accepts and publishes blobs through [HTTP](/docs/http-api/storing-blobs).
+1. Interact with Sui to update a storage resource and register the blob ID with the desired size and lifetime. This emits an event that storage nodes receive; the upload continues after event confirmation. Metadata is the only blob element ever exposed to Sui or [its validators](https://docs.sui.io/guides/operator/validator-index), as the content of blobs is always stored off-chain on Walrus storage nodes and caches. The storage nodes or caches do not need to overlap with any Sui infrastructure components (such as validators), and the [storage epochs](/blog/04_testnet_update#epochs) can have different lengths and timing than [Sui epochs](https://docs.sui.io/concepts/sui-architecture/epochs).
 
-:::danger 
+1. Send blob metadata to all storage nodes. Each sliver is sent to the storage node managing its corresponding shard.
 
-**All blobs stored in Walrus are public and discoverable by all.** Do not use Walrus to store anything that contains secrets or private data without additional measures to protect confidentiality, such as encrypting data with [Seal](/docs/data-security).
+1. Each storage node receives its sliver, verifies it against the blob ID, and checks that a valid blob resource authorizes the store. If correct, it signs a statement confirming it holds the sliver. Collect these signatures and aggregate them into an availability certificate.
+
+1. Submit the availability certificate to the chain. Successful on-chain verification emits an availability event (the point of availability (PoA)) and triggers all storage nodes to download any missing shards. After the PoA, storage nodes sync and recover missing metadata and slivers without your involvement.
+
+The certificate of availability is created from 2/3 of the returned shard signatures. The erasure code rate is below 1/3, meaning that reconstruction is possible even if only 1/3 of shards return the sliver for a read. Because at most 1/3 of the storage nodes can fail, this ensures reconstruction if you request slivers from all storage nodes. A publisher can mediate the full process by receiving a blob and driving the process to completion.
+
+- **Read completion:** After the PoA for a blob ID, any correct user performing a read within the availability period eventually terminates and receives a value \(V\). This value is either the blob contents \(F\) or `None`.
+
+- **Read consistency:** After the PoA, if 2 correct users perform reads and receive values \(V\) and \(V'\) respectively, then \(V = V'\). All correct readers see the same value.
+
+- **Correct storage guarantee:** A correct user with an appropriate storage resource can always perform a store operation for a blob \(F\) with a blob ID and advance the protocol until the PoA.
+
+- **Correct blob retrieval:** A read after the PoA for a blob \(F\) stored by a correct user returns \(F\). Correctly stored blobs are always retrievable.
+
+![Write paths of Walrus](./images/WriteFlow.png)
+
+#### Uploading through CLI
+
+Use the following command to store a file as a blob:
+```sh
+$ walrus store file.txt --epochs 2 --context testnet
+```
+
+:::danger
+
+All blobs stored in Walrus are public and discoverable by all. Do not store secrets or private data without additional confidentiality measures, such as encrypting with [Seal](/docs/data-security).
 
 :::
 
-When a blob is stored on Walrus, first the client or publisher encodes the blob and derives a blob ID that identifies the blob. This is a `u256` often encoded as a URL-safe base64 string. Then, a transaction is executed on Sui to purchase some storage from the system object and to register the blob ID occupying this storage. Client APIs return the Sui blob object ID. The transactions use SUI to purchase storage and pay for gas.
-
-Encoded slivers of the blob are distributed to all storage nodes. They each sign a receipt. Signed receipts are aggregated and submitted to the Sui blob object to certify the blob. Certifying a blob emits a Sui event with the blob ID and the period of availability.
-
-A blob is considered available on Walrus once the corresponding Sui blob object has been certified in the final step. 
-
-### Maximum blob size 
+#### Maximum blob size
 
 The maximum blob size can be queried through the [`walrus info`](/docs/walrus-client/storing-blobs#walrus-system-information) CLI command. The maximum blob size is currently 13.3&nbsp;GB. You can store larger blobs by splitting them into smaller chunks.
 
-Blobs are stored for a certain number of epochs which is specified at the time they are stored. Walrus storage nodes ensure that within these epochs a read succeeds. Mainnet uses an epoch duration of 2 weeks.
+Blobs are stored for the number of epochs specified at the time they are stored. Walrus storage nodes ensure the blob is available through the number of epochs specified. Mainnet uses an epoch duration of 2 weeks.
 
 ## Read
 
-Read a blob after it is stored by providing its blob ID. A read is executed by querying the system object on Sui to determine the Walrus storage node committee. Once the committee is determined, some of those storage nodes within the committee are queried for blob metadata and the slivers they store. The blob is reconstructed from the recovered slivers and checked against the blob ID.
+Read operations are performed by the binary client or the aggregator service that exposes an HTTP interface to read blobs. Reads are resilient and succeed in recovering the blob if up to 1/3 of storage nodes are unavailable. In most cases, after synchronization is complete, blobs can be read even if 2/3 of storage nodes are down.
 
-The steps involved in the read operation are performed by the binary client or the aggregator service that exposes an HTTP interface to read blobs. Reads are resilient and succeed in recovering the blob in all cases even if up to 1/3 of storage nodes are unavailable. In most cases, after synchronization is complete, blobs can be read even if 2/3 of storage nodes are down.
+Reading blobs from Walrus can occur directly or through aggregators and caches. The operations are identical whether performed by end users, aggregators, or caches experiencing cache misses. In practice, most reads occur through caches for frequently accessed blobs and do not require requests to storage nodes.
 
-## Download 
+The read flow uses the following steps:
+
+1. The network uses the blob ID to obtain the metadata for the blob ID from any storage node and authenticate it using the blob ID.
+
+1. The system object on Sui is queried to determine the storage nodes that store that blob's metadata and slivers.
+
+1. A request is sent to the storage nodes for the shards corresponding to the blob ID. The request waits for \(f+1\) responses. Sufficient requests are sent in parallel to ensure low latency for reads.
+
+1. The returned slivers are authenticated with the blob ID, the blob is reconstructed, and the contents are determined to be either valid or inconsistent.
+
+1. Optionally, the result is cached and can be served without reconstruction until it is evicted from the cache. Requests to the cache for the blob return the blob contents or an inconsistency proof.
+
+#### Reading through CLI
+
+To read a blob after it has been stored on Walrus, use the `walrus read` command and provide the blob ID:
+```sh
+$ walrus read <blob-id> --context testnet
+```
+
+Reading a blob does not save it to a local storage location. See [download](#download) for more information.
+
+## Download
 
 To download a blob and save it on your local machine, run the following command:
-
 ```sh
 $ walrus read <blob-id> --out file.txt --context testnet
 ```
 
-Replace `<blob-id>` with the blob's identifier the `walrus store` command returns in its output, and replace `file.txt` with the name and file extension for storing the file locally.
+Replace `<blob-id>` with the blob's identifier that the `walrus store` command returns in its output, and replace `file.txt` with the name and file extension for storing the file locally.
 
 ## Certify availability
 
@@ -56,16 +95,98 @@ Once a blob is certified, Walrus ensures that sufficient slivers are always avai
 
 You can verify blob availability in 3 ways:
 
-1. **Using the certified blob event**: Use a Sui SDK read to authenticate the certified blob event emitted when the blob ID was certified on Sui. The `walrus blob-status` command identifies the event ID to check.
+1. **Using the certified blob event:** Use a Sui SDK read to authenticate the certified blob event emitted when the blob ID was certified on Sui. The `walrus blob-status` command identifies the event ID to check.
 
-1. **Using the blob object**: Use a Sui SDK read to authenticate the Sui blob object corresponding to the blob ID, verify it is certified, before the expiry epoch, and not deletable.
+1. **Using the blob object:** Use a Sui SDK read to authenticate the Sui blob object corresponding to the blob ID, verify it is certified, before the expiry epoch, and not deletable.
 
-1. **Using a smart contract**: A Sui smart contract can read the blob object on Sui to verify it is certified, before the expiry epoch, and not deletable.
+1. **Using a smart contract:** A Sui smart contract can read the blob object on Sui to verify it is certified, before the expiry epoch, and not deletable.
 
 The underlying protocol of the [Sui light client](https://github.com/MystenLabs/sui/tree/main/crates/sui-light-client) returns digitally signed evidence for emitted events or objects, and can be used by offline or non-interactive applications as a proof of availability for the blob ID for a certain number of epochs.
 
 ## Delete
 
-Stored blobs can be set as deletable by the user that creates them. This metadata is stored in the Sui blob object, and whether a blob is deletable or not is included in certified blob events. A deletable blob can be deleted by the owner of the blob object to reclaim and reuse the storage resource associated with it.
+Stored blobs can be set as deletable by the user that creates them. This metadata is stored in the Sui blob object, and whether a blob is deletable is included in certified blob events. A deletable blob can be deleted by the owner of the blob object to reclaim and reuse the storage resource associated with it.
 
-If no other copies of the blob exist on Walrus, deleting a blob eventually makes it unrecoverable using read commands. However, if other copies of the blob exist on Walrus, a delete command reclaims storage space for the user that invoked it, but does not make the blob unavailable until all other copies have been deleted or expire.
+If no other copies of the blob exist on Walrus, deleting a blob eventually makes it unrecoverable using read commands. However, if other copies of the blob exist on Walrus, a delete command reclaims storage space for the user that invoked it but does not make the blob unavailable until all other copies have been deleted or expire.
+
+#### Deleting through CLI
+
+To delete a blob, run the following command:
+```sh
+$ walrus delete --blob-id <blob-id> --context testnet
+```
+
+Replace `<blob-id>` with the blob's identifier that the `walrus store` command returns in its output.
+
+#### Extend a blob's storage duration
+
+Because no blob content is involved, refresh operations are conducted entirely through the Sui protocol. To extend a blob's storage duration, you must reference the Sui object ID and indicate how many epochs you want to extend the blob's storage for.
+
+Run the following command to extend a blob's storage duration by 3 epochs. You must use the Sui object ID, not the blob ID:
+```sh
+$ walrus extend --blob-obj-id <blob-object-id> --epochs-extended 3 --context testnet
+```
+
+Replace `<blob-object-id>` with the blob's Sui object ID that the `walrus store` command returns in its output. Upon success, storage nodes receive an emitted event to extend the storage duration for each sliver.
+
+## Use Sui object and blob ID utilities
+
+The command `walrus blob-id <FILE>` derives the blob ID of any file. The blob ID is a commitment to the file, and any blob with the same ID decodes to the same content. The blob ID is a 256-bit number and represented on some Sui explorers as a large decimal number. The command `walrus convert-blob-id <BLOB_ID_DECIMAL>` converts it to a base64 URL for use by the command line tools and other APIs.
+
+The `walrus list-blobs` command lists all non-expired Sui objects that the current account owns, including their blob ID, object ID, and metadata about expiration and deletable status. The `--include-expired` option also lists expired Sui objects.
+
+The Sui storage cost associated with Sui objects can be reclaimed by burning the Sui object. This does not cause the Walrus blob to be deleted, but means that operations such as extending its lifetime, deleting it, or modifying attributes are no longer available. The `walrus burn-blobs --object-ids <SUI_OBJ_IDS>` command burns a specific list of Sui object IDs. The `--all` flag burns the Sui objects for all blobs under the user account, and `--all-expired` burns all expired blobs under the user account.
+
+## Manage blob attributes
+
+Walrus allows a set of key-value attribute pairs to be associated with a Sui object. While the keys and their values can be arbitrary strings to accommodate any needs, specific keys are converted to HTTP headers when serving blobs through aggregators. Each aggregator can decide which headers it allows through the `--allowed-headers` CLI option. You can view the defaults through `walrus aggregator --help`.
+
+The following command sets attributes `key1` and `key2` to values `value1` and `value2`, respectively. The command `walrus get-blob-attribute <SUI_OBJ_ID>` returns all attributes associated with a blob ID.
+```sh
+$ walrus set-blob-attribute <SUI_OBJ_ID> --attr "key1" "value1" --attr "key2" "value2"
+```
+
+The following command deletes the attributes with keys listed, separated by commas or spaces. All attributes of a Sui object can be deleted by the command `walrus remove-blob-attribute <SUI_OBJ_ID>`.
+```sh
+$ walrus remove-blob-attribute-fields <SUI_OBJ_ID> --keys "key1,key2"
+```
+
+Attributes are associated with Sui object IDs rather than the blobs themselves on Walrus. This means that gas for storage is reclaimed by deleting attributes and that the same blob contents can have different attributes for different Sui objects with the same blob ID.
+
+## Inconsistency handling
+
+After the PoA, a correct storage node attempting to reconstruct a sliver might fail if blob encoding was incorrect. In this case, the node can extract an inconsistency proof for the blob ID. It then uses the proof to create an inconsistency certificate and uploads it on-chain.
+
+Inconsistency handling uses the following process:
+
+1. A storage node fails to reconstruct a sliver and computes an inconsistency proof.
+
+1. The storage node sends the blob ID and inconsistency proof to all storage nodes of the Walrus epoch. The storage nodes verify the proof and sign it.
+
+1. The storage node that found the inconsistency aggregates the signatures into an inconsistency certificate and sends it to the [Sui smart contract](https://docs.sui.io/guides/developer/sui-101/move-package-management), which verifies it and emits an inconsistent resource event.
+
+1. Upon receiving an inconsistent resource event, correct storage nodes delete sliver data for the blob ID and record in the metadata to return `None` for the blob during the availability period. No storage attestation challenges are issued for this blob ID.
+
+#### Reading inconsistent blobs
+
+A blob ID marked as inconsistent always resolves to `None` upon reading. This occurs because the read process re-encodes the received blob to verify that the blob ID was derived from consistent encoding.
+
+An inconsistency proof reveals only a true fact to storage nodes (which do not otherwise run decoding) and does not change read output in any case.
+
+However, partial reads that use the systematic nature of the encoding might successfully return partial data for inconsistently encoded files. If consistency and availability of reads is important, perform full reads rather than partial reads.
+
+## Challenge mechanism for storage attestation
+
+During an epoch, a correct storage node challenges all shards to provide symbols for blob slivers past PoA:
+
+- The list of available blobs for the epoch is determined by the sequence of Sui events up to the past epoch. Inconsistent blobs are not challenged, and a record proving this status can be returned instead.
+
+- A challenge sequence is determined by providing a seed to the challenged shard. The sequence is then computed based on the seed and the content of each challenged blob ID. This creates a sequential read dependency.
+
+- The response to the challenge provides the sequence of shard contents for the blob IDs in a timely manner.
+
+- The challenger node uses thresholds to determine whether the challenge was passed and reports the result on-chain.
+
+- The challenge and response communication is authenticated.
+
+Challenges provide reassurance that the storage node can actually recover shard data in a probabilistic manner, preventing storage nodes from receiving payment without any evidence they can retrieve shard data. The sequential nature of the challenge and a reasonable timeout also ensure that the process is timely.
