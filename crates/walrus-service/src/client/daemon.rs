@@ -166,6 +166,7 @@ pub trait WalrusReadClient {
 /// Trait representing a client that can write blobs to Walrus.
 pub trait WalrusWriteClient: WalrusReadClient {
     /// Writes a blob to Walrus.
+    #[allow(clippy::too_many_arguments)]
     fn write_blob(
         &self,
         blob: Vec<u8>,
@@ -302,7 +303,7 @@ impl WalrusWriteClient for WalrusNodeClient<SuiContractClient> {
     ) -> ClientResult<BlobStoreResult> {
         let encoding_type = encoding_type.unwrap_or(DEFAULT_ENCODING);
         let tail_mode = self.config().communication_config.tail_handling;
-        let store_args = StoreArgs::new(
+        let mut store_args = StoreArgs::new(
             encoding_type,
             epochs_ahead,
             store_optimizations,
@@ -311,7 +312,7 @@ impl WalrusWriteClient for WalrusNodeClient<SuiContractClient> {
         )
         .with_tail_handling(tail_mode);
         if let Some(metrics) = metrics {
-            store_args.with_metrics(metrics);
+            store_args = store_args.with_metrics(metrics);
         }
         let result = self
             .reserve_and_store_blobs_retry_committees(vec![blob], vec![], &store_args)
