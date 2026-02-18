@@ -12,6 +12,9 @@ use crate::node::metrics::NodeMetricSet;
 /// The minimum WAL price in USD below which the price is considered practically zero.
 const MIN_WAL_PRICE_USD: f64 = 1e-9;
 
+/// The initial wait time for the WAL price monitor to fetch the price from the data sources.
+const WAL_MONITOR_INITIAL_WAIT: Duration = Duration::from_secs(10);
+
 /// CoinGecko API URL for fetching WAL price
 const COINGECKO_API_URL: &str =
     "https://api.coingecko.com/api/v3/simple/price?ids=walrus-2&vs_currencies=usd";
@@ -316,8 +319,11 @@ pub struct WalPriceMonitor {
 }
 
 impl WalPriceMonitor {
-    /// Creates and starts a new WAL price monitor
-    pub(crate) fn start(config: WalPriceMonitorConfig, metrics: Arc<NodeMetricSet>) -> Self {
+    /// Creates and starts a new WAL price monitor.
+    ///
+    /// Waits up to `WAL_MONITOR_INITIAL_WAIT` seconds for the first round of price fetches to
+    /// complete before returning.
+    pub(crate) async fn start(config: WalPriceMonitorConfig, metrics: Arc<NodeMetricSet>) -> Self {
         let current_price = Arc::new(RwLock::new(None));
 
         // Create the list of WAL price fetchers
@@ -334,9 +340,24 @@ impl WalPriceMonitor {
             config.check_interval
         );
 
-        // TODO(WAL-804): make sure that we get one round of prices before returning.
         let task_handle =
             Self::spawn_monitoring_task(config, current_price.clone(), fetchers, metrics.clone());
+
+        // Wait for the first price fetch to complete.
+        let price_ref = current_price.clone();
+        let wait_result = tokio::time::timeout(WAL_MONITOR_INITIAL_WAIT, async {
+            loop {
+                if price_ref.read().await.is_some() {
+                    return;
+                }
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+        })
+        .await;
+
+        if wait_result.is_err() {
+            tracing::warn!("timed out waiting for initial WAL price fetch");
+        }
 
         Self {
             current_price,
