@@ -1,142 +1,202 @@
 # CLAUDE.md
 
-This file provides guidance for Claude Code when working on the Walrus repository.
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Project Overview
 
-Walrus is a decentralized storage protocol built on Sui. It consists of storage nodes that store
-data using erasure coding, a client for interacting with the network, and Move smart contracts on
-Sui.
+Walrus is a decentralized storage protocol built on Sui. It uses Reed-Solomon erasure coding to
+distribute blob data across a network of storage nodes, with smart contracts on Sui managing
+registration, certification, and economics.
 
-## Repository Structure
+## Architecture
 
-```
-walrus/
-├── crates/                     # Rust crates
-│   ├── walrus-service/         # Main storage node and client implementation
-│   │   ├── bin/                # Binaries: node.rs, client.rs, deploy.rs, backup.rs
-│   │   └── src/
-│   │       ├── node/           # Storage node implementation
-│   │       │   ├── config.rs   # Node configuration
-│   │       │   ├── contract_service.rs  # Sui contract interactions
-│   │       │   ├── config_synchronizer.rs  # Config sync with on-chain state
-│   │       │   └── ...
-│   │       ├── client/         # Client implementation
-│   │       └── event/          # Event processing
-│   ├── walrus-sdk/             # High-level SDK for blob operations
-│   │   └── src/
-│   │       ├── client.rs       # Main client for upload/download
-│   │       ├── uploader.rs     # Distributed upload orchestration
-│   │       ├── active_committees.rs  # Committee tracking per epoch
-│   │       ├── config.rs       # SDK configuration
-│   │       └── upload_relay.rs # Upload relay client
-│   ├── walrus-storage-node-client/  # Low-level storage node HTTP client
-│   │   └── src/
-│   │       ├── client.rs       # StorageNodeClient implementation
-│   │       ├── api.rs          # REST API types (BlobStatus, ServiceResponse)
-│   │       └── error.rs        # Error types (NodeError, ClientBuildError)
-│   ├── walrus-sui/             # Sui blockchain integration
-│   │   ├── src/client.rs       # Sui client for contract calls
-│   │   └── src/types.rs        # Move struct representations
-│   ├── walrus-core/            # Core types and cryptography
-│   ├── walrus-simtest/         # Simulation tests
-│   └── ...
-├── contracts/                  # Move smart contracts
-│   ├── walrus/                 # Main Walrus system contract
-│   ├── wal/                    # WAL token contract
-│   └── subsidies/              # Subsidies contract
-├── scripts/                    # Utility scripts
-├── docs/                       # Documentation
-└── setup/                      # Setup configurations
-```
+### Three-Layer Design
 
-## Key Crates
+1. **Client Layer** (`walrus-sdk`): Encodes blobs into slivers via erasure coding, orchestrates
+   parallel uploads to storage nodes, and interacts with Sui contracts for registration/certification.
+2. **Storage Node Layer** (`walrus-service`): Axum-based REST API servers that store slivers in
+   RocksDB, process blob events from Sui, manage epoch transitions, and participate in shard sync.
+3. **Blockchain Layer** (`contracts/`): Move smart contracts on Sui managing blob lifecycle
+   (register, certify, delete), committee state, staking, and WAL token economics.
 
-- **walrus-service**: Main crate containing storage node (`walrus-node`) and client (`walrus`) binaries
-- **walrus-sui**: Sui blockchain integration, contract client, Move type definitions
-- **walrus-core**: Core types, cryptographic primitives, erasure coding
-- **walrus-sdk**: High-level SDK for blob upload/download operations
-- **walrus-storage-node-client**: Low-level HTTP client for storage node REST API
-- **walrus-simtest**: Deterministic simulation tests using `msim`
+### Blob Upload Flow
 
-### Linting and Formatting
+1. `BlobEncoder` splits raw data into primary/secondary sliver pairs using RS2 erasure coding
+2. Merkle tree over sliver pairs produces the blob ID (committed on-chain)
+3. `DistributedUploader` sends slivers in parallel to storage nodes based on committee shard assignments
+4. Client calls Sui contract to register blob; nodes see `BlobRegistered` event and finalize storage
+5. After quorum confirmation, client can certify the blob on-chain
+
+### Epoch & Committee Model
+
+- `ActiveCommittees` tracks current, previous, and next epoch committees
+- Epoch changes reshuffle shard-to-node assignments; `EpochChangeDriver` manages transitions
+- During transitions, both current and previous committees serve reads
+
+### Key Crate Relationships
+
+- **walrus-sdk** → uses **walrus-storage-node-client** (HTTP client to nodes) + **walrus-sui** (chain interactions)
+- **walrus-service** → the storage node binary; uses **walrus-core** (encoding/types) + **walrus-sui** (event processing)
+- **walrus-core** → encoding primitives, cryptographic types, slivers, metadata (no network/chain deps)
+- **walrus-upload-relay** → alternative upload path where clients pay tips; validates transactions and delegates to SDK
+- **walrus-proxy** → metrics aggregation relay for Prometheus/Mimir
+
+## Build & Development Commands
+
+### Prerequisites
+
+System packages: `libssl-dev pkg-config zlib1g-dev libpq-dev build-essential cmake`
+Rust toolchain: 1.93 (specified in `rust-toolchain.toml`)
+
+### Building
 
 ```bash
-# Format code
-cargo fmt
+cargo build                          # Debug build
+cargo build --release                # Release build
+```
 
-# Run clippy
-cargo clippy --all-targets --all-features
+### Running Tests
 
-# Run pre-commit hooks
+```bash
+# Run all tests (uses nextest)
+cargo nextest run
+
+# Run a single test by name
+cargo nextest run my_test_name
+
+# Run tests in a specific crate
+cargo nextest run -p walrus-core
+
+# Run ignored tests (require external Sui cluster)
+cargo nextest run --run-ignored ignored-only
+
+# Run doctests (nextest doesn't run these)
+cargo test --doc
+```
+
+### Linting & Formatting
+
+```bash
+# Format (note: custom rustfmt config via CLI args, not rustfmt.toml)
+cargo fmt -- --config group_imports=StdExternalCrate,imports_granularity=Crate,imports_layout=HorizontalVertical
+
+# Clippy
+cargo clippy --all-features --tests -- -D warnings
+
+# All pre-commit hooks
 pre-commit run --all-files
+```
+
+### Simulation Tests (msim)
+
+Deterministic simulation tests for distributed system scenarios. Uses a patched Rust stdlib for
+controlled scheduling and networking.
+
+```bash
+# One-time install
+./scripts/simtest/install.sh
+
+# Run all simtests
+MSIM_TEST_SEED=1 cargo simtest simtest --profile simtest
+
+# Run a specific simtest
+MSIM_TEST_SEED=1 cargo simtest simtest <test_name> --profile simtest
+
+# Run all seeds (CI runs seeds 1-5)
+./scripts/run-all-simtests.sh
+```
+
+Key env vars: `MSIM_TEST_SEED` (default: 1), `WALRUS_GRPC_MIGRATION_LEVEL` (0 or 100).
+
+### Move Contracts
+
+```bash
+# Run all Move tests
+./scripts/move_tests.sh
+
+# With coverage (minimum 70%)
+./scripts/move_tests.sh -c
+
+# Specific directory
+./scripts/move_tests.sh -d testnet-contracts
+
+# Manual (from contract dir)
+sui move test --allow-dirty -e testnet
+```
+
+The correct `sui` binary version must match the Sui tag in `Cargo.toml` (currently `testnet-v1.66.1`).
+
+### Binaries
+
+```bash
+cargo run --bin walrus -- <args>        # Client CLI
+cargo run --bin walrus-node -- <args>   # Storage node
+```
+
+### Local Testbed
+
+```bash
+./scripts/local-testbed.sh              # Start local network (4 nodes, 10 shards)
+./scripts/local-testbed.sh -c 8 -s 20   # Custom committee size and shards
 ```
 
 ## Code Conventions
 
 ### Error Handling
-- Never use `unwrap()` in production code; only in tests
-- Use `expect()` with explanation when value cannot be None/Err
-- Prefer explicit error handling with `Result` types
+- No `unwrap()` in production code (only tests); use `expect()` with explanation
+- Prefer explicit `Result` types
 
 ### Type Conversions
-- Avoid `as` casts on numeric types (can silently truncate)
-- Use `from`/`into` or `try_from`/`try_into` instead
+- No `as` casts on numeric types (clippy `cast_possible_truncation` is enforced)
+- Use `from`/`into` or `try_from`/`try_into`
 
 ### Logging
-- Use `tracing` crate for logging
-- Log messages: lowercase, no trailing period
-- Use metadata fields instead of string interpolation
-- Use `#[instrument]` attribute for async functions
+- `tracing` crate; lowercase messages, no trailing period
+- Structured fields over string interpolation: `tracing::info!(blob_id = %id, "stored blob")`
+- `#[instrument]` on async functions
 
 ### Naming
-- Full words over abbreviations (except common ones like `min`, `max`, `id`)
-- Module files use modern naming: `some_module.rs` with `some_module/` directory
+- Full words over abbreviations (except `min`, `max`, `id`)
+- Module files: `some_module.rs` with `some_module/` directory (modern style)
 
 ### Commit Messages
-- Follow [conventional commits](https://www.conventionalcommits.org/) format
-- Examples: `feat: add new feature`, `fix: resolve bug`, `refactor: improve code structure`
+- [Conventional commits](https://www.conventionalcommits.org/): `feat:`, `fix:`, `refactor:`, `chore:`, `docs:`
 
-## Configuration Files
+## Workspace Lints
 
-- `StorageNodeConfig`: Node configuration in `crates/walrus-service/src/node/config.rs`
-- Example config: `crates/walrus-service/node_config_example.yaml`
-- Serde is used for YAML serialization; use `#[serde(default)]` for backward compatibility
+Enforced via `[workspace.lints]` in root `Cargo.toml`:
+- `clippy::unwrap_used = "warn"` — no unwrap in non-test code
+- `clippy::cast_possible_truncation = "warn"` — no lossy numeric casts
+- `clippy::unused_async = "warn"` — don't mark functions async unnecessarily
+- `missing_docs = "warn"` — public items need doc comments
+- `unexpected_cfgs = "allow"` for `cfg(msim)` — simulation test conditional compilation
+
+## Nextest Profiles
+
+Configured in `.config/nextest.toml`:
+- **default**: excludes `walrus-performance-tests`, 1m slow timeout
+- **ci**: 1 retry, 10m timeout; `walrus-e2e-tests` and `walrus-sui` get 2m slow period
+- **simtest**: `num-cpus` threads, 30m timeout
+- **performance-test**: single-threaded, 15m timeout
 
 ## Key Patterns
 
-### Adding New Config Fields
-1. Add field to config struct with `#[serde(default, skip_serializing_if = "...")]` for backward compatibility
-2. Update `generate_update_params()` if field affects on-chain state
-3. Add CLI argument if needed in `bin/node.rs`
-4. Write tests for serialization/deserialization
+### Adding Config Fields
+1. Add field with `#[serde(default, skip_serializing_if = "...")]` for backward compatibility
+2. Update `generate_update_params()` if it affects on-chain state
+3. Add CLI argument in `bin/node.rs` if needed
 
 ### Contract Interactions
-- `SystemContractService` trait in `contract_service.rs` defines contract operations
-- `SuiContractClient` in `walrus-sui` handles transaction building and execution
-- On-chain types are in `walrus-sui/src/types.rs`
+- `SystemContractService` trait in `contract_service.rs` defines node-side contract operations
+- `SuiContractClient` in `walrus-sui` builds and executes Sui transactions
+- On-chain types mapped in `walrus-sui/src/types.rs`
 
-### Testing Patterns
-- Unit tests in same file as implementation
-- Use `#[tokio::test]` for async tests
-- Mock traits using `mockall` crate (e.g., `MockSystemContractService`)
-- Simulation tests in `walrus-simtest` for distributed system testing
+### Conditional Compilation
+- `#[cfg(msim)]` gates simulation-specific code (fake clocks, deterministic RNG, controlled networking)
+- `cfg(msim)` is allowed via workspace lint config; do not remove the `unexpected_cfgs` allow
 
-## Useful Files to Reference
-
-### Storage Node
-- `crates/walrus-service/src/node/config.rs` - Node configuration structure
-- `crates/walrus-service/src/node/contract_service.rs` - Contract service trait and implementation
-- `crates/walrus-service/bin/node.rs` - CLI argument definitions and commands
-- `crates/walrus-service/src/test_utils.rs` - Test utilities and mocks
-
-### SDK and Client
-- `crates/walrus-sdk/src/client.rs` - High-level client for blob operations
-- `crates/walrus-sdk/src/uploader.rs` - Distributed upload orchestration
-- `crates/walrus-sdk/src/config.rs` - SDK configuration
-- `crates/walrus-storage-node-client/src/client.rs` - Low-level storage node HTTP client
-- `crates/walrus-storage-node-client/src/api.rs` - REST API types and responses
-
-### Sui Integration
-- `crates/walrus-sui/src/types.rs` - Move type representations
-- `crates/walrus-sui/src/client.rs` - Sui contract client
+### Testing
+- Unit tests in same file; `#[tokio::test]` for async
+- `mockall` for trait mocking (e.g., `MockSystemContractService`)
+- Simulation tests in `walrus-simtest` for end-to-end distributed scenarios
+- `walrus-e2e-tests` requires 4 threads per test (`threads-required = 4` in nextest config)
