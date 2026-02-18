@@ -35,7 +35,7 @@ for dir in $ROOT_DIR/*/; do
       echo -e "\nTesting $dir..."
       cd $dir
       sui move build --allow-dirty -e testnet
-      sui move test $COVERAGE_ARG --allow-dirty -e testnet
+      sui move test $COVERAGE_ARG --allow-dirty -e testnet -i 1000000000
       [ $? -ne 0 ] && error=1
       cd -
     fi
