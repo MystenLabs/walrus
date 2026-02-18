@@ -8,11 +8,13 @@
         "prestart": "node src/scripts/generate-import-context.js && node src/scripts/copy-yaml-files.js",
         "start": "docusaurus start",
         "prebuild": "node src/scripts/generate-import-context.js && node src/scripts/copy-yaml-files.js",
-        "build": "docusaurus build",
+        "build": "node src/scripts/copy-markdown-files.js && docusaurus build;",
         "swizzle": "docusaurus swizzle",
         "deploy": "docusaurus deploy",
         "clear": "docusaurus clear",
         "serve": "docusaurus serve",
+        "serve:test-md": "node scripts/serve-with-rewrites.js",
+        "test:markdown": "node scripts/test-markdown-export.js",
         "write-translations": "docusaurus write-translations",
         "write-heading-ids": "docusaurus write-heading-ids"
     },
@@ -52,6 +54,7 @@
         "@tailwindcss/postcss": "^4.1.18",
         "@types/react": "^19.2.9",
         "@types/react-dom": "^19.2.3",
+        "gray-matter": "^4.0.3",
         "postcss": "^8.5.6",
         "tailwindcss": "^4.1.18"
     },

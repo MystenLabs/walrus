@@ -1,4 +1,510 @@
 {
+  "headers": {
+    "/markdown/data-security.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/design/architecture.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/design/encoding.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/design/future.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/design/objectives_use_cases.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/design/operations-off-chain.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/design/operations-sui.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/design/operations.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/design/overview.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/design/properties.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/dev-guide/components.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/dev-guide/costs.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/dev-guide/data-security.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/dev-guide/dev-operations.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/dev-guide/sui-struct.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/example-1.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/example-2.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/examples.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/getting-started/advanced-setup.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/getting-started/index.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/glossary.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/http-api/managing-blobs.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/http-api/quilt-http-apis.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/http-api/reading-blobs.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/http-api/storing-blobs.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/legal/privacy.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/legal/testnet_tos.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/legal/walrus_general_tos.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/operator-guide/aggregator.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/operator-guide/auth-publisher.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/operator-guide/backup-restore-guide.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/operator-guide/commission-governance.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/operator-guide/operator-guide.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/operator-guide/storage-node.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/operator-guide/upload-relay.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/sites/ci-cd/github-actions-workflow.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/sites/ci-cd/other-ci-cd-platforms.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/sites/ci-cd/preparing-deployment-credentials.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/sites/configuration/adding-metadata.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/sites/configuration/setting-up-routing-rules.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/sites/configuration/specifying-http-headers.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/sites/custom-domains/bringing-your-own-domain.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/sites/custom-domains/dns-configuration.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/sites/custom-domains/setting-a-suins-name.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/sites/getting-started/configuration-file-reference.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/sites/getting-started/installing-the-site-builder.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/sites/getting-started/publishing-your-first-site.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/sites/getting-started/updating-an-existing-site.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/sites/getting-started/using-the-site-builder.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/sites/getting-started/viewing-and-testing-your-site.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/sites/index.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/sites/introduction/components.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/sites/introduction/technical-overview.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/sites/known-restrictions.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/sites/linking/avoiding-duplicate-content-seo.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/sites/linking/linking-from-walrus-sites.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/sites/linking/linking-to-walrus-sites.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/sites/linking/linking.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/sites/linking/redirects.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/sites/portals/deploy-locally.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/sites/portals/mainnet-testnet.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/sites/security/access-control-options.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/sites/security/site-data-authentication.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/sites/troubleshooting.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/snippets/blob-object-id.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/snippets/blog-note-edit.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/stake.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/system-overview/available-networks.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/system-overview/components.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/system-overview/core-concepts.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/system-overview/operations.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/system-overview/public-aggregators-and-publishers.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/system-overview/quilt.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/system-overview/storage-costs.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/system-overview/sui-object-and-blob-ids.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/system-overview/view-system-info.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/troubleshooting/error-handling.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/troubleshooting/index.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/troubleshooting/network-errors.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/tusky-migration-guide.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/typescript-sdk/configuring-network-requests.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/typescript-sdk/fetch-limitations.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/typescript-sdk/installation-and-setup.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/typescript-sdk/managing-blobs.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/typescript-sdk/reading-blobs.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/typescript-sdk/sdks.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/typescript-sdk/storing-blobs.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/typescript-sdk/wasm-module-loading.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/usage/client-cli.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/usage/examples.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/usage/glossary.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/usage/json-api.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/usage/networks.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/usage/quilt.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/usage/sdks.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/usage/setup.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/usage/stake.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/usage/started.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/usage/troubleshooting.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/usage/web-api.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/walrus-client/configuration.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/walrus-client/json-mode.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/walrus-client/logging-and-metrics.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/walrus-client/managing-blobs.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/walrus-client/reading-blobs.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/walrus-client/storing-blobs.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/walrus-sites/advanced.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/walrus-sites/authentication.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/walrus-sites/avoid-duplicate-content-seo.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/walrus-sites/bring-your-own-domain.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/walrus-sites/builder-config.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/walrus-sites/ci-cd-gh-secrets-vars.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/walrus-sites/ci-cd-gh-workflow.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/walrus-sites/ci-cd.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/walrus-sites/commands.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/walrus-sites/intro.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/walrus-sites/linking.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/walrus-sites/overview.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/walrus-sites/portal.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/walrus-sites/redirects.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/walrus-sites/restrictions.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/walrus-sites/routing.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/walrus-sites/tutorial-install.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/walrus-sites/tutorial-publish.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/walrus-sites/tutorial-suins.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/walrus-sites/tutorial.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    }
+  },
   "routes": {
     "/404": "/404.html",
     "/blog": "/blog.html",
@@ -35,64 +541,180 @@
     "/dev-guide/dev-operations/index": "/dev-guide/dev-operations/index.html",
     "/dev-guide/sui-struct.html": "/dev-guide/sui-struct/index.html",
     "/dev-guide/sui-struct/index": "/dev-guide/sui-struct/index.html",
+    "/docs/data-security.md": "/markdown/data-security.md",
     "/docs/design/architecture": "/docs/design/architecture.html",
+    "/docs/design/architecture.md": "/markdown/design/architecture.md",
     "/docs/design/encoding": "/docs/design/encoding.html",
+    "/docs/design/encoding.md": "/markdown/design/encoding.md",
+    "/docs/design/future.md": "/markdown/design/future.md",
     "/docs/design/objectives_use_cases": "/docs/design/objectives_use_cases.html",
+    "/docs/design/objectives_use_cases.md": "/markdown/design/objectives_use_cases.md",
     "/docs/design/operations": "/docs/design/operations.html",
     "/docs/design/operations-off-chain": "/docs/design/operations-off-chain.html",
+    "/docs/design/operations-off-chain.md": "/markdown/design/operations-off-chain.md",
     "/docs/design/operations-sui": "/docs/design/operations-sui.html",
+    "/docs/design/operations-sui.md": "/markdown/design/operations-sui.md",
+    "/docs/design/operations.md": "/markdown/design/operations.md",
     "/docs/design/overview": "/docs/design/overview.html",
+    "/docs/design/overview.md": "/markdown/design/overview.md",
     "/docs/design/properties": "/docs/design/properties.html",
+    "/docs/dev-guide": "/docs/dev-guide.html",
     "/docs/dev-guide/components": "/docs/dev-guide/components.html",
+    "/docs/dev-guide/components.md": "/markdown/dev-guide/components.md",
     "/docs/dev-guide/costs": "/docs/dev-guide/costs.html",
+    "/docs/dev-guide/costs.md": "/markdown/dev-guide/costs.md",
     "/docs/dev-guide/data-security": "/docs/dev-guide/data-security.html",
+    "/docs/dev-guide/data-security.md": "/markdown/dev-guide/data-security.md",
     "/docs/dev-guide/dev-operations": "/docs/dev-guide/dev-operations.html",
+    "/docs/dev-guide/dev-operations.md": "/markdown/dev-guide/dev-operations.md",
     "/docs/dev-guide/sui-struct": "/docs/dev-guide/sui-struct.html",
+    "/docs/intro": "/docs/intro.html",
     "/docs/legal/privacy": "/docs/legal/privacy.html",
+    "/docs/legal/privacy.md": "/markdown/legal/privacy.md",
     "/docs/legal/testnet_tos": "/docs/legal/testnet_tos.html",
+    "/docs/legal/testnet_tos.md": "/markdown/legal/testnet_tos.md",
     "/docs/legal/walrus_general_tos": "/docs/legal/walrus_general_tos.html",
+    "/docs/legal/walrus_general_tos.md": "/markdown/legal/walrus_general_tos.md",
     "/docs/operator-guide": "/docs/operator-guide.html",
     "/docs/operator-guide/aggregator": "/docs/operator-guide/aggregator.html",
+    "/docs/operator-guide/aggregator.md": "/markdown/operator-guide/aggregator.md",
     "/docs/operator-guide/auth-publisher": "/docs/operator-guide/auth-publisher.html",
+    "/docs/operator-guide/auth-publisher.md": "/markdown/operator-guide/auth-publisher.md",
     "/docs/operator-guide/backup-restore-guide": "/docs/operator-guide/backup-restore-guide.html",
+    "/docs/operator-guide/backup-restore-guide.md": "/markdown/operator-guide/backup-restore-guide.md",
     "/docs/operator-guide/commission-governance": "/docs/operator-guide/commission-governance.html",
+    "/docs/operator-guide/commission-governance.md": "/markdown/operator-guide/commission-governance.md",
+    "/docs/operator-guide/operator-guide.md": "/markdown/operator-guide/operator-guide.md",
     "/docs/operator-guide/storage-node": "/docs/operator-guide/storage-node.html",
+    "/docs/operator-guide/storage-node.md": "/markdown/operator-guide/storage-node.md",
     "/docs/operator-guide/upload-relay": "/docs/operator-guide/upload-relay.html",
+    "/docs/operator-guide/upload-relay.md": "/markdown/operator-guide/upload-relay.md",
+    "/docs/sites/ci-cd/github-actions-workflow.md": "/markdown/sites/ci-cd/github-actions-workflow.md",
+    "/docs/sites/ci-cd/other-ci-cd-platforms.md": "/markdown/sites/ci-cd/other-ci-cd-platforms.md",
+    "/docs/sites/ci-cd/preparing-deployment-credentials.md": "/markdown/sites/ci-cd/preparing-deployment-credentials.md",
+    "/docs/sites/configuration/adding-metadata.md": "/markdown/sites/configuration/adding-metadata.md",
+    "/docs/sites/configuration/setting-up-routing-rules.md": "/markdown/sites/configuration/setting-up-routing-rules.md",
+    "/docs/sites/configuration/specifying-http-headers.md": "/markdown/sites/configuration/specifying-http-headers.md",
+    "/docs/sites/custom-domains/bringing-your-own-domain.md": "/markdown/sites/custom-domains/bringing-your-own-domain.md",
+    "/docs/sites/custom-domains/dns-configuration.md": "/markdown/sites/custom-domains/dns-configuration.md",
+    "/docs/sites/custom-domains/setting-a-suins-name.md": "/markdown/sites/custom-domains/setting-a-suins-name.md",
+    "/docs/sites/getting-started/configuration-file-reference.md": "/markdown/sites/getting-started/configuration-file-reference.md",
+    "/docs/sites/getting-started/installing-the-site-builder.md": "/markdown/sites/getting-started/installing-the-site-builder.md",
+    "/docs/sites/getting-started/publishing-your-first-site.md": "/markdown/sites/getting-started/publishing-your-first-site.md",
+    "/docs/sites/getting-started/updating-an-existing-site.md": "/markdown/sites/getting-started/updating-an-existing-site.md",
+    "/docs/sites/getting-started/using-the-site-builder.md": "/markdown/sites/getting-started/using-the-site-builder.md",
+    "/docs/sites/getting-started/viewing-and-testing-your-site.md": "/markdown/sites/getting-started/viewing-and-testing-your-site.md",
+    "/docs/sites/index.md": "/markdown/sites/index.md",
+    "/docs/sites/introduction/components.md": "/markdown/sites/introduction/components.md",
+    "/docs/sites/introduction/technical-overview.md": "/markdown/sites/introduction/technical-overview.md",
+    "/docs/sites/known-restrictions.md": "/markdown/sites/known-restrictions.md",
+    "/docs/sites/linking/avoiding-duplicate-content-seo.md": "/markdown/sites/linking/avoiding-duplicate-content-seo.md",
+    "/docs/sites/linking/linking-from-walrus-sites.md": "/markdown/sites/linking/linking-from-walrus-sites.md",
+    "/docs/sites/linking/linking-to-walrus-sites.md": "/markdown/sites/linking/linking-to-walrus-sites.md",
+    "/docs/sites/linking/linking.md": "/markdown/sites/linking/linking.md",
+    "/docs/sites/linking/redirects.md": "/markdown/sites/linking/redirects.md",
+    "/docs/sites/portals/deploy-locally.md": "/markdown/sites/portals/deploy-locally.md",
+    "/docs/sites/portals/mainnet-testnet.md": "/markdown/sites/portals/mainnet-testnet.md",
+    "/docs/sites/security/access-control-options.md": "/markdown/sites/security/access-control-options.md",
+    "/docs/sites/security/site-data-authentication.md": "/markdown/sites/security/site-data-authentication.md",
+    "/docs/sites/troubleshooting.md": "/markdown/sites/troubleshooting.md",
     "/docs/snippets/blob-object-id": "/docs/snippets/blob-object-id.html",
+    "/docs/snippets/blob-object-id.md": "/markdown/snippets/blob-object-id.md",
     "/docs/snippets/blog-note-edit": "/docs/snippets/blog-note-edit.html",
+    "/docs/snippets/blog-note-edit.md": "/markdown/snippets/blog-note-edit.md",
+    "/docs/stake.md": "/markdown/stake.md",
+    "/docs/system-overview/available-networks.md": "/markdown/system-overview/available-networks.md",
+    "/docs/system-overview/components.md": "/markdown/system-overview/components.md",
+    "/docs/system-overview/core-concepts.md": "/markdown/system-overview/core-concepts.md",
+    "/docs/system-overview/operations.md": "/markdown/system-overview/operations.md",
+    "/docs/system-overview/public-aggregators-and-publishers.md": "/markdown/system-overview/public-aggregators-and-publishers.md",
+    "/docs/system-overview/quilt.md": "/markdown/system-overview/quilt.md",
+    "/docs/system-overview/storage-costs.md": "/markdown/system-overview/storage-costs.md",
+    "/docs/system-overview/sui-object-and-blob-ids.md": "/markdown/system-overview/sui-object-and-blob-ids.md",
+    "/docs/system-overview/view-system-info.md": "/markdown/system-overview/view-system-info.md",
+    "/docs/troubleshooting/error-handling.md": "/markdown/troubleshooting/error-handling.md",
+    "/docs/troubleshooting/index.md": "/markdown/troubleshooting/index.md",
+    "/docs/troubleshooting/network-errors.md": "/markdown/troubleshooting/network-errors.md",
     "/docs/tusky-migration-guide": "/docs/tusky-migration-guide.html",
+    "/docs/tusky-migration-guide.md": "/markdown/tusky-migration-guide.md",
+    "/docs/typescript-sdk/configuring-network-requests.md": "/markdown/typescript-sdk/configuring-network-requests.md",
+    "/docs/typescript-sdk/fetch-limitations.md": "/markdown/typescript-sdk/fetch-limitations.md",
+    "/docs/typescript-sdk/installation-and-setup.md": "/markdown/typescript-sdk/installation-and-setup.md",
+    "/docs/typescript-sdk/managing-blobs.md": "/markdown/typescript-sdk/managing-blobs.md",
+    "/docs/typescript-sdk/reading-blobs.md": "/markdown/typescript-sdk/reading-blobs.md",
+    "/docs/typescript-sdk/sdks.md": "/markdown/typescript-sdk/sdks.md",
+    "/docs/typescript-sdk/storing-blobs.md": "/markdown/typescript-sdk/storing-blobs.md",
+    "/docs/typescript-sdk/wasm-module-loading.md": "/markdown/typescript-sdk/wasm-module-loading.md",
     "/docs/usage/client-cli": "/docs/usage/client-cli.html",
+    "/docs/usage/client-cli.md": "/markdown/usage/client-cli.md",
     "/docs/usage/examples": "/docs/usage/examples.html",
+    "/docs/usage/examples.md": "/markdown/usage/examples.md",
     "/docs/usage/glossary": "/docs/usage/glossary.html",
+    "/docs/usage/glossary.md": "/markdown/usage/glossary.md",
     "/docs/usage/json-api": "/docs/usage/json-api.html",
+    "/docs/usage/json-api.md": "/markdown/usage/json-api.md",
     "/docs/usage/networks": "/docs/usage/networks.html",
+    "/docs/usage/networks.md": "/markdown/usage/networks.md",
     "/docs/usage/quilt": "/docs/usage/quilt.html",
+    "/docs/usage/quilt.md": "/markdown/usage/quilt.md",
     "/docs/usage/sdks": "/docs/usage/sdks.html",
+    "/docs/usage/sdks.md": "/markdown/usage/sdks.md",
     "/docs/usage/setup": "/docs/usage/setup.html",
+    "/docs/usage/setup.md": "/markdown/usage/setup.md",
     "/docs/usage/stake": "/docs/usage/stake.html",
+    "/docs/usage/stake.md": "/markdown/usage/stake.md",
     "/docs/usage/started": "/docs/usage/started.html",
+    "/docs/usage/started.md": "/markdown/usage/started.md",
     "/docs/usage/troubleshooting": "/docs/usage/troubleshooting.html",
+    "/docs/usage/troubleshooting.md": "/markdown/usage/troubleshooting.md",
     "/docs/usage/web-api": "/docs/usage/web-api.html",
+    "/docs/usage/web-api.md": "/markdown/usage/web-api.md",
+    "/docs/walrus-client/configuration.md": "/markdown/walrus-client/configuration.md",
+    "/docs/walrus-client/json-mode.md": "/markdown/walrus-client/json-mode.md",
+    "/docs/walrus-client/logging-and-metrics.md": "/markdown/walrus-client/logging-and-metrics.md",
+    "/docs/walrus-client/managing-blobs.md": "/markdown/walrus-client/managing-blobs.md",
+    "/docs/walrus-client/reading-blobs.md": "/markdown/walrus-client/reading-blobs.md",
+    "/docs/walrus-client/storing-blobs.md": "/markdown/walrus-client/storing-blobs.md",
     "/docs/walrus-sites/advanced": "/docs/walrus-sites/commands.html",
+    "/docs/walrus-sites/advanced.md": "/markdown/walrus-sites/advanced.md",
     "/docs/walrus-sites/authentication": "/docs/walrus-sites/authentication.html",
+    "/docs/walrus-sites/authentication.md": "/markdown/walrus-sites/authentication.md",
     "/docs/walrus-sites/avoid-duplicate-content-seo": "/docs/walrus-sites/avoid-duplicate-content-seo.html",
+    "/docs/walrus-sites/avoid-duplicate-content-seo.md": "/markdown/walrus-sites/avoid-duplicate-content-seo.md",
     "/docs/walrus-sites/bring-your-own-domain": "/docs/walrus-sites/bring-your-own-domain.html",
+    "/docs/walrus-sites/bring-your-own-domain.md": "/markdown/walrus-sites/bring-your-own-domain.md",
     "/docs/walrus-sites/builder-config": "/docs/walrus-sites/builder-config.html",
+    "/docs/walrus-sites/builder-config.md": "/markdown/walrus-sites/builder-config.md",
     "/docs/walrus-sites/ci-cd": "/docs/walrus-sites/ci-cd.html",
     "/docs/walrus-sites/ci-cd-gh-secrets-vars": "/docs/walrus-sites/ci-cd-gh-secrets-vars.html",
+    "/docs/walrus-sites/ci-cd-gh-secrets-vars.md": "/markdown/walrus-sites/ci-cd-gh-secrets-vars.md",
     "/docs/walrus-sites/ci-cd-gh-workflow": "/docs/walrus-sites/ci-cd-gh-workflow.html",
+    "/docs/walrus-sites/ci-cd-gh-workflow.md": "/markdown/walrus-sites/ci-cd-gh-workflow.md",
+    "/docs/walrus-sites/ci-cd.md": "/markdown/walrus-sites/ci-cd.md",
     "/docs/walrus-sites/commands": "/docs/walrus-sites/commands.html",
+    "/docs/walrus-sites/commands.md": "/markdown/walrus-sites/commands.md",
     "/docs/walrus-sites/intro": "/docs/walrus-sites/intro.html",
+    "/docs/walrus-sites/intro.md": "/markdown/walrus-sites/intro.md",
     "/docs/walrus-sites/linking": "/docs/walrus-sites/linking.html",
+    "/docs/walrus-sites/linking.md": "/markdown/walrus-sites/linking.md",
     "/docs/walrus-sites/overview": "/docs/walrus-sites/overview.html",
+    "/docs/walrus-sites/overview.md": "/markdown/walrus-sites/overview.md",
     "/docs/walrus-sites/portal": "/docs/walrus-sites/portal.html",
+    "/docs/walrus-sites/portal.md": "/markdown/walrus-sites/portal.md",
     "/docs/walrus-sites/redirects": "/docs/walrus-sites/redirects.html",
+    "/docs/walrus-sites/redirects.md": "/markdown/walrus-sites/redirects.md",
     "/docs/walrus-sites/restrictions": "/docs/walrus-sites/restrictions.html",
+    "/docs/walrus-sites/restrictions.md": "/markdown/walrus-sites/restrictions.md",
     "/docs/walrus-sites/routing": "/docs/walrus-sites/routing.html",
+    "/docs/walrus-sites/routing.md": "/markdown/walrus-sites/routing.md",
     "/docs/walrus-sites/tutorial": "/docs/walrus-sites/tutorial.html",
     "/docs/walrus-sites/tutorial-install": "/docs/walrus-sites/tutorial-install.html",
+    "/docs/walrus-sites/tutorial-install.md": "/markdown/walrus-sites/tutorial-install.md",
     "/docs/walrus-sites/tutorial-publish": "/docs/walrus-sites/tutorial-publish.html",
+    "/docs/walrus-sites/tutorial-publish.md": "/markdown/walrus-sites/tutorial-publish.md",
     "/docs/walrus-sites/tutorial-suins": "/docs/walrus-sites/tutorial-suins.html",
+    "/docs/walrus-sites/tutorial-suins.md": "/markdown/walrus-sites/tutorial-suins.md",
+    "/docs/walrus-sites/tutorial.md": "/markdown/walrus-sites/tutorial.md",
     "/index": "/index.html",
     "/intro": "/intro.html",
     "/legal/privacy.html": "/legal/privacy/index.html",
