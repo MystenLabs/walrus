@@ -63,6 +63,13 @@ use walrus_core::{
 /// The zero-th Epoch is special in that it's the genesis epoch.
 pub const GENESIS_EPOCH: Epoch = 0;
 
+/// The total supply of WAL.
+pub const TOTAL_WAL_SUPPLY: u64 = 5_000_000_000;
+/// The number of FROST per WAL.
+pub const FROST_PER_WAL: u64 = 1_000_000_000;
+/// The total supply of FROST.
+pub const TOTAL_FROST_SUPPLY: u64 = TOTAL_WAL_SUPPLY * FROST_PER_WAL;
+
 /// Network address consisting of host name or IP and port.
 #[derive(Debug, PartialEq, Eq, Clone, Hash, Serialize, Deserialize)]
 pub struct NetworkAddress(pub String);
@@ -112,7 +119,7 @@ pub struct UpdatePublicKeyParams {
 }
 
 /// Parameters for updating a node's configuration.
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct NodeUpdateParams {
     /// The name of the storage node.
     pub name: Option<String>,
@@ -126,6 +133,8 @@ pub struct NodeUpdateParams {
     pub storage_price: Option<u64>,
     /// The write price to vote for.
     pub write_price: Option<u64>,
+    /// Whether to update the prices immediately.
+    pub update_price_immediately: bool,
     /// The node capacity to vote for.
     pub node_capacity: Option<u64>,
     /// The metadata of the storage node.

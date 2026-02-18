@@ -589,7 +589,7 @@ pub struct StorageNode {
     garbage_collector: GarbageCollector,
     event_blob_writer_factory: Option<EventBlobWriterFactory>,
     config_synchronizer: Option<Arc<ConfigSynchronizer>>,
-    _wal_price_monitor: Option<WalPriceMonitor>,
+    _wal_price_monitor: Option<Arc<WalPriceMonitor>>,
 }
 
 type RecoveryDeferralEntry = (
@@ -692,6 +692,19 @@ impl StorageNode {
         )
         .set(1);
 
+        // Initialize WAL price monitor if enabled
+        let (wal_price_monitor, current_wal_price) =
+            if config.wal_price_monitor.enable_wal_price_monitor {
+                let monitor = Arc::new(WalPriceMonitor::start(
+                    config.wal_price_monitor.clone(),
+                    metrics.clone(),
+                ));
+                let current_wal_price = monitor.get_current_price().await;
+                (Some(monitor), current_wal_price)
+            } else {
+                (None, None)
+            };
+
         let config_synchronizer =
             config
                 .config_synchronizer
@@ -702,11 +715,12 @@ impl StorageNode {
                     config.config_synchronizer.interval,
                     node_capability.id,
                     config_loader,
+                    wal_price_monitor.clone(),
                     registry,
                 )));
 
         contract_service
-            .sync_node_params(config, node_capability.id)
+            .sync_node_params(config, node_capability.id, current_wal_price)
             .await
             .or_else(|e| match e {
                 SyncNodeConfigError::ProtocolKeyPairRotationRequired => Err(e),
@@ -868,16 +882,6 @@ impl StorageNode {
                 last_certified_event_blob,
                 config.num_uncertified_blob_threshold,
             )?)
-        } else {
-            None
-        };
-
-        // Initialize WAL price monitor if enabled
-        let wal_price_monitor = if config.wal_price_monitor.enable_wal_price_monitor {
-            Some(WalPriceMonitor::start(
-                config.wal_price_monitor.clone(),
-                metrics.clone(),
-            ))
         } else {
             None
         };
@@ -8615,7 +8619,7 @@ mod tests {
         let mut contract_service = MockSystemContractService::new();
         contract_service
             .expect_sync_node_params()
-            .returning(|_config, _node_cap_id| Ok(()));
+            .returning(|_config, _node_cap_id, _wal_price| Ok(()));
         contract_service.expect_epoch_sync_done().never();
         contract_service
             .expect_fixed_system_parameters()

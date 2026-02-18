@@ -823,7 +823,7 @@ mod tests {
             });
             service
                 .expect_sync_node_params()
-                .returning(|_config, _node_cap_id| Ok(()));
+                .returning(|_config, _node_cap_id, _wal_price| Ok(()));
 
             let driver = driver_under_test(service, /*seed=*/ 0, start);
 
@@ -870,7 +870,7 @@ mod tests {
             });
             service
                 .expect_sync_node_params()
-                .returning(|_config, _node_cap_id| Ok(()));
+                .returning(|_config, _node_cap_id, _wal_price| Ok(()));
 
             let driver = driver_under_test_with_epoch_zero_end(
                 service,
@@ -924,7 +924,7 @@ mod tests {
 
             service
                 .expect_sync_node_params()
-                .returning(|_config, _node_cap_id| Ok(()));
+                .returning(|_config, _node_cap_id, _wal_price| Ok(()));
 
             let driver = driver_under_test(service, /*seed=*/ 2, UtcInstant::now());
 
@@ -960,7 +960,7 @@ mod tests {
 
             service
                 .expect_sync_node_params()
-                .returning(|_config, _node_cap_id| Ok(()));
+                .returning(|_config, _node_cap_id, _wal_price| Ok(()));
             service
                 .expect_initiate_epoch_change()
                 .once()
@@ -1011,7 +1011,7 @@ mod tests {
 
             service
                 .expect_sync_node_params()
-                .returning(|_config, _node_cap_id| Ok(()));
+                .returning(|_config, _node_cap_id, _wal_price| Ok(()));
             service
                 .expect_initiate_epoch_change()
                 .once()
@@ -1076,7 +1076,7 @@ mod tests {
 
             service
                 .expect_sync_node_params()
-                .returning(|_config, _node_cap_id| Ok(()));
+                .returning(|_config, _node_cap_id, _wal_price| Ok(()));
             // Return the configured system epoch and state.
             service
                 .expect_get_epoch_and_state()

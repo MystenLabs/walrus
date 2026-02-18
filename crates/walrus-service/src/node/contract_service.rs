@@ -67,6 +67,7 @@ pub trait SystemContractService: std::fmt::Debug + Sync + Send {
         &self,
         config: &StorageNodeConfig,
         node_capability_object_id: ObjectID,
+        wal_price: Option<f64>,
     ) -> Result<(), SyncNodeConfigError>;
 
     /// Returns the current epoch and the state that the committee's state.
@@ -380,6 +381,7 @@ impl SystemContractService for SuiSystemContractService {
         &self,
         config: &StorageNodeConfig,
         node_capability_object_id: ObjectID,
+        wal_price: Option<f64>,
     ) -> Result<(), SyncNodeConfigError> {
         let synced_config = self
             .get_synced_node_config_set(node_capability_object_id)
@@ -387,7 +389,8 @@ impl SystemContractService for SuiSystemContractService {
 
         tracing::debug!("on-chain synced config: {:?}", synced_config);
 
-        let mut update_params = config.generate_update_params(&synced_config);
+        let mut update_params = config.generate_update_params(&synced_config, wal_price);
+
         let action = calculate_protocol_key_action(
             config.protocol_key_pair().public().clone(),
             config

@@ -16,7 +16,15 @@ mod tests {
     use walrus_proc_macros::walrus_simtest;
     use walrus_service::{
         client::ClientCommunicationConfig,
-        node::config::{CommissionRateData, PathOrInPlace, StorageNodeConfig, SyncedNodeConfigSet},
+        node::config::{
+            CommissionRateData,
+            PathOrInPlace,
+            PriceCurrency,
+            StorageNodeConfig,
+            SyncedNodeConfigSet,
+            VotingParamsConfig,
+            VotingPrices,
+        },
         test_utils::{SimStorageNodeHandle, TestNodesConfig, UnusedSocketAddress, test_cluster},
     };
     use walrus_simtest::test_utils::simtest_utils::{self, BlobInfoConsistencyCheck};
@@ -48,7 +56,7 @@ mod tests {
             network_public_key: node_info.network_public_key,
             public_key: node_info.public_key,
             next_public_key: node_info.next_epoch_public_key,
-            voting_params: pool.voting_params,
+            voting_params: pool.voting_params.into(),
             metadata,
             commission_rate_data: CommissionRateData {
                 pending_commission_rate: pool.pending_commission_rate,
@@ -65,7 +73,7 @@ mod tests {
         pub public_port: Option<u16>,
         pub network_key_pair: Option<PathOrInPlace<NetworkKeyPair>>,
         pub next_protocol_key_pair: Option<PathOrInPlace<ProtocolKeyPair>>,
-        pub voting_params: Option<VotingParams>,
+        pub voting_params: Option<VotingParamsConfig>,
         pub metadata: Option<NodeMetadata>,
         pub commission_rate: Option<u16>,
     }
@@ -122,7 +130,10 @@ mod tests {
         }
 
         if let Some(voting_params) = &params.voting_params {
-            assert_ne!(&remote_config.voting_params, voting_params);
+            assert_ne!(
+                &remote_config.voting_params,
+                &VotingParams::from(voting_params.clone())
+            );
             config_write.voting_params = voting_params.clone();
         }
 
@@ -193,7 +204,8 @@ mod tests {
                         "{}:{}",
                         local_config.public_host, local_config.public_port
                     ))
-                && remote_config.voting_params == local_config.voting_params
+                && remote_config.voting_params
+                    == VotingParams::from(local_config.voting_params.clone())
                 && remote_config.metadata == local_config.metadata
                 && remote_config.commission_rate_data.commission_rate
                     == local_config.commission_rate
@@ -241,9 +253,12 @@ mod tests {
             .expect("should get unused socket address");
         let network_key_pair = walrus_core::keys::NetworkKeyPair::generate();
         // Generate random voting params
-        let voting_params = VotingParams {
-            storage_price: rand::thread_rng().gen_range(1..1000),
-            write_price: rand::thread_rng().gen_range(1..100),
+        let voting_params = VotingParamsConfig {
+            voting_prices: VotingPrices {
+                currency: PriceCurrency::FROST,
+                storage_price: rand::thread_rng().gen_range(1..1000),
+                write_price: rand::thread_rng().gen_range(1..100),
+            },
             node_capacity: rand::thread_rng().gen_range(1_000_000..1_000_000_000),
         };
         let metadata = NodeMetadata::new(
@@ -280,7 +295,7 @@ mod tests {
             NetworkAddress::from(new_address),
             pool.node_info.network_address
         );
-        assert_ne!(pool.voting_params, voting_params);
+        assert_ne!(VotingParamsConfig::from(pool.voting_params), voting_params);
         assert_ne!(
             &pool.node_info.network_public_key,
             network_key_pair.public()
@@ -377,7 +392,7 @@ mod tests {
                 .network_key_pair()
                 .public()
         );
-        assert_eq!(pool.voting_params, voting_params);
+        assert_eq!(VotingParamsConfig::from(pool.voting_params), voting_params);
 
         let metadata_on_chain = client_arc
             .as_ref()
@@ -644,9 +659,12 @@ mod tests {
             ),
             voting_params: (
                 &TestUpdateParams {
-                    voting_params: Some(VotingParams {
-                        storage_price: 100,
-                        write_price: 100,
+                    voting_params: Some(VotingParamsConfig {
+                        voting_prices: VotingPrices {
+                            currency: PriceCurrency::FROST,
+                            storage_price: 100,
+                            write_price: 100,
+                        },
                         node_capacity: 100,
                     }),
                     ..Default::default()
@@ -694,9 +712,12 @@ mod tests {
                     }
 
                     if rng.gen_bool(0.5) {
-                        params.voting_params = Some(VotingParams {
-                            storage_price: rng.gen_range(1..1000),
-                            write_price: rng.gen_range(1..100),
+                        params.voting_params = Some(VotingParamsConfig {
+                            voting_prices: VotingPrices {
+                                currency: PriceCurrency::FROST,
+                                storage_price: rng.gen_range(1..1000),
+                                write_price: rng.gen_range(1..100),
+                            },
                             node_capacity: rng.gen_range(1_000_000..1_000_000_000),
                         });
                     }

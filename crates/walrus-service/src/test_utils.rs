@@ -71,7 +71,7 @@ use walrus_sui::{
         NodeRegistrationParams,
         StorageNode as SuiStorageNode,
         StorageNodeCap,
-        move_structs::{EpochState, EventBlob, NodeMetadata, VotingParams},
+        move_structs::{EpochState, EventBlob, NodeMetadata},
     },
 };
 use walrus_test_utils::WithTempDir;
@@ -110,8 +110,11 @@ use crate::{
             ConfigSynchronizerConfig,
             LiveUploadDeferralConfig,
             NodeRecoveryConfig,
+            PriceCurrency,
             ShardSyncConfig,
             StorageNodeConfig,
+            VotingParamsConfig,
+            VotingPrices,
             defaults,
         },
         consistency_check::StorageNodeConsistencyCheckConfig,
@@ -1774,6 +1777,7 @@ impl SystemContractService for StubContractService {
         &self,
         _config: &StorageNodeConfig,
         _node_capability_object_id: ObjectID,
+        _wal_price: Option<f64>,
     ) -> Result<(), SyncNodeConfigError> {
         Ok(())
     }
@@ -2555,10 +2559,11 @@ where
         &self,
         config: &StorageNodeConfig,
         node_capability_object_id: ObjectID,
+        wal_price: Option<f64>,
     ) -> Result<(), SyncNodeConfigError> {
         self.as_ref()
             .inner
-            .sync_node_params(config, node_capability_object_id)
+            .sync_node_params(config, node_capability_object_id, wal_price)
             .await
     }
 
@@ -3281,9 +3286,12 @@ pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
             pending_sliver_cache: Default::default(),
             disable_event_blob_writer: false,
             commission_rate: 0,
-            voting_params: VotingParams {
-                storage_price: 5,
-                write_price: 1,
+            voting_params: VotingParamsConfig {
+                voting_prices: VotingPrices {
+                    currency: PriceCurrency::FROST,
+                    storage_price: 5,
+                    write_price: 1,
+                },
                 node_capacity: 1_000_000_000,
             },
             public_host: rest_api_address.ip().to_string(),

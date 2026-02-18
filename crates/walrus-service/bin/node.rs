@@ -44,7 +44,13 @@ use walrus_service::{
         ConfigLoader,
         StorageNode,
         StorageNodeConfigLoader,
-        config::{self, StorageNodeConfig, defaults::REST_API_PORT},
+        config::{
+            self,
+            PriceCurrency,
+            StorageNodeConfig,
+            VotingParamsConfig,
+            defaults::REST_API_PORT,
+        },
         dbtool::DbToolCommands,
         server::{RestApiConfig, RestApiServer},
         system_events::EventManager,
@@ -61,7 +67,6 @@ use walrus_service::{
 };
 use walrus_sui::{
     client::{SuiContractClient, rpc_config::RpcFallbackConfigArgs},
-    types::move_structs::VotingParams,
     utils::SuiNetwork,
 };
 // Define the `GIT_REVISION` and `VERSION` consts
@@ -383,12 +388,21 @@ struct ConfigArgs {
     /// If not specified, the gas budget is estimated automatically.
     #[arg(long)]
     gas_budget: Option<u64>,
-    /// Initial vote for the storage price in FROST per MiB per epoch.
+    /// Initial vote for the storage price per MiB per epoch.
+    ///
+    /// The unit is determined by `--price-currency` (FROST or NanoUSD).
     #[arg(long, default_value_t = config::defaults::storage_price())]
     storage_price: u64,
-    /// Initial vote for the write price in FROST per MiB.
+    /// Initial vote for the write price per MiB.
+    ///
+    /// The unit is determined by `--price-currency` (FROST or NanoUSD).
     #[arg(long, default_value_t = config::defaults::write_price())]
     write_price: u64,
+    /// Currency unit for storage and write prices.
+    ///
+    /// Use "frost" for FROST (1e9 FROST = 1 WAL) or "nanousd" for NanoUSD (1e9 NanoUSD = 1 USD).
+    #[arg(long, value_enum, default_value_t = PriceCurrency::FROST)]
+    price_currency: PriceCurrency,
     /// The commission rate of the storage node, in basis points (1% = 100 basis points).
     #[arg(long, default_value_t = config::defaults::commission_rate())]
     commission_rate: u16,
@@ -594,7 +608,7 @@ mod commands {
         },
         node::{
             DatabaseConfig,
-            config::{LoadedConfig, TlsConfig},
+            config::{LoadedConfig, TlsConfig, VotingPrices},
         },
         utils,
     };
@@ -954,6 +968,7 @@ mod commands {
             gas_budget,
             storage_price,
             write_price,
+            price_currency,
             commission_rate,
             name,
             image_url,
@@ -1033,9 +1048,12 @@ mod commands {
                 certificate_path,
                 ..Default::default()
             },
-            voting_params: VotingParams {
-                storage_price,
-                write_price,
+            voting_params: VotingParamsConfig {
+                voting_prices: VotingPrices {
+                    currency: price_currency,
+                    storage_price,
+                    write_price,
+                },
                 node_capacity: node_capacity.as_u64(),
             },
             commission_rate,

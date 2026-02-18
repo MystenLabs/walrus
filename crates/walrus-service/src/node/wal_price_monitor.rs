@@ -9,6 +9,9 @@ use tokio::{sync::RwLock, task::JoinHandle};
 
 use crate::node::metrics::NodeMetricSet;
 
+/// The minimum WAL price in USD below which the price is considered practically zero.
+const MIN_WAL_PRICE_USD: f64 = 1e-9;
+
 /// CoinGecko API URL for fetching WAL price
 const COINGECKO_API_URL: &str =
     "https://api.coingecko.com/api/v3/simple/price?ids=walrus-2&vs_currencies=usd";
@@ -281,6 +284,7 @@ fn calculate_median(mut prices: Vec<f64>) -> Option<f64> {
         return None;
     }
 
+    prices.retain(|p| !p.is_nan());
     prices.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
 
     let len = prices.len();
@@ -292,20 +296,28 @@ fn calculate_median(mut prices: Vec<f64>) -> Option<f64> {
         prices[len / 2]
     };
 
+    if median < MIN_WAL_PRICE_USD {
+        tracing::warn!(
+            "WAL price is too low and practically zero: ${:.12}. Do not use this price.",
+            median
+        );
+        return None;
+    }
+
     Some(median)
 }
 
 /// Monitors the WAL token price periodically
 pub struct WalPriceMonitor {
     /// Current price (if available)
-    _current_price: Arc<RwLock<Option<f64>>>,
+    current_price: Arc<RwLock<Option<f64>>>,
     /// Background task handle
     task_handle: JoinHandle<()>,
 }
 
 impl WalPriceMonitor {
     /// Creates and starts a new WAL price monitor
-    pub fn start(config: WalPriceMonitorConfig, metrics: Arc<NodeMetricSet>) -> Self {
+    pub(crate) fn start(config: WalPriceMonitorConfig, metrics: Arc<NodeMetricSet>) -> Self {
         let current_price = Arc::new(RwLock::new(None));
 
         // Create the list of WAL price fetchers
@@ -322,13 +334,21 @@ impl WalPriceMonitor {
             config.check_interval
         );
 
+        // TODO(WAL-804): make sure that we get one round of prices before returning.
         let task_handle =
             Self::spawn_monitoring_task(config, current_price.clone(), fetchers, metrics.clone());
 
         Self {
-            _current_price: current_price,
+            current_price,
             task_handle,
         }
+    }
+
+    /// Returns the current WAL price in USD, if available.
+    ///
+    /// This method is thread-safe and can be called from any context.
+    pub async fn get_current_price(&self) -> Option<f64> {
+        *self.current_price.read().await
     }
 
     /// Spawns the background monitoring task
