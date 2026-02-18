@@ -25,8 +25,6 @@ use walrus::{
 const EInvalidMigration: u64 = 0;
 /// The package version is not compatible with the staking object.
 const EWrongVersion: u64 = 1;
-/// The migration epoch is not set or has not started yet.
-const EInvalidMigrationEpoch: u64 = 2;
 
 /// Flag to indicate the version of the Walrus system.
 const VERSION: u64 = 3;
@@ -444,17 +442,21 @@ entry fun set_migration_epoch(staking: &mut Staking) {
 /// This function sets the new package id and version and can be modified in future versions
 /// to migrate changes in the `staking_inner` object if needed.
 public(package) fun migrate(staking: &mut Staking) {
+    // Below logic is for upgrading to version 3. When upgrading to future versions, this function
+    // needs to be revisited to perform correct migration steps.
     assert!(staking.version < VERSION, EInvalidMigration);
+    assert!(VERSION == 3, EInvalidMigration);
 
     // Check that the migration epoch is set and that the current epoch is greater than or equal to
     // the migration epoch.
-    let migration_epoch = df::remove_if_exists(&mut staking.id, MIGRATION_EPOCH_KEY).destroy_or!(
-        abort EInvalidMigrationEpoch,
-    );
-    assert!(
-        staking.inner_without_version_check().epoch() >= migration_epoch,
-        EInvalidMigrationEpoch,
-    );
+    // Note that this is not needed for version 3. But we keep it here for future reference.
+    // let migration_epoch = df::remove_if_exists(&mut staking.id, MIGRATION_EPOCH_KEY).destroy_or!(
+    //     abort EInvalidMigrationEpoch,
+    // );
+    // assert!(
+    //     staking.inner_without_version_check().epoch() >= migration_epoch,
+    //     EInvalidMigrationEpoch,
+    // );
 
     // Move the old staking inner to the new version.
     let staking_inner: StakingInnerV1 = df::remove(&mut staking.id, staking.version);

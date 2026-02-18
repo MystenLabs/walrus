@@ -5,7 +5,7 @@ module walrus::init;
 
 use std::type_name;
 use sui::{clock::Clock, package::{Self, Publisher, UpgradeCap}};
-use walrus::{display, events, staking::{Self, Staking}, system::{Self, System}, upgrade};
+use walrus::{display, events, slashing, staking::{Self, Staking}, system::{Self, System}, upgrade};
 
 // Error codes
 // Error types in `walrus-sui/types/move_errors.rs` are auto-generated from the Move error codes.
@@ -13,6 +13,8 @@ use walrus::{display, events, staking::{Self, Staking}, system::{Self, System}, 
 const EInvalidMigration: u64 = 0;
 /// The provided upgrade cap does not belong to this package.
 const EInvalidUpgradeCap: u64 = 1;
+/// The function is deprecated and should not be used.
+const EDeprecatedFunction: u64 = 2;
 
 /// The OTW to create `Publisher` and `Display` objects.
 public struct INIT has drop {}
@@ -62,20 +64,37 @@ public fun initialize_walrus(
     emergency_upgrade_cap
 }
 
+/// Deprecated old migration function.
+public fun migrate(_staking: &mut Staking, _system: &mut System) {
+    abort EDeprecatedFunction
+}
+
 /// Migrates the staking and system objects to the new package ID.
 ///
 /// This must be called in the new package after an upgrade is committed
 /// to emit an event that informs all storage nodes and prevent previous package
 /// versions from being used.
 ///
-/// Requires the migration epoch to be set first on the staking object, which then
-/// enables the migration at the start of the next epoch.
-public fun migrate(staking: &mut Staking, system: &mut System) {
+/// Migrate to version 2:
+///   Requires the migration epoch to be set first on the staking object, which then
+///   enables the migration at the start of the next epoch.
+/// Migrate to version 3:
+///   - Create the slashing manager shared object.
+///   - Do not use migration epoch.
+entry fun migrate_v2(staking: &mut Staking, system: &mut System, ctx: &mut TxContext) {
     staking.migrate();
     system.migrate();
     // Check that the package id and version are the same.
     assert!(staking.package_id() == system.package_id(), EInvalidMigration);
     assert!(staking.version() == system.version(), EInvalidMigration);
+
+    // Create the slashing manager shared object.
+    // Note that this step is needed for version 3. When upgrading to future versions, this step
+    // needs to be removed to not create a new slashing manager object.
+    // TODO: remove this step when upgrading to future versions.
+    assert!(staking.version() == 3, EInvalidMigration);
+    slashing::new(ctx);
+
     // Emit an event to inform storage nodes of the upgrade.
     events::emit_contract_upgraded(
         staking.epoch(),
