@@ -81,7 +81,7 @@ public fun migrate(_staking: &mut Staking, _system: &mut System) {
 /// Migrate to version 3:
 ///   - Create the slashing manager shared object.
 ///   - Do not use migration epoch.
-public fun migrate_v2(staking: &mut Staking, system: &mut System, ctx: &mut TxContext) {
+entry fun migrate_v2(staking: &mut Staking, system: &mut System, ctx: &mut TxContext) {
     staking.migrate();
     system.migrate();
     // Check that the package id and version are the same.
