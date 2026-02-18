@@ -744,10 +744,28 @@ impl StorageNode {
         };
         tracing::info!("successfully opened the node database");
 
-        let thread_pool = ThreadPoolBuilder::default()
+        // General thread pool: used for metadata verification and other high-priority CPU work.
+        // Runs at the default OS scheduling priority (nice=0).
+        let mut general_builder = ThreadPoolBuilder::default();
+        general_builder
+            .name("general")
+            .thread_name("walrus-cpu-general")
             .max_concurrent(config.thread_pool.max_concurrent_tasks)
-            .metrics_registry(registry.clone())
-            .build_bounded();
+            .metrics_registry(registry.clone());
+        let thread_pool = general_builder.build_bounded();
+
+        // Recovery thread pool: used exclusively by RecoverySymbolService.
+        // Worker threads are niced at startup so the OS scheduler always prefers general pool
+        // threads over recovery threads when both have runnable work.
+        let mut recovery_builder = ThreadPoolBuilder::default();
+        recovery_builder
+            .name("recovery")
+            .thread_name("walrus-cpu-recovery")
+            .max_concurrent(config.thread_pool.max_concurrent_tasks)
+            .nice_level(config.thread_pool.recovery_nice_level)
+            .metrics_registry(registry.clone());
+
+        let recovery_pool = recovery_builder.build_bounded();
         let blocklist: Arc<Blocklist> = Arc::new(Blocklist::new_with_metrics(
             &config.blocklist_path,
             Some(registry),
@@ -788,7 +806,7 @@ impl StorageNode {
             symbol_service: RecoverySymbolService::new(
                 config.blob_recovery.max_proof_cache_elements,
                 encoding_config.clone(),
-                thread_pool.clone(),
+                recovery_pool,
                 registry,
             ),
             thread_pool,
