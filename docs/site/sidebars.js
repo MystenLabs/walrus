@@ -31,6 +31,7 @@ const sidebars = {
       items: [
         'system-overview/core-concepts',
         'system-overview/components',
+        'system-overview/red-stuff',
         'system-overview/operations',
         'system-overview/storage-costs',
         'system-overview/sui-object-and-blob-ids',

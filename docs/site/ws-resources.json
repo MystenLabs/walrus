@@ -276,6 +276,10 @@
       "Content-Disposition": "inline",
       "content-type": "text/markdown; charset=utf-8"
     },
+    "/markdown/system-overview/red-stuff.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
     "/markdown/system-overview/core-concepts.md": {
       "Content-Disposition": "inline",
       "content-type": "text/markdown; charset=utf-8"
@@ -632,6 +636,7 @@
     "/docs/stake.md": "/markdown/stake.md",
     "/docs/system-overview/available-networks.md": "/markdown/system-overview/available-networks.md",
     "/docs/system-overview/components.md": "/markdown/system-overview/components.md",
+    "/docs/system-overview/red-stuff.md": "/markdown/system-overview/red-stuff.md",
     "/docs/system-overview/core-concepts.md": "/markdown/system-overview/core-concepts.md",
     "/docs/system-overview/operations.md": "/markdown/system-overview/operations.md",
     "/docs/system-overview/public-aggregators-and-publishers.md": "/markdown/system-overview/public-aggregators-and-publishers.md",
