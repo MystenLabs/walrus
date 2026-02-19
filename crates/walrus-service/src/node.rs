@@ -695,10 +695,9 @@ impl StorageNode {
         // Initialize WAL price monitor if enabled
         let (wal_price_monitor, current_wal_price) =
             if config.wal_price_monitor.enable_wal_price_monitor {
-                let monitor = Arc::new(WalPriceMonitor::start(
-                    config.wal_price_monitor.clone(),
-                    metrics.clone(),
-                ));
+                let monitor = Arc::new(
+                    WalPriceMonitor::start(config.wal_price_monitor.clone(), metrics.clone()).await,
+                );
                 let current_wal_price = monitor.get_current_price().await;
                 (Some(monitor), current_wal_price)
             } else {
