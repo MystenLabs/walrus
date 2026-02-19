@@ -254,9 +254,9 @@ impl Default for ClientCommunicationConfig {
             tail_handling: TailHandling::Blocking,
             data_in_flight_auto_tune: Default::default(),
             upload_mode: default_upload_mode(),
-            pending_uploads_enabled: false,
-            pending_upload_grace: Duration::from_millis(0),
-            confirmation_long_poll: Duration::from_millis(0),
+            pending_uploads_enabled: true,
+            pending_upload_grace: Duration::from_millis(5000),
+            confirmation_long_poll: Duration::from_millis(5000),
             optimistic_upload_max_blob_bytes: DEFAULT_OPTIMISTIC_UPLOAD_MAX_BLOB_BYTES,
             registration_delay: Duration::from_millis(200),
             max_total_blob_size: 1024 * 1024 * 1024, // 1GiB
