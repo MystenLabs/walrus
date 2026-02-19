@@ -51,6 +51,7 @@ use crate::{
     common::config::{SuiConfig, SuiReaderConfig},
     node::{
         config::{
+            DEFAULT_PRICE_UPDATE_THRESHOLD_PERCENT,
             LiveUploadDeferralConfig,
             PathOrInPlace,
             PriceCurrency,
@@ -735,6 +736,7 @@ pub async fn create_storage_node_configs(
                     currency: PriceCurrency::FROST,
                     storage_price: node.storage_price,
                     write_price: node.write_price,
+                    price_update_threshold_percent: DEFAULT_PRICE_UPDATE_THRESHOLD_PERCENT,
                 },
                 node_capacity: node.node_capacity,
             },
