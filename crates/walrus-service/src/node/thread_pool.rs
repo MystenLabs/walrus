@@ -221,6 +221,7 @@ impl RayonThreadPool {
         let pool = RayonThreadPoolBuilder::new()
             .thread_name(move |i| format!("{name}-{i}"))
             .start_handler(move |_| {
+                #[cfg(unix)]
                 if let Some(nice_level) = nice_level
                     && nice_level != 0
                 {
@@ -232,6 +233,8 @@ impl RayonThreadPool {
                         );
                     }
                 }
+                #[cfg(not(unix))]
+                let _ = nice_level;
             })
             .build()
             .expect("rayon thread pool construction must succeed");
