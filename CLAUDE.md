@@ -36,10 +36,12 @@ registration, certification, and economics.
 ### Key Crate Relationships
 
 - **walrus-sdk** → uses **walrus-storage-node-client** (HTTP client to nodes) + **walrus-sui** (chain interactions)
-- **walrus-service** → the storage node binary; uses **walrus-core** (encoding/types) + **walrus-sui** (event processing)
+- **walrus-service** → storage node binary + publisher/aggregator daemon; uses **walrus-core** (encoding/types) + **walrus-sui** (event processing)
 - **walrus-core** → encoding primitives, cryptographic types, slivers, metadata (no network/chain deps)
 - **walrus-upload-relay** → alternative upload path where clients pay tips; validates transactions and delegates to SDK
 - **walrus-proxy** → metrics aggregation relay for Prometheus/Mimir
+- **walrus-stress** → stress testing workloads against Walrus clusters
+- **walrus-indexer** → indexes Walrus on-chain data
 
 ## Build & Development Commands
 
@@ -185,6 +187,13 @@ Configured in `.config/nextest.toml`:
 1. Add field with `#[serde(default, skip_serializing_if = "...")]` for backward compatibility
 2. Update `generate_update_params()` if it affects on-chain state
 3. Add CLI argument in `bin/node.rs` if needed
+
+### Publisher/Aggregator Daemon
+- Lives in `walrus-service/src/client/`: Axum HTTP API for storing (publisher) and reading (aggregator) blobs
+- `ClientMultiplexer` manages a `WriteClientPool` of `WalrusNodeClient<SuiContractClient>` instances for parallel writes
+- Each pool client uses a separate sub-wallet (created/loaded from disk) with automatic gas/WAL refilling via `Refiller`
+- `WalrusWriteClient` / `WalrusReadClient` traits in `daemon.rs` define the interface; `ClientMultiplexer` and `WalrusNodeClient` both implement them
+- HTTP routes are in `daemon/routes.rs`; query parameters control encoding type, epochs, persistence, etc.
 
 ### Contract Interactions
 - `SystemContractService` trait in `contract_service.rs` defines node-side contract operations
