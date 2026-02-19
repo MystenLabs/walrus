@@ -1352,6 +1352,13 @@ pub mod defaults {
     pub const PENDING_METADATA_CACHE_MAX_ENTRIES: usize = 512;
     /// Default capacity for the sliver reference cache in number of entries.
     pub const SLIVER_REFERENCE_CACHE_MAX_ENTRIES: u64 = 2 << 15; // around 65 K
+    /// Default nice(2) increment for recovery symbol worker threads.
+    pub const RECOVERY_THREAD_POOL_NICE_LEVEL: i32 = 19;
+
+    /// Returns the default nice(2) increment for recovery symbol worker threads.
+    pub fn recovery_thread_pool_nice_level() -> i32 {
+        RECOVERY_THREAD_POOL_NICE_LEVEL
+    }
 
     /// Returns the default metrics port.
     pub fn metrics_port() -> u16 {
@@ -1780,20 +1787,45 @@ impl Default for BalanceCheckConfig {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ThreadPoolConfig {
-    /// Specify the maximum number of concurrent tasks that will be pending on the thread pool.
+    /// Specify the maximum number of concurrent tasks that will be pending on the general thread
+    /// pool.
+    ///
+    /// This pool is used for metadata verification and other latency-sensitive CPU work.
     ///
     /// Defaults to an amount calculated from the number of cores.
     #[serde(skip_serializing_if = "defaults::is_none")]
-    pub max_concurrent_tasks: Option<usize>,
+    #[serde(alias = "max_concurrent_tasks")]
+    pub max_concurrent_general_tasks: Option<usize>,
+    /// Specify the maximum number of concurrent tasks that will be pending on the recovery thread
+    /// pool.
+    ///
+    /// Defaults to `max_concurrent_general_tasks` if specified, otherwise defaults to an amount
+    /// calculated from the number of cores.
+    #[serde(skip_serializing_if = "defaults::is_none")]
+    pub max_concurrent_recovery_tasks: Option<usize>,
     /// Specify the maximum number of blocking threads to use for I/O.
     pub max_blocking_io_threads: usize,
+    /// The `nice(2)` increment applied to recovery symbol worker threads at startup.
+    ///
+    /// Higher values give the recovery pool lower OS scheduling priority relative to the general
+    /// thread pool (which runs at the default nice level of 0). When both pools have runnable
+    /// tasks, the OS scheduler will always prefer general pool threads, so metadata verification
+    /// is never starved by recovery symbol generation.
+    ///
+    /// Valid range for unprivileged processes: 1-19. Defaults to 19 (lowest possible priority
+    /// for an unprivileged process), since recovery is a pure background task with no latency
+    /// SLO. Set to 0 to disable.
+    #[serde(default = "defaults::recovery_thread_pool_nice_level")]
+    pub recovery_nice_level: i32,
 }
 
 impl Default for ThreadPoolConfig {
     fn default() -> Self {
         Self {
-            max_concurrent_tasks: None,
+            max_concurrent_general_tasks: None,
+            max_concurrent_recovery_tasks: None,
             max_blocking_io_threads: 1024,
+            recovery_nice_level: defaults::RECOVERY_THREAD_POOL_NICE_LEVEL,
         }
     }
 }

@@ -13,7 +13,9 @@ use std::{
 };
 
 use futures::FutureExt;
-use prometheus::{HistogramVec, IntGauge};
+#[cfg(unix)]
+use libc;
+use prometheus::{HistogramVec, IntGaugeVec};
 use rayon::ThreadPoolBuilder as RayonThreadPoolBuilder;
 use tokio::{
     sync::oneshot::{self, Receiver as OneshotReceiver},
@@ -55,23 +57,26 @@ walrus_utils::metrics::define_metric_set! {
     struct ThreadPoolMetrics {
         #[help = "The latency (in seconds) of both queued and processing operations on the queue."]
         latency_seconds: HistogramVec {
-            labels: ["status"],
+            labels: ["pool", "status"],
             // Buckets from around 1ms up to 30s
             buckets: prometheus::exponential_buckets(0.001, 2.0, 16)
                 .expect("count, start, and factor are valid")
         },
 
         #[help = "The number of tasks queued to the thread-pool"]
-        queue_length: IntGauge[],
+        queue_length: IntGaugeVec["pool"],
     }
 
 }
 
-#[derive(Debug, Default, Clone)]
+#[derive(Default)]
 pub(crate) struct ThreadPoolBuilder {
     metrics_registry: Option<Registry>,
     max_concurrent: Option<usize>,
     thread_pool: Option<BlockingThreadPoolInner>,
+    pool_name: Option<&'static str>,
+    pool_thread_name: Option<&'static str>,
+    nice_level: Option<i32>,
 }
 
 impl ThreadPoolBuilder {
@@ -92,6 +97,23 @@ impl ThreadPoolBuilder {
         self
     }
 
+    /// Sets the name of the pool, used as a label in Prometheus metrics to distinguish multiple
+    /// pools registered against the same registry. Defaults to `"default"` if unspecified.
+    pub fn name(&mut self, name: &'static str) -> &mut Self {
+        self.pool_name = Some(name);
+        self
+    }
+
+    pub fn thread_name(&mut self, thread_name: &'static str) -> &mut Self {
+        self.pool_thread_name = Some(thread_name);
+        self
+    }
+
+    pub fn nice_level(&mut self, nice_level: i32) -> &mut Self {
+        self.nice_level = Some(nice_level);
+        self
+    }
+
     #[cfg(test)]
     pub(crate) fn rayon(&mut self, pool: RayonThreadPool) -> &mut Self {
         self.thread_pool = Some(BlockingThreadPoolInner::Rayon(pool));
@@ -104,20 +126,34 @@ impl ThreadPoolBuilder {
         self
     }
 
+    #[cfg(not(msim))]
+    fn make_inner(&mut self) -> BlockingThreadPoolInner {
+        self.thread_pool.take().unwrap_or_else(|| {
+            BlockingThreadPoolInner::Rayon(RayonThreadPool::build(
+                self.pool_thread_name.unwrap_or("worker"),
+                self.nice_level,
+            ))
+        })
+    }
+
+    #[cfg(msim)]
+    fn make_inner(&mut self) -> BlockingThreadPoolInner {
+        self.thread_pool
+            .take()
+            .unwrap_or_else(|| BlockingThreadPoolInner::Tokio(TokioBlockingPool::default()))
+    }
+
     /// Creates a [`BlockingThreadPool`] with the specified configuration.
     pub fn build(&mut self) -> BlockingThreadPool {
-        let inner = self.thread_pool.take().unwrap_or_else(|| {
-            // The default is Rayon when unspecified, unless in simtest.
-            if cfg!(msim) {
-                BlockingThreadPoolInner::Tokio(TokioBlockingPool::default())
-            } else {
-                BlockingThreadPoolInner::Rayon(RayonThreadPool::default())
-            }
-        });
-
+        let inner = self.make_inner();
+        let pool_name = self.pool_name.unwrap_or("default");
         let metrics = ThreadPoolMetrics::new(&self.metrics_registry.clone().unwrap_or_default());
 
-        BlockingThreadPool { inner, metrics }
+        BlockingThreadPool {
+            inner,
+            metrics,
+            pool_name,
+        }
     }
 
     /// Creates a [`BoundedThreadPool`] with the specified configuration.
@@ -179,6 +215,27 @@ impl RayonThreadPool {
             panic!("`RayonThreadPool` cannot be used in msim and so must not be constructed");
         }
         Self { inner: pool }
+    }
+
+    pub fn build(name: &'static str, nice_level: Option<i32>) -> Self {
+        let pool = RayonThreadPoolBuilder::new()
+            .thread_name(move |i| format!("{name}-{i}"))
+            .start_handler(move |_| {
+                if let Some(nice_level) = nice_level
+                    && nice_level != 0
+                {
+                    let ret = unsafe { libc::nice(nice_level) };
+                    if ret == -1 {
+                        tracing::warn!(
+                            nice_level,
+                            "failed to set nice level for rayon thread pool worker"
+                        );
+                    }
+                }
+            })
+            .build()
+            .expect("rayon thread pool construction must succeed");
+        Self::new(Arc::new(pool))
     }
 }
 
@@ -266,32 +323,17 @@ where
 pub(crate) struct BlockingThreadPool {
     inner: BlockingThreadPoolInner,
     metrics: ThreadPoolMetrics,
+    pool_name: &'static str,
 }
 
 #[derive(Debug, Clone)]
 enum BlockingThreadPoolInner {
     Rayon(RayonThreadPool),
+    #[allow(dead_code)] // Only constructed in msim/tests.
     Tokio(TokioBlockingPool),
 }
 
 impl BlockingThreadPool {
-    #[allow(unused)]
-    pub fn new_rayon(pool: RayonThreadPool, metrics_registry: &Registry) -> Self {
-        Self::new(BlockingThreadPoolInner::Rayon(pool), metrics_registry)
-    }
-
-    #[allow(unused)]
-    pub fn new_tokio(pool: TokioBlockingPool, metrics_registry: &Registry) -> Self {
-        Self::new(BlockingThreadPoolInner::Tokio(pool), metrics_registry)
-    }
-
-    fn new(inner: BlockingThreadPoolInner, metrics_registry: &Registry) -> Self {
-        Self {
-            inner,
-            metrics: ThreadPoolMetrics::new(metrics_registry),
-        }
-    }
-
     /// Converts this pool into a [`BoundedThreadPool`] with the specified limit on
     /// the maximum number in-flight requests.
     pub fn bounded_with_limit(self, max_in_flight: usize) -> BoundedThreadPool {
@@ -347,11 +389,16 @@ where
     }
 
     fn call(&mut self, request: Req) -> Self::Future {
-        let in_queue_guard = OwnedGaugeGuard::acquire(self.metrics.queue_length.clone());
+        let pool_name = self.pool_name;
+        let in_queue_guard = OwnedGaugeGuard::acquire(walrus_utils::with_label!(
+            self.metrics.queue_length,
+            pool_name
+        ));
         let queued_start = Instant::now();
-        let queued_latency = walrus_utils::with_label!(self.metrics.latency_seconds, STATUS_QUEUED);
+        let queued_latency =
+            walrus_utils::with_label!(self.metrics.latency_seconds, pool_name, STATUS_QUEUED);
         let processing_latency =
-            walrus_utils::with_label!(self.metrics.latency_seconds, STATUS_IN_PROGRESS);
+            walrus_utils::with_label!(self.metrics.latency_seconds, pool_name, STATUS_IN_PROGRESS);
 
         let request = move || {
             // Drop the guard as soon as the task begins being processed.
