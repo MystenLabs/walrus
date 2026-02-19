@@ -214,7 +214,8 @@ balance_check:
   interval_secs: 3600
   warning_threshold_mist: 5000000000
 thread_pool:
-  max_concurrent_tasks: null
+  max_concurrent_general_tasks: null
+  max_concurrent_recovery_tasks: null
   max_blocking_io_threads: 1024
   recovery_nice_level: 19
 consistency_check:

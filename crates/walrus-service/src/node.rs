@@ -750,7 +750,7 @@ impl StorageNode {
         general_builder
             .name("general")
             .thread_name("walrus-cpu-general")
-            .max_concurrent(config.thread_pool.max_concurrent_tasks)
+            .max_concurrent(config.thread_pool.max_concurrent_general_tasks)
             .metrics_registry(registry.clone());
         let thread_pool = general_builder.build_bounded();
 
@@ -761,7 +761,12 @@ impl StorageNode {
         recovery_builder
             .name("recovery")
             .thread_name("walrus-cpu-recovery")
-            .max_concurrent(config.thread_pool.max_concurrent_tasks)
+            .max_concurrent(
+                config
+                    .thread_pool
+                    .max_concurrent_recovery_tasks
+                    .or(config.thread_pool.max_concurrent_general_tasks),
+            )
             .nice_level(config.thread_pool.recovery_nice_level)
             .metrics_registry(registry.clone());
 

@@ -329,40 +329,11 @@ pub(crate) struct BlockingThreadPool {
 #[derive(Debug, Clone)]
 enum BlockingThreadPoolInner {
     Rayon(RayonThreadPool),
+    #[allow(dead_code)] // Only constructed in msim/tests.
     Tokio(TokioBlockingPool),
 }
 
 impl BlockingThreadPool {
-    #[allow(unused)]
-    pub fn new_rayon(pool: RayonThreadPool, metrics_registry: &Registry) -> Self {
-        Self::new(
-            BlockingThreadPoolInner::Rayon(pool),
-            metrics_registry,
-            "default",
-        )
-    }
-
-    #[allow(unused)]
-    pub fn new_tokio(pool: TokioBlockingPool, metrics_registry: &Registry) -> Self {
-        Self::new(
-            BlockingThreadPoolInner::Tokio(pool),
-            metrics_registry,
-            "default",
-        )
-    }
-
-    fn new(
-        inner: BlockingThreadPoolInner,
-        metrics_registry: &Registry,
-        pool_name: &'static str,
-    ) -> Self {
-        Self {
-            inner,
-            metrics: ThreadPoolMetrics::new(metrics_registry),
-            pool_name,
-        }
-    }
-
     /// Converts this pool into a [`BoundedThreadPool`] with the specified limit on
     /// the maximum number in-flight requests.
     pub fn bounded_with_limit(self, max_in_flight: usize) -> BoundedThreadPool {

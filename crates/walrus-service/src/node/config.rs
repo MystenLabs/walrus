@@ -1787,11 +1787,22 @@ impl Default for BalanceCheckConfig {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ThreadPoolConfig {
-    /// Specify the maximum number of concurrent tasks that will be pending on the thread pool.
+    /// Specify the maximum number of concurrent tasks that will be pending on the general thread
+    /// pool.
+    ///
+    /// This pool is used for metadata verification and other latency-sensitive CPU work.
     ///
     /// Defaults to an amount calculated from the number of cores.
     #[serde(skip_serializing_if = "defaults::is_none")]
-    pub max_concurrent_tasks: Option<usize>,
+    #[serde(alias = "max_concurrent_tasks")]
+    pub max_concurrent_general_tasks: Option<usize>,
+    /// Specify the maximum number of concurrent tasks that will be pending on the recovery thread
+    /// pool.
+    ///
+    /// Defaults to `max_concurrent_general_tasks` if specified, otherwise defaults to an amount
+    /// calculated from the number of cores.
+    #[serde(skip_serializing_if = "defaults::is_none")]
+    pub max_concurrent_recovery_tasks: Option<usize>,
     /// Specify the maximum number of blocking threads to use for I/O.
     pub max_blocking_io_threads: usize,
     /// The `nice(2)` increment applied to recovery symbol worker threads at startup.
@@ -1811,7 +1822,8 @@ pub struct ThreadPoolConfig {
 impl Default for ThreadPoolConfig {
     fn default() -> Self {
         Self {
-            max_concurrent_tasks: None,
+            max_concurrent_general_tasks: None,
+            max_concurrent_recovery_tasks: None,
             max_blocking_io_threads: 1024,
             recovery_nice_level: defaults::RECOVERY_THREAD_POOL_NICE_LEVEL,
         }
