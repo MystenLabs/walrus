@@ -69,6 +69,10 @@ const EInvalidNameLength: u64 = 17;
 /// The number of shares for the staked wal are zero.
 const EZeroShares: u64 = 18;
 
+/// Key for tracking the commission amount blocked for collection until `voting_end`.
+/// Stored in the pool's `extra_fields` bag.
+public struct NewEpochCommissionBlockedForCollection has copy, drop, store {}
+
 /// Represents the state of the staking pool.
 public enum PoolState has copy, drop, store {
     // The pool is active and can accept stakes.
@@ -424,6 +428,19 @@ public(package) fun advance_epoch(
     let commission = rewards.split(commission_value as u64);
     pool.commission.join(commission);
 
+    // Track the new epoch's commission as blocked for collection until `voting_end`.
+    let blocked_key = NewEpochCommissionBlockedForCollection {};
+    let blocked_amount = commission_value as u64;
+    if (pool.extra_fields.contains(blocked_key)) {
+        *pool
+            .extra_fields
+            .borrow_mut<NewEpochCommissionBlockedForCollection, u64>(
+                blocked_key,
+            ) = blocked_amount;
+    } else {
+        pool.extra_fields.add(blocked_key, blocked_amount);
+    };
+
     // Update the commission_rate for the new epoch if there's a pending value.
     // Note that pending commission rates are set 2 epochs ahead, so users are
     // aware of the rate change in advance.
@@ -451,6 +468,7 @@ public(package) fun add_commission(pool: &mut StakingPool, commission: Balance<W
 
 /// Extracts the commission balance of the pool for the slashing mechanism to burn.
 public(package) fun extract_commission_to_burn(pool: &mut StakingPool): Balance<WAL> {
+    pool.clear_blocked_commission();
     pool.commission.withdraw_all()
 }
 
@@ -588,10 +606,16 @@ public(package) fun destroy_empty(pool: StakingPool) {
         exchange_rates,
         rewards_pool,
         commission,
-        extra_fields,
+        mut extra_fields,
         node_info,
         ..,
     } = pool;
+
+    // Clear blocked commission key if present so extra_fields can be destroyed.
+    let key = NewEpochCommissionBlockedForCollection {};
+    if (extra_fields.contains(key)) {
+        let _: u64 = extra_fields.remove(key);
+    };
 
     id.delete();
     exchange_rates.drop();
@@ -689,11 +713,37 @@ public(package) fun commission_rate(pool: &StakingPool): u16 { pool.commission_r
 /// Returns the commission amount for the pool.
 public(package) fun commission_amount(pool: &StakingPool): u64 { pool.commission.value() }
 
-/// Withdraws the commission from the pool. Amount is optional, if not provided,
-/// the full commission is withdrawn.
+/// Withdraws the collectable commission from the pool.
+///
+/// Commission added during the current epoch's `advance_epoch` is blocked until `voting_end`
+/// clears the blocked amount. Only the unblocked portion can be collected.
 public(package) fun collect_commission(pool: &mut StakingPool, auth: Authenticated): Balance<WAL> {
     assert!(auth.matches(&pool.commission_receiver), EAuthorizationFailure);
-    pool.commission.withdraw_all()
+    let blocked = pool.get_blocked_commission_amount();
+    let total = pool.commission.value();
+    if (total <= blocked) {
+        return balance::zero()
+    };
+    pool.commission.split(total - blocked)
+}
+
+/// Clears the blocked commission amount, making all commission collectable.
+/// Called from `voting_end` to unblock commission for collection.
+public(package) fun clear_blocked_commission(pool: &mut StakingPool) {
+    let key = NewEpochCommissionBlockedForCollection {};
+    if (pool.extra_fields.contains(key)) {
+        let _: u64 = pool.extra_fields.remove(key);
+    };
+}
+
+/// Returns the amount of commission currently blocked for collection.
+fun get_blocked_commission_amount(pool: &StakingPool): u64 {
+    let key = NewEpochCommissionBlockedForCollection {};
+    if (pool.extra_fields.contains(key)) {
+        *pool.extra_fields.borrow<NewEpochCommissionBlockedForCollection, u64>(key)
+    } else {
+        0
+    }
 }
 
 /// Returns the rewards amount for the pool.
@@ -762,3 +812,8 @@ public(package) fun num_shares(pool: &StakingPool): u64 { pool.num_shares }
 
 #[test_only]
 public(package) fun latest_epoch(pool: &StakingPool): u32 { pool.latest_epoch }
+
+#[test_only]
+public(package) fun blocked_commission_amount(pool: &StakingPool): u64 {
+    pool.get_blocked_commission_amount()
+}

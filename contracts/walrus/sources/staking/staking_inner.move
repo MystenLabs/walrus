@@ -225,6 +225,10 @@ public(package) fun voting_end(self: &mut StakingInnerV1, clock: &Clock) {
         assert!(now >= self.first_epoch_start, EWrongEpochState);
     };
 
+    // Clear blocked commission for all committee pools, allowing operators to collect
+    // the commission that was blocked during advance_epoch.
+    self.clear_blocked_commissions();
+
     // Assign the next epoch committee.
     self.select_committee_and_calculate_votes();
 
@@ -233,6 +237,16 @@ public(package) fun voting_end(self: &mut StakingInnerV1, clock: &Clock) {
 
     // Emit event that parameters have been selected.
     events::emit_epoch_parameters_selected(self.epoch + 1);
+}
+
+/// Clears the blocked commission for all pools in the current committee.
+fun clear_blocked_commissions(self: &mut StakingInnerV1) {
+    let (node_ids, _) = (*self.committee.inner()).into_keys_values();
+    node_ids.do!(|id| {
+        if (self.pools.contains(id)) {
+            self.pools[id].clear_blocked_commission();
+        };
+    });
 }
 
 /// Selects the committee for the next epoch.
