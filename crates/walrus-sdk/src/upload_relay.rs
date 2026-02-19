@@ -11,8 +11,8 @@ use reqwest::Url;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    client::upload_relay_client::UploadRelayClientError,
     core::{BlobId, messages::ConfirmationCertificate},
+    node_client::upload_relay_client::UploadRelayClientError,
 };
 
 /// The route to upload blobs using the relay.

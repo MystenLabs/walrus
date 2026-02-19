@@ -2695,7 +2695,7 @@ pub mod test_cluster {
     use tokio::sync::Mutex as TokioMutex;
     use tokio_util::sync::CancellationToken;
     use walrus_sdk::{
-        client::{self, ClientCommunicationConfig, ClientConfig, WalrusNodeClient},
+        node_client::{self, ClientCommunicationConfig, ClientConfig, WalrusNodeClient},
         sui::{
             client::{SuiContractClient, SuiReadClient},
             test_utils::{
@@ -2805,7 +2805,7 @@ pub mod test_cluster {
         ) -> anyhow::Result<(
             Arc<TokioMutex<TestClusterHandle>>,
             TestCluster<StorageNodeHandle>,
-            WithTempDir<client::WalrusNodeClient<SuiContractClient>>,
+            WithTempDir<node_client::WalrusNodeClient<SuiContractClient>>,
             SystemContext,
             Option<AggregatorHandle>,
         )> {
@@ -2821,7 +2821,7 @@ pub mod test_cluster {
         ) -> anyhow::Result<(
             Arc<TokioMutex<TestClusterHandle>>,
             TestCluster<T>,
-            WithTempDir<client::WalrusNodeClient<SuiContractClient>>,
+            WithTempDir<node_client::WalrusNodeClient<SuiContractClient>>,
             SystemContext,
             Option<AggregatorHandle>,
         )> {
@@ -3043,7 +3043,7 @@ pub mod test_cluster {
 
             let client = admin_contract_client
                 .and_then_async(|contract_client| {
-                    client::WalrusNodeClient::new_contract_client_with_refresher(
+                    node_client::WalrusNodeClient::new_contract_client_with_refresher(
                         config.clone(),
                         contract_client,
                     )

@@ -27,8 +27,8 @@ use tokio::{
 };
 use walrus_core::BlobId;
 use walrus_sdk::{
-    client::{EncodingProgressEvent, StoreArgs, responses as sdk_responses},
     config::ClientConfig,
+    node_client::{EncodingProgressEvent, StoreArgs, responses as sdk_responses},
     store_optimizations::StoreOptimizations,
     sui::client::{BlobPersistence, PostStoreAction},
     uploader::{TailHandling, UploaderEvent},
