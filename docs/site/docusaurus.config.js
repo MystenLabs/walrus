@@ -2,13 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // @ts-check
-// `@type` JSDoc annotations allow editor autocompletion and type checking
-// (when paired with `@ts-check`).
-// There are various equivalent ways to declare your Docusaurus config.
-// See: https://docusaurus.io/docs/api/docusaurus-config
-
 import { themes as prismThemes } from "prism-react-renderer";
 import remarkGlossary from "./src/shared/plugins/remark-glossary.js";
+import remarkMath from 'remark-math';
+import rehypeKatex from 'rehype-katex';
 
 import path from "path";
 import { fileURLToPath } from "url";
@@ -22,31 +19,19 @@ const config = {
     favicon: "img/favicon.ico",
     trailingSlash: false,
 
-    // Future flags, see https://docusaurus.io/docs/api/docusaurus-config#future
     future: {
-        v4: true, // Improve compatibility with the upcoming Docusaurus v4
+        v4: true,
         experimental_faster: {
         swcJsMinimizer: true,
     },
     },
 
-    // Set the production url of your site here
     url: "https://docs.wal.app",
-    // Set the /<baseUrl>/ pathname under which your site is served
-    // For GitHub pages deployment, it is often '/<projectName>/'
     baseUrl: process.env.DOCUSAURUS_BASE_URL || "/",
-
-    // GitHub pages deployment config.
-    // If you aren't using GitHub pages, you don't need these.
-    // organizationName: 'Mysten Labs',
-    // projectName: 'Walrus',
 
     onBrokenLinks: "throw",
     onBrokenMarkdownLinks: "throw",
 
-    // Even if you don't use internationalization, you can use this field to set
-    // useful metadata like html lang. For example, if your site is Chinese, you
-    // may want to replace "en" with "zh-Hans".
     i18n: {
         defaultLocale: "en",
         locales: ["en"],
@@ -67,18 +52,15 @@ const config = {
         [
             "@docusaurus/plugin-client-redirects",
             {
-                // Automatically redirect /foo.html -> /foo
                 fromExtensions: ["html", "htm"],
 
                 redirects: [
-                    // explicit homepage legacy
                     { from: "/index.html", to: "/" },
                 ],
 
                 createRedirects(existingPath) {
                     if (existingPath === "/" || existingPath === "") return undefined;
 
-                    // normalize (remove trailing slash except root)
                     const normalized =
                         existingPath.length > 1 && existingPath.endsWith("/")
                             ? existingPath.slice(0, -1)
@@ -91,7 +73,6 @@ const config = {
                         redirects.push(`${fromPath}.html`);
                     };
 
-                    // OLD prefix → NEW prefix (this fixes /usage/setup.html#... etc.)
                     if (normalized.startsWith("/docs/")) {
                       const newPath = normalized.replace("/docs/", "/");
                       addLegacy(newPath);
@@ -109,10 +90,9 @@ const config = {
             module: {
               rules: [
                 {
-                  test: /\.mdx?$/, // run on .md and .mdx
-                  enforce: "pre", // make sure it runs BEFORE @docusaurus/mdx-loader
+                  test: /\.mdx?$/,
+                  enforce: "pre",
                   include: [
-                    // adjust these to match where your Markdown lives
                     path.resolve(__dirname, "../content"),
                   ],
                   use: [
@@ -164,10 +144,12 @@ const config = {
                 docs: {
                     path: "../content",
                     sidebarPath: "./sidebars.js",
-                    // Please change this to your repo.
-                    // Remove this to remove the "edit this page" links.
                     editUrl: "https://github.com/MystenLabs/walrus/tree/main/docs/",
-                    remarkPlugins: [[remarkGlossary, { glossaryFile: "static/glossary.json" }]],
+                    remarkPlugins: [
+                        [remarkGlossary, { glossaryFile: "static/glossary.json" }],
+                        remarkMath,
+                    ],
+                    rehypePlugins: [rehypeKatex],
                 },
                 blog: {
                     path: "../blog",
@@ -179,15 +161,18 @@ const config = {
                         type: ["rss", "atom"],
                         xslt: true,
                     },
-                    // Remove this to remove the "edit this page" links.
-                    // editUrl: "https://github.com/MystenLabs/walrus/tree/main/docs",
-                    // Useful options to enforce blogging best practices
                     onInlineTags: "warn",
                     onInlineAuthors: "warn",
                     onUntruncatedBlogPosts: "warn",
+                    remarkPlugins: [remarkMath],
+                    rehypePlugins: [rehypeKatex],
                 },
                 pages: {
-                    remarkPlugins: [[remarkGlossary, { glossaryFile: "static/glossary.json" }]],
+                    remarkPlugins: [
+                        [remarkGlossary, { glossaryFile: "static/glossary.json" }],
+                        remarkMath,
+                    ],
+                    rehypePlugins: [rehypeKatex],
                 },
                 theme: {
                     customCss: path.resolve(__dirname, "./src/css/custom.css"),
@@ -221,7 +206,6 @@ const config = {
     themeConfig:
         /** @type {import('@docusaurus/preset-classic').ThemeConfig} */
         ({
-            // Replace with your project's social card
             image: "img/docusaurus-social-card.jpg",
             navbar: {
                 title: "Walrus Docs",

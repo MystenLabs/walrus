@@ -1,10 +1,4 @@
----
-title: RedStuff Encoding Algorithm
-description: Learn how the RedStuff encoding algorithm works in Walrus, including erasure coding, RaptorQ fountain codes, sliver encoding, recovery, and blob metadata.
-keywords: [RedStuff, Walrus, erasure coding, RaptorQ, fountain codes, sliver, blob encoding, PCR, storage nodes, Twin-Code]
----
-
-The RedStuff encoding algorithm used in Walrus is an adaptation of the Twin-Code framework presented by Rashmi et al. <a href="https://doi.org/10.1109/ISIT.2011.6033732">[1]</a>.
+The RedStuff encoding algorithm used in Walrus is an adaptation of the Twin-Code framework presented by Rashmi et al. [1].
 
 ## Goals and overview
 
