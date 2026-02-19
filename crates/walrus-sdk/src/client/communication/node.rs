@@ -361,7 +361,7 @@ impl NodeWriteCommunication {
         intent: UploadIntent,
     ) -> NodeResult<(), StoreError> {
         tracing::debug!(blob_id = %metadata.blob_id(), "storing metadata and sliver pairs");
-        let result = async {
+        let result: std::result::Result<(), StoreError> = async {
             let metadata_status = self
                 .store_metadata(metadata, intent)
                 .await
