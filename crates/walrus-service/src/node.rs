@@ -3920,6 +3920,10 @@ impl ServiceState for StorageNodeInner {
             return Ok(false);
         }
 
+        if self.pending_metadata_cache.contains(&blob_id).await {
+            return Ok(false);
+        }
+
         let encoding_type = metadata.metadata().encoding_type();
         ensure!(
             encoding_type.is_supported(),
