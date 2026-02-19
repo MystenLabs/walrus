@@ -4,6 +4,75 @@ description: "Complete guide to site-builder commands for publishing and updatin
 keywords: ["walrus sites", "site builder", "commands", "deploy", "convert", "site map", "directory", "destroy", "update", "publish"]
 ---
 
+This reference page provides details on `site-builder` configuration and CLI commands.
+
+## Configuration file
+
+The `site-builder` tool requires a configuration file `sites-config.yaml` in one of the following default locations:
+
+- The current directory
+- `$XDG_CONFIG_HOME/walrus/`
+- `~/.config/walrus/`
+- `~/.walrus/`
+
+The configuration file specifies which Sui package to use, which wallet to use, the gas budget, and other operational details. The following is an example `sites-config.yaml`:
+
+```yaml
+contexts:
+  testnet:
+    # module: site
+    # portal: wal.app
+    package: 0xf99aee9f21493e1590e7e5a9aea6f343a1f381031a04a732724871fc294be799
+    staking_object: 0xbe46180321c30aab2f8b3501e24048377287fa708018a5b7c2792b35fe339ee3
+    general:
+        wallet_env: testnet
+        walrus_context: testnet # Assumes a Walrus CLI setup with a multi-config containing the "testnet" context.
+        walrus_package: 0xd84704c17fc870b8764832c535aa6b11f21a95cd6f5bb38a9b07d2cf42220c66
+        # wallet_address: 0x1234...
+        # rpc_url: https://fullnode.testnet.sui.io:443
+        # wallet: /path/to/.sui/sui_config/client.yaml
+        # walrus_binary: /path/to/walrus
+        # walrus_config: /path/to/testnet/client_config.yaml
+        # gas_budget: 500000000
+  mainnet:
+    # module: site
+    # portal: wal.app
+    package: 0x26eb7ee8688da02c5f671679524e379f0b837a12f1d1d799f255b7eea260ad27
+    staking_object: 0x10b9d30c28448939ce6c4d6c6e0ffce4a7f8a4ada8248bdad09ef8b70e4a3904
+    general:
+        wallet_env: mainnet
+        walrus_context: mainnet # Assumes a Walrus CLI setup with a multi-config containing the "mainnet" context.
+        walrus_package: 0xfdc88f7d7cf30afab2f82e8380d11ee8f70efb90e863d1de8616fae1bb09ea77
+        # wallet_address: 0x1234...
+        # rpc_url: https://fullnode.mainnet.sui.io:443
+        # wallet: /path/to/.sui/sui_config/client.yaml
+        # walrus_binary: /path/to/walrus
+        # walrus_config: /path/to/mainnet/client_config.yaml
+        # gas_budget: 500000000
+
+default_context: mainnet
+```
+
+If you want to have more control over the behavior of the `site-builder`, you can customize the following variables in the configuration file:
+
+- `package`: The object ID of the Walrus Sites package on Sui. This is always required, and is already appropriately configured in `./sites-config.yaml`. You can find the latest package ID in the [Walrus Sites repository](https://github.com/MystenLabs/walrus-sites/tree/mainnet) on the Mainnet branch.
+
+- `portal` (default: `wal.app`): The name of the portal through which you view the site. This only affects the output of the CLI and nothing else. All Walrus Sites are accessible through any portal independent of this setting.
+
+- `general`: These are general options that can be configured both through the CLI and the configuration file.
+
+  - `rpc_url`: The URL of the Sui RPC node to use. If not set, the `site-builder` infers it from the wallet.
+
+  - `wallet` (default: uses the system-wide wallet from `sui client addresses`): Pointer to the Sui wallet to be used.
+
+  - `walrus_binary` (default: runs from `$PATH`): Pointer to the `walrus` binary.
+
+  - `walrus_config`: The configuration for the `walrus` client binary.
+
+  - `gas_budget` (default: 500M MIST): The maximum amount of gas to spend for transactions.
+
+## `site-builder` CLI commands
+
 The `site-builder` provides various CLI commands to help you publish and update your Walrus Site.
 
 :::info
@@ -12,11 +81,11 @@ Add the `--help` flag to any command to get further details for the whole CLI (`
 
 :::
 
-## `deploy`
+### `deploy`
 
 The `deploy` command handles both publishing and updating your Walrus Site. It creates a new site from your desired directory on first run, and updates it on subsequent executions.
 
-### Behavior
+#### Behavior
 
 The deploy command determines whether to publish a new site or update an existing one by looking for a Walrus Site `object_id`. It searches for an ID with the following priority:
 
@@ -28,7 +97,7 @@ The deploy command determines whether to publish a new site or update an existin
 
 When a new site is published, its `object_id` is automatically saved to the `ws-resources.json` file, which lets you use `deploy` for any future updates to your site.
 
-### Usage
+#### Usage
 
 As shown by the command's help information, the typical usage is:
 
@@ -42,7 +111,7 @@ If you are only uploading raw files without an `index.html`, you might want to u
 
 Additionally, when using `deploy` to update an existing site, your [configured wallet](/docs/sites/getting-started/installing-the-site-builder#configuration) must own the corresponding Walrus Site object.
 
-### Migrating from `publish` and `update`
+#### Migrating from `publish` and `update`
 
 If you have a site that was previously managed with the `publish` and `update` commands, you can easily switch to the `deploy` command using one of the following methods:
 
@@ -85,23 +154,23 @@ $ site-builder deploy --epochs <NUMBER> ./path/to/your/site
 
 </Tabs>
 
-## `convert`
+### `convert`
 
 The `convert` command converts an object ID in hex format to the equivalent Base36 format. This command is useful if you have the Sui object ID of a Walrus Site and want to know the subdomain where you can browse it.
 
-## `sitemap`
+### `sitemap`
 
 The `sitemap` command shows the resources that compose the Walrus Site at the given object ID.
 
-## `list-directory`
+### `list-directory`
 
 With `list-directory`, you can obtain the `index.html` file that would be generated by running `deploy`, `publish`, or `update` with the `--list-directory` flag. This lets you preview the index page before deployment.
 
-## `destroy`
+### `destroy`
 
 Destroys the blockchain objects and Walrus assets of a site with the given object ID.
 
-## `update-resource`
+### `update-resource`
 
 Adds or updates a single resource in a site, replacing any pre-existing ones.
 

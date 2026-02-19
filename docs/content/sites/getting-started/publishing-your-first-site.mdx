@@ -4,11 +4,9 @@ description: "Tutorial for publishing, viewing, and updating your first Walrus S
 keywords: ["walrus sites", "publishing", "deployment", "view", "update", "site builder", "tutorial", "walrus snake", "examples"]
 ---
 
-The `site-builder` uploads your web framework's output directory to Walrus and stores the metadata on Sui. Your directory needs an `index.html` file at the root to serve as the entry point. You can find various examples in the [Walrus Sites example repository](https://github.com/MystenLabs/example-walrus-sites).
+The Walrus Sites `site-builder` uploads your web framework's output directory to [Walrus](https://www.walrus.xyz/), where your site resources (HTML, CSS, JavaScript, and images) are stored as blobs. A [Sui smart contract](https://docs.sui.io/guides/developer/packages/move-package-management) acts as an on-chain index, mapping each resource path to its corresponding Walrus blob ID and recording site ownership. [Portals](/docs/sites/portals/deploy-locally) use this on-chain metadata to resolve and serve your site to visitors. 
 
-To learn the basics of publishing and updating a Walrus Site, deploy the `walrus-snake` game from the example repository.
-
-## Clone and deploy `walrus-snake`
+Your directory needs an `index.html` file at the root to serve as the entry point. You can find various examples in the [Walrus Sites example repository](https://github.com/MystenLabs/example-walrus-sites).
 
 <Tabs>
 <TabItem value="prereq" label="Prerequisites">
@@ -20,27 +18,37 @@ To learn the basics of publishing and updating a Walrus Site, deploy the `walrus
 </TabItem>
 </Tabs>
 
-First, clone the Walrus Sites example repository:
+:::info
+
+The prerequisite setup guides install the Walrus and `site-builder` binaries and configuration files to their [default directories](/docs/sites/getting-started/installing-the-site-builder#configuration). If `site-builder` commands return errors, use the `--config` flag to specify a custom configuration path.
+
+:::
+
+## Clone and deploy `walrus-snake`
+
+To learn the basics of publishing and updating a Walrus Site, deploy the `walrus-snake` game from the Walrus Sites example repository.
+
+First, clone the example repository:
 
 ```sh
 $ git clone https://github.com/MystenLabs/example-walrus-sites.git && cd example-walrus-sites
 ```
 
-Since the `walrus` and `site-builder` binaries and configuration files are placed in their default locations, you can immediately use the [`deploy` command](/docs/sites/getting-started/using-the-site-builder#deploy) to publish the `./walrus-snake` site:
+Then, [`deploy`](/docs/sites/getting-started/using-the-site-builder) the `walrus-snake` game:
 
 ```sh
 $ site-builder --context=testnet deploy ./walrus-snake --epochs 1
 ```
 
-Depending on the network, the duration of an epoch might vary. Visit the official [Walrus network release schedule](https://www.walrus.xyz/network-release-schedule) to view the most up-to-date epoch duration details.
+Depending on the network, the duration of an epoch might vary. Currently on Walrus Testnet, the duration of an epoch is 1 day. On Mainnet, the duration of an epoch is 2 weeks.
 
 ## View your deployed site
 
 How you access your site depends on which network you used:
 
-- **Mainnet sites**: Can be accessed through any Mainnet portal. https://wal.app serves Walrus Sites on Mainnet by resolving SuiNS names that point to them.
+- **Mainnet sites**: Can be accessed through any Mainnet portal. To access your Walrus Site through https://wal.app, a [SuiNS](https://suins.io/) name is required.
 
-- **Testnet sites**: Can be accessed through any Testnet portal. Walrus Foundation does not operate a Testnet portal. You can [self-host or run one locally](/docs/sites/portals/deploy-locally).
+- **Testnet sites**: Can be accessed through a [self-hosted or local portal](/docs/sites/portals/deploy-locally). Walrus Foundation does not operate a Testnet portal.
 
 The console output at the end of a successful Walrus Sites deployment should look like the following:
 
@@ -70,27 +78,40 @@ New site object ID: 0x617221edd060dafb4070b73160ebf535e1516bf7f246890ed35190eba7
 
 :::info
 
-The local development (option 1) link is for Testnet sites, and requires a self-hosted or local portal. The public sharing (option 2) link is only available on Mainnet.
+The local development (option 1) link is for Testnet sites, and can be access through a self-hosted or local portal. The public sharing (option 2) link can only be accessed through a Mainnet portal.
 
 :::
 
-This output tells you that, for each file in the folder, a new [Walrus quilt](/docs/system-overview/quilt) was created with a respective quilt ID. It also prints the Walrus Site object ID on Sui, which you can use to view the site in an explorer and link to a SuiNS name. Finally, the URL at which you can browse the site is displayed. The `deploy` command also saves this new site object ID to the `ws-resources.json`.
+This output communicates the following:
+- For each file in the folder, a new site resource was created with a respective [quilt ID]((/docs/system-overview/quilt)). 
+- A Walrus Site object was created on Sui, and you can use the printed object ID to view the site in an explorer and link to a SuiNS name. The `deploy` command also saves this new site object ID to the `ws-resources.json`. 
+- The URL at which you can browse the site is displayed. 
 
-Here the default `sites-config.yaml` is implicitly used as the config for the `site-builder` that was set up in the [installation guide](/docs/sites/getting-started/installing-the-site-builder). The configuration file is necessary to ensure that the `site-builder` knows the correct Sui package for the Walrus Sites logic.
+Here the default `sites-config.yaml` is implicitly used as the config for the `site-builder` that was set up in the [installation guide](/docs/sites/getting-started/installing-the-site-builder#configuration). The configuration file is necessary to ensure that the `site-builder` knows the correct Sui package for the Walrus Sites logic.
 
-More details on the configuration of the `site-builder` can be found in the [advanced configuration](/docs/sites/getting-started/installing-the-site-builder#configuration) section.
+More details on the configuration of the `site-builder` can be found in the [Site Builder Reference](/docs/sites/getting-started/using-the-site-builder).
 
 ## Update the site
 
-To update your site content, like changing the title from "eat all the blobs!" to "Glob all the Blobs!", make the edit in the `./walrus-snake/index.html` file.
+During updates, the `site-builder` removes and re-uploads all site resources together as a single quilt, even files you haven't modified. This approach offers significant benefits, including faster upload speeds and lower storage costs, especially when uploading many small files. The drawback is that you cannot update files individually; changing one file means re-uploading the entire quilt.
 
-You can then update the existing site by running the `deploy` command again. The `deploy` command uses the site object ID stored in `ws-resources.json` from the initial deployment to identify which site to update. You do not need to specify the object ID manually:
+:::info
+
+If you are building a Walrus Site using a web framework, ensure you rebuild your website before updating the corresponding Walrus Site.
+
+:::
+
+To update the example `walrus-snake` site, like changing the title from "eat all the blobs!" to "Glob all the Blobs!", make the edit in the `./walrus-snake/index.html` file.
+
+You can then update the existing site by running the `deploy` command again:
 
 ```sh
 site-builder --context=testnet deploy --epochs 1 ./walrus-snake
 ```
 
-The wallet you are using must be the owner of the Walrus Site object to be able to update it.
+The `deploy` command uses the site object ID stored in `ws-resources.json` from the initial deployment to identify which site to update. If you want to update a different site than the one in `ws-resources`, you can specify a different object ID using the `--object-id <OBJECT_ID>` flag.
+
+Additionally, the wallet you are using must be the owner of the Walrus Site object to be able to update it.
 
 The output this time should be:
 
@@ -120,7 +141,3 @@ Site object ID: 0x4a1be0fb330215c532d74c70d34bc35f185cc7ce025e04b9ad42bc4ac8eda5
     💡 Tip: You may also bring your own domain (/docs/sites/custom-domains/bringing-your-own-domain)
             or find third-party hosted testnet portals.
 ```
-
-Browsing the provided URL should reflect any changes you have made to the site.
-
-During updates, the `site-builder` removes and re-uploads all site resources together as a single quilt, even files you haven't modified. This approach offers significant benefits, including faster upload speeds and lower storage costs, especially when uploading many small files. The drawback is that you cannot update files individually; changing one file means re-uploading the entire quilt.
