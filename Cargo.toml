@@ -154,7 +154,7 @@ tonic = { version = "0.14.2", default-features = false }
 tower = "0.5"
 tower-http = { version = "0.5.2", features = ["cors", "timeout", "trace"] }
 tracing = "0.1.44"
-tracing-opentelemetry = { version = "=0.28.0", default-features = false }
+tracing-opentelemetry = { version = "=0.32.1", default-features = false }
 tracing-subscriber = { version = "0.3.22", default-features = false, features = ["env-filter", "fmt"] }
 twox-hash = "2.1.2"
 typed-store = { path = "crates/typed-store" }

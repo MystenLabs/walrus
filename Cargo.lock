@@ -7084,6 +7084,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "opentelemetry"
+version = "0.31.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b84bcd6ae87133e903af7ef497404dda70c60d0ea14895fc8a5e6722754fc2a0"
+dependencies = [
+ "futures-core",
+ "futures-sink",
+ "js-sys",
+ "pin-project-lite",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "opentelemetry-otlp"
 version = "0.27.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7092,7 +7105,7 @@ dependencies = [
  "async-trait",
  "futures-core",
  "http 1.4.0",
- "opentelemetry",
+ "opentelemetry 0.27.1",
  "opentelemetry-proto",
  "opentelemetry_sdk",
  "prost 0.13.5",
@@ -7109,7 +7122,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a6e05acbfada5ec79023c85368af14abd0b307c015e9064d249b2a950ef459a6"
 dependencies = [
  "hex",
- "opentelemetry",
+ "opentelemetry 0.27.1",
  "opentelemetry_sdk",
  "prost 0.13.5",
  "serde",
@@ -7133,7 +7146,7 @@ dependencies = [
  "futures-executor",
  "futures-util",
  "glob",
- "opentelemetry",
+ "opentelemetry 0.27.1",
  "percent-encoding",
  "rand 0.8.5",
  "serde_json",
@@ -11595,7 +11608,7 @@ dependencies = [
  "crossterm 0.25.0",
  "futures",
  "once_cell",
- "opentelemetry",
+ "opentelemetry 0.27.1",
  "opentelemetry-otlp",
  "opentelemetry-proto",
  "opentelemetry_sdk",
@@ -11606,7 +11619,7 @@ dependencies = [
  "tracing",
  "tracing-appender",
  "tracing-error",
- "tracing-opentelemetry",
+ "tracing-opentelemetry 0.28.0",
  "tracing-subscriber",
 ]
 
@@ -12474,12 +12487,26 @@ checksum = "97a971f6058498b5c0f1affa23e7ea202057a7301dbff68e968b2d578bcbd053"
 dependencies = [
  "js-sys",
  "once_cell",
- "opentelemetry",
+ "opentelemetry 0.27.1",
  "opentelemetry_sdk",
  "smallvec",
  "tracing",
  "tracing-core",
  "tracing-log",
+ "tracing-subscriber",
+ "web-time",
+]
+
+[[package]]
+name = "tracing-opentelemetry"
+version = "0.32.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1ac28f2d093c6c477eaa76b23525478f38de514fa9aeb1285738d4b97a9552fc"
+dependencies = [
+ "js-sys",
+ "opentelemetry 0.31.0",
+ "tracing",
+ "tracing-core",
  "tracing-subscriber",
  "web-time",
 ]
@@ -13269,7 +13296,7 @@ dependencies = [
  "mysten-metrics",
  "num-bigint 0.4.6",
  "object_store 0.11.2",
- "opentelemetry",
+ "opentelemetry 0.27.1",
  "opentelemetry-otlp",
  "opentelemetry-proto",
  "opentelemetry-semantic-conventions",
@@ -13315,7 +13342,7 @@ dependencies = [
  "tower 0.5.3",
  "tower-http",
  "tracing",
- "tracing-opentelemetry",
+ "tracing-opentelemetry 0.32.1",
  "tracing-subscriber",
  "twox-hash 2.1.2",
  "typed-store 1.44.0",
@@ -13377,7 +13404,7 @@ dependencies = [
  "futures",
  "http 1.4.0",
  "mime",
- "opentelemetry",
+ "opentelemetry 0.27.1",
  "p256",
  "pin-project",
  "prometheus",
@@ -13395,7 +13422,7 @@ dependencies = [
  "tokio",
  "tower 0.5.3",
  "tracing",
- "tracing-opentelemetry",
+ "tracing-opentelemetry 0.32.1",
  "utoipa",
  "walrus-core",
  "walrus-test-utils",
