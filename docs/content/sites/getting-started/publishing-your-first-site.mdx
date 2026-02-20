@@ -90,11 +90,6 @@ New site object ID: 0x617221edd060dafb4070b73160ebf535e1516bf7f246890ed35190eba7
             or find third-party hosted testnet portals.
 ```
 
-:::info
-
-
-:::
-
 This output shows the following:
 - For each file in your website's build directory, a new blob is created and uploaded to Walrus. Walrus Sites uses the Walrus Quilt feature to optimize storage of small website files. This means every blob created as part of a Walrus Site has a `QuiltPatchID`. Together, these form a single [quilt](/docs/system-overview/quilt). This is because the `site-builder` stores files on Walrus using quilts, which offers faster upload speeds and lower storage costs, especially when uploading many small files. The tradeoff is that you cannot update a single file within a quilt; if any file changes, the entire quilt must be re-uploaded.
 - A Walrus Site object is created on Sui. Use the printed object ID to view the site's object information through a network explorer. This site object is what you will link to a SuiNS name for sites deployed to Mainnet. The `deploy` command saves the site object ID to the local file `ws-resources.json`.
@@ -115,10 +110,14 @@ To update the example `walrus-snake` site, like changing the title from "eat all
 You can then update the existing site by running the `deploy` command again:
 
 ```sh
-site-builder --context=testnet deploy --epochs 1 ./walrus-snake
+$ site-builder --context=testnet deploy --epochs 1 ./walrus-snake
 ```
 
 The `deploy` command uses the site object ID stored in `ws-resources.json` from the initial deployment to identify which site to update. If you want to update a different site than the one in `ws-resources`, you can specify a different object ID using the `--object-id <OBJECT_ID>` flag.
+
+```sh
+$ site-builder --context=testnet deploy --object-id 0x617221edd060dafb4070b73160ebf535e1516bf7f246890ed35190eba786d7ac --epochs 1 ./walrus-snake
+```
 
 Additionally, the wallet you are using must be the owner of the Walrus Site object to be able to update it.
 

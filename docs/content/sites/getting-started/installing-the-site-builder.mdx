@@ -18,9 +18,9 @@ The `site-builder` is a CLI tool that lets you create, edit, and publish Walrus 
 
 ## Installation
 
-:::danger
+:::warning
 
-The stable branch of Walrus Sites is `mainnet`. Make sure that you always pull the latest changes from there.
+The stable branch of Walrus Sites is `mainnet`. Before deploying your site to production, make sure you pull the latest `mainnet` changes.
 
 :::
 
@@ -54,7 +54,7 @@ $ site-builder --help
 
 ### Using a pre-built binary
 
-A `site-builder` client binary is available for Ubuntu, macOS (Apple and Intel CPUs), and [Windows](#windows) operating systems.
+A `site-builder` client binary is available for Ubuntu, macOS (Apple and Intel CPUs), and [Windows](#windows) operating systems. You can download any of the binaries from the Google Cloud Storage (GCS) bucket using the links in the table below.
 
 <Tabs>
 <TabItem value="mainnet" label="Mainnet binaries">
@@ -64,6 +64,7 @@ A `site-builder` client binary is available for Ubuntu, macOS (Apple and Intel C
 | Ubuntu  | Intel 64bit           | [`site-builder-mainnet-latest-ubuntu-x86_64`](https://storage.googleapis.com/mysten-walrus-binaries/site-builder-mainnet-latest-ubuntu-x86_64)                |
 | MacOS   | Apple Silicon         | [`site-builder-mainnet-latest-macos-arm64`](https://storage.googleapis.com/mysten-walrus-binaries/site-builder-mainnet-latest-macos-arm64)                    |
 | MacOS   | Intel 64bit           | [`site-builder-mainnet-latest-macos-x86_64`](https://storage.googleapis.com/mysten-walrus-binaries/site-builder-mainnet-latest-macos-x86_64)                  |
+| Windows | Intel 64bit           | [`site-builder-mainnet-latest-windows-x86_64.exe`](https://storage.googleapis.com/mysten-walrus-binaries/site-builder-mainnet-latest-windows-x86_64.exe)      |
 
 </TabItem>
 
@@ -74,12 +75,13 @@ A `site-builder` client binary is available for Ubuntu, macOS (Apple and Intel C
 | Ubuntu  | Intel 64bit           | [`site-builder-testnet-latest-ubuntu-x86_64`](https://storage.googleapis.com/mysten-walrus-binaries/site-builder-testnet-latest-ubuntu-x86_64)                |
 | MacOS   | Apple Silicon         | [`site-builder-testnet-latest-macos-arm64`](https://storage.googleapis.com/mysten-walrus-binaries/site-builder-testnet-latest-macos-arm64)                    |
 | MacOS   | Intel 64bit           | [`site-builder-testnet-latest-macos-x86_64`](https://storage.googleapis.com/mysten-walrus-binaries/site-builder-testnet-latest-macos-x86_64)                  |
+| Windows | Intel 64bit           | [`site-builder-testnet-latest-windows-x86_64.exe`](https://storage.googleapis.com/mysten-walrus-binaries/site-builder-testnet-latest-windows-x86_64.exe)      |
 
 </TabItem>
 
 </Tabs>
 
-You can also use a `curl` request to download the latest build from the Google Cloud Storage (GCS) bucket. Ensure you set the `$SYSTEM` variable to your current system: `ubuntu-x86_64`, `ubuntu-x86_64-generic`, `macos-arm64`, `macos-x86_64`.
+If you prefer, you can also use a `curl` request to download the latest build from the GCS bucket. Ensure you set the `$SYSTEM` variable to your current system: `ubuntu-x86_64`, `ubuntu-x86_64-generic`, `macos-arm64`, `macos-x86_64`.
 
 <Tabs>
 <TabItem value="mainnet" label="Mainnet curl request">
@@ -102,7 +104,7 @@ $ chmod +x site-builder
 
 </Tabs>
 
-Once you have downloaded the `site-builder` binary, move it to any directory included in your `$PATH` environment variable. Standard locations are `/usr/local/bin/`, `$HOME/bin/`, or `$HOME/.local/bin/`.
+Once you have downloaded the `site-builder` binary, move it to any directory included in your `$PATH` environment variable. Standard locations are `/usr/local/bin/`, `$HOME/bin/`, or `$HOME/.local/bin/`. To view locations in your $PATH variable, run the command:
 
 ```sh
 $ echo $PATH | tr ":" "\n"
@@ -131,27 +133,6 @@ Commands:
 ```
 
 ### Installing on Windows {#windows}
-
-Pre-built binaries are also provided for Windows.
-
-<Tabs>
-<TabItem value="mainnet" label="Mainnet binaries">
-
-| OS      | CPU                   | Architecture |
-|---------|-----------------------|-----------------------------------------------------------------------------------------------------------------------------------|
-| Windows | Intel 64bit           | [`site-builder-mainnet-latest-windows-x86_64.exe`](https://storage.googleapis.com/mysten-walrus-binaries/site-builder-mainnet-latest-windows-x86_64.exe)      |
-
-</TabItem>
-
-<TabItem value="testnet" label="Testnet binaries">
-
-| OS      | CPU                   | Architecture |
-|---------|-----------------------|-----------------------------------------------------------------------------------------------------------------------------------|
-| Windows | Intel 64bit           | [`site-builder-testnet-latest-windows-x86_64.exe`](https://storage.googleapis.com/mysten-walrus-binaries/site-builder-testnet-latest-windows-x86_64.exe)      |
-
-</TabItem>
-
-</Tabs>
 
 You can use Windows PowerShell to download the latest build from the GCS bucket. 
 

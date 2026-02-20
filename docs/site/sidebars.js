@@ -115,9 +115,6 @@ const sidebars = {
         'sites/getting-started/installing-the-site-builder',
         'sites/getting-started/publishing-your-first-site',
         'sites/getting-started/using-the-site-builder',
-        'sites/getting-started/viewing-and-testing-your-site',
-        'sites/getting-started/updating-an-existing-site',
-        'sites/getting-started/configuration-file-reference',
       ],
     },
     {
