@@ -1508,7 +1508,10 @@ impl WalrusNodeClient<SuiContractClient> {
             pending_blobs,
             tx,
             UploadOptions {
-                tail_handling: store_args.tail_handling,
+                // Pending uploads are opportunistic and run concurrently with chain registration.
+                // Detach the tail window so we can return as soon as quorum is reached, while still
+                // allowing extra writes to complete in the background.
+                tail_handling: TailHandling::Detached,
                 target_nodes: None,
                 upload_intent: UploadIntent::Pending,
                 initial_completed_weight: None,
@@ -1603,8 +1606,9 @@ impl WalrusNodeClient<SuiContractClient> {
         mut pending_upload_result: Option<RunOutput<Vec<BlobId>, StoreError>>,
     ) -> PendingUploadContext {
         let mut context = PendingUploadContext::default();
-        // Cancel any in-flight pending tail. Tail handle is returned during the upload with
-        // immediate intent later.
+        // Cancel any in-flight tail window from the pending (optimistic) uploader run. The pending
+        // path is only used to seed initial success weight; we don't want it to compete with the
+        // subsequent immediate upload.
         if let Some(ref mut pending_output) = pending_upload_result
             && let Some(handle) = pending_output.tail_handle.take()
         {
