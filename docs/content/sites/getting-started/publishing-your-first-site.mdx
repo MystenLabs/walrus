@@ -95,14 +95,10 @@ The local development (option 1) link is for Testnet sites, and can be access th
 
 :::
 
-This output communicates the following:
-- For each file in the folder, a new site resource was created with a respective `QuiltPatchID`, which together form a [quilt](/docs/system-overview/quilt). 
-- A Walrus Site object was created on Sui, and you can use the printed object ID to view the site in an explorer and link to a SuiNS name. The `deploy` command also saves this new site object ID to the `ws-resources.json`. 
-- The URL at which you can browse the site.
-
-Here the default `sites-config.yaml` is implicitly used as the config for the `site-builder` that was set up in the [installation guide](/docs/sites/getting-started/installing-the-site-builder#configuration). The configuration file is necessary to ensure that the `site-builder` knows the correct Sui package for the Walrus Sites logic.
-
-More details on the configuration of the `site-builder` can be found in the [Site Builder Reference](/docs/sites/getting-started/using-the-site-builder).
+This output shows the following:
+- For each file in your website's build directory, a new blob is created and uploaded to Walrus. Walrus Sites uses the Walrus Quilt feature to optimize storage of small website files. This means every blob created as part of a Walrus Site has a `QuiltPatchID`. Together, these form a single [quilt](/docs/system-overview/quilt). This is because the `site-builder` stores files on Walrus using quilts, which offers faster upload speeds and lower storage costs, especially when uploading many small files. The tradeoff is that you cannot update a single file within a quilt; if any file changes, the entire quilt must be re-uploaded.
+- A Walrus Site object is created on Sui. Use the printed object ID to view the site's object information through a network explorer. This site object is what you will link to a SuiNS name for sites deployed to Mainnet. The `deploy` command saves the site object ID to the local file `ws-resources.json`.
+- The URL where you can browse the site.
 
 ## Update the site
 
