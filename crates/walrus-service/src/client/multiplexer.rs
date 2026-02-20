@@ -63,6 +63,7 @@ pub struct ClientMultiplexer {
     read_client: WalrusNodeClient<SuiReadClient>,
     _refill_handles: RefillHandles,
     default_post_store_action: PostStoreAction,
+    metrics: Arc<ClientMetrics>,
 }
 
 impl ClientMultiplexer {
@@ -115,7 +116,7 @@ impl ClientMultiplexer {
         let refill_handles = refiller.refill_gas_and_wal(
             client_pool.addresses(),
             args.refill_interval,
-            metrics,
+            metrics.clone(),
             sui_client,
         );
 
@@ -134,11 +135,13 @@ impl ClientMultiplexer {
             read_client,
             _refill_handles: refill_handles,
             default_post_store_action,
+            metrics,
         })
     }
 
     /// Submits a write request to the client pool.
     #[tracing::instrument(err, skip_all)]
+    #[allow(clippy::too_many_arguments)]
     pub async fn submit_write(
         &self,
         blob: Vec<u8>,
@@ -147,6 +150,7 @@ impl ClientMultiplexer {
         store_optimizations: StoreOptimizations,
         persistence: BlobPersistence,
         post_store: PostStoreAction,
+        metrics: Option<Arc<ClientMetrics>>,
     ) -> ClientResult<BlobStoreResult> {
         let client = self.client_pool.next_client();
         tracing::debug!("submitting write request to client in pool");
@@ -159,6 +163,7 @@ impl ClientMultiplexer {
                 store_optimizations,
                 persistence,
                 post_store,
+                metrics,
             )
             .await?;
 
@@ -245,7 +250,9 @@ impl WalrusWriteClient for ClientMultiplexer {
         store_optimizations: StoreOptimizations,
         persistence: BlobPersistence,
         post_store: PostStoreAction,
+        metrics: Option<Arc<ClientMetrics>>,
     ) -> ClientResult<BlobStoreResult> {
+        let metrics = metrics.or_else(|| Some(self.metrics.clone()));
         self.submit_write(
             blob,
             encoding_type,
@@ -253,6 +260,7 @@ impl WalrusWriteClient for ClientMultiplexer {
             store_optimizations,
             persistence,
             post_store,
+            metrics,
         )
         .await
     }

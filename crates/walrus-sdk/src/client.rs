@@ -211,6 +211,7 @@ struct UploadOptions<'a> {
     initial_completed_weight: Option<&'a HashMap<BlobId, usize>>,
     stop_scheduling: Option<CancellationToken>,
     cancellation: Option<CancellationToken>,
+    metrics: Option<Arc<metrics::ClientMetrics>>,
 }
 
 struct SendBlobOptions<'a> {
@@ -221,6 +222,7 @@ struct SendBlobOptions<'a> {
     tail_handle_collector: Option<Arc<tokio::sync::Mutex<Vec<JoinHandle<()>>>>>,
     target_nodes: Option<(Epoch, &'a [NodeIndex])>,
     initial_completed_weight: Option<&'a HashMap<BlobId, usize>>,
+    metrics: Option<Arc<metrics::ClientMetrics>>,
 }
 
 /// Pending upload state carried through a single reserve+store execution.
@@ -1272,6 +1274,7 @@ impl<T: ReadClient> WalrusNodeClient<T> {
                         .remove(&nc.node_index)
                         .expect("there are shards for each node"),
                     UploadIntent::Immediate,
+                    None,
                 )
             })
             .collect();
@@ -1511,6 +1514,7 @@ impl WalrusNodeClient<SuiContractClient> {
                 initial_completed_weight: None,
                 stop_scheduling: Some(stop_scheduling.clone()),
                 cancellation: Some(cancel.clone()),
+                metrics: store_args.metrics.clone(),
             },
         ));
 
@@ -2057,6 +2061,7 @@ impl<T> WalrusNodeClient<T> {
             tail_handle_collector,
             target_nodes,
             initial_completed_weight,
+            metrics: None,
         };
 
         let (_, certificate) = self
@@ -2084,6 +2089,7 @@ impl<T> WalrusNodeClient<T> {
             tail_handle_collector,
             target_nodes,
             initial_completed_weight,
+            metrics,
         } = options;
         tracing::info!(blob_id = %metadata.blob_id(), "starting to send data to storage nodes");
         let committees = self.get_committees().await?;
@@ -2107,6 +2113,7 @@ impl<T> WalrusNodeClient<T> {
                 initial_completed_weight,
                 stop_scheduling: None,
                 cancellation: None,
+                metrics,
             },
         ));
 
@@ -2227,6 +2234,7 @@ impl<T> WalrusNodeClient<T> {
             initial_completed_weight,
             stop_scheduling,
             cancellation,
+            metrics,
         } = options;
         if blobs.is_empty() {
             return Ok(RunOutput {
@@ -2295,57 +2303,61 @@ impl<T> WalrusNodeClient<T> {
 
         let run_output = uploader
             .run_distributed_upload(
-                move |node, work| async move {
-                    tracing::debug!(
-                        node = ?node.node_index,
-                        work_items = work.len(),
-                        intent = ?upload_intent,
-                        "upload worker starting"
-                    );
-                    let mut stored = Vec::with_capacity(work.len());
-                    for item in &work {
-                        let response = node
-                            .store_metadata_and_pairs_without_confirmation(
-                                &item.metadata,
-                                item.pair_indices.iter().map(|&i| &item.pairs[i]),
-                                upload_intent,
-                            )
-                            .await;
+                move |node, work| {
+                    let metrics = metrics.clone();
+                    async move {
+                        tracing::debug!(
+                            node = ?node.node_index,
+                            work_items = work.len(),
+                            intent = ?upload_intent,
+                            "upload worker starting"
+                        );
+                        let mut stored = Vec::with_capacity(work.len());
+                        for item in &work {
+                            let response = node
+                                .store_metadata_and_pairs_without_confirmation(
+                                    &item.metadata,
+                                    item.pair_indices.iter().map(|&i| &item.pairs[i]),
+                                    upload_intent,
+                                    metrics.as_deref(),
+                                )
+                                .await;
 
-                        match response.result {
-                            Ok(()) => {
-                                tracing::debug!(
-                                    node = ?node.node_index,
-                                    blob_id = %item.blob_id(),
-                                    intent = ?upload_intent,
-                                    "store without confirmation succeeded"
-                                );
-                                stored.push(*item.blob_id())
-                            }
-                            Err(err) => {
-                                tracing::warn!(
-                                    node = ?node.node_index,
-                                    blob_id = %item.blob_id(),
-                                    intent = ?upload_intent,
-                                    ?err,
-                                    "store without confirmation failed"
-                                );
-                                return NodeResult::new(
-                                    response.committee_epoch,
-                                    response.weight,
-                                    response.node,
-                                    Err(err),
-                                );
+                            match response.result {
+                                Ok(()) => {
+                                    tracing::debug!(
+                                        node = ?node.node_index,
+                                        blob_id = %item.blob_id(),
+                                        intent = ?upload_intent,
+                                        "store without confirmation succeeded"
+                                    );
+                                    stored.push(*item.blob_id())
+                                }
+                                Err(err) => {
+                                    tracing::warn!(
+                                        node = ?node.node_index,
+                                        blob_id = %item.blob_id(),
+                                        intent = ?upload_intent,
+                                        ?err,
+                                        "store without confirmation failed"
+                                    );
+                                    return NodeResult::new(
+                                        response.committee_epoch,
+                                        response.weight,
+                                        response.node,
+                                        Err(err),
+                                    );
+                                }
                             }
                         }
-                    }
 
-                    NodeResult::new(
-                        node.committee_epoch,
-                        node.n_owned_shards().get().into(),
-                        node.node_index,
-                        Ok(stored),
-                    )
+                        NodeResult::new(
+                            node.committee_epoch,
+                            node.n_owned_shards().get().into(),
+                            node.node_index,
+                            Ok(stored),
+                        )
+                    }
                 },
                 event_sender,
                 tail_handling,
@@ -2408,6 +2420,7 @@ impl<T> WalrusNodeClient<T> {
             tail_handle_collector: store_args.tail_handle_collector.clone(),
             target_nodes,
             initial_completed_weight: initial_completed_weight.as_ref(),
+            metrics: store_args.metrics.clone(),
         };
 
         let (confirmation_results, upload_result) = self
@@ -2535,6 +2548,7 @@ impl<T> WalrusNodeClient<T> {
                         initial_completed_weight: initial_weight.as_ref(),
                         stop_scheduling: None,
                         cancellation: None,
+                        metrics: store_args.metrics.clone(),
                     },
                 )
                 .await?;
