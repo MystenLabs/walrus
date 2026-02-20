@@ -55,7 +55,9 @@ Then, deploy the website:
 $ site-builder --context=testnet deploy ./walrus-snake --epochs 1
 ```
 
-Depending on the network, the duration of an epoch might vary. Currently on Walrus Testnet, the duration of an epoch is 1 day. On Mainnet, the duration of an epoch is 2 weeks.
+On Walrus Testnet, the duration of an epoch is 1 day, meaning this site will only be available for up to 24 hours. To make it available for longer, specify a larger number of epochs using the `--epochs` flag.
+
+On Mainnet, the duration of an epoch is 2 weeks.
 
 ## View your deployed site
 
