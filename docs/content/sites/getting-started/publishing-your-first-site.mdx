@@ -8,13 +8,15 @@ The Walrus Sites `site-builder` uploads your website's files to [Walrus](https:/
 
 To create a Walrus Site, your website's source files must include an `index.html` at the root to serve as the entry point. For example, the [`walrus-snake`](https://github.com/MystenLabs/example-walrus-sites/walrus-snake) site has the following assets:
 
-```sh
-|-- Oi-Regular.ttf
-|-- file.svg
-|-- index.html
-|-- walrus.svg
 ```
-
+walrus-snake/
+├── file.svg
+├── index.html
+├── Oi-Regular.ttf
+├── walrus.svg
+└── ws-resources.json
+```
+ 
 You can find additional examples in the [Walrus Sites example repository](https://github.com/MystenLabs/example-walrus-sites).
 <Tabs>
 <TabItem value="prereq" label="Prerequisites">
@@ -99,12 +101,6 @@ This output shows the following:
 
 When a site is updated, all site resources are deleted and re-uploaded together as a single quilt, even resources that have not changed. 
 
-:::info
-
-If you are building a Walrus Site using a web framework (such as React, Node.js, or Django), ensure you rebuild your website before updating the corresponding Walrus Site.
-
-:::
-
 To update the example `walrus-snake` site, like changing the title from "eat all the blobs!" to "Glob all the Blobs!", make the edit in the `./walrus-snake/index.html` file.
 
 You can then update the existing site by running the `deploy` command again:
@@ -149,3 +145,44 @@ Site object ID: 0x4a1be0fb330215c532d74c70d34bc35f185cc7ce025e04b9ad42bc4ac8eda5
     💡 Tip: You may also bring your own domain (/docs/sites/custom-domains/bringing-your-own-domain)
             or find third-party hosted testnet portals.
 ```
+
+## Using a web framework
+
+If you are building a Walrus Site using a web framework (such as React, Node.js, or Django), ensure you point the `site-builder` to your site's build folder when running the `deploy` command.
+
+For example, if you are using a React framework such as Vite, your directory structure should resemble the following:
+
+```
+my-website/
+├── node_modules/
+├── public/
+├── src/
+├── index.html
+├── package.json
+├── vite.config.js
+└── .gitignore
+```
+
+Running `npm run build` generates a `build` folder in your project root. Note that the folder name may vary by framework (Vite calls it `dist`).
+
+```
+my-website/
+├── dist/                  
+│   ├── assets/
+│   └── index.html
+├── node_modules/
+├── public/
+├── src/
+├── index.html
+├── package.json
+├── vite.config.js
+└── .gitignore
+```
+
+Now you can publish your website using the `site-builder`.
+
+```sh
+$ site-builder --context=testnet deploy --epochs 1 my-website/dist
+```
+
+To update your Walrus Site, ensure you rebuild your website first before running `deploy` again.
