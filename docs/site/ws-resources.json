@@ -4,42 +4,6 @@
       "Content-Disposition": "inline",
       "content-type": "text/markdown; charset=utf-8"
     },
-    "/markdown/design/architecture.md": {
-      "Content-Disposition": "inline",
-      "content-type": "text/markdown; charset=utf-8"
-    },
-    "/markdown/design/encoding.md": {
-      "Content-Disposition": "inline",
-      "content-type": "text/markdown; charset=utf-8"
-    },
-    "/markdown/design/future.md": {
-      "Content-Disposition": "inline",
-      "content-type": "text/markdown; charset=utf-8"
-    },
-    "/markdown/design/objectives_use_cases.md": {
-      "Content-Disposition": "inline",
-      "content-type": "text/markdown; charset=utf-8"
-    },
-    "/markdown/design/operations-off-chain.md": {
-      "Content-Disposition": "inline",
-      "content-type": "text/markdown; charset=utf-8"
-    },
-    "/markdown/design/operations-sui.md": {
-      "Content-Disposition": "inline",
-      "content-type": "text/markdown; charset=utf-8"
-    },
-    "/markdown/design/operations.md": {
-      "Content-Disposition": "inline",
-      "content-type": "text/markdown; charset=utf-8"
-    },
-    "/markdown/design/overview.md": {
-      "Content-Disposition": "inline",
-      "content-type": "text/markdown; charset=utf-8"
-    },
-    "/markdown/design/properties.md": {
-      "Content-Disposition": "inline",
-      "content-type": "text/markdown; charset=utf-8"
-    },
     "/markdown/dev-guide/components.md": {
       "Content-Disposition": "inline",
       "content-type": "text/markdown; charset=utf-8"
@@ -57,14 +21,6 @@
       "content-type": "text/markdown; charset=utf-8"
     },
     "/markdown/dev-guide/sui-struct.md": {
-      "Content-Disposition": "inline",
-      "content-type": "text/markdown; charset=utf-8"
-    },
-    "/markdown/example-1.md": {
-      "Content-Disposition": "inline",
-      "content-type": "text/markdown; charset=utf-8"
-    },
-    "/markdown/example-2.md": {
       "Content-Disposition": "inline",
       "content-type": "text/markdown; charset=utf-8"
     },
@@ -505,9 +461,43 @@
       "content-type": "text/markdown; charset=utf-8"
     }
   },
+    "/markdown/examples/checkpoint-data.md": {
+    "Content-Disposition": "inline",
+    "content-type": "text/markdown; charset=utf-8"
+  },
+  "/markdown/examples/data-marketplace.md": {
+    "Content-Disposition": "inline",
+    "content-type": "text/markdown; charset=utf-8"
+  },
+  "/markdown/examples/javascript.md": {
+    "Content-Disposition": "inline",
+    "content-type": "text/markdown; charset=utf-8"
+  },
+  "/markdown/examples/move.md": {
+    "Content-Disposition": "inline",
+    "content-type": "text/markdown; charset=utf-8"
+  },
+  "/markdown/examples/python.md": {
+    "Content-Disposition": "inline",
+    "content-type": "text/markdown; charset=utf-8"
+  },
+  "/markdown/examples/walrus-relay.md": {
+    "Content-Disposition": "inline",
+    "content-type": "text/markdown; charset=utf-8"
+  },
   "routes": {
     "/404": "/404.html",
+    "/docs/examples/data-marketplace": "/docs/examples/data-marketplace.html",  
+    "/docs/examples/data-marketplace.md": "/markdown/examples/data-marketplace.md",
     "/blog": "/blog.html",
+    "/docs/examples/walrus-relay": "/docs/examples/walrus-relay.html",
+    "/docs/examples/walrus-relay.md": "/markdown/examples/walrus-relay.md",
+    "/docs/examples/python": "/docs/examples/python.html",
+    "/docs/examples/python.md": "/markdown/examples/python.md",
+    "/docs/examples/move": "/docs/examples/move.html",
+    "/docs/examples/move.md": "/markdown/examples/move.md",
+    "/docs/examples/javascript": "/docs/examples/javascript.html",
+    "/docs/examples/javascript.md": "/markdown/examples/javascript.md",
     "/blog/01_announcing_walrus": "/blog/01_announcing_walrus.html",
     "/blog/02_devnet_update": "/blog/02_devnet_update.html",
     "/blog/03_whitepaper": "/blog/03_whitepaper.html",
@@ -515,22 +505,24 @@
     "/blog/05_testnet_redeployment": "/blog/05_testnet_redeployment.html",
     "/blog/06_mainnet": "/blog/06_mainnet.html",
     "/blog/archive": "/blog/archive.html",
-    "/design/architecture.html": "/design/architecture/index.html",
-    "/design/architecture/index": "/design/architecture/index.html",
-    "/design/encoding.html": "/design/encoding/index.html",
-    "/design/encoding/index": "/design/encoding/index.html",
-    "/design/objectives_use_cases.html": "/design/objectives_use_cases/index.html",
-    "/design/objectives_use_cases/index": "/design/objectives_use_cases/index.html",
-    "/design/operations-off-chain.html": "/design/operations-off-chain/index.html",
-    "/design/operations-off-chain/index": "/design/operations-off-chain/index.html",
-    "/design/operations-sui.html": "/design/operations-sui/index.html",
-    "/design/operations-sui/index": "/design/operations-sui/index.html",
-    "/design/operations.html": "/design/operations/index.html",
-    "/design/operations/index": "/design/operations/index.html",
-    "/design/overview.html": "/design/overview/index.html",
-    "/design/overview/index": "/design/overview/index.html",
-    "/design/properties.html": "/design/properties/index.html",
-    "/design/properties/index": "/design/properties/index.html",
+    "/design/architecture.html": "/system-overview/core-concepts/index.html",
+    "/design/architecture/index": "/system-overview/core-concepts/index.html",
+    "/design/encoding.html": "/system-overview/red-stuff/index.html",
+    "/design/encoding/index": "/system-overview/red-stuff/index.html",
+    "/design/objectives_use_cases.html": "/system-overview/core-concepts/index.html",
+    "/design/objectives_use_cases/index": "/system-overview/core-concepts/index.html",
+    "/design/operations-off-chain.html": "/system-overview/operations/index.html",
+    "/design/operations-off-chain/index": "/system-overview/operations/index.html",
+    "/design/operations-sui.html": "/system-overview/operations/index.html",
+    "/design/operations-sui/index": "/system-overview/operations/index.html",
+    "/design/operations.html": "/system-overview/operations/index.html",
+    "/system-overview/operations/index": "/design/operations/index.html",
+    "/design/overview.html": "/system-overview/core-concepts/index.html",
+    "/design/overview/index": "/system-overview/core-concepts/index.html",
+    "/design/properties.html": "/system-overview/core-concepts/index.html",
+    "/design/properties/index": "/system-overview/core-concepts/index.html",
+    "/docs/examples/checkpoint-data": "/docs/examples/checkpoint-data.html",
+    "/docs/examples/checkpoint-data.md": "/markdown/examples/checkpoint-data.md",
     "/dev-guide/components.html": "/dev-guide/components/index.html",
     "/dev-guide/components/index": "/dev-guide/components/index.html",
     "/dev-guide/costs.html": "/dev-guide/costs/index.html",
@@ -542,23 +534,24 @@
     "/dev-guide/sui-struct.html": "/dev-guide/sui-struct/index.html",
     "/dev-guide/sui-struct/index": "/dev-guide/sui-struct/index.html",
     "/docs/data-security.md": "/markdown/data-security.md",
-    "/docs/design/architecture": "/docs/design/architecture.html",
-    "/docs/design/architecture.md": "/markdown/design/architecture.md",
-    "/docs/design/encoding": "/docs/design/encoding.html",
-    "/docs/design/encoding.md": "/markdown/design/encoding.md",
-    "/docs/design/future.md": "/markdown/design/future.md",
-    "/docs/design/objectives_use_cases": "/docs/design/objectives_use_cases.html",
-    "/docs/design/objectives_use_cases.md": "/markdown/design/objectives_use_cases.md",
-    "/docs/design/operations": "/docs/design/operations.html",
-    "/docs/design/operations-off-chain": "/docs/design/operations-off-chain.html",
-    "/docs/design/operations-off-chain.md": "/markdown/design/operations-off-chain.md",
-    "/docs/design/operations-sui": "/docs/design/operations-sui.html",
-    "/docs/design/operations-sui.md": "/markdown/design/operations-sui.md",
-    "/docs/design/operations.md": "/markdown/design/operations.md",
-    "/docs/design/overview": "/docs/design/overview.html",
-    "/docs/design/overview.md": "/markdown/design/overview.md",
-    "/docs/design/properties": "/docs/design/properties.html",
-    "/docs/design/properties.md": "/markdown/design/properties.md",
+    "/docs/design/architecture": "/docs/system-overview/core-concepts.html",
+    "/docs/design/architecture.md": "/markdown/system-overview/core-concepts.md",
+    "/docs/design/encoding": "/docs/system-overview/red-stuff.html",
+    "/docs/design/encoding.md": "/markdown/system-overview/red-stuff.md",
+    "/docs/system-overview/red-stuff": "/docs/system-overview/red-stuff.html",
+    "/docs/system-overview/red-stuff.md": "/markdown/system-overview/red-stuff.md",
+    "/docs/design/objectives_use_cases": "/docs/system-overview/core-concepts.html",
+    "/docs/design/objectives_use_cases.md": "/markdown/system-overview/core-concepts.md",
+    "/docs/design/operations": "/docs/system-overview/operations.html",
+    "/docs/design/operations-off-chain": "/docs/system-overview/operations.html",
+    "/docs/design/operations-off-chain.md": "/markdown/system-overview/operations.md",
+    "/docs/design/operations-sui": "/docs/system-overview/operations.html",
+    "/docs/design/operations-sui.md": "/markdown/system-overview/operations.md",
+    "/docs/design/operations.md": "/markdown/system-overview/operations.md",
+    "/docs/design/overview": "/docs/system-overview/core-concepts.html",
+    "/docs/design/overview.md": "/markdown/system-overview/core-concepts.md",
+    "/docs/design/properties": "/docs/system-overview/core-concepts.html",
+    "/docs/design/properties.md": "/markdown/system-overview/core-concepts.md",
     "/docs/dev-guide/components": "/docs/dev-guide/components.html",
     "/docs/dev-guide/components.md": "/markdown/dev-guide/components.md",
     "/docs/dev-guide/costs": "/docs/dev-guide/costs.html",

@@ -1,0 +1,143 @@
+{/* https://linear.app/mysten-labs/issue/DOCS-633/system-overviewstorage-costs */}
+
+Storing blobs on Walrus Mainnet incurs 2 separate costs:
+
+- **WAL** for the storage operation. See [WAL tokenomics](https://www.walrus.xyz/wal-token) and the [Walrus delegated proof of stake system](/walrus.pdf) for more details.
+
+- **SUI** for executing transactions on Sui Mainnet. See [SUI tokenomics](https://docs.sui.io/concepts/tokenomics) and [SUI gas fee calculation](https://docs.sui.io/concepts/tokenomics/gas-in-sui) for more details.
+
+:::caution
+
+There are plans to stabilize costs to USD so that storage fees are not subject to WAL fluctuations.
+
+:::
+
+## Cost calculator
+
+Use the [Walrus Cost Calculator](https://costcalculator.wal.app/) to estimate total storage costs interactively.
+
+Walrus storage costs are a combination of WAL and SUI fees incurred from storage resources, upload costs, Sui transaction fees, and Sui object storage resources.
+
+#### Storage resources
+
+You need a storage resource with adequate capacity and epoch duration to store a blob. You can purchase storage resources from the Walrus system contract by paying WAL, which is used by the client and aggregators while free space is available, or you can receive them from other parties.
+
+The cost of a storage resource is based on the blob's **encoded size**: the erasure-coded size of the blob (roughly 5x the original) plus fixed per-blob metadata of up to ~64 MB. For blobs smaller than 10 MB, this fixed metadata cost dominates. See [Reducing costs for small blobs](#reducing-costs-for-small-blobs-with-quilt) for optimization strategies.
+
+#### Storage fund
+
+The storage fund holds WAL for storing blobs across 1 or more epochs. When you purchase storage space from the system object, payments are allocated across the relevant epochs. At the end of each epoch, funds are distributed to storage nodes based on performance, which is determined through light audits that nodes conduct on each other.
+
+#### Upload fees
+
+Registering a blob costs WAL to cover upload costs. This ensures that deleting blobs and reusing storage resources remains sustainable for the system.
+
+#### Sui transaction fees
+
+Storing a blob involves up to 3 on-chain [Sui transactions](https://docs.sui.io/concepts/transactions), each of which incurs SUI gas fees.
+
+1. Acquiring a storage resource (`reserve_space`)
+
+1. Registering the blob
+
+1. Certifying the blob as available
+
+#### Sui object storage
+
+Walrus blobs are represented as [Sui objects](https://docs.sui.io/guides/developer/objects/object-model) on-chain. Creating these objects deposits SUI into the [Sui storage fund](https://docs.sui.io/concepts/sui-architecture/sui-storage#storage-fund), most of which is refunded when you delete the objects.
+
+## Measuring costs
+
+The most accurate way to measure costs is to upload a blob and observe SUI and WAL costs in a Sui explorer or through Sui RPC calls. Blob contents do not affect cost.
+
+For example, the following command results in 2 transactions:
+```sh
+$ walrus store <FILENAME> --epochs 1
+```
+
+1. The first transaction calls `reserve_space` (if no appropriately sized storage resource already exists) and `register_blob`. This affects both SUI and WAL balances. The SUI cost of `register_blob` is independent of blob size or epoch lifetime. WAL costs are linear in encoded size (both erasure coding and metadata). The SUI cost of `reserve_space` grows with epoch count, and WAL costs scale with both encoded size and epoch count.
+
+1. The second transaction calls `certify_blob` and only affects the SUI balance. Its SUI cost is independent of blob size or epoch lifetime.
+
+To observe the [storage rebate](https://docs.sui.io/concepts/sui-architecture/sui-storage#storage-rebates), burn the resulting blob object:
+```sh
+$ walrus burn-blobs --object-ids <BLOB_OBJECT_ID>
+```
+
+Burning a blob's corresponding object on Sui does not delete the blob data on Walrus.
+
+#### Estimating costs without submitting transactions
+
+These commands help estimate costs without submitting transactions:
+
+- `walrus info` — displays current costs for buying storage resources and uploads.
+
+- `walrus store --dry-run ...` — outputs the encoded size used in WAL cost calculations without submitting any transactions.
+
+## Storage resource lifecycle
+
+#### Acquiring storage
+
+Purchase storage space from the system object by paying into the storage fund for a specified duration of 1 or more epochs. You can split, merge, or transfer storage resources. The maximum duration you can purchase in advance is approximately 2 years.
+
+#### Assigning a blob ID
+
+After acquiring storage, assign a blob ID to indicate intent to store. This emits a Move resource event, signaling storage nodes to expect and authorize off-chain storage operations.
+
+#### Certifying availability
+
+After uploading blob data off-chain, certify availability on-chain:
+
+1. Upload blob slivers to storage nodes off-chain.
+2. Receive an availability certificate from storage nodes.
+3. Upload the certificate on-chain.
+4. The system checks the certificate against the current Walrus committee.
+5. If valid, the system emits an availability event for the blob ID.
+
+The availability event marks the [point of availability](/docs/system-overview/core-concepts) for the blob, after which Walrus guarantees its availability for the specified duration.
+
+#### Extending storage
+
+You can extend a certified blob's storage at any time by attaching a storage object with a longer expiry period. Smart contracts can use this mechanism to extend blob availability indefinitely, as long as funds are available.
+
+#### Handling inconsistent blobs
+
+If a blob ID is not correctly encoded, an [inconsistency proof certificate](/docs/system-overview/red-stuff) can be submitted on-chain. This emits an inconsistent blob event, signaling that reads for that blob ID always return `None` and that storage nodes can delete its slivers (except for an indicator to return `None`).
+
+## Acquiring storage resources
+
+You can acquire storage resources through 3 methods:
+
+1. **Purchase from the system contract:** Pay WAL to buy a storage resource for a specific size and duration. Run `walrus info` to see current prices.
+
+1. **Reuse existing resources:** The CLI automatically uses any user-owned storage resource of appropriate size and duration before purchasing new storage.
+
+1. **Transfer or trade:** Storage resources can be transferred between users or acquired through marketplace implementations.
+
+## Optimizing costs
+
+#### Reducing costs for small blobs with Quilt
+
+[Walrus Quilt](/docs/system-overview/quilt) is a batch storage tool that amortizes metadata costs across multiple blobs stored together. It can also significantly reduce Sui computation and storage costs.
+
+#### Buy storage resources in bulk
+
+Purchasing larger storage resources at once, both in size and duration, minimizes SUI gas costs per unit. You can split and merge these resources as needed for smaller blobs or shorter durations.
+
+#### Use Sui PTBs efficiently
+
+Pack multiple smart contract calls into a single [Sui programmable transaction block (PTB)](https://docs.sui.io/concepts/transactions/prog-txn-blocks) to manage resource acquisition, splitting, and merging. This reduces both latency and costs.
+
+#### Reclaim and reuse storage
+
+You can reclaim storage resources by deleting non-expired blobs that were created as deletable. If your app only needs to store data for less than 1 epoch (2 weeks on Mainnet), actively deleting blobs and reusing storage space reduces costs.
+
+#### Batch blob operations
+
+You can register or certify multiple blobs in a single Sui PTB to reduce latency and gas costs. The CLI uses this approach when uploading multiple blobs at once.
+
+#### Manage blob object lifecycle
+
+Each stored blob creates a small Sui object. Once a blob expires, burn the object to reclaim most of its Sui storage cost through a [storage rebate](https://docs.sui.io/concepts/sui-architecture/sui-storage#storage-rebates). Burning the object does not delete the blob data on Walrus.
+
+If you no longer need lifecycle operations (extending lifetime, deleting, or adding attributes), burn the blob object through the CLI or a smart contract call to save on Sui storage costs. Depending on the relative costs of SUI and WAL, it might be cheaper to burn a long-lived blob object and re-register and re-certify it near expiration than to hold the object for the full duration.

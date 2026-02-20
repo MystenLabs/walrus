@@ -30,7 +30,7 @@ const sidebars = {
       collapsed: true,
       items: [
         'system-overview/core-concepts',
-        'system-overview/encoding',
+        'system-overview/red-stuff',
         'system-overview/operations',
         'system-overview/available-networks',
         'system-overview/storage-costs',
@@ -217,6 +217,13 @@ const sidebars = {
             "operator-guide/upload-relay",
         ],
     },
+    ],
+    examplesSidebar: [
+      'examples/checkpoint-data',
+      'examples/javascript',
+      'examples/move',
+      'examples/python',
+      'examples/walrus-relay'
     ],
 };
 

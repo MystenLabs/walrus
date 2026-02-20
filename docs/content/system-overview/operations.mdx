@@ -8,7 +8,19 @@ Blobs can be interacted with through familiar file system operations such as upl
 
 ## Upload
 
-The steps involved in uploading data to Walrus can be executed by the binary client or a publisher that accepts and publishes blobs through HTTP. These steps are:
+Use the following command to upload a file to Walrus
+
+```sh
+$ walrus store file.txt --epochs 2 --context testnet
+```
+
+:::danger
+
+All blobs stored in Walrus are public and discoverable by all. Do not store secrets or private data without additional confidentiality measures, such as encrypting with [Seal](/docs/data-security).
+
+:::
+
+When you run this command, the steps executed by the client are:
 
 1. Acquire a storage resource of appropriate size and duration on-chain, either directly from the Walrus system object or a secondary market. Storage resources can be split, merged, and transferred.
 
@@ -32,20 +44,9 @@ The certificate of availability is created from 2/3 of the returned shard signat
 
 - **Correct blob retrieval:** A read after the PoA for a blob \(F\) stored by a correct user returns \(F\). Correctly stored blobs are always retrievable.
 
+These steps are also performed by a publisher that accepts and publishes blobs through HTTP.
+
 ![Write paths of Walrus](./images/WriteFlow.png)
-
-#### Uploading through CLI
-
-Use the following command to store a file as a blob:
-```sh
-$ walrus store file.txt --epochs 2 --context testnet
-```
-
-:::danger
-
-All blobs stored in Walrus are public and discoverable by all. Do not store secrets or private data without additional confidentiality measures, such as encrypting with [Seal](/docs/data-security).
-
-:::
 
 #### Maximum blob size
 
@@ -55,7 +56,15 @@ Blobs are stored for the number of epochs specified at the time they are stored.
 
 ## Read
 
-Read operations are performed by the binary client or the aggregator service that exposes an HTTP interface to read blobs. Reads are resilient and succeed in recovering the blob if up to 1/3 of storage nodes are unavailable. In most cases, after synchronization is complete, blobs can be read even if 2/3 of storage nodes are down.
+To read a blob after it has been stored on Walrus, use the `walrus read` command and provide the blob ID:
+
+```sh
+$ walrus read <blob-id> --context testnet
+```
+
+Reading a blob does not save it to a local storage location. See [download](#download) for more information.
+
+Read operations are performed by the client or the aggregator service that exposes an HTTP interface to read blobs. Reads are resilient and succeed in recovering the blob if up to 1/3 of storage nodes are unavailable. In most cases, after synchronization is complete, blobs can be read even if 2/3 of storage nodes are down.
 
 Reading blobs from Walrus can occur directly or through aggregators and caches. The operations are identical whether performed by end users, aggregators, or caches experiencing cache misses. In practice, most reads occur through caches for frequently accessed blobs and do not require requests to storage nodes.
 
@@ -71,18 +80,10 @@ The read flow uses the following steps:
 
 1. Optionally, the result is cached and can be served without reconstruction until it is evicted from the cache. Requests to the cache for the blob return the blob contents or an inconsistency proof.
 
-#### Reading through CLI
-
-To read a blob after it has been stored on Walrus, use the `walrus read` command and provide the blob ID:
-```sh
-$ walrus read <blob-id> --context testnet
-```
-
-Reading a blob does not save it to a local storage location. See [download](#download) for more information.
-
 ## Download
 
 To download a blob and save it on your local machine, run the following command:
+
 ```sh
 $ walrus read <blob-id> --out file.txt --context testnet
 ```

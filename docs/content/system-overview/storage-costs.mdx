@@ -100,7 +100,7 @@ After uploading blob data off-chain, certify availability on-chain:
 4. The system checks the certificate against the current Walrus committee.
 5. If valid, the system emits an availability event for the blob ID.
 
-The availability event marks the [point of availability](/docs/design/properties) for the blob, after which Walrus guarantees its availability for the specified duration.
+The availability event marks the [point of availability](/docs/system-overview/core-concepts) for the blob, after which Walrus guarantees its availability for the specified duration.
 
 #### Extending storage
 
@@ -108,7 +108,7 @@ You can extend a certified blob's storage at any time by attaching a storage obj
 
 #### Handling inconsistent blobs
 
-If a blob ID is not correctly encoded, an [inconsistency proof certificate](/docs/design/encoding) can be submitted on-chain. This emits an inconsistent blob event, signaling that reads for that blob ID always return `None` and that storage nodes can delete its slivers (except for an indicator to return `None`).
+If a blob ID is not correctly encoded, an [inconsistency proof certificate](/docs/system-overview/red-stuff) can be submitted on-chain. This emits an inconsistent blob event, signaling that reads for that blob ID always return `None` and that storage nodes can delete its slivers (except for an indicator to return `None`).
 
 ## Acquiring storage resources
 

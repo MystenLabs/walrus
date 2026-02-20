@@ -1,7 +1,7 @@
 ---
 title: Walrus Fundamentals
-description: "Technical reference for Walrus Sui smart contracts including blob objects, storage resources, and system events for developers."
-keywords: ["walrus", "sui structures", "smart contracts", "blob objects", "storage resources", "events", "system object", "staking", "move contracts"]
+description: "Technical reference for Walrus fundamentals, including architecture, data storage, and data retreival."
+keywords: [ placeholder ]
 ---
 
 Data is stored on Walrus as blobs. Each blob is an immutable array of bytes. Any type of file, such as text, video, or source code, can be stored on Walrus. All blobs uploaded to Walrus are publicly available. To secure data on Walrus, consider an [encryption service like Seal](https://seal-docs.wal.app/).
@@ -32,7 +32,7 @@ Users might also exhibit malicious behavior, such as refusing to pay for service
 
 Storage nodes manage the actual data storage on Walrus. Each storage node holds 1 or more shards during a storage epoch. At any given storage epoch, a storage node associates with 1 or more shards.
 
-Every blob undergoes [erasure encoding](/docs/design/encoding), which splits it into many **slivers**. The slivers from each stored blob are distributed across all shards in the system. A node stores all slivers belonging to its assigned shards and serves them upon request.
+Every blob undergoes [erasure encoding](/docs/system-overview/red-stuff), which splits it into many **slivers**. The slivers from each stored blob are distributed across all shards in the system. A node stores all slivers belonging to its assigned shards and serves them upon request.
 
 A smart contract on Sui controls how shards are assigned to storage nodes. These assignments occur within storage epochs, which last 2 weeks on Mainnet. Walrus assumes that more than 2/3 of shards are managed by honest storage nodes within each storage epoch. The system tolerates up to 1/3 of shards being controlled by malicious or faulty storage nodes. This tolerance level applies both within individual storage epochs and across transitions between epochs.
 
@@ -94,7 +94,7 @@ Aggregators are clients that reconstruct blobs from individual slivers and serve
 
 #### Publishers
 
-Publishers are clients that help end users store blobs through protocols like HTTP while using less bandwidth and offering custom logic. Publishers are optional because users can directly interact with Sui and storage nodes to store blobs. End users can verify that a publisher performed correctly by checking for an on-chain event associated with the blob's **[point of availability](/docs/design/properties)**. Users can then either read the blob from Walrus to confirm it is accessible, or encode the blob themselves and compare the result to the blob ID in the certificate. Publishers streamline the storage process by:
+Publishers are clients that help end users store blobs through protocols like HTTP while using less bandwidth and offering custom logic. Publishers are optional because users can directly interact with Sui and storage nodes to store blobs. End users can verify that a publisher performed correctly by checking for an on-chain event associated with the blob's **[point of availability](/docs/system-overview/core-concepts)**. Users can then either read the blob from Walrus to confirm it is accessible, or encode the blob themselves and compare the result to the blob ID in the certificate. Publishers streamline the storage process by:
 
 - Receiving a blob through protocols like HTTP
 
@@ -152,7 +152,7 @@ When data is uploaded to Walrus, the following process occurs:
 
     Public functions associated with these objects can be found in the respective [`storage_resource`](https://github.com/MystenLabs/walrus/tree/main/contracts/walrus/sources/system/storage_resource.move) and [`blob`](https://github.com/MystenLabs/walrus/tree/main/contracts/walrus/sources/system/blob.move) Move modules. Storage resources can be split and merged in time and data capacity, and can be transferred between users, which allows complex contracts to be created.
 
-1. The blob is encoded, producing slivers and a blob ID. The same content always yields the same blob ID.
+1. The blob is encoded using the [RedStuff](/docs/system-overview/red-stuff) erasure code, producing slivers and a blob ID. The same content always yields the same blob ID.
 
 1. The blob is registered, indicating to the storage nodes that they should expect slivers to be stored. The storage resource on Sui is updated with the blob's ID, size, and storage duration. This emits an event.
 
@@ -172,7 +172,7 @@ When data is retrieved from Walrus, the following process occurs:
 
 1. Each returned sliver is checked against its authenticated signature from the metadata to ensure integrity.
 
-1. Once enough valid slivers are collected (>1/3 quorum), the client runs the RedStuff decoding algorithm to reconstruct the original blob.
+1. Once enough valid slivers are collected (>1/3 quorum), the client runs the [RedStuff](/docs/system-overview/red-stuff) decoding algorithm to reconstruct the original blob.
 
 1. The client verifies the reconstructed data by checking hashes of a subset of primary slivers (at least the first 334) against the metadata.
 
