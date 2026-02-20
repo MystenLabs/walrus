@@ -56,16 +56,13 @@ $ site-builder --context=testnet deploy ./walrus-snake --epochs 1
 ```
 
 On Walrus Testnet, the duration of an epoch is 1 day, meaning this site will only be available for up to 24 hours. To make it available for longer, specify a larger number of epochs using the `--epochs` flag.
-
-On Mainnet, the duration of an epoch is 2 weeks.
-
 ## View your deployed site
 
-How you access your site depends on which network you used:
+How you access your site depends on the network you deploy to:
 
-- **Mainnet sites**: Can be accessed through any Mainnet portal. To access your Walrus Site through https://wal.app, a [SuiNS name](/docs/sites/custom-domains/setting-a-suins-name) is required.
+- **Testnet sites**: Can be accessed through a [self-hosted or locally deployed portal](/docs/sites/portals/deploy-locally). There are no public Testnet portals.
 
-- **Testnet sites**: Can be accessed through a [self-hosted or local portal](/docs/sites/portals/deploy-locally). There are no public Testnet portals.
+- **Mainnet sites**: Can be accessed through the Mainnet portal `https://wal.app` operated by Mysten Labs . However, to access your Walrus Site through https://wal.app, a [SuiNS name](/docs/sites/custom-domains/setting-a-suins-name) is required. You will not be able to view your Mainnet site until a SuiNS name is configured for it.
 
 The console output at the end of a successful Walrus Sites deployment should look like the following:
 
