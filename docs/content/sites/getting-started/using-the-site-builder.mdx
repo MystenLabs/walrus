@@ -1,65 +1,141 @@
 ---
-title: Using the Site Builder
-description: "Complete guide to configuring the Walrus Sites site builder including wallet setup, package configuration, and advanced options."
-keywords: ["walrus sites", "site builder", "configuration", "sui wallet", "package setup", "gas budget", "rpc url", "walrus config"]
+title: Site Builder Reference
+description: "Complete guide to site-builder commands for publishing and updating a Walrus Site."
+keywords: ["walrus sites", "site builder", "commands", "deploy", "convert", "site map", "directory", "destroy", "update", "publish"]
 ---
 
-{/* https://linear.app/mysten-labs/issue/DOCS-664/sitesgetting-startedusing-the-site-builder */}
+This reference page provides details on `site-builder` configuration and CLI commands.
 
-This section describes in more detail the commands available through the `site-builder`.
+## Configuration file
 
-Add the `--help` flag to any command to get further details for the whole CLI (`site-builder --help`) or individual commands (for example, `site-builder update --help`).
+The `site-builder` tool requires a configuration file `sites-config.yaml` in one of the following default locations:
 
-## `deploy`
+- The current directory
+- `$XDG_CONFIG_HOME/walrus/`
+- `~/.config/walrus/`
+- `~/.walrus/`
 
-The `deploy` command is the primary command for managing your Walrus Site. The command takes a directory as input and creates a new Walrus Site from the resources contained within, and on subsequent calls, it updates the existing site.
+The configuration file specifies which Sui package to use, which wallet to use, the gas budget, and other operational details. The following is an example `sites-config.yaml`:
 
-### Behavior
+```yaml
+contexts:
+  testnet:
+    # module: site
+    # portal: wal.app
+    package: 0xf99aee9f21493e1590e7e5a9aea6f343a1f381031a04a732724871fc294be799
+    staking_object: 0xbe46180321c30aab2f8b3501e24048377287fa708018a5b7c2792b35fe339ee3
+    general:
+        wallet_env: testnet
+        walrus_context: testnet # Assumes a Walrus CLI setup with a multi-config containing the "testnet" context.
+        walrus_package: 0xd84704c17fc870b8764832c535aa6b11f21a95cd6f5bb38a9b07d2cf42220c66
+        # wallet_address: 0x1234...
+        # rpc_url: https://fullnode.testnet.sui.io:443
+        # wallet: /path/to/.sui/sui_config/client.yaml
+        # walrus_binary: /path/to/walrus
+        # walrus_config: /path/to/testnet/client_config.yaml
+        # gas_budget: 500000000
+  mainnet:
+    # module: site
+    # portal: wal.app
+    package: 0x26eb7ee8688da02c5f671679524e379f0b837a12f1d1d799f255b7eea260ad27
+    staking_object: 0x10b9d30c28448939ce6c4d6c6e0ffce4a7f8a4ada8248bdad09ef8b70e4a3904
+    general:
+        wallet_env: mainnet
+        walrus_context: mainnet # Assumes a Walrus CLI setup with a multi-config containing the "mainnet" context.
+        walrus_package: 0xfdc88f7d7cf30afab2f82e8380d11ee8f70efb90e863d1de8616fae1bb09ea77
+        # wallet_address: 0x1234...
+        # rpc_url: https://fullnode.mainnet.sui.io:443
+        # wallet: /path/to/.sui/sui_config/client.yaml
+        # walrus_binary: /path/to/walrus
+        # walrus_config: /path/to/mainnet/client_config.yaml
+        # gas_budget: 500000000
 
-The deploy command determines whether to publish a new site or update an existing one by looking for a site object ID. It finds the ID with the following priority:
+default_context: mainnet
+```
+
+If you want to have more control over the behavior of the `site-builder`, you can customize the following variables in the configuration file:
+
+| **Parameter** | **Type** | **Description** | **Default** |
+|---|---|---|---|
+| `package` | String (hex address) | The object ID of the Walrus Sites package on Sui for this context. This is the only parameter that is always required, and is already appropriately configured in `./sites-config.yaml`. You can find the latest package ID in the [Walrus Sites repository](https://github.com/MystenLabs/walrus-sites/tree/mainnet) on the Mainnet branch. | Preconfigured |
+| `module` | String | The Move module name within the package. | `site` |
+| `portal` | String | The portal domain used to display site URLs in CLI output. Does not affect site accessibility. | `wal.app` |
+| `staking_object` | String (hex address) | The object ID of the staking object for this context. | Preconfigured |
+| `general.wallet_env` | String | The Sui wallet environment to use. | Preconfigured |
+| `general.walrus_context` | String | The Walrus CLI context name to use. Requires a Walrus CLI multi-config containing the named context. | Preconfigured |
+| `general.walrus_package` | String (hex address) | The object ID of the Walrus package on Sui for this context. | Preconfigured |
+| `general.wallet_address` | String (hex address) | The Sui wallet address to use. | System-wide wallet from `sui client addresses` |
+| `general.rpc_url` | String (URL) | The URL of the Sui RPC node to use. | Inferred from wallet |
+| `general.wallet` | String (file path) | Path to the Sui wallet client configuration file. | System-wide wallet from `sui client addresses` |
+| `general.walrus_binary` | String (file path) | Path to the `walrus` binary. | Resolved from `$PATH` |
+| `general.walrus_config` | String (file path) | Path to the Walrus client configuration file. | Resolved from `$PATH` |
+| `general.gas_budget` | Integer | Maximum gas to spend per transaction, in MIST. | `500000000` (500M MIST) |
+| `default_context` | String | The name of the context to use when no context is specified through the CLI. | `mainnet` |
+
+## `site-builder` CLI commands
+
+The `site-builder` provides various CLI commands to help you publish and update your Walrus Site.
+
+:::info
+
+Add the `--help` flag to any command to get further details for the whole CLI (`site-builder --help`) or individual commands (such as `site-builder update --help`).
+
+:::
+
+### `deploy`
+
+The `deploy` command handles both publishing and updating your Walrus Site. It creates a new site from your desired directory on first run, and updates it on subsequent executions.
+
+#### Behavior
+
+The deploy command determines whether to publish a new site or update an existing one by looking for a Walrus Site `object_id`. It searches for an ID with the following priority:
 
 - An ID provided directly through the `--object-id <OBJECT_ID>` command-line flag.
 
 - An ID found in the `object_id` field of the `ws-resources.json` file.
 
-- If no ID is found by either method, deploy publishes a new site.
+- If no ID is found by either method, `deploy` publishes a new site.
 
-When a new site is published, its `object_id` is automatically saved back to `ws-resources.json`, streamlining future updates. 
+When a new site is published, its `object_id` is automatically saved to the `ws-resources.json` file, which lets you use `deploy` for any future updates to your site.
 
-The wallet you are using to update an existing site must be the owner of the Walrus Site object to be able to update it.
-
-### Usage
+#### Usage
 
 As shown by the command's help information, the typical usage is:
 
 ``` sh
 $ site-builder deploy [OPTIONS] --epochs <EPOCHS> <DIRECTORY>
 ```
-The `--epochs` flag specifies the number of epochs for which the site's resources are stored on Walrus (for example, 10). You can also use max to store for the maximum allowed duration. It is required and its value must be greater than 0.
 
-On Walrus Testnet, the epoch duration is **1 day**. On Walrus Mainnet, the epoch duration is **14 days**. Therefore, consider storing your site for a large number of epochs if you want to make it available for the following months. The maximum duration is set to 53 epochs.
+The `--epochs` flag is required and specifies the number of epochs for which the site's resources are stored on Walrus. Its value must be greater than 0, and you can use `max` to store for the maximum allowed duration. Walrus epoch durations are detailed in the [official Walrus network release schedule](https://www.walrus.xyz/network-release-schedule).
 
-If you are just uploading raw files without an `index.html`, you might want to use the `--list-directory` flag, which automatically creates an index page to browse the files.
+If you are only uploading raw files without an `index.html`, you might want to use the `--list-directory` flag, which automatically creates an index page to browse the uploaded files.
 
-### Migrating from `publish`/`update`
+Additionally, when using `deploy` to update an existing site, your [configured wallet](/docs/sites/getting-started/installing-the-site-builder#configuration) must own the corresponding Walrus Site object.
+
+#### Migrating from `publish` and `update`
 
 If you have a site that was previously managed with the `publish` and `update` commands, you can easily switch to the `deploy` command using one of the following methods:
 
-**Recommended: Use the `--object-id` CLI flag**
+<Tabs>
+<TabItem value="recommended" label="Recommended">
 
-Simply run the `deploy` command and provide your existing Site's Object ID through the `--object-id` flag:
+The recommended migration method uses the `--object-id` CLI flag.
+
+Simply run the `deploy` command and provide your existing site's object ID through the `--object-id` flag:
 
 ```sh
 $ site-builder deploy --object-id <YOUR_EXISTING_SITE_ID> --epochs <NUMBER> ./path/to/your/site
 ```
 
-On success, this updates your site and automatically creates (or updates if already existing) a `ws-resources.json` file with the site's object ID saved in the `object_id` field. Future deployments then use: 
+On success, this automatically creates or updates a `ws-resources.json` file containing the site's object ID in the `object_id` field. You can then remove the `--object-id` flag for all future deployments:
 
 ```sh
 $ site-builder deploy --epochs <NUMBER> ./path/to/your/site
 ```
 
-**Manual `ws-resources.json` setup**
+</TabItem>
+
+<TabItem value="manual" label="Manual">
 
 You can manually create or update a `ws-resources.json` file in your site's root directory and add the `object_id` field with your existing site's object ID.
 
@@ -69,46 +145,50 @@ You can manually create or update a `ws-resources.json` file in your site's root
 }
 ```
 
-Then, you can run:
+For future deployments, you can run:
 
 ```sh
 $ site-builder deploy --epochs <NUMBER> ./path/to/your/site
 ```
 
-## `convert`
+</TabItem>
+
+</Tabs>
+
+### `convert`
 
 The `convert` command converts an object ID in hex format to the equivalent Base36 format. This command is useful if you have the Sui object ID of a Walrus Site and want to know the subdomain where you can browse it.
 
-## `site-map`
+### `sitemap`
 
 The `sitemap` command shows the resources that compose the Walrus Site at the given object ID.
 
-## `list-directory`
+### `list-directory`
 
-With `list-directory`, you can obtain the `index.html` file that would be generated by running `publish` or `update` with the `--list-directory` flag. This is useful to see how the index page would look like before publishing it, and possibly editing to make it look nicer.
+With `list-directory`, you can obtain the `index.html` file that would be generated by running `deploy`, `publish`, or `update` with the `--list-directory` flag. This lets you preview the index page before deployment.
 
-## `destroy`
+### `destroy`
 
-Destroys both blockchain objects and Walrus assets of a site with the given object id.
+Destroys the blockchain objects and Walrus assets of a site with the given object ID.
 
-## `update-resource`
+### `update-resource`
 
-Adds or updates a single resource in a site, eventually replacing any pre-existing ones.
+Adds or updates a single resource in a site, replacing any pre-existing ones.
 
-## `publish`
+## Legacy commands
 
-The `deploy` command is the new standard for publishing and updating your Walrus Sites. Users are encouraged to migrate to the `deploy` command for a simpler and more robust experience.
+While the following commands are still supported, the `deploy` command is the new standard for publishing and updating your Walrus Sites. Users are encouraged to migrate to the `deploy` command for a simpler and more robust experience.
+
+### `publish`
 
 The `publish` command publishes a new site on Sui. The command takes a directory as input and creates a new Walrus Site from the resources contained within.
 
 The `--epochs` flag allows you to specify for how long the site data is stored on Walrus.
 
-The `publish` command also respects the instructions in the `ws-resources.json` configuration file. To know more, see the section on [specifying headers and routing](/docs/sites/configuration/setting-up-routing-rules).
+The `publish` command also respects the instructions in the `ws-resources.json` configuration file. To learn more, see the section on [specifying headers and routing](/docs/sites/configuration/setting-up-routing-rules).
 
-## `update`
-
-The `deploy` command is the new standard for publishing and updating your Walrus Sites. Users are encouraged to migrate to the `deploy` command for a simpler and more robust experience.
+### `update`
 
 This command is the equivalent of `publish`, but for updating an existing site. It takes the same arguments, with the addition of the Sui object ID of the site to update.
 
-The wallet you are using to call `update` must be the *owner* of the Walrus Site object to be able to update it.
+The wallet you are using to call `update` must be the owner of the Walrus Site object to be able to update it.
