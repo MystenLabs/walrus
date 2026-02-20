@@ -3291,6 +3291,7 @@ pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
                     currency: PriceCurrency::FROST,
                     storage_price: 5,
                     write_price: 1,
+                    price_update_threshold_percent: config::DEFAULT_PRICE_UPDATE_THRESHOLD_PERCENT,
                 },
                 node_capacity: 1_000_000_000,
             },

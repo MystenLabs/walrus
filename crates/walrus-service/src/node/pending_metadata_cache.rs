@@ -48,6 +48,10 @@ impl PendingMetadataCacheInner {
             .retain(|_, cached| now.saturating_duration_since(cached.inserted_at) < ttl);
     }
 
+    fn contains(&self, blob_id: &BlobId) -> bool {
+        self.entries.contains_key(blob_id)
+    }
+
     fn get(&self, blob_id: &BlobId) -> Option<Arc<VerifiedBlobMetadataWithId>> {
         self.entries
             .get(blob_id)
@@ -113,6 +117,14 @@ impl PendingMetadataCache {
             inner: RwLock::new(PendingMetadataCacheInner::new(max_entries, ttl)),
             metrics,
         }
+    }
+
+    pub async fn contains(&self, blob_id: &BlobId) -> bool {
+        let mut inner = self.inner.write().await;
+        inner.evict_expired(Instant::now());
+        let result = inner.contains(blob_id);
+        self.update_metrics(inner.len());
+        result
     }
 
     pub async fn get(&self, blob_id: &BlobId) -> Option<Arc<VerifiedBlobMetadataWithId>> {

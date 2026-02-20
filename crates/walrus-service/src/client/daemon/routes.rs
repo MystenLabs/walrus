@@ -1099,6 +1099,7 @@ pub(super) async fn put_blob<T: WalrusWriteClient>(
             query.optimizations(),
             blob_persistence,
             query.post_store_action(client.default_post_store_action()),
+            None,
         )
         .await
     {
