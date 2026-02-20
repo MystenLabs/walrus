@@ -382,8 +382,8 @@ fun extract_commission_to_burn_clears_blocked() {
 }
 
 #[test]
-/// add_commission does not affect the blocked amount; only advance_epoch does.
-fun add_commission_is_not_blocked() {
+/// add_commission with block=false does not affect the blocked amount.
+fun add_commission_unblocked() {
     let mut test = context_runner();
     let (wctx, ctx) = test.current();
     let mut pool = pool().commission_rate(10_00).build(&wctx, ctx);
@@ -403,7 +403,7 @@ fun add_commission_is_not_blocked() {
     assert_eq!(pool.blocked_commission_amount(), 100 * frost_per_wal());
 
     // Add 200 WAL commission externally (not blocked).
-    pool.add_commission(mint_wal_balance(200));
+    pool.add_commission(mint_wal_balance(200), false);
 
     // Total: 300. Blocked: 100. Collectable: 200.
     assert_eq!(pool.commission_amount(), 300 * frost_per_wal());
@@ -425,6 +425,88 @@ fun add_commission_is_not_blocked() {
     pool.withdraw_stake(sw, true, false, &wctx).destroy_for_testing();
     let (wctx, _) = test.next_epoch();
     pool.advance_epoch(mint_wal_balance(0), &wctx);
+    pool.destroy_empty();
+}
+
+#[test]
+/// add_commission with block=true blocks the added amount for collection.
+fun add_commission_blocked() {
+    let mut test = context_runner();
+    let (wctx, ctx) = test.current();
+    let mut pool = pool().commission_rate(10_00).build(&wctx, ctx);
+
+    // E0: Alice stakes 1000 WAL
+    let mut sw = pool.stake(mint_wal_balance(1000), &wctx, ctx);
+
+    // E1: Advance with 0 rewards (activates stake)
+    let (wctx, _) = test.next_epoch();
+    pool.advance_epoch(mint_wal_balance(0), &wctx);
+
+    // E2: Pool receives 1000 rewards -> 100 commission (10%)
+    let (wctx, ctx) = test.next_epoch();
+    pool.advance_epoch(mint_wal_balance(1000), &wctx);
+
+    // Blocked: 100.
+    assert_eq!(pool.blocked_commission_amount(), 100 * frost_per_wal());
+
+    // Add 200 WAL commission with block=true.
+    pool.add_commission(mint_wal_balance(200), true);
+
+    // Total: 300. Blocked: 100 + 200 = 300. Collectable: 0.
+    assert_eq!(pool.commission_amount(), 300 * frost_per_wal());
+    assert_eq!(pool.blocked_commission_amount(), 300 * frost_per_wal());
+
+    let auth = auth::authenticate_sender(ctx);
+    pool.collect_commission(auth).destroy_zero();
+
+    // Clear blocked and collect all.
+    pool.clear_blocked_commission();
+    let auth = auth::authenticate_sender(ctx);
+    let collected = pool.collect_commission(auth);
+    assert_eq!(collected.destroy_for_testing(), 300 * frost_per_wal());
+
+    // Cleanup: withdraw stake
+    pool.request_withdraw_stake(&mut sw, true, false, &wctx);
+    let (wctx, _) = test.next_epoch();
+    pool.advance_epoch(mint_wal_balance(0), &wctx);
+    pool.withdraw_stake(sw, true, false, &wctx).destroy_for_testing();
+    let (wctx, _) = test.next_epoch();
+    pool.advance_epoch(mint_wal_balance(0), &wctx);
+    pool.destroy_empty();
+}
+
+#[test]
+/// Multiple add_commission calls with block=true accumulate the blocked amount.
+fun add_commission_blocked_accumulates() {
+    let mut test = context_runner();
+    let (wctx, ctx) = test.current();
+    let mut pool = pool().commission_rate(0).build(&wctx, ctx);
+
+    // Add 100 WAL blocked, then 200 WAL blocked.
+    pool.add_commission(mint_wal_balance(100), true);
+    pool.add_commission(mint_wal_balance(200), true);
+
+    // Total: 300. Blocked: 300. Collectable: 0.
+    assert_eq!(pool.commission_amount(), 300 * frost_per_wal());
+    assert_eq!(pool.blocked_commission_amount(), 300 * frost_per_wal());
+
+    // Add 50 WAL unblocked.
+    pool.add_commission(mint_wal_balance(50), false);
+
+    // Total: 350. Blocked: 300. Collectable: 50.
+    assert_eq!(pool.commission_amount(), 350 * frost_per_wal());
+    assert_eq!(pool.blocked_commission_amount(), 300 * frost_per_wal());
+
+    let auth = auth::authenticate_sender(ctx);
+    let collected = pool.collect_commission(auth);
+    assert_eq!(collected.destroy_for_testing(), 50 * frost_per_wal());
+
+    // Clear and collect the rest.
+    pool.clear_blocked_commission();
+    let auth = auth::authenticate_sender(ctx);
+    let collected = pool.collect_commission(auth);
+    assert_eq!(collected.destroy_for_testing(), 300 * frost_per_wal());
+
     pool.destroy_empty();
 }
 

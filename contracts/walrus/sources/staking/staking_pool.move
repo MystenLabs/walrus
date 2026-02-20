@@ -426,20 +426,7 @@ public(package) fun advance_epoch(
     let commission_value =
         total_rewards * (pool.commission_rate as u128) / (N_BASIS_POINTS as u128);
     let commission = rewards.split(commission_value as u64);
-    pool.commission.join(commission);
-
-    // Track the new epoch's commission as blocked for collection until `voting_end`.
-    let blocked_key = NewEpochCommissionBlockedForCollection {};
-    let blocked_amount = commission_value as u64;
-    if (pool.extra_fields.contains(blocked_key)) {
-        *pool
-            .extra_fields
-            .borrow_mut<NewEpochCommissionBlockedForCollection, u64>(
-                blocked_key,
-            ) = blocked_amount;
-    } else {
-        pool.extra_fields.add(blocked_key, blocked_amount);
-    };
+    pool.add_commission(commission, true);
 
     // Update the commission_rate for the new epoch if there's a pending value.
     // Note that pending commission rates are set 2 epochs ahead, so users are
@@ -460,10 +447,20 @@ public(package) fun advance_epoch(
     pool.process_pending_stake(wctx);
 }
 
-/// Add `commission` directly to the pools commission. Returns the total value of the pool's
-/// commission after the operation.
-public(package) fun add_commission(pool: &mut StakingPool, commission: Balance<WAL>): u64 {
-    pool.commission.join(commission)
+/// Add `commission` directly to the pool's commission. If `block` is true, the added amount
+/// is also blocked for collection until `voting_end` clears it. Returns the total value of
+/// the pool's commission after the operation.
+public(package) fun add_commission(
+    pool: &mut StakingPool,
+    commission: Balance<WAL>,
+    block: bool,
+): u64 {
+    let amount = commission.value();
+    let total = pool.commission.join(commission);
+    if (block) {
+        pool.increase_blocked_commission(amount);
+    };
+    total
 }
 
 /// Extracts the commission balance of the pool for the slashing mechanism to burn.
@@ -725,6 +722,20 @@ public(package) fun collect_commission(pool: &mut StakingPool, auth: Authenticat
         return balance::zero()
     };
     pool.commission.split(total - blocked)
+}
+
+/// Increases the blocked commission amount by `amount`.
+/// Called when commission is added before `voting_end`.
+public(package) fun increase_blocked_commission(pool: &mut StakingPool, amount: u64) {
+    let key = NewEpochCommissionBlockedForCollection {};
+    if (pool.extra_fields.contains(key)) {
+        let current = pool
+            .extra_fields
+            .borrow_mut<NewEpochCommissionBlockedForCollection, u64>(key);
+        *current = *current + amount;
+    } else {
+        pool.extra_fields.add(key, amount);
+    };
 }
 
 /// Clears the blocked commission amount, making all commission collectable.

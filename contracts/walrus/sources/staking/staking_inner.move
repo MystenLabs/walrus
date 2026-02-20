@@ -89,6 +89,14 @@ public enum EpochState has copy, drop, store {
     NextParamsSelected(u64),
 }
 
+/// Returns true if the epoch state is `NextParamsSelected`.
+fun is_next_params_selected(state: &EpochState): bool {
+    match (state) {
+        EpochState::NextParamsSelected(_) => true,
+        _ => false,
+    }
+}
+
 /// The inner object for the staking part of the system.
 public struct StakingInnerV1 has store {
     /// The number of shards in the system.
@@ -757,13 +765,17 @@ public(package) fun extract_commission_to_burn(
 }
 
 /// Adds `commissions[i]` to the commission of pool `node_ids[i]`.
+///
+/// If the epoch state is not `NextParamsSelected` (i.e., before `voting_end`),
+/// the added amount is also blocked for collection until `voting_end`.
 public(package) fun add_commission_to_pools(
     self: &mut StakingInnerV1,
     node_ids: vector<ID>,
     commissions: vector<Balance<WAL>>,
 ) {
+    let block = !self.epoch_state.is_next_params_selected();
     node_ids.zip_do!(commissions, |node_id, commission| {
-        self.pools[node_id].add_commission(commission)
+        self.pools[node_id].add_commission(commission, block);
     });
 }
 
