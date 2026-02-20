@@ -409,8 +409,10 @@ impl NodeWriteCommunication {
 
     /// Stores the metadata on the storage node.
     ///
-    /// Before storing the metadata, it checks whether the metadata is already stored.
-    /// Returns the [`StoredOnNodeStatus`] of the metadata.
+    /// Returns the inferred [`StoredOnNodeStatus`] of the metadata *before* the write.
+    ///
+    /// This avoids a separate metadata status RTT by inferring whether the metadata previously
+    /// existed from the `PUT /metadata` response code (`200` vs `201/202`).
     async fn store_metadata(
         &self,
         metadata: &VerifiedBlobMetadataWithId,
@@ -418,30 +420,16 @@ impl NodeWriteCommunication {
         metrics: Option<&ClientMetrics>,
     ) -> Result<StoredOnNodeStatus, NodeError> {
         let stage_timer = Instant::now();
-        let status_timer = Instant::now();
+        let upload_timer = Instant::now();
         let metadata_status = self
-            .retry_with_limits_and_backoff(|| self.client.get_metadata_status(metadata.blob_id()))
+            .retry_with_limits_and_backoff(|| {
+                self.client.store_and_get_metadata_status(metadata, intent)
+            })
             .await;
         if let Some(metrics) = metrics {
-            metrics.observe_node_metadata_status_latency(intent, status_timer.elapsed());
+            metrics.observe_node_metadata_upload_latency(intent, upload_timer.elapsed());
         }
         let metadata_status = metadata_status?;
-
-        match metadata_status {
-            StoredOnNodeStatus::Stored | StoredOnNodeStatus::Buffered => {
-                tracing::debug!("the metadata is already stored or buffered on the node");
-            }
-            StoredOnNodeStatus::Nonexistent => {
-                let upload_timer = Instant::now();
-                let upload_result = self
-                    .retry_with_limits_and_backoff(|| self.client.store_metadata(metadata, intent))
-                    .await;
-                if let Some(metrics) = metrics {
-                    metrics.observe_node_metadata_upload_latency(intent, upload_timer.elapsed());
-                }
-                upload_result?;
-            }
-        }
         if let Some(metrics) = metrics {
             metrics.observe_node_metadata_stage_latency(
                 intent,
