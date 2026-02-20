@@ -36,7 +36,7 @@ use walrus_sui::types::StorageNode;
 use walrus_utils::backoff::{self, ExponentialBackoff};
 
 use crate::{
-    client::auto_tune::AutoTuneHandle,
+    client::{auto_tune::AutoTuneHandle, metrics::ClientMetrics},
     config::RequestRateConfig,
     error::{SliverStoreError, StoreError},
     utils::{WeightedResult, string_prefix},
@@ -353,17 +353,24 @@ impl<W> NodeCommunication<W> {
 impl NodeWriteCommunication {
     /// Stores metadata and sliver pairs on a node with the provided intent, but does _not_ request
     /// a storage confirmation.
-    #[tracing::instrument(level = Level::TRACE, parent = &self.span, skip_all)]
+    #[tracing::instrument(
+        name = "store_metadata_and_pairs_without_confirmation",
+        level = Level::TRACE,
+        parent = &self.span,
+        skip_all
+    )]
     pub async fn store_metadata_and_pairs_without_confirmation(
         &self,
         metadata: &VerifiedBlobMetadataWithId,
         pairs: impl IntoIterator<Item = &SliverPair>,
         intent: UploadIntent,
+        metrics: Option<&ClientMetrics>,
     ) -> NodeResult<(), StoreError> {
         tracing::debug!(blob_id = %metadata.blob_id(), "storing metadata and sliver pairs");
+        let total_timer = Instant::now();
         let result = async {
             let metadata_status = self
-                .store_metadata(metadata, intent)
+                .store_metadata(metadata, intent, metrics)
                 .await
                 .map_err(StoreError::Metadata)?;
             tracing::debug!(
@@ -372,9 +379,14 @@ impl NodeWriteCommunication {
                 blob_id = %metadata.blob_id(),
                 "finished storing metadata on node");
 
-            let n_stored_slivers = self
+            let pairs_timer = Instant::now();
+            let store_pairs_result = self
                 .store_pairs(metadata.blob_id(), &metadata_status, pairs, intent)
-                .await?;
+                .await;
+            if let Some(metrics) = metrics {
+                metrics.observe_node_sliver_upload_latency(intent, pairs_timer.elapsed());
+            }
+            let n_stored_slivers = store_pairs_result?;
             tracing::debug!(
                 node = %self.node.public_key,
                 n_stored_slivers,
@@ -383,6 +395,9 @@ impl NodeWriteCommunication {
             Ok(())
         }
         .await;
+        if let Some(metrics) = metrics {
+            metrics.observe_node_upload_latency(intent, total_timer.elapsed());
+        }
         tracing::debug!(
             blob_id = %metadata.blob_id(),
             node = %self.node.public_key,
@@ -400,19 +415,39 @@ impl NodeWriteCommunication {
         &self,
         metadata: &VerifiedBlobMetadataWithId,
         intent: UploadIntent,
+        metrics: Option<&ClientMetrics>,
     ) -> Result<StoredOnNodeStatus, NodeError> {
+        let stage_timer = Instant::now();
+        let status_timer = Instant::now();
         let metadata_status = self
             .retry_with_limits_and_backoff(|| self.client.get_metadata_status(metadata.blob_id()))
-            .await?;
+            .await;
+        if let Some(metrics) = metrics {
+            metrics.observe_node_metadata_status_latency(intent, status_timer.elapsed());
+        }
+        let metadata_status = metadata_status?;
 
         match metadata_status {
             StoredOnNodeStatus::Stored | StoredOnNodeStatus::Buffered => {
                 tracing::debug!("the metadata is already stored or buffered on the node");
             }
             StoredOnNodeStatus::Nonexistent => {
-                self.retry_with_limits_and_backoff(|| self.client.store_metadata(metadata, intent))
-                    .await?;
+                let upload_timer = Instant::now();
+                let upload_result = self
+                    .retry_with_limits_and_backoff(|| self.client.store_metadata(metadata, intent))
+                    .await;
+                if let Some(metrics) = metrics {
+                    metrics.observe_node_metadata_upload_latency(intent, upload_timer.elapsed());
+                }
+                upload_result?;
             }
+        }
+        if let Some(metrics) = metrics {
+            metrics.observe_node_metadata_stage_latency(
+                intent,
+                metadata_status,
+                stage_timer.elapsed(),
+            );
         }
         Ok(metadata_status)
     }
