@@ -748,6 +748,50 @@ impl StorageNodeClient {
         Ok(())
     }
 
+    /// Stores the metadata on the node with the provided upload intent, and returns the inferred
+    /// status of the metadata *before* the write.
+    ///
+    /// This avoids an extra `GET /metadata/status` RTT by inferring the prior status from the HTTP
+    /// status code of the `PUT /metadata` response:
+    /// - `201 Created` / `202 Accepted` => metadata did not previously exist on the node.
+    /// - `200 OK` => metadata already existed (stored or buffered).
+    #[tracing::instrument(
+        skip_all,
+        fields(walrus.blob_id = %metadata.blob_id(), walrus.intent = ?intent),
+        err(level = Level::DEBUG)
+    )]
+    pub async fn store_and_get_metadata_status(
+        &self,
+        metadata: &VerifiedBlobMetadataWithId,
+        intent: UploadIntent,
+    ) -> Result<StoredOnNodeStatus, NodeError> {
+        let (url, template) = self.endpoints.metadata(metadata.blob_id());
+        let request = self.create_request_with_payload(
+            Method::PUT,
+            url_with_intent(url, intent),
+            metadata.as_ref(),
+        );
+
+        let response = self.send_request(request, template).await?;
+        let status_code = response.status();
+        // Consume and validate the response body.
+        response.service_response::<String>().await?;
+
+        Ok(match status_code {
+            reqwest::StatusCode::CREATED | reqwest::StatusCode::ACCEPTED => {
+                StoredOnNodeStatus::Nonexistent
+            }
+            reqwest::StatusCode::OK => StoredOnNodeStatus::Stored,
+            other => {
+                tracing::debug!(
+                    %other,
+                    "store_metadata: unexpected success status code; assuming metadata existed"
+                );
+                StoredOnNodeStatus::Stored
+            }
+        })
+    }
+
     /// Stores a sliver on a node with the provided upload intent.
     #[tracing::instrument(
         skip_all,
