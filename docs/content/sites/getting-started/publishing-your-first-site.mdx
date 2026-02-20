@@ -4,7 +4,7 @@ description: "Tutorial for publishing, viewing, and updating your first Walrus S
 keywords: ["walrus sites", "publishing", "deployment", "view", "update", "site builder", "tutorial", "walrus snake", "examples"]
 ---
 
-The Walrus Sites `site-builder` uploads your website's directory to [Walrus](https://www.walrus.xyz/), where your site resources (HTML, CSS, JavaScript, and images) are stored as blobs. A [Sui smart contract](https://docs.sui.io/guides/developer/packages/move-package-management) acts as an on-chain index, mapping each resource path to its corresponding Walrus blob ID and recording site ownership. [Portals](/docs/sites/portals/deploy-locally) use this on-chain metadata to resolve and serve your site to visitors. 
+The Walrus Sites `site-builder` uploads your website's files to [Walrus](https://www.walrus.xyz/), where resources like HTML, CSS, JavaScript, and images are stored as blobs. A [Sui smart contract](https://docs.sui.io/guides/developer/getting-started/hello-world) serves as an on-chain index that maps each resource path to its Walrus blob ID and records site ownership. [Portals](/docs/sites/portals/deploy-locally) read this on-chain index to resolve and serve your site in the browser to visitors.
 
 Similar to a traditional website, your directory needs an `index.html` file at the root to serve as the entry point. For example, the `walrus-snake` game you will deploy in this guide has an `index.html` with the following assets:
 
