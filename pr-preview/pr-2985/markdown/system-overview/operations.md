@@ -100,29 +100,17 @@ The underlying protocol of the [Sui light client](https://github.com/MystenLabs/
 
 ## Delete
 
-Stored blobs can be set as deletable by the user that creates them. This metadata is stored in the Sui blob object, and whether a blob is deletable is included in certified blob events. A deletable blob can be deleted by the owner of the blob object to reclaim and reuse the storage resource associated with it.
-
-If no other copies of the blob exist on Walrus, deleting a blob eventually makes it unrecoverable using read commands. However, if other copies of the blob exist on Walrus, a delete command reclaims storage space for the user that invoked it but does not make the blob unavailable until all other copies have been deleted or expire.
-
-#### Deleting through CLI
-
 To delete a blob, run the following command:
+
 ```sh
 $ walrus delete --blob-id <blob-id> --context testnet
 ```
 
 Replace `<blob-id>` with the blob's identifier that the `walrus store` command returns in its output.
 
-#### Extend a blob's storage duration
+Stored blobs can be set as deletable by the user that creates them. This metadata is stored in the Sui blob object, and whether a blob is deletable is included in certified blob events. A deletable blob can be deleted by the owner of the blob object to reclaim and reuse the storage resource associated with it.
 
-Because no blob content is involved, refresh operations are conducted entirely through the Sui protocol. To extend a blob's storage duration, you must reference the Sui object ID and indicate how many epochs you want to extend the blob's storage for.
-
-Run the following command to extend a blob's storage duration by 3 epochs. You must use the Sui object ID, not the blob ID:
-```sh
-$ walrus extend --blob-obj-id <blob-object-id> --epochs-extended 3 --context testnet
-```
-
-Replace `<blob-object-id>` with the blob's Sui object ID that the `walrus store` command returns in its output. Upon success, storage nodes receive an emitted event to extend the storage duration for each sliver.
+If no other copies of the blob exist on Walrus, deleting a blob eventually makes it unrecoverable using read commands. However, if other copies of the blob exist on Walrus, a delete command reclaims storage space for the user that invoked it but does not make the blob unavailable until all other copies have been deleted or expire.
 
 ## Use Sui object and blob ID utilities
 
@@ -132,18 +120,32 @@ The `walrus list-blobs` command lists all non-expired Sui objects that the curre
 
 The Sui storage cost associated with Sui objects can be reclaimed by burning the Sui object. This does not cause the Walrus blob to be deleted, but means that operations such as extending its lifetime, deleting it, or modifying attributes are no longer available. The `walrus burn-blobs --object-ids <SUI_OBJ_IDS>` command burns a specific list of Sui object IDs. The `--all` flag burns the Sui objects for all blobs under the user account, and `--all-expired` burns all expired blobs under the user account.
 
+## Extend a blob's storage duration
+
+Because no blob content is involved, refresh operations are conducted entirely through the Sui protocol. To extend a blob's storage duration, you must reference the Sui object ID and indicate how many epochs you want to extend the blob's storage for.
+
+Run the following command to extend a blob's storage duration by 3 epochs. You must use the Sui object ID, not the blob ID:
+
+```sh
+$ walrus extend --blob-obj-id <blob-object-id> --epochs-extended 3 --context testnet
+```
+
+Replace `<blob-object-id>` with the blob's Sui object ID that the `walrus store` command returns in its output. Upon success, storage nodes receive an emitted event to extend the storage duration for each sliver.
+
 ## Manage blob attributes
 
 Walrus allows a set of key-value attribute pairs to be associated with a Sui object. While the keys and their values can be arbitrary strings to accommodate any needs, specific keys are converted to HTTP headers when serving blobs through aggregators. Each aggregator can decide which headers it allows through the `--allowed-headers` CLI option. You can view the defaults through `walrus aggregator --help`.
 
-The following command sets attributes `key1` and `key2` to values `value1` and `value2`, respectively. The command `walrus get-blob-attribute <SUI_OBJ_ID>` returns all attributes associated with a blob ID.
+The following command sets attributes `key1` and `key2` to values `value1` and `value2`, respectively. The command `walrus get-blob-attribute <blob-object-id>` returns all attributes associated with a blob ID.
+
 ```sh
-$ walrus set-blob-attribute <SUI_OBJ_ID> --attr "key1" "value1" --attr "key2" "value2"
+$ walrus set-blob-attribute <blob-object-id> --attr "key1" "value1" --attr "key2" "value2"
 ```
 
-The following command deletes the attributes with keys listed, separated by commas or spaces. All attributes of a Sui object can be deleted by the command `walrus remove-blob-attribute <SUI_OBJ_ID>`.
+The following command deletes the attributes with keys listed, separated by commas or spaces. All attributes of a Sui object can be deleted by the command `walrus remove-blob-attribute <blob-object-id>`.
+
 ```sh
-$ walrus remove-blob-attribute-fields <SUI_OBJ_ID> --keys "key1,key2"
+$ walrus remove-blob-attribute-fields <blob-object-id> --keys "key1,key2"
 ```
 
 Attributes are associated with Sui object IDs rather than the blobs themselves on Walrus. This means that gas for storage is reclaimed by deleting attributes and that the same blob contents can have different attributes for different Sui objects with the same blob ID.
