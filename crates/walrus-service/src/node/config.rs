@@ -102,6 +102,31 @@ impl<'de> Deserialize<'de> for PriceCurrency {
     }
 }
 
+/// Default price update threshold percentage for NanoUsd pricing.
+pub const DEFAULT_PRICE_UPDATE_THRESHOLD_PERCENT: u64 = 10;
+
+fn default_price_update_threshold_percent() -> u64 {
+    DEFAULT_PRICE_UPDATE_THRESHOLD_PERCENT
+}
+
+fn is_default_price_update_threshold_percent(value: &u64) -> bool {
+    *value == DEFAULT_PRICE_UPDATE_THRESHOLD_PERCENT
+}
+
+/// Returns true if the `new` price deviates from the `current` price by more than the given
+/// percentage threshold.
+fn exceeds_threshold(current: u64, new: u64, threshold_percent: u64) -> bool {
+    if current == new {
+        return false;
+    }
+    if current == 0 {
+        // Given above condition, new must be positive.
+        return true;
+    }
+    // Use u128 to avoid overflow: |current - new| * 100 > current * threshold_percent
+    u128::from(current.abs_diff(new)) * 100 > u128::from(current) * u128::from(threshold_percent)
+}
+
 /// The prices that the storage node can vote for.
 /// The unit is determined by the currency field.
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
@@ -113,6 +138,14 @@ pub struct VotingPrices {
     pub storage_price: u64,
     /// The write price per MiB.
     pub write_price: u64,
+    /// The percentage threshold for price updates when using NanoUsd pricing. On-chain prices
+    /// are only updated when the difference between the current on-chain price and the newly
+    /// calculated price exceeds this threshold. Defaults to 10 (meaning 10%).
+    #[serde(
+        default = "default_price_update_threshold_percent",
+        skip_serializing_if = "is_default_price_update_threshold_percent"
+    )]
+    pub price_update_threshold_percent: u64,
 }
 
 /// Configuration for the voting parameters.
@@ -134,6 +167,7 @@ impl From<VotingParams> for VotingParamsConfig {
                 currency: PriceCurrency::FROST,
                 storage_price: params.storage_price,
                 write_price: params.write_price,
+                price_update_threshold_percent: DEFAULT_PRICE_UPDATE_THRESHOLD_PERCENT,
             },
             node_capacity: params.node_capacity,
         }
@@ -382,6 +416,7 @@ impl StorageNodeConfig {
                     currency: PriceCurrency::FROST,
                     storage_price: 5,
                     write_price: 1,
+                    price_update_threshold_percent: DEFAULT_PRICE_UPDATE_THRESHOLD_PERCENT,
                 },
                 node_capacity: 1_000_000_000,
             },
@@ -500,6 +535,7 @@ impl Default for StorageNodeConfig {
                     currency: PriceCurrency::FROST,
                     storage_price: defaults::storage_price(),
                     write_price: defaults::write_price(),
+                    price_update_threshold_percent: DEFAULT_PRICE_UPDATE_THRESHOLD_PERCENT,
                 },
                 node_capacity: 250_000_000_000,
             },
@@ -777,14 +813,19 @@ impl StorageNodeConfig {
                                 "calculating prices based on stable pricing config"
                             );
 
-                            // TODO(WAL-804): update the prices only if the prices difference
-                            // is greater than a certain threshold.
                             (
-                                (synced_config.voting_params.storage_price
-                                    != storage_price_in_frost)
-                                    .then_some(storage_price_in_frost),
-                                (synced_config.voting_params.write_price != write_price_in_frost)
-                                    .then_some(write_price_in_frost),
+                                exceeds_threshold(
+                                    synced_config.voting_params.storage_price,
+                                    storage_price_in_frost,
+                                    prices.price_update_threshold_percent,
+                                )
+                                .then_some(storage_price_in_frost),
+                                exceeds_threshold(
+                                    synced_config.voting_params.write_price,
+                                    write_price_in_frost,
+                                    prices.price_update_threshold_percent,
+                                )
+                                .then_some(write_price_in_frost),
                                 true,
                             )
                         }
@@ -2322,6 +2363,7 @@ mod tests {
                 currency: PriceCurrency::FROST,
                 storage_price: 150,
                 write_price: 250,
+                price_update_threshold_percent: DEFAULT_PRICE_UPDATE_THRESHOLD_PERCENT,
             },
             node_capacity: 2000,
         };
@@ -2534,6 +2576,7 @@ mod tests {
                     currency: PriceCurrency::FROST,
                     storage_price: 100,
                     write_price: 2000,
+                    price_update_threshold_percent: DEFAULT_PRICE_UPDATE_THRESHOLD_PERCENT,
                 },
                 node_capacity: 250_000_000,
             },
@@ -2672,6 +2715,7 @@ mod tests {
                     currency: PriceCurrency::FROST,
                     storage_price: 200,
                     write_price: 300,
+                    price_update_threshold_percent: DEFAULT_PRICE_UPDATE_THRESHOLD_PERCENT,
                 },
                 node_capacity: 1000,
             },
@@ -2727,6 +2771,7 @@ mod tests {
                     currency: PriceCurrency::NanoUsd,
                     storage_price: 100_000_000, // 0.1 USD
                     write_price: 150_000_000,   // 0.15 USD
+                    price_update_threshold_percent: DEFAULT_PRICE_UPDATE_THRESHOLD_PERCENT,
                 },
                 node_capacity: 1000,
             },
@@ -2782,6 +2827,7 @@ mod tests {
                     currency: PriceCurrency::NanoUsd,
                     storage_price: 1_000_000_000, // 1 USD
                     write_price: 500_000_000,     // 0.5 USD
+                    price_update_threshold_percent: DEFAULT_PRICE_UPDATE_THRESHOLD_PERCENT,
                 },
                 node_capacity: 1000,
             },
@@ -2844,6 +2890,7 @@ mod tests {
                     currency: PriceCurrency::NanoUsd,
                     storage_price: 1_000_000_000, // 1 USD
                     write_price: 500_000_000,     // 0.5 USD
+                    price_update_threshold_percent: DEFAULT_PRICE_UPDATE_THRESHOLD_PERCENT,
                 },
                 node_capacity: 1000,
             },
@@ -2931,6 +2978,7 @@ mod tests {
                 currency: PriceCurrency::FROST,
                 storage_price: 100,
                 write_price: 200,
+                price_update_threshold_percent: DEFAULT_PRICE_UPDATE_THRESHOLD_PERCENT,
             },
             node_capacity: 1000000,
         };
@@ -2946,6 +2994,7 @@ mod tests {
                 currency: PriceCurrency::NanoUsd,
                 storage_price: 1_000_000_000,
                 write_price: 500_000_000,
+                price_update_threshold_percent: DEFAULT_PRICE_UPDATE_THRESHOLD_PERCENT,
             },
             node_capacity: 2000000,
         };
@@ -2970,6 +3019,7 @@ mod tests {
                     currency: PriceCurrency::FROST,
                     storage_price: 500,
                     write_price: 100,
+                    price_update_threshold_percent: DEFAULT_PRICE_UPDATE_THRESHOLD_PERCENT,
                 },
                 node_capacity: 1000,
             },
@@ -3023,6 +3073,7 @@ mod tests {
                     currency: PriceCurrency::NanoUsd,
                     storage_price: 1_000_000_000,
                     write_price: 500_000_000,
+                    price_update_threshold_percent: DEFAULT_PRICE_UPDATE_THRESHOLD_PERCENT,
                 },
                 node_capacity: 1000,
             },
@@ -3117,5 +3168,148 @@ mod tests {
         let result = calculate_price_in_frost(1_000_000_000, 0.50).unwrap();
         assert_eq!(result, 2_000_000_000);
         assert!(result < TOTAL_FROST_SUPPLY);
+    }
+
+    #[test]
+    fn test_exceeds_threshold() {
+        // Equal values never exceed threshold
+        assert!(!exceeds_threshold(100, 100, 10));
+        assert!(!exceeds_threshold(0, 0, 10));
+
+        // Current is 0, any positive new value exceeds threshold
+        assert!(exceeds_threshold(0, 1, 10));
+        assert!(exceeds_threshold(0, 100, 0));
+
+        // 10% threshold: 100 -> 110 is exactly 10%, should not exceed
+        assert!(!exceeds_threshold(100, 110, 10));
+        assert!(!exceeds_threshold(100, 90, 10));
+
+        // 10% threshold: 100 -> 111 exceeds 10%
+        assert!(exceeds_threshold(100, 111, 10));
+        assert!(exceeds_threshold(100, 89, 10));
+
+        // 0% threshold: any difference exceeds
+        assert!(exceeds_threshold(100, 101, 0));
+        assert!(exceeds_threshold(100, 99, 0));
+
+        // Large values (u64 overflow protection via u128)
+        assert!(!exceeds_threshold(u64::MAX, u64::MAX, 10));
+        assert!(exceeds_threshold(u64::MAX, 0, 10));
+    }
+
+    #[test]
+    fn test_generate_update_params_nano_usd_within_threshold() {
+        // When NanoUsd pricing calculates a price within the threshold, no update should occur
+        let config = StorageNodeConfig {
+            name: "test-node".to_string(),
+            public_host: "127.0.0.1".to_string(),
+            public_port: 9185,
+            protocol_key_pair: PathOrInPlace::InPlace(test_utils::protocol_key_pair()),
+            network_key_pair: PathOrInPlace::InPlace(test_utils::network_key_pair()),
+            voting_params: VotingParamsConfig {
+                voting_prices: VotingPrices {
+                    currency: PriceCurrency::NanoUsd,
+                    storage_price: 1_000_000_000, // 1 USD
+                    write_price: 500_000_000,     // 0.5 USD
+                    price_update_threshold_percent: DEFAULT_PRICE_UPDATE_THRESHOLD_PERCENT,
+                },
+                node_capacity: 1000,
+            },
+            ..Default::default()
+        };
+
+        // With WAL at $0.50:
+        // calculated storage = 2_000_000_000 FROST
+        // calculated write = 1_000_000_000 FROST
+        // Set synced prices within 10% of calculated values (5% off)
+        let synced_config = SyncedNodeConfigSet {
+            name: config.name.clone(),
+            network_address: NetworkAddress(format!(
+                "{}:{}",
+                config.public_host, config.public_port
+            )),
+            network_public_key: config.network_key_pair().public().clone(),
+            public_key: config.protocol_key_pair().public().clone(),
+            next_public_key: None,
+            voting_params: VotingParams {
+                storage_price: 2_100_000_000, // 5% above calculated (within 10% threshold)
+                write_price: 1_050_000_000,   // 5% above calculated (within 10% threshold)
+                node_capacity: 1000,
+            },
+            metadata: Default::default(),
+            commission_rate_data: Default::default(),
+        };
+
+        let wal_price = Some(0.50);
+        let result = config.generate_update_params(&synced_config, wal_price);
+
+        // No updates should occur since the difference is within the 10% threshold
+        assert_eq!(
+            result.storage_price, None,
+            "storage_price should not be updated when within threshold"
+        );
+        assert_eq!(
+            result.write_price, None,
+            "write_price should not be updated when within threshold"
+        );
+    }
+
+    #[test]
+    fn test_generate_update_params_nano_usd_exceeds_threshold() {
+        // When NanoUsd pricing calculates a price exceeding the threshold, update should occur
+        let config = StorageNodeConfig {
+            name: "test-node".to_string(),
+            public_host: "127.0.0.1".to_string(),
+            public_port: 9185,
+            protocol_key_pair: PathOrInPlace::InPlace(test_utils::protocol_key_pair()),
+            network_key_pair: PathOrInPlace::InPlace(test_utils::network_key_pair()),
+            voting_params: VotingParamsConfig {
+                voting_prices: VotingPrices {
+                    currency: PriceCurrency::NanoUsd,
+                    storage_price: 1_000_000_000, // 1 USD
+                    write_price: 500_000_000,     // 0.5 USD
+                    price_update_threshold_percent: DEFAULT_PRICE_UPDATE_THRESHOLD_PERCENT,
+                },
+                node_capacity: 1000,
+            },
+            ..Default::default()
+        };
+
+        // With WAL at $0.50:
+        // calculated storage = 2_000_000_000 FROST
+        // calculated write = 1_000_000_000 FROST
+        // Set synced prices more than 10% away from calculated values (15% off)
+        let synced_config = SyncedNodeConfigSet {
+            name: config.name.clone(),
+            network_address: NetworkAddress(format!(
+                "{}:{}",
+                config.public_host, config.public_port
+            )),
+            network_public_key: config.network_key_pair().public().clone(),
+            public_key: config.protocol_key_pair().public().clone(),
+            next_public_key: None,
+            voting_params: VotingParams {
+                storage_price: 2_300_000_000, // 15% above calculated (exceeds 10% threshold)
+                write_price: 1_150_000_000,   // 15% above calculated (exceeds 10% threshold)
+                node_capacity: 1000,
+            },
+            metadata: Default::default(),
+            commission_rate_data: Default::default(),
+        };
+
+        let wal_price = Some(0.50);
+        let result = config.generate_update_params(&synced_config, wal_price);
+
+        // Updates should occur since the difference exceeds the 10% threshold
+        assert_eq!(
+            result.storage_price,
+            Some(2_000_000_000),
+            "storage_price should be updated when exceeding threshold"
+        );
+        assert_eq!(
+            result.write_price,
+            Some(1_000_000_000),
+            "write_price should be updated when exceeding threshold"
+        );
     }
 }
