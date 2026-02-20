@@ -110,7 +110,7 @@ Where the world's data becomes reliable, valuable, and governable
 ## System overview
 
 - [Available Networks](/system-overview/available-networks): Overview of Walrus networks including Mainnet and Testnet configurations, parameters, and setup instructions.
-- [Walrus Fundamentals](/system-overview/core-concepts): Technical reference for Walrus fundamentals, including architecture, data storage, and data retreival.
+- [Walrus Fundamentals](/system-overview/core-concepts): Technical reference for Walrus fundamentals, including architecture, data storage, and data retrieval.
 - [Operations](/system-overview/operations): Developer guide to Walrus operations for blob management.
 - [Public Aggregators and Publishers](/system-overview/public-aggregators-and-publishers): The Walrus client offers a daemon mode that runs a simple web server that provides HTTP interfaces you can use to store and read blobs in an aggregator or publisher role respectively. Walrus also offers HTTP APIs through public aggregator and publisher services that you can use without running a local client.
 - [Batch Storage with Quilt](/system-overview/quilt): Comprehensive guide to Walrus Quilt for batch storage of multiple small blobs with cost optimization and metadata management.
