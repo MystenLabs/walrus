@@ -129,8 +129,6 @@ public fun collect_commission(
     auth: Authenticated,
     ctx: &mut TxContext,
 ): Coin<WAL> {
-    // TODO(WAL-1147): node operators can only collect commission if the epoch is in
-    // NextParamsSelected.
     staking.inner_mut().collect_commission(node_id, auth).into_coin(ctx)
 }
 

@@ -499,6 +499,12 @@ fun epoch_change_with_rewards_and_commission() {
 
     runner.tx!(admin, |staking, _, _| assert!(staking.is_epoch_sync_done()));
 
+    // === call voting_end to unblock commission for collection ===
+    runner.clock().increment_for_testing(PARAM_SELECTION_DELTA);
+    runner.tx!(admin, |staking, _, _| {
+        staking.voting_end(runner.clock());
+    });
+
     // === check rewards for each node ===
 
     // each node is getting 477 in rewards (1_000_000_000 Bytes / 1 MiB * 5 MIST)
