@@ -55,21 +55,22 @@ default_context: mainnet
 
 If you want to have more control over the behavior of the `site-builder`, you can customize the following variables in the configuration file:
 
-- `package`: The object ID of the Walrus Sites package on Sui. This is always required, and is already appropriately configured in `./sites-config.yaml`. You can find the latest package ID in the [Walrus Sites repository](https://github.com/MystenLabs/walrus-sites/tree/mainnet) on the Mainnet branch.
-
-- `portal` (default: `wal.app`): The name of the portal through which you view the site. This only affects the output of the CLI and nothing else. All Walrus Sites are accessible through any portal independent of this setting.
-
-- `general`: These are general options that can be configured both through the CLI and the configuration file.
-
-  - `rpc_url`: The URL of the Sui RPC node to use. If not set, the `site-builder` infers it from the wallet.
-
-  - `wallet` (default: uses the system-wide wallet from `sui client addresses`): Pointer to the Sui wallet to be used.
-
-  - `walrus_binary` (default: runs from `$PATH`): Pointer to the `walrus` binary.
-
-  - `walrus_config`: The configuration for the `walrus` client binary.
-
-  - `gas_budget` (default: 500M MIST): The maximum amount of gas to spend for transactions.
+| **Parameter** | **Type** | **Description** | **Default** |
+|---|---|---|---|
+| `package` | String (hex address) | The object ID of the Walrus Sites package on Sui for this context. This is the only parameter that is always required, and is already appropriately configured in `./sites-config.yaml`. You can find the latest package ID in the [Walrus Sites repository](https://github.com/MystenLabs/walrus-sites/tree/mainnet) on the Mainnet branch. | Preconfigured |
+| `module` | String | The Move module name within the package. | `site` |
+| `portal` | String | The portal domain used to display site URLs in CLI output. Does not affect site accessibility. | `wal.app` |
+| `staking_object` | String (hex address) | The object ID of the staking object for this context. | Preconfigured |
+| `general.wallet_env` | String | The Sui wallet environment to use. | Preconfigured |
+| `general.walrus_context` | String | The Walrus CLI context name to use. Requires a Walrus CLI multi-config containing the named context. | Preconfigured |
+| `general.walrus_package` | String (hex address) | The object ID of the Walrus package on Sui for this context. | Preconfigured |
+| `general.wallet_address` | String (hex address) | The Sui wallet address to use. | System-wide wallet from `sui client addresses` |
+| `general.rpc_url` | String (URL) | The URL of the Sui RPC node to use. | Inferred from wallet |
+| `general.wallet` | String (file path) | Path to the Sui wallet client configuration file. | System-wide wallet from `sui client addresses` |
+| `general.walrus_binary` | String (file path) | Path to the `walrus` binary. | Resolved from `$PATH` |
+| `general.walrus_config` | String (file path) | Path to the Walrus client configuration file. | Resolved from `$PATH` |
+| `general.gas_budget` | Integer | Maximum gas to spend per transaction, in MIST. | `500000000` (500M MIST) |
+| `default_context` | String | The name of the context to use when no context is specified through the CLI. | `mainnet` |
 
 ## `site-builder` CLI commands
 

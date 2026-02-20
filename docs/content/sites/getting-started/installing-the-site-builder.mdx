@@ -18,6 +18,12 @@ The `site-builder` is a Rust CLI tool that enables you to create, edit, and publ
 
 ## Installation
 
+:::danger
+
+The stable branch of Walrus Sites is `mainnet`. Make sure that you always pull the latest changes from there.
+
+:::
+
 ### Using `suiup`
 
 Install the `site-builder` using the `suiup` tool, which enables you seamlessly install different versions.
@@ -28,15 +34,27 @@ First, install `suiup`:
 $ curl -sSfL https://raw.githubusercontent.com/Mystenlabs/suiup/main/install.sh | sh
 ```
 
+Make sure `$HOME/.local/bin` is in your `PATH`:
+
+```sh
+$ echo $PATH | tr ":" "\n"
+```
+
 Then, install the `site-builder`:
 
 ```sh
 $ suiup install site-builder@mainnet
 ```
 
+The `site-builder` will automatically be installed in `$HOME/.local/bin`. You can run it by typing:
+
+```sh
+$ site-builder
+```
+
 ### Using a pre-built binary
 
-The `site-builder` client binary is currently provided for Ubuntu, macOS (Apple and Intel CPUs), and Windows.
+The `site-builder` client binary is currently provided for Ubuntu, macOS (Apple and Intel CPUs), and [Windows](#windows).
 
 <Tabs>
 <TabItem value="mainnet" label="Mainnet binaries">
@@ -46,7 +64,6 @@ The `site-builder` client binary is currently provided for Ubuntu, macOS (Apple 
 | Ubuntu  | Intel 64bit           | [`site-builder-mainnet-latest-ubuntu-x86_64`](https://storage.googleapis.com/mysten-walrus-binaries/site-builder-mainnet-latest-ubuntu-x86_64)                |
 | MacOS   | Apple Silicon         | [`site-builder-mainnet-latest-macos-arm64`](https://storage.googleapis.com/mysten-walrus-binaries/site-builder-mainnet-latest-macos-arm64)                    |
 | MacOS   | Intel 64bit           | [`site-builder-mainnet-latest-macos-x86_64`](https://storage.googleapis.com/mysten-walrus-binaries/site-builder-mainnet-latest-macos-x86_64)                  |
-| Windows | Intel 64bit           | [`site-builder-mainnet-latest-windows-x86_64.exe`](https://storage.googleapis.com/mysten-walrus-binaries/site-builder-mainnet-latest-windows-x86_64.exe)      |
 
 </TabItem>
 
@@ -57,19 +74,12 @@ The `site-builder` client binary is currently provided for Ubuntu, macOS (Apple 
 | Ubuntu  | Intel 64bit           | [`site-builder-testnet-latest-ubuntu-x86_64`](https://storage.googleapis.com/mysten-walrus-binaries/site-builder-testnet-latest-ubuntu-x86_64)                |
 | MacOS   | Apple Silicon         | [`site-builder-testnet-latest-macos-arm64`](https://storage.googleapis.com/mysten-walrus-binaries/site-builder-testnet-latest-macos-arm64)                    |
 | MacOS   | Intel 64bit           | [`site-builder-testnet-latest-macos-x86_64`](https://storage.googleapis.com/mysten-walrus-binaries/site-builder-testnet-latest-macos-x86_64)                  |
-| Windows | Intel 64bit           | [`site-builder-testnet-latest-windows-x86_64.exe`](https://storage.googleapis.com/mysten-walrus-binaries/site-builder-testnet-latest-windows-x86_64.exe)      |
 
 </TabItem>
 
 </Tabs>
 
-:::danger
-
-The stable branch of Walrus Sites is `mainnet`. Make sure that you always pull the latest changes from there.
-
-:::
-
-You can also use a `curl` request to download the latest build from the Google Cloud Storage (GCS) bucket. Ensure you set the `$SYSTEM` variable to your current system: `ubuntu-x86_64`, `ubuntu-x86_64-generic`, `macos-arm64`, `macos-x86_64`, `windows-x86_64.exe`.
+You can also use a `curl` request to download the latest build from the Google Cloud Storage (GCS) bucket. Ensure you set the `$SYSTEM` variable to your current system: `ubuntu-x86_64`, `ubuntu-x86_64-generic`, `macos-arm64`, `macos-x86_64`.
 
 <Tabs>
 <TabItem value="mainnet" label="Mainnet curl request">
@@ -92,9 +102,13 @@ $ chmod +x site-builder
 
 </Tabs>
 
-To be able to run it as `site-builder`, move the binary to any directory included in your `$PATH` environment variable. Standard locations are `/usr/local/bin/`, `$HOME/bin/`, or `$HOME/.local/bin/`.
+Move the `site-builder` binary to any directory included in your `$PATH` environment variable. Standard locations are `/usr/local/bin/`, `$HOME/bin/`, or `$HOME/.local/bin/`.
 
-After this is done, you should be able to simply type `site-builder` in your terminal.
+```sh
+$ echo $PATH | tr ":" "\n"
+```
+
+You can now run `site-builder` by typing it in your terminal.
 
 ```sh
 $ site-builder
@@ -116,22 +130,69 @@ Commands:
   ⋮
 ```
 
+### Installing on Windows {#windows}
+
+Pre-built binaries are also provided for Windows.
+
+<Tabs>
+<TabItem value="mainnet" label="Mainnet binaries">
+
+| OS      | CPU                   | Architecture |
+|---------|-----------------------|-----------------------------------------------------------------------------------------------------------------------------------|
+| Windows | Intel 64bit           | [`site-builder-mainnet-latest-windows-x86_64.exe`](https://storage.googleapis.com/mysten-walrus-binaries/site-builder-mainnet-latest-windows-x86_64.exe)      |
+
+</TabItem>
+
+<TabItem value="testnet" label="Testnet binaries">
+
+| OS      | CPU                   | Architecture |
+|---------|-----------------------|-----------------------------------------------------------------------------------------------------------------------------------|
+| Windows | Intel 64bit           | [`site-builder-testnet-latest-windows-x86_64.exe`](https://storage.googleapis.com/mysten-walrus-binaries/site-builder-testnet-latest-windows-x86_64.exe)      |
+
+</TabItem>
+
+</Tabs>
+
+Similar to UNIX-based installation, you can use Windows PowerShell to download the latest build from the GCS bucket. 
+
+```powershell
+(New-Object System.Net.WebClient).DownloadFile("https://storage.googleapis.com/mysten-walrus-binaries/site-builder-mainnet-latest-windows-x86_64.exe", "site-builder.exe")
+```
+
+Move `site-builder.exe` to a directory in your `PATH`:
+
+```powershell
+$env:Path -split ';'
+```
+
+You can now run `site-builder` by typing it in PowerShell (without the `.exe` extension).
+
+```powershell
+site-builder
+```
+
 ## Configuration file {#configuration}
 
-The `site-builder` requires a configuration file `sites-config.yaml` in one of the following default locations: 
+The `site-builder` requires a [configuration file](/docs/sites/getting-started/using-the-site-builder) `sites-config.yaml` in one of the following default locations: 
 
 - The current directory
 - `$XDG_CONFIG_HOME/walrus/`
 - `~/.config/walrus/`
 - `~/.walrus/`
 
-For your first run, it should be sufficient to call the `site-builder` without specifying the configuration file explicitly. If you encounter errors, download the `sites-config.yaml` file from the repository, and place it in one of the aforementioned default locations. For example:
+If the configuration file is not in one of these default locations, you will likely see the following error when attempting to run any `site-builder` command:
+
+```sh
+Error during execution: could not find a valid sites configuration file; consider using  the --config flag to specify the config
+```
+
+To address this, download the `sites-config.yaml` file from the repository, and place it in one of the aforementioned default locations. For example:
 
 ```sh
 $ curl https://raw.githubusercontent.com/MystenLabs/walrus-sites/refs/heads/mainnet/sites-config.yaml -o ~/.config/walrus/sites-config.yaml
 ```
 
-Additionally, it is possible to specify a different directory by passing the `--config` flag to the `site-builder` command. 
+Alternatively, it is possible to specify a different directory by passing the `--config` flag to any `site-builder` command. 
 
 ```sh
 $ site-builder --config /path/to/sites-config.yaml deploy <build-directory-of-a-site>

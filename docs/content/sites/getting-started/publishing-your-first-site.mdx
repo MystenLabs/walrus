@@ -4,9 +4,18 @@ description: "Tutorial for publishing, viewing, and updating your first Walrus S
 keywords: ["walrus sites", "publishing", "deployment", "view", "update", "site builder", "tutorial", "walrus snake", "examples"]
 ---
 
-The Walrus Sites `site-builder` uploads your web framework's output directory to [Walrus](https://www.walrus.xyz/), where your site resources (HTML, CSS, JavaScript, and images) are stored as blobs. A [Sui smart contract](https://docs.sui.io/guides/developer/packages/move-package-management) acts as an on-chain index, mapping each resource path to its corresponding Walrus blob ID and recording site ownership. [Portals](/docs/sites/portals/deploy-locally) use this on-chain metadata to resolve and serve your site to visitors. 
+The Walrus Sites `site-builder` uploads your website's directory to [Walrus](https://www.walrus.xyz/), where your site resources (HTML, CSS, JavaScript, and images) are stored as blobs. A [Sui smart contract](https://docs.sui.io/guides/developer/packages/move-package-management) acts as an on-chain index, mapping each resource path to its corresponding Walrus blob ID and recording site ownership. [Portals](/docs/sites/portals/deploy-locally) use this on-chain metadata to resolve and serve your site to visitors. 
 
-Your directory needs an `index.html` file at the root to serve as the entry point. You can find various examples in the [Walrus Sites example repository](https://github.com/MystenLabs/example-walrus-sites).
+Similar to a traditional website, your directory needs an `index.html` file at the root to serve as the entry point. For example, the `walrus-snake` game you will deploy in this guide has an `index.html` with the following assets:
+
+```sh
+|-- Oi-Regular.ttf
+|-- file.svg
+|-- index.html
+|-- walrus.svg
+```
+
+You can find additional examples in the [Walrus Sites example repository](https://github.com/MystenLabs/example-walrus-sites).
 
 <Tabs>
 <TabItem value="prereq" label="Prerequisites">
@@ -20,7 +29,11 @@ Your directory needs an `index.html` file at the root to serve as the entry poin
 
 :::info
 
-The prerequisite setup guides install the Walrus and `site-builder` binaries and configuration files to their [default directories](/docs/sites/getting-started/installing-the-site-builder#configuration). If `site-builder` commands return errors, use the `--config` flag to specify a custom configuration path.
+The prerequisite setup guides install the Walrus and `site-builder` binaries and configuration files to their [default directories](/docs/sites/getting-started/installing-the-site-builder#configuration). If `site-builder` commands return the following error, use the `--config` flag to specify a custom configuration path.
+
+```sh
+Error during execution: could not find a valid sites configuration file; consider using  the --config flag to specify the config
+```
 
 :::
 
@@ -46,9 +59,9 @@ Depending on the network, the duration of an epoch might vary. Currently on Walr
 
 How you access your site depends on which network you used:
 
-- **Mainnet sites**: Can be accessed through any Mainnet portal. To access your Walrus Site through https://wal.app, a [SuiNS](https://suins.io/) name is required.
+- **Mainnet sites**: Can be accessed through any Mainnet portal. To access your Walrus Site through https://wal.app, a [SuiNS name](/docs/sites/custom-domains/setting-a-suins-name) is required.
 
-- **Testnet sites**: Can be accessed through a [self-hosted or local portal](/docs/sites/portals/deploy-locally). Walrus Foundation does not operate a Testnet portal.
+- **Testnet sites**: Can be accessed through a [self-hosted or local portal](/docs/sites/portals/deploy-locally). There are no public Testnet portals.
 
 The console output at the end of a successful Walrus Sites deployment should look like the following:
 
@@ -83,7 +96,7 @@ The local development (option 1) link is for Testnet sites, and can be access th
 :::
 
 This output communicates the following:
-- For each file in the folder, a new site resource was created with a respective [quilt ID]((/docs/system-overview/quilt)). 
+- For each file in the folder, a new site resource was created with a respective `QuiltPatchID`, which together form a [quilt](/docs/system-overview/quilt). 
 - A Walrus Site object was created on Sui, and you can use the printed object ID to view the site in an explorer and link to a SuiNS name. The `deploy` command also saves this new site object ID to the `ws-resources.json`. 
 - The URL at which you can browse the site.
 
@@ -97,7 +110,7 @@ During updates, the `site-builder` removes and re-uploads all site resources tog
 
 :::info
 
-If you are building a Walrus Site using a web framework, ensure you rebuild your website before updating the corresponding Walrus Site.
+If you are building a Walrus Site using a web framework (such as React, Node.js, or Django), ensure you rebuild your website before updating the corresponding Walrus Site.
 
 :::
 
