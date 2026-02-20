@@ -173,31 +173,24 @@ fun test_process_subsidies_with_usage_across_epochs() {
     subsidies.add_coin(initial_funds);
     test_scenario::return_shared(subsidies);
 
-    // Add some usage and check that the usage-independent subsidy has been applied correctly.
+    // Add some usage and check that the usage-dependent subsidy has been applied correctly.
     add_usage_and_check_usage_subsidies(&mut runner, DEFAULT_SYSTEM_SUBSIDY_RATE);
 
-    // Check that the usage-independent subsidy has been applied correctly for each node.
+    // In epoch 1, the previous committee (epoch 0) is empty, so no fixed-rate subsidies does not
+    // apply yet.
     runner.tx!(admin, |staking, _, _| {
         nodes.do_ref!(|node| {
-            let node_weight = staking.committee().shards(&node.node_id()).length() as u64;
-            assert_eq!(
-                staking.pool_commission(node.node_id()),
-                DEFAULT_BASE_SUBSIDY + DEFAULT_PER_SHARD_SUBSIDY * node_weight,
-            );
+            assert_eq!(staking.pool_commission(node.node_id()), 0);
         });
     });
 
     // Add more usage and check that the usage-dependent subsidies are applied correctly.
     add_usage_and_check_usage_subsidies(&mut runner, DEFAULT_SYSTEM_SUBSIDY_RATE);
 
-    // Check that the usage-independent subsidy has not been applied again.
+    // The fixed-rate subsidy is still not applied (already processed for epoch 1).
     runner.tx!(admin, |staking, _, _| {
         nodes.do_ref!(|node| {
-            let node_weight = staking.committee().shards(&node.node_id()).length() as u64;
-            assert_eq!(
-                staking.pool_commission(node.node_id()),
-                DEFAULT_BASE_SUBSIDY + DEFAULT_PER_SHARD_SUBSIDY * node_weight,
-            );
+            assert_eq!(staking.pool_commission(node.node_id()), 0);
         });
     });
 
@@ -208,7 +201,7 @@ fun test_process_subsidies_with_usage_across_epochs() {
     // Add usage in epoch 2 and check that the usage-dependent subsidies are applied correctly.
     add_usage_and_check_usage_subsidies(&mut runner, DEFAULT_SYSTEM_SUBSIDY_RATE);
 
-    // Check that the usage-independent subsidy has not been applied again.
+    // Now the previous committee (epoch 1) has nodes, so fixed-rate subsidies are paid.
     runner.tx!(admin, |staking, _, _| {
         nodes.do_ref!(|node| {
             let node_weight = staking.committee().shards(&node.node_id()).length() as u64;
@@ -216,7 +209,7 @@ fun test_process_subsidies_with_usage_across_epochs() {
                 // This check works because the commission rate is 0 and we don't change the stake
                 // distribution.
                 staking.pool_commission(node.node_id()),
-                2*(DEFAULT_BASE_SUBSIDY + DEFAULT_PER_SHARD_SUBSIDY * node_weight),
+                DEFAULT_BASE_SUBSIDY + DEFAULT_PER_SHARD_SUBSIDY * node_weight,
             );
         });
     });
@@ -328,8 +321,12 @@ fun test_variable_subsidy_rates_across_epochs() {
             let new_base = (current_epoch as u64) * 1000; // 1k, 2k, 3k, 4k
             let new_per_shard = (current_epoch as u64) * 100; // 10, 20, 30, 40
 
-            cumulative_base = cumulative_base + new_base;
-            cumulative_per_shard = cumulative_per_shard + new_per_shard;
+            // Fixed-rate subsidies pay the previous committee. In epoch 1, the previous
+            // committee (epoch 0) is empty, so no fixed-rate subsidies are paid.
+            if (current_epoch > 1) {
+                cumulative_base = cumulative_base + new_base;
+                cumulative_per_shard = cumulative_per_shard + new_per_shard;
+            };
 
             subsidies.set_system_subsidy_rate(&admin_cap, system_subsidy_rate);
             subsidies.set_base_subsidy(&admin_cap, new_base);

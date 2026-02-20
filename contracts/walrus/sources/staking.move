@@ -175,6 +175,11 @@ public fun committee(staking: &Staking): &Committee {
     staking.inner().committee()
 }
 
+/// Get the previous committee.
+public fun previous_committee(staking: &Staking): &Committee {
+    staking.inner().previous_committee()
+}
+
 /// Computes the committee for the next epoch.
 public fun compute_next_committee(staking: &Staking): Committee {
     staking.inner().compute_next_committee()
