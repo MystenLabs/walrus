@@ -247,10 +247,16 @@ public(package) fun voting_end(self: &mut StakingInnerV1, clock: &Clock) {
     events::emit_epoch_parameters_selected(self.epoch + 1);
 }
 
-/// Clears the blocked commission for all pools in the current committee.
+/// Clears the blocked commission for all pools in the current and previous committees.
 fun clear_blocked_commissions(self: &mut StakingInnerV1) {
     let (node_ids, _) = (*self.committee.inner()).into_keys_values();
     node_ids.do!(|id| {
+        if (self.pools.contains(id)) {
+            self.pools[id].clear_blocked_commission();
+        };
+    });
+    let (prev_node_ids, _) = (*self.previous_committee.inner()).into_keys_values();
+    prev_node_ids.do!(|id| {
         if (self.pools.contains(id)) {
             self.pools[id].clear_blocked_commission();
         };
