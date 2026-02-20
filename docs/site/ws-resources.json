@@ -487,7 +487,7 @@
   },
   "routes": {
     "/404": "/404.html",
-    "/docs/examples/data-marketplace": "/docs/examples/data-marketplace.html",  
+    "/docs/examples/data-marketplace": "/docs/examples/data-marketplace.html",
     "/docs/examples/data-marketplace.md": "/markdown/examples/data-marketplace.md",
     "/blog": "/blog.html",
     "/docs/examples/walrus-relay": "/docs/examples/walrus-relay.html",
