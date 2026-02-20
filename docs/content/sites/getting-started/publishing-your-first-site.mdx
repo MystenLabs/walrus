@@ -16,26 +16,28 @@ To create a Walrus Site, your website's source files must include an `index.html
 ```
 
 You can find additional examples in the [Walrus Sites example repository](https://github.com/MystenLabs/example-walrus-sites).
-
 <Tabs>
 <TabItem value="prereq" label="Prerequisites">
 
+:::info
+
+These prerequisite setup guides install Walrus, the `site-builder` tool, and their configuration files to the [default directories](/docs/sites/getting-started/installing-the-site-builder#configuration). If you installed Walrus or the `site-builder` tool using other guides or resources, your installation locations might be different. 
+
+If your `site-builder` configuration file is in a different location, use the `--config` flag to specify the path. 
+
+:::
+
+- [x] [Install and configure Sui](/docs/getting-started/index).
+
 - [x] [Install and configure Walrus](/docs/getting-started/index).
+
+- [x] [Obtain Testnet SUI and WAL tokens](/docs/getting-started/index).
 
 - [x] [Install and configure the `site-builder`](/docs/sites/getting-started/installing-the-site-builder).
 
 </TabItem>
 </Tabs>
 
-:::info
-
-The prerequisite setup guides install the Walrus and `site-builder` binaries and configuration files to their [default directories](/docs/sites/getting-started/installing-the-site-builder#configuration). If `site-builder` commands return the following error, use the `--config` flag to specify a custom configuration path.
-
-```sh
-Error during execution: could not find a valid sites configuration file; consider using  the --config flag to specify the config
-```
-
-:::
 
 ## Clone and deploy `walrus-snake`
 
