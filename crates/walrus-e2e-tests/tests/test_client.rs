@@ -71,7 +71,6 @@ use walrus_sdk::{
         ClientErrorKind::{
             self,
             NoMetadataReceived,
-            NoValidStatusReceived,
             NotEnoughConfirmations,
             NotEnoughSlivers,
         },
@@ -229,7 +228,7 @@ async_param_test! {
         one_failure: (&[0], &[], &[]),
         f_failures: (&[4], &[], &[]),
         f_plus_one_failures: (&[0, 4], &[], &[NotEnoughConfirmations(8, 9)]),
-        all_shard_failures: (&[0, 1, 2, 3, 4], &[], &[NoValidStatusReceived]),
+        all_shard_failures: (&[0, 1, 2, 3, 4], &[], &[NotEnoughConfirmations(0, 9)]),
         f_plus_one_read_failures: (&[], &[0, 4], &[]),
         two_f_plus_one_read_failures: (
             &[], &[1, 2, 4], &[NoMetadataReceived, NotEnoughSlivers]),
