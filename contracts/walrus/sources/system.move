@@ -13,6 +13,7 @@ use walrus::{
     epoch_parameters::EpochParams,
     storage_accounting::FutureAccountingRingBuffer,
     storage_node::StorageNodeCap,
+    storage_pool::StoragePool,
     storage_resource::Storage,
     system_state_inner::{Self, SystemStateInnerV1}
 };
@@ -205,6 +206,80 @@ public fun extend_blob(
     payment: &mut Coin<WAL>,
 ) {
     self.inner_mut().extend_blob(blob, extended_epochs, payment);
+}
+
+// === Storage Pool ===
+
+/// Creates a new storage pool with the given capacity and epoch range.
+public fun create_storage_pool(
+    self: &mut System,
+    storage_amount: u64,
+    epochs_ahead: u32,
+    payment: &mut Coin<WAL>,
+    ctx: &mut TxContext,
+): StoragePool {
+    self.inner_mut().create_storage_pool(storage_amount, epochs_ahead, payment, ctx)
+}
+
+/// Registers a new blob against a storage pool.
+public fun register_pool_blob(
+    self: &mut System,
+    pool: &mut StoragePool,
+    blob_id: u256,
+    root_hash: u256,
+    size: u64,
+    encoding_type: u8,
+    deletable: bool,
+    write_payment: &mut Coin<WAL>,
+    ctx: &mut TxContext,
+) {
+    self
+        .inner_mut()
+        .register_pool_blob(
+            pool,
+            blob_id,
+            root_hash,
+            size,
+            encoding_type,
+            deletable,
+            write_payment,
+            ctx,
+        )
+}
+
+/// Deletes a blob from a storage pool and frees its capacity.
+public fun delete_pool_blob(self: &System, pool: &mut StoragePool, blob_id: u256) {
+    self.inner().delete_pool_blob(pool, blob_id)
+}
+
+/// Extends the lifetime of a storage pool by `extended_epochs`.
+public fun extend_storage_pool(
+    self: &mut System,
+    pool: &mut StoragePool,
+    extended_epochs: u32,
+    payment: &mut Coin<WAL>,
+) {
+    self.inner_mut().extend_storage_pool(pool, extended_epochs, payment)
+}
+
+/// Certifies a blob within a storage pool.
+public fun certify_pool_blob(
+    self: &System,
+    pool: &mut StoragePool,
+    blob_id: u256,
+    signature: vector<u8>,
+    signers_bitmap: vector<u8>,
+    message: vector<u8>,
+) {
+    self
+        .inner()
+        .certify_pool_blob(
+            pool,
+            blob_id,
+            signature,
+            signers_bitmap,
+            message,
+        )
 }
 
 /// Adds rewards to the system for the specified number of epochs ahead.

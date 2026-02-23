@@ -181,6 +181,106 @@ Configured in `.config/nextest.toml`:
 - **simtest**: `num-cpus` threads, 30m timeout
 - **performance-test**: single-threaded, 15m timeout
 
+## Storage Resources
+
+### Overview
+
+A `Storage` resource is the fundamental economic primitive in Walrus — a Sui object representing a
+reservation of `storage_size` bytes for epoch range `[start_epoch, end_epoch)`. It is defined in
+`contracts/walrus/sources/system/storage_resource.move` and mirrored in Rust as `StorageResource`
+in `crates/walrus-sui/src/types/move_structs.rs`.
+
+### Lifecycle
+
+1. **Purchase** (`system::reserve_space`): User pays WAL tokens. Cost =
+   `ceil(encoded_size / 1 MiB) * storage_price_per_unit * num_epochs`. Payment is split per-epoch
+   into the `FutureAccountingRingBuffer`. Capacity is checked against `total_capacity_size` for
+   each epoch.
+2. **Blob Registration** (`system::register_blob`): The `Storage` object is consumed (embedded into
+   the `Blob` object). A separate write fee is paid. The contract validates the blob's encoded size
+   fits within `storage_size` and the current epoch is within the storage's range.
+3. **Certification** (`system::certify_blob`): Records a quorum BLS signature. Does not modify the
+   storage resource.
+4. **Extension** (`system::extend_blob`): Pays for additional epochs, extends `end_epoch` in-place.
+   Alternatively `extend_blob_with_resource` fuses a separate `Storage` object into the blob.
+5. **Deletion** (`system::delete_blob`): For deletable blobs only. Destroys the `Blob` and returns
+   the `Storage` object for reuse.
+6. **Split/Merge**: `split_by_epoch`, `split_by_size`, `fuse_periods`, `fuse_amount` allow flexible
+   resource management. The SDK uses `split_storage_by_size` to right-size resources before
+   registration.
+
+### Pricing & Economics
+
+- **Two prices** (WAL per MiB, set by quorum voting of storage nodes):
+  - `storage_price_per_unit_size` — per-epoch reservation cost
+  - `write_price_per_unit_size` — one-time registration cost
+- **Price voting**: Nodes call `set_storage_price_vote`/`set_write_price_vote`. The `quorum_below`
+  algorithm selects the lowest price that 2/3+ of the committee (by shard weight) voted for or
+  above. Takes effect immediately.
+- **FutureAccountingRingBuffer** (`contracts/walrus/sources/system/storage_accounting.move`): One
+  slot per epoch, each holding `used_capacity` and `rewards_to_distribute`. At epoch end,
+  `ring_pop_expand()` pops the current slot. 3% of rewards are burned, the rest distributed to
+  nodes proportional to `weight * (used_capacity - deny_list_size)`.
+- **Subsidies**: `add_subsidy` distributes WAL across future epochs. Client-side `Credits` objects
+  can reduce buyer cost via `buyer_subsidy_rate`/`system_subsidy_rate`.
+
+### SDK Resource Manager
+
+`ResourceManager` in `crates/walrus-sdk/src/client/resource.rs` optimizes cost by choosing:
+- `ReuseRegistration` — blob already registered with sufficient lifetime
+- `ReuseStorage` — existing `StorageResource` in wallet fits (by size and epoch range)
+- `RegisterFromScratch` — buy new storage + register
+- `ReuseAndExtend` — blob exists but lifetime too short, extend it
+
+It queries owned resources, sorts by best fit (smallest sufficient), and allocates largest blobs
+first.
+
+### Interaction with Storage Nodes
+
+Storage nodes **never directly inspect `Storage` objects on Sui**. They learn about storage
+resources through on-chain events:
+
+**Event pipeline** (Sui → EventProcessor → Storage Node):
+1. `EventProcessor` (`walrus-service/src/event/event_processor/processor.rs`) downloads Sui
+   checkpoints and extracts Walrus events.
+2. Events are streamed to the node via the `SystemEventProvider` trait.
+3. The node dispatches events in `process_event_impl()` (`walrus-service/src/node.rs`).
+
+**Key events** (`contracts/walrus/sources/system/events.move`):
+- `BlobRegistered` — includes `blob_id`, `size`, `end_epoch` (from storage resource), `deletable`
+- `BlobCertified` — includes `end_epoch`, `is_extension` flag
+- `BlobDeleted` — blob was deleted, storage reclaimed
+
+**When `BlobRegistered` arrives**:
+1. `update_blob_info()` writes to the `BlobInfoTable` (RocksDB merge operator), recording
+   `end_epoch`, deletable/permanent status, reference counts.
+2. `notify_registration()` wakes clients that may have started uploading before registration.
+3. `flush_pending_caches()` persists pre-uploaded metadata and slivers from memory to disk.
+
+**Sliver acceptance** (`store_sliver()` in `walrus-service/src/node.rs`):
+- If the blob is registered (metadata persisted) → store directly
+- If not yet registered → buffer in pending sliver cache; flush when registration event arrives
+- `is_blob_registered()` checks `end_epoch > current_epoch` (the storage resource's lifetime)
+
+**Capacity tracking is on-chain only**: When `reserve_space()` succeeds and emits `BlobRegistered`,
+the contract has already validated capacity. Nodes trust the chain events.
+
+**Epoch transitions and expiry**:
+1. Node receives `EpochChangeStart` → waits for pending events, locks shards, executes epoch change.
+2. Garbage collection iterates per-object blob info, deletes entries where `end_epoch <= current_epoch`.
+3. When no non-expired references remain (`can_data_be_deleted()`), actual sliver data is deleted.
+
+**Full flow**:
+```
+User pays WAL → reserve_space() → Storage created (capacity++ in ring buffer)
+User registers → register_blob() → Storage consumed into Blob → BlobRegistered event
+  → Node: update blob_info, notify clients, flush pending caches
+Client uploads slivers → store_sliver() → node checks is_blob_registered() or buffers
+Client certifies → certify_blob() → BlobCertified event → node syncs missing slivers
+Epoch ends → advance_epoch() → pop ring buffer, burn 3%, distribute rewards
+  → Node: garbage collect expired blobs, delete slivers for expired storage
+```
+
 ## Key Patterns
 
 ### Adding Config Fields
