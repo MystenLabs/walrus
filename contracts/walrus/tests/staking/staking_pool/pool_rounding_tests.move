@@ -91,6 +91,8 @@ fun commission_rounding_success() {
     let balance_a = pool.withdraw_stake(staked_a, true, false, &wctx);
     assert_eq!(balance_a.destroy_for_testing(), 182 + 100 * frost_per_wal());
 
+    // Clear blocked commission (simulating voting_end) to make it collectable.
+    pool.clear_blocked_commission();
     let auth = auth::authenticate_sender(ctx);
     let commission = pool.collect_commission(auth);
     assert_eq!(commission.destroy_for_testing(), 20);
