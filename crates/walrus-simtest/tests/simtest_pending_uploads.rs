@@ -15,7 +15,7 @@ mod tests {
     use walrus_core::encoding::Primary;
     use walrus_proc_macros::walrus_simtest;
     use walrus_sdk::{
-        client::{StoreArgs, StoreBlobsApi as _},
+        node_client::{StoreArgs, StoreBlobsApi as _},
         store_optimizations::StoreOptimizations,
         uploader::TailHandling,
     };
@@ -88,8 +88,9 @@ mod tests {
         apply_restarts(&mut walrus_cluster, restart_handles).await;
 
         let blob_id = match store_results.first().expect("one blob result expected") {
-            walrus_sdk::client::responses::BlobStoreResult::NewlyCreated {
-                blob_object, ..
+            walrus_sdk::node_client::responses::BlobStoreResult::NewlyCreated {
+                blob_object,
+                ..
             } => blob_object.blob_id,
             other => panic!("unexpected store result: {other:?}"),
         };

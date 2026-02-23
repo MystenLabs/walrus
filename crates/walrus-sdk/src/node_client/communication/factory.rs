@@ -24,9 +24,9 @@ use walrus_utils::metrics::Registry;
 use super::{NodeCommunication, NodeReadCommunication, NodeWriteCommunication};
 use crate::{
     active_committees::ActiveCommittees,
-    client::auto_tune::AutoTuneHandle,
     config::ClientCommunicationConfig,
     error::{ClientError, ClientErrorKind, ClientResult},
+    node_client::auto_tune::AutoTuneHandle,
 };
 
 /// Factory to create objects amenable to communication with storage nodes.

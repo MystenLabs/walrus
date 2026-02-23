@@ -752,9 +752,9 @@ where
 pub async fn create_walrus_client_with_refresher(
     contract_config: ContractConfig,
     sui_read_client: walrus_sui::client::SuiReadClient,
-) -> anyhow::Result<walrus_sdk::client::WalrusNodeClient<walrus_sui::client::SuiReadClient>> {
+) -> anyhow::Result<walrus_sdk::node_client::WalrusNodeClient<walrus_sui::client::SuiReadClient>> {
     let client_config = crate::client::ClientConfig::new_from_contract_config(contract_config);
-    walrus_sdk::client::WalrusNodeClient::new_read_client_with_refresher(
+    walrus_sdk::node_client::WalrusNodeClient::new_read_client_with_refresher(
         client_config,
         sui_read_client,
     )

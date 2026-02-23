@@ -46,7 +46,7 @@ use object_store::{
     gcp::{GoogleCloudStorage, GoogleCloudStorageBuilder},
 };
 use walrus_core::{BlobId, EncodingType};
-use walrus_sdk::{ObjectID, client::WalrusNodeClient, config::ClientConfig};
+use walrus_sdk::{ObjectID, config::ClientConfig, node_client::WalrusNodeClient};
 use walrus_sui::client::{SuiReadClient, retry_client::RetriableSuiClient};
 
 const TOMBSTONE_FILENAME: &str = "tombstone";

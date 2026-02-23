@@ -35,14 +35,14 @@ use walrus_sui::{client::ReadClient, types::move_structs::BlobAttribute};
 use walrus_utils::read_blob_from_file;
 
 use crate::{
-    client::{
+    error::{ClientError, ClientErrorKind, ClientResult},
+    node_client::{
         StoreArgs,
         StoreBlobsApi,
         WalrusNodeClient,
         client_types::StoredQuiltPatch,
         responses::QuiltStoreResult,
     },
-    error::{ClientError, ClientErrorKind, ClientResult},
 };
 
 /// Generate identifier from path.

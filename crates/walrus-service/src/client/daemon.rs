@@ -70,7 +70,8 @@ use walrus_core::{
     },
 };
 use walrus_sdk::{
-    client::{
+    error::{ClientError, ClientResult},
+    node_client::{
         StoreArgs,
         StoreBlobsApi as _,
         WalrusNodeClient,
@@ -79,7 +80,6 @@ use walrus_sdk::{
         responses::{BlobStoreResult, QuiltStoreResult},
         streaming::start_streaming_blob,
     },
-    error::{ClientError, ClientResult},
     store_optimizations::StoreOptimizations,
 };
 use walrus_sui::{

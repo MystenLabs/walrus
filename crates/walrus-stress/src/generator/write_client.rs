@@ -19,14 +19,14 @@ use walrus_core::{
     metadata::VerifiedBlobMetadataWithId,
 };
 use walrus_sdk::{
-    client::{
+    error::ClientError,
+    node_client::{
         StoreArgs,
         StoreBlobsApi as _,
         WalrusNodeClient,
         metrics::ClientMetrics,
         refresh::CommitteesRefresherHandle,
     },
-    error::ClientError,
     store_optimizations::StoreOptimizations,
     uploader::TailHandling,
 };

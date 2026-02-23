@@ -36,9 +36,9 @@ use walrus_sui::types::StorageNode;
 use walrus_utils::backoff::{self, ExponentialBackoff};
 
 use crate::{
-    client::{auto_tune::AutoTuneHandle, metrics::ClientMetrics},
     config::RequestRateConfig,
     error::{SliverStoreError, StoreError},
+    node_client::{auto_tune::AutoTuneHandle, metrics::ClientMetrics},
     utils::{WeightedResult, string_prefix},
 };
 

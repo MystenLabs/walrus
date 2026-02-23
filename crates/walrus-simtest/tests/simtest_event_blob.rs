@@ -20,7 +20,7 @@ mod tests {
     use typed_store::rocks::be_fix_int_ser;
     use walrus_core::{BlobId, test_utils};
     use walrus_proc_macros::walrus_simtest;
-    use walrus_sdk::{client::WalrusNodeClient, config::ClientCommunicationConfig};
+    use walrus_sdk::{config::ClientCommunicationConfig, node_client::WalrusNodeClient};
     use walrus_service::{
         node::{
             DatabaseConfig,
