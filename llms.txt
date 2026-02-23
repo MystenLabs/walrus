@@ -22,17 +22,6 @@ Where the world's data becomes reliable, valuable, and governable
 
 - [Data Security](/data-security): Security guarantees and best practices for Walrus including availability, integrity, and encryption with Seal for access control.
 
-## Design
-
-- [Basic Architecture and Security Assumptions](/design/architecture): Overview of Walrus system architecture including users, storage nodes, aggregators, and security assumptions for Byzantine fault tolerance.
-- [Encoding, Overheads, and Verification](/design/encoding): Technical details of Walrus encoding using RedStuff erasure codes, data authentication, integrity checks, and consistency verification.
-- [Objectives and Use Cases](/design/objectives_use_cases): Overview of Walrus objectives, use cases, and applications including NFT storage, AI datasets, and decentralized web hosting.
-- [Off-Chain Operations](/design/operations-off-chain): Detailed explanation of Walrus off-chain operations including write paths, read operations, and storage node interactions.
-- [Operations on Sui](/design/operations-sui): Walrus operations on Sui blockchain including storage resource lifecycle, smart contracts, and governance mechanisms.
-- [Operations](/design/operations): Overview of Walrus operations including Sui chain interactions for coordination and off-chain interactions between clients and storage nodes.
-- [System Overview](/design/overview): Overview of Walrus system architecture and encoding mechanisms for decentralized blob storage.
-- [Walrus Assurance and Security Properties](/design/properties): Detailed security properties and assurances of Walrus including point of availability, consistency guarantees, and Byzantine fault tolerance.
-
 ## Dev guide
 
 - [Redirecting...](/dev-guide/components)
@@ -121,15 +110,13 @@ Where the world's data becomes reliable, valuable, and governable
 ## System overview
 
 - [Available Networks](/system-overview/available-networks): Overview of Walrus networks including Mainnet and Testnet configurations, parameters, and setup instructions.
-- [Components](/system-overview/components): From a developer perspective, some Walrus components are objects and smart contracts on Sui, and some components are Walrus-specific binaries and services. As a rule, Sui is used to manage blob and storage node metadata, while Walrus-specific services are used to store and read blob contents, which can be very large.
-- [Core Concepts](/system-overview/core-concepts): Technical reference for Walrus Sui smart contracts including blob objects, storage resources, and system events for developers.
-- [Operations](/system-overview/operations): Developer guide to Walrus operations including store, read, certify availability, and delete operations for blob management.
+- [Walrus Fundamentals](/system-overview/core-concepts): Technical reference for Walrus fundamentals, including architecture, data storage, and data retrieval.
+- [Operations](/system-overview/operations): Developer guide to Walrus operations for blob management.
 - [Public Aggregators and Publishers](/system-overview/public-aggregators-and-publishers): The Walrus client offers a daemon mode that runs a simple web server that provides HTTP interfaces you can use to store and read blobs in an aggregator or publisher role respectively. Walrus also offers HTTP APIs through public aggregator and publisher services that you can use without running a local client.
-- [Quilt: Walrus Native Batch Store Tool](/system-overview/quilt): Comprehensive guide to Walrus Quilt for batch storage of multiple small blobs with cost optimization and metadata management.
+- [Batch Storage with Quilt](/system-overview/quilt): Comprehensive guide to Walrus Quilt for batch storage of multiple small blobs with cost optimization and metadata management.
 - [RedStuff Encoding Algorithm](/system-overview/red-stuff): Learn how the RedStuff encoding algorithm works in Walrus, including erasure coding, RaptorQ fountain codes, sliver encoding, recovery, and blob metadata.
 - [Storage Costs](/system-overview/storage-costs): Comprehensive guide to Walrus storage costs including WAL tokens, SUI gas fees, and cost optimization strategies.
-- [Sui Object IDs and Blob IDs](/system-overview/sui-object-and-blob-ids): The command walrus blob-id can be used to derive the blob ID of any file. The blob ID is a commitment to the file, and any blob with the same ID decodes to the same content. The blob ID is a 256 bit number and represented on some Sui explorers as a decimal large number. The command walrus convert-blob-id can be used to convert it to a base64 URL to be used by the command line tools and other APIs.
-- [View System Information](/system-overview/view-system-info): Information about the Walrus system is available through the walrus info command. It provides an overview of current system parameters, such as the current epoch, the number of storage nodes and shards in the system, the maximum blob size, and the current cost in WAL for storing blobs:
+- [View System Information](/system-overview/view-system-info): Use the walrus info command to view Walrus system parameters, storage node details, epoch information, and current storage costs.
 
 ## Troubleshooting
 
