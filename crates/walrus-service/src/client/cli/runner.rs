@@ -266,25 +266,20 @@ impl ClientCommandRunner {
         command: CliCommands,
         trace_cli: Option<TraceExporter>,
     ) -> Result<()> {
-        let result = {
-            let mut subscriber_builder = TracingSubscriberBuilder::default();
-            match trace_cli {
-                Some(TraceExporter::Otlp) => {
-                    subscriber_builder.with_otlp_trace_exporter();
-                }
-                Some(TraceExporter::File(path)) => {
-                    subscriber_builder.with_file_trace_exporter(path);
-                }
-                None => (),
+        let mut subscriber_builder = TracingSubscriberBuilder::default();
+        match trace_cli {
+            Some(TraceExporter::Otlp) => {
+                subscriber_builder.with_otlp_trace_exporter();
             }
-            // Since we may export OTLP, this needs to be initialised in an async context.
-            let _guard = subscriber_builder.init_scoped()?;
+            Some(TraceExporter::File(path)) => {
+                subscriber_builder.with_file_trace_exporter(path);
+            }
+            None => (),
+        }
+        // Since we may export OTLP, this needs to be initialised in an async context.
+        let _guard = subscriber_builder.init_scoped()?;
 
-            self.run_cli_app_inner(command).await
-        };
-
-        opentelemetry::global::shutdown_tracer_provider();
-        result
+        self.run_cli_app_inner(command).await
     }
 
     #[tracing::instrument(name="run", skip_all, fields(command = command.as_str()))]

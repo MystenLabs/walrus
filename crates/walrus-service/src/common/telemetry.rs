@@ -260,7 +260,7 @@ impl MakeHttpSpan {
         let parent_context = opentelemetry::global::get_text_map_propagator(|propagator| {
             propagator.extract(&HeaderExtractor(request.headers()))
         });
-        span.set_parent(parent_context);
+        let _ = span.set_parent(parent_context);
     }
 }
 

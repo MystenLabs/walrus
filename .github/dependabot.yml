@@ -17,6 +17,11 @@ updates:
         update-types:
           - "minor"
           - "patch"
+      opentelemetry:
+        patterns:
+          - "opentelemetry"
+          - "opentelemetry-*"
+          - "tracing-opentelemetry"
     ignore:
       - dependency-name: futures-timer
       - dependency-name: move-*
