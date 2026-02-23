@@ -426,6 +426,8 @@ public(package) fun advance_epoch(
     let commission_value =
         total_rewards * (pool.commission_rate as u128) / (N_BASIS_POINTS as u128);
     let commission = rewards.split(commission_value as u64);
+
+    // Block the commission for collection until `voting_end`.
     pool.add_commission(commission, true);
 
     // Update the commission_rate for the new epoch if there's a pending value.
@@ -450,6 +452,10 @@ public(package) fun advance_epoch(
 /// Add `commission` directly to the pool's commission. If `block` is true, the added amount
 /// is also blocked for collection until `voting_end` clears it. Returns the total value of
 /// the pool's commission after the operation.
+///
+/// How to set `block` is an implementation detail of using this function, and needs to be
+/// carefully considered. Blocked commission in previous committees is only collectable after
+/// `voting_end`.
 public(package) fun add_commission(
     pool: &mut StakingPool,
     commission: Balance<WAL>,

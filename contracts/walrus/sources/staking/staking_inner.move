@@ -235,7 +235,7 @@ public(package) fun voting_end(self: &mut StakingInnerV1, clock: &Clock) {
 
     // Clear blocked commission for all committee pools, allowing operators to collect
     // the commission that was blocked during advance_epoch.
-    self.clear_blocked_commissions();
+    self.clear_previous_committee_blocked_commission();
 
     // Assign the next epoch committee.
     self.select_committee_and_calculate_votes();
@@ -247,14 +247,11 @@ public(package) fun voting_end(self: &mut StakingInnerV1, clock: &Clock) {
     events::emit_epoch_parameters_selected(self.epoch + 1);
 }
 
-/// Clears the blocked commission for all pools in the current and previous committees.
-fun clear_blocked_commissions(self: &mut StakingInnerV1) {
-    let (node_ids, _) = (*self.committee.inner()).into_keys_values();
-    node_ids.do!(|id| {
-        if (self.pools.contains(id)) {
-            self.pools[id].clear_blocked_commission();
-        };
-    });
+/// Clears the blocked commission for all pools in the previous committee.
+///
+/// Only the previous committee needs clearing because any newly added commission in the current
+/// committee won't have any commissions to collect yet.
+fun clear_previous_committee_blocked_commission(self: &mut StakingInnerV1) {
     let (prev_node_ids, _) = (*self.previous_committee.inner()).into_keys_values();
     prev_node_ids.do!(|id| {
         if (self.pools.contains(id)) {
@@ -774,6 +771,9 @@ public(package) fun extract_commission_to_burn(
 ///
 /// If the epoch state is not `NextParamsSelected` (i.e., before `voting_end`),
 /// the added amount is also blocked for collection until `voting_end`.
+///
+/// This function should be used only for distributing commissions to previous committee members.
+/// The distributed commissions are not blocked for collection until `voting_end`.
 public(package) fun add_commission_to_pools(
     self: &mut StakingInnerV1,
     node_ids: vector<ID>,
