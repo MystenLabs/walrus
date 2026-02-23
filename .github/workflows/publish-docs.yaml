@@ -87,7 +87,7 @@ jobs:
       - name: Build site
         run: cd docs/site && pnpm run build
       - name: Deploy to Walrus
-        uses: MystenLabs/walrus-sites-github-actions/deploy@8eb025e06e2aecea29cf16059be62faa3d4a64a5 # v2
+        uses: MystenLabs/walrus-sites-github-actions/deploy@554cf074616fdc211991c2c57d034baea2a13fb8 # v3
         with:
           SUI_ADDRESS: "${{ vars.SUI_ADDRESS }}"
           SUI_KEYSTORE: "${{ secrets.SUI_KEYSTORE }}"
