@@ -86,7 +86,7 @@ cargo fmt -- --config group_imports=StdExternalCrate,imports_granularity=Crate,i
 cargo clippy --all-features --tests -- -D warnings
 
 # All pre-commit hooks
-pre-commit run --all-files
+prek run --all-files # or pre-commit run --all-files if using pre-commit
 ```
 
 ### Simulation Tests (msim)

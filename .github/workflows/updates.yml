@@ -16,19 +16,21 @@ jobs:
       pull-requests: write
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # pin@v6.0.2
-      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # pin@v6.2.0
-        with:
-          python-version: "3.12"
       - name: Install correct Rust toolchain
         run: rustup update && rustup toolchain install
-      - run: pip install pre-commit
-      - name: Run pre-commit autoupdate
+      - name: Install prek
+        env:
+          PREK_INSTALLER_URL: https://github.com/j178/prek/releases/download/v0.3.3/prek-installer.sh
+        run: curl --proto '=https' --tlsv1.2 -LsSf ${{ env.PREK_INSTALLER_URL }} | sh
+      - name: Run prek autoupdate
         run: >
-          pre-commit autoupdate
+          prek autoupdate --cooldown-days 5
           --repo https://github.com/pre-commit/pre-commit-hooks
           --repo https://github.com/editorconfig-checker/editorconfig-checker.python
           --repo https://github.com/crate-ci/typos
           --repo https://github.com/EmbarkStudios/cargo-deny
+          --repo https://github.com/google/yamlfmt
+          --repo https://github.com/DavidAnson/markdownlint-cli2
 
       - name: Get Sui tag
         shell: bash
@@ -51,7 +53,7 @@ jobs:
         with:
           tool: cargo-nextest
 
-      - run: pre-commit run --all-files
+      - run: prek run --all-files
       - uses: peter-evans/create-pull-request@c0f553fe549906ede9cf27b5156039d195d2ece0 # pin@v8.1.0
         if: ${{ success() }}
         with:

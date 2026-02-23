@@ -18,9 +18,6 @@ build/
 # Custom pre-commit configuration
 .custom-pre-commit-config.yaml
 
-# mdBook
-docs/build/
-
 # Walrus binary and configuration
 ./walrus
 ./client_config.yaml

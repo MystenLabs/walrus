@@ -4,7 +4,6 @@
 
 # Note: Keep globs in sync with .github/workflows/lint.yml.
 globs:
-  - "docs/book/**/*.md"
   - "CONTRIBUTING.md"
   - "README.md"
 gitignore: true

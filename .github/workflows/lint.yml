@@ -63,7 +63,7 @@ jobs:
         with:
           config: .markdownlint-cli2.yaml
           # Note: Keep globs in sync with .markdownlint-cli2.yaml.
-          globs: "docs/book/**/*.md README.md CONTRIBUTING.md"
+          globs: "README.md CONTRIBUTING.md"
 
   move-formatting:
     name: Check Move formatting

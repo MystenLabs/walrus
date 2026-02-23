@@ -308,8 +308,8 @@ jobs:
             - Generally only use `long` CLI options, not `short` ones to avoid conflicts in the
               future.
             - If you added new options or features, or modified the behavior, please document the
-              changes in the release notes of the PR and update the documentation in the `docs/book`
-              directory.
+              changes in the release notes of the PR and update the documentation in the
+              `docs/content` directory.
 
   openapi-warning:
     name: Check if the PR touches any of the OpenAPI files
