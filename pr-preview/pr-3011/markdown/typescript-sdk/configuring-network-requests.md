@@ -1,0 +1,1 @@
+https://linear.app/mysten-labs/issue/DOCS-652/typescript-sdkconfiguring-network-requests
