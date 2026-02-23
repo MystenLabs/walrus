@@ -1,1 +1,0 @@
-https://github.com/MystenLabs/awesome-walrus
