@@ -33,8 +33,8 @@
     "definition": "(Disjoint) Subset of erasure-encoded data of all blobs; at every point in time, a shard is assigned to and stored on a single storage node."
   },
   {
-    "id": "red-stuff",
-    "label": "red-stuff",
+    "id": "redstuff",
+    "label": "redstuff",
     "definition": "Erasure-encoding approach, which uses two different encodings (primary and secondary) to enable shard recovery; details are available in the [whitepaper](./walrus.pdf)."
   },
   {
