@@ -34,7 +34,7 @@
   },
   {
     "id": "redstuff",
-    "label": "redstuff",
+    "label": "RedStuff",
     "definition": "Erasure-encoding approach, which uses two different encodings (primary and secondary) to enable shard recovery; details are available in the [whitepaper](./walrus.pdf)."
   },
   {
