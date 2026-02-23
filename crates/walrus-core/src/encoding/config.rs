@@ -396,7 +396,6 @@ impl EncodingConfig {
     pub fn get_for_type(&self, encoding_type: EncodingType) -> EncodingConfigEnum {
         match encoding_type {
             EncodingType::RS2 => self.reed_solomon.into(),
-            _ => panic!("unsupported encoding type: {:?}", encoding_type),
         }
     }
 

@@ -68,8 +68,6 @@ pub mod messages;
 pub mod metadata;
 pub mod utils;
 
-pub use encoding_type::EncodingType;
-
 /// A public key for protocol messages.
 pub type PublicKey = BLS12381PublicKey;
 /// A public key for network communication.
@@ -757,86 +755,112 @@ by_axis::derive_try_from_trait!(
 #[error("the provided value is not a valid EncodingType")]
 pub struct InvalidEncodingType;
 
-// Defining the `EncodingType` in a separate module to be able to use `#[allow(deprecated)]` with
-// limited scope. Without this, the serde derivations would cause deprecation warnings.
+/// Serde representation of encoding type, including deprecated variants for
+/// deserializing remotely fetched metadata.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[deprecated = "this is only intended for (de)serialization purposes; use EncodingType instead"]
+#[repr(u8)]
+enum EncodingTypeForSerde {
+    /// Original RedStuff encoding using the RaptorQ erasure code (no longer supported).
+    RedStuffRaptorQ = 0,
+    /// RedStuff using the Reed-Solomon erasure code.
+    RS2 = 1,
+}
+
+/// Supported Walrus encoding types.
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash, Serialize, Deserialize)]
+#[serde(try_from = "EncodingTypeForSerde", into = "EncodingTypeForSerde")]
+#[repr(u8)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[allow(deprecated)]
-mod encoding_type {
-    use super::*;
-    /// Supported Walrus encoding types.
-    #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash, Serialize, Deserialize)]
-    #[repr(u8)]
-    #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
-    pub enum EncodingType {
-        /// Original RedStuff encoding using the RaptorQ erasure code.
-        // This is no longer used or supported. It is kept only so BCS de-/encoding works correctly.
-        #[deprecated(
-            note = "the original RaptorQ-based encoding is no longer supported and is disabled on \
-            all public Walrus networks"
-        )]
-        #[serde(skip_serializing)]
-        RedStuffRaptorQ = 0,
-        /// RedStuff using the Reed-Solomon erasure code.
-        RS2 = 1,
-    }
+pub enum EncodingType {
+    /// RedStuff using the Reed-Solomon erasure code.
+    RS2 = 1,
+}
 
-    impl From<EncodingType> for u8 {
-        #[inline]
-        fn from(value: EncodingType) -> Self {
-            value as u8
+#[allow(deprecated)]
+impl TryFrom<EncodingTypeForSerde> for EncodingType {
+    type Error = InvalidEncodingType;
+
+    #[inline]
+    fn try_from(value: EncodingTypeForSerde) -> Result<Self, Self::Error> {
+        match value {
+            EncodingTypeForSerde::RedStuffRaptorQ => Err(InvalidEncodingType),
+            EncodingTypeForSerde::RS2 => Ok(EncodingType::RS2),
         }
     }
+}
 
-    impl TryFrom<u8> for EncodingType {
-        type Error = InvalidEncodingType;
+#[allow(deprecated)]
+impl From<EncodingType> for EncodingTypeForSerde {
+    #[inline]
+    fn from(value: EncodingType) -> Self {
+        match value {
+            EncodingType::RS2 => EncodingTypeForSerde::RS2,
+        }
+    }
+}
 
-        #[inline]
-        fn try_from(value: u8) -> Result<Self, Self::Error> {
-            match value {
-                1 => Ok(EncodingType::RS2),
-                _ => Err(InvalidEncodingType),
-            }
+impl From<EncodingType> for u8 {
+    #[inline]
+    fn from(value: EncodingType) -> Self {
+        value as u8
+    }
+}
+
+impl TryFrom<u8> for EncodingType {
+    type Error = InvalidEncodingType;
+
+    #[inline]
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            1 => Ok(EncodingType::RS2),
+            _ => Err(InvalidEncodingType),
+        }
+    }
+}
+
+impl FromStr for EncodingType {
+    type Err = InvalidEncodingType;
+
+    #[inline]
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.trim().to_lowercase().as_str() {
+            "redstuff/reed-solomon" | "rs2" | "reed-solomon" => Ok(Self::RS2),
+            _ => Err(InvalidEncodingType),
+        }
+    }
+}
+
+impl EncodingType {
+    /// Returns the required alignment of symbols for the encoding type.
+    #[inline]
+    pub fn required_alignment(&self) -> u16 {
+        match self {
+            Self::RS2 => 2,
         }
     }
 
-    impl FromStr for EncodingType {
-        type Err = InvalidEncodingType;
-
-        #[inline]
-        fn from_str(s: &str) -> Result<Self, Self::Err> {
-            match s.trim().to_lowercase().as_str() {
-                "redstuff/reed-solomon" | "rs2" | "reed-solomon" => Ok(Self::RS2),
-                _ => Err(InvalidEncodingType),
-            }
+    /// Returns the maximum size of a symbol for the encoding type.
+    #[inline]
+    pub fn max_symbol_size(&self) -> u16 {
+        match self {
+            Self::RS2 => u16::MAX - 1,
         }
     }
 
-    impl EncodingType {
-        /// Returns the required alignment of symbols for the encoding type.
-        #[inline]
-        pub fn required_alignment(&self) -> u16 {
-            2
-        }
-
-        /// Returns the maximum size of a symbol for the encoding type.
-        #[inline]
-        pub fn max_symbol_size(&self) -> u16 {
-            u16::MAX - 1
-        }
-
-        /// Returns `true` if the current build supports the encoding type.
-        #[inline]
-        pub fn is_supported(&self) -> bool {
-            SUPPORTED_ENCODING_TYPES.contains(self)
-        }
+    /// Returns `true` if the current build supports the encoding type.
+    #[inline]
+    pub fn is_supported(&self) -> bool {
+        SUPPORTED_ENCODING_TYPES.contains(self)
     }
+}
 
-    impl Display for EncodingType {
-        #[inline]
-        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-            match self {
-                Self::RedStuffRaptorQ => write!(f, "RedStuff/RaptorQ"),
-                Self::RS2 => write!(f, "RedStuff/Reed-Solomon"),
-            }
+impl Display for EncodingType {
+    #[inline]
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::RS2 => write!(f, "RedStuff/Reed-Solomon"),
         }
     }
 }
