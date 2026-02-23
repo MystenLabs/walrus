@@ -1,0 +1,65 @@
+{/* https://linear.app/mysten-labs/issue/DOCS-632/system-overviewoperations */}
+
+Walrus stores blobs across storage nodes in an [encoded form](/docs/design/encoding), and refers to blobs by their blob ID. The blob ID is deterministically derived from the content of a blob and the Walrus configuration. The blob ID of 2 files with the same content is the same.
+
+You can derive the blob ID of a file locally using the command: `walrus blob-id <file path>`.
+
+Blobs can be interacted with through familiar file system operations such as uploading, reading, downloading, and deleting. 
+
+## Store
+
+The steps involved in a store operation can be executed by the binary client or a publisher that accepts and publishes blobs through [HTTP](/docs/http-api/storing-blobs).
+
+:::danger 
+
+**All blobs stored in Walrus are public and discoverable by all.** Do not use Walrus to store anything that contains secrets or private data without additional measures to protect confidentiality, such as encrypting data with [Seal](/docs/data-security).
+
+:::
+
+When a blob is stored on Walrus, first the client or publisher encodes the blob and derives a blob ID that identifies the blob. This is a `u256` often encoded as a URL-safe base64 string. Then, a transaction is executed on Sui to purchase some storage from the system object and to register the blob ID occupying this storage. Client APIs return the Sui blob object ID. The transactions use SUI to purchase storage and pay for gas.
+
+Encoded slivers of the blob are distributed to all storage nodes. They each sign a receipt. Signed receipts are aggregated and submitted to the Sui blob object to certify the blob. Certifying a blob emits a Sui event with the blob ID and the period of availability.
+
+A blob is considered available on Walrus once the corresponding Sui blob object has been certified in the final step. 
+
+### Maximum blob size 
+
+The maximum blob size can be queried through the [`walrus info`](/docs/walrus-client/storing-blobs#walrus-system-information) CLI command. The maximum blob size is currently 13.3&nbsp;GB. You can store larger blobs by splitting them into smaller chunks.
+
+Blobs are stored for a certain number of epochs which is specified at the time they are stored. Walrus storage nodes ensure that within these epochs a read succeeds. Mainnet uses an epoch duration of 2 weeks.
+
+## Read
+
+Read a blob after it is stored by providing its blob ID. A read is executed by querying the system object on Sui to determine the Walrus storage node committee. Once the committee is determined, some of those storage nodes within the committee are queried for blob metadata and the slivers they store. The blob is reconstructed from the recovered slivers and checked against the blob ID.
+
+The steps involved in the read operation are performed by the binary client or the aggregator service that exposes an HTTP interface to read blobs. Reads are resilient and succeed in recovering the blob in all cases even if up to 1/3 of storage nodes are unavailable. In most cases, after synchronization is complete, blobs can be read even if 2/3 of storage nodes are down.
+
+## Download 
+
+To download a blob and save it on your local machine, run the following command:
+
+```sh
+$ walrus read <blob-id> --out file.txt --context testnet
+```
+
+Replace `<blob-id>` with the blob's identifier the `walrus store` command returns in its output, and replace `file.txt` with the name and file extension for storing the file locally.
+
+## Certify availability
+
+Once a blob is certified, Walrus ensures that sufficient slivers are always available on storage nodes to recover it within the specified epochs.
+
+You can verify blob availability in 3 ways:
+
+1. **Using the certified blob event**: Use a Sui SDK read to authenticate the certified blob event emitted when the blob ID was certified on Sui. The `walrus blob-status` command identifies the event ID to check.
+
+1. **Using the blob object**: Use a Sui SDK read to authenticate the Sui blob object corresponding to the blob ID, verify it is certified, before the expiry epoch, and not deletable.
+
+1. **Using a smart contract**: A Sui smart contract can read the blob object on Sui to verify it is certified, before the expiry epoch, and not deletable.
+
+The underlying protocol of the [Sui light client](https://github.com/MystenLabs/sui/tree/main/crates/sui-light-client) returns digitally signed evidence for emitted events or objects, and can be used by offline or non-interactive applications as a proof of availability for the blob ID for a certain number of epochs.
+
+## Delete
+
+Stored blobs can be set as deletable by the user that creates them. This metadata is stored in the Sui blob object, and whether a blob is deletable or not is included in certified blob events. A deletable blob can be deleted by the owner of the blob object to reclaim and reuse the storage resource associated with it.
+
+If no other copies of the blob exist on Walrus, deleting a blob eventually makes it unrecoverable using read commands. However, if other copies of the blob exist on Walrus, a delete command reclaims storage space for the user that invoked it, but does not make the blob unavailable until all other copies have been deleted or expire.

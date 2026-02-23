@@ -1,0 +1,100 @@
+{/* https://linear.app/mysten-labs/issue/DOCS-639/walrus-clientstoring-blobs */}
+
+Use the command-line interface (CLI) to interact with the Walrus client. The CLI is available through installing the `walrus` binary. See the [getting started documentation](/docs/getting-started) for prerequisites, installation, and configuration.
+
+Detailed usage information including a full list of available commands can be viewed using: 
+
+```sh
+$ walrus --help
+```
+
+Each subcommand of `walrus` can also be called with `--help` to print its specific arguments and their meaning.
+
+If you have multiple contexts in your configuration file, you can specify the context for each command using the `--context` option. You can generate a `bash`, `zsh`, or `fish` completion script with `walrus completion` and place it in an appropriate directory like `~/.local/share/bash-completion/completions`.
+
+## Store blobs
+
+All blobs stored in Walrus are public and discoverable by all. To store sensitive data, use [Seal](/docs/data-security#seal-data-confidentially-and-access-control) or [Nautilus](/docs/data-security#nautilus-secure-and-verifiable-off-chain-computation) to encrypt the data before storing it on Walrus.
+
+Store blobs on Walrus with the following command:
+
+```sh
+$ walrus store <FILES> --epochs <EPOCHS>
+```
+
+You can store a single file or multiple files, separated by spaces. Notably, this is compatible with glob patterns; for example, `walrus store *.png --epochs <EPOCHS>` stores all PNG files in the current directory.
+
+### Blob lifetimes 
+
+A mandatory CLI argument must be set to specify the lifetime for the blob. There are currently 3 methods of setting a blob's lifetime:
+
+1. The `--epochs <EPOCHS>` option indicates the number of epochs the blob should be stored for. There is an upper limit on the number of epochs a blob can be stored for, which is 53 and corresponds to 2 years. In addition to a positive integer, you can also use `--epochs max` to store the blob for the maximum number of epochs. The end epoch is defined as the current epoch plus the specified number of epochs.
+
+2. The `--earliest-expiry-time <EARLIEST_EXPIRY_TIME>` option takes a date in either RFC3339 format (for example, `2024-03-20T15:00:00Z`) or a more relaxed format (for example, `2024-03-20 15:00:00`). It ensures the blob expires after the specified date if possible.
+
+3. The `--end-epoch <END_EPOCH>` option takes a specific end epoch for the blob. 
+
+A blob expires at the beginning of its end epoch. For example, a blob with end epoch `314` becomes unavailable at the beginning of epoch `314`. One consequence of this is that when storing a blob with `--epochs 1` immediately before an epoch change, it expires and becomes unavailable almost immediately. Blobs can be [extended](#extend-the-lifetime-of-a-blob) only if they have not expired.
+
+### Blob permanence
+
+You can specify whether a newly stored blob is deletable or permanent through the `--deletable` and `--permanent` option, respectively:
+
+- A permanent blob remains available until its expiry epoch. Not even the uploader can delete it beforehand.
+
+- In contrast, a deletable blob can be deleted at any point during its lifetime by the owner of the corresponding Sui object. See the [deletable blobs](#reclaim-space-through-deletable-blobs) for more details.
+
+Newly stored blobs are deletable by default. 
+
+### Automatic optimizations
+
+When storing a blob, the client performs a number of automatic optimizations, including the following:
+
+- If the blob is already stored as a permanent blob on Walrus for a sufficient number of epochs, the command does not store it again. This behavior can be overwritten with the `--force` CLI option, which stores the blob again and creates a fresh Sui object belonging to the wallet address.
+
+- If the user's wallet has a storage resource of suitable size and duration, it is used instead of requiring that the user buy a new one.
+
+- If the blob is already certified on Walrus but it is a deletable blob or it is not stored for a sufficient number of epochs, the command skips sending encoded blob data to the storage nodes and just collects the availability certificate.
+
+### Use a Walrus upload relay
+
+A Walrus upload relay is a third party service that can help clients with limited bandwidth and networking capabilities such as a browser, for example, in storing blobs on Walrus.
+
+Asset management on-chain still happens on the client. The upload relay just takes the unencoded blob, encodes it, and sends the slivers to the storage nodes, before returning the certificate. See in-depth details in the [Walrus upload relay](/docs/operator-guide/upload-relay) documentation.
+
+When storing blobs with the `walrus store` command, and also when [storing quilts](#store-blobs-as-a-quilt), you can use the `--upload-relay` flag with a URL to specify an upload relay server be used by the CLI.
+
+The Walrus upload relay functionality is only available in the Walrus CLI version v1.29 or higher.
+
+The upload relay is a third party service that might require a fee or tip. This tip might be a constant SUI amount per blob stored, or it might be dependent on the size of the blob being stored. The Walrus CLI shows you how much tip the upload relay requires and asks for confirmation before continuing.
+
+View technical details on how the tip is [computed and paid](/docs/operator-guide/upload-relay).
+
+## Store blobs as a quilt
+
+For efficiently storing large numbers of small blobs, Walrus provides the Quilt. It batches multiple blobs into a single storage unit, significantly reducing overhead and cost. You can find a more detailed overview of the feature [Quilt](/docs/system-overview/quilt).
+
+You can interact with quilts using a dedicated set of `walrus` subcommands.
+
+Blobs within a quilt are retrieved by a `QuiltPatchId`, not their standard `BlobId`. This ID is generated based on all blobs in the quilt, so a blob's `QuiltPatchId` changes if it's moved to a different quilt.
+
+Standard blob operations like `delete`, `extend`, or `share` cannot target individual blobs inside a quilt; they must be applied to the entire quilt.
+
+To store all files from one or more directories recursively, use the `--paths` flag. The filename of each file is used as its unique identifier within the quilt. Regular expressions are supported for uploading from multiple paths.
+
+Like the regular `store` command, you can specify the storage duration using `--epochs`, `--earliest-expiry-time`, or `--end-epoch`.
+
+```sh
+$ walrus store-quilt --epochs <EPOCHS> --paths <path-to-directory-1> <path-to-directory-2> <path-to-blob>
+```
+
+You must ensure that all the identifiers are unique within a quilt, the operation fails otherwise. Identifiers are the unique names used to retrieve individual blobs from within the quilt.
+
+To specify a list of blobs as JSON objects, use the `--blobs` flag. This gives you more control, allowing you to set a custom `identifier` and `tags` for each file. If `identifier` is `null` or omitted, the file's name is used instead.
+
+```sh
+$ walrus store-quilt \
+    --blobs '{"path":"<path-to-blob-1>","identifier":"walrus","tags":{"color":"grey","size":"medium"}}' \
+            '{"path":"<path-to_blob-2>","identifier":"seal","tags":{"color":"grey","size":"small"}}' \
+    --epochs <EPOCHS>
+```
