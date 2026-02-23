@@ -1659,10 +1659,7 @@ impl StorageNode {
                 let _scope = monitored_scope::monitored_scope(
                     "ProcessEvent::EpochChangeEvent::EpochChangeStart",
                 );
-                self.wait_for_epoch_state(event.epoch, |state| {
-                    matches!(state, EpochState::EpochChangeSync(_))
-                })
-                .await?;
+                self.wait_for_epoch_state(event.epoch, |_| true).await?;
                 fail_point_async!("epoch_change_start_entry");
                 self.process_epoch_change_start_event(blob_event_processor, event_handle, &event)
                     .await?;
@@ -1672,7 +1669,10 @@ impl StorageNode {
                     "ProcessEvent::EpochChangeEvent::EpochChangeDone",
                 );
                 self.wait_for_epoch_state(event.epoch, |state| {
-                    matches!(state, EpochState::EpochChangeDone(_))
+                    matches!(
+                        state,
+                        EpochState::EpochChangeDone(_) | EpochState::NextParamsSelected(_)
+                    )
                 })
                 .await?;
                 self.process_epoch_change_done_event(&event).await?;
@@ -1695,13 +1695,17 @@ impl StorageNode {
     }
 
     /// Repeatedly checks until the current Sui epoch state matches the expectation.
+    ///
+    /// Returns `Ok(())` if the current epoch is equal to the `expected_epoch` and the
+    /// `state_matches` function returns `true` or the current epoch is greater than the
+    /// `expected_epoch` (irrespective of the state).
     #[cfg(not(any(test, msim)))]
     async fn wait_for_epoch_state(
         &self,
         expected_epoch: Epoch,
         state_matches: impl Fn(&EpochState) -> bool,
     ) -> anyhow::Result<()> {
-        const EPOCH_STATE_WAIT_TIMEOUT: Duration = Duration::from_secs(30);
+        const EPOCH_STATE_WAIT_TIMEOUT: Duration = Duration::from_secs(5);
         const EPOCH_STATE_WAIT_SLEEP: Duration = Duration::from_millis(100);
         let deadline = Instant::now() + EPOCH_STATE_WAIT_TIMEOUT;
         while Instant::now() < deadline {
@@ -1710,9 +1714,15 @@ impl StorageNode {
                 tracing::warn!("failed to get current epoch and state");
                 continue;
             };
-            if epoch == expected_epoch && state_matches(&state) {
+            if epoch == expected_epoch && state_matches(&state) || epoch > expected_epoch {
                 return Ok(());
             }
+            tracing::debug!(
+                expected_epoch,
+                current_epoch = epoch,
+                current_state = ?state,
+                "waiting for expected epoch state",
+            );
             sleep(EPOCH_STATE_WAIT_SLEEP).await;
         }
         bail!("timed out after waiting for expected epoch state")
