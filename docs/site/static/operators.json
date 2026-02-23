@@ -123,7 +123,7 @@
       },
       "https://walrus-aggregator.thcloud.ai": {
         "operator": "THCloudAI",
-        "cache": true
+        "cache": false
       },
       "https://walrus-aggregator.thepassivetrust.com": {
         "operator": "TPT",
@@ -187,7 +187,7 @@
       },
       "https://walrus-mainnet-aggregator.stakeengine.co.uk": {
         "operator": "Stake Engine",
-        "functional": false
+        "cache": true
       },
       "https://walrus-mainnet-aggregator.stakingdefenseleague.com.": {
         "operator": "Staking Defense League",
@@ -235,7 +235,7 @@
       },
       "http://walrus.equinoxdao.xyz:9000": {
         "operator": "EquinoxDao",
-        "cache": false
+        "functional": false
       },
       "http://67.220.194.10:9000": {
         "operator": "Nansen",
@@ -295,7 +295,7 @@
       },
       "https://testnet-aggregator.walrus.graphyte.dev": {
         "operator": "Graphyte Labs",
-        "functional": false
+        "cache": true
       },
       "https://testnet-walrus.globalstake.io": {
         "operator": "GlobalSTake",
@@ -331,7 +331,7 @@
       },
       "https://walrus-aggregator-testnet.n1stake.com": {
         "operator": "n1stake",
-        "functional": false
+        "cache": true
       },
       "https://walrus-aggregator-testnet.staking4all.org": {
         "operator": "Staking4All",
@@ -367,7 +367,7 @@
       },
       "https://walrus-testnet-aggregator.crouton.digital": {
         "operator": "CroutonDigital",
-        "functional": false
+        "cache": true
       },
       "https://walrus-testnet-aggregator.dzdaic.com": {
         "operator": "DAIC Infra (Coinage x DAIC)",
@@ -479,7 +479,7 @@
       },
       "http://walrus-testnet.equinoxdao.xyz:9000": {
         "operator": "EquinoxDao",
-        "cache": true
+        "functional": false
       },
       "http://walrus-testnet.suicore.com:9000": {
         "operator": "Suicore",
