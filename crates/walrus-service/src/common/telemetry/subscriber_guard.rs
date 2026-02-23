@@ -1,7 +1,7 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-use opentelemetry_sdk::trace::TracerProvider as SdkTracerProvider;
+use opentelemetry_sdk::trace::SdkTracerProvider;
 use tracing::subscriber::DefaultGuard;
 
 /// Guard which performs any shutdown actions for a subscriber on drop.
@@ -28,10 +28,8 @@ impl SubscriberGuard {
 impl Drop for SubscriberGuard {
     fn drop(&mut self) {
         if let Some(provider) = self.tracer_provider.take() {
-            for result in provider.force_flush() {
-                if let Err(err) = result {
-                    eprintln!("{err:?}");
-                }
+            if let Err(err) = provider.force_flush() {
+                eprintln!("{err:?}");
             }
 
             if let Err(err) = provider.shutdown() {

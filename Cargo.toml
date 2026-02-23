@@ -88,11 +88,11 @@ mysten-metrics = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.
 num-bigint = { version = "0.4.5", default-features = false }
 object_store = { version = "0.11.2", features = ["gcp"] }
 once_cell = { version = "1.21.3" }
-opentelemetry = { version = "=0.27", default-features = false, features = ["trace"] }
-opentelemetry-otlp = { version = "=0.27" }
-opentelemetry-proto = { version = "=0.27", default-features = false }
+opentelemetry = { version = "=0.31", default-features = false, features = ["trace"] }
+opentelemetry-otlp = { version = "=0.31" }
+opentelemetry-proto = { version = "=0.31", default-features = false, features = ["with-serde"] }
 opentelemetry-semantic-conventions = "=0.31"
-opentelemetry_sdk = "=0.27"
+opentelemetry_sdk = "=0.31"
 p256 = { version = "0.13.2", default-features = false }
 pin-project = "1.1.10"
 prettytable = "0.10.0"
@@ -154,7 +154,7 @@ tonic = { version = "0.14.2", default-features = false }
 tower = "0.5"
 tower-http = { version = "0.5.2", features = ["cors", "timeout", "trace"] }
 tracing = "0.1.44"
-tracing-opentelemetry = { version = "=0.28.0", default-features = false }
+tracing-opentelemetry = { version = "=0.32.1", default-features = false }
 tracing-subscriber = { version = "0.3.22", default-features = false, features = ["env-filter", "fmt"] }
 twox-hash = "2.1.2"
 typed-store = { path = "crates/typed-store" }
