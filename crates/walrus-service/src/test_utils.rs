@@ -1290,7 +1290,8 @@ impl StorageNodeHandleBuilder {
                 contract_config: ContractConfig::new(
                     system_context.system_object,
                     system_context.staking_object,
-                ),
+                )
+                .with_treasury_object(system_context.treasury_object),
                 wallet_config: walrus_sui::config::WalletConfig::from_path(
                     self.node_wallet_dir.unwrap().join("wallet_config.yaml"),
                 ),

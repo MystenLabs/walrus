@@ -307,6 +307,7 @@ pub struct SuiReadClient {
     type_origin_map: Arc<RwLock<TypeOriginMap>>,
     credits: Arc<RwLock<Option<SharedObjectWithPkgConfig>>>,
     walrus_subsidies: Arc<RwLock<Option<SharedObjectWithPkgConfig>>>,
+    treasury_object: Option<(ObjectID, SequenceNumber)>,
 }
 
 impl Debug for SuiReadClient {
@@ -348,6 +349,7 @@ impl Debug for SuiReadClient {
                     .expect("mutex should not be poisoned")
                     .is_some(),
             )
+            .field("treasure_object", &self.treasury_object.is_some())
             .finish()
     }
 }
@@ -404,6 +406,11 @@ impl SuiReadClient {
             },
         ));
 
+        let treasury_object = match contract_config.treasury_object {
+            Some(id) => Some((id, sui_client.get_shared_object_initial_version(id).await?)),
+            None => None,
+        };
+
         let client = Self {
             sui_client,
             system_object_id,
@@ -418,6 +425,7 @@ impl SuiReadClient {
             type_origin_map: Arc::new(RwLock::new(type_origin_map)),
             credits: Default::default(),
             walrus_subsidies: Default::default(),
+            treasury_object,
         };
 
         tokio::try_join!(
@@ -526,6 +534,21 @@ impl SuiReadClient {
         })
     }
 
+    pub(crate) fn object_arg_for_treasury_obj(
+        &self,
+        mutability: SharedObjectMutability,
+    ) -> SuiClientResult<ObjectArg> {
+        let treasury = self
+            .treasury_object
+            .as_ref()
+            .ok_or_else(|| SuiClientError::TreasuryObjectNotSet)?;
+        Ok(ObjectArg::SharedObject {
+            id: treasury.0,
+            initial_shared_version: treasury.1,
+            mutability,
+        })
+    }
+
     pub(crate) fn object_arg_for_walrus_subsidies_obj(
         &self,
         mutability: SharedObjectMutability,
@@ -608,6 +631,7 @@ impl SuiReadClient {
                 .expect("mutex should not be poisoned")
                 .as_ref()
                 .map(|s| s.object_id),
+            treasury_object: self.treasury_object.map(|(id, _)| id),
             n_shards: None,
             max_epochs_ahead: None,
             cache_ttl: self.cache_ttl,
