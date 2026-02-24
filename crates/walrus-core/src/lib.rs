@@ -760,11 +760,16 @@ pub struct InvalidEncodingType;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[deprecated = "this is only intended for (de)serialization purposes; use EncodingType instead"]
 #[repr(u8)]
+// Important: This enum type exists to ensure correct serialization/deserialization of the
+// `EncodingType` enum to/from BCS as BCS uses the enum variant index as the value. This means that
+// new encoding types must be added at the bottom of this enum. The value of enum variants in the
+// `EncodingType` enum should be the same as the index (starting from 0) of the variant in this
+// enum.
 enum EncodingTypeForSerde {
     /// Original RedStuff encoding using the RaptorQ erasure code (no longer supported).
-    RedStuffRaptorQ = 0,
+    RedStuffRaptorQ,
     /// RedStuff using the Reed-Solomon erasure code.
-    RS2 = 1,
+    RS2,
 }
 
 /// Supported Walrus encoding types.
