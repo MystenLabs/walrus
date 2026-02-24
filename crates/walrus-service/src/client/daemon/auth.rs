@@ -6,8 +6,8 @@ use axum_extra::headers::{Authorization, authorization::Bearer};
 use chrono::DateTime;
 use jsonwebtoken::{
     DecodingKey,
+    TokenData,
     Validation,
-    decode,
     errors::{Error as JwtError, ErrorKind as JwtErrorKind},
 };
 use serde::{Deserialize, Serialize};
@@ -76,13 +76,24 @@ pub struct Claim {
 }
 
 impl Claim {
-    /// Builds the Claim from a JWT token.
+    /// Builds the Claim from a JWT token including signature verification.
     pub fn from_token(
         token: &str,
         decoding_key: &DecodingKey,
         validation: &Validation,
     ) -> Result<Self, PublisherAuthError> {
-        let claim: Claim = decode(token, decoding_key, validation)
+        Self::from_token_data_result(jsonwebtoken::decode(token, decoding_key, validation))
+    }
+
+    /// Builds the Claim from a JWT token without signature verification.
+    pub fn from_token_insecure(token: &str) -> Result<Self, PublisherAuthError> {
+        Self::from_token_data_result(jsonwebtoken::dangerous::insecure_decode(token))
+    }
+
+    fn from_token_data_result(
+        token_data_result: Result<TokenData<Self>, JwtError>,
+    ) -> Result<Self, PublisherAuthError> {
+        let claim: Self = token_data_result
             .map_err(|error| {
                 tracing::debug!(
                     %error,
@@ -275,27 +286,21 @@ pub async fn verify_jwt_claim(
     token_cache: &CacheHandle<String>,
     body_size_hint: http_body::SizeHint,
 ) -> Result<(), Response<Body>> {
-    let mut validation = if auth_config.decoding_key.is_some() {
-        auth_config
+    let token = bearer.token().trim();
+    let decode_result = if let Some(decoding_key) = auth_config.decoding_key.as_ref() {
+        let mut validation = auth_config
             .algorithm
             .map(Validation::new)
-            .unwrap_or_default()
+            .unwrap_or_default();
+        if auth_config.expiring_sec > 0 {
+            validation.set_required_spec_claims(&["exp", "iat"]);
+        }
+        Claim::from_token(token, decoding_key, &validation)
     } else {
-        Validation::default()
+        Claim::from_token_insecure(token)
     };
 
-    let default_key = DecodingKey::from_secret(&[]);
-    let decode_key = auth_config.decoding_key.as_ref().unwrap_or_else(|| {
-        // No decoding key is provided in the configuration, so we disable signature validation.
-        validation.insecure_disable_signature_validation();
-        &default_key
-    });
-
-    if auth_config.expiring_sec > 0 {
-        validation.set_required_spec_claims(&["exp", "iat"]);
-    }
-
-    match Claim::from_token(bearer.token().trim(), decode_key, &validation) {
+    match decode_result {
         Ok(claim) => {
             // To avoid race conditions between store requests, we insert the token into the cache
             // now, and later remove it if the JWT verification fails.
