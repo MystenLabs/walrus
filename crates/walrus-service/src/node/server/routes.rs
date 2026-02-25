@@ -207,8 +207,16 @@ pub async fn put_metadata<S: SyncServiceState>(
     State(state): State<RestApiState<S>>,
     Path(BlobIdString(blob_id)): Path<BlobIdString>,
     ExtraQuery(intent): ExtraQuery<UploadIntentQuery>,
+    request_received_at: Option<axum::Extension<crate::common::telemetry::RequestReceivedAt>>,
     Bcs(metadata): Bcs<BlobMetadata>,
 ) -> Result<ApiSuccess<&'static str>, StoreMetadataError> {
+    if let Some(axum::Extension(received_at)) = request_received_at {
+        let body_extract_duration = received_at.0.elapsed();
+        tracing::info!(
+            body_extract_secs = body_extract_duration.as_secs_f64(),
+            "metadata PUT body extraction time"
+        );
+    }
     let intent = intent.intent();
     let newly_stored = state
         .service

@@ -59,6 +59,12 @@ pub use subscriber_guard::SubscriberGuard;
 /// Route string used in metrics for invalid routes.
 pub(crate) const UNMATCHED_ROUTE: &str = "invalid-route";
 
+/// Timestamp inserted as a request extension by the metrics middleware.
+///
+/// Handlers can extract this to measure time spent on body transfer and extraction.
+#[derive(Debug, Clone, Copy)]
+pub struct RequestReceivedAt(pub Instant);
+
 const HTTP_RESPONSE_PART_HEADERS: &str = "headers";
 const HTTP_RESPONSE_PART_PAYLOAD: &str = "payload";
 
@@ -411,7 +417,7 @@ pub(crate) async fn metrics_middleware(
 
     // Observe the body size of the request, as we cannot always rely on `Content-Length`.
     let body_size_total = Arc::new(StdAtomicU64::default());
-    let request = request.map(|body| {
+    let mut request = request.map(|body| {
         let body_size_total = body_size_total.clone();
         Body::new(VisitBody::new(
             body,
@@ -423,6 +429,10 @@ pub(crate) async fn metrics_middleware(
             },
         ))
     });
+
+    request
+        .extensions_mut()
+        .insert(RequestReceivedAt(Instant::now()));
 
     let monitor = state.task_monitor(http_request_method.clone(), &http_route);
     let response = monitor.instrument(next.run(request)).await;
