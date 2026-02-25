@@ -3774,6 +3774,11 @@ impl StorageNodeInner {
         }
         self.update_recovery_deferral_size_metric(0);
     }
+
+    fn observe_store_metadata_step(&self, step: &str, start: Instant) {
+        walrus_utils::with_label!(self.metrics.store_metadata_step_duration_seconds, step)
+            .observe(start.elapsed().as_secs_f64());
+    }
 }
 
 fn api_status_from_shard_status(status: ShardStatus) -> ApiShardStatus {
@@ -3979,12 +3984,16 @@ impl ServiceState for StorageNodeInner {
         metadata: UnverifiedBlobMetadataWithId,
         intent: UploadIntent,
     ) -> Result<bool, StoreMetadataError> {
+        let total_start = Instant::now();
         let blob_id = *metadata.blob_id();
 
+        // Step 1: get_blob_info
+        let step_start = Instant::now();
         let blob_info = self
             .storage
             .get_blob_info(&blob_id)
             .context("could not retrieve blob info")?;
+        self.observe_store_metadata_step("get_blob_info", step_start);
 
         if let Some(event) = blob_info
             .as_ref()
@@ -3993,17 +4002,25 @@ impl ServiceState for StorageNodeInner {
             return Err(StoreMetadataError::InvalidBlob(event));
         }
 
+        // Step 2: has_metadata
+        let step_start = Instant::now();
         if self
             .storage
             .has_metadata(&blob_id)
             .context("could not check metadata existence")?
         {
+            self.observe_store_metadata_step("has_metadata", step_start);
             return Ok(false);
         }
+        self.observe_store_metadata_step("has_metadata", step_start);
 
+        // Step 3: cache_contains
+        let step_start = Instant::now();
         if self.pending_metadata_cache.contains(&blob_id).await {
+            self.observe_store_metadata_step("cache_contains", step_start);
             return Ok(false);
         }
+        self.observe_store_metadata_step("cache_contains", step_start);
 
         let encoding_type = metadata.metadata().encoding_type();
         ensure!(
@@ -4011,6 +4028,8 @@ impl ServiceState for StorageNodeInner {
             StoreMetadataError::UnsupportedEncodingType(encoding_type),
         );
 
+        // Step 4: verify
+        let step_start = Instant::now();
         let encoding_config = self.encoding_config.clone();
         let verified = Arc::new(
             self.thread_pool
@@ -4019,12 +4038,18 @@ impl ServiceState for StorageNodeInner {
                 .map(thread_pool::unwrap_or_resume_panic)
                 .await?,
         );
+        self.observe_store_metadata_step("verify", step_start);
 
         if blob_info
             .as_ref()
             .is_some_and(|info| info.is_registered(self.current_committee_epoch()))
         {
-            return self.persist_verified_metadata(&blob_id, verified).await;
+            // Step 5a: persist
+            let step_start = Instant::now();
+            let result = self.persist_verified_metadata(&blob_id, verified).await;
+            self.observe_store_metadata_step("persist", step_start);
+            self.observe_store_metadata_step("total", total_start);
+            return result;
         }
 
         if !intent.is_pending() {
@@ -4036,28 +4061,38 @@ impl ServiceState for StorageNodeInner {
             return Err(StoreMetadataError::NotCurrentlyRegistered);
         }
 
+        // Step 5b: cache_insert
+        let step_start = Instant::now();
         let inserted = self
             .pending_metadata_cache
             .insert(blob_id, verified.clone())
             .await
             .map_err(|_| StoreMetadataError::CacheSaturated)?;
+        self.observe_store_metadata_step("cache_insert", step_start);
 
         if !inserted {
+            self.observe_store_metadata_step("total", total_start);
             return Ok(false);
         }
 
         if self.is_blob_registered(&blob_id)? {
+            // Step 5c: flush_pending
+            let step_start = Instant::now();
             // Read the blob info again because registration can race between the initial blob_info
             // check and adding to the cache. Flush immediately in that case so the pending metadata
             // doesn’t linger indefinitely.
             if let Err(error) = self.flush_pending_caches(&blob_id).await {
+                self.observe_store_metadata_step("flush_pending", step_start);
+                self.observe_store_metadata_step("total", total_start);
                 return Err(match error {
                     PendingCacheError::Metadata(inner) => inner,
                     PendingCacheError::Sliver(inner) => map_sliver_error_to_metadata(inner),
                 });
             }
+            self.observe_store_metadata_step("flush_pending", step_start);
         }
 
+        self.observe_store_metadata_step("total", total_start);
         Ok(true)
     }
 

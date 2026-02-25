@@ -229,6 +229,19 @@ walrus_utils::metrics::define_metric_set! {
 
         #[help = "The current monitored WAL price in USD"]
         current_monitored_wal_price: GaugeVec["source"],
+
+        #[help = "Time (in seconds) spent in each step of the store_metadata path"]
+        store_metadata_step_duration_seconds: HistogramVec {
+            labels: ["step"],
+            buckets: prometheus::exponential_buckets(0.0005, 2.0, 18)
+                .expect("count, start, and factor are valid")
+        },
+
+        #[help = "Time (in seconds) waiting to acquire the pending metadata cache write lock"]
+        pending_metadata_cache_lock_wait_seconds: Histogram {
+            buckets: prometheus::exponential_buckets(0.0001, 2.0, 18)
+                .expect("count, start, and factor are valid")
+        },
     }
 }
 

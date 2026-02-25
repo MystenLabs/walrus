@@ -120,7 +120,9 @@ impl PendingMetadataCache {
     }
 
     pub async fn contains(&self, blob_id: &BlobId) -> bool {
+        let lock_start = Instant::now();
         let mut inner = self.inner.write().await;
+        self.observe_lock_wait(lock_start);
         inner.evict_expired(Instant::now());
         let result = inner.contains(blob_id);
         self.update_metrics(inner.len());
@@ -128,7 +130,9 @@ impl PendingMetadataCache {
     }
 
     pub async fn get(&self, blob_id: &BlobId) -> Option<Arc<VerifiedBlobMetadataWithId>> {
+        let lock_start = Instant::now();
         let mut inner = self.inner.write().await;
+        self.observe_lock_wait(lock_start);
         inner.evict_expired(Instant::now());
         let result = inner.get(blob_id);
         self.update_metrics(inner.len());
@@ -140,7 +144,9 @@ impl PendingMetadataCache {
         blob_id: BlobId,
         metadata: Arc<VerifiedBlobMetadataWithId>,
     ) -> Result<bool, ()> {
+        let lock_start = Instant::now();
         let mut inner = self.inner.write().await;
+        self.observe_lock_wait(lock_start);
         inner.evict_expired(Instant::now());
         let result = inner.insert(blob_id, metadata);
         self.update_metrics(inner.len());
@@ -148,7 +154,9 @@ impl PendingMetadataCache {
     }
 
     pub async fn remove(&self, blob_id: &BlobId) -> Option<Arc<VerifiedBlobMetadataWithId>> {
+        let lock_start = Instant::now();
         let mut inner = self.inner.write().await;
+        self.observe_lock_wait(lock_start);
         inner.evict_expired(Instant::now());
         let removed = inner.remove(blob_id);
         self.update_metrics(inner.len());
@@ -160,6 +168,12 @@ impl PendingMetadataCache {
         let mut inner = self.inner.write().await;
         inner.evict_expired(Instant::now());
         inner.len()
+    }
+
+    fn observe_lock_wait(&self, lock_start: Instant) {
+        self.metrics
+            .pending_metadata_cache_lock_wait_seconds
+            .observe(lock_start.elapsed().as_secs_f64());
     }
 
     fn update_metrics(&self, len: usize) {
