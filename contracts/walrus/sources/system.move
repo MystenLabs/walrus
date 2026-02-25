@@ -14,7 +14,8 @@ use walrus::{
     storage_accounting::FutureAccountingRingBuffer,
     storage_node::StorageNodeCap,
     storage_resource::Storage,
-    system_state_inner::{Self, SystemStateInnerV1}
+    system_state_inner::{Self, SystemStateInnerV1},
+    unified_storage::UnifiedStorage,
 };
 
 // Error codes
@@ -205,6 +206,82 @@ public fun extend_blob(
     payment: &mut Coin<WAL>,
 ) {
     self.inner_mut().extend_blob(blob, extended_epochs, payment);
+}
+
+// === Unified Storage ===
+
+/// Creates a new unified storage pool with the given capacity and epoch range.
+public fun create_unified_storage(
+    self: &mut System,
+    storage_amount: u64,
+    epochs_ahead: u32,
+    payment: &mut Coin<WAL>,
+    ctx: &mut TxContext,
+): UnifiedStorage {
+    self.inner_mut().create_unified_storage(storage_amount, epochs_ahead, payment, ctx)
+}
+
+/// Registers a new blob against a unified storage pool.
+public fun register_blob_with_unified(
+    self: &mut System,
+    unified: &mut UnifiedStorage,
+    blob_id: u256,
+    root_hash: u256,
+    size: u64,
+    encoding_type: u8,
+    deletable: bool,
+    write_payment: &mut Coin<WAL>,
+    ctx: &mut TxContext,
+) {
+    self
+        .inner_mut()
+        .register_blob_with_unified(
+            unified,
+            blob_id,
+            root_hash,
+            size,
+            encoding_type,
+            deletable,
+            write_payment,
+            ctx,
+        )
+}
+
+/// Deletes a blob from a unified storage pool and frees its capacity.
+public fun delete_blob_from_unified(
+    self: &System,
+    unified: &mut UnifiedStorage,
+    blob_obj_id: ID,
+) {
+    self.inner().delete_blob_from_unified(unified, blob_obj_id)
+}
+
+/// Extends the lifetime of a unified storage pool by `extended_epochs`.
+public fun extend_unified_storage(
+    self: &mut System,
+    unified: &mut UnifiedStorage,
+    extended_epochs: u32,
+    payment: &mut Coin<WAL>,
+) {
+    self.inner_mut().extend_unified_storage(unified, extended_epochs, payment)
+}
+
+/// Certifies a blob within a unified storage pool.
+public fun certify_blob_in_unified(
+    self: &System,
+    unified: &mut UnifiedStorage,
+    blob_obj_id: ID,
+    signature: vector<u8>,
+    signers_bitmap: vector<u8>,
+    message: vector<u8>,
+) {
+    self.inner().certify_blob_in_unified(
+        unified,
+        blob_obj_id,
+        signature,
+        signers_bitmap,
+        message,
+    )
 }
 
 /// Adds rewards to the system for the specified number of epochs ahead.

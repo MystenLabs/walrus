@@ -64,6 +64,26 @@ impl AssociatedContractStruct for StorageResource {
     const CONTRACT_STRUCT: StructTag<'static> = contracts::storage_resource::Storage;
 }
 
+/// Sui object for a unified storage pool.
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UnifiedStorageResource {
+    /// Object ID of the Sui object.
+    pub id: ObjectID,
+    /// The start epoch of the pool (inclusive).
+    pub start_epoch: Epoch,
+    /// The end epoch of the pool (exclusive).
+    pub end_epoch: Epoch,
+    /// The total amount of reserved storage in encoded bytes.
+    pub storage_size: u64,
+    /// The sum of all active blobs' encoded sizes.
+    pub used_size: u64,
+}
+
+impl AssociatedContractStruct for UnifiedStorageResource {
+    const CONTRACT_STRUCT: StructTag<'static> = contracts::unified_storage::UnifiedStorage;
+}
+
 /// Sui object for a blob.
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

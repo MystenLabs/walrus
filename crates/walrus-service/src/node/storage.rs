@@ -670,6 +670,77 @@ impl Storage {
         self.blob_info.get_per_object_info(object_id)
     }
 
+    // === Unified Storage Accessors ===
+
+    /// Returns the end epoch of a unified storage pool, if it exists.
+    pub(crate) fn get_unified_storage_end_epoch(
+        &self,
+        unified_storage_id: &ObjectID,
+    ) -> Result<Option<Epoch>, TypedStoreError> {
+        self.blob_info
+            .get_unified_storage_end_epoch(unified_storage_id)
+    }
+
+    /// Sets the end epoch for a unified storage pool.
+    pub(crate) fn set_unified_storage_end_epoch(
+        &self,
+        unified_storage_id: &ObjectID,
+        end_epoch: Epoch,
+    ) -> Result<(), TypedStoreError> {
+        self.blob_info
+            .set_unified_storage_end_epoch(unified_storage_id, end_epoch)
+    }
+
+    /// Processes a `BlobInUnifiedStorageRegistered` event.
+    pub(crate) fn process_unified_blob_registered(
+        &self,
+        event_index: u64,
+        event: &walrus_sui::types::BlobInUnifiedStorageRegistered,
+    ) -> Result<(), TypedStoreError> {
+        self.blob_info
+            .process_unified_blob_registered(event_index, event)
+    }
+
+    /// Processes a `BlobInUnifiedStorageCertified` event.
+    pub(crate) fn process_unified_blob_certified(
+        &self,
+        event_index: u64,
+        event: &walrus_sui::types::BlobInUnifiedStorageCertified,
+    ) -> Result<(), TypedStoreError> {
+        self.blob_info
+            .process_unified_blob_certified(event_index, event)
+    }
+
+    /// Processes a `BlobInUnifiedStorageDeleted` event.
+    pub(crate) fn process_unified_blob_deleted(
+        &self,
+        event_index: u64,
+        event: &walrus_sui::types::BlobInUnifiedStorageDeleted,
+    ) -> Result<(), TypedStoreError> {
+        self.blob_info
+            .process_unified_blob_deleted(event_index, event)
+    }
+
+    /// Checks if a blob is registered via unified storage fallback.
+    pub(crate) fn is_blob_registered_via_unified(
+        &self,
+        blob_id: &BlobId,
+        current_epoch: Epoch,
+    ) -> Result<bool, TypedStoreError> {
+        self.blob_info
+            .is_blob_registered_via_unified(blob_id, current_epoch)
+    }
+
+    /// Checks if a blob was ever certified and is kept alive by unified storage.
+    pub(crate) fn is_blob_certified_via_unified(
+        &self,
+        blob_id: &BlobId,
+        current_epoch: Epoch,
+    ) -> Result<bool, TypedStoreError> {
+        self.blob_info
+            .is_blob_certified_via_unified(blob_id, current_epoch)
+    }
+
     /// Returns the current event cursor and the next event index.
     #[tracing::instrument(skip_all)]
     pub fn get_event_cursor_and_next_index(

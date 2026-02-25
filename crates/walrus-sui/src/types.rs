@@ -19,6 +19,9 @@ pub use events::{
     BlobCertified,
     BlobDeleted,
     BlobEvent,
+    BlobInUnifiedStorageCertified,
+    BlobInUnifiedStorageDeleted,
+    BlobInUnifiedStorageRegistered,
     BlobRegistered,
     ContractEvent,
     ContractUpgradedEvent,
@@ -33,6 +36,7 @@ pub use events::{
     ProtocolEvent,
     ProtocolVersionUpdatedEvent,
     RegisterDenyListUpdateEvent,
+    UnifiedStorageEvent,
 };
 
 pub mod move_structs;

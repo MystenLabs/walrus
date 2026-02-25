@@ -226,6 +226,18 @@ pub mod system {
     contract_ident!(fn system::delete_blob);
     contract_ident!(fn system::certify_event_blob);
     contract_ident!(fn system::extend_blob);
+    contract_ident!(fn system::create_unified_storage);
+    contract_ident!(fn system::register_blob_with_unified);
+    contract_ident!(fn system::delete_blob_from_unified);
+    contract_ident!(fn system::extend_unified_storage);
+    contract_ident!(fn system::certify_blob_in_unified);
+}
+
+/// Module for tags corresponding to the Move module `unified_storage`.
+pub mod unified_storage {
+
+    contract_ident!(struct unified_storage::UnifiedStorage);
+    contract_ident!(struct unified_storage::BlobInUnifiedStorage);
 }
 
 /// Module for tags corresponding to the Move module `system_state_inner`.
@@ -361,6 +373,11 @@ pub mod events {
     contract_ident!(struct events::ContractUpgradeQuorumReached);
     contract_ident!(struct events::ProtocolVersionUpdated);
     contract_ident!(struct events::PricesUpdated);
+    contract_ident!(struct events::UnifiedStorageCreated);
+    contract_ident!(struct events::BlobInUnifiedStorageRegistered);
+    contract_ident!(struct events::BlobInUnifiedStorageCertified);
+    contract_ident!(struct events::BlobInUnifiedStorageDeleted);
+    contract_ident!(struct events::UnifiedStorageExtended);
 }
 
 /// Module for tags corresponding to the Move module `auth`.

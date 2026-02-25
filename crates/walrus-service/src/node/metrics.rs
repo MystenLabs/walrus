@@ -21,6 +21,7 @@ use walrus_sui::types::{
     EpochChangeEvent,
     PackageEvent,
     ProtocolEvent,
+    UnifiedStorageEvent,
 };
 
 use crate::{
@@ -366,6 +367,18 @@ impl TelemetryLabel for ProtocolEvent {
     }
 }
 
+impl TelemetryLabel for UnifiedStorageEvent {
+    fn label(&self) -> &'static str {
+        match self {
+            UnifiedStorageEvent::Created(_) => "unified-storage-created",
+            UnifiedStorageEvent::BlobRegistered(_) => "unified-blob-registered",
+            UnifiedStorageEvent::BlobCertified(_) => "unified-blob-certified",
+            UnifiedStorageEvent::BlobDeleted(_) => "unified-blob-deleted",
+            UnifiedStorageEvent::Extended(_) => "unified-storage-extended",
+        }
+    }
+}
+
 impl TelemetryLabel for ContractEvent {
     fn label(&self) -> &'static str {
         match self {
@@ -374,6 +387,7 @@ impl TelemetryLabel for ContractEvent {
             ContractEvent::PackageEvent(event) => event.label(),
             ContractEvent::DenyListEvent(event) => event.label(),
             ContractEvent::ProtocolEvent(event) => event.label(),
+            ContractEvent::UnifiedStorageEvent(event) => event.label(),
         }
     }
 }

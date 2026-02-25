@@ -928,6 +928,306 @@ impl ProtocolEvent {
     }
 }
 
+// === Unified Storage Events ===
+
+/// Sui event that a unified storage pool has been created.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UnifiedStorageCreated {
+    /// The epoch in which the pool was created.
+    pub epoch: Epoch,
+    /// The object ID of the unified storage pool.
+    pub unified_storage_id: ObjectID,
+    /// The total reserved capacity in encoded bytes.
+    pub storage_size: u64,
+    /// The start epoch of the pool (inclusive).
+    pub start_epoch: Epoch,
+    /// The end epoch of the pool (exclusive).
+    pub end_epoch: Epoch,
+    /// The ID of the event.
+    pub event_id: EventID,
+}
+
+impl AssociatedSuiEvent for UnifiedStorageCreated {
+    const EVENT_STRUCT: StructTag<'static> = contracts::events::UnifiedStorageCreated;
+}
+
+impl TryFrom<SuiEvent> for UnifiedStorageCreated {
+    type Error = MoveConversionError;
+
+    fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
+        ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
+
+        let (epoch, unified_storage_id, storage_size, start_epoch, end_epoch) =
+            bcs::from_bytes(sui_event.bcs.bytes())?;
+        Ok(Self {
+            epoch,
+            unified_storage_id,
+            storage_size,
+            start_epoch,
+            end_epoch,
+            event_id: sui_event.id,
+        })
+    }
+}
+
+/// Sui event that a blob has been registered against a unified storage pool.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BlobInUnifiedStorageRegistered {
+    /// The epoch in which the blob was registered.
+    pub epoch: Epoch,
+    /// The blob ID.
+    pub blob_id: BlobId,
+    /// The (unencoded) size of the blob.
+    pub size: u64,
+    /// The erasure coding type used for the blob.
+    pub encoding_type: EncodingType,
+    /// The end epoch of the unified storage pool (exclusive).
+    pub end_epoch: Epoch,
+    /// Marks the blob as deletable.
+    pub deletable: bool,
+    /// The object ID of the blob.
+    pub object_id: ObjectID,
+    /// The object ID of the unified storage pool.
+    pub unified_storage_id: ObjectID,
+    /// The ID of the event.
+    pub event_id: EventID,
+}
+
+impl AssociatedSuiEvent for BlobInUnifiedStorageRegistered {
+    const EVENT_STRUCT: StructTag<'static> = contracts::events::BlobInUnifiedStorageRegistered;
+}
+
+impl TryFrom<SuiEvent> for BlobInUnifiedStorageRegistered {
+    type Error = MoveConversionError;
+
+    fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
+        ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
+
+        let (epoch, blob_id, size, encoding_type, end_epoch, deletable, object_id, unified_storage_id) =
+            bcs::from_bytes(sui_event.bcs.bytes())?;
+        Ok(Self {
+            epoch,
+            blob_id,
+            size,
+            encoding_type,
+            end_epoch,
+            deletable,
+            object_id,
+            unified_storage_id,
+            event_id: sui_event.id,
+        })
+    }
+}
+
+/// Sui event that a blob in a unified storage pool has been certified.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BlobInUnifiedStorageCertified {
+    /// The epoch in which the blob was certified.
+    pub epoch: Epoch,
+    /// The blob ID.
+    pub blob_id: BlobId,
+    /// The end epoch of the unified storage pool (exclusive).
+    pub end_epoch: Epoch,
+    /// Marks the blob as deletable.
+    pub deletable: bool,
+    /// The object ID of the blob.
+    pub object_id: ObjectID,
+    /// The object ID of the unified storage pool.
+    pub unified_storage_id: ObjectID,
+    /// Marks if this is an extension.
+    pub is_extension: bool,
+    /// The ID of the event.
+    pub event_id: EventID,
+}
+
+impl AssociatedSuiEvent for BlobInUnifiedStorageCertified {
+    const EVENT_STRUCT: StructTag<'static> = contracts::events::BlobInUnifiedStorageCertified;
+}
+
+impl TryFrom<SuiEvent> for BlobInUnifiedStorageCertified {
+    type Error = MoveConversionError;
+
+    fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
+        ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
+
+        let (epoch, blob_id, end_epoch, deletable, object_id, unified_storage_id, is_extension) =
+            bcs::from_bytes(sui_event.bcs.bytes())?;
+        Ok(Self {
+            epoch,
+            blob_id,
+            end_epoch,
+            deletable,
+            object_id,
+            unified_storage_id,
+            is_extension,
+            event_id: sui_event.id,
+        })
+    }
+}
+
+/// Sui event that a blob has been deleted from a unified storage pool.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BlobInUnifiedStorageDeleted {
+    /// The epoch in which the blob was deleted.
+    pub epoch: Epoch,
+    /// The blob ID.
+    pub blob_id: BlobId,
+    /// The end epoch of the unified storage pool (exclusive).
+    pub end_epoch: Epoch,
+    /// The object ID of the blob.
+    pub object_id: ObjectID,
+    /// If the blob was previously certified.
+    pub was_certified: bool,
+    /// The object ID of the unified storage pool.
+    pub unified_storage_id: ObjectID,
+    /// The ID of the event.
+    pub event_id: EventID,
+}
+
+impl AssociatedSuiEvent for BlobInUnifiedStorageDeleted {
+    const EVENT_STRUCT: StructTag<'static> = contracts::events::BlobInUnifiedStorageDeleted;
+}
+
+impl TryFrom<SuiEvent> for BlobInUnifiedStorageDeleted {
+    type Error = MoveConversionError;
+
+    fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
+        ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
+
+        let (epoch, blob_id, end_epoch, object_id, was_certified, unified_storage_id) =
+            bcs::from_bytes(sui_event.bcs.bytes())?;
+        Ok(Self {
+            epoch,
+            blob_id,
+            end_epoch,
+            object_id,
+            was_certified,
+            unified_storage_id,
+            event_id: sui_event.id,
+        })
+    }
+}
+
+/// Sui event that a unified storage pool's lifetime has been extended.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UnifiedStorageExtended {
+    /// The epoch in which the pool was extended.
+    pub epoch: Epoch,
+    /// The object ID of the unified storage pool.
+    pub unified_storage_id: ObjectID,
+    /// The new end epoch of the pool (exclusive).
+    pub new_end_epoch: Epoch,
+    /// The ID of the event.
+    pub event_id: EventID,
+}
+
+impl AssociatedSuiEvent for UnifiedStorageExtended {
+    const EVENT_STRUCT: StructTag<'static> = contracts::events::UnifiedStorageExtended;
+}
+
+impl TryFrom<SuiEvent> for UnifiedStorageExtended {
+    type Error = MoveConversionError;
+
+    fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
+        ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
+
+        let (epoch, unified_storage_id, new_end_epoch) =
+            bcs::from_bytes(sui_event.bcs.bytes())?;
+        Ok(Self {
+            epoch,
+            unified_storage_id,
+            new_end_epoch,
+            event_id: sui_event.id,
+        })
+    }
+}
+
+/// Enum to wrap unified storage events.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum UnifiedStorageEvent {
+    /// A unified storage pool was created.
+    Created(UnifiedStorageCreated),
+    /// A blob was registered against a unified storage pool.
+    BlobRegistered(BlobInUnifiedStorageRegistered),
+    /// A blob in a unified storage pool was certified.
+    BlobCertified(BlobInUnifiedStorageCertified),
+    /// A blob was deleted from a unified storage pool.
+    BlobDeleted(BlobInUnifiedStorageDeleted),
+    /// A unified storage pool's lifetime was extended.
+    Extended(UnifiedStorageExtended),
+}
+
+impl UnifiedStorageEvent {
+    /// Returns the event ID of the wrapped event.
+    pub fn event_id(&self) -> EventID {
+        match self {
+            UnifiedStorageEvent::Created(event) => event.event_id,
+            UnifiedStorageEvent::BlobRegistered(event) => event.event_id,
+            UnifiedStorageEvent::BlobCertified(event) => event.event_id,
+            UnifiedStorageEvent::BlobDeleted(event) => event.event_id,
+            UnifiedStorageEvent::Extended(event) => event.event_id,
+        }
+    }
+
+    /// The epoch corresponding to the unified storage event.
+    pub fn event_epoch(&self) -> Epoch {
+        match self {
+            UnifiedStorageEvent::Created(event) => event.epoch,
+            UnifiedStorageEvent::BlobRegistered(event) => event.epoch,
+            UnifiedStorageEvent::BlobCertified(event) => event.epoch,
+            UnifiedStorageEvent::BlobDeleted(event) => event.epoch,
+            UnifiedStorageEvent::Extended(event) => event.epoch,
+        }
+    }
+
+    /// The name of the event.
+    pub fn name(&self) -> &'static str {
+        match self {
+            UnifiedStorageEvent::Created(_) => "UnifiedStorageCreated",
+            UnifiedStorageEvent::BlobRegistered(_) => "BlobInUnifiedStorageRegistered",
+            UnifiedStorageEvent::BlobCertified(_) => "BlobInUnifiedStorageCertified",
+            UnifiedStorageEvent::BlobDeleted(_) => "BlobInUnifiedStorageDeleted",
+            UnifiedStorageEvent::Extended(_) => "UnifiedStorageExtended",
+        }
+    }
+
+    /// Returns the blob ID if this is a blob-related event.
+    pub fn blob_id(&self) -> Option<BlobId> {
+        match self {
+            UnifiedStorageEvent::Created(_) => None,
+            UnifiedStorageEvent::BlobRegistered(event) => Some(event.blob_id),
+            UnifiedStorageEvent::BlobCertified(event) => Some(event.blob_id),
+            UnifiedStorageEvent::BlobDeleted(event) => Some(event.blob_id),
+            UnifiedStorageEvent::Extended(_) => None,
+        }
+    }
+
+    /// Returns the unified storage ID.
+    pub fn unified_storage_id(&self) -> ObjectID {
+        match self {
+            UnifiedStorageEvent::Created(event) => event.unified_storage_id,
+            UnifiedStorageEvent::BlobRegistered(event) => event.unified_storage_id,
+            UnifiedStorageEvent::BlobCertified(event) => event.unified_storage_id,
+            UnifiedStorageEvent::BlobDeleted(event) => event.unified_storage_id,
+            UnifiedStorageEvent::Extended(event) => event.unified_storage_id,
+        }
+    }
+
+    /// Returns true if this is a blob extension event.
+    pub fn is_blob_extension(&self) -> bool {
+        match self {
+            UnifiedStorageEvent::BlobCertified(event) => event.is_extension,
+            _ => false,
+        }
+    }
+}
+
+impl From<UnifiedStorageEvent> for ContractEvent {
+    fn from(value: UnifiedStorageEvent) -> Self {
+        Self::UnifiedStorageEvent(value)
+    }
+}
+
 /// Enum to wrap contract events used in event streaming.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ContractEvent {
@@ -941,6 +1241,8 @@ pub enum ContractEvent {
     DenyListEvent(DenyListEvent),
     /// Events related to protocol version.
     ProtocolEvent(ProtocolEvent),
+    /// Events related to unified storage.
+    UnifiedStorageEvent(UnifiedStorageEvent),
 }
 
 impl ContractEvent {
@@ -952,6 +1254,7 @@ impl ContractEvent {
             ContractEvent::PackageEvent(event) => event.event_id(),
             ContractEvent::DenyListEvent(event) => event.event_id(),
             ContractEvent::ProtocolEvent(event) => event.event_id(),
+            ContractEvent::UnifiedStorageEvent(event) => event.event_id(),
         }
     }
 
@@ -963,6 +1266,7 @@ impl ContractEvent {
             ContractEvent::PackageEvent(_) => None,
             ContractEvent::DenyListEvent(_) => None,
             ContractEvent::ProtocolEvent(_) => None,
+            ContractEvent::UnifiedStorageEvent(event) => event.blob_id(),
         }
     }
 
@@ -977,6 +1281,13 @@ impl ContractEvent {
             ContractEvent::PackageEvent(event) => Some(event.event_epoch()),
             ContractEvent::DenyListEvent(event) => Some(event.event_epoch()),
             ContractEvent::ProtocolEvent(event) => Some(event.event_epoch()),
+            ContractEvent::UnifiedStorageEvent(event) => {
+                if event.is_blob_extension() {
+                    None
+                } else {
+                    Some(event.event_epoch())
+                }
+            }
         }
     }
 
@@ -988,6 +1299,7 @@ impl ContractEvent {
             ContractEvent::PackageEvent(_) => false,
             ContractEvent::DenyListEvent(_) => false,
             ContractEvent::ProtocolEvent(_) => false,
+            ContractEvent::UnifiedStorageEvent(event) => event.is_blob_extension(),
         }
     }
 }
@@ -1048,6 +1360,27 @@ impl TryFrom<SuiEvent> for ContractEvent {
             )),
             contracts::events::PricesUpdated => Ok(ContractEvent::ProtocolEvent(
                 ProtocolEvent::PricesUpdated(value.try_into()?),
+            )),
+            contracts::events::UnifiedStorageCreated => Ok(ContractEvent::UnifiedStorageEvent(
+                UnifiedStorageEvent::Created(value.try_into()?),
+            )),
+            contracts::events::BlobInUnifiedStorageRegistered => {
+                Ok(ContractEvent::UnifiedStorageEvent(
+                    UnifiedStorageEvent::BlobRegistered(value.try_into()?),
+                ))
+            }
+            contracts::events::BlobInUnifiedStorageCertified => {
+                Ok(ContractEvent::UnifiedStorageEvent(
+                    UnifiedStorageEvent::BlobCertified(value.try_into()?),
+                ))
+            }
+            contracts::events::BlobInUnifiedStorageDeleted => {
+                Ok(ContractEvent::UnifiedStorageEvent(
+                    UnifiedStorageEvent::BlobDeleted(value.try_into()?),
+                ))
+            }
+            contracts::events::UnifiedStorageExtended => Ok(ContractEvent::UnifiedStorageEvent(
+                UnifiedStorageEvent::Extended(value.try_into()?),
             )),
             _ => unreachable!("Encountered unexpected unrecognized events {}", value),
         }

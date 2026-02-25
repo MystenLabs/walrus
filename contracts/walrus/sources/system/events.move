@@ -134,6 +134,55 @@ public struct PricesUpdated has copy, drop {
     write_price: u64,
 }
 
+/// Signals that a UnifiedStorage pool has been created.
+public struct UnifiedStorageCreated has copy, drop {
+    epoch: u32,
+    unified_storage_id: ID,
+    storage_size: u64,
+    start_epoch: u32,
+    end_epoch: u32,
+}
+
+/// Signals that a blob has been registered against a UnifiedStorage pool.
+public struct BlobInUnifiedStorageRegistered has copy, drop {
+    epoch: u32,
+    blob_id: u256,
+    size: u64,
+    encoding_type: u8,
+    end_epoch: u32,
+    deletable: bool,
+    object_id: ID,
+    unified_storage_id: ID,
+}
+
+/// Signals that a blob in a UnifiedStorage pool has been certified.
+public struct BlobInUnifiedStorageCertified has copy, drop {
+    epoch: u32,
+    blob_id: u256,
+    end_epoch: u32,
+    deletable: bool,
+    object_id: ID,
+    unified_storage_id: ID,
+    is_extension: bool,
+}
+
+/// Signals that a blob has been deleted from a UnifiedStorage pool.
+public struct BlobInUnifiedStorageDeleted has copy, drop {
+    epoch: u32,
+    blob_id: u256,
+    end_epoch: u32,
+    object_id: ID,
+    was_certified: bool,
+    unified_storage_id: ID,
+}
+
+/// Signals that a UnifiedStorage pool's lifetime has been extended.
+public struct UnifiedStorageExtended has copy, drop {
+    epoch: u32,
+    unified_storage_id: ID,
+    new_end_epoch: u32,
+}
+
 // === Functions to emit the events from other modules ===
 
 public(package) fun emit_blob_registered(
@@ -241,4 +290,64 @@ public(package) fun emit_contract_upgrade_quorum_reached(epoch: u32, package_dig
 
 public(package) fun emit_prices_updated(epoch: u32, storage_price: u64, write_price: u64) {
     event::emit(PricesUpdated { epoch, storage_price, write_price })
+}
+
+public(package) fun emit_unified_storage_created(
+    epoch: u32,
+    unified_storage_id: ID,
+    storage_size: u64,
+    start_epoch: u32,
+    end_epoch: u32,
+) {
+    event::emit(UnifiedStorageCreated { epoch, unified_storage_id, storage_size, start_epoch, end_epoch })
+}
+
+public(package) fun emit_blob_in_unified_storage_registered(
+    epoch: u32,
+    blob_id: u256,
+    size: u64,
+    encoding_type: u8,
+    end_epoch: u32,
+    deletable: bool,
+    object_id: ID,
+    unified_storage_id: ID,
+) {
+    event::emit(BlobInUnifiedStorageRegistered {
+        epoch, blob_id, size, encoding_type, end_epoch, deletable, object_id, unified_storage_id,
+    })
+}
+
+public(package) fun emit_blob_in_unified_storage_certified(
+    epoch: u32,
+    blob_id: u256,
+    end_epoch: u32,
+    deletable: bool,
+    object_id: ID,
+    unified_storage_id: ID,
+    is_extension: bool,
+) {
+    event::emit(BlobInUnifiedStorageCertified {
+        epoch, blob_id, end_epoch, deletable, object_id, unified_storage_id, is_extension,
+    })
+}
+
+public(package) fun emit_blob_in_unified_storage_deleted(
+    epoch: u32,
+    blob_id: u256,
+    end_epoch: u32,
+    object_id: ID,
+    was_certified: bool,
+    unified_storage_id: ID,
+) {
+    event::emit(BlobInUnifiedStorageDeleted {
+        epoch, blob_id, end_epoch, object_id, was_certified, unified_storage_id,
+    })
+}
+
+public(package) fun emit_unified_storage_extended(
+    epoch: u32,
+    unified_storage_id: ID,
+    new_end_epoch: u32,
+) {
+    event::emit(UnifiedStorageExtended { epoch, unified_storage_id, new_end_epoch })
 }
