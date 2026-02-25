@@ -3,7 +3,7 @@
 
 //! The `retriable_rpc_error` module defines the `RetriableRpcError` trait and its implementations.
 //! This trait is used to determine if an error is a retriable RPC error.
-use std::fmt::Debug;
+use std::{error::Error, fmt::Debug};
 
 use super::{super::SuiClientError, CheckpointRpcError, FallbackError, RetriableClientError};
 
