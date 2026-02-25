@@ -1,6 +1,8 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
+use std::any::type_name;
+
 use anyhow::anyhow;
 use axum::{
     body::Bytes,
@@ -11,6 +13,7 @@ use axum::{
 use fastcrypto::traits::EncodeDecodeBase64 as _;
 use reqwest::header::AUTHORIZATION;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use tokio::time::Instant;
 use walrus_core::PublicKey;
 use walrus_proc_macros::RestApiError;
 use walrus_storage_node_client::api::errors::STORAGE_NODE_ERROR_DOMAIN as ERROR_DOMAIN;
@@ -44,7 +47,19 @@ impl<T: DeserializeOwned> Bcs<T> {
     /// Construct a `Bcs<T>` from a byte slice. The `FromRequest` impl should be preferred, but
     /// special cases may require extracting a Request into Bytes then constructing a `Bcs<T>`.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, BcsRejection> {
-        Ok(Bcs(bcs::from_bytes(bytes)?))
+        let result = if type_name::<T>() == "walrus_core::metadata::BlobMetadata" {
+            let start = Instant::now();
+            let result = bcs::from_bytes(bytes)?;
+            let duration = start.elapsed();
+            tracing::info!(
+                duration = duration.as_secs_f64(),
+                "metadata BCS deserialization time"
+            );
+            result
+        } else {
+            bcs::from_bytes(bytes)?
+        };
+        Ok(Bcs(result))
     }
 }
 
