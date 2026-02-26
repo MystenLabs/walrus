@@ -24,14 +24,7 @@ jobs:
     timeout-minutes: 120
     strategy:
       matrix:
-        os:
-          [
-            ubuntu-ghcloud,
-            ubuntu-arm64,
-            windows-ghcloud,
-            macos-latest-large,
-            macos-latest-xlarge,
-          ]
+        os: [ubuntu-ghcloud, ubuntu-arm64]
       fail-fast: false
     runs-on: ${{ matrix.os }}
     env:
@@ -50,60 +43,21 @@ jobs:
         with:
           credentials_json: ${{ secrets.GCP_WALRUS_RELEASE_BUCKET_SVCUSER_CREDENTIALS }}
 
-      - name: Install postgres (Windows)
-        if: ${{ matrix.os == 'windows-ghcloud' }}
-        shell: bash
-        run: |
-          choco install postgresql12 --force --params '/Password:root'
-          echo "C:\Program Files\PostgreSQL\12\bin" >> $GITHUB_PATH
-          echo "C:\Program Files\PostgreSQL\12\lib" >> $GITHUB_PATH
-          echo "PQ_LIB_DIR=C:\Program Files\PostgreSQL\12\lib" >> $GITHUB_ENV
-          echo "PG_DATABASE_URL=postgres://postgres:root@localhost/" >> $GITHUB_ENV
-          echo "PG_EXAMPLE_DATABASE_URL=postgres://postgres:root@localhost/diesel_example" >> $GITHUB_ENV
-
-      - name: Install postgres (MacOS)
-        if: ${{ startsWith(matrix.os, 'macos') }}
-        shell: bash
-        env:
-          PQ_LIB_DIR: "$(brew --prefix libpq)/lib"
-          LIBRARY_PATH: "/opt/homebrew/lib:$LIBRARY_PATH"
-          PKG_CONFIG_PATH: "/opt/homebrew/lib/pkgconfig:$PKG_CONFIG_PATH"
-          PATH: "/opt/homebrew/bin:$PATH"
-        run: |
-          brew install postgresql
-
       - name: Install postgres (Ubuntu arm64)
         if: ${{ matrix.os == 'ubuntu-arm64' }}
         shell: bash
         run: |
           sudo apt update && sudo apt install -y libpq-dev
 
-      - name: Remove unused apps (MacOS arm64)
-        if: ${{ matrix.os == 'macos-latest-xlarge' }}
-        continue-on-error: true
-        shell: bash
-        run: |
-          # MacOS arm64 runner only has 14GB available, which is too small for our builds, so removing unused software.
-          df -h /
-          sudo rm -rf /Applications/Xcode*.app
-          sudo rm -rf ~/Library/Developer/Xcode/DerivedData
-          sudo rm -rf ~/Library/Developer/CoreSimulator/Caches/*
-          sudo rm -rf ~/Library/Developer/Xcode/iOS\ DeviceSupport/*
-          df -h /
-
       - uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # pin@v0.0.9
 
       - name: Build workspace (debug)
         shell: bash
-        run: |
-          [ -f ~/.cargo/env ] && source ~/.cargo/env
-          cargo build --workspace --features "walrus-service/backup"
+        run: cargo build --workspace --features "walrus-service/backup"
 
       - name: Build release binaries
         shell: bash
-        run: |
-          [ -f ~/.cargo/env ] && source ~/.cargo/env
-          cargo build --release
+        run: cargo build --release
 
   report-failure:
     name: Report Failure
