@@ -94,6 +94,7 @@ jobs:
           echo "SCCACHE_GCS_KEY_PREFIX=ubuntu-ghcloud" >> $GITHUB_ENV
           echo "SCCACHE_GCS_RW_MODE=READ_ONLY" >> $GITHUB_ENV
           echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
+          echo "CARGO_INCREMENTAL=" >> $GITHUB_ENV  # sccache requires CARGO_INCREMENTAL to be unset
 
       - name: Check formatting with rustfmt
         run: >
@@ -135,6 +136,7 @@ jobs:
           echo "SCCACHE_GCS_KEY_PREFIX=ubuntu-ghcloud" >> $GITHUB_ENV
           echo "SCCACHE_GCS_RW_MODE=READ_ONLY" >> $GITHUB_ENV
           echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
+          echo "CARGO_INCREMENTAL=" >> $GITHUB_ENV  # sccache requires CARGO_INCREMENTAL to be unset
 
       - name: Install dependencies
         run: |

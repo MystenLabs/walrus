@@ -13,7 +13,7 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
-  CARGO_INCREMENTAL: 0
+  # CARGO_INCREMENTAL is intentionally omitted — sccache requires it to be unset
   CARGO_NET_RETRY: 10
   RUSTUP_MAX_RETRIES: 10
   RUST_BACKTRACE: short
