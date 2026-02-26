@@ -77,25 +77,6 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # pin@v6.0.2
 
-      - name: Configure GCP credentials for sccache
-        if: ${{ !github.event.pull_request.head.repo.fork }}
-        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # pin@v3.0.0
-        with:
-          credentials_json: ${{ secrets.GCP_WALRUS_RELEASE_BUCKET_SVCUSER_CREDENTIALS }}
-
-      - name: Setup sccache
-        if: ${{ !github.event.pull_request.head.repo.fork }}
-        uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # pin@v0.0.9
-
-      - name: Enable sccache
-        if: ${{ !github.event.pull_request.head.repo.fork }}
-        run: |
-          echo "SCCACHE_GCS_BUCKET=walrus-sccache" >> $GITHUB_ENV
-          echo "SCCACHE_GCS_KEY_PREFIX=ubuntu-ghcloud" >> $GITHUB_ENV
-          echo "SCCACHE_GCS_RW_MODE=READ_ONLY" >> $GITHUB_ENV
-          echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
-          echo "CARGO_INCREMENTAL=" >> $GITHUB_ENV  # sccache requires CARGO_INCREMENTAL to be unset
-
       - name: Check formatting with rustfmt
         run: >
           cargo fmt --all -- --check
@@ -118,26 +99,9 @@ jobs:
     runs-on: ubuntu-ghcloud
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # pin@v6.0.2
-
-      - name: Configure GCP credentials for sccache
-        if: ${{ !github.event.pull_request.head.repo.fork }}
-        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # pin@v3.0.0
+      - uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # pin@v2.8.2
         with:
-          credentials_json: ${{ secrets.GCP_WALRUS_RELEASE_BUCKET_SVCUSER_CREDENTIALS }}
-
-      - name: Setup sccache
-        if: ${{ !github.event.pull_request.head.repo.fork }}
-        uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # pin@v0.0.9
-
-      - name: Enable sccache
-        if: ${{ !github.event.pull_request.head.repo.fork }}
-        run: |
-          echo "SCCACHE_GCS_BUCKET=walrus-sccache" >> $GITHUB_ENV
-          echo "SCCACHE_GCS_KEY_PREFIX=ubuntu-ghcloud" >> $GITHUB_ENV
-          echo "SCCACHE_GCS_RW_MODE=READ_ONLY" >> $GITHUB_ENV
-          echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
-          echo "CARGO_INCREMENTAL=" >> $GITHUB_ENV  # sccache requires CARGO_INCREMENTAL to be unset
-
+          save-if: ${{ github.ref == 'refs/heads/main' && 'true' || 'false' }}
       - name: Install dependencies
         run: |
           sudo apt-get update
