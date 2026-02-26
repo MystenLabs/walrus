@@ -61,8 +61,8 @@ jobs:
           echo "PG_DATABASE_URL=postgres://postgres:root@localhost/" >> $GITHUB_ENV
           echo "PG_EXAMPLE_DATABASE_URL=postgres://postgres:root@localhost/diesel_example" >> $GITHUB_ENV
 
-      - name: Install postgres (MacOS arm64)
-        if: ${{ matrix.os == 'macos-latest-xlarge' }}
+      - name: Install postgres (MacOS)
+        if: ${{ startsWith(matrix.os, 'macos') }}
         shell: bash
         env:
           PQ_LIB_DIR: "$(brew --prefix libpq)/lib"
