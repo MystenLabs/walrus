@@ -1,0 +1,1 @@
+Redirecting… If you are not redirected, go to [/docs/troubleshooting](/docs/troubleshooting).
