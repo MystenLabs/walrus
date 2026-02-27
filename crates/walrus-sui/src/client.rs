@@ -1066,7 +1066,7 @@ impl SuiContractClient {
         owner: Option<SuiAddress>,
         selection_policy: ExpirySelectionPolicy,
     ) -> SuiClientResult<Vec<Blob>> {
-        let current_epoch = self.read_client.current_committee().await?.epoch;
+        let current_epoch = self.read_client.current_epoch().await?;
         Ok(self
             .read_client
             .get_owned_objects::<Blob>(owner.unwrap_or(self.wallet_address), &[])
@@ -1080,7 +1080,7 @@ impl SuiContractClient {
         &self,
         selection_policy: ExpirySelectionPolicy,
     ) -> SuiClientResult<Vec<StorageResource>> {
-        let current_epoch = self.read_client.current_committee().await?.epoch;
+        let current_epoch = self.read_client.current_epoch().await?;
         Ok(self
             .read_client
             .get_owned_objects::<StorageResource>(self.wallet_address, &[])
