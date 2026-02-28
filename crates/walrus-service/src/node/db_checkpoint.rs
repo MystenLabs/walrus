@@ -209,6 +209,9 @@ impl DelayedTask {
             _ = tokio::time::sleep(timeout_duration) => {
                 let mut status_guard = status.lock().expect("mutex should not be poisoned");
                 *status_guard = TaskStatus::Timeout;
+                let _ = response.send(
+                    TaskResult::TaskError("checkpoint task timed out".to_string())
+                );
             }
         }
     }
