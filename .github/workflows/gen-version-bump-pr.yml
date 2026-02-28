@@ -6,23 +6,10 @@ on:
 
 concurrency: ${{ github.workflow }}
 
-permissions:
-  contents: write
-  pull-requests: write
-
 jobs:
-  bump-sui-testnet-version:
+  version-bump:
     name: Bump Walrus Version
-    runs-on: ubuntu-ghcloud
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # pin@v6.0.2
-
-      - name: Bump
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_ACTOR: ${{ github.actor }}
-        shell: bash
-        run: |
-          ./scripts/bump_walrus_version.sh
+    uses: ./.github/workflows/version-bump.yml
+    with:
+      type: minor
+      delivery: pr

@@ -1,0 +1,120 @@
+name: Walrus Version Bump
+run-name: "Walrus Version Bump (${{ inputs.type }})"
+
+on:
+  workflow_call:
+    inputs:
+      type:
+        description: "Bump type: patch or minor"
+        type: string
+        required: false
+        default: "minor"
+      delivery:
+        description: "Delivery method: pr or direct"
+        type: string
+        required: false
+        default: "pr"
+
+  workflow_dispatch:
+    inputs:
+      type:
+        description: "Bump type"
+        type: choice
+        required: true
+        default: "patch"
+        options:
+          - patch
+          - minor
+      delivery:
+        description: "Delivery method"
+        type: choice
+        required: true
+        default: "pr"
+        options:
+          - pr
+          - direct
+
+concurrency:
+  group: version-bump-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  version-bump:
+    name: Bump Version
+    runs-on: ubuntu-ghcloud
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # pin@v6.0.2
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Calculate new version
+        id: bump
+        run: |
+          # Extract the current version from Cargo.toml
+          CURRENT_VERSION=$(sed -nE 's/^version = "([0-9]+\.[0-9]+\.[0-9]+)"/\1/p' ./Cargo.toml)
+          if [[ -z "$CURRENT_VERSION" ]]; then
+            echo "Error: could not extract version from Cargo.toml" >&2
+            exit 1
+          fi
+          echo "Current version: $CURRENT_VERSION"
+
+          IFS=. read -r major minor patch <<< "$CURRENT_VERSION"
+
+          if [[ "${{ inputs.type }}" == "minor" ]]; then
+            NEW_VERSION="$major.$((minor + 1)).0"
+          else
+            NEW_VERSION="$major.$minor.$((patch + 1))"
+          fi
+          echo "New version: $NEW_VERSION"
+
+          # Apply version change
+          sed -i -E "s/^(version = \")[0-9]+\.[0-9]+\.[0-9]+(\"$)/\1${NEW_VERSION}\2/" Cargo.toml
+
+          # Regenerate Cargo.lock
+          cargo check || true
+
+          echo "new_version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Deliver via PR
+        if: inputs.delivery == 'pr'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_ACTOR: ${{ github.actor }}
+        run: |
+          NEW_VERSION="${{ steps.bump.outputs.new_version }}"
+          STAMP="$(date +%Y%m%d%H%M%S)"
+          BRANCH="${GITHUB_ACTOR}/walrus-v${NEW_VERSION}-version-bump-${STAMP}"
+
+          git checkout -b "$BRANCH"
+          git add Cargo.toml Cargo.lock
+          BODY="chore: bump walrus version to v${NEW_VERSION}"
+          git commit -m "$BODY"
+          git push -u origin "$BRANCH"
+
+          gh pr create \
+            --base "${{ github.ref_name }}" \
+            --head "$BRANCH" \
+            --title "chore: bump Walrus version to v${NEW_VERSION}" \
+            --reviewer "wbbradley,halfprice,liquid-helium,ebmifa" \
+            --body "Walrus v${NEW_VERSION} Version Bump"
+
+          gh pr merge --auto --squash --delete-branch "$BRANCH"
+
+      - name: Deliver direct push
+        if: inputs.delivery == 'direct'
+        run: |
+          NEW_VERSION="${{ steps.bump.outputs.new_version }}"
+          BODY="chore: bump walrus version to v${NEW_VERSION}"
+
+          git add Cargo.toml Cargo.lock
+          git commit -m "$BODY"
+          git push origin HEAD:"${{ github.ref_name }}"
