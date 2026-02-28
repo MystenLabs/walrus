@@ -1298,6 +1298,40 @@ mod tests {
         Ok(())
     }
 
+    // Tests that epoch changes work correctly when the contract does not support
+    // `initiate_epoch_change_v2`. The testnet contracts only have `initiate_epoch_change` (v1),
+    // so the storage nodes should fall back to v1 and epoch changes should still succeed.
+    #[ignore = "ignore integration simtests by default"]
+    #[walrus_simtest]
+    async fn test_epoch_change_without_v2() -> anyhow::Result<()> {
+        walrus_test_utils::init_tracing();
+        let epoch_duration = Duration::from_secs(5);
+        let (_sui_cluster_handle, walrus_cluster, _client, _system_ctx, _) =
+            test_cluster::E2eTestSetupBuilder::new()
+                .with_contract_directory(testnet_contract_dir().unwrap())
+                .with_epoch_duration(epoch_duration)
+                .with_test_nodes_config(
+                    TestNodesConfig::builder()
+                        .with_node_weights(&[1, 1])
+                        .build(),
+                )
+                .with_default_num_checkpoints_per_blob()
+                .build_generic::<SimStorageNodeHandle>()
+                .await?;
+
+        let target_epoch: Epoch = 3;
+        let time_to_reach_epoch = epoch_duration * target_epoch * 5;
+
+        simtest_utils::wait_for_nodes_to_reach_epoch(
+            &walrus_cluster.nodes,
+            target_epoch,
+            time_to_reach_epoch,
+        )
+        .await;
+
+        Ok(())
+    }
+
     async fn wait_for_event_blob_writer_to_make_progress(
         client: &Arc<WithTempDir<WalrusNodeClient<SuiContractClient>>>,
         last_certified_event_blob: EventBlob,

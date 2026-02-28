@@ -250,6 +250,7 @@ pub mod staking {
     contract_ident!(fn staking::withdraw_stake);
     contract_ident!(fn staking::voting_end);
     contract_ident!(fn staking::initiate_epoch_change);
+    contract_ident!(fn staking::initiate_epoch_change_v2);
     contract_ident!(fn staking::epoch_sync_done);
     contract_ident!(fn staking::set_node_metadata);
     contract_ident!(fn staking::set_name);
@@ -383,6 +384,12 @@ pub mod node_metadata {
 
     contract_ident!(fn node_metadata::new);
     contract_ident!(struct node_metadata::NodeMetadata);
+}
+
+/// Module for tags corresponding to the Move module `wal`.
+pub mod wal {
+
+    contract_ident!(struct wal::ProtectedTreasury);
 }
 
 /// Module for tags corresponding to the Move module `wal_exchange`.
