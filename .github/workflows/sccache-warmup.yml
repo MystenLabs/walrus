@@ -59,6 +59,10 @@ jobs:
         shell: bash
         run: cargo build --release
 
+      - name: Build test-opt profile (for CI test cache)
+        shell: bash
+        run: cargo build --workspace --profile test-opt
+
   report-failure:
     name: Report Failure
     runs-on: ubuntu-latest
