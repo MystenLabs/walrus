@@ -300,7 +300,7 @@ impl DistributedUploader {
                     }
                 }
 
-                if !stop_scheduling && blobs_at_quorum >= self.progress.len() {
+                if blobs_at_quorum >= self.progress.len() {
                     break;
                 }
             }
