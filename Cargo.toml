@@ -94,7 +94,7 @@ opentelemetry-proto = { version = "=0.31", default-features = false, features = 
 opentelemetry-semantic-conventions = "=0.31"
 opentelemetry_sdk = "=0.31"
 p256 = { version = "0.13.2", default-features = false }
-pin-project = "1.1.10"
+pin-project = "1.1.11"
 prettytable = "0.10.0"
 proc-macro2 = "1.0.106"
 prometheus = "0.13.4"
@@ -109,14 +109,14 @@ regex = "1"
 reqwest = { version = "0.12.12", default-features = false, features = ["http2", "json", "rustls-tls"] }
 rocksdb = "0.22.0"
 rstest = "0.25.0"
-rustls = { version = "0.23.36", default-features = false, features = ["logging", "ring", "tls12"] }
+rustls = { version = "0.23.37", default-features = false, features = ["logging", "ring", "tls12"] }
 rustls-native-certs = "0.8.3"
 scoped-futures = "0.1.4"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
 serde_test = "1.0.177"
 serde_urlencoded = { version = "0.7.1" }
-serde_with = { version = "3.16", features = ["base64"] }
+serde_with = { version = "3.17", features = ["base64"] }
 serde_yaml = "0.9"
 sha2 = "0.10.9"
 snap = "1.1.0"
@@ -143,11 +143,11 @@ sui-types = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.66.2"
 syn = "2.0"
 tap = "1.0.1"
 telemetry-subscribers = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.66.2" }
-tempfile = "3.25.0"
+tempfile = "3.26.0"
 test-cluster = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.66.2" }
 thiserror = "2.0.18"
 tokio = { version = "=1.49.0", features = ["macros", "rt-multi-thread", "signal"] }
-tokio-metrics = { version = "0.4.8", default-features = false }
+tokio-metrics = { version = "0.4.9", default-features = false }
 tokio-stream = "0.1.17"
 tokio-util = "0.7.16"
 tonic = { version = "0.14.5", default-features = false }
