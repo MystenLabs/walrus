@@ -118,6 +118,7 @@ use walrus_sdk::{
             GENESIS_EPOCH,
             PackageEvent,
             ProtocolEvent,
+            UnifiedStorageEvent,
         },
     },
 };
@@ -1574,6 +1575,17 @@ impl StorageNode {
                 self.process_package_event(event_handle, package_event)
                     .await?;
             }
+            EventStreamElement::ContractEvent(ContractEvent::UnifiedStorageEvent(
+                unified_event,
+            )) => {
+                self.process_unified_storage_event(
+                    blob_event_processor,
+                    event_handle,
+                    unified_event,
+                    checkpoint_position,
+                )
+                .await?;
+            }
             EventStreamElement::ContractEvent(ContractEvent::DenyListEvent(_event)) => {
                 // TODO: Implement DenyListEvent handling (WAL-424)
                 event_handle.mark_as_complete();
@@ -1609,6 +1621,23 @@ impl StorageNode {
         tracing::debug!(?blob_event, "{} event received", blob_event.name());
         blob_event_processor
             .process_event(event_handle, blob_event, checkpoint_position)
+            .await?;
+        Ok(())
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn process_unified_storage_event(
+        &self,
+        blob_event_processor: &BlobEventProcessor,
+        event_handle: EventHandle,
+        event: UnifiedStorageEvent,
+        checkpoint_position: CheckpointEventPosition,
+    ) -> anyhow::Result<()> {
+        let _scope = monitored_scope::monitored_scope("ProcessEvent::UnifiedStorageEvent");
+
+        tracing::debug!(?event, "{} event received", event.name());
+        blob_event_processor
+            .process_unified_storage_event(event_handle, event, checkpoint_position)
             .await?;
         Ok(())
     }
@@ -3266,11 +3295,26 @@ impl StorageNodeInner {
     }
 
     fn is_blob_registered(&self, blob_id: &BlobId) -> Result<bool, anyhow::Error> {
-        Ok(self
+        let epoch = self.current_committee_epoch();
+        if let Some(blob_info) = self
             .storage
             .get_blob_info(blob_id)
             .context("could not retrieve blob info")?
-            .is_some_and(|blob_info| blob_info.is_registered(self.current_committee_epoch())))
+        {
+            // Fast path: regular blob_info check.
+            if blob_info.is_registered(epoch) {
+                return Ok(true);
+            }
+            // Slow path: check unified storage fallback.
+            if self
+                .storage
+                .is_blob_registered_via_unified(blob_id, epoch)
+                .context("could not check unified storage registration")?
+            {
+                return Ok(true);
+            }
+        }
+        Ok(false)
     }
 
     fn notify_registration(&self, blob_id: &BlobId) {
@@ -3314,11 +3358,26 @@ impl StorageNodeInner {
     }
 
     fn is_blob_certified(&self, blob_id: &BlobId) -> Result<bool, anyhow::Error> {
-        Ok(self
+        let epoch = self.current_committee_epoch();
+        if let Some(blob_info) = self
             .storage
             .get_blob_info(blob_id)
             .context("could not retrieve blob info")?
-            .is_some_and(|blob_info| blob_info.is_certified(self.current_committee_epoch())))
+        {
+            // Fast path: regular blob_info check.
+            if blob_info.is_certified(epoch) {
+                return Ok(true);
+            }
+            // Slow path: check unified storage fallback.
+            if self
+                .storage
+                .is_blob_certified_via_unified(blob_id, epoch)
+                .context("could not check unified storage certification")?
+            {
+                return Ok(true);
+            }
+        }
+        Ok(false)
     }
 
     /// Returns true if the blob is currently not certified.

@@ -25,7 +25,10 @@ use typed_store::{
 };
 use walrus_core::{BlobId, Epoch};
 use walrus_storage_node_client::api::{BlobStatus, DeletableCounts};
-use walrus_sui::types::{BlobCertified, BlobDeleted, BlobEvent, BlobRegistered, InvalidBlobId};
+use walrus_sui::types::{
+    BlobCertified, BlobDeleted, BlobEvent, BlobInUnifiedStorageCertified,
+    BlobInUnifiedStorageDeleted, BlobInUnifiedStorageRegistered, BlobRegistered, InvalidBlobId,
+};
 
 use self::per_object_blob_info::PerObjectBlobInfoMergeOperand;
 pub(crate) use self::per_object_blob_info::{PerObjectBlobInfo, PerObjectBlobInfoApi};
@@ -52,6 +55,12 @@ pub(super) struct BlobInfoTable {
     aggregate_blob_info: DBMap<BlobId, BlobInfo>,
     per_object_blob_info: DBMap<ObjectID, PerObjectBlobInfo>,
     latest_handled_event_index: Arc<Mutex<DBMap<(), u64>>>,
+    /// Maps unified_storage_id -> current end_epoch.
+    unified_storage_end_epochs: DBMap<ObjectID, Epoch>,
+    /// Maps blob_object_id -> unified_storage_id for blobs in unified storage pools.
+    unified_blob_by_object_id: DBMap<ObjectID, ObjectID>,
+    /// Maps blob_id -> set of unified_storage_ids. Used for aggregate fallback checks.
+    unified_blob_ids: DBMap<BlobId, Vec<ObjectID>>,
 }
 
 /// Returns the options for the aggregate blob info column family.
@@ -96,11 +105,32 @@ impl BlobInfoTable {
             &ReadWriteOptions::default(),
             false,
         )?));
+        let unified_storage_end_epochs = DBMap::reopen(
+            database,
+            Some(constants::unified_storage_end_epochs_cf_name()),
+            &ReadWriteOptions::default(),
+            false,
+        )?;
+        let unified_blob_by_object_id = DBMap::reopen(
+            database,
+            Some(constants::unified_blob_by_object_id_cf_name()),
+            &ReadWriteOptions::default(),
+            false,
+        )?;
+        let unified_blob_ids = DBMap::reopen(
+            database,
+            Some(constants::unified_blob_ids_cf_name()),
+            &ReadWriteOptions::default(),
+            false,
+        )?;
 
         Ok(Self {
             aggregate_blob_info,
             per_object_blob_info,
             latest_handled_event_index,
+            unified_storage_end_epochs,
+            unified_blob_by_object_id,
+            unified_blob_ids,
         })
     }
 
@@ -111,6 +141,9 @@ impl BlobInfoTable {
             .lock()
             .expect("mutex should not be poisoned")
             .schedule_delete_all()?;
+        self.unified_storage_end_epochs.schedule_delete_all()?;
+        self.unified_blob_by_object_id.schedule_delete_all()?;
+        self.unified_blob_ids.schedule_delete_all()?;
 
         Ok(())
     }
@@ -131,6 +164,18 @@ impl BlobInfoTable {
                 constants::event_index_cf_name(),
                 // Doesn't make sense to have special options for the table containing a single
                 // value.
+                db_table_opts_factory.standard(),
+            ),
+            (
+                constants::unified_storage_end_epochs_cf_name(),
+                db_table_opts_factory.standard(),
+            ),
+            (
+                constants::unified_blob_by_object_id_cf_name(),
+                db_table_opts_factory.standard(),
+            ),
+            (
+                constants::unified_blob_ids_cf_name(),
                 db_table_opts_factory.standard(),
             ),
         ]
@@ -543,6 +588,15 @@ impl BlobInfoTable {
             return Ok(false);
         }
 
+        // Check if the blob is kept alive by a unified storage pool.
+        if self.is_unified_blob_active(&object_id, current_epoch)? {
+            tracing::trace!(
+                %object_id,
+                "skipping blob-info update for blob in active unified storage pool"
+            );
+            return Ok(false);
+        }
+
         let blob_id = per_object_blob_info.blob_id();
         let was_certified = per_object_blob_info.initial_certified_epoch().is_some();
         let deletable = per_object_blob_info.is_deletable();
@@ -582,6 +636,179 @@ impl BlobInfoTable {
             .inc();
 
         Ok(true)
+    }
+
+    // === Unified Storage Methods ===
+
+    /// Checks if a blob object is kept alive by an active unified storage pool.
+    fn is_unified_blob_active(
+        &self,
+        object_id: &ObjectID,
+        current_epoch: Epoch,
+    ) -> Result<bool, TypedStoreError> {
+        if let Some(unified_id) = self.unified_blob_by_object_id.get(object_id)?
+            && let Some(end_epoch) = self.unified_storage_end_epochs.get(&unified_id)?
+            && end_epoch > current_epoch
+        {
+            return Ok(true);
+        }
+        Ok(false)
+    }
+
+    /// Returns the end epoch of a unified storage pool, if it exists.
+    pub(crate) fn get_unified_storage_end_epoch(
+        &self,
+        unified_storage_id: &ObjectID,
+    ) -> Result<Option<Epoch>, TypedStoreError> {
+        self.unified_storage_end_epochs.get(unified_storage_id)
+    }
+
+    /// Sets the end epoch for a unified storage pool.
+    pub(crate) fn set_unified_storage_end_epoch(
+        &self,
+        unified_storage_id: &ObjectID,
+        end_epoch: Epoch,
+    ) -> Result<(), TypedStoreError> {
+        self.unified_storage_end_epochs
+            .insert(unified_storage_id, &end_epoch)
+    }
+
+    /// Returns the unified storage ID for a blob object, if it exists.
+    pub(crate) fn get_unified_storage_id_for_object(
+        &self,
+        object_id: &ObjectID,
+    ) -> Result<Option<ObjectID>, TypedStoreError> {
+        self.unified_blob_by_object_id.get(object_id)
+    }
+
+    /// Returns the unified storage IDs associated with a blob ID.
+    pub(crate) fn get_unified_storage_ids_for_blob(
+        &self,
+        blob_id: &BlobId,
+    ) -> Result<Vec<ObjectID>, TypedStoreError> {
+        Ok(self.unified_blob_ids.get(blob_id)?.unwrap_or_default())
+    }
+
+    /// Processes a `BlobInUnifiedStorageRegistered` event.
+    pub(crate) fn process_unified_blob_registered(
+        &self,
+        event_index: u64,
+        event: &BlobInUnifiedStorageRegistered,
+    ) -> Result<(), TypedStoreError> {
+        // Update aggregate and per-object blob info (same as BlobRegistered).
+        self.update_blob_info(event_index, &BlobEvent::Registered(BlobRegistered {
+            epoch: event.epoch,
+            blob_id: event.blob_id,
+            size: event.size,
+            encoding_type: event.encoding_type,
+            end_epoch: event.end_epoch,
+            deletable: event.deletable,
+            object_id: event.object_id,
+            event_id: event.event_id,
+        }))?;
+
+        // Track blob_object_id -> unified_storage_id mapping.
+        self.unified_blob_by_object_id
+            .insert(&event.object_id, &event.unified_storage_id)?;
+
+        // Track blob_id -> [unified_storage_ids] mapping.
+        let mut ids = self
+            .unified_blob_ids
+            .get(&event.blob_id)?
+            .unwrap_or_default();
+        if !ids.contains(&event.unified_storage_id) {
+            ids.push(event.unified_storage_id);
+        }
+        self.unified_blob_ids.insert(&event.blob_id, &ids)?;
+
+        Ok(())
+    }
+
+    /// Processes a `BlobInUnifiedStorageCertified` event.
+    pub(crate) fn process_unified_blob_certified(
+        &self,
+        event_index: u64,
+        event: &BlobInUnifiedStorageCertified,
+    ) -> Result<(), TypedStoreError> {
+        // Update aggregate and per-object blob info (same as BlobCertified).
+        self.update_blob_info(event_index, &BlobEvent::Certified(BlobCertified {
+            epoch: event.epoch,
+            blob_id: event.blob_id,
+            end_epoch: event.end_epoch,
+            deletable: event.deletable,
+            object_id: event.object_id,
+            is_extension: event.is_extension,
+            event_id: event.event_id,
+        }))
+    }
+
+    /// Processes a `BlobInUnifiedStorageDeleted` event.
+    pub(crate) fn process_unified_blob_deleted(
+        &self,
+        event_index: u64,
+        event: &BlobInUnifiedStorageDeleted,
+    ) -> Result<(), TypedStoreError> {
+        // Update aggregate and per-object blob info (same as BlobDeleted).
+        self.update_blob_info(event_index, &BlobEvent::Deleted(BlobDeleted {
+            epoch: event.epoch,
+            blob_id: event.blob_id,
+            end_epoch: event.end_epoch,
+            object_id: event.object_id,
+            was_certified: event.was_certified,
+            event_id: event.event_id,
+        }))?;
+
+        // Clean up the blob_object_id -> unified_storage_id mapping.
+        self.unified_blob_by_object_id.remove(&event.object_id)?;
+
+        // Clean up the blob_id -> [unified_storage_ids] mapping.
+        if let Some(mut ids) = self.unified_blob_ids.get(&event.blob_id)? {
+            ids.retain(|id| *id != event.unified_storage_id);
+            if ids.is_empty() {
+                self.unified_blob_ids.remove(&event.blob_id)?;
+            } else {
+                self.unified_blob_ids.insert(&event.blob_id, &ids)?;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Checks if a blob is registered via unified storage fallback.
+    pub(crate) fn is_blob_registered_via_unified(
+        &self,
+        blob_id: &BlobId,
+        current_epoch: Epoch,
+    ) -> Result<bool, TypedStoreError> {
+        let ids = self.get_unified_storage_ids_for_blob(blob_id)?;
+        for unified_id in ids {
+            if let Some(end_epoch) = self.unified_storage_end_epochs.get(&unified_id)?
+                && end_epoch > current_epoch
+            {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
+    /// Checks if a blob was ever certified and is kept alive by unified storage.
+    pub(crate) fn is_blob_certified_via_unified(
+        &self,
+        blob_id: &BlobId,
+        current_epoch: Epoch,
+    ) -> Result<bool, TypedStoreError> {
+        let ids = self.get_unified_storage_ids_for_blob(blob_id)?;
+        for unified_id in ids {
+            if let Some(end_epoch) = self.unified_storage_end_epochs.get(&unified_id)?
+                && end_epoch > current_epoch
+            {
+                // Unified storage is still active. Check if the blob was ever certified.
+                if let Some(blob_info) = self.get(blob_id)? {
+                    return Ok(blob_info.was_ever_certified(current_epoch));
+                }
+            }
+        }
+        Ok(false)
     }
 
     /// Checks some internal invariants of the blob info table.
@@ -934,6 +1161,60 @@ impl ChangeTypeAndInfo for BlobCertified {
 }
 
 impl ChangeTypeAndInfo for BlobDeleted {
+    fn change_type(&self) -> BlobStatusChangeType {
+        BlobStatusChangeType::Delete {
+            was_certified: self.was_certified,
+        }
+    }
+
+    fn change_info(&self) -> BlobStatusChangeInfo {
+        BlobStatusChangeInfo {
+            blob_id: self.blob_id,
+            deletable: true,
+            epoch: self.epoch,
+            end_epoch: self.end_epoch,
+            status_event: self.event_id,
+        }
+    }
+}
+
+impl ChangeTypeAndInfo for BlobInUnifiedStorageRegistered {
+    fn change_type(&self) -> BlobStatusChangeType {
+        BlobStatusChangeType::Register
+    }
+
+    fn change_info(&self) -> BlobStatusChangeInfo {
+        BlobStatusChangeInfo {
+            blob_id: self.blob_id,
+            deletable: self.deletable,
+            epoch: self.epoch,
+            end_epoch: self.end_epoch,
+            status_event: self.event_id,
+        }
+    }
+}
+
+impl ChangeTypeAndInfo for BlobInUnifiedStorageCertified {
+    fn change_type(&self) -> BlobStatusChangeType {
+        if self.is_extension {
+            BlobStatusChangeType::Extend
+        } else {
+            BlobStatusChangeType::Certify
+        }
+    }
+
+    fn change_info(&self) -> BlobStatusChangeInfo {
+        BlobStatusChangeInfo {
+            blob_id: self.blob_id,
+            deletable: self.deletable,
+            epoch: self.epoch,
+            end_epoch: self.end_epoch,
+            status_event: self.event_id,
+        }
+    }
+}
+
+impl ChangeTypeAndInfo for BlobInUnifiedStorageDeleted {
     fn change_type(&self) -> BlobStatusChangeType {
         BlobStatusChangeType::Delete {
             was_certified: self.was_certified,
@@ -1829,6 +2110,15 @@ impl BlobInfo {
             }
         };
         Self::V1(blob_info)
+    }
+}
+
+impl BlobInfo {
+    /// Returns true if this blob was ever certified at or before `current_epoch`,
+    /// ignoring end_epoch checks. Used by the unified storage fallback path.
+    pub(crate) fn was_ever_certified(&self, current_epoch: Epoch) -> bool {
+        self.initial_certified_epoch()
+            .is_some_and(|certified_epoch| certified_epoch <= current_epoch)
     }
 }
 

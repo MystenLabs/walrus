@@ -5,8 +5,16 @@ use std::{num::NonZeroUsize, sync::Arc};
 
 use sui_macros::fail_point_async;
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
+use anyhow::Context as _;
 use walrus_core::BlobId;
-use walrus_sui::types::{BlobCertified, BlobDeleted, BlobEvent, BlobRegistered, InvalidBlobId};
+use walrus_sui::types::{
+    BlobCertified,
+    BlobDeleted,
+    BlobEvent,
+    BlobRegistered,
+    InvalidBlobId,
+    UnifiedStorageEvent,
+};
 use walrus_utils::metrics::monitored_scope;
 
 use self::pending_events::{PendingEventCounter, PendingEventGuard};
@@ -436,6 +444,111 @@ impl BlobEventProcessor {
         }
 
         event_handle.mark_as_complete();
+        Ok(())
+    }
+
+    /// Processes a unified storage event.
+    ///
+    /// For blob-related events (Registered, Certified, Deleted), this updates the blob info and
+    /// unified storage tables synchronously, then delegates to the background processor for
+    /// post-processing (same as regular blob events). For storage-level events (Created,
+    /// Extended), only the unified storage end_epoch table is updated.
+    pub(super) async fn process_unified_storage_event(
+        &self,
+        event_handle: EventHandle,
+        event: UnifiedStorageEvent,
+        checkpoint_position: CheckpointEventPosition,
+    ) -> anyhow::Result<()> {
+        match event {
+            UnifiedStorageEvent::Created(ref created) => {
+                self.node
+                    .storage
+                    .set_unified_storage_end_epoch(
+                        &created.unified_storage_id,
+                        created.end_epoch,
+                    )
+                    .context("failed to set unified storage end epoch")?;
+                event_handle.mark_as_complete();
+            }
+            UnifiedStorageEvent::BlobRegistered(ref registered) => {
+                self.node
+                    .storage
+                    .process_unified_blob_registered(event_handle.index(), registered)
+                    .context("failed to process unified blob registered")?;
+
+                self.handle_registered_event(
+                    event_handle,
+                    &BlobRegistered {
+                        epoch: registered.epoch,
+                        blob_id: registered.blob_id,
+                        size: registered.size,
+                        encoding_type: registered.encoding_type,
+                        end_epoch: registered.end_epoch,
+                        deletable: registered.deletable,
+                        object_id: registered.object_id,
+                        event_id: registered.event_id,
+                    },
+                )
+                .await?;
+            }
+            UnifiedStorageEvent::BlobCertified(ref certified) => {
+                self.node
+                    .storage
+                    .process_unified_blob_certified(event_handle.index(), certified)
+                    .context("failed to process unified blob certified")?;
+
+                let blob_event = BlobEvent::Certified(BlobCertified {
+                    epoch: certified.epoch,
+                    blob_id: certified.blob_id,
+                    end_epoch: certified.end_epoch,
+                    deletable: certified.deletable,
+                    object_id: certified.object_id,
+                    is_extension: certified.is_extension,
+                    event_id: certified.event_id,
+                });
+                self.dispatch_task(
+                    blob_event.blob_id(),
+                    BackgroundTask::ProcessEvent {
+                        event_handle,
+                        blob_event,
+                        checkpoint_position,
+                    },
+                )?;
+            }
+            UnifiedStorageEvent::BlobDeleted(ref deleted) => {
+                self.node
+                    .storage
+                    .process_unified_blob_deleted(event_handle.index(), deleted)
+                    .context("failed to process unified blob deleted")?;
+
+                let blob_event = BlobEvent::Deleted(BlobDeleted {
+                    epoch: deleted.epoch,
+                    blob_id: deleted.blob_id,
+                    end_epoch: deleted.end_epoch,
+                    object_id: deleted.object_id,
+                    was_certified: deleted.was_certified,
+                    event_id: deleted.event_id,
+                });
+                self.dispatch_task(
+                    blob_event.blob_id(),
+                    BackgroundTask::ProcessEvent {
+                        event_handle,
+                        blob_event,
+                        checkpoint_position,
+                    },
+                )?;
+            }
+            UnifiedStorageEvent::Extended(ref extended) => {
+                self.node
+                    .storage
+                    .set_unified_storage_end_epoch(
+                        &extended.unified_storage_id,
+                        extended.new_end_epoch,
+                    )
+                    .context("failed to update unified storage end epoch")?;
+                event_handle.mark_as_complete();
+            }
+        }
         Ok(())
     }
 

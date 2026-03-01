@@ -11,6 +11,9 @@ const METADATA_COLUMN_FAMILY_NAME: &str = "metadata";
 const EVENT_INDEX_COLUMN_FAMILY_NAME: &str = "latest_handled_event_index";
 const EVENT_CURSOR_COLUMN_FAMILY_NAME: &str = "event_cursor";
 const EVENT_CURSOR_KEY: [u8; 6] = *b"cursor";
+const UNIFIED_STORAGE_END_EPOCHS_COLUMN_FAMILY_NAME: &str = "unified_storage_end_epochs";
+const UNIFIED_BLOB_BY_OBJECT_ID_COLUMN_FAMILY_NAME: &str = "unified_blob_by_object_id";
+const UNIFIED_BLOB_IDS_COLUMN_FAMILY_NAME: &str = "unified_blob_ids";
 const GARBAGE_COLLECTOR_TABLE_COLUMN_FAMILY_NAME: &str = "garbage_collector_last_completed_epoch";
 const GARBAGE_COLLECTOR_LAST_STARTED_EPOCH_KEY: &str = "started";
 const GARBAGE_COLLECTOR_LAST_COMPLETED_EPOCH_KEY: &str = "completed";
@@ -60,6 +63,21 @@ pub fn event_cursor_cf_name() -> &'static str {
 
 pub fn event_cursor_key() -> &'static [u8; 6] {
     &EVENT_CURSOR_KEY
+}
+
+/// Returns the name of the unified storage end epochs column family.
+pub fn unified_storage_end_epochs_cf_name() -> &'static str {
+    UNIFIED_STORAGE_END_EPOCHS_COLUMN_FAMILY_NAME
+}
+
+/// Returns the name of the unified blob by object ID column family.
+pub fn unified_blob_by_object_id_cf_name() -> &'static str {
+    UNIFIED_BLOB_BY_OBJECT_ID_COLUMN_FAMILY_NAME
+}
+
+/// Returns the name of the unified blob IDs column family.
+pub fn unified_blob_ids_cf_name() -> &'static str {
+    UNIFIED_BLOB_IDS_COLUMN_FAMILY_NAME
 }
 
 /// Returns the name of the garbage collector last completed epoch column family.
