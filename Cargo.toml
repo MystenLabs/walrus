@@ -108,7 +108,7 @@ reed-solomon-simd = "3.1.0"
 regex = "1"
 reqwest = { version = "0.12.12", default-features = false, features = ["http2", "json", "rustls-tls"] }
 rocksdb = "0.22.0"
-rstest = "0.25.0"
+rstest = "0.26.1"
 rustls = { version = "0.23.36", default-features = false, features = ["logging", "ring", "tls12"] }
 rustls-native-certs = "0.8.3"
 scoped-futures = "0.1.4"
