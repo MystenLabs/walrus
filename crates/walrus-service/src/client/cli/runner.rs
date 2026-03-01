@@ -814,6 +814,7 @@ impl ClientCommandRunner {
             post_store,
             upload_relay.as_ref(),
             internal_run,
+            self.json,
             "store",
             |cmd| {
                 for (path, _) in &blobs {
@@ -919,6 +920,19 @@ impl ClientCommandRunner {
         }
 
         if internal_run {
+            match serde_json::to_value(&results) {
+                Ok(output) => {
+                    if let Err(err) =
+                        emit_child_event(&ChildUploaderEvent::CommandOutput { output })
+                    {
+                        tracing::warn!(%err, "failed to emit command output");
+                    }
+                }
+                Err(err) => {
+                    tracing::warn!(%err, "failed to serialize command output");
+                }
+            }
+
             for result in &results {
                 if let Err(err) = emit_v1_certified_event(&result.blob_store_result) {
                     tracing::warn!(%err, "failed to emit certification event");
@@ -1165,6 +1179,7 @@ impl ClientCommandRunner {
             post_store,
             upload_relay.as_ref(),
             internal_run,
+            self.json,
             "store-quilt",
             move |cmd| {
                 if let Some(path_args) = path_args_for_child.as_ref() {
@@ -1276,6 +1291,19 @@ impl ClientCommandRunner {
         }
 
         if internal_run {
+            match serde_json::to_value(&result) {
+                Ok(output) => {
+                    if let Err(err) =
+                        emit_child_event(&ChildUploaderEvent::CommandOutput { output })
+                    {
+                        tracing::warn!(%err, "failed to emit command output");
+                    }
+                }
+                Err(err) => {
+                    tracing::warn!(%err, "failed to serialize command output");
+                }
+            }
+
             if let Err(err) = emit_v1_certified_event(&result.blob_store_result) {
                 tracing::warn!(%err, "failed to emit certification event");
             }
