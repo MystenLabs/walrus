@@ -2151,7 +2151,7 @@ dependencies = [
  "tonic-prost",
  "tonic-rustls",
  "tower 0.5.3",
- "tower-http",
+ "tower-http 0.5.2",
  "tracing",
  "typed-store 0.4.0",
 ]
@@ -6629,7 +6629,7 @@ dependencies = [
  "tonic 0.14.5",
  "tonic-health",
  "tower 0.5.3",
- "tower-http",
+ "tower-http 0.5.2",
  "tracing",
 ]
 
@@ -10605,7 +10605,7 @@ dependencies = [
  "tokio",
  "tokio-util 0.7.18",
  "tower 0.5.3",
- "tower-http",
+ "tower-http 0.5.2",
  "tracing",
  "typed-store-error",
 ]
@@ -10890,7 +10890,7 @@ dependencies = [
  "tonic-health",
  "tonic-prost",
  "tower 0.5.3",
- "tower-http",
+ "tower-http 0.5.2",
  "tracing",
 ]
 
@@ -10946,7 +10946,7 @@ dependencies = [
  "tikv-jemallocator",
  "tokio",
  "tower 0.5.3",
- "tower-http",
+ "tower-http 0.5.2",
  "tracing",
  "typed-store 0.4.0",
  "url",
@@ -12543,6 +12543,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "tower-http"
+version = "0.6.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d4e6559d53cc268e5031cd8429d05415bc4cb4aefc4aa5d6cc35fbf5b924a1f8"
+dependencies = [
+ "bitflags 2.9.2",
+ "bytes",
+ "http 1.4.0",
+ "http-body 1.0.1",
+ "pin-project-lite",
+ "tokio",
+ "tower-layer",
+ "tower-service",
+ "tracing",
+]
+
+[[package]]
 name = "tower-layer"
 version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -13333,7 +13350,7 @@ dependencies = [
  "sui-types",
  "tokio",
  "tower 0.5.3",
- "tower-http",
+ "tower-http 0.6.8",
  "tracing",
  "tracing-subscriber",
  "uuid",
@@ -13481,7 +13498,7 @@ dependencies = [
  "tokio-stream",
  "tokio-util 0.7.18",
  "tower 0.5.3",
- "tower-http",
+ "tower-http 0.6.8",
  "tracing",
  "tracing-opentelemetry 0.32.1",
  "tracing-subscriber",
@@ -13700,7 +13717,7 @@ dependencies = [
  "telemetry-subscribers",
  "thiserror 2.0.18",
  "tokio",
- "tower-http",
+ "tower-http 0.6.8",
  "tracing",
  "tracing-subscriber",
  "utoipa",
