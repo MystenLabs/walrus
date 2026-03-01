@@ -98,7 +98,7 @@ pin-project = "1.1.10"
 prettytable = "0.10.0"
 proc-macro2 = "1.0.106"
 prometheus = "0.13.4"
-prost = { version = "0.13", default-features = false }
+prost = { version = "0.14", default-features = false }
 quote = "1.0"
 rand = "0.8.5"
 rand_distr = "0.4"
