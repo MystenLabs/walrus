@@ -6,7 +6,7 @@ title: Storing Blobs
 
 Use the command-line interface (CLI) to interact with the Walrus client. The CLI is available through installing the `walrus` binary. See the [getting started documentation](/docs/getting-started) for prerequisites, installation, and configuration.
 
-Detailed usage information including a full list of available commands can be viewed using: 
+Detailed usage information including a full list of available commands can be viewed using:
 
 ```sh
 $ walrus --help
@@ -31,7 +31,7 @@ $ walrus store <FILES> --epochs <EPOCHS>
 
 You can store a single file or multiple files, separated by spaces. Notably, this is compatible with glob patterns; for example, `walrus store *.png --epochs <EPOCHS>` stores all PNG files in the current directory.
 
-### Blob lifetimes 
+### Blob lifetimes
 
 A mandatory CLI argument must be set to specify the lifetime for the blob. There are currently 3 methods of setting a blob's lifetime:
 
@@ -39,7 +39,7 @@ A mandatory CLI argument must be set to specify the lifetime for the blob. There
 
 2. The `--earliest-expiry-time <EARLIEST_EXPIRY_TIME>` option takes a date in either RFC3339 format (for example, `2024-03-20T15:00:00Z`) or a more relaxed format (for example, `2024-03-20 15:00:00`). It ensures the blob expires after the specified date if possible.
 
-3. The `--end-epoch <END_EPOCH>` option takes a specific end epoch for the blob. 
+3. The `--end-epoch <END_EPOCH>` option takes a specific end epoch for the blob.
 
 A blob expires at the beginning of its end epoch. For example, a blob with end epoch `314` becomes unavailable at the beginning of epoch `314`. One consequence of this is that when storing a blob with `--epochs 1` immediately before an epoch change, it expires and becomes unavailable almost immediately. Blobs can be [extended](#extend-the-lifetime-of-a-blob) only if they have not expired.
 
@@ -51,7 +51,7 @@ You can specify whether a newly stored blob is deletable or permanent through th
 
 - In contrast, a deletable blob can be deleted at any point during its lifetime by the owner of the corresponding Sui object. See the [deletable blobs](#reclaim-space-through-deletable-blobs) for more details.
 
-Newly stored blobs are deletable by default. 
+Newly stored blobs are deletable by default.
 
 ### Automatic optimizations
 

@@ -2,7 +2,7 @@
 title: Site Builder Configuration
 ---
 
-{/* https://linear.app/mysten-labs/issue/DOCS-670/sitesconfigurationconfiguration-file-reference */} 
+{/* https://linear.app/mysten-labs/issue/DOCS-670/sitesconfigurationconfiguration-file-reference */}
 
 The `site-builder` tool requires a configuration file to know which package to use on Sui, which wallet to use, the gas budget, and other operational details. Most of these are abstracted away through sensible defaults, so you should not need to touch them. Yet, for completeness, this document provides the details for all the configuration options.
 
@@ -24,10 +24,10 @@ If you want to have more control over the behavior of the `site-builder`, you ca
 
   - `rpc_url`: The URL of the Sui RPC node to use. If not set, the `site-builder` infers it from the wallet.
 
-  - `wallet`: (default: uses the system-wide wallet from `sui client addresses`): Pointer to the Sui wallet to be used. By 
+  - `wallet`: (default: uses the system-wide wallet from `sui client addresses`): Pointer to the Sui wallet to be used. By
 
   - `walrus_binary`: (default: expected to be run from `$PATH`): Pointer to the `walrus` binary.
 
   - `walrus_config`: The configuration for the `walrus` client binary.
 
-  - `gas_budget`: (default: 500M MIST): The maximum amount of gas to be spent for transactions 
+  - `gas_budget`: (default: 500M MIST): The maximum amount of gas to be spent for transactions

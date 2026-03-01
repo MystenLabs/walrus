@@ -24,7 +24,7 @@ The deploy command determines whether to publish a new site or update an existin
 
 - If no ID is found by either method, deploy publishes a new site.
 
-When a new site is published, its `object_id` is automatically saved back to `ws-resources.json`, streamlining future updates. 
+When a new site is published, its `object_id` is automatically saved back to `ws-resources.json`, streamlining future updates.
 
 The wallet you are using to update an existing site must be the owner of the Walrus Site object to be able to update it.
 
@@ -53,7 +53,7 @@ Simply run the `deploy` command and provide your existing Site's Object ID throu
 $ site-builder deploy --object-id <YOUR_EXISTING_SITE_ID> --epochs <NUMBER> ./path/to/your/site
 ```
 
-On success, this updates your site and automatically creates (or updates if already existing) a `ws-resources.json` file with the site's object ID saved in the `object_id` field. Future deployments then use: 
+On success, this updates your site and automatically creates (or updates if already existing) a `ws-resources.json` file with the site's object ID saved in the `object_id` field. Future deployments then use:
 
 ```sh
 $ site-builder deploy --epochs <NUMBER> ./path/to/your/site

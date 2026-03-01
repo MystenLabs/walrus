@@ -6,7 +6,7 @@ keywords: ["walrus sites", "redirects", "nft", "sui objects", "display propertie
 
 {/* https://linear.app/mysten-labs/issue/DOCS-679/siteslinkingredirects */}
 
-Consider a collection of NFTs, such as the one published by https://flatland.wal.app. As shown there, each minted NFT has its own Walrus Site, which can be personalized based on the contents, for example, the color, of the NFT itself. 
+Consider a collection of NFTs, such as the one published by https://flatland.wal.app. As shown there, each minted NFT has its own Walrus Site, which can be personalized based on the contents, for example, the color, of the NFT itself.
 
 To achieve this, add a "redirect" in the NFT's [`Display`](https://docs.sui.io/standards/display#sui-utility-objects) property. Each time an NFT's object ID is browsed through a portal, the portal checks the `Display` of the NFT and, if it encounters the `walrus site address` key, it fetches the Walrus Site that is at the corresponding object ID.
 
