@@ -208,7 +208,7 @@ dependencies = [
  "quinn",
  "quinn-proto",
  "rand 0.8.5",
- "rcgen",
+ "rcgen 0.13.2",
  "ring",
  "rustls",
  "rustls-webpki",
@@ -221,7 +221,7 @@ dependencies = [
  "tokio-util 0.7.18",
  "tower 0.4.13",
  "tracing",
- "x509-parser",
+ "x509-parser 0.17.0",
 ]
 
 [[package]]
@@ -8530,6 +8530,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "rcgen"
+version = "0.14.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "10b99e0098aa4082912d4c649628623db6aba77335e4f4569ff5083a6448b32e"
+dependencies = [
+ "pem",
+ "ring",
+ "rustls-pki-types",
+ "time",
+ "x509-parser 0.18.1",
+ "yasna",
+]
+
+[[package]]
 name = "readme-rustdocifier"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -11451,14 +11465,14 @@ dependencies = [
  "ed25519",
  "fastcrypto 0.1.9 (git+https://github.com/MystenLabs/fastcrypto?rev=db643fd05a1b1c4cd52de3939766b53e12ce137e)",
  "pkcs8 0.10.2",
- "rcgen",
+ "rcgen 0.13.2",
  "reqwest",
  "rustls",
  "rustls-webpki",
  "tokio",
  "tokio-rustls",
  "tower-layer",
- "x509-parser",
+ "x509-parser 0.17.0",
 ]
 
 [[package]]
@@ -11566,7 +11580,7 @@ dependencies = [
  "tonic 0.14.5",
  "tracing",
  "typed-store-error",
- "x509-parser",
+ "x509-parser 0.17.0",
 ]
 
 [[package]]
@@ -13449,7 +13463,7 @@ dependencies = [
  "prost 0.13.5",
  "rand 0.8.5",
  "rayon",
- "rcgen",
+ "rcgen 0.14.7",
  "regex",
  "reqwest",
  "ring",
@@ -13550,7 +13564,7 @@ dependencies = [
  "pin-project",
  "prometheus",
  "rand 0.8.5",
- "rcgen",
+ "rcgen 0.14.7",
  "reqwest",
  "rustls",
  "rustls-native-certs",
@@ -14623,6 +14637,24 @@ name = "x509-parser"
 version = "0.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4569f339c0c402346d4a75a9e39cf8dad310e287eef1ff56d4c68e5067f53460"
+dependencies = [
+ "asn1-rs",
+ "data-encoding",
+ "der-parser",
+ "lazy_static",
+ "nom",
+ "oid-registry",
+ "ring",
+ "rusticata-macros",
+ "thiserror 2.0.18",
+ "time",
+]
+
+[[package]]
+name = "x509-parser"
+version = "0.18.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d43b0f71ce057da06bc0851b23ee24f3f86190b07203dd8f567d0b706a185202"
 dependencies = [
  "asn1-rs",
  "data-encoding",
