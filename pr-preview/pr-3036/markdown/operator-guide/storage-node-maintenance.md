@@ -11,26 +11,26 @@ Back up the `/opt/walrus/config` directory. For database backups, see the
 The following metrics are the most important for monitoring node health. Set up alerts based on the
 severity levels below.
 
-### Critical (page-worthy)
+#### Critical (page-worthy)
 
-- **`walrus_event_processor_latest_downloaded_checkpoint`** — should be continuously increasing.
-  Alert if this shows no progress for more than **30 minutes**.
+- **`walrus_event_processor_latest_downloaded_checkpoint`**: Should be continuously increasing.
+  Alert if this shows no progress for more than 30 minutes.
 
-### Needs attention during business hours
+#### Needs attention during business hours
 
-- **`walrus_event_cursor_progress{state="highest_finished"}`** — should be continuously increasing.
-  Alert if no progress for more than **30 minutes**. Contact the Walrus team if this happens.
-- **`uptime`** — frequent and repeated node restarts over a **30-minute** period indicate an issue.
+- **`walrus_event_cursor_progress{state="highest_finished"}`**: Should be continuously increasing.
+  Alert if no progress for more than 30 minutes. Contact the Walrus team if this happens.
+- **`uptime`**: Frequent and repeated node restarts over a 30-minute period indicate an issue.
   Contact the Walrus team if this happens.
 
-### Operational alerts
+#### Operational alerts
 
-- **`walrus_sui_balance_mist`** — warn if the balance drops below **2 SUI** (2,000,000,000 MIST).
-  Escalate if it drops below **1 SUI**. Ensure the node wallet is sufficiently funded.
-- **`http_server_tls_certificate_not_after_seconds`** — monitors TLS certificate expiration. Set up
+- **`walrus_sui_balance_mist`**: Warn if the balance drops below 2 SUI (2,000,000,000 MIST).
+  Escalate if it drops below 1 SUI. Ensure the node wallet is sufficiently funded.
+- **`http_server_tls_certificate_not_after_seconds`**: Monitors TLS certificate expiration. Set up
   an alert to warn before the certificate expires, so you have time to renew it.
 
-### General guidance
+#### General guidance
 
 Check the logs for warnings or errors if any of these metrics stall: `journalctl -efu walrus-node`.
 
@@ -41,14 +41,14 @@ they depend on user activity.
 
 To update your node:
 
-1. Stop the node service (and aggregator/publisher if running on the same host):
+##### Step 1: Stop the node service (and aggregator/publisher if running on the same host):
    ```sh
    sudo systemctl stop walrus-node.service
    sudo systemctl stop walrus-aggregator.service  # if applicable
    sudo systemctl stop walrus-publisher.service   # if applicable
    ```
-2. Download the new `walrus-node` and `walrus` binaries to `/opt/walrus/bin`.
-3. Start the services again:
+##### Step 2: Download the new `walrus-node` and `walrus` binaries to `/opt/walrus/bin`.
+##### Step 3: Start the services again:
    ```sh
    sudo systemctl start walrus-node.service
    sudo systemctl start walrus-aggregator.service  # if applicable

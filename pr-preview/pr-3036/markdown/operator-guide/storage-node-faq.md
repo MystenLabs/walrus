@@ -1,19 +1,19 @@
 ## Which wallets do I need? {#wallets}
 
-- The **storage node** must have a wallet compatible with the Sui Rust SDK. This **cannot** be a
+- The storage node must have a wallet compatible with the Sui Rust SDK. This **cannot** be a
   hardware wallet or anything that requires user interaction for transactions, because the node
   needs to send transactions as part of normal operation.
   - The `walrus-node setup` command creates such a wallet. You can replace it with a different
     wallet, but this is not recommended.
   - This wallet is stored on the storage node and should not hold too many funds.
-- The **publisher** needs a **separate wallet** from the storage node (even if running on the same
-  host). See the [publisher setup](/docs/operator-guide/aggregator#run-a-publisher) for details.
-- The **aggregator** does not need a wallet, as it never sends transactions.
-- For **collecting commission** and performing **governance operations**, you can designate other
+- The publisher needs a **separate wallet** from the storage node, even if running on the same
+  host. See the [publisher setup](/docs/operator-guide/aggregator#run-a-publisher) for details.
+- The aggregator does not need a wallet, as it never sends transactions.
+- For collecting commission and performing governance operations, you can designate other
   wallets (including hardware or multi-sig wallets). See
   [Commission and Governance](/docs/operator-guide/commission-governance) for details.
 
-## Questions about TLS {#tls}
+## How can TLS be used? {#tls}
 
 - You can configure TLS paths in `walrus-node.yaml`:
   ```yaml
@@ -28,7 +28,7 @@
 - If you set up certbot as described in the
   [storage node setup guide](/docs/operator-guide/storage-node-setup#tls-setup), it reuses the same key when
   renewing (`--reuse-key`).
-- If you ever **have to** change the key, the node detects changes and updates on-chain information
+- If you ever must change the key, the node detects changes and updates on-chain information
   automatically. It checks for changes every 15 minutes and during startup. It might take some time
   for other nodes to pick up the change, so only do this when necessary.
 - The same automatic update works for all other configuration changes, including voting parameters,

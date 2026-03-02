@@ -17,9 +17,9 @@ This guide covers migrating a Walrus storage node to new hardware. It assumes yo
 
 To reduce downtime, start by transferring all data while the old host is still running.
 
-1. Log into the new host as the `walrus` user.
+##### Step 1: Log into the new host as the `walrus` user.
 
-2. Set the environment variables for the old host:
+##### Step 2: Set the environment variables for the old host:
 
 ```sh
 OLD_HOST=  # hostname or IP of the old host
