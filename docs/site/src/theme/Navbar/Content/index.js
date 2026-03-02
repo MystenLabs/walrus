@@ -9,14 +9,12 @@ import {
 } from "@docusaurus/theme-common/internal";
 import NavbarItem from "@theme/NavbarItem";
 import ThemeToggle from "@site/src/shared/components/ThemeToggle";
-// import SearchBar from "@theme/SearchBar";
 import NavbarMobileSidebarToggle from "@theme/Navbar/MobileSidebar/Toggle";
 import NavbarLogo from "@theme/Navbar/Logo";
 import NavbarSearch from "@theme/Navbar/Search";
 import SearchModal from "@site/src/components/Search/SearchModal";
 
 function useNavbarItems() {
-  // TODO temporary casting until ThemeConfig type is improved
   return useThemeConfig().navbar.items;
 }
 
@@ -25,14 +23,13 @@ function useMobileSidebarSafe() {
   try {
     return useNavbarMobileSidebar();
   } catch {
-    // Emulate a "disabled" state so we can skip rendering the toggle safely.
     return { disabled: true, toggle: () => {} };
   }
 }
 
 function NavbarItems({ items }) {
   return (
-    <div className="flex flex-[8_1_0%] items-center justify-start gap-8 min-[1100px]:gap-8">
+    <div className="flex flex-[8_1_0%] items-center justify-start gap-8 min-[1100px]:gap-16 min-w-0">
       {items.map((item, i) => (
         <ErrorCauseBoundary
           key={i}
@@ -68,7 +65,7 @@ function SearchLauncher() {
     <>
       <button
         type="button"
-        className="DocSearch DocSearch-Button flex items-center cursor-pointer"
+        className="DocSearch DocSearch-Button flex items-center cursor-pointer shrink-0"
         onClick={() => setOpen(true)}
       >
         <span className="DocSearch-Button-Container flex">
@@ -80,8 +77,7 @@ function SearchLauncher() {
             aria-hidden="true"
           >
             <path
-              d="M14.386 14.386l4.0877 4.0877-4.0877-4.0877c-2.9418 2.9419-7.7115 2.9419-10.6533 0-2.9419-2.9418-2.9419-7.7115 0-10.6533 2.9418-2.9419
-              7.7115-2.9419 10.6533 0 2.9419 2.9418 2.9419 7.7115 0 10.6533z"
+              d="M14.386 14.386l4.0877 4.0877-4.0877-4.0877c-2.9418 2.9419-7.7115 2.9419-10.6533 0-2.9419-2.9418-2.9419-7.7115 0-10.6533 2.9418-2.9419 7.7115-2.9419 10.6533 0 2.9419 2.9418 2.9419 7.7115 0 10.6533z"
               stroke="currentColor"
               fill="none"
               fillRule="evenodd"
@@ -110,11 +106,10 @@ function KapaButton() {
     <button
       type="button"
       onClick={handleClick}
-      className="kapa-trigger-btn flex items-center gap-2.5 cursor-pointer bg-white text-gray-900 font-semibold text-base px-5
-      py-2.5 rounded-full border border-gray-200 hover:bg-gray-50 transition-colors mx-2"
+      className="kapa-trigger-btn flex items-center gap-2.5 cursor-pointer bg-white text-gray-900 font-semibold text-base px-5 py-2.5 rounded-full border border-gray-200 hover:bg-gray-50 transition-colors mx-2 shrink-0"
     >
-      <img src="/img/logo.svg" alt="" width="23" height="23" />
-      Ask Walrus AI
+      <img src="/img/logo.svg" alt="" width="25" height="25" />
+      <span className="kapa-label">Ask Walrus AI</span>
     </button>
   );
 }
@@ -135,7 +130,7 @@ export default function NavbarContent() {
         </>
       }
       right={
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 min-w-0">
           <NavbarItems items={rightItems} />
           <ThemeToggle />
           <KapaButton />
