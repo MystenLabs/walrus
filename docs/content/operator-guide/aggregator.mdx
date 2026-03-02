@@ -18,9 +18,7 @@ Run a local Walrus daemon through the `walrus` binary using one of three command
 
 :::tip
 
-If you run the aggregator or publisher without a reverse proxy, open the corresponding ports on
-your firewall: **9000** (aggregator) and **9001** (publisher). With a reverse proxy (such as the
-[nginx caching setup](#nginx-caching)), only port **443** needs to be open.
+If you run the aggregator or publisher without a reverse proxy, open the corresponding ports on your firewall: **9000** (aggregator) and **9001** (publisher). With a reverse proxy (such as the [nginx caching setup](#nginx-caching)), only port **443** needs to be open.
 
 :::
 
@@ -233,8 +231,7 @@ Replace `publisher` by `daemon` to run both an aggregator and publisher on the s
 
 ### Sample `systemd` configuration
 
-To run the publisher as a production service, create a systemd service at
-`/etc/systemd/system/walrus-publisher.service`:
+To run the publisher as a production service, create a systemd service at `/etc/systemd/system/walrus-publisher.service`:
 
 ```ini
 [Unit]
@@ -255,10 +252,7 @@ WantedBy=multi-user.target
 
 :::info
 
-The publisher needs a **separate wallet** from the storage node, even if running on the same host.
-See the [storage node FAQ](/docs/operator-guide/storage-node-faq#wallets) for details on wallet
-requirements.
-Generate a new wallet with:
+The publisher needs a **separate wallet** from the storage node, even if running on the same host. See the [storage node FAQ](/docs/operator-guide/storage-node-faq#wallets) for details on wallet requirements. Generate a new wallet with:
 
 ```sh
 mkdir -p /opt/walrus/config/publisher /opt/walrus/wallets
@@ -275,10 +269,7 @@ echo 'wallet_config: /opt/walrus/config/publisher/sui_client.yaml' >> /opt/walru
 
 :::warning
 
-While the aggregator does not perform Sui on-chain actions, and therefore consumes no gas, the
-publisher does perform actions on-chain and consumes both SUI and WAL tokens. On Mainnet, you are
-generally not expected to run a public publisher, as this comes with real monetary cost. If you do
-run one, ensure only authorized parties can access it, or use other measures to manage gas costs.
+While the aggregator does not perform Sui on-chain actions, and therefore consumes no gas, the publisher does perform actions on-chain and consumes both SUI and WAL tokens. On Mainnet, you are generally not expected to run a public publisher, as this comes with real monetary cost. If you do run one, ensure only authorized parties can access it, or use other measures to manage gas costs.
 
 :::
 
@@ -320,8 +311,7 @@ If the aggregator or publisher is hosted on a third-party platform, ensure that 
 
 ## Nginx caching setup {#nginx-caching}
 
-If you run a public aggregator, deploy a caching reverse proxy in front of it to reduce load on
-Walrus storage nodes. The aggregator acts as an origin server behind the cache.
+If you run a public aggregator, deploy a caching reverse proxy in front of it to reduce load on Walrus storage nodes. The aggregator acts as an origin server behind the cache.
 
 ### Prepare a cache directory
 
@@ -355,8 +345,7 @@ echo 'tmpfs /cache tmpfs nodev,nosuid,nodiratime,size=16G 0 0' | sudo tee -a /et
 sudo apt install nginx python3-certbot-nginx -y
 ```
 
-If you haven't installed certbot from the [storage node setup
-guide](/docs/operator-guide/storage-node-setup#tls-setup), install it now:
+If you haven't installed certbot from the [storage node setup guide](/docs/operator-guide/storage-node-setup#tls-setup), install it now:
 
 ```sh
 sudo snap install --classic certbot --channel=edge
@@ -371,7 +360,9 @@ sudo chown www-data:www-data /cache
 sudo chmod 755 /cache
 ```
 
-##### Step 2: Add a cache path directive to the `http` block in `/etc/nginx/nginx.conf`:
+##### Step 2: Add a cache path directive:
+
+Add the following to the `http` block in `/etc/nginx/nginx.conf`:
 
 ```nginx
 http {
@@ -382,7 +373,9 @@ http {
 }
 ```
 
-##### Step 3: Create a site configuration at `/etc/nginx/sites-available/<YOUR_HOSTNAME>`:
+##### Step 3: Create a site configuration:
+
+Create a file at `/etc/nginx/sites-available/<YOUR_HOSTNAME>`:
 
 ```nginx
 server {
@@ -416,7 +409,9 @@ server {
 }
 ```
 
-##### Step 4: Validate the configuration: `sudo nginx -t`
+##### Step 4: Validate the configuration:
+
+Run `sudo nginx -t`.
 
 ##### Step 5: Obtain a TLS certificate:
 
@@ -434,11 +429,7 @@ sudo systemctl restart nginx
 
 :::warning
 
-If you run the nginx reverse proxy on the **same host** as the storage node, change `standalone` to
-`nginx` in `/etc/letsencrypt/renewal/walrus-storage-node.conf` so certbot uses the nginx plugin
-for renewal instead of trying to bind to port 80 directly. See the
-[storage node TLS setup](/docs/operator-guide/storage-node-setup#tls-setup) to learn more about how certbot is
-configured for the storage node.
+If you run the nginx reverse proxy on the **same host** as the storage node, change `standalone` to `nginx` in `/etc/letsencrypt/renewal/walrus-storage-node.conf` so certbot uses the nginx plugin for renewal instead of trying to bind to port 80 directly. See the [storage node TLS setup](/docs/operator-guide/storage-node-setup#tls-setup) to learn more about how certbot is configured for the storage node.
 
 :::
 
