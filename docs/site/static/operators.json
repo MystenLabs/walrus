@@ -11,7 +11,7 @@
       },
       "https://aggregator.mainnet.walrus.mirai.cloud": {
         "operator": "Studio Mirai",
-        "cache": true
+        "cache": false
       },
       "https://aggregator.suicore.com": {
         "operator": "Suicore",
@@ -19,7 +19,7 @@
       },
       "https://aggregator.walrus-mainnet.tududes.com": {
         "operator": "TuDudes",
-        "cache": true
+        "cache": false
       },
       "https://aggregator.walrus-mainnet.walrus.space": {
         "operator": "Mysten Labs",
@@ -71,7 +71,7 @@
       },
       "https://walrus-agg.mainnet.obelisk.sh": {
         "operator": "Obelisk",
-        "cache": true
+        "functional": false
       },
       "https://walrus-aggregator-mainnet.chainode.tech:9002": {
         "operator": "ChainodeTech",
@@ -235,7 +235,7 @@
       },
       "http://walrus.equinoxdao.xyz:9000": {
         "operator": "EquinoxDao",
-        "cache": false
+        "functional": false
       },
       "http://67.220.194.10:9000": {
         "operator": "Nansen",
@@ -295,7 +295,7 @@
       },
       "https://testnet-aggregator.walrus.graphyte.dev": {
         "operator": "Graphyte Labs",
-        "functional": false
+        "cache": true
       },
       "https://testnet-walrus.globalstake.io": {
         "operator": "GlobalSTake",
@@ -319,7 +319,7 @@
       },
       "https://walrus-agg.testnet.obelisk.sh": {
         "operator": "Obelisk",
-        "cache": false
+        "functional": false
       },
       "https://walrus-aggregator-testnet.cetus.zone": {
         "operator": "Cetus",
@@ -331,7 +331,7 @@
       },
       "https://walrus-aggregator-testnet.n1stake.com": {
         "operator": "n1stake",
-        "functional": false
+        "cache": true
       },
       "https://walrus-aggregator-testnet.staking4all.org": {
         "operator": "Staking4All",
@@ -367,7 +367,7 @@
       },
       "https://walrus-testnet-aggregator.crouton.digital": {
         "operator": "CroutonDigital",
-        "functional": false
+        "cache": true
       },
       "https://walrus-testnet-aggregator.dzdaic.com": {
         "operator": "DAIC Infra (Coinage x DAIC)",
@@ -379,7 +379,7 @@
       },
       "https://walrus-testnet-aggregator.luckyresearch.org": {
         "operator": "LuckyResearch Labs",
-        "cache": true
+        "cache": false
       },
       "https://walrus-testnet-aggregator.natsai.xyz": {
         "operator": "Natsai",
@@ -479,7 +479,7 @@
       },
       "http://walrus-testnet.equinoxdao.xyz:9000": {
         "operator": "EquinoxDao",
-        "cache": true
+        "functional": false
       },
       "http://walrus-testnet.suicore.com:9000": {
         "operator": "Suicore",
