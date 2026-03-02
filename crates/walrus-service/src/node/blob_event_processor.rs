@@ -3,10 +3,11 @@
 
 use std::{num::NonZeroUsize, sync::Arc};
 
+use anyhow::Context as _;
 use sui_macros::fail_point_async;
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
-use walrus_core::BlobId;
-use walrus_sui::types::{BlobCertified, BlobDeleted, BlobEvent, BlobRegistered, InvalidBlobId};
+use walrus_core::{BlobId, Epoch};
+use walrus_sui::types::{BlobEvent, InvalidBlobId, StoragePoolEvent};
 use walrus_utils::metrics::monitored_scope;
 
 use self::pending_events::{PendingEventCounter, PendingEventGuard};
@@ -119,12 +120,19 @@ impl BackgroundEventProcessor {
         match blob_event {
             BlobEvent::Certified(event) => {
                 let _scope = monitored_scope::monitored_scope("ProcessEvent::BlobEvent::Certified");
-                self.process_blob_certified_event(event_handle, event, checkpoint_position)
-                    .await?;
+                self.process_blob_certified_event(
+                    event_handle,
+                    event.blob_id,
+                    event.epoch,
+                    event.is_extension,
+                    checkpoint_position,
+                )
+                .await?;
             }
             BlobEvent::Deleted(event) => {
                 let _scope = monitored_scope::monitored_scope("ProcessEvent::BlobEvent::Deleted");
-                self.process_blob_deleted_event(event_handle, event).await?;
+                self.process_blob_deleted_event(event_handle, event.blob_id, event.epoch)
+                    .await?;
             }
             BlobEvent::InvalidBlobID(event) => {
                 let _scope =
@@ -135,7 +143,26 @@ impl BackgroundEventProcessor {
                 // TODO (WAL-424): Implement DenyListBlobDeleted event handling.
                 todo!("DenyListBlobDeleted event handling is not yet implemented");
             }
-            BlobEvent::Registered(_) => {
+            BlobEvent::PooledBlobCertified(event) => {
+                let _scope = monitored_scope::monitored_scope(
+                    "ProcessEvent::BlobEvent::PooledBlobCertified",
+                );
+                self.process_blob_certified_event(
+                    event_handle,
+                    event.blob_id,
+                    event.epoch,
+                    false,
+                    checkpoint_position,
+                )
+                .await?;
+            }
+            BlobEvent::PooledBlobDeleted(event) => {
+                let _scope =
+                    monitored_scope::monitored_scope("ProcessEvent::BlobEvent::PooledBlobDeleted");
+                self.process_blob_deleted_event(event_handle, event.blob_id, event.epoch)
+                    .await?;
+            }
+            BlobEvent::Registered(_) | BlobEvent::PooledBlobRegistered(_) => {
                 unreachable!("registered event should be processed immediately");
             }
         }
@@ -148,7 +175,9 @@ impl BackgroundEventProcessor {
     async fn process_blob_certified_event(
         &self,
         event_handle: EventHandle,
-        event: BlobCertified,
+        blob_id: BlobId,
+        epoch: Epoch,
+        is_extension: bool,
         checkpoint_position: CheckpointEventPosition,
     ) -> anyhow::Result<()> {
         let start = tokio::time::Instant::now();
@@ -166,18 +195,18 @@ impl BackgroundEventProcessor {
         sui_macros::fail_point_if!(
             "skip_non_extension_certified_event_triggered_blob_sync",
             || {
-                skip_blob_sync_in_test = !event.is_extension;
+                skip_blob_sync_in_test = !is_extension;
             }
         );
 
         if skip_blob_sync_in_test
-            || !self.node.is_blob_certified(&event.blob_id)?
+            || !self.node.is_blob_certified(&blob_id)?
             || self.node.storage.node_status()?.is_catching_up()
             || (current_event_epoch.is_some()
                 && self
                     .node
                     .is_stored_at_all_shards_at_epoch(
-                        &event.blob_id,
+                        &blob_id,
                         current_event_epoch.expect("just checked that current event epoch is set"),
                     )
                     .await?)
@@ -185,9 +214,9 @@ impl BackgroundEventProcessor {
             event_handle.mark_as_complete();
 
             tracing::debug!(
-                %event.blob_id,
-                %event.epoch,
-                %event.is_extension,
+                %blob_id,
+                %epoch,
+                %is_extension,
                 "skipping syncing blob during certified event processing",
             );
 
@@ -201,14 +230,14 @@ impl BackgroundEventProcessor {
 
         self.node
             .maybe_apply_live_upload_deferral(
-                event.blob_id,
+                blob_id,
                 checkpoint_position.checkpoint_sequence_number,
             )
             .await;
 
         // Slivers and (possibly) metadata are not stored, so initiate blob sync.
         self.blob_sync_handler
-            .start_sync(event.blob_id, event.epoch, Some(event_handle))
+            .start_sync(blob_id, epoch, Some(event_handle))
             .await?;
 
         walrus_utils::with_label!(histogram_set, metrics::STATUS_QUEUED)
@@ -220,14 +249,14 @@ impl BackgroundEventProcessor {
     /// Processes a blob deleted event.
     #[tracing::instrument(
         skip_all,
-        fields(walrus.blob_id = %event.blob_id, walrus.epoch = tracing::field::Empty),
+        fields(walrus.blob_id = %blob_id, walrus.epoch = tracing::field::Empty),
     )]
     async fn process_blob_deleted_event(
         &self,
         event_handle: EventHandle,
-        event: BlobDeleted,
+        blob_id: BlobId,
+        epoch: Epoch,
     ) -> anyhow::Result<()> {
-        let blob_id = event.blob_id;
         let current_committee_epoch = self.node.current_committee_epoch();
         tracing::Span::current().record("walrus.epoch", current_committee_epoch);
 
@@ -246,13 +275,13 @@ impl BackgroundEventProcessor {
             // *Important*: We use the event's epoch for this check (as opposed to the current
             // epoch) as subsequent certify or delete events may update the `blob_info`; so we
             // cannot remove it even if it is no longer valid in the *current* epoch
-            if blob_info.can_data_be_deleted(event.epoch)
+            if blob_info.can_data_be_deleted(epoch)
                 && self.node.garbage_collection_config.enable_data_deletion
             {
                 tracing::debug!("deleting data for deleted blob");
                 self.node
                     .storage
-                    .attempt_to_delete_blob_data(&blob_id, event.epoch, &self.node.metrics)
+                    .attempt_to_delete_blob_data(&blob_id, epoch, &self.node.metrics)
                     .await?;
             }
         } else if self
@@ -388,7 +417,8 @@ impl BlobEventProcessor {
             .update_blob_info(event_handle.index(), &blob_event)?;
 
         if let BlobEvent::Registered(event) = &blob_event {
-            self.handle_registered_event(event_handle, event).await?;
+            self.handle_registered_event(event_handle, event.blob_id)
+                .await?;
             return Ok(());
         }
 
@@ -406,7 +436,7 @@ impl BlobEventProcessor {
     async fn handle_registered_event(
         &self,
         event_handle: EventHandle,
-        event: &BlobRegistered,
+        blob_id: BlobId,
     ) -> anyhow::Result<()> {
         // Registered event is marked as complete immediately. We need to process registered events
         // as fast as possible to catch up to the latest event in order to not miss blob sliver
@@ -417,25 +447,92 @@ impl BlobEventProcessor {
         // registered events.
         let _scope = monitored_scope::monitored_scope("ProcessEvent::BlobEvent::Registered");
 
-        self.node.notify_registration(&event.blob_id);
+        self.node.notify_registration(&blob_id);
 
-        if let Err(error) = self.dispatch_task(
-            event.blob_id,
-            BackgroundTask::FlushPendingCaches {
-                blob_id: event.blob_id,
-            },
-        ) {
+        if let Err(error) =
+            self.dispatch_task(blob_id, BackgroundTask::FlushPendingCaches { blob_id })
+        {
             tracing::error!(
-                blob_id = %event.blob_id,
+                %blob_id,
                 ?error,
                 "failed to enqueue cache flush after registration, flushing inline",
             );
-            self.node
-                .flush_pending_caches_with_logging(event.blob_id)
-                .await;
+            self.node.flush_pending_caches_with_logging(blob_id).await;
         }
 
         event_handle.mark_as_complete();
+        Ok(())
+    }
+
+    /// Processes a storage pool event.
+    ///
+    /// For blob-related events (Registered, Certified, Deleted), this updates the blob info and
+    /// storage pool tables synchronously, then delegates to the background processor for
+    /// post-processing (same as regular blob events). For storage-level events (Created,
+    /// Extended), only the storage pool end_epoch table is updated.
+    pub(super) async fn process_storage_pool_event(
+        &self,
+        event_handle: EventHandle,
+        event: StoragePoolEvent,
+        checkpoint_position: CheckpointEventPosition,
+    ) -> anyhow::Result<()> {
+        match event {
+            StoragePoolEvent::StoragePoolCreated(ref created) => {
+                self.node
+                    .storage
+                    .set_storage_pool_end_epoch(&created.storage_pool_id, created.end_epoch)
+                    .context("failed to set storage pool end epoch")?;
+                event_handle.mark_as_complete();
+            }
+            StoragePoolEvent::PooledBlobRegistered(ref registered) => {
+                self.node
+                    .storage
+                    .process_pooled_blob_registered(event_handle.index(), registered)
+                    .context("failed to process pooled blob registered")?;
+
+                self.handle_registered_event(event_handle, registered.blob_id)
+                    .await?;
+            }
+            StoragePoolEvent::PooledBlobCertified(ref certified) => {
+                self.node
+                    .storage
+                    .process_pooled_blob_certified(event_handle.index(), certified)
+                    .context("failed to process pooled blob certified")?;
+
+                let blob_event = BlobEvent::PooledBlobCertified(certified.clone());
+                self.dispatch_task(
+                    blob_event.blob_id(),
+                    BackgroundTask::ProcessEvent {
+                        event_handle,
+                        blob_event,
+                        checkpoint_position,
+                    },
+                )?;
+            }
+            StoragePoolEvent::PooledBlobDeleted(ref deleted) => {
+                self.node
+                    .storage
+                    .process_pooled_blob_deleted(event_handle.index(), deleted)
+                    .context("failed to process pooled blob deleted")?;
+
+                let blob_event = BlobEvent::PooledBlobDeleted(deleted.clone());
+                self.dispatch_task(
+                    blob_event.blob_id(),
+                    BackgroundTask::ProcessEvent {
+                        event_handle,
+                        blob_event,
+                        checkpoint_position,
+                    },
+                )?;
+            }
+            StoragePoolEvent::StoragePoolExtended(ref extended) => {
+                self.node
+                    .storage
+                    .set_storage_pool_end_epoch(&extended.storage_pool_id, extended.new_end_epoch)
+                    .context("failed to update storage pool end epoch")?;
+                event_handle.mark_as_complete();
+            }
+        }
         Ok(())
     }
 

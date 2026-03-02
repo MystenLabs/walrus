@@ -233,6 +233,12 @@ pub enum BlobEvent {
     InvalidBlobID(InvalidBlobId),
     /// A deny list blob deleted event.
     DenyListBlobDeleted(DenyListBlobDeleted),
+    /// A pooled blob registration event.
+    PooledBlobRegistered(PooledBlobRegistered),
+    /// A pooled blob certification event.
+    PooledBlobCertified(PooledBlobCertified),
+    /// A pooled blob deletion event.
+    PooledBlobDeleted(PooledBlobDeleted),
 }
 
 impl From<BlobRegistered> for BlobEvent {
@@ -304,6 +310,9 @@ impl BlobEvent {
             BlobEvent::Deleted(event) => event.blob_id,
             BlobEvent::InvalidBlobID(event) => event.blob_id,
             BlobEvent::DenyListBlobDeleted(event) => event.blob_id,
+            BlobEvent::PooledBlobRegistered(event) => event.blob_id,
+            BlobEvent::PooledBlobCertified(event) => event.blob_id,
+            BlobEvent::PooledBlobDeleted(event) => event.blob_id,
         }
     }
 
@@ -315,6 +324,9 @@ impl BlobEvent {
             BlobEvent::Deleted(event) => Some(event.object_id),
             BlobEvent::InvalidBlobID(_) => None,
             BlobEvent::DenyListBlobDeleted(_) => None,
+            BlobEvent::PooledBlobRegistered(event) => Some(event.object_id),
+            BlobEvent::PooledBlobCertified(event) => Some(event.object_id),
+            BlobEvent::PooledBlobDeleted(event) => Some(event.object_id),
         }
     }
 
@@ -326,6 +338,9 @@ impl BlobEvent {
             BlobEvent::Deleted(event) => event.event_id,
             BlobEvent::InvalidBlobID(event) => event.event_id,
             BlobEvent::DenyListBlobDeleted(event) => event.event_id,
+            BlobEvent::PooledBlobRegistered(event) => event.event_id,
+            BlobEvent::PooledBlobCertified(event) => event.event_id,
+            BlobEvent::PooledBlobDeleted(event) => event.event_id,
         }
     }
 
@@ -346,6 +361,9 @@ impl BlobEvent {
             BlobEvent::Deleted(event) => Some(event.epoch),
             BlobEvent::InvalidBlobID(event) => Some(event.epoch),
             BlobEvent::DenyListBlobDeleted(event) => Some(event.epoch),
+            BlobEvent::PooledBlobRegistered(event) => Some(event.epoch),
+            BlobEvent::PooledBlobCertified(event) => Some(event.epoch),
+            BlobEvent::PooledBlobDeleted(event) => Some(event.epoch),
         }
     }
 
@@ -357,6 +375,9 @@ impl BlobEvent {
             BlobEvent::Deleted(_) => "BlobDeleted",
             BlobEvent::InvalidBlobID(_) => "InvalidBlobID",
             BlobEvent::DenyListBlobDeleted(_) => "DenyListBlobDeleted",
+            BlobEvent::PooledBlobRegistered(_) => "PooledBlobRegistered",
+            BlobEvent::PooledBlobCertified(_) => "PooledBlobCertified",
+            BlobEvent::PooledBlobDeleted(_) => "PooledBlobDeleted",
         }
     }
 }
