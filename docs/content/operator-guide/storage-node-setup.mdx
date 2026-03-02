@@ -379,11 +379,12 @@ deployment should use freshly generated credentials.
 
 ## Registration and startup {#registration}
 
-1. **Fund the wallet.** Send SUI to the wallet address shown during setup. 1 SUI is sufficient for
+##### Step 1: Fund the wallet.
+Send SUI to the wallet address shown during setup. 1 SUI is sufficient for
    registration, but the node needs additional SUI for ongoing operation. A recommended initial
    balance is ~20 SUI.
 
-2. **Register the node:**
+##### Step 2: Register the node:
 
 ```sh
 /opt/walrus/bin/walrus-node register --config-path /opt/walrus/config/walrus-node.yaml
@@ -395,18 +396,19 @@ Registration must be run during initial setup. It creates the on-chain records f
 
 :::
 
-3. **Set up commission and governance authorization.** Designate a secure wallet address for
+##### Step 3: Set up commission and governance authorization.
+Designate a secure wallet address for
    receiving commission and authorizing governance operations. See
    [Commission and Governance](/docs/operator-guide/commission-governance) for details.
 
-4. **Start the node:**
+##### Step 4: Start the node:
 
 ```sh
 sudo systemctl daemon-reload
 sudo systemctl enable --now walrus-node.service
 ```
 
-5. **Verify the node is running:**
+##### Step 5: Verify the node is running:
 
 ```sh
 sudo systemctl status walrus-node.service
@@ -422,7 +424,7 @@ send metrics.
 
 :::
 
-6. **Check the health endpoint** (ideally from a different machine to also verify firewall setup):
+##### Step 6: Check the health endpoint (ideally from a different machine to also verify firewall setup):
 
 ```sh
 curl https://<public-address>:9185/v1/health | jq
@@ -432,8 +434,7 @@ This should return a 200 status with a non-empty JSON payload. The `nodeStatus` 
 `Standby`. You can also check `https://<public-address>:9185/v1/api` in a browser to verify
 the TLS certificate is set up correctly.
 
-7. **Verify the on-chain key** using the `walrus health` command. This performs a cryptographic
-   check that the node uses the key registered on chain:
+##### Step 7: Verify the on-chain key using the `walrus health` command. This performs a cryptographic
 
 ```sh
 /opt/walrus/bin/walrus --config /opt/walrus/config/client_config.yaml health --node-id <YOUR_NODE_ID>
