@@ -1,3 +1,8 @@
+/*
+// Copyright (c) Walrus Foundation
+// SPDX-License-Identifier: Apache-2.0
+*/
+
 @layer theme, base, components, utilities;
 
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
