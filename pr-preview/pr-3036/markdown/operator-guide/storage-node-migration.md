@@ -1,5 +1,4 @@
-This guide covers migrating a Walrus storage node to new hardware. It assumes you run the node
-(and optionally an aggregator and publisher) on the same host.
+This guide covers migrating a Walrus storage node to new hardware. It assumes you run the node (and optionally an aggregator and publisher) on the same host.
 
 <Tabs>
 <TabItem value="prereq" label="Prerequisites">
@@ -17,7 +16,7 @@ This guide covers migrating a Walrus storage node to new hardware. It assumes yo
 
 To reduce downtime, start by transferring all data while the old host is still running.
 
-##### Step 1: Log into the new host as the `walrus` user.
+##### Step 1: Log into the new host as the `walrus` user:
 
 ##### Step 2: Set the environment variables for the old host:
 
@@ -26,7 +25,7 @@ OLD_HOST=  # hostname or IP of the old host
 OLD_USER=  # SSH user on the old host
 ```
 
-##### Step 3: Verify you can SSH into the old host from the new host.
+##### Step 3: Verify you can SSH into the old host from the new host:
 
 ##### Step 4: Transfer the `/opt/walrus` directory:
 
@@ -36,7 +35,7 @@ rsync -avz --progress $OLD_USER@$OLD_HOST:/opt/walrus/ /opt/walrus
 
 ## Second transfer and migration
 
-##### Step 1: Stop all services on the old host.
+##### Step 1: Stop all services on the old host:
 
 Wait for each command to finish before proceeding.
 
@@ -48,27 +47,33 @@ sudo systemctl stop walrus-publisher.service     # if applicable
 
 :::warning
 
-Stopping the node cleanly is critical. Running `rsync` against a database that is still being
-written to might result in a corrupted copy.
+Stopping the node cleanly is critical. Running `rsync` against a database that is still being written to might result in a corrupted copy.
 
 :::
 
-##### Step 2: Run a second `rsync` with `--delete` to synchronize any changes since the first transfer:
+##### Step 2: Run a second `rsync` to synchronize changes:
+
+Use `--delete` to synchronize any changes since the first transfer:
 
 ```sh
 rsync -avz --delete --progress $OLD_USER@$OLD_HOST:/opt/walrus/ /opt/walrus
 ```
 
-##### Step 3: While this is running, update your DNS records to point to the new host.
+##### Step 3: Update DNS records:
 
-##### Step 4: Download the latest `walrus` and `walrus-node` binaries (see
-   [Download binaries](/docs/operator-guide/storage-node-setup#binaries)).
+While the sync is running, update your DNS records to point to the new host.
 
-##### Step 5: Verify the contents of `/opt/walrus/config`, `/opt/walrus/db`, and `/opt/walrus/wallets`
-   (if you run a publisher) match the old host.
+##### Step 4: Download the latest binaries:
 
-##### Step 6: If you use a new domain name for the node, update `public_host` in
-   `/opt/walrus/config/walrus-node.yaml`.
+Download the latest `walrus` and `walrus-node` binaries (see [Download binaries](/docs/operator-guide/storage-node-setup#binaries)).
+
+##### Step 5: Verify transferred data:
+
+Verify the contents of `/opt/walrus/config`, `/opt/walrus/db`, and `/opt/walrus/wallets` (if you run a publisher) match the old host.
+
+##### Step 6: Update the hostname (if changed):
+
+If you use a new domain name for the node, update `public_host` in `/opt/walrus/config/walrus-node.yaml`.
 
 ##### Step 7: Start all services on the new host:
 
@@ -79,19 +84,21 @@ sudo systemctl enable --now walrus-aggregator.service   # if applicable
 sudo systemctl enable --now walrus-publisher.service     # if applicable
 ```
 
-##### Step 8: If you had a reverse proxy (for example, nginx) on the old host, migrate that configuration as
-   well and start the proxy.
+##### Step 8: Migrate the reverse proxy (if applicable):
+
+If you had a reverse proxy (for example, nginx) on the old host, migrate that configuration as well and start the proxy.
 
 ## Verify the migration
 
-##### Step 1: Check the health endpoint (ideally from a different machine):
+##### Step 1: Check the health endpoint:
+
+Ideally from a different machine:
 
 ```sh
 curl https://<public-address>:9185/v1/health | jq
 ```
 
-The response should show `"nodeStatus": "Active"` and a `persisted` events count in the order of
-tens of millions.
+The response should show `"nodeStatus": "Active"` and a `persisted` events count in the order of tens of millions.
 
 ##### Step 2: Verify the on-chain key:
 
@@ -101,27 +108,28 @@ tens of millions.
 
 This performs the same authentication check that other nodes and the Walrus client use.
 
-##### Step 3: If the persisted events count is less than 10 million, something is wrong with the database.
-   Stop the node and check permissions, and compare the directory structure in `/opt/walrus/db`
-   against the old host.
+##### Step 3: Verify the event count:
+
+If the persisted events count is less than 10 million, something is wrong with the database. Stop the node and check permissions, and compare the directory structure in `/opt/walrus/db` against the old host.
 
 :::warning
 
-Do not start the node with an empty database. A full sync is an expensive operation that should
-only be used in emergencies. Reach out to the core team on Discord before wiping the database or
-starting with an empty one. If the database is corrupted, try the following steps in order:
+Do not start the node with an empty database. A full sync is an expensive operation that should only be used in emergencies. Reach out to the core team on Discord before wiping the database or starting with an empty one. If the database is corrupted, try the following steps in order:
 
 1. Run `rsync` again from the old host.
-2. If the corruption is in `/opt/walrus/db/events` or `/opt/walrus/db/event_blob_writer`, you can
-   delete that directory — it is rebuilt automatically.
-3. If the main database is corrupted, try running
-   `/opt/walrus/bin/walrus-node db-tool repair-db --db-path /opt/walrus/db`.
+2. If the corruption is in `/opt/walrus/db/events` or `/opt/walrus/db/event_blob_writer`, you can delete that directory — it is rebuilt automatically.
+3. If the main database is corrupted, try running `/opt/walrus/bin/walrus-node db-tool repair-db --db-path /opt/walrus/db`.
 
 :::
 
-##### Step 4: (Optional) Test your aggregator: `curl https://<aggregator-address>/v1/blobs/<BLOB_ID>`
+##### Step 4: (Optional) Test your aggregator:
 
-##### Step 5: (Optional) Test your publisher: `curl -X PUT https://<publisher-address>/v1/blobs -d "test"`
+`curl https://<aggregator-address>/v1/blobs/<BLOB_ID>`
 
-##### Step 6: Only after verifying everything works, you can clean up the old host by removing
-   `/opt/walrus`.
+##### Step 5: (Optional) Test your publisher:
+
+`curl -X PUT https://<publisher-address>/v1/blobs -d "test"`
+
+##### Step 6: Clean up the old host:
+
+Only after verifying everything works, you can clean up the old host by removing `/opt/walrus`.

@@ -15,9 +15,7 @@ in the registry.
 
 ## Using the verification script
 
-The easiest way to download and verify binaries is using the provided script (see also the
-[storage node setup guide](/docs/operator-guide/storage-node-setup#binaries) for standard binary
-downloads without verification):
+The easiest way to download and verify binaries is using the provided script (see also the [storage node setup guide](/docs/operator-guide/storage-node-setup#binaries) for standard binary downloads without verification):
 
 ```bash
 # Download the script

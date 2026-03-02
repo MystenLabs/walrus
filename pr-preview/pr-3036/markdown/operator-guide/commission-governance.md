@@ -48,9 +48,7 @@ Go to the [operator panel on the staking dApp](https://stake-wal.wal.app/node-op
 
 ### Verify on-chain
 
-You can verify that the authorization was set correctly by looking up your node's `StakingPool`
-object on [Suiscan](https://suiscan.xyz) (the object ID is your node ID). Check the `Commission receiver` and
-`Governance authorized` fields to confirm they match the addresses or objects you configured.
+You can verify that the authorization was set correctly by looking up your node's `StakingPool` object on [Suiscan](https://suiscan.xyz) (the object ID is your node ID). Check the `Commission receiver` and `Governance authorized` fields to confirm they match the addresses or objects you configured.
 
 ## Collect commission
 
