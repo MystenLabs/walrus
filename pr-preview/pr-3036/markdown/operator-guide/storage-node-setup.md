@@ -12,29 +12,30 @@ files without adjusting those might cause issues.
 <Tabs>
 <TabItem value="prereq" label="Prerequisites">
 
-- [x] **OS:** Linux (Ubuntu 24.04 recommended), x86_64 with AVX2 and SSSE3 support (available on
-  most CPUs less than 10 years old)
-- [x] **Storage:** A large disk partition for blob storage, mounted at `/opt/walrus/db`
-- [x] **Network:** A public IP address with a DNS name pointing to it
-- [x] **Initial system setup**
+- [x] Linux operating system (Ubuntu 24.04 recommended), x86_64 with AVX2 and SSSE3 support
+- [x] A large disk partition for blob storage, mounted at `/opt/walrus/db`
+- [x] A public IP address with a DNS name pointing to it
+- [x] Complete initial system setup
 
-    1. Create a `walrus` user and group:
+<details>
+<summary>Initial system setup instructions </summary>
+    ##### Step 1: Create a `walrus` user and group:
 
         ```sh
         sudo useradd -s /bin/bash walrus
         ```
 
-    2. Create the directory structure:
+    ##### Step 2: Create the directory structure:
 
         ```sh
         sudo install -d -o walrus -g walrus -m 0755 \
           /opt/walrus /opt/walrus/config /opt/walrus/config/tls /opt/walrus/bin /opt/walrus/db
         ```
 
-    3. Mount the large storage partition to `/opt/walrus/db` and ensure it persists across reboots
+    ##### Step 3: Mount the large storage partition to `/opt/walrus/db` and ensure it persists across reboots
        (for example, by adding an entry in `/etc/fstab`).
 
-    4. Configure the firewall. Open port **9185** (storage node) and **80** (automatic certificate
+    ##### Step 4: Configure the firewall. Open port **9185** (storage node) and **80** (automatic certificate
        renewal). If you plan to run an aggregator with a reverse proxy, also open **443**:
 
         ```sh
@@ -60,6 +61,8 @@ files without adjusting those might cause issues.
 
     :::
 
+</details>
+
 </TabItem>
 </Tabs>
 
@@ -79,14 +82,14 @@ PEM format.
 
 The following steps use [certbot](https://certbot.eff.org) to request and manage certificates.
 
-1. Install certbot using snap from the **edge** channel (needed for
-   [PKCS#8 key format](https://github.com/certbot/certbot/issues/10131)):
+##### Step 1: Install certbot using snap from the edge channel, which is necessary for
+   [PKCS#8 key format](https://github.com/certbot/certbot/issues/10131):
 
 ```sh
 sudo snap install --classic certbot --channel=edge
 ```
 
-2. Set the `SERVER_NAME` environment variable to the node's public hostname:
+##### Step 2: Set the `SERVER_NAME` environment variable to the node's public hostname:
 
 ```sh
 SERVER_NAME=  # your node's public hostname
@@ -96,7 +99,7 @@ curl ifconfig.me; echo
 dig +short $SERVER_NAME
 ```
 
-3. Save the following deploy hook script at `/opt/walrus/bin/tls-deploy-hook.sh`. Certbot uses this
+##### Step 3: Save the following deploy hook script at `/opt/walrus/bin/tls-deploy-hook.sh`. Certbot uses this
    to copy certificates to the storage node's TLS directory after issuance or renewal:
 
 ```bash
@@ -118,14 +121,14 @@ rm -f "$WALRUS_TLS_DIR/cert.pem" "$WALRUS_TLS_DIR/chain.pem" \
 /usr/bin/env chown walrus:walrus "$WALRUS_TLS_DIR"/*
 ```
 
-4. Set the correct permissions:
+##### Step 4: Set the correct permissions:
 
 ```sh
 sudo chown walrus /opt/walrus/bin/tls-deploy-hook.sh
 sudo chmod u=rwx,g=rx,o=rx /opt/walrus/bin/tls-deploy-hook.sh
 ```
 
-5. Perform a dry-run of the certificate request:
+##### Step 5: Perform a dry-run of the certificate request:
 
 ```sh
 sudo certbot certonly --standalone \
@@ -135,7 +138,7 @@ sudo certbot certonly --standalone \
   --dry-run
 ```
 
-6. If successful, re-run the command without `--dry-run` to obtain the actual certificate.
+##### Step 6: If successful, re-run the command without `--dry-run` to obtain the actual certificate.
 
 After this, certbot automatically renews the certificate before it expires, and the node picks up
 changes to the file. You can verify the setup:
@@ -272,27 +275,27 @@ curl "https://docs.wal.app/setup/client_config_$NETWORK.yaml" -o $CLIENT_CONFIG
 
 The `walrus-node setup` command generates the node configuration and a Sui wallet. Key options:
 
-- **`--node-capacity`**: Use the capacity that you can dedicate to the Walrus database. Accepts
+- `--node-capacity`: Use the capacity that you can dedicate to the Walrus database. Accepts
   values like `3.14TB`, `2.718TiB`, and similar units.
-- **`--sui-network`**: The Sui full node URL used to read objects and send transactions. Requires a
+- `--sui-network`: The Sui full node URL used to read objects and send transactions. Requires a
   Sui full node that can sustain at least 10 requests per second for checkpoint data.
-- **`--sui-rpc`**: The Sui RPC URL used specifically for reading transactions during event
+- `--sui-rpc`: The Sui RPC URL used specifically for reading transactions during event
   processing. See the [FAQ](/docs/operator-guide/storage-node-faq#sui-rpc) for the distinction.
   Can be the same as `--sui-network` or a separate endpoint.
-- **`--checkpoint-bucket`**: URL for checkpoint-based transaction reading as a fallback.
-- **`--additional-rpc-endpoints`**: Additional Sui RPC endpoints for redundancy (can be specified
+- `--checkpoint-bucket`: URL for checkpoint-based transaction reading as a fallback.
+- `--additional-rpc-endpoints`: Additional Sui RPC endpoints for redundancy (can be specified
   multiple times).
-- **`--storage-price`** and **`--write-price`**: Your voting parameters for the storage price per
+- `--storage-price` and `--write-price`: Your voting parameters for the storage price per
   MiB and epoch, and write price per MiB (one-time fee). The currency can be specified with the
   `--price-currency` flag (defaults to FROST). Check with the Walrus Foundation for the current
   recommended values.
-- **`--commission-rate`**: Commission rate in basis points (100 bp = 1%). See the
+- `--commission-rate`: Commission rate in basis points (100 bp = 1%). See the
   [FAQ](/docs/operator-guide/storage-node-faq#commission) for details. The default value of 6000 bp
   (60%) is the the maximum commission rate if you intend to receive staking from the Walrus
   Foundation.
-- **`--metrics-push-url`**: URL for pushing Prometheus metrics. The Walrus Foundation provides
+- `--metrics-push-url`: URL for pushing Prometheus metrics. The Walrus Foundation provides
   a metrics endpoint for committee members.
-- **`--image-url`**, **`--project-url`**, **`--description`**: Optional metadata about your node.
+- `--image-url`, `--project-url`, `--description`: Optional metadata about your node.
 
 All of these options can also be changed in the generated config file after setup.
 
