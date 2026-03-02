@@ -60,6 +60,7 @@ const sidebars = {
         'http-api/storing-blobs',
         'http-api/reading-blobs',
         'http-api/managing-blobs',
+        'http-api/quilt-http-apis',
       ],
     },
     "typescript-sdk/sdks",
@@ -78,6 +79,7 @@ const sidebars = {
       ],
     },
     'data-security',
+    'stake',
     'tusky-migration-guide',
     'troubleshooting/index',
     {
@@ -215,6 +217,7 @@ const sidebars = {
                 ],
             },
             "operator-guide/upload-relay",
+            "operator-guide/signed-binaries",
         ],
     },
     ],
