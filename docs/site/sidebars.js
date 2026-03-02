@@ -195,24 +195,28 @@ const sidebars = {
         items: [
             {
                 type: "category",
-                label: "Operating an Aggregator or Publisher",
-                link: {
-                    type: "doc",
-                    id: "operator-guide/aggregator",
-                },
-                items: ["operator-guide/auth-publisher"],
-            },
-            {
-                type: "category",
                 label: "Operating a Storage Node",
                 link: {
                     type: "doc",
                     id: "operator-guide/storage-node",
                 },
                 items: [
+                    "operator-guide/storage-node-setup",
+                    "operator-guide/storage-node-maintenance",
+                    "operator-guide/storage-node-migration",
                     "operator-guide/commission-governance",
                     "operator-guide/backup-restore-guide",
+                    "operator-guide/storage-node-faq",
                 ],
+            },
+            {
+                type: "category",
+                label: "Operating an Aggregator or Publisher",
+                link: {
+                    type: "doc",
+                    id: "operator-guide/aggregator",
+                },
+                items: ["operator-guide/auth-publisher"],
             },
             "operator-guide/upload-relay",
         ],
