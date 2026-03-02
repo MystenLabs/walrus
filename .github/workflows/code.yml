@@ -29,7 +29,7 @@ env:
   # sccache — GCS-backed compilation cache (walrus-sccache bucket)
   SCCACHE_GCS_BUCKET: walrus-sccache
   SCCACHE_GCS_KEY_PREFIX: ubuntu-ghcloud
-  SCCACHE_GCS_RW_MODE: READ_WRITE
+  SCCACHE_GCS_RW_MODE: READ_ONLY
   RUSTC_WRAPPER: sccache
 
 jobs:
