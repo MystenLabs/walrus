@@ -30,9 +30,13 @@ pub use events::{
     EpochParametersSelected,
     InvalidBlobId,
     PackageEvent,
+    PoolBlobCertified,
+    PoolBlobDeleted,
+    PoolBlobRegistered,
     ProtocolEvent,
     ProtocolVersionUpdatedEvent,
     RegisterDenyListUpdateEvent,
+    StoragePoolEvent,
 };
 
 pub mod move_structs;

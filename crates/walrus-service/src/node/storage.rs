@@ -670,6 +670,47 @@ impl Storage {
         self.blob_info.get_per_object_info(object_id)
     }
 
+    // === Storage Pool Accessors ===
+
+    /// Sets the end epoch for a storage pool.
+    pub(crate) fn set_storage_pool_end_epoch(
+        &self,
+        storage_pool_id: &ObjectID,
+        end_epoch: Epoch,
+    ) -> Result<(), TypedStoreError> {
+        self.blob_info
+            .set_storage_pool_end_epoch(storage_pool_id, end_epoch)
+    }
+
+    /// Processes a `PoolBlobRegistered` event.
+    pub(crate) fn process_pool_blob_registered(
+        &self,
+        event_index: u64,
+        event: &walrus_sui::types::PoolBlobRegistered,
+    ) -> Result<(), TypedStoreError> {
+        self.blob_info
+            .process_pool_blob_registered(event_index, event)
+    }
+
+    /// Processes a `PoolBlobCertified` event.
+    pub(crate) fn process_pool_blob_certified(
+        &self,
+        event_index: u64,
+        event: &walrus_sui::types::PoolBlobCertified,
+    ) -> Result<(), TypedStoreError> {
+        self.blob_info
+            .process_pool_blob_certified(event_index, event)
+    }
+
+    /// Processes a `PoolBlobDeleted` event.
+    pub(crate) fn process_pool_blob_deleted(
+        &self,
+        event_index: u64,
+        event: &walrus_sui::types::PoolBlobDeleted,
+    ) -> Result<(), TypedStoreError> {
+        self.blob_info.process_pool_blob_deleted(event_index, event)
+    }
+
     /// Returns the current event cursor and the next event index.
     #[tracing::instrument(skip_all)]
     pub fn get_event_cursor_and_next_index(

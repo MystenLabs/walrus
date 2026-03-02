@@ -226,6 +226,18 @@ pub mod system {
     contract_ident!(fn system::delete_blob);
     contract_ident!(fn system::certify_event_blob);
     contract_ident!(fn system::extend_blob);
+    contract_ident!(fn system::create_storage_pool);
+    contract_ident!(fn system::register_pool_blob);
+    contract_ident!(fn system::delete_pool_blob);
+    contract_ident!(fn system::extend_storage_pool);
+    contract_ident!(fn system::certify_pool_blob);
+}
+
+/// Module for tags corresponding to the Move module `storage_pool`.
+pub mod storage_pool {
+
+    contract_ident!(struct storage_pool::StoragePool);
+    contract_ident!(struct storage_pool::PoolBlob);
 }
 
 /// Module for tags corresponding to the Move module `system_state_inner`.
@@ -362,6 +374,11 @@ pub mod events {
     contract_ident!(struct events::ContractUpgradeQuorumReached);
     contract_ident!(struct events::ProtocolVersionUpdated);
     contract_ident!(struct events::PricesUpdated);
+    contract_ident!(struct events::StoragePoolCreated);
+    contract_ident!(struct events::PoolBlobRegistered);
+    contract_ident!(struct events::PoolBlobCertified);
+    contract_ident!(struct events::PoolBlobDeleted);
+    contract_ident!(struct events::StoragePoolExtended);
 }
 
 /// Module for tags corresponding to the Move module `auth`.
