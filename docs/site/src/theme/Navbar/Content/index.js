@@ -77,7 +77,7 @@ function SearchLauncher() {
             aria-hidden="true"
           >
             <path
-              d="M14.386 14.386l4.0877 4.0877-4.0877-4.0877c-2.9418 2.9419-7.7115 2.9419-10.6533 0-2.9419-2.9418-2.9419-7.7115 
+              d="M14.386 14.386l4.0877 4.0877-4.0877-4.0877c-2.9418 2.9419-7.7115 2.9419-10.6533 0-2.9419-2.9418-2.9419-7.7115
               0-10.6533 2.9418-2.9419 7.7115-2.9419 10.6533 0 2.9419 2.9418 2.9419 7.7115 0 10.6533z"
               stroke="currentColor"
               fill="none"
@@ -107,7 +107,7 @@ function KapaButton() {
     <button
       type="button"
       onClick={handleClick}
-      className="kapa-trigger-btn flex items-center gap-2.5 cursor-pointer bg-white text-gray-900 font-semibold 
+      className="kapa-trigger-btn flex items-center gap-2.5 cursor-pointer bg-white text-gray-900 font-semibold
       text-base px-5 py-2.5 rounded-full border border-gray-200 hover:bg-gray-50 transition-colors mx-2 shrink-0"
     >
       <img src="/img/logo.svg" alt="" width="25" height="25" />
