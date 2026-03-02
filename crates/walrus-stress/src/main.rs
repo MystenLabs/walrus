@@ -21,7 +21,7 @@ use clap::{Parser, Subcommand};
 use generator::blob::WriteBlobConfig;
 use rand::{RngCore, seq::SliceRandom};
 use sui_types::base_types::ObjectID;
-use walrus_sdk::client::{WalrusNodeClient, metrics::ClientMetrics};
+use walrus_sdk::node_client::{WalrusNodeClient, metrics::ClientMetrics};
 use walrus_service::client::{ClientConfig, Refiller};
 use walrus_stress::single_client_workload::{
     SingleClientWorkload,

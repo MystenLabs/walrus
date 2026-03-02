@@ -967,6 +967,18 @@ impl WalrusPtbBuilder {
         Ok(())
     }
 
+    /// Adds a call to `initiate_epoch_change_v2` to the PTB.
+    pub fn initiate_epoch_change_v2(&mut self) -> SuiClientResult<()> {
+        let args = vec![
+            self.staking_arg(SharedObjectMutability::Mutable)?,
+            self.system_arg(SharedObjectMutability::Mutable)?,
+            self.treasury_arg(SharedObjectMutability::Mutable)?,
+            self.pt_builder.obj(CLOCK_OBJECT_ARG)?,
+        ];
+        self.walrus_move_call(contracts::staking::initiate_epoch_change_v2, args)?;
+        Ok(())
+    }
+
     /// Adds a call to `voting_end` to the PTB.
     pub fn voting_end(&mut self) -> SuiClientResult<()> {
         let args = vec![
@@ -1775,6 +1787,12 @@ impl WalrusPtbBuilder {
         Ok(self
             .pt_builder
             .obj(self.read_client.object_arg_for_credits_obj(mutable)?)?)
+    }
+
+    fn treasury_arg(&mut self, mutable: SharedObjectMutability) -> SuiClientResult<Argument> {
+        Ok(self
+            .pt_builder
+            .obj(self.read_client.object_arg_for_treasury_obj(mutable)?)?)
     }
 
     fn walrus_subsidies_arg(

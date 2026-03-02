@@ -1290,7 +1290,8 @@ impl StorageNodeHandleBuilder {
                 contract_config: ContractConfig::new(
                     system_context.system_object,
                     system_context.staking_object,
-                ),
+                )
+                .with_treasury_object(system_context.treasury_object),
                 wallet_config: walrus_sui::config::WalletConfig::from_path(
                     self.node_wallet_dir.unwrap().join("wallet_config.yaml"),
                 ),
@@ -2695,7 +2696,7 @@ pub mod test_cluster {
     use tokio::sync::Mutex as TokioMutex;
     use tokio_util::sync::CancellationToken;
     use walrus_sdk::{
-        client::{self, ClientCommunicationConfig, ClientConfig, WalrusNodeClient},
+        node_client::{self, ClientCommunicationConfig, ClientConfig, WalrusNodeClient},
         sui::{
             client::{SuiContractClient, SuiReadClient},
             test_utils::{
@@ -2805,7 +2806,7 @@ pub mod test_cluster {
         ) -> anyhow::Result<(
             Arc<TokioMutex<TestClusterHandle>>,
             TestCluster<StorageNodeHandle>,
-            WithTempDir<client::WalrusNodeClient<SuiContractClient>>,
+            WithTempDir<node_client::WalrusNodeClient<SuiContractClient>>,
             SystemContext,
             Option<AggregatorHandle>,
         )> {
@@ -2821,7 +2822,7 @@ pub mod test_cluster {
         ) -> anyhow::Result<(
             Arc<TokioMutex<TestClusterHandle>>,
             TestCluster<T>,
-            WithTempDir<client::WalrusNodeClient<SuiContractClient>>,
+            WithTempDir<node_client::WalrusNodeClient<SuiContractClient>>,
             SystemContext,
             Option<AggregatorHandle>,
         )> {
@@ -3043,7 +3044,7 @@ pub mod test_cluster {
 
             let client = admin_contract_client
                 .and_then_async(|contract_client| {
-                    client::WalrusNodeClient::new_contract_client_with_refresher(
+                    node_client::WalrusNodeClient::new_contract_client_with_refresher(
                         config.clone(),
                         contract_client,
                     )
@@ -3291,6 +3292,7 @@ pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
                     currency: PriceCurrency::FROST,
                     storage_price: 5,
                     write_price: 1,
+                    price_update_threshold_percent: config::DEFAULT_PRICE_UPDATE_THRESHOLD_PERCENT,
                 },
                 node_capacity: 1_000_000_000,
             },

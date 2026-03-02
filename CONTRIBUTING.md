@@ -46,7 +46,7 @@ needed. If this is not possible or cumbersome, but we *know for sure* that a val
 
 Otherwise, handle these values explicitly, using `Option` or `Result` return types if needed.
 Furthermore, if a function can panic under certain conditions, prefer an explicit `panic!` and make
-sure to document this in the function's docstring, see also [below](#documentation).
+sure to document this in the function's docstring, see also [below](#docstrings).
 
 ### Type conversions
 
@@ -120,8 +120,8 @@ In particular, please adhere to the following conventions:
   inclusion location).
 
 Additionally, if you made any user-facing changes, please adjust our documentation under
-[docs/book](./docs/book/); see the [section about the documentation](#documentation) below for
-further information.
+[docs/content](./docs/content/); see the [documentation README](docs/site/README.md) for further
+information.
 
 ### Formatting
 
@@ -167,80 +167,26 @@ The Move formatter can then be run manually by executing:
 prettier-move --write <path-to-move-file-or-folder>
 ```
 
-## Documentation
-
-Our main documentation at [docs.wal.app](https://docs.wal.app) is built using
-[mdBook](https://rust-lang.github.io/mdBook/) from source files in the [`docs/book`](./docs/book)
-directory. See [book.toml](./book.toml) for the configuration and parameters.
-
-### Preprocessors
-
-We use additional preprocessors for various features:
-
-- [mdbook-admonish](https://github.com/tommilligan/mdbook-admonish) for callout boxes
-- [mdbook-katex](https://github.com/lzanini/mdbook-katex) for rendering LaTeX expressions
-- [mdbook-linkcheck](https://github.com/Michael-F-Bryan/mdbook-linkcheck) to make sure all our
-  internal and external links are valid
-- [mdbook-tabs](https://mdbook-plugins.rustforweb.org/tabs.html) for internal tabs
-- [mdbook-template](https://github.com/MystenLabs/mdbook-template) for templating based on
-  [Handlebars](https://docs.rs/handlebars/latest/handlebars/)
-
-These preprocessors treat certain tokens in a special way and require you to escape them if you want
-to use them literally:
-
-- mdBook itself replaces certain `{{# }}` patterns like `{{#include <filename>}}`, see [the mdBook
-  documentation](https://rust-lang.github.io/mdBook/format/mdbook.html). It also performs some
-  special processing of code blocks for Rust code.
-- mdbook-tabs recognizes and processes some `{{# }}` patterns.
-- Handlebars detects and processes some `{{ }}` patterns. If you want to use such patterns
-  literally, you need to escape the opening braces as (`\{{`). GitHub Actions `${{ }}` syntax is
-  automatically preserved. You can add additional data for the templates in the `paths` parameter in
-  the `preprocessor.template` section of the [book.toml](./book.toml) file.
-- KaTeX renders content between `\(` and `\)` as inline math and `\[` and `\]` as math blocks. To
-  use these tokens literally, you need to put them between backticks or escape them as `\\(`.
-
-### Local build
-
-You can build the Walrus documentation locally (assuming you have Rust installed):
-
-```sh
-cargo install mdbook mdbook-admonish mdbook-katex mdbook-linkcheck mdbook-tabs --locked
-cargo install --git https://github.com/MystenLabs/mdbook-template --locked
-mdbook serve
-```
-
-After this, you can browse the documentation at <http://localhost:3000>.
-
-### Build in CI
-
-The documentation is built and published after all relevant changes in the `main` branch through [a
-GitHub workflow](.github/workflows/publish-docs.yaml). Additionally [a preview is
-created](.github/workflows/pages-preview.yaml) in relevant PRs.
-
-### Documentation conventions
-
-We lint our documentation using [markdownlint](https://github.com/DavidAnson/markdownlint-cli2). See
-the configuration at [.markdownlint-cli2.yaml](.markdownlint-cli2.yaml). To locally disable certain
-rules, you can use `<!-- markdownlint-disable <rulename> -->` and `<!-- markdownlint-enable
-<rulename> -->`. See [all rules here](https://github.com/DavidAnson/markdownlint/blob/main/doc/Rules.md).
-
 ## Pre-commit hooks
 
 We have CI jobs running for every PR to test and lint the repository. You can install Git pre-commit
-hooks to ensure that these check pass even *before pushing your changes* to GitHub. To use this, the
-following steps are required:
+hooks to ensure that these check pass even *before pushing your changes* to GitHub. We recommend
+using [prek](https://prek.j178.dev/), a re-implementation of pre-commit in Rust (but you can also
+use the original [pre-commit](https://pre-commit.com/)).
+
+To use the pre-commit hooks with prek, the following steps are required:
 
 1. Install [Rust](https://www.rust-lang.org/tools/install).
 1. Install [nextest](https://nexte.st/).
-1. [Install pre-commit](https://pre-commit.com/#install) using `pip` or your OS's package manager.
-1. Run `pre-commit install` in the repository.
+1. [Install prek](https://prek.j178.dev/installation/).
+1. Run `prek install` in the repository.
 
 After this setup, the code will be checked, reformatted, and tested whenever you create a Git commit.
 
 You can also use a custom pre-commit configuration if you wish:
 
 1. Create a file `.custom-pre-commit-config.yaml` (this is set to be ignored by Git).
-1. Run `pre-commit install -c .custom-pre-commit-config.yaml`.
+1. Run `prek install -c .custom-pre-commit-config.yaml`.
 
 ## Tests
 

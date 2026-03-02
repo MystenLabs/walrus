@@ -46,6 +46,8 @@ use sui_macros::{fail_point_arg, fail_point_async};
 use sui_types::{base_types::ObjectID, event::EventID};
 use system_events::{CompletableHandle, EVENT_ID_FOR_CHECKPOINT_EVENTS, EventHandle};
 use thread_pool::{BoundedThreadPool, ThreadPoolBuilder};
+#[cfg(not(any(test, msim)))]
+use tokio::time::sleep;
 use tokio::{
     select,
     sync::{Notify, RwLock, watch},
@@ -132,7 +134,7 @@ use walrus_storage_node_client::{
         StoredOnNodeStatus,
     },
 };
-use walrus_sui::client::FixedSystemParameters;
+use walrus_sui::{client::FixedSystemParameters, types::move_structs::EpochState};
 use walrus_utils::metrics::{Registry, TaskMonitorFamily, monitored_scope};
 
 use self::{
@@ -695,10 +697,9 @@ impl StorageNode {
         // Initialize WAL price monitor if enabled
         let (wal_price_monitor, current_wal_price) =
             if config.wal_price_monitor.enable_wal_price_monitor {
-                let monitor = Arc::new(WalPriceMonitor::start(
-                    config.wal_price_monitor.clone(),
-                    metrics.clone(),
-                ));
+                let monitor = Arc::new(
+                    WalPriceMonitor::start(config.wal_price_monitor.clone(), metrics.clone()).await,
+                );
                 let current_wal_price = monitor.get_current_price().await;
                 (Some(monitor), current_wal_price)
             } else {
@@ -744,10 +745,33 @@ impl StorageNode {
         };
         tracing::info!("successfully opened the node database");
 
-        let thread_pool = ThreadPoolBuilder::default()
-            .max_concurrent(config.thread_pool.max_concurrent_tasks)
-            .metrics_registry(registry.clone())
-            .build_bounded();
+        // General thread pool: used for metadata verification and other high-priority CPU work.
+        // Runs at the default OS scheduling priority (nice=0).
+        let mut general_builder = ThreadPoolBuilder::default();
+        general_builder
+            .name("general")
+            .thread_name("walrus-cpu-general")
+            .max_concurrent(config.thread_pool.max_concurrent_general_tasks)
+            .metrics_registry(registry.clone());
+        let thread_pool = general_builder.build_bounded();
+
+        // Recovery thread pool: used exclusively by RecoverySymbolService.
+        // Worker threads are niced at startup so the OS scheduler always prefers general pool
+        // threads over recovery threads when both have runnable work.
+        let mut recovery_builder = ThreadPoolBuilder::default();
+        recovery_builder
+            .name("recovery")
+            .thread_name("walrus-cpu-recovery")
+            .max_concurrent(
+                config
+                    .thread_pool
+                    .max_concurrent_recovery_tasks
+                    .or(config.thread_pool.max_concurrent_general_tasks),
+            )
+            .nice_level(config.thread_pool.recovery_nice_level)
+            .metrics_registry(registry.clone());
+
+        let recovery_pool = recovery_builder.build_bounded();
         let blocklist: Arc<Blocklist> = Arc::new(Blocklist::new_with_metrics(
             &config.blocklist_path,
             Some(registry),
@@ -788,7 +812,7 @@ impl StorageNode {
             symbol_service: RecoverySymbolService::new(
                 config.blob_recovery.max_proof_cache_elements,
                 encoding_config.clone(),
-                thread_pool.clone(),
+                recovery_pool,
                 registry,
             ),
             thread_pool,
@@ -1624,6 +1648,10 @@ impl StorageNode {
                 let _scope = monitored_scope::monitored_scope(
                     "ProcessEvent::EpochChangeEvent::EpochParametersSelected",
                 );
+                self.wait_for_epoch_state(event.next_epoch.saturating_sub(1), |state| {
+                    matches!(state, EpochState::NextParamsSelected(_))
+                })
+                .await?;
                 self.handle_epoch_parameters_selected(event);
                 event_handle.mark_as_complete();
             }
@@ -1631,6 +1659,7 @@ impl StorageNode {
                 let _scope = monitored_scope::monitored_scope(
                     "ProcessEvent::EpochChangeEvent::EpochChangeStart",
                 );
+                self.wait_for_epoch_state(event.epoch, |_| true).await?;
                 fail_point_async!("epoch_change_start_entry");
                 self.process_epoch_change_start_event(blob_event_processor, event_handle, &event)
                     .await?;
@@ -1639,6 +1668,13 @@ impl StorageNode {
                 let _scope = monitored_scope::monitored_scope(
                     "ProcessEvent::EpochChangeEvent::EpochChangeDone",
                 );
+                self.wait_for_epoch_state(event.epoch, |state| {
+                    matches!(
+                        state,
+                        EpochState::EpochChangeDone(_) | EpochState::NextParamsSelected(_)
+                    )
+                })
+                .await?;
                 self.process_epoch_change_done_event(&event).await?;
                 event_handle.mark_as_complete();
             }
@@ -1655,6 +1691,51 @@ impl StorageNode {
                 event_handle.mark_as_complete();
             }
         }
+        Ok(())
+    }
+
+    /// Repeatedly checks until the current Sui epoch state matches the expectation.
+    ///
+    /// Returns `Ok(())` if the current epoch is equal to the `expected_epoch` and the
+    /// `state_matches` function returns `true` or the current epoch is greater than the
+    /// `expected_epoch` (irrespective of the state).
+    #[cfg(not(any(test, msim)))]
+    async fn wait_for_epoch_state(
+        &self,
+        expected_epoch: Epoch,
+        state_matches: impl Fn(&EpochState) -> bool,
+    ) -> anyhow::Result<()> {
+        const EPOCH_STATE_WAIT_TIMEOUT: Duration = Duration::from_secs(5);
+        const EPOCH_STATE_WAIT_SLEEP: Duration = Duration::from_millis(100);
+        let deadline = Instant::now() + EPOCH_STATE_WAIT_TIMEOUT;
+        while Instant::now() < deadline {
+            self.inner.contract_service.flush_cache().await;
+            let Ok((epoch, state)) = self.inner.contract_service.get_epoch_and_state().await else {
+                tracing::warn!("failed to get current epoch and state");
+                continue;
+            };
+            if epoch == expected_epoch && state_matches(&state) || epoch > expected_epoch {
+                return Ok(());
+            }
+            tracing::debug!(
+                expected_epoch,
+                current_epoch = epoch,
+                current_state = ?state,
+                "waiting for expected epoch state",
+            );
+            sleep(EPOCH_STATE_WAIT_SLEEP).await;
+        }
+        bail!("timed out after waiting for expected epoch state")
+    }
+
+    #[cfg(any(test, msim))]
+    #[allow(clippy::unused_async)]
+    async fn wait_for_epoch_state(
+        &self,
+        _expected_epoch: Epoch,
+        _state_matches: impl Fn(&EpochState) -> bool,
+    ) -> anyhow::Result<()> {
+        tracing::info!("waiting for epoch state is not supported in tests, skipping");
         Ok(())
     }
 
@@ -3917,6 +3998,10 @@ impl ServiceState for StorageNodeInner {
             .has_metadata(&blob_id)
             .context("could not check metadata existence")?
         {
+            return Ok(false);
+        }
+
+        if self.pending_metadata_cache.contains(&blob_id).await {
             return Ok(false);
         }
 

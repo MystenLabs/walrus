@@ -749,5 +749,29 @@ mod tests {
 
             assert_eq!(err, VerificationError::UnencodedLengthTooLarge);
         }
+
+        /// Malicious metadata with encoding type 0 (unsupported) but correct number of hashes must
+        /// fail deserialization when received from a node, so `get_metadata` /
+        /// `get_and_verify_metadata` return an error instead of panicking.
+        #[test]
+        fn deserializing_metadata_with_encoding_type_zero_fails() {
+            let valid = test_utils::unverified_blob_metadata();
+            let mut bytes = bcs::to_bytes(&valid).expect("valid metadata serializes");
+            // BCS layout: blob_id (32 bytes), BlobMetadata enum variant index (1 byte ULEB128 for
+            // 0), then BlobMetadataV1.encoding_type (1 byte). So encoding type is at index 33.
+            const ENCODING_TYPE_OFFSET: usize = 32 + 1;
+            assert!(
+                ENCODING_TYPE_OFFSET < bytes.len(),
+                "metadata BCS must be longer than encoding type offset"
+            );
+            assert_eq!(bytes[ENCODING_TYPE_OFFSET], 1, "RS2 encoding type is 1");
+            bytes[ENCODING_TYPE_OFFSET] = 0;
+
+            let result = bcs::from_bytes::<UnverifiedBlobMetadataWithId>(&bytes);
+            assert!(
+                result.is_err(),
+                "deserializing encoding type 0 must return an error, not panic"
+            );
+        }
     }
 }

@@ -18,6 +18,7 @@ mod tests {
         client::ClientCommunicationConfig,
         node::config::{
             CommissionRateData,
+            DEFAULT_PRICE_UPDATE_THRESHOLD_PERCENT,
             PathOrInPlace,
             PriceCurrency,
             StorageNodeConfig,
@@ -258,6 +259,7 @@ mod tests {
                 currency: PriceCurrency::FROST,
                 storage_price: rand::thread_rng().gen_range(1..1000),
                 write_price: rand::thread_rng().gen_range(1..100),
+                price_update_threshold_percent: DEFAULT_PRICE_UPDATE_THRESHOLD_PERCENT,
             },
             node_capacity: rand::thread_rng().gen_range(1_000_000..1_000_000_000),
         };
@@ -664,6 +666,7 @@ mod tests {
                             currency: PriceCurrency::FROST,
                             storage_price: 100,
                             write_price: 100,
+                            price_update_threshold_percent: DEFAULT_PRICE_UPDATE_THRESHOLD_PERCENT,
                         },
                         node_capacity: 100,
                     }),
@@ -717,6 +720,8 @@ mod tests {
                                 currency: PriceCurrency::FROST,
                                 storage_price: rng.gen_range(1..1000),
                                 write_price: rng.gen_range(1..100),
+                                price_update_threshold_percent:
+                                    DEFAULT_PRICE_UPDATE_THRESHOLD_PERCENT,
                             },
                             node_capacity: rng.gen_range(1_000_000..1_000_000_000),
                         });

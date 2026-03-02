@@ -3,7 +3,7 @@
 
 //! The `retriable_rpc_error` module defines the `RetriableRpcError` trait and its implementations.
 //! This trait is used to determine if an error is a retriable RPC error.
-use std::fmt::Debug;
+use std::{error::Error, fmt::Debug};
 
 use super::{super::SuiClientError, CheckpointRpcError, FallbackError, RetriableClientError};
 
@@ -75,6 +75,16 @@ impl RetriableRpcError for SuiClientError {
 
 impl RetriableRpcError for tonic::Status {
     fn is_retriable_rpc_error(&self) -> bool {
+        // Network error is retriable.
+        if self
+            .source()
+            .and_then(|e| e.downcast_ref::<tonic::transport::Error>())
+            .is_some()
+        {
+            return true;
+        }
+
+        // GRPC server returned retriable error.
         RETRIABLE_GRPC_ERRORS.contains(&self.code())
     }
 }

@@ -1,0 +1,58 @@
+name: Notify walrus-sites of Sui version bump
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      sui_tag:
+        description: "Sui tag (e.g., testnet-v1.66.2)"
+        required: true
+        type: string
+      walrus_ref:
+        description: "Walrus commit SHA"
+        required: true
+        type: string
+
+jobs:
+  dispatch:
+    name: Dispatch bump-dependencies to walrus-sites
+    runs-on: ubuntu-latest
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      startsWith(github.event.head_commit.message,
+        'ci: bump Sui testnet version to testnet-v')
+
+    steps:
+      - name: Extract Sui tag from commit message
+        if: github.event_name == 'push'
+        id: extract
+        env:
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
+        run: |
+          SUI_TAG=$(echo "$COMMIT_MSG" \
+            | sed -nE 's/^ci: bump Sui testnet version to (testnet-v[0-9]+\.[0-9]+\.[0-9]+).*/\1/p')
+          if [[ -z "$SUI_TAG" ]]; then
+            echo "Error: could not extract Sui tag from: $COMMIT_MSG" >&2
+            exit 1
+          fi
+          echo "sui_tag=$SUI_TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve inputs
+        id: inputs
+        run: |
+          echo "sui_tag=${{ steps.extract.outputs.sui_tag || inputs.sui_tag }}" >> "$GITHUB_OUTPUT"
+          echo "walrus_ref=${{ inputs.walrus_ref || github.sha }}" >> "$GITHUB_OUTPUT"
+
+      - name: Dispatch bump-dependencies to walrus-sites
+        uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # pin@v4.0.1
+        with:
+          token: ${{ secrets.SUI_OPS_DISPATCH_TOKEN }}
+          repository: MystenLabs/walrus-sites
+          event-type: bump-dependencies
+          client-payload: |-
+            {
+              "sui_tag": "${{ steps.inputs.outputs.sui_tag }}",
+              "walrus_ref": "${{ steps.inputs.outputs.walrus_ref }}"
+            }

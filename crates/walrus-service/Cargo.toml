@@ -49,6 +49,7 @@ node = [
   "dep:bincode",
   "dep:checkpoint-downloader",
   "dep:enum_dispatch",
+  "dep:libc",
   "dep:mime",
   "dep:mysten-metrics",
   "dep:rocksdb",

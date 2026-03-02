@@ -22,10 +22,10 @@ ignore = [
   "RUSTSEC-2024-0437",
   # `fxhash` is unmaintained; it is used in `sui-config`.
   "RUSTSEC-2025-0057",
-  # `number_prefix` is unmaintained; it is a dependency of many sui crates.
-  "RUSTSEC-2025-0119",
   # `rustls-pemfile` is unmaintained; it is an indirect dependency through various crates.
   "RUSTSEC-2025-0134",
+  # Bincode is unmaintained (team ceased development); no safe upgrade; used by anemo/typed-store.
+  "RUSTSEC-2025-0141",
 ]
 
 
@@ -79,6 +79,7 @@ skip = [
 skip-tree = [
   # Mysten's libraries pull in several conflicting repo versions.
   { name = "axum", depth = 4 },
+  { name = "darling", depth = 2 },
   { name = "fastcrypto", depth = 4 },
   { name = "test-cluster", depth = 6 },
   { name = "typed-store", depth = 6 },
@@ -104,7 +105,6 @@ unknown-registry = "deny"
 unknown-git = "deny"
 allow-git = [
   "https://github.com/asonnino/prometheus-parser",
-  "https://github.com/bmwill/axum-server",
   "https://github.com/mystenmark/async-task",
   "https://github.com/zhiburt/tabled",
 ]

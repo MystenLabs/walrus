@@ -89,6 +89,14 @@ public enum EpochState has copy, drop, store {
     NextParamsSelected(u64),
 }
 
+/// Returns true if the epoch state is `NextParamsSelected`.
+fun is_next_params_selected(state: &EpochState): bool {
+    match (state) {
+        EpochState::NextParamsSelected(_) => true,
+        _ => false,
+    }
+}
+
 /// The inner object for the staking part of the system.
 public struct StakingInnerV1 has store {
     /// The number of shards in the system.
@@ -225,6 +233,10 @@ public(package) fun voting_end(self: &mut StakingInnerV1, clock: &Clock) {
         assert!(now >= self.first_epoch_start, EWrongEpochState);
     };
 
+    // Clear blocked commission for all committee pools, allowing operators to collect
+    // the commission that was blocked during advance_epoch.
+    self.clear_previous_committee_blocked_commission();
+
     // Assign the next epoch committee.
     self.select_committee_and_calculate_votes();
 
@@ -233,6 +245,19 @@ public(package) fun voting_end(self: &mut StakingInnerV1, clock: &Clock) {
 
     // Emit event that parameters have been selected.
     events::emit_epoch_parameters_selected(self.epoch + 1);
+}
+
+/// Clears the blocked commission for all pools in the previous committee.
+///
+/// Only the previous committee needs clearing because any newly added commission in the current
+/// committee won't have any commissions to collect yet.
+fun clear_previous_committee_blocked_commission(self: &mut StakingInnerV1) {
+    let (prev_node_ids, _) = (*self.previous_committee.inner()).into_keys_values();
+    prev_node_ids.do!(|id| {
+        if (self.pools.contains(id)) {
+            self.pools[id].clear_blocked_commission();
+        };
+    });
 }
 
 /// Selects the committee for the next epoch.
@@ -743,13 +768,20 @@ public(package) fun extract_commission_to_burn(
 }
 
 /// Adds `commissions[i]` to the commission of pool `node_ids[i]`.
+///
+/// If the epoch state is not `NextParamsSelected` (i.e., before `voting_end`),
+/// the added amount is also blocked for collection until `voting_end`.
+///
+/// This function should be used only for distributing commissions to previous committee members.
+/// The distributed commissions are not blocked for collection until `voting_end`.
 public(package) fun add_commission_to_pools(
     self: &mut StakingInnerV1,
     node_ids: vector<ID>,
     commissions: vector<Balance<WAL>>,
 ) {
+    let block = !self.epoch_state.is_next_params_selected();
     node_ids.zip_do!(commissions, |node_id, commission| {
-        self.pools[node_id].add_commission(commission)
+        self.pools[node_id].add_commission(commission, block);
     });
 }
 

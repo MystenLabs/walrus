@@ -18,8 +18,8 @@ use walrus_core::{
 use walrus_sui::client::ReadClient;
 
 use crate::{
-    client::WalrusNodeClient,
     error::{ClientError, ClientErrorKind, ClientResult},
+    node_client::WalrusNodeClient,
 };
 
 /// Configuration for the ByteRangeReadClient.

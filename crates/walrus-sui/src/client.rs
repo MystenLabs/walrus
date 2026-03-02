@@ -212,6 +212,9 @@ pub enum SuiClientError {
     /// A balance retrieval error has occurred.
     #[error(transparent)]
     BalanceRetrievalError(#[from] BalanceRetrievalError),
+    /// The treasury object is not found.
+    #[error("the treasury object is not set")]
+    TreasuryObjectNotSet,
 }
 
 impl From<sui_types::error::SuiError> for SuiClientError {
@@ -242,6 +245,17 @@ impl SuiClientError {
             })
             .map(Self::SharedObjectCongestion)
             .ok_or_else(|| anyhow::anyhow!("not a congestion error: {}", error))
+    }
+
+    /// Returns `true` if this error indicates that a Move function was not found in the package.
+    ///
+    /// In Sui, calling a non-existent function results in a
+    /// `VMVerificationOrDeserializationError`. This can surface either as a
+    /// `TransactionExecutionError` (from execution effects) or as an `SuiSdkError` (from a
+    /// dry run failure).
+    pub fn is_function_not_found(&self) -> bool {
+        let error_string = self.to_string();
+        error_string.contains("FunctionNotFound")
     }
 }
 
@@ -1066,7 +1080,7 @@ impl SuiContractClient {
         owner: Option<SuiAddress>,
         selection_policy: ExpirySelectionPolicy,
     ) -> SuiClientResult<Vec<Blob>> {
-        let current_epoch = self.read_client.current_committee().await?.epoch;
+        let current_epoch = self.read_client.current_epoch().await?;
         Ok(self
             .read_client
             .get_owned_objects::<Blob>(owner.unwrap_or(self.wallet_address), &[])
@@ -1080,7 +1094,7 @@ impl SuiContractClient {
         &self,
         selection_policy: ExpirySelectionPolicy,
     ) -> SuiClientResult<Vec<StorageResource>> {
-        let current_epoch = self.read_client.current_committee().await?.epoch;
+        let current_epoch = self.read_client.current_epoch().await?;
         Ok(self
             .read_client
             .get_owned_objects::<StorageResource>(self.wallet_address, &[])
@@ -2091,11 +2105,38 @@ impl SuiContractClientInner {
     /// Call to initialize the epoch change.
     ///
     /// Can be called once the epoch duration is over.
+    /// Tries `initiate_epoch_change_v2` first, falling back to `initiate_epoch_change` if the
+    /// treasury object is not set or the v2 function does not exist in the contract.
     pub async fn initiate_epoch_change(&mut self) -> SuiClientResult<()> {
+        let result = self.initiate_epoch_change_v2().await;
+        match result {
+            Ok(()) => return Ok(()),
+            Err(e) if e.is_function_not_found() => {
+                tracing::info!(
+                    "initiate_epoch_change_v2 not found in contract, \
+                    falling back to initiate_epoch_change"
+                );
+            }
+            Err(SuiClientError::TreasuryObjectNotSet) => {
+                tracing::info!("treasury object not set, falling back to initiate_epoch_change");
+            }
+            Err(e) => return Err(e),
+        }
+
         let mut pt_builder = self.transaction_builder();
         pt_builder.initiate_epoch_change()?;
         let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
         self.sign_and_send_transaction(transaction, "initiate_epoch_change")
+            .await?;
+        Ok(())
+    }
+
+    /// Call `initiate_epoch_change_v2` which burns pending rewards before advancing the epoch.
+    async fn initiate_epoch_change_v2(&mut self) -> SuiClientResult<()> {
+        let mut pt_builder = self.transaction_builder();
+        pt_builder.initiate_epoch_change_v2()?;
+        let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
+        self.sign_and_send_transaction(transaction, "initiate_epoch_change_v2")
             .await?;
         Ok(())
     }

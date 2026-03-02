@@ -511,6 +511,22 @@ async fn test_collect_commission() -> anyhow::Result<()> {
     // Change epoch to allow collecting commission.
     walrus_client.as_ref().voting_end().await?;
     walrus_client.as_ref().initiate_epoch_change().await?;
+    walrus_client.as_ref().epoch_sync_done(2, cap.id).await?;
+
+    // Collecting commission before voting_end should fail because it is blocked.
+    let err = walrus_client
+        .as_ref()
+        .collect_commission(cap.node_id)
+        .await
+        .expect_err("commission should be blocked before voting_end");
+    assert!(
+        err.to_string()
+            .contains("no balance change for sender in transaction response"),
+        "unexpected error: {err}",
+    );
+
+    // After voting_end, the blocked commission is cleared and can be collected.
+    walrus_client.as_ref().voting_end().await?;
 
     // Get the value of the commission from the staking pool.
     let expected_commission = walrus_client

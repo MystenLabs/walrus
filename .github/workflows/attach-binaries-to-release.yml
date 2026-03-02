@@ -52,6 +52,11 @@ jobs:
           - macos-latest-xlarge # macos-arm64
       fail-fast: false
     runs-on: ${{ matrix.os }}
+    env:
+      SCCACHE_GCS_BUCKET: walrus-sccache
+      SCCACHE_GCS_KEY_PREFIX: ${{ matrix.os }}
+      SCCACHE_GCS_RW_MODE: READ_ONLY
+      RUSTC_WRAPPER: sccache
     steps:
       - name: Clean up and validate tag name
         shell: bash
@@ -167,6 +172,10 @@ jobs:
           sudo rm -rf ~/Library/Developer/CoreSimulator/Caches/*
           sudo rm -rf ~/Library/Developer/Xcode/iOS\ DeviceSupport/*
           df -h /
+
+      - name: Setup sccache
+        if: ${{ env.gcp_existing_archive == '' }}
+        uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # pin@v0.0.9
 
       - name: Cargo build for ${{ matrix.os }} platform
         if: ${{ env.gcp_existing_archive == '' }}

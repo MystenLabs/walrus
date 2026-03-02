@@ -15,6 +15,7 @@ use prometheus::{
     register_histogram_with_registry,
     register_int_counter_with_registry,
 };
+use walrus_storage_node_client::{UploadIntent, api::StoredOnNodeStatus};
 use walrus_utils::metrics::Registry;
 
 const LATENCY_SEC_BUCKETS: &[f64] = &[
@@ -23,6 +24,11 @@ const LATENCY_SEC_BUCKETS: &[f64] = &[
 
 const LATENCY_SEC_SMALL_BUCKETS: &[f64] = &[
     0.005, 0.01, 0.03, 0.05, 0.07, 1., 1.3, 1.5, 1.7, 2., 2.3, 2.5, 2.7, 3.,
+];
+
+const LATENCY_SEC_WIDE_BUCKETS: &[f64] = &[
+    0.001, 0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 2.5, 3.0, 4.0,
+    5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 20.0, 40.0, 80.0, 160.0,
 ];
 
 // Workload types for the client.
@@ -58,6 +64,17 @@ pub struct ClientMetrics {
     pub get_certificates_latency_s: Histogram,
     /// Time to upload a certificate to Sui.
     pub upload_certificate_latency_s: Histogram,
+
+    /// Time to retrieve the metadata status from a storage node.
+    pub node_metadata_status_latency_s: HistogramVec,
+    /// Time to upload the metadata to a storage node.
+    pub node_metadata_upload_latency_s: HistogramVec,
+    /// Total time spent in the metadata stage (status + optional upload) for a storage node.
+    pub node_metadata_stage_latency_s: HistogramVec,
+    /// Time to upload all slivers destined for a storage node.
+    pub node_sliver_upload_latency_s: HistogramVec,
+    /// Total time to upload metadata and slivers to a storage node.
+    pub node_upload_latency_s: HistogramVec,
 }
 
 impl ClientMetrics {
@@ -146,6 +163,47 @@ impl ClientMetrics {
                 registry,
             )
             .expect("this is a valid metrics registration"),
+
+            node_metadata_status_latency_s: register_histogram_vec_with_registry!(
+                "node_metadata_status_latency_s",
+                "Time to retrieve the metadata status from a storage node",
+                &["intent"],
+                LATENCY_SEC_WIDE_BUCKETS.to_vec(),
+                registry,
+            )
+            .expect("this is a valid metrics registration"),
+            node_metadata_upload_latency_s: register_histogram_vec_with_registry!(
+                "node_metadata_upload_latency_s",
+                "Time to upload metadata to a storage node",
+                &["intent"],
+                LATENCY_SEC_WIDE_BUCKETS.to_vec(),
+                registry,
+            )
+            .expect("this is a valid metrics registration"),
+            node_metadata_stage_latency_s: register_histogram_vec_with_registry!(
+                "node_metadata_stage_latency_s",
+                "Time spent in the metadata stage on a storage node",
+                &["intent", "metadata_status"],
+                LATENCY_SEC_WIDE_BUCKETS.to_vec(),
+                registry,
+            )
+            .expect("this is a valid metrics registration"),
+            node_sliver_upload_latency_s: register_histogram_vec_with_registry!(
+                "node_sliver_upload_latency_s",
+                "Time to upload slivers to a storage node",
+                &["intent"],
+                LATENCY_SEC_WIDE_BUCKETS.to_vec(),
+                registry,
+            )
+            .expect("this is a valid metrics registration"),
+            node_upload_latency_s: register_histogram_vec_with_registry!(
+                "node_upload_latency_s",
+                "Time to upload metadata and slivers to a storage node",
+                &["intent"],
+                LATENCY_SEC_WIDE_BUCKETS.to_vec(),
+                registry,
+            )
+            .expect("this is a valid metrics registration"),
         }
     }
 
@@ -209,5 +267,60 @@ impl ClientMetrics {
     pub fn observe_get_certificates(&self, latency: Duration) {
         self.get_certificates_latency_s
             .observe(latency.as_secs_f64());
+    }
+
+    /// Logs the latency to retrieve metadata status from a storage node.
+    pub fn observe_node_metadata_status_latency(&self, intent: UploadIntent, latency: Duration) {
+        walrus_utils::with_label!(self.node_metadata_status_latency_s, intent_label(intent))
+            .observe(latency.as_secs_f64());
+    }
+
+    /// Logs the latency to upload metadata to a storage node.
+    pub fn observe_node_metadata_upload_latency(&self, intent: UploadIntent, latency: Duration) {
+        walrus_utils::with_label!(self.node_metadata_upload_latency_s, intent_label(intent))
+            .observe(latency.as_secs_f64());
+    }
+
+    /// Logs the total time spent in the metadata stage (status check + optional upload) on a
+    /// storage node.
+    pub fn observe_node_metadata_stage_latency(
+        &self,
+        intent: UploadIntent,
+        status: StoredOnNodeStatus,
+        latency: Duration,
+    ) {
+        walrus_utils::with_label!(
+            self.node_metadata_stage_latency_s,
+            intent_label(intent),
+            stored_on_node_status_label(status),
+        )
+        .observe(latency.as_secs_f64());
+    }
+
+    /// Logs the latency to upload slivers to a storage node.
+    pub fn observe_node_sliver_upload_latency(&self, intent: UploadIntent, latency: Duration) {
+        walrus_utils::with_label!(self.node_sliver_upload_latency_s, intent_label(intent))
+            .observe(latency.as_secs_f64());
+    }
+
+    /// Logs the total latency to upload metadata and slivers to a storage node.
+    pub fn observe_node_upload_latency(&self, intent: UploadIntent, latency: Duration) {
+        walrus_utils::with_label!(self.node_upload_latency_s, intent_label(intent))
+            .observe(latency.as_secs_f64());
+    }
+}
+
+fn intent_label(intent: UploadIntent) -> &'static str {
+    match intent {
+        UploadIntent::Immediate => "immediate",
+        UploadIntent::Pending => "pending",
+    }
+}
+
+fn stored_on_node_status_label(status: StoredOnNodeStatus) -> &'static str {
+    match status {
+        StoredOnNodeStatus::Nonexistent => "nonexistent",
+        StoredOnNodeStatus::Buffered => "buffered",
+        StoredOnNodeStatus::Stored => "stored",
     }
 }

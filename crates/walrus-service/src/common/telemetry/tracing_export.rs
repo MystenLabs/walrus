@@ -5,7 +5,6 @@ use std::{
     env::{self, VarError},
     fmt::Debug,
     fs::File,
-    future,
     io::Write,
     ops::{Deref, DerefMut},
     path::PathBuf,
@@ -15,11 +14,7 @@ use std::{
 
 use anyhow::{Context as _, Result};
 use flate2::{Compression, write::GzEncoder};
-use futures::{FutureExt, future::BoxFuture};
-use opentelemetry::{
-    KeyValue,
-    trace::{TraceError, TracerProvider},
-};
+use opentelemetry::{KeyValue, trace::TracerProvider};
 use opentelemetry_otlp::SpanExporter as OtlpSpanExporter;
 use opentelemetry_proto::{
     tonic::collector::trace::v1::ExportTraceServiceRequest,
@@ -27,9 +22,8 @@ use opentelemetry_proto::{
 };
 use opentelemetry_sdk::{
     Resource,
-    export::trace::{ExportResult, SpanData, SpanExporter},
-    runtime,
-    trace::{RandomIdGenerator, Sampler, TracerProvider as SdkTracerProvider},
+    error::{OTelSdkError, OTelSdkResult},
+    trace::{RandomIdGenerator, Sampler, SdkTracerProvider, SpanData, SpanExporter},
 };
 use opentelemetry_semantic_conventions::attribute::{SERVICE_NAME, SERVICE_VERSION};
 use tokio::task;
@@ -59,7 +53,7 @@ enum FileState {
 /// file, when unzipped, conforms to the format specified for the expeirmental
 /// [OpenTelemetry Protocol File Exporter][file-exporter].
 ///
-/// If using a tool like jager, however, it is easiest to just POSTing each line to the OTLP
+/// If using a tool like jaeger, however, it is easiest to just POSTing each line to the OTLP
 /// services according to the [OTLP/HTTP][otlphttp] specification.
 ///
 /// [file-exporter]: https://opentelemetry.io/docs/specs/otel/protocol/file-exporter/
@@ -74,7 +68,7 @@ impl FileSpanExporter {
     fn new(path: PathBuf) -> Self {
         Self {
             file: Arc::new(Mutex::new(FileState::Init(path))),
-            resource: Resource::default(),
+            resource: Resource::builder_empty().build(),
         }
     }
 
@@ -128,36 +122,39 @@ impl FileSpanExporter {
         Ok(())
     }
 
-    fn check_if_file_is_open(&mut self) -> Result<(), TraceError> {
+    fn check_if_file_is_open(&self) -> Result<(), OTelSdkError> {
         let file_guard = self.file.lock().expect("mutex not poisoned");
 
         match file_guard.deref() {
-            FileState::ClosedDueToFailure => Err(TraceError::Other(
-                anyhow::anyhow!("file has already been closed due to a write error").into(),
+            FileState::ClosedDueToFailure => Err(OTelSdkError::InternalFailure(
+                "file has already been closed due to a write error".to_string(),
             )),
-            FileState::ClosedDueToShutdown => Err(TraceError::TracerProviderAlreadyShutdown),
+            FileState::ClosedDueToShutdown => Err(OTelSdkError::AlreadyShutdown),
             _ => Ok(()),
         }
     }
 }
 
 impl SpanExporter for FileSpanExporter {
-    fn export(&mut self, batch: Vec<SpanData>) -> BoxFuture<'static, ExportResult> {
-        if let Err(err) = self.check_if_file_is_open() {
-            return future::ready(Err(err)).boxed();
-        }
-
+    fn export(
+        &self,
+        batch: Vec<SpanData>,
+    ) -> impl std::future::Future<Output = OTelSdkResult> + Send {
+        let check_err = self.check_if_file_is_open().err();
         let resource = self.resource.clone();
         let file_state = self.file.clone();
 
-        async {
+        async move {
+            if let Some(err) = check_err {
+                return Err(err);
+            }
             match task::spawn_blocking(move || -> anyhow::Result<()> {
                 Self::serialize_and_write(resource, batch, file_state)
             })
             .await
             {
                 Ok(Ok(())) => Ok(()),
-                Ok(Err(err)) => Err(TraceError::Other(err.into())),
+                Ok(Err(err)) => Err(OTelSdkError::InternalFailure(err.to_string())),
                 Err(err) => {
                     if let Ok(reason) = err.try_into_panic() {
                         std::panic::resume_unwind(reason);
@@ -168,10 +165,9 @@ impl SpanExporter for FileSpanExporter {
                 }
             }
         }
-        .boxed()
     }
 
-    fn shutdown(&mut self) {
+    fn shutdown(&mut self) -> OTelSdkResult {
         let mut file_guard = self.file.lock().expect("mutex not poisoned");
         let file_state = file_guard.deref_mut();
 
@@ -182,6 +178,7 @@ impl SpanExporter for FileSpanExporter {
         };
 
         *file_state = FileState::ClosedDueToShutdown;
+        Ok(())
     }
 
     fn set_resource(&mut self, resource: &Resource) {
@@ -306,10 +303,10 @@ impl TracingSubscriberBuilder {
                     .with_tonic()
                     .build()
                     .expect("building the OTLP exporter during startup should not fail");
-                builder.with_batch_exporter(batch_exporter, runtime::Tokio)
+                builder.with_batch_exporter(batch_exporter)
             }
             TracesExporterChoice::File(path) => {
-                builder.with_batch_exporter(FileSpanExporter::new(path), runtime::Tokio)
+                builder.with_batch_exporter(FileSpanExporter::new(path))
             }
         };
 
@@ -332,7 +329,7 @@ impl TracingSubscriberBuilder {
     ) -> Result<(impl Subscriber + SubscriberInitExt, SubscriberGuard)> {
         let trace_exporter = self.trace_exporter.take();
 
-        let (trace_layer, tracer_provider) = trace_exporter
+        let (trace_layer, tracer_provider): (Option<_>, Option<SdkTracerProvider>) = trace_exporter
             .map(Self::build_trace_layer)
             .transpose()
             .context("failed to initialise tracing export layer")?
@@ -373,8 +370,10 @@ impl TracingSubscriberBuilder {
 }
 
 fn resource() -> Resource {
-    Resource::new([
-        KeyValue::new(SERVICE_VERSION, env!("CARGO_PKG_VERSION")),
-        KeyValue::new(SERVICE_NAME, "walrus-cli"),
-    ])
+    Resource::builder_empty()
+        .with_attributes([
+            KeyValue::new(SERVICE_VERSION, env!("CARGO_PKG_VERSION")),
+            KeyValue::new(SERVICE_NAME, "walrus-cli"),
+        ])
+        .build()
 }

@@ -25,6 +25,8 @@ use walrus::{
 const EInvalidMigration: u64 = 0;
 /// The package version is not compatible with the staking object.
 const EWrongVersion: u64 = 1;
+/// The function is deprecated and should not be used.
+const EDeprecatedFunction: u64 = 2;
 
 /// Flag to indicate the version of the Walrus system.
 const VERSION: u64 = 3;
@@ -129,8 +131,6 @@ public fun collect_commission(
     auth: Authenticated,
     ctx: &mut TxContext,
 ): Coin<WAL> {
-    // TODO(WAL-1147): node operators can only collect commission if the epoch is in
-    // NextParamsSelected.
     staking.inner_mut().collect_commission(node_id, auth).into_coin(ctx)
 }
 
@@ -173,6 +173,11 @@ public(package) fun get_current_node_weight(staking: &Staking, node_id: ID): u16
 /// Get the current committee.
 public fun committee(staking: &Staking): &Committee {
     staking.inner().committee()
+}
+
+/// Get the previous committee.
+public fun previous_committee(staking: &Staking): &Committee {
+    staking.inner().previous_committee()
 }
 
 /// Computes the committee for the next epoch.
@@ -259,19 +264,8 @@ public fun voting_end(staking: &mut Staking, clock: &Clock) {
     staking.inner_mut().voting_end(clock)
 }
 
-/// TODO: Deprecated: use `initiate_epoch_change_v2` instead.
 public fun initiate_epoch_change(staking: &mut Staking, system: &mut System, clock: &Clock) {
-    {
-        let staking_inner = staking.inner_mut();
-        let rewards = system.advance_epoch(
-            staking_inner.next_bls_committee(),
-            staking_inner.next_epoch_params(),
-        );
-        staking_inner.initiate_epoch_change(clock, rewards);
-    };
-
-    // Recalculate and apply prices from the new committee.
-    update_prices(staking, system);
+    abort EDeprecatedFunction
 }
 
 /// Initiates the epoch change if the current time allows.

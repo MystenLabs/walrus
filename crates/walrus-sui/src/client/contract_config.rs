@@ -30,6 +30,9 @@ pub struct ContractConfig {
     /// Object ID of the walrus subsidies object.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub walrus_subsidies_object: Option<ObjectID>,
+    /// Object ID of the WAL treasury object.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub treasury_object: Option<ObjectID>,
     /// The number of shards to use for the client.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub n_shards: Option<NonZeroU16>,
@@ -50,10 +53,17 @@ impl ContractConfig {
             staking_object,
             credits_object: None,
             walrus_subsidies_object: None,
+            treasury_object: None,
             n_shards: None,
             max_epochs_ahead: None,
             cache_ttl: DEFAULT_CACHE_TTL,
         }
+    }
+
+    /// Sets the treasury object ID.
+    pub fn with_treasury_object(mut self, treasury_object: Option<ObjectID>) -> Self {
+        self.treasury_object = treasury_object;
+        self
     }
 }
 

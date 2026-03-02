@@ -16,9 +16,9 @@ use serde::{Deserialize, Serialize};
 use walrus_core::{BlobId, QuiltPatchId, encoding::QuiltError};
 use walrus_sdk::{
     blocklist::Blocklist,
-    client::WalrusNodeClient,
     config::ClientConfig,
     error::{ClientError, ClientResult},
+    node_client::WalrusNodeClient,
     sui::client::{SuiContractClient, SuiReadClient, retry_client::RetriableSuiClient},
 };
 use walrus_sui::wallet::Wallet;

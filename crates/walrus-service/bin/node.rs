@@ -608,7 +608,12 @@ mod commands {
         },
         node::{
             DatabaseConfig,
-            config::{LoadedConfig, TlsConfig, VotingPrices},
+            config::{
+                DEFAULT_PRICE_UPDATE_THRESHOLD_PERCENT,
+                LoadedConfig,
+                TlsConfig,
+                VotingPrices,
+            },
         },
         utils,
     };
@@ -1053,6 +1058,7 @@ mod commands {
                     currency: price_currency,
                     storage_price,
                     write_price,
+                    price_update_threshold_percent: DEFAULT_PRICE_UPDATE_THRESHOLD_PERCENT,
                 },
                 node_capacity: node_capacity.as_u64(),
             },

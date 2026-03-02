@@ -354,6 +354,7 @@ pub(crate) struct PublishSystemPackageResult {
     pub walrus_subsidies_pkg_id: Option<ObjectID>,
     pub init_cap_id: ObjectID,
     pub upgrade_cap_id: ObjectID,
+    pub treasury_object_id: Option<ObjectID>,
 }
 
 /// Copy files from the `source` directory to the `destination` directory recursively.
@@ -457,15 +458,25 @@ pub(crate) async fn publish_coin_and_system_package(
         contract_dir
     };
 
-    if !use_existing_wal_token {
+    let treasury_object_id = if !use_existing_wal_token {
         // Publish `wal` package.
-        publish_package_with_default_build_config(
+        let wal_response = publish_package_with_default_build_config(
             wallet,
             walrus_contract_directory.join("wal"),
             gas_budget,
         )
         .await?;
-    }
+        let wal_pkg_id = get_pkg_id_from_tx_response(&wal_response)?;
+        let [treasury_id] = get_created_object_ids_by_type(
+            &wal_response,
+            &contracts::wal::ProtectedTreasury.to_move_struct_tag_with_package(wal_pkg_id, &[])?,
+        )?[..] else {
+            bail!("unexpected number of ProtectedTreasury objects created");
+        };
+        Some(treasury_id)
+    } else {
+        None
+    };
 
     let wal_exchange_pkg_id = if with_wal_exchange {
         // Publish `wal_exchange` package.
@@ -536,6 +547,7 @@ pub(crate) async fn publish_coin_and_system_package(
         init_cap_id,
         upgrade_cap_id,
         walrus_subsidies_pkg_id,
+        treasury_object_id,
     })
 }
 

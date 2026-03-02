@@ -1009,6 +1009,28 @@ mod tests {
 
     const BLOB_ID: BlobId = test_utils::blob_id_from_u64(99);
 
+    /// A node that returns metadata with encoding type 0 (unsupported) but correct number of hashes
+    /// must be rejected during get_metadata response parsing, so get_and_verify_metadata returns
+    /// an error and does not panic.
+    #[test]
+    fn get_metadata_response_with_encoding_type_zero_returns_error_not_panic() {
+        let valid = test_utils::unverified_blob_metadata();
+        let mut bytes = bcs::to_bytes(&valid).expect("valid metadata serializes");
+        // BCS layout: blob_id (32 bytes), BlobMetadata enum variant index (1 byte), then
+        // BlobMetadataV1.encoding_type (1 byte). Encoding type at index 33.
+        const ENCODING_TYPE_OFFSET: usize = 32 + 1;
+        assert!(ENCODING_TYPE_OFFSET < bytes.len());
+        assert_eq!(bytes[ENCODING_TYPE_OFFSET], 1, "RS2 encoding type is 1");
+        bytes[ENCODING_TYPE_OFFSET] = 0;
+
+        let result = bcs::from_bytes::<UnverifiedBlobMetadataWithId>(&bytes);
+        assert!(
+            result.is_err(),
+            "parsing node response with encoding type 0 must return an error so \
+            get_and_verify_metadata returns Err instead of panicking"
+        );
+    }
+
     param_test! {
         test_blob_url_endpoint: [
             blob: (|e| e.blob_resource(&BLOB_ID, ""), ""),

@@ -26,7 +26,6 @@ use fastcrypto::hash::{HashFunction, Sha256};
 use futures::stream::{self, StreamExt};
 use headers::HeaderMapExt;
 use http_range_header::{EndPosition, StartPosition};
-use jsonwebtoken::{DecodingKey, Validation};
 use reqwest::{
     Method,
     header::{
@@ -58,8 +57,8 @@ use walrus_core::{
 };
 use walrus_proc_macros::RestApiError;
 use walrus_sdk::{
-    client::responses::{BlobStoreResult, QuiltStoreResult},
     error::{ClientError, ClientErrorKind},
+    node_client::responses::{BlobStoreResult, QuiltStoreResult},
     store_optimizations::StoreOptimizations,
 };
 use walrus_storage_node_client::api::errors::DAEMON_ERROR_DOMAIN as ERROR_DOMAIN;
@@ -1099,6 +1098,7 @@ pub(super) async fn put_blob<T: WalrusWriteClient>(
             query.optimizations(),
             blob_persistence,
             query.post_store_action(client.default_post_store_action()),
+            None,
         )
         .await
     {
@@ -1132,11 +1132,7 @@ fn check_blob_size(
 ) -> Result<(), PublisherAuthError> {
     // Note: We disable validation and use a default key because, if the authorization
     // header is present, it must have been checked by a previous middleware.
-    let mut validation = Validation::default();
-    validation.insecure_disable_signature_validation();
-    let default_key = DecodingKey::from_secret(&[]);
-
-    match Claim::from_token(bearer_header.token().trim(), &default_key, &validation) {
+    match Claim::from_token_insecure(bearer_header.token().trim()) {
         Ok(claim) => {
             if let Some(max_size) = claim.max_size
                 && blob_size as u64 > max_size

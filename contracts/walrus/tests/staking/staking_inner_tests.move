@@ -5,7 +5,7 @@ module walrus::staking_inner_tests;
 
 use std::unit_test::{assert_eq, destroy};
 use sui::{clock, vec_map};
-use walrus::{staking_inner, storage_node, test_utils::{Self as test, frost_per_wal}};
+use walrus::{auth, staking_inner, storage_node, test_utils::{Self as test, frost_per_wal}};
 
 const EPOCH_DURATION: u64 = 7 * 24 * 60 * 60 * 1000;
 
@@ -507,4 +507,116 @@ fun random_dhondt_setup(seed: vector<u8>, nodes: u64, mut total_stake: u64): vec
     });
     *&mut stake[0] = stake[0] + total_stake;
     stake
+}
+
+#[test]
+/// Scenario:
+/// 1. Three pools are registered and staked; all join the committee in epoch 1.
+/// 2. Pool_one unstakes so it is excluded from the epoch 2 committee.
+/// 3. After advancing to epoch 2, pool_one is only in the previous committee.
+/// 4. Commission is added to pool_one (blocked because we are before voting_end).
+/// 5. After voting_end, the blocked commission is cleared for the previous committee too.
+/// 6. Pool_one can collect its commission even though it is no longer in the current committee.
+fun test_clear_blocked_commission_for_previous_committee() {
+    let ctx = &mut tx_context::dummy();
+    let mut clock = clock::create_for_testing(ctx);
+    let mut staking = staking_inner::new(0, EPOCH_DURATION, 300, &clock, ctx);
+
+    // Register three pools.
+    let pool_one = test::pool().name(b"pool_1".to_string()).register(&mut staking, ctx);
+    let pool_two = test::pool().name(b"pool_2".to_string()).register(&mut staking, ctx);
+    let pool_three = test::pool().name(b"pool_3".to_string()).register(&mut staking, ctx);
+
+    // Stake with all three pools.
+    let wal_one = staking.stake_with_pool(test::mint_wal(100_000, ctx), pool_one, ctx);
+    let wal_two = staking.stake_with_pool(test::mint_wal(100_000, ctx), pool_two, ctx);
+    let wal_three = staking.stake_with_pool(test::mint_wal(100_000, ctx), pool_three, ctx);
+
+    // === Epoch 0 -> 1 ===
+    // Select committee and advance epoch. All three pools should be in the committee.
+    staking.select_committee_and_calculate_votes();
+    staking.advance_epoch(vec_map::empty());
+
+    assert!(staking.committee().contains(&pool_one));
+    assert!(staking.committee().contains(&pool_two));
+    assert!(staking.committee().contains(&pool_three));
+    assert_eq!(staking.epoch(), 1);
+
+    // Send epoch_sync_done from all three nodes to reach EpochChangeDone state.
+    let mut cap_one = storage_node::new_cap(pool_one, ctx);
+    let mut cap_two = storage_node::new_cap(pool_two, ctx);
+    let mut cap_three = storage_node::new_cap(pool_three, ctx);
+
+    clock.increment_for_testing(EPOCH_DURATION);
+    staking.epoch_sync_done(&mut cap_one, 1, &clock);
+    staking.epoch_sync_done(&mut cap_two, 1, &clock);
+    staking.epoch_sync_done(&mut cap_three, 1, &clock);
+    assert!(staking.is_epoch_sync_done());
+
+    // Request withdrawal for pool_one before voting_end so it will be excluded
+    // from the next committee. The withdrawal will complete in epoch 2.
+    let mut wal_one = wal_one;
+    staking.request_withdraw_stake(&mut wal_one, ctx);
+
+    // Call voting_end (need to be past param_selection_delta = EPOCH_DURATION / 2).
+    // This also selects the next committee; pool_one should not be selected.
+    clock.increment_for_testing(EPOCH_DURATION / 2);
+    staking.voting_end(&clock);
+
+    // === Epoch 1 -> 2 ===
+    // Advance epoch. Pool_one should no longer be in the committee.
+    clock.increment_for_testing(EPOCH_DURATION / 2);
+    staking.advance_epoch(vec_map::empty());
+
+    assert_eq!(staking.epoch(), 2);
+    // Pool_one is in previous committee but NOT in current committee.
+    assert!(!staking.committee().contains(&pool_one));
+    assert!(staking.previous_committee().contains(&pool_one));
+    assert!(staking.committee().contains(&pool_two));
+    assert!(staking.committee().contains(&pool_three));
+
+    // Send epoch_sync_done from pool_two and pool_three (pool_one is not in committee).
+    clock.increment_for_testing(EPOCH_DURATION);
+    staking.epoch_sync_done(&mut cap_two, 2, &clock);
+    staking.epoch_sync_done(&mut cap_three, 2, &clock);
+    assert!(staking.is_epoch_sync_done());
+
+    // Add commission to pool_one. Since epoch state is EpochChangeDone (before voting_end),
+    // the commission should be blocked.
+    let commission_amount = 500;
+    staking.add_commission_to_pools(
+        vector[pool_one],
+        vector[test::mint_wal_balance(commission_amount)],
+    );
+    assert_eq!(staking[pool_one].commission_amount(), commission_amount * frost_per_wal());
+    assert_eq!(staking[pool_one].blocked_commission_amount(), commission_amount * frost_per_wal());
+
+    // Before voting_end, collecting commission should return zero (all is blocked).
+    let auth = auth::authenticate_sender(ctx);
+    staking.collect_commission(pool_one, auth).destroy_zero();
+
+    // Call voting_end. This should clear blocked commission for both current and previous
+    // committee, including pool_one which is only in the previous committee.
+    clock.increment_for_testing(EPOCH_DURATION / 2);
+    staking.voting_end(&clock);
+
+    // Blocked commission should now be cleared.
+    assert_eq!(staking[pool_one].blocked_commission_amount(), 0);
+    assert_eq!(staking[pool_one].commission_amount(), commission_amount * frost_per_wal());
+
+    // Pool_one can now collect its commission even though it is not in the current committee.
+    let auth = auth::authenticate_sender(ctx);
+    let collected = staking.collect_commission(pool_one, auth);
+    assert_eq!(collected.destroy_for_testing(), commission_amount * frost_per_wal());
+
+    // Cleanup. Withdraw pool_one's stake (now in epoch 2, withdrawal was set for E2).
+    let coin_one = staking.withdraw_stake(wal_one, ctx);
+    destroy(coin_one);
+    destroy(wal_two);
+    destroy(wal_three);
+    cap_one.destroy_cap_for_testing();
+    cap_two.destroy_cap_for_testing();
+    cap_three.destroy_cap_for_testing();
+    destroy(staking);
+    clock.destroy_for_testing();
 }

@@ -98,6 +98,8 @@ pub struct SystemContext {
     pub walrus_subsidies_object: Option<ObjectID>,
     /// The ID of the walrus subsidies package.
     pub walrus_subsidies_pkg_id: Option<ObjectID>,
+    /// The ID of the WAL treasury object.
+    pub treasury_object: Option<ObjectID>,
     /// The number of shards in the system.
     pub n_shards: NonZeroU16,
 }
@@ -129,6 +131,7 @@ impl SystemContext {
             staking_object: self.staking_object,
             credits_object: self.credits_object,
             walrus_subsidies_object: self.walrus_subsidies_object,
+            treasury_object: self.treasury_object,
             n_shards: Some(self.n_shards),
             max_epochs_ahead: None,
             cache_ttl: DEFAULT_CACHE_TTL,
@@ -204,6 +207,7 @@ pub async fn create_and_init_system(
         wal_exchange_pkg_id,
         credits_pkg_id,
         walrus_subsidies_pkg_id,
+        treasury_object_id,
     } = system_setup::publish_coin_and_system_package(
         &mut admin_wallet,
         init_system_params_cloned,
@@ -222,7 +226,8 @@ pub async fn create_and_init_system(
         )
         .await?;
 
-    let contract_config = ContractConfig::new(system_object, staking_object);
+    let contract_config =
+        ContractConfig::new(system_object, staking_object).with_treasury_object(treasury_object_id);
 
     let rpc_urls = &[admin_wallet.get_rpc_url().to_string()];
     let admin_contract_client = SuiContractClient::new(
@@ -289,6 +294,7 @@ pub async fn create_and_init_system(
             credits_pkg_id,
             walrus_subsidies_pkg_id,
             walrus_subsidies_object,
+            treasury_object: treasury_object_id,
             n_shards,
         },
         admin_contract_client,

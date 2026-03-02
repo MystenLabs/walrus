@@ -141,17 +141,25 @@ public(package) fun process_subsidies(
 }
 
 /// Processes the usage-independent subsidies if they have not been processed in the current epoch
-/// yet. Returns `true` if subsidies are paid, `false` if not.
+/// yet to pay for the previous epoch subsidy. Returns `true` if subsidies are paid, `false` if not.
 public(package) fun process_fixed_rate_subsidies(
     self: &mut WalrusSubsidiesInnerV1,
     staking: &mut Staking,
 ): bool {
-    // Check if we have paid subsidies for the current epoch already.
-    if (self.latest_epoch >= staking.epoch()) {
+    // Pay the previous epoch's committee subsidy.
+    let current_epoch = staking.epoch();
+    if (current_epoch == 0) {
+        // Nothing to pay in epoch 0.
+        return false
+    };
+    let epoch_to_be_paid = current_epoch - 1;
+
+    // Check if we have already paid subsidies for this epoch.
+    if (self.latest_epoch >= epoch_to_be_paid) {
         return false
     };
 
-    let committee = staking.committee();
+    let committee = staking.previous_committee();
     let (node_ids, shards) = committee.to_inner().into_keys_values();
     let subsidies = shards.map!(|shards_per_node| {
         let subsidy_value = self.base_subsidy + shards_per_node.length() * self.subsidy_per_shard;
@@ -159,7 +167,9 @@ public(package) fun process_fixed_rate_subsidies(
         self.subsidy_pool.split(subsidy_value)
     });
     staking.add_commission_to_pools(node_ids, subsidies);
-    self.latest_epoch = staking.epoch();
+
+    // Update the latest paid epoch.
+    self.latest_epoch = epoch_to_be_paid;
     true
 }
 

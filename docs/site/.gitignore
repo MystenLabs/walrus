@@ -8,7 +8,7 @@
 .docusaurus
 .cache-loader
 src/.generated/*
-
+/static/markdown/*
 
 # Misc
 .DS_Store

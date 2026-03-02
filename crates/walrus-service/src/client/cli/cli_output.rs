@@ -20,12 +20,12 @@ use walrus_core::{
     metadata::{QuiltMetadata, QuiltMetadataV1},
 };
 use walrus_sdk::{
-    client::{
+    format_event_id,
+    node_client::{
         client_types::{self, StoredQuiltPatch},
         resource::RegisterBlobOp,
         responses::{BlobStoreResult, BlobStoreResultWithPath, QuiltStoreResult},
     },
-    format_event_id,
 };
 use walrus_storage_node_client::api::{BlobStatus, DeletableCounts, EventProgress};
 use walrus_sui::types::Blob;
