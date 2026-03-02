@@ -120,8 +120,8 @@ In particular, please adhere to the following conventions:
   inclusion location).
 
 Additionally, if you made any user-facing changes, please adjust our documentation under
-[docs/content](./docs/content/); see the [documentation README](docs/site/README.md) for further
-information.
+[docs/content](./docs/content/); see the documentation section [below](#documentation) and the
+[documentation README](docs/site/README.md) for further information.
 
 ### Formatting
 
@@ -166,6 +166,13 @@ The Move formatter can then be run manually by executing:
 ```sh
 prettier-move --write <path-to-move-file-or-folder>
 ```
+
+## Documentation
+
+Our main documentation is built from source files in `docs/` using
+[Docusaurus](https://docusaurus.io/) and deployed as a Walrus Site at
+[docs.wal.app](https://docs.wal.app). If you contribute to the documentation, please make sure to
+follow the [Sui Documentation Style Guide](https://docs.sui.io/style-guide).
 
 ## Pre-commit hooks
 
