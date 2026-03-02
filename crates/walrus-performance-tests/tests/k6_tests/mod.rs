@@ -17,9 +17,9 @@ mod publisher;
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 
 /// Number of samples to collector for cases where the time required for each is fast.
-const SAMPLE_SIZE_FAST: usize = 10;
+const SAMPLE_SIZE_FAST: usize = 25;
 /// Number of samples to collector for cases where the time required for each is slow.
-const SAMPLE_SIZE_SLOW: usize = 3;
+const SAMPLE_SIZE_SLOW: usize = 10;
 /// Number of samples to collector for cases where the time required for each is very slow.
 const SAMPLE_SIZE_VERY_SLOW: usize = 1;
 

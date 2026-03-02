@@ -18,6 +18,7 @@ import { expect }
     // @ts-ignore
     from 'https://jslib.k6.io/k6-testing/0.5.0/index.js';
 import { BYTES_PER_KIBIBYTE } from "../../lib/constants.ts";
+import { warmupPublisherConnectionOncePerVu } from "../../lib/warmup.ts";
 
 
 /**
@@ -82,6 +83,8 @@ export function setup() {
 }
 
 export default async function ({ totalFileSizeBytes, maxQuiltFileSizeKib }: any) {
+    warmupPublisherConnectionOncePerVu(env.publisherUrl);
+
     const options = {
         totalFileSizeBytes: totalFileSizeBytes,
         quiltFileCount: params.quiltFileCount,
@@ -90,7 +93,10 @@ export default async function ({ totalFileSizeBytes, maxQuiltFileSizeKib }: any)
     }
 
     const response = await putQuilt(
-        dataFile, env.publisherUrl, options, { timeout: params.timeout }
+        dataFile,
+        env.publisherUrl,
+        options,
+        { timeout: params.timeout, tags: { phase: "main" } }
     );
     expect(response.status).toBe(200);
 

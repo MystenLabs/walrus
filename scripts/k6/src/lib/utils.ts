@@ -202,15 +202,19 @@ export function createStages(params: StageConfig): Stage[] {
 
 /**
  * Creates thresholds for aborting a throughput test.
- * Aborting the test does not mean it failed, just that we see indications that the
- * service cannot keep up with the load (e.g., longer or failed requests), and therefore
- * need to end the test.
+ *
  * @param params - The start, step, and durations that were used to create the stages.
  * @param requestSloMillis - The number of milliseconds that requests should complete within.
+ * @param httpReqDurationTagSelector - Optional tag selector to apply to http_req_duration, e.g.
+ * `{phase:main}`. This is useful for excluding warm-up traffic from abort thresholds.
  */
-export function createStageThresholds(params: StageConfig, requestSloMillis: number) {
+export function createStageThresholds(
+    params: StageConfig,
+    requestSloMillis: number,
+    httpReqDurationTagSelector?: string
+) {
     const thresholds: any = {
-        http_req_duration: [{
+        [`http_req_duration${httpReqDurationTagSelector ?? ""}`]: [{
             threshold: `p(95) < ${requestSloMillis}`,
             abortOnFail: true,
             delayAbortEval: `${Math.ceil(requestSloMillis / 2)}`

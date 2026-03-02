@@ -16,6 +16,7 @@ import { BlobHistory } from "../../lib/blob_history.ts"
 import { expect }
     // @ts-ignore
     from 'https://jslib.k6.io/k6-testing/0.5.0/index.js';
+import { warmupPublisherConnectionOncePerVu } from "../../lib/warmup.ts";
 
 
 /**
@@ -59,7 +60,7 @@ export const options = {
         }
     },
     thresholds: !params.httpDurationThreshold ? {} : {
-        http_req_duration: [`p(99) < ${params.httpDurationThreshold}`]
+        "http_req_duration{phase:main}": [`p(99) < ${params.httpDurationThreshold}`]
     },
     insecureSkipTLSVerify: true,
 };
@@ -71,8 +72,13 @@ export function setup(): number {
 }
 
 export default async function (fileSizeBytes: number) {
+    warmupPublisherConnectionOncePerVu(env.publisherUrl);
+
     const response = await putBlob(
-        dataFile, env.publisherUrl, fileSizeBytes, { timeout: params.timeout }
+        dataFile,
+        env.publisherUrl,
+        fileSizeBytes,
+        { timeout: params.timeout, tags: { phase: "main" } }
     );
 
     expect(response.status).toBe(200);

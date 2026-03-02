@@ -19,6 +19,7 @@ import {
 } from "../../lib/utils.ts"
 import { check } from "k6";
 import { BlobHistory } from "../../lib/blob_history.ts"
+import { warmupPublisherConnectionOncePerVu } from "../../lib/warmup.ts";
 
 
 /**
@@ -64,7 +65,7 @@ export const options = {
             stages: stages,
         }
     },
-    thresholds: createStageThresholds(params, params.requestSloMillis),
+    thresholds: createStageThresholds(params, params.requestSloMillis, "{phase:main}"),
     insecureSkipTLSVerify: true,
 };
 
@@ -75,11 +76,13 @@ export function setup(): number {
 }
 
 export default async function (fileSizeBytes: number) {
+    warmupPublisherConnectionOncePerVu(env.publisherUrl);
+
     const response = await putBlob(
         dataFile,
         env.publisherUrl,
         fileSizeBytes,
-        { timeout: params.timeout, tags: getTargetRpmTags(stages) }
+        { timeout: params.timeout, tags: { phase: "main", ...getTargetRpmTags(stages) } }
     );
 
     const isFailure = response.status != 200 || response.timings.duration > params.requestSloMillis;
