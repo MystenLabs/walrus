@@ -325,6 +325,9 @@ impl TelemetryLabel for BlobEvent {
             BlobEvent::Deleted(_) => "deleted",
             BlobEvent::InvalidBlobID(_) => "invalid-blob",
             BlobEvent::DenyListBlobDeleted(_) => "deny-list-deleted",
+            BlobEvent::PooledBlobRegistered(_) => "pooled-blob-registered",
+            BlobEvent::PooledBlobCertified(_) => "pooled-blob-certified",
+            BlobEvent::PooledBlobDeleted(_) => "pooled-blob-deleted",
         }
     }
 }
