@@ -10,7 +10,9 @@ The `site-builder` can read a `ws-resources.json` configuration file, in which y
 
 ## The `ws-resources.json` file
 
-This file is optionally placed in the root of the site directory, and it is not uploaded with the site's resources. If you do not want to use this default location, you can specify the path to the configuration file with the `--ws-resources` flag when running the [`deploy`, `publish` or `update` commands](/docs/sites/getting-started/using-the-site-builder).
+This file is optionally placed in the root of the site directory, and it is neither uploaded to Walrus nor served to site visitors. 
+
+If you do not want to use this default location, you can specify the path to the configuration file with the `--ws-resources` flag when running the [`deploy`, `publish` or `update` commands](/docs/sites/getting-started/using-the-site-builder).
 
 The file is JSON-formatted, and looks like the following:
 
@@ -106,8 +108,6 @@ The following matchings occur:
 
 You can enhance the display of your Site object on Sui explorers and wallets by using the `metadata` field. This field allows you to add human-readable information about the site, such as a link to your site's homepage, an image of your site's logo, and so on.
 
-In the example `ws-resources.json`, the fields correspond to the basic set of properties suggested by the [Sui Object Display standard](https://docs.sui.io/standards/display#display-properties).
-
 ```json
 "metadata": {
     "link": "https://subdomain.wal.app",
@@ -118,19 +118,7 @@ In the example `ws-resources.json`, the fields correspond to the basic set of pr
   }
 ```
 
-All `metadata` fields are optional and can be omitted if not needed. There are some default values specified in the [`site-builder` CLI](docs/sites/getting-started/using-the-site-builder), which can be overridden by your configuration.
-
-Specific `metadata` field recommendations are:
-
-- `link`: Add a link to your site's homepage.
-
-- `image_url`: Include a URL to your site's logo which is displayed on your wallet. For example, you can place a link to your site's favicon.
-
-- `description`: Add a brief description of your site.
-
-- `project_url`: If your site is open-source, add a link to your site's GitHub repository.
-
-- `creator`: Add the name of the company, group, or individual creator of your site.
+Refer to the [metadata reference page](/docs/sites/configuration/adding-metadata) for more information.
 
 ## Site name
 
@@ -140,7 +128,7 @@ You can set a name for your Walrus Site through the optional `site_name` field i
 
 The optional `object_id` field in the `ws-resources.json` file stores the Sui object ID of your deployed Walrus Site.
 
-The [`site-builder deploy` command](docs/sites/getting-started/using-the-site-builder) primarily uses this field to identify an existing site for updates. If a valid `object_id` is present, `deploy` targets that site for modifications. If this field is missing and no `--object-id` CLI flag is used, `deploy` publishes a new site. If successful, then the command automatically populates this `object_id` field in your `ws-resources.json`.
+The [`site-builder deploy` command](/docs/sites/getting-started/using-the-site-builder) primarily uses this field to identify an existing site for updates. If a valid `object_id` is present, `deploy` targets that site for modifications. If this field is missing and no `--object-id` CLI flag is used, `deploy` publishes a new site. If successful, then the command automatically populates this `object_id` field in your `ws-resources.json`.
 
 ## Ignoring files from being uploaded
 
