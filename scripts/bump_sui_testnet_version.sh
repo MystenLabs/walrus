@@ -138,8 +138,11 @@ else
   exit 1
 fi
 
-# Setting the PR to auto merge
-if ! gh pr merge --auto --squash --delete-branch "$BRANCH"; then
+# Setting the PR to auto merge.
+# Use AUTOMERGE_TOKEN if available so the merge push triggers downstream workflows
+# (merges with GITHUB_TOKEN suppress push events to prevent recursive loops).
+MERGE_TOKEN="${AUTOMERGE_TOKEN:-$GH_TOKEN}"
+if ! GH_TOKEN="$MERGE_TOKEN" gh pr merge --auto --squash --delete-branch "$BRANCH"; then
   echo "Warning: Failed to enable auto-merge for PR" >&2
 fi
 

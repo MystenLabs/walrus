@@ -30,6 +30,14 @@ jobs:
         startsWith(github.event.release.tag_name, 'testnet-v'))
 
     steps:
+      - name: Generate app token for cross-repo dispatch
+        id: app_token
+        uses: actions/create-github-app-token@29824e69f54612133e76f7eaac726eef6c875baf # pin@v2.2.1
+        with:
+          app-id: ${{ secrets.WALRUS_AUTOMERGE_APP_ID }}
+          private-key: ${{ secrets.WALRUS_AUTOMERGE_PRIVATE_KEY }}
+          repositories: walrus-sites
+
       - name: Extract Sui tag from commit message
         if: github.event_name == 'push'
         id: extract
@@ -60,7 +68,7 @@ jobs:
       - name: Dispatch bump-dependencies to walrus-sites
         uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # pin@v4.0.1
         with:
-          token: ${{ secrets.SUI_OPS_DISPATCH_TOKEN }}
+          token: ${{ steps.app_token.outputs.token }}
           repository: MystenLabs/walrus-sites
           event-type: bump-dependencies
           client-payload: |-
