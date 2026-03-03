@@ -21,6 +21,7 @@ use walrus_sui::types::{
     EpochChangeEvent,
     PackageEvent,
     ProtocolEvent,
+    StoragePoolEvent,
 };
 
 use crate::{
@@ -366,6 +367,18 @@ impl TelemetryLabel for ProtocolEvent {
     }
 }
 
+impl TelemetryLabel for StoragePoolEvent {
+    fn label(&self) -> &'static str {
+        match self {
+            StoragePoolEvent::StoragePoolCreated(_) => "storage-pool-created",
+            StoragePoolEvent::PoolBlobRegistered(_) => "pool-blob-registered",
+            StoragePoolEvent::PoolBlobCertified(_) => "pool-blob-certified",
+            StoragePoolEvent::PoolBlobDeleted(_) => "pool-blob-deleted",
+            StoragePoolEvent::StoragePoolExtended(_) => "storage-pool-extended",
+        }
+    }
+}
+
 impl TelemetryLabel for ContractEvent {
     fn label(&self) -> &'static str {
         match self {
@@ -374,6 +387,7 @@ impl TelemetryLabel for ContractEvent {
             ContractEvent::PackageEvent(event) => event.label(),
             ContractEvent::DenyListEvent(event) => event.label(),
             ContractEvent::ProtocolEvent(event) => event.label(),
+            ContractEvent::StoragePoolEvent(event) => event.label(),
         }
     }
 }
