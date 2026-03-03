@@ -229,9 +229,9 @@
     stroke: var(--color-wal-green);
   }
 
-  .DocSearch-Search-Icon path {
-    stroke: var(--color-wal-green-dark);
-  }
+    .DocSearch-Search-Icon path {
+    stroke: var(--color-wal-gray-70); /* was --color-wal-green-dark */
+    }
 
   .DocSearch-Button-Placeholder {
     @apply font-thin text-lg pl-3 pr-[6px];
@@ -401,26 +401,37 @@
     }
 
     /* DocSearch -> icon-only */
+
     .navbar .DocSearch-Button {
-      width: 34px !important;
-      height: 34px !important;
-      min-width: 34px !important;
-      padding: 0 !important;
-      border-radius: 9999px !important;
-      display: inline-flex !important;
-      align-items: center !important;
-      justify-content: center !important;
+    width: 34px !important;
+    height: 34px !important;
+    min-width: 34px !important;
+    padding: 0 !important;
+    border-radius: 9999px !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    overflow: visible !important;
     }
 
     .navbar .DocSearch-Button-Placeholder,
     .navbar .DocSearch-Button-Keys {
-      display: none !important;
+    display: none !important;
+    }
+
+    .navbar .DocSearch-Button-Container {
+    display: contents !important;
     }
 
     .navbar .DocSearch-Search-Icon {
-      width: 18px !important;
-      height: 18px !important;
-      margin: 0 !important;
+    display: block !important;
+    position: relative !important;
+    width: 18px !important;
+    height: 18px !important;
+    margin: 0 !important;
+    order: 0 !important;
+    flex-shrink: 0 !important;
+    color: var(--color-wal-gray-100) !important;
     }
 
     /* Kapa -> icon-only (works even if text exists) */
