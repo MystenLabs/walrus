@@ -149,7 +149,6 @@ public struct PoolBlobRegistered has copy, drop {
     blob_id: u256,
     size: u64,
     encoding_type: u8,
-    end_epoch: u32,
     deletable: bool,
     object_id: ID,
     storage_pool_id: ID,
@@ -159,7 +158,6 @@ public struct PoolBlobRegistered has copy, drop {
 public struct PoolBlobCertified has copy, drop {
     epoch: u32,
     blob_id: u256,
-    end_epoch: u32,
     deletable: bool,
     object_id: ID,
     storage_pool_id: ID,
@@ -307,7 +305,6 @@ public(package) fun emit_pool_blob_registered(
     blob_id: u256,
     size: u64,
     encoding_type: u8,
-    end_epoch: u32,
     deletable: bool,
     object_id: ID,
     storage_pool_id: ID,
@@ -317,7 +314,6 @@ public(package) fun emit_pool_blob_registered(
         blob_id,
         size,
         encoding_type,
-        end_epoch,
         deletable,
         object_id,
         storage_pool_id,
@@ -327,7 +323,6 @@ public(package) fun emit_pool_blob_registered(
 public(package) fun emit_pool_blob_certified(
     epoch: u32,
     blob_id: u256,
-    end_epoch: u32,
     deletable: bool,
     object_id: ID,
     storage_pool_id: ID,
@@ -336,7 +331,6 @@ public(package) fun emit_pool_blob_certified(
     event::emit(PoolBlobCertified {
         epoch,
         blob_id,
-        end_epoch,
         deletable,
         object_id,
         storage_pool_id,

@@ -880,7 +880,6 @@ public(package) fun register_pool_blob(
         encoding_type,
         deletable,
         self.epoch(),
-        pool.end_epoch(),
         ctx,
     );
 

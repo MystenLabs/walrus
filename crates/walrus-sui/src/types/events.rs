@@ -786,8 +786,6 @@ pub struct PoolBlobRegistered {
     pub size: u64,
     /// The erasure coding type used for the blob.
     pub encoding_type: EncodingType,
-    /// The end epoch of the storage pool (exclusive).
-    pub end_epoch: Epoch,
     /// Whether the blob is deletable.
     pub deletable: bool,
     /// The object ID of the related `PoolBlob` object.
@@ -808,14 +806,13 @@ impl TryFrom<SuiEvent> for PoolBlobRegistered {
     fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
         ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
 
-        let (epoch, blob_id, size, encoding_type, end_epoch, deletable, object_id, pool_id) =
+        let (epoch, blob_id, size, encoding_type, deletable, object_id, pool_id) =
             bcs::from_bytes(sui_event.bcs.bytes())?;
         Ok(Self {
             epoch,
             blob_id,
             size,
             encoding_type,
-            end_epoch,
             deletable,
             object_id,
             storage_pool_id: pool_id,
@@ -831,8 +828,6 @@ pub struct PoolBlobCertified {
     pub epoch: Epoch,
     /// The blob ID.
     pub blob_id: BlobId,
-    /// The end epoch of the storage pool (exclusive).
-    pub end_epoch: Epoch,
     /// Whether the blob is deletable.
     pub deletable: bool,
     /// The object ID of the related `PoolBlob` object.
@@ -855,12 +850,11 @@ impl TryFrom<SuiEvent> for PoolBlobCertified {
     fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
         ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
 
-        let (epoch, blob_id, end_epoch, deletable, object_id, storage_pool_id, is_extension) =
+        let (epoch, blob_id, deletable, object_id, storage_pool_id, is_extension) =
             bcs::from_bytes(sui_event.bcs.bytes())?;
         Ok(Self {
             epoch,
             blob_id,
-            end_epoch,
             deletable,
             object_id,
             storage_pool_id,

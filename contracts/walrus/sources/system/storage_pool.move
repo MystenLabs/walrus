@@ -10,7 +10,7 @@ use sui::object_table::{Self, ObjectTable};
 use walrus::{
     blob,
     encoding,
-    events::{emit_pool_blob_registered, emit_pool_blob_certified, emit_pool_blob_deleted},
+    events::{emit_pool_blob_certified, emit_pool_blob_deleted, emit_pool_blob_registered},
     messages::CertifiedBlobMessage
 };
 
@@ -215,7 +215,6 @@ public(package) fun new_pool_blob(
     encoding_type: u8,
     deletable: bool,
     registered_epoch: u32,
-    end_epoch: u32,
     ctx: &mut TxContext,
 ): PoolBlob {
     // Cryptographically verify that the blob ID authenticates the size and encoding_type.
@@ -228,7 +227,6 @@ public(package) fun new_pool_blob(
         blob_id,
         size,
         encoding_type,
-        end_epoch,
         deletable,
         id.to_inner(),
         storage_pool_id,
@@ -276,7 +274,6 @@ public(package) fun certify(
     emit_pool_blob_certified(
         current_epoch,
         blob.blob_id,
-        end_epoch,
         blob.deletable,
         blob.id.to_inner(),
         blob.storage_pool_id,
