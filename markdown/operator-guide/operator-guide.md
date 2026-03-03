@@ -5,5 +5,5 @@ aggregators and publishers.
 
 This operator guide describes the following:
 
-- [Operating an aggregator or publisher](/docs/operator-guide/aggregator)
 - [Operating a storage node](/docs/operator-guide/storage-node)
+- [Operating an aggregator or publisher](/docs/operator-guide/aggregator)
