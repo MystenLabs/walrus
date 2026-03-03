@@ -105,10 +105,19 @@ jobs:
 
           echo "new_version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
 
+      - name: Generate automerge token
+        if: inputs.delivery == 'pr'
+        id: automerge_token
+        uses: actions/create-github-app-token@29824e69f54612133e76f7eaac726eef6c875baf # pin@v2.2.1
+        with:
+          app-id: ${{ secrets.WALRUS_AUTOMERGE_APP_ID }}
+          private-key: ${{ secrets.WALRUS_AUTOMERGE_PRIVATE_KEY }}
+
       - name: Deliver via PR
         if: inputs.delivery == 'pr'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          AUTOMERGE_TOKEN: ${{ steps.automerge_token.outputs.token }}
           GITHUB_ACTOR: ${{ github.actor }}
           NEW_VERSION: ${{ steps.bump.outputs.new_version }}
           REF_NAME: ${{ github.ref_name }}
@@ -129,7 +138,9 @@ jobs:
             --reviewer "wbbradley,halfprice,liquid-helium,ebmifa" \
             --body "Walrus v${NEW_VERSION} Version Bump"
 
-          gh pr merge --auto --squash --delete-branch "$BRANCH"
+          # Use dedicated token for auto-merge so the resulting push triggers downstream workflows
+          MERGE_TOKEN="${AUTOMERGE_TOKEN:-$GH_TOKEN}"
+          GH_TOKEN="$MERGE_TOKEN" gh pr merge --auto --squash --delete-branch "$BRANCH"
 
       - name: Deliver direct push
         if: inputs.delivery == 'direct'
