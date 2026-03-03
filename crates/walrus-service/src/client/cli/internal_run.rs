@@ -429,36 +429,34 @@ where
                 } => {
                     tracing::debug!(?ok, ?error, "child: done event received");
 
-                    if json_output {
-                        return command_output;
-                    }
+                    if !json_output {
+                        if newly_certified > 0 || reuse_and_extend_count > 0 {
+                            let mut parts = Vec::new();
+                            if newly_certified > 0 {
+                                parts.push(format!("{} newly certified", newly_certified));
+                            }
+                            if reuse_and_extend_count > 0 {
+                                parts.push(format!("{} extended", reuse_and_extend_count));
+                            }
 
-                    if newly_certified > 0 || reuse_and_extend_count > 0 {
-                        let mut parts = Vec::new();
-                        if newly_certified > 0 {
-                            parts.push(format!("{} newly certified", newly_certified));
+                            println!(
+                                "{} ({})",
+                                "Summary for Modified or Created Blobs"
+                                    .bold()
+                                    .walrus_purple(),
+                                parts.join(", ")
+                            );
+                            println!(
+                                "Total encoded size: {}",
+                                HumanReadableBytes(total_encoded_size)
+                            );
+                            println!("Total cost: {}", HumanReadableFrost::from(total_cost));
+                        } else {
+                            println!(
+                                "{}",
+                                "No blobs were modified or created".bold().walrus_purple()
+                            );
                         }
-                        if reuse_and_extend_count > 0 {
-                            parts.push(format!("{} extended", reuse_and_extend_count));
-                        }
-
-                        println!(
-                            "{} ({})",
-                            "Summary for Modified or Created Blobs"
-                                .bold()
-                                .walrus_purple(),
-                            parts.join(", ")
-                        );
-                        println!(
-                            "Total encoded size: {}",
-                            HumanReadableBytes(total_encoded_size)
-                        );
-                        println!("Total cost: {}", HumanReadableFrost::from(total_cost));
-                    } else {
-                        println!(
-                            "{}",
-                            "No blobs were modified or created".bold().walrus_purple()
-                        );
                     }
 
                     return command_output;
@@ -736,7 +734,7 @@ where
 
                 if json_output {
                     let output = output.context("child process did not emit command output")?;
-                    serde_json::to_writer_pretty(std::io::stdout(), &output)
+                    serde_json::to_writer(std::io::stdout(), &output)
                         .context("write JSON output from child process")?;
                 }
 
