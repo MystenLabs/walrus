@@ -99,13 +99,9 @@ section, it means that the next epoch committee has not been determined yet.
 ### Step 1: Set Up Configuration
 
 1. Determine the network from the user's argument (mainnet or testnet).
-2. Write the corresponding YAML config to a hardcoded temporary file path:
-   ```bash
-   WALRUS_TMP_CONFIG=$(mktemp /tmp/walrus_XXXXXX_config.yaml)
-   ```
-   **IMPORTANT**: Do not use `$TMPDIR` — it resolves to different paths in sandbox mode
-   (`/tmp/claude/`) vs non-sandbox mode (`/var/folders/...`), causing "No such file" errors when
-   the config is written in sandbox but read with `dangerouslyDisableSandbox: true`.
+2. Write the corresponding YAML config to `/tmp/walrus_inspect_config.yaml` using
+   `dangerouslyDisableSandbox: true`. This is required because the walrus commands also run with
+   sandbox disabled and must be able to read this file.
 3. Write the appropriate config content (from the section above) to this file.
 
 ### Step 2: Find the Walrus Binary
@@ -120,45 +116,141 @@ use `-n testnet`). After installation, verify the binary is available before pro
 
 ### Step 3: Get Network Overview and Committee Health
 
-Run both commands to get full network information and committee health as JSON. These can be run
-in parallel:
+Run both commands **in parallel** to get full network information and committee health as JSON.
+Save outputs to files for jq processing:
 
 ```bash
-walrus --config "$WALRUS_TMP_CONFIG" info all --json 2>&1
-walrus --config "$WALRUS_TMP_CONFIG" health --committee --detail --json 2>&1
+walrus --config /tmp/walrus_inspect_config.yaml info all --json > /tmp/walrus_info.json 2>&1
+walrus --config /tmp/walrus_inspect_config.yaml health --committee --detail --json > /tmp/walrus_health.json 2>&1
 ```
 
-**IMPORTANT**: Always use `--json` for structured output that is easier to parse and analyze
-programmatically. The output can be large (60KB+ for 100 nodes) but all of it is needed for
-accurate analysis.
+Both commands must use `dangerouslyDisableSandbox: true`. After both complete, use the jq scripts
+from the "Parsing" sections below to extract the summary. Set `INFO_OUTPUT_FILE=/tmp/walrus_info.json`
+and `HEALTH_OUTPUT_FILE=/tmp/walrus_health.json` for the jq scripts.
+
+**IMPORTANT**: Always use `--json` for structured output. The output can be large (60-200KB for
+100 nodes) — always parse with jq, never read raw files or delegate to agents.
 
 **Exception**: When re-checking unreachable nodes (see Step 3b), run the health command **without**
 `--json` to get detailed error reasons (see below).
 
-The `info all` command returns:
-- **Epoch information**: current epoch, start/end times, duration
-- **Storage node summary**: total nodes, total shards
-- **Blob size limits**: maximum blob size, storage unit size
-- **Storage prices**: per-epoch pricing in FROST and WAL
-- **BFT parameters**: fault tolerance (f), quorum threshold (2f+1)
-- **Encoding parameters**: shard count, source symbols, metadata/sliver sizes
-- **Storage node table**: index, name, shard count, stake, address for every node
-- **Per-node details**: node ID, public key, owned shards, price votes, capacity votes
+**IMPORTANT: Use `jq` to parse outputs — do NOT delegate to agents or read the raw JSON files
+manually.** The outputs are large (60-200KB) and reading them line-by-line is extremely slow. Use
+the jq scripts below to extract exactly what's needed in seconds.
 
-The `health --committee --detail` command returns per-node:
-- **Uptime**: how long the node has been running
-- **Current epoch**: the epoch the node is on
-- **Node status**: Active, RecoveryInProgress, etc.
-- **Event progress**: events persisted, events pending, highest finished event index
-- **Checkpoint downloading progress**: latest checkpoint sequence number, estimated lag
-- **Shard summary**: owned shards, read-only shards
-- **Owned shard status**: counts of Ready, In transfer, In recovery, Unknown
-- **Owned shard details**: per-shard status
+#### Parsing the `info all` output
 
-Parse and present both the network overview and a health summary to the user. Summarize the key
-metrics at the top level and highlight any unhealthy nodes. Then notify the user that they can ask
-follow-up questions about individual nodes, stake distribution, shard assignments, or other network
-queries.
+Strip ANSI log lines before the JSON, then extract the overview:
+```bash
+sed -n '/^{$/,$ p' "$INFO_OUTPUT_FILE" | jq '{
+  epoch: .epochInfo.currentEpoch,
+  epochStart: .epochInfo.startOfCurrentEpoch.DateTime,
+  epochDurationDays: (.epochInfo.epochDuration.secs / 86400),
+  maxEpochsAhead: .epochInfo.maxEpochsAhead,
+  nNodes: .storageInfo.nNodes,
+  nShards: .storageInfo.nShards,
+  storagePriceFROST: .priceInfo.storagePricePerUnitSize,
+  writePriceFROST: .priceInfo.writePricePerUnitSize,
+  maxBlobSizeGB: (.sizeInfo.maxBlobSize / 1073741824 * 100 | floor / 100),
+  nPrimarySourceSymbols: .committeeInfo.nPrimarySourceSymbols,
+  nSecondarySourceSymbols: .committeeInfo.nSecondarySourceSymbols
+}'
+```
+
+#### Parsing the `health --committee --detail` output
+
+**Step 1**: Write a jq script to a file (avoids shell escaping issues with `!=`), then run it:
+```bash
+cat > /tmp/health_analysis.jq << 'JQEOF'
+def ok: .healthInfo.Ok;
+def ep: ok.eventProgress;
+def ss: ok.shardSummary.ownedShardStatus;
+.healthInfo as $all |
+($all | [.[] | select(ok) | ep.persisted] | max) as $maxEv |
+($all | [.[] | select(ok) | ok.latestCheckpointSequenceNumber]
+  | max) as $maxCp |
+($all | [.[] | select(ok) | ok.epoch] | max) as $curEpoch |
+{
+  total: ($all | length),
+  healthy: [$all[] | select(ok)] | length,
+  unreachable: [$all[] | select(.healthInfo.Err)] | length,
+  unreachableNodes: [
+    $all[] | select(.healthInfo.Err) |
+    {name: .nodeName, url: .nodeUrl, id: .nodeId}
+  ],
+  currentEpoch: $curEpoch,
+  eventStats: {
+    max: $maxEv,
+    min: [$all[] | select(ok) | ep.persisted] | min
+  },
+  checkpointStats: {
+    max: $maxCp,
+    min: [$all[] | select(ok)
+      | ok.latestCheckpointSequenceNumber] | min
+  },
+  epochMismatch: [
+    $all[] | select(ok) | select(ok.epoch != $curEpoch) |
+    {name: .nodeName, epoch: ok.epoch}
+  ],
+  shardsInRecovery: [
+    $all[] | select(ok) | select(ss.inRecovery > 0) |
+    {name: .nodeName, inRecovery: ss.inRecovery}
+  ],
+  shardsInTransfer: [
+    $all[] | select(ok) | select(ss.inTransfer > 0) |
+    {name: .nodeName, inTransfer: ss.inTransfer}
+  ],
+  lowUptime: [
+    $all[] | select(ok) | select(ok.uptime.secs < 3600) |
+    {name: .nodeName, uptimeSecs: ok.uptime.secs}
+  ],
+  eventLaggards: [
+    $all[] | select(ok)
+    | select(ep.persisted < ($maxEv - 100000)) |
+    { name: .nodeName, persisted: ep.persisted,
+      behind: ($maxEv - ep.persisted),
+      pending: ep.pending }
+  ] | sort_by(.behind) | reverse,
+  checkpointLaggards: [
+    $all[] | select(ok)
+    | select(ok.latestCheckpointSequenceNumber
+        < ($maxCp - 1000000)) |
+    { name: .nodeName,
+      checkpoint: ok.latestCheckpointSequenceNumber,
+      lagBehind: ($maxCp
+        - ok.latestCheckpointSequenceNumber) }
+  ] | sort_by(.lagBehind) | reverse
+}
+JQEOF
+sed -n '/^{$/,$ p' "$HEALTH_OUTPUT_FILE" \
+  | jq -f /tmp/health_analysis.jq
+```
+
+**Step 2**: For any problematic nodes found above, extract detail:
+```bash
+cat > /tmp/health_detail.jq << 'JQEOF'
+.healthInfo | [
+  .[] |
+  select(.nodeName == ("NODE_NAME_1", "NODE_NAME_2")) |
+  { name: .nodeName,
+    detail: .healthInfo.Ok | {
+      epoch, uptime: .uptime.secs,
+      persisted: .eventProgress.persisted,
+      pending: .eventProgress.pending,
+      checkpoint: .latestCheckpointSequenceNumber,
+      shardStatus: .shardSummary,
+      shardDetail: .shardDetail
+    }
+  }
+]
+JQEOF
+sed -n '/^{$/,$ p' "$HEALTH_OUTPUT_FILE" \
+  | jq -f /tmp/health_detail.jq
+```
+
+Present the network overview and health summary to the user. Highlight any unhealthy nodes. Then
+notify the user that they can ask follow-up questions about individual nodes, stake distribution,
+shard assignments, or other network queries.
 
 ### Step 3b: Re-check Unreachable Nodes
 
@@ -168,7 +260,7 @@ in parallel). Always re-check nodes that appeared unreachable before reporting t
 1. Extract the node IDs of unreachable nodes from the initial health output.
 2. Re-run the health command for just those nodes **without `--json`**:
    ```bash
-   walrus --config "$WALRUS_TMP_CONFIG" health --node-ids <ID1> <ID2> ... --detail 2>&1
+   walrus --config "/tmp/walrus_inspect_config.yaml" health --node-ids <ID1> <ID2> ... --detail 2>&1
    ```
    The non-JSON output includes detailed error information, such as:
    - `hyper_util::client::legacy::Error(Connect, TimedOut)` — connection timed out
@@ -197,12 +289,12 @@ Answer these directly from the `info all` output.
 For queries about specific nodes (by name, index, or node ID), use the health command:
 
 ```bash
-walrus --config "$WALRUS_TMP_CONFIG" health --node-ids <NODE_ID> --detail --json
+walrus --config "/tmp/walrus_inspect_config.yaml" health --node-ids <NODE_ID> --detail --json
 ```
 
 For multiple nodes:
 ```bash
-walrus --config "$WALRUS_TMP_CONFIG" health --node-ids <NODE_ID_1> <NODE_ID_2> ... --detail --json
+walrus --config "/tmp/walrus_inspect_config.yaml" health --node-ids <NODE_ID_1> <NODE_ID_2> ... --detail --json
 ```
 
 **IMPORTANT**: Always use `--json` for structured output. This makes it much easier to
@@ -248,7 +340,14 @@ Watch for:
 - Nodes with identical suspicious values — may be running from the same stale snapshot
 
 **Epoch mismatch**: All nodes should be on the current epoch. A node on a previous epoch has
-failed to transition and needs operator intervention.
+failed to transition and needs operator intervention. A node with epoch mismatch **and** a
+drastically different event count from the rest of the fleet likely has its registered public host
+pointing at a node on a different network (e.g., testnet entry pointing at a mainnet node).
+
+**IMPORTANT**: Always check for epoch-mismatch nodes **before** interpreting event laggard data.
+A single node connected to a different network can have a much higher or lower event count,
+skewing the max/min and making the entire fleet appear as laggards. Exclude epoch-mismatch nodes
+when computing event statistics.
 
 **Checkpoint lag**: Compare `estimated_checkpoint_lag` across nodes. Nodes with significantly
 higher lag (e.g., 146M vs 53M) are not keeping up with the chain.
@@ -473,9 +572,9 @@ converted at today's spot price, not the price at payout time.
 
 ### Step 9: Clean Up
 
-After all queries are answered, clean up the temporary config file:
+After all queries are answered, clean up temporary files:
 ```bash
-rm -f "$WALRUS_TMP_CONFIG"
+rm -f /tmp/walrus_inspect_config.yaml /tmp/walrus_info.json /tmp/walrus_health.json /tmp/health_analysis.jq /tmp/health_detail.jq
 ```
 
 ## Output Guidelines
