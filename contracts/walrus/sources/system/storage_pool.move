@@ -41,6 +41,7 @@ public struct StoragePool has key, store {
     id: UID,
     start_epoch: u32,
     end_epoch: u32,
+    // TODO(WAL-1157): allow extending the storage capacity of the pool.
     /// Total reserved capacity in encoded bytes (never changes).
     storage_size: u64,
     /// Sum of all active blobs' encoded sizes.
