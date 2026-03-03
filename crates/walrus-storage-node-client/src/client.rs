@@ -783,7 +783,7 @@ impl StorageNodeClient {
             }
             reqwest::StatusCode::OK => StoredOnNodeStatus::Stored,
             other => {
-                tracing::debug!(
+                tracing::warn!(
                     %other,
                     "store_metadata: unexpected success status code; assuming metadata existed"
                 );
