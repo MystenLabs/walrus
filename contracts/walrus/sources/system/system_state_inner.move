@@ -851,7 +851,7 @@ public(package) fun create_storage_pool(
 }
 
 /// Registers a blob against a `StoragePool` pool.
-public(package) fun register_pool_blob(
+public(package) fun register_pooled_blob(
     self: &mut SystemStateInnerV1,
     pool: &mut StoragePool,
     blob_id: u256,
@@ -866,8 +866,8 @@ public(package) fun register_pool_blob(
     assert!(self.epoch() >= pool.start_epoch(), EInvalidEpochsAhead);
     assert!(self.epoch() < pool.end_epoch(), EInvalidEpochsAhead);
 
-    // Create the blob (emits PoolBlobRegistered event).
-    let blob = storage_pool::new_pool_blob(
+    // Create the blob (emits PooledBlobRegistered event).
+    let blob = storage_pool::new_pooled_blob(
         pool.object_id(),
         blob_id,
         root_hash,
@@ -889,7 +889,7 @@ public(package) fun register_pool_blob(
 }
 
 /// Deletes a blob from a `StoragePool` pool and frees its capacity.
-public(package) fun delete_pool_blob(
+public(package) fun delete_pooled_blob(
     self: &SystemStateInnerV1,
     pool: &mut StoragePool,
     blob_id: u256,
@@ -938,7 +938,7 @@ public(package) fun extend_storage_pool(
 }
 
 /// Certifies a blob within a `StoragePool` pool.
-public(package) fun certify_pool_blob(
+public(package) fun certify_pooled_blob(
     self: &SystemStateInnerV1,
     pool: &mut StoragePool,
     blob_id: u256,

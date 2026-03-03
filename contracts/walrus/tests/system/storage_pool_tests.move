@@ -50,10 +50,10 @@ fun create_storage_pool_zero_epochs() {
     abort
 }
 
-// === Pool blob registration tests ===
+// === Pooled blob registration tests ===
 
 #[test]
-fun register_multiple_pool_blobs_happy_path() {
+fun register_multiple_pooled_blobs_happy_path() {
     let ctx = &mut tx_context::dummy();
     let mut system = system::new_for_testing(ctx);
 
@@ -78,7 +78,7 @@ fun register_multiple_pool_blobs_happy_path() {
 }
 
 #[test, expected_failure(abort_code = storage_pool::EInsufficientCapacity)]
-fun register_pool_blob_exceeds_capacity() {
+fun register_pooled_blob_exceeds_capacity() {
     let ctx = &mut tx_context::dummy();
     let mut system = system::new_for_testing(ctx);
 
@@ -93,11 +93,11 @@ fun register_pool_blob_exceeds_capacity() {
     abort
 }
 
-// === Pool blob certification tests ===
+// === Pooled blob certification tests ===
 
 // TODO(WAL-1157): decide whether we want to support permanent blob.
 #[test]
-fun certify_pool_blob_permanent() {
+fun certify_pooled_blob_permanent() {
     let sk = test_utils::bls_sk_for_testing();
     let ctx = &mut tx_context::dummy();
     let mut system = system::new_for_testing(ctx);
@@ -109,7 +109,7 @@ fun certify_pool_blob_permanent() {
     // Certify the blob via the system interface.
     let confirmation_message = messages::certified_permanent_message_bytes(EPOCH, blob_id);
     let signature = bls_min_pk_sign(&confirmation_message, &sk);
-    system.certify_pool_blob(
+    system.certify_pooled_blob(
         &mut pool,
         blob_id,
         signature,
@@ -123,7 +123,7 @@ fun certify_pool_blob_permanent() {
 
 // TODO(WAL-1157): if we don't need to support permanent blob, we need to update this test as well.
 #[test]
-fun certify_pool_blob_deletable() {
+fun certify_pooled_blob_deletable() {
     let ctx = &mut tx_context::dummy();
     let mut system = system::new_for_testing(ctx);
     let mut pool = create_default_pool(&mut system, ctx);
@@ -131,14 +131,14 @@ fun certify_pool_blob_deletable() {
     let blob_id = default_blob_id();
     register_blob_in_pool(&mut system, &mut pool, blob_id, SIZE, true, ctx);
 
-    certify_deletable_pool_blob(&mut pool, blob_id, EPOCH);
+    certify_deletable_pooled_blob(&mut pool, blob_id, EPOCH);
 
     pool.destroy_for_testing();
     system.destroy_for_testing();
 }
 
 #[test, expected_failure(abort_code = storage_pool::EAlreadyCertified)]
-fun certify_pool_blob_already_certified() {
+fun certify_pooled_blob_already_certified() {
     let ctx = &mut tx_context::dummy();
     let mut system = system::new_for_testing(ctx);
     let mut pool = create_default_pool(&mut system, ctx);
@@ -147,16 +147,16 @@ fun certify_pool_blob_already_certified() {
     register_blob_in_pool(&mut system, &mut pool, blob_id, SIZE, false, ctx);
 
     // Certify once.
-    certify_permanent_pool_blob(&mut pool, blob_id, EPOCH);
+    certify_permanent_pooled_blob(&mut pool, blob_id, EPOCH);
 
     // Certify again. Test fails here.
-    certify_permanent_pool_blob(&mut pool, blob_id, EPOCH);
+    certify_permanent_pooled_blob(&mut pool, blob_id, EPOCH);
 
     abort
 }
 
 #[test, expected_failure(abort_code = storage_pool::EInvalidBlobId)]
-fun certify_pool_blob_wrong_blob_id() {
+fun certify_pooled_blob_wrong_blob_id() {
     let ctx = &mut tx_context::dummy();
     let mut system = system::new_for_testing(ctx);
     let mut pool = create_default_pool(&mut system, ctx);
@@ -177,7 +177,7 @@ fun certify_pool_blob_wrong_blob_id() {
 
 // TODO(WAL-1157): if we don't need to support permanent blob, we need to update this test as well.
 #[test, expected_failure(abort_code = storage_pool::EInvalidBlobPersistenceType)]
-fun certify_pool_blob_deletable_msg_for_permanent() {
+fun certify_pooled_blob_deletable_msg_for_permanent() {
     let ctx = &mut tx_context::dummy();
     let mut system = system::new_for_testing(ctx);
     let mut pool = create_default_pool(&mut system, ctx);
@@ -200,7 +200,7 @@ fun certify_pool_blob_deletable_msg_for_permanent() {
 }
 
 #[test, expected_failure(abort_code = storage_pool::EInvalidBlobObject)]
-fun certify_pool_blob_deletable_wrong_object_id() {
+fun certify_pooled_blob_deletable_wrong_object_id() {
     let ctx = &mut tx_context::dummy();
     let mut system = system::new_for_testing(ctx);
     let mut pool = create_default_pool(&mut system, ctx);
@@ -220,7 +220,7 @@ fun certify_pool_blob_deletable_wrong_object_id() {
 }
 
 #[test, expected_failure(abort_code = storage_pool::EResourceBounds)]
-fun certify_pool_blob_expired_pool() {
+fun certify_pooled_blob_expired_pool() {
     let ctx = &mut tx_context::dummy();
     let mut system = system::new_for_testing(ctx);
 
@@ -247,10 +247,10 @@ fun certify_pool_blob_expired_pool() {
     abort
 }
 
-// === Pool blob deletion tests ===
+// === Pooled blob deletion tests ===
 
 #[test]
-fun delete_pool_blob_certified() {
+fun delete_pooled_blob_certified() {
     let ctx = &mut tx_context::dummy();
     let mut system = system::new_for_testing(ctx);
     let mut pool = create_default_pool(&mut system, ctx);
@@ -259,12 +259,12 @@ fun delete_pool_blob_certified() {
     register_blob_in_pool(&mut system, &mut pool, blob_id, SIZE, true, ctx);
 
     // Certify the deletable blob.
-    certify_deletable_pool_blob(&mut pool, blob_id, EPOCH);
+    certify_deletable_pooled_blob(&mut pool, blob_id, EPOCH);
 
     let used_before = pool.used_size();
 
     // Delete the blob.
-    system.delete_pool_blob(&mut pool, blob_id);
+    system.delete_pooled_blob(&mut pool, blob_id);
 
     assert_eq!(pool.blob_count(), 0);
     assert_eq!(pool.used_size(), 0);
@@ -275,7 +275,7 @@ fun delete_pool_blob_certified() {
 }
 
 #[test]
-fun delete_pool_blob_uncertified() {
+fun delete_pooled_blob_uncertified() {
     let ctx = &mut tx_context::dummy();
     let mut system = system::new_for_testing(ctx);
     let mut pool = create_default_pool(&mut system, ctx);
@@ -284,7 +284,7 @@ fun delete_pool_blob_uncertified() {
     register_blob_in_pool(&mut system, &mut pool, blob_id, SIZE, true, ctx);
 
     // Delete without certifying.
-    system.delete_pool_blob(&mut pool, blob_id);
+    system.delete_pooled_blob(&mut pool, blob_id);
 
     assert_eq!(pool.blob_count(), 0);
     assert_eq!(pool.used_size(), 0);
@@ -295,7 +295,7 @@ fun delete_pool_blob_uncertified() {
 
 // TODO(WAL-1157): if we don't need to support permanent blob, we need to update this test as well.
 #[test, expected_failure(abort_code = storage_pool::EBlobNotDeletable)]
-fun delete_pool_blob_not_deletable() {
+fun delete_pooled_blob_not_deletable() {
     let ctx = &mut tx_context::dummy();
     let mut system = system::new_for_testing(ctx);
     let mut pool = create_default_pool(&mut system, ctx);
@@ -304,7 +304,7 @@ fun delete_pool_blob_not_deletable() {
     register_blob_in_pool(&mut system, &mut pool, blob_id, SIZE, false, ctx);
 
     // Try to delete a non-deletable blob. Test fails here.
-    system.delete_pool_blob(&mut pool, blob_id);
+    system.delete_pooled_blob(&mut pool, blob_id);
 
     abort
 }
@@ -321,10 +321,10 @@ fun delete_and_reuse_capacity() {
     let available_after_register = pool.available_encoded_size();
 
     // Certify the blob.
-    certify_deletable_pool_blob(&mut pool, blob_id, EPOCH);
+    certify_deletable_pooled_blob(&mut pool, blob_id, EPOCH);
 
     // Delete the blob, freeing capacity.
-    system.delete_pool_blob(&mut pool, blob_id);
+    system.delete_pooled_blob(&mut pool, blob_id);
     assert_eq!(pool.used_size(), 0);
 
     // Register a new blob reusing the freed capacity.
@@ -418,7 +418,7 @@ fun destroy_non_empty_pool() {
 // === Full lifecycle test ===
 
 #[test]
-fun full_pool_blob_lifecycle() {
+fun full_pooled_blob_lifecycle() {
     let sk = test_utils::bls_sk_for_testing();
     let ctx = &mut tx_context::dummy();
     let mut system = system::new_for_testing(ctx);
@@ -442,7 +442,7 @@ fun full_pool_blob_lifecycle() {
         object_id,
     );
     let signature = bls_min_pk_sign(&confirmation_message, &sk);
-    system.certify_pool_blob(
+    system.certify_pooled_blob(
         &mut pool,
         blob_id,
         signature,
@@ -457,7 +457,7 @@ fun full_pool_blob_lifecycle() {
     assert_eq!(pool.end_epoch(), original_end + 2);
 
     // 5. Delete the blob.
-    system.delete_pool_blob(&mut pool, blob_id);
+    system.delete_pooled_blob(&mut pool, blob_id);
     assert_eq!(pool.blob_count(), 0);
     assert_eq!(pool.used_size(), 0);
 
@@ -500,7 +500,7 @@ fun register_blob_in_pool(
     ctx: &mut TxContext,
 ) {
     let mut fake_coin = test_utils::mint_frost(N_COINS, ctx);
-    system.register_pool_blob(
+    system.register_pooled_blob(
         pool,
         blob_id,
         ROOT_HASH,
@@ -523,7 +523,7 @@ fun register_blob_in_pool_with_root(
 ) {
     let blob_id = blob::derive_blob_id(root_hash, RS2, size);
     let mut fake_coin = test_utils::mint_frost(N_COINS, ctx);
-    system.register_pool_blob(
+    system.register_pooled_blob(
         pool,
         blob_id,
         root_hash,
@@ -536,15 +536,15 @@ fun register_blob_in_pool_with_root(
     fake_coin.burn_for_testing();
 }
 
-/// Certifies a permanent pool blob using the test-only message helper.
-fun certify_permanent_pool_blob(pool: &mut StoragePool, blob_id: u256, epoch: u32) {
+/// Certifies a permanent pooled blob using the test-only message helper.
+fun certify_permanent_pooled_blob(pool: &mut StoragePool, blob_id: u256, epoch: u32) {
     let certify_message = messages::certified_permanent_blob_message_for_testing(blob_id);
     let end_epoch = pool.end_epoch();
     storage_pool::certify(pool.borrow_blob_mut(blob_id), epoch, end_epoch, certify_message);
 }
 
-/// Certifies a deletable pool blob using the test-only message helper.
-fun certify_deletable_pool_blob(pool: &mut StoragePool, blob_id: u256, epoch: u32) {
+/// Certifies a deletable pooled blob using the test-only message helper.
+fun certify_deletable_pooled_blob(pool: &mut StoragePool, blob_id: u256, epoch: u32) {
     let object_id = object::id(pool.borrow_blob_mut(blob_id));
     let certify_message = messages::certified_deletable_blob_message_for_testing(
         blob_id,

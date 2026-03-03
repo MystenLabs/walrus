@@ -10,7 +10,7 @@ use sui::object_table::{Self, ObjectTable};
 use walrus::{
     blob,
     encoding,
-    events::{emit_pool_blob_certified, emit_pool_blob_deleted, emit_pool_blob_registered},
+    events::{emit_pooled_blob_certified, emit_pooled_blob_deleted, emit_pooled_blob_registered},
     messages::CertifiedBlobMessage
 };
 
@@ -48,12 +48,12 @@ public struct StoragePool has key, store {
     used_size: u64,
     /// Number of blobs in the table.
     blob_count: u64,
-    blobs: ObjectTable<u256, PoolBlob>,
+    blobs: ObjectTable<u256, PooledBlob>,
 }
 
 /// A blob registered against a `StoragePool` pool. Unlike `Blob`, this has no embedded
 /// `Storage` field — the lifetime is determined by the parent `StoragePool.end_epoch`.
-public struct PoolBlob has key, store {
+public struct PooledBlob has key, store {
     id: UID,
     registered_epoch: u32,
     blob_id: u256,
@@ -122,7 +122,7 @@ public(package) fun extend_end_epoch(self: &mut StoragePool, extension_epochs: u
 }
 
 /// Adds a blob to the pool's object table, and accounts for the space it occupies.
-public(package) fun add_blob(self: &mut StoragePool, blob: PoolBlob, encoded_size: u64) {
+public(package) fun add_blob(self: &mut StoragePool, blob: PooledBlob, encoded_size: u64) {
     self.blob_count = self.blob_count + 1;
     self.used_size = self.used_size + encoded_size;
     assert!(self.used_size <= self.reserved_encoded_capacity_bytes, EInsufficientCapacity);
@@ -130,7 +130,7 @@ public(package) fun add_blob(self: &mut StoragePool, blob: PoolBlob, encoded_siz
 }
 
 /// Removes and returns a blob from the pool's object table by its blob ID.
-public(package) fun remove_blob(self: &mut StoragePool, blob_id: u256, n_shards: u16): PoolBlob {
+public(package) fun remove_blob(self: &mut StoragePool, blob_id: u256, n_shards: u16): PooledBlob {
     let blob = self.blobs.borrow(blob_id);
     let encoded_size = encoding::encoded_blob_length(blob.size, blob.encoding_type, n_shards);
     self.used_size = self.used_size - encoded_size;
@@ -139,7 +139,7 @@ public(package) fun remove_blob(self: &mut StoragePool, blob_id: u256, n_shards:
 }
 
 /// Borrows a blob mutably from the pool's object table.
-public(package) fun borrow_blob_mut(self: &mut StoragePool, blob_id: u256): &mut PoolBlob {
+public(package) fun borrow_blob_mut(self: &mut StoragePool, blob_id: u256): &mut PooledBlob {
     self.blobs.borrow_mut(blob_id)
 }
 
@@ -152,10 +152,10 @@ public fun destroy(self: StoragePool) {
     id.delete();
 }
 
-// === PoolBlob operations ===
+// === PooledBlob operations ===
 
 /// Creates a new blob for a storage pool.
-public(package) fun new_pool_blob(
+public(package) fun new_pooled_blob(
     storage_pool_id: ID,
     blob_id: u256,
     root_hash: u256,
@@ -164,13 +164,13 @@ public(package) fun new_pool_blob(
     deletable: bool,
     registered_epoch: u32,
     ctx: &mut TxContext,
-): PoolBlob {
+): PooledBlob {
     // Cryptographically verify that the blob ID authenticates the size and encoding_type.
     assert!(blob::derive_blob_id(root_hash, encoding_type, size) == blob_id, EInvalidBlobId);
 
     let id = object::new(ctx);
 
-    emit_pool_blob_registered(
+    emit_pooled_blob_registered(
         registered_epoch,
         blob_id,
         size,
@@ -180,7 +180,7 @@ public(package) fun new_pool_blob(
         storage_pool_id,
     );
 
-    PoolBlob {
+    PooledBlob {
         id,
         registered_epoch,
         blob_id,
@@ -194,7 +194,7 @@ public(package) fun new_pool_blob(
 
 /// Certifies a blob in a storage pool.
 public(package) fun certify(
-    blob: &mut PoolBlob,
+    blob: &mut PooledBlob,
     current_epoch: u32,
     end_epoch: u32,
     message: CertifiedBlobMessage,
@@ -219,7 +219,7 @@ public(package) fun certify(
 
     blob.certified_epoch.fill(current_epoch);
 
-    emit_pool_blob_certified(
+    emit_pooled_blob_certified(
         current_epoch,
         blob.blob_id,
         blob.deletable,
@@ -229,8 +229,8 @@ public(package) fun certify(
 }
 
 /// Deletes a deletable blob from a storage pool and destroys it.
-public(package) fun delete_blob_from_pool(blob: PoolBlob, epoch: u32, end_epoch: u32) {
-    let PoolBlob {
+public(package) fun delete_blob_from_pool(blob: PooledBlob, epoch: u32, end_epoch: u32) {
+    let PooledBlob {
         id,
         deletable,
         blob_id,
@@ -242,7 +242,7 @@ public(package) fun delete_blob_from_pool(blob: PoolBlob, epoch: u32, end_epoch:
     assert!(end_epoch > epoch, EResourceBounds);
     let object_id = id.to_inner();
     id.delete();
-    emit_pool_blob_deleted(
+    emit_pooled_blob_deleted(
         epoch,
         blob_id,
         object_id,
@@ -259,6 +259,6 @@ public fun destroy_for_testing(self: StoragePool) {
 }
 
 #[test_only]
-public fun destroy_blob_for_testing(self: PoolBlob) {
+public fun destroy_blob_for_testing(self: PooledBlob) {
     std::unit_test::destroy(self);
 }

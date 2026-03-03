@@ -144,7 +144,7 @@ public struct StoragePoolCreated has copy, drop {
 }
 
 /// Signals that a blob has been registered against a StoragePool pool.
-public struct PoolBlobRegistered has copy, drop {
+public struct PooledBlobRegistered has copy, drop {
     epoch: u32,
     blob_id: u256,
     size: u64,
@@ -155,7 +155,7 @@ public struct PoolBlobRegistered has copy, drop {
 }
 
 /// Signals that a blob in a StoragePool pool has been certified.
-public struct PoolBlobCertified has copy, drop {
+public struct PooledBlobCertified has copy, drop {
     epoch: u32,
     blob_id: u256,
     deletable: bool,
@@ -164,7 +164,7 @@ public struct PoolBlobCertified has copy, drop {
 }
 
 /// Signals that a blob has been deleted from a StoragePool pool.
-public struct PoolBlobDeleted has copy, drop {
+public struct PooledBlobDeleted has copy, drop {
     epoch: u32,
     blob_id: u256,
     object_id: ID,
@@ -298,7 +298,7 @@ public(package) fun emit_storage_pool_created(
     event::emit(StoragePoolCreated { epoch, storage_pool_id, storage_size, start_epoch, end_epoch })
 }
 
-public(package) fun emit_pool_blob_registered(
+public(package) fun emit_pooled_blob_registered(
     epoch: u32,
     blob_id: u256,
     size: u64,
@@ -307,7 +307,7 @@ public(package) fun emit_pool_blob_registered(
     object_id: ID,
     storage_pool_id: ID,
 ) {
-    event::emit(PoolBlobRegistered {
+    event::emit(PooledBlobRegistered {
         epoch,
         blob_id,
         size,
@@ -318,14 +318,14 @@ public(package) fun emit_pool_blob_registered(
     })
 }
 
-public(package) fun emit_pool_blob_certified(
+public(package) fun emit_pooled_blob_certified(
     epoch: u32,
     blob_id: u256,
     deletable: bool,
     object_id: ID,
     storage_pool_id: ID,
 ) {
-    event::emit(PoolBlobCertified {
+    event::emit(PooledBlobCertified {
         epoch,
         blob_id,
         deletable,
@@ -334,14 +334,14 @@ public(package) fun emit_pool_blob_certified(
     })
 }
 
-public(package) fun emit_pool_blob_deleted(
+public(package) fun emit_pooled_blob_deleted(
     epoch: u32,
     blob_id: u256,
     object_id: ID,
     was_certified: bool,
     storage_pool_id: ID,
 ) {
-    event::emit(PoolBlobDeleted {
+    event::emit(PooledBlobDeleted {
         epoch,
         blob_id,
         object_id,

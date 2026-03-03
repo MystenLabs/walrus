@@ -222,7 +222,7 @@ public fun create_storage_pool(
 }
 
 /// Registers a new blob against a storage pool.
-public fun register_pool_blob(
+public fun register_pooled_blob(
     self: &mut System,
     pool: &mut StoragePool,
     blob_id: u256,
@@ -235,7 +235,7 @@ public fun register_pool_blob(
 ) {
     self
         .inner_mut()
-        .register_pool_blob(
+        .register_pooled_blob(
             pool,
             blob_id,
             root_hash,
@@ -248,8 +248,8 @@ public fun register_pool_blob(
 }
 
 /// Deletes a blob from a storage pool and frees its capacity.
-public fun delete_pool_blob(self: &System, pool: &mut StoragePool, blob_id: u256) {
-    self.inner().delete_pool_blob(pool, blob_id)
+public fun delete_pooled_blob(self: &System, pool: &mut StoragePool, blob_id: u256) {
+    self.inner().delete_pooled_blob(pool, blob_id)
 }
 
 /// Extends the lifetime of a storage pool by `extended_epochs`.
@@ -263,7 +263,7 @@ public fun extend_storage_pool(
 }
 
 /// Certifies a blob within a storage pool.
-public fun certify_pool_blob(
+public fun certify_pooled_blob(
     self: &System,
     pool: &mut StoragePool,
     blob_id: u256,
@@ -273,7 +273,7 @@ public fun certify_pool_blob(
 ) {
     self
         .inner()
-        .certify_pool_blob(
+        .certify_pooled_blob(
             pool,
             blob_id,
             signature,
