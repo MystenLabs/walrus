@@ -834,8 +834,6 @@ pub struct PoolBlobCertified {
     pub object_id: ObjectID,
     /// The object ID of the storage pool.
     pub storage_pool_id: ObjectID,
-    /// Whether this is an extension.
-    pub is_extension: bool,
     /// The ID of the event.
     pub event_id: EventID,
 }
@@ -850,7 +848,7 @@ impl TryFrom<SuiEvent> for PoolBlobCertified {
     fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
         ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
 
-        let (epoch, blob_id, deletable, object_id, storage_pool_id, is_extension) =
+        let (epoch, blob_id, deletable, object_id, storage_pool_id) =
             bcs::from_bytes(sui_event.bcs.bytes())?;
         Ok(Self {
             epoch,
@@ -858,7 +856,6 @@ impl TryFrom<SuiEvent> for PoolBlobCertified {
             deletable,
             object_id,
             storage_pool_id,
-            is_extension,
             event_id: sui_event.id,
         })
     }
@@ -871,8 +868,6 @@ pub struct PoolBlobDeleted {
     pub epoch: Epoch,
     /// The blob ID.
     pub blob_id: BlobId,
-    /// The end epoch of the storage pool (exclusive).
-    pub end_epoch: Epoch,
     /// The object ID of the related `PoolBlob` object.
     pub object_id: ObjectID,
     /// Whether the blob was previously certified.
@@ -893,12 +888,11 @@ impl TryFrom<SuiEvent> for PoolBlobDeleted {
     fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
         ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
 
-        let (epoch, blob_id, end_epoch, object_id, was_certified, storage_pool_id) =
+        let (epoch, blob_id, object_id, was_certified, storage_pool_id) =
             bcs::from_bytes(sui_event.bcs.bytes())?;
         Ok(Self {
             epoch,
             blob_id,
-            end_epoch,
             object_id,
             was_certified,
             storage_pool_id,
@@ -972,13 +966,7 @@ impl StoragePoolEvent {
         match self {
             StoragePoolEvent::StoragePoolCreated(event) => Some(event.epoch),
             StoragePoolEvent::PoolBlobRegistered(event) => Some(event.epoch),
-            StoragePoolEvent::PoolBlobCertified(event) => {
-                if event.is_extension {
-                    None
-                } else {
-                    Some(event.epoch)
-                }
-            }
+            StoragePoolEvent::PoolBlobCertified(event) => Some(event.epoch),
             StoragePoolEvent::PoolBlobDeleted(event) => Some(event.epoch),
             StoragePoolEvent::StoragePoolExtended(event) => Some(event.epoch),
         }
@@ -1019,10 +1007,7 @@ impl StoragePoolEvent {
 
     /// Returns true if the event is a blob extension.
     pub fn is_blob_extension(&self) -> bool {
-        match self {
-            StoragePoolEvent::PoolBlobCertified(event) => event.is_extension,
-            _ => false,
-        }
+        false
     }
 }
 

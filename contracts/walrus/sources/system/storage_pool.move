@@ -277,7 +277,6 @@ public(package) fun certify(
         blob.deletable,
         blob.id.to_inner(),
         blob.storage_pool_id,
-        false,
     );
 }
 
@@ -298,7 +297,6 @@ public(package) fun delete_blob_from_pool(blob: PoolBlob, epoch: u32, end_epoch:
     emit_pool_blob_deleted(
         epoch,
         blob_id,
-        end_epoch,
         object_id,
         certified_epoch.is_some(),
         storage_pool_id,

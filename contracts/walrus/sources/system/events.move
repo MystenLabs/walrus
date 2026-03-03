@@ -161,14 +161,12 @@ public struct PoolBlobCertified has copy, drop {
     deletable: bool,
     object_id: ID,
     storage_pool_id: ID,
-    is_extension: bool,
 }
 
 /// Signals that a blob has been deleted from a StoragePool pool.
 public struct PoolBlobDeleted has copy, drop {
     epoch: u32,
     blob_id: u256,
-    end_epoch: u32,
     object_id: ID,
     was_certified: bool,
     storage_pool_id: ID,
@@ -326,7 +324,6 @@ public(package) fun emit_pool_blob_certified(
     deletable: bool,
     object_id: ID,
     storage_pool_id: ID,
-    is_extension: bool,
 ) {
     event::emit(PoolBlobCertified {
         epoch,
@@ -334,14 +331,12 @@ public(package) fun emit_pool_blob_certified(
         deletable,
         object_id,
         storage_pool_id,
-        is_extension,
     })
 }
 
 public(package) fun emit_pool_blob_deleted(
     epoch: u32,
     blob_id: u256,
-    end_epoch: u32,
     object_id: ID,
     was_certified: bool,
     storage_pool_id: ID,
@@ -349,7 +344,6 @@ public(package) fun emit_pool_blob_deleted(
     event::emit(PoolBlobDeleted {
         epoch,
         blob_id,
-        end_epoch,
         object_id,
         was_certified,
         storage_pool_id,
