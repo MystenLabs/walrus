@@ -1,1 +1,0 @@
-https://linear.app/mysten-labs/issue/DOCS-677/siteslinkinglinking-from-walrus-sites

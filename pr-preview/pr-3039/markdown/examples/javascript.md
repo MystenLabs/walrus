@@ -1,1 +1,0 @@
-The following JavaScript example shows how to upload and download a blob through a web form using the HTTP API.
