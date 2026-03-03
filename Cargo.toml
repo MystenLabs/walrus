@@ -97,7 +97,7 @@ p256 = { version = "0.13.2", default-features = false }
 pin-project = "1.1.10"
 prettytable = "0.10.0"
 proc-macro2 = "1.0.106"
-prometheus = "0.13.4"
+prometheus = "0.14.0"
 prost = { version = "0.13", default-features = false }
 quote = "1.0"
 rand = "0.8.5"

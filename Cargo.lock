@@ -1846,7 +1846,7 @@ dependencies = [
  "async-channel",
  "axum 0.8.4",
  "mysten-metrics",
- "prometheus 0.13.4",
+ "prometheus",
  "rand 0.8.5",
  "rocksdb",
  "serde",
@@ -2128,7 +2128,7 @@ dependencies = [
  "mysten-network",
  "nom",
  "parking_lot 0.12.4",
- "prometheus 0.14.0",
+ "prometheus",
  "prost 0.14.1",
  "quinn-proto",
  "rand 0.8.5",
@@ -6583,7 +6583,7 @@ dependencies = [
  "futures",
  "once_cell",
  "parking_lot 0.12.4",
- "prometheus 0.14.0",
+ "prometheus",
  "prometheus-closure-metric",
  "scopeguard",
  "simple-server-timing-header",
@@ -6616,7 +6616,7 @@ dependencies = [
  "mysten-metrics",
  "once_cell",
  "pin-project-lite",
- "prometheus 0.14.0",
+ "prometheus",
  "quinn-proto",
  "rand 0.8.5",
  "rustls",
@@ -6641,7 +6641,7 @@ dependencies = [
  "anyhow",
  "axum 0.8.4",
  "mysten-metrics",
- "prometheus 0.14.0",
+ "prometheus",
  "serde",
  "simple-server-timing-header",
  "telemetry-subscribers",
@@ -7987,21 +7987,6 @@ dependencies = [
 
 [[package]]
 name = "prometheus"
-version = "0.13.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3d33c28a30771f7f96db69893f78b857f7450d7e0237e9c8fc6427a81bae7ed1"
-dependencies = [
- "cfg-if",
- "fnv",
- "lazy_static",
- "memchr",
- "parking_lot 0.12.4",
- "protobuf 2.28.0",
- "thiserror 1.0.69",
-]
-
-[[package]]
-name = "prometheus"
 version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3ca5326d8d0b950a9acd87e6a3f94745394f62e4dae1b1ee22b2bc0c394af43a"
@@ -8011,7 +7996,7 @@ dependencies = [
  "lazy_static",
  "memchr",
  "parking_lot 0.12.4",
- "protobuf 3.7.2",
+ "protobuf",
  "thiserror 2.0.18",
 ]
 
@@ -8021,7 +8006,7 @@ version = "0.1.0"
 source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.67.1#4e8aa9ee8b307b294cc85baf7d08af1f432e3d93"
 dependencies = [
  "anyhow",
- "prometheus 0.14.0",
+ "prometheus",
 ]
 
 [[package]]
@@ -8166,19 +8151,11 @@ dependencies = [
 
 [[package]]
 name = "protobuf"
-version = "2.28.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "106dd99e98437432fed6519dedecfade6a06a73bb7b2a1e019fdd2bee5778d94"
-dependencies = [
- "bytes",
-]
-
-[[package]]
-name = "protobuf"
 version = "3.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d65a1d4ddae7d8b5de68153b48f6aa3bba8cb002b243dbdbc55a5afbc98f99f4"
 dependencies = [
+ "bytes",
  "once_cell",
  "protobuf-support",
  "thiserror 1.0.69",
@@ -10244,7 +10221,7 @@ dependencies = [
  "nonzero_ext",
  "object_store 0.13.1",
  "once_cell",
- "prometheus 0.14.0",
+ "prometheus",
  "rand 0.8.5",
  "reqwest",
  "serde",
@@ -10307,7 +10284,7 @@ dependencies = [
  "once_cell",
  "parking_lot 0.12.4",
  "pin-project-lite",
- "prometheus 0.14.0",
+ "prometheus",
  "prost 0.14.1",
  "prost-build",
  "protox",
@@ -10393,7 +10370,7 @@ dependencies = [
  "notify",
  "object_store 0.13.1",
  "once_cell",
- "prometheus 0.14.0",
+ "prometheus",
  "prost 0.14.1",
  "serde",
  "serde_json",
@@ -10532,7 +10509,7 @@ dependencies = [
  "fastcrypto 0.1.9 (git+https://github.com/MystenLabs/fastcrypto?rev=db643fd05a1b1c4cd52de3939766b53e12ce137e)",
  "move-binary-format",
  "move-core-types",
- "prometheus 0.14.0",
+ "prometheus",
  "rand 0.8.5",
  "serde",
  "serde_with",
@@ -10615,7 +10592,7 @@ dependencies = [
  "move-core-types",
  "mysten-metrics",
  "once_cell",
- "prometheus 0.14.0",
+ "prometheus",
  "serde",
  "serde_json",
  "shared-crypto",
@@ -10654,7 +10631,7 @@ dependencies = [
  "jsonrpsee",
  "mysten-metrics",
  "once_cell",
- "prometheus 0.14.0",
+ "prometheus",
  "sui-json",
  "sui-json-rpc-types",
  "sui-open-rpc",
@@ -10743,7 +10720,7 @@ dependencies = [
  "anyhow",
  "fastcrypto 0.1.9 (git+https://github.com/MystenLabs/fastcrypto?rev=db643fd05a1b1c4cd52de3939766b53e12ce137e)",
  "mysten-metrics",
- "prometheus 0.14.0",
+ "prometheus",
  "reqwest",
  "serde",
  "snap",
@@ -10902,7 +10879,7 @@ dependencies = [
  "mysten-common",
  "mysten-metrics",
  "mysten-network",
- "prometheus 0.14.0",
+ "prometheus",
  "rand 0.8.5",
  "serde",
  "shared-crypto",
@@ -10955,7 +10932,7 @@ dependencies = [
  "mysten-network",
  "mysten-service",
  "parking_lot 0.12.4",
- "prometheus 0.14.0",
+ "prometheus",
  "reqwest",
  "serde",
  "sui-config",
@@ -11175,7 +11152,7 @@ dependencies = [
  "move-binary-format",
  "move-core-types",
  "mysten-network",
- "prometheus 0.14.0",
+ "prometheus",
  "prost 0.14.1",
  "prost-types 0.14.1",
  "protox",
@@ -11330,7 +11307,7 @@ dependencies = [
  "integer-encoding 3.0.4",
  "num_enum",
  "object_store 0.13.1",
- "prometheus 0.14.0",
+ "prometheus",
  "serde",
  "serde_json",
  "sui-config",
@@ -11376,7 +11353,7 @@ dependencies = [
  "object_store 0.13.1",
  "parking_lot 0.12.4",
  "percent-encoding",
- "prometheus 0.14.0",
+ "prometheus",
  "reqwest",
  "serde",
  "serde_json",
@@ -11403,7 +11380,7 @@ dependencies = [
  "futures",
  "mysten-metrics",
  "mysten-network",
- "prometheus 0.14.0",
+ "prometheus",
  "rand 0.8.5",
  "sui-config",
  "sui-macros",
@@ -11432,7 +11409,7 @@ dependencies = [
  "fastcrypto 0.1.9 (git+https://github.com/MystenLabs/fastcrypto?rev=db643fd05a1b1c4cd52de3939766b53e12ce137e)",
  "move-bytecode-utils",
  "mysten-common",
- "prometheus 0.14.0",
+ "prometheus",
  "rand 0.8.5",
  "serde",
  "serde_with",
@@ -11573,7 +11550,7 @@ dependencies = [
  "p384",
  "parking_lot 0.12.4",
  "passkey-types",
- "prometheus 0.14.0",
+ "prometheus",
  "proptest",
  "proptest-derive",
  "prost 0.14.1",
@@ -11788,7 +11765,7 @@ dependencies = [
  "opentelemetry-otlp 0.27.0",
  "opentelemetry-proto 0.27.0",
  "opentelemetry_sdk 0.27.1",
- "prometheus 0.14.0",
+ "prometheus",
  "prost 0.13.5",
  "tokio",
  "tonic 0.12.3",
@@ -11861,7 +11838,7 @@ dependencies = [
  "jsonrpsee",
  "move-binary-format",
  "mysten-common",
- "prometheus 0.14.0",
+ "prometheus",
  "rand 0.8.5",
  "sui-config",
  "sui-core",
@@ -12799,7 +12776,7 @@ dependencies = [
  "mysten-common",
  "mysten-metrics",
  "once_cell",
- "prometheus 0.14.0",
+ "prometheus",
  "rand 0.8.5",
  "rocksdb",
  "serde",
@@ -12826,7 +12803,7 @@ dependencies = [
  "hdrhistogram",
  "itertools 0.14.0",
  "once_cell",
- "prometheus 0.13.4",
+ "prometheus",
  "rand 0.8.5",
  "rocksdb",
  "rstest",
@@ -13236,7 +13213,7 @@ dependencies = [
  "futures",
  "hex",
  "indicatif",
- "prometheus 0.13.4",
+ "prometheus",
  "rand 0.8.5",
  "reqwest",
  "serde_json",
@@ -13354,9 +13331,9 @@ dependencies = [
  "hyper",
  "itertools 0.14.0",
  "once_cell",
- "prometheus 0.13.4",
+ "prometheus",
  "prost 0.13.5",
- "protobuf 2.28.0",
+ "protobuf",
  "rand 0.8.5",
  "reqwest",
  "serde",
@@ -13396,7 +13373,7 @@ dependencies = [
  "itertools 0.14.0",
  "jsonwebtoken",
  "pin-project",
- "prometheus 0.13.4",
+ "prometheus",
  "rand 0.8.5",
  "rayon",
  "reqwest",
@@ -13480,7 +13457,7 @@ dependencies = [
  "p256",
  "pin-project",
  "prettytable",
- "prometheus 0.13.4",
+ "prometheus",
  "prost 0.13.5",
  "rand 0.8.5",
  "rayon",
@@ -13544,7 +13521,7 @@ dependencies = [
  "bcs",
  "futures",
  "itertools 0.14.0",
- "prometheus 0.13.4",
+ "prometheus",
  "rand 0.8.5",
  "reqwest",
  "rocksdb",
@@ -13583,7 +13560,7 @@ dependencies = [
  "opentelemetry 0.31.0",
  "p256",
  "pin-project",
- "prometheus 0.13.4",
+ "prometheus",
  "rand 0.8.5",
  "rcgen",
  "reqwest",
@@ -13616,7 +13593,7 @@ dependencies = [
  "humantime",
  "indicatif",
  "mysten-metrics",
- "prometheus 0.13.4",
+ "prometheus",
  "rand 0.8.5",
  "rand_distr",
  "sui-sdk",
@@ -13655,7 +13632,7 @@ dependencies = [
  "move-package-alt",
  "move-package-alt-compilation",
  "mysten-metrics",
- "prometheus 0.13.4",
+ "prometheus",
  "rand 0.8.5",
  "regex",
  "reqwest",
@@ -13722,7 +13699,7 @@ dependencies = [
  "futures",
  "git-version",
  "mysten-metrics",
- "prometheus 0.13.4",
+ "prometheus",
  "rand 0.8.5",
  "reqwest",
  "serde",
@@ -13758,7 +13735,7 @@ dependencies = [
  "humantime",
  "once_cell",
  "pin-project",
- "prometheus 0.13.4",
+ "prometheus",
  "rand 0.8.5",
  "serde",
  "serde_json",
