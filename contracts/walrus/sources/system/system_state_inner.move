@@ -862,14 +862,9 @@ public(package) fun register_pool_blob(
     write_payment_coin: &mut Coin<WAL>,
     ctx: &mut TxContext,
 ) {
-    let encoded_size = encoded_blob_length(size, encoding_type, self.n_shards());
-
     // Validate pool is active for the current epoch.
     assert!(self.epoch() >= pool.start_epoch(), EInvalidEpochsAhead);
     assert!(self.epoch() < pool.end_epoch(), EInvalidEpochsAhead);
-
-    // Increase used_size (asserts capacity).
-    pool.increase_used_size(encoded_size);
 
     // Create the blob (emits PoolBlobRegistered event).
     let blob = storage_pool::new_pool_blob(
@@ -883,9 +878,9 @@ public(package) fun register_pool_blob(
         ctx,
     );
 
-    // Insert into the object table and increment count.
-    pool.add_blob(blob);
-    pool.inc_blob_count();
+    // Insert into the object table and increment used size.
+    let encoded_size = encoded_blob_length(size, encoding_type, self.n_shards());
+    pool.add_blob(blob, encoded_size);
 
     // Charge write fee.
     let write_price = self.write_price(encoded_size);
@@ -901,18 +896,11 @@ public(package) fun delete_pool_blob(
 ) {
     assert!(pool.end_epoch() > self.epoch(), EInvalidEpochsAhead);
 
-    // Compute encoded size before removing the blob.
-    let encoded_size = pool.blob_encoded_size(blob_id, self.n_shards());
-
-    // Remove blob from the table.
-    let blob = pool.remove_blob(blob_id);
+    // Remove blob from the table and decrement used size.
+    let blob = pool.remove_blob(blob_id, self.n_shards());
 
     // Delete the blob (checks deletable, emits event, destroys).
     storage_pool::delete_blob_from_pool(blob, self.epoch(), pool.end_epoch());
-
-    // Free capacity back to the pool.
-    pool.decrease_used_size(encoded_size);
-    pool.dec_blob_count();
 }
 
 /// Extends the lifetime of a `StoragePool` pool by `extended_epochs`.
@@ -931,14 +919,14 @@ public(package) fun extend_storage_pool(
 
     // Pay for the full pool capacity for each new epoch.
     self.process_storage_payments(
-        pool.storage_size(),
+        pool.reserved_encoded_capacity_bytes(),
         start_offset,
         end_offset,
         payment,
     );
 
     // Account capacity in ring buffer for each new epoch.
-    self.account_capacity(start_offset, end_offset, pool.storage_size());
+    self.account_capacity(start_offset, end_offset, pool.reserved_encoded_capacity_bytes());
 
     pool.extend_end_epoch(extended_epochs);
 

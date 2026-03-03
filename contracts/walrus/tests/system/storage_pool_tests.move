@@ -71,7 +71,7 @@ fun register_multiple_pool_blobs_happy_path() {
 
     assert_eq!(pool.blob_count(), 3);
     assert_eq!(pool.used_size(), pool_capacity);
-    assert_eq!(pool.available_size(), 0);
+    assert_eq!(pool.available_encoded_size(), 0);
 
     pool.destroy_for_testing();
     system.destroy_for_testing();
@@ -318,7 +318,7 @@ fun delete_and_reuse_capacity() {
     let blob_id = default_blob_id();
     register_blob_in_pool(&mut system, &mut pool, blob_id, SIZE, true, ctx);
 
-    let available_after_register = pool.available_size();
+    let available_after_register = pool.available_encoded_size();
 
     // Certify the blob.
     certify_deletable_pool_blob(&mut pool, blob_id, EPOCH);
@@ -331,7 +331,7 @@ fun delete_and_reuse_capacity() {
     register_blob_in_pool_with_root(&mut system, &mut pool, 0x222, SIZE, false, ctx);
 
     assert_eq!(pool.blob_count(), 1);
-    assert_eq!(pool.available_size(), available_after_register);
+    assert_eq!(pool.available_encoded_size(), available_after_register);
 
     pool.destroy_for_testing();
     system.destroy_for_testing();

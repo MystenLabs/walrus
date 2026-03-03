@@ -41,9 +41,9 @@ public struct StoragePool has key, store {
     id: UID,
     start_epoch: u32,
     end_epoch: u32,
-    // TODO(WAL-1157): allow extending the storage capacity of the pool.
-    /// Total reserved capacity in encoded bytes (never changes).
-    storage_size: u64,
+    // TODO(WAL-1159): allow extending the storage capacity of the pool.
+    /// Total reserved capacity in encoded bytes.
+    reserved_encoded_capacity_bytes: u64,
     /// Sum of all active blobs' encoded sizes.
     used_size: u64,
     /// Number of blobs in the table.
@@ -75,16 +75,16 @@ public fun end_epoch(self: &StoragePool): u32 {
     self.end_epoch
 }
 
-public fun storage_size(self: &StoragePool): u64 {
-    self.storage_size
+public fun reserved_encoded_capacity_bytes(self: &StoragePool): u64 {
+    self.reserved_encoded_capacity_bytes
 }
 
 public fun used_size(self: &StoragePool): u64 {
     self.used_size
 }
 
-public fun available_size(self: &StoragePool): u64 {
-    self.storage_size - self.used_size
+public fun available_encoded_size(self: &StoragePool): u64 {
+    self.reserved_encoded_capacity_bytes - self.used_size
 }
 
 public fun blob_count(self: &StoragePool): u64 {
@@ -97,14 +97,14 @@ public fun blob_count(self: &StoragePool): u64 {
 public(package) fun create(
     start_epoch: u32,
     end_epoch: u32,
-    storage_size: u64,
+    reserved_encoded_capacity_bytes: u64,
     ctx: &mut TxContext,
 ): StoragePool {
     StoragePool {
         id: object::new(ctx),
         start_epoch,
         end_epoch,
-        storage_size,
+        reserved_encoded_capacity_bytes,
         used_size: 0,
         blob_count: 0,
         blobs: object_table::new(ctx),
@@ -121,34 +121,20 @@ public(package) fun extend_end_epoch(self: &mut StoragePool, extension_epochs: u
     self.end_epoch = self.end_epoch + extension_epochs;
 }
 
-/// Increases `used_size` by `amount`. Asserts capacity is not exceeded.
-public(package) fun increase_used_size(self: &mut StoragePool, amount: u64) {
-    self.used_size = self.used_size + amount;
-    assert!(self.used_size <= self.storage_size, EInsufficientCapacity);
-}
-
-/// Decreases `used_size` by `amount`.
-public(package) fun decrease_used_size(self: &mut StoragePool, amount: u64) {
-    self.used_size = self.used_size - amount;
-}
-
-/// Increments the blob count.
-public(package) fun inc_blob_count(self: &mut StoragePool) {
+/// Adds a blob to the pool's object table, and accounts for the space it occupies.
+public(package) fun add_blob(self: &mut StoragePool, blob: PoolBlob, encoded_size: u64) {
     self.blob_count = self.blob_count + 1;
-}
-
-/// Decrements the blob count.
-public(package) fun dec_blob_count(self: &mut StoragePool) {
-    self.blob_count = self.blob_count - 1;
-}
-
-/// Adds a blob to the pool's object table.
-public(package) fun add_blob(self: &mut StoragePool, blob: PoolBlob) {
+    self.used_size = self.used_size + encoded_size;
+    assert!(self.used_size <= self.reserved_encoded_capacity_bytes, EInsufficientCapacity);
     self.blobs.add(blob.blob_id, blob);
 }
 
 /// Removes and returns a blob from the pool's object table by its blob ID.
-public(package) fun remove_blob(self: &mut StoragePool, blob_id: u256): PoolBlob {
+public(package) fun remove_blob(self: &mut StoragePool, blob_id: u256, n_shards: u16): PoolBlob {
+    let blob = self.blobs.borrow(blob_id);
+    let encoded_size = encoding::encoded_blob_length(blob.size, blob.encoding_type, n_shards);
+    self.used_size = self.used_size - encoded_size;
+    self.blob_count = self.blob_count - 1;
     self.blobs.remove(blob_id)
 }
 
@@ -164,12 +150,6 @@ public fun destroy(self: StoragePool) {
     assert!(blob_count == 0, EPoolNotEmpty);
     blobs.destroy_empty();
     id.delete();
-}
-
-/// Computes the encoded size of a blob in the pool (package-visible for capacity accounting).
-public(package) fun blob_encoded_size(self: &mut StoragePool, blob_id: u256, n_shards: u16): u64 {
-    let blob = self.blobs.borrow(blob_id);
-    encoding::encoded_blob_length(blob.size, blob.encoding_type, n_shards)
 }
 
 // === PoolBlob operations ===
