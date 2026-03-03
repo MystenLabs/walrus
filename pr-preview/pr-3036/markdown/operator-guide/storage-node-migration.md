@@ -69,7 +69,7 @@ Download the latest `walrus` and `walrus-node` binaries (see [Download binaries]
 
 ##### Step 5: Verify transferred data:
 
-Verify the contents of `/opt/walrus/config`, `/opt/walrus/db`, and `/opt/walrus/wallets` (if you run a publisher) match the old host.
+Verify the contents of `/opt/walrus/config` and `/opt/walrus/wallets` (if you run a publisher) match the old host. For `/opt/walrus/db`, check that the directory structure and file sizes are consistent with the old host.
 
 ##### Step 6: Update the hostname (if changed):
 

@@ -24,8 +24,8 @@
 
 ## What is the difference between `--sui-network` and `--sui-rpc`? {#sui-rpc}
 
-`--sui-network` points to the Sui full node used to read objects and send transactions.
-`--sui-rpc` is used specifically for reading transactions during event processing.
+`--sui-network` is used to configure the wallet used by the storage node. It does not directly handle RPC requests.
+`--sui-rpc` is the endpoint used for all Sui interactions, including reading events and transaction data and executing transactions.
 
 ## How do I set the commission rate? {#commission}
 

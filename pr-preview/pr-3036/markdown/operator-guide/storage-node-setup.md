@@ -67,6 +67,12 @@ If you deviate from the standard setup below (user, directories, ports), make su
 
 The storage node handles TLS directly. If you deploy a reverse proxy in front of the storage node, you **must** disable TLS termination on the proxy or ensure it uses the same key as the storage node.
 
+:::warning
+
+Do not use self-signed certificates, as they prevent the node from communicating with browsers.
+
+:::
+
 :::info
 
 You can use any tool to obtain and renew certificates. Just ensure you generate a key of the correct type (ECDSA secp256r1) in the correct format (PKCS8) and use the full certificate chain in PEM format.
@@ -158,7 +164,7 @@ If you need to manually re-run the deploy hook, use:
 
 ## Install jemalloc {#jemalloc}
 
-Install [jemalloc](https://jemalloc.net/) for improved memory allocation performance:
+It is **highly recommended** to install [jemalloc](https://jemalloc.net/) for improved memory allocation performance:
 
 ```sh
 sudo apt-get install libjemalloc2
@@ -271,8 +277,8 @@ curl "https://docs.wal.app/setup/client_config_$NETWORK.yaml" -o $CLIENT_CONFIG
 The `walrus-node setup` command generates the node configuration and a Sui wallet. Key options:
 
 - `--node-capacity`: Use the capacity that you can dedicate to the Walrus database. Accepts values like `3.14TB`, `2.718TiB`, and similar units.
-- `--sui-network`: The Sui full node URL used to read objects and send transactions. Requires a Sui full node that can sustain at least 10 requests per second for checkpoint data.
-- `--sui-rpc`: The Sui RPC URL used specifically for reading transactions during event processing. See the [FAQ](/docs/operator-guide/storage-node-faq#sui-rpc) for the distinction. Can be the same as `--sui-network` or a separate endpoint.
+- `--sui-network`: The Sui full node URL used to configure the storage node's wallet.
+- `--sui-rpc`: The Sui RPC URL used for all Sui interactions. Can be the same as `--sui-network` or a separate endpoint. See the [FAQ](/docs/operator-guide/storage-node-faq#sui-rpc) for the distinction.
 - `--checkpoint-bucket`: URL for checkpoint-based transaction reading as a fallback.
 - `--additional-rpc-endpoints`: Additional Sui RPC endpoints for redundancy (can be specified multiple times).
 - `--storage-price` and `--write-price`: Your voting parameters for the storage price per MiB and epoch, and write price per MiB (one-time fee). The currency can be specified with the `--price-currency` flag (defaults to FROST). Check with the Walrus Foundation for the current recommended values.
@@ -284,7 +290,7 @@ All of these options can also be changed in the generated config file after setu
 
 :::info
 
-Operators who set up their node in coordination with the Walrus Foundation or Mysten Labs can get access to a dedicated Sui full node. Otherwise, you need to run your own or use a third-party RPC provider. If you run your own Sui RPC node, make sure to always keep it up-to-date and **not** enable aggressive pruning (all data must be kept for at least one week on Mainnet or two days on Testnet).
+Operators who set up their node in coordination with the Walrus Foundation or Mysten Labs can get access to a dedicated Sui full node. Otherwise, you need to run your own or use a third-party RPC provider. The Sui full node must sustain at least 10 requests per second for checkpoint data. If you run your own Sui RPC node, make sure to always keep it up-to-date and **not** enable aggressive pruning (all data must be kept for at least one week on Mainnet or two days on Testnet).
 
 :::
 
