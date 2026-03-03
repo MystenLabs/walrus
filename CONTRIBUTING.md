@@ -27,7 +27,7 @@ fully responsible for everything that gets merged.
   ensure tests are easy to read and include clear, detailed descriptions so reviewers can quickly
   understand intent.
 
-Given how fast AI is evolving, we keep an open mind to revisit these rules as things change. Use AI
+Given how fast AI is evolving, we plan to revisit these rules as things change. Let's use AI
 aggressively, but take full ownership of what we ship.
 
 ## GitHub flow
