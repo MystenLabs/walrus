@@ -3,97 +3,94 @@
   SPDX-License-Identifier: Apache-2.0
 */
 
-@layer theme, utilities;
+@layer theme, base, components, utilities;
+
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
 
 @theme {
-    --color-wal-black: hsl(229, 42%, 8%);
-    --color-wal-white: hsl(0, 0%, 97%);
-    /* Base channel for wal white; use alpha to derive shades */
-    --wal-white-100-hsl: 0 0% 97%;
+  --color-wal-black: hsl(229, 42%, 8%);
+  --color-wal-white: hsl(0, 0%, 97%);
+  --wal-white-100-hsl: 0 0% 97%;
 
-    /* Alpha-derived whites: white-100 is opaque (100%), white-30 is 30% alpha */
-    --color-wal-white-100: hsl(var(--wal-white-100-hsl) / 100%);
-    --color-wal-white-90: hsl(var(--wal-white-100-hsl) / 90%);
-    --color-wal-white-80: hsl(var(--wal-white-100-hsl) / 80%);
-    --color-wal-white-70: hsl(var(--wal-white-100-hsl) / 70%);
-    --color-wal-white-60: hsl(var(--wal-white-100-hsl) / 60%);
-    --color-wal-white-50: hsl(var(--wal-white-100-hsl) / 50%);
-    --color-wal-white-40: hsl(var(--wal-white-100-hsl) / 40%);
-    --color-wal-white-30: hsl(var(--wal-white-100-hsl) / 30%);
-    --color-wal-white-20: hsl(var(--wal-white-100-hsl) / 20%);
-    --color-wal-white-10: hsl(var(--wal-white-100-hsl) / 10%);
-    --color-wal-white-5: hsl(var(--wal-white-100-hsl) / 5%);
-    --color-wal-purple-lighter: hsl(274, 100%, 90%);
-    --color-wal-purple-light: hsl(274, 89%, 83%);
-    --color-wal-purple: hsl(274, 86%, 74%);
-    --color-wal-purple-dark: hsl(265, 82%, 69%);
-    --color-wal-purple-darker: hsl(265, 90%, 30%);
-    --color-wal-link: hsl(173, 75%, 77%);
-    --color-wal-link-hover: hsl(172, 90%, 30%);
-    --color-wal-purple-link-dark: var(--color-wal-purple);
-    --color-wal-green-lighter: hsl(173, 75%, 95%);
-    --color-wal-green-light: hsl(172, 83%, 89%);
-    --color-wal-green: hsl(173, 75%, 77%);
-    --color-wal-green-dark: hsl(172, 56%, 49%);
-    --color-wal-green-darker: hsl(172, 90%, 30%);
-    --color-wal-success: hsl(152, 93%, 35%);
+  --color-wal-white-100: hsl(var(--wal-white-100-hsl) / 100%);
+  --color-wal-white-90: hsl(var(--wal-white-100-hsl) / 90%);
+  --color-wal-white-80: hsl(var(--wal-white-100-hsl) / 80%);
+  --color-wal-white-70: hsl(var(--wal-white-100-hsl) / 70%);
+  --color-wal-white-60: hsl(var(--wal-white-100-hsl) / 60%);
+  --color-wal-white-50: hsl(var(--wal-white-100-hsl) / 50%);
+  --color-wal-white-40: hsl(var(--wal-white-100-hsl) / 40%);
+  --color-wal-white-30: hsl(var(--wal-white-100-hsl) / 30%);
+  --color-wal-white-20: hsl(var(--wal-white-100-hsl) / 20%);
+  --color-wal-white-10: hsl(var(--wal-white-100-hsl) / 10%);
+  --color-wal-white-5: hsl(var(--wal-white-100-hsl) / 5%);
 
-    /* Base channel for wal gray; use alpha to derive shades */
-    --wal-gray-100-hsl: 231 40% 8%;
+  --color-wal-purple-lighter: hsl(274, 100%, 90%);
+  --color-wal-purple-light: hsl(274, 89%, 83%);
+  --color-wal-purple: hsl(274, 86%, 74%);
+  --color-wal-purple-dark: hsl(265, 82%, 69%);
+  --color-wal-purple-darker: hsl(265, 90%, 30%);
 
-    /* Alpha-derived grays: gray-100 is opaque (100%), gray-30 is 30% alpha */
-    --color-wal-gray-100: hsl(var(--wal-gray-100-hsl) / 100%);
-    --color-wal-gray-90: hsl(var(--wal-gray-100-hsl) / 90%);
-    --color-wal-gray-80: hsl(var(--wal-gray-100-hsl) / 80%);
-    --color-wal-gray-70: hsl(var(--wal-gray-100-hsl) / 70%);
-    --color-wal-gray-60: hsl(var(--wal-gray-100-hsl) / 60%);
-    --color-wal-gray-50: hsl(var(--wal-gray-100-hsl) / 50%);
-    --color-wal-gray-40: hsl(var(--wal-gray-100-hsl) / 40%);
-    --color-wal-gray-30: hsl(var(--wal-gray-100-hsl) / 30%);
-    --color-wal-gray-20: hsl(var(--wal-gray-100-hsl) / 20%);
-    --color-wal-gray-10: hsl(var(--wal-gray-100-hsl) / 10%);
-    --color-wal-gray-5: hsl(var(--wal-gray-100-hsl) / 5%);
-    --color-wal-gray-2: hsl(var(--wal-gray-100-hsl) / 2%);
-    --color-wal-gray-1: hsl(var(--wal-gray-100-hsl) / 1%);
+  --color-wal-link: hsl(173, 75%, 77%);
+  --color-wal-link-hover: hsl(172, 90%, 30%);
 
-    /* grey-* synonyms */
-    --color-wal-grey-100: var(--color-wal-gray-100);
-    --color-wal-grey-90: var(--color-wal-gray-90);
-    --color-wal-grey-80: var(--color-wal-gray-80);
-    --color-wal-grey-70: var(--color-wal-gray-70);
-    --color-wal-grey-60: var(--color-wal-gray-60);
-    --color-wal-grey-50: var(--color-wal-gray-50);
-    --color-wal-grey-40: var(--color-wal-gray-40);
-    --color-wal-grey-30: var(--color-wal-gray-30);
-    --color-wal-grey-20: var(--color-wal-gray-20);
-    --color-wal-grey-10: var(--color-wal-gray-10);
-    --color-wal-grey-5: var(--color-wal-gray-5);
-    --color-wal-grey-2: var(--color-wal-gray-2);
-    --color-wal-grey-1: var(--color-wal-gray-1);
+  --color-wal-green-lighter: hsl(173, 75%, 95%);
+  --color-wal-green-light: hsl(172, 83%, 89%);
+  --color-wal-green: hsl(173, 75%, 77%);
+  --color-wal-green-dark: hsl(172, 56%, 49%);
+  --color-wal-green-darker: hsl(172, 90%, 30%);
+  --color-wal-success: hsl(152, 93%, 35%);
 
-    --color-docu-dark: hsl(240, 4%, 11%);
+  --wal-gray-100-hsl: 231 40% 8%;
+  --color-wal-gray-100: hsl(var(--wal-gray-100-hsl) / 100%);
+  --color-wal-gray-90: hsl(var(--wal-gray-100-hsl) / 90%);
+  --color-wal-gray-80: hsl(var(--wal-gray-100-hsl) / 80%);
+  --color-wal-gray-70: hsl(var(--wal-gray-100-hsl) / 70%);
+  --color-wal-gray-60: hsl(var(--wal-gray-100-hsl) / 60%);
+  --color-wal-gray-50: hsl(var(--wal-gray-100-hsl) / 50%);
+  --color-wal-gray-40: hsl(var(--wal-gray-100-hsl) / 40%);
+  --color-wal-gray-30: hsl(var(--wal-gray-100-hsl) / 30%);
+  --color-wal-gray-20: hsl(var(--wal-gray-100-hsl) / 20%);
+  --color-wal-gray-10: hsl(var(--wal-gray-100-hsl) / 10%);
+  --color-wal-gray-5: hsl(var(--wal-gray-100-hsl) / 5%);
+  --color-wal-gray-2: hsl(var(--wal-gray-100-hsl) / 2%);
+  --color-wal-gray-1: hsl(var(--wal-gray-100-hsl) / 1%);
 
-    /* Dark surface gradient: solid on edges, translucent middle */
-    --wal-surface-gradient-dark: linear-gradient(
-        to bottom,
-        var(--color-wal-white-10) 0%,
-        var(--color-wal-white-5) 15%,
-        var(--color-wal-white-5) 75%,
-        var(--color-wal-white-10) 100%
-    );
+  --color-wal-grey-100: var(--color-wal-gray-100);
+  --color-wal-grey-90: var(--color-wal-gray-90);
+  --color-wal-grey-80: var(--color-wal-gray-80);
+  --color-wal-grey-70: var(--color-wal-gray-70);
+  --color-wal-grey-60: var(--color-wal-gray-60);
+  --color-wal-grey-50: var(--color-wal-gray-50);
+  --color-wal-grey-40: var(--color-wal-gray-40);
+  --color-wal-grey-30: var(--color-wal-gray-30);
+  --color-wal-grey-20: var(--color-wal-gray-20);
+  --color-wal-grey-10: var(--color-wal-gray-10);
+  --color-wal-grey-5: var(--color-wal-gray-5);
+  --color-wal-grey-2: var(--color-wal-gray-2);
+  --color-wal-grey-1: var(--color-wal-gray-1);
 
-    --wal-surface-gradient-light: linear-gradient(
-        to bottom,
-        var(--color-wal-grey-5) 0%,
-        var(--color-wal-grey-2) 15%,
-        var(--color-wal-grey-2) 75%,
-        var(--color-wal-grey-5) 100%
-    );
+  --color-docu-dark: hsl(240, 4%, 11%);
+
+  --wal-surface-gradient-dark: linear-gradient(
+    to bottom,
+    var(--color-wal-white-10) 0%,
+    var(--color-wal-white-5) 15%,
+    var(--color-wal-white-5) 75%,
+    var(--color-wal-white-10) 100%
+  );
+
+  --wal-surface-gradient-light: linear-gradient(
+    to bottom,
+    var(--color-wal-grey-5) 0%,
+    var(--color-wal-grey-2) 15%,
+    var(--color-wal-grey-2) 75%,
+    var(--color-wal-grey-5) 100%
+  );
 }
 
 @import "./fonts.css";
 
+/* ✅ Tailwind v4: keep theme + utilities. DO NOT import preflight for Docusaurus/Infima. */
 @import "tailwindcss/theme" layer(theme);
 @import "tailwindcss/utilities" layer(utilities);
 
@@ -101,190 +98,212 @@
 @source "../../../content/**/*.{md,mdx}";
 @source "../../../blog/**/*.{md,mdx}";
 
+/* Infima vars */
 :root {
-    --ifm-font-family-base: var(--font-sans);
-    --ifm-font-family-monospace: var(--font-mono);
-    --ifm-navbar-background-color: var(--color-wal-white-100);
-    --ifm-link-color: var(--color-wal-green-dark);
-    --ifm-link-hover-color: var(--color-wal-link-hover);
-    --ifm-pagination-nav-color-hover: var(--color-wal-green-dark);
-    --ifm-color-primary: hsl(172, 56%, 49%);
-    --color-wal-link-hover: hsl(172, 90%, 30%);
-    --color-wal-link: hsl(172, 56%, 49%);
-    --color-wal-green-dark: hsl(172, 56%, 49%);
-    --ifm-link-color: var(--color-wal-green-dark);
-    --ifm-link-hover-color: var(--color-wal-link-hover);
+  --ifm-font-family-base: var(--font-sans);
+  --ifm-font-family-monospace: var(--font-mono);
+
+  --ifm-navbar-background-color: var(--color-wal-white-100);
+
+  --ifm-color-primary: hsl(172, 56%, 49%);
+
+  --color-wal-link: hsl(172, 56%, 49%);
+  --color-wal-link-hover: hsl(172, 90%, 30%);
+  --color-wal-green-dark: hsl(172, 56%, 49%);
+
+  --ifm-link-color: var(--color-wal-green-dark);
+  --ifm-link-hover-color: var(--color-wal-link-hover);
+  --ifm-pagination-nav-color-hover: var(--color-wal-green-dark);
 }
 
-
-body {
+/* Put custom selectors in a layer so Tailwind will emit @apply output */
+@layer components {
+  /* Body feel (don’t rely on preflight) */
+  body {
     @apply font-sans text-sm font-normal not-italic tracking-normal;
-}
+  }
 
-.markdown header > h1 {
+  /* Headings */
+  .markdown header > h1 {
     @apply text-wal-purple-darker dark:text-wal-purple-dark font-light text-[2.5rem];
-}
+  }
 
-.markdown h2 {
+  .markdown h2 {
     @apply font-semibold text-[1.75rem];
-}
+  }
 
-/** navbar **/
+  .markdown h3 {
+    @apply font-semibold text-[1.3rem];
+    @apply text-wal-gray-70 dark:text-wal-green-dark;
 
-html[data-theme="dark"] .navbar {
-    @apply bg-wal-gray-100;
-}
+  }
 
-.theme-doc-sidebar-menu.menu__list {
+  .markdown h1:first-child {
+    margin-top: 1rem;
+  }
+
+
+  /* Navbar */
+  html[data-theme="dark"] .navbar {
+    @apply bg-wal-gray-80;
+  }
+
+  .theme-doc-sidebar-menu.menu__list {
     @apply pb-8;
-}
+  }
 
-.navbar__link--active {
+  .navbar__link--active {
     @apply text-wal-purple-darker dark:text-wal-purple-dark;
-}
+  }
 
-/** navbar search field **/
+  /* Logo */
+  .navbar__brand {
+    flex-shrink: 1 !important;
+    min-width: 0 !important;
+  }
 
-.DocSearch-Button-Container {
+  .navbar__logo {
+    display: flex !important;
+    align-items: center !important;
+    flex-shrink: 0 !important;
+  }
+
+  .navbar__logo img {
+    height: 2rem !important;
+    width: auto !important;
+    object-fit: contain !important;
+    display: block !important;
+  }
+
+  /* DocSearch button */
+  .DocSearch-Button-Container {
     width: 100%;
     justify-content: space-between;
     align-items: center;
-}
+  }
 
-.DocSearch-Button {
+  .DocSearch-Button {
     width: 12.5rem;
     height: 2.625rem !important;
-    font-family: var(--headerFont);
     border: solid 1px rgba(247, 247, 248, 0.1) !important;
     border-radius: 2.25rem !important;
     padding: 1rem 1.1rem 1rem 1.25rem !important;
-    color: var(--color-wal-gray-80) !important;
+
+    color: var(--color-wal-gray-70) !important;
     font-family: var(--primaryFont);
     letter-spacing: -0.01em;
+
+    background-image: var(--wal-surface-gradient-light);
+    background-color: var(--color-wal-gray-5);
+
     margin: 0;
     transition: all var(--ifm-transition-fast) var(--ifm-transition-timing-default);
-}
+  }
 
-[data-theme="dark"] .DocSearch-Button {
-    color: var(--color-wal-white-100) !important;
-    background-image: var(--wal-surface-gradient-dark);
-    /* fallback if the variable isn't available for some reason */
-    background-color: var(--color-wal-gray-90);
-}
-
-.DocSearch-Button {
+  [data-theme="dark"] .DocSearch-Button {
     color: var(--color-wal-gray-70) !important;
-    background-image: var(--wal-surface-gradient-light);
-    /* fallback if the variable isn't available for some reason */
-    background-color: var(--color-wal-gray-5);
-}
+    background-image: var(--wal-surface-gradient-dark);
+    background-color: var(--color-wal-gray-90);
+  }
 
-.DocSearch-Button:hover,
-.DocSearch-Button:focus,
-.DocSearch-Button:active {
+  .DocSearch-Button:hover,
+  .DocSearch-Button:focus,
+  .DocSearch-Button:active {
     box-shadow: inset 0 0 0 2px var(--color-wal-green-dark);
     outline: 0;
-}
+  }
 
-@media screen and (max-width: 599px) {
+  @media screen and (max-width: 599px) {
     .DocSearch-Button {
-        width: initial;
+      width: initial;
     }
-}
+  }
 
-.DocSearch-Search-Icon {
+  .DocSearch-Search-Icon {
     order: 2;
     margin-left: auto;
     stroke-width: 1.6;
-}
+  }
 
-html[data-theme="dark"] .DocSearch-Search-Icon path {
+  html[data-theme="dark"] .DocSearch-Search-Icon path {
     stroke: var(--color-wal-green);
-}
+  }
 
-.DocSearch-Search-Icon path {
+  .DocSearch-Search-Icon path {
     stroke: var(--color-wal-green-dark);
-}
+  }
 
-.DocSearch-Button-Placeholder {
+  .DocSearch-Button-Placeholder {
     @apply font-thin text-lg pl-3 pr-[6px];
-}
+  }
 
-.DocSearch-Button-Keys {
+  .DocSearch-Button-Keys {
     display: none !important;
-}
+  }
 
-.grid-card {
-    row-gap: 1rem;
-    column-gap: 1rem;
-}
-
-.markdown h1:first-child {
-    margin-top: 1rem;
-}
-
-/*Targeting the search container so that the "start here" button displays alongside the search bar*/
-[class^="navbarSearchContainer"] {
+  /* navbarSearchContainer */
+  [class^="navbarSearchContainer"],
+  [class*="navbarSearchContainer"] {
     @apply min-[997px]:flex min-[997px]:gap-4;
-}
+  }
 
-/*Full search page*/
-
-.search-page-wrapper main p {
+  /* Full search page */
+  .search-page-wrapper main p {
     @apply !not-italic;
-}
+  }
 
-.search-page-wrapper main em {
+  .search-page-wrapper main em {
     @apply font-bold;
-}
+  }
 
-.tooltip-delay {
+  .tooltip-delay {
     @apply opacity-0 transition-opacity duration-200;
     transition-delay: 0ms;
-}
+  }
 
-.group:hover .tooltip-delay {
+  .group:hover .tooltip-delay {
     @apply opacity-100;
     transition-delay: 700ms;
-}
+  }
 
-.sui-search mark {
+  .sui-search mark {
     @apply bg-wal-green/40;
-}
+  }
 
-.modal-result mark {
+  .modal-result mark {
     @apply bg-wal-green-light;
-}
+  }
 
-.ais-Pagination-list {
+  .ais-Pagination-list {
     @apply pl-0 list-none flex justify-center;
-}
+  }
 
-.ais-Pagination-item {
+  .ais-Pagination-item {
     @apply border border-solid border-wal-gray-50 dark:border-wal-gray-80 p-1 mx-2 w-12 flex items-center justify-center;
-}
+  }
 
-.ais-SearchBox-submitIcon {
+  .ais-SearchBox-submitIcon {
     @apply !w-[20px];
-}
+  }
 
-.ais-Pagination-item--disabled {
+  .ais-Pagination-item--disabled {
     @apply cursor-default;
-}
+  }
 
-.ais-Pagination-item--selected {
+  .ais-Pagination-item--selected {
     @apply cursor-default;
-}
+  }
 
-.ais-Pagination-item--selected a {
+  .ais-Pagination-item--selected a {
     @apply text-wal-white-100 cursor-default no-underline;
-}
+  }
 
-.header-github-link {
+  .header-github-link {
     display: inline-flex;
     align-items: center;
-}
-.header-github-link::before {
+  }
+
+  .header-github-link::before {
     content: "";
     display: inline-block;
     width: 24px;
@@ -292,137 +311,180 @@ html[data-theme="dark"] .DocSearch-Search-Icon path {
     background: currentColor;
     -webkit-mask: url("/img/github-icon.svg") no-repeat center / contain;
     mask: url("/img/github-icon.svg") no-repeat center / contain;
-}
+  }
 
 /* Copy page button */
+    html[data-theme="dark"] #copy-page-button-container button {
+    color: var(--color-wal-black);
+    }
 
-#copy-page-button-container button {
-    @apply dark:text-wal-gray-80;
-}
-
-/* table in legal/privacy */
-
-.privacy-table {
-    table-layout: fixed; /* lets column widths apply predictably */
+  /* table in legal/privacy */
+  .privacy-table {
+    table-layout: fixed;
     width: 100%;
-}
-.privacy-table :is(th, td):nth-child(1) {
+  }
+
+  .privacy-table :is(th, td):nth-child(1) {
     width: 62%;
-}
-.privacy-table :is(th, td):nth-child(2) {
+  }
+  .privacy-table :is(th, td):nth-child(2) {
     width: 38%;
-} /* make it sum to ~100% */
+  }
 
-/* Blog posts */
-
-html.blog-post-page header h1 {
+  /* Blog posts */
+  html.blog-post-page header h1 {
     @apply font-light text-wal-purple-dark dark:text-wal-purple;
-}
+  }
 
-html.blog-list-page header h2 a {
+  html.blog-list-page header h2 a {
     @apply font-light text-wal-link-hover dark:text-wal-link;
-}
+  }
 
-html.blog-list-page article {
+  html.blog-list-page article {
     @apply p-8 border border-x-2 border-solid border-transparent border-x-wal-purple rounded-xl;
+  }
+
+  /* Outlined tabs */
+  .outlined-tabs {
+    border: 1px solid var(--ifm-color-emphasis-300);
+    border-radius: 8px;
+    padding: 1rem;
+    margin: 1rem 0;
+  }
+
+  .outlined-tabs .tabs {
+    justify-content: left;
+  }
+
+  .outlined-tabs .tabs__item {
+    font-size: 0.875rem;
+  }
+
+  [data-theme="dark"] .outlined-tabs {
+    border-color: var(--ifm-color-emphasis-400);
+  }
+
+  .toggleButton_ZKVd {
+    color: black;
+  }
+
+  [data-theme="dark"] .lightToggleIcon_pgEs {
+    color: #ffffff;
+  }
+
+  /* --- Mobile navbar overlap fix (Search + AI button) --- */
+  @media (max-width: 996px) {
+    .navbar__items--right {
+      display: flex !important;
+      align-items: center !important;
+      justify-content: flex-end !important;
+      gap: 8px !important;
+      margin-left: auto !important;
+      flex: 0 0 auto !important;
+      min-width: 0 !important;
+    }
+
+    .navbar__items--right > div {
+      display: flex !important;
+      align-items: center !important;
+      gap: 8px !important;
+      flex-wrap: nowrap !important;
+      min-width: 0 !important;
+    }
+
+    .navbar div[class*="navbarSearchContainer"],
+    .navbar [class*="DocSearch"],
+    .navbar [class*="kapa"] {
+      position: static !important;
+      inset: auto !important;
+      transform: none !important;
+    }
+
+    /* DocSearch -> icon-only */
+    .navbar .DocSearch-Button {
+      width: 34px !important;
+      height: 34px !important;
+      min-width: 34px !important;
+      padding: 0 !important;
+      border-radius: 9999px !important;
+      display: inline-flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+    }
+
+    .navbar .DocSearch-Button-Placeholder,
+    .navbar .DocSearch-Button-Keys {
+      display: none !important;
+    }
+
+    .navbar .DocSearch-Search-Icon {
+      width: 18px !important;
+      height: 18px !important;
+      margin: 0 !important;
+    }
+
+    /* Kapa -> icon-only (works even if text exists) */
+    .navbar .kapa-trigger-btn {
+      display: inline-flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+
+      width: 34px !important;
+      height: 34px !important;
+      min-width: 34px !important;
+
+      padding: 0 !important;
+      margin: 0 !important;
+
+      border-radius: 9999px !important;
+      overflow: hidden !important;
+      box-sizing: border-box !important;
+
+      gap: 0 !important;
+      font-size: 0 !important;
+      line-height: 0 !important;
+    }
+
+    .navbar .kapa-trigger-btn img,
+    .navbar .kapa-trigger-btn svg {
+      width: 20px !important;
+      height: 20px !important;
+      display: block !important;
+    }
+  }
 }
 
-/* Mobile Navbar Fix - Search and Cookbook AI Button */
-
-@media screen and (max-width: 996px) {
-  /* Make navbar items wrap properly */
-  .navbar__items {
-    flex-wrap: wrap !important;
-    gap: 0.5rem !important;
-  }
-
-  /* Scale down search bar on mobile */
-  .navbar__search {
-    max-width: 150px !important;
-    flex-shrink: 1 !important;
-  }
-
-  .navbar__search input {
-    font-size: 0.875rem !important;
-    padding: 0.25rem 0.5rem !important;
-  }
-
-  /* Scale down cookbook button */
-  [class*="cookbook"],
-  .navbar__item button {
-    font-size: 0.875rem !important;
-    padding: 0.25rem 0.75rem !important;
-  }
-
-  /* Ensure navbar right items don't overflow */
-  .navbar__items--right {
-    flex-wrap: wrap !important;
-    gap: 0.5rem !important;
-    max-width: 100% !important;
-  }
+/* Force toggle icon color (always black) */
+.theme-toggle-wrapper .toggleButton_GAkl,
+.theme-toggle-wrapper .toggleButton_GAkl svg {
+  color: #000 !important;
 }
 
-@media screen and (max-width: 768px) {
-  /* Stack navbar items vertically or make them smaller */
-  .navbar__items {
-    gap: 0.25rem !important;
-  }
-
-  /* Make search bar even smaller */
-  .navbar__search {
-    max-width: 120px !important;
-  }
-
-  .navbar__search input {
-    font-size: 0.75rem !important;
-    padding: 0.25rem 0.5rem !important;
-  }
-
-  /* Make all navbar buttons smaller */
-  .navbar__item button,
-  .navbar__link {
-    font-size: 0.75rem !important;
-    padding: 0.25rem 0.5rem !important;
-  }
+/* Lock navbar colors so they don't change with theme */
+.navbar {
+  background: var(--color-wal-white-100) !important; /* pick your fixed bg */
+  color: var(--color-wal-gray-100) !important;      /* fixed text */
+  border-bottom: 1px solid var(--color-wal-grey-10) !important;
 }
 
-@media screen and (max-width: 480px) {
-  /* For very small screens, stack items or hide less important ones */
-  .navbar__items--right {
-    flex-direction: column !important;
-    align-items: flex-end !important;
-    gap: 0.25rem !important;
-  }
-
-  .navbar__search {
-    max-width: 100px !important;
-  }
+/* Links/text inside navbar */
+.navbar .navbar__title,
+.navbar .navbar__link,
+.navbar .navbar__brand,
+.navbar .navbar__toggle {
+  color: var(--color-wal-gray-100) !important;
 }
 
-/* Outlined tabs container */
-.outlined-tabs {
-  border: 1px solid var(--ifm-color-emphasis-300);
-  border-radius: 8px;
-  padding: 1rem;
-  margin: 1rem 0;
+/* If you use the DocSearch button in the navbar, pin it too */
+.navbar .DocSearch-Button {
+  color: var(--color-wal-gray-70) !important;
+  background-image: var(--wal-surface-gradient-light) !important;
+  background-color: var(--color-wal-gray-5) !important;
 }
 
-.outlined-tabs .tabs {
-  justify-content: left;
-}
-
-.outlined-tabs .tabs__item {
-  font-size: 0.875rem;
-}
-
-[data-theme='dark'] .outlined-tabs {
-  border-color: var(--ifm-color-emphasis-400);
-}
-
-.toggleButton_ZKVd {
-  color: black;
-}
-
-[data-theme='dark'] .lightToggleIcon_pgEs {
-  color: #ffffff;
+/* If your Kapa button should also be fixed */
+.navbar .kapa-trigger-btn {
+  background: #fff !important;
+  color: #111827 !important;
+  border-color: #e5e7eb !important;
 }
