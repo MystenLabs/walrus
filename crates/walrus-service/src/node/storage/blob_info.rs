@@ -736,7 +736,7 @@ impl BlobInfoTable {
 }
 
 /// An iterator over the blob info table.
-pub(crate) struct BlobInfoIter<B, T: CertifiedBlobInfoApi, I: ?Sized>
+pub struct BlobInfoIter<B, T: CertifiedBlobInfoApi, I: ?Sized>
 where
     I: Iterator<Item = Result<(B, T), TypedStoreError>> + Send,
 {
@@ -832,7 +832,7 @@ trait Mergeable: ToBytes + Debug + DeserializeOwned + Serialize + Sized {
 
 /// Trait defining methods for retrieving information about a certified blob.
 #[enum_dispatch]
-pub(crate) trait CertifiedBlobInfoApi {
+pub trait CertifiedBlobInfoApi {
     /// Returns true iff there exists at least one non-expired and certified deletable or permanent
     /// `Blob` object.
     fn is_certified(&self, current_epoch: Epoch) -> bool;
@@ -847,7 +847,7 @@ pub(crate) trait CertifiedBlobInfoApi {
 // NB: Before adding functions to this trait, think twice if you really need it as it needs to be
 // implementable by future internal representations of the blob status as well.
 #[enum_dispatch]
-pub(crate) trait BlobInfoApi: CertifiedBlobInfoApi {
+pub trait BlobInfoApi: CertifiedBlobInfoApi {
     /// Returns a boolean indicating whether the metadata of the blob is stored.
     fn is_metadata_stored(&self) -> bool;
 
@@ -1038,7 +1038,7 @@ impl From<&BlobEvent> for BlobInfoMergeOperand {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub(crate) enum BlobInfoV1 {
+pub enum BlobInfoV1 {
     Invalid { epoch: Epoch, event: EventID },
     Valid(ValidBlobInfoV1),
 }
@@ -1056,7 +1056,7 @@ impl ToBytes for BlobInfoV1 {}
 // Important: This struct MUST NOT be changed. Instead, if needed, a new `ValidBlobInfoV2` struct
 // should be created.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
-pub(crate) struct ValidBlobInfoV1 {
+pub struct ValidBlobInfoV1 {
     pub is_metadata_stored: bool,
     pub count_deletable_total: u32,
     pub count_deletable_certified: u32,
@@ -1463,7 +1463,7 @@ impl ValidBlobInfoV1 {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub(crate) struct PermanentBlobInfoV1 {
+pub struct PermanentBlobInfoV1 {
     /// The total number of `Blob` objects for that blob ID with the given status.
     pub count: NonZeroU32,
     /// The latest expiration epoch among these objects.
@@ -1792,7 +1792,8 @@ impl Ord for BlobCertificationStatus {
 #[enum_dispatch(CertifiedBlobInfoApi)]
 #[enum_dispatch(BlobInfoApi)]
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq, Clone)]
-pub(crate) enum BlobInfo {
+pub enum BlobInfo {
+    /// Version 1 of blob information.
     V1(BlobInfoV1),
 }
 

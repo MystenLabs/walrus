@@ -414,7 +414,7 @@ impl PendingSliverCache {
         result
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-utils"))]
     pub async fn sliver_count(&self) -> usize {
         let mut inner = self.inner.lock().await;
         inner.evict_expired(Instant::now());

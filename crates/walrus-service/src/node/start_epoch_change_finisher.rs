@@ -16,6 +16,7 @@ use walrus_utils::backoff::{self, ExponentialBackoff};
 use super::{StorageNodeInner, system_events::EventHandle};
 use crate::node::system_events::CompletableHandle;
 
+/// Handles background tasks for finishing epoch changes.
 #[derive(Debug, Clone)]
 pub struct StartEpochChangeFinisher {
     node: Arc<StorageNodeInner>,
@@ -25,6 +26,7 @@ pub struct StartEpochChangeFinisher {
 }
 
 impl StartEpochChangeFinisher {
+    /// Creates a new start epoch change finisher.
     pub fn new(node: Arc<StorageNodeInner>) -> Self {
         Self {
             node,
@@ -38,6 +40,7 @@ impl StartEpochChangeFinisher {
     /// - Sending epoch sync done if there is no newly scheduled shard syncs.
     /// - Removing no longer owned storage for shards.
     /// - Marking the event as completed.
+    #[allow(private_interfaces)]
     pub fn start_finish_epoch_change_tasks(
         &self,
         event_handle: EventHandle,
