@@ -56,12 +56,7 @@ use walrus_sdk::{
     config::ClientConfig,
     error::{
         ClientError,
-        ClientErrorKind::{
-            self,
-            NoMetadataReceived,
-            NotEnoughConfirmations,
-            NotEnoughSlivers,
-        },
+        ClientErrorKind::{self, NoMetadataReceived, NotEnoughConfirmations, NotEnoughSlivers},
     },
     node_client::{
         Blocklist,
