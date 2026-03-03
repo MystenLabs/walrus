@@ -23,7 +23,7 @@ fully responsible for everything that gets merged.
 - Any AI-generated code touching production must be carefully reviewed by the PR creator.
 - AI can create PRs and leave review comments.
 - AI must **not** approve PRs. Only humans can approve and merge code.
-- Extensive AI-generated tests are welcome and subject to less strict review, but the PR creator must
+- Extensive AI-generated tests are welcome, but the PR creator must
   ensure tests are easy to read and include clear, detailed descriptions so reviewers can quickly
   understand intent.
 
