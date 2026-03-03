@@ -165,43 +165,10 @@ public fun destroy(self: StoragePool) {
     id.delete();
 }
 
-// === PoolBlob accessors ===
-
-public fun blob_object_id(self: &PoolBlob): ID {
-    object::id(self)
-}
-
-public fun registered_epoch(self: &PoolBlob): u32 {
-    self.registered_epoch
-}
-
-public fun blob_id(self: &PoolBlob): u256 {
-    self.blob_id
-}
-
-public fun blob_size(self: &PoolBlob): u64 {
-    self.size
-}
-
-public fun blob_encoding_type(self: &PoolBlob): u8 {
-    self.encoding_type
-}
-
-public fun certified_epoch(self: &PoolBlob): &Option<u32> {
-    &self.certified_epoch
-}
-
-public fun storage_pool_id(self: &PoolBlob): ID {
-    self.storage_pool_id
-}
-
-public fun is_deletable(self: &PoolBlob): bool {
-    self.deletable
-}
-
-/// Computes the encoded size of this blob.
-public fun encoded_size(self: &PoolBlob, n_shards: u16): u64 {
-    encoding::encoded_blob_length(self.size, self.encoding_type, n_shards)
+/// Computes the encoded size of a blob in the pool (package-visible for capacity accounting).
+public(package) fun blob_encoded_size(self: &mut StoragePool, blob_id: u256, n_shards: u16): u64 {
+    let blob = self.blobs.borrow(blob_id);
+    encoding::encoded_blob_length(blob.size, blob.encoding_type, n_shards)
 }
 
 // === PoolBlob operations ===

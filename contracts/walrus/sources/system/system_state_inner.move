@@ -901,15 +901,11 @@ public(package) fun delete_pool_blob(
 ) {
     assert!(pool.end_epoch() > self.epoch(), EInvalidEpochsAhead);
 
+    // Compute encoded size before removing the blob.
+    let encoded_size = pool.blob_encoded_size(blob_id, self.n_shards());
+
     // Remove blob from the table.
     let blob = pool.remove_blob(blob_id);
-
-    // Compute encoded size for capacity accounting.
-    let encoded_size = encoded_blob_length(
-        blob.blob_size(),
-        blob.blob_encoding_type(),
-        self.n_shards(),
-    );
 
     // Delete the blob (checks deletable, emits event, destroys).
     storage_pool::delete_blob_from_pool(blob, self.epoch(), pool.end_epoch());
