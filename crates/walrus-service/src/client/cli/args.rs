@@ -201,9 +201,9 @@ pub enum CliCommands {
     /// The store operation considers the Storage and Blob objects already owned by the active
     /// wallet, trying to reuse them whenever possible to optimize the cost of storing the blob.
     ///
-    /// First, the store operation checks the status of the blob ID on Walrus. If the blob is
-    /// already certified for the requested number of epochs, and the command is not run with the
-    /// `--force` flag, the store operation stops. Otherwise, the operation proceeds as follows:
+    /// Unless run with the `--force` flag, the store operation first checks the status of the blob
+    /// ID on Walrus. If the blob is already certified for the requested number of epochs, the
+    /// store operation stops. Otherwise, the operation proceeds as follows:
     ///
     /// (i) check if the blob is registered (but not certified) in the current wallet for a
     /// sufficient duration, and if so reuse the registration to store the blob; (ii) otherwise,
