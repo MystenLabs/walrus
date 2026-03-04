@@ -429,6 +429,12 @@ pub trait QuiltColumnRangeReader {
         bytes_to_skip: usize,
         bytes_to_return: usize,
     ) -> Result<Vec<u8>, QuiltError>;
+
+    /// Returns the total number of readable bytes in the data source.
+    ///
+    /// Used as an upper bound to validate sizes decoded from untrusted quilt data before
+    /// allocating memory.
+    fn total_data_size(&self) -> usize;
 }
 
 /// The version of the quilt.
@@ -742,6 +748,13 @@ impl QuiltVersionV1 {
                 blob_header.length
             ))
         })?;
+
+        let total_data = data_source.total_data_size();
+        if blob_bytes_size > total_data {
+            return Err(QuiltError::InvalidQuiltData(format!(
+                "blob claims {blob_bytes_size} bytes but data source only has {total_data}"
+            )));
+        }
 
         let (identifier, bytes_consumed) =
             Self::decode_blob_identifier(data_source, start_col, offset)?;
@@ -1124,6 +1137,10 @@ impl QuiltColumnRangeReader for QuiltV1 {
         }
 
         Ok(result)
+    }
+
+    fn total_data_size(&self) -> usize {
+        self.data.len()
     }
 }
 
@@ -1749,6 +1766,19 @@ impl QuiltColumnRangeReader for QuiltDecoderV1<'_> {
         }
 
         Ok(result)
+    }
+
+    fn total_data_size(&self) -> usize {
+        match self.column_size {
+            Some(col_size) => self.slivers.len() * col_size,
+            None => {
+                debug_assert!(
+                    self.slivers.is_empty(),
+                    "column_size must be set when slivers are present"
+                );
+                0
+            }
+        }
     }
 }
 
@@ -2926,6 +2956,16 @@ mod tests {
         let mut raw = build_valid_blob_entry("test-id", &[1, 2, 3]);
         set_blob_length(&mut raw, 1000);
         assert_decode_err(&raw, |_| true);
+    }
+
+    #[test]
+    fn test_decode_blob_huge_length_rejected_early() {
+        let mut raw = build_valid_blob_entry("test-id", &[1, 2, 3]);
+        set_blob_length(&mut raw, u32::MAX);
+        assert_decode_err(
+            &raw,
+            |e| matches!(e, QuiltError::InvalidQuiltData(msg) if msg.contains("data source only has")),
+        );
     }
 
     #[test]
