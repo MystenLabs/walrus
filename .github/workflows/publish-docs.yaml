@@ -102,6 +102,8 @@ jobs:
           EPOCHS: "10"
           GAS_BUDGET: "1000000000"
           SITE_BUILDER_VERSION: v2
+      - name: Wait for deployment to propagate
+        run: sleep 60
       - name: Test markdown routes
         run: |
           chmod +x ./ping-test.sh
