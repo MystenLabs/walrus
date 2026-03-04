@@ -1,3 +1,6 @@
+# Copyright (c) Walrus Foundation
+# SPDX-License-Identifier: Apache-2.0
+
 #!/bin/bash
 
 # Check if all route targets in ws-resources.json exist in the build directory
