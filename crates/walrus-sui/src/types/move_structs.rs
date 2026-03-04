@@ -74,15 +74,14 @@ pub struct StoragePoolResource {
     /// The end epoch of the pool (exclusive).
     pub end_epoch: Epoch,
     /// The total reserved capacity in encoded bytes.
-    pub storage_size: u64,
+    pub reserved_encoded_capacity_bytes: u64,
     /// Sum of all active blobs' encoded sizes.
-    pub used_size: u64,
+    pub used_encoded_bytes: u64,
     /// Number of blobs in the table.
     pub blob_count: u64,
     /// The blobs object table (opaque on the Rust side).
+    #[serde(deserialize_with = "deserialize_bag_or_table")]
     pub blobs: ObjectID,
-    /// Size tracking for the blobs table.
-    pub blobs_size: u64,
 }
 
 impl AssociatedContractStruct for StoragePoolResource {

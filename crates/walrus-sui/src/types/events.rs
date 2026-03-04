@@ -742,8 +742,8 @@ pub struct StoragePoolCreatedEvent {
     pub epoch: Epoch,
     /// The object ID of the created storage pool.
     pub storage_pool_id: ObjectID,
-    /// The total storage size of the pool.
-    pub storage_size: u64,
+    /// The total reserved encoded capacity of the pool.
+    pub reserved_encoded_capacity_bytes: u64,
     /// The start epoch of the pool (inclusive).
     pub start_epoch: Epoch,
     /// The end epoch of the pool (exclusive).
@@ -762,12 +762,12 @@ impl TryFrom<SuiEvent> for StoragePoolCreatedEvent {
     fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
         ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
 
-        let (epoch, storage_pool_id, storage_size, start_epoch, end_epoch) =
+        let (epoch, storage_pool_id, reserved_encoded_capacity_bytes, start_epoch, end_epoch) =
             bcs::from_bytes(sui_event.bcs.bytes())?;
         Ok(Self {
             epoch,
             storage_pool_id,
-            storage_size,
+            reserved_encoded_capacity_bytes,
             start_epoch,
             end_epoch,
             event_id: sui_event.id,
@@ -777,18 +777,18 @@ impl TryFrom<SuiEvent> for StoragePoolCreatedEvent {
 
 /// Sui event that a blob has been registered against a storage pool.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct PoolBlobRegistered {
+pub struct PooledBlobRegistered {
     /// The epoch in which the blob was registered.
     pub epoch: Epoch,
     /// The blob ID.
     pub blob_id: BlobId,
     /// The (unencoded) size of the blob.
-    pub size: u64,
+    pub unencoded_size: u64,
     /// The erasure coding type used for the blob.
     pub encoding_type: EncodingType,
     /// Whether the blob is deletable.
     pub deletable: bool,
-    /// The object ID of the related `PoolBlob` object.
+    /// The object ID of the related `PooledBlob` object.
     pub object_id: ObjectID,
     /// The object ID of the storage pool.
     pub storage_pool_id: ObjectID,
@@ -796,22 +796,22 @@ pub struct PoolBlobRegistered {
     pub event_id: EventID,
 }
 
-impl AssociatedSuiEvent for PoolBlobRegistered {
-    const EVENT_STRUCT: StructTag<'static> = contracts::events::PoolBlobRegistered;
+impl AssociatedSuiEvent for PooledBlobRegistered {
+    const EVENT_STRUCT: StructTag<'static> = contracts::events::PooledBlobRegistered;
 }
 
-impl TryFrom<SuiEvent> for PoolBlobRegistered {
+impl TryFrom<SuiEvent> for PooledBlobRegistered {
     type Error = MoveConversionError;
 
     fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
         ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
 
-        let (epoch, blob_id, size, encoding_type, deletable, object_id, pool_id) =
+        let (epoch, blob_id, unencoded_size, encoding_type, deletable, object_id, pool_id) =
             bcs::from_bytes(sui_event.bcs.bytes())?;
         Ok(Self {
             epoch,
             blob_id,
-            size,
+            unencoded_size,
             encoding_type,
             deletable,
             object_id,
@@ -823,14 +823,14 @@ impl TryFrom<SuiEvent> for PoolBlobRegistered {
 
 /// Sui event that a blob in a storage pool has been certified.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct PoolBlobCertified {
+pub struct PooledBlobCertified {
     /// The epoch in which the blob was certified.
     pub epoch: Epoch,
     /// The blob ID.
     pub blob_id: BlobId,
     /// Whether the blob is deletable.
     pub deletable: bool,
-    /// The object ID of the related `PoolBlob` object.
+    /// The object ID of the related `PooledBlob` object.
     pub object_id: ObjectID,
     /// The object ID of the storage pool.
     pub storage_pool_id: ObjectID,
@@ -838,11 +838,11 @@ pub struct PoolBlobCertified {
     pub event_id: EventID,
 }
 
-impl AssociatedSuiEvent for PoolBlobCertified {
-    const EVENT_STRUCT: StructTag<'static> = contracts::events::PoolBlobCertified;
+impl AssociatedSuiEvent for PooledBlobCertified {
+    const EVENT_STRUCT: StructTag<'static> = contracts::events::PooledBlobCertified;
 }
 
-impl TryFrom<SuiEvent> for PoolBlobCertified {
+impl TryFrom<SuiEvent> for PooledBlobCertified {
     type Error = MoveConversionError;
 
     fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
@@ -863,12 +863,12 @@ impl TryFrom<SuiEvent> for PoolBlobCertified {
 
 /// Sui event that a blob has been deleted from a storage pool.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct PoolBlobDeleted {
+pub struct PooledBlobDeleted {
     /// The epoch in which the blob was deleted.
     pub epoch: Epoch,
     /// The blob ID.
     pub blob_id: BlobId,
-    /// The object ID of the related `PoolBlob` object.
+    /// The object ID of the related `PooledBlob` object.
     pub object_id: ObjectID,
     /// Whether the blob was previously certified.
     pub was_certified: bool,
@@ -878,11 +878,11 @@ pub struct PoolBlobDeleted {
     pub event_id: EventID,
 }
 
-impl AssociatedSuiEvent for PoolBlobDeleted {
-    const EVENT_STRUCT: StructTag<'static> = contracts::events::PoolBlobDeleted;
+impl AssociatedSuiEvent for PooledBlobDeleted {
+    const EVENT_STRUCT: StructTag<'static> = contracts::events::PooledBlobDeleted;
 }
 
-impl TryFrom<SuiEvent> for PoolBlobDeleted {
+impl TryFrom<SuiEvent> for PooledBlobDeleted {
     type Error = MoveConversionError;
 
     fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
@@ -940,11 +940,11 @@ pub enum StoragePoolEvent {
     /// A storage pool was created.
     StoragePoolCreated(StoragePoolCreatedEvent),
     /// A blob was registered against a storage pool.
-    PoolBlobRegistered(PoolBlobRegistered),
+    PooledBlobRegistered(PooledBlobRegistered),
     /// A blob in a storage pool was certified.
-    PoolBlobCertified(PoolBlobCertified),
+    PooledBlobCertified(PooledBlobCertified),
     /// A blob was deleted from a storage pool.
-    PoolBlobDeleted(PoolBlobDeleted),
+    PooledBlobDeleted(PooledBlobDeleted),
     /// A storage pool's lifetime was extended.
     StoragePoolExtended(StoragePoolExtendedEvent),
 }
@@ -954,9 +954,9 @@ impl StoragePoolEvent {
     pub fn event_id(&self) -> EventID {
         match self {
             StoragePoolEvent::StoragePoolCreated(event) => event.event_id,
-            StoragePoolEvent::PoolBlobRegistered(event) => event.event_id,
-            StoragePoolEvent::PoolBlobCertified(event) => event.event_id,
-            StoragePoolEvent::PoolBlobDeleted(event) => event.event_id,
+            StoragePoolEvent::PooledBlobRegistered(event) => event.event_id,
+            StoragePoolEvent::PooledBlobCertified(event) => event.event_id,
+            StoragePoolEvent::PooledBlobDeleted(event) => event.event_id,
             StoragePoolEvent::StoragePoolExtended(event) => event.event_id,
         }
     }
@@ -965,9 +965,9 @@ impl StoragePoolEvent {
     pub fn event_epoch(&self) -> Option<Epoch> {
         match self {
             StoragePoolEvent::StoragePoolCreated(event) => Some(event.epoch),
-            StoragePoolEvent::PoolBlobRegistered(event) => Some(event.epoch),
-            StoragePoolEvent::PoolBlobCertified(event) => Some(event.epoch),
-            StoragePoolEvent::PoolBlobDeleted(event) => Some(event.epoch),
+            StoragePoolEvent::PooledBlobRegistered(event) => Some(event.epoch),
+            StoragePoolEvent::PooledBlobCertified(event) => Some(event.epoch),
+            StoragePoolEvent::PooledBlobDeleted(event) => Some(event.epoch),
             StoragePoolEvent::StoragePoolExtended(event) => Some(event.epoch),
         }
     }
@@ -976,9 +976,9 @@ impl StoragePoolEvent {
     pub fn name(&self) -> &'static str {
         match self {
             StoragePoolEvent::StoragePoolCreated(_) => "StoragePoolCreated",
-            StoragePoolEvent::PoolBlobRegistered(_) => "PoolBlobRegistered",
-            StoragePoolEvent::PoolBlobCertified(_) => "PoolBlobCertified",
-            StoragePoolEvent::PoolBlobDeleted(_) => "PoolBlobDeleted",
+            StoragePoolEvent::PooledBlobRegistered(_) => "PooledBlobRegistered",
+            StoragePoolEvent::PooledBlobCertified(_) => "PooledBlobCertified",
+            StoragePoolEvent::PooledBlobDeleted(_) => "PooledBlobDeleted",
             StoragePoolEvent::StoragePoolExtended(_) => "StoragePoolExtended",
         }
     }
@@ -987,9 +987,9 @@ impl StoragePoolEvent {
     pub fn blob_id(&self) -> Option<BlobId> {
         match self {
             StoragePoolEvent::StoragePoolCreated(_) => None,
-            StoragePoolEvent::PoolBlobRegistered(event) => Some(event.blob_id),
-            StoragePoolEvent::PoolBlobCertified(event) => Some(event.blob_id),
-            StoragePoolEvent::PoolBlobDeleted(event) => Some(event.blob_id),
+            StoragePoolEvent::PooledBlobRegistered(event) => Some(event.blob_id),
+            StoragePoolEvent::PooledBlobCertified(event) => Some(event.blob_id),
+            StoragePoolEvent::PooledBlobDeleted(event) => Some(event.blob_id),
             StoragePoolEvent::StoragePoolExtended(_) => None,
         }
     }
@@ -998,9 +998,9 @@ impl StoragePoolEvent {
     pub fn storage_pool_id(&self) -> ObjectID {
         match self {
             StoragePoolEvent::StoragePoolCreated(event) => event.storage_pool_id,
-            StoragePoolEvent::PoolBlobRegistered(event) => event.storage_pool_id,
-            StoragePoolEvent::PoolBlobCertified(event) => event.storage_pool_id,
-            StoragePoolEvent::PoolBlobDeleted(event) => event.storage_pool_id,
+            StoragePoolEvent::PooledBlobRegistered(event) => event.storage_pool_id,
+            StoragePoolEvent::PooledBlobCertified(event) => event.storage_pool_id,
+            StoragePoolEvent::PooledBlobDeleted(event) => event.storage_pool_id,
             StoragePoolEvent::StoragePoolExtended(event) => event.storage_pool_id,
         }
     }
@@ -1340,14 +1340,14 @@ impl TryFrom<SuiEvent> for ContractEvent {
             contracts::events::StoragePoolCreated => Ok(ContractEvent::StoragePoolEvent(
                 StoragePoolEvent::StoragePoolCreated(value.try_into()?),
             )),
-            contracts::events::PoolBlobRegistered => Ok(ContractEvent::StoragePoolEvent(
-                StoragePoolEvent::PoolBlobRegistered(value.try_into()?),
+            contracts::events::PooledBlobRegistered => Ok(ContractEvent::StoragePoolEvent(
+                StoragePoolEvent::PooledBlobRegistered(value.try_into()?),
             )),
-            contracts::events::PoolBlobCertified => Ok(ContractEvent::StoragePoolEvent(
-                StoragePoolEvent::PoolBlobCertified(value.try_into()?),
+            contracts::events::PooledBlobCertified => Ok(ContractEvent::StoragePoolEvent(
+                StoragePoolEvent::PooledBlobCertified(value.try_into()?),
             )),
-            contracts::events::PoolBlobDeleted => Ok(ContractEvent::StoragePoolEvent(
-                StoragePoolEvent::PoolBlobDeleted(value.try_into()?),
+            contracts::events::PooledBlobDeleted => Ok(ContractEvent::StoragePoolEvent(
+                StoragePoolEvent::PooledBlobDeleted(value.try_into()?),
             )),
             contracts::events::StoragePoolExtended => Ok(ContractEvent::StoragePoolEvent(
                 StoragePoolEvent::StoragePoolExtended(value.try_into()?),

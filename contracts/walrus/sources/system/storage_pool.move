@@ -97,7 +97,7 @@ public fun blob_count(self: &StoragePool): u64 {
 
 // === StoragePool operations ===
 
-/// Creates a new `StoragePool` pool.
+/// Creates a new `StoragePool`.
 public(package) fun create(
     start_epoch: u32,
     end_epoch: u32,
@@ -213,8 +213,9 @@ public(package) fun certify(
     message: CertifiedBlobMessage,
 ) {
     assert!(pooled_blob.blob_id == message.certified_blob_id(), EInvalidBlobId);
-    assert!(!pooled_blob.certified_epoch.is_some(), EAlreadyCertified);
     assert!(current_epoch < end_epoch, EResourceBounds);
+    assert!(!pooled_blob.certified_epoch.is_some(), EAlreadyCertified);
+    pooled_blob.certified_epoch = option::some(current_epoch);
 
     // Check the blob persistence type
     assert!(
@@ -230,8 +231,6 @@ public(package) fun certify(
         );
     };
 
-    pooled_blob.certified_epoch.fill(current_epoch);
-
     emit_pooled_blob_certified(
         current_epoch,
         pooled_blob.blob_id,
@@ -242,7 +241,7 @@ public(package) fun certify(
 }
 
 /// Deletes a deletable blob from a storage pool and destroys it.
-/// Emit `PooledBlobDeleted` event for the current epoch..
+/// Emit `PooledBlobDeleted` event for the current epoch.
 public(package) fun delete_blob_object(pooled_blob: PooledBlob, epoch: u32) {
     let PooledBlob {
         id,
