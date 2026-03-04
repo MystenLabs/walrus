@@ -74,10 +74,18 @@ jobs:
           curl -sSfL https://raw.githubusercontent.com/Mystenlabs/suiup/main/install.sh | sh
           suiup install sui@${{ env.NEW_TAG }} -y
 
+      - name: Generate automerge token
+        id: automerge_token
+        uses: actions/create-github-app-token@29824e69f54612133e76f7eaac726eef6c875baf # pin@v2.2.1
+        with:
+          app-id: ${{ secrets.WALRUS_AUTOMERGE_APP_ID }}
+          private-key: ${{ secrets.WALRUS_AUTOMERGE_PRIVATE_KEY }}
+
       - name: Generate PR for ${{ env.NEW_TAG }}
         id: generate_pr
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          AUTOMERGE_TOKEN: ${{ steps.automerge_token.outputs.token }}
           GITHUB_ACTOR: ${{ github.actor }}
         shell: bash
         run: |

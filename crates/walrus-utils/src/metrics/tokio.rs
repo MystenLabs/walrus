@@ -189,7 +189,7 @@ impl TaskMonitorCollector {
             metric.set_label(labels);
             metric.set_counter(Counter::new());
 
-            family.set_metric(vec![metric].into());
+            family.set_metric(vec![metric]);
 
             families.push(family);
         }
@@ -236,7 +236,7 @@ macro_rules! convert_metrics {
                         .mut_metric()
                         .first_mut()
                         .expect("all families were defined with exactly 1 metric")
-                        .mut_counter()
+                        .counter.mut_or_insert_default()
                         .set_value(convert_metrics!(@as_f64 $metric_spec tokio_metrics));
 
                     // The very last assignment in the unrolled loop is unused.
@@ -355,12 +355,12 @@ mod test {
             .iter()
             .find(|desc| desc.fq_name == fq_name)
             .expect("description must be present");
-        assert_eq!(desc.const_label_pairs[0].get_name(), "task");
-        assert_eq!(desc.const_label_pairs[0].get_value(), "test_monitor");
+        assert_eq!(desc.const_label_pairs[0].name(), "task");
+        assert_eq!(desc.const_label_pairs[0].value(), "test_monitor");
     }
 
     fn find_by_fqname<'a>(metrics: &'a [MetricFamily], fq_name: &str) -> Option<&'a MetricFamily> {
-        metrics.iter().find(|metric| metric.get_name() == fq_name)
+        metrics.iter().find(|metric| metric.name() == fq_name)
     }
 
     fn as_counter(family: &MetricFamily) -> &Counter {
@@ -381,7 +381,7 @@ mod test {
                 .expect("metric must exist in collection");
 
         // 0 tasks have been instrumented
-        assert_eq!(as_counter(metric_family).get_value(), 0.0);
+        assert_eq!(as_counter(metric_family).value(), 0.0);
 
         monitor.monitor().instrument(async {});
 
@@ -390,7 +390,7 @@ mod test {
             find_by_fqname(&collected_metrics, "tokio_task_metrics_instrumented_count")
                 .expect("metric must exist in collection");
         // 1 task has been instrumented
-        assert_eq!(as_counter(metric_family).get_value(), 1.0);
+        assert_eq!(as_counter(metric_family).value(), 1.0);
 
         monitor.monitor().instrument(async {});
         monitor.monitor().instrument(async {});
@@ -400,7 +400,7 @@ mod test {
             find_by_fqname(&collected_metrics, "tokio_task_metrics_instrumented_count")
                 .expect("metric must exist in collection");
         // 3 tasks in total have been instrumented
-        assert_eq!(as_counter(metric_family).get_value(), 3.0);
+        assert_eq!(as_counter(metric_family).value(), 3.0);
     }
 
     #[test]

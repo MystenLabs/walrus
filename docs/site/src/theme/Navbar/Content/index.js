@@ -9,33 +9,29 @@ import {
 } from "@docusaurus/theme-common/internal";
 import NavbarItem from "@theme/NavbarItem";
 import ThemeToggle from "@site/src/shared/components/ThemeToggle";
-// import SearchBar from "@theme/SearchBar";
 import NavbarMobileSidebarToggle from "@theme/Navbar/MobileSidebar/Toggle";
-import NavbarLogo from "@theme/Navbar/Logo";
 import NavbarSearch from "@theme/Navbar/Search";
 import SearchModal from "@site/src/components/Search/SearchModal";
+import Link from "@docusaurus/Link";
+import useBaseUrl from "@docusaurus/useBaseUrl";
+import { useThemeConfig as useThemeConfigFull } from "@docusaurus/theme-common";
 
 function useNavbarItems() {
-  // TODO temporary casting until ThemeConfig type is improved
   return useThemeConfig().navbar.items;
 }
 
+// Safe wrapper: if the provider isn't present, don't crash
 function useMobileSidebarSafe() {
   try {
     return useNavbarMobileSidebar();
   } catch {
-    // Emulate a "disabled" state so we can skip rendering the toggle safely.
     return { disabled: true, toggle: () => {} };
   }
 }
 
 function NavbarItems({ items }) {
   return (
-<<<<<<< Updated upstream
-    <div className="flex flex-[8_1_0%] items-center justify-start gap-8 min-[1100px]:gap-8">
-=======
-    <>
->>>>>>> Stashed changes
+    <div className="flex items-center justify-start gap-2 min-w-0 shrink overflow-hidden">
       {items.map((item, i) => (
         <ErrorCauseBoundary
           key={i}
@@ -51,7 +47,26 @@ ${JSON.stringify(item, null, 2)}`,
           <NavbarItem {...item} />
         </ErrorCauseBoundary>
       ))}
-    </>
+    </div>
+  );
+}
+
+function NavbarContentLayout({ left, right }) {
+  return (
+    <div className="navbar__inner" style={{ flexWrap: "nowrap", gap: "0.5rem" }}>
+      <div
+        className="navbar__items"
+        style={{ flexShrink: 1, minWidth: 0, overflow: "hidden" }}
+      >
+        {left}
+      </div>
+      <div
+        className="navbar__items navbar__items--right"
+        style={{ flexShrink: 0, marginLeft: "auto" }}
+      >
+        {right}
+      </div>
+    </div>
   );
 }
 
@@ -62,7 +77,7 @@ function SearchLauncher() {
     <>
       <button
         type="button"
-        className="DocSearch DocSearch-Button flex items-center cursor-pointer"
+        className="DocSearch DocSearch-Button flex items-center cursor-pointer shrink-0"
         onClick={() => setOpen(true)}
       >
         <span className="DocSearch-Button-Container flex">
@@ -74,8 +89,8 @@ function SearchLauncher() {
             aria-hidden="true"
           >
             <path
-              d="M14.386 14.386l4.0877 4.0877-4.0877-4.0877c-2.9418 2.9419-7.7115 2.9419-10.6533 0-2.9419-2.9418-2.9419-7.7115 0-10.6533 2.9418-2.9419
-              7.7115-2.9419 10.6533 0 2.9419 2.9418 2.9419 7.7115 0 10.6533z"
+              d="M14.386 14.386l4.0877 4.0877-4.0877-4.0877c-2.9418 2.9419-7.7115 2.9419-10.6533 0-2.9419-2.9418-2.9419-7.7115
+              0-10.6533 2.9418-2.9419 7.7115-2.9419 10.6533 0 2.9419 2.9418 2.9419 7.7115 0 10.6533z"
               stroke="currentColor"
               fill="none"
               fillRule="evenodd"
@@ -104,17 +119,56 @@ function KapaButton() {
     <button
       type="button"
       onClick={handleClick}
-<<<<<<< Updated upstream
-      className="kapa-trigger-btn flex items-center gap-2.5 cursor-pointer bg-white text-gray-900 font-semibold text-base px-5
-      py-2.5 rounded-full border border-gray-200 hover:bg-gray-50 transition-colors mx-2"
-=======
       className="kapa-trigger-btn flex items-center gap-2.5 cursor-pointer bg-white text-gray-900 font-semibold
-      text-base px-5 py-2.5 rounded-full border border-gray-200 hover:bg-gray-50 transition-colors shrink-0"
->>>>>>> Stashed changes
+      text-base px-5 py-2.5 rounded-full border border-gray-200 hover:bg-gray-50 transition-colors mx-0 min-[1100px]:mx-1 min-[1300px]:mx-2 shrink-0"
     >
-      <img src="/img/logo.svg" alt="" width="23" height="23" />
-      Ask Walrus AI
+      <img src="/img/logo.svg" alt="" width="25" height="25" />
+      <span className="kapa-label">Ask Walrus AI</span>
     </button>
+  );
+}
+
+// Fully custom logo with inline styles — immune to any stylesheet overrides
+function CustomLogo() {
+  const { navbar } = useThemeConfigFull();
+  const logoSrc = useBaseUrl(navbar.logo?.src || "/img/logo.svg");
+  const logoHref = useBaseUrl(navbar.logo?.href || "/");
+  const title = navbar.title || "";
+
+  return (
+    <Link
+      to={logoHref}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: "0.5rem",
+        flexShrink: 0,
+        flexGrow: 0,
+        whiteSpace: "nowrap",
+        textDecoration: "none",
+        color: "inherit",
+        minWidth: "fit-content",
+      }}
+    >
+      <img
+        src={logoSrc}
+        alt={navbar.logo?.alt || title}
+        style={{ height: "2rem", width: "auto", display: "block", flexShrink: 0 }}
+      />
+      {title && (
+        <span
+          style={{
+            fontWeight: 600,
+            fontSize: "1rem",
+            whiteSpace: "nowrap",
+            flexShrink: 0,
+            overflow: "visible",
+          }}
+        >
+          {title}
+        </span>
+      )}
+    </Link>
   );
 }
 
@@ -125,80 +179,18 @@ export default function NavbarContent() {
   const searchBarItem = items.find((item) => item.type === "search");
 
   return (
-    <>
-      {/* Force brand to never collapse regardless of stylesheet order */}
-      <style>{`
-        .navbar__brand {
-          flex-shrink: 0 !important;
-          flex-grow: 0 !important;
-          overflow: visible !important;
-          min-width: auto !important;
-          width: auto !important;
-        }
-        .navbar__title {
-          overflow: visible !important;
-          white-space: nowrap !important;
-          flex-shrink: 0 !important;
-          width: auto !important;
-        }
-        /* Nav links shrink, not the logo */
-        .navbar__items .navbar__link {
-          white-space: nowrap !important;
-          flex-shrink: 1 !important;
-          font-size: clamp(0.65rem, 1vw, 0.875rem) !important;
-          padding-left: clamp(0.2rem, 0.5vw, 0.75rem) !important;
-          padding-right: clamp(0.2rem, 0.5vw, 0.75rem) !important;
-        }
-      `}</style>
-      <div
-        className="navbar__inner"
-        style={{ flexWrap: "nowrap", justifyContent: "space-between" }}
-      >
-        {/* Left side: logo never shrinks, links absorb compression */}
-        <div
-          className="navbar__items"
-          style={{
-            flexShrink: 1,
-            minWidth: 0,
-            flexWrap: "nowrap",
-            overflow: "visible",
-            gap: "0.5rem",
-          }}
-        >
+    <NavbarContentLayout
+      left={
+        <>
           {!mobileSidebar.disabled && <NavbarMobileSidebarToggle />}
-          <NavbarLogo />
-<<<<<<< Updated upstream
+          <div className="shrink-0">
+            <CustomLogo />
+          </div>
           <NavbarItems items={leftItems} />
         </>
       }
       right={
-        <div className="flex items-center gap-3">
-=======
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              flexWrap: "nowrap",
-              gap: "0.25rem",
-              minWidth: 0,
-              flexShrink: 1,
-              overflow: "hidden",
-            }}
-          >
-            <NavbarItems items={leftItems} />
-          </div>
-        </div>
-
-        {/* Right side: never shrinks */}
-        <div
-          className="navbar__items navbar__items--right"
-          style={{
-            flexShrink: 0,
-            flexWrap: "nowrap",
-            gap: "0.25rem",
-          }}
-        >
->>>>>>> Stashed changes
+        <div className="flex items-center gap-1 min-[1100px]:gap-2 min-[1300px]:gap-3 min-[1430px]:gap-4 shrink-0">
           <NavbarItems items={rightItems} />
           <ThemeToggle />
           <KapaButton />
@@ -208,7 +200,7 @@ export default function NavbarContent() {
             </NavbarSearch>
           )}
         </div>
-      </div>
-    </>
+      }
+    />
   );
 }

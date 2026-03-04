@@ -1,22 +1,5 @@
-/**
- * inline-import-content.js
- *
- * Build-time script that creates a full mirror of docs/content/ with all
- * <ImportContent /> references resolved to inline markdown/code blocks.
- *
- * Usage:
- *   node src/shared/js/inline-imports.js [--out-dir <dir>]
- *
- * Options:
- *   --out-dir <dir>  Output directory (default: .generated/resolved)
- *
- * The output is a complete copy of docs/content/ where:
- *   - MDX/MD files with <ImportContent /> have them replaced with resolved content
- *   - All other files are copied as-is
- *
- * Point your export plugin / custom script at the output directory instead of
- * docs/content/ to get fully-inlined markdown.
- */
+// Copyright (c) Walrus Foundation
+// SPDX-License-Identifier: Apache-2.0
 
 const fs = require("fs");
 const path = require("path");

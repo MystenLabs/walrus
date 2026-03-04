@@ -1349,23 +1349,50 @@ impl WalrusNodeClient<SuiContractClient> {
         let committees = self.get_committees().await?;
         tracing::info!(duration = ?status_start_timer.elapsed(), "finished getting committees");
 
-        // Retrieve the blob status, checking if the committee has changed in the meantime.
-        // This operation can be safely interrupted as it does not require a wallet.
-        let encoded_blobs_with_status = self
-            .await_while_checking_notification(self.get_blob_statuses(encoded_blobs))
-            .await?;
+        let encoded_blobs_with_status = if store_args.store_optimizations.should_check_status() {
+            // Retrieve the blob status, checking if the committee has changed in the meantime.
+            // This operation can be safely interrupted as it does not require a wallet.
+            let encoded_blobs_with_status = self
+                .await_while_checking_notification(self.get_blob_statuses(encoded_blobs))
+                .await?;
+
+            let status_timer_duration = status_start_timer.elapsed();
+            tracing::info!(
+                duration = ?status_timer_duration,
+                "retrieved blob statuses",
+            );
+            store_args.maybe_observe_checking_blob_status(status_timer_duration);
+
+            encoded_blobs_with_status
+        } else {
+            tracing::info!(
+                check_status = false,
+                "skipping blob status checks; assuming BlobStatus::Nonexistent"
+            );
+
+            encoded_blobs
+                .into_iter()
+                .map(|encoded_blob| {
+                    let blob_id = encoded_blob.state.blob_id();
+                    if let Err(e) = self.check_blob_is_blocked(&blob_id) {
+                        return Ok(encoded_blob
+                            .into_maybe_finished()
+                            .fail_with(e, "check_blob_is_blocked"));
+                    }
+
+                    encoded_blob.into_maybe_finished().map(
+                        |blob| blob.with_status(Ok(BlobStatus::Nonexistent)),
+                        "assume_blob_status_nonexistent",
+                    )
+                })
+                .collect::<ClientResult<Vec<_>>>()?
+        };
 
         debug_assert_eq!(
             encoded_blobs_with_status.len(),
             blobs_count,
             "the number of blob statuses and the number of blobs to store must be the same",
         );
-        let status_timer_duration = status_start_timer.elapsed();
-        tracing::info!(
-            duration = ?status_timer_duration,
-            "retrieved blob statuses",
-        );
-        store_args.maybe_observe_checking_blob_status(status_timer_duration);
 
         let pending_blobs = self.pending_upload_candidates(&encoded_blobs_with_status, &store_args);
 
@@ -1508,7 +1535,10 @@ impl WalrusNodeClient<SuiContractClient> {
             pending_blobs,
             tx,
             UploadOptions {
-                tail_handling: store_args.tail_handling,
+                // Pending uploads are opportunistic and run concurrently with chain registration.
+                // Detach the tail window so we can return as soon as quorum is reached, while still
+                // allowing extra writes to complete in the background.
+                tail_handling: TailHandling::Detached,
                 target_nodes: None,
                 upload_intent: UploadIntent::Pending,
                 initial_completed_weight: None,
@@ -1603,8 +1633,9 @@ impl WalrusNodeClient<SuiContractClient> {
         mut pending_upload_result: Option<RunOutput<Vec<BlobId>, StoreError>>,
     ) -> PendingUploadContext {
         let mut context = PendingUploadContext::default();
-        // Cancel any in-flight pending tail. Tail handle is returned during the upload with
-        // immediate intent later.
+        // Cancel any in-flight tail window from the pending (optimistic) uploader run. The pending
+        // path is only used to seed initial success weight; we don't want it to compete with the
+        // subsequent immediate upload.
         if let Some(ref mut pending_output) = pending_upload_result
             && let Some(handle) = pending_output.tail_handle.take()
         {
@@ -3291,9 +3322,15 @@ where
                 .expect("cell must have been initialized if the join handle is no longer set")
         };
         let client = Self::convert_result_ref(result)?;
+        let total_duration = self.start_time.elapsed();
+        let waiting_duration = start.elapsed();
+        let elapsed_before_await = total_duration
+            .checked_sub(waiting_duration)
+            .unwrap_or_default();
         tracing::info!(
-            total_duration = ?self.start_time.elapsed(),
-            waiting_duration = ?start.elapsed(),
+            total_duration = ?total_duration,
+            waiting_duration = ?waiting_duration,
+            elapsed_before_await = ?elapsed_before_await,
             "finished initializing the WalrusNodeClient"
         );
         Ok(client)
@@ -3333,9 +3370,15 @@ where
         let client = join_handle
             .await
             .expect("creating the WalrusNodeClient must not panic")?;
+        let total_duration = self.start_time.elapsed();
+        let waiting_duration = start.elapsed();
+        let elapsed_before_await = total_duration
+            .checked_sub(waiting_duration)
+            .unwrap_or_default();
         tracing::info!(
-            total_duration = ?self.start_time.elapsed(),
-            waiting_duration = ?start.elapsed(),
+            total_duration = ?total_duration,
+            waiting_duration = ?waiting_duration,
+            elapsed_before_await = ?elapsed_before_await,
             "finished initializing the WalrusNodeClient"
         );
         Ok(client)
