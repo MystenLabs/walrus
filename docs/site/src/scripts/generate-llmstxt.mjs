@@ -220,6 +220,25 @@ for (const file of files) {
   pages.push({ title: derivedTitle, url, description, section });
 }
 
+// Wrap a line to max 100 chars, continuing indented lines at the same indent level
+function wrapLine(line, indentSpaces = 0) {
+  if (line.length <= 100) return [line];
+  const indent = " ".repeat(indentSpaces);
+  const words = line.trimStart().split(" ");
+  const lines = [];
+  let current = indent;
+  for (const word of words) {
+    if (current.length + word.length + 1 > 100 && current.trim().length > 0) {
+      lines.push(current.trimEnd());
+      current = indent + "    " + word + " ";
+    } else {
+      current += word + " ";
+    }
+  }
+  if (current.trim()) lines.push(current.trimEnd());
+  return lines;
+}
+
 // ── Build llms.txt ────────────────────────────────────────────────────────────
 
 const TARGET_CHARS = 120_000;
@@ -240,9 +259,9 @@ if (siteDesc) allLines.push(`> ${siteDesc}`, "");
 for (const section of sectionOrder) {
   allLines.push(`## ${section}`, "");
   for (const { title, url, description } of grouped[section]) {
-    const descLine = description ? `  Description: ${description}` : null;
-    allLines.push(`- [${title}](${url})`);
-    if (descLine) allLines.push(descLine);
+    const descLine = description ? `    Description: ${description}` : null;
+    allLines.push(...wrapLine(`- [${title}](${url})`, 0));
+    if (descLine) allLines.push(...wrapLine(descLine, 4));
   }
   allLines.push("");
 }
@@ -255,8 +274,8 @@ if (output.length > TARGET_CHARS) {
   for (const section of sectionOrder) {
     trimmedLines.push(`## ${section}`, "");
     for (const { title, url, description } of grouped[section]) {
-      trimmedLines.push(`- [${title}](${url})`);
-      if (description) trimmedLines.push(`  Description: ${description}`);
+      trimmedLines.push(...wrapLine(`- [${title}](${url})`, 0));
+      if (description) trimmedLines.push(...wrapLine(`    Description: ${description}`, 4));
     }
     trimmedLines.push("");
   }
@@ -273,8 +292,8 @@ if (output.length > TARGET_CHARS) {
     const keep = Math.max(1, Math.floor(sectionPages.length * ratio));
     finalLines.push(`## ${section}`, "");
     for (const { title, url, description } of sectionPages.slice(0, keep)) {
-      finalLines.push(`- [${title}](${url})`);
-      if (description) finalLines.push(`  Description: ${description}`);
+      finalLines.push(...wrapLine(`- [${title}](${url})`, 0));
+      if (description) finalLines.push(...wrapLine(`    Description: ${description}`, 4));
     }
     finalLines.push("");
   }
