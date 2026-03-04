@@ -138,7 +138,7 @@ public struct PricesUpdated has copy, drop {
 public struct StoragePoolCreated has copy, drop {
     epoch: u32,
     storage_pool_id: ID,
-    storage_size: u64,
+    reserved_encoded_capacity_bytes: u64,
     start_epoch: u32,
     end_epoch: u32,
 }
@@ -147,7 +147,7 @@ public struct StoragePoolCreated has copy, drop {
 public struct PooledBlobRegistered has copy, drop {
     epoch: u32,
     blob_id: u256,
-    size: u64,
+    unencoded_size: u64,
     encoding_type: u8,
     deletable: bool,
     object_id: ID,
@@ -291,17 +291,23 @@ public(package) fun emit_prices_updated(epoch: u32, storage_price: u64, write_pr
 public(package) fun emit_storage_pool_created(
     epoch: u32,
     storage_pool_id: ID,
-    storage_size: u64,
+    reserved_encoded_capacity_bytes: u64,
     start_epoch: u32,
     end_epoch: u32,
 ) {
-    event::emit(StoragePoolCreated { epoch, storage_pool_id, storage_size, start_epoch, end_epoch })
+    event::emit(StoragePoolCreated {
+        epoch,
+        storage_pool_id,
+        reserved_encoded_capacity_bytes,
+        start_epoch,
+        end_epoch,
+    })
 }
 
 public(package) fun emit_pooled_blob_registered(
     epoch: u32,
     blob_id: u256,
-    size: u64,
+    unencoded_size: u64,
     encoding_type: u8,
     deletable: bool,
     object_id: ID,
@@ -310,7 +316,7 @@ public(package) fun emit_pooled_blob_registered(
     event::emit(PooledBlobRegistered {
         epoch,
         blob_id,
-        size,
+        unencoded_size,
         encoding_type,
         deletable,
         object_id,

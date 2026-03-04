@@ -32,10 +32,14 @@ const EInvalidBlobObject: u64 = 5;
 const EInsufficientCapacity: u64 = 6;
 /// The storage pool still contains blobs and cannot be destroyed.
 const EPoolNotEmpty: u64 = 7;
+/// The blob size is invalid.
+const EInvalidBlobSize: u64 = 8;
+/// The blob count is invalid.
+const EInvalidBlobCount: u64 = 9;
 
 // === Object definitions ===
 
-/// A pooled storage resource. Reserves `storage_size` bytes for epoch range
+/// A pooled storage resource. Reserves `reserved_encoded_capacity_bytes` bytes for epoch range
 /// `[start_epoch, end_epoch)`. Multiple blobs can be registered against it.
 public struct StoragePool has key, store {
     id: UID,
@@ -45,7 +49,7 @@ public struct StoragePool has key, store {
     /// Total reserved capacity in encoded bytes.
     reserved_encoded_capacity_bytes: u64,
     /// Sum of all active blobs' encoded sizes.
-    used_size: u64,
+    used_encoded_bytes: u64,
     /// Number of blobs in the table.
     blob_count: u64,
     blobs: ObjectTable<u256, PooledBlob>,
@@ -57,7 +61,7 @@ public struct PooledBlob has key, store {
     id: UID,
     registered_epoch: u32,
     blob_id: u256,
-    size: u64,
+    unencoded_size: u64,
     encoding_type: u8,
     certified_epoch: Option<u32>,
     /// Reference back to the owning pool.
@@ -79,12 +83,12 @@ public fun reserved_encoded_capacity_bytes(self: &StoragePool): u64 {
     self.reserved_encoded_capacity_bytes
 }
 
-public fun used_size(self: &StoragePool): u64 {
-    self.used_size
+public fun used_encoded_bytes(self: &StoragePool): u64 {
+    self.used_encoded_bytes
 }
 
-public fun available_encoded_size(self: &StoragePool): u64 {
-    self.reserved_encoded_capacity_bytes - self.used_size
+public fun available_encoded_bytes(self: &StoragePool): u64 {
+    self.reserved_encoded_capacity_bytes - self.used_encoded_bytes
 }
 
 public fun blob_count(self: &StoragePool): u64 {
@@ -105,7 +109,7 @@ public(package) fun create(
         start_epoch,
         end_epoch,
         reserved_encoded_capacity_bytes,
-        used_size: 0,
+        used_encoded_bytes: 0,
         blob_count: 0,
         blobs: object_table::new(ctx),
     }
@@ -124,16 +128,22 @@ public(package) fun extend_end_epoch(self: &mut StoragePool, extension_epochs: u
 /// Adds a blob to the pool's object table, and accounts for the space it occupies.
 public(package) fun add_blob(self: &mut StoragePool, blob: PooledBlob, encoded_size: u64) {
     self.blob_count = self.blob_count + 1;
-    self.used_size = self.used_size + encoded_size;
-    assert!(self.used_size <= self.reserved_encoded_capacity_bytes, EInsufficientCapacity);
+    self.used_encoded_bytes = self.used_encoded_bytes + encoded_size;
+    assert!(self.used_encoded_bytes <= self.reserved_encoded_capacity_bytes, EInsufficientCapacity);
     self.blobs.add(blob.blob_id, blob);
 }
 
 /// Removes and returns a blob from the pool's object table by its blob ID.
 public(package) fun remove_blob(self: &mut StoragePool, blob_id: u256, n_shards: u16): PooledBlob {
     let blob = self.blobs.borrow(blob_id);
-    let encoded_size = encoding::encoded_blob_length(blob.size, blob.encoding_type, n_shards);
-    self.used_size = self.used_size - encoded_size;
+    let encoded_size = encoding::encoded_blob_length(
+        blob.unencoded_size,
+        blob.encoding_type,
+        n_shards,
+    );
+    assert!(self.used_encoded_bytes >= encoded_size, EInvalidBlobSize);
+    self.used_encoded_bytes = self.used_encoded_bytes - encoded_size;
+    assert!(self.blob_count >= 1, EInvalidBlobCount);
     self.blob_count = self.blob_count - 1;
     self.blobs.remove(blob_id)
 }
@@ -143,7 +153,7 @@ public(package) fun borrow_blob_mut(self: &mut StoragePool, blob_id: u256): &mut
     self.blobs.borrow_mut(blob_id)
 }
 
-// TODO: decide whether we want to expose this destructor.
+// TODO(WAL-1160): decide whether we want to expose this destructor.
 /// Destroys the pool. Asserts the blobs table is empty and `blob_count == 0`.
 public fun destroy(self: StoragePool) {
     let StoragePool { id, blobs, blob_count, .. } = self;
@@ -159,21 +169,24 @@ public(package) fun new_pooled_blob(
     storage_pool_id: ID,
     blob_id: u256,
     root_hash: u256,
-    size: u64,
+    unencoded_size: u64,
     encoding_type: u8,
     deletable: bool,
     registered_epoch: u32,
     ctx: &mut TxContext,
 ): PooledBlob {
     // Cryptographically verify that the blob ID authenticates the size and encoding_type.
-    assert!(blob::derive_blob_id(root_hash, encoding_type, size) == blob_id, EInvalidBlobId);
+    assert!(
+        blob::derive_blob_id(root_hash, encoding_type, unencoded_size) == blob_id,
+        EInvalidBlobId,
+    );
 
     let id = object::new(ctx);
 
     emit_pooled_blob_registered(
         registered_epoch,
         blob_id,
-        size,
+        unencoded_size,
         encoding_type,
         deletable,
         id.to_inner(),
@@ -184,7 +197,7 @@ public(package) fun new_pooled_blob(
         id,
         registered_epoch,
         blob_id,
-        size,
+        unencoded_size,
         encoding_type,
         certified_epoch: option::none(),
         storage_pool_id,
@@ -194,42 +207,43 @@ public(package) fun new_pooled_blob(
 
 /// Certifies a blob in a storage pool.
 public(package) fun certify(
-    blob: &mut PooledBlob,
+    pooled_blob: &mut PooledBlob,
     current_epoch: u32,
     end_epoch: u32,
     message: CertifiedBlobMessage,
 ) {
-    assert!(blob.blob_id == message.certified_blob_id(), EInvalidBlobId);
-    assert!(!blob.certified_epoch.is_some(), EAlreadyCertified);
+    assert!(pooled_blob.blob_id == message.certified_blob_id(), EInvalidBlobId);
+    assert!(!pooled_blob.certified_epoch.is_some(), EAlreadyCertified);
     assert!(current_epoch < end_epoch, EResourceBounds);
 
     // Check the blob persistence type
     assert!(
-        blob.deletable == message.blob_persistence_type().is_deletable(),
+        pooled_blob.deletable == message.blob_persistence_type().is_deletable(),
         EInvalidBlobPersistenceType,
     );
 
     // Check that the object id matches the message for deletable blobs
-    if (blob.deletable) {
+    if (pooled_blob.deletable) {
         assert!(
-            message.blob_persistence_type().object_id() == object::id(blob),
+            message.blob_persistence_type().object_id() == object::id(pooled_blob),
             EInvalidBlobObject,
         );
     };
 
-    blob.certified_epoch.fill(current_epoch);
+    pooled_blob.certified_epoch.fill(current_epoch);
 
     emit_pooled_blob_certified(
         current_epoch,
-        blob.blob_id,
-        blob.deletable,
-        blob.id.to_inner(),
-        blob.storage_pool_id,
+        pooled_blob.blob_id,
+        pooled_blob.deletable,
+        pooled_blob.id.to_inner(),
+        pooled_blob.storage_pool_id,
     );
 }
 
 /// Deletes a deletable blob from a storage pool and destroys it.
-public(package) fun delete_blob_from_pool(blob: PooledBlob, epoch: u32, end_epoch: u32) {
+/// Emit `PooledBlobDeleted` event for the current epoch..
+public(package) fun delete_blob_object(pooled_blob: PooledBlob, epoch: u32) {
     let PooledBlob {
         id,
         deletable,
@@ -237,9 +251,8 @@ public(package) fun delete_blob_from_pool(blob: PooledBlob, epoch: u32, end_epoc
         certified_epoch,
         storage_pool_id,
         ..,
-    } = blob;
+    } = pooled_blob;
     assert!(deletable, EBlobNotDeletable);
-    assert!(end_epoch > epoch, EResourceBounds);
     let object_id = id.to_inner();
     id.delete();
     emit_pooled_blob_deleted(

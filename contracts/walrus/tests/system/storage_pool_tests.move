@@ -70,8 +70,8 @@ fun register_multiple_pooled_blobs_happy_path() {
     register_blob_in_pool_with_root(&mut system, &mut pool, 0x333, small_size, false, ctx);
 
     assert_eq!(pool.blob_count(), 3);
-    assert_eq!(pool.used_size(), pool_capacity);
-    assert_eq!(pool.available_encoded_size(), 0);
+    assert_eq!(pool.used_encoded_bytes(), pool_capacity);
+    assert_eq!(pool.available_encoded_bytes(), 0);
 
     pool.destroy_for_testing();
     system.destroy_for_testing();
@@ -261,14 +261,14 @@ fun delete_pooled_blob_certified() {
     // Certify the deletable blob.
     certify_deletable_pooled_blob(&mut pool, blob_id, EPOCH);
 
-    let used_before = pool.used_size();
+    let used_before = pool.used_encoded_bytes();
 
     // Delete the blob.
     system.delete_pooled_blob(&mut pool, blob_id);
 
     assert_eq!(pool.blob_count(), 0);
-    assert_eq!(pool.used_size(), 0);
-    assert!(pool.used_size() < used_before);
+    assert_eq!(pool.used_encoded_bytes(), 0);
+    assert!(pool.used_encoded_bytes() < used_before);
 
     pool.destroy();
     system.destroy_for_testing();
@@ -287,7 +287,7 @@ fun delete_pooled_blob_uncertified() {
     system.delete_pooled_blob(&mut pool, blob_id);
 
     assert_eq!(pool.blob_count(), 0);
-    assert_eq!(pool.used_size(), 0);
+    assert_eq!(pool.used_encoded_bytes(), 0);
 
     pool.destroy();
     system.destroy_for_testing();
@@ -318,20 +318,20 @@ fun delete_and_reuse_capacity() {
     let blob_id = default_blob_id();
     register_blob_in_pool(&mut system, &mut pool, blob_id, SIZE, true, ctx);
 
-    let available_after_register = pool.available_encoded_size();
+    let available_after_register = pool.available_encoded_bytes();
 
     // Certify the blob.
     certify_deletable_pooled_blob(&mut pool, blob_id, EPOCH);
 
     // Delete the blob, freeing capacity.
     system.delete_pooled_blob(&mut pool, blob_id);
-    assert_eq!(pool.used_size(), 0);
+    assert_eq!(pool.used_encoded_bytes(), 0);
 
     // Register a new blob reusing the freed capacity.
     register_blob_in_pool_with_root(&mut system, &mut pool, 0x222, SIZE, false, ctx);
 
     assert_eq!(pool.blob_count(), 1);
-    assert_eq!(pool.available_encoded_size(), available_after_register);
+    assert_eq!(pool.available_encoded_bytes(), available_after_register);
 
     pool.destroy_for_testing();
     system.destroy_for_testing();
@@ -431,7 +431,7 @@ fun full_pooled_blob_lifecycle() {
     let blob_id = default_blob_id();
     register_blob_in_pool(&mut system, &mut pool, blob_id, SIZE, true, ctx);
     assert_eq!(pool.blob_count(), 1);
-    let used_after_register = pool.used_size();
+    let used_after_register = pool.used_encoded_bytes();
     assert!(used_after_register > 0);
 
     // 3. Certify the blob via the system interface.
@@ -459,7 +459,7 @@ fun full_pooled_blob_lifecycle() {
     // 5. Delete the blob.
     system.delete_pooled_blob(&mut pool, blob_id);
     assert_eq!(pool.blob_count(), 0);
-    assert_eq!(pool.used_size(), 0);
+    assert_eq!(pool.used_encoded_bytes(), 0);
 
     // 6. Destroy the empty pool.
     pool.destroy();
@@ -493,18 +493,18 @@ fun create_pool_with_epochs(
 
 fun register_blob_in_pool(
     system: &mut System,
-    pool: &mut StoragePool,
+    storage_pool: &mut StoragePool,
     blob_id: u256,
-    size: u64,
+    unencoded_size: u64,
     deletable: bool,
     ctx: &mut TxContext,
 ) {
     let mut fake_coin = test_utils::mint_frost(N_COINS, ctx);
     system.register_pooled_blob(
-        pool,
+        storage_pool,
         blob_id,
         ROOT_HASH,
-        size,
+        unencoded_size,
         RS2,
         deletable,
         &mut fake_coin,
@@ -515,19 +515,19 @@ fun register_blob_in_pool(
 
 fun register_blob_in_pool_with_root(
     system: &mut System,
-    pool: &mut StoragePool,
+    storage_pool: &mut StoragePool,
     root_hash: u256,
-    size: u64,
+    unencoded_size: u64,
     deletable: bool,
     ctx: &mut TxContext,
 ) {
-    let blob_id = blob::derive_blob_id(root_hash, RS2, size);
+    let blob_id = blob::derive_blob_id(root_hash, RS2, unencoded_size);
     let mut fake_coin = test_utils::mint_frost(N_COINS, ctx);
     system.register_pooled_blob(
-        pool,
+        storage_pool,
         blob_id,
         root_hash,
-        size,
+        unencoded_size,
         RS2,
         deletable,
         &mut fake_coin,
@@ -537,21 +537,21 @@ fun register_blob_in_pool_with_root(
 }
 
 /// Certifies a permanent pooled blob using the test-only message helper.
-fun certify_permanent_pooled_blob(pool: &mut StoragePool, blob_id: u256, epoch: u32) {
+fun certify_permanent_pooled_blob(storage_pool: &mut StoragePool, blob_id: u256, epoch: u32) {
     let certify_message = messages::certified_permanent_blob_message_for_testing(blob_id);
-    let end_epoch = pool.end_epoch();
-    storage_pool::certify(pool.borrow_blob_mut(blob_id), epoch, end_epoch, certify_message);
+    let end_epoch = storage_pool.end_epoch();
+    storage_pool::certify(storage_pool.borrow_blob_mut(blob_id), epoch, end_epoch, certify_message);
 }
 
 /// Certifies a deletable pooled blob using the test-only message helper.
-fun certify_deletable_pooled_blob(pool: &mut StoragePool, blob_id: u256, epoch: u32) {
-    let object_id = object::id(pool.borrow_blob_mut(blob_id));
+fun certify_deletable_pooled_blob(storage_pool: &mut StoragePool, blob_id: u256, epoch: u32) {
+    let object_id = object::id(storage_pool.borrow_blob_mut(blob_id));
     let certify_message = messages::certified_deletable_blob_message_for_testing(
         blob_id,
         object_id,
     );
-    let end_epoch = pool.end_epoch();
-    storage_pool::certify(pool.borrow_blob_mut(blob_id), epoch, end_epoch, certify_message);
+    let end_epoch = storage_pool.end_epoch();
+    storage_pool::certify(storage_pool.borrow_blob_mut(blob_id), epoch, end_epoch, certify_message);
 }
 
 fun default_blob_id(): u256 {
