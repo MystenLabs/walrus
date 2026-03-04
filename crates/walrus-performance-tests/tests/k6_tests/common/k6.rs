@@ -10,11 +10,14 @@ use std::{
     path::PathBuf,
     process::Command,
     str::FromStr,
+    sync::{LazyLock, Mutex},
+    thread,
 };
 
-use crate::k6_tests::{WALRUS_K6_NO_COLOR, WALRUS_K6_OUT, WALRUS_K6_QUIET};
+use crate::k6_tests::{WALRUS_K6_NO_COLOR, WALRUS_K6_OUT, WALRUS_K6_QUIET, delay_between_runs};
 
 const K6_THRESHOLD_FAILED_EXIT_CODE: i32 = 99;
+static K6_RUN_LOCK: LazyLock<Mutex<bool>> = LazyLock::new(|| Mutex::new(false));
 
 /// Environment in which the tests are running.
 ///
@@ -145,6 +148,19 @@ impl K6Command {
     }
 
     pub fn status(&mut self) -> Result<(), Box<dyn Error>> {
+        let delay_between_runs = delay_between_runs();
+        let mut has_run_before = K6_RUN_LOCK
+            .lock()
+            .expect("k6 run lock should not be poisoned");
+        if *has_run_before && !delay_between_runs.is_zero() {
+            println!(
+                "Sleeping {}s before next k6 run",
+                delay_between_runs.as_secs()
+            );
+            thread::sleep(delay_between_runs);
+        }
+        *has_run_before = true;
+
         println!("{}", self);
 
         let mut args: Vec<_> = self
