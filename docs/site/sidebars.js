@@ -120,7 +120,17 @@ const sidebars = {
         'sites/getting-started/configuration-file-reference',
       ],
     },
-    `sites/configuration/site-configuration`,
+    {
+      type: 'category',
+      label: 'Site Configuration',
+      collapsed: true,
+      items: [
+        `sites/configuration/site-configuration`,
+        'sites/configuration/specifying-http-headers',
+        'sites/configuration/setting-up-routing-rules',
+        'sites/configuration/adding-metadata',
+      ],
+    },
     {
       type: 'category',
       label: 'Walrus Portals',
