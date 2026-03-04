@@ -60,15 +60,7 @@
       "Content-Disposition": "inline",
       "content-type": "text/markdown; charset=utf-8"
     },
-    "/markdown/examples/awesome-walrus.md": {
-      "Content-Disposition": "inline",
-      "content-type": "text/markdown; charset=utf-8"
-    },
     "/markdown/examples/checkpoint-data.md": {
-      "Content-Disposition": "inline",
-      "content-type": "text/markdown; charset=utf-8"
-    },
-    "/markdown/examples/data-marketplace.md": {
       "Content-Disposition": "inline",
       "content-type": "text/markdown; charset=utf-8"
     },
@@ -97,10 +89,6 @@
       "content-type": "text/markdown; charset=utf-8"
     },
     "/markdown/glossary.md": {
-      "Content-Disposition": "inline",
-      "content-type": "text/markdown; charset=utf-8"
-    },
-    "/markdown/http-api/managing-blobs.md": {
       "Content-Disposition": "inline",
       "content-type": "text/markdown; charset=utf-8"
     },
@@ -180,10 +168,6 @@
       "Content-Disposition": "inline",
       "content-type": "text/markdown; charset=utf-8"
     },
-    "/markdown/sites/ci-cd/other-ci-cd-platforms.md": {
-      "Content-Disposition": "inline",
-      "content-type": "text/markdown; charset=utf-8"
-    },
     "/markdown/sites/ci-cd/preparing-deployment-credentials.md": {
       "Content-Disposition": "inline",
       "content-type": "text/markdown; charset=utf-8"
@@ -204,10 +188,6 @@
       "Content-Disposition": "inline",
       "content-type": "text/markdown; charset=utf-8"
     },
-    "/markdown/sites/custom-domains/dns-configuration.md": {
-      "Content-Disposition": "inline",
-      "content-type": "text/markdown; charset=utf-8"
-    },
     "/markdown/sites/custom-domains/setting-a-suins-name.md": {
       "Content-Disposition": "inline",
       "content-type": "text/markdown; charset=utf-8"
@@ -224,15 +204,7 @@
       "Content-Disposition": "inline",
       "content-type": "text/markdown; charset=utf-8"
     },
-    "/markdown/sites/getting-started/updating-an-existing-site.md": {
-      "Content-Disposition": "inline",
-      "content-type": "text/markdown; charset=utf-8"
-    },
     "/markdown/sites/getting-started/using-the-site-builder.md": {
-      "Content-Disposition": "inline",
-      "content-type": "text/markdown; charset=utf-8"
-    },
-    "/markdown/sites/getting-started/viewing-and-testing-your-site.md": {
       "Content-Disposition": "inline",
       "content-type": "text/markdown; charset=utf-8"
     },
@@ -256,14 +228,6 @@
       "Content-Disposition": "inline",
       "content-type": "text/markdown; charset=utf-8"
     },
-    "/markdown/sites/linking/linking-from-walrus-sites.md": {
-      "Content-Disposition": "inline",
-      "content-type": "text/markdown; charset=utf-8"
-    },
-    "/markdown/sites/linking/linking-to-walrus-sites.md": {
-      "Content-Disposition": "inline",
-      "content-type": "text/markdown; charset=utf-8"
-    },
     "/markdown/sites/linking/linking.md": {
       "Content-Disposition": "inline",
       "content-type": "text/markdown; charset=utf-8"
@@ -276,19 +240,7 @@
       "Content-Disposition": "inline",
       "content-type": "text/markdown; charset=utf-8"
     },
-    "/markdown/sites/portals/mainnet-testnet.md": {
-      "Content-Disposition": "inline",
-      "content-type": "text/markdown; charset=utf-8"
-    },
-    "/markdown/sites/security/access-control-options.md": {
-      "Content-Disposition": "inline",
-      "content-type": "text/markdown; charset=utf-8"
-    },
     "/markdown/sites/security/site-data-authentication.md": {
-      "Content-Disposition": "inline",
-      "content-type": "text/markdown; charset=utf-8"
-    },
-    "/markdown/sites/troubleshooting.md": {
       "Content-Disposition": "inline",
       "content-type": "text/markdown; charset=utf-8"
     },
@@ -344,15 +296,7 @@
       "Content-Disposition": "inline",
       "content-type": "text/markdown; charset=utf-8"
     },
-    "/markdown/troubleshooting/error-handling.md": {
-      "Content-Disposition": "inline",
-      "content-type": "text/markdown; charset=utf-8"
-    },
     "/markdown/troubleshooting/index.md": {
-      "Content-Disposition": "inline",
-      "content-type": "text/markdown; charset=utf-8"
-    },
-    "/markdown/troubleshooting/network-errors.md": {
       "Content-Disposition": "inline",
       "content-type": "text/markdown; charset=utf-8"
     },
@@ -360,35 +304,7 @@
       "Content-Disposition": "inline",
       "content-type": "text/markdown; charset=utf-8"
     },
-    "/markdown/typescript-sdk/configuring-network-requests.md": {
-      "Content-Disposition": "inline",
-      "content-type": "text/markdown; charset=utf-8"
-    },
-    "/markdown/typescript-sdk/fetch-limitations.md": {
-      "Content-Disposition": "inline",
-      "content-type": "text/markdown; charset=utf-8"
-    },
-    "/markdown/typescript-sdk/installation-and-setup.md": {
-      "Content-Disposition": "inline",
-      "content-type": "text/markdown; charset=utf-8"
-    },
-    "/markdown/typescript-sdk/managing-blobs.md": {
-      "Content-Disposition": "inline",
-      "content-type": "text/markdown; charset=utf-8"
-    },
-    "/markdown/typescript-sdk/reading-blobs.md": {
-      "Content-Disposition": "inline",
-      "content-type": "text/markdown; charset=utf-8"
-    },
     "/markdown/typescript-sdk/sdks.md": {
-      "Content-Disposition": "inline",
-      "content-type": "text/markdown; charset=utf-8"
-    },
-    "/markdown/typescript-sdk/storing-blobs.md": {
-      "Content-Disposition": "inline",
-      "content-type": "text/markdown; charset=utf-8"
-    },
-    "/markdown/typescript-sdk/wasm-module-loading.md": {
       "Content-Disposition": "inline",
       "content-type": "text/markdown; charset=utf-8"
     },
@@ -609,10 +525,8 @@
     "/docs/dev-guide/dev-operations.md": "/markdown/dev-guide/dev-operations.md",
     "/docs/dev-guide/sui-struct": "/docs/dev-guide/sui-struct.html",
     "/docs/dev-guide/sui-struct.md": "/markdown/dev-guide/sui-struct.md",
-    "/docs/examples/awesome-walrus.md": "/markdown/examples/awesome-walrus.md",
     "/docs/examples/checkpoint-data": "/docs/examples/checkpoint-data.html",
     "/docs/examples/checkpoint-data.md": "/markdown/examples/checkpoint-data.md",
-    "/docs/examples/data-marketplace.md": "/markdown/examples/data-marketplace.md",
     "/docs/examples/javascript": "/docs/examples/javascript.html",
     "/docs/examples/javascript.md": "/markdown/examples/javascript.md",
     "/docs/examples/move": "/docs/examples/move.html",
@@ -624,7 +538,6 @@
     "/docs/getting-started.md": "/markdown/getting-started/index.md",
     "/docs/getting-started/advanced-setup.md": "/markdown/getting-started/advanced-setup.md",
     "/docs/glossary.md": "/markdown/glossary.md",
-    "/docs/http-api/managing-blobs.md": "/markdown/http-api/managing-blobs.md",
     "/docs/http-api/quilt-http-apis.md": "/markdown/http-api/quilt-http-apis.md",
     "/docs/http-api/reading-blobs.md": "/markdown/http-api/reading-blobs.md",
     "/docs/http-api/storing-blobs.md": "/markdown/http-api/storing-blobs.md",
@@ -654,34 +567,25 @@
     "/docs/operator-guide/upload-relay": "/docs/operator-guide/upload-relay.html",
     "/docs/operator-guide/upload-relay.md": "/markdown/operator-guide/upload-relay.md",
     "/docs/sites/ci-cd/github-actions-workflow.md": "/markdown/sites/ci-cd/github-actions-workflow.md",
-    "/docs/sites/ci-cd/other-ci-cd-platforms.md": "/markdown/sites/ci-cd/other-ci-cd-platforms.md",
     "/docs/sites/ci-cd/preparing-deployment-credentials.md": "/markdown/sites/ci-cd/preparing-deployment-credentials.md",
     "/docs/sites/configuration/adding-metadata.md": "/markdown/sites/configuration/adding-metadata.md",
     "/docs/sites/configuration/setting-up-routing-rules.md": "/markdown/sites/configuration/setting-up-routing-rules.md",
     "/docs/sites/configuration/specifying-http-headers.md": "/markdown/sites/configuration/specifying-http-headers.md",
     "/docs/sites/custom-domains/bringing-your-own-domain.md": "/markdown/sites/custom-domains/bringing-your-own-domain.md",
-    "/docs/sites/custom-domains/dns-configuration.md": "/markdown/sites/custom-domains/dns-configuration.md",
     "/docs/sites/custom-domains/setting-a-suins-name.md": "/markdown/sites/custom-domains/setting-a-suins-name.md",
     "/docs/sites/getting-started/configuration-file-reference.md": "/markdown/sites/getting-started/configuration-file-reference.md",
     "/docs/sites/getting-started/installing-the-site-builder.md": "/markdown/sites/getting-started/installing-the-site-builder.md",
     "/docs/sites/getting-started/publishing-your-first-site.md": "/markdown/sites/getting-started/publishing-your-first-site.md",
-    "/docs/sites/getting-started/updating-an-existing-site.md": "/markdown/sites/getting-started/updating-an-existing-site.md",
     "/docs/sites/getting-started/using-the-site-builder.md": "/markdown/sites/getting-started/using-the-site-builder.md",
-    "/docs/sites/getting-started/viewing-and-testing-your-site.md": "/markdown/sites/getting-started/viewing-and-testing-your-site.md",
     "/docs/sites/index.md": "/markdown/sites/index.md",
     "/docs/sites/introduction/components.md": "/markdown/sites/introduction/components.md",
     "/docs/sites/introduction/technical-overview.md": "/markdown/sites/introduction/technical-overview.md",
     "/docs/sites/known-restrictions.md": "/markdown/sites/known-restrictions.md",
     "/docs/sites/linking/avoiding-duplicate-content-seo.md": "/markdown/sites/linking/avoiding-duplicate-content-seo.md",
-    "/docs/sites/linking/linking-from-walrus-sites.md": "/markdown/sites/linking/linking-from-walrus-sites.md",
-    "/docs/sites/linking/linking-to-walrus-sites.md": "/markdown/sites/linking/linking-to-walrus-sites.md",
     "/docs/sites/linking/linking.md": "/markdown/sites/linking/linking.md",
     "/docs/sites/linking/redirects.md": "/markdown/sites/linking/redirects.md",
     "/docs/sites/portals/deploy-locally.md": "/markdown/sites/portals/deploy-locally.md",
-    "/docs/sites/portals/mainnet-testnet.md": "/markdown/sites/portals/mainnet-testnet.md",
-    "/docs/sites/security/access-control-options.md": "/markdown/sites/security/access-control-options.md",
     "/docs/sites/security/site-data-authentication.md": "/markdown/sites/security/site-data-authentication.md",
-    "/docs/sites/troubleshooting.md": "/markdown/sites/troubleshooting.md",
     "/docs/snippets/blob-object-id": "/docs/snippets/blob-object-id.html",
     "/docs/snippets/blob-object-id.md": "/markdown/snippets/blob-object-id.md",
     "/docs/snippets/blog-note-edit": "/docs/snippets/blog-note-edit.html",
@@ -698,19 +602,10 @@
     "/docs/system-overview/storage-costs.md": "/markdown/system-overview/storage-costs.md",
     "/docs/system-overview/sui-object-and-blob-ids.md": "/markdown/system-overview/sui-object-and-blob-ids.md",
     "/docs/system-overview/view-system-info.md": "/markdown/system-overview/view-system-info.md",
-    "/docs/troubleshooting/error-handling.md": "/markdown/troubleshooting/error-handling.md",
     "/docs/troubleshooting/index.md": "/markdown/troubleshooting/index.md",
-    "/docs/troubleshooting/network-errors.md": "/markdown/troubleshooting/network-errors.md",
     "/docs/tusky-migration-guide": "/docs/tusky-migration-guide.html",
     "/docs/tusky-migration-guide.md": "/markdown/tusky-migration-guide.md",
-    "/docs/typescript-sdk/configuring-network-requests.md": "/markdown/typescript-sdk/configuring-network-requests.md",
-    "/docs/typescript-sdk/fetch-limitations.md": "/markdown/typescript-sdk/fetch-limitations.md",
-    "/docs/typescript-sdk/installation-and-setup.md": "/markdown/typescript-sdk/installation-and-setup.md",
-    "/docs/typescript-sdk/managing-blobs.md": "/markdown/typescript-sdk/managing-blobs.md",
-    "/docs/typescript-sdk/reading-blobs.md": "/markdown/typescript-sdk/reading-blobs.md",
     "/docs/typescript-sdk/sdks.md": "/markdown/typescript-sdk/sdks.md",
-    "/docs/typescript-sdk/storing-blobs.md": "/markdown/typescript-sdk/storing-blobs.md",
-    "/docs/typescript-sdk/wasm-module-loading.md": "/markdown/typescript-sdk/wasm-module-loading.md",
     "/docs/usage/client-cli": "/docs/usage/client-cli.html",
     "/docs/usage/client-cli.md": "/markdown/usage/client-cli.md",
     "/docs/usage/examples": "/docs/usage/examples.html",
@@ -870,5 +765,5 @@
     "/walrus-sites/tutorial.html": "/walrus-sites/tutorial/index.html",
     "/walrus-sites/tutorial/index": "/walrus-sites/tutorial/index.html"
   },
-    "object_id": "0xbd6014d74e37d94a299c932e70e0b009979d9c6dc6d941eb4afe4995b8df242c"
+  "object_id": "0xbd6014d74e37d94a299c932e70e0b009979d9c6dc6d941eb4afe4995b8df242c"
 }
