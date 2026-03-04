@@ -52,7 +52,7 @@ jobs:
       - name: Build site
         run: cd docs/site && pnpm run build
       - name: Check route config
-        run: cd docs/site && ./check-routes.sh
+        run: cd docs/site && chmod +x ./check-routes.sh && ./check-routes.sh
       - name: Update GitHub Pages
         uses: JamesIves/github-pages-deploy-action@d92aa235d04922e8f08b40ce78cc5442fcfbfa2f # pin@v4.8.0
         with:
@@ -89,7 +89,7 @@ jobs:
       - name: Build site
         run: cd docs/site && pnpm run build
       - name: Check route config
-        run: cd docs/site && ./check-routes.sh
+        run: cd docs/site && chmod +x ./check-routes.sh && ./check-routes.sh
       - name: Deploy to Walrus
         uses: MystenLabs/walrus-sites-github-actions/deploy@554cf074616fdc211991c2c57d034baea2a13fb8 # v3
         with:
@@ -102,3 +102,7 @@ jobs:
           EPOCHS: "10"
           GAS_BUDGET: "1000000000"
           SITE_BUILDER_VERSION: v2
+      - name: Test markdown routes
+        run: |
+          chmod +x ./ping-test.sh
+          ./ping-test.sh https://docs.wal.app/docs/getting-started.md --retries 12 --delay 20
