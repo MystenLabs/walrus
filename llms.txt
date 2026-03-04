@@ -22,6 +22,18 @@ Where the world's data becomes reliable, valuable, and governable
 
 - [Data Security](/data-security): Security guarantees and best practices for Walrus including availability, integrity, and encryption with Seal for access control.
 
+## Design
+
+- [Redirecting...](/design/architecture)
+- [Redirecting...](/design/encoding)
+- [Redirecting...](/design/future)
+- [Redirecting...](/design/objectives_use_cases)
+- [Redirecting...](/design/operations-off-chain)
+- [Redirecting...](/design/operations-sui)
+- [Redirecting...](/design/operations)
+- [Redirecting...](/design/overview)
+- [Redirecting...](/design/properties)
+
 ## Dev guide
 
 - [Redirecting...](/dev-guide/components)
@@ -114,12 +126,14 @@ Where the world's data becomes reliable, valuable, and governable
 ## System overview
 
 - [Available Networks](/system-overview/available-networks): Overview of Walrus networks including Mainnet and Testnet configurations, parameters, and setup instructions.
+- [Redirecting...](/system-overview/components)
 - [Walrus Fundamentals](/system-overview/core-concepts): Technical reference for Walrus fundamentals, including architecture, data storage, and data retrieval.
 - [Operations](/system-overview/operations): Developer guide to Walrus operations for blob management.
 - [Public Aggregators and Publishers](/system-overview/public-aggregators-and-publishers): The Walrus client offers a daemon mode that runs a simple web server that provides HTTP interfaces you can use to store and read blobs in an aggregator or publisher role respectively. Walrus also offers HTTP APIs through public aggregator and publisher services that you can use without running a local client.
 - [Batch Storage with Quilt](/system-overview/quilt): Comprehensive guide to Walrus Quilt for batch storage of multiple small blobs with cost optimization and metadata management.
 - [RedStuff Encoding Algorithm](/system-overview/red-stuff): Learn how the RedStuff encoding algorithm works in Walrus, including erasure coding, RaptorQ fountain codes, sliver encoding, recovery, and blob metadata.
 - [Storage Costs](/system-overview/storage-costs): Comprehensive guide to Walrus storage costs including WAL tokens, SUI gas fees, and cost optimization strategies.
+- [Redirecting...](/system-overview/sui-object-and-blob-ids)
 - [View System Information](/system-overview/view-system-info): Use the walrus info command to view Walrus system parameters, storage node details, epoch information, and current storage costs.
 
 ## Troubleshooting
