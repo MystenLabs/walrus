@@ -129,6 +129,41 @@ type Props = {
   signatureOnly?: boolean; // if included, only display function signature
 };
 
+/**
+ * Wrapper that attaches resolved content as a data attribute for export consumers.
+ *
+ * Any downstream tool that walks the rendered DOM can find all imported content via:
+ *   document.querySelectorAll('[data-import-content-source]')
+ *
+ * Each element exposes:
+ *   - data-import-content-source: the source path
+ *   - data-import-content-mode: "snippet" | "code"
+ *   - data-import-content-resolved: the plain-text resolved content
+ */
+function ExportableWrapper({
+  source,
+  mode,
+  resolvedText,
+  children,
+}: {
+  source: string;
+  mode: string;
+  resolvedText: string | null;
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      data-import-content-source={source}
+      data-import-content-mode={mode}
+      {...(resolvedText != null && {
+        "data-import-content-resolved": resolvedText,
+      })}
+    >
+      {children}
+    </div>
+  );
+}
+
 export default function ImportContent({
   source,
   mode,
@@ -230,11 +265,14 @@ export default function ImportContent({
     }
 
     // Wrap with MDXProvider so that components (Tabs, TabItem, etc.)
-    // imported inside the snippet MDX files resolve correctly
+    // imported inside the snippet MDX files resolve correctly.
+    // ExportableWrapper makes snippet content discoverable by export tools.
     return (
-      <MDXProvider components={MDXComponents}>
-        <Comp />
-      </MDXProvider>
+      <ExportableWrapper source={source} mode="snippet" resolvedText={null}>
+        <MDXProvider components={MDXComponents}>
+          <Comp />
+        </MDXProvider>
+      </ExportableWrapper>
     );
   }
 
@@ -394,16 +432,20 @@ export default function ImportContent({
   if (/^m(?:d|arkdown)$/i.test(style || "")) {
     const html = md.render(out);
     return (
-      <div
-        className="import-content--nofence mdx-content"
-        dangerouslySetInnerHTML={{ __html: html }}
-      />
+      <ExportableWrapper source={source} mode="code" resolvedText={out}>
+        <div
+          className="import-content--nofence mdx-content"
+          dangerouslySetInnerHTML={{ __html: html }}
+        />
+      </ExportableWrapper>
     );
   }
 
   return (
-    <CodeBlock language={resolvedLanguage} metastring={meta}>
-      {out}
-    </CodeBlock>
+    <ExportableWrapper source={source} mode="code" resolvedText={out}>
+      <CodeBlock language={resolvedLanguage} metastring={meta}>
+        {out}
+      </CodeBlock>
+    </ExportableWrapper>
   );
 }

@@ -4,7 +4,7 @@
 import React, { useState, useEffect } from "react";
 import { liteClient as algoliasearch } from "algoliasearch/lite";
 import { InstantSearch, useInfiniteHits, useInstantSearch, Index } from "react-instantsearch";
-import { truncateAtWord, getDeepestHierarchyLabel } from "./utils";
+import { truncateAtWord } from "./utils";
 import ControlledSearchBox from "./ControlledSearchBox";
 import TabbedResults from "./TabbedResults";
 
@@ -35,22 +35,22 @@ const indices = [
     { label: "SDKs", indexName: "sui_sdks" },
 ];
 
+// Strips the crawler "__" format: "Page Title__Section__" → "Page Title"
+function cleanHierarchyValue(value: string | null | undefined): string {
+    if (!value) return "";
+    return value.split("__")[0].trim();
+}
+
 function HitItem({ hit }: { hit: any }) {
     const level = hit.type;
-    let sectionTitle = hit.lvl0;
-    if (level === "content") {
-        sectionTitle = getDeepestHierarchyLabel(hit.hierarchy);
-    } else {
-        sectionTitle = hit.hierarchy?.[level] || level;
-    }
+
+    const sectionTitle =
+        level === "content"
+            ? cleanHierarchyValue(hit.hierarchy?.lvl1) || cleanHierarchyValue(hit.hierarchy?.lvl0) || hit.title || ""
+            : cleanHierarchyValue(hit.hierarchy?.[level]) || cleanHierarchyValue(hit.hierarchy?.lvl1) || hit.title || "";
+
     return (
         <div className="modal-result">
-            <a
-                href={hit.url}
-                className="text-blue-600 dark:text-wal-green dark:hover:text-wal-green-light font-medium"
-            >
-                {hit.title}
-            </a>
             <a
                 href={hit.url}
                 target="_blank"
@@ -140,11 +140,10 @@ export default function MultiIndexSearchModal({
     const [query, setQuery] = React.useState("");
     const scrollContainerRef = React.useRef<HTMLDivElement>(null);
     const searchBoxRef = React.useRef<HTMLInputElement>(null);
+
     useEffect(() => {
         if (isOpen) {
             document.body.style.overflow = "hidden";
-            console.log("SearchModal theme =", document.documentElement.getAttribute("data-theme"));
-            // Focus the search input when modal opens
             setTimeout(() => {
                 searchBoxRef.current?.focus();
             }, 300);
@@ -160,14 +159,12 @@ export default function MultiIndexSearchModal({
         walrus_docs: null,
         sui_docs: { label: "Sui Docs", url: "https://docs.sui.io" },
         suins_docs: { label: "SuiNS Docs", url: "https://docs.suins.io" },
-        move_book: {
-            label: "The Move Book",
-            url: "https://move-book.com/",
-        },
+        move_book: { label: "The Move Book", url: "https://move-book.com/" },
         sui_sdks: { label: "SDK Docs", url: "https://sdk.mystenlabs.com" },
     }[activeIndex];
 
     if (!isOpen) return null;
+
     return (
         <div className="fixed inset-0 bg-wal-gray-70 dark:bg-wal-gray-90/80 z-50 flex justify-center p-4">
             <div className="bg-white dark:bg-[var(--ifm-background-color)] w-full max-w-3xl px-6 rounded-lg shadow-md max-h-[600px] flex flex-col">

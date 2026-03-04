@@ -20,7 +20,6 @@ function useNavbarItems() {
   return useThemeConfig().navbar.items;
 }
 
-// Safe wrapper: if the provider isn't present, don't crash
 function useMobileSidebarSafe() {
   try {
     return useNavbarMobileSidebar();
@@ -32,7 +31,11 @@ function useMobileSidebarSafe() {
 
 function NavbarItems({ items }) {
   return (
+<<<<<<< Updated upstream
     <div className="flex flex-[8_1_0%] items-center justify-start gap-8 min-[1100px]:gap-8">
+=======
+    <>
+>>>>>>> Stashed changes
       {items.map((item, i) => (
         <ErrorCauseBoundary
           key={i}
@@ -48,16 +51,7 @@ ${JSON.stringify(item, null, 2)}`,
           <NavbarItem {...item} />
         </ErrorCauseBoundary>
       ))}
-    </div>
-  );
-}
-
-function NavbarContentLayout({ left, right }) {
-  return (
-    <div className="navbar__inner">
-      <div className="navbar__items">{left}</div>
-      <div className="navbar__items navbar__items--right">{right}</div>
-    </div>
+    </>
   );
 }
 
@@ -110,8 +104,13 @@ function KapaButton() {
     <button
       type="button"
       onClick={handleClick}
+<<<<<<< Updated upstream
       className="kapa-trigger-btn flex items-center gap-2.5 cursor-pointer bg-white text-gray-900 font-semibold text-base px-5
       py-2.5 rounded-full border border-gray-200 hover:bg-gray-50 transition-colors mx-2"
+=======
+      className="kapa-trigger-btn flex items-center gap-2.5 cursor-pointer bg-white text-gray-900 font-semibold
+      text-base px-5 py-2.5 rounded-full border border-gray-200 hover:bg-gray-50 transition-colors shrink-0"
+>>>>>>> Stashed changes
     >
       <img src="/img/logo.svg" alt="" width="23" height="23" />
       Ask Walrus AI
@@ -126,16 +125,80 @@ export default function NavbarContent() {
   const searchBarItem = items.find((item) => item.type === "search");
 
   return (
-    <NavbarContentLayout
-      left={
-        <>
+    <>
+      {/* Force brand to never collapse regardless of stylesheet order */}
+      <style>{`
+        .navbar__brand {
+          flex-shrink: 0 !important;
+          flex-grow: 0 !important;
+          overflow: visible !important;
+          min-width: auto !important;
+          width: auto !important;
+        }
+        .navbar__title {
+          overflow: visible !important;
+          white-space: nowrap !important;
+          flex-shrink: 0 !important;
+          width: auto !important;
+        }
+        /* Nav links shrink, not the logo */
+        .navbar__items .navbar__link {
+          white-space: nowrap !important;
+          flex-shrink: 1 !important;
+          font-size: clamp(0.65rem, 1vw, 0.875rem) !important;
+          padding-left: clamp(0.2rem, 0.5vw, 0.75rem) !important;
+          padding-right: clamp(0.2rem, 0.5vw, 0.75rem) !important;
+        }
+      `}</style>
+      <div
+        className="navbar__inner"
+        style={{ flexWrap: "nowrap", justifyContent: "space-between" }}
+      >
+        {/* Left side: logo never shrinks, links absorb compression */}
+        <div
+          className="navbar__items"
+          style={{
+            flexShrink: 1,
+            minWidth: 0,
+            flexWrap: "nowrap",
+            overflow: "visible",
+            gap: "0.5rem",
+          }}
+        >
           {!mobileSidebar.disabled && <NavbarMobileSidebarToggle />}
           <NavbarLogo />
+<<<<<<< Updated upstream
           <NavbarItems items={leftItems} />
         </>
       }
       right={
         <div className="flex items-center gap-3">
+=======
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              flexWrap: "nowrap",
+              gap: "0.25rem",
+              minWidth: 0,
+              flexShrink: 1,
+              overflow: "hidden",
+            }}
+          >
+            <NavbarItems items={leftItems} />
+          </div>
+        </div>
+
+        {/* Right side: never shrinks */}
+        <div
+          className="navbar__items navbar__items--right"
+          style={{
+            flexShrink: 0,
+            flexWrap: "nowrap",
+            gap: "0.25rem",
+          }}
+        >
+>>>>>>> Stashed changes
           <NavbarItems items={rightItems} />
           <ThemeToggle />
           <KapaButton />
@@ -145,7 +208,7 @@ export default function NavbarContent() {
             </NavbarSearch>
           )}
         </div>
-      }
-    />
+      </div>
+    </>
   );
 }
