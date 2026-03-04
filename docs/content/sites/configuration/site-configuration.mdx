@@ -50,17 +50,18 @@ The `ws-resources.json` file expects the field names to be in `snake_case`.
 
 ## Specifying HTTP headers
 
-The `headers` section allows you to specify custom HTTP response headers for specific resources. The keys in the `headers` object are the paths of the resources, and the values are lists of key-value pairs corresponding to the headers that the portal attaches to the response.
+The `headers` section lets you attach custom HTTP response headers to specific resources, controlling caching, content types, encoding, and download behaviour. Headers are specified per exact file path and override the portal's defaults. Refer to the [HTTP headers reference page](/docs/sites/configuration/specifying-http-headers) for more information.
 
-In the example `ws-resources.json`, the file `index.html` is served with the `Content-Type` header set to `text/html; charset=utf-8` and the `Cache-Control` header set to `max-age=3500`. The resource path is always represented as starting from the root `/`.
-
-This mechanism allows you to control various aspects of the resource delivery, such as caching, encoding, and content types.
-
-### Default headers
-
-By default, you do not need to specify any headers, and you can omit the `ws-resources.json`. The `site-builder` automatically tries to infer the `Content-Type` header based on the file extension, and sets the `Content-Encoding` to `identity` (no transformation).
-
-If the content type cannot be inferred, the `Content-Type` is set to `application/octet-stream`. Any headers specified in the `ws-resources.json` file will override these defaults.
+```json
+{
+  "headers": {
+    "/index.html": {
+    "Content-Type": "text/html; charset=utf-8",
+    "Cache-Control": "max-age=3500"
+    }
+  }
+}
+```
 
 ## Setting up routing rules
 
@@ -125,3 +126,32 @@ For example:
 This configuration skips all files inside the `/private/` and `/images/tmp/` directories, as well as a specific file `/secret.txt`.
 
 Wildcards are only supported in the **last position** of the path, for example, `/foo/*` is valid, but `/foo/*/bar` is not.
+
+## Serving raw markdown {#markdown}
+
+You may wish to serve raw markdown files for better LLM ingestion. Generating these depends on your framework. Static site generators like Docusaurus and VitePress can output `.md` files through build scripts or plugins. Custom pipelines typically use a pre-build script to copy source files into a `/markdown` directory. 
+
+Raw markdown files must exist in your build output before deploying using `site-builder`. To serve a file as raw markdown, two entries are required in `ws-resources.json`.
+
+Add a header definition (`content-type` **must** be lowercase):
+
+```json
+{
+  "headers": {
+    "/markdown/new/file/path/2.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    }
+  }
+}
+```
+
+Add a route mapping the public URL to the markdown file:
+
+```json
+{
+  "routes": {
+    "/docs/new/file/path/2.md": "/markdown/new/file/path/2.md"
+  }
+}
+```
