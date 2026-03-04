@@ -2769,26 +2769,48 @@ mod tests {
         );
     }
 
-    // ---- Tests for malformed quilt data (untrusted input validation) ----
-    //
     // Quilt data is user-controlled content inside a Walrus blob. While the blob itself is
     // integrity-verified, the quilt structure within is untrusted. These tests verify that
     // malformed quilt data returns errors.
     //
     // Each test exercises both QuiltV1 (contiguous buffer) and QuiltDecoderV1 (sliver-based).
 
+    // Test quilt matrix parameters
     const TEST_SYMBOL_SIZE: usize = 2;
     const TEST_N_ROWS: usize = 3;
     const TEST_COLUMN_SIZE: usize = TEST_N_ROWS * TEST_SYMBOL_SIZE; // 6 bytes per column/sliver
 
-    /// Builds a valid encoded blob entry (header + extensions + data).
-    fn build_valid_blob_entry(identifier: &str, data: &[u8]) -> Vec<u8> {
-        let blob = QuiltStoreBlob::new(data, identifier).expect("valid blob");
+    // Blob header field offsets: [version:1][length:4][mask:1][id_size:2][id_data:...]
+    const LENGTH_OFFSET: usize = 1;
+    const ID_SIZE_OFFSET: usize = QuiltVersionV1::BLOB_HEADER_SIZE; // 6
+
+    // Helper function to build valid blob entries
+    fn build_valid_blob_entry_with_tags(
+        identifier: &str,
+        data: &[u8],
+        tags: BTreeMap<String, String>,
+    ) -> Vec<u8> {
+        let blob = QuiltStoreBlob::new_owned(data.to_vec(), identifier)
+            .expect("valid blob")
+            .with_tags(tags);
         QuiltEncoderV1::get_header_and_extension_bytes(&blob)
             .expect("valid header")
             .into_iter()
             .chain(data.iter().copied())
             .collect()
+    }
+
+    fn build_valid_blob_entry(identifier: &str, data: &[u8]) -> Vec<u8> {
+        build_valid_blob_entry_with_tags(identifier, data, BTreeMap::new())
+    }
+
+    // Helpers to forge specific header fields
+    fn forge_blob_length(raw: &mut [u8], length: u32) {
+        raw[LENGTH_OFFSET..LENGTH_OFFSET + 4].copy_from_slice(&length.to_le_bytes());
+    }
+
+    fn forge_id_size(raw: &mut [u8], size: u16) {
+        raw[ID_SIZE_OFFSET..ID_SIZE_OFFSET + 2].copy_from_slice(&size.to_le_bytes());
     }
 
     /// Creates a `QuiltV1` from raw bytes that `decode_blob` should see in column-major order.
@@ -2842,34 +2864,6 @@ mod tests {
         QuiltDecoderV1::new_with_owned(slivers).expect("slivers should be consistent")
     }
 
-    // Blob header field offsets: [version:1][length:4][mask:1][id_size:2][id_data:...]
-    const VERSION_OFFSET: usize = 0;
-    const LENGTH_OFFSET: usize = 1;
-    const ID_SIZE_OFFSET: usize = QuiltVersionV1::BLOB_HEADER_SIZE; // 6
-
-    fn set_blob_length(raw: &mut [u8], length: u32) {
-        raw[LENGTH_OFFSET..LENGTH_OFFSET + 4].copy_from_slice(&length.to_le_bytes());
-    }
-
-    fn set_id_size(raw: &mut [u8], size: u16) {
-        raw[ID_SIZE_OFFSET..ID_SIZE_OFFSET + 2].copy_from_slice(&size.to_le_bytes());
-    }
-
-    fn build_valid_blob_entry_with_tags(
-        identifier: &str,
-        data: &[u8],
-        tags: BTreeMap<String, String>,
-    ) -> Vec<u8> {
-        let blob = QuiltStoreBlob::new_owned(data.to_vec(), identifier)
-            .expect("valid blob")
-            .with_tags(tags);
-        QuiltEncoderV1::get_header_and_extension_bytes(&blob)
-            .expect("valid header")
-            .into_iter()
-            .chain(data.iter().copied())
-            .collect()
-    }
-
     /// Asserts `decode_blob` fails on both `QuiltV1` and `QuiltDecoderV1` built from the same
     /// raw bytes, optionally checking the error variant.
     fn assert_decode_err(raw: &[u8], check: impl Fn(&QuiltError) -> bool) {
@@ -2888,12 +2882,10 @@ mod tests {
         }
     }
 
-    // -- Content validation --
-
     #[test]
     fn test_decode_blob_invalid_version_byte() {
         let mut raw = build_valid_blob_entry("test-id", &[1, 2, 3]);
-        raw[VERSION_OFFSET] = 0xFF;
+        raw[0] = 0xFF; // corrupt version byte
         assert_decode_err(
             &raw,
             |e| matches!(e, QuiltError::InvalidQuiltData(msg) if msg.contains("version")),
@@ -2912,7 +2904,7 @@ mod tests {
     #[test]
     fn test_decode_blob_length_underflow_zero_length() {
         let mut raw = build_valid_blob_entry("test-id", &[1, 2, 3]);
-        set_blob_length(&mut raw, 0);
+        forge_blob_length(&mut raw, 0);
         assert_decode_err(
             &raw,
             |e| matches!(e, QuiltError::InvalidQuiltData(msg) if msg.contains("smaller")),
@@ -2925,7 +2917,7 @@ mod tests {
         let mut raw = build_valid_blob_entry_with_tags("test-id", &[1, 2, 3], tags);
         // Shrink claimed length so it covers identifier but not tags.
         let id = bcs::to_bytes("test-id").unwrap();
-        set_blob_length(
+        forge_blob_length(
             &mut raw,
             (BLOB_IDENTIFIER_SIZE_BYTES_LENGTH + id.len()) as u32,
         );
@@ -2967,14 +2959,14 @@ mod tests {
     #[test]
     fn test_decode_blob_data_size_mismatch() {
         let mut raw = build_valid_blob_entry("test-id", &[1, 2, 3]);
-        set_blob_length(&mut raw, 1000);
+        forge_blob_length(&mut raw, 1000);
         assert_decode_err(&raw, |_| true);
     }
 
     #[test]
     fn test_decode_blob_huge_length_rejected_early() {
         let mut raw = build_valid_blob_entry("test-id", &[1, 2, 3]);
-        set_blob_length(&mut raw, u32::MAX);
+        forge_blob_length(&mut raw, u32::MAX);
         assert_decode_err(
             &raw,
             |e| matches!(e, QuiltError::InvalidQuiltData(msg) if msg.contains("data source only has")),
@@ -2991,7 +2983,7 @@ mod tests {
     #[test]
     fn test_decode_blob_truncated_identifier_data() {
         let mut raw = build_valid_blob_entry("test-id", &[1, 2, 3]);
-        set_id_size(&mut raw, 50); // claim 50 bytes, actual data is much less
+        forge_id_size(&mut raw, 50); // claim 50 bytes, actual data is much less
         assert_decode_err(&raw, |_| true);
     }
 
@@ -3024,7 +3016,7 @@ mod tests {
     #[test]
     fn test_decode_blob_oversized_identifier() {
         let mut raw = build_valid_blob_entry("test-id", &[1, 2, 3]);
-        set_id_size(&mut raw, 60000);
+        forge_id_size(&mut raw, 60000);
         assert_decode_err(&raw, |_| true);
     }
 }
