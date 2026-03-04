@@ -683,6 +683,19 @@ impl QuiltVersionV1 {
         ))
         .map_err(|_| QuiltError::FailedToExtractQuiltIndexSize)?;
 
+        // Meta blob layout: [prefix (5 bytes)][serialized QuiltIndexV1 (index_size bytes)].
+        // It occupies at most MAX_NUM_SLIVERS_FOR_QUILT_INDEX columns, so the serialized
+        // index may not exceed the bytes in those columns minus the prefix.
+        let max_index_size = column_size
+            .saturating_mul(MAX_NUM_SLIVERS_FOR_QUILT_INDEX)
+            .saturating_sub(QUILT_INDEX_PREFIX_SIZE);
+        if index_size > max_index_size {
+            return Err(QuiltError::InvalidQuiltData(format!(
+                "quilt index size ({index_size}) exceeds maximum ({max_index_size}, i.e. \
+                 {column_size} * {MAX_NUM_SLIVERS_FOR_QUILT_INDEX} - {QUILT_INDEX_PREFIX_SIZE})"
+            )));
+        }
+
         let index_bytes =
             data_source.range_read_from_columns(0, QUILT_INDEX_PREFIX_SIZE, index_size)?;
         debug_assert_eq!(index_bytes.len(), index_size);
