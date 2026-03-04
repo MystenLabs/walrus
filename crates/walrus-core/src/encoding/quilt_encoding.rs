@@ -2864,22 +2864,20 @@ mod tests {
         QuiltDecoderV1::new_with_owned(slivers).expect("slivers should be consistent")
     }
 
-    /// Asserts `decode_blob` fails on both `QuiltV1` and `QuiltDecoderV1` built from the same
-    /// raw bytes, optionally checking the error variant.
-    fn assert_decode_err(raw: &[u8], check: impl Fn(&QuiltError) -> bool) {
+    /// Builds both `QuiltV1` and `QuiltDecoderV1` from the raw bytes, decodes a blob from
+    /// each, and asserts both return an error matching `check_err`.
+    /// Pass `|_| true` to only assert failure without checking the variant.
+    fn assert_decode_err(raw: &[u8], check_err: impl Fn(&QuiltError) -> bool) {
         let quilt_v1 = quilt_v1_from_raw(raw);
         let decoder_v1 = decoder_v1_from_quilt(&quilt_v1);
 
-        for (name, result) in [
-            ("QuiltV1", QuiltVersionV1::decode_blob(&quilt_v1, 0)),
-            (
-                "QuiltDecoderV1",
-                QuiltVersionV1::decode_blob(&decoder_v1, 0),
-            ),
-        ] {
-            let err = result.expect_err(&format!("{name}: expected error"));
-            assert!(check(&err), "{name}: unexpected error variant: {err:?}");
-        }
+        let err = QuiltVersionV1::decode_blob(&quilt_v1, 0)
+            .expect_err("QuiltV1: expected decode_blob to fail");
+        assert!(check_err(&err), "QuiltV1: unexpected error: {err:?}");
+
+        let err = QuiltVersionV1::decode_blob(&decoder_v1, 0)
+            .expect_err("QuiltDecoderV1: expected decode_blob to fail");
+        assert!(check_err(&err), "QuiltDecoderV1: unexpected error: {err:?}");
     }
 
     #[test]
@@ -2954,54 +2952,49 @@ mod tests {
         });
     }
 
-    // -- Length validation (range_read_from_columns invariant) --
+    // -- Length validation (total_data_size and range_read_from_columns invariants) --
+
+    fn is_data_source_size_error(e: &QuiltError) -> bool {
+        matches!(e, QuiltError::InvalidQuiltData(msg) if msg.contains("data source only has"))
+    }
 
     #[test]
     fn test_decode_blob_data_size_mismatch() {
         let mut raw = build_valid_blob_entry("test-id", &[1, 2, 3]);
         forge_blob_length(&mut raw, 1000);
-        assert_decode_err(&raw, |_| true);
+        assert_decode_err(&raw, is_data_source_size_error);
     }
 
     #[test]
     fn test_decode_blob_huge_length_rejected_early() {
         let mut raw = build_valid_blob_entry("test-id", &[1, 2, 3]);
         forge_blob_length(&mut raw, u32::MAX);
-        assert_decode_err(
-            &raw,
-            |e| matches!(e, QuiltError::InvalidQuiltData(msg) if msg.contains("data source only has")),
-        );
+        assert_decode_err(&raw, is_data_source_size_error);
     }
 
     #[test]
     fn test_decode_blob_truncated_identifier_size() {
+        // Truncation shrinks total_data_size below the original blob_header.length.
         let mut raw = build_valid_blob_entry("test-id", &[1, 2, 3]);
-        raw.truncate(ID_SIZE_OFFSET + 1); // only 1 of 2 bytes for id size field
-        assert_decode_err(&raw, |_| true);
-    }
-
-    #[test]
-    fn test_decode_blob_truncated_identifier_data() {
-        let mut raw = build_valid_blob_entry("test-id", &[1, 2, 3]);
-        forge_id_size(&mut raw, 50); // claim 50 bytes, actual data is much less
-        assert_decode_err(&raw, |_| true);
+        raw.truncate(ID_SIZE_OFFSET + 1);
+        assert_decode_err(&raw, is_data_source_size_error);
     }
 
     #[test]
     fn test_decode_blob_truncated_tags_size() {
+        // Truncation shrinks total_data_size below the original blob_header.length.
         let tags = BTreeMap::from([("k".into(), "v".into())]);
         let mut raw = build_valid_blob_entry_with_tags("test-id", &[1; 20], tags);
-        // Truncate right after identifier, leaving only 1 byte for tags size field.
         let id = bcs::to_bytes("test-id").unwrap();
         raw.truncate(ID_SIZE_OFFSET + BLOB_IDENTIFIER_SIZE_BYTES_LENGTH + id.len() + 1);
-        assert_decode_err(&raw, |_| true);
+        assert_decode_err(&raw, is_data_source_size_error);
     }
 
     #[test]
     fn test_decode_blob_truncated_tags_data() {
+        // Truncation shrinks total_data_size below the original blob_header.length.
         let tags = BTreeMap::from([("k".into(), "v".into())]);
         let mut raw = build_valid_blob_entry_with_tags("test-id", &[1; 20], tags);
-        // Keep tags size field but truncate the actual tags data.
         let id = bcs::to_bytes("test-id").unwrap();
         raw.truncate(
             ID_SIZE_OFFSET
@@ -3010,13 +3003,33 @@ mod tests {
                 + TAGS_SIZE_BYTES_LENGTH
                 + 1,
         );
-        assert_decode_err(&raw, |_| true);
+        assert_decode_err(&raw, is_data_source_size_error);
+    }
+
+    #[test]
+    fn test_decode_blob_truncated_identifier_data() {
+        // Forged id_size bypasses the blob_header.length check but fails in
+        // range_read_from_columns: IndexOutOfBounds on QuiltV1, MissingSlivers on QuiltDecoderV1.
+        let mut raw = build_valid_blob_entry("test-id", &[1, 2, 3]);
+        forge_id_size(&mut raw, 50);
+        assert_decode_err(&raw, |e| {
+            matches!(
+                e,
+                QuiltError::IndexOutOfBounds(..) | QuiltError::MissingSlivers(..)
+            )
+        });
     }
 
     #[test]
     fn test_decode_blob_oversized_identifier() {
+        // Same as above: forged id_size bypasses blob_header.length check.
         let mut raw = build_valid_blob_entry("test-id", &[1, 2, 3]);
         forge_id_size(&mut raw, 60000);
-        assert_decode_err(&raw, |_| true);
+        assert_decode_err(&raw, |e| {
+            matches!(
+                e,
+                QuiltError::IndexOutOfBounds(..) | QuiltError::MissingSlivers(..)
+            )
+        });
     }
 }
