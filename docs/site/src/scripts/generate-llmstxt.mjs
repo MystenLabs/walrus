@@ -122,7 +122,20 @@ function parseMarkdown(filePath, content) {
       .replace(/\s+/g, " ")                    // collapse whitespace
       .trim();
 
-    if (clean.length > 0) description = clean.slice(0, 300);
+    if (clean.length > 0) {
+      const chunk = clean.slice(0, 300);
+      // Find the last sentence-ending punctuation within the chunk
+      const lastEnd = Math.max(chunk.lastIndexOf(". "), chunk.lastIndexOf("! "), chunk.lastIndexOf("? "));
+      if (lastEnd > 0) {
+        description = chunk.slice(0, lastEnd + 1).trim();
+      } else if (clean.length <= 300) {
+        // Entire text fits, use it as-is
+        description = clean.trim();
+      } else {
+        // No sentence boundary found, truncate at last word boundary
+        description = chunk.replace(/\s+\S*$/, "").trim();
+      }
+    }
   }
 
   // Discard redirect-page descriptions
