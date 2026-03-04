@@ -416,10 +416,13 @@ pub trait QuiltDecoderApi<'a, V: QuiltVersion> {
 
 /// A trait to read bytes from quilt columns.
 pub trait QuiltColumnRangeReader {
-    /// Returns a vector of bytes in the columns starting from the given column index `start_col`.
+    /// Reads exactly `bytes_to_return` bytes from the columns starting at `start_col`,
+    /// skipping the first `bytes_to_skip` bytes.
     ///
-    /// Assuming a 0-indexed bytes, the vector will contain the bytes in the range
-    /// `[bytes_to_skip, bytes_to_skip + bytes_to_return)`.
+    /// # Invariant
+    ///
+    /// Implementations must return a `Vec<u8>` of exactly `bytes_to_return` length on success.
+    /// If the underlying data source does not contain enough bytes, an error must be returned.
     fn range_read_from_columns(
         &self,
         start_col: usize,
@@ -645,6 +648,9 @@ impl QuiltVersionV1 {
     const BLOB_HEADER_SIZE: usize = 6;
 
     /// Decodes the quilt index from a column data source.
+    ///
+    /// The quilt data is user-controlled content and must not be trusted. All reads are validated
+    /// for expected lengths, and errors are returned if invalid.
     pub fn decode_quilt_index<T>(
         data_source: &T,
         column_size: usize,
@@ -654,7 +660,7 @@ impl QuiltVersionV1 {
     {
         let quilt_version_bytes =
             data_source.range_read_from_columns(0, 0, QUILT_VERSION_BYTES_LENGTH)?;
-        assert!(quilt_version_bytes.len() == QUILT_VERSION_BYTES_LENGTH);
+        debug_assert_eq!(quilt_version_bytes.len(), QUILT_VERSION_BYTES_LENGTH);
         utils::check_quilt_version::<QuiltVersionV1>(&quilt_version_bytes)?;
 
         let size_bytes = data_source.range_read_from_columns(
@@ -662,7 +668,7 @@ impl QuiltVersionV1 {
             QUILT_VERSION_BYTES_LENGTH,
             QUILT_INDEX_SIZE_BYTES_LENGTH,
         )?;
-        assert!(size_bytes.len() == QUILT_INDEX_SIZE_BYTES_LENGTH);
+        debug_assert_eq!(size_bytes.len(), QUILT_INDEX_SIZE_BYTES_LENGTH);
 
         let index_size = usize::try_from(u32::from_le_bytes(
             size_bytes
@@ -673,16 +679,18 @@ impl QuiltVersionV1 {
 
         let index_bytes =
             data_source.range_read_from_columns(0, QUILT_INDEX_PREFIX_SIZE, index_size)?;
-        assert!(index_bytes.len() == index_size);
+        debug_assert_eq!(index_bytes.len(), index_size);
 
         // Decode the QuiltIndexV1.
         let mut quilt_index: QuiltIndexV1 = bcs::from_bytes(&index_bytes)?;
 
         let total_size = index_size + QUILT_INDEX_PREFIX_SIZE;
         let columns_needed = total_size.div_ceil(column_size);
-        quilt_index.populate_start_indices(
-            u16::try_from(columns_needed).expect("columns_needed should fit in u16"),
-        );
+        quilt_index.populate_start_indices(u16::try_from(columns_needed).map_err(|_| {
+            QuiltError::InvalidQuiltData(format!(
+                "quilt index spans too many columns: {columns_needed}"
+            ))
+        })?);
 
         Ok(quilt_index)
     }
@@ -709,6 +717,9 @@ impl QuiltVersionV1 {
     }
 
     /// Decodes a blob from a column data source.
+    ///
+    /// The quilt data is user-controlled content and must not be trusted. All header fields and
+    /// size computations are validated to prevent panics from malformed data.
     pub fn decode_blob<T>(
         data_source: &T,
         start_col: usize,
@@ -716,35 +727,48 @@ impl QuiltVersionV1 {
     where
         T: QuiltColumnRangeReader,
     {
-        let header_bytes =
+        let header_bytes: Vec<u8> =
             data_source.range_read_from_columns(start_col, 0, Self::BLOB_HEADER_SIZE)?;
-        assert!(header_bytes.len() == Self::BLOB_HEADER_SIZE);
-        let blob_header = BlobHeaderV1::from_bytes(
-            header_bytes
-                .try_into()
-                .expect("header_bytes should be 6 bytes"),
-        );
+        debug_assert_eq!(header_bytes.len(), Self::BLOB_HEADER_SIZE);
+        let blob_header =
+            BlobHeaderV1::from_bytes(header_bytes.try_into().map_err(|_| {
+                QuiltError::InvalidQuiltData("blob header has wrong length".into())
+            })?)?;
 
         let mut offset = Self::BLOB_HEADER_SIZE;
-        let mut blob_bytes_size =
-            usize::try_from(blob_header.length).expect("length should fit in usize");
+        let mut blob_bytes_size = usize::try_from(blob_header.length).map_err(|_| {
+            QuiltError::InvalidQuiltData(format!(
+                "blob length {} does not fit in usize",
+                blob_header.length
+            ))
+        })?;
 
         let (identifier, bytes_consumed) =
             Self::decode_blob_identifier(data_source, start_col, offset)?;
         offset += bytes_consumed;
-        blob_bytes_size -= bytes_consumed;
+        blob_bytes_size = blob_bytes_size.checked_sub(bytes_consumed).ok_or_else(|| {
+            QuiltError::InvalidQuiltData(format!(
+                "blob header length {} is smaller than identifier overhead {bytes_consumed}",
+                blob_header.length
+            ))
+        })?;
 
         let tags = if blob_header.has_tags() {
             let (tags, bytes_consumed) = Self::decode_blob_tags(data_source, start_col, offset)?;
             offset += bytes_consumed;
-            blob_bytes_size -= bytes_consumed;
+            blob_bytes_size = blob_bytes_size.checked_sub(bytes_consumed).ok_or_else(|| {
+                QuiltError::InvalidQuiltData(format!(
+                    "blob header length {} is smaller than identifier + tags overhead",
+                    blob_header.length
+                ))
+            })?;
             tags
         } else {
             BTreeMap::new()
         };
 
         let data_bytes = data_source.range_read_from_columns(start_col, offset, blob_bytes_size)?;
-        assert!(data_bytes.len() == blob_bytes_size);
+        debug_assert_eq!(data_bytes.len(), blob_bytes_size);
 
         Ok(QuiltStoreBlob::new_owned(data_bytes, identifier)?.with_tags(tags))
     }
@@ -768,19 +792,18 @@ impl QuiltVersionV1 {
             offset,
             BLOB_IDENTIFIER_SIZE_BYTES_LENGTH,
         )?;
+        debug_assert_eq!(size_buffer.len(), BLOB_IDENTIFIER_SIZE_BYTES_LENGTH);
         offset += BLOB_IDENTIFIER_SIZE_BYTES_LENGTH;
 
         // Parse identifier size.
-        let identifier_size = usize::from(u16::from_le_bytes(
-            size_buffer
-                .try_into()
-                .expect("size_buffer should be 2 bytes"),
-        ));
+        let identifier_size = usize::from(u16::from_le_bytes(size_buffer.try_into().map_err(
+            |_| QuiltError::InvalidQuiltData("identifier size field has wrong length".into()),
+        )?));
 
         // Read the actual identifier.
         let identifier_bytes =
             data_source.range_read_from_columns(start_col, offset, identifier_size)?;
-        debug_assert!(identifier_bytes.len() == identifier_size);
+        debug_assert_eq!(identifier_bytes.len(), identifier_size);
 
         // Deserialize the identifier bytes into a String.
         let identifier = bcs::from_bytes(&identifier_bytes).map_err(|_| {
@@ -807,12 +830,14 @@ impl QuiltVersionV1 {
             initial_offset,
             TAGS_SIZE_BYTES_LENGTH,
         )?;
-        assert!(size_bytes.len() == TAGS_SIZE_BYTES_LENGTH);
-        let tags_size =
-            u16::from_le_bytes(size_bytes.try_into().expect("size_bytes should be 2 bytes"));
+        debug_assert_eq!(size_bytes.len(), TAGS_SIZE_BYTES_LENGTH);
+        let tags_size = u16::from_le_bytes(size_bytes.try_into().map_err(|_| {
+            QuiltError::InvalidQuiltData("tags size field has wrong length".into())
+        })?);
         let mut offset = initial_offset + TAGS_SIZE_BYTES_LENGTH;
         let tags_bytes =
             data_source.range_read_from_columns(start_col, offset, tags_size as usize)?;
+        debug_assert_eq!(tags_bytes.len(), tags_size as usize);
         let tags = bcs::from_bytes(&tags_bytes)
             .map_err(|error| QuiltError::FailedToDecodeExtension("tags".into(), error))?;
         offset += tags_size as usize;
@@ -863,9 +888,16 @@ impl BlobHeaderV1 {
 
     /// Creates a `BlobHeaderV1` from a 6-byte array.
     /// The layout is: version (1 byte), length (next 32 bits), mask (next 1 bit).
-    pub fn from_bytes(bytes: [u8; QuiltVersionV1::BLOB_HEADER_SIZE]) -> Self {
+    ///
+    /// Returns an error if the version byte does not match the expected quilt version.
+    pub fn from_bytes(bytes: [u8; QuiltVersionV1::BLOB_HEADER_SIZE]) -> Result<Self, QuiltError> {
         let version = bytes[0];
-        assert_eq!(version, QuiltVersionV1::QUILT_VERSION_BYTE);
+        if version != QuiltVersionV1::QUILT_VERSION_BYTE {
+            return Err(QuiltError::InvalidQuiltData(format!(
+                "invalid blob header version byte: {version}, expected: {}",
+                QuiltVersionV1::QUILT_VERSION_BYTE
+            )));
+        }
 
         // Read 4 bytes for length (bytes 1-4).
         let length = u32::from_le_bytes([bytes[1], bytes[2], bytes[3], bytes[4]]);
@@ -873,7 +905,7 @@ impl BlobHeaderV1 {
         // Read 1 byte for mask (byte 5).
         let mask = bytes[5];
 
-        Self { length, mask }
+        Ok(Self { length, mask })
     }
 
     /// Converts the `BlobHeaderV1` to a 6-byte array.
@@ -1039,7 +1071,8 @@ impl QuiltApi<QuiltVersionV1> for QuiltV1 {
 }
 
 // Implementation of QuiltColumnRangeReader for QuiltV1.
-// Returns `IndexOutOfBounds` if there is not enough data to read.
+// The while loop guarantees exactly `bytes_to_return` bytes are returned; if the data buffer is
+// too short, `get_slice` returns `IndexOutOfBounds` before a short read can occur.
 impl QuiltColumnRangeReader for QuiltV1 {
     fn range_read_from_columns(
         &self,
@@ -1660,6 +1693,7 @@ impl<'a> QuiltDecoderApi<'a, QuiltVersionV1> for QuiltDecoderV1<'a> {
 }
 
 // Implementation of QuiltColumnRangeReader for QuiltDecoderV1.
+// Returns `InsufficientData` if the slivers do not contain enough data to fulfill the request.
 impl QuiltColumnRangeReader for QuiltDecoderV1<'_> {
     fn range_read_from_columns(
         &self,
@@ -1667,6 +1701,7 @@ impl QuiltColumnRangeReader for QuiltDecoderV1<'_> {
         mut bytes_to_skip: usize,
         mut bytes_to_return: usize,
     ) -> Result<Vec<u8>, QuiltError> {
+        let requested = bytes_to_return;
         self.check_missing_slivers(start_col, start_col + 1)?;
         let column_size = self.column_size.expect("column size should be set");
         let end_col = start_col + (bytes_to_skip + bytes_to_return).div_ceil(column_size);
@@ -1704,6 +1739,13 @@ impl QuiltColumnRangeReader for QuiltDecoderV1<'_> {
 
             bytes_to_return -= copy_len;
             bytes_to_skip = 0;
+        }
+
+        if result.len() != requested {
+            return Err(QuiltError::InsufficientData {
+                requested,
+                available: result.len(),
+            });
         }
 
         Ok(result)
@@ -2502,8 +2544,8 @@ mod tests {
             "Byte array size is incorrect"
         );
 
-        // BlobHeaderV1::from_bytes takes [u8; N], not a reference, and does not return Result.
-        let reconstructed_header = BlobHeaderV1::from_bytes(bytes);
+        let reconstructed_header =
+            BlobHeaderV1::from_bytes(bytes).expect("valid header should decode");
         assert_eq!(
             reconstructed_header, header,
             "Reconstructed header does not match original"
@@ -2683,4 +2725,5 @@ mod tests {
             "trait get_decoder_with_quilt_index should propagate column size mismatch error"
         );
     }
+
 }

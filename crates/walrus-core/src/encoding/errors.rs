@@ -202,6 +202,14 @@ pub enum QuiltError {
     /// Index is out of bounds.
     #[error("index is out of bounds: {0} > max index: {1}")]
     IndexOutOfBounds(usize, usize),
+    /// Not enough data to fulfill a range read.
+    #[error("insufficient quilt data: requested {requested} bytes, got {available}")]
+    InsufficientData {
+        /// The number of bytes requested.
+        requested: usize,
+        /// The number of bytes actually available.
+        available: usize,
+    },
     /// Empty input.
     #[error("{0} is empty")]
     EmptyInput(String),
@@ -217,6 +225,9 @@ pub enum QuiltError {
     /// QuiltPatchId is invalid.
     #[error("QuiltPatchId: {0} is invalid")]
     QuiltPatchIdParseError(String),
+    /// Invalid or malformed quilt data.
+    #[error("invalid quilt data: {0}")]
+    InvalidQuiltData(String),
     /// Other error.
     #[error("other error: {0}")]
     Other(String),
