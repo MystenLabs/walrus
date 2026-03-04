@@ -305,7 +305,7 @@ pub use create_metric;
 #[macro_export]
 macro_rules! with_label {
     ($metric:expr, $($label:expr),+$(,)?) => {
-        $metric.with_label_values(&[$($label.as_ref()),+])
+        $metric.with_label_values(&[$(AsRef::<str>::as_ref(&$label)),+])
     };
 }
 

@@ -1,0 +1,78 @@
+name: Notify walrus-sites of dependency updates
+
+on:
+  push:
+    branches:
+      - main
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      sui_tag:
+        description: "Sui tag (e.g., testnet-v1.66.2). Leave empty to skip Sui bump."
+        required: false
+        type: string
+      walrus_ref:
+        description: "Walrus git ref (commit SHA or release tag)"
+        required: false
+        type: string
+
+jobs:
+  dispatch:
+    name: Dispatch bump-dependencies to walrus-sites
+    runs-on: ubuntu-latest
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'push' &&
+        startsWith(github.event.head_commit.message,
+          'ci: bump Sui testnet version to testnet-v')) ||
+      (github.event_name == 'release' &&
+        startsWith(github.event.release.tag_name, 'testnet-v'))
+
+    steps:
+      - name: Generate app token for cross-repo dispatch
+        id: app_token
+        uses: actions/create-github-app-token@29824e69f54612133e76f7eaac726eef6c875baf # pin@v2.2.1
+        with:
+          app-id: ${{ secrets.WALRUS_AUTOMERGE_APP_ID }}
+          private-key: ${{ secrets.WALRUS_AUTOMERGE_PRIVATE_KEY }}
+          repositories: walrus-sites
+
+      - name: Extract Sui tag from commit message
+        if: github.event_name == 'push'
+        id: extract
+        env:
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
+        run: |
+          SUI_TAG=$(echo "$COMMIT_MSG" \
+            | sed -nE 's/^ci: bump Sui testnet version to (testnet-v[0-9]+\.[0-9]+\.[0-9]+).*/\1/p')
+          if [[ -z "$SUI_TAG" ]]; then
+            echo "Error: could not extract Sui tag from: $COMMIT_MSG" >&2
+            exit 1
+          fi
+          echo "sui_tag=$SUI_TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve inputs
+        id: inputs
+        run: |
+          if [[ "${{ github.event_name }}" == "release" ]]; then
+            # Walrus testnet release: use release tag as walrus_ref, skip sui_tag
+            # (walrus-sites will auto-detect or retain its current Sui version)
+            echo "sui_tag=" >> "$GITHUB_OUTPUT"
+            echo "walrus_ref=${{ github.event.release.tag_name }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "sui_tag=${{ steps.extract.outputs.sui_tag || inputs.sui_tag }}" >> "$GITHUB_OUTPUT"
+            echo "walrus_ref=${{ inputs.walrus_ref || github.sha }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Dispatch bump-dependencies to walrus-sites
+        uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # pin@v4.0.1
+        with:
+          token: ${{ steps.app_token.outputs.token }}
+          repository: MystenLabs/walrus-sites
+          event-type: bump-dependencies
+          client-payload: |-
+            {
+              "sui_tag": "${{ steps.inputs.outputs.sui_tag }}",
+              "walrus_ref": "${{ steps.inputs.outputs.walrus_ref }}"
+            }

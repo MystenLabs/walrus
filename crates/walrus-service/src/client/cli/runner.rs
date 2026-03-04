@@ -18,7 +18,7 @@ use fastcrypto::encoding::Encoding;
 use itertools::Itertools as _;
 use rand::seq::SliceRandom;
 use reqwest::Url;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json;
 use sui_config::{SUI_CLIENT_CONFIG, sui_config_dir};
 use sui_types::base_types::ObjectID;
@@ -254,6 +254,19 @@ impl ClientCommandRunner {
             config,
             gas_budget,
             json,
+        }
+    }
+
+    fn emit_internal_run_command_output<T: Serialize>(output: &T) {
+        match serde_json::to_value(output) {
+            Ok(output) => {
+                if let Err(err) = emit_child_event(&ChildUploaderEvent::CommandOutput { output }) {
+                    tracing::warn!(%err, "failed to emit command output");
+                }
+            }
+            Err(err) => {
+                tracing::warn!(%err, "failed to serialize command output");
+            }
         }
     }
 
@@ -814,6 +827,7 @@ impl ClientCommandRunner {
             post_store,
             upload_relay.as_ref(),
             internal_run,
+            self.json,
             "store",
             |cmd| {
                 for (path, _) in &blobs {
@@ -919,6 +933,8 @@ impl ClientCommandRunner {
         }
 
         if internal_run {
+            Self::emit_internal_run_command_output(&results);
+
             for result in &results {
                 if let Err(err) = emit_v1_certified_event(&result.blob_store_result) {
                     tracing::warn!(%err, "failed to emit certification event");
@@ -1165,6 +1181,7 @@ impl ClientCommandRunner {
             post_store,
             upload_relay.as_ref(),
             internal_run,
+            self.json,
             "store-quilt",
             move |cmd| {
                 if let Some(path_args) = path_args_for_child.as_ref() {
@@ -1276,6 +1293,8 @@ impl ClientCommandRunner {
         }
 
         if internal_run {
+            Self::emit_internal_run_command_output(&result);
+
             if let Err(err) = emit_v1_certified_event(&result.blob_store_result) {
                 tracing::warn!(%err, "failed to emit certification event");
             }
