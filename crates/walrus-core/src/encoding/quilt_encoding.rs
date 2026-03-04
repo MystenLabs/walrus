@@ -691,8 +691,9 @@ impl QuiltVersionV1 {
             .saturating_sub(QUILT_INDEX_PREFIX_SIZE);
         if index_size > max_index_size {
             return Err(QuiltError::InvalidQuiltData(format!(
-                "quilt index size ({index_size}) exceeds maximum ({max_index_size}, i.e. \
-                 {column_size} * {MAX_NUM_SLIVERS_FOR_QUILT_INDEX} - {QUILT_INDEX_PREFIX_SIZE})"
+                "quilt index size ({index_size}) exceeds maximum ({max_index_size}, \
+                i.e. {column_size} * {MAX_NUM_SLIVERS_FOR_QUILT_INDEX} - \
+                {QUILT_INDEX_PREFIX_SIZE})"
             )));
         }
 
@@ -2894,8 +2895,9 @@ mod tests {
     fn test_decode_blob_header_from_bytes_invalid_version() {
         let mut header = [0u8; QuiltVersionV1::BLOB_HEADER_SIZE];
         header[0] = 0xFF;
+        let result = BlobHeaderV1::from_bytes(header);
         assert!(
-            matches!(BlobHeaderV1::from_bytes(header), Err(QuiltError::InvalidQuiltData(ref msg)) if msg.contains("version")),
+            matches!(result, Err(QuiltError::InvalidQuiltData(ref msg)) if msg.contains("version")),
         );
     }
 
