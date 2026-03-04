@@ -1,4 +1,4 @@
-// Copyright (c) Walrus Foundation
+// Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
 import fs from "fs";
@@ -254,7 +254,7 @@ if (output.length > TARGET_CHARS) {
   if (siteDesc) trimmedLines.push(`> ${siteDesc}`, "");
   for (const section of sectionOrder) {
     trimmedLines.push(`## ${section}`, "");
-    for (const { title, url } of grouped[section]) {
+    for (const { title, url, description } of grouped[section]) {
       trimmedLines.push(`- [${title}](${url})`);
       if (description) trimmedLines.push(`  Description: ${description}`);
     }
