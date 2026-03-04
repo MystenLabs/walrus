@@ -2,22 +2,34 @@
 title: Setting Up Routing Rules
 description: "Guide to configuring client-side routing for Walrus Sites using ws-resources.json."
 keywords: ["walrus sites", "headers", "routing", "metadata", "ws-resources", "configuration", "client-side routing", "spa"]
-draft: true
+draft: false
 ---
 
-## Specifying client-side routing (`routes`)
+The optional `routes` section allows you to specify client-side routing rules for your site. This is useful when you want to use a single-page application (SPA) framework, such as React or Angular. The configuration in the `routes` object is a mapping from route keys to resource path values.
 
-The `routes` section allows you to specify client-side routing rules for your site. This is useful when you want to use a single-page application (SPA) framework, such as React or Angular. The configuration in the `routes` object is a mapping from route keys to resource paths.
+```json
+{
+  "routes": {
+    "/*": "/index.html",
+    "/accounts/*": "/accounts.html",
+    "/admin/settings/*": "/admin.html"
+  }
+}
+```
 
-The **`routes` keys** are path patterns in the form `/path/to/some/*`, where the `*` character represents a wildcard.
+## Syntax
 
-:::info
+**Keys:**
+- Must start with `/`
+- `*` wildcard is trailing only
+- More specific patterns win over less specific ones
 
-Currently, the wildcard can only be specified at the end of the path. Therefore, `/path/*` is a valid path, while `/path/*/to` and `*/path/to/*` are not.
+**Values:**
+- Must start with `/`
+- Must be a real uploaded file. Deployment aborts if the target doesn't exist
+- No wildcards
 
-:::
-
-The `routes` values are the resource paths that should be served when the route key is matched. These paths in the values **must** be valid resource paths, meaning that they must be present among the site's resources. The Walrus sites contract **aborts** if you try to create a route that points to a non-existing resource.
+## Matching
 
 The simple routing algorithm is as follows:
 
@@ -27,7 +39,7 @@ The simple routing algorithm is as follows:
 
 - The resource corresponding to this longest match is then served.
 
-In the previous example:
+In the example [`ws-resources.json`](/docs/sites/configuration/site-configuration):
 
 ```json
 "routes": {
@@ -37,42 +49,94 @@ In the previous example:
 }
 ```
 
-The following matchings occur:
-
-- Browsing `/any/other/test.html` serves `/index.html`.
-
-- Browsing `/path/test.html` serves `/accounts.html`, as it is a more specific match than the previous one.
-
-- Similarly, browsing `/path/assets/test.html` serves `/assets/asset_router.html`.
+| Incoming URL | Served file | Reason |
+|---|---|---|
+| `/any/other/test.html` | `/index.html` | only `/*` matches |
+| `/path/test.html` | `/accounts.html` | `/path/*` is a longer match than `/*` |
+| `/path/assets/test.html` | `/assets/asset_router.html` | `/path/assets/*` is the longest match |
 
 `/index.html`, `/accounts.html`, and `/assets/asset_router.html` are all existing resources on the Walrus Sites object on Sui.
 
-## Site name (`site_name`)
+## Common configurations
 
-You can set a name for your Walrus Site through the optional `site_name` field in your `ws-resources.json` file. In case you have also provided a site name through the `--site-name` CLI flag, the CLI flag takes priority over the `site_name` field in the `ws-resources.json`, which is overwritten. If a site name is not provided at all, then a default name is used.
-
-## Site object ID (`object_id`)
-
-The optional `object_id` field in your `ws-resources.json` file stores the Sui object ID of your deployed Walrus Site.
-
-The `site-builder deploy` command primarily uses this field to identify an existing site for updates. If a valid `object_id` is present, `deploy` targets that site for modifications. If this field is missing and no `--object-id` CLI flag is used, `deploy` publishes a new site. If successful, then the command automatically populates this `object_id` field in your `ws-resources.json`.
-
-## Ignoring files from being uploaded
-
-You can use the optional `ignore` field to exclude certain files or folders from being published. This is useful when you want to keep development files, secrets, or temporary assets out of the final build.
-
-The `ignore` field is a list of resource paths to skip. Each pattern must start with a `/`, and might end with a `*` to indicate a wildcard match.
-
-For example:
-
+**SPA catch-all** (React, Vue history mode, Angular, SvelteKit):
 ```json
-"ignore": [
-  "/private/*",
-  "/secret.txt",
-  "/images/tmp/*"
+{ "routes": { "/*": "/index.html" } }
+```
+
+**Multi-section SPA** (separate entry points per section):
+```json
+{
+  "routes": {
+    "/*": "/index.html",
+    "/admin/*": "/admin.html",
+    "/docs/*": "/docs.html"
+  }
+}
+```
+
+**Static multi-page site:** omit `routes` entirely. Each URL resolves directly to its file.
+
+**Vue Router in hash mode:** omit `routes` entirely. The hash fragment is handled client-side.
+
+## Framework redirects
+
+Walrus Sites currently has no native redirect support. All redirect approaches require creating a resource file at the old path that performs the redirect client-side, then adding a route rule so the old URL pattern is served that file.
+
+If you are building a Walrus Site using a front-end web framework (such as React, Vue, or Svelte), you will have to implement this workaround to support redirects. The following are examples for popular frameworks.
+
+### React Router
+
+Create a redirect component at the old path and add it to your router:
+
+```jsx
+// src/pages/OldPage.jsx
+import { Navigate } from 'react-router-dom';
+export default function OldPage() {
+  return <Navigate to="/new/path" replace />;
+}
+```
+
+Then, register the old youre in your router:
+
+```jsx
+<Route path="/old/path" element={<OldPage />} />
+```
+
+### Vue Router
+
+Add a redirect entry directly in your route definitions:
+
+```js
+const routes = [
+  { path: '/old/path', redirect: '/new/path' },
+  // ...other routes
 ]
 ```
 
-This configuration skips all files inside the `/private/` and `/images/tmp/` directories, as well as a specific file `/secret.txt`.
+### SvelteKit
 
-Wildcards are only supported in the **last position** of the path, for example, `/foo/*` is valid, but `/foo/*/bar` is not.
+Create a `+page.js` at the old route that redirects client-side:
+
+```js
+// src/routes/old/path/+page.js
+import { redirect } from '@sveltejs/kit';
+export function load() {
+  redirect(301, '/new/path');
+}
+```
+
+### Docusaurus
+
+Create a placeholder `.mdx` file at the old path:
+
+```js
+---
+title: Redirecting...
+sidebar_class_name: hidden
+---
+
+import {Redirect} from '@docusaurus/router';
+
+<Redirect to="/docs/new/file/path/2" />
+```
