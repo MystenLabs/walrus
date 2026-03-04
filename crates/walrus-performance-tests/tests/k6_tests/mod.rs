@@ -5,6 +5,7 @@ use std::{
     env,
     path::{Path, PathBuf},
     sync::LazyLock,
+    time::Duration,
 };
 
 use crate::k6_tests::common::k6::{K6Command, K6Environment};
@@ -17,14 +18,16 @@ mod publisher;
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 
 /// Number of samples to collector for cases where the time required for each is fast.
-const SAMPLE_SIZE_FAST: usize = 50;
+const SAMPLE_SIZE_FAST: usize = 20;
 /// Number of samples to collector for cases where the time required for each is slow.
-const SAMPLE_SIZE_SLOW: usize = 3;
+const SAMPLE_SIZE_SLOW: usize = 10;
 /// Number of samples to collector for cases where the time required for each is very slow.
 const SAMPLE_SIZE_VERY_SLOW: usize = 1;
 
 /// Default directory in which the k6 test scripts can be found.
 const DEFAULT_K6_SCRIPTS_DIRECTORY: &str = "../../scripts/k6/src/tests";
+/// Default delay between consecutive k6 runs.
+const DEFAULT_K6_DELAY_BETWEEN_RUNS_SECS: u64 = 5;
 
 /// The environment in which the test is running, defaults to 'localhost'.
 static WALRUS_K6_ENVIRONMENT: LazyLock<K6Environment> = LazyLock::new(|| {
@@ -63,6 +66,22 @@ static WALRUS_K6_QUIET: LazyLock<bool> =
 /// If set to 'true', call k6 with the `--no-color` flag.
 static WALRUS_K6_NO_COLOR: LazyLock<bool> =
     LazyLock::new(|| env::var("WALRUS_K6_NO_COLOR").is_ok_and(|s| s.parse().unwrap_or(false)));
+
+/// Delay applied between consecutive k6 runs in the same test session.
+static WALRUS_K6_DELAY_BETWEEN_RUNS: LazyLock<Duration> = LazyLock::new(|| {
+    Duration::from_secs(
+        env::var("WALRUS_K6_DELAY_BETWEEN_RUNS_SECS")
+            .map(|s| {
+                s.parse()
+                    .expect("WALRUS_K6_DELAY_BETWEEN_RUNS_SECS must be a valid u64")
+            })
+            .unwrap_or(DEFAULT_K6_DELAY_BETWEEN_RUNS_SECS),
+    )
+});
+
+pub(crate) fn delay_between_runs() -> Duration {
+    *WALRUS_K6_DELAY_BETWEEN_RUNS
+}
 
 /// Create a new [`K6`] instance for running a command and sets common options.
 fn run<P>(script: P, testid_suffix: &str) -> K6Command
