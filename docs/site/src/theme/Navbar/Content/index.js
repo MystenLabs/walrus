@@ -10,9 +10,11 @@ import {
 import NavbarItem from "@theme/NavbarItem";
 import ThemeToggle from "@site/src/shared/components/ThemeToggle";
 import NavbarMobileSidebarToggle from "@theme/Navbar/MobileSidebar/Toggle";
-import NavbarLogo from "@theme/Navbar/Logo";
 import NavbarSearch from "@theme/Navbar/Search";
 import SearchModal from "@site/src/components/Search/SearchModal";
+import Link from "@docusaurus/Link";
+import useBaseUrl from "@docusaurus/useBaseUrl";
+import { useThemeConfig as useThemeConfigFull } from "@docusaurus/theme-common";
 
 function useNavbarItems() {
   return useThemeConfig().navbar.items;
@@ -29,7 +31,7 @@ function useMobileSidebarSafe() {
 
 function NavbarItems({ items }) {
   return (
-    <div className="flex flex-[8_1_0%] items-center justify-start gap-8 min-[1100px]:gap-16 min-w-0">
+    <div className="flex items-center justify-start gap-2 min-w-0 shrink overflow-hidden">
       {items.map((item, i) => (
         <ErrorCauseBoundary
           key={i}
@@ -51,9 +53,19 @@ ${JSON.stringify(item, null, 2)}`,
 
 function NavbarContentLayout({ left, right }) {
   return (
-    <div className="navbar__inner">
-      <div className="navbar__items">{left}</div>
-      <div className="navbar__items navbar__items--right">{right}</div>
+    <div className="navbar__inner" style={{ flexWrap: "nowrap", gap: "0.5rem" }}>
+      <div
+        className="navbar__items"
+        style={{ flexShrink: 1, minWidth: 0, overflow: "hidden" }}
+      >
+        {left}
+      </div>
+      <div
+        className="navbar__items navbar__items--right"
+        style={{ flexShrink: 0, marginLeft: "auto" }}
+      >
+        {right}
+      </div>
     </div>
   );
 }
@@ -108,11 +120,55 @@ function KapaButton() {
       type="button"
       onClick={handleClick}
       className="kapa-trigger-btn flex items-center gap-2.5 cursor-pointer bg-white text-gray-900 font-semibold
-      text-base px-5 py-2.5 rounded-full border border-gray-200 hover:bg-gray-50 transition-colors mx-2 shrink-0"
+      text-base px-5 py-2.5 rounded-full border border-gray-200 hover:bg-gray-50 transition-colors mx-0 min-[1100px]:mx-1 min-[1300px]:mx-2 shrink-0"
     >
       <img src="/img/logo.svg" alt="" width="25" height="25" />
       <span className="kapa-label">Ask Walrus AI</span>
     </button>
+  );
+}
+
+// Fully custom logo with inline styles — immune to any stylesheet overrides
+function CustomLogo() {
+  const { navbar } = useThemeConfigFull();
+  const logoSrc = useBaseUrl(navbar.logo?.src || "/img/logo.svg");
+  const logoHref = useBaseUrl(navbar.logo?.href || "/");
+  const title = navbar.title || "";
+
+  return (
+    <Link
+      to={logoHref}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: "0.5rem",
+        flexShrink: 0,
+        flexGrow: 0,
+        whiteSpace: "nowrap",
+        textDecoration: "none",
+        color: "inherit",
+        minWidth: "fit-content",
+      }}
+    >
+      <img
+        src={logoSrc}
+        alt={navbar.logo?.alt || title}
+        style={{ height: "2rem", width: "auto", display: "block", flexShrink: 0 }}
+      />
+      {title && (
+        <span
+          style={{
+            fontWeight: 600,
+            fontSize: "1rem",
+            whiteSpace: "nowrap",
+            flexShrink: 0,
+            overflow: "visible",
+          }}
+        >
+          {title}
+        </span>
+      )}
+    </Link>
   );
 }
 
@@ -127,12 +183,14 @@ export default function NavbarContent() {
       left={
         <>
           {!mobileSidebar.disabled && <NavbarMobileSidebarToggle />}
-          <NavbarLogo />
+          <div className="shrink-0">
+            <CustomLogo />
+          </div>
           <NavbarItems items={leftItems} />
         </>
       }
       right={
-        <div className="flex items-center gap-3 min-w-0">
+        <div className="flex items-center gap-1 min-[1100px]:gap-2 min-[1300px]:gap-3 min-[1430px]:gap-4 shrink-0">
           <NavbarItems items={rightItems} />
           <ThemeToggle />
           <KapaButton />

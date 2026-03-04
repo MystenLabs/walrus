@@ -5,8 +5,18 @@ const fs = require('fs');
 const path = require('path');
 const matter = require('gray-matter');
 
-const contentDir = path.join(__dirname, '../../../content');
+const contentDir = path.join(__dirname, '../../.markdown/with-imports');
 const outputDir = path.join(__dirname, '../../static/markdown');
+
+/**
+ * Checks if a markdown file should be skipped (draft or redirect)
+ */
+function shouldSkip(content) {
+  const { data } = matter(content);
+  if (data.draft === true) return true;
+  if (data.title === 'Redirecting') return true;
+  return false;
+}
 
 /**
  * Strips frontmatter and cleans MDX/JSX components from markdown
@@ -60,6 +70,14 @@ function copyMarkdownFiles(dir, baseDir = dir) {
     } else if (file.endsWith('.md') || file.endsWith('.mdx')) {
       // Read and process markdown/mdx files
       const content = fs.readFileSync(filePath, 'utf8');
+
+      // Skip drafts and redirect pages
+      if (shouldSkip(content)) {
+        const relativePath = path.relative(baseDir, filePath);
+        console.log(`  ⏭ Skipped: ${relativePath}`);
+        return;
+      }
+
       const cleanContent = stripFrontmatter(content);
 
       // Preserve directory structure
@@ -70,7 +88,7 @@ function copyMarkdownFiles(dir, baseDir = dir) {
       // Create directory structure if it doesn't exist
       fs.mkdirSync(path.dirname(outputPath), { recursive: true });
       fs.writeFileSync(outputPath, cleanContent, 'utf8');
-      console.log(`✓ Copied: ${relativePath}`);
+      console.log(`  ✔ Copied: ${relativePath}`);
     }
   });
 }

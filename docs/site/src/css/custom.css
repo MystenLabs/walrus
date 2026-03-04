@@ -116,9 +116,8 @@
   --ifm-pagination-nav-color-hover: var(--color-wal-green-dark);
 }
 
-/* Put custom selectors in a layer so Tailwind will emit @apply output */
 @layer components {
-  /* Body feel (don’t rely on preflight) */
+  /* Body feel (don't rely on preflight) */
   body {
     @apply font-sans text-sm font-normal not-italic tracking-normal;
   }
@@ -135,13 +134,11 @@
   .markdown h3 {
     @apply font-semibold text-[1.3rem];
     @apply text-wal-gray-70 dark:text-wal-green-dark;
-
   }
 
   .markdown h1:first-child {
     margin-top: 1rem;
   }
-
 
   /* Navbar */
   html[data-theme="dark"] .navbar {
@@ -157,10 +154,6 @@
   }
 
   /* Logo */
-  .navbar__brand {
-    flex-shrink: 1 !important;
-    min-width: 0 !important;
-  }
 
   .navbar__logo {
     display: flex !important;
@@ -188,14 +181,11 @@
     border: solid 1px rgba(247, 247, 248, 0.1) !important;
     border-radius: 2.25rem !important;
     padding: 1rem 1.1rem 1rem 1.25rem !important;
-
     color: var(--color-wal-gray-70) !important;
     font-family: var(--primaryFont);
     letter-spacing: -0.01em;
-
     background-image: var(--wal-surface-gradient-light);
     background-color: var(--color-wal-gray-5);
-
     margin: 0;
     transition: all var(--ifm-transition-fast) var(--ifm-transition-timing-default);
   }
@@ -229,9 +219,9 @@
     stroke: var(--color-wal-green);
   }
 
-    .DocSearch-Search-Icon path {
-    stroke: var(--color-wal-gray-70); /* was --color-wal-green-dark */
-    }
+  .DocSearch-Search-Icon path {
+    stroke: var(--color-wal-gray-70);
+  }
 
   .DocSearch-Button-Placeholder {
     @apply font-thin text-lg pl-3 pr-[6px];
@@ -313,10 +303,10 @@
     mask: url("/img/github-icon.svg") no-repeat center / contain;
   }
 
-/* Copy page button */
-    html[data-theme="dark"] #copy-page-button-container button {
+  /* Copy page button */
+  html[data-theme="dark"] #copy-page-button-container button {
     color: var(--color-wal-black);
-    }
+  }
 
   /* table in legal/privacy */
   .privacy-table {
@@ -372,7 +362,7 @@
     color: #ffffff;
   }
 
-  /* --- Mobile navbar overlap fix (Search + AI button) --- */
+  /* --- Mobile: icon-only for search + kapa (≤996px) --- */
   @media (max-width: 996px) {
     .navbar__items--right {
       display: flex !important;
@@ -400,57 +390,50 @@
       transform: none !important;
     }
 
-    /* DocSearch -> icon-only */
-
     .navbar .DocSearch-Button {
-    width: 34px !important;
-    height: 34px !important;
-    min-width: 34px !important;
-    padding: 0 !important;
-    border-radius: 9999px !important;
-    display: inline-flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-    overflow: visible !important;
+      width: 34px !important;
+      height: 34px !important;
+      min-width: 34px !important;
+      padding: 0 !important;
+      border-radius: 9999px !important;
+      display: inline-flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      overflow: visible !important;
     }
 
     .navbar .DocSearch-Button-Placeholder,
     .navbar .DocSearch-Button-Keys {
-    display: none !important;
+      display: none !important;
     }
 
     .navbar .DocSearch-Button-Container {
-    display: contents !important;
+      display: contents !important;
     }
 
     .navbar .DocSearch-Search-Icon {
-    display: block !important;
-    position: relative !important;
-    width: 18px !important;
-    height: 18px !important;
-    margin: 0 !important;
-    order: 0 !important;
-    flex-shrink: 0 !important;
-    color: var(--color-wal-gray-100) !important;
+      display: block !important;
+      position: relative !important;
+      width: 18px !important;
+      height: 18px !important;
+      margin: 0 !important;
+      order: 0 !important;
+      flex-shrink: 0 !important;
+      color: var(--color-wal-gray-100) !important;
     }
 
-    /* Kapa -> icon-only (works even if text exists) */
     .navbar .kapa-trigger-btn {
       display: inline-flex !important;
       align-items: center !important;
       justify-content: center !important;
-
       width: 34px !important;
       height: 34px !important;
       min-width: 34px !important;
-
       padding: 0 !important;
       margin: 0 !important;
-
       border-radius: 9999px !important;
       overflow: hidden !important;
       box-sizing: border-box !important;
-
       gap: 0 !important;
       font-size: 0 !important;
       line-height: 0 !important;
@@ -463,6 +446,84 @@
       display: block !important;
     }
   }
+
+  /* --- Tight desktop: kapa + search icon-only (997px–1150px) --- */
+  @media (min-width: 997px) and (max-width: 1150px) {
+    .navbar__inner {
+      flex-wrap: nowrap !important;
+    }
+
+    .navbar__item.navbar__link {
+      font-size: 0.75rem !important;
+      padding-left: 0.35rem !important;
+      padding-right: 0.35rem !important;
+    }
+
+    /* Search: icon-only */
+    .navbar .DocSearch-Button {
+      width: 34px !important;
+      min-width: 34px !important;
+      padding: 0 !important;
+      border-radius: 9999px !important;
+      display: inline-flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+    }
+
+    .navbar .DocSearch-Button-Placeholder {
+      display: none !important;
+    }
+
+    .navbar .DocSearch-Search-Icon {
+      order: 0 !important;
+      margin-left: 0 !important;
+    }
+
+    /* Kapa: icon-only */
+    .navbar .kapa-trigger-btn {
+      width: 34px !important;
+      height: 34px !important;
+      min-width: 34px !important;
+      padding: 0 !important;
+      gap: 0 !important;
+      font-size: 0 !important;
+      line-height: 0 !important;
+      border-radius: 9999px !important;
+      overflow: hidden !important;
+    }
+
+    .navbar .kapa-trigger-btn .kapa-label {
+      display: none !important;
+    }
+
+    .navbar .kapa-trigger-btn img,
+    .navbar .kapa-trigger-btn svg {
+      width: 20px !important;
+      height: 20px !important;
+      display: block !important;
+    }
+  }
+
+  /* --- Mid desktop: compact text + smaller search (1151px–1430px) --- */
+  @media (min-width: 1151px) and (max-width: 1430px) {
+    .navbar__inner {
+      flex-wrap: nowrap !important;
+    }
+
+    .navbar__item.navbar__link {
+      font-size: 0.75rem !important;
+      padding-left: 0.35rem !important;
+      padding-right: 0.35rem !important;
+    }
+
+    .navbar .DocSearch-Button {
+      width: 8rem !important;
+    }
+
+    .navbar .DocSearch-Button-Placeholder {
+      font-size: 0.8rem !important;
+    }
+  }
 }
 
 /* Force toggle icon color (always black) */
@@ -471,10 +532,21 @@
   color: #000 !important;
 }
 
-/* Lock navbar colors so they don't change with theme */
+/* Hide mobile sidebar brand during SSR to prevent hydration flash */
+.navbar-sidebar .navbar__brand {
+  display: none;
+}
+.navbar-sidebar--show .navbar__brand {
+  display: flex;
+}
+
+/* Lock navbar colors and position */
 .navbar {
-  background: var(--color-wal-white-100) !important; /* pick your fixed bg */
-  color: var(--color-wal-gray-100) !important;      /* fixed text */
+  position: sticky !important;
+  top: 0 !important;
+  z-index: var(--ifm-z-index-fixed) !important;
+  background: var(--color-wal-white-100) !important;
+  color: var(--color-wal-gray-100) !important;
   border-bottom: 1px solid var(--color-wal-grey-10) !important;
 }
 
@@ -486,14 +558,21 @@
   color: var(--color-wal-gray-100) !important;
 }
 
-/* If you use the DocSearch button in the navbar, pin it too */
+.navbar .navbar__brand {
+  flex-shrink: 0 !important;
+  white-space: nowrap !important;
+}
+
+
+
+/* DocSearch button in navbar */
 .navbar .DocSearch-Button {
   color: var(--color-wal-gray-70) !important;
   background-image: var(--wal-surface-gradient-light) !important;
   background-color: var(--color-wal-gray-5) !important;
 }
 
-/* If your Kapa button should also be fixed */
+/* Kapa button in navbar */
 .navbar .kapa-trigger-btn {
   background: #fff !important;
   color: #111827 !important;
