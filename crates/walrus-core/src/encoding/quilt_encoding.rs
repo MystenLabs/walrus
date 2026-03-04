@@ -2726,4 +2726,252 @@ mod tests {
         );
     }
 
+    // ---- Tests for malformed quilt data (untrusted input validation) ----
+    //
+    // Quilt data is user-controlled content inside a Walrus blob. While the blob itself is
+    // integrity-verified, the quilt structure within is untrusted. These tests verify that
+    // malformed quilt data returns errors.
+    //
+    // Each test exercises both QuiltV1 (contiguous buffer) and QuiltDecoderV1 (sliver-based).
+
+    const TEST_SYMBOL_SIZE: usize = 2;
+    const TEST_N_ROWS: usize = 3;
+    const TEST_COLUMN_SIZE: usize = TEST_N_ROWS * TEST_SYMBOL_SIZE; // 6 bytes per column/sliver
+
+    /// Builds a valid encoded blob entry (header + extensions + data).
+    fn build_valid_blob_entry(identifier: &str, data: &[u8]) -> Vec<u8> {
+        let blob = QuiltStoreBlob::new(data, identifier).expect("valid blob");
+        QuiltEncoderV1::get_header_and_extension_bytes(&blob)
+            .expect("valid header")
+            .into_iter()
+            .chain(data.iter().copied())
+            .collect()
+    }
+
+    /// Creates a `QuiltV1` from raw bytes that `decode_blob` should see in column-major order.
+    ///
+    /// Uses the same `write_bytes_to_columns` that the real encoder uses to transpose the
+    /// logical byte stream into the row-major layout that `QuiltV1` stores.
+    fn quilt_v1_from_raw(raw: &[u8]) -> QuiltV1 {
+        let matrix_size = raw
+            .len()
+            .next_multiple_of(TEST_COLUMN_SIZE)
+            .max(TEST_COLUMN_SIZE);
+        let n_columns = matrix_size / TEST_COLUMN_SIZE;
+        let row_size = n_columns * TEST_SYMBOL_SIZE;
+
+        let mut data = vec![0u8; matrix_size];
+        QuiltEncoderV1::write_bytes_to_columns(
+            &mut data,
+            raw,
+            0,
+            row_size,
+            TEST_COLUMN_SIZE,
+            TEST_SYMBOL_SIZE,
+            0,
+        )
+        .expect("write should succeed");
+
+        QuiltV1 {
+            data,
+            row_size,
+            symbol_size: TEST_SYMBOL_SIZE,
+            quilt_index: None,
+        }
+    }
+
+    /// Derives a `QuiltDecoderV1` from a `QuiltV1` by extracting columns via
+    /// `range_read_from_columns` — the same path the real system uses.
+    fn decoder_v1_from_quilt(quilt: &QuiltV1) -> QuiltDecoderV1<'static> {
+        let n_columns = quilt.row_size / quilt.symbol_size;
+        let column_size = quilt.data.len() / n_columns;
+        let symbol_size = NonZeroU16::new(quilt.symbol_size as u16).unwrap();
+
+        let slivers: Vec<SliverData<Secondary>> = (0..n_columns)
+            .map(|col| {
+                let col_data = quilt
+                    .range_read_from_columns(col, 0, column_size)
+                    .expect("column extraction should succeed");
+                SliverData::new(col_data, symbol_size, SliverIndex::new(col as u16))
+            })
+            .collect();
+
+        QuiltDecoderV1::new_with_owned(slivers).expect("slivers should be consistent")
+    }
+
+    // Blob header field offsets: [version:1][length:4][mask:1][id_size:2][id_data:...]
+    const VERSION_OFFSET: usize = 0;
+    const LENGTH_OFFSET: usize = 1;
+    const ID_SIZE_OFFSET: usize = QuiltVersionV1::BLOB_HEADER_SIZE; // 6
+
+    fn set_blob_length(raw: &mut [u8], length: u32) {
+        raw[LENGTH_OFFSET..LENGTH_OFFSET + 4].copy_from_slice(&length.to_le_bytes());
+    }
+
+    fn set_id_size(raw: &mut [u8], size: u16) {
+        raw[ID_SIZE_OFFSET..ID_SIZE_OFFSET + 2].copy_from_slice(&size.to_le_bytes());
+    }
+
+    fn build_valid_blob_entry_with_tags(
+        identifier: &str,
+        data: &[u8],
+        tags: BTreeMap<String, String>,
+    ) -> Vec<u8> {
+        let blob = QuiltStoreBlob::new_owned(data.to_vec(), identifier)
+            .expect("valid blob")
+            .with_tags(tags);
+        QuiltEncoderV1::get_header_and_extension_bytes(&blob)
+            .expect("valid header")
+            .into_iter()
+            .chain(data.iter().copied())
+            .collect()
+    }
+
+    /// Asserts `decode_blob` fails on both `QuiltV1` and `QuiltDecoderV1` built from the same
+    /// raw bytes, optionally checking the error variant.
+    fn assert_decode_err(raw: &[u8], check: impl Fn(&QuiltError) -> bool) {
+        let quilt_v1 = quilt_v1_from_raw(raw);
+        let decoder_v1 = decoder_v1_from_quilt(&quilt_v1);
+
+        for (name, result) in [
+            ("QuiltV1", QuiltVersionV1::decode_blob(&quilt_v1, 0)),
+            (
+                "QuiltDecoderV1",
+                QuiltVersionV1::decode_blob(&decoder_v1, 0),
+            ),
+        ] {
+            let err = result.expect_err(&format!("{name}: expected error"));
+            assert!(check(&err), "{name}: unexpected error variant: {err:?}");
+        }
+    }
+
+    // -- Content validation --
+
+    #[test]
+    fn test_decode_blob_invalid_version_byte() {
+        let mut raw = build_valid_blob_entry("test-id", &[1, 2, 3]);
+        raw[VERSION_OFFSET] = 0xFF;
+        assert_decode_err(
+            &raw,
+            |e| matches!(e, QuiltError::InvalidQuiltData(msg) if msg.contains("version")),
+        );
+    }
+
+    #[test]
+    fn test_decode_blob_header_from_bytes_invalid_version() {
+        let mut header = [0u8; QuiltVersionV1::BLOB_HEADER_SIZE];
+        header[0] = 0xFF;
+        assert!(
+            matches!(BlobHeaderV1::from_bytes(header), Err(QuiltError::InvalidQuiltData(ref msg)) if msg.contains("version")),
+        );
+    }
+
+    #[test]
+    fn test_decode_blob_length_underflow_zero_length() {
+        let mut raw = build_valid_blob_entry("test-id", &[1, 2, 3]);
+        set_blob_length(&mut raw, 0);
+        assert_decode_err(
+            &raw,
+            |e| matches!(e, QuiltError::InvalidQuiltData(msg) if msg.contains("smaller")),
+        );
+    }
+
+    #[test]
+    fn test_decode_blob_length_underflow_with_tags() {
+        let tags = BTreeMap::from([("k".into(), "v".into())]);
+        let mut raw = build_valid_blob_entry_with_tags("test-id", &[1, 2, 3], tags);
+        // Shrink claimed length so it covers identifier but not tags.
+        let id = bcs::to_bytes("test-id").unwrap();
+        set_blob_length(
+            &mut raw,
+            (BLOB_IDENTIFIER_SIZE_BYTES_LENGTH + id.len()) as u32,
+        );
+        assert_decode_err(
+            &raw,
+            |e| matches!(e, QuiltError::InvalidQuiltData(msg) if msg.contains("smaller")),
+        );
+    }
+
+    #[test]
+    fn test_decode_blob_malformed_identifier() {
+        let mut raw = build_valid_blob_entry("test-id", &[1, 2, 3]);
+        // Overwrite identifier bytes with garbage (keep the size field intact).
+        let id_data_start = ID_SIZE_OFFSET + BLOB_IDENTIFIER_SIZE_BYTES_LENGTH;
+        for b in &mut raw[id_data_start..id_data_start + 4] {
+            *b = 0xFF;
+        }
+        assert_decode_err(&raw, |e| matches!(e, QuiltError::InvalidIdentifier(..)));
+    }
+
+    #[test]
+    fn test_decode_blob_malformed_tags() {
+        let tags = BTreeMap::from([("key".into(), "value".into())]);
+        let mut raw = build_valid_blob_entry_with_tags("test-id", &[1; 20], tags);
+        // Find the tags data region and corrupt it. Tags come after identifier.
+        let id = bcs::to_bytes("test-id").unwrap();
+        let tags_data_start =
+            ID_SIZE_OFFSET + BLOB_IDENTIFIER_SIZE_BYTES_LENGTH + id.len() + TAGS_SIZE_BYTES_LENGTH;
+        for b in &mut raw[tags_data_start..tags_data_start + 4] {
+            *b = 0xFF;
+        }
+        assert_decode_err(&raw, |e| {
+            matches!(e, QuiltError::FailedToDecodeExtension(..))
+        });
+    }
+
+    // -- Length validation (range_read_from_columns invariant) --
+
+    #[test]
+    fn test_decode_blob_data_size_mismatch() {
+        let mut raw = build_valid_blob_entry("test-id", &[1, 2, 3]);
+        set_blob_length(&mut raw, 1000);
+        assert_decode_err(&raw, |_| true);
+    }
+
+    #[test]
+    fn test_decode_blob_truncated_identifier_size() {
+        let mut raw = build_valid_blob_entry("test-id", &[1, 2, 3]);
+        raw.truncate(ID_SIZE_OFFSET + 1); // only 1 of 2 bytes for id size field
+        assert_decode_err(&raw, |_| true);
+    }
+
+    #[test]
+    fn test_decode_blob_truncated_identifier_data() {
+        let mut raw = build_valid_blob_entry("test-id", &[1, 2, 3]);
+        set_id_size(&mut raw, 50); // claim 50 bytes, actual data is much less
+        assert_decode_err(&raw, |_| true);
+    }
+
+    #[test]
+    fn test_decode_blob_truncated_tags_size() {
+        let tags = BTreeMap::from([("k".into(), "v".into())]);
+        let mut raw = build_valid_blob_entry_with_tags("test-id", &[1; 20], tags);
+        // Truncate right after identifier, leaving only 1 byte for tags size field.
+        let id = bcs::to_bytes("test-id").unwrap();
+        raw.truncate(ID_SIZE_OFFSET + BLOB_IDENTIFIER_SIZE_BYTES_LENGTH + id.len() + 1);
+        assert_decode_err(&raw, |_| true);
+    }
+
+    #[test]
+    fn test_decode_blob_truncated_tags_data() {
+        let tags = BTreeMap::from([("k".into(), "v".into())]);
+        let mut raw = build_valid_blob_entry_with_tags("test-id", &[1; 20], tags);
+        // Keep tags size field but truncate the actual tags data.
+        let id = bcs::to_bytes("test-id").unwrap();
+        raw.truncate(
+            ID_SIZE_OFFSET
+                + BLOB_IDENTIFIER_SIZE_BYTES_LENGTH
+                + id.len()
+                + TAGS_SIZE_BYTES_LENGTH
+                + 1,
+        );
+        assert_decode_err(&raw, |_| true);
+    }
+
+    #[test]
+    fn test_decode_blob_oversized_identifier() {
+        let mut raw = build_valid_blob_entry("test-id", &[1, 2, 3]);
+        set_id_size(&mut raw, 60000);
+        assert_decode_err(&raw, |_| true);
+    }
 }
