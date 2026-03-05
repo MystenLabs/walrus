@@ -1405,6 +1405,10 @@ impl ShardStorage {
         epoch: Epoch,
     ) -> Result<(), SyncShardClientError> {
         let mut futures = FuturesUnordered::new();
+        let inflight_gauge = walrus_utils::with_label!(
+            node.metrics.sync_shard_recover_sliver_inflight,
+            &self.id.to_string()
+        );
 
         // Update the metric for the total number of blobs pending recovery, so that we know how
         // many blobs are pending recovery.
@@ -1444,6 +1448,10 @@ impl ShardStorage {
                 self.skip_recover_blob(blob_id, sliver_type, &node, "not_certified")?;
             } else {
                 futures.push(self.recover_blob(blob_id, sliver_type, node.clone(), epoch));
+                inflight_gauge.set(
+                    i64::try_from(futures.len())
+                        .expect("number of inflight recoveries should fit into an i64"),
+                );
             }
 
             total_blobs_pending_recovery -= 1;
@@ -1453,11 +1461,19 @@ impl ShardStorage {
             if futures.len() >= config.max_concurrent_blob_recovery_during_shard_recovery
                 && let Some(result) = futures.next().await
             {
+                inflight_gauge.set(
+                    i64::try_from(futures.len())
+                        .expect("number of inflight recoveries should fit into an i64"),
+                );
                 maybe_log_error(result);
             }
         }
 
         while let Some(result) = futures.next().await {
+            inflight_gauge.set(
+                i64::try_from(futures.len())
+                    .expect("number of inflight recoveries should fit into an i64"),
+            );
             maybe_log_error(result);
         }
 

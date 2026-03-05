@@ -70,6 +70,9 @@ walrus_utils::metrics::define_metric_set! {
         #[help = "Total number of slivers pending recovery during shard sync"]
         sync_shard_recover_sliver_pending_total: IntGaugeVec["shard"],
 
+        #[help = "Number of inflight sliver recovery tasks during shard sync"]
+        sync_shard_recover_sliver_inflight: IntGaugeVec["shard"],
+
         #[help = "Total number of slivers started recovery during shard sync"]
         sync_shard_recover_sliver_total: IntCounterVec["shard", "sliver_type"],
 
