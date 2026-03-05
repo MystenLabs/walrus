@@ -8,6 +8,8 @@ import sys
 import os
 import random
 import argparse
+import tempfile
+import shutil
 
 parser = argparse.ArgumentParser(description='Run the simulator with different seeds')
 parser.add_argument('testname', type=str, help='Name of test to run')
@@ -92,6 +94,32 @@ if __name__ == "__main__":
         print(f"run: `$ ls -ltr target/simulator/deps/ | tail` to find recent test binaries");
         sys.exit(1)
 
+    # TODO(WAL-1163): we need to fix Sui side so that Walrus simtest does not need to clone the Sui
+    #                 repository. Currently we can only run one seed at a time.
+    # Clone Sui repo for simtest runtime (needed for SUI_REPO env var).
+    # Parse SUI_VERSION from cargo-simtest script.
+    cargo_simtest_path = os.path.join(repo_root, "scripts/simtest/cargo-simtest")
+    sui_version = None
+    with open(cargo_simtest_path) as f:
+        for line in f:
+            if line.startswith("SUI_VERSION="):
+                sui_version = line.split("=", 1)[1].strip().strip('"')
+                break
+    if sui_version is None:
+        print("Error: could not find SUI_VERSION in cargo-simtest")
+        sys.exit(1)
+
+    sui_tmpdir = tempfile.mkdtemp()
+    sui_repo = os.path.join(sui_tmpdir, "sui")
+    print(f"Cloning Sui {sui_version} to {sui_repo}")
+    subprocess.run(
+        ["git", "clone", "--depth", "1", "--branch", sui_version,
+         "https://github.com/MystenLabs/sui", sui_repo],
+        check=True,
+    )
+
+    simtest_static_init = os.path.join(repo_root, "scripts/simtest/simtest_initialization")
+
     commands = []
 
     for i in range(1, args.num_seeds + 1):
@@ -99,16 +127,20 @@ if __name__ == "__main__":
         commands.append(("%s %s %s" % (binary, '--exact' if args.exact else '', args.testname), {
           "MSIM_TEST_SEED": "%d" % next_seed,
           "RUST_LOG": "info",
+          "SUI_REPO": sui_repo,
+          "SIMTEST_STATIC_INIT_MOVE": simtest_static_init,
         }))
 
     # register clean up code to kill all child processes when we exit
     import atexit
     import signal
-    def kill_child_processes(*args):
-        print("Killing child processes")
+    def cleanup(*_args):
+        print("Cleaning up")
+        if os.path.isdir(sui_tmpdir):
+            shutil.rmtree(sui_tmpdir, ignore_errors=True)
         os.killpg(0, signal.SIGKILL)
         sys.exit(0)
-    atexit.register(kill_child_processes)
-    signal.signal(signal.SIGINT, kill_child_processes)
+    atexit.register(cleanup)
+    signal.signal(signal.SIGINT, cleanup)
 
     main(commands)
