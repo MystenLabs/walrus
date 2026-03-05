@@ -730,12 +730,14 @@ pub(crate) enum HealthInfoError {
     FailedToGetHealthInfo(#[from] NodeError),
 }
 
+/// Manual impl because the inner error types don't implement Serialize.
+/// Uses Debug format to include the full error source chain in JSON output.
 impl Serialize for HealthInfoError {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
-        serializer.serialize_str(&self.to_string())
+        serializer.serialize_str(&format!("{self:?}"))
     }
 }
 
