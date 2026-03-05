@@ -74,17 +74,21 @@ In the example [`ws-resources.json`](/docs/sites/configuration/site-configuratio
 }
 ```
 
-**Static multi-page site:** omit `routes` entirely. Each URL resolves directly to its file.
+**Static multi-page site:** Omit `routes` entirely. Each URL resolves directly to its file.
 
-**Vue Router in hash mode:** omit `routes` entirely. The hash fragment is handled client-side.
+**Vue Router in hash mode:** Omit `routes` entirely. The hash fragment is handled client-side.
 
-## Framework redirects
+## Redirects
 
-Walrus Sites currently has no native redirect support. All redirect approaches require creating a resource file at the old path that performs the redirect client-side, then adding a route rule so the old URL pattern is served that file.
+Walrus Sites serves static files directly. There is no server-side logic to handle URL resolution at runtime. This means web framework routing plugins do not work on Walrus Sites. For example, if you are using Docusaurus, its routing plugin will not function as expected when deployed to Walrus Sites.
 
-If you are building a Walrus Site using a front-end web framework (such as React, Vue, or Svelte), you will have to implement this workaround to support redirects. The following are examples for popular frameworks.
+To simulate redirect behavior, workaround approaches require creating a resource file at the old path that performs the redirect client-side, then adding a route rule so the old URL pattern is served that file.
 
-### React Router
+### Workarounds
+
+Since Walrus Sites has no native redirect support, redirects must be implemented at the framework level. The approach varies by framework.
+
+#### React Router
 
 Create a redirect component at the old path and add it to your router:
 
@@ -96,13 +100,13 @@ export default function OldPage() {
 }
 ```
 
-Then, register the old path in your router:
+Then register the old path in your router:
 
 ```jsx
 <Route path="/old/path" element={<OldPage />} />
 ```
 
-### Vue Router
+#### Vue Router
 
 Add a redirect entry directly in your route definitions:
 
@@ -113,7 +117,7 @@ const routes = [
 ]
 ```
 
-### SvelteKit
+#### SvelteKit
 
 Create a `+page.js` at the old route that redirects client-side:
 
@@ -125,11 +129,11 @@ export function load() {
 }
 ```
 
-### Docusaurus
+#### Docusaurus
 
 Create a placeholder `.mdx` file at the old path:
 
-```js
+```mdx
 ---
 title: Redirecting...
 sidebar_class_name: hidden
@@ -137,5 +141,20 @@ sidebar_class_name: hidden
 
 import {Redirect} from '@docusaurus/router';
 
-<Redirect to="/docs/new/file/path/2" />
+<Redirect to="/docs/new/file/path" />
 ```
+
+### Adding routes 
+
+Placeholder redirect pages created this way will appear in your site's build output. Make sure you also add a corresponding route entry in `ws-resources.json` so the old URL serves the redirect file:
+
+```json
+{
+  "routes": {
+    "/docs/old/path": "/docs/old/path/index.html"
+    "/docs/old/path.html": "/docs/old/path/index.html"
+  }
+}
+```
+
+Each key is a URL path a visitor might request, and each value is the static file that should be served for that path. You need an entry for every URL you want to support, including both `.html` variants and clean path variants (without the extension).
