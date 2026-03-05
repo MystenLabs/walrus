@@ -21,7 +21,7 @@ for (let i = 0; i < args.length; i++) {
 const scriptDir = path.dirname(new URL(import.meta.url).pathname);
 const markdownDir = path.resolve(positional[0] ?? path.join(scriptDir, "../../static/markdown"));
 const baseUrl      = flags["base-url"]    ?? "";
-const outputFile   = flags["output"]      ?? "llms.txt";
+const outputFile = flags["output"] ?? path.join(scriptDir, "../../static/llms.txt");
 const siteDesc     = flags["description"] ?? "";
 
 // ── Auto-detect docusaurus config ────────────────────────────────────────────
