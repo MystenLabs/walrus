@@ -3,4 +3,134 @@ title: Mainnet and Testnet Portals
 draft: true
 ---
 
-https://linear.app/mysten-labs/issue/DOCS-669/sitesportalsmainnet-testnet
+The term portal is used to indicate any technology that is used to access and browse Walrus Sites. Currently, only a server-side portal is served at https://wal.app.
+
+https://wal.app only serves sites deployed on mainnet, linked with SuiNS names. You can run a portal to access Mainnet sites as well. Walrus Foundation does not maintain a portal that serves Testnet Walrus Sites. To access sites deployed on Testnet you can either use a third party Testnet portal, self-host one, or run one locally.
+
+## Known portals
+
+A list of known portals is maintained. Portals can self-identify by opening a PR that adds an entry to `docs/book/portals/list.json`. The stable branch of Walrus Sites is `mainnet`.
+
+import PortalsList from '@site/src/components/PortalsList';
+
+<PortalsList />
+
+The service-worker portal is no longer hosted, but you can still run it locally. Its code is available in the `walrus-sites` repository. For more information, see [running a local portal](#running-a-local-portal).
+
+## Mainnet vs Testnet portals
+
+Walrus Sites runs on 2 networks: Mainnet and Testnet. Each network has its own on-chain package, default RPC endpoint, and Walrus aggregator. The portal you run must match the network on which your site is deployed.
+
+### Mainnet
+
+Mainnet is the production network. Sites deployed on Mainnet are permanent (subject to epoch storage), publicly accessible, and can be browsed through any Mainnet portal, including the Walrus Foundation-operated portal at [wal.app](https://wal.app).
+
+| Property | Value |
+|---|---|
+| Site package | `0x26eb7ee8688da02c5f671679524e379f0b837a12f1d1d799f255b7eea260ad27` |
+| Default RPC | `https://fullnode.mainnet.sui.io:443` |
+| Default aggregator | `https://aggregator.walrus-mainnet.walrus.space` |
+| Default landing page (Base36) | `46f3881sp4r55fc6pcao9t93bieeejl4vr4k2uv8u4wwyx1a93` |
+| Epoch duration | 14 days |
+| Public portal available | Yes — [wal.app](https://wal.app) |
+
+:::info
+
+[wal.app](https://wal.app) only serves Mainnet sites linked with SuiNS names.
+
+:::
+
+### Testnet
+
+Testnet is the development and staging network. Sites deployed on Testnet are only accessible through a Testnet portal. The Walrus Foundation does not operate a public Testnet portal. To access sites deployed on Testnet you can use a third-party Testnet portal, self-host one, or run one locally.
+
+| Property | Value |
+|---|---|
+| Site package | `0xf99aee9f21493e1590e7e5a9aea6f343a1f381031a04a732724871fc294be799` |
+| Default RPC | `https://fullnode.testnet.sui.io:443` |
+| Default aggregator | `https://aggregator.walrus-testnet.walrus.space` |
+| Default landing page (Base36) | `1p3repujoigwcqrk0w4itsxm7hs7xjl4hwgt3t0szn6evad83q` |
+| Epoch duration | 1 day |
+| Public portal available | No — self-host or run locally |
+
+### Comparison summary
+
+| | Mainnet | Testnet |
+|---|---|---|
+| Use case | Production sites | Development and testing |
+| Public portal | Yes ([wal.app](https://wal.app)) | No |
+| Local portal required | Optional | Required |
+| Epoch duration | 14 days | 1 day |
+| SuiNS support | Yes | Yes |
+| Cost | Real WAL tokens | Test tokens |
+
+:::caution
+
+A Mainnet portal cannot serve Testnet sites, and a Testnet portal cannot serve Mainnet sites. Always run a portal that matches the network your site is deployed on.
+
+:::
+
+---
+
+## Portal configuration reference
+
+Portal configuration is managed through 2 key elements: environment variables, which are required for basic functionality, and a constants file, which is optional and used for advanced customization.
+
+### Environment variables
+
+Environment variables are set in the `.env.local` file at the root of each portal directory (`portal/server/` for the server portal, `portal/worker/` for the service-worker portal). The simplest way to get started is to copy the relevant example file for your network.
+
+#### Server portal
+
+```sh
+# Mainnet
+cp ./portal/server/.env.mainnet.example ./portal/server/.env.local
+
+# Testnet
+cp ./portal/server/.env.testnet.example ./portal/server/.env.local
+```
+
+#### Service-worker portal
+
+```sh
+# Mainnet
+cp ./portal/worker/.env.mainnet.example ./portal/worker/.env.local
+
+# Testnet
+cp ./portal/worker/.env.testnet.example ./portal/worker/.env.local
+```
+
+#### Variable reference
+
+| Variable | Description |
+|---|---|
+| `AGGREGATOR_URL` | URL of the Walrus aggregator used to fetch site resources from Walrus. |
+| `AMPLITUDE_API_KEY` | Provide this to enable [Amplitude](https://amplitude.com/) analytics for your server portal. |
+| `B36_DOMAIN_RESOLUTION_SUPPORT` | Set to `true` to support Base36 domain resolution. When disabled, sites accessed through a Base36 subdomain are not served. |
+| `EDGE_CONFIG` | If you host your portal on Vercel, use [Edge Config](https://vercel.com/docs/edge-config) to blocklist certain SuiNS subdomains or Base36 object IDs. |
+| `EDGE_CONFIG_ALLOWLIST` | Similar to `EDGE_CONFIG`, but controls which subdomains can use the premium RPC URL list. |
+| `ENABLE_ALLOWLIST` | Set to `true` to enable the allowlist feature. Only sites on the allowlist are served. |
+| `ENABLE_BLOCKLIST` | Set to `true` to enable the blocklist feature. Sites on the blocklist are not served. Useful for publicly-accessible portals where you want to restrict which sites are available. |
+| `ENABLE_SENTRY` | Set to `true` to enable Sentry error tracking. |
+| `ENABLE_VERCEL_WEB_ANALYTICS` | Set to `true` to enable Vercel web analytics. |
+| `LANDING_PAGE_OID_B36` | The Base36-encoded object ID of the site served at the portal root (for example, `localhost:3000`). |
+| `PORTAL_DOMAIN_NAME_LENGTH` | If you connect your portal to a custom domain, set this to the character length of the domain name. For example, `example.com` has a length of `11`. |
+| `PREMIUM_RPC_URL_LIST` | A list of RPC URLs used when a site belongs to the allowlist. |
+| `RPC_URL_LIST` | A list of RPC URLs used when a site does not belong to the allowlist. |
+| `SENTRY_AUTH_TOKEN` | Your Sentry authentication token. Required when `ENABLE_SENTRY` is `true`. |
+| `SENTRY_DSN` | Your Sentry DSN. Required when `ENABLE_SENTRY` is `true`. |
+| `SENTRY_TRACES_SAMPLE_RATE` | The sample rate for Sentry traces. Required when `ENABLE_SENTRY` is `true`. |
+| `SITE_PACKAGE` | The Walrus Sites Move package ID for the target network. |
+| `SUINS_CLIENT_NETWORK` | The network used by the SuiNS client (`mainnet` or `testnet`). |
+
+---
+
+### Constants
+
+The `constants.ts` file is located at `portal/common/lib/constants.ts`. It holds key configuration parameters for the portal. You typically do not need to modify these, but the available parameters are:
+
+| Constant | Description |
+|---|---|
+| `MAX_REDIRECT_DEPTH` | The number of [redirects](https://docs.wal.app/docs/sites/linking/redirects) the portal follows before stopping. |
+| `SITE_NAMES` | Hard-coded `name: objectID` mappings that override SuiNS name resolution. For development only. Use with caution, as incorrect entries might make sites with legitimate SuiNS names unusable. |
+| `FALLBACK_PORTAL` | Applies to the service-worker portal only. Specifies a server-side portal to fall back to in browsers that do not support service workers. |
