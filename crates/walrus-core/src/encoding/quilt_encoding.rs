@@ -1097,10 +1097,10 @@ impl QuiltApi<QuiltVersionV1> for QuiltV1 {
     }
 }
 
-// Implementation of QuiltColumnRangeReader for QuiltV1.
-// The while loop guarantees exactly `bytes_to_return` bytes are returned; if the data buffer is
-// too short, `get_slice` returns `IndexOutOfBounds` before a short read can occur.
 impl QuiltColumnRangeReader for QuiltV1 {
+    // Implementation of QuiltColumnRangeReader for QuiltV1.
+    // The while loop guarantees exactly `bytes_to_return` bytes are returned; if the data buffer is
+    // too short, `get_slice` returns `IndexOutOfBounds` before a short read can occur.
     fn range_read_from_columns(
         &self,
         start_col: usize,
