@@ -1,6 +1,6 @@
 {/* https://linear.app/mysten-labs/issue/DOCS-628/getting-startedindex */}
 
-Walrus is a platform for building efficient and resilient data markets, where data is stored as blobs. Walrus stores each blob as an immutable array of bytes, and you can store any type of file, such as text, video, or source code.
+Walrus is a platform for building efficient and resilient data markets, where data is stored as blobs.
 
 Sui is a blockchain that supports programmability at a [fundamental level](https://docs.sui.io/concepts/transactions/prog-txn-blocks). Walrus binds all blobs to objects on the Sui blockchain.
 
