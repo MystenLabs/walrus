@@ -1,6 +1,17 @@
 #!/bin/bash
 # Copyright (c) Walrus Foundation
 # SPDX-License-Identifier: Apache-2.0
+#
+# Ping test to verify a site is live after deployment.
+# Usage: ./ping-test.sh <url> [--retries <n>] [--delay <seconds>] [--timeout <seconds>]
+#   url       The URL to check (required)
+#   --retries Number of attempts before failing (default: 10)
+#   --delay   Seconds to wait between retries (default: 15)
+#   --timeout Seconds before a single request times out (default: 10)
+#
+# Example:
+#   ./ping-test.sh https://docs.wal.app --retries 12 --delay 20
+
 set -euo pipefail
 
 # ── Parse args ────────────────────────────────────────────────────────────────
@@ -20,8 +31,8 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ -z "$URL" ]]; then
-  echo "Error: URL is required" >&2
-  echo "Usage: $0 <url> [--retries <n>] [--delay <seconds>] [--timeout <seconds>]" >&2
+  echo "Error: URL is required"
+  echo "Usage: $0 <url> [--retries <n>] [--delay <seconds>] [--timeout <seconds>]"
   exit 1
 fi
 
