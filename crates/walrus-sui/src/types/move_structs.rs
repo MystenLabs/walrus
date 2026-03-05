@@ -64,6 +64,30 @@ impl AssociatedContractStruct for StorageResource {
     const CONTRACT_STRUCT: StructTag<'static> = contracts::storage_resource::Storage;
 }
 
+/// Sui object for a storage pool.
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+pub struct StoragePoolResource {
+    /// Object ID of the Sui object.
+    pub id: ObjectID,
+    /// The start epoch of the pool (inclusive).
+    pub start_epoch: Epoch,
+    /// The end epoch of the pool (exclusive).
+    pub end_epoch: Epoch,
+    /// The total reserved capacity in encoded bytes.
+    pub reserved_encoded_capacity_bytes: u64,
+    /// Sum of all active blobs' encoded sizes.
+    pub used_encoded_bytes: u64,
+    /// Number of blobs in the table.
+    pub blob_count: u64,
+    /// The blobs object table (opaque on the Rust side).
+    #[serde(deserialize_with = "deserialize_bag_or_table")]
+    pub blobs: ObjectID,
+}
+
+impl AssociatedContractStruct for StoragePoolResource {
+    const CONTRACT_STRUCT: StructTag<'static> = contracts::storage_pool::StoragePool;
+}
+
 /// Sui object for a blob.
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

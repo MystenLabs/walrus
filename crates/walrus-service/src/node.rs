@@ -1583,6 +1583,13 @@ impl StorageNode {
             )) => {
                 event_handle.mark_as_complete();
             }
+            EventStreamElement::ContractEvent(ContractEvent::StoragePoolEvent(event)) => {
+                // TODO(WAL-1162): implement storage pool event processing on storage nodes.
+                panic!(
+                    "storage pool event processing is not yet implemented: {:?}",
+                    event.name()
+                );
+            }
             EventStreamElement::ContractEvent(ContractEvent::ProtocolEvent(event)) => {
                 panic!(
                     "unexpected protocol version update: {:?}",
