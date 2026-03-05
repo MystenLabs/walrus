@@ -20,8 +20,8 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ -z "$URL" ]]; then
-  echo "Error: URL is required"
-  echo "Usage: $0 <url> [--retries <n>] [--delay <seconds>] [--timeout <seconds>]"
+  echo "Error: URL is required" >&2
+  echo "Usage: $0 <url> [--retries <n>] [--delay <seconds>] [--timeout <seconds>]" >&2
   exit 1
 fi
 
