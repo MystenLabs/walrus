@@ -625,7 +625,7 @@ impl<T: WalrusWriteClient + Send + Sync + 'static> ClientDaemon<T> {
             )
             .with_publisher(
                 auth_config,
-                publisher_args.max_body_size_kib,
+                publisher_args.max_body_size(),
                 publisher_args.publisher_max_request_buffer_size,
                 publisher_args.publisher_max_concurrent_requests,
                 publisher_args.max_quilt_body_size(),
@@ -754,6 +754,7 @@ async fn handle_publisher_error(error: BoxError) -> Response {
 #[cfg(test)]
 mod tests {
     use std::{
+        path::PathBuf,
         sync::atomic::{AtomicUsize, Ordering},
         time::Duration,
     };
@@ -763,6 +764,7 @@ mod tests {
     use walrus_core::BlobId;
 
     use super::*;
+    use crate::client::cli::DaemonArgs;
 
     #[test]
     fn test_header_name_case_insensitive_comparison() {
@@ -903,6 +905,120 @@ mod tests {
         ) -> ClientResult<(BlobStream, u64)> {
             unimplemented!("not needed for rate limit tests")
         }
+    }
+
+    impl WalrusWriteClient for MockSlowClient {
+        async fn write_blob(
+            &self,
+            _blob: Vec<u8>,
+            _encoding_type: Option<EncodingType>,
+            _epochs_ahead: EpochCount,
+            _store_optimizations: StoreOptimizations,
+            _persistence: BlobPersistence,
+            _post_store: PostStoreAction,
+            _metrics: Option<Arc<ClientMetrics>>,
+        ) -> ClientResult<BlobStoreResult> {
+            Ok(BlobStoreResult::AlreadyCertified {
+                blob_id: walrus_core::test_utils::random_blob_id(),
+                event_or_object: walrus_sdk::node_client::responses::EventOrObjectId::Event(
+                    sui_types::event::EventID {
+                        tx_digest: Default::default(),
+                        event_seq: 0,
+                    },
+                ),
+                end_epoch: 10,
+            })
+        }
+
+        async fn construct_quilt<V: walrus_core::encoding::quilt_encoding::QuiltVersion>(
+            &self,
+            _blobs: &[walrus_core::encoding::quilt_encoding::QuiltStoreBlob<'_>],
+            _encoding_type: Option<EncodingType>,
+        ) -> ClientResult<V::Quilt> {
+            unimplemented!()
+        }
+
+        async fn write_quilt<V: walrus_core::encoding::quilt_encoding::QuiltVersion>(
+            &self,
+            _quilt: V::Quilt,
+            _encoding_type: Option<EncodingType>,
+            _epochs_ahead: EpochCount,
+            _store_optimizations: StoreOptimizations,
+            _persistence: BlobPersistence,
+            _post_store: PostStoreAction,
+        ) -> ClientResult<QuiltStoreResult> {
+            unimplemented!()
+        }
+
+        fn default_post_store_action(&self) -> PostStoreAction {
+            PostStoreAction::Keep
+        }
+    }
+
+    #[tokio::test]
+    async fn test_daemon_body_size_limit() {
+        let registry = Registry::new(prometheus::Registry::new());
+        let mock_client = MockSlowClient::new(Duration::from_millis(1));
+
+        let publisher_args = PublisherArgs {
+            daemon_args: DaemonArgs {
+                bind_address: "127.0.0.1:0".parse().expect("valid address"),
+                metrics_address: "127.0.0.1:0".parse().expect("valid address"),
+                blocklist: None,
+            },
+            max_body_size_kib: 1, // 1 KiB = 1024 bytes after conversion
+            max_quilt_body_size_kib: 1,
+            publisher_max_request_buffer_size: 10,
+            publisher_max_concurrent_requests: 10,
+            n_clients: 1,
+            refill_interval: Duration::from_secs(1),
+            sub_wallets_dir: PathBuf::from("/tmp/test-wallets"),
+            gas_refill_amount: 0,
+            wal_refill_amount: 0,
+            sub_wallets_min_balance: 0,
+            keep: false,
+            burn_after_store: false,
+            jwt_decode_secret: None,
+            jwt_algorithm: None,
+            jwt_expiring_sec: 0,
+            jwt_verify_upload: false,
+            replay_suppression_config: Default::default(),
+        };
+
+        let aggregator_args = AggregatorArgs {
+            aggregator_max_request_buffer_size: 10,
+            aggregator_max_concurrent_requests: 10,
+            ..Default::default()
+        };
+
+        let daemon = ClientDaemon::new_daemon(
+            mock_client,
+            None,
+            &registry,
+            &publisher_args,
+            &aggregator_args,
+        );
+
+        let app = daemon.router.with_state(daemon.client);
+
+        // 512 bytes is well under 1 KiB limit.
+        let body = vec![0u8; 512];
+        let request = axum::http::Request::builder()
+            .method("PUT")
+            .uri("/v1/blobs?epochs=1")
+            .body(axum::body::Body::from(body))
+            .expect("valid request");
+
+        let response = app.oneshot(request).await.expect("request should complete");
+
+        // The request must NOT be rejected with 413 Payload Too Large.
+        // Before the fix, max_body_size_kib (1) was passed directly instead of
+        // max_body_size() (1024), causing Axum to reject bodies > 1 byte.
+        assert_ne!(
+            response.status(),
+            HttpStatusCode::PAYLOAD_TOO_LARGE,
+            "body size limit should be in bytes (1024), not raw KiB value (1)"
+        );
     }
 
     #[tokio::test]
