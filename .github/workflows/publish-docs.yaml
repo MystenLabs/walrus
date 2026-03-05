@@ -106,4 +106,4 @@ jobs:
         run: sleep 60
       - name: Test markdown routes
         run: |
-          ./ping-test.sh https://docs.wal.app/docs/getting-started.md --retries 12 --delay 20
+           cd docs/site && ./ping-test.sh https://docs.wal.app/docs/getting-started.md --retries 12 --delay 20
