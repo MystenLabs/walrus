@@ -144,20 +144,26 @@
         the corresponding public address. You will need to: Export a private key from your Sui
         Wallet or CLI.
 - [Adding Metadata](https://docs.wal.app/docs/sites/configuration/adding-metadata.md)
-    Description: It's possible to make your Site object prettier by displaying information about it
-        on Sui explorers and wallets by using the field. This is useful for adding human-readable
-        information about the site. For example, you can add a link to your site's homepage, an
-        image of your site's logo, and so on.
+    Description: The section of [](/docs/sites/configuration/site-configuration) lets you add
+        human-readable information to your Walrus Site object. This data is stored on-chain and is
+        used by portals, explorers, wallets, and other tools to display information about your
+        site.
 - [Setting Up Routing
     Rules](https://docs.wal.app/docs/sites/configuration/setting-up-routing-rules.md)
-    Description: In its base configuration, Walrus Sites serves static assets through a portal.
+    Description: The optional section allows you to specify client-side routing rules for your
+        site. This is useful when you want to use a single-page application (SPA) framework, such
+        as React or Angular. The configuration in the object is a mapping from route keys to
+        resource path values.
+- [Site Configuration](https://docs.wal.app/docs/sites/configuration/site-configuration.md)
+    Description: In its base configuration, a Walrus Site serves static assets through a portal.
         However, many modern web applications require more advanced features, such as custom
-        headers and client-side routing.
+        headers, client-side routing, and human-readable information.
 - [Specifying Http
     Headers](https://docs.wal.app/docs/sites/configuration/specifying-http-headers.md)
     Description: The section allows you to specify custom HTTP response headers for specific
-        resources. The keys in the object are the paths of the resources, and the values are lists
-        of key-value pairs corresponding to the headers that the portal attaches to the response.
+        resources. The keys in the object are the exact paths of the resources (no wildcards), and
+        the values are lists of key-value pairs corresponding to the headers that the portal
+        attaches to the response.
 - [Bringing Your Own
     Domain](https://docs.wal.app/docs/sites/custom-domains/bringing-your-own-domain.md)
     Description: There might be cases where you want to host a Walrus Site under a specific domain
@@ -169,26 +175,21 @@
         the portal. Base36 subdomains are still supported if you use a local server or an
         alternative portal. To browse walrus sites using the portal, you must use SuiNS names
         instead.
-- [Configuration File
-    Reference](https://docs.wal.app/docs/sites/getting-started/configuration-file-reference.md)
-    Description: The tool requires a configuration file to know which package to use on Sui, which
-        wallet to use, the gas budget, and other operational details. Most of these are abstracted
-        away through sensible defaults, so you should not need to touch them.
 - [Installing The Site
     Builder](https://docs.wal.app/docs/sites/getting-started/installing-the-site-builder.md)
-    Description: This section describes the steps necessary to set up the Walrus Sites' tool and
-        prepare your environment for development. [x] Install a recent version of Rust. [x] Follow
-        all Walrus setup instructions.
+    Description: The is a CLI tool that lets you create, edit, and publish Walrus Sites. You can
+        install it using [](https://github.com/MystenLabs/suiup) or a pre-built binary. [x] Install
+        a recent version of Rust. [x] Install and configure Walrus. :::warning The stable branch of
+        Walrus Sites is .
 - [Publishing Your First
     Site](https://docs.wal.app/docs/sites/getting-started/publishing-your-first-site.md)
-    Description: The works by uploading a directory of files produced by any web framework to
-        Walrus and adding the relevant metadata to Sui. This directory should have a file called in
-        its root, which is the entry point to the Walrus Site.
+    Description: The Walrus Sites uploads your website's files to Walrus, where resources like
+        HTML, CSS, JavaScript, and images are stored as blobs. A Sui smart contract serves as an
+        on-chain index that maps each resource path to its Walrus blob ID and records site
+        ownership.
 - [Using The Site
     Builder](https://docs.wal.app/docs/sites/getting-started/using-the-site-builder.md)
-    Description: This section describes in more detail the commands available through the . Add the
-        flag to any command to get further details for the whole CLI () or individual commands (for
-        example, ). The command is the primary command for managing your Walrus Site.
+    Description: This reference page provides details on configuration and CLI commands.
 - [Index](https://docs.wal.app/docs/sites.md)
     Description: This tutorial walks you through the steps necessary to publish a Walrus Site. We
         also provide the instructions on how to add a SuiNS name to it for convenient browsing.
