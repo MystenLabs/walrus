@@ -147,7 +147,6 @@ function parseMarkdown(filePath, content) {
 
 function fileToUrlPath(filePath, rootDir) {
   let rel = path.relative(rootDir, filePath).replace(/\\/g, "/");
-  // Strip .md and .mdx extensions — afdocs will append .md itself
   rel = rel.replace(/\.mdx?$/, "");
   if (rel === "index" || rel.endsWith("/index")) {
     rel = rel.replace(/\/?index$/, "") || "/";
@@ -197,9 +196,9 @@ for (const file of files) {
   // Skip /design and /dev-guide sections
   if (/^\/?(design|dev-guide)(\/)/.test(urlPath) || urlPath === "/design" || urlPath === "/dev-guide") continue;
 
-  // Ensure URL path starts with /docs
+   // Ensure URL path starts with /docs
   const docUrlPath = urlPath.startsWith("/docs") ? urlPath : "/docs" + (urlPath.startsWith("/") ? urlPath : "/" + urlPath);
-  const url = joinUrl(resolvedBaseUrl, docUrlPath);
+  const url = joinUrl(resolvedBaseUrl, docUrlPath) + ".md";
 
   // Skip linear.app URLs
   if (isLinearUrl(url)) continue;
