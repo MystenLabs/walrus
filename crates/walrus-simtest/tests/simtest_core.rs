@@ -1158,10 +1158,6 @@ mod tests {
 
         // Change the version in the contracts
         let walrus_package_path = upgrade_dir.path().join("walrus");
-
-        let upgrade_epoch = client.as_ref().inner.sui_client().current_epoch().await?;
-        tracing::info!("upgrade_epoch: {}", upgrade_epoch);
-
         let digest = client
             .as_ref()
             .inner
@@ -1169,6 +1165,18 @@ mod tests {
             .compute_package_digest(walrus_package_path.clone())
             .await?;
 
+        // Wait until the start of an epoch to start the upgrade. This should ensure that we can
+        // perform the upgrade before the next epoch starts.
+        let upgrade_epoch = client.as_ref().inner.sui_client().current_epoch().await? + 1;
+        tracing::info!("waiting to reach upgrade epoch: {}", upgrade_epoch);
+        simtest_utils::wait_for_nodes_to_reach_epoch(
+            &walrus_cluster.nodes[..4],
+            upgrade_epoch,
+            2 * epoch_duration,
+        )
+        .await;
+
+        tracing::info!("voting for upgrade");
         for node in walrus_cluster.nodes.iter() {
             let node_id = node
                 .storage_node_capability
@@ -1182,12 +1190,12 @@ mod tests {
                 .vote_for_upgrade_with_digest(system_ctx.upgrade_manager_object, node_id, digest)
                 .await?;
         }
-
-        tracing::info!("voted for upgrade");
+        tracing::info!("finished voting for upgrade");
 
         // Commit the upgrade in a loop to handle the case where the upgrade fails
         // with ENotEnoughVotes due to simtest environment not registering the
         // upgrade immediately.
+        tracing::info!("committing upgrade");
         let new_package_id = loop {
             match client
                 .as_ref()
@@ -1215,6 +1223,7 @@ mod tests {
             .sui_client()
             .set_migration_epoch(new_package_id)
             .await?;
+        let migration_epoch = upgrade_epoch + 1;
 
         // Check that the upgrade was completed within one epoch. A failure here indicates that the
         // epoch duration for the test is set too short.
@@ -1223,10 +1232,9 @@ mod tests {
         tracing::info!(upgrade_epoch, "upgraded contract");
 
         // Wait for the nodes to reach the migration epoch.
-        let target_epoch = upgrade_epoch + 1;
         simtest_utils::wait_for_nodes_to_reach_epoch(
             &walrus_cluster.nodes[..4],
-            target_epoch,
+            migration_epoch,
             2 * epoch_duration,
         )
         .await;
