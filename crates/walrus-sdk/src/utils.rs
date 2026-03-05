@@ -73,7 +73,7 @@ pub(crate) struct WeightedFutures<I, Fut, T> {
     results: Vec<T>,
     /// The cumulative weight of successful `WeightedResult`s that have been executed.
     ///
-    /// This is necessary to to keep track of the weight of successful results across calls to
+    /// This is necessary to keep track of the weight of successful results across calls to
     /// `next_threshold`. Calls to `execute_weight` begin by resetting `total_weight = 0`.
     total_weight: usize,
     schedule_new: bool,
@@ -176,7 +176,7 @@ where
         }
     }
 
-    /// Returns the next result returned by the futures.
+    /// Returns the next result produced by the futures.
     ///
     /// `n_concurrent` is the maximum number of futures that are awaited at any one time to produce
     /// results.
@@ -188,7 +188,7 @@ where
 
     /// Returns the next result returned by the futures, up to the given cumulative threshold.
     ///
-    /// Executes the futures, returns the results, and accumulate the weight of the _successful_
+    /// Executes the futures, returns the results, and accumulates the weight of the _successful_
     /// results (`Ok`) in `total_weight`, as long as `threshold(total_weight) == false`. Then, when
     /// `threshold(total_weight) == true`, the function returns `None`.
     ///
@@ -364,7 +364,7 @@ pub fn string_prefix<T: ToString>(s: &T) -> String {
 // TODO: See WAL-763. Move these helpers back into the `walrus-service` crate once we've created an
 // abstraction around progress callbacks in the SDK.
 
-/// Returns a progress bar with the given length and stlyle already applied
+/// Returns a progress bar with the given length and style already applied
 pub fn styled_progress_bar(length: u64) -> ProgressBar {
     let pb = ProgressBar::new(length);
     pb.set_style(
