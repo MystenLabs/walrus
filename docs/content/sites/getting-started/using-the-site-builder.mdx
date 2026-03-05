@@ -53,91 +53,56 @@ contexts:
 default_context: mainnet
 ```
 
-If you want to have more control over the behavior of the `site-builder`, you can customize the following variables in the configuration file:
-
-| **Parameter** | **Type** | **Description** | **Default** |
-|---|---|---|---|
-| `package` | String (hex address) | The object ID of the Walrus Sites package on Sui for this context. This is the only parameter that is always required, and is already appropriately configured in `./sites-config.yaml`. You can find the latest package ID in the [Walrus Sites repository](https://github.com/MystenLabs/walrus-sites/tree/mainnet) on the Mainnet branch. | Preconfigured |
-| `module` | String | The Move module name within the package. | `site` |
-| `portal` | String | The portal domain used to display site URLs in CLI output. Does not affect site accessibility. | `wal.app` |
-| `staking_object` | String (hex address) | The object ID of the staking object for this context. | Preconfigured |
-| `general.wallet_env` | String | The Sui wallet environment to use. | Preconfigured |
-| `general.walrus_context` | String | The Walrus CLI context name to use. Requires a Walrus CLI multi-config containing the named context. | Preconfigured |
-| `general.walrus_package` | String (hex address) | The object ID of the Walrus package on Sui for this context. | Preconfigured |
-| `general.wallet_address` | String (hex address) | The Sui wallet address to use. | System-wide wallet from `sui client addresses` |
-| `general.rpc_url` | String (URL) | The URL of the Sui RPC node to use. | Inferred from wallet |
-| `general.wallet` | String (file path) | Path to the Sui wallet client configuration file. | System-wide wallet from `sui client addresses` |
-| `general.walrus_binary` | String (file path) | Path to the `walrus` binary. | Resolved from `$PATH` |
-| `general.walrus_config` | String (file path) | Path to the Walrus client configuration file. | Resolved from `$PATH` |
-| `general.gas_budget` | Integer | Maximum gas to spend per transaction, in MIST. | `500000000` (500M MIST) |
-| `default_context` | String | The name of the context to use when no context is specified through the CLI. | `mainnet` |
-
 ## `site-builder` CLI commands
 
-The `site-builder` provides various CLI commands to help you publish and update your Walrus Site.
-
-:::info
-
-Add the `--help` flag to any command to get further details for the whole CLI (`site-builder --help`) or individual commands (such as `site-builder update --help`).
-
+::info
+Add `--help` to any command for full details: `site-builder --help` or `site-builder deploy --help`.
 :::
 
 ### `deploy`
 
-The `deploy` command handles both publishing and updating your Walrus Site. It creates a new site from your desired directory on first run, and updates it on subsequent executions.
+Publishes a new site or updates an existing one. This is the recommended command for all publishing and update workflows.
 
-#### Behavior
-
-The deploy command determines whether to publish a new site or update an existing one by looking for a Walrus Site `object_id`. It searches for an ID with the following priority:
-
-- An ID provided directly through the `--object-id <OBJECT_ID>` command-line flag.
-
-- An ID found in the `object_id` field of the `ws-resources.json` file.
-
-- If no ID is found by either method, `deploy` publishes a new site.
-
-When a new site is published, its `object_id` is automatically saved to the `ws-resources.json` file, which lets you use `deploy` for any future updates to your site.
-
-#### Usage
-
-As shown by the command's help information, the typical usage is:
-
-``` sh
-$ site-builder deploy [OPTIONS] --epochs <EPOCHS> <DIRECTORY>
+```sh
+site-builder deploy [OPTIONS] --epochs <EPOCHS> <DIRECTORY>
 ```
 
-The `--epochs` flag is required and specifies the number of epochs for which the site's resources are stored on Walrus. Its value must be greater than 0, and you can use `max` to store for the maximum allowed duration. Walrus epoch durations are detailed in the [official Walrus network release schedule](https://www.walrus.xyz/network-release-schedule).
+#### How does `deploy` determine whether to publish or update a site?
 
-If you are only uploading raw files without an `index.html`, you might want to use the `--list-directory` flag, which automatically creates an index page to browse the uploaded files.
+If an object ID from `--object-id <OBJECT_ID>` or the `object_id` field in `ws-resources.json` is provided, the site is updated. When updating an existing site, your configured wallet must own the corresponding Walrus Site object.
 
-Additionally, when using `deploy` to update an existing site, your [configured wallet](/docs/sites/getting-started/installing-the-site-builder#configuration) must own the corresponding Walrus Site object.
+If no ID is found, `deploy` publishes a new site. The new site's `object_id` is automatically written to `ws-resources.json` for use in future updates.
+
+| Flag | Description |
+|---|---|
+| `--epochs <EPOCHS>` | Required; Number of epochs to store the site. Use `max` for the maximum allowed duration. See the [Walrus network release schedule](https://www.walrus.xyz/network-release-schedule). |
+| `--object-id <OBJECT_ID>` | The object ID of an existing site to update. |
+| `--list-directory` | Generates an index page for browsing uploaded files. Useful when deploying raw files without an `index.html`. |
 
 #### Migrating from `publish` and `update`
 
-If you have a site that was previously managed with the `publish` and `update` commands, you can easily switch to the `deploy` command using one of the following methods:
+<div className="outlined-tabs">
 
 <Tabs>
 <TabItem value="recommended" label="Recommended">
 
-The recommended migration method uses the `--object-id` CLI flag.
-
-Simply run the `deploy` command and provide your existing site's object ID through the `--object-id` flag:
+Pass your existing site's object ID with `--object-id` on the first run:
 
 ```sh
-$ site-builder deploy --object-id <YOUR_EXISTING_SITE_ID> --epochs <NUMBER> ./path/to/your/site
+site-builder deploy --object-id <YOUR_EXISTING_SITE_ID> --epochs <NUMBER> ./path/to/your/site
 ```
 
-On success, this automatically creates or updates a `ws-resources.json` file containing the site's object ID in the `object_id` field. You can then remove the `--object-id` flag for all future deployments:
+The object ID is automatically saved to `ws-resources.json`. Subsequent deployments no longer need
+the flag:
 
 ```sh
-$ site-builder deploy --epochs <NUMBER> ./path/to/your/site
+site-builder deploy --epochs <NUMBER> ./path/to/your/site
 ```
 
 </TabItem>
-
 <TabItem value="manual" label="Manual">
 
-You can manually create or update a `ws-resources.json` file in your site's root directory and add the `object_id` field with your existing site's object ID.
+Manually add the `object_id` field to `ws-resources.json` in your site's root directory:
 
 ```json
 {
@@ -145,15 +110,16 @@ You can manually create or update a `ws-resources.json` file in your site's root
 }
 ```
 
-For future deployments, you can run:
+Then deploy normally:
 
 ```sh
-$ site-builder deploy --epochs <NUMBER> ./path/to/your/site
+site-builder deploy --epochs <NUMBER> ./path/to/your/site
 ```
 
 </TabItem>
-
 </Tabs>
+
+</div>
 
 ### `convert`
 
