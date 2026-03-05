@@ -196,7 +196,7 @@ for (const file of files) {
   // Skip /design and /dev-guide sections
   if (/^\/?(design|dev-guide)(\/)/.test(urlPath) || urlPath === "/design" || urlPath === "/dev-guide") continue;
 
-   // Ensure URL path starts with /docs
+  // Ensure URL path starts with /docs
   const docUrlPath = urlPath.startsWith("/docs") ? urlPath : "/docs" + (urlPath.startsWith("/") ? urlPath : "/" + urlPath);
   const url = joinUrl(resolvedBaseUrl, docUrlPath) + ".md";
 
