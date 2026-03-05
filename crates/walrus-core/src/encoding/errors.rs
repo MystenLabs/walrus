@@ -204,7 +204,7 @@ pub enum QuiltError {
     IndexOutOfBounds(usize, usize),
     /// Not enough data to fulfill a range read.
     #[error("insufficient quilt data: requested {requested} bytes, got {available}")]
-    InsufficientData {
+    InsufficientQuiltData {
         /// The number of bytes requested.
         requested: usize,
         /// The number of bytes actually available.

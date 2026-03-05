@@ -1724,7 +1724,7 @@ impl<'a> QuiltDecoderApi<'a, QuiltVersionV1> for QuiltDecoderV1<'a> {
 }
 
 // Implementation of QuiltColumnRangeReader for QuiltDecoderV1.
-// Returns `InsufficientData` if the slivers do not contain enough data to fulfill the request.
+// Returns `InsufficientQuiltData` if the slivers do not contain enough data to fulfill the request.
 impl QuiltColumnRangeReader for QuiltDecoderV1<'_> {
     fn range_read_from_columns(
         &self,
@@ -1773,7 +1773,7 @@ impl QuiltColumnRangeReader for QuiltDecoderV1<'_> {
         }
 
         if result.len() != requested {
-            return Err(QuiltError::InsufficientData {
+            return Err(QuiltError::InsufficientQuiltData {
                 requested,
                 available: result.len(),
             });
