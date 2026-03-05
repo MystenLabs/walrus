@@ -119,6 +119,17 @@ const sidebars = {
     },
     {
       type: 'category',
+      label: 'Site Configuration',
+      collapsed: true,
+      items: [
+        `sites/configuration/site-configuration`,
+        'sites/configuration/specifying-http-headers',
+        'sites/configuration/setting-up-routing-rules',
+        'sites/configuration/adding-metadata',
+      ],
+    },
+    {
+      type: 'category',
       label: 'Walrus Portals',
       collapsed: true,
       link: {
@@ -128,16 +139,6 @@ const sidebars = {
       items: [
         'sites/portals/deploy-locally',
         'sites/portals/mainnet-testnet',
-      ],
-    },
-    {
-      type: 'category',
-      label: 'Site Configuration',
-      collapsed: true,
-      items: [
-        'sites/configuration/specifying-http-headers',
-        'sites/configuration/setting-up-routing-rules',
-        'sites/configuration/adding-metadata',
       ],
     },
     {

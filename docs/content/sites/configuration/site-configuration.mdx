@@ -1,0 +1,157 @@
+---
+title: Site Configuration
+description: "Guide to using ws-resources.json to configure a Walrus Site, including specifying HTTP headers, setting up client-side routing, and adding metadata."
+keywords: ["walrus sites", "headers", "content-type", "ws-resources", "configuration", "site-builder", "routing", "metadata", "client-side routing", "spa"]
+---
+
+In its base configuration, a Walrus Site serves static assets through a portal. However, many modern web applications require more advanced features, such as custom headers, client-side routing, and human-readable information.
+
+The `site-builder` can read a `ws-resources.json` configuration file, in which you can directly specify these advanced features.
+
+## The `ws-resources.json` file
+
+This file is optionally placed in the root of the site directory, and it is neither uploaded to Walrus nor served to site visitors. 
+
+If you do not want to use this default location, you can specify the path to the configuration file with the `--ws-resources` flag when running the [`deploy`, `publish` or `update` commands](/docs/sites/getting-started/using-the-site-builder).
+
+The file is JSON-formatted, and looks like the following:
+
+```json
+{
+  "headers": {
+    "/index.html": {
+    "Content-Type": "text/html; charset=utf-8",
+    "Cache-Control": "max-age=3500"
+    }
+  },
+  "routes": {
+    "/*": "/index.html",
+    "/accounts/*": "/accounts.html",
+    "/path/assets/*": "/assets/asset_router.html"
+  },
+  "metadata": {
+    "link": "https://subdomain.wal.app",
+    "image_url": "https://www.walrus.xyz/walrus-site",
+    "description": "This is a walrus site.",
+    "project_url": "https://github.com/MystenLabs/walrus-sites/",
+    "creator": "MystenLabs"
+  },
+  "site_name": "My Walrus Site",
+  "object_id": "0xe674c144119a37a0ed9cef26a962c3fdfbdbfd86a3b3db562ee81d5542a4eccf",
+  "ignore": ["/private/*", "/secret.txt", "/images/tmp/*"]
+}
+```
+
+:::info
+
+The `ws-resources.json` file expects the field names to be in `snake_case`.
+
+:::
+
+## Specifying HTTP headers
+
+The `headers` section lets you attach custom HTTP response headers to specific resources, controlling caching, content types, encoding, and download behaviour. Headers are specified per exact file path and override the portal's defaults. Refer to the [HTTP headers reference page](/docs/sites/configuration/specifying-http-headers) for more information.
+
+```json
+{
+  "headers": {
+    "/index.html": {
+    "Content-Type": "text/html; charset=utf-8",
+    "Cache-Control": "max-age=3500"
+    }
+  }
+}
+```
+
+## Setting up routing rules
+
+The `routes` section allows you to specify client-side routing rules for your site.
+
+```json
+{
+  "routes": {
+    "/*": "/index.html",
+    "/accounts/*": "/accounts.html",
+    "/admin/settings/*": "/admin.html"
+  }
+}
+```
+
+All routing is a rewrite, not a redirect (the browser URL never changes). There is no server, so redirects must be implemented client-side. Routes are stored on-chain and validated at deploy time.
+
+For full syntax, matching rules, and framework examples, refer to the [routes reference page](/docs/sites/configuration/setting-up-routing-rules).
+
+## Adding metadata
+
+You can enhance the display of your Site object on Sui explorers and wallets by using the `metadata` field. This field allows you to add human-readable information about the site, such as a link to your site's homepage, an image of your site's logo, and so on.
+
+```json
+"metadata": {
+    "link": "https://subdomain.wal.app",
+    "image_url": "https://www.walrus.xyz/walrus-site",
+    "description": "This is a walrus site.",
+    "project_url": "https://github.com/MystenLabs/walrus-sites/",
+    "creator": "MystenLabs"
+  }
+```
+
+Refer to the [metadata reference page](/docs/sites/configuration/adding-metadata) for more information.
+
+## Site name
+
+You can set a name for your Walrus Site through the optional `site_name` field in the `ws-resources.json` file. If you have also provided a site name through the `--site-name` CLI flag, the CLI flag takes priority and will overwrite the `site_name` field in the `ws-resources.json`. If a site name is not provided at all, then a default name is used.
+
+## Site object ID
+
+The optional `object_id` field in the `ws-resources.json` file stores the Sui object ID of your deployed Walrus Site.
+
+The [`site-builder deploy` command](/docs/sites/getting-started/using-the-site-builder) primarily uses this field to identify an existing site for updates. If a valid `object_id` is present, `deploy` targets that site for modifications. If this field is missing and no `--object-id` CLI flag is used, `deploy` publishes a new site. If successful, then the command automatically populates this `object_id` field in your `ws-resources.json`.
+
+## Ignoring files from being uploaded
+
+You can use the optional `ignore` field to exclude certain files or folders from being published. This is useful when you want to keep development files, secrets, or temporary assets out of the final build.
+
+The `ignore` field is a list of resource paths to skip. Each pattern must start with a `/`, and might end with a `*` to indicate a wildcard match.
+
+For example:
+
+```json
+"ignore": [
+  "/private/*",
+  "/secret.txt",
+  "/images/tmp/*"
+]
+```
+
+This configuration skips all files inside the `/private/` and `/images/tmp/` directories, as well as a specific file `/secret.txt`.
+
+Wildcards are only supported in the **last position** of the path, for example, `/foo/*` is valid, but `/foo/*/bar` is not.
+
+## Serving raw markdown {#markdown}
+
+You may wish to serve raw markdown files for better LLM ingestion. Generating these depends on your framework. Static site generators like Docusaurus and VitePress can output `.md` files through build scripts or plugins. Custom pipelines typically use a pre-build script to copy source files into a `/markdown` directory. 
+
+Raw markdown files must exist in your build output before deploying using `site-builder`. To serve a file as raw markdown, two entries are required in `ws-resources.json`.
+
+Add a header definition (`content-type` **must** be lowercase):
+
+```json
+{
+  "headers": {
+    "/markdown/new/file/path/2.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    }
+  }
+}
+```
+
+Add a route mapping the public URL to the markdown file:
+
+```json
+{
+  "routes": {
+    "/docs/new/file/path/2.md": "/markdown/new/file/path/2.md"
+  }
+}
+```
