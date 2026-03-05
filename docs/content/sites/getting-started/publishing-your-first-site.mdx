@@ -149,41 +149,141 @@ Site object ID: 0x4a1be0fb330215c532d74c70d34bc35f185cc7ce025e04b9ad42bc4ac8eda5
 
 ## Using a web framework
 
-If you are building a Walrus Site using a web framework (such as React, Node.js, or Django), ensure you point the `site-builder` to your site's build folder when running the `deploy` command.
+If you are building a Walrus Site using a web framework (such as React, Node.js, or Django), ensure
+you point the `site-builder` to your site's build output folder when running the `deploy`
+command. `site-builder` should not point to the project root.
 
-For example, if you are using a React framework such as Vite, your directory structure should resemble the following:
+When you use `site-builder deploy`, every file in the directory you point it to is uploaded. Uploading
+your project root would include directories like `node_modules/`, which can contain tens of
+thousands of files and hundreds of megabytes of dependencies. This results in:
+
+- Significantly longer upload times as every file is processed and stored.
+- Higher storage costs, since you pay for every byte stored on Walrus.
+- Unnecessary files on your site. Source files, config, and dependencies are not needed
+  to serve your site to visitors.
+
+Your build output folder contains only the compiled, optimized assets that browsers actually need like HTML, CSS, JavaScript bundles, and static assets.
+
+### Example: Vite project
+
+A typical Vite project structure looks like this before building:
 
 ```
 my-website/
-├── node_modules/
-├── public/
-├── src/
+├── node_modules/       # dependencies: never deploy this
+├── public/             # static assets
+├── src/                # source files: never deploy this
 ├── index.html
 ├── package.json
 ├── vite.config.js
 └── .gitignore
 ```
 
-Running `npm run build` generates a `build` folder in your project root. Note that the folder name may vary by framework (Vite calls it `dist`).
+Running `npm run build` generates a `dist/` folder containing only the files needed to serve your
+site:
 
 ```
 my-website/
-├── dist/                  
+├── dist/               # deploy this folder only
 │   ├── assets/
 │   └── index.html
-├── node_modules/
+├── node_modules/       # never deploy this
 ├── public/
-├── src/
+├── src/                # never deploy this
 ├── index.html
 ├── package.json
 ├── vite.config.js
 └── .gitignore
 ```
 
-Now you can publish your website using the `site-builder`.
+:::tip 
+Build folder names vary by framework
+Different frameworks use different names for their build output:
+
+| Framework | Output folder |
+|-----------|---------------|
+| Vite | `dist/` |
+| Create React App | `build/` |
+| Next.js | `out/` |
+| Vue CLI | `dist/` |
+| Docusaurus | `build/` |
+
+Always check your framework's documentation to confirm the correct output folder.
+:::
+
+Once your site is built, deploy using the `site-builder` pointed at the output folder:
 
 ```sh
 $ site-builder --context=testnet deploy --epochs 1 my-website/dist
 ```
+
+### Redirects
+
+Walrus Sites does not support dynamic redirects. Unlike traditional web servers or hosting platforms
+that can intercept requests and resolve routes at runtime, Walrus Sites serves static files directly. There is no server-side logic to handle URL resolution. 
+
+This means that redirect plugins **do not work on Walrus Sites**. For example, if you are using Docusaurus, the redirect plugin that routes `/file/path/old` to `/file/path/new` will not function as expected when deployed to Walrus Sites.
+
+There are workarounds for simulating redirect behavior in the browser. For more information, see the [routing documentation](/docs/sites/configuration/setting-up-routing-rules).
+
+## Exporting markdown
+
+If you have a script that generates pure markdown files from your site's pages for ingestion by agents, you must configure `ws-resources.json` to serve those files correctly. Two things are required: a header entry and a route entry.
+
+### Headers
+
+Add a header entry in your `ws-resources.json` file for each markdown file so that browsers and tools receive the correct `Content-Type` and display the file inline rather than triggering a download:
+
+```json
+{
+  "headers": {
+    "/markdown/walrus-sites/tutorial.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    }
+  }
+}
+```
+
+:::danger
+This entry is case sensitive. `"content-type"` must be lowercase. 
+
+Without this, the file will be served as a generic binary download rather than readable markdown.
+:::
+
+### Routes
+
+Add a route entry mapping the public-facing URL to the markdown file's path in your build output:
+
+```json
+{
+  "routes": {
+    "/docs/examples/checkpoint-data.md": "/markdown/examples/checkpoint-data.md"
+  }
+}
+```
+
+The key is the URL path a visitor or tool requests, and the value is the location of the markdown
+file in your deployed build.
+
+### Combined example
+
+A complete `ws-resources.json` with both entries for a markdown file looks like this:
+
+```json
+{
+  "headers": {
+    "/markdown/examples/checkpoint-data.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    }
+  },
+  "routes": {
+    "/docs/examples/checkpoint-data.md": "/markdown/examples/checkpoint-data.md"
+  }
+}
+```
+
+For more information, see the [routing documentation](/docs/sites/configuration/setting-up-routing-rules) and the [headers documentation](/docs/sites/configuration/specifying-http-headers).
 
 To update your Walrus Site, ensure you rebuild your website first before running `deploy` again.
