@@ -415,6 +415,104 @@ fun destroy_non_empty_pool() {
     abort
 }
 
+// === Capacity accounting and reward distribution tests ===
+
+// Test that the capacity and rewards are accounted for the correct epochs when creating and
+// extending a storage pool.
+#[test]
+fun storage_pool_capacity_and_rewards() {
+    let ctx = &mut tx_context::dummy();
+    let mut system = system::new_for_testing(ctx);
+    let capacity = 500_000_000;
+    let epochs_ahead: u32 = 3;
+
+    // Compute expected payment per epoch.
+    // storage_price_per_unit_size = 5, BYTES_PER_UNIT_SIZE = 1 MiB
+    let storage_units = (capacity + 1_048_576 - 1) / 1_048_576;
+    let payment_per_epoch = system.inner().storage_price_per_unit_size() * storage_units;
+
+    assert_eq!(system.used_capacity_size(), 0);
+
+    let mut fake_coin = test_utils::mint_frost(N_COINS, ctx);
+    let mut pool = system.create_storage_pool(capacity, epochs_ahead, &mut fake_coin, ctx);
+
+    // After create: capacity and rewards accounted for epochs [0, 3).
+    assert_eq!(system.used_capacity_size(), capacity);
+    let future_accounting = system.future_accounting();
+    epochs_ahead.do!(|i| {
+        assert_eq!(system.inner().used_capacity_size_at_future_epoch(i), capacity);
+        assert_eq!(
+            walrus::storage_accounting::rewards(future_accounting.ring_lookup(i)),
+            payment_per_epoch,
+        );
+    });
+    // Epoch 3: no capacity or rewards (end_epoch is exclusive).
+    assert_eq!(system.inner().used_capacity_size_at_future_epoch(epochs_ahead), 0);
+    assert_eq!(walrus::storage_accounting::rewards(future_accounting.ring_lookup(epochs_ahead)), 0);
+
+    // Extend by 2 → pool now covers [0, 5).
+    system.extend_storage_pool(&mut pool, 2, &mut fake_coin);
+    let epoch_after_extend = epochs_ahead + 2;
+    assert_eq!(pool.end_epoch(), epoch_after_extend);
+
+    let future_accounting = system.future_accounting();
+    // All epochs [0, 5) should have capacity accounted and 1x payment each.
+    epoch_after_extend.do!(|i| {
+        assert_eq!(system.inner().used_capacity_size_at_future_epoch(i), capacity);
+        assert_eq!(
+            walrus::storage_accounting::rewards(future_accounting.ring_lookup(i)),
+            payment_per_epoch,
+        );
+    });
+    // Epoch 5: free.
+    assert_eq!(system.inner().used_capacity_size_at_future_epoch(epoch_after_extend), 0);
+    assert_eq!(
+        walrus::storage_accounting::rewards(future_accounting.ring_lookup(epoch_after_extend)),
+        0,
+    );
+
+    fake_coin.burn_for_testing();
+    pool.destroy_for_testing();
+    system.destroy_for_testing();
+}
+
+#[test]
+fun create_storage_pool_capacity_freed_after_epoch_advance() {
+    let ctx = &mut tx_context::dummy();
+    let mut system = system::new_for_testing(ctx);
+    let capacity = 500_000_000;
+
+    let mut fake_coin = test_utils::mint_frost(N_COINS, ctx);
+    let pool = system.create_storage_pool(capacity, 2, &mut fake_coin, ctx);
+
+    // Pool covers epochs [0, 2).
+    assert_eq!(system.used_capacity_size(), capacity);
+
+    // Advance to epoch 1.
+    advance_epoch(&mut system);
+    assert_eq!(system.used_capacity_size(), capacity);
+
+    // Advance to epoch 2 — pool has expired, capacity freed.
+    advance_epoch(&mut system);
+    assert_eq!(system.used_capacity_size(), 0);
+
+    fake_coin.burn_for_testing();
+    pool.destroy_for_testing();
+    system.destroy_for_testing();
+}
+
+#[test, expected_failure(abort_code = system_state_inner::EStorageExceeded)]
+fun create_storage_pool_exceeds_system_capacity() {
+    let ctx = &mut tx_context::dummy();
+    let mut system = system::new_for_testing(ctx);
+
+    // total_capacity_size in test is 1_000_000_000.
+    let mut fake_coin = test_utils::mint_frost(N_COINS * 10, ctx);
+    let _pool = system.create_storage_pool(1_000_000_001, 1, &mut fake_coin, ctx);
+
+    abort
+}
+
 // === Full lifecycle test ===
 
 #[test]
@@ -560,7 +658,8 @@ fun default_blob_id(): u256 {
 
 fun advance_epoch(system: &mut System) {
     use walrus::epoch_parameters::epoch_params_for_testing;
-    let committee = test_utils::new_bls_committee_for_testing(1);
+    let next_epoch = system.epoch() + 1;
+    let committee = test_utils::new_bls_committee_for_testing(next_epoch);
     let (_, balances) = system
         .advance_epoch(committee, &epoch_params_for_testing())
         .into_keys_values();
