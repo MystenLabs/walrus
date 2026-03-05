@@ -353,18 +353,6 @@ impl StorageNodeConfig {
                 enable_sliver_data_existence_check: false,
                 ..Default::default()
             },
-            pending_sliver_cache: PendingSliverCacheConfig {
-                cache_ttl: Duration::from_secs(0),
-                ..Default::default()
-            },
-            pending_metadata_cache: PendingMetadataCacheConfig {
-                cache_ttl: Duration::from_secs(0),
-                ..Default::default()
-            },
-            live_upload_deferral: LiveUploadDeferralConfig {
-                enabled: false,
-                ..Default::default()
-            },
             rest_server: RestServerConfig {
                 confirmation_long_poll_max_millis: 0,
                 ..Default::default()
