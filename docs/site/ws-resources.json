@@ -192,10 +192,6 @@
       "Content-Disposition": "inline",
       "content-type": "text/markdown; charset=utf-8"
     },
-    "/markdown/sites/getting-started/configuration-file-reference.md": {
-      "Content-Disposition": "inline",
-      "content-type": "text/markdown; charset=utf-8"
-    },
     "/markdown/sites/getting-started/installing-the-site-builder.md": {
       "Content-Disposition": "inline",
       "content-type": "text/markdown; charset=utf-8"
@@ -573,7 +569,6 @@
     "/docs/sites/configuration/specifying-http-headers.md": "/markdown/sites/configuration/specifying-http-headers.md",
     "/docs/sites/custom-domains/bringing-your-own-domain.md": "/markdown/sites/custom-domains/bringing-your-own-domain.md",
     "/docs/sites/custom-domains/setting-a-suins-name.md": "/markdown/sites/custom-domains/setting-a-suins-name.md",
-    "/docs/sites/getting-started/configuration-file-reference.md": "/markdown/sites/getting-started/configuration-file-reference.md",
     "/docs/sites/getting-started/installing-the-site-builder.md": "/markdown/sites/getting-started/installing-the-site-builder.md",
     "/docs/sites/getting-started/publishing-your-first-site.md": "/markdown/sites/getting-started/publishing-your-first-site.md",
     "/docs/sites/getting-started/using-the-site-builder.md": "/markdown/sites/getting-started/using-the-site-builder.md",
