@@ -1,0 +1,158 @@
+// Copyright (c) Walrus Foundation
+// SPDX-License-Identifier: Apache-2.0
+
+/// BlobBucket built on top of `StoragePool`.
+module blob_bucket::blob_bucket;
+
+use blob_bucket::blob_bucket_inner_v1::{Self, BlobBucketInnerV1};
+use sui::{coin::Coin, dynamic_field};
+use wal::wal::WAL;
+use walrus::{storage_pool::StoragePool, system::System};
+
+const VERSION: u64 = 1;
+
+/// The provided capability does not belong to this blob bucket.
+const EInvalidBlobBucketCap: u64 = 0;
+/// The blob bucket object version does not match the package version.
+const EWrongVersion: u64 = 1;
+
+public struct BlobBucket has key, store {
+    id: UID,
+    version: u64,
+}
+
+public struct BlobBucketCap has key, store {
+    id: UID,
+    bucket_id: ID,
+}
+
+public fun new(storage_pool: StoragePool, ctx: &mut TxContext): (BlobBucket, BlobBucketCap) {
+    let mut bucket = BlobBucket {
+        id: object::new(ctx),
+        version: VERSION,
+    };
+    let inner = blob_bucket_inner_v1::new(storage_pool);
+    dynamic_field::add(&mut bucket.id, VERSION, inner);
+
+    let cap = BlobBucketCap {
+        id: object::new(ctx),
+        bucket_id: object::id(&bucket),
+    };
+
+    (bucket, cap)
+}
+
+public fun share(self: BlobBucket) {
+    transfer::share_object(self);
+}
+
+public fun register_blob(
+    self: &mut BlobBucket,
+    cap: &BlobBucketCap,
+    system: &mut System,
+    blob_id: u256,
+    root_hash: u256,
+    unencoded_size: u64,
+    encoding_type: u8,
+    deletable: bool,
+    write_payment: &mut Coin<WAL>,
+    ctx: &mut TxContext,
+) {
+    check_cap(self, cap);
+    self
+        .inner_mut()
+        .register_blob(
+            system,
+            blob_id,
+            root_hash,
+            unencoded_size,
+            encoding_type,
+            deletable,
+            write_payment,
+            ctx,
+        );
+}
+
+public fun certify_blob(
+    self: &mut BlobBucket,
+    system: &System,
+    blob_id: u256,
+    signature: vector<u8>,
+    signers_bitmap: vector<u8>,
+    message: vector<u8>,
+) {
+    self.inner_mut().certify_blob(system, blob_id, signature, signers_bitmap, message);
+}
+
+public fun delete_blob(self: &mut BlobBucket, cap: &BlobBucketCap, system: &System, blob_id: u256) {
+    check_cap(self, cap);
+    self.inner_mut().delete_blob(system, blob_id);
+}
+
+public fun version(self: &BlobBucket): u64 {
+    self.version
+}
+
+public fun bucket_id(self: &BlobBucket): ID {
+    object::id(self)
+}
+
+public fun has_blob(self: &BlobBucket, blob_id: u256): bool {
+    self.inner().has_blob(blob_id)
+}
+
+public fun get_blob_object_id(self: &BlobBucket, blob_id: u256): ID {
+    self.inner().get_blob_object_id(blob_id)
+}
+
+public fun storage_pool_id(self: &BlobBucket): ID {
+    self.inner().storage_pool_id()
+}
+
+public fun end_epoch(self: &BlobBucket): u32 {
+    self.inner().end_epoch()
+}
+
+public fun reserved_encoded_capacity_bytes(self: &BlobBucket): u64 {
+    self.inner().reserved_encoded_capacity_bytes()
+}
+
+public fun used_encoded_bytes(self: &BlobBucket): u64 {
+    self.inner().used_encoded_bytes()
+}
+
+public fun available_encoded_bytes(self: &BlobBucket): u64 {
+    self.inner().available_encoded_bytes()
+}
+
+public fun blob_count(self: &BlobBucket): u64 {
+    self.inner().blob_count()
+}
+
+fun check_cap(self: &BlobBucket, cap: &BlobBucketCap) {
+    assert!(object::id(self) == cap.bucket_id, EInvalidBlobBucketCap);
+}
+
+fun inner(self: &BlobBucket): &BlobBucketInnerV1 {
+    assert!(self.version == VERSION, EWrongVersion);
+    dynamic_field::borrow(&self.id, VERSION)
+}
+
+fun inner_mut(self: &mut BlobBucket): &mut BlobBucketInnerV1 {
+    assert!(self.version == VERSION, EWrongVersion);
+    dynamic_field::borrow_mut(&mut self.id, VERSION)
+}
+
+#[test_only]
+public fun destroy_for_testing(self: BlobBucket): BlobBucketInnerV1 {
+    let mut bucket = self;
+    let inner = dynamic_field::remove(&mut bucket.id, VERSION);
+    let BlobBucket { id, version: _ } = bucket;
+    id.delete();
+    inner
+}
+
+#[test_only]
+public fun destroy_cap_for_testing(self: BlobBucketCap) {
+    std::unit_test::destroy(self);
+}

@@ -2,13 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #[test_only]
-module walrus::blob_manager_tests;
+module blob_bucket::blob_bucket_tests;
 
+use blob_bucket::{blob_bucket, blob_bucket_inner_v1};
 use std::unit_test::assert_eq;
 use walrus::{
     blob,
-    blob_manager,
-    blob_manager_inner_v1,
     encoding,
     messages,
     system::{Self, System},
@@ -20,10 +19,10 @@ const ROOT_HASH: u256 = 0xABC;
 const SIZE: u64 = 5_000_000;
 const EPOCH: u32 = 0;
 const N_COINS: u64 = 1_000_000_000;
-const INITIAL_WAL: u64 = 100_000_000_000;
+const WRITE_PAYMENT: u64 = 100_000_000_000;
 
 #[test]
-fun full_blob_manager_lifecycle() {
+fun full_blob_bucket_lifecycle() {
     let sk = test_utils::bls_sk_for_testing();
     let ctx = &mut tx_context::dummy();
     let mut system = system::new_for_testing(ctx);
@@ -33,12 +32,12 @@ fun full_blob_manager_lifecycle() {
     let storage_pool = system.create_storage_pool(encoded_size, 3, &mut pool_payment, ctx);
     pool_payment.burn_for_testing();
 
-    let initial_wal = test_utils::mint_frost(INITIAL_WAL, ctx);
-    let (mut manager, cap) = blob_manager::new(storage_pool, initial_wal, ctx);
+    let (mut bucket, cap) = blob_bucket::new(storage_pool, ctx);
 
     let blob_id = blob::derive_blob_id(ROOT_HASH, RS2, SIZE);
-    blob_manager::register_blob(
-        &mut manager,
+    let mut write_payment = test_utils::mint_frost(WRITE_PAYMENT, ctx);
+    blob_bucket::register_blob(
+        &mut bucket,
         &cap,
         &mut system,
         blob_id,
@@ -46,21 +45,22 @@ fun full_blob_manager_lifecycle() {
         SIZE,
         RS2,
         true,
+        &mut write_payment,
         ctx,
     );
-    assert!(blob_manager::has_blob(&manager, blob_id));
-    assert_eq!(blob_manager::blob_count(&manager), 1);
-    assert_eq!(blob_manager::used_encoded_bytes(&manager), encoded_size);
+    assert!(blob_bucket::has_blob(&bucket, blob_id));
+    assert_eq!(blob_bucket::blob_count(&bucket), 1);
+    assert_eq!(blob_bucket::used_encoded_bytes(&bucket), encoded_size);
 
-    let object_id = blob_manager::get_blob_object_id(&manager, blob_id);
+    let object_id = blob_bucket::get_blob_object_id(&bucket, blob_id);
     let confirmation_message = messages::certified_deletable_message_bytes(
         EPOCH,
         blob_id,
         object_id,
     );
     let signature = bls_min_pk_sign(&confirmation_message, &sk);
-    blob_manager::certify_blob(
-        &mut manager,
+    blob_bucket::certify_blob(
+        &mut bucket,
         &system,
         blob_id,
         signature,
@@ -68,21 +68,22 @@ fun full_blob_manager_lifecycle() {
         confirmation_message,
     );
 
-    blob_manager::delete_blob(&mut manager, &cap, &system, blob_id);
-    assert_eq!(blob_manager::blob_count(&manager), 0);
-    assert_eq!(blob_manager::used_encoded_bytes(&manager), 0);
+    blob_bucket::delete_blob(&mut bucket, &cap, &system, blob_id);
+    assert_eq!(blob_bucket::blob_count(&bucket), 0);
+    assert_eq!(blob_bucket::used_encoded_bytes(&bucket), 0);
     assert_eq!(
-        blob_manager::available_encoded_bytes(&manager),
-        blob_manager::reserved_encoded_capacity_bytes(&manager),
+        blob_bucket::available_encoded_bytes(&bucket),
+        blob_bucket::reserved_encoded_capacity_bytes(&bucket),
     );
 
-    let inner = blob_manager::destroy_for_testing(manager);
-    blob_manager::destroy_cap_for_testing(cap);
-    blob_manager_inner_v1::destroy_for_testing(inner);
+    write_payment.burn_for_testing();
+    let inner = blob_bucket::destroy_for_testing(bucket);
+    blob_bucket::destroy_cap_for_testing(cap);
+    blob_bucket_inner_v1::destroy_for_testing(inner);
     system.destroy_for_testing();
 }
 
-#[test, expected_failure(abort_code = blob_manager::EInvalidBlobManagerCap)]
+#[test, expected_failure(abort_code = blob_bucket::EInvalidBlobBucketCap)]
 fun wrong_cap_cannot_register_blob() {
     let ctx = &mut tx_context::dummy();
     let mut system = system::new_for_testing(ctx);
@@ -93,14 +94,13 @@ fun wrong_cap_cannot_register_blob() {
     let mut right_payment = test_utils::mint_frost(N_COINS, ctx);
     let right_storage_pool = system.create_storage_pool(encoded_size, 3, &mut right_payment, ctx);
 
-    let initial_wal = test_utils::mint_frost(INITIAL_WAL, ctx);
-    let (mut left_manager, _left_cap) = blob_manager::new(left_storage_pool, initial_wal, ctx);
-    let other_wal = test_utils::mint_frost(INITIAL_WAL, ctx);
-    let (_right_manager, right_cap) = blob_manager::new(right_storage_pool, other_wal, ctx);
+    let (mut left_bucket, _left_cap) = blob_bucket::new(left_storage_pool, ctx);
+    let (_right_bucket, right_cap) = blob_bucket::new(right_storage_pool, ctx);
 
     let blob_id = blob::derive_blob_id(ROOT_HASH, RS2, SIZE);
-    blob_manager::register_blob(
-        &mut left_manager,
+    let mut write_payment = test_utils::mint_frost(WRITE_PAYMENT, ctx);
+    blob_bucket::register_blob(
+        &mut left_bucket,
         &right_cap,
         &mut system,
         blob_id,
@@ -108,6 +108,7 @@ fun wrong_cap_cannot_register_blob() {
         SIZE,
         RS2,
         true,
+        &mut write_payment,
         ctx,
     );
 
