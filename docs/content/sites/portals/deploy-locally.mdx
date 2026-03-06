@@ -87,68 +87,81 @@ The portal runs on port **3000** by default. The Docker container is removed aut
 
 :::
 
-## Deploying a local portal manually
+## Manual configuration
 
-Use this method if you need to [customize the portal configuration](/docs/sites/portals/mainnet-testnet) beyond what the script supports, such as enabling allowlists, blocklists, or custom RPC endpoints.
+Use this method if you need to [customize the portal configuration](/docs/sites/portals/mainnet-testnet#configuration) beyond what the script supports, such as enabling allowlists, blocklists, or custom RPC endpoints.
 
-To run the portal locally you can either use a Docker container or a local development environment.
+Create a file named `portal-config.yaml` with the following content. Adjust the values for your network.
 
-### Docker
+<div className="outlined-tabs">
+<Tabs>
+<TabItem value="mainnet" label="Mainnet YAML">
 
-Ensure you have a recent version of Docker installed:
-
-```sh
-$ docker --version
+```yaml
+network: mainnet
+site_package: "0x26eb7ee8688da02c5f671679524e379f0b837a12f1d1d799f255b7eea260ad27"
+landing_page_oid_b36: "46f3881sp4r55fc6pcao9t93bieeejl4vr4k2uv8u4wwyx1a93"
+enable_allowlist: false
+enable_blocklist: false
+b36_domain_resolution: true
+rpc_urls:
+  - url: https://fullnode.mainnet.sui.io:443
+    retries: 2
+    metric: 100
+aggregator_urls:
+  - url: https://aggregator.walrus-mainnet.walrus.space
+    retries: 3
+    metric: 100
 ```
 
-Then, build the Docker image with:
+</TabItem>
 
-```sh
-$ docker build -f portal/docker/server/Dockerfile -t server-portal . --build-arg ENABLE_SENTRY=false --no-cache
+<TabItem value="testnet" label="Testnet YAML">
+
+```yaml
+network: testnet
+site_package: "0xf99aee9f21493e1590e7e5a9aea6f343a1f381031a04a732724871fc294be799"
+landing_page_oid_b36: "1p3repujoigwcqrk0w4itsxm7hs7xjl4hwgt3t0szn6evad83q"
+enable_allowlist: false
+enable_blocklist: false
+b36_domain_resolution: true
+rpc_urls:
+  - url: https://fullnode.testnet.sui.io:443
+    retries: 2
+    metric: 100
+aggregator_urls:
+  - url: https://aggregator.walrus-testnet.walrus.space
+    retries: 3
+    metric: 100
 ```
 
-Finally, run the Docker container:
+</TabItem>
+</Tabs>
+</div>
 
-```sh
-$ docker run --env-file ./portal/server/.env.local -p 3000:3000 server-portal
+The portal Docker image version must match your `site-builder` version. Run the following command to get the version tag:
+
+```bash
+$ site-builder -V | awk '{ print $2 }' | awk -F - '{ printf("v%s\n", $1) }'
 ```
 
-Browse the site at `localhost:3000`.
+This outputs a version string like `v0.7.3`.
 
-### Local development
+Then run the Docker container:
 
-This requires having the [`bun`](https://bun.sh/) tool installed:
-
-Check if `bun` is installed with:
-
-```sh
-$ bun --version
+```bash
+docker run \
+  -it \
+  --rm \
+  -v /path/to/portal-config.yaml:/etc/walrus-sites/portal-config.yaml:ro \
+  -p 3000:3000 \
+  mysten/walrus-sites-server-portal:mainnet-
 ```
 
-If not installed, run the following command:
+Replace `/path/to/portal-config.yaml` with the absolute path to your config file, and `<version>` with the version string.
 
-```sh
-$ curl -fsSL https://bun.sh/install | bash
+Open your browser and navigate to:
+
 ```
-
-Install the dependencies:
-
-```sh
-$ cd portal
-$ bun install
+http://<site-object-id-b36>.localhost:3000
 ```
-
-To run a server-side portal:
-
-```sh
-$ bun run server
-```
-
-To run a service-worker portal:
-
-```sh
-$ bun build:worker
-$ bun run worker
-```
-
-Find the server side portal served at `localhost:3000` the service worker portal at `localhost:8080`.
