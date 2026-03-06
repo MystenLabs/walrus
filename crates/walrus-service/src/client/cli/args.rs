@@ -1118,6 +1118,7 @@ pub struct RpcArg {
     pub(crate) rpc_url: Option<String>,
 }
 
+/// Common arguments for all daemon modes (publisher, aggregator, combined).
 #[derive(Debug, Clone, Args, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct DaemonArgs {

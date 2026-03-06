@@ -35,6 +35,7 @@ pub use args::{
     BlobIdentity,
     CliCommands,
     Commands,
+    DaemonArgs,
     DaemonCommands,
     HealthSortBy,
     NodeSelection,
