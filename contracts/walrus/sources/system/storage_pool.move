@@ -95,6 +95,18 @@ public fun blob_count(self: &StoragePool): u64 {
     self.blob_count
 }
 
+public(package) fun contains_blob(self: &StoragePool, blob_id: u256): bool {
+    self.blobs.contains(blob_id)
+}
+
+public(package) fun borrow_blob(self: &StoragePool, blob_id: u256): &PooledBlob {
+    self.blobs.borrow(blob_id)
+}
+
+public(package) fun blob_object_id(self: &StoragePool, blob_id: u256): ID {
+    object::id(self.blobs.borrow(blob_id))
+}
+
 // === StoragePool operations ===
 
 /// Creates a new `StoragePool`.
@@ -261,6 +273,14 @@ public(package) fun delete_blob_object(pooled_blob: PooledBlob, epoch: u32) {
         certified_epoch.is_some(),
         storage_pool_id,
     );
+}
+
+public(package) fun is_deletable(self: &PooledBlob): bool {
+    self.deletable
+}
+
+public(package) fun is_certified(self: &PooledBlob): bool {
+    self.certified_epoch.is_some()
 }
 
 // === Testing ===
