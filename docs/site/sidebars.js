@@ -224,12 +224,22 @@ const sidebars = {
     },
     ],
     examplesSidebar: [
+      {
+        type: "category",
+        label: "Examples",
+        link: {
+            type: "doc",
+            id: "examples/index",
+        },
+        items: [
       'examples/checkpoint-data',
       'examples/javascript',
       'examples/move',
       'examples/python',
       'examples/walrus-relay'
-    ],
+      ],
+    },
+  ],
 };
 
 export default sidebars;
