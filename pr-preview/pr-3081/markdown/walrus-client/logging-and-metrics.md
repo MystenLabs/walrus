@@ -1,9 +1,0 @@
-{/* https://linear.app/mysten-labs/issue/DOCS-644/walrus-clientlogging-and-metrics */} 
-
-The `walrus` CLI allows for multiple levels of logging, which can be turned on through an environment variable:
-
-```sh
-$ RUST_LOG=walrus=trace walrus info
-```
-
-By default `info` level logs are enabled, but `debug` and `trace` can give a more in depth understanding of what a command does or how it fails.
