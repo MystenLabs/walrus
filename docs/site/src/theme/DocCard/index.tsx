@@ -6,7 +6,7 @@ import clsx from "clsx";
 import Link from "@docusaurus/Link";
 import {
   findFirstSidebarItemLink,
-} from "@docusaurus/plugin-content-docs/client";
+} from "@docusaurus/theme-common";
 import isInternalUrl from "@docusaurus/isInternalUrl";
 import Heading from "@theme/Heading";
 import styles from "./styles.module.css";
