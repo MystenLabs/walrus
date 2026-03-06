@@ -1,0 +1,330 @@
+# Walrus Docs
+
+## Data Security
+
+- [Data Security](https://docs.wal.app/docs/data-security.md)
+    Description: Walrus provides decentralized storage for application and user data. All data
+        stored on Walrus is public and can be accessed by anyone.
+
+## Examples
+
+- [Checkpoint Data](https://docs.wal.app/docs/examples/checkpoint-data.md)
+    Description: The Sui Archival application demonstrates how Sui blockchain checkpoint data can
+        be archived on Walrus in a reliable, deterministic, and resilient manner. The application
+        is accessible at https://walrus-sui-archival.wal.app/ The application's code is open source
+        and available on GitHub.
+- [Javascript](https://docs.wal.app/docs/examples/javascript.md)
+    Description: The following JavaScript example shows how to upload and download a blob through a
+        web form using the HTTP API.
+- [Move](https://docs.wal.app/docs/examples/move.md)
+    Description: The following Move example showcases how to import and use Walrus on-chain objects.
+- [Python](https://docs.wal.app/docs/examples/python.md)
+    Description: You can interact with Walrus from within Python code. Use the HTTP API to store
+        and read blobs. Use the JSON API to store, read, and check the availability of a blob.
+- [Walrus Relay](https://docs.wal.app/docs/examples/walrus-relay.md)
+    Description: Using the Walrus TypeScript SDK and the Walrus Upload Relay, the following example
+        app creates a web application that can be used for uploading and managing blobs on Walrus.
+        View a deployed instance of this example in your browser or view the entire source code.
+
+## Getting Started
+
+- [Run a first-time install using the latest Mainnet
+    version.](https://docs.wal.app/docs/getting-started/advanced-setup.md)
+    Description: This page covers advanced setup options for Walrus, including building from
+        source, installing from binaries, or using Cargo. For standard setup instructions, see the
+        Walrus Getting Started guide. Walrus is open source under an Apache 2 license.
+- [Index](https://docs.wal.app/docs/getting-started.md)
+    Description: Walrus is a verifiable data platform for high-stakes systems like AI and on-chain
+        finance, where data is stored as blobs. Sui is a blockchain that supports programmability
+        at a fundamental level. Walrus binds all blobs to objects on the Sui blockchain.
+
+## Glossary
+
+- [Glossary](https://docs.wal.app/docs/glossary.md)
+
+## Http Api
+
+- [Store 2 files `document.pdf` and `image.png`, with custom identifiers `contract-v2` and
+    `logo-2024`, respectively:](https://docs.wal.app/docs/http-api/quilt-http-apis.md)
+    Description: Walrus supports storing and retrieving multiple blobs as a single unit called a
+        quilt. Publishers and aggregators both support quilt operations. All query parameters
+        available for storing regular blobs can also be used when storing quilts.
+- [Reading Blobs](https://docs.wal.app/docs/http-api/reading-blobs.md)
+    Description: You can read blobs using HTTP GET requests and their blob ID or object ID.
+- [Store the string `some string` for 1 storage
+    epoch](https://docs.wal.app/docs/http-api/storing-blobs.md)
+    Description: You can store data using HTTP PUT requests. For example, with cURL, you can store
+        blobs using a publisher: Control how the new blob is created through a combination of
+        several query parameters as documented in the OpenAPI specification.
+
+## Legal
+
+- [Privacy](https://docs.wal.app/docs/legal/privacy.md)
+    Description: Last Updated: February 10, 2024 This Privacy Policy is designed to help you
+        understand how Walrus Foundation (collectively called the “Organization", "we," "us," and
+        "our") collects, uses, and shares your personal information and to help you understand and
+        exercise your privacy rights in accordance
+- [Testnet Tos](https://docs.wal.app/docs/legal/testnet_tos.md)
+    Description: Last updated: March 26, 2025 By using Walrus Testnet software, technologies,
+        tools, and other services (collectively “Testnet”) offered by Walrus Foundation ("Walrus
+        Foundation", "we", "our"), you agree to the general Walrus Terms of Service and these
+        additional Testnet Terms of Service (together,
+- [Walrus General Tos](https://docs.wal.app/docs/legal/walrus_general_tos.md)
+    Description: Please read these Terms of Service (the “Terms”) and our Privacy Policy carefully
+        because they govern your use of the website, the user interface, and other offerings
+        located at walrus.xyz, (the “Site”) offered by Walrus Foundation (“Walrus Foundation,”
+        “we,” “our”).
+
+## Operator Guide
+
+- [Copyright (c) Walrus Foundation](https://docs.wal.app/docs/operator-guide/aggregator.md)
+    Description: Run a Walrus aggregator or publisher to expose the HTTP API. Run a local Walrus
+        daemon through the binary using one of three commands: : Starts an aggregator that offers
+        an HTTP interface to read blobs from Walrus. : Starts a publisher that offers an HTTP
+        interface to store blobs in Walrus.
+- [Auth Publisher](https://docs.wal.app/docs/operator-guide/auth-publisher.md)
+    Description: The authenticated publisher requires HTTP requests to store a blob to be
+        authenticated. Use an authenticated publisher as a building block for services that require
+        storing over HTTP on Walrus Mainnet, where an open publisher is undesirable because of the
+        SUI and WAL cost of publishing to Walrus.
+- [Basic backup command](https://docs.wal.app/docs/operator-guide/backup-restore-guide.md)
+    Description: Walrus storage nodes provide backup and restore functionality for the primary
+        database containing blob data. This guide covers configuration requirements, operational
+        procedures, and best practices for both automated and manual backup processes, and restore
+        operations.
+- [Commission Governance](https://docs.wal.app/docs/operator-guide/commission-governance.md)
+    Description: While most node parameters can be changed using and are automatically updated
+        based on the values in the node configuration, authorization for contract upgrades and
+        withdrawing the storage node's commission is handled separately to ensure that the hot
+        wallet on the storage node does not need to be
+- [Operator Guide](https://docs.wal.app/docs/operator-guide/operator-guide.md)
+    Description: This guide contains information about operating services in the network,
+        specifically storage nodes, aggregators and publishers.
+- [Download the script](https://docs.wal.app/docs/operator-guide/signed-binaries.md)
+    Description: Walrus release binaries and Docker images are signed using Cosign with a GCP KMS
+        key. Each binary has a corresponding file containing its signature, and Docker image
+        signatures are stored in the registry.
+- [Storage Node Faq](https://docs.wal.app/docs/operator-guide/storage-node-faq.md)
+    Description: The storage node must have a wallet compatible with the Sui Rust SDK. This cannot
+        be a hardware wallet or anything that requires user interaction for transactions, because
+        the node needs to send transactions as part of normal operation. The command creates such a
+        wallet.
+- [Storage Node Maintenance](https://docs.wal.app/docs/operator-guide/storage-node-maintenance.md)
+    Description: This page covers the ongoing operation of your Walrus storage node after initial
+        setup. Back up the directory. For database backups, see the Backup and Restore guide. The
+        following metrics are the most important for monitoring node health. Set up alerts based on
+        the severity levels below.
+- [Storage Node Migration](https://docs.wal.app/docs/operator-guide/storage-node-migration.md)
+    Description: This guide covers migrating a Walrus storage node to new hardware. It assumes you
+        run the node (and optionally an aggregator and publisher) on the same host.
+- [Verify: the external IP should match where the DNS name
+    resolves](https://docs.wal.app/docs/operator-guide/storage-node-setup.md)
+    Description: This page walks you through the full initial setup of a Walrus storage node, from
+        system preparation to registration and first startup. :::warning If you deviate from the
+        standard setup below (user, directories, ports), make sure to adjust later steps
+        accordingly.
+- [Storage Node](https://docs.wal.app/docs/operator-guide/storage-node.md)
+    Description: This section covers everything you need to set up and operate a Walrus storage
+        node.
+- [Upload Relay](https://docs.wal.app/docs/operator-guide/upload-relay.md)
+    Description: Walrus enables dApps to store data from within their end-users' browsers having
+        low to moderate machine specifications (mobile devices, low-powered laptops, and so on).
+
+## Sites
+
+- [Github Actions Workflow](https://docs.wal.app/docs/sites/ci-cd/github-actions-workflow.md)
+    Description: You can create GitHub workflows to automate your Walrus Site deployments using the
+        official Walrus Site GitHub Action. The Walrus Site action operates on an already built
+        site directory. The action does not build your site, it only deploys existing static files
+        to Walrus.
+- [Preparing Deployment
+    Credentials](https://docs.wal.app/docs/sites/ci-cd/preparing-deployment-credentials.md)
+    Description: To allow a GitHub Action to deploy your Walrus Site, it needs to be able to sign
+        transactions on your behalf. This requires securely providing it with your private key and
+        the corresponding public address. You will need to: Export a private key from your Sui
+        Wallet or CLI.
+- [Adding Metadata](https://docs.wal.app/docs/sites/configuration/adding-metadata.md)
+    Description: The section of [](/docs/sites/configuration/site-configuration) lets you add
+        human-readable information to your Walrus Site object. This data is stored on-chain and is
+        used by portals, explorers, wallets, and other tools to display information about your
+        site.
+- [Setting Up Routing
+    Rules](https://docs.wal.app/docs/sites/configuration/setting-up-routing-rules.md)
+    Description: The optional section allows you to specify client-side routing rules for your
+        site. This is useful when you want to use a single-page application (SPA) framework, such
+        as React or Angular. The configuration in the object is a mapping from route keys to
+        resource path values.
+- [Site Configuration](https://docs.wal.app/docs/sites/configuration/site-configuration.md)
+    Description: In its base configuration, a Walrus Site serves static assets through a portal.
+        However, many modern web applications require more advanced features, such as custom
+        headers, client-side routing, and human-readable information.
+- [Specifying Http
+    Headers](https://docs.wal.app/docs/sites/configuration/specifying-http-headers.md)
+    Description: The section allows you to specify custom HTTP response headers for specific
+        resources. The keys in the object are the exact paths of the resources (no wildcards), and
+        the values are lists of key-value pairs corresponding to the headers that the portal
+        attaches to the response.
+- [Bringing Your Own
+    Domain](https://docs.wal.app/docs/sites/custom-domains/bringing-your-own-domain.md)
+    Description: There might be cases where you want to host a Walrus Site under a specific domain
+        without following the default naming convention of . For example, you might want to use a
+        domain like instead of , where is a classic DNS domain that you can purchase from any
+        domain registrar.
+- [Setting A Suins Name](https://docs.wal.app/docs/sites/custom-domains/setting-a-suins-name.md)
+    Description: Browsing sites with Base36 subdomains, for example, , is no longer possible using
+        the portal. Base36 subdomains are still supported if you use a local server or an
+        alternative portal. To browse walrus sites using the portal, you must use SuiNS names
+        instead.
+- [Installing The Site
+    Builder](https://docs.wal.app/docs/sites/getting-started/installing-the-site-builder.md)
+    Description: The is a CLI tool that lets you create, edit, and publish Walrus Sites. You can
+        install it using [](https://github.com/MystenLabs/suiup) or a pre-built binary. [x] Install
+        a recent version of Rust. [x] Install and configure Walrus. :::warning The stable branch of
+        Walrus Sites is .
+- [Publishing Your First
+    Site](https://docs.wal.app/docs/sites/getting-started/publishing-your-first-site.md)
+    Description: The Walrus Sites uploads your website's files to Walrus, where resources like
+        HTML, CSS, JavaScript, and images are stored as blobs. A Sui smart contract serves as an
+        on-chain index that maps each resource path to its Walrus blob ID and records site
+        ownership.
+- [Using The Site
+    Builder](https://docs.wal.app/docs/sites/getting-started/using-the-site-builder.md)
+    Description: This reference page provides details on configuration and CLI commands.
+- [Index](https://docs.wal.app/docs/sites.md)
+    Description: This tutorial walks you through the steps necessary to publish a Walrus Site. We
+        also provide the instructions on how to add a SuiNS name to it for convenient browsing.
+        Install and setup the Walrus Sites tool for development. Publish your first Walrus Site
+        using the tool.
+- [Components](https://docs.wal.app/docs/sites/introduction/components.md)
+    Description: Walrus Sites are "web"-sites that use Sui and Walrus as their underlying
+        technology. They are a prime example of how Walrus can be used to build new and exciting
+        decentralized applications. Anyone can build and deploy a Walrus Site and make it
+        accessible to the world!
+- [Technical Overview](https://docs.wal.app/docs/sites/introduction/technical-overview.md)
+    Description: Walrus Sites are enabled by Sui and Walrus. The resources of a Walrus Site (, , ,
+        images, and so on) are stored on Walrus, while the main entry point to it is an object
+        stored on Sui that contains the metadata for the site and points to the Walrus blob IDs.
+- [Known Restrictions](https://docs.wal.app/docs/sites/known-restrictions.md)
+    Description: Walrus Sites can be used to deploy almost any form of traditional static Web2
+        website built for modern browsers. There are, however, a number of restrictions that a
+        developer should keep in mind when creating or porting a website to Walrus Sites.
+- [Avoiding Duplicate Content
+    Seo](https://docs.wal.app/docs/sites/linking/avoiding-duplicate-content-seo.md)
+    Description: When you deploy your own Walrus Sites portal, you might expose the same site under
+        multiple hostnames: A SuiNS domain: A human-readable names registered on-chain, for example
+        . Base36: Subdomains derived directly from the site object ID, for example .
+- [Linking](https://docs.wal.app/docs/sites/linking/linking.md)
+    Description: This feature is currently unavailable on server-side portals. If you are browsing
+        a Walrus Site on https://wal.app, you are not able to use Walrus Sites links. Certain types
+        of links on Walrus Sites work differently than on a regular website.
+- [Redirects](https://docs.wal.app/docs/sites/linking/redirects.md)
+    Description: Consider a collection of NFTs, such as the one published by
+        https://flatland.wal.app. As shown there, each minted NFT has its own Walrus Site, which
+        can be personalized based on the contents, for example, the color, of the NFT itself.
+- [Deploy Locally](https://docs.wal.app/docs/sites/portals/deploy-locally.md)
+    Description: The term portal is used to indicate any technology that is used to access and
+        browse Walrus Sites. Currently, only a server-side portal is served at https://wal.app.
+        https://wal.app only serves sites deployed on mainnet, linked with SuiNS names. You can run
+        a portal to access Mainnet sites as well.
+- [Site Data Authentication](https://docs.wal.app/docs/sites/security/site-data-authentication.md)
+    Description: Walrus Sites authenticate the data that is served on the client side from the
+        Walrus storage, guaranteeing with various degrees of confidence depending on the setup,
+        that the site data is authentic and has not been tampered with by a malicious aggregator.
+
+## Stake
+
+- [Stake](https://docs.wal.app/docs/stake.md)
+    Description: In Walrus, anyone can delegate stake to storage nodes and, by doing so, influence
+        which storage nodes get selected for the committee in future epochs and how many shards
+        these nodes hold.
+
+## System Overview
+
+- [NOTE: walrus-service uses these IDs to detect network defaults. Changing them changes
+    node](https://docs.wal.app/docs/system-overview/available-networks.md)
+    Description: Walrus Mainnet operates a production-quality storage network using corresponding
+        resources on the Sui Mainnet. The Walrus Testnet operates in conjunction with the Sui
+        Testnet and is used to test new features before they graduate to Mainnet.
+- [Core Concepts](https://docs.wal.app/docs/system-overview/core-concepts.md)
+    Description: Data is stored on Walrus as blobs. Each blob is an immutable array of bytes. Any
+        type of file, such as text, video, or source code, can be stored on Walrus. All blobs
+        uploaded to Walrus are publicly available. To secure data on Walrus, consider an encryption
+        service like Seal.
+- [Operations](https://docs.wal.app/docs/system-overview/operations.md)
+    Description: Blobs can be interacted with through familiar file system operations such as
+        uploading, reading, downloading, and deleting. Use the following command to upload a file
+        to Walrus :::danger All blobs stored in Walrus are public and discoverable by all.
+- [Public Aggregators And
+    Publishers](https://docs.wal.app/docs/system-overview/public-aggregators-and-publishers.md)
+    Description: The Walrus client offers a daemon mode that runs a simple web server that provides
+        HTTP interfaces you can use to store and read blobs in an aggregator or publisher role
+        respectively.
+- [Quilt](https://docs.wal.app/docs/system-overview/quilt.md)
+    Description: Quilt is a batch storage feature designed to optimize the storage cost and
+        efficiency of large numbers of small blobs. Before Quilt, storing small blobs (less than 10
+        MB) on Walrus involved higher per-byte costs due to internal system data overhead.
+- [Red Stuff](https://docs.wal.app/docs/system-overview/red-stuff.md)
+    Description: The RedStuff encoding algorithm used in Walrus is an adaptation of the Twin-Code
+        framework presented by Rashmi et al. [1].
+- [Storage Costs](https://docs.wal.app/docs/system-overview/storage-costs.md)
+    Description: Storing blobs on Walrus Mainnet incurs 2 separate costs: WAL for the storage
+        operation. See WAL tokenomics and the Walrus delegated proof of stake system for more
+        details. SUI for executing transactions on Sui Mainnet. See SUI tokenomics and SUI gas fee
+        calculation for more details.
+- [View System Info](https://docs.wal.app/docs/system-overview/view-system-info.md)
+    Description: The Walrus system object contains metadata about available and used storage and
+        the price of storage per KB in FROST. These values are determined by 2/3 agreement between
+        storage nodes for each storage epoch. You can pay to purchase storage space for specified
+        durations.
+
+## Troubleshooting
+
+- [Index](https://docs.wal.app/docs/troubleshooting.md)
+    Description: :::tip Debug logging You can enable debug logging for Walrus by setting the
+        environment variable . ::: Before undertaking any other steps, make sure you have the
+        latest binary. If you have multiple versions in different locations, find the binary that
+        is actually used with .
+
+## Tusky Migration Guide
+
+- [Tusky Migration Guide](https://docs.wal.app/docs/tusky-migration-guide.md)
+    Description: As of December 19, 2025, the storage service Tusky is shutting down. Data stored
+        on Walrus through Tusky is still safe and accessible. During Tusky's sunsetting period, you
+        can continue reading your data, however you must either migrate to using Walrus directly or
+        through alternative tooling.
+
+## Typescript Sdk
+
+- [Sdks](https://docs.wal.app/docs/typescript-sdk/sdks.md)
+    Description: Mysten Labs has built and published a Walrus TypeScript SDK, which supports a wide
+        variety of operations. See also the related examples. The Walrus core team is actively
+        working on a Rust SDK for Walrus. For data security, use the TypeScript SDK for Seal.
+
+## Usage
+
+- [Troubleshooting](https://docs.wal.app/docs/usage/troubleshooting.md)
+
+## Walrus Client
+
+- [Configuration](https://docs.wal.app/docs/walrus-client/configuration.md)
+    Description: Use the option to specify a custom path to the configuration location.
+- [Json Mode](https://docs.wal.app/docs/walrus-client/json-mode.md)
+    Description: All Walrus client commands are available in JSON mode, simplifying programmatic
+        access to the CLI. All the command-line flags of the original CLI command can be specified
+        in JSON format.
+- [Logging And Metrics](https://docs.wal.app/docs/walrus-client/logging-and-metrics.md)
+    Description: The CLI allows for multiple levels of logging, which can be turned on through an
+        environment variable: By default level logs are enabled, but and can give a more in depth
+        understanding of what a command does or how it fails.
+- [Managing Blobs](https://docs.wal.app/docs/walrus-client/managing-blobs.md)
+    Description: Walrus blob lifetimes can be extended using the command as long as the blob is not
+        expired. Both address owned blobs and shared blobs can have their lifetime extended. Shared
+        blobs can be extended by anyone, but owned blobs can only be extended by their owner.
+- [Reading Blobs](https://docs.wal.app/docs/walrus-client/reading-blobs.md)
+    Description: The status of a blob can be queried through one of the following commands: Each
+        command returns output that indicates whether the specified blob is stored and its
+        availability period.
+- [Storing Blobs](https://docs.wal.app/docs/walrus-client/storing-blobs.md)
+    Description: Use the command-line interface (CLI) to interact with the Walrus client. The CLI
+        is available through installing the binary. See the getting started documentation for
+        prerequisites, installation, and configuration.
