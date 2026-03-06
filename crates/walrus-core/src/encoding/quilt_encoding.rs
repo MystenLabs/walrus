@@ -657,6 +657,11 @@ impl QuiltVersionV1 {
     ///
     /// The quilt data is user-controlled content and must not be trusted. All reads are validated
     /// for expected lengths, and errors are returned if invalid.
+    ///
+    /// # Arguments
+    ///
+    /// * `data_source` - Supplies bytes in column-major order (see [`QuiltColumnRangeReader`]).
+    /// * `column_size` - The number of bytes per column. Should be greater than zero.
     pub fn decode_quilt_index<T>(
         data_source: &T,
         column_size: usize,
@@ -1647,6 +1652,9 @@ impl QuiltEncoderApi<QuiltVersionV1> for QuiltEncoderV1<'_> {
 pub struct QuiltDecoderV1<'a> {
     slivers: HashMap<SliverIndex, Cow<'a, SliverData<Secondary>>>,
     quilt_index: Option<QuiltIndexV1>,
+    /// Per-column byte count (one secondary sliver's payload length).
+    /// Set from the first sliver added; all slivers must have the same length.
+    /// Should be greater than zero when set.
     column_size: Option<usize>,
 }
 
