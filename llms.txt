@@ -245,7 +245,6 @@
     Description: Walrus Mainnet operates a production-quality storage network using corresponding
         resources on the Sui Mainnet. The Walrus Testnet operates in conjunction with the Sui
         Testnet and is used to test new features before they graduate to Mainnet.
-- [Components](https://docs.wal.app/docs/system-overview/components.md)
 - [Core Concepts](https://docs.wal.app/docs/system-overview/core-concepts.md)
     Description: Data is stored on Walrus as blobs. Each blob is an immutable array of bytes. Any
         type of file, such as text, video, or source code, can be stored on Walrus. All blobs
@@ -272,7 +271,6 @@
         operation. See WAL tokenomics and the Walrus delegated proof of stake system for more
         details. SUI for executing transactions on Sui Mainnet. See SUI tokenomics and SUI gas fee
         calculation for more details.
-- [Sui Object And Blob Ids](https://docs.wal.app/docs/system-overview/sui-object-and-blob-ids.md)
 - [View System Info](https://docs.wal.app/docs/system-overview/view-system-info.md)
     Description: The Walrus system object contains metadata about available and used storage and
         the price of storage per KB in FROST. These values are determined by 2/3 agreement between
@@ -304,18 +302,7 @@
 
 ## Usage
 
-- [Client Cli](https://docs.wal.app/docs/usage/client-cli.md)
-- [Examples](https://docs.wal.app/docs/usage/examples.md)
-- [Glossary](https://docs.wal.app/docs/usage/glossary.md)
-- [Json Api](https://docs.wal.app/docs/usage/json-api.md)
-- [Networks](https://docs.wal.app/docs/usage/networks.md)
-- [Quilt](https://docs.wal.app/docs/usage/quilt.md)
-- [Sdks](https://docs.wal.app/docs/usage/sdks.md)
-- [Setup](https://docs.wal.app/docs/usage/setup.md)
-- [Stake](https://docs.wal.app/docs/usage/stake.md)
-- [Started](https://docs.wal.app/docs/usage/started.md)
 - [Troubleshooting](https://docs.wal.app/docs/usage/troubleshooting.md)
-- [Web Api](https://docs.wal.app/docs/usage/web-api.md)
 
 ## Walrus Client
 
@@ -341,27 +328,3 @@
     Description: Use the command-line interface (CLI) to interact with the Walrus client. The CLI
         is available through installing the binary. See the getting started documentation for
         prerequisites, installation, and configuration.
-
-## Walrus Sites
-
-- [Advanced](https://docs.wal.app/docs/walrus-sites/advanced.md)
-- [Authentication](https://docs.wal.app/docs/walrus-sites/authentication.md)
-- [Avoid Duplicate Content
-    Seo](https://docs.wal.app/docs/walrus-sites/avoid-duplicate-content-seo.md)
-- [Bring Your Own Domain](https://docs.wal.app/docs/walrus-sites/bring-your-own-domain.md)
-- [Builder Config](https://docs.wal.app/docs/walrus-sites/builder-config.md)
-- [Ci Cd Gh Secrets Vars](https://docs.wal.app/docs/walrus-sites/ci-cd-gh-secrets-vars.md)
-- [Ci Cd Gh Workflow](https://docs.wal.app/docs/walrus-sites/ci-cd-gh-workflow.md)
-- [Ci Cd](https://docs.wal.app/docs/walrus-sites/ci-cd.md)
-- [Commands](https://docs.wal.app/docs/walrus-sites/commands.md)
-- [Intro](https://docs.wal.app/docs/walrus-sites/intro.md)
-- [Linking](https://docs.wal.app/docs/walrus-sites/linking.md)
-- [Overview](https://docs.wal.app/docs/walrus-sites/overview.md)
-- [Portal](https://docs.wal.app/docs/walrus-sites/portal.md)
-- [Redirects](https://docs.wal.app/docs/walrus-sites/redirects.md)
-- [Restrictions](https://docs.wal.app/docs/walrus-sites/restrictions.md)
-- [Routing](https://docs.wal.app/docs/walrus-sites/routing.md)
-- [Tutorial Install](https://docs.wal.app/docs/walrus-sites/tutorial-install.md)
-- [Tutorial Publish](https://docs.wal.app/docs/walrus-sites/tutorial-publish.md)
-- [Tutorial Suins](https://docs.wal.app/docs/walrus-sites/tutorial-suins.md)
-- [Tutorial](https://docs.wal.app/docs/walrus-sites/tutorial.md)
