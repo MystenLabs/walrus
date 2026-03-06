@@ -68,6 +68,62 @@ function generateRoutes(htmlFiles) {
   return routes;
 }
 
+/**
+ * Recursively finds all markdown files in a directory.
+ */
+function findMarkdownFiles(dir, baseDir = dir) {
+  const results = [];
+  if (!fs.existsSync(dir)) return results;
+  const entries = fs.readdirSync(dir, { withFileTypes: true });
+
+  for (const entry of entries) {
+    const fullPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      results.push(...findMarkdownFiles(fullPath, baseDir));
+    } else if (entry.name.endsWith(".md")) {
+      // Skip empty files (e.g., drafts)
+      if (fs.statSync(fullPath).size === 0) continue;
+      results.push("/" + path.relative(baseDir, fullPath));
+    }
+  }
+
+  return results;
+}
+
+/**
+ * Generates /docs/*.md -> /markdown/*.md route mappings and content-type headers
+ * for all markdown files in the build/markdown directory.
+ */
+function generateMarkdownRoutes(markdownDir) {
+  const routes = {};
+  const headers = {};
+  const mdFiles = findMarkdownFiles(markdownDir);
+
+  for (const mdPath of mdFiles) {
+    // mdPath is like /examples/awesome-walrus.md
+    const routeKey = "/docs" + mdPath;
+    const targetPath = "/markdown" + mdPath;
+
+    routes[routeKey] = targetPath;
+    headers[targetPath] = {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8",
+    };
+
+    // For index.md files, also add a short-form route:
+    // /docs/sites/index.md -> also accessible as /docs/sites.md
+    const basename = path.basename(mdPath, ".md");
+    if (basename === "index") {
+      const dir = path.dirname(mdPath);
+      if (dir !== "/") {
+        routes["/docs" + dir + ".md"] = targetPath;
+      }
+    }
+  }
+
+  return { routes, headers };
+}
+
 console.log("🔗 Generating clean URL routes...");
 
 if (!fs.existsSync(buildDir)) {
@@ -85,12 +141,16 @@ const wsResources = JSON.parse(fs.readFileSync(manualPath, "utf8"));
 // Extract existing manual routes (these take precedence)
 const manualRoutes = wsResources.routes || {};
 
-// Generate routes from build output
+// Generate clean URL routes from HTML build output
 const htmlFiles = findHtmlFiles(buildDir);
 const autoRoutes = generateRoutes(htmlFiles);
 
+// Generate /docs/*.md -> /markdown/*.md routes and headers for markdown exports
+const markdownDir = path.join(buildDir, "markdown");
+const { routes: mdRoutes, headers: mdHeaders } = generateMarkdownRoutes(markdownDir);
+
 // Merge: manual routes override auto-generated ones
-const mergedRoutes = { ...autoRoutes, ...manualRoutes };
+const mergedRoutes = { ...autoRoutes, ...mdRoutes, ...manualRoutes };
 
 // Sort keys for readability
 const sortedRoutes = {};
@@ -98,15 +158,26 @@ for (const key of Object.keys(mergedRoutes).sort()) {
   sortedRoutes[key] = mergedRoutes[key];
 }
 
+// Merge headers: auto-generated markdown headers, then manual headers on top
+const manualHeaders = wsResources.headers || {};
+const mergedHeaders = { ...mdHeaders, ...manualHeaders };
+const sortedHeaders = {};
+for (const key of Object.keys(mergedHeaders).sort()) {
+  sortedHeaders[key] = mergedHeaders[key];
+}
+
 // Write merged output to ws-resources.json
 wsResources.routes = sortedRoutes;
+wsResources.headers = sortedHeaders;
 fs.writeFileSync(outputPath, JSON.stringify(wsResources, null, 2) + "\n", "utf8");
 
 const autoCount = Object.keys(autoRoutes).length;
+const mdCount = Object.keys(mdRoutes).length;
 const manualCount = Object.keys(manualRoutes).length;
 const totalCount = Object.keys(sortedRoutes).length;
 
-console.log(`  Auto-generated: ${autoCount} routes from HTML files`);
+console.log(`  Auto-generated: ${autoCount} clean URL routes from HTML files`);
+console.log(`  Auto-generated: ${mdCount} markdown routes (/docs/*.md)`);
 console.log(`  Manual/legacy:  ${manualCount} existing routes preserved`);
 console.log(`  Total:          ${totalCount} routes written`);
 console.log("✅ Routes generated successfully");
