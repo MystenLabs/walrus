@@ -190,6 +190,7 @@ const pages = [];
 
 for (const file of files) {
   const content = fs.readFileSync(file, "utf8");
+  if (!content.trim()) continue; // Skip empty files (e.g., drafts)
   const { title, description } = parseMarkdown(file, content);
   const urlPath = fileToUrlPath(file, markdownDir);
 

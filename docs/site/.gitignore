@@ -9,6 +9,8 @@
 .cache-loader
 src/.generated/*
 /static/markdown/*
+ws-resources.json
+.markdown/
 
 # Misc
 .DS_Store
