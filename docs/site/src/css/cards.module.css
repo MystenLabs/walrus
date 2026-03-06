@@ -3,10 +3,6 @@ Copyright (c) Walrus Foundation
 SPDX-License-Identifier: Apache-2.0
 */
 
-/* ══════════════════════════════════════════════
-Homepage / sidebar cards
-══════════════════════════════════════════════ */
-
 :root {
 --walrus-cards-border-color: transparent;
 --walrus-cards-background: var(--color-walrus-light-gray-100);
