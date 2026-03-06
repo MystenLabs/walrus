@@ -261,7 +261,7 @@ echo 'wallet_config: /opt/walrus/config/publisher/sui_client.yaml' >> /opt/walru
 
 The publisher wallet needs both SUI (for gas) and WAL (for storage payments). Each sub-wallet requires approximately 0.5–1.0 SUI and 0.5–1.0 WAL in steady state. As a guideline for minimal testing, ensure the **main** publisher wallet has at least:
 
-- **SUI:** 2 SUI per sub-wallet (e.g., ~4 SUI for `--n-clients 2`, ~16 SUI for the default of 8)
+- **SUI:** 2 SUI per sub-wallet (for example, ~4 SUI for `--n-clients 2`, ~16 SUI for the default of 8)
 - **WAL:** 2 WAL per sub-wallet
 
 If the publisher is expected to handle significant traffic, you need substantially higher amounts to cover storage costs and gas fees. The publisher automatically distributes funds from the main wallet to sub-wallets at startup and refills them periodically during operation. See [Manage SUI coins in sub-wallets](#manage-sub-wallets) for details on configuring refill behavior.
