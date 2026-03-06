@@ -212,9 +212,55 @@ For more information about maximum blob sizes, run `walrus info`.
 
 ## Run a publisher
 
-The publisher and daemon perform on-chain actions and thus require a Sui Testnet wallet with sufficient SUI and WAL balances. To enable handling many parallel requests without object conflicts, they create internal sub-wallets since version 1.4.0, which are funded from the main wallet. These sub-wallets are persisted in a directory specified with the `--sub-wallets-dir` argument. Any existing directory can be used. If it already contains sub-wallets, they are reused.
+The publisher and daemon perform on-chain actions and thus require a Sui wallet with sufficient SUI
+and WAL balances. To enable handling many parallel requests without object conflicts, they create
+internal sub-wallets since version 1.4.0, which are funded from the main wallet. These sub-wallets
+are persisted in a directory specified with the `--sub-wallets-dir` argument. Any existing directory
+can be used. If it already contains sub-wallets, they are reused.
 
-By default, 8 sub-wallets are created and funded. You can change this with the `--n-clients` argument. For simple local testing, 1 or 2 sub-wallets are usually sufficient.
+By default, 8 sub-wallets are created and funded. You can change this with the `--n-clients`
+argument. For simple local testing, 1 or 2 sub-wallets are usually sufficient.
+
+### Fund the publisher wallet {#fund-publisher}
+
+The publisher wallet needs both SUI (for gas) and WAL (for storage payments). Each sub-wallet
+requires approximately 0.5–1.0 SUI and 0.5–1.0 WAL in steady state. As a guideline, ensure the
+**main** publisher wallet has at least:
+
+- **SUI:** 2 SUI per sub-wallet (e.g., ~4 SUI for `--n-clients 2`, ~16 SUI for the default of 8)
+- **WAL:** 2 WAL per sub-wallet
+
+The publisher automatically distributes funds from the main wallet to sub-wallets at startup and
+refills them periodically during operation.
+
+<Tabs>
+<TabItem label="Mainnet" value="mainnet">
+
+Acquire WAL tokens through the Walrus token distribution or supported exchanges, and transfer both
+SUI and WAL to the publisher wallet address.
+
+</TabItem>
+<TabItem label="Testnet" value="testnet">
+
+On Testnet, you can exchange SUI for WAL using the exchange objects in the client configuration:
+
+```sh
+/opt/walrus/bin/walrus --config /opt/walrus/config/publisher_client_config.yaml get-wal
+```
+
+Each call exchanges 0.5 SUI for WAL. Run it multiple times to accumulate enough WAL for your
+sub-wallet count.
+
+</TabItem>
+</Tabs>
+
+:::warning
+
+If the publisher wallet does not have sufficient WAL, the publisher will fail to start with an error
+like `could not find WAL coins with sufficient balance`. Ensure you fund the wallet **before**
+starting the service.
+
+:::
 
 Run a publisher with a single sub-wallet stored in the Walrus configuration directory:
 
@@ -252,18 +298,23 @@ WantedBy=multi-user.target
 
 :::info
 
-The publisher needs a **separate wallet** from the storage node, even if running on the same host. See the [storage node FAQ](/docs/operator-guide/storage-node-faq#wallets) for details on wallet requirements. Generate a new wallet with:
+The publisher needs a **separate wallet** from the storage node, even if running on the same host. See the [storage node FAQ](/docs/operator-guide/storage-node-faq#wallets) for details on wallet requirements. Generate a new wallet and create a dedicated publisher client config:
 
 ```sh
 mkdir -p /opt/walrus/config/publisher /opt/walrus/wallets
 /opt/walrus/bin/walrus generate-sui-wallet --path /opt/walrus/config/publisher/sui_client.yaml
 ```
 
-Then add the wallet path to your client config:
+Then create a publisher-specific client configuration that references this wallet:
 
 ```sh
-echo 'wallet_config: /opt/walrus/config/publisher/sui_client.yaml' >> /opt/walrus/config/client_config.yaml
+cp /opt/walrus/config/client_config.yaml /opt/walrus/config/publisher_client_config.yaml
+echo 'wallet_config: /opt/walrus/config/publisher/sui_client.yaml' >> /opt/walrus/config/publisher_client_config.yaml
 ```
+
+Using a separate config file (instead of modifying `client_config.yaml`) keeps the storage node and
+publisher wallet configurations independent. Update the `ExecStart` line in the publisher systemd
+service to reference `publisher_client_config.yaml` accordingly.
 
 :::
 
