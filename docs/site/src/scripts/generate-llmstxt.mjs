@@ -512,15 +512,11 @@ const introDesc = siteDesc ||
 // Spec-compliant: additional context paragraphs between blockquote and sections.
 // These are freeform markdown (no headings) that help LLMs interpret the docs.
 const contextNotes = [
-  "",
-  "Important notes:",
-  "",
   "- Walrus stores data as **blobs** (immutable byte arrays). All blobs are public; use an encryption service like Seal for private data.",
   "- Walrus has two networks: **Mainnet** (production, uses real SUI/WAL tokens) and **Testnet** (for development and testing).",
   "- The `walrus` CLI is the primary client. It supports storing, reading, and managing blobs, and can run as a local daemon exposing an HTTP API.",
   "- **Walrus Sites** enable fully decentralized web hosting: static assets stored on Walrus, with a Sui smart contract as the on-chain index.",
   "- Costs involve WAL tokens (for storage) and SUI tokens (for on-chain transactions).",
-  "",
 ];
 
 // Identify optional/secondary sections that LLMs can skip for shorter context
@@ -545,7 +541,7 @@ function wrapLine(line, indentSpaces = 0) {
   for (const word of words) {
     if (current.length + word.length + 1 > 100 && current.trim().length > 0) {
       lines.push(current.trimEnd());
-      current = indent + "  " + word + " ";
+      current = indent + "    " + word + " ";
     } else {
       current += word + " ";
     }
@@ -562,15 +558,39 @@ const optionalSections = sectionOrder.filter((s) => OPTIONAL_SECTIONS.has(s));
 
 function buildOutput(includeDescriptions, includeOptional) {
   const lines = [`# ${resolvedName}`, ""];
-  lines.push(`> ${introDesc}`, "");
-  lines.push(...contextNotes);
+
+  // Wrap blockquote to 100 chars (continuation lines start with "> ")
+  const bqText = `> ${introDesc}`;
+  if (bqText.length <= 100) {
+    lines.push(bqText);
+  } else {
+    const words = introDesc.split(" ");
+    let current = "> ";
+    for (const word of words) {
+      if (current.length + word.length + 1 > 100 && current.trim().length > 2) {
+        lines.push(current.trimEnd());
+        current = "> " + word + " ";
+      } else {
+        current += word + " ";
+      }
+    }
+    if (current.trim().length > 1) lines.push(current.trimEnd());
+  }
+  lines.push("");
+
+  // Context notes — wrap each bullet to 100 chars with 4-space continuation indent
+  lines.push("Important notes:", "");
+  for (const note of contextNotes) {
+    lines.push(...wrapLine(note, 0));
+  }
+  lines.push("");
 
   // Required sections
   for (const section of requiredSections) {
     lines.push(`## ${section}`, "");
     for (const page of grouped[section]) {
       const entry = includeDescriptions ? formatEntry(page) : `- [${page.title}](${page.url})`;
-      lines.push(...wrapLine(entry, 2));
+      lines.push(...wrapLine(entry, 0));
     }
     lines.push("");
   }
@@ -583,7 +603,7 @@ function buildOutput(includeDescriptions, includeOptional) {
       lines.push(`### ${section}`, "");
       for (const page of grouped[section]) {
         const entry = includeDescriptions ? formatEntry(page) : `- [${page.title}](${page.url})`;
-        lines.push(...wrapLine(entry, 2));
+        lines.push(...wrapLine(entry, 0));
       }
       lines.push("");
     }
@@ -609,13 +629,13 @@ if (output.length > TARGET_CHARS) {
 if (output.length > TARGET_CHARS) {
   const ratio = TARGET_CHARS / output.length;
   const finalLines = [`# ${resolvedName}`, ""];
-  finalLines.push(`> ${introDesc}`, "");
+  finalLines.push(...wrapLine(`> ${introDesc}`, 0), "");
   for (const section of requiredSections) {
     const sectionPages = grouped[section];
     const keep = Math.max(1, Math.floor(sectionPages.length * ratio));
     finalLines.push(`## ${section}`, "");
     for (const page of sectionPages.slice(0, keep)) {
-      finalLines.push(...wrapLine(formatEntry(page), 2));
+      finalLines.push(...wrapLine(formatEntry(page), 0));
     }
     finalLines.push("");
   }
