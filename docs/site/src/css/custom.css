@@ -8,89 +8,34 @@
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
 
 @theme {
-  --color-wal-black: hsl(229, 42%, 8%);
-  --color-wal-white: hsl(0, 0%, 97%);
-  --wal-white-100-hsl: 0 0% 97%;
+  --font-sans: "Ratch", sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
 
-  --color-wal-white-100: hsl(var(--wal-white-100-hsl) / 100%);
-  --color-wal-white-90: hsl(var(--wal-white-100-hsl) / 90%);
-  --color-wal-white-80: hsl(var(--wal-white-100-hsl) / 80%);
-  --color-wal-white-70: hsl(var(--wal-white-100-hsl) / 70%);
-  --color-wal-white-60: hsl(var(--wal-white-100-hsl) / 60%);
-  --color-wal-white-50: hsl(var(--wal-white-100-hsl) / 50%);
-  --color-wal-white-40: hsl(var(--wal-white-100-hsl) / 40%);
-  --color-wal-white-30: hsl(var(--wal-white-100-hsl) / 30%);
-  --color-wal-white-20: hsl(var(--wal-white-100-hsl) / 20%);
-  --color-wal-white-10: hsl(var(--wal-white-100-hsl) / 10%);
-  --color-wal-white-5: hsl(var(--wal-white-100-hsl) / 5%);
+  --color-walrus-midnight: #000;
+  --color-walrus-tusk: #faf8f5;
+  --color-walrus-mint: #98efe4;
+  --color-walrus-violet: #cab1ff;
+  --color-walrus-yellow: #e8ff75;
+  --color-walrus-purple: #613dff;
+  --color-walrus-dark-gray-150: #1c2228;
+  --color-walrus-dark-gray-200: #252b31;
+  --color-walrus-dark-gray-300: #53575a;
+  --color-walrus-dark-gray-400: #8e9294;
+  --color-walrus-dark-gray-450: #b0b4b6;
+  --color-walrus-dark-gray-500: #d0d4d6;
+  --color-walrus-light-gray-100: #e5e5e2;
+  --color-walrus-light-gray-150: #dadad6;
+  --color-walrus-light-gray-200: #cdcdca;
+  --color-walrus-light-gray-300: #acaca8;
+  --color-walrus-light-gray-400: #7c7c78;
+  --color-walrus-light-gray-500: #484946;
 
-  --color-wal-purple-lighter: hsl(274, 100%, 90%);
-  --color-wal-purple-light: hsl(274, 89%, 83%);
-  --color-wal-purple: hsl(274, 86%, 74%);
-  --color-wal-purple-dark: hsl(265, 82%, 69%);
-  --color-wal-purple-darker: hsl(265, 90%, 30%);
-
-  --color-wal-link: hsl(173, 75%, 77%);
-  --color-wal-link-hover: hsl(172, 90%, 30%);
-
-  --color-wal-green-lighter: hsl(173, 75%, 95%);
-  --color-wal-green-light: hsl(172, 83%, 89%);
-  --color-wal-green: hsl(173, 75%, 77%);
-  --color-wal-green-dark: hsl(172, 56%, 49%);
-  --color-wal-green-darker: hsl(172, 90%, 30%);
-  --color-wal-success: hsl(152, 93%, 35%);
-
-  --wal-gray-100-hsl: 231 40% 8%;
-  --color-wal-gray-100: hsl(var(--wal-gray-100-hsl) / 100%);
-  --color-wal-gray-90: hsl(var(--wal-gray-100-hsl) / 90%);
-  --color-wal-gray-80: hsl(var(--wal-gray-100-hsl) / 80%);
-  --color-wal-gray-70: hsl(var(--wal-gray-100-hsl) / 70%);
-  --color-wal-gray-60: hsl(var(--wal-gray-100-hsl) / 60%);
-  --color-wal-gray-50: hsl(var(--wal-gray-100-hsl) / 50%);
-  --color-wal-gray-40: hsl(var(--wal-gray-100-hsl) / 40%);
-  --color-wal-gray-30: hsl(var(--wal-gray-100-hsl) / 30%);
-  --color-wal-gray-20: hsl(var(--wal-gray-100-hsl) / 20%);
-  --color-wal-gray-10: hsl(var(--wal-gray-100-hsl) / 10%);
-  --color-wal-gray-5: hsl(var(--wal-gray-100-hsl) / 5%);
-  --color-wal-gray-2: hsl(var(--wal-gray-100-hsl) / 2%);
-  --color-wal-gray-1: hsl(var(--wal-gray-100-hsl) / 1%);
-
-  --color-wal-grey-100: var(--color-wal-gray-100);
-  --color-wal-grey-90: var(--color-wal-gray-90);
-  --color-wal-grey-80: var(--color-wal-gray-80);
-  --color-wal-grey-70: var(--color-wal-gray-70);
-  --color-wal-grey-60: var(--color-wal-gray-60);
-  --color-wal-grey-50: var(--color-wal-gray-50);
-  --color-wal-grey-40: var(--color-wal-gray-40);
-  --color-wal-grey-30: var(--color-wal-gray-30);
-  --color-wal-grey-20: var(--color-wal-gray-20);
-  --color-wal-grey-10: var(--color-wal-gray-10);
-  --color-wal-grey-5: var(--color-wal-gray-5);
-  --color-wal-grey-2: var(--color-wal-gray-2);
-  --color-wal-grey-1: var(--color-wal-gray-1);
-
-  --color-docu-dark: hsl(240, 4%, 11%);
-
-  --wal-surface-gradient-dark: linear-gradient(
-    to bottom,
-    var(--color-wal-white-10) 0%,
-    var(--color-wal-white-5) 15%,
-    var(--color-wal-white-5) 75%,
-    var(--color-wal-white-10) 100%
-  );
-
-  --wal-surface-gradient-light: linear-gradient(
-    to bottom,
-    var(--color-wal-grey-5) 0%,
-    var(--color-wal-grey-2) 15%,
-    var(--color-wal-grey-2) 75%,
-    var(--color-wal-grey-5) 100%
-  );
+  --default-font-family: var(--font-sans);
+  --default-mono-font-family: var(--font-mono);
 }
 
 @import "./fonts.css";
 
-/* ✅ Tailwind v4: keep theme + utilities. DO NOT import preflight for Docusaurus/Infima. */
 @import "tailwindcss/theme" layer(theme);
 @import "tailwindcss/utilities" layer(utilities);
 
@@ -98,51 +43,114 @@
 @source "../../../content/**/*.{md,mdx}";
 @source "../../../blog/**/*.{md,mdx}";
 
-/* Infima vars */
+/* ══════════════════════════════════════════════
+   Infima — Light mode
+   ══════════════════════════════════════════════ */
 :root {
   --ifm-font-family-base: var(--font-sans);
   --ifm-font-family-monospace: var(--font-mono);
 
-  --ifm-navbar-background-color: var(--color-wal-white-100);
+  --ifm-background-color: #fff;
+  --ifm-background-surface-color: #fff;
+  --ifm-navbar-background-color: #fff;
 
-  --ifm-color-primary: hsl(172, 56%, 49%);
+  --ifm-color-primary: var(--color-walrus-purple);
+  --ifm-color-primary-dark: var(--color-walrus-purple);
+  --ifm-color-primary-darker: var(--color-walrus-purple);
+  --ifm-color-primary-darkest: var(--color-walrus-purple);
+  --ifm-color-primary-light: var(--color-walrus-violet);
+  --ifm-color-primary-lighter: var(--color-walrus-violet);
+  --ifm-color-primary-lightest: var(--color-walrus-violet);
 
-  --color-wal-link: hsl(172, 56%, 49%);
-  --color-wal-link-hover: hsl(172, 90%, 30%);
-  --color-wal-green-dark: hsl(172, 56%, 49%);
+  --ifm-link-color: var(--color-walrus-purple);
+  --ifm-link-hover-color: var(--color-walrus-light-gray-500);
+  --ifm-pagination-nav-color-hover: var(--color-walrus-purple);
 
-  --ifm-link-color: var(--color-wal-green-dark);
-  --ifm-link-hover-color: var(--color-wal-link-hover);
-  --ifm-pagination-nav-color-hover: var(--color-wal-green-dark);
+  --ifm-menu-color-active: var(--color-walrus-purple);
+  --ifm-breadcrumb-color-active: var(--color-walrus-purple);
+  --ifm-tabs-color-active: var(--color-walrus-purple);
+  --ifm-tabs-color-active-border: var(--color-walrus-purple);
+
+  --ifm-toc-link-color: var(--color-walrus-dark-gray-300);
+  --ifm-toc-border-color: var(--color-walrus-light-gray-150);
+
+  --ifm-code-background: var(--color-walrus-light-gray-100);
+  --ifm-code-border-color: var(--color-walrus-light-gray-150);
+}
+
+/* ══════════════════════════════════════════════
+   Infima — Dark mode
+   ══════════════════════════════════════════════ */
+[data-theme="dark"] {
+  --ifm-background-color: var(--color-walrus-dark-gray-150);
+  --ifm-background-surface-color: var(--color-walrus-dark-gray-200);
+  --ifm-navbar-background-color: var(--color-walrus-dark-gray-200);
+
+  --ifm-color-primary: var(--color-walrus-mint);
+  --ifm-color-primary-dark: var(--color-walrus-mint);
+  --ifm-color-primary-darker: var(--color-walrus-mint);
+  --ifm-color-primary-darkest: var(--color-walrus-mint);
+  --ifm-color-primary-light: var(--color-walrus-mint);
+  --ifm-color-primary-lighter: var(--color-walrus-mint);
+  --ifm-color-primary-lightest: var(--color-walrus-mint);
+
+  --ifm-link-color: var(--color-walrus-mint);
+  --ifm-link-hover-color: var(--color-walrus-dark-gray-500);
+  --ifm-pagination-nav-color-hover: var(--color-walrus-mint);
+
+  --ifm-menu-color-active: var(--color-walrus-mint);
+  --ifm-breadcrumb-color-active: var(--color-walrus-mint);
+  --ifm-tabs-color-active: var(--color-walrus-mint);
+  --ifm-tabs-color-active-border: var(--color-walrus-mint);
+
+  --ifm-toc-link-color: var(--color-walrus-dark-gray-450);
+  --ifm-toc-border-color: var(--color-walrus-dark-gray-300);
+
+  --ifm-code-background: var(--color-walrus-dark-gray-200);
+  --ifm-code-border-color: var(--color-walrus-dark-gray-300);
+  --ifm-code-color: var(--color-walrus-mint);
 }
 
 @layer components {
-  /* Body feel (don't rely on preflight) */
   body {
     @apply font-sans text-sm font-normal not-italic tracking-normal;
   }
 
-  /* Headings */
+  /* ── Headings ── */
+
   .markdown header > h1 {
-    @apply text-wal-purple-darker dark:text-wal-purple-dark font-light text-[2.5rem];
+    @apply font-light text-[2.5rem];
+    color: var(--color-walrus-purple);
+  }
+  [data-theme="dark"] .markdown header > h1 {
+    color: var(--color-walrus-violet);
   }
 
   .markdown h2 {
     @apply font-semibold text-[1.75rem];
+    color: var(--color-walrus-midnight);
+  }
+  [data-theme="dark"] .markdown h2 {
+    color: var(--color-walrus-tusk);
   }
 
   .markdown h3 {
     @apply font-semibold text-[1.3rem];
-    @apply text-wal-gray-70 dark:text-wal-green-dark;
+    color: var(--color-walrus-light-gray-500);
+  }
+  [data-theme="dark"] .markdown h3 {
+    color: var(--color-walrus-mint);
   }
 
   .markdown h1:first-child {
     margin-top: 1rem;
   }
 
-  /* Navbar */
+  /* ── Navbar ── */
+
   html[data-theme="dark"] .navbar {
-    @apply bg-wal-gray-80;
+    background-color: var(--color-walrus-dark-gray-200) !important;
+    border-bottom-color: var(--color-walrus-dark-gray-300) !important;
   }
 
   .theme-doc-sidebar-menu.menu__list {
@@ -150,10 +158,13 @@
   }
 
   .navbar__link--active {
-    @apply text-wal-purple-darker dark:text-wal-purple-dark;
+    color: var(--color-walrus-purple) !important;
+  }
+  [data-theme="dark"] .navbar__link--active {
+    color: var(--color-walrus-mint) !important;
   }
 
-  /* Logo */
+  /* ── Logo ── */
 
   .navbar__logo {
     display: flex !important;
@@ -168,7 +179,8 @@
     display: block !important;
   }
 
-  /* DocSearch button */
+  /* ── DocSearch button ── */
+
   .DocSearch-Button-Container {
     width: 100%;
     justify-content: space-between;
@@ -178,29 +190,33 @@
   .DocSearch-Button {
     width: 12.5rem;
     height: 2.625rem !important;
-    border: solid 1px rgba(247, 247, 248, 0.1) !important;
+    border: solid 1px var(--color-walrus-light-gray-150) !important;
     border-radius: 2.25rem !important;
     padding: 1rem 1.1rem 1rem 1.25rem !important;
-    color: var(--color-wal-gray-70) !important;
-    font-family: var(--primaryFont);
+    color: var(--color-walrus-dark-gray-300) !important;
+    font-family: var(--font-sans);
     letter-spacing: -0.01em;
-    background-image: var(--wal-surface-gradient-light);
-    background-color: var(--color-wal-gray-5);
+    background-color: #fff;
     margin: 0;
     transition: all var(--ifm-transition-fast) var(--ifm-transition-timing-default);
   }
 
   [data-theme="dark"] .DocSearch-Button {
-    color: var(--color-wal-gray-70) !important;
-    background-image: var(--wal-surface-gradient-dark);
-    background-color: var(--color-wal-gray-90);
+    color: var(--color-walrus-dark-gray-450) !important;
+    border-color: var(--color-walrus-dark-gray-300) !important;
+    background-color: var(--color-walrus-dark-gray-150);
   }
 
   .DocSearch-Button:hover,
   .DocSearch-Button:focus,
   .DocSearch-Button:active {
-    box-shadow: inset 0 0 0 2px var(--color-wal-green-dark);
+    box-shadow: inset 0 0 0 2px var(--color-walrus-purple);
     outline: 0;
+  }
+  [data-theme="dark"] .DocSearch-Button:hover,
+  [data-theme="dark"] .DocSearch-Button:focus,
+  [data-theme="dark"] .DocSearch-Button:active {
+    box-shadow: inset 0 0 0 2px var(--color-walrus-mint);
   }
 
   @media screen and (max-width: 599px) {
@@ -215,12 +231,11 @@
     stroke-width: 1.6;
   }
 
-  html[data-theme="dark"] .DocSearch-Search-Icon path {
-    stroke: var(--color-wal-green);
-  }
-
   .DocSearch-Search-Icon path {
-    stroke: var(--color-wal-gray-70);
+    stroke: var(--color-walrus-dark-gray-300);
+  }
+  html[data-theme="dark"] .DocSearch-Search-Icon path {
+    stroke: var(--color-walrus-mint);
   }
 
   .DocSearch-Button-Placeholder {
@@ -257,11 +272,17 @@
   }
 
   .sui-search mark {
-    @apply bg-wal-green/40;
+    background-color: var(--color-walrus-light-gray-100);
+  }
+  [data-theme="dark"] .sui-search mark {
+    background-color: var(--color-walrus-dark-gray-300);
   }
 
   .modal-result mark {
-    @apply bg-wal-green-light;
+    background-color: var(--color-walrus-light-gray-100);
+  }
+  [data-theme="dark"] .modal-result mark {
+    background-color: var(--color-walrus-dark-gray-300);
   }
 
   .ais-Pagination-list {
@@ -269,7 +290,18 @@
   }
 
   .ais-Pagination-item {
-    @apply border border-solid border-wal-gray-50 dark:border-wal-gray-80 p-1 mx-2 w-12 flex items-center justify-center;
+    border: 1px solid var(--color-walrus-light-gray-200);
+    padding: 0.25rem;
+    margin-left: 0.5rem;
+    margin-right: 0.5rem;
+    width: 3rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  [data-theme="dark"] .ais-Pagination-item {
+    border-color: var(--color-walrus-dark-gray-300);
   }
 
   .ais-SearchBox-submitIcon {
@@ -282,10 +314,18 @@
 
   .ais-Pagination-item--selected {
     @apply cursor-default;
+    background-color: var(--color-walrus-purple);
+  }
+  [data-theme="dark"] .ais-Pagination-item--selected {
+    background-color: var(--color-walrus-mint);
   }
 
   .ais-Pagination-item--selected a {
-    @apply text-wal-white-100 cursor-default no-underline;
+    color: #fff;
+    @apply cursor-default no-underline;
+  }
+  [data-theme="dark"] .ais-Pagination-item--selected a {
+    color: var(--color-walrus-midnight);
   }
 
   .header-github-link {
@@ -303,9 +343,8 @@
     mask: url("/img/github-icon.svg") no-repeat center / contain;
   }
 
-  /* Copy page button */
   html[data-theme="dark"] #copy-page-button-container button {
-    color: var(--color-wal-black);
+    color: var(--color-walrus-midnight);
   }
 
   /* table in legal/privacy */
@@ -321,22 +360,40 @@
     width: 38%;
   }
 
-  /* Blog posts */
+  /* ── Blog posts ── */
+
   html.blog-post-page header h1 {
-    @apply font-light text-wal-purple-dark dark:text-wal-purple;
+    @apply font-light;
+    color: var(--color-walrus-purple);
+  }
+  html[data-theme="dark"].blog-post-page header h1 {
+    color: var(--color-walrus-violet);
   }
 
   html.blog-list-page header h2 a {
-    @apply font-light text-wal-link-hover dark:text-wal-link;
+    @apply font-light;
+    color: var(--color-walrus-purple);
+  }
+  html[data-theme="dark"].blog-list-page header h2 a {
+    color: var(--color-walrus-mint);
   }
 
   html.blog-list-page article {
-    @apply p-8 border border-x-2 border-solid border-transparent border-x-wal-purple rounded-xl;
+    @apply p-8 rounded-xl;
+    border: 1px solid transparent;
+    border-left-width: 2px;
+    border-right-width: 2px;
+    border-left-color: var(--color-walrus-purple);
+    border-right-color: var(--color-walrus-purple);
+  }
+  html[data-theme="dark"].blog-list-page article {
+    border-left-color: var(--color-walrus-violet);
+    border-right-color: var(--color-walrus-violet);
   }
 
   /* Outlined tabs */
   .outlined-tabs {
-    border: 1px solid var(--ifm-color-emphasis-300);
+    border: 1px solid var(--color-walrus-light-gray-200);
     border-radius: 8px;
     padding: 1rem;
     margin: 1rem 0;
@@ -351,15 +408,15 @@
   }
 
   [data-theme="dark"] .outlined-tabs {
-    border-color: var(--ifm-color-emphasis-400);
+    border-color: var(--color-walrus-dark-gray-300);
   }
 
   .toggleButton_ZKVd {
-    color: black;
+    color: var(--color-walrus-midnight);
   }
 
   [data-theme="dark"] .lightToggleIcon_pgEs {
-    color: #ffffff;
+    color: #fff;
   }
 
   /* --- Mobile: icon-only for search + kapa (≤996px) --- */
@@ -419,7 +476,11 @@
       margin: 0 !important;
       order: 0 !important;
       flex-shrink: 0 !important;
-      color: var(--color-wal-gray-100) !important;
+      color: var(--color-walrus-dark-gray-300) !important;
+    }
+
+    [data-theme="dark"] .navbar .DocSearch-Search-Icon {
+      color: var(--color-walrus-mint) !important;
     }
 
     .navbar .kapa-trigger-btn {
@@ -459,7 +520,6 @@
       padding-right: 0.35rem !important;
     }
 
-    /* Search: icon-only */
     .navbar .DocSearch-Button {
       width: 34px !important;
       min-width: 34px !important;
@@ -479,7 +539,6 @@
       margin-left: 0 !important;
     }
 
-    /* Kapa: icon-only */
     .navbar .kapa-trigger-btn {
       width: 34px !important;
       height: 34px !important;
@@ -526,10 +585,10 @@
   }
 }
 
-/* Force toggle icon color (always black) */
+/* Force toggle icon color */
 .theme-toggle-wrapper .toggleButton_GAkl,
 .theme-toggle-wrapper .toggleButton_GAkl svg {
-  color: #000 !important;
+  color: var(--color-walrus-midnight) !important;
 }
 
 /* Hide mobile sidebar brand during SSR to prevent hydration flash */
@@ -540,22 +599,37 @@
   display: flex;
 }
 
-/* Lock navbar colors and position */
+/* ══════════════════════════════════════════════
+   Navbar chrome
+   ══════════════════════════════════════════════ */
+
 .navbar {
   position: sticky !important;
   top: 0 !important;
   z-index: var(--ifm-z-index-fixed) !important;
-  background: var(--color-wal-white-100) !important;
-  color: var(--color-wal-gray-100) !important;
-  border-bottom: 1px solid var(--color-wal-grey-10) !important;
+  background: #fff !important;
+  color: var(--color-walrus-midnight) !important;
+  border-bottom: 1px solid var(--color-walrus-light-gray-100) !important;
 }
 
-/* Links/text inside navbar */
+html[data-theme="dark"] .navbar {
+  background: var(--color-walrus-dark-gray-200) !important;
+  color: var(--color-walrus-tusk) !important;
+  border-bottom-color: var(--color-walrus-dark-gray-300) !important;
+}
+
 .navbar .navbar__title,
 .navbar .navbar__link,
 .navbar .navbar__brand,
 .navbar .navbar__toggle {
-  color: var(--color-wal-gray-100) !important;
+  color: var(--color-walrus-midnight) !important;
+}
+
+[data-theme="dark"] .navbar .navbar__title,
+[data-theme="dark"] .navbar .navbar__link,
+[data-theme="dark"] .navbar .navbar__brand,
+[data-theme="dark"] .navbar .navbar__toggle {
+  color: var(--color-walrus-tusk) !important;
 }
 
 .navbar .navbar__brand {
@@ -563,18 +637,174 @@
   white-space: nowrap !important;
 }
 
-
-
-/* DocSearch button in navbar */
 .navbar .DocSearch-Button {
-  color: var(--color-wal-gray-70) !important;
-  background-image: var(--wal-surface-gradient-light) !important;
-  background-color: var(--color-wal-gray-5) !important;
+  color: var(--color-walrus-dark-gray-300) !important;
+  background-color: #fff !important;
+  border-color: var(--color-walrus-light-gray-150) !important;
 }
 
-/* Kapa button in navbar */
+[data-theme="dark"] .navbar .DocSearch-Button {
+  color: var(--color-walrus-dark-gray-450) !important;
+  background-color: var(--color-walrus-dark-gray-150) !important;
+  border-color: var(--color-walrus-dark-gray-300) !important;
+}
+
 .navbar .kapa-trigger-btn {
   background: #fff !important;
-  color: #111827 !important;
-  border-color: #e5e7eb !important;
+  color: var(--color-walrus-dark-gray-300) !important;
+  border-color: var(--color-walrus-light-gray-150) !important;
+}
+
+[data-theme="dark"] .navbar .kapa-trigger-btn {
+  background: var(--color-walrus-dark-gray-200) !important;
+  color: var(--color-walrus-dark-gray-450) !important;
+  border-color: var(--color-walrus-dark-gray-300) !important;
+}
+
+/* ══════════════════════════════════════════════
+     Admonitions — brand colors
+     ══════════════════════════════════════════════ */
+
+  /* Note — grey */
+  .theme-admonition-note,
+  .alert--secondary {
+    --ifm-alert-background-color: var(--color-walrus-light-gray-100);
+    --ifm-alert-foreground-color: var(--color-walrus-dark-gray-300);
+    --ifm-alert-border-color: var(--color-walrus-light-gray-300);
+    border-left: 4px solid var(--color-walrus-light-gray-400);
+  }
+  [data-theme='dark'] .theme-admonition-note,
+  [data-theme='dark'] .alert--secondary {
+    --ifm-alert-background-color: var(--color-walrus-dark-gray-200);
+    --ifm-alert-foreground-color: var(--color-walrus-dark-gray-500);
+    --ifm-alert-border-color: var(--color-walrus-dark-gray-300);
+    border-left-color: var(--color-walrus-dark-gray-400);
+  }
+
+  /* Tip — purple */
+  .theme-admonition-tip,
+  .alert--success {
+    --ifm-alert-background-color: var(--color-walrus-tusk);
+    --ifm-alert-foreground-color: var(--color-walrus-purple);
+    --ifm-alert-border-color: var(--color-walrus-violet);
+    border-left: 4px solid var(--color-walrus-purple);
+  }
+  [data-theme='dark'] .theme-admonition-tip,
+  [data-theme='dark'] .alert--success {
+    --ifm-alert-background-color: var(--color-walrus-dark-gray-200);
+    --ifm-alert-foreground-color: var(--color-walrus-violet);
+    --ifm-alert-border-color: var(--color-walrus-purple);
+    border-left-color: var(--color-walrus-violet);
+  }
+
+  /* Info — mint */
+  .theme-admonition-info,
+  .alert--info {
+    --ifm-alert-background-color: var(--color-walrus-tusk);
+    --ifm-alert-foreground-color: var(--color-walrus-dark-gray-300);
+    --ifm-alert-border-color: var(--color-walrus-mint);
+    border-left: 4px solid var(--color-walrus-mint);
+  }
+  [data-theme='dark'] .theme-admonition-info,
+  [data-theme='dark'] .alert--info {
+    --ifm-alert-background-color: var(--color-walrus-dark-gray-200);
+    --ifm-alert-foreground-color: var(--color-walrus-dark-gray-500);
+    --ifm-alert-border-color: var(--color-walrus-mint);
+    border-left-color: var(--color-walrus-mint);
+  }
+
+  /* Warning / Caution — yellow */
+  .theme-admonition-warning,
+  .theme-admonition-caution,
+  .alert--warning {
+    --ifm-alert-background-color: var(--color-walrus-tusk);
+    --ifm-alert-foreground-color: var(--color-walrus-light-gray-500);
+    --ifm-alert-border-color: var(--color-walrus-yellow);
+    border-left: 4px solid var(--color-walrus-yellow);
+  }
+  [data-theme='dark'] .theme-admonition-warning,
+  [data-theme='dark'] .theme-admonition-caution,
+  [data-theme='dark'] .alert--warning {
+    --ifm-alert-background-color: var(--color-walrus-dark-gray-200);
+    --ifm-alert-foreground-color: var(--color-walrus-dark-gray-500);
+    --ifm-alert-border-color: var(--color-walrus-yellow);
+    border-left-color: var(--color-walrus-yellow);
+  }
+
+  /* Danger — violet */
+  .theme-admonition-danger,
+  .alert--danger {
+    --ifm-alert-background-color: var(--color-walrus-tusk);
+    --ifm-alert-foreground-color: var(--color-walrus-purple);
+    --ifm-alert-border-color: var(--color-walrus-violet);
+    border-left: 4px solid var(--color-walrus-violet);
+  }
+  [data-theme='dark'] .theme-admonition-danger,
+  [data-theme='dark'] .alert--danger {
+    --ifm-alert-background-color: var(--color-walrus-dark-gray-200);
+    --ifm-alert-foreground-color: var(--color-walrus-violet);
+    --ifm-alert-border-color: var(--color-walrus-violet);
+    border-left-color: var(--color-walrus-violet);
+  }
+
+  /* Admonition heading icons */
+  .theme-admonition-tip .admonitionHeading_Gvgb svg,
+  .alert--success .admonitionHeading_Gvgb svg {
+    fill: var(--color-walrus-purple);
+  }
+  [data-theme='dark'] .theme-admonition-tip .admonitionHeading_Gvgb svg,
+  [data-theme='dark'] .alert--success .admonitionHeading_Gvgb svg {
+    fill: var(--color-walrus-violet);
+  }
+
+  .theme-admonition-info .admonitionHeading_Gvgb svg,
+  .alert--info .admonitionHeading_Gvgb svg {
+    fill: var(--color-walrus-mint);
+  }
+
+  .theme-admonition-warning .admonitionHeading_Gvgb svg,
+  .theme-admonition-caution .admonitionHeading_Gvgb svg,
+  .alert--warning .admonitionHeading_Gvgb svg {
+    fill: var(--color-walrus-yellow);
+  }
+
+  .theme-admonition-danger .admonitionHeading_Gvgb svg,
+  .alert--danger .admonitionHeading_Gvgb svg {
+    fill: var(--color-walrus-violet);
+  }
+
+  .theme-admonition-note .admonitionHeading_Gvgb svg,
+  .alert--secondary .admonitionHeading_Gvgb svg {
+    fill: var(--color-walrus-light-gray-400);
+  }
+  [data-theme='dark'] .theme-admonition-note .admonitionHeading_Gvgb svg,
+  [data-theme='dark'] .alert--secondary .admonitionHeading_Gvgb svg {
+    fill: var(--color-walrus-dark-gray-400);
+  }
+
+  /* Wider content area */
+.container {
+  max-width: 1400px;
+}
+
+/* Better readability */
+.markdown p {
+  line-height: 1.8;
+  font-size: 1.05rem;
+}
+
+/* Softer sidebar */
+.theme-doc-sidebar-container {
+  border-right: 1px solid var(--ifm-toc-border-color);
+}
+
+/* Improve spacing between sections */
+.markdown h2 {
+  margin-top: 2.5rem;
+}
+
+/* Card-style for admonitions */
+.admonition {
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
 }

@@ -55,13 +55,21 @@ export default function ControlledSearchBox({
         window.history.replaceState(null, "", newUrl);
     }, [query]);
 
+    const isDark =
+        typeof document !== "undefined" &&
+        document.documentElement.getAttribute("data-theme") === "dark";
+
     return (
         <div
             className={
-                "flex items-center mb-8 border border-wal-gray-40 " +
-                "dark:border-wal-gray-70 rounded-lg bg-wal-gray-10 " +
-                "dark:bg-wal-white-80 pl-2"
+                "flex items-center mb-8 border rounded-lg pl-2 " +
+                "border-[--color-walrus-dark-gray-500] dark:border-[--color-walrus-dark-gray-300]"
             }
+            style={{
+                backgroundColor: isDark
+                    ? "var(--color-walrus-dark-gray-300)"
+                    : "var(--color-walrus-light-gray-100)",
+            }}
         >
             {searchSvg}
             <input
@@ -70,7 +78,7 @@ export default function ControlledSearchBox({
                 className={
                     "cursor-pointer w-full py-2 pr-4 h-[40px] text-lg " +
                     "border-transparent bg-transparent focus-visible:outline-none " +
-                    "dark:text-wal-gray-50 dark:placeholder-wal-gray-50"
+                    "dark:text-[--color-walrus-dark-gray-450] dark:placeholder-[--color-walrus-dark-gray-450]"
                 }
                 placeholder={placeholder}
                 value={query}

@@ -9,11 +9,19 @@ export default function TabbedResults({ activeTab, onChange, tabs, showTooltips 
     const movetooltip = "Search results from The Move Book";
     const dapptooltip = "Search results from the Sui ecosystem SDKs";
     const walrustooltip = "Search results from the Walrus decentralized storage platform";
+
+    const isDark =
+        typeof document !== "undefined" &&
+        document.documentElement.getAttribute("data-theme") === "dark";
+    const tabBg = isDark
+        ? "var(--color-walrus-dark-gray-200)"
+        : "var(--color-walrus-tusk)";
+
     return (
         <div
             className={
                 "mb-4 flex justify-start border-2 border-solid border-transparent " +
-                "rounded-t-lg border-b-wal-gray-50 dark:border-b-wal-white-30"
+                "rounded-t-lg border-b-[--color-walrus-dark-gray-300] dark:border-b-[--color-walrus-dark-gray-450]"
             }
         >
             {tabs.map(({ label, indexName, count }) => (
@@ -21,24 +29,34 @@ export default function TabbedResults({ activeTab, onChange, tabs, showTooltips 
                     <button
                         className={
                             "mr-4 flex items-center font-semibold text-sm lg:text-md " +
-                            "xl:text-lg bg-[var(--ifm-background-color)] cursor-pointer " +
-                            "dark:text-wal-white-80 " +
+                            "xl:text-lg cursor-pointer " +
+                            "dark:text-[--color-walrus-dark-gray-500] " +
                             (activeTab === indexName
-                                ? "text-wal-gray-80 font-bold border-2 border-solid " +
-                                  "border-transparent border-b-wal-link-hover dark:border-b-wal-link"
-                                : "border-transparent text-wal-grey-40")
+                                ? "text-[--color-walrus-dark-gray-200] font-bold border-2 border-solid " +
+                                  "border-transparent border-b-[--color-walrus-purple] dark:border-b-[--color-walrus-mint]"
+                                : "border-transparent text-[--color-walrus-light-gray-400]")
                         }
+                        style={{ backgroundColor: tabBg }}
                         onClick={() => onChange(indexName)}
                     >
                         {label}{" "}
                         <span
                             className={
-                                "dark:text-wal-white-80 text-xs rounded-full ml-1 py-1 " +
+                                "dark:text-[--color-walrus-dark-gray-500] text-xs rounded-full ml-1 py-1 " +
                                 "px-2 border border-solid " +
                                 (activeTab === indexName
-                                    ? "dark:!text-wal-green bg-transparent " +
-                                      "border-wal-gray-80 dark:border-wal-white-80"
-                                    : "bg-wal-gray-10 dark:bg-wal-white-30 border-transparent")
+                                    ? "dark:!text-[--color-walrus-mint] bg-transparent " +
+                                      "border-[--color-walrus-dark-gray-200] dark:border-[--color-walrus-dark-gray-500]"
+                                    : "border-transparent")
+                            }
+                            style={
+                                activeTab !== indexName
+                                    ? {
+                                          backgroundColor: isDark
+                                              ? "var(--color-walrus-dark-gray-300)"
+                                              : "var(--color-walrus-light-gray-200)",
+                                      }
+                                    : undefined
                             }
                         >
                             {count}

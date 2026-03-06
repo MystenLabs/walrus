@@ -3,53 +3,60 @@
   SPDX-License-Identifier: Apache-2.0
 */
 
+/* ══════════════════════════════════════════════
+   Homepage / sidebar cards
+   ══════════════════════════════════════════════ */
+
 :root {
   --walrus-cards-border-color: transparent;
-  --walrus-cards-background: var(--color-wal-gray-5);
-  --walrus-cards-header: var(--color-wal-green-dark);
-  --walrus-cards-copy: var(--color-wal-gray-60);
-  --walrus-cards-background-hover: var(--color-wal-gray-10);
+  --walrus-cards-background: var(--color-walrus-light-gray-100);
+  --walrus-cards-header: var(--color-walrus-purple);
+  --walrus-cards-copy: var(--color-walrus-dark-gray-400);
+  --walrus-cards-background-hover: var(--color-walrus-light-gray-200);
 }
 
 [data-theme='dark'] {
-    --walrus-cards-border-color: var(--color-wal-white-5);
-    --walrus-cards-background: var(--color-wal-white-5);
-    --walrus-cards-background-hover: var(--color-wal-white-10);
-    --walrus-cards-header: var(--color-wal-green-dark);
-    --walrus-cards-copy: var(--color-wal-white-70);
+  --walrus-cards-border-color: var(--color-walrus-dark-gray-300);
+  --walrus-cards-background: var(--color-walrus-dark-gray-200);
+  --walrus-cards-background-hover: var(--color-walrus-dark-gray-300);
+  --walrus-cards-header: var(--color-walrus-mint);
+  --walrus-cards-copy: var(--color-walrus-dark-gray-450);
 }
 
 .card {
-    display: flex;
-    flex-direction: column;
-    justify-content: flex-start;
-    row-gap: .75rem;
-    border-radius: 20px;
-    padding: 1.25rem;
-    padding-bottom: 1.5rem;
-    background: var(--walrus-cards-background);
-    cursor: pointer;
-    transition: background .25s ease-in-out;
-    border: solid 1px var(--walrus-cards-border-color);
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  row-gap: .75rem;
+  border-radius: 20px;
+  padding: 1.25rem;
+  padding-bottom: 1.5rem;
+  background: var(--walrus-cards-background);
+  cursor: pointer;
+  transition: background .25s ease-in-out;
+  border: solid 1px var(--walrus-cards-border-color);
 }
 .card:hover {
-    background: var(--walrus-cards-background-hover);
+  background: var(--walrus-cards-background-hover);
 }
 
 .card__header__copy {
-    margin: 0;
-    font-size: 1.125rem;
-    line-height: 1.25rem;
-    color: var(--walrus-cards-header);
+  margin: 0;
+  font-size: 1.125rem;
+  line-height: 1.5;
+  color: var(--walrus-cards-header);
 }
 
 .card__copy {
-    font-size: .8125rem;
-    line-height: 1.3125rem;
-    color: var(--walrus-cards-copy);
+  font-size: .8125rem;
+  line-height: 1.3125rem;
+  color: var(--walrus-cards-copy);
 }
 
-/* Step Cards for Docusaurus */
+/* ══════════════════════════════════════════════
+   Step Cards
+   ══════════════════════════════════════════════ */
+
 .step-card-container {
   counter-reset: step;
   display: flex;
@@ -67,30 +74,27 @@
   bottom: 2.5rem;
   width: 2px;
   background: linear-gradient(180deg,
-    var(--color-wal-green-dark) 0%,
-    var(--color-wal-gray-20) 50%,
-    var(--color-wal-gray-80) 100%
+    var(--color-walrus-purple) 0%,
+    var(--color-walrus-light-gray-200) 50%,
+    var(--color-walrus-dark-gray-300) 100%
   );
   opacity: 0.2;
   z-index: 0;
 }
 
-/* Target the actual Docusaurus card class */
 .step-card-container > div[class*='card_'] {
   position: relative;
   padding: 1.25rem 1.5rem 1.25rem 4.5rem !important;
-  border: 1px solid var(--color-wal-gray-10) !important;
+  border: 1px solid var(--color-walrus-light-gray-200) !important;
   border-radius: 0.625rem !important;
-  background: linear-gradient(135deg,
-    var(--color-wal-white-90) 0%,
-    var(--color-wal-white-100) 100%
-  ) !important;
+  background: var(--color-walrus-tusk) !important;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
   overflow: visible !important;
   z-index: 1;
   cursor: pointer;
 }
 
+/* Step number badge */
 .step-card-container > div[class*='card_']::before {
   content: counter(step);
   counter-increment: step;
@@ -103,16 +107,16 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--color-wal-purple);
-  color: var(--color-wal-white-100);
+  background: var(--color-walrus-purple);
+  color: var(--color-walrus-tusk);
   font-weight: 700;
   font-size: 0.813rem;
   border-radius: 0.5rem;
-  box-shadow: 0 4px 12px var(--color-wal-purple-dark);
   z-index: 2;
   transition: all 0.3s ease;
 }
 
+/* Left accent bar (hidden until hover) */
 .step-card-container > div[class*='card_']::after {
   content: '';
   position: absolute;
@@ -121,8 +125,8 @@
   width: 3px;
   height: 100%;
   background: linear-gradient(180deg,
-    var(--color-wal-purple) 0%,
-    var(--color-wal-purple-dark) 50%,
+    var(--color-walrus-purple) 0%,
+    var(--color-walrus-violet) 50%,
     transparent 100%
   );
   opacity: 0;
@@ -131,67 +135,51 @@
 }
 
 .step-card-container > div[class*='card_']:hover {
-  border-color: var(--color-wal-purple-light) !important;
-  background: linear-gradient(135deg,
-    var(--color-wal-white-100) 0%,
-    var(--color-wal-white-100) 100%
-  ) !important;
-  box-shadow:
-    0 4px 16px var(--color-wal-purple-dark),
-    0 0 0 1px var(--color-wal-purple-light) !important;
+  border-color: var(--color-walrus-violet) !important;
+  background: var(--color-walrus-tusk) !important;
+  box-shadow: 0 4px 16px var(--color-walrus-light-gray-200) !important;
   transform: translateX(4px) !important;
 }
 
 .step-card-container > div[class*='card_']:hover::before {
   transform: translateY(-50%) scale(1.1);
-  box-shadow: 0 6px 20px var(--color-wal-purple-dark);
 }
 
 .step-card-container > div[class*='card_']:hover::after {
   opacity: 1;
 }
 
-/* Remove the default card title numbering if present */
 .step-card-container div[class*='card__header'] {
   margin-bottom: 0.5rem;
 }
 
-/* Adjust card description spacing */
 .step-card-container div[class*='card__copy'] {
   font-size: 0.875rem;
   line-height: 1.5;
-  color: var(--color-wal-gray-80);
+  color: var(--color-walrus-dark-gray-300);
 }
 
-/* Dark mode */
+/* Step cards — dark */
 [data-theme='dark'] .step-card-container::before {
   opacity: 0.15;
 }
 
 [data-theme='dark'] .step-card-container > div[class*='card_'] {
-  border-color: var(--color-wal-white-10) !important;
-  background: linear-gradient(135deg,
-    var(--color-wal-gray-90) 0%,
-    var(--color-wal-gray-100) 100%
-  ) !important;
+  border-color: var(--color-walrus-dark-gray-300) !important;
+  background: var(--color-walrus-dark-gray-200) !important;
 }
 
 [data-theme='dark'] .step-card-container > div[class*='card_']:hover {
-  border-color: var(--color-wal-purple-dark) !important;
-  background: linear-gradient(135deg,
-    var(--color-wal-gray-80) 0%,
-    var(--color-wal-gray-100) 100%
-  ) !important;
-  box-shadow:
-    0 4px 16px var(--color-wal-purple-darker),
-    0 0 0 1px var(--color-wal-purple-dark) !important;
+  border-color: var(--color-walrus-violet) !important;
+  background: var(--color-walrus-dark-gray-150) !important;
+  box-shadow: 0 4px 16px var(--color-walrus-midnight) !important;
 }
 
 [data-theme='dark'] .step-card-container div[class*='card__copy'] {
-  color: var(--color-wal-white-80);
+  color: var(--color-walrus-dark-gray-450);
 }
 
-/* Responsive */
+/* Step cards — responsive */
 @media (max-width: 768px) {
   .step-card-container > div[class*='card_'] {
     padding: 1rem 1rem 1rem 3.5rem !important;
@@ -209,7 +197,10 @@
   }
 }
 
-/* Normal Cards for Docusaurus */
+/* ══════════════════════════════════════════════
+   Normal Cards (grid)
+   ══════════════════════════════════════════════ */
+
 .card-container {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -217,24 +208,20 @@
   margin: 2rem 0;
 }
 
-/* Target actual Docusaurus card elements */
 .card-container > div[class*='card_'],
 .card-container > a[class*='card_'] {
   position: relative;
   padding: 1.25rem 1.5rem !important;
-  border: 1px solid var(--color-wal-gray-10) !important;
+  border: 1px solid var(--color-walrus-light-gray-200) !important;
   border-radius: 0.625rem !important;
-  background: linear-gradient(135deg,
-    var(--color-wal-white-90) 0%,
-    var(--color-wal-white-100) 100%
-  ) !important;
-  backdrop-filter: blur(10px);
+  background: var(--color-walrus-tusk) !important;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
   text-decoration: none !important;
-  box-shadow: 0 2px 4px var(--color-wal-gray-5) !important;
+  box-shadow: 0 2px 4px var(--color-walrus-light-gray-100) !important;
   height: 100%;
 }
 
+/* Left accent bar (hidden until hover) */
 .card-container > div[class*='card_']::before,
 .card-container > a[class*='card_']::before {
   content: '';
@@ -244,8 +231,8 @@
   width: 3px;
   height: 100%;
   background: linear-gradient(180deg,
-    var(--color-wal-green-dark) 0%,
-    var(--color-wal-green) 50%,
+    var(--color-walrus-purple) 0%,
+    var(--color-walrus-violet) 50%,
     transparent 100%);
   opacity: 0;
   transition: opacity 0.3s ease;
@@ -254,14 +241,11 @@
 
 .card-container > div[class*='card_']:hover,
 .card-container > a[class*='card_']:hover {
-  border-color: var(--color-wal-green) !important;
-  background: linear-gradient(135deg,
-    var(--color-wal-white-100) 0%,
-    var(--color-wal-white-100) 100%
-  ) !important;
+  border-color: var(--color-walrus-purple) !important;
+  background: var(--color-walrus-tusk) !important;
   box-shadow:
-    0 4px 12px var(--color-wal-green-dark),
-    0 2px 4px var(--color-wal-gray-5) !important;
+    0 4px 12px var(--color-walrus-light-gray-200),
+    0 2px 4px var(--color-walrus-light-gray-100) !important;
   transform: translateY(-2px) !important;
 }
 
@@ -270,7 +254,6 @@
   opacity: 1;
 }
 
-/* Card content styling */
 .card-container div[class*='card__header'] {
   margin-bottom: 0.5rem;
   font-weight: 600;
@@ -279,37 +262,31 @@
 .card-container div[class*='card__copy'] {
   font-size: 0.875rem;
   line-height: 1.5;
-  color: var(--color-wal-gray-80);
+  color: var(--color-walrus-dark-gray-300);
 }
 
-/* Dark mode */
+/* Normal cards — dark */
 [data-theme='dark'] .card-container > div[class*='card_'],
 [data-theme='dark'] .card-container > a[class*='card_'] {
-  border-color: var(--color-wal-white-10) !important;
-  background: linear-gradient(135deg,
-    var(--color-wal-gray-90) 0%,
-    var(--color-wal-gray-100) 100%
-  ) !important;
-  box-shadow: 0 2px 4px var(--color-wal-black) !important;
+  border-color: var(--color-walrus-dark-gray-300) !important;
+  background: var(--color-walrus-dark-gray-200) !important;
+  box-shadow: 0 2px 4px var(--color-walrus-midnight) !important;
 }
 
 [data-theme='dark'] .card-container > div[class*='card_']:hover,
 [data-theme='dark'] .card-container > a[class*='card_']:hover {
-  border-color: var(--color-wal-green-dark) !important;
-  background: linear-gradient(135deg,
-    var(--color-wal-gray-80) 0%,
-    var(--color-wal-gray-100) 100%
-  ) !important;
+  border-color: var(--color-walrus-mint) !important;
+  background: var(--color-walrus-dark-gray-150) !important;
   box-shadow:
-    0 4px 12px var(--color-wal-green-darker),
-    0 2px 4px var(--color-wal-black) !important;
+    0 4px 12px var(--color-walrus-midnight),
+    0 2px 4px var(--color-walrus-midnight) !important;
 }
 
 [data-theme='dark'] .card-container div[class*='card__copy'] {
-  color: var(--color-wal-white-80);
+  color: var(--color-walrus-dark-gray-450);
 }
 
-/* Responsive */
+/* Normal cards — responsive */
 @media (max-width: 996px) {
   .card-container {
     grid-template-columns: repeat(2, 1fr);
@@ -325,10 +302,4 @@
   .card-container > a[class*='card_'] {
     padding: 1rem 1.25rem !important;
   }
-}
-.card__header__copy {
-    margin: 0;
-    font-size: 1.125rem;
-    line-height: 1.5;  /* Changed from 1.25rem to 1.5 for better spacing */
-    color: var(--walrus-cards-header);
 }
