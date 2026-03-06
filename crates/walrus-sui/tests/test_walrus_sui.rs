@@ -34,6 +34,7 @@ use walrus_sui::{
         ContractEvent,
         EpochChangeEvent,
         NodeRegistrationParams,
+        ProtocolEvent,
         move_structs::BlobWithAttribute,
     },
     utils,
@@ -189,7 +190,11 @@ async fn test_register_certify_blob() -> anyhow::Result<()> {
     else {
         bail!("unexpected event type. expecting EpochChangeStart");
     };
-    // TODO(WAL-804): once price updates emit events, we should expect one from here.
+    let ContractEvent::ProtocolEvent(ProtocolEvent::PricesUpdated(_)) =
+        events.next().await.unwrap()
+    else {
+        bail!("unexpected event type. expecting PricesUpdated");
+    };
     let ContractEvent::BlobEvent(BlobEvent::Registered(blob_registered)) =
         events.next().await.unwrap()
     else {
@@ -340,7 +345,11 @@ async fn test_invalidate_blob() -> anyhow::Result<()> {
     else {
         bail!("unexpected event type. expecting EpochChangeStart");
     };
-    // TODO(WAL-804): once price updates emit events, we should expect one from here.
+    let ContractEvent::ProtocolEvent(ProtocolEvent::PricesUpdated(_)) =
+        events.next().await.unwrap()
+    else {
+        bail!("unexpected event type. expecting PricesUpdated");
+    };
     let ContractEvent::BlobEvent(BlobEvent::InvalidBlobID(invalid_blob_id)) =
         events.next().await.unwrap()
     else {
