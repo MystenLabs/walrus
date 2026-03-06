@@ -1,15 +1,21 @@
-// Copyright (c) Walrus Foundation
+// Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
-
 import React from "react";
-import clsx from "clsx";
 import Link from "@docusaurus/Link";
-import {
-  findFirstSidebarItemLink,
-} from "@docusaurus/theme-common";
 import isInternalUrl from "@docusaurus/isInternalUrl";
 import Heading from "@theme/Heading";
 import styles from "./styles.module.css";
+
+function findFirstLink(item: any): string | undefined {
+  if (item.href) return item.href;
+  if (item.items) {
+    for (const child of item.items) {
+      const link = findFirstLink(child);
+      if (link) return link;
+    }
+  }
+  return undefined;
+}
 
 function CardContainer({
   href,
@@ -88,7 +94,7 @@ function CategoryFooter({ item }: { item: any }) {
 }
 
 function CardCategory({ item }: { item: any }) {
-  const href = findFirstSidebarItemLink(item);
+  const href = findFirstLink(item);
   if (!href) return null;
 
   return (
