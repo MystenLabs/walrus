@@ -43,7 +43,7 @@ If you deviate from the standard setup below (user, directories, ports), make su
 
     ##### Step 4: Configure the firewall:
 
-    Open port **9185** (storage node) and **80** (automatic certificate renewal). If you plan to run an aggregator with a reverse proxy, also open **443**:
+    Open port **9185** (storage node) and **80** (automatic certificate renewal). If you plan to run an [aggregator or publisher](/docs/operator-guide/aggregator) on the same host, also open **9000** (aggregator) and/or **9001** (publisher), or **443** if you use a reverse proxy (recommended for production):
 
         ```sh
         for PORT in 80 443 9185; do
@@ -362,6 +362,19 @@ Do not reuse any keys, wallets, or other secrets from Testnet or anywhere else. 
 ##### Step 1: Fund the wallet:
 Send SUI to the wallet address shown during setup. 1 SUI is sufficient for registration, but the node needs additional SUI for ongoing operation. A recommended initial balance is ~20 SUI.
 
+<Tabs>
+<TabItem label="Mainnet" value="mainnet">
+
+Transfer SUI from an existing wallet or exchange to the address shown during setup.
+
+</TabItem>
+<TabItem label="Testnet" value="testnet">
+
+You can use the [Sui Testnet faucet](https://faucet.sui.io) to obtain test SUI. Note that the faucet has rate limits, so you may need to make multiple requests or wait between attempts. Alternatively, transfer SUI from an existing Testnet wallet.
+
+</TabItem>
+</Tabs>
+
 ##### Step 2: Register the node:
 
 ```sh
@@ -405,6 +418,16 @@ Ideally from a different machine to also verify firewall setup:
 ```sh
 curl https://<public-address>:9185/v1/health | jq
 ```
+
+:::tip
+
+The storage node serves HTTPS only (it handles TLS directly). When checking from localhost, use `curl -k` to skip certificate verification:
+
+```sh
+curl -sk https://localhost:9185/v1/health | jq
+```
+
+:::
 
 This should return a 200 status with a non-empty JSON payload. The `nodeStatus` should be `Standby`. You can also check `https://<public-address>:9185/v1/api` in a browser to verify the TLS certificate is set up correctly.
 
