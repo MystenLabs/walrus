@@ -105,7 +105,7 @@ public fun blob_count(self: &StoragePool): u64 {
     self.inner().blob_count
 }
 
-public(package) fun contains_blob(self: &StoragePool, blob_id: u256): bool {
+public fun contains_blob(self: &StoragePool, blob_id: u256): bool {
     self.blobs.contains(blob_id)
 }
 
@@ -113,7 +113,8 @@ public(package) fun borrow_blob(self: &StoragePool, blob_id: u256): &PooledBlob 
     self.blobs.borrow(blob_id)
 }
 
-public(package) fun blob_object_id(self: &StoragePool, blob_id: u256): ID {
+/// External wrappers use this to build certification messages for deletable blobs.
+public fun blob_object_id(self: &StoragePool, blob_id: u256): ID {
     object::id(self.blobs.borrow(blob_id))
 }
 

@@ -501,7 +501,7 @@ public fun write_price_per_unit_size(self: &System): u64 {
 }
 
 #[test_only]
-public(package) fun destroy_for_testing(self: System) {
+public fun destroy_for_testing(self: System) {
     std::unit_test::destroy(self);
 }
 
