@@ -43,12 +43,10 @@ If you deviate from the standard setup below (user, directories, ports), make su
 
     ##### Step 4: Configure the firewall:
 
-    Open port **9185** (storage node) and **80** (automatic certificate renewal). If you plan to run
-    an aggregator or publisher without a reverse proxy, also open **9000** (aggregator) and/or
-    **9001** (publisher). If using a reverse proxy, open **443** instead:
+    Open port **9185** (storage node) and **80** (automatic certificate renewal). If you plan to run an [aggregator or publisher](/docs/operator-guide/aggregator) on the same host, also open **9000** (aggregator) and/or **9001** (publisher), or **443** if you use a reverse proxy (recommended for production):
 
         ```sh
-        for PORT in 80 443 9185 9000 9001; do
+        for PORT in 80 443 9185; do
           sudo iptables -A INPUT -p tcp --dport $PORT -j ACCEPT
         done
         ```
@@ -372,9 +370,7 @@ Transfer SUI from an existing wallet or exchange to the address shown during set
 </TabItem>
 <TabItem label="Testnet" value="testnet">
 
-You can use the [Sui Testnet faucet](https://faucet.sui.io) to obtain test SUI. Note that the faucet
-has rate limits, so you may need to make multiple requests or wait between attempts. Alternatively,
-transfer SUI from an existing Testnet wallet.
+You can use the [Sui Testnet faucet](https://faucet.sui.io) to obtain test SUI. Note that the faucet has rate limits, so you may need to make multiple requests or wait between attempts. Alternatively, transfer SUI from an existing Testnet wallet.
 
 </TabItem>
 </Tabs>
@@ -425,8 +421,7 @@ curl https://<public-address>:9185/v1/health | jq
 
 :::tip
 
-The storage node serves HTTPS only (it handles TLS directly). When checking from localhost, use
-`curl -k` to skip certificate verification:
+The storage node serves HTTPS only (it handles TLS directly). When checking from localhost, use `curl -k` to skip certificate verification:
 
 ```sh
 curl -sk https://localhost:9185/v1/health | jq

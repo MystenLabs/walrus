@@ -212,55 +212,51 @@ For more information about maximum blob sizes, run `walrus info`.
 
 ## Run a publisher
 
-The publisher and daemon perform on-chain actions and thus require a Sui wallet with sufficient SUI
-and WAL balances. To enable handling many parallel requests without object conflicts, they create
-internal sub-wallets since version 1.4.0, which are funded from the main wallet. These sub-wallets
-are persisted in a directory specified with the `--sub-wallets-dir` argument. Any existing directory
-can be used. If it already contains sub-wallets, they are reused.
+The publisher and daemon perform on-chain actions and thus require a Sui wallet with sufficient SUI and WAL balances. To enable handling many parallel requests without object conflicts, they create internal sub-wallets since version 1.4.0, which are funded from the main wallet. These sub-wallets are persisted in a directory specified with the `--sub-wallets-dir` argument. Any existing directory can be used. If it already contains sub-wallets, they are reused.
 
-By default, 8 sub-wallets are created and funded. You can change this with the `--n-clients`
-argument. For simple local testing, 1 or 2 sub-wallets are usually sufficient.
+By default, 8 sub-wallets are created and funded. You can change this with the `--n-clients` argument. For simple local testing, 1 or 2 sub-wallets are usually sufficient.
 
 ### Fund the publisher wallet {#fund-publisher}
 
-The publisher wallet needs both SUI (for gas) and WAL (for storage payments). Each sub-wallet
-requires approximately 0.5–1.0 SUI and 0.5–1.0 WAL in steady state. As a guideline, ensure the
-**main** publisher wallet has at least:
+The publisher wallet needs both SUI (for gas) and WAL (for storage payments). Each sub-wallet requires approximately 0.5–1.0 SUI and 0.5–1.0 WAL in steady state. As a guideline for minimal testing, ensure the **main** publisher wallet has at least:
 
 - **SUI:** 2 SUI per sub-wallet (e.g., ~4 SUI for `--n-clients 2`, ~16 SUI for the default of 8)
 - **WAL:** 2 WAL per sub-wallet
 
-The publisher automatically distributes funds from the main wallet to sub-wallets at startup and
-refills them periodically during operation.
+If the publisher is expected to handle significant traffic, you need substantially higher amounts to cover storage costs and gas fees. The publisher automatically distributes funds from the main wallet to sub-wallets at startup and refills them periodically during operation. See [Manage SUI coins in sub-wallets](#manage-sub-wallets) for details on configuring refill behavior.
 
 <Tabs>
 <TabItem label="Mainnet" value="mainnet">
 
-Acquire WAL tokens through the Walrus token distribution or supported exchanges, and transfer both
-SUI and WAL to the publisher wallet address.
+Acquire WAL tokens through the Walrus token distribution or supported exchanges, and transfer both SUI and WAL to the publisher wallet address.
+
+:::warning
+
+While the aggregator does not perform Sui on-chain actions, and therefore consumes no gas, the publisher does perform actions on-chain and consumes both SUI and WAL tokens. On Mainnet, you are generally not expected to run a public publisher, as this comes with real monetary cost. If you do run one, ensure only authorized parties can access it, or use other measures to manage gas costs.
+
+:::
 
 </TabItem>
 <TabItem label="Testnet" value="testnet">
 
-On Testnet, you can exchange SUI for WAL using the exchange objects in the client configuration:
+On Testnet, you can exchange SUI for WAL using the exchange objects in the client configuration. Use the `--amount` option to specify the amount in MIST (1 WAL = 1,000,000,000 MIST):
 
 ```sh
-/opt/walrus/bin/walrus --config /opt/walrus/config/publisher_client_config.yaml get-wal
+/opt/walrus/bin/walrus --config /opt/walrus/config/publisher_client_config.yaml get-wal --amount 5000000000
 ```
 
-Each call exchanges 0.5 SUI for WAL. Run it multiple times to accumulate enough WAL for your
-sub-wallet count.
+This exchanges SUI for 5 WAL. Adjust the amount based on the number of sub-wallets and expected usage.
 
 </TabItem>
 </Tabs>
 
 :::warning
 
-If the publisher wallet does not have sufficient WAL, the publisher will fail to start with an error
-like `could not find WAL coins with sufficient balance`. Ensure you fund the wallet **before**
-starting the service.
+If the publisher wallet does not have sufficient WAL, the publisher will fail to start with an error like `could not find WAL coins with sufficient balance`. Ensure you fund the wallet **before** starting the service.
 
 :::
+
+### Manually run a publisher for testing
 
 Run a publisher with a single sub-wallet stored in the Walrus configuration directory:
 
@@ -312,15 +308,7 @@ cp /opt/walrus/config/client_config.yaml /opt/walrus/config/publisher_client_con
 echo 'wallet_config: /opt/walrus/config/publisher/sui_client.yaml' >> /opt/walrus/config/publisher_client_config.yaml
 ```
 
-Using a separate config file (instead of modifying `client_config.yaml`) keeps the storage node and
-publisher wallet configurations independent. Update the `ExecStart` line in the publisher systemd
-service to reference `publisher_client_config.yaml` accordingly.
-
-:::
-
-:::warning
-
-While the aggregator does not perform Sui on-chain actions, and therefore consumes no gas, the publisher does perform actions on-chain and consumes both SUI and WAL tokens. On Mainnet, you are generally not expected to run a public publisher, as this comes with real monetary cost. If you do run one, ensure only authorized parties can access it, or use other measures to manage gas costs.
+Update the `ExecStart` line in the publisher systemd service to reference `publisher_client_config.yaml` accordingly. Make sure to [fund the publisher wallet](#fund-publisher) before starting the service.
 
 :::
 
@@ -333,7 +321,7 @@ To operate a high-performance and concurrency publisher, use the following optio
 - The `--n-clients <NUM>` option creates a number of separate wallets used to perform concurrent Sui chain operations. Increase this to allow more parallel uploads. A higher number requires more SUI and WAL coins initially to be distributed to more wallets.
 - The `--max-concurrent-requests <NUM>` determines how many concurrent requests can be handled, including Sui operations (limited by number of clients) but also uploads. After this is exceeded, more requests are queued up to the `--max-buffer-size <NUM>`, after which requests are rejected with an HTTP 429 code.
 
-### Manage SUI coins in sub-wallets
+### Manage SUI coins in sub-wallets {#manage-sub-wallets}
 
 Each of the sub-wallets requires funds to interact with the chain and purchase storage. A background process checks periodically if the sub-wallets have enough funds. In steady state, each of the sub-wallets has a balance of 0.5-1.0 SUI and WAL. Configure the amount and triggers for coin refills through CLI arguments.
 
