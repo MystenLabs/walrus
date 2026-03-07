@@ -48,24 +48,40 @@ ENV RUSTFLAGS="$RUSTFLAGS"
 # Build all binaries with Antithesis instrumentation
 ARG LD_LIBRARY_PATH="/usr/lib/libvoidstar.so"
 ENV LD_LIBRARY_PATH="$LD_LIBRARY_PATH"
-RUN LD_LIBRARY_PATH=$LD_LIBRARY_PATH \
+# Persist cargo registry, git deps, and target across docker build runs so repeat builds are incremental.
+# Cargo uses /usr/local/cargo/registry (crates.io) and /usr/local/cargo/git (git deps) by default during
+# `cargo build`; mounting them keeps downloaded deps across builds. /walrus/target holds the build output.
+# Cache mounts are NOT part of the image: their contents live in BuildKit's cache and are not
+# committed to any layer. So the next stage cannot COPY from /walrus/target (it would be empty).
+# We must copy binaries out of the mount into a normal directory in this same RUN:
+# - `cp` runs inside the container and can read from the mounted cache and write to /opt/walrus-binaries.
+# - /opt/walrus-binaries is a normal path, so it becomes part of this layer.
+# - The next stage uses COPY --from=builder /opt/walrus-binaries/... which reads from the image
+#   filesystem; COPY cannot see cache mount contents, only content that was written into the image.
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    --mount=type=cache,target=/walrus/target \
     cargo build \
     --profile release-antithesis \
     --target-dir=/walrus/target \
     --bin walrus \
     --bin walrus-node \
     --bin walrus-deploy \
-    --bin walrus-stress
-RUN find /walrus/target
+    --bin walrus-stress \
+    && mkdir -p /opt/walrus-binaries \
+    && cp /walrus/target/release-antithesis/walrus /walrus/target/release-antithesis/walrus-node \
+        /walrus/target/release-antithesis/walrus-deploy /walrus/target/release-antithesis/walrus-stress \
+        /opt/walrus-binaries/
 
 FROM debian:bookworm-slim AS setup
 
 RUN apt-get update && apt-get install -y ca-certificates curl git
 WORKDIR "$WORKDIR/walrus"
-COPY --from=builder /walrus/target/release-antithesis/walrus /opt/walrus/bin/walrus
-COPY --from=builder /walrus/target/release-antithesis/walrus-node /opt/walrus/bin/walrus-node
-COPY --from=builder /walrus/target/release-antithesis/walrus-deploy /opt/walrus/bin/walrus-deploy
-COPY --from=builder /walrus/target/release-antithesis/walrus-stress /opt/walrus/bin/walrus-stress
+# Copy binaries from the path we populated with `cp` in the builder (not from /walrus/target, which was a cache mount).
+COPY --from=builder /opt/walrus-binaries/walrus /opt/walrus/bin/walrus
+COPY --from=builder /opt/walrus-binaries/walrus-node /opt/walrus/bin/walrus-node
+COPY --from=builder /opt/walrus-binaries/walrus-deploy /opt/walrus/bin/walrus-deploy
+COPY --from=builder /opt/walrus-binaries/walrus-stress /opt/walrus/bin/walrus-stress
 RUN mkdir -p /symbols
 RUN ln -s /opt/walrus/bin/walrus /symbols/walrus
 RUN ln -s /opt/walrus/bin/walrus-node /symbols/walrus-node
