@@ -4,12 +4,13 @@
 #[test_only]
 module blob_bucket::blob_bucket_tests;
 
-use blob_bucket::{blob_bucket, blob_bucket_inner_v1};
+use blob_bucket::blob_bucket;
 use std::unit_test::assert_eq;
 use walrus::{
     blob,
     encoding,
     messages,
+    storage_pool,
     system::{Self, System},
     test_utils::{Self, bls_min_pk_sign, signers_to_bitmap}
 };
@@ -29,10 +30,8 @@ fun full_blob_bucket_lifecycle() {
 
     let encoded_size = encoding::encoded_blob_length(SIZE, RS2, system.n_shards());
     let mut pool_payment = test_utils::mint_frost(N_COINS, ctx);
-    let storage_pool = system.create_storage_pool(encoded_size, 3, &mut pool_payment, ctx);
+    let (mut bucket, cap) = blob_bucket::new(&mut system, encoded_size, 3, &mut pool_payment, ctx);
     pool_payment.burn_for_testing();
-
-    let (mut bucket, cap) = blob_bucket::new(storage_pool, ctx);
 
     let blob_id = blob::derive_blob_id(ROOT_HASH, RS2, SIZE);
     let mut write_payment = test_utils::mint_frost(WRITE_PAYMENT, ctx);
@@ -51,6 +50,10 @@ fun full_blob_bucket_lifecycle() {
     assert!(blob_bucket::has_blob(&bucket, blob_id));
     assert_eq!(blob_bucket::blob_count(&bucket), 1);
     assert_eq!(blob_bucket::used_encoded_bytes(&bucket), encoded_size);
+
+    let mut extension_payment = test_utils::mint_frost(WRITE_PAYMENT, ctx);
+    blob_bucket::extend_storage_pool(&mut bucket, &cap, &mut system, 1, &mut extension_payment);
+    assert_eq!(blob_bucket::end_epoch(&bucket), 4);
 
     let object_id = blob_bucket::get_blob_object_id(&bucket, blob_id);
     let confirmation_message = messages::certified_deletable_message_bytes(
@@ -77,9 +80,10 @@ fun full_blob_bucket_lifecycle() {
     );
 
     write_payment.burn_for_testing();
-    let inner = blob_bucket::destroy_for_testing(bucket);
+    extension_payment.burn_for_testing();
+    let pool = blob_bucket::destroy_for_testing(bucket);
     blob_bucket::destroy_cap_for_testing(cap);
-    blob_bucket_inner_v1::destroy_for_testing(inner);
+    storage_pool::destroy_for_testing(pool);
     system.destroy_for_testing();
 }
 
@@ -90,12 +94,22 @@ fun wrong_cap_cannot_register_blob() {
 
     let encoded_size = encoding::encoded_blob_length(SIZE, RS2, system.n_shards());
     let mut left_payment = test_utils::mint_frost(N_COINS, ctx);
-    let left_storage_pool = system.create_storage_pool(encoded_size, 3, &mut left_payment, ctx);
     let mut right_payment = test_utils::mint_frost(N_COINS, ctx);
-    let right_storage_pool = system.create_storage_pool(encoded_size, 3, &mut right_payment, ctx);
 
-    let (mut left_bucket, _left_cap) = blob_bucket::new(left_storage_pool, ctx);
-    let (_right_bucket, right_cap) = blob_bucket::new(right_storage_pool, ctx);
+    let (mut left_bucket, _left_cap) = blob_bucket::new(
+        &mut system,
+        encoded_size,
+        3,
+        &mut left_payment,
+        ctx,
+    );
+    let (_right_bucket, right_cap) = blob_bucket::new(
+        &mut system,
+        encoded_size,
+        3,
+        &mut right_payment,
+        ctx,
+    );
 
     let blob_id = blob::derive_blob_id(ROOT_HASH, RS2, SIZE);
     let mut write_payment = test_utils::mint_frost(WRITE_PAYMENT, ctx);
