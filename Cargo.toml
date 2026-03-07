@@ -103,7 +103,7 @@ quote = "1.0"
 rand = "0.8.5"
 rand_distr = "0.4"
 rayon = "1.11.0"
-rcgen = "0.13.2"
+rcgen = "0.14.7"
 reed-solomon-simd = "3.1.0"
 regex = "1"
 reqwest = { version = "0.12.12", default-features = false, features = ["http2", "json", "rustls-tls"] }
