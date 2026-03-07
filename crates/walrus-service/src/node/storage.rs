@@ -77,7 +77,8 @@ mod event_sequencer;
 mod metrics;
 mod shard;
 
-pub(crate) use shard::{PrimarySliverData, SecondarySliverData, ShardStatus, ShardStorage};
+pub(crate) use shard::{PrimarySliverData, SecondarySliverData};
+pub use shard::{ShardStatus, ShardStorage};
 
 /// The status of the node.
 ///
@@ -385,13 +386,15 @@ impl Storage {
         self.database.clone()
     }
 
-    pub(crate) fn node_status(&self) -> Result<NodeStatus, TypedStoreError> {
+    /// Returns the current node status.
+    pub fn node_status(&self) -> Result<NodeStatus, TypedStoreError> {
         self.node_status
             .get(&())
             .map(|value| value.expect("node status should always be set"))
     }
 
-    pub(super) fn set_node_status(&self, status: NodeStatus) -> Result<(), TypedStoreError> {
+    /// Sets the node status.
+    pub fn set_node_status(&self, status: NodeStatus) -> Result<(), TypedStoreError> {
         self.node_status.insert(&(), &status)
     }
 
@@ -464,7 +467,7 @@ impl Storage {
 
     /// Creates the storage for the specified shards, if it does not exist yet.
     #[cfg(any(test, feature = "test-utils"))]
-    pub(crate) async fn create_storage_for_shards(
+    pub async fn create_storage_for_shards(
         &self,
         new_shards: &[ShardIndex],
     ) -> Result<(), TypedStoreError> {
@@ -655,10 +658,7 @@ impl Storage {
 
     /// Returns the blob info for `blob_id`.
     #[tracing::instrument(skip_all)]
-    pub(crate) fn get_blob_info(
-        &self,
-        blob_id: &BlobId,
-    ) -> Result<Option<BlobInfo>, TypedStoreError> {
+    pub fn get_blob_info(&self, blob_id: &BlobId) -> Result<Option<BlobInfo>, TypedStoreError> {
         self.blob_info.get(blob_id)
     }
 
@@ -990,7 +990,8 @@ impl Storage {
             .maybe_advance_event_cursor(event_index, cursor)
     }
 
-    pub(crate) fn get_sequentially_processed_event_count(&self) -> Result<u64, TypedStoreError> {
+    /// Returns the count of sequentially processed events.
+    pub fn get_sequentially_processed_event_count(&self) -> Result<u64, TypedStoreError> {
         self.event_cursor.get_sequentially_processed_event_count()
     }
 
@@ -1222,7 +1223,7 @@ impl Storage {
     }
 
     /// Clears the metadata in the storage for testing purposes.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-utils"))]
     pub fn clear_metadata_in_test(&self) -> Result<(), TypedStoreError> {
         tracing::info!("clear metadata in test");
         self.metadata.schedule_delete_all()?;

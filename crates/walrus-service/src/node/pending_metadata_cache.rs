@@ -155,7 +155,7 @@ impl PendingMetadataCache {
         removed
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-utils"))]
     pub async fn entry_count(&self) -> usize {
         let mut inner = self.inner.write().await;
         inner.evict_expired(Instant::now());
