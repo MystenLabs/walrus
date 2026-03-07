@@ -2889,6 +2889,114 @@ mod tests {
         assert!(check_err(&err), "QuiltDecoderV1: unexpected error: {err:?}");
     }
 
+    // ---- decode_quilt_index tests ----
+
+    /// Builds a valid meta blob buffer: [version][index_size: u32 LE][bcs(QuiltIndexV1)].
+    fn build_valid_meta_blob_bytes(quilt_index: &QuiltIndexV1) -> Vec<u8> {
+        let index_bytes = bcs::to_bytes(quilt_index).expect("serialize QuiltIndexV1");
+        let index_size = u32::try_from(index_bytes.len()).expect("index size fits u32");
+        let mut out = Vec::with_capacity(QUILT_INDEX_PREFIX_SIZE + index_bytes.len());
+        out.push(QuiltVersionV1::QUILT_VERSION_BYTE);
+        out.extend_from_slice(&index_size.to_le_bytes());
+        out.extend_from_slice(&index_bytes);
+        out
+    }
+
+    /// Asserts decode_quilt_index fails on both QuiltV1 and QuiltDecoderV1 built from `raw`.
+    fn assert_decode_quilt_index_err(raw: &[u8], check_err: impl Fn(&QuiltError) -> bool) {
+        let quilt_v1 = quilt_v1_from_raw(raw);
+        let decoder_v1 = decoder_v1_from_quilt(&quilt_v1);
+
+        let err = QuiltVersionV1::decode_quilt_index(&quilt_v1, TEST_COLUMN_SIZE)
+            .expect_err("QuiltV1: expected decode_quilt_index to fail");
+        assert!(check_err(&err), "QuiltV1: unexpected error: {err:?}");
+
+        let err = QuiltVersionV1::decode_quilt_index(&decoder_v1, TEST_COLUMN_SIZE)
+            .expect_err("QuiltDecoderV1: expected decode_quilt_index to fail");
+        assert!(check_err(&err), "QuiltDecoderV1: unexpected error: {err:?}");
+    }
+
+    #[test]
+    fn test_decode_quilt_index_invalid_version() {
+        let mut raw = build_valid_meta_blob_bytes(&QuiltIndexV1 {
+            quilt_patches: vec![],
+        });
+        raw[0] = 0xFF;
+        assert_decode_quilt_index_err(&raw, |e| {
+            matches!(e, QuiltError::QuiltVersionMismatch(0xFF, 0x01))
+        });
+    }
+
+    #[test]
+    fn test_decode_quilt_index_truncated_empty() {
+        // quilt_v1_from_raw([]) pads to one column of zeros -> version 0
+        assert_decode_quilt_index_err(&[], |e| {
+            matches!(e, QuiltError::QuiltVersionMismatch(0, 0x01))
+        });
+    }
+
+    #[test]
+    fn test_decode_quilt_index_truncated_version_only() {
+        // Only 1 byte (version); no 4-byte index_size.
+        // Padded layout yields 0 index bytes and BCS fails.
+        assert_decode_quilt_index_err(&[QuiltVersionV1::QUILT_VERSION_BYTE], |e| {
+            matches!(e, QuiltError::QuiltIndexSerDerError(..))
+        });
+    }
+
+    #[test]
+    fn test_decode_quilt_index_truncated_size_bytes() {
+        // Version plus 2 bytes (truncated index_size).
+        // Padded layout yields 0 index bytes and BCS fails.
+        assert_decode_quilt_index_err(&[QuiltVersionV1::QUILT_VERSION_BYTE, 0, 0], |e| {
+            matches!(e, QuiltError::QuiltIndexSerDerError(..))
+        });
+    }
+
+    #[test]
+    fn test_decode_quilt_index_index_size_exceeds_max() {
+        let mut raw = build_valid_meta_blob_bytes(&QuiltIndexV1 {
+            quilt_patches: vec![],
+        });
+        // Forge index_size to exceed max; decode fails at the size check before reading payload.
+        let max_index_size = TEST_COLUMN_SIZE
+            .saturating_mul(MAX_NUM_SLIVERS_FOR_QUILT_INDEX)
+            .saturating_sub(QUILT_INDEX_PREFIX_SIZE);
+        let too_large = (max_index_size + 1) as u32;
+        raw[QUILT_VERSION_BYTES_LENGTH..QUILT_INDEX_PREFIX_SIZE]
+            .copy_from_slice(&too_large.to_le_bytes());
+        assert_decode_quilt_index_err(
+            &raw,
+            |e| matches!(e, QuiltError::InvalidQuiltData(msg) if msg.contains("exceeds maximum")),
+        );
+    }
+
+    #[test]
+    fn test_decode_quilt_index_truncated_index_bytes() {
+        // index_size=10 but raw has only 8 bytes total -> index payload too small
+        let mut raw = vec![QuiltVersionV1::QUILT_VERSION_BYTE];
+        raw.extend_from_slice(&10u32.to_le_bytes());
+        raw.extend_from_slice(&[0u8; 3]);
+        assert_decode_quilt_index_err(&raw, |e| {
+            matches!(
+                e,
+                QuiltError::IndexOutOfBounds(..)
+                    | QuiltError::InsufficientQuiltData { .. }
+                    | QuiltError::QuiltIndexSerDerError(..)
+                    | QuiltError::MissingSlivers(..)
+            )
+        });
+    }
+
+    #[test]
+    fn test_decode_quilt_index_malformed_bcs() {
+        // index_size=1 with one byte of payload (0xFF); invalid BCS -> QuiltIndexSerDerError
+        let mut raw = vec![QuiltVersionV1::QUILT_VERSION_BYTE];
+        raw.extend_from_slice(&1u32.to_le_bytes());
+        raw.push(0xFF);
+        assert_decode_quilt_index_err(&raw, |e| matches!(e, QuiltError::QuiltIndexSerDerError(..)));
+    }
+
     #[test]
     fn test_decode_blob_invalid_version_byte() {
         let mut raw = build_valid_blob_entry("test-id", &[1, 2, 3]);
@@ -3041,5 +3149,48 @@ mod tests {
                 QuiltError::IndexOutOfBounds(..) | QuiltError::MissingSlivers(..)
             )
         });
+    }
+
+    // -- get_blobs_by_identifiers with bad index (index points to nonexistent column) --
+
+    #[test]
+    fn test_get_blobs_by_identifiers_index_points_to_nonexistent_column() {
+        // Entry point is get_blobs_by_identifiers; index says blob is in column 5 but quilt has
+        // only column 0. Fails before reading any payload (IndexOutOfBounds / MissingSlivers).
+        let mut patch = QuiltPatchV1::new("x".to_string()).expect("valid identifier");
+        patch.set_range(5, 6);
+
+        let index = QuiltIndexV1 {
+            quilt_patches: vec![patch],
+        };
+        let quilt_v1 = QuiltV1 {
+            data: vec![0u8; TEST_COLUMN_SIZE],
+            row_size: TEST_COLUMN_SIZE,
+            symbol_size: TEST_SYMBOL_SIZE,
+            quilt_index: Some(index.clone()),
+        };
+        let err = quilt_v1
+            .get_blobs_by_identifiers(&["x"])
+            .expect_err("QuiltV1: expected error when index points to missing column");
+        assert!(
+            matches!(err, QuiltError::IndexOutOfBounds(..)),
+            "QuiltV1: unexpected error: {err:?}"
+        );
+
+        let symbol_size = NonZeroU16::new(TEST_SYMBOL_SIZE as u16).unwrap();
+        let slivers = [SliverData::new(
+            vec![0u8; TEST_COLUMN_SIZE],
+            symbol_size,
+            SliverIndex::new(0),
+        )];
+        let decoder_v1 = QuiltDecoderV1::new_with_quilt_index(slivers.iter(), index)
+            .expect("decoder should be created");
+        let err = decoder_v1
+            .get_blobs_by_identifiers(&["x"])
+            .expect_err("QuiltDecoderV1: expected error when index points to missing column");
+        assert!(
+            matches!(err, QuiltError::MissingSlivers(..)),
+            "QuiltDecoderV1: unexpected error: {err:?}"
+        );
     }
 }
