@@ -502,7 +502,7 @@ pub(super) async fn get_blob_by_object_id<T: WalrusReadClient>(
             .await;
 
             // If the response was successful, add our additional metadata headers
-            if response.status() == StatusCode::OK
+            if response.status().is_success()
                 && let Some(attribute) = attribute
             {
                 populate_response_headers_from_attributes(
@@ -2138,5 +2138,147 @@ mod tests {
 
         // Verify the status code is correct
         assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    /// Mock client that returns a fixed blob and attribute for
+    /// `get_blob_by_object_id`, and supports byte-range reads so that
+    /// `get_blob` can produce 206 responses.
+    struct MockReadClient {
+        blob_data: Vec<u8>,
+        blob_id: BlobId,
+        attribute: Option<BlobAttribute>,
+    }
+
+    type ClientResult<T> = walrus_sdk::error::ClientResult<T>;
+    use walrus_core::encoding::quilt_encoding::QuiltStoreBlob;
+    use walrus_sdk::node_client::byte_range_read_client::ReadByteRangeResult;
+
+    impl WalrusReadClient for MockReadClient {
+        async fn read_blob(
+            &self,
+            _blob_id: &BlobId,
+            _consistency_check: ConsistencyCheckType,
+        ) -> ClientResult<Vec<u8>> {
+            Ok(self.blob_data.clone())
+        }
+
+        async fn read_byte_range(
+            &self,
+            _blob_id: &BlobId,
+            start: u64,
+            length: u64,
+        ) -> ClientResult<ReadByteRangeResult> {
+            let start = usize::try_from(start).expect("start fits");
+            let length = usize::try_from(length).expect("length fits");
+            Ok(ReadByteRangeResult {
+                data: self.blob_data[start..start + length].to_vec(),
+                unencoded_blob_size: u64::try_from(self.blob_data.len()).expect("len fits"),
+            })
+        }
+
+        async fn get_blob_by_object_id(
+            &self,
+            _blob_object_id: &ObjectID,
+        ) -> ClientResult<BlobWithAttribute> {
+            use walrus_sui::types::move_structs::{Blob, StorageResource};
+            Ok(BlobWithAttribute {
+                blob: Blob {
+                    id: ObjectID::ZERO,
+                    registered_epoch: 0,
+                    blob_id: self.blob_id,
+                    size: u64::try_from(self.blob_data.len()).expect("len fits"),
+                    encoding_type: EncodingType::RS2,
+                    certified_epoch: Some(0),
+                    storage: StorageResource {
+                        id: ObjectID::ZERO,
+                        start_epoch: 0,
+                        end_epoch: 10,
+                        storage_size: 1000,
+                    },
+                    deletable: false,
+                },
+                attribute: self.attribute.clone(),
+            })
+        }
+
+        async fn get_blobs_by_quilt_patch_ids(
+            &self,
+            _: &[QuiltPatchId],
+        ) -> ClientResult<Vec<QuiltStoreBlob<'static>>> {
+            unimplemented!()
+        }
+
+        async fn get_patch_by_quilt_id_and_identifier(
+            &self,
+            _quilt_id: &BlobId,
+            _identifier: &str,
+        ) -> ClientResult<QuiltStoreBlob<'static>> {
+            unimplemented!()
+        }
+
+        async fn list_patches_in_quilt(
+            &self,
+            _quilt_id: &BlobId,
+        ) -> ClientResult<Vec<QuiltPatchItem>> {
+            unimplemented!()
+        }
+
+        async fn stream_blob(
+            self: Arc<Self>,
+            _blob_id: &BlobId,
+        ) -> ClientResult<(crate::client::daemon::BlobStream, u64)> {
+            unimplemented!()
+        }
+    }
+
+    /// Regression test: blob attribute headers must be present on
+    /// range (206) responses, not just on 200 OK responses.
+    #[tokio::test]
+    async fn test_get_blob_by_object_id_attributes_on_range_request() {
+        let blob_data = b"hello world, this is test data!".to_vec();
+        let blob_id = walrus_core::test_utils::random_blob_id();
+        let attribute = BlobAttribute::from([("Content-Type", "text/plain")]);
+
+        let client = Arc::new(MockReadClient {
+            blob_data,
+            blob_id,
+            attribute: Some(attribute),
+        });
+
+        let mut allowed = HashSet::new();
+        allowed.insert(CONTENT_TYPE);
+        let config = Arc::new(AggregatorResponseHeaderConfig {
+            allowed_headers: allowed,
+            allow_quilt_patch_tags_in_response: false,
+        });
+
+        let mut request_headers = HeaderMap::new();
+        request_headers.insert(RANGE, HeaderValue::from_static("bytes=0-4"));
+
+        let response = get_blob_by_object_id(
+            Method::GET,
+            request_headers,
+            State((client, config)),
+            Path(ObjectID::ZERO),
+            Query(ReadOptions {
+                strict_consistency_check: false,
+                skip_consistency_check: false,
+            }),
+        )
+        .await;
+
+        assert_eq!(
+            response.status(),
+            StatusCode::PARTIAL_CONTENT,
+            "range request should return 206"
+        );
+        let ct = response
+            .headers()
+            .get(CONTENT_TYPE)
+            .expect("Content-Type should be present on 206");
+        assert_eq!(
+            ct, "text/plain",
+            "blob attribute Content-Type on range responses"
+        );
     }
 }
