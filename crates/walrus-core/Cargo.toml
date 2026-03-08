@@ -29,6 +29,7 @@ walrus-test-utils = { workspace = true, optional = true }
 
 [dev-dependencies]
 anyhow.workspace = true
+clap.workspace = true
 criterion.workspace = true
 serde_test.workspace = true
 tracing-subscriber.workspace = true
@@ -47,3 +48,10 @@ harness = false
 [[bench]]
 name = "blob_encoding"
 harness = false
+
+[[bench]]
+name = "encoding_phases"
+harness = false
+
+[[example]]
+name = "profile_encoding"

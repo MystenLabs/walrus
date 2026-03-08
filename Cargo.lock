@@ -13186,6 +13186,7 @@ dependencies = [
  "anyhow",
  "base64 0.22.1",
  "bcs",
+ "clap",
  "criterion",
  "enum_dispatch",
  "fastcrypto 0.1.9 (git+https://github.com/MystenLabs/fastcrypto?rev=4db0e90c732bbf7420ca20de808b698883148d9c)",

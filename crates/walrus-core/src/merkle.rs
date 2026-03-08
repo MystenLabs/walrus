@@ -310,7 +310,7 @@ where
 }
 
 /// Computes the hash of the provided input to be used as a leaf hash of a Merkle tree.
-pub(crate) fn leaf_hash<T>(input: &[u8]) -> Node
+pub fn leaf_hash<T>(input: &[u8]) -> Node
 where
     T: HashFunction<DIGEST_LEN>,
 {
