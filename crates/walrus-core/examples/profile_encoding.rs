@@ -29,7 +29,7 @@ fn get_peak_rss_bytes() -> usize {
     unsafe {
         let mut usage: libc::rusage = std::mem::zeroed();
         libc::getrusage(libc::RUSAGE_SELF, &mut usage);
-        let max_rss = usage.ru_maxrss as usize;
+        let max_rss = usize::try_from(usage.ru_maxrss).unwrap();
         // macOS reports bytes, Linux reports KB
         if cfg!(target_os = "macos") {
             max_rss
@@ -54,6 +54,10 @@ struct Args {
     #[arg(long, default_value_t = 1)]
     iterations: u32,
 
+    /// Number of rayon threads (0 = use rayon default, which is num CPUs)
+    #[arg(long, default_value_t = 0)]
+    threads: usize,
+
     /// Number of blobs to encode concurrently (simulates multi-blob uploads)
     #[arg(long, default_value_t = 1)]
     concurrent_blobs: u32,
@@ -61,22 +65,33 @@ struct Args {
 
 fn main() {
     let args = Args::parse();
+
+    if args.threads > 0 {
+        rayon::ThreadPoolBuilder::new()
+            .num_threads(args.threads)
+            .build_global()
+            .unwrap();
+    }
+    let thread_count = rayon::current_num_threads();
+
     let config = ReedSolomonEncodingConfig::new(NonZeroU16::new(args.shards).unwrap());
 
     if args.concurrent_blobs > 1 {
         print!(
-            "blob_size={} shards={} iterations={} concurrent_blobs={}",
+            "blob_size={} shards={} iterations={} threads={} concurrent_blobs={}",
             format_size(args.size),
             args.shards,
             args.iterations,
+            thread_count,
             args.concurrent_blobs
         );
     } else {
         print!(
-            "blob_size={} shards={} iterations={}",
+            "blob_size={} shards={} iterations={} threads={}",
             format_size(args.size),
             args.shards,
-            args.iterations
+            args.iterations,
+            thread_count
         );
     }
 

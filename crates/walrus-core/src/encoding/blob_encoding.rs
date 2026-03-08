@@ -5,6 +5,7 @@ use alloc::{collections::BTreeSet, vec, vec::Vec};
 use core::{cmp, marker::PhantomData, num::NonZeroU16, ops::Range, slice::Chunks};
 
 use fastcrypto::hash::Blake2b256;
+use rayon::prelude::*;
 use tracing::{Level, Span};
 
 use super::{
@@ -168,25 +169,27 @@ impl BlobEncoderData {
         let n_shards = config.n_shards_as_usize();
         assert_eq!(symbol_hashes.len(), n_shards * n_shards);
 
-        let mut metadata = Vec::with_capacity(n_shards);
-        for sliver_index in 0..n_shards {
-            let primary_hash = MerkleTree::<Blake2b256>::build_from_leaf_hashes(
-                symbol_hashes[n_shards * sliver_index..n_shards * (sliver_index + 1)]
-                    .iter()
-                    .cloned(),
-            )
-            .root();
-            let secondary_hash = MerkleTree::<Blake2b256>::build_from_leaf_hashes(
-                (0..n_shards).map(|symbol_index| {
-                    symbol_hashes[n_shards * symbol_index + n_shards - 1 - sliver_index].clone()
-                }),
-            )
-            .root();
-            metadata.push(SliverPairMetadata {
-                primary_hash,
-                secondary_hash,
+        let metadata: Vec<SliverPairMetadata> = (0..n_shards)
+            .into_par_iter()
+            .map(|sliver_index| {
+                let primary_hash = MerkleTree::<Blake2b256>::build_from_leaf_hashes(
+                    symbol_hashes[n_shards * sliver_index..n_shards * (sliver_index + 1)]
+                        .iter()
+                        .cloned(),
+                )
+                .root();
+                let secondary_hash = MerkleTree::<Blake2b256>::build_from_leaf_hashes(
+                    (0..n_shards).map(|symbol_index| {
+                        symbol_hashes[n_shards * symbol_index + n_shards - 1 - sliver_index].clone()
+                    }),
+                )
+                .root();
+                SliverPairMetadata {
+                    primary_hash,
+                    secondary_hash,
+                }
             })
-        }
+            .collect();
 
         VerifiedBlobMetadataWithId::new_verified_from_metadata(
             metadata,
@@ -334,25 +337,53 @@ impl<'a> BlobEncoder<'a> {
             self.inner.n_rows.get()..self.inner.config.n_shards().get(),
         ));
 
-        let mut primary_encoder = self.inner.get_encoder::<Primary>();
-        for (col_index, column) in secondary_slivers.iter().enumerate() {
-            let symbols = primary_encoder
-                .encode_all_ref(column.symbols.data())
-                .expect("size has already been checked");
-            for (row_index, symbol) in symbols.to_symbols().enumerate() {
-                symbol_hashes[n_shards * row_index + col_index] = leaf_hash::<Blake2b256>(symbol);
+        let n_columns = self.inner.n_columns_usize();
+        let n_rows = self.inner.n_rows_usize();
+        let symbol_usize = self.inner.symbol_usize();
+
+        // Parallel phase: each rayon task gets its own encoder to encode a column and hash
+        // all symbols. Repair symbols for non-systematic primary slivers are collected for
+        // the sequential scatter phase below.
+        let column_results: Vec<(usize, Vec<Node>, Option<Vec<u8>>)> = secondary_slivers
+            .par_iter()
+            .enumerate()
+            .map(|(col_index, column)| {
+                let mut encoder = self.inner.get_encoder::<Primary>();
+                let symbols = encoder
+                    .encode_all(column.symbols.data())
+                    .expect("size has already been checked");
+
+                let hashes: Vec<Node> = symbols.to_symbols().map(leaf_hash::<Blake2b256>).collect();
+
+                // Collect repair symbols for non-systematic primary slivers.
+                let repair_data = if col_index < n_columns {
+                    let n_repair = n_shards - n_rows;
+                    let mut data = vec![0u8; n_repair * symbol_usize];
+                    for (i, symbol) in symbols.to_symbols().skip(n_rows).enumerate() {
+                        data[i * symbol_usize..i * symbol_usize + symbol.len()]
+                            .copy_from_slice(symbol);
+                    }
+                    Some(data)
+                } else {
+                    None
+                };
+
+                (col_index, hashes, repair_data)
+            })
+            .collect();
+
+        // Sequential scatter: write hashes and repair symbols to their destinations.
+        for (col_index, hashes, repair_data) in column_results {
+            for (row_index, hash) in hashes.into_iter().enumerate() {
+                symbol_hashes[n_shards * row_index + col_index] = hash;
             }
-            if col_index < self.inner.n_columns_usize() {
-                for (symbol, sliver) in symbols
-                    .to_symbols()
-                    .zip(primary_slivers.iter_mut())
-                    .skip(self.inner.n_rows_usize())
-                {
-                    sliver.copy_symbol_to(col_index, symbol);
+            if let Some(data) = repair_data {
+                for (i, sliver) in primary_slivers.iter_mut().skip(n_rows).enumerate() {
+                    let start = i * symbol_usize;
+                    sliver.copy_symbol_to(col_index, &data[start..start + symbol_usize]);
                 }
             }
         }
-        drop(primary_encoder);
 
         let sliver_pairs = primary_slivers
             .into_iter()
@@ -410,16 +441,19 @@ impl<'a> BlobEncoder<'a> {
             u64::try_from(self.blob.len()).expect("any valid blob size fits into a `u64`");
         let n_shards = self.inner.n_shards_usize();
 
-        let n_non_systematic_secondary_slivers = n_shards - self.inner.n_columns_usize();
-        // Use a dummy sliver index for the non-systematic secondary slivers.
-        let mut non_systematic_secondary_slivers =
-            vec![
-                self.inner.empty_sliver::<Secondary>(SliverIndex(0));
-                n_non_systematic_secondary_slivers
-            ];
+        // Materialize all secondary slivers (systematic + non-systematic).
+        let mut secondary_slivers = self.inner.empty_slivers::<Secondary>();
 
-        // Compute the non-systematic secondary slivers by encoding the rows (i.e., primary
-        // slivers).
+        // Copy systematic columns from blob data.
+        for (column, sliver) in self.column_symbols().zip(secondary_slivers.iter_mut()) {
+            sliver
+                .symbols
+                .to_symbols_mut()
+                .zip(column)
+                .for_each(|(dest, src)| dest[..src.len()].copy_from_slice(src))
+        }
+
+        // Compute non-systematic secondary slivers by encoding rows (sequential).
         let mut secondary_encoder = self.inner.get_encoder::<Secondary>();
         let mut buffer = Symbols::zeros(self.inner.n_columns_usize(), self.inner.symbol_size);
         let row_length_bytes =
@@ -436,47 +470,38 @@ impl<'a> BlobEncoder<'a> {
             let encode_result = secondary_encoder
                 .encode(data)
                 .expect("size has already been checked");
-            for (symbol, sliver) in encode_result
-                .recovery_iter()
-                .zip(non_systematic_secondary_slivers.iter_mut())
-            {
+            for (symbol, sliver) in encode_result.recovery_iter().zip(
+                secondary_slivers
+                    .iter_mut()
+                    .skip(self.inner.n_columns_usize()),
+            ) {
                 sliver.copy_symbol_to(r, symbol);
             }
         }
         drop(secondary_encoder);
 
-        // Now we can encode all secondary slivers, computing all symbol hashes.
+        // Parallel primary encoding + hashing over all secondary slivers.
         let mut symbol_hashes = vec![Node::Empty; n_shards * n_shards];
 
-        // First encode the systematic secondary slivers.
-        let mut primary_encoder = self.inner.get_encoder::<Primary>();
-        let mut buffer = Symbols::zeros(self.inner.n_rows_usize(), self.inner.symbol_size);
-        for (col_index, column_symbols) in self.column_symbols().enumerate() {
-            buffer.data_mut().fill(0);
-            buffer
-                .to_symbols_mut()
-                .zip(column_symbols)
-                .for_each(|(dest, src)| dest[..src.len()].copy_from_slice(src));
-            let symbols = primary_encoder
-                .encode_all_ref(buffer.data())
-                .expect("size has already been checked");
-            for (row_index, symbol) in symbols.to_symbols().enumerate() {
-                symbol_hashes[n_shards * row_index + col_index] = leaf_hash::<Blake2b256>(symbol);
+        let column_results: Vec<(usize, Vec<Node>)> = secondary_slivers
+            .par_iter()
+            .enumerate()
+            .map(|(col_index, column)| {
+                let mut encoder = self.inner.get_encoder::<Primary>();
+                let symbols = encoder
+                    .encode_all(column.symbols.data())
+                    .expect("size has already been checked");
+                let hashes: Vec<Node> = symbols.to_symbols().map(leaf_hash::<Blake2b256>).collect();
+                (col_index, hashes)
+            })
+            .collect();
+
+        // Sequential scatter.
+        for (col_index, hashes) in column_results {
+            for (row_index, hash) in hashes.into_iter().enumerate() {
+                symbol_hashes[n_shards * row_index + col_index] = hash;
             }
         }
-
-        // Then encode the non-systematic secondary slivers.
-        for (col_index, column) in non_systematic_secondary_slivers.iter().enumerate() {
-            let col_index = col_index + self.inner.n_columns_usize();
-            let symbols = primary_encoder
-                .encode_all_ref(column.symbols.data())
-                .expect("size has already been checked");
-            for (row_index, symbol) in symbols.to_symbols().enumerate() {
-                symbol_hashes[n_shards * row_index + col_index] = leaf_hash::<Blake2b256>(symbol);
-            }
-        }
-
-        drop(primary_encoder);
 
         BlobEncoderData::compute_metadata_from_symbol_hashes(
             self.inner.config,
