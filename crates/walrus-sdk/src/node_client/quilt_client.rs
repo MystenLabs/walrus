@@ -471,7 +471,9 @@ impl<T: ReadClient> QuiltClient<'_, WalrusNodeClient<T>> {
             )
             .await?;
 
-        let first_sliver = slivers.first().expect("the first sliver should exist");
+        let first_sliver = slivers
+            .first()
+            .ok_or(QuiltError::MissingSlivers(vec![SliverIndex::new(0)]))?;
         let quilt_version = QuiltVersionEnum::new_from_sliver(first_sliver.symbols.data())?;
 
         let quilt_index = match quilt_version {
