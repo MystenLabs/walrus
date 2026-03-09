@@ -5,12 +5,42 @@
 use alloc::{format, vec::Vec};
 use core::{fmt::Debug, marker::PhantomData};
 
+use blake2::Blake2b;
+use digest::typenum::U32;
 use fastcrypto::hash::{Blake2b256, Digest, HashFunction};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tracing::Level;
 
 use crate::ensure;
+
+type Blake2b256Inner = Blake2b<U32>;
+
+static LEAF_HASHER: std::sync::LazyLock<Blake2b256Inner> = std::sync::LazyLock::new(|| {
+    let mut h = <Blake2b256Inner as digest::Digest>::new();
+    digest::Digest::update(&mut h, LEAF_PREFIX);
+    h
+});
+
+static INNER_HASHER: std::sync::LazyLock<Blake2b256Inner> = std::sync::LazyLock::new(|| {
+    let mut h = <Blake2b256Inner as digest::Digest>::new();
+    digest::Digest::update(&mut h, INNER_PREFIX);
+    h
+});
+
+/// Leaf hash using pre-initialized Blake2b state (avoids `new_with_params` per call).
+pub(crate) fn leaf_hash_blake2b256(input: &[u8]) -> Node {
+    let mut h = LEAF_HASHER.clone();
+    digest::Digest::update(&mut h, input);
+    Node::Digest(digest::Digest::finalize(h).into())
+}
+
+fn inner_hash_blake2b256(left: &Node, right: &Node) -> Node {
+    let mut h = INNER_HASHER.clone();
+    digest::Digest::update(&mut h, left.bytes());
+    digest::Digest::update(&mut h, right.bytes());
+    Node::Digest(digest::Digest::finalize(h).into())
+}
 
 /// The length of the digests used in the merkle tree.
 pub const DIGEST_LEN: usize = 32;
@@ -228,6 +258,14 @@ where
         I: IntoIterator,
         I::IntoIter: ExactSizeIterator<Item = Node>,
     {
+        Self::build_tree(iter, inner_hash::<T>)
+    }
+
+    fn build_tree<I>(iter: I, hash_fn: fn(&Node, &Node) -> Node) -> Self
+    where
+        I: IntoIterator,
+        I::IntoIter: ExactSizeIterator<Item = Node>,
+    {
         let iter = iter.into_iter();
         tracing::trace!("building Merkle tree over {} items", iter.len());
 
@@ -252,7 +290,7 @@ where
 
             (prev_level_index..new_level_index)
                 .step_by(2)
-                .for_each(|index| nodes.push(inner_hash::<T>(&nodes[index], &nodes[index + 1])));
+                .for_each(|index| nodes.push(hash_fn(&nodes[index], &nodes[index + 1])));
 
             prev_level_index = new_level_index;
             level_nodes /= 2;
@@ -306,6 +344,17 @@ where
             _hash_type: PhantomData,
             path,
         })
+    }
+}
+
+impl MerkleTree<Blake2b256> {
+    /// Create the [`MerkleTree`] using pre-initialized Blake2b hashers for inner nodes.
+    pub(crate) fn build_from_leaf_hashes_fast<I>(iter: I) -> Self
+    where
+        I: IntoIterator,
+        I::IntoIter: ExactSizeIterator<Item = Node>,
+    {
+        Self::build_tree(iter, inner_hash_blake2b256)
     }
 }
 
