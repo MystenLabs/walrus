@@ -93,6 +93,16 @@ The portal runs on port 3000 by default. The `--rm` flag in the `local-docker-po
 
 Use this method if you need to [customize the portal configuration](/docs/sites/portals/mainnet-testnet#configuration) beyond what the script supports, such as enabling allowlists, blocklists, or custom RPC endpoints.
 
+### Docker
+
+The portal Docker image version must match your `site-builder` version. Run the following command to get the version tag:
+
+```bash
+$ site-builder -V | awk '{ print $2 }' | awk -F - '{ printf("v%s\n", $1) }'
+```
+
+This outputs a version string like `v0.7.3`.
+
 Create a file named `portal-config.yaml` with the following content. Adjust the values for the network you are deploying on.
 
 <div className="outlined-tabs">
@@ -141,14 +151,6 @@ aggregator_urls:
 </Tabs>
 </div>
 
-The portal Docker image version must match your `site-builder` version. Run the following command to get the version tag:
-
-```bash
-$ site-builder -V | awk '{ print $2 }' | awk -F - '{ printf("v%s\n", $1) }'
-```
-
-This outputs a version string like `v0.7.3`.
-
 Then run the Docker container:
 
 ```bash
@@ -166,4 +168,50 @@ Open your browser and navigate to:
 
 ```
 http://<site-object-id-b36>.localhost:3000
+```
+
+### Local development
+
+This requires having the `bun` tool installed:
+
+```sh
+$ bun --version
+```
+
+If not installed, run the following command:
+
+```sh
+$ curl -fsSL https://bun.sh/install | bash
+```
+
+Install the dependencies:
+
+```sh
+$ cd portal
+$ bun install
+```
+
+To run a server-side portal, copy the example [`portal-config.yaml`](/docs/sites/portals/mainnet-testnet) for your target network and start the server. The server portal is served at `localhost:3000`.
+
+```sh
+# Mainnet
+$ cp server/portal-config.mainnet.example.yaml server/portal-config.yaml
+
+# Testnet
+$ cp server/portal-config.testnet.example.yaml server/portal-config.yaml
+
+$ bun run server
+```
+
+To run a service-worker portal, copy the example [`.env.local`](/docs/sites/portals/mainnet-testnet#environment-variable-overrides) for your target network and start the worker. The service-worker portal is served at `localhost:8080`.
+
+```sh
+# Mainnet
+$ cp worker/.env.mainnet.example worker/.env.local
+
+# Testnet
+$ cp worker/.env.testnet.example worker/.env.local
+
+$ bun run build:worker
+$ bun run worker
 ```
