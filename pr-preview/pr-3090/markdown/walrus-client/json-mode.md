@@ -1,0 +1,38 @@
+{/* https://linear.app/mysten-labs/issue/DOCS-642/walrus-clientjson-mode */}
+
+All Walrus client commands are available in JSON mode, simplifying programmatic access to the [CLI](/docs/walrus-client/storing-blobs). All the command-line flags of the original CLI command can be specified in JSON format.
+
+For example, to store a blob, run:
+
+```sh
+$ walrus json \
+    '{
+        "config": "path/to/client_config.yaml",
+        "command": {
+            "store": {
+                "files": ["README.md", "LICENSE"],
+                "epochs": 100
+            }
+        }
+    }'
+```
+
+Or, to read a blob using the blob ID:
+
+```sh
+$ walrus json \
+    '{
+        "config": "path/to/client_config.yaml",
+        "command": {
+            "read": {
+                "blobId": "4BKcDC0Ih5RJ8R0tFMz3MZVNZV8b2goT6_JiEEwNHQo"
+            }
+        }
+    }'
+```
+
+All options, default values, and commands are equal to those of the [standard CLI mode](/docs/walrus-client/storing-blobs), except that they are written in camelCase instead of kebab-case.
+
+The `json` command also accepts input from `stdin`.
+
+The output of a `json` command is itself JSON-formatted to simplify parsing the results in a programmatic way. For example, the JSON output can be piped to the `jq` command for parsing and manually extracting relevant fields.
