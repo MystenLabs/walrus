@@ -13201,6 +13201,7 @@ dependencies = [
  "p256",
  "peakmem-alloc",
  "rand 0.8.5",
+ "rayon",
  "reed-solomon-simd",
  "serde",
  "serde_test",
