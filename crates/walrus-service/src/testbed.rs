@@ -761,6 +761,7 @@ pub async fn create_storage_node_configs(
             garbage_collection: Default::default(),
             sliver_reference_cache_max_entries: defaults::SLIVER_REFERENCE_CACHE_MAX_ENTRIES,
             wal_price_monitor: Default::default(),
+            epoch_state_consistency: Default::default(),
         });
     }
 

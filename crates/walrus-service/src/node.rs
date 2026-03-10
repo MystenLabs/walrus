@@ -191,7 +191,7 @@ use crate::{
     },
     node::{
         blob_event_processor::pending_events::PendingEventCounter,
-        config::LiveUploadDeferralConfig,
+        config::{EpochStateConsistencyConfig, LiveUploadDeferralConfig},
         event_blob_writer::EventBlobWriter,
         garbage_collector::GarbageCollector,
         wal_price_monitor::WalPriceMonitor,
@@ -640,6 +640,8 @@ pub struct StorageNodeInner {
     recovery_deferral_cleanup_token: CancellationToken,
     live_upload_deferral_config: LiveUploadDeferralConfig,
     sliver_ref_cache: Cache<SliverRefCacheKey, Arc<RwLock<Weak<Sliver>>>>,
+    #[cfg_attr(any(test, msim), allow(dead_code))]
+    epoch_state_consistency_config: EpochStateConsistencyConfig,
 }
 
 /// Parameters for configuring and initializing a node.
@@ -840,6 +842,7 @@ impl StorageNode {
                 .eviction_policy(EvictionPolicy::lru())
                 .max_capacity(config.sliver_reference_cache_max_entries)
                 .build(),
+            epoch_state_consistency_config: config.epoch_state_consistency.clone(),
         });
 
         blocklist.start_refresh_task();
@@ -1712,9 +1715,8 @@ impl StorageNode {
         expected_epoch: Epoch,
         state_matches: impl Fn(&EpochState) -> bool,
     ) -> anyhow::Result<()> {
-        const EPOCH_STATE_WAIT_TIMEOUT: Duration = Duration::from_secs(5);
-        const EPOCH_STATE_WAIT_SLEEP: Duration = Duration::from_millis(100);
-        let deadline = Instant::now() + EPOCH_STATE_WAIT_TIMEOUT;
+        let config = &self.inner.epoch_state_consistency_config;
+        let deadline = Instant::now() + config.timeout;
         while Instant::now() < deadline {
             self.inner.contract_service.flush_cache().await;
             let Ok((epoch, state)) = self.inner.contract_service.get_epoch_and_state().await else {
@@ -1730,7 +1732,7 @@ impl StorageNode {
                 current_state = ?state,
                 "waiting for expected epoch state",
             );
-            sleep(EPOCH_STATE_WAIT_SLEEP).await;
+            sleep(config.poll_interval).await;
         }
         bail!("timed out after waiting for expected epoch state")
     }

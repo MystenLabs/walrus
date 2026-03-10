@@ -247,3 +247,6 @@ sliver_reference_cache_max_entries: 65536
 wal_price_monitor:
   enable_wal_price_monitor: false
   check_interval_secs: 600
+epoch_state_consistency:
+  timeout_secs: 60
+  poll_interval_millis: 100
