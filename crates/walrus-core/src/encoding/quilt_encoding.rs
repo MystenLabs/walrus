@@ -3203,7 +3203,8 @@ mod tests {
     // above by stressing the decoder with many random corruptions.
 
     use std::sync::OnceLock;
-    use proptest::{prelude::*, strategy::Just};
+
+    use proptest::prelude::*;
 
     const NUM_BLOB_ENTRIES: usize = 5;
 
@@ -3320,39 +3321,42 @@ mod tests {
     }
 
     /// Applies a single mutation to a copy of `data` and returns the result.
-    /// Bounds are clamped so we never panic; out-of-range positions are skipped or wrapped.
+    /// All indices are reduced with mod so we never panic; buffer must be non-empty.
     fn apply_mutation(data: &[u8], mutation: &Mutation) -> Vec<u8> {
         let mut buf = data.to_vec();
         if buf.is_empty() {
             return buf;
         }
+        let len = buf.len();
         match mutation {
             Mutation::FlipBytes { positions, values } => {
                 for (&pos, &val) in positions.iter().zip(values.iter()) {
-                    if pos < buf.len() {
-                        buf[pos] ^= val | 1;
-                    }
+                    let p = pos % len;
+                    buf[p] ^= val | 1;
                 }
             }
             Mutation::Truncate { at } => {
-                let at = *at % (buf.len() + 1);
+                let at = *at % len;
                 buf.truncate(at);
             }
             Mutation::InsertBytes { at, bytes } => {
-                let at = *at % (buf.len() + 1);
+                let at = *at % (len + 1);
                 for (i, &b) in bytes.iter().enumerate() {
                     buf.insert(at + i, b);
                 }
             }
-            Mutation::DeleteRange { start, len } => {
-                let start = *start % buf.len();
-                let end = (start + len).min(buf.len());
+            Mutation::DeleteRange {
+                start,
+                len: range_len,
+            } => {
+                let start = *start % len;
+                let end = (start + range_len).min(len);
                 buf.drain(start..end);
             }
             Mutation::OverwriteRange { start, bytes } => {
-                let start = *start % buf.len();
+                let start = *start % len;
                 for (i, &b) in bytes.iter().enumerate() {
-                    if start + i < buf.len() {
+                    if start + i < len {
                         buf[start + i] = b;
                     }
                 }
@@ -3386,13 +3390,12 @@ mod tests {
         },
     }
 
-    /// Strategy that generates one random mutation. `max_len` is the length of the
-    /// buffer we will mutate; FlipBytes positions are in `0..max_len` so they always
-    /// target valid indices when we use the actual data length (or per-entry length).
-    fn mutation_strategy(max_len: usize) -> impl Strategy<Value = Mutation> {
+    /// Strategy that generates one random mutation. Indices are arbitrary; apply_mutation
+    /// uses mod to bring them into range for the actual buffer.
+    fn mutation_strategy() -> impl Strategy<Value = Mutation> {
         prop_oneof![
             (
-                prop::collection::vec(0..max_len, 1..=8),
+                prop::collection::vec(any::<usize>(), 1..=8),
                 prop::collection::vec(any::<u8>(), 1..=8),
             )
                 .prop_map(|(positions, values)| Mutation::FlipBytes { positions, values }),
@@ -3411,9 +3414,7 @@ mod tests {
 
         /// Mutate the serialized quilt index with random corruptions; decode must not panic.
         #[test]
-        fn decode_quilt_index_no_panic_on_mutated_meta_blob(
-            mutation in mutation_strategy(meta_blob().len())
-        ) {
+        fn decode_quilt_index_no_panic_on_mutated_meta_blob(mutation in mutation_strategy()) {
             let mutated = apply_mutation(meta_blob(), &mutation);
             let quilt_v1 = quilt_v1_from_raw(&mutated);
             let column_size = quilt_v1.data.len()
@@ -3422,15 +3423,11 @@ mod tests {
         }
 
         /// Mutate one serialized blob entry (chosen by index) with random corruptions;
-        /// decode must not panic. We use prop_flat_map so the mutation strategy uses
-        /// that entry's length, giving effective coverage for short entries too.
+        /// decode must not panic.
         #[test]
         fn decode_blob_no_panic_on_mutated_blob_entry(
-            (blob_idx, mutation) in (0..NUM_BLOB_ENTRIES)
-                .prop_flat_map(|blob_idx| {
-                    let len = blob_entries()[blob_idx].len();
-                    (Just(blob_idx), mutation_strategy(len))
-                }),
+            blob_idx in 0..NUM_BLOB_ENTRIES,
+            mutation in mutation_strategy(),
         ) {
             let base = &blob_entries()[blob_idx];
             let mutated = apply_mutation(base, &mutation);
