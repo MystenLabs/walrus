@@ -27,7 +27,7 @@ use crate::{
     SliverPairIndex,
     encoding::{ReedSolomonEncoder, config::EncodingFactory as _},
     ensure,
-    merkle::{MerkleTree, Node, leaf_hash},
+    merkle::{MerkleTree, Node, leaf_hash_blake2b256},
     metadata::{SliverPairMetadata, VerifiedBlobMetadataWithId},
 };
 
@@ -175,14 +175,14 @@ impl BlobEncoderData {
             .map(|sliver_index| {
                 // Column-major: primary tree gathers row `sliver_index` across all columns
                 // (strided access).
-                let primary_hash = MerkleTree::<Blake2b256>::build_from_leaf_hashes(
+                let primary_hash = MerkleTree::<Blake2b256>::build_from_leaf_hashes_fast(
                     (0..n_shards).map(|col| symbol_hashes[col * n_shards + sliver_index].clone()),
                 )
                 .root();
                 // Column-major: secondary tree reads column `n_shards - 1 - sliver_index`
                 // as a contiguous slice.
                 let sec_col = n_shards - 1 - sliver_index;
-                let secondary_hash = MerkleTree::<Blake2b256>::build_from_leaf_hashes(
+                let secondary_hash = MerkleTree::<Blake2b256>::build_from_leaf_hashes_fast(
                     symbol_hashes[sec_col * n_shards..(sec_col + 1) * n_shards]
                         .iter()
                         .cloned(),
@@ -376,7 +376,7 @@ impl<'a> BlobEncoder<'a> {
 
                     // Write hashes directly into the column-major slice.
                     for (row_index, symbol) in symbols.to_symbols().enumerate() {
-                        hash_col[row_index] = leaf_hash::<Blake2b256>(symbol);
+                        hash_col[row_index] = leaf_hash_blake2b256(symbol);
                     }
 
                     // Collect repair data only for systematic columns.
@@ -526,7 +526,7 @@ impl<'a> BlobEncoder<'a> {
                         .encode_all(column.symbols.data())
                         .expect("size has already been checked");
                     for (row_index, symbol) in symbols.to_symbols().enumerate() {
-                        hash_col[row_index] = leaf_hash::<Blake2b256>(symbol);
+                        hash_col[row_index] = leaf_hash_blake2b256(symbol);
                     }
                 });
             });
@@ -776,7 +776,7 @@ impl<'a> ExpandedMessageMatrix<'a> {
         // Column-major layout: symbol_hashes[col * n_shards + row].
         for col in 0..n_shards {
             for row in 0..n_shards {
-                symbol_hashes.push(leaf_hash::<Blake2b256>(&self.matrix[row][col]));
+                symbol_hashes.push(leaf_hash_blake2b256(&self.matrix[row][col]));
             }
         }
 
