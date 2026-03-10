@@ -151,7 +151,7 @@ fn primary_encoding_with_hashing(c: &mut Criterion) {
                     for (col_index, col) in columns.iter().enumerate() {
                         let symbols = enc.encode_all_ref(col).unwrap();
                         for (row_index, symbol) in symbols.to_symbols().enumerate() {
-                            hashes[n_shards * row_index + col_index] =
+                            hashes[col_index * n_shards + row_index] =
                                 leaf_hash::<Blake2b256>(symbol);
                         }
                     }
@@ -188,15 +188,13 @@ fn metadata_from_hashes(c: &mut Criterion) {
                     // Build 2 * n_shards Merkle trees (primary + secondary per sliver pair).
                     for sliver_index in 0..n_shards {
                         let _primary = MerkleTree::<Blake2b256>::build_from_leaf_hashes(
-                            hashes[n_shards * sliver_index..n_shards * (sliver_index + 1)]
+                            (0..n_shards).map(|col| hashes[col * n_shards + sliver_index].clone()),
+                        );
+                        let sec_col = n_shards - 1 - sliver_index;
+                        let _secondary = MerkleTree::<Blake2b256>::build_from_leaf_hashes(
+                            hashes[sec_col * n_shards..(sec_col + 1) * n_shards]
                                 .iter()
                                 .cloned(),
-                        );
-                        let _secondary = MerkleTree::<Blake2b256>::build_from_leaf_hashes(
-                            (0..n_shards).map(|symbol_index| {
-                                hashes[n_shards * symbol_index + n_shards - 1 - sliver_index]
-                                    .clone()
-                            }),
                         );
                     }
                 });
