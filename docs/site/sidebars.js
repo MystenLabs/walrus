@@ -22,7 +22,7 @@ Create as many sidebars as you want.
 
 const sidebars = {
     docsSidebar: [
-       {
+    {
       type: 'category',
       label: 'Getting Started',
       link: {
