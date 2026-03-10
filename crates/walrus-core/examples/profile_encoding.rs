@@ -18,7 +18,7 @@ use std::{alloc::System, num::NonZeroU16, time::Instant};
 
 use clap::Parser;
 use peakmem_alloc::{PeakMemAlloc, PeakMemAllocTrait};
-use walrus_core::encoding::ReedSolomonEncodingConfig;
+use walrus_core::encoding::{BlobEncoder, ReedSolomonEncodingConfig};
 use walrus_test_utils::random_data;
 
 #[global_allocator]
@@ -52,6 +52,10 @@ struct Args {
     /// Number of iterations
     #[arg(long, default_value_t = 1)]
     iterations: u32,
+
+    /// Number of blobs to encode concurrently (simulates multi-blob uploads)
+    #[arg(long, default_value_t = 1)]
+    concurrent_blobs: u32,
 }
 
 fn parse_size(s: &str) -> Result<usize, String> {
@@ -73,25 +77,43 @@ fn main() {
     let args = Args::parse();
     let config = ReedSolomonEncodingConfig::new(NonZeroU16::new(args.shards).unwrap());
 
-    println!(
-        "blob_size={} shards={} iterations={}",
-        format_size(args.size),
-        args.shards,
-        args.iterations
-    );
+    if args.concurrent_blobs > 1 {
+        print!(
+            "blob_size={} shards={} iterations={} concurrent_blobs={}",
+            format_size(args.size),
+            args.shards,
+            args.iterations,
+            args.concurrent_blobs
+        );
+    } else {
+        print!(
+            "blob_size={} shards={} iterations={}",
+            format_size(args.size),
+            args.shards,
+            args.iterations
+        );
+    }
 
     let blob = random_data(args.size);
     let symbol_size = {
         let encoder = config.get_blob_encoder(&blob).unwrap();
         encoder.symbol_usize()
     };
-    println!("symbol_size={symbol_size}");
+    println!("\nsymbol_size={symbol_size}");
 
+    if args.concurrent_blobs <= 1 {
+        run_single_blob(&args, &config, &blob);
+    } else {
+        run_concurrent_blobs(&args, &config, &blob);
+    }
+}
+
+fn run_single_blob(args: &Args, config: &ReedSolomonEncodingConfig, blob: &[u8]) {
     let mut durations = Vec::with_capacity(args.iterations.try_into().unwrap());
     let mut max_peak_heap: usize = 0;
 
     for i in 0..args.iterations {
-        let blob_copy = blob.clone();
+        let blob_copy = blob.to_vec();
         let encoder = config.get_blob_encoder(&blob_copy).unwrap();
 
         PEAK_ALLOC.reset_peak_memory();
@@ -120,6 +142,81 @@ fn main() {
         let total: f64 = durations.iter().map(|d| d.as_secs_f64()).sum();
         let avg = total / f64::from(args.iterations);
         let throughput_mbs = args.size as f64 / avg / (1024.0 * 1024.0);
+        println!(
+            "average: {avg:.3}s ({throughput_mbs:.1} MiB/s) max_peak_heap={}",
+            format_size(max_peak_heap)
+        );
+    }
+}
+
+fn run_concurrent_blobs(args: &Args, config: &ReedSolomonEncodingConfig, blob: &[u8]) {
+    let n: usize = args.concurrent_blobs.try_into().unwrap();
+    let mut durations = Vec::with_capacity(args.iterations.try_into().unwrap());
+    let mut max_peak_heap: usize = 0;
+
+    for i in 0..args.iterations {
+        // Pre-generate N blob copies and N encoders.
+        let blob_copies: Vec<Vec<u8>> = (0..n).map(|_| blob.to_vec()).collect();
+        let encoders: Vec<BlobEncoder<'_>> = blob_copies
+            .iter()
+            .map(|b| config.get_blob_encoder(b).unwrap())
+            .collect();
+
+        PEAK_ALLOC.reset_peak_memory();
+        let start = Instant::now();
+
+        // Use std::thread::scope to spawn N threads, each encoding one blob.
+        let per_blob_elapsed: Vec<_> = std::thread::scope(|s| {
+            let handles: Vec<_> = encoders
+                .into_iter()
+                .map(|encoder| {
+                    s.spawn(move || {
+                        let blob_start = Instant::now();
+                        let (_sliver_pairs, _metadata) = encoder.encode_with_metadata();
+                        blob_start.elapsed()
+                    })
+                })
+                .collect();
+            handles.into_iter().map(|h| h.join().unwrap()).collect()
+        });
+
+        let wall_time = start.elapsed();
+        let peak_heap = PEAK_ALLOC.get_peak_memory();
+        let peak_rss = get_peak_rss_bytes();
+
+        durations.push(wall_time);
+        max_peak_heap = max_peak_heap.max(peak_heap);
+
+        println!(
+            "  iteration {}: {:.3}s total wall time",
+            i + 1,
+            wall_time.as_secs_f64()
+        );
+        for (j, elapsed) in per_blob_elapsed.iter().enumerate() {
+            let throughput_mbs = args.size as f64 / elapsed.as_secs_f64() / (1024.0 * 1024.0);
+            println!(
+                "    blob {}: {:.3}s ({:.1} MiB/s)",
+                j + 1,
+                elapsed.as_secs_f64(),
+                throughput_mbs
+            );
+        }
+        let total_data = args.size * n;
+        let expansion = peak_heap as f64 / total_data as f64;
+        println!(
+            "  peak_heap={} peak_rss={} expansion={:.1}x (per blob: {})",
+            format_size(peak_heap),
+            format_size(peak_rss),
+            expansion,
+            format_size(peak_heap / n)
+        );
+    }
+
+    if args.iterations > 1 {
+        let total: f64 = durations.iter().map(|d| d.as_secs_f64()).sum();
+        let avg = total / f64::from(args.iterations);
+        let total_data = args.size * n;
+        let throughput_mbs = total_data as f64 / avg / (1024.0 * 1024.0);
         println!(
             "average: {avg:.3}s ({throughput_mbs:.1} MiB/s) max_peak_heap={}",
             format_size(max_peak_heap)
