@@ -67,6 +67,13 @@ impl CommitteeLookupService for SuiReadClient {
     }
 }
 
+#[async_trait]
+impl CommitteeLookupService for Arc<SuiReadClient> {
+    async fn get_active_committees(&self) -> Result<ActiveCommittees, anyhow::Error> {
+        <SuiReadClient as CommitteeLookupService>::get_active_committees(self).await
+    }
+}
+
 /// Errors returned by [`CommitteeService::begin_committee_change`].
 #[derive(Debug, thiserror::Error)]
 pub enum BeginCommitteeChangeError {

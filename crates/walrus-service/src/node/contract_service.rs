@@ -201,6 +201,22 @@ impl SuiSystemContractServiceBuilder {
         self
     }
 
+    /// Creates a new [`SuiSystemContractService`] reusing an existing [`SuiReadClient`].
+    ///
+    /// The provided read client is shared with the committee service, ensuring consistent
+    /// cache state during epoch transitions.
+    pub fn build_with_read_client(
+        &mut self,
+        config: &SuiConfig,
+        read_client: Arc<SuiReadClient>,
+        committee_service: Arc<dyn CommitteeService>,
+    ) -> anyhow::Result<SuiSystemContractService> {
+        Ok(self.build(
+            config.new_contract_client_with_read_client(read_client)?,
+            committee_service,
+        ))
+    }
+
     /// Creates a new [`SuiSystemContractService`] with a [`SuiContractClient`] constructed from
     /// the config.
     pub async fn build_from_config(
