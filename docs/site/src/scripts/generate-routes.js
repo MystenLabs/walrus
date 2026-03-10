@@ -91,12 +91,14 @@ function findMarkdownFiles(dir, baseDir = dir) {
 }
 
 /**
- * Generates /docs/*.md -> /markdown/*.md route mappings and content-type headers
+ * Generates /docs/*.md -> /markdown/*.md route mappings
  * for all markdown files in the build/markdown directory.
+ *
+ * Headers for markdown files are set via a glob expression in
+ * ws-resources.manual.json, so no per-file headers are needed here.
  */
 function generateMarkdownRoutes(markdownDir) {
   const routes = {};
-  const headers = {};
   const mdFiles = findMarkdownFiles(markdownDir);
 
   for (const mdPath of mdFiles) {
@@ -105,10 +107,6 @@ function generateMarkdownRoutes(markdownDir) {
     const targetPath = "/markdown" + mdPath;
 
     routes[routeKey] = targetPath;
-    headers[targetPath] = {
-      "Content-Disposition": "inline",
-      "content-type": "text/markdown; charset=utf-8",
-    };
 
     // For index.md files, also add a short-form route:
     // /docs/sites/index.md -> also accessible as /docs/sites.md
@@ -121,7 +119,7 @@ function generateMarkdownRoutes(markdownDir) {
     }
   }
 
-  return { routes, headers };
+  return routes;
 }
 
 console.log("🔗 Generating clean URL routes...");
@@ -145,9 +143,9 @@ const manualRoutes = wsResources.routes || {};
 const htmlFiles = findHtmlFiles(buildDir);
 const autoRoutes = generateRoutes(htmlFiles);
 
-// Generate /docs/*.md -> /markdown/*.md routes and headers for markdown exports
+// Generate /docs/*.md -> /markdown/*.md routes for markdown exports
 const markdownDir = path.join(buildDir, "markdown");
-const { routes: mdRoutes, headers: mdHeaders } = generateMarkdownRoutes(markdownDir);
+const mdRoutes = generateMarkdownRoutes(markdownDir);
 
 // Merge: manual routes override auto-generated ones
 const mergedRoutes = { ...autoRoutes, ...mdRoutes, ...manualRoutes };
@@ -158,17 +156,8 @@ for (const key of Object.keys(mergedRoutes).sort()) {
   sortedRoutes[key] = mergedRoutes[key];
 }
 
-// Merge headers: auto-generated markdown headers, then manual headers on top
-const manualHeaders = wsResources.headers || {};
-const mergedHeaders = { ...mdHeaders, ...manualHeaders };
-const sortedHeaders = {};
-for (const key of Object.keys(mergedHeaders).sort()) {
-  sortedHeaders[key] = mergedHeaders[key];
-}
-
 // Write merged output to ws-resources.json
 wsResources.routes = sortedRoutes;
-wsResources.headers = sortedHeaders;
 fs.writeFileSync(outputPath, JSON.stringify(wsResources, null, 2) + "\n", "utf8");
 
 const autoCount = Object.keys(autoRoutes).length;
