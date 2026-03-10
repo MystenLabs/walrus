@@ -1252,6 +1252,41 @@ async fn test_store_quilt(blobs_to_create: u32) -> TestResult {
     Ok(())
 }
 
+/// Tests that reading an empty blob as a quilt returns an error instead of panicking.
+#[ignore = "ignore E2E tests by default"]
+#[walrus_simtest]
+async fn test_read_empty_blob_as_quilt_returns_error() -> TestResult {
+    walrus_test_utils::init_tracing();
+
+    let (_sui_cluster_handle, _cluster, client, _, _) =
+        test_cluster::E2eTestSetupBuilder::new().build().await?;
+    let client = client.as_ref();
+
+    // Store an empty blob.
+    let store_args = StoreArgs::default_with_epochs(1).no_store_optimizations();
+    let store_results = client
+        .reserve_and_store_blobs_retry_committees(
+            vec![vec![]],
+            vec![BlobAttribute::default()],
+            &store_args,
+        )
+        .await?;
+    let blob_id = match &store_results[0] {
+        BlobStoreResult::NewlyCreated { blob_object, .. } => blob_object.blob_id,
+        other => panic!("expected NewlyCreated, got {other:?}"),
+    };
+
+    // Try to read the empty blob as a quilt: this should return an error, not panic.
+    let quilt_client = client.quilt_client();
+    let result = quilt_client.get_quilt_metadata(&blob_id).await;
+    assert!(
+        result.is_err(),
+        "expected error reading empty blob as quilt, got: {result:?}"
+    );
+
+    Ok(())
+}
+
 #[ignore = "ignore E2E tests by default"]
 #[walrus_simtest]
 async fn test_blocklist() -> TestResult {
