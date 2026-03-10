@@ -766,10 +766,6 @@ impl<T: ReadClient> WalrusNodeClient<T> {
     where
         SliverData<E>: TryFrom<walrus_core::Sliver>,
     {
-        if metadata.metadata().unencoded_length() == 0 {
-            return Ok(Vec::new());
-        }
-
         // Get the sliver size for the given encoding type.
         let sliver_size = u64::from(
             self.encoding_config()
