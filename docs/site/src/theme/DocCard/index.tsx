@@ -3,10 +3,6 @@
 
 import React from "react";
 import Link from "@docusaurus/Link";
-import {
-  useDocById,
-  findFirstSidebarItemLink,
-} from "@docusaurus/plugin-content-docs/client";
 import { usePluginData } from "@docusaurus/useGlobalData";
 import isInternalUrl from "@docusaurus/isInternalUrl";
 import Heading from "@theme/Heading";
@@ -16,8 +12,6 @@ function useDocDescription(docId?: string): string | undefined {
   try {
     const data = usePluginData("sui-description-plugin") as any;
     const descriptions = data?.descriptions ?? [];
-    // Plugin stores id as route path like "/walrus-client/walrus-cli"
-    // Sidebar item docId is like "walrus-client/walrus-cli"
     const match = descriptions.find(
       (d: any) => d.id === `/${docId}` || d.id === docId
     );
@@ -25,6 +19,17 @@ function useDocDescription(docId?: string): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+function findFirstLink(item: any): string | undefined {
+  if (item.href) return item.href;
+  if (item.items) {
+    for (const child of item.items) {
+      const link = findFirstLink(child);
+      if (link) return link;
+    }
+  }
+  return undefined;
 }
 
 function CardContainer({
@@ -104,7 +109,7 @@ function CategoryFooter({ item }: { item: any }) {
 }
 
 function CardCategory({ item }: { item: any }) {
-  const href = findFirstSidebarItemLink(item);
+  const href = findFirstLink(item);
   if (!href) return null;
 
   return (
