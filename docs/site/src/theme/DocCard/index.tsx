@@ -4,6 +4,7 @@
 import React from "react";
 import Link from "@docusaurus/Link";
 import {
+  useDocById,
   findFirstSidebarItemLink,
 } from "@docusaurus/plugin-content-docs/client";
 import { usePluginData } from "@docusaurus/useGlobalData";
