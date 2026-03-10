@@ -4393,7 +4393,7 @@ impl ServiceState for StorageNodeInner {
             {
                 Ok(sliver) => sliver,
                 Err(error) => {
-                    tracing::warn!(%error, ?blob_id, ?source_pair_index, ?target_type,
+                    tracing::debug!(%error, ?blob_id, ?source_pair_index, ?target_type,
                             "retrieve decoding symbols failed to retrieve sliver");
                     continue;
                 }
