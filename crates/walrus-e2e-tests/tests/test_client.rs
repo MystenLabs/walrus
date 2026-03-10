@@ -806,7 +806,7 @@ async fn test_store_with_existing_storage_resource(
             )
         })
         .collect();
-    let encoded_blobs = walrus_sdk::node_client::encode_blobs(unencoded_blobs, None, None)?;
+    let encoded_blobs = walrus_sdk::node_client::encode_blobs(unencoded_blobs, None, None, 1)?;
     let encoded_sizes = encoded_blobs
         .iter()
         .map(|blob| {
