@@ -3,11 +3,10 @@
 
 use std::{num::NonZeroUsize, sync::Arc};
 
-use anyhow::Context as _;
 use sui_macros::fail_point_async;
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 use walrus_core::{BlobId, Epoch};
-use walrus_sui::types::{BlobEvent, InvalidBlobId, StoragePoolEvent};
+use walrus_sui::types::{BlobEvent, InvalidBlobId};
 use walrus_utils::metrics::monitored_scope;
 
 use self::pending_events::{PendingEventCounter, PendingEventGuard};
@@ -416,8 +415,11 @@ impl BlobEventProcessor {
             .storage
             .update_blob_info(event_handle.index(), &blob_event)?;
 
-        if let BlobEvent::Registered(event) = &blob_event {
-            self.handle_registered_event(event_handle, event.blob_id)
+        if matches!(
+            &blob_event,
+            BlobEvent::Registered(_) | BlobEvent::PooledBlobRegistered(_)
+        ) {
+            self.handle_registered_event(event_handle, blob_event.blob_id())
                 .await?;
             return Ok(());
         }
@@ -461,78 +463,6 @@ impl BlobEventProcessor {
         }
 
         event_handle.mark_as_complete();
-        Ok(())
-    }
-
-    /// Processes a storage pool event.
-    ///
-    /// For blob-related events (Registered, Certified, Deleted), this updates the blob info and
-    /// storage pool tables synchronously, then delegates to the background processor for
-    /// post-processing (same as regular blob events). For storage-level events (Created,
-    /// Extended), only the storage pool end_epoch table is updated.
-    pub(super) async fn process_storage_pool_event(
-        &self,
-        event_handle: EventHandle,
-        event: StoragePoolEvent,
-        checkpoint_position: CheckpointEventPosition,
-    ) -> anyhow::Result<()> {
-        match event {
-            StoragePoolEvent::StoragePoolCreated(ref created) => {
-                self.node
-                    .storage
-                    .set_storage_pool_end_epoch(&created.storage_pool_id, created.end_epoch)
-                    .context("failed to set storage pool end epoch")?;
-                event_handle.mark_as_complete();
-            }
-            StoragePoolEvent::PooledBlobRegistered(ref registered) => {
-                self.node
-                    .storage
-                    .process_pooled_blob_registered(event_handle.index(), registered)
-                    .context("failed to process pooled blob registered")?;
-
-                self.handle_registered_event(event_handle, registered.blob_id)
-                    .await?;
-            }
-            StoragePoolEvent::PooledBlobCertified(ref certified) => {
-                self.node
-                    .storage
-                    .process_pooled_blob_certified(event_handle.index(), certified)
-                    .context("failed to process pooled blob certified")?;
-
-                let blob_event = BlobEvent::PooledBlobCertified(certified.clone());
-                self.dispatch_task(
-                    blob_event.blob_id(),
-                    BackgroundTask::ProcessEvent {
-                        event_handle,
-                        blob_event,
-                        checkpoint_position,
-                    },
-                )?;
-            }
-            StoragePoolEvent::PooledBlobDeleted(ref deleted) => {
-                self.node
-                    .storage
-                    .process_pooled_blob_deleted(event_handle.index(), deleted)
-                    .context("failed to process pooled blob deleted")?;
-
-                let blob_event = BlobEvent::PooledBlobDeleted(deleted.clone());
-                self.dispatch_task(
-                    blob_event.blob_id(),
-                    BackgroundTask::ProcessEvent {
-                        event_handle,
-                        blob_event,
-                        checkpoint_position,
-                    },
-                )?;
-            }
-            StoragePoolEvent::StoragePoolExtended(ref extended) => {
-                self.node
-                    .storage
-                    .set_storage_pool_end_epoch(&extended.storage_pool_id, extended.new_end_epoch)
-                    .context("failed to update storage pool end epoch")?;
-                event_handle.mark_as_complete();
-            }
-        }
         Ok(())
     }
 

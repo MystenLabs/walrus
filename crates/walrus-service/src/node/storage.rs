@@ -683,36 +683,6 @@ impl Storage {
             .set_storage_pool_end_epoch(storage_pool_id, end_epoch)
     }
 
-    /// Processes a `PooledBlobRegistered` event.
-    pub(crate) fn process_pooled_blob_registered(
-        &self,
-        event_index: u64,
-        event: &walrus_sui::types::PooledBlobRegistered,
-    ) -> Result<(), TypedStoreError> {
-        self.blob_info
-            .process_pooled_blob_registered(event_index, event)
-    }
-
-    /// Processes a `PooledBlobCertified` event.
-    pub(crate) fn process_pooled_blob_certified(
-        &self,
-        event_index: u64,
-        event: &walrus_sui::types::PooledBlobCertified,
-    ) -> Result<(), TypedStoreError> {
-        self.blob_info
-            .process_pooled_blob_certified(event_index, event)
-    }
-
-    /// Processes a `PooledBlobDeleted` event.
-    pub(crate) fn process_pooled_blob_deleted(
-        &self,
-        event_index: u64,
-        event: &walrus_sui::types::PooledBlobDeleted,
-    ) -> Result<(), TypedStoreError> {
-        self.blob_info
-            .process_pooled_blob_deleted(event_index, event)
-    }
-
     /// Returns the current event cursor and the next event index.
     #[tracing::instrument(skip_all)]
     pub fn get_event_cursor_and_next_index(

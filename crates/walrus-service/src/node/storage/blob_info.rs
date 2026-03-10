@@ -4,7 +4,7 @@
 //! Keeping track of the status of blob IDs and on-chain `Blob` objects.
 
 use std::{
-    collections::{BTreeMap, HashSet},
+    collections::HashSet,
     fmt::Debug,
     num::NonZeroU32,
     ops::Bound::{self, Unbounded},
@@ -212,10 +212,49 @@ impl BlobInfoTable {
             BlobEvent::InvalidBlobID(_) | BlobEvent::DenyListBlobDeleted(_) => {
                 return Ok(());
             }
-            BlobEvent::PooledBlobRegistered(_)
-            | BlobEvent::PooledBlobCertified(_)
-            | BlobEvent::PooledBlobDeleted(_) => {
-                unreachable!("pool events use separate blob info processing")
+            BlobEvent::PooledBlobRegistered(event) => {
+                // Direct insert PerObjectBlobInfoV2 for storage pool blobs.
+                let per_object_v2 =
+                    PerObjectBlobInfo::V2(per_object_blob_info::PerObjectBlobInfoV2 {
+                        blob_id: event.blob_id,
+                        registered_epoch: event.epoch,
+                        certified_epoch: None,
+                        end_epoch_info: per_object_blob_info::EndEpochInfo::StoragePool(
+                            event.storage_pool_id,
+                        ),
+                        deletable: event.deletable,
+                        event: event.event_id,
+                        deleted: false,
+                    });
+                batch.insert_batch(
+                    &self.per_object_blob_info,
+                    [(&event.object_id, &per_object_v2)],
+                )?;
+                return Ok(());
+            }
+            BlobEvent::PooledBlobCertified(event) => {
+                // Emit a per-object merge operand (end_epoch is unused by the Certify handler but
+                // BlobStatusChangeInfo requires it, so we set it to 0).
+                let per_object_change_info = BlobStatusChangeInfo {
+                    blob_id: event.blob_id,
+                    deletable: event.deletable,
+                    epoch: event.epoch,
+                    end_epoch: 0,
+                    status_event: event.event_id,
+                };
+                let operand = PerObjectBlobInfoMergeOperand {
+                    change_type: BlobStatusChangeType::Certify,
+                    change_info: per_object_change_info,
+                };
+                batch.partial_merge_batch(
+                    &self.per_object_blob_info,
+                    [(&event.object_id, operand.to_bytes())],
+                )?;
+                return Ok(());
+            }
+            BlobEvent::PooledBlobDeleted(event) => {
+                batch.delete_batch(&self.per_object_blob_info, [event.object_id])?;
+                return Ok(());
             }
         };
 
@@ -270,7 +309,7 @@ impl BlobInfoTable {
             BlobEvent::PooledBlobRegistered(_)
             | BlobEvent::PooledBlobCertified(_)
             | BlobEvent::PooledBlobDeleted(_) => {
-                unreachable!("pool events use separate blob info processing")
+                return self.update_blob_info(event_index, event);
             }
         };
 
@@ -650,145 +689,6 @@ impl BlobInfoTable {
             .insert(storage_pool_id, &end_epoch)
     }
 
-    /// Processes a `PooledBlobRegistered` event.
-    pub(crate) fn process_pooled_blob_registered(
-        &self,
-        event_index: u64,
-        event: &PooledBlobRegistered,
-    ) -> Result<(), TypedStoreError> {
-        let latest_handled_event_index = self
-            .latest_handled_event_index
-            .lock()
-            .expect("mutex should not be poisoned");
-        if Self::has_event_been_handled(latest_handled_event_index.get(&())?, event_index) {
-            tracing::debug!("skip updating blob info for already handled event");
-            return Ok(());
-        }
-
-        let change_info = PooledBlobChangeInfo { epoch: event.epoch };
-
-        let operand = BlobInfoMergeOperand::PoolChangeStatus {
-            change_type: BlobStatusChangeType::Register,
-            change_info,
-            storage_pool_id: event.storage_pool_id,
-        };
-
-        let mut batch = self.aggregate_blob_info.batch();
-        batch.partial_merge_batch(
-            &self.aggregate_blob_info,
-            [(event.blob_id, operand.to_bytes())],
-        )?;
-
-        // Direct insert PerObjectBlobInfoV2 for storage pool blobs.
-        let per_object_v2 = PerObjectBlobInfo::V2(per_object_blob_info::PerObjectBlobInfoV2 {
-            blob_id: event.blob_id,
-            registered_epoch: event.epoch,
-            certified_epoch: None,
-            end_epoch: None,
-            deletable: event.deletable,
-            event: event.event_id,
-            deleted: false,
-            storage_pool_id: Some(event.storage_pool_id),
-        });
-        batch.insert_batch(
-            &self.per_object_blob_info,
-            [(&event.object_id, &per_object_v2)],
-        )?;
-
-        batch.insert_batch(&latest_handled_event_index, [(&(), event_index)])?;
-        batch.write()
-    }
-
-    /// Processes a `PooledBlobCertified` event.
-    pub(crate) fn process_pooled_blob_certified(
-        &self,
-        event_index: u64,
-        event: &PooledBlobCertified,
-    ) -> Result<(), TypedStoreError> {
-        let latest_handled_event_index = self
-            .latest_handled_event_index
-            .lock()
-            .expect("mutex should not be poisoned");
-        if Self::has_event_been_handled(latest_handled_event_index.get(&())?, event_index) {
-            tracing::debug!("skip updating blob info for already handled event");
-            return Ok(());
-        }
-
-        let change_type = BlobStatusChangeType::Certify;
-
-        let pool_change_info = PooledBlobChangeInfo { epoch: event.epoch };
-
-        let aggregate_operand = BlobInfoMergeOperand::PoolChangeStatus {
-            change_type,
-            change_info: pool_change_info,
-            storage_pool_id: event.storage_pool_id,
-        };
-
-        let mut batch = self.aggregate_blob_info.batch();
-        batch.partial_merge_batch(
-            &self.aggregate_blob_info,
-            [(event.blob_id, aggregate_operand.to_bytes())],
-        )?;
-
-        // Emit a per-object merge operand (end_epoch is unused by the Certify handler but
-        // BlobStatusChangeInfo requires it, so we set it to 0).
-        let per_object_change_info = BlobStatusChangeInfo {
-            blob_id: event.blob_id,
-            deletable: event.deletable,
-            epoch: event.epoch,
-            end_epoch: 0,
-            status_event: event.event_id,
-        };
-        let per_object_operand = PerObjectBlobInfoMergeOperand {
-            change_type,
-            change_info: per_object_change_info,
-        };
-        batch.partial_merge_batch(
-            &self.per_object_blob_info,
-            [(&event.object_id, per_object_operand.to_bytes())],
-        )?;
-
-        batch.insert_batch(&latest_handled_event_index, [(&(), event_index)])?;
-        batch.write()
-    }
-
-    /// Processes a `PooledBlobDeleted` event.
-    pub(crate) fn process_pooled_blob_deleted(
-        &self,
-        event_index: u64,
-        event: &PooledBlobDeleted,
-    ) -> Result<(), TypedStoreError> {
-        let latest_handled_event_index = self
-            .latest_handled_event_index
-            .lock()
-            .expect("mutex should not be poisoned");
-        if Self::has_event_been_handled(latest_handled_event_index.get(&())?, event_index) {
-            tracing::debug!("skip updating blob info for already handled event");
-            return Ok(());
-        }
-
-        let change_info = PooledBlobChangeInfo { epoch: event.epoch };
-
-        let aggregate_operand = BlobInfoMergeOperand::PoolChangeStatus {
-            change_type: BlobStatusChangeType::Delete {
-                was_certified: event.was_certified,
-            },
-            change_info,
-            storage_pool_id: event.storage_pool_id,
-        };
-
-        let mut batch = self.aggregate_blob_info.batch();
-        batch.partial_merge_batch(
-            &self.aggregate_blob_info,
-            [(event.blob_id, aggregate_operand.to_bytes())],
-        )?;
-        // Delete from per-object.
-        batch.delete_batch(&self.per_object_blob_info, [event.object_id])?;
-
-        batch.insert_batch(&latest_handled_event_index, [(&(), event_index)])?;
-        batch.write()
-    }
-
     /// Checks some internal invariants of the blob info table.
     ///
     /// The checks are not exhaustive yet.
@@ -834,8 +734,9 @@ impl BlobInfoTable {
                     BlobInfo::V2(BlobInfoV2::Valid(v)) => (
                         v.count_deletable_total,
                         v.count_deletable_certified,
-                        v.latest_seen_deletable_registered_end_epoch,
-                        v.latest_seen_deletable_certified_end_epoch,
+                        // V2 doesn't track end epochs; skip epoch-based assertions.
+                        None,
+                        None,
                     ),
                     _ => continue,
                 };
@@ -847,10 +748,12 @@ impl BlobInfoTable {
             {
                 let per_object_end_epoch = match &per_object_blob_info {
                     PerObjectBlobInfo::V1(v) => v.end_epoch,
-                    PerObjectBlobInfo::V2(v) => {
-                        // Non-pool V2 blobs should always have an end_epoch.
-                        v.end_epoch.expect("non-pool V2 blob should have end_epoch")
-                    }
+                    PerObjectBlobInfo::V2(v) => match v.end_epoch_info {
+                        per_object_blob_info::EndEpochInfo::Individual(e) => e,
+                        per_object_blob_info::EndEpochInfo::StoragePool(_) => {
+                            unreachable!("storage_pool_id() returned None above")
+                        }
+                    },
                 };
                 anyhow::ensure!(
                     count_deletable_total > 0,
@@ -1133,6 +1036,7 @@ pub(super) struct BlobStatusChangeInfo {
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq, Clone)]
 pub(super) struct PooledBlobChangeInfo {
     pub(super) epoch: Epoch,
+    pub(super) storage_pool_id: ObjectID,
 }
 
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq, Clone, Copy)]
@@ -1223,10 +1127,9 @@ pub(super) enum BlobInfoMergeOperand {
         was_certified: bool,
     },
     /// A status change for a blob in a storage pool.
-    PoolChangeStatus {
+    PooledBlobChangeStatus {
         change_type: BlobStatusChangeType,
         change_info: PooledBlobChangeInfo,
-        storage_pool_id: ObjectID,
     },
     /// A blob in a storage pool has expired (pool lifetime ended).
     PoolExpired {
@@ -1282,6 +1185,44 @@ impl From<&InvalidBlobId> for BlobInfoMergeOperand {
     }
 }
 
+impl From<&PooledBlobRegistered> for BlobInfoMergeOperand {
+    fn from(value: &PooledBlobRegistered) -> Self {
+        Self::PooledBlobChangeStatus {
+            change_type: BlobStatusChangeType::Register,
+            change_info: PooledBlobChangeInfo {
+                epoch: value.epoch,
+                storage_pool_id: value.storage_pool_id,
+            },
+        }
+    }
+}
+
+impl From<&PooledBlobCertified> for BlobInfoMergeOperand {
+    fn from(value: &PooledBlobCertified) -> Self {
+        Self::PooledBlobChangeStatus {
+            change_type: BlobStatusChangeType::Certify,
+            change_info: PooledBlobChangeInfo {
+                epoch: value.epoch,
+                storage_pool_id: value.storage_pool_id,
+            },
+        }
+    }
+}
+
+impl From<&PooledBlobDeleted> for BlobInfoMergeOperand {
+    fn from(value: &PooledBlobDeleted) -> Self {
+        Self::PooledBlobChangeStatus {
+            change_type: BlobStatusChangeType::Delete {
+                was_certified: value.was_certified,
+            },
+            change_info: PooledBlobChangeInfo {
+                epoch: value.epoch,
+                storage_pool_id: value.storage_pool_id,
+            },
+        }
+    }
+}
+
 impl From<&BlobEvent> for BlobInfoMergeOperand {
     fn from(value: &BlobEvent) -> Self {
         match value {
@@ -1289,17 +1230,15 @@ impl From<&BlobEvent> for BlobInfoMergeOperand {
             BlobEvent::Certified(event) => event.into(),
             BlobEvent::Deleted(event) => event.into(),
             BlobEvent::InvalidBlobID(event) => event.into(),
+            BlobEvent::PooledBlobRegistered(event) => event.into(),
+            BlobEvent::PooledBlobCertified(event) => event.into(),
+            BlobEvent::PooledBlobDeleted(event) => event.into(),
             BlobEvent::DenyListBlobDeleted(_) => {
                 // TODO (WAL-424): Implement DenyListBlobDeleted event handling.
                 // Note: It's fine to panic here with a todo!, because in order to trigger this
                 // event, we need f+1 signatures and until the Rust integration is implemented no
                 // such event should be emitted.
                 todo!("DenyListBlobDeleted event handling is not yet implemented");
-            }
-            BlobEvent::PooledBlobRegistered(_)
-            | BlobEvent::PooledBlobCertified(_)
-            | BlobEvent::PooledBlobDeleted(_) => {
-                unreachable!("pool events use separate blob info processing")
             }
         }
     }
@@ -1816,20 +1755,13 @@ impl PermanentBlobInfoV1 {
     }
 }
 
-/// Reference counts for a single storage pool within a `ValidBlobInfoV2`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub(crate) struct PoolRefCounts {
-    pub count_total: u32,
-    pub count_certified: u32,
-}
-
 /// V2 aggregate blob info that supports both regular blobs and storage pool blobs.
 ///
-/// Regular blob fields are identical to V1. Storage pool blobs are tracked via `pool_refs`.
-/// A blob_id with only regular references has `pool_refs` empty. A blob_id with only pool
+/// Regular blob fields are identical to V1. Storage pool blobs are tracked via flat counters.
+/// A blob_id with only regular references has zero pool counters. A blob_id with only pool
 /// references has zero regular counts. Both can coexist.
 // INV: same invariants as V1 for regular fields, plus:
-// INV: for each pool ref: count_total >= count_certified
+// INV: count_pooled_refs_total >= count_pooled_refs_certified
 // INV: initial_certified_epoch considers both regular AND pool certified counts
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub(crate) struct ValidBlobInfoV2 {
@@ -1840,10 +1772,9 @@ pub(crate) struct ValidBlobInfoV2 {
     pub permanent_total: Option<PermanentBlobInfoV1>,
     pub permanent_certified: Option<PermanentBlobInfoV1>,
     pub initial_certified_epoch: Option<Epoch>,
-    pub latest_seen_deletable_registered_end_epoch: Option<Epoch>,
-    pub latest_seen_deletable_certified_end_epoch: Option<Epoch>,
-    // Storage pool references: maps storage_pool_id -> ref counts.
-    pub pool_refs: BTreeMap<ObjectID, PoolRefCounts>,
+    // Storage pool references (flat counters).
+    pub count_pooled_refs_total: u32,
+    pub count_pooled_refs_certified: u32,
 }
 
 impl From<ValidBlobInfoV1> for ValidBlobInfoV2 {
@@ -1855,10 +1786,8 @@ impl From<ValidBlobInfoV1> for ValidBlobInfoV2 {
             permanent_total: v1.permanent_total,
             permanent_certified: v1.permanent_certified,
             initial_certified_epoch: v1.initial_certified_epoch,
-            latest_seen_deletable_registered_end_epoch: v1
-                .latest_seen_deletable_registered_end_epoch,
-            latest_seen_deletable_certified_end_epoch: v1.latest_seen_deletable_certified_end_epoch,
-            pool_refs: BTreeMap::new(),
+            count_pooled_refs_total: 0,
+            count_pooled_refs_certified: 0,
         }
     }
 }
@@ -1870,13 +1799,11 @@ impl ValidBlobInfoV2 {
         change_type: BlobStatusChangeType,
         change_info: BlobStatusChangeInfo,
     ) {
-        // Delegate to the same logic as V1 for regular fields.
-        let was_certified = self.is_certified_regular(change_info.epoch);
+        let was_certified = self.is_certified(change_info.epoch);
         if change_info.deletable {
             match change_type {
                 BlobStatusChangeType::Register => {
                     self.count_deletable_total += 1;
-                    self.maybe_increase_latest_deletable_registered_epoch(change_info.end_epoch);
                 }
                 BlobStatusChangeType::Certify => {
                     if self.count_deletable_total <= self.count_deletable_certified {
@@ -1886,14 +1813,12 @@ impl ValidBlobInfoV2 {
                         return;
                     }
                     self.count_deletable_certified += 1;
-                    self.maybe_increase_latest_deletable_certified_epoch(change_info.end_epoch);
                 }
                 BlobStatusChangeType::Extend => {
-                    self.maybe_increase_latest_deletable_registered_epoch(change_info.end_epoch);
-                    self.maybe_increase_latest_deletable_certified_epoch(change_info.end_epoch);
+                    // No-op for V2 deletable blobs (no end epoch tracking).
                 }
                 BlobStatusChangeType::Delete { was_certified } => {
-                    self.update_deletable_counters_and_end_epochs(was_certified);
+                    self.update_deletable_counters(was_certified);
                 }
             }
         } else {
@@ -1934,7 +1859,7 @@ impl ValidBlobInfoV2 {
     }
 
     fn deletable_expired(&mut self, was_certified: bool) {
-        self.update_deletable_counters_and_end_epochs(was_certified);
+        self.update_deletable_counters(was_certified);
         self.maybe_unset_initial_certified_epoch();
     }
 
@@ -1946,93 +1871,53 @@ impl ValidBlobInfoV2 {
         self.maybe_unset_initial_certified_epoch();
     }
 
-    fn update_deletable_counters_and_end_epochs(&mut self, was_certified: bool) {
-        ValidBlobInfoV1::decrement_deletable_counter_and_maybe_unset_latest_end_epoch(
-            &mut self.count_deletable_total,
-            &mut self.latest_seen_deletable_registered_end_epoch,
-        );
+    fn update_deletable_counters(&mut self, was_certified: bool) {
+        self.count_deletable_total = self.count_deletable_total.saturating_sub(1);
         if was_certified {
-            ValidBlobInfoV1::decrement_deletable_counter_and_maybe_unset_latest_end_epoch(
-                &mut self.count_deletable_certified,
-                &mut self.latest_seen_deletable_certified_end_epoch,
-            );
+            self.count_deletable_certified = self.count_deletable_certified.saturating_sub(1);
         }
     }
 
     // --- Storage pool operations ---
 
     /// Registers a blob in a storage pool.
-    fn pool_register(&mut self, storage_pool_id: ObjectID) {
-        let entry = self
-            .pool_refs
-            .entry(storage_pool_id)
-            .or_insert(PoolRefCounts {
-                count_total: 0,
-                count_certified: 0,
-            });
-        entry.count_total += 1;
+    fn pool_register(&mut self) {
+        self.count_pooled_refs_total += 1;
     }
 
     /// Certifies a blob in a storage pool.
-    fn pool_certify(&mut self, storage_pool_id: ObjectID, epoch: Epoch) {
+    fn pool_certify(&mut self, epoch: Epoch) {
         let was_certified = self.has_any_certified();
-        if let Some(entry) = self.pool_refs.get_mut(&storage_pool_id) {
-            if entry.count_total <= entry.count_certified {
-                tracing::error!("attempt to certify a pool blob before corresponding register");
-                return;
-            }
-            entry.count_certified += 1;
-        } else {
-            tracing::error!("attempt to certify a pool blob for unknown pool");
+        if self.count_pooled_refs_total <= self.count_pooled_refs_certified {
+            tracing::error!("attempt to certify a pool blob before corresponding register");
             return;
         }
+        self.count_pooled_refs_certified += 1;
         self.update_initial_certified_epoch(epoch, !was_certified);
     }
 
     /// Deletes a blob from a storage pool.
-    fn pool_delete(&mut self, storage_pool_id: ObjectID, was_certified: bool) {
-        if let Some(entry) = self.pool_refs.get_mut(&storage_pool_id) {
-            entry.count_total = entry.count_total.saturating_sub(1);
-            if was_certified {
-                entry.count_certified = entry.count_certified.saturating_sub(1);
-            }
-            if entry.count_total == 0 {
-                self.pool_refs.remove(&storage_pool_id);
-            }
-        } else {
-            tracing::error!("attempt to delete a pool blob for unknown pool");
+    fn pool_delete(&mut self, was_certified: bool) {
+        self.count_pooled_refs_total = self.count_pooled_refs_total.saturating_sub(1);
+        if was_certified {
+            self.count_pooled_refs_certified = self.count_pooled_refs_certified.saturating_sub(1);
         }
         self.maybe_unset_initial_certified_epoch();
     }
 
     /// Handles a pool blob expiring (pool lifetime ended).
-    fn pool_expired(&mut self, storage_pool_id: ObjectID, was_certified: bool) {
-        self.pool_delete(storage_pool_id, was_certified);
+    fn pool_expired(&mut self, was_certified: bool) {
+        self.pool_delete(was_certified);
     }
 
     // --- Helper methods ---
-
-    /// Checks if the regular fields (ignoring pool refs) indicate certification.
-    fn is_certified_regular(&self, current_epoch: Epoch) -> bool {
-        let exists_certified_permanent_blob = self
-            .permanent_certified
-            .as_ref()
-            .is_some_and(|p| p.end_epoch > current_epoch);
-        let probably_exists_certified_deletable_blob = self.count_deletable_certified > 0
-            && self
-                .latest_seen_deletable_certified_end_epoch
-                .is_some_and(|e| e > current_epoch);
-        self.initial_certified_epoch
-            .is_some_and(|epoch| epoch <= current_epoch)
-            && (exists_certified_permanent_blob || probably_exists_certified_deletable_blob)
-    }
 
     /// Returns true if any certified references exist (regular or pool).
     fn has_any_certified(&self) -> bool {
         if self.count_deletable_certified > 0 || self.permanent_certified.is_some() {
             return true;
         }
-        self.pool_refs.values().any(|r| r.count_certified > 0)
+        self.count_pooled_refs_certified > 0
     }
 
     fn update_initial_certified_epoch(&mut self, new_certified_epoch: Epoch, force: bool) {
@@ -2051,33 +1936,13 @@ impl ValidBlobInfoV2 {
         }
     }
 
-    fn maybe_increase_latest_deletable_registered_epoch(&mut self, epoch: Epoch) {
-        self.latest_seen_deletable_registered_end_epoch = Some(
-            epoch.max(
-                self.latest_seen_deletable_registered_end_epoch
-                    .unwrap_or_default(),
-            ),
-        )
-    }
-
-    fn maybe_increase_latest_deletable_certified_epoch(&mut self, epoch: Epoch) {
-        self.latest_seen_deletable_certified_end_epoch = Some(
-            epoch.max(
-                self.latest_seen_deletable_certified_end_epoch
-                    .unwrap_or_default(),
-            ),
-        )
-    }
-
     fn has_no_objects(&self) -> bool {
         self.count_deletable_total == 0
             && self.count_deletable_certified == 0
             && self.permanent_total.is_none()
             && self.permanent_certified.is_none()
             && self.initial_certified_epoch.is_none()
-            && self.latest_seen_deletable_registered_end_epoch.is_none()
-            && self.latest_seen_deletable_certified_end_epoch.is_none()
-            && self.pool_refs.is_empty()
+            && self.count_pooled_refs_total == 0
     }
 
     /// Checks the invariants of this V2 blob info.
@@ -2085,7 +1950,7 @@ impl ValidBlobInfoV2 {
         // Regular field invariants (same as V1).
         let has_regular_certified =
             self.count_deletable_certified > 0 || self.permanent_certified.is_some();
-        let has_pool_certified = self.pool_refs.values().any(|r| r.count_certified > 0);
+        let has_pool_certified = self.count_pooled_refs_certified > 0;
 
         anyhow::ensure!(self.count_deletable_total >= self.count_deletable_certified);
         match self.initial_certified_epoch {
@@ -2108,31 +1973,11 @@ impl ValidBlobInfoV2 {
             _ => (),
         }
 
-        match (
-            self.latest_seen_deletable_registered_end_epoch,
-            self.latest_seen_deletable_certified_end_epoch,
-        ) {
-            (None, Some(_)) => anyhow::bail!(
-                "latest_seen_deletable_registered_end_epoch.is_none() => \
-                latest_seen_deletable_certified_end_epoch.is_none()"
-            ),
-            (Some(registered), Some(certified)) => {
-                anyhow::ensure!(registered >= certified);
-            }
-            _ => (),
-        }
-
         // Pool ref invariants.
-        for (pool_id, refs) in &self.pool_refs {
-            anyhow::ensure!(
-                refs.count_total >= refs.count_certified,
-                "pool ref count_total < count_certified for pool {pool_id}"
-            );
-            anyhow::ensure!(
-                refs.count_total > 0,
-                "pool ref count_total is 0 for pool {pool_id} (entry should be removed)"
-            );
-        }
+        anyhow::ensure!(
+            self.count_pooled_refs_total >= self.count_pooled_refs_certified,
+            "pool ref count_pooled_refs_total < count_pooled_refs_certified"
+        );
 
         Ok(())
     }
@@ -2157,19 +2002,15 @@ impl From<BlobInfoV1> for BlobInfoV2 {
 
 impl CertifiedBlobInfoApi for ValidBlobInfoV2 {
     fn is_certified(&self, current_epoch: Epoch) -> bool {
-        // Regular check (same as V1).
-        if self.is_certified_regular(current_epoch) {
-            return true;
-        }
-        // Conservative: if any pool refs have certified counts, report certified.
-        if self
-            .initial_certified_epoch
-            .is_some_and(|e| e <= current_epoch)
-            && self.pool_refs.values().any(|r| r.count_certified > 0)
-        {
-            return true;
-        }
-        false
+        let exists_certified_permanent_blob = self
+            .permanent_certified
+            .as_ref()
+            .is_some_and(|p| p.end_epoch > current_epoch);
+        self.initial_certified_epoch
+            .is_some_and(|epoch| epoch <= current_epoch)
+            && (exists_certified_permanent_blob
+                || self.count_deletable_certified > 0
+                || self.count_pooled_refs_certified > 0)
     }
 
     fn initial_certified_epoch(&self) -> Option<Epoch> {
@@ -2209,22 +2050,14 @@ impl BlobInfoApi for BlobInfoV2 {
             return false;
         };
 
-        // Regular check (same as V1).
         let exists_registered_permanent_blob = v
             .permanent_total
             .as_ref()
             .is_some_and(|p| p.end_epoch > current_epoch);
-        let probably_exists_registered_deletable_blob = v.count_deletable_total > 0
-            && v.latest_seen_deletable_registered_end_epoch
-                .is_some_and(|e| e > current_epoch);
 
-        if exists_registered_permanent_blob || probably_exists_registered_deletable_blob {
-            return true;
-        }
-
-        // Conservative: if any pool refs exist, report registered.
-        // GC is the only path that checks actual pool end_epoch.
-        !v.pool_refs.is_empty()
+        exists_registered_permanent_blob
+            || v.count_deletable_total > 0
+            || v.count_pooled_refs_total > 0
     }
 
     fn can_blob_info_be_deleted(&self, current_epoch: Epoch) -> bool {
@@ -2233,7 +2066,7 @@ impl BlobInfoApi for BlobInfoV2 {
             Self::Valid(v) => {
                 v.count_deletable_total == 0
                     && v.permanent_total.is_none()
-                    && v.pool_refs.is_empty()
+                    && v.count_pooled_refs_total == 0
                     && self.can_data_be_deleted(current_epoch)
             }
         }
@@ -2251,39 +2084,53 @@ impl BlobInfoApi for BlobInfoV2 {
         match self {
             BlobInfoV2::Invalid { event, .. } => BlobStatus::Invalid { event: *event },
             BlobInfoV2::Valid(v) => {
-                // First try V1-style regular blob status.
-                let regular_status = ValidBlobInfoV1 {
-                    is_metadata_stored: v.is_metadata_stored,
-                    count_deletable_total: v.count_deletable_total,
-                    count_deletable_certified: v.count_deletable_certified,
-                    permanent_total: v.permanent_total.clone(),
-                    permanent_certified: v.permanent_certified.clone(),
-                    initial_certified_epoch: v.initial_certified_epoch,
-                    latest_seen_deletable_registered_end_epoch: v
-                        .latest_seen_deletable_registered_end_epoch,
-                    latest_seen_deletable_certified_end_epoch: v
-                        .latest_seen_deletable_certified_end_epoch,
-                }
-                .to_blob_status(current_epoch);
+                let initial_certified_epoch = v.initial_certified_epoch;
 
-                if regular_status != BlobStatus::Nonexistent {
-                    return regular_status;
-                }
+                // Deletable counts include both regular and pool refs.
+                let deletable_counts = DeletableCounts {
+                    count_deletable_total: v
+                        .count_deletable_total
+                        .saturating_add(v.count_pooled_refs_total),
+                    count_deletable_certified: v
+                        .count_deletable_certified
+                        .saturating_add(v.count_pooled_refs_certified),
+                };
 
-                // If only pool refs, report as Deletable with summed counts.
-                if !v.pool_refs.is_empty() {
-                    let total: u32 = v.pool_refs.values().map(|r| r.count_total).sum();
-                    let certified: u32 = v.pool_refs.values().map(|r| r.count_certified).sum();
-                    return BlobStatus::Deletable {
-                        initial_certified_epoch: v.initial_certified_epoch,
-                        deletable_counts: DeletableCounts {
-                            count_deletable_total: total,
-                            count_deletable_certified: certified,
-                        },
+                if let Some(PermanentBlobInfoV1 {
+                    end_epoch, event, ..
+                }) = v.permanent_certified.as_ref()
+                    && *end_epoch > current_epoch
+                {
+                    return BlobStatus::Permanent {
+                        end_epoch: *end_epoch,
+                        is_certified: true,
+                        status_event: *event,
+                        deletable_counts,
+                        initial_certified_epoch,
+                    };
+                }
+                if let Some(PermanentBlobInfoV1 {
+                    end_epoch, event, ..
+                }) = v.permanent_total.as_ref()
+                    && *end_epoch > current_epoch
+                {
+                    return BlobStatus::Permanent {
+                        end_epoch: *end_epoch,
+                        is_certified: false,
+                        status_event: *event,
+                        deletable_counts,
+                        initial_certified_epoch,
                     };
                 }
 
-                BlobStatus::Nonexistent
+                if deletable_counts != Default::default() {
+                    BlobStatus::Deletable {
+                        initial_certified_epoch,
+                        deletable_counts,
+                    }
+                } else {
+                    BlobStatus::Nonexistent
+                }
             }
         }
     }
@@ -2422,7 +2269,7 @@ impl Mergeable for BlobInfoV1 {
                 BlobInfoMergeOperand::PermanentExpired { was_certified },
             ) => valid_blob_info.permanent_expired(was_certified),
             // Pool operands should never reach V1 — they are intercepted at the BlobInfo level.
-            (_, BlobInfoMergeOperand::PoolChangeStatus { .. })
+            (_, BlobInfoMergeOperand::PooledBlobChangeStatus { .. })
             | (_, BlobInfoMergeOperand::PoolExpired { .. }) => {
                 unreachable!("pool operands should be handled at BlobInfo level, not BlobInfoV1")
             }
@@ -2495,7 +2342,7 @@ impl Mergeable for BlobInfoV1 {
                 None
             }
             // Pool operands should never reach V1 — they are intercepted at the BlobInfo level.
-            BlobInfoMergeOperand::PoolChangeStatus { .. }
+            BlobInfoMergeOperand::PooledBlobChangeStatus { .. }
             | BlobInfoMergeOperand::PoolExpired { .. } => {
                 unreachable!("pool operands should be handled at BlobInfo level, not BlobInfoV1")
             }
@@ -2550,46 +2397,42 @@ impl Mergeable for BlobInfoV2 {
             // Storage pool operations.
             (
                 Self::Valid(valid_blob_info),
-                BlobInfoMergeOperand::PoolChangeStatus {
+                BlobInfoMergeOperand::PooledBlobChangeStatus {
                     change_type,
                     change_info,
-                    storage_pool_id,
+                    ..
                 },
             ) => match change_type {
                 BlobStatusChangeType::Register => {
-                    valid_blob_info.pool_register(storage_pool_id);
+                    valid_blob_info.pool_register();
                 }
                 BlobStatusChangeType::Certify => {
-                    valid_blob_info.pool_certify(storage_pool_id, change_info.epoch);
+                    valid_blob_info.pool_certify(change_info.epoch);
                 }
                 BlobStatusChangeType::Extend => {
                     // Extensions don't change ref counts for storage pool.
                     // The pool's end_epoch is tracked separately.
                 }
                 BlobStatusChangeType::Delete { was_certified } => {
-                    valid_blob_info.pool_delete(storage_pool_id, was_certified);
+                    valid_blob_info.pool_delete(was_certified);
                 }
             },
             (
                 Self::Valid(valid_blob_info),
-                BlobInfoMergeOperand::PoolExpired {
-                    storage_pool_id,
-                    was_certified,
-                },
-            ) => valid_blob_info.pool_expired(storage_pool_id, was_certified),
+                BlobInfoMergeOperand::PoolExpired { was_certified, .. },
+            ) => valid_blob_info.pool_expired(was_certified),
         }
         self
     }
 
     fn merge_new(operand: Self::MergeOperand) -> Option<Self> {
         match operand {
-            BlobInfoMergeOperand::PoolChangeStatus {
+            BlobInfoMergeOperand::PooledBlobChangeStatus {
                 change_type: BlobStatusChangeType::Register,
-                storage_pool_id,
                 ..
             } => {
                 let mut v2 = ValidBlobInfoV2::default();
-                v2.pool_register(storage_pool_id);
+                v2.pool_register();
                 Some(BlobInfoV2::Valid(v2))
             }
             BlobInfoMergeOperand::MarkInvalid {
@@ -2622,7 +2465,6 @@ impl Mergeable for BlobInfoV2 {
             } => Some(BlobInfoV2::Valid(if deletable {
                 ValidBlobInfoV2 {
                     count_deletable_total: 1,
-                    latest_seen_deletable_registered_end_epoch: Some(end_epoch),
                     ..Default::default()
                 }
             } else {
@@ -2737,7 +2579,7 @@ impl Mergeable for BlobInfo {
         match self {
             Self::V1(v1) => match &operand {
                 // Only upgrade to V2 when a pool operand hits a V1 entry.
-                BlobInfoMergeOperand::PoolChangeStatus { .. }
+                BlobInfoMergeOperand::PooledBlobChangeStatus { .. }
                 | BlobInfoMergeOperand::PoolExpired { .. } => {
                     Self::V2(BlobInfoV2::from(v1).merge_with(operand))
                 }
@@ -2752,7 +2594,7 @@ impl Mergeable for BlobInfo {
     fn merge_new(operand: Self::MergeOperand) -> Option<Self> {
         match &operand {
             // First event for a blob_id is a pool event → create V2.
-            BlobInfoMergeOperand::PoolChangeStatus { .. } => {
+            BlobInfoMergeOperand::PooledBlobChangeStatus { .. } => {
                 BlobInfoV2::merge_new(operand).map(Self::V2)
             }
             // First event is a regular event → create V1 (as before).
@@ -2921,10 +2763,20 @@ mod per_object_blob_info {
 
     impl ToBytes for PerObjectBlobInfoV1 {}
 
-    /// V2 per-object blob info for blobs in storage pools.
+    /// How the end epoch of a per-object blob is determined.
+    #[derive(Debug, Deserialize, Serialize, PartialEq, Eq, Clone)]
+    pub(crate) enum EndEpochInfo {
+        /// Regular blob with an individual end epoch.
+        Individual(Epoch),
+        /// Pooled blob whose lifetime is determined by the storage pool's end epoch.
+        StoragePool(ObjectID),
+    }
+
+    /// V2 per-object blob info that supports both regular blobs and storage pool blobs.
     ///
-    /// Same as V1 plus `storage_pool_id`. Created via direct insert (not merge_new) when
-    /// processing pool blob registration events.
+    /// Unlike V1, the end epoch and storage pool ID are combined into a single `EndEpochInfo`
+    /// enum: regular blobs have `EndEpochInfo::Individual(end_epoch)`, while pool blobs have
+    /// `EndEpochInfo::StoragePool(pool_id)`.
     #[derive(Debug, Deserialize, Serialize, PartialEq, Eq, Clone)]
     pub(crate) struct PerObjectBlobInfoV2 {
         /// The blob ID.
@@ -2933,17 +2785,14 @@ mod per_object_blob_info {
         pub registered_epoch: Epoch,
         /// The epoch in which the blob was first certified, `None` if the blob is uncertified.
         pub certified_epoch: Option<Epoch>,
-        /// The epoch in which the blob expires. `None` for pool blobs (lifetime is determined
-        /// by the pool's end_epoch tracked in `storage_pool_end_epochs`).
-        pub end_epoch: Option<Epoch>,
+        /// How the blob's end epoch is determined.
+        pub end_epoch_info: EndEpochInfo,
         /// Whether the blob is deletable.
         pub deletable: bool,
         /// The ID of the last blob event related to this object.
         pub event: EventID,
         /// Whether the blob has been deleted.
         pub deleted: bool,
-        /// The storage pool ID that this blob belongs to. `None` for regular blobs.
-        pub storage_pool_id: Option<ObjectID>,
     }
 
     impl CertifiedBlobInfoApi for PerObjectBlobInfoV2 {
@@ -2969,8 +2818,14 @@ mod per_object_blob_info {
         }
 
         fn is_registered(&self, current_epoch: Epoch) -> bool {
-            // For pool blobs (end_epoch = None), liveness depends on the pool, not the blob.
-            !self.deleted && self.end_epoch.is_none_or(|e| e > current_epoch)
+            if self.deleted {
+                return false;
+            }
+            match self.end_epoch_info {
+                EndEpochInfo::Individual(end_epoch) => end_epoch > current_epoch,
+                // Pool blob liveness depends on the pool, not the blob.
+                EndEpochInfo::StoragePool(_) => true,
+            }
         }
 
         fn is_deleted(&self) -> bool {
@@ -2978,7 +2833,10 @@ mod per_object_blob_info {
         }
 
         fn storage_pool_id(&self) -> Option<ObjectID> {
-            self.storage_pool_id
+            match &self.end_epoch_info {
+                EndEpochInfo::StoragePool(id) => Some(*id),
+                EndEpochInfo::Individual(_) => None,
+            }
         }
     }
 
@@ -3030,7 +2888,7 @@ mod per_object_blob_info {
                         "cannot extend an uncertified blob {}",
                         self.blob_id
                     );
-                    self.end_epoch = Some(change_info.end_epoch);
+                    self.end_epoch_info = EndEpochInfo::Individual(change_info.end_epoch);
                 }
                 BlobStatusChangeType::Delete { was_certified } => {
                     assert_eq!(self.certified_epoch.is_some(), was_certified);

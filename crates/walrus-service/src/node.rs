@@ -1576,13 +1576,7 @@ impl StorageNode {
                     .await?;
             }
             EventStreamElement::ContractEvent(ContractEvent::StoragePoolEvent(pool_event)) => {
-                self.process_storage_pool_event(
-                    blob_event_processor,
-                    event_handle,
-                    pool_event,
-                    checkpoint_position,
-                )
-                .await?;
+                self.process_storage_pool_event(event_handle, pool_event)?;
             }
             EventStreamElement::ContractEvent(ContractEvent::DenyListEvent(_event)) => {
                 // TODO: Implement DenyListEvent handling (WAL-424)
@@ -1624,19 +1618,29 @@ impl StorageNode {
     }
 
     #[tracing::instrument(skip_all)]
-    async fn process_storage_pool_event(
+    fn process_storage_pool_event(
         &self,
-        blob_event_processor: &BlobEventProcessor,
         event_handle: EventHandle,
         event: StoragePoolEvent,
-        checkpoint_position: CheckpointEventPosition,
     ) -> anyhow::Result<()> {
         let _scope = monitored_scope::monitored_scope("ProcessEvent::StoragePoolEvent");
 
         tracing::debug!(?event, "{} event received", event.name());
-        blob_event_processor
-            .process_storage_pool_event(event_handle, event, checkpoint_position)
-            .await?;
+        match event {
+            StoragePoolEvent::StoragePoolCreated(ref created) => {
+                self.inner
+                    .storage
+                    .set_storage_pool_end_epoch(&created.storage_pool_id, created.end_epoch)
+                    .context("failed to set storage pool end epoch")?;
+            }
+            StoragePoolEvent::StoragePoolExtended(ref extended) => {
+                self.inner
+                    .storage
+                    .set_storage_pool_end_epoch(&extended.storage_pool_id, extended.new_end_epoch)
+                    .context("failed to update storage pool end epoch")?;
+            }
+        }
+        event_handle.mark_as_complete();
         Ok(())
     }
 

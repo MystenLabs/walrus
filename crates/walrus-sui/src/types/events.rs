@@ -952,12 +952,6 @@ impl TryFrom<SuiEvent> for StoragePoolExtendedEvent {
 pub enum StoragePoolEvent {
     /// A storage pool was created.
     StoragePoolCreated(StoragePoolCreatedEvent),
-    /// A blob was registered against a storage pool.
-    PooledBlobRegistered(PooledBlobRegistered),
-    /// A blob in a storage pool was certified.
-    PooledBlobCertified(PooledBlobCertified),
-    /// A blob was deleted from a storage pool.
-    PooledBlobDeleted(PooledBlobDeleted),
     /// A storage pool's lifetime was extended.
     StoragePoolExtended(StoragePoolExtendedEvent),
 }
@@ -967,9 +961,6 @@ impl StoragePoolEvent {
     pub fn event_id(&self) -> EventID {
         match self {
             StoragePoolEvent::StoragePoolCreated(event) => event.event_id,
-            StoragePoolEvent::PooledBlobRegistered(event) => event.event_id,
-            StoragePoolEvent::PooledBlobCertified(event) => event.event_id,
-            StoragePoolEvent::PooledBlobDeleted(event) => event.event_id,
             StoragePoolEvent::StoragePoolExtended(event) => event.event_id,
         }
     }
@@ -978,9 +969,6 @@ impl StoragePoolEvent {
     pub fn event_epoch(&self) -> Option<Epoch> {
         match self {
             StoragePoolEvent::StoragePoolCreated(event) => Some(event.epoch),
-            StoragePoolEvent::PooledBlobRegistered(event) => Some(event.epoch),
-            StoragePoolEvent::PooledBlobCertified(event) => Some(event.epoch),
-            StoragePoolEvent::PooledBlobDeleted(event) => Some(event.epoch),
             StoragePoolEvent::StoragePoolExtended(event) => Some(event.epoch),
         }
     }
@@ -989,21 +977,7 @@ impl StoragePoolEvent {
     pub fn name(&self) -> &'static str {
         match self {
             StoragePoolEvent::StoragePoolCreated(_) => "StoragePoolCreated",
-            StoragePoolEvent::PooledBlobRegistered(_) => "PooledBlobRegistered",
-            StoragePoolEvent::PooledBlobCertified(_) => "PooledBlobCertified",
-            StoragePoolEvent::PooledBlobDeleted(_) => "PooledBlobDeleted",
             StoragePoolEvent::StoragePoolExtended(_) => "StoragePoolExtended",
-        }
-    }
-
-    /// Returns the blob ID if the event is a blob event.
-    pub fn blob_id(&self) -> Option<BlobId> {
-        match self {
-            StoragePoolEvent::StoragePoolCreated(_) => None,
-            StoragePoolEvent::PooledBlobRegistered(event) => Some(event.blob_id),
-            StoragePoolEvent::PooledBlobCertified(event) => Some(event.blob_id),
-            StoragePoolEvent::PooledBlobDeleted(event) => Some(event.blob_id),
-            StoragePoolEvent::StoragePoolExtended(_) => None,
         }
     }
 
@@ -1011,9 +985,6 @@ impl StoragePoolEvent {
     pub fn storage_pool_id(&self) -> ObjectID {
         match self {
             StoragePoolEvent::StoragePoolCreated(event) => event.storage_pool_id,
-            StoragePoolEvent::PooledBlobRegistered(event) => event.storage_pool_id,
-            StoragePoolEvent::PooledBlobCertified(event) => event.storage_pool_id,
-            StoragePoolEvent::PooledBlobDeleted(event) => event.storage_pool_id,
             StoragePoolEvent::StoragePoolExtended(event) => event.storage_pool_id,
         }
     }
@@ -1256,7 +1227,7 @@ impl ContractEvent {
             ContractEvent::PackageEvent(_) => None,
             ContractEvent::DenyListEvent(_) => None,
             ContractEvent::ProtocolEvent(_) => None,
-            ContractEvent::StoragePoolEvent(event) => event.blob_id(),
+            ContractEvent::StoragePoolEvent(_) => None,
         }
     }
 
@@ -1336,14 +1307,14 @@ impl TryFrom<SuiEvent> for ContractEvent {
             contracts::events::StoragePoolCreated => Ok(ContractEvent::StoragePoolEvent(
                 StoragePoolEvent::StoragePoolCreated(value.try_into()?),
             )),
-            contracts::events::PooledBlobRegistered => Ok(ContractEvent::StoragePoolEvent(
-                StoragePoolEvent::PooledBlobRegistered(value.try_into()?),
+            contracts::events::PooledBlobRegistered => Ok(ContractEvent::BlobEvent(
+                BlobEvent::PooledBlobRegistered(value.try_into()?),
             )),
-            contracts::events::PooledBlobCertified => Ok(ContractEvent::StoragePoolEvent(
-                StoragePoolEvent::PooledBlobCertified(value.try_into()?),
+            contracts::events::PooledBlobCertified => Ok(ContractEvent::BlobEvent(
+                BlobEvent::PooledBlobCertified(value.try_into()?),
             )),
-            contracts::events::PooledBlobDeleted => Ok(ContractEvent::StoragePoolEvent(
-                StoragePoolEvent::PooledBlobDeleted(value.try_into()?),
+            contracts::events::PooledBlobDeleted => Ok(ContractEvent::BlobEvent(
+                BlobEvent::PooledBlobDeleted(value.try_into()?),
             )),
             contracts::events::StoragePoolExtended => Ok(ContractEvent::StoragePoolEvent(
                 StoragePoolEvent::StoragePoolExtended(value.try_into()?),
