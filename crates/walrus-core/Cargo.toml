@@ -36,6 +36,7 @@ peakmem-alloc = "0.3"
 serde_test.workspace = true
 tracing-subscriber.workspace = true
 walrus-test-utils.workspace = true
+walrus-utils = { path = "../walrus-utils" }
 
 [lints]
 workspace = true

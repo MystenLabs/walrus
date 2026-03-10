@@ -226,6 +226,10 @@ pub struct ClientCommunicationConfig {
     #[serde(rename = "registration_delay_millis")]
     #[serde_as(as = "DurationMilliSeconds")]
     pub registration_delay: Duration,
+    /// Maximum number of blobs to encode concurrently. Limits peak memory when storing
+    /// multiple blobs. If `None`, defaults to 1 (sequential encoding).
+    #[serde(default)]
+    pub max_concurrent_blob_encodings: Option<usize>,
     /// The maximum total blob size allowed to store if multiple blobs are uploaded.
     pub max_total_blob_size: usize,
     /// The configuration for the backoff after committee change is detected.
@@ -266,6 +270,7 @@ impl Default for ClientCommunicationConfig {
                 Duration::from_secs(5),
                 Some(5),
             ),
+            max_concurrent_blob_encodings: None,
             sui_client_request_timeout: None,
         }
     }
@@ -322,6 +327,8 @@ pub struct CommunicationLimits {
     pub max_data_in_flight: usize,
     /// Configuration for auto-tuning concurrency during writes.
     pub auto_tune: DataInFlightAutoTuneConfig,
+    /// The maximum number of blobs to encode concurrently.
+    pub max_concurrent_blob_encodings: usize,
 }
 
 impl CommunicationLimits {
@@ -345,6 +352,9 @@ impl CommunicationLimits {
             max_concurrent_status_reads,
             max_data_in_flight: communication_config.max_data_in_flight,
             auto_tune: communication_config.data_in_flight_auto_tune.clone(),
+            max_concurrent_blob_encodings: communication_config
+                .max_concurrent_blob_encodings
+                .unwrap_or(1),
         }
     }
 

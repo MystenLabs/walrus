@@ -27,7 +27,6 @@ use futures::{
 };
 use indicatif::MultiProgress;
 use rand::{RngCore as _, rngs::ThreadRng};
-use rayon::{iter::IntoParallelIterator, prelude::*};
 use sui_types::base_types::ObjectID;
 use tokio::{
     sync::{Mutex, Semaphore},
@@ -3415,11 +3414,17 @@ mod internal {
 
                 let upload_relay_client = store_args.upload_relay_client.clone();
                 let encoding_event_tx = store_args.encoding_event_tx.clone();
+                let max_concurrent_blob_encodings = self
+                    .client()
+                    .await?
+                    .communication_limits
+                    .max_concurrent_blob_encodings;
                 let maybe_encoded_blobs = tokio::task::spawn_blocking(move || {
                     encode_blobs(
                         walrus_store_blobs,
                         upload_relay_client,
                         encoding_event_tx.as_ref(),
+                        max_concurrent_blob_encodings,
                     )
                 })
                 .await
@@ -3587,6 +3592,7 @@ pub fn encode_blobs(
     walrus_store_blobs: Vec<WalrusStoreBlobMaybeFinished<UnencodedBlob>>,
     upload_relay_client: Option<Arc<UploadRelayClient>>,
     encoding_event_tx: Option<&tokio::sync::mpsc::UnboundedSender<EncodingProgressEvent>>,
+    max_concurrent_blob_encodings: usize,
 ) -> ClientResult<Vec<WalrusStoreBlobMaybeFinished<EncodedBlob>>> {
     let total_blobs_count = walrus_store_blobs.len();
     if total_blobs_count == 0 {
@@ -3607,36 +3613,59 @@ pub fn encode_blobs(
     let completed_blobs_count = Arc::new(AtomicUsize::new(0));
     let show_spinner = encoding_event_tx.is_none();
 
-    // Encode each blob into sliver pairs and metadata. Filters out failed blobs and continue.
-    let blobs = walrus_store_blobs
-        .into_par_iter()
-        .map(|blob| {
-            let _entered =
-                tracing::info_span!(parent: parent.clone(), "encode_blobs__par_iter").entered();
-            let encoding_config = blob.common.encoding_config;
-            let encode_fn = |blob: UnencodedBlob| {
-                encode_blob(
-                    blob,
-                    encoding_config,
-                    multi_pb.as_ref(),
-                    upload_relay_client.clone(),
-                    show_spinner,
-                )
-            };
-            let encode_result = blob.map(encode_fn, "encode");
+    // Encode each blob into sliver pairs and metadata. Filters out failed blobs and continues.
+    let encode_one = |blob: WalrusStoreBlobMaybeFinished<UnencodedBlob>| {
+        let _entered =
+            tracing::info_span!(parent: parent.clone(), "encode_blobs__encode_one").entered();
+        let encoding_config = blob.common.encoding_config;
+        let encode_fn = |blob: UnencodedBlob| {
+            encode_blob(
+                blob,
+                encoding_config,
+                multi_pb.as_ref(),
+                upload_relay_client.clone(),
+                show_spinner,
+            )
+        };
+        let encode_result = blob.map(encode_fn, "encode");
 
-            if let Some(tx) = encoding_event_tx.as_ref() {
-                let finished_blobs_count = completed_blobs_count.fetch_add(1, Ordering::SeqCst) + 1;
-                if let Err(err) = tx.send(EncodingProgressEvent::BlobCompleted {
-                    completed: finished_blobs_count,
-                    total: total_blobs_count,
-                }) {
-                    tracing::warn!(%err, "failed to send encoding blob completed event");
-                }
+        if let Some(tx) = encoding_event_tx.as_ref() {
+            let finished_blobs_count = completed_blobs_count.fetch_add(1, Ordering::SeqCst) + 1;
+            if let Err(err) = tx.send(EncodingProgressEvent::BlobCompleted {
+                completed: finished_blobs_count,
+                total: total_blobs_count,
+            }) {
+                tracing::warn!(%err, "failed to send encoding blob completed event");
             }
-            encode_result
-        })
-        .collect();
+        }
+        encode_result
+    };
+
+    // Use OS threads (not rayon) for outer concurrency to avoid deadlocking the rayon pool,
+    // since inner encode_with_metadata() also uses rayon.
+    let max_concurrent = max_concurrent_blob_encodings.max(1);
+    let blobs = if max_concurrent <= 1 || walrus_store_blobs.len() <= 1 {
+        walrus_store_blobs.into_iter().map(&encode_one).collect()
+    } else {
+        let mut results = Vec::with_capacity(walrus_store_blobs.len());
+        let mut remaining = walrus_store_blobs;
+        while !remaining.is_empty() {
+            let batch_size = max_concurrent.min(remaining.len());
+            let batch: Vec<_> = remaining.drain(..batch_size).collect();
+            let batch_results: ClientResult<Vec<_>> = std::thread::scope(|s| {
+                let handles: Vec<_> = batch
+                    .into_iter()
+                    .map(|blob| s.spawn(|| encode_one(blob)))
+                    .collect();
+                handles
+                    .into_iter()
+                    .map(|h| h.join().expect("encode thread panicked"))
+                    .collect()
+            });
+            results.extend(batch_results?);
+        }
+        Ok(results)
+    };
 
     if let Some(tx) = encoding_event_tx
         && let Err(error) = tx.send(EncodingProgressEvent::Finished)
