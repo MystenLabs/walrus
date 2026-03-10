@@ -21,7 +21,7 @@ use tracing::Level;
 use typed_store::{
     Map,
     TypedStoreError,
-    rocks::{DBBatch, DBMap, ReadWriteOptions, RocksDB},
+    rocks::{DBBatch, DBMap, ReadWriteOptions, RocksDB, RocksDBSnapshot},
 };
 use walrus_core::{BlobId, Epoch};
 use walrus_storage_node_client::api::{BlobStatus, DeletableCounts};
@@ -39,18 +39,30 @@ use walrus_sui::types::{
 use self::per_object_blob_info::PerObjectBlobInfoMergeOperand;
 pub(crate) use self::per_object_blob_info::{PerObjectBlobInfo, PerObjectBlobInfoApi};
 use super::{DatabaseTableOptionsFactory, constants};
+
+/// Function type for looking up a storage pool's end_epoch by its ObjectID.
+/// Returns `Ok(None)` if the pool is unknown.
+pub(crate) type PoolEndEpochFn<'a> =
+    &'a dyn Fn(&ObjectID) -> Result<Option<Epoch>, TypedStoreError>;
+
+/// No-op pool lookup for contexts without pool awareness.
+pub(crate) fn no_pool_lookup(_: &ObjectID) -> Result<Option<Epoch>, TypedStoreError> {
+    Ok(None)
+}
 use crate::{
     node::metrics::NodeMetricSet,
     utils::{self, process_items_in_batches},
 };
 
 pub type BlobInfoIterator<'a> = BlobInfoIter<
+    'a,
     BlobId,
     BlobInfo,
     dyn Iterator<Item = Result<(BlobId, BlobInfo), TypedStoreError>> + Send + 'a,
 >;
 
 pub type PerObjectBlobInfoIterator<'a> = BlobInfoIter<
+    'a,
     ObjectID,
     PerObjectBlobInfo,
     dyn Iterator<Item = Result<(ObjectID, PerObjectBlobInfo), TypedStoreError>> + Send + 'a,
@@ -286,7 +298,7 @@ impl BlobInfoTable {
         if let Some(per_object_blob_info) =
             self.per_object_blob_info.get(&extension_event.object_id)?
         {
-            assert!(per_object_blob_info.is_registered(epoch_at_start));
+            assert!(per_object_blob_info.is_registered(epoch_at_start, &no_pool_lookup)?);
             tracing::debug!(
                 ?per_object_blob_info,
                 "perform standard blob-info update for extension event of tracked blob"
@@ -408,39 +420,83 @@ impl BlobInfoTable {
         transaction.delete_cf(&self.aggregate_cf(), blob_id)
     }
 
+    /// Reads a storage pool's end_epoch within a transaction, registering it as a read for
+    /// optimistic conflict detection. If the pool end_epoch changes before the transaction
+    /// commits, the commit will fail.
+    pub fn pool_end_epoch_for_update_in_transaction(
+        &self,
+        transaction: &Transaction<'_, rocksdb::OptimisticTransactionDB>,
+        pool_id: &ObjectID,
+    ) -> Result<Option<Epoch>, rocksdb::Error> {
+        let key_buf = typed_store::rocks::be_fix_int_ser(pool_id)
+            .expect("ObjectID serialization should not fail");
+        Ok(transaction
+            .get_for_update_cf_opt(
+                &self
+                    .storage_pool_end_epochs
+                    .cf()
+                    .expect("we know that this CF exists"),
+                &key_buf,
+                false,
+                &self.storage_pool_end_epochs.opts.readopts(),
+            )?
+            .and_then(|data| deserialize_from_db(&data)))
+    }
+
+    /// Creates a RocksDB snapshot for consistent reads across all blob info column families.
+    ///
+    /// All column families in `BlobInfoTable` share the same RocksDB instance, so a single
+    /// snapshot provides a consistent point-in-time view across blob info, per-object blob info,
+    /// and storage pool end_epochs.
+    pub fn create_snapshot(&self) -> RocksDBSnapshot<'_> {
+        self.storage_pool_end_epochs.rocksdb.snapshot()
+    }
+
     /// Returns an iterator over all blobs that were certified before the specified epoch in the
     /// blob info table starting with the `starting_blob_id` bound.
+    ///
+    /// The provided `snapshot` is used for both the range iteration and pool end_epoch lookups,
+    /// ensuring a consistent point-in-time view even if GC modifies entries during iteration.
     #[tracing::instrument(skip_all)]
-    pub fn certified_blob_info_iter_before_epoch(
-        &self,
+    pub fn certified_blob_info_iter_before_epoch<'a>(
+        &'a self,
         before_epoch: Epoch,
         starting_blob_id_bound: Bound<BlobId>,
-    ) -> BlobInfoIterator<'_> {
+        snapshot: &'a RocksDBSnapshot<'a>,
+    ) -> BlobInfoIterator<'a> {
         BlobInfoIter::new(
             Box::new(
                 self.aggregate_blob_info
-                    .safe_range_iter((starting_blob_id_bound, Unbounded))
+                    .safe_range_iter_with_snapshot(snapshot, (starting_blob_id_bound, Unbounded))
                     .expect("aggregate_blob_info cf must always exist in storage node"),
             ),
             before_epoch,
+            snapshot,
+            &self.storage_pool_end_epochs,
         )
     }
 
     /// Returns an iterator over all blob objects that were certified before the specified epoch in
     /// the per-object blob info table starting with the `starting_object_id` bound.
+    ///
+    /// The provided `snapshot` is used for both the range iteration and pool end_epoch lookups,
+    /// ensuring a consistent point-in-time view even if GC modifies entries during iteration.
     #[tracing::instrument(skip_all)]
-    pub fn certified_per_object_blob_info_iter_before_epoch(
-        &self,
+    pub fn certified_per_object_blob_info_iter_before_epoch<'a>(
+        &'a self,
         before_epoch: Epoch,
         starting_object_id_bound: Bound<ObjectID>,
-    ) -> PerObjectBlobInfoIterator<'_> {
+        snapshot: &'a RocksDBSnapshot<'a>,
+    ) -> PerObjectBlobInfoIterator<'a> {
         BlobInfoIter::new(
             Box::new(
                 self.per_object_blob_info
-                    .safe_range_iter((starting_object_id_bound, Unbounded))
+                    .safe_range_iter_with_snapshot(snapshot, (starting_object_id_bound, Unbounded))
                     .expect("per_object_blob_info cf must always exist in storage node"),
             ),
             before_epoch,
+            snapshot,
+            &self.storage_pool_end_epochs,
         )
     }
 
@@ -582,7 +638,7 @@ impl BlobInfoTable {
             // Pool expired or unknown — fall through to GC.
         } else {
             // Regular blob: check per-object end_epoch.
-            if per_object_blob_info.is_registered(current_epoch) {
+            if per_object_blob_info.is_registered(current_epoch, &no_pool_lookup)? {
                 tracing::trace!(
                     %object_id,
                     ?per_object_blob_info,
@@ -648,6 +704,14 @@ impl BlobInfoTable {
     ) -> Result<(), TypedStoreError> {
         self.storage_pool_end_epochs
             .insert(storage_pool_id, &end_epoch)
+    }
+
+    /// Returns the end epoch for a storage pool, if known.
+    pub(crate) fn storage_pool_end_epoch(
+        &self,
+        storage_pool_id: &ObjectID,
+    ) -> Result<Option<Epoch>, TypedStoreError> {
+        self.storage_pool_end_epochs.get(storage_pool_id)
     }
 
     /// Processes a `PooledBlobRegistered` event.
@@ -978,24 +1042,42 @@ impl BlobInfoTable {
 }
 
 /// An iterator over the blob info table.
-pub(crate) struct BlobInfoIter<B, T: CertifiedBlobInfoApi, I: ?Sized>
+///
+/// Uses a caller-provided RocksDB snapshot for both the range iteration over blob data and
+/// pool end_epoch lookups, ensuring a consistent point-in-time view even if GC modifies
+/// entries during iteration.
+pub(crate) struct BlobInfoIter<'a, B, T: CertifiedBlobInfoApi, I: ?Sized>
 where
     I: Iterator<Item = Result<(B, T), TypedStoreError>> + Send,
 {
     iter: Box<I>,
     before_epoch: Epoch,
+    /// RocksDB snapshot for consistent pool end_epoch lookups during iteration.
+    snapshot: &'a RocksDBSnapshot<'a>,
+    /// Reference to the storage_pool_end_epochs column family for snapshot lookups.
+    storage_pool_end_epochs: &'a DBMap<ObjectID, Epoch>,
 }
 
-impl<B, T: CertifiedBlobInfoApi, I: ?Sized> BlobInfoIter<B, T, I>
+impl<'a, B, T: CertifiedBlobInfoApi, I: ?Sized> BlobInfoIter<'a, B, T, I>
 where
     I: Iterator<Item = Result<(B, T), TypedStoreError>> + Send,
 {
-    pub fn new(iter: Box<I>, before_epoch: Epoch) -> Self {
-        Self { iter, before_epoch }
+    pub fn new(
+        iter: Box<I>,
+        before_epoch: Epoch,
+        snapshot: &'a RocksDBSnapshot<'a>,
+        storage_pool_end_epochs: &'a DBMap<ObjectID, Epoch>,
+    ) -> Self {
+        Self {
+            iter,
+            before_epoch,
+            snapshot,
+            storage_pool_end_epochs,
+        }
     }
 }
 
-impl<B, T: CertifiedBlobInfoApi, I: ?Sized> Debug for BlobInfoIter<B, T, I>
+impl<B, T: CertifiedBlobInfoApi, I: ?Sized> Debug for BlobInfoIter<'_, B, T, I>
 where
     I: Iterator<Item = Result<(B, T), TypedStoreError>> + Send,
 {
@@ -1006,13 +1088,17 @@ where
     }
 }
 
-impl<B, T: CertifiedBlobInfoApi, I: ?Sized> Iterator for BlobInfoIter<B, T, I>
+impl<B, T: CertifiedBlobInfoApi, I: ?Sized> Iterator for BlobInfoIter<'_, B, T, I>
 where
     I: Iterator<Item = Result<(B, T), TypedStoreError>> + Send,
 {
     type Item = Result<(B, T), TypedStoreError>;
 
     fn next(&mut self) -> Option<Self::Item> {
+        let pool_lookup = |pool_id: &ObjectID| -> Result<Option<Epoch>, TypedStoreError> {
+            self.storage_pool_end_epochs
+                .get_with_snapshot(self.snapshot, pool_id)
+        };
         for item in self.iter.by_ref() {
             let Ok((_, blob_info)) = &item else {
                 return Some(item);
@@ -1026,9 +1112,12 @@ where
             if matches!(
                 blob_info.initial_certified_epoch(),
                 Some(initial_certified_epoch) if initial_certified_epoch < self.before_epoch
-            ) && blob_info.is_certified(self.before_epoch)
-            {
-                return Some(item);
+            ) {
+                match blob_info.is_certified(self.before_epoch, &pool_lookup) {
+                    Ok(true) => return Some(item),
+                    Ok(false) => {}
+                    Err(e) => return Some(Err(e)),
+                }
             }
         }
         None
@@ -1077,7 +1166,11 @@ trait Mergeable: ToBytes + Debug + DeserializeOwned + Serialize + Sized {
 pub(crate) trait CertifiedBlobInfoApi {
     /// Returns true iff there exists at least one non-expired and certified deletable or permanent
     /// `Blob` object.
-    fn is_certified(&self, current_epoch: Epoch) -> bool;
+    fn is_certified(
+        &self,
+        current_epoch: Epoch,
+        pool_lookup: PoolEndEpochFn<'_>,
+    ) -> Result<bool, TypedStoreError>;
 
     /// Returns the epoch at which this blob was first certified.
     ///
@@ -1094,18 +1187,30 @@ pub(crate) trait BlobInfoApi: CertifiedBlobInfoApi {
     fn is_metadata_stored(&self) -> bool;
 
     /// Returns true iff there exists at least one non-expired deletable or permanent `Blob` object.
-    fn is_registered(&self, current_epoch: Epoch) -> bool;
+    fn is_registered(
+        &self,
+        current_epoch: Epoch,
+        pool_lookup: PoolEndEpochFn<'_>,
+    ) -> Result<bool, TypedStoreError>;
 
     /// Returns true iff the data of the blob can be deleted at the given epoch. The default
     /// implementation simply checks if the blob is registered in that epoch.
-    fn can_data_be_deleted(&self, current_epoch: Epoch) -> bool {
-        !self.is_registered(current_epoch)
+    fn can_data_be_deleted(
+        &self,
+        current_epoch: Epoch,
+        pool_lookup: PoolEndEpochFn<'_>,
+    ) -> Result<bool, TypedStoreError> {
+        Ok(!self.is_registered(current_epoch, pool_lookup)?)
     }
 
     /// Returns true iff the *blob info* can be deleted at the given epoch. This is a stronger
     /// condition than whether the data can be deleted as it also checks that no deletable blob
     /// objects exist in the per-object blob info table.
-    fn can_blob_info_be_deleted(&self, current_epoch: Epoch) -> bool;
+    fn can_blob_info_be_deleted(
+        &self,
+        current_epoch: Epoch,
+        pool_lookup: PoolEndEpochFn<'_>,
+    ) -> Result<bool, TypedStoreError>;
 
     /// Returns the event through which this blob was marked invalid.
     ///
@@ -1113,7 +1218,11 @@ pub(crate) trait BlobInfoApi: CertifiedBlobInfoApi {
     fn invalidation_event(&self) -> Option<EventID>;
 
     /// Converts the blob information to a `BlobStatus` object.
-    fn to_blob_status(&self, current_epoch: Epoch) -> BlobStatus;
+    fn to_blob_status(
+        &self,
+        current_epoch: Epoch,
+        pool_lookup: PoolEndEpochFn<'_>,
+    ) -> Result<BlobStatus, TypedStoreError>;
 }
 
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq, Clone)]
@@ -2156,20 +2265,28 @@ impl From<BlobInfoV1> for BlobInfoV2 {
 }
 
 impl CertifiedBlobInfoApi for ValidBlobInfoV2 {
-    fn is_certified(&self, current_epoch: Epoch) -> bool {
+    fn is_certified(
+        &self,
+        current_epoch: Epoch,
+        pool_lookup: PoolEndEpochFn<'_>,
+    ) -> Result<bool, TypedStoreError> {
         // Regular check (same as V1).
         if self.is_certified_regular(current_epoch) {
-            return true;
+            return Ok(true);
         }
-        // Conservative: if any pool refs have certified counts, report certified.
+        // Check pool refs: only count pools whose end_epoch is still in the future.
         if self
             .initial_certified_epoch
             .is_some_and(|e| e <= current_epoch)
-            && self.pool_refs.values().any(|r| r.count_certified > 0)
         {
-            return true;
+            for (pool_id, r) in &self.pool_refs {
+                if r.count_certified > 0 && pool_lookup(pool_id)?.is_some_and(|e| e > current_epoch)
+                {
+                    return Ok(true);
+                }
+            }
         }
-        false
+        Ok(false)
     }
 
     fn initial_certified_epoch(&self) -> Option<Epoch> {
@@ -2178,10 +2295,14 @@ impl CertifiedBlobInfoApi for ValidBlobInfoV2 {
 }
 
 impl CertifiedBlobInfoApi for BlobInfoV2 {
-    fn is_certified(&self, current_epoch: Epoch) -> bool {
+    fn is_certified(
+        &self,
+        current_epoch: Epoch,
+        pool_lookup: PoolEndEpochFn<'_>,
+    ) -> Result<bool, TypedStoreError> {
         match self {
-            Self::Valid(v) => v.is_certified(current_epoch),
-            Self::Invalid { .. } => false,
+            Self::Valid(v) => v.is_certified(current_epoch, pool_lookup),
+            Self::Invalid { .. } => Ok(false),
         }
     }
 
@@ -2204,9 +2325,13 @@ impl BlobInfoApi for BlobInfoV2 {
         )
     }
 
-    fn is_registered(&self, current_epoch: Epoch) -> bool {
+    fn is_registered(
+        &self,
+        current_epoch: Epoch,
+        pool_lookup: PoolEndEpochFn<'_>,
+    ) -> Result<bool, TypedStoreError> {
         let Self::Valid(v) = self else {
-            return false;
+            return Ok(false);
         };
 
         // Regular check (same as V1).
@@ -2219,23 +2344,29 @@ impl BlobInfoApi for BlobInfoV2 {
                 .is_some_and(|e| e > current_epoch);
 
         if exists_registered_permanent_blob || probably_exists_registered_deletable_blob {
-            return true;
+            return Ok(true);
         }
 
-        // Conservative: if any pool refs exist, report registered.
-        // GC is the only path that checks actual pool end_epoch.
-        !v.pool_refs.is_empty()
+        // Check pool refs: only count pools whose end_epoch is still in the future.
+        for pool_id in v.pool_refs.keys() {
+            if pool_lookup(pool_id)?.is_some_and(|e| e > current_epoch) {
+                return Ok(true);
+            }
+        }
+        Ok(false)
     }
 
-    fn can_blob_info_be_deleted(&self, current_epoch: Epoch) -> bool {
+    fn can_blob_info_be_deleted(
+        &self,
+        current_epoch: Epoch,
+        pool_lookup: PoolEndEpochFn<'_>,
+    ) -> Result<bool, TypedStoreError> {
         match self {
-            Self::Invalid { .. } => false,
-            Self::Valid(v) => {
-                v.count_deletable_total == 0
-                    && v.permanent_total.is_none()
-                    && v.pool_refs.is_empty()
-                    && self.can_data_be_deleted(current_epoch)
-            }
+            Self::Invalid { .. } => Ok(false),
+            Self::Valid(v) => Ok(v.count_deletable_total == 0
+                && v.permanent_total.is_none()
+                && v.pool_refs.is_empty()
+                && self.can_data_be_deleted(current_epoch, pool_lookup)?),
         }
     }
 
@@ -2247,9 +2378,13 @@ impl BlobInfoApi for BlobInfoV2 {
         }
     }
 
-    fn to_blob_status(&self, current_epoch: Epoch) -> BlobStatus {
+    fn to_blob_status(
+        &self,
+        current_epoch: Epoch,
+        pool_lookup: PoolEndEpochFn<'_>,
+    ) -> Result<BlobStatus, TypedStoreError> {
         match self {
-            BlobInfoV2::Invalid { event, .. } => BlobStatus::Invalid { event: *event },
+            BlobInfoV2::Invalid { event, .. } => Ok(BlobStatus::Invalid { event: *event }),
             BlobInfoV2::Valid(v) => {
                 // First try V1-style regular blob status.
                 let regular_status = ValidBlobInfoV1 {
@@ -2267,35 +2402,45 @@ impl BlobInfoApi for BlobInfoV2 {
                 .to_blob_status(current_epoch);
 
                 if regular_status != BlobStatus::Nonexistent {
-                    return regular_status;
+                    return Ok(regular_status);
                 }
 
-                // If only pool refs, report as Deletable with summed counts.
-                if !v.pool_refs.is_empty() {
-                    let total: u32 = v.pool_refs.values().map(|r| r.count_total).sum();
-                    let certified: u32 = v.pool_refs.values().map(|r| r.count_certified).sum();
-                    return BlobStatus::Deletable {
+                // If only pool refs with active pools, report as Deletable with summed counts.
+                let mut total: u32 = 0;
+                let mut certified: u32 = 0;
+                for (pool_id, r) in &v.pool_refs {
+                    if pool_lookup(pool_id)?.is_some_and(|e| e > current_epoch) {
+                        total += r.count_total;
+                        certified += r.count_certified;
+                    }
+                }
+                if total > 0 {
+                    return Ok(BlobStatus::Deletable {
                         initial_certified_epoch: v.initial_certified_epoch,
                         deletable_counts: DeletableCounts {
                             count_deletable_total: total,
                             count_deletable_certified: certified,
                         },
-                    };
+                    });
                 }
 
-                BlobStatus::Nonexistent
+                Ok(BlobStatus::Nonexistent)
             }
         }
     }
 }
 
 impl CertifiedBlobInfoApi for BlobInfoV1 {
-    fn is_certified(&self, current_epoch: Epoch) -> bool {
-        if let Self::Valid(valid_blob_info) = self {
+    fn is_certified(
+        &self,
+        current_epoch: Epoch,
+        _pool_lookup: PoolEndEpochFn<'_>,
+    ) -> Result<bool, TypedStoreError> {
+        Ok(if let Self::Valid(valid_blob_info) = self {
             valid_blob_info.is_certified(current_epoch)
         } else {
             false
-        }
+        })
     }
 
     fn initial_certified_epoch(&self) -> Option<Epoch> {
@@ -2324,7 +2469,11 @@ impl BlobInfoApi for BlobInfoV1 {
 
     // Note: See the `is_certified` method for an explanation of the use of the
     // `latest_seen_deletable_registered_end_epoch` field.
-    fn is_registered(&self, current_epoch: Epoch) -> bool {
+    fn is_registered(
+        &self,
+        current_epoch: Epoch,
+        _pool_lookup: PoolEndEpochFn<'_>,
+    ) -> Result<bool, TypedStoreError> {
         let Self::Valid(ValidBlobInfoV1 {
             count_deletable_total,
             permanent_total,
@@ -2332,7 +2481,7 @@ impl BlobInfoApi for BlobInfoV1 {
             ..
         }) = self
         else {
-            return false;
+            return Ok(false);
         };
 
         let exists_registered_permanent_blob = permanent_total
@@ -2341,24 +2490,26 @@ impl BlobInfoApi for BlobInfoV1 {
         let probably_exists_registered_deletable_blob = *count_deletable_total > 0
             && latest_seen_deletable_registered_end_epoch.is_some_and(|e| e > current_epoch);
 
-        exists_registered_permanent_blob || probably_exists_registered_deletable_blob
+        Ok(exists_registered_permanent_blob || probably_exists_registered_deletable_blob)
     }
 
-    fn can_blob_info_be_deleted(&self, current_epoch: Epoch) -> bool {
+    fn can_blob_info_be_deleted(
+        &self,
+        current_epoch: Epoch,
+        pool_lookup: PoolEndEpochFn<'_>,
+    ) -> Result<bool, TypedStoreError> {
         match self {
             Self::Invalid { .. } => {
                 // We don't know whether there are any deletable blob objects for this blob ID.
-                false
+                Ok(false)
             }
             Self::Valid(ValidBlobInfoV1 {
                 count_deletable_total,
                 permanent_total,
                 ..
-            }) => {
-                *count_deletable_total == 0
-                    && permanent_total.is_none()
-                    && self.can_data_be_deleted(current_epoch)
-            }
+            }) => Ok(*count_deletable_total == 0
+                && permanent_total.is_none()
+                && self.can_data_be_deleted(current_epoch, pool_lookup)?),
         }
     }
 
@@ -2370,11 +2521,15 @@ impl BlobInfoApi for BlobInfoV1 {
         }
     }
 
-    fn to_blob_status(&self, current_epoch: Epoch) -> BlobStatus {
-        match self {
+    fn to_blob_status(
+        &self,
+        current_epoch: Epoch,
+        _pool_lookup: PoolEndEpochFn<'_>,
+    ) -> Result<BlobStatus, TypedStoreError> {
+        Ok(match self {
             BlobInfoV1::Invalid { event, .. } => BlobStatus::Invalid { event: *event },
             BlobInfoV1::Valid(valid_blob_info) => valid_blob_info.to_blob_status(current_epoch),
-        }
+        })
     }
 }
 
@@ -2810,7 +2965,11 @@ mod per_object_blob_info {
         /// Returns true iff the object is deletable.
         fn is_deletable(&self) -> bool;
         /// Returns true iff the object is not expired and not deleted.
-        fn is_registered(&self, current_epoch: Epoch) -> bool;
+        fn is_registered(
+            &self,
+            current_epoch: Epoch,
+            pool_lookup: PoolEndEpochFn<'_>,
+        ) -> Result<bool, TypedStoreError>;
         /// Returns true iff the object is already deleted.
         fn is_deleted(&self) -> bool;
         /// Returns the storage pool ID if this is a storage pool blob.
@@ -2885,11 +3044,15 @@ mod per_object_blob_info {
     }
 
     impl CertifiedBlobInfoApi for PerObjectBlobInfoV1 {
-        fn is_certified(&self, current_epoch: Epoch) -> bool {
-            self.is_registered(current_epoch)
+        fn is_certified(
+            &self,
+            current_epoch: Epoch,
+            pool_lookup: PoolEndEpochFn<'_>,
+        ) -> Result<bool, TypedStoreError> {
+            Ok(self.is_registered(current_epoch, pool_lookup)?
                 && self
                     .certified_epoch
-                    .is_some_and(|epoch| epoch <= current_epoch)
+                    .is_some_and(|epoch| epoch <= current_epoch))
         }
 
         fn initial_certified_epoch(&self) -> Option<Epoch> {
@@ -2906,8 +3069,12 @@ mod per_object_blob_info {
             self.deletable
         }
 
-        fn is_registered(&self, current_epoch: Epoch) -> bool {
-            self.end_epoch > current_epoch && !self.deleted
+        fn is_registered(
+            &self,
+            current_epoch: Epoch,
+            _pool_lookup: PoolEndEpochFn<'_>,
+        ) -> Result<bool, TypedStoreError> {
+            Ok(self.end_epoch > current_epoch && !self.deleted)
         }
 
         fn is_deleted(&self) -> bool {
@@ -2947,11 +3114,15 @@ mod per_object_blob_info {
     }
 
     impl CertifiedBlobInfoApi for PerObjectBlobInfoV2 {
-        fn is_certified(&self, current_epoch: Epoch) -> bool {
-            self.is_registered(current_epoch)
+        fn is_certified(
+            &self,
+            current_epoch: Epoch,
+            pool_lookup: PoolEndEpochFn<'_>,
+        ) -> Result<bool, TypedStoreError> {
+            Ok(self.is_registered(current_epoch, pool_lookup)?
                 && self
                     .certified_epoch
-                    .is_some_and(|epoch| epoch <= current_epoch)
+                    .is_some_and(|epoch| epoch <= current_epoch))
         }
 
         fn initial_certified_epoch(&self) -> Option<Epoch> {
@@ -2968,9 +3139,24 @@ mod per_object_blob_info {
             self.deletable
         }
 
-        fn is_registered(&self, current_epoch: Epoch) -> bool {
-            // For pool blobs (end_epoch = None), liveness depends on the pool, not the blob.
-            !self.deleted && self.end_epoch.is_none_or(|e| e > current_epoch)
+        fn is_registered(
+            &self,
+            current_epoch: Epoch,
+            pool_lookup: PoolEndEpochFn<'_>,
+        ) -> Result<bool, TypedStoreError> {
+            if self.deleted {
+                return Ok(false);
+            }
+            match (self.end_epoch, &self.storage_pool_id) {
+                // Regular blob with known end_epoch.
+                (Some(e), _) => Ok(e > current_epoch),
+                // Pool blob: check pool's end_epoch via lookup.
+                (None, Some(pool_id)) => {
+                    Ok(pool_lookup(pool_id)?.is_some_and(|e| e > current_epoch))
+                }
+                // Shouldn't happen, but treat as not registered.
+                (None, None) => Ok(false),
+            }
         }
 
         fn is_deleted(&self) -> bool {
@@ -3892,11 +4078,15 @@ mod tests {
         epoch_expired: Epoch,
     ) {
         assert_ne!(
-            BlobInfoV1::Valid(blob_info.clone()).to_blob_status(epoch_not_expired),
+            BlobInfoV1::Valid(blob_info.clone())
+                .to_blob_status(epoch_not_expired, &no_pool_lookup)
+                .expect("pool lookup should not fail"),
             BlobStatus::Nonexistent,
         );
         assert_eq!(
-            BlobInfoV1::Valid(blob_info).to_blob_status(epoch_expired),
+            BlobInfoV1::Valid(blob_info)
+                .to_blob_status(epoch_expired, &no_pool_lookup)
+                .expect("pool lookup should not fail"),
             BlobStatus::Nonexistent,
         );
     }

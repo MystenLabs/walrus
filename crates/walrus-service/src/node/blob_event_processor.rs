@@ -260,8 +260,9 @@ impl BackgroundEventProcessor {
         let current_committee_epoch = self.node.current_committee_epoch();
         tracing::Span::current().record("walrus.epoch", current_committee_epoch);
 
+        let pool_lookup = self.node.storage.pool_end_epoch_lookup();
         if let Some(blob_info) = self.node.storage.get_blob_info(&blob_id)? {
-            if !blob_info.is_certified(current_committee_epoch) {
+            if !blob_info.is_certified(current_committee_epoch, &pool_lookup)? {
                 self.node
                     .blob_retirement_notifier
                     .notify_blob_retirement(&blob_id);
@@ -275,7 +276,7 @@ impl BackgroundEventProcessor {
             // *Important*: We use the event's epoch for this check (as opposed to the current
             // epoch) as subsequent certify or delete events may update the `blob_info`; so we
             // cannot remove it even if it is no longer valid in the *current* epoch
-            if blob_info.can_data_be_deleted(epoch)
+            if blob_info.can_data_be_deleted(epoch, &pool_lookup)?
                 && self.node.garbage_collection_config.enable_data_deletion
             {
                 tracing::debug!("deleting data for deleted blob");

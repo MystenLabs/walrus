@@ -22,7 +22,16 @@ use tokio::sync::{OwnedRwLockWriteGuard, RwLock};
 use typed_store::{
     Map,
     TypedStoreError,
-    rocks::{self, DBBatch, DBMap, MetricConf, OptimisticHandle, ReadWriteOptions, RocksDB},
+    rocks::{
+        self,
+        DBBatch,
+        DBMap,
+        MetricConf,
+        OptimisticHandle,
+        ReadWriteOptions,
+        RocksDB,
+        RocksDBSnapshot,
+    },
 };
 use walrus_core::{
     BlobId,
@@ -663,6 +672,13 @@ impl Storage {
         self.blob_info.get(blob_id)
     }
 
+    /// Returns a closure that looks up pool end_epoch from the storage_pool_end_epochs table.
+    pub(crate) fn pool_end_epoch_lookup(
+        &self,
+    ) -> impl Fn(&ObjectID) -> Result<Option<Epoch>, TypedStoreError> + '_ {
+        |pool_id| self.blob_info.storage_pool_end_epoch(pool_id)
+    }
+
     /// Returns the per-object blob info for `object_id`.
     pub(crate) fn get_per_object_info(
         &self,
@@ -865,7 +881,8 @@ impl Storage {
             };
             last_processed_blob_id = Some(blob_id);
 
-            if !blob_info.can_data_be_deleted(current_epoch) {
+            let pool_lookup = self.pool_end_epoch_lookup();
+            if !blob_info.can_data_be_deleted(current_epoch, &pool_lookup)? {
                 tracing::trace!(
                     %blob_id,
                     "skipping blob that cannot be deleted (still registered)",
@@ -949,7 +966,14 @@ impl Storage {
             tracing::warn!("blob info not found when attempting to delete expired blob data");
             return Ok(false);
         };
-        if !blob_info.can_data_be_deleted(current_epoch) {
+        // Read pool end_epochs through the transaction so the optimistic commit detects
+        // conflicts if pool end_epochs change concurrently.
+        let pool_lookup = |pool_id: &ObjectID| -> Result<Option<Epoch>, TypedStoreError> {
+            self.blob_info
+                .pool_end_epoch_for_update_in_transaction(&transaction, pool_id)
+                .map_err(|e| TypedStoreError::RocksDBError(e.into_string()))
+        };
+        if !blob_info.can_data_be_deleted(current_epoch, &pool_lookup)? {
             tracing::debug!(
                 "attempting to delete expired blob data, but blob can no longer be deleted"
             );
@@ -959,7 +983,7 @@ impl Storage {
         // At this point we are sure that the blob is no longer registered and can actually delete
         // the data. If the blob is reregistered outside this transaction, the transaction will
         // fail.
-        if blob_info.can_blob_info_be_deleted(current_epoch) {
+        if blob_info.can_blob_info_be_deleted(current_epoch, &pool_lookup)? {
             // It is possible that there are still (expired) deletable blob objects for this blob
             // ID. In that case, we should not delete the aggregate blob info yet.
             tracing::debug!("deleting aggregate blob info");
@@ -1195,6 +1219,7 @@ impl Storage {
         let sliver_count = request.sliver_count();
         let mut fetched_blobs = Vec::with_capacity(sliver_count);
         let mut last_fetched_blob_id = None;
+        let snapshot = self.blob_info.create_snapshot();
         while fetched_blobs.len() < sliver_count {
             let remaining_count = sliver_count - fetched_blobs.len();
 
@@ -1205,7 +1230,11 @@ impl Storage {
             // Scan certified slivers to fetch.
             let blobs_to_fetch = self
                 .blob_info
-                .certified_blob_info_iter_before_epoch(current_epoch, starting_blob_id_bound)
+                .certified_blob_info_iter_before_epoch(
+                    current_epoch,
+                    starting_blob_id_bound,
+                    &snapshot,
+                )
                 .take(remaining_count)
                 .map_ok(|(blob_id, _)| blob_id)
                 .collect::<Result<Vec<_>, TypedStoreError>>()?;
@@ -1225,22 +1254,36 @@ impl Storage {
         Ok(fetched_blobs.into())
     }
 
+    /// Creates a RocksDB snapshot for consistent reads across all blob info column families.
+    pub(crate) fn create_blob_info_snapshot(&self) -> RocksDBSnapshot<'_> {
+        self.blob_info.create_snapshot()
+    }
+
     /// Returns an iterator over the certified blob info before the specified epoch.
-    pub(crate) fn certified_blob_info_iter_before_epoch(
-        &self,
+    pub(crate) fn certified_blob_info_iter_before_epoch<'a>(
+        &'a self,
         epoch: Epoch,
-    ) -> BlobInfoIterator<'_> {
-        self.blob_info
-            .certified_blob_info_iter_before_epoch(epoch, std::ops::Bound::Unbounded)
+        snapshot: &'a RocksDBSnapshot<'a>,
+    ) -> BlobInfoIterator<'a> {
+        self.blob_info.certified_blob_info_iter_before_epoch(
+            epoch,
+            std::ops::Bound::Unbounded,
+            snapshot,
+        )
     }
 
     /// Returns an iterator over the certified per-object blob info before the specified epoch.
-    pub(crate) fn certified_per_object_blob_info_iter_before_epoch(
-        &self,
+    pub(crate) fn certified_per_object_blob_info_iter_before_epoch<'a>(
+        &'a self,
         epoch: Epoch,
-    ) -> PerObjectBlobInfoIterator<'_> {
+        snapshot: &'a RocksDBSnapshot<'a>,
+    ) -> PerObjectBlobInfoIterator<'a> {
         self.blob_info
-            .certified_per_object_blob_info_iter_before_epoch(epoch, std::ops::Bound::Unbounded)
+            .certified_per_object_blob_info_iter_before_epoch(
+                epoch,
+                std::ops::Bound::Unbounded,
+                snapshot,
+            )
     }
 
     /// Checks internal invariants of the blob info table.
@@ -2207,12 +2250,14 @@ pub(crate) mod tests {
         after_blob: Option<BlobId>,
         new_epoch: Epoch,
     ) -> Result<Vec<BlobId>, TypedStoreError> {
+        let snapshot = storage.inner.blob_info.create_snapshot();
         storage
             .inner
             .blob_info
             .certified_blob_info_iter_before_epoch(
                 new_epoch,
                 after_blob.map_or(Unbounded, Excluded),
+                &snapshot,
             )
             .map(|result| result.map(|(id, _info)| id))
             .collect::<Result<Vec<_>, _>>()
@@ -2222,10 +2267,11 @@ pub(crate) mod tests {
         storage: &WithTempDir<Storage>,
         new_epoch: Epoch,
     ) -> Result<Vec<ObjectID>, TypedStoreError> {
+        let snapshot = storage.inner.blob_info.create_snapshot();
         storage
             .inner
             .blob_info
-            .certified_per_object_blob_info_iter_before_epoch(new_epoch, Unbounded)
+            .certified_per_object_blob_info_iter_before_epoch(new_epoch, Unbounded, &snapshot)
             .map(|result| result.map(|(id, _info)| id))
             .collect::<Result<Vec<_>, _>>()
     }
@@ -2373,10 +2419,11 @@ pub(crate) mod tests {
 
         // Create the iterator, which should take the snapshot of the blob info table at the
         // creation time.
+        let snapshot = storage.inner.blob_info.create_snapshot();
         let certified_blob_iter = storage
             .inner
             .blob_info
-            .certified_blob_info_iter_before_epoch(3, Unbounded);
+            .certified_blob_info_iter_before_epoch(3, Unbounded, &snapshot);
 
         // Update blob info table, and these updates should not be visible to the iterator.
         blob_info.insert(&blob_ids[4], &certified_blob_info(2))?;

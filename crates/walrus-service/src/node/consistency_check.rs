@@ -111,14 +111,19 @@ pub(super) async fn schedule_background_consistency_check(
         let _scope =
             monitored_scope::monitored_scope("EpochChange::background_blob_info_consistency_check");
 
+        // Create a snapshot for consistent reads across blob info and pool end_epochs.
+        let snapshot = node.storage.create_blob_info_snapshot();
+
         // Create a blob info iterator that takes the current blob info table as the snapshot.
-        let blob_info_iterator = node.storage.certified_blob_info_iter_before_epoch(epoch);
+        let blob_info_iterator = node
+            .storage
+            .certified_blob_info_iter_before_epoch(epoch, &snapshot);
 
         // Create a per-object blob info iterator that takes the current blob info table as the
         // snapshot.
         let per_object_blob_info_iterator = node
             .storage
-            .certified_per_object_blob_info_iter_before_epoch(epoch);
+            .certified_per_object_blob_info_iter_before_epoch(epoch, &snapshot);
 
         // Unblock event processing.
         let _ = tx.send(());

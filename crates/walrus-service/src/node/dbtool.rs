@@ -46,6 +46,7 @@ use crate::{
                 CertifiedBlobInfoApi,
                 PerObjectBlobInfo,
                 blob_info_cf_options,
+                no_pool_lookup,
                 per_object_blob_info_cf_options,
             },
             constants::{
@@ -465,7 +466,7 @@ fn count_certified_blobs(db_path: PathBuf, epoch: Epoch) -> Result<()> {
     for blob_info_raw in iter {
         let (_key, value) = blob_info_raw?;
         let blob_info: BlobInfo = bcs::from_bytes(&value)?;
-        if blob_info.is_certified(epoch) {
+        if blob_info.is_certified(epoch, &no_pool_lookup)? {
             certified_count += 1;
         }
 

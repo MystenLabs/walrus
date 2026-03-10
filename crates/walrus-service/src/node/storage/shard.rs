@@ -976,12 +976,14 @@ impl ShardStorage {
         #[cfg(msim)]
         let mut scan_count: u64 = 0;
 
+        let snapshot = node.storage.blob_info.create_snapshot();
         let mut blob_info_iter = node
             .storage
             .blob_info
             .certified_blob_info_iter_before_epoch(
                 epoch,
                 last_synced_blob_id.map_or(Unbounded, Excluded),
+                &snapshot,
             );
 
         let mut next_blob_info = blob_info_iter.next().transpose()?;
@@ -2235,12 +2237,14 @@ mod tests {
             .shard_storage(SHARD_INDEX)
             .await
             .expect("shard should exist");
+        let snapshot = storage.inner.blob_info.create_snapshot();
         let mut blob_info_iter = storage
             .inner
             .blob_info
             .certified_blob_info_iter_before_epoch(
                 new_epoch,
                 Excluded(sorted_blob_ids[next_blob_info_index]),
+                &snapshot,
             );
         let next_certified_blob_to_check = shard.check_and_record_missing_blobs_in_test(
             &mut blob_info_iter,

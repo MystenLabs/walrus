@@ -139,10 +139,11 @@ impl ShardSyncHandler {
     /// 3. For each blob, syncs its metadata using sync_single_blob_metadata
     async fn sync_certified_blob_metadata(&self) -> Result<(), SyncShardClientError> {
         tracing::info!("start syncing blob metadata");
+        let snapshot = self.node.storage.create_blob_info_snapshot();
         let blob_infos = self
             .node
             .storage
-            .certified_blob_info_iter_before_epoch(self.node.current_committee_epoch());
+            .certified_blob_info_iter_before_epoch(self.node.current_committee_epoch(), &snapshot);
 
         #[cfg(msim)]
         {

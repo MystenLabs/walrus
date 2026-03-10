@@ -3294,15 +3294,15 @@ impl StorageNodeInner {
 
     fn is_blob_registered(&self, blob_id: &BlobId) -> Result<bool, anyhow::Error> {
         let epoch = self.current_committee_epoch();
-        if self
+        let pool_lookup = self.storage.pool_end_epoch_lookup();
+        match self
             .storage
             .get_blob_info(blob_id)
             .context("could not retrieve blob info")?
-            .is_some_and(|blob_info| blob_info.is_registered(epoch))
         {
-            return Ok(true);
+            Some(blob_info) => Ok(blob_info.is_registered(epoch, &pool_lookup)?),
+            None => Ok(false),
         }
-        Ok(false)
     }
 
     fn notify_registration(&self, blob_id: &BlobId) {
@@ -3347,15 +3347,15 @@ impl StorageNodeInner {
 
     fn is_blob_certified(&self, blob_id: &BlobId) -> Result<bool, anyhow::Error> {
         let epoch = self.current_committee_epoch();
-        if self
+        let pool_lookup = self.storage.pool_end_epoch_lookup();
+        match self
             .storage
             .get_blob_info(blob_id)
             .context("could not retrieve blob info")?
-            .is_some_and(|blob_info| blob_info.is_certified(epoch))
         {
-            return Ok(true);
+            Some(blob_info) => Ok(blob_info.is_certified(epoch, &pool_lookup)?),
+            None => Ok(false),
         }
-        Ok(false)
     }
 
     /// Returns true if the blob is currently not certified.
@@ -4057,10 +4057,14 @@ impl ServiceState for StorageNodeInner {
                 .await?,
         );
 
-        if blob_info
-            .as_ref()
-            .is_some_and(|info| info.is_registered(self.current_committee_epoch()))
-        {
+        let pool_lookup = self.storage.pool_end_epoch_lookup();
+        let is_registered = match blob_info.as_ref() {
+            Some(info) => info
+                .is_registered(self.current_committee_epoch(), &pool_lookup)
+                .context("failed to check blob registration")?,
+            None => false,
+        };
+        if is_registered {
             return self.persist_verified_metadata(&blob_id, verified).await;
         }
 
@@ -4245,8 +4249,11 @@ impl ServiceState for StorageNodeInner {
                 .get_per_object_info(&object_id.into())
                 .context("database error when checking per object info")?
                 .ok_or(ComputeStorageConfirmationError::NotCurrentlyRegistered)?;
+            let pool_lookup = self.storage.pool_end_epoch_lookup();
             ensure!(
-                per_object_info.is_registered(self.current_committee_epoch()),
+                per_object_info
+                    .is_registered(self.current_committee_epoch(), &pool_lookup)
+                    .context("failed to check blob registration")?,
                 ComputeStorageConfirmationError::NotCurrentlyRegistered,
             );
         }
@@ -4272,12 +4279,17 @@ impl ServiceState for StorageNodeInner {
     }
 
     fn blob_status(&self, blob_id: &BlobId) -> Result<BlobStatus, BlobStatusError> {
-        Ok(self
+        let pool_lookup = self.storage.pool_end_epoch_lookup();
+        match self
             .storage
             .get_blob_info(blob_id)
             .context("could not retrieve blob info")?
-            .map(|blob_info| blob_info.to_blob_status(self.current_committee_epoch()))
-            .unwrap_or_default())
+        {
+            Some(blob_info) => Ok(blob_info
+                .to_blob_status(self.current_committee_epoch(), &pool_lookup)
+                .context("failed to compute blob status")?),
+            None => Ok(BlobStatus::default()),
+        }
     }
 
     async fn verify_inconsistency_proof(
@@ -4654,11 +4666,14 @@ mod tests {
     use walrus_test_utils::{Result as TestResult, WithTempDir, async_param_test};
 
     use super::*;
-    use crate::test_utils::{
-        StorageNodeHandle,
-        StorageNodeHandleTrait,
-        TestCluster,
-        retry_until_success_or_timeout,
+    use crate::{
+        node::storage::blob_info::no_pool_lookup,
+        test_utils::{
+            StorageNodeHandle,
+            StorageNodeHandleTrait,
+            TestCluster,
+            retry_until_success_or_timeout,
+        },
     };
 
     // Allow a bit more slack now that live-upload deferrals can delay recovery.
@@ -7036,7 +7051,11 @@ mod tests {
                 .storage
                 .get_blob_info(blob_detail.blob_id());
             assert!(matches!(
-                blob_info.unwrap().unwrap().to_blob_status(1),
+                blob_info
+                    .unwrap()
+                    .unwrap()
+                    .to_blob_status(1, &no_pool_lookup)
+                    .expect("pool lookup should not fail"),
                 BlobStatus::Permanent {
                     is_certified: false,
                     ..
@@ -7115,7 +7134,11 @@ mod tests {
                 .storage
                 .get_blob_info(blob_details[i].blob_id());
             assert!(matches!(
-                blob_info.unwrap().unwrap().to_blob_status(1),
+                blob_info
+                    .unwrap()
+                    .unwrap()
+                    .to_blob_status(1, &no_pool_lookup)
+                    .expect("pool lookup should not fail"),
                 BlobStatus::Permanent {
                     is_certified: false,
                     ..
@@ -8069,7 +8092,11 @@ mod tests {
                     .get_blob_info(blob_id);
                 if deletable_blob_index.contains(&i) {
                     assert!(matches!(
-                        blob_info.unwrap().unwrap().to_blob_status(2),
+                        blob_info
+                            .unwrap()
+                            .unwrap()
+                            .to_blob_status(2, &no_pool_lookup)
+                            .expect("pool lookup should not fail"),
                         BlobStatus::Deletable {
                             deletable_counts: walrus_storage_node_client::api::DeletableCounts {
                                 count_deletable_total: 1,
@@ -8079,7 +8106,11 @@ mod tests {
                         }
                     ));
                 } else {
-                    let blob_status = blob_info.unwrap().unwrap().to_blob_status(2);
+                    let blob_status = blob_info
+                        .unwrap()
+                        .unwrap()
+                        .to_blob_status(2, &no_pool_lookup)
+                        .expect("pool lookup should not fail");
                     if expired_blob_index.contains(&i) {
                         assert!(
                             matches!(blob_status, BlobStatus::Nonexistent),

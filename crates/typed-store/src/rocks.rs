@@ -1349,6 +1349,41 @@ impl<K, V> DBMap<K, V> {
         ))
     }
 
+    /// Like `safe_range_iter`, but reads from a pre-existing RocksDB snapshot for a
+    /// consistent point-in-time view.
+    pub fn safe_range_iter_with_snapshot<'a>(
+        &'a self,
+        snapshot: &'a RocksDBSnapshot<'a>,
+        range: impl RangeBounds<K>,
+    ) -> Result<SafeIter<'a, K, V>, TypedStoreError>
+    where
+        K: Serialize + DeserializeOwned,
+        V: Serialize + DeserializeOwned,
+    {
+        self.ensure_same_db(snapshot)?;
+        let cf_handle = self.cf()?;
+        let readopts = self.create_read_options_with_range(range);
+
+        let db_iter = match snapshot {
+            RocksDBSnapshot::DB(handle) => {
+                RocksDBRawIter::DB(handle.snapshot.raw_iterator_cf_opt(&cf_handle, readopts))
+            }
+            RocksDBSnapshot::OptimisticTransactionDB(handle) => {
+                RocksDBRawIter::OptimisticTransactionDB(
+                    handle.snapshot.raw_iterator_cf_opt(&cf_handle, readopts),
+                )
+            }
+        };
+
+        let iter_context = self.create_iter_context();
+        Ok(SafeIter::new(
+            self.cf.clone(),
+            db_iter,
+            iter_context,
+            Some(self.db_metrics.clone()),
+        ))
+    }
+
     fn ensure_same_db(&self, snapshot: &RocksDBSnapshot<'_>) -> Result<(), TypedStoreError> {
         if Arc::ptr_eq(&self.rocksdb, &snapshot.db()) {
             Ok(())
