@@ -1,7 +1,7 @@
 ---
-title: Advanced Setup
-description: Advanced setup options for Walrus including building from source, binary installation, and configuration.
-keywords: ["walrus", "setup", "installation", "configuration", "build from source", "cargo", "binaries", "client configuration", "advanced setup"]
+title: Advanced Installation
+description: Advanced installation options for Walrus including building from source, and binary installation.
+keywords: ["walrus", "installation", "configuration", "build from source", "cargo", "binaries", "advanced setup"]
 ---
 
 {/* https://linear.app/mysten-labs/issue/DOCS-629/getting-startedadvanced-setup */}
@@ -27,6 +27,7 @@ The `walrus` client binary is currently provided for macOS (Intel and Apple CPUs
 
 Our latest Walrus binaries are also available on Walrus itself, namely on https://bin.wal.app, for example, https://bin.wal.app/walrus-mainnet-latest-ubuntu-x86_64. Because of DoS protection, it might not be possible to download the binaries with `curl` or `wget`.
 
+Alternatively, you can find all the releases including release notes on [GitHub](https://github.com/MystenLabs/walrus/releases). Download the archive for your system and extract the `walrus` binary.
 :::
 
 ## Install through script {#nix-install}
@@ -54,7 +55,7 @@ $ walrus --help
 
 ## Install on Windows {#windows-install}
 
-To download `walrus` to your Microsoft Windows computer, run the following in a PowerShell.
+To download `walrus` to your Microsoft Windows computer, run the following in PowerShell:
 
 ```PowerShell
 (New-Object System.Net.WebClient).DownloadFile(
@@ -70,10 +71,6 @@ From there, place `walrus.exe` somewhere in your `PATH`.
 Most of the remaining instructions assume a UNIX-based system for the directory structure, commands, and so on. If you use Windows, you might need to adapt most of those.
 
 :::
-
-## Use GitHub releases
-
-You can find all the releases including release notes on [GitHub](https://github.com/MystenLabs/walrus/releases). Download the archive for your system and extract the `walrus` binary.
 
 ## Install through Cargo
 
@@ -93,64 +90,4 @@ The latest version of Mainnet and Testnet are available under the branches `main
 
 ## Configure Walrus
 
-:::tip
-
-The easiest way to obtain the latest configuration is by downloading it directly from Walrus:
-
-```sh
-curl --create-dirs https://docs.wal.app/setup/client_config.yaml -o ~/.config/walrus/client_config.yaml
-```
-
-:::
-
-The Walrus client needs to know about the Sui objects that store the Walrus system and staking information, see the [developer guide](/docs/system-overview/core-concepts#system-and-staking-information). Configure these in a file at `~/.config/walrus/client_config.yaml`.
-
-You can access Testnet and Mainnet through the following configuration. This example Walrus CLI configuration refers to the standard location for Sui configuration (`"~/.sui/sui_config/client.yaml"`).
-
-<ImportContent source="/setup/client_config.yaml" mode="code" />
-
-### Use a custom path (optional) {#config-custom-path}
-
-By default, the Walrus client looks for the `client_config.yaml` (or `client_config.yml`) configuration file in the current directory, `$XDG_CONFIG_HOME/walrus/`, `~/.config/walrus/`, or `~/.walrus/`. However, you can place the file anywhere and name it anything you like. In this case, use the `--config` option when running the `walrus` binary.
-
-## Use advanced configuration (optional)
-
-The configuration file currently supports the following parameters for each of the contexts:
-
-```yaml
-# These are the only mandatory fields. These objects are specific for a particular Walrus
-# deployment but then do not change over time.
-system_object: 0x2134d52768ea07e8c43570ef975eb3e4c27a39fa6396bef985b5abc58d03ddd2
-staking_object: 0x10b9d30c28448939ce6c4d6c6e0ffce4a7f8a4ada8248bdad09ef8b70e4a3904
-
-# You can specify a list of Sui RPC URLs for reads. If none is provided, the RPC URL in the Sui
-# wallet is used.
-rpc_urls:
-  - https://fullnode.mainnet.sui.io:443
-
-# You can define a custom path to your Sui wallet configuration here. If this is unset or `null`
-# (default), the wallet is configured from `./sui_config.yaml` (relative to your current working
-# directory), or the system-wide wallet at `~/.sui/sui_config/client.yaml` in this order. Both
-# `active_env` and `active_address` can be omitted, in which case the values from the Sui wallet
-# are used.
-wallet_config:
-  # The path to the wallet configuration file.
-  path: ~/.sui/sui_config/client.yaml
-  # The optional `active_env` to use to override whatever `active_env` is listed in the
-  # configuration file.
-  active_env: mainnet
-  # The optional `active_address` to use to override whatever `active_address` is listed in the
-  # configuration file.
-  active_address: 0x...
-
-# [...]
-```
-
-There are some additional parameters that you can use to tune the networking behavior of the client. If you experience excessively slow uploads, it might be worth experimenting with these values. There is no risk in playing around with these values. In the worst case, you might not be able to store or read blob because of timeouts or other networking errors.
-
-<details>
-<summary>
-`client_config_example.yaml`
-</summary>
-<ImportContent source="/crates/walrus-sdk/client_config_example.yaml" mode="code" />
-</details>
+Once downloaded, the Walrus binary must have a configuration file that defines the development environment's parameters. [Learn more about configuring the Walrus client](/docs/walrus-client/walrus-cli).

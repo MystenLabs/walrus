@@ -1,0 +1,67 @@
+---
+title: Walrus Client
+description: Use the Walrus client through the command line to store and retrieve blobs.
+keywords: [ walrus, cli, client, configuration, logging, json output ]
+---
+
+Use the command-line interface (CLI) to interact with the Walrus client. The CLI is available by installing the `walrus` binary. To install Walrus, use the Mysten Labs [`suiup` tool](https://github.com/MystenLabs/suiup?tab=readme-ov-file#installation):
+```sh
+$ curl -sSfL https://raw.githubusercontent.com/Mystenlabs/suiup/main/install.sh | sh
+```
+
+Then install `sui` and `walrus`:
+```sh
+$ suiup install sui
+$ suiup install walrus
+```
+
+View detailed usage information including a full list of available commands using the following command:
+```sh
+$ walrus --help
+```
+
+Each subcommand of `walrus` can also be called with `--help` to print its specific arguments and their meaning.
+
+### Switching contexts
+
+If you have multiple contexts in your configuration file, you can specify the context for each command using the `--context` option. Generate a `bash`, `zsh`, or `fish` completion script with `walrus completion` and place it in an appropriate directory like `~/.local/share/bash-completion/completions`.
+
+## Configuration
+
+The Walrus client needs to know about the Sui objects that store the Walrus system and staking information. Configure these in the `client_config.yaml` file.
+
+By default, the Walrus client looks for the `client_config.yaml` (or `client_config.yml`) configuration file in the current directory, `$XDG_CONFIG_HOME/walrus/`, `~/.config/walrus/`, or `~/.walrus/`.
+
+Obtain the latest configuration file by downloading it directly from Walrus and placing it in one of the default configuration file locations:
+```sh
+$ curl --create-dirs https://docs.wal.app/setup/client_config.yaml -o ~/.config/walrus/client_config.yaml
+```
+
+You can place the file anywhere and name it anything you like. In that case, use the `--config` option when running the `walrus` binary.
+
+### Specify a wallet
+
+Use the `--wallet <WALLET>` argument to specify a non-standard Sui wallet configuration file. The wallet configuration is taken from the path specified in the Walrus configuration, `./sui_config.yaml`, or `~/.sui/sui_config/client.yaml`.
+
+### Set a gas budget
+
+Use the `--gas-budget <GAS_BUDGET>` argument to change the maximum amount of Sui (in MIST) that the command is allowed to use. If not specified, the gas budget is estimated automatically.
+
+### Print output as JSON
+
+Use the `--json` flag to write a command's output as JSON. This is the default in [JSON mode](/docs/walrus-client/json-mode).
+
+### Example
+
+You can access Testnet and Mainnet through the following configuration. This example Walrus CLI configuration refers to the standard location for Sui configuration (`~/.sui/sui_config/client.yaml`).
+
+<ImportContent source="/setup/client_config.yaml" mode="code" />
+
+## Logging and metrics
+
+The `walrus` CLI supports multiple levels of logging, which you can toggle through an environment variable:
+```sh
+$ RUST_LOG=walrus=trace walrus info
+```
+
+By default, `info` level logs are enabled. The `debug` and `trace` levels can give a more in-depth understanding of what a command does or how it fails.

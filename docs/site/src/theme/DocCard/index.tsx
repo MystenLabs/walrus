@@ -3,19 +3,27 @@
 
 import React from "react";
 import Link from "@docusaurus/Link";
+import {
+  findFirstSidebarItemLink,
+} from "@docusaurus/plugin-content-docs/client";
+import { usePluginData } from "@docusaurus/useGlobalData";
 import isInternalUrl from "@docusaurus/isInternalUrl";
 import Heading from "@theme/Heading";
 import styles from "./styles.module.css";
 
-function findFirstLink(item: any): string | undefined {
-  if (item.href) return item.href;
-  if (item.items) {
-    for (const child of item.items) {
-      const link = findFirstLink(child);
-      if (link) return link;
-    }
+function useDocDescription(docId?: string): string | undefined {
+  try {
+    const data = usePluginData("sui-description-plugin") as any;
+    const descriptions = data?.descriptions ?? [];
+    // Plugin stores id as route path like "/walrus-client/walrus-cli"
+    // Sidebar item docId is like "walrus-client/walrus-cli"
+    const match = descriptions.find(
+      (d: any) => d.id === `/${docId}` || d.id === docId
+    );
+    return match?.description;
+  } catch {
+    return undefined;
   }
-  return undefined;
 }
 
 function CardContainer({
@@ -95,7 +103,7 @@ function CategoryFooter({ item }: { item: any }) {
 }
 
 function CardCategory({ item }: { item: any }) {
-  const href = findFirstLink(item);
+  const href = findFirstSidebarItemLink(item);
   if (!href) return null;
 
   return (
@@ -109,11 +117,12 @@ function CardCategory({ item }: { item: any }) {
 }
 
 function CardLink({ item }: { item: any }) {
+  const description = item.description ?? useDocDescription(item.docId);
   return (
     <CardLayout
       href={item.href}
       title={item.label}
-      description={item.description}
+      description={description}
     />
   );
 }
