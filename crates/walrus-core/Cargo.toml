@@ -30,6 +30,7 @@ walrus-test-utils = { workspace = true, optional = true }
 [dev-dependencies]
 anyhow.workspace = true
 criterion.workspace = true
+proptest = "1"
 serde_test.workspace = true
 tracing-subscriber.workspace = true
 walrus-test-utils.workspace = true
