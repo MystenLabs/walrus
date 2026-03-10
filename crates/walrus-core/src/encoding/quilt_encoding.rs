@@ -3194,14 +3194,21 @@ mod tests {
         );
     }
 
-    // -- proptest: valid-then-mutate fuzz tests --
+    // -- Proptest: valid-then-mutate property tests --
+    //
+    // These tests check that quilt decoding never panics on corrupted or malicious input.
+    // We build valid quilt data once, then apply random mutations (bit flips, truncation,
+    // insertions, deletions, overwrites) and run the decoder. The decoder may return
+    // Err(...) but must not panic. This complements the deterministic error-path tests
+    // above by stressing the decoder with many random corruptions.
 
     use std::sync::OnceLock;
     use proptest::{prelude::*, strategy::Just};
 
     const NUM_BLOB_ENTRIES: usize = 5;
-    /// Single source of truth for proptest blob fixtures. Both meta blob and blob entries
-    /// are derived from this so they stay in sync.
+
+    /// Single source of truth for proptest blob fixtures. Both the quilt index (meta blob)
+    /// and the serialized blob entries are derived from this so they stay in sync.
     struct TestBlob {
         id: String,
         data: Vec<u8>,
@@ -3254,6 +3261,8 @@ mod tests {
         TEST_BLOBS.get_or_init(build_test_blobs)
     }
 
+    /// Serialized blob entries (header + extension + data) for each test blob, in order.
+    /// Used as the payload that we mutate in the blob-entry proptest.
     fn build_blob_entries() -> Vec<Vec<u8>> {
         let entries: Vec<Vec<u8>> = test_blobs()
             .iter()
@@ -3272,6 +3281,8 @@ mod tests {
         entries
     }
 
+    /// Serialized quilt index (version byte + length + BCS index). Used as the payload
+    /// that we mutate in the index proptest.
     fn build_meta_blob() -> Vec<u8> {
         let patches: Vec<QuiltPatchV1> = test_blobs()
             .iter()
@@ -3296,6 +3307,7 @@ mod tests {
         out
     }
 
+    // Cached so we don't rebuild for each of the 500 proptest cases.
     static META_BLOB: OnceLock<Vec<u8>> = OnceLock::new();
     static BLOB_ENTRIES: OnceLock<Vec<Vec<u8>>> = OnceLock::new();
 
@@ -3307,6 +3319,8 @@ mod tests {
         BLOB_ENTRIES.get_or_init(build_blob_entries)
     }
 
+    /// Applies a single mutation to a copy of `data` and returns the result.
+    /// Bounds are clamped so we never panic; out-of-range positions are skipped or wrapped.
     fn apply_mutation(data: &[u8], mutation: &Mutation) -> Vec<u8> {
         let mut buf = data.to_vec();
         if buf.is_empty() {
@@ -3347,6 +3361,8 @@ mod tests {
         buf
     }
 
+    /// Corruption operations we apply to valid bytes. Chosen to cover typical failure
+    /// modes: bit flips, truncation, extra bytes, removed bytes, and overwrites.
     #[derive(Debug, Clone)]
     enum Mutation {
         FlipBytes {
@@ -3370,6 +3386,9 @@ mod tests {
         },
     }
 
+    /// Strategy that generates one random mutation. `max_len` is the length of the
+    /// buffer we will mutate; FlipBytes positions are in `0..max_len` so they always
+    /// target valid indices when we use the actual data length (or per-entry length).
     fn mutation_strategy(max_len: usize) -> impl Strategy<Value = Mutation> {
         prop_oneof![
             (
@@ -3390,6 +3409,7 @@ mod tests {
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(500))]
 
+        /// Mutate the serialized quilt index with random corruptions; decode must not panic.
         #[test]
         fn decode_quilt_index_no_panic_on_mutated_meta_blob(
             mutation in mutation_strategy(meta_blob().len())
@@ -3401,6 +3421,9 @@ mod tests {
             let _ = QuiltVersionV1::decode_quilt_index(&quilt_v1, column_size);
         }
 
+        /// Mutate one serialized blob entry (chosen by index) with random corruptions;
+        /// decode must not panic. We use prop_flat_map so the mutation strategy uses
+        /// that entry's length, giving effective coverage for short entries too.
         #[test]
         fn decode_blob_no_panic_on_mutated_blob_entry(
             (blob_idx, mutation) in (0..NUM_BLOB_ENTRIES)
