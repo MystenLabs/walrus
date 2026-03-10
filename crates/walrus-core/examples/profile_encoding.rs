@@ -14,11 +14,29 @@
 //! samply record ./target/release/examples/profile_encoding --size 32m
 //! ```
 
-use std::{num::NonZeroU16, time::Instant};
+use std::{alloc::System, num::NonZeroU16, time::Instant};
 
 use clap::Parser;
+use peakmem_alloc::{PeakMemAlloc, PeakMemAllocTrait};
 use walrus_core::encoding::ReedSolomonEncodingConfig;
 use walrus_test_utils::random_data;
+
+#[global_allocator]
+static PEAK_ALLOC: PeakMemAlloc<System> = PeakMemAlloc::new(System);
+
+fn get_peak_rss_bytes() -> usize {
+    unsafe {
+        let mut usage: libc::rusage = std::mem::zeroed();
+        libc::getrusage(libc::RUSAGE_SELF, &mut usage);
+        let max_rss = usage.ru_maxrss as usize;
+        // macOS reports bytes, Linux reports KB
+        if cfg!(target_os = "macos") {
+            max_rss
+        } else {
+            max_rss * 1024
+        }
+    }
+}
 
 #[derive(Parser)]
 #[command(about = "Profile blob encoding pipeline")]
@@ -70,22 +88,31 @@ fn main() {
     println!("symbol_size={symbol_size}");
 
     let mut durations = Vec::with_capacity(args.iterations.try_into().unwrap());
+    let mut max_peak_heap: usize = 0;
 
     for i in 0..args.iterations {
         let blob_copy = blob.clone();
         let encoder = config.get_blob_encoder(&blob_copy).unwrap();
 
+        PEAK_ALLOC.reset_peak_memory();
         let start = Instant::now();
         let (_sliver_pairs, _metadata) = encoder.encode_with_metadata();
         let elapsed = start.elapsed();
+        let peak_heap = PEAK_ALLOC.get_peak_memory();
+        let peak_rss = get_peak_rss_bytes();
 
         durations.push(elapsed);
+        max_peak_heap = max_peak_heap.max(peak_heap);
         let throughput_mbs = args.size as f64 / elapsed.as_secs_f64() / (1024.0 * 1024.0);
+        let expansion = peak_heap as f64 / args.size as f64;
         println!(
-            "  iteration {}: {:.3}s ({:.1} MiB/s)",
+            "  iteration {}: {:.3}s ({:.1} MiB/s) peak_heap={} peak_rss={} expansion={:.1}x",
             i + 1,
             elapsed.as_secs_f64(),
-            throughput_mbs
+            throughput_mbs,
+            format_size(peak_heap),
+            format_size(peak_rss),
+            expansion
         );
     }
 
@@ -93,7 +120,10 @@ fn main() {
         let total: f64 = durations.iter().map(|d| d.as_secs_f64()).sum();
         let avg = total / f64::from(args.iterations);
         let throughput_mbs = args.size as f64 / avg / (1024.0 * 1024.0);
-        println!("average: {avg:.3}s ({throughput_mbs:.1} MiB/s)");
+        println!(
+            "average: {avg:.3}s ({throughput_mbs:.1} MiB/s) max_peak_heap={}",
+            format_size(max_peak_heap)
+        );
     }
 }
 
