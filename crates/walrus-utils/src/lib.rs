@@ -8,6 +8,8 @@ use std::{env, fs, path::Path};
 use anyhow::Context;
 use serde::de::DeserializeOwned;
 
+pub mod size;
+
 #[cfg(feature = "backoff")]
 pub mod backoff;
 

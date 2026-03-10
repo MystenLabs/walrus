@@ -20,6 +20,7 @@ use clap::Parser;
 use peakmem_alloc::{PeakMemAlloc, PeakMemAllocTrait};
 use walrus_core::encoding::{BlobEncoder, ReedSolomonEncodingConfig};
 use walrus_test_utils::random_data;
+use walrus_utils::size::{format_size, parse_size};
 
 #[global_allocator]
 static PEAK_ALLOC: PeakMemAlloc<System> = PeakMemAlloc::new(System);
@@ -56,21 +57,6 @@ struct Args {
     /// Number of blobs to encode concurrently (simulates multi-blob uploads)
     #[arg(long, default_value_t = 1)]
     concurrent_blobs: u32,
-}
-
-fn parse_size(s: &str) -> Result<usize, String> {
-    let s = s.to_lowercase();
-    let (num, mult) = if let Some(n) = s.strip_suffix('g') {
-        (n, 1 << 30)
-    } else if let Some(n) = s.strip_suffix('m') {
-        (n, 1 << 20)
-    } else if let Some(n) = s.strip_suffix('k') {
-        (n, 1 << 10)
-    } else {
-        (s.as_str(), 1)
-    };
-    let n: usize = num.parse().map_err(|e| format!("invalid size: {e}"))?;
-    Ok(n * mult)
 }
 
 fn main() {
@@ -221,17 +207,5 @@ fn run_concurrent_blobs(args: &Args, config: &ReedSolomonEncodingConfig, blob: &
             "average: {avg:.3}s ({throughput_mbs:.1} MiB/s) max_peak_heap={}",
             format_size(max_peak_heap)
         );
-    }
-}
-
-fn format_size(bytes: usize) -> String {
-    if bytes >= 1 << 30 {
-        format!("{}GiB", bytes >> 30)
-    } else if bytes >= 1 << 20 {
-        format!("{}MiB", bytes >> 20)
-    } else if bytes >= 1 << 10 {
-        format!("{}KiB", bytes >> 10)
-    } else {
-        format!("{bytes}B")
     }
 }

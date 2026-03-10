@@ -13211,6 +13211,7 @@ dependencies = [
  "tracing-subscriber",
  "utoipa",
  "walrus-test-utils",
+ "walrus-utils",
 ]
 
 [[package]]
