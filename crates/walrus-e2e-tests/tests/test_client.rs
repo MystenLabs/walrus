@@ -3493,7 +3493,7 @@ async fn test_aggregator_quilt_endpoints_corner_cases() -> TestResult {
         .construct_quilt::<QuiltVersionV1>(&quilt_store_blobs, DEFAULT_ENCODING)
         .await?;
     let mut malformed_quilt_data = quilt_for_malformed.into_data();
-    debug_assert!(
+    assert!(
         !malformed_quilt_data.is_empty(),
         "construct_quilt with 2 blobs always produces non-empty data"
     );
@@ -3723,6 +3723,21 @@ async fn test_aggregator_quilt_endpoints_corner_cases() -> TestResult {
         resp.status()
     );
 
+    // GET /v1/blobs/by-quilt-patch-id with malformed quilt blob ID (decodes blob entry, not index)
+    let fake_malformed_patch =
+        QuiltPatchId::new(malformed_quilt_blob_id, vec![0x00, 0x00, 0x00, 0x00]);
+    let resp = http_client
+        .get(format!(
+            "{base}/v1/blobs/by-quilt-patch-id/{fake_malformed_patch}"
+        ))
+        .send()
+        .await?;
+    assert!(
+        !resp.status().is_success(),
+        "expected error for by-quilt-patch-id on malformed quilt blob, got {}",
+        resp.status()
+    );
+
     // Graceful teardown (reaching here already confirms aggregator did not panic).
     aggregator.shutdown().await?;
     Ok(())
@@ -3767,12 +3782,8 @@ async fn test_aggregator_blob_endpoints_corner_cases() -> TestResult {
             &store_args,
         )
         .await?;
-    let blob_id = match &results[0] {
-        BlobStoreResult::NewlyCreated { blob_object, .. } => blob_object.blob_id,
-        _ => panic!("Expected newly created blob"),
-    };
-    let blob_object_id = match &results[0] {
-        BlobStoreResult::NewlyCreated { blob_object, .. } => blob_object.id,
+    let (blob_id, blob_object_id) = match &results[0] {
+        BlobStoreResult::NewlyCreated { blob_object, .. } => (blob_object.blob_id, blob_object.id),
         _ => panic!("Expected newly created blob"),
     };
 
@@ -3938,6 +3949,7 @@ async fn test_aggregator_blob_endpoints_corner_cases() -> TestResult {
     );
 
     // Range beyond blob size: start+length past end
+    // The endpoint validates range against blob size and returns error.
     let resp = http_client
         .get(format!(
             "{base}/v1/blobs/{blob_id}/byte-range?start=10&length=100"
