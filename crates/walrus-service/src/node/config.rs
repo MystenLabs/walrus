@@ -1391,7 +1391,7 @@ pub mod defaults {
     /// Default timeout for waiting for the on-chain epoch state to match.
     pub const EPOCH_STATE_CONSISTENCY_TIMEOUT: Duration = Duration::from_secs(60);
     /// Default polling interval when waiting for the on-chain epoch state.
-    pub const EPOCH_STATE_CONSISTENCY_POLL_INTERVAL: Duration = Duration::from_millis(100);
+    pub const EPOCH_STATE_CONSISTENCY_POLL_INTERVAL: Duration = Duration::from_millis(500);
 
     /// Returns the default nice(2) increment for recovery symbol worker threads.
     pub fn recovery_thread_pool_nice_level() -> i32 {

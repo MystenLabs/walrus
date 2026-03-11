@@ -249,4 +249,4 @@ wal_price_monitor:
   check_interval_secs: 600
 epoch_state_consistency:
   timeout_secs: 60
-  poll_interval_millis: 100
+  poll_interval_millis: 500
