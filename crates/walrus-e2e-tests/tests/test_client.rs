@@ -3418,6 +3418,316 @@ async fn test_aggregator_get_quilt_patch_by_id() -> TestResult {
     Ok(())
 }
 
+/// Tests corner-case inputs to quilt HTTP endpoints.
+///
+/// Sets up four blobs:
+/// 1. A valid quilt with 2 patches (with tags)
+/// 2. A malformed quilt (valid structure then version byte corrupted before store)
+/// 3. A regular (non-quilt) blob
+/// 4. An empty blob (0 bytes)
+///
+/// Then sends invalid or edge-case requests (bad patch IDs, nonexistent IDs,
+/// non-quilt blobs as quilt ID, etc.) and asserts that each request returns an
+/// error response (non-2xx). This PR does not assert specific HTTP status codes;
+/// error-type consolidation and mapping are left for a follow-up.
+///
+/// **Why "error returned" is enough:** In simtest the aggregator runs in the same
+/// process as the test. If the aggregator panics while handling a request, the
+/// process panics and the test fails before the client can observe a status code.
+/// Therefore, if the test completes and we observed a non-success response, the
+/// aggregator handled the request without panicking and returned an error. That
+/// is the property we care about here: no panic on bad input.
+#[ignore = "ignore E2E tests by default"]
+#[walrus_simtest]
+async fn test_aggregator_quilt_endpoints_corner_cases() -> TestResult {
+    walrus_test_utils::init_tracing();
+
+    let (_sui_cluster_handle, _cluster, client, _, aggregator_handle) =
+        test_cluster::E2eTestSetupBuilder::new()
+            .with_aggregator()
+            .build()
+            .await?;
+
+    let aggregator = aggregator_handle.expect("aggregator should be started");
+    let http_client = reqwest::Client::new();
+    let base = aggregator.base_url();
+
+    // -- Setup: store a valid quilt --
+    let blob1 = b"patch one data".to_vec();
+    let blob2 = b"patch two data with more bytes".to_vec();
+    let quilt_store_blobs = vec![
+        QuiltStoreBlob::new(&blob1, "file-alpha.txt")
+            .expect("create blob")
+            .with_tags(vec![("Content-Type".to_string(), "text/plain".to_string())]),
+        QuiltStoreBlob::new(&blob2, "file-beta.bin")
+            .expect("create blob")
+            .with_tags(vec![(
+                "Content-Type".to_string(),
+                "application/octet-stream".to_string(),
+            )]),
+    ];
+
+    let quilt_client = client.as_ref().quilt_client();
+    let quilt = quilt_client
+        .construct_quilt::<QuiltVersionV1>(&quilt_store_blobs, DEFAULT_ENCODING)
+        .await?;
+    let store_args = StoreArgs::default_with_epochs(1);
+    let QuiltStoreResult {
+        blob_store_result,
+        stored_quilt_blobs,
+    } = quilt_client
+        .reserve_and_store_quilt::<QuiltVersionV1>(quilt, &store_args)
+        .await?;
+    let quilt_blob_id = match &blob_store_result {
+        BlobStoreResult::NewlyCreated { blob_object, .. } => blob_object.blob_id,
+        _ => panic!("Expected newly created quilt"),
+    };
+    let valid_patch_id = &stored_quilt_blobs[0].quilt_patch_id;
+
+    // -- Setup: store a malformed quilt (corrupt version byte so decode fails) --
+    // Stored with BlobAttribute::default() (no quilt-type attribute). The by-quilt-id and
+    // quilts/.../patches paths do not check the blob attribute before decoding: they fetch
+    // slivers and run decode_quilt_index / QuiltVersionEnum::new_from_sliver, so we still
+    // exercise the version-check error path.
+    let quilt_for_malformed = quilt_client
+        .construct_quilt::<QuiltVersionV1>(&quilt_store_blobs, DEFAULT_ENCODING)
+        .await?;
+    let mut malformed_quilt_data = quilt_for_malformed.into_data();
+    debug_assert!(
+        !malformed_quilt_data.is_empty(),
+        "construct_quilt with 2 blobs always produces non-empty data"
+    );
+    malformed_quilt_data[0] ^= 0xFF; // corrupt version byte
+    let malformed_quilt_results = client
+        .as_ref()
+        .reserve_and_store_blobs_retry_committees(
+            vec![malformed_quilt_data],
+            vec![BlobAttribute::default()],
+            &store_args,
+        )
+        .await?;
+    let malformed_quilt_blob_id = match &malformed_quilt_results[0] {
+        BlobStoreResult::NewlyCreated { blob_object, .. } => blob_object.blob_id,
+        _ => panic!("expected newly created malformed quilt blob"),
+    };
+
+    // -- Setup: store a regular (non-quilt) blob --
+    let regular_content = b"this is not a quilt".to_vec();
+    let regular_results = client
+        .as_ref()
+        .reserve_and_store_blobs_retry_committees(
+            vec![regular_content],
+            vec![BlobAttribute::default()],
+            &store_args,
+        )
+        .await?;
+    let regular_blob_id = match &regular_results[0] {
+        BlobStoreResult::NewlyCreated { blob_object, .. } => blob_object.blob_id,
+        _ => panic!("Expected newly created blob"),
+    };
+
+    // -- Setup: store an empty blob --
+    let empty_results = client
+        .as_ref()
+        .reserve_and_store_blobs_retry_committees(
+            vec![vec![]],
+            vec![BlobAttribute::default()],
+            &store_args,
+        )
+        .await?;
+    let empty_blob_id = match &empty_results[0] {
+        BlobStoreResult::NewlyCreated { blob_object, .. } => blob_object.blob_id,
+        _ => panic!("Expected newly created blob"),
+    };
+
+    // -- Sanity: valid patch retrieval works --
+    let url = format!("{base}/v1/blobs/by-quilt-patch-id/{valid_patch_id}");
+    let resp = http_client.get(&url).send().await?;
+    assert_eq!(resp.status(), 200, "sanity: valid patch ID should work");
+
+    // ---- Category 1: Valid quilt, invalid requests ----
+
+    // GET /v1/blobs/by-quilt-patch-id with valid quilt blob ID but nonexistent patch range
+    let fake_patch_id = QuiltPatchId::new(quilt_blob_id, vec![0x01, 0xFF, 0xFF, 0xFF, 0xFF]);
+    let resp = http_client
+        .get(format!("{base}/v1/blobs/by-quilt-patch-id/{fake_patch_id}"))
+        .send()
+        .await?;
+    assert!(
+        !resp.status().is_success(),
+        "expected error for nonexistent patch in valid quilt, got {}",
+        resp.status()
+    );
+
+    // GET /v1/blobs/by-quilt-patch-id with garbage string
+    let resp = http_client
+        .get(format!(
+            "{base}/v1/blobs/by-quilt-patch-id/not-valid-base64!!!"
+        ))
+        .send()
+        .await?;
+    assert!(
+        !resp.status().is_success(),
+        "expected error for garbage patch ID, got {}",
+        resp.status()
+    );
+
+    // GET /v1/blobs/by-quilt-patch-id with too-short base64
+    let resp = http_client
+        .get(format!("{base}/v1/blobs/by-quilt-patch-id/AQID"))
+        .send()
+        .await?;
+    assert!(
+        !resp.status().is_success(),
+        "expected error for too-short patch ID, got {}",
+        resp.status()
+    );
+
+    // GET /v1/blobs/by-quilt-id with nonexistent identifier on valid quilt
+    let resp = http_client
+        .get(format!(
+            "{base}/v1/blobs/by-quilt-id/{quilt_blob_id}/nonexistent-file.txt"
+        ))
+        .send()
+        .await?;
+    assert!(
+        !resp.status().is_success(),
+        "expected error for nonexistent identifier, got {}",
+        resp.status()
+    );
+
+    // GET /v1/blobs/by-quilt-id with valid quilt_id but empty identifier
+    let resp = http_client
+        .get(format!("{base}/v1/blobs/by-quilt-id/{quilt_blob_id}/"))
+        .send()
+        .await?;
+    assert!(
+        !resp.status().is_success(),
+        "expected error for empty identifier, got {}",
+        resp.status()
+    );
+
+    // GET /v1/blobs/by-quilt-id with invalid quilt_id string
+    let resp = http_client
+        .get(format!(
+            "{base}/v1/blobs/by-quilt-id/not-a-valid-blob-id/some-file.txt"
+        ))
+        .send()
+        .await?;
+    assert!(
+        !resp.status().is_success(),
+        "expected error for invalid quilt_id string, got {}",
+        resp.status()
+    );
+
+    // GET /v1/quilts/{quilt_id}/patches with nonexistent but valid-format blob ID
+    let fake_blob_id = BlobId::ZERO;
+    let resp = http_client
+        .get(format!("{base}/v1/quilts/{fake_blob_id}/patches"))
+        .send()
+        .await?;
+    assert!(
+        !resp.status().is_success(),
+        "expected error for nonexistent quilt_id, got {}",
+        resp.status()
+    );
+
+    // GET /v1/quilts/{quilt_id}/patches with invalid quilt_id string
+    let resp = http_client
+        .get(format!("{base}/v1/quilts/garbage!!!/patches"))
+        .send()
+        .await?;
+    assert!(
+        !resp.status().is_success(),
+        "expected error for invalid quilt_id string, got {}",
+        resp.status()
+    );
+
+    // ---- Category 2: Non-quilt blob used as quilt ----
+
+    // GET /v1/blobs/by-quilt-id/{regular_blob_id}/some-file — blob exists but is not a quilt
+    let resp = http_client
+        .get(format!(
+            "{base}/v1/blobs/by-quilt-id/{regular_blob_id}/some-file.txt"
+        ))
+        .send()
+        .await?;
+    assert!(
+        !resp.status().is_success(),
+        "expected error for non-quilt blob as quilt_id, got {}",
+        resp.status()
+    );
+
+    // GET /v1/quilts/{regular_blob_id}/patches — blob exists but is not a quilt
+    let resp = http_client
+        .get(format!("{base}/v1/quilts/{regular_blob_id}/patches"))
+        .send()
+        .await?;
+    assert!(
+        !resp.status().is_success(),
+        "expected error for listing patches on non-quilt blob, got {}",
+        resp.status()
+    );
+
+    // ---- Category 2b: Empty blob used as quilt ----
+
+    // GET /v1/blobs/by-quilt-id/{empty_blob_id}/anything — empty blob is not a quilt
+    let resp = http_client
+        .get(format!(
+            "{base}/v1/blobs/by-quilt-id/{empty_blob_id}/anything.txt"
+        ))
+        .send()
+        .await?;
+    assert!(
+        !resp.status().is_success(),
+        "expected error for empty blob as quilt_id, got {}",
+        resp.status()
+    );
+
+    // GET /v1/quilts/{empty_blob_id}/patches — empty blob is not a quilt
+    let resp = http_client
+        .get(format!("{base}/v1/quilts/{empty_blob_id}/patches"))
+        .send()
+        .await?;
+    assert!(
+        !resp.status().is_success(),
+        "expected error for listing patches on empty blob, got {}",
+        resp.status()
+    );
+
+    // ---- Category 2c: Malformed quilt blob (valid structure, corrupted before store) ----
+
+    // GET /v1/blobs/by-quilt-id/{malformed_quilt_blob_id}/any — blob exists but is corrupted quilt
+    let resp = http_client
+        .get(format!(
+            "{base}/v1/blobs/by-quilt-id/{malformed_quilt_blob_id}/any.txt"
+        ))
+        .send()
+        .await?;
+    assert!(
+        !resp.status().is_success(),
+        "expected error for malformed quilt, got {}",
+        resp.status()
+    );
+
+    // GET /v1/quilts/{malformed_quilt_blob_id}/patches — list patches on corrupted quilt
+    let resp = http_client
+        .get(format!(
+            "{base}/v1/quilts/{malformed_quilt_blob_id}/patches"
+        ))
+        .send()
+        .await?;
+    assert!(
+        !resp.status().is_success(),
+        "expected error for listing patches on malformed quilt, got {}",
+        resp.status()
+    );
+
+    // Graceful teardown (reaching here already confirms aggregator did not panic).
+    aggregator.shutdown().await?;
+    Ok(())
+}
+
 /// Tests retrieving a byte range from a blob.
 #[ignore = "ignore E2E tests by default"]
 #[walrus_simtest]
