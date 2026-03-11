@@ -259,10 +259,15 @@ Important notes:
     such as the one published by https://flatland.wal.app. As shown there, each minted NFT has its
     own Walrus Site, which can be personalized based on the contents, for example, the color, of
     the NFT itself. To achieve this, add a "redirect" in the NFT's Display property.
-- [Deploy Locally](https://docs.wal.app/docs/sites/portals/deploy-locally.md): The term portal is
-    used to indicate any technology that is used to access and browse Walrus Sites. Currently, only
-    a server-side portal is served at https://wal.app. https://wal.app only serves sites deployed
-    on mainnet, linked with SuiNS names. You can run a portal to access Mainnet sites as well.
+- [Mainnet](https://docs.wal.app/docs/sites/portals/deploy-locally.md): To view a website deployed
+    using Walrus Sites, you must use a Sites Portal. A portal retrieves site resources from Walrus
+    and their corresponding Sui objects before serving the site in your browser. You can browse any
+    Walrus Site deployed on Mainnet or Testnet using a Sites Portal.
+- [Uncomment and configure when enableallowlist is
+    true](https://docs.wal.app/docs/sites/portals/mainnet-testnet.md): Walrus Site Portals are used
+    to access and browse a Walrus Site. The portal you run must match the network on which your
+    site is deployed. Each network has its own on-chain package, default RPC endpoint, and Walrus
+    aggregator.
 - [Site Data Authentication](https://docs.wal.app/docs/sites/security/site-data-authentication.md):
     Walrus Sites authenticate the data that is served on the client side from the Walrus storage,
     guaranteeing with various degrees of confidence depending on the setup, that the site data is
