@@ -49,7 +49,7 @@ default_context: mainnet
 
 ## `site-builder` CLI commands
 
-::info
+:::info
 Add `--help` to any command for full details: `site-builder --help` or `site-builder deploy --help`.
 :::
 

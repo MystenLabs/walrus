@@ -2,6 +2,8 @@
 
 Walrus is a verifiable data platform for high-stakes systems like AI and on-chain finance, where data is stored as blobs.
 
+Walrus uses an object storage architecture, where blobs is stored in a flat namespace rather than a hierarchy. There are no folders or directories. Each piece of data in an object storage model contains the data itself, metadata describing the data, and an unique identifier. 
+
 Sui is a blockchain that supports programmability at a [fundamental level](https://docs.sui.io/concepts/transactions/prog-txn-blocks). Walrus binds all blobs to objects on the Sui blockchain.
 
 ## Walrus and Sui
@@ -21,14 +23,23 @@ When you are getting started, you should use **Testnet**.
 
 ##step Install tooling
 
+:::info 
+
+Looking for a quickstart? You can use the Walrus HTTP API with a Testnet publisher endpoint to upload and retrieve blobs.
+
+No downloads or installation, and no wallet or tokens required. no CLI/wallet required. [Learn more](/docs/http-api/storing-blobs).
+
+:::
+
 To install Walrus and Sui, use the Mysten Labs `suiup` tool.
 
- [Install suiup](https://github.com/MystenLabs/suiup?tab=readme-ov-file#installation):
+[Install suiup](https://github.com/MystenLabs/suiup?tab=readme-ov-file#installation):
+
 ```sh
     $ curl -sSfL https://raw.githubusercontent.com/Mystenlabs/suiup/main/install.sh | sh
 ```
 
- Install `sui` and `walrus`:
+Install `sui` and `walrus`:
 
 ```sh
     $ suiup install sui
@@ -117,9 +128,9 @@ The argument `ed25519` specifies the key pair scheme to be of type `ed25519`.
 
 Before you can upload a file to Walrus and store it as a blob, you need SUI tokens to pay transaction fees and WAL tokens to pay for storage on the network. The Walrus Testnet uses Testnet WAL tokens that have no value and you can exchange them at a 1:1 rate for Testnet SUI tokens.
 
- Navigate to the SUI Testnet faucet: [https://faucet.sui.io/](https://faucet.sui.io/)
+Navigate to the SUI Testnet faucet: [https://faucet.sui.io/](https://faucet.sui.io/)
 
- Ensure you select Testnet. 
+Ensure you select Testnet. 
 
 Then, insert your Sui address. To print your Sui address, use the command:
 
@@ -127,7 +138,8 @@ Then, insert your Sui address. To print your Sui address, use the command:
     $ sui client active-address
 ```
 
- After you insert your address on the faucet and receive a message saying you have received SUI tokens, check your balance with the command:
+After you insert your address on the faucet and receive a message saying you have received SUI tokens, check your balance with the command:
+
 ```sh
 
     $ sui client balance
@@ -139,13 +151,13 @@ Then, insert your Sui address. To print your Sui address, use the command:
 
     :::
 
- Convert some of those SUI tokens into WAL with the command:
+Convert some of those SUI tokens into WAL with the command:
 
 ```sh
     $ walrus get-wal --context testnet
 ```
 
- Check your balance again with `sui client balance` to confirm you now have WAL:
+Check your balance again with `sui client balance` to confirm you now have WAL:
 
 ```sh
     ╭─────────────────────────────────────────╮
