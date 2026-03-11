@@ -26,7 +26,7 @@ use rand::{Rng, random, seq::SliceRandom, thread_rng};
 use reqwest::Url;
 #[cfg(msim)]
 use sui_macros::{clear_fail_point, register_fail_point_if};
-use sui_types::base_types::{SUI_ADDRESS_LENGTH, SuiAddress};
+use sui_types::base_types::{ObjectID, SUI_ADDRESS_LENGTH, SuiAddress};
 use tokio::{sync::Mutex, time::Instant};
 use tokio_stream::StreamExt;
 use walrus_core::{
@@ -3724,6 +3724,262 @@ async fn test_aggregator_quilt_endpoints_corner_cases() -> TestResult {
     );
 
     // Graceful teardown (reaching here already confirms aggregator did not panic).
+    aggregator.shutdown().await?;
+    Ok(())
+}
+
+/// Tests corner-case inputs to regular blob aggregator endpoints.
+///
+/// Sets up one valid blob (and its object_id for by-object-id). Then sends invalid or
+/// edge-case requests (nonexistent blob/object IDs, invalid blob_id/object_id strings,
+/// invalid ReadOptions, invalid Range header, invalid byte-range params) and asserts that
+/// each request returns an error response (non-2xx). This test does not assert specific
+/// HTTP status codes; error-type consolidation and mapping are left for a follow-up.
+///
+/// **Why "error returned" is enough:** In simtest the aggregator runs in the same
+/// process as the test. If the aggregator panics while handling a request, the process
+/// panics and the test fails. Therefore, if the test completes and we observed a
+/// non-success response, the aggregator handled the request without panicking and
+/// returned an error.
+#[ignore = "ignore E2E tests by default"]
+#[walrus_simtest]
+async fn test_aggregator_blob_endpoints_corner_cases() -> TestResult {
+    walrus_test_utils::init_tracing();
+
+    let (_sui_cluster_handle, _cluster, client, _, aggregator_handle) =
+        test_cluster::E2eTestSetupBuilder::new()
+            .with_aggregator()
+            .build()
+            .await?;
+
+    let aggregator = aggregator_handle.expect("aggregator should be started");
+    let http_client = reqwest::Client::new();
+    let base = aggregator.base_url();
+
+    // -- Setup: one valid blob and its object_id --
+    let content = b"hello walrus".to_vec();
+    let store_args = StoreArgs::default_with_epochs(1);
+    let results = client
+        .as_ref()
+        .reserve_and_store_blobs_retry_committees(
+            vec![content],
+            vec![BlobAttribute::default()],
+            &store_args,
+        )
+        .await?;
+    let blob_id = match &results[0] {
+        BlobStoreResult::NewlyCreated { blob_object, .. } => blob_object.blob_id,
+        _ => panic!("Expected newly created blob"),
+    };
+    let blob_object_id = match &results[0] {
+        BlobStoreResult::NewlyCreated { blob_object, .. } => blob_object.id,
+        _ => panic!("Expected newly created blob"),
+    };
+
+    // -- Sanity: valid GET blob works --
+    let resp = http_client
+        .get(format!("{base}/v1/blobs/{blob_id}"))
+        .send()
+        .await?;
+    assert!(
+        resp.status().is_success(),
+        "sanity: valid GET blob should work"
+    );
+
+    // Sanity: valid GET by-object-id works
+    let resp = http_client
+        .get(format!("{base}/v1/blobs/by-object-id/{blob_object_id}"))
+        .send()
+        .await?;
+    assert!(
+        resp.status().is_success(),
+        "sanity: valid GET by-object-id should work"
+    );
+
+    // ---- GET /v1/blobs/{blob_id} corner cases ----
+
+    // Nonexistent blob_id (valid format, not on chain)
+    let nonexistent_blob_id = BlobId::ZERO;
+    let resp = http_client
+        .get(format!("{base}/v1/blobs/{nonexistent_blob_id}"))
+        .send()
+        .await?;
+    assert!(
+        !resp.status().is_success(),
+        "expected error for nonexistent blob_id, got {}",
+        resp.status()
+    );
+
+    // Invalid blob_id in path (garbage / bad base64)
+    let resp = http_client
+        .get(format!("{base}/v1/blobs/not-valid-base64!!!"))
+        .send()
+        .await?;
+    assert!(
+        !resp.status().is_success(),
+        "expected error for invalid blob_id string, got {}",
+        resp.status()
+    );
+
+    // Invalid ReadOptions (both strict_consistency_check and skip_consistency_check true)
+    let resp = http_client
+        .get(format!(
+            "{base}/v1/blobs/{blob_id}?strict_consistency_check=true&skip_consistency_check=true"
+        ))
+        .send()
+        .await?;
+    assert!(
+        !resp.status().is_success(),
+        "expected error for invalid ReadOptions (both flags true), got {}",
+        resp.status()
+    );
+
+    // Invalid Range header: malformed
+    let resp = http_client
+        .get(format!("{base}/v1/blobs/{blob_id}"))
+        .header("Range", "bytes=invalid")
+        .send()
+        .await?;
+    assert!(
+        !resp.status().is_success(),
+        "expected error for malformed Range header, got {}",
+        resp.status()
+    );
+
+    // Invalid Range header: multiple ranges
+    let resp = http_client
+        .get(format!("{base}/v1/blobs/{blob_id}"))
+        .header("Range", "bytes=0-5,10-20")
+        .send()
+        .await?;
+    assert!(
+        !resp.status().is_success(),
+        "expected error for multiple ranges in Range header, got {}",
+        resp.status()
+    );
+
+    // Invalid Range header: start > end
+    let resp = http_client
+        .get(format!("{base}/v1/blobs/{blob_id}"))
+        .header("Range", "bytes=100-50")
+        .send()
+        .await?;
+    assert!(
+        !resp.status().is_success(),
+        "expected error for Range start > end, got {}",
+        resp.status()
+    );
+
+    // ---- GET /v1/blobs/{blob_id}/byte-range corner cases ----
+
+    // Nonexistent blob_id
+    let resp = http_client
+        .get(format!(
+            "{base}/v1/blobs/{nonexistent_blob_id}/byte-range?start=0&length=1"
+        ))
+        .send()
+        .await?;
+    assert!(
+        !resp.status().is_success(),
+        "expected error for byte-range with nonexistent blob_id, got {}",
+        resp.status()
+    );
+
+    // Invalid blob_id in path
+    let resp = http_client
+        .get(format!(
+            "{base}/v1/blobs/garbage!!!/byte-range?start=0&length=1"
+        ))
+        .send()
+        .await?;
+    assert!(
+        !resp.status().is_success(),
+        "expected error for byte-range with invalid blob_id string, got {}",
+        resp.status()
+    );
+
+    // length=0
+    let resp = http_client
+        .get(format!(
+            "{base}/v1/blobs/{blob_id}/byte-range?start=0&length=0"
+        ))
+        .send()
+        .await?;
+    assert!(
+        !resp.status().is_success(),
+        "expected error for byte-range length=0, got {}",
+        resp.status()
+    );
+
+    // start + length overflow
+    let resp = http_client
+        .get(format!(
+            "{base}/v1/blobs/{blob_id}/byte-range?start=18446744073709551615&length=1"
+        ))
+        .send()
+        .await?;
+    assert!(
+        !resp.status().is_success(),
+        "expected error for byte-range start+length overflow, got {}",
+        resp.status()
+    );
+
+    // Range beyond blob size: start past end
+    let resp = http_client
+        .get(format!(
+            "{base}/v1/blobs/{blob_id}/byte-range?start=100&length=1"
+        ))
+        .send()
+        .await?;
+    assert!(
+        !resp.status().is_success(),
+        "expected error for byte-range start past blob end, got {}",
+        resp.status()
+    );
+
+    // Range beyond blob size: start+length past end
+    let resp = http_client
+        .get(format!(
+            "{base}/v1/blobs/{blob_id}/byte-range?start=10&length=100"
+        ))
+        .send()
+        .await?;
+    assert!(
+        !resp.status().is_success(),
+        "expected error for byte-range start+length past blob end, got {}",
+        resp.status()
+    );
+
+    // ---- GET /v1/blobs/by-object-id/{blob_object_id} corner cases ----
+
+    // Nonexistent object_id (valid format, no such object)
+    let nonexistent_object_id = ObjectID::ZERO;
+    let resp = http_client
+        .get(format!(
+            "{base}/v1/blobs/by-object-id/{}",
+            nonexistent_object_id
+        ))
+        .send()
+        .await?;
+    assert!(
+        !resp.status().is_success(),
+        "expected error for nonexistent object_id, got {}",
+        resp.status()
+    );
+
+    // Invalid object_id in path (bad hex/length)
+    let resp = http_client
+        .get(format!(
+            "{base}/v1/blobs/by-object-id/not-a-valid-object-id"
+        ))
+        .send()
+        .await?;
+    assert!(
+        !resp.status().is_success(),
+        "expected error for invalid object_id string, got {}",
+        resp.status()
+    );
+
     aggregator.shutdown().await?;
     Ok(())
 }
