@@ -1,14 +1,8 @@
 ---
-title: Logging and Metrics
+title: Redirecting...
+sidebar_class_name: hidden
 ---
 
-{/* https://linear.app/mysten-labs/issue/DOCS-644/walrus-clientlogging-and-metrics */} 
+import {Redirect} from '@docusaurus/router';
 
-
-The `walrus` CLI allows for multiple levels of logging, which can be turned on through an environment variable:
-
-```sh
-$ RUST_LOG=walrus=trace walrus info
-```
-
-By default `info` level logs are enabled, but `debug` and `trace` can give a more in depth understanding of what a command does or how it fails.
+<Redirect to="/docs/walrus-client/walrus-cli" />

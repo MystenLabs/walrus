@@ -22,12 +22,25 @@ Create as many sidebars as you want.
 
 const sidebars = {
     docsSidebar: [
-      'getting-started/index',
-      'getting-started/advanced-setup',
+    {
+      type: 'category',
+      label: 'Getting Started',
+      link: {
+        type: "doc",
+        id: 'getting-started/index',
+      },
+      items: [
+        'getting-started/advanced-setup',
+      ]
+    },
     {
       type: 'category',
       label: 'System Overview',
       collapsed: true,
+      link: {
+        type: "doc",
+        id: 'system-overview/index',
+      },
       items: [
         'system-overview/core-concepts',
         'system-overview/red-stuff',
@@ -43,13 +56,17 @@ const sidebars = {
       type: 'category',
       label: 'Walrus Client',
       collapsed: true,
+      link: {
+        type: "doc",
+        id: 'walrus-client/index',
+      },
       items: [
+        'walrus-client/walrus-cli',
         'walrus-client/storing-blobs',
         'walrus-client/reading-blobs',
         'walrus-client/managing-blobs',
         'walrus-client/json-mode',
-        'walrus-client/configuration',
-        'walrus-client/logging-and-metrics',
+        'walrus-client/quilts',
       ],
     },
     {

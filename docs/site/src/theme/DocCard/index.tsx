@@ -3,9 +3,23 @@
 
 import React from "react";
 import Link from "@docusaurus/Link";
+import { usePluginData } from "@docusaurus/useGlobalData";
 import isInternalUrl from "@docusaurus/isInternalUrl";
 import Heading from "@theme/Heading";
 import styles from "./styles.module.css";
+
+function useDocDescription(docId?: string): string | undefined {
+  try {
+    const data = usePluginData("sui-description-plugin") as any;
+    const descriptions = data?.descriptions ?? [];
+    const match = descriptions.find(
+      (d: any) => d.id === `/${docId}` || d.id === docId
+    );
+    return match?.description;
+  } catch {
+    return undefined;
+  }
+}
 
 function findFirstLink(item: any): string | undefined {
   if (item.href) return item.href;
@@ -109,11 +123,12 @@ function CardCategory({ item }: { item: any }) {
 }
 
 function CardLink({ item }: { item: any }) {
+  const description = item.description ?? useDocDescription(item.docId);
   return (
     <CardLayout
       href={item.href}
       title={item.label}
-      description={item.description}
+      description={description}
     />
   );
 }
