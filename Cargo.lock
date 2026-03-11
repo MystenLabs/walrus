@@ -7525,6 +7525,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "peakmem-alloc"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5eb7428a977a472465aced57d8d2335d6167c0ce9c05c283fd6faed3d8d948f6"
+
+[[package]]
 name = "pem"
 version = "3.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -13186,11 +13192,14 @@ dependencies = [
  "anyhow",
  "base64 0.22.1",
  "bcs",
+ "clap",
  "criterion",
  "enum_dispatch",
  "fastcrypto 0.1.9 (git+https://github.com/MystenLabs/fastcrypto?rev=4db0e90c732bbf7420ca20de808b698883148d9c)",
  "hex",
+ "libc",
  "p256",
+ "peakmem-alloc",
  "rand 0.8.5",
  "reed-solomon-simd",
  "serde",
