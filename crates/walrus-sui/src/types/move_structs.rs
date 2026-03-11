@@ -69,6 +69,8 @@ impl AssociatedContractStruct for StorageResource {
 pub struct StoragePoolResource {
     /// Object ID of the Sui object.
     pub id: ObjectID,
+    /// Version of the outer storage pool object.
+    pub version: u64,
     /// The start epoch of the pool (inclusive).
     pub start_epoch: Epoch,
     /// The end epoch of the pool (exclusive).
@@ -84,8 +86,64 @@ pub struct StoragePoolResource {
     pub blobs: ObjectID,
 }
 
-impl AssociatedContractStruct for StoragePoolResource {
+impl StoragePoolResource {
+    pub(crate) fn new(
+        StoragePoolForDeserialization { id, version }: StoragePoolForDeserialization,
+        StoragePoolInnerV1 {
+            start_epoch,
+            end_epoch,
+            reserved_encoded_capacity_bytes,
+            used_encoded_bytes,
+            blob_count,
+            blobs,
+        }: StoragePoolInnerV1,
+    ) -> Self {
+        Self {
+            id,
+            version,
+            start_epoch,
+            end_epoch,
+            reserved_encoded_capacity_bytes,
+            used_encoded_bytes,
+            blob_count,
+            blobs,
+        }
+    }
+}
+
+/// Sui object for the outer storage pool shell. Used for deserialization.
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+pub(crate) struct StoragePoolForDeserialization {
+    /// Object ID of the Sui object.
+    pub id: ObjectID,
+    /// Version of the outer storage pool object.
+    pub version: u64,
+}
+
+impl AssociatedContractStruct for StoragePoolForDeserialization {
     const CONTRACT_STRUCT: StructTag<'static> = contracts::storage_pool::StoragePool;
+}
+
+/// Sui object for the storage pool inner state.
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+pub(crate) struct StoragePoolInnerV1 {
+    /// The start epoch of the pool (inclusive).
+    pub start_epoch: Epoch,
+    /// The end epoch of the pool (exclusive).
+    pub end_epoch: Epoch,
+    /// The total reserved capacity in encoded bytes.
+    pub reserved_encoded_capacity_bytes: u64,
+    /// Sum of all active blobs' encoded sizes.
+    pub used_encoded_bytes: u64,
+    /// Number of blobs in the table.
+    pub blob_count: u64,
+    /// The blobs object table (opaque on the Rust side).
+    #[serde(deserialize_with = "deserialize_bag_or_table")]
+    pub blobs: ObjectID,
+}
+
+impl AssociatedContractStruct for StoragePoolInnerV1 {
+    const CONTRACT_STRUCT: StructTag<'static> = contracts::storage_pool::StoragePoolInnerV1;
 }
 
 /// Sui object for a blob.

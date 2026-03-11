@@ -179,6 +179,14 @@ public struct StoragePoolExtended has copy, drop {
     new_end_epoch: u32,
 }
 
+/// Signals that a StoragePool pool's capacity has been increased.
+public struct StoragePoolCapacityIncreased has copy, drop {
+    epoch: u32,
+    storage_pool_id: ID,
+    additional_reserved_encoded_capacity_bytes: u64,
+    new_reserved_encoded_capacity_bytes: u64,
+}
+
 // === Functions to emit the events from other modules ===
 
 public(package) fun emit_blob_registered(
@@ -362,4 +370,18 @@ public(package) fun emit_storage_pool_extended(
     new_end_epoch: u32,
 ) {
     event::emit(StoragePoolExtended { epoch, storage_pool_id, new_end_epoch })
+}
+
+public(package) fun emit_storage_pool_capacity_increased(
+    epoch: u32,
+    storage_pool_id: ID,
+    additional_reserved_encoded_capacity_bytes: u64,
+    new_reserved_encoded_capacity_bytes: u64,
+) {
+    event::emit(StoragePoolCapacityIncreased {
+        epoch,
+        storage_pool_id,
+        additional_reserved_encoded_capacity_bytes,
+        new_reserved_encoded_capacity_bytes,
+    })
 }

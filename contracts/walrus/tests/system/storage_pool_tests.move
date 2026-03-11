@@ -387,6 +387,177 @@ fun extend_storage_pool_expired() {
     abort
 }
 
+// === Storage pool capacity increase tests ===
+
+#[test]
+fun increase_storage_pool_capacity_happy_path() {
+    let ctx = &mut tx_context::dummy();
+    let mut system = system::new_for_testing(ctx);
+    let mut pool = create_default_pool(&mut system, ctx);
+
+    let additional_capacity = encoded_size(&system, SIZE);
+    let original_reserved = pool.reserved_encoded_capacity_bytes();
+    let original_available = pool.available_encoded_bytes();
+
+    let mut fake_coin = test_utils::mint_frost(N_COINS, ctx);
+    system.increase_storage_pool_capacity(&mut pool, additional_capacity, &mut fake_coin);
+
+    assert_eq!(pool.reserved_encoded_capacity_bytes(), original_reserved + additional_capacity);
+    assert_eq!(pool.used_encoded_bytes(), 0);
+    assert_eq!(pool.available_encoded_bytes(), original_available + additional_capacity);
+
+    fake_coin.burn_for_testing();
+    pool.destroy_for_testing();
+    system.destroy_for_testing();
+}
+
+#[test]
+fun increase_storage_pool_capacity_preserves_used_bytes() {
+    let ctx = &mut tx_context::dummy();
+    let mut system = system::new_for_testing(ctx);
+    let mut pool = create_pool_with_epochs(&mut system, SIZE, 3, ctx);
+
+    let blob_id = default_blob_id();
+    register_blob_in_pool(&mut system, &mut pool, blob_id, SIZE, true, ctx);
+    let used_before = pool.used_encoded_bytes();
+    let available_before = pool.available_encoded_bytes();
+    let additional_capacity = encoded_size(&system, SIZE);
+
+    let mut fake_coin = test_utils::mint_frost(N_COINS, ctx);
+    system.increase_storage_pool_capacity(&mut pool, additional_capacity, &mut fake_coin);
+
+    assert_eq!(pool.used_encoded_bytes(), used_before);
+    assert_eq!(pool.available_encoded_bytes(), available_before + additional_capacity);
+
+    fake_coin.burn_for_testing();
+    pool.destroy_for_testing();
+    system.destroy_for_testing();
+}
+
+#[test]
+fun increase_storage_pool_capacity_allows_additional_blob() {
+    let ctx = &mut tx_context::dummy();
+    let mut system = system::new_for_testing(ctx);
+    let mut pool = create_default_pool(&mut system, ctx);
+
+    let blob_id = default_blob_id();
+    register_blob_in_pool(&mut system, &mut pool, blob_id, SIZE, false, ctx);
+    assert_eq!(pool.available_encoded_bytes(), 0);
+
+    let additional_capacity = encoded_size(&system, SIZE);
+    let mut fake_coin = test_utils::mint_frost(N_COINS, ctx);
+    system.increase_storage_pool_capacity(&mut pool, additional_capacity, &mut fake_coin);
+    register_blob_in_pool_with_root(&mut system, &mut pool, 0x222, SIZE, false, ctx);
+
+    assert_eq!(pool.blob_count(), 2);
+    assert_eq!(pool.used_encoded_bytes(), encoded_size(&system, SIZE) * 2);
+    assert_eq!(pool.available_encoded_bytes(), 0);
+
+    fake_coin.burn_for_testing();
+    pool.destroy_for_testing();
+    system.destroy_for_testing();
+}
+
+#[test, expected_failure(abort_code = system_state_inner::EInvalidResourceSize)]
+fun increase_storage_pool_capacity_zero_size() {
+    let ctx = &mut tx_context::dummy();
+    let mut system = system::new_for_testing(ctx);
+    let mut pool = create_default_pool(&mut system, ctx);
+
+    let mut fake_coin = test_utils::mint_frost(N_COINS, ctx);
+    system.increase_storage_pool_capacity(&mut pool, 0, &mut fake_coin);
+
+    abort
+}
+
+#[test, expected_failure(abort_code = system_state_inner::EInvalidEpochsAhead)]
+fun increase_storage_pool_capacity_expired() {
+    let ctx = &mut tx_context::dummy();
+    let mut system = system::new_for_testing(ctx);
+    let mut pool = create_pool_with_epochs(&mut system, SIZE, 1, ctx);
+    let additional_capacity = encoded_size(&system, SIZE);
+
+    advance_epoch(&mut system);
+
+    let mut fake_coin = test_utils::mint_frost(N_COINS, ctx);
+    system.increase_storage_pool_capacity(&mut pool, additional_capacity, &mut fake_coin);
+
+    abort
+}
+
+#[test]
+fun increase_storage_pool_capacity_remaining_lifetime_accounting() {
+    let ctx = &mut tx_context::dummy();
+    let mut system = system::new_for_testing(ctx);
+    let capacity = 500_000_000;
+    let additional_capacity = 250_000_000;
+    let epochs_ahead = 3;
+
+    let storage_units = (additional_capacity + 1_048_576 - 1) / 1_048_576;
+    let additional_payment_per_epoch = system.inner().storage_price_per_unit_size() * storage_units;
+
+    let mut fake_coin = test_utils::mint_frost(N_COINS * 10, ctx);
+    let mut pool = system.create_storage_pool(capacity, epochs_ahead, &mut fake_coin, ctx);
+
+    advance_epoch(&mut system);
+
+    let future_accounting = system.future_accounting();
+    let rewards_before_current = walrus::storage_accounting::rewards(future_accounting.ring_lookup(
+        0,
+    ));
+    let next_epoch_accounting = future_accounting.ring_lookup(1);
+    let rewards_before_next = walrus::storage_accounting::rewards(next_epoch_accounting);
+    let expired_epoch_accounting = future_accounting.ring_lookup(2);
+    let rewards_before_after_expiry = walrus::storage_accounting::rewards(
+        expired_epoch_accounting,
+    );
+
+    system.increase_storage_pool_capacity(&mut pool, additional_capacity, &mut fake_coin);
+
+    assert_eq!(pool.reserved_encoded_capacity_bytes(), capacity + additional_capacity);
+    assert_eq!(system.used_capacity_size(), capacity + additional_capacity);
+    assert_eq!(
+        system.inner().used_capacity_size_at_future_epoch(0),
+        capacity + additional_capacity,
+    );
+    assert_eq!(
+        system.inner().used_capacity_size_at_future_epoch(1),
+        capacity + additional_capacity,
+    );
+    assert_eq!(system.inner().used_capacity_size_at_future_epoch(2), 0);
+
+    let future_accounting = system.future_accounting();
+    assert_eq!(
+        walrus::storage_accounting::rewards(future_accounting.ring_lookup(0)),
+        rewards_before_current + additional_payment_per_epoch,
+    );
+    assert_eq!(
+        walrus::storage_accounting::rewards(future_accounting.ring_lookup(1)),
+        rewards_before_next + additional_payment_per_epoch,
+    );
+    assert_eq!(
+        walrus::storage_accounting::rewards(future_accounting.ring_lookup(2)),
+        rewards_before_after_expiry,
+    );
+
+    fake_coin.burn_for_testing();
+    pool.destroy_for_testing();
+    system.destroy_for_testing();
+}
+
+#[test, expected_failure(abort_code = system_state_inner::EStorageExceeded)]
+fun increase_storage_pool_capacity_exceeds_system_capacity() {
+    let ctx = &mut tx_context::dummy();
+    let mut system = system::new_for_testing(ctx);
+
+    let mut fake_coin = test_utils::mint_frost(N_COINS * 10, ctx);
+    let mut pool = system.create_storage_pool(1_000_000_000, 1, &mut fake_coin, ctx);
+
+    system.increase_storage_pool_capacity(&mut pool, 1, &mut fake_coin);
+
+    abort
+}
+
 // === Pool destruction tests ===
 
 #[test]

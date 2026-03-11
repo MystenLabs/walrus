@@ -926,6 +926,47 @@ impl TryFrom<SuiEvent> for StoragePoolExtendedEvent {
     }
 }
 
+/// Sui event that a storage pool's capacity has been increased.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StoragePoolCapacityIncreasedEvent {
+    /// The epoch in which the capacity increase happened.
+    pub epoch: Epoch,
+    /// The object ID of the storage pool.
+    pub storage_pool_id: ObjectID,
+    /// The amount of reserved capacity added in encoded bytes.
+    pub additional_reserved_encoded_capacity_bytes: u64,
+    /// The new total reserved capacity in encoded bytes.
+    pub new_reserved_encoded_capacity_bytes: u64,
+    /// The ID of the event.
+    pub event_id: EventID,
+}
+
+impl AssociatedSuiEvent for StoragePoolCapacityIncreasedEvent {
+    const EVENT_STRUCT: StructTag<'static> = contracts::events::StoragePoolCapacityIncreased;
+}
+
+impl TryFrom<SuiEvent> for StoragePoolCapacityIncreasedEvent {
+    type Error = MoveConversionError;
+
+    fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
+        ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
+
+        let (
+            epoch,
+            storage_pool_id,
+            additional_reserved_encoded_capacity_bytes,
+            new_reserved_encoded_capacity_bytes,
+        ) = bcs::from_bytes(sui_event.bcs.bytes())?;
+        Ok(Self {
+            epoch,
+            storage_pool_id,
+            additional_reserved_encoded_capacity_bytes,
+            new_reserved_encoded_capacity_bytes,
+            event_id: sui_event.id,
+        })
+    }
+}
+
 /// Enum to wrap storage pool events.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum StoragePoolEvent {
@@ -939,6 +980,8 @@ pub enum StoragePoolEvent {
     PooledBlobDeleted(PooledBlobDeleted),
     /// A storage pool's lifetime was extended.
     StoragePoolExtended(StoragePoolExtendedEvent),
+    /// A storage pool's capacity was increased.
+    StoragePoolCapacityIncreased(StoragePoolCapacityIncreasedEvent),
 }
 
 impl StoragePoolEvent {
@@ -950,6 +993,7 @@ impl StoragePoolEvent {
             StoragePoolEvent::PooledBlobCertified(event) => event.event_id,
             StoragePoolEvent::PooledBlobDeleted(event) => event.event_id,
             StoragePoolEvent::StoragePoolExtended(event) => event.event_id,
+            StoragePoolEvent::StoragePoolCapacityIncreased(event) => event.event_id,
         }
     }
 
@@ -961,6 +1005,7 @@ impl StoragePoolEvent {
             StoragePoolEvent::PooledBlobCertified(event) => Some(event.epoch),
             StoragePoolEvent::PooledBlobDeleted(event) => Some(event.epoch),
             StoragePoolEvent::StoragePoolExtended(event) => Some(event.epoch),
+            StoragePoolEvent::StoragePoolCapacityIncreased(event) => Some(event.epoch),
         }
     }
 
@@ -972,6 +1017,7 @@ impl StoragePoolEvent {
             StoragePoolEvent::PooledBlobCertified(_) => "PooledBlobCertified",
             StoragePoolEvent::PooledBlobDeleted(_) => "PooledBlobDeleted",
             StoragePoolEvent::StoragePoolExtended(_) => "StoragePoolExtended",
+            StoragePoolEvent::StoragePoolCapacityIncreased(_) => "StoragePoolCapacityIncreased",
         }
     }
 
@@ -983,6 +1029,7 @@ impl StoragePoolEvent {
             StoragePoolEvent::PooledBlobCertified(event) => Some(event.blob_id),
             StoragePoolEvent::PooledBlobDeleted(event) => Some(event.blob_id),
             StoragePoolEvent::StoragePoolExtended(_) => None,
+            StoragePoolEvent::StoragePoolCapacityIncreased(_) => None,
         }
     }
 
@@ -994,6 +1041,7 @@ impl StoragePoolEvent {
             StoragePoolEvent::PooledBlobCertified(event) => event.storage_pool_id,
             StoragePoolEvent::PooledBlobDeleted(event) => event.storage_pool_id,
             StoragePoolEvent::StoragePoolExtended(event) => event.storage_pool_id,
+            StoragePoolEvent::StoragePoolCapacityIncreased(event) => event.storage_pool_id,
         }
     }
 }
@@ -1326,6 +1374,9 @@ impl TryFrom<SuiEvent> for ContractEvent {
             )),
             contracts::events::StoragePoolExtended => Ok(ContractEvent::StoragePoolEvent(
                 StoragePoolEvent::StoragePoolExtended(value.try_into()?),
+            )),
+            contracts::events::StoragePoolCapacityIncreased => Ok(ContractEvent::StoragePoolEvent(
+                StoragePoolEvent::StoragePoolCapacityIncreased(value.try_into()?),
             )),
             _ => unreachable!("Encountered unexpected unrecognized events {}", value),
         }
