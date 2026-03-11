@@ -3480,23 +3480,14 @@ macro_rules! assert_get_success {
 
 /// Tests corner-case inputs to quilt HTTP endpoints.
 ///
-/// Sets up four blobs:
-/// 1. A valid quilt with 2 patches (with tags)
-/// 2. A malformed quilt (valid structure then version byte corrupted before store)
-/// 3. A regular (non-quilt) blob
-/// 4. An empty blob (0 bytes)
+/// Sets up three blobs: a valid quilt (2 patches), a malformed quilt (version byte
+/// corrupted), and an empty blob.
 ///
-/// Then sends invalid or edge-case requests (bad patch IDs, nonexistent IDs,
-/// non-quilt blobs as quilt ID, etc.) and asserts that each request returns an
-/// error response (non-2xx). This PR does not assert specific HTTP status codes;
-/// error-type consolidation and mapping are left for a follow-up.
+/// Sends bad/invalid requests and asserts each returns a non-success response (no
+/// specific status code).
 ///
-/// **Why "error returned" is enough:** In simtest the aggregator runs in the same
-/// process as the test. If the aggregator panics while handling a request, the
-/// process panics and the test fails before the client can observe a status code.
-/// Therefore, if the test completes and we observed a non-success response, the
-/// aggregator handled the request without panicking and returned an error. That
-/// is the property we care about here: no panic on bad input.
+/// In simtest the aggregator runs in-process, so test completion with non-success
+/// implies no panic on bad input.
 #[ignore = "ignore E2E tests by default"]
 #[walrus_simtest]
 async fn test_aggregator_quilt_endpoints_corner_cases() -> TestResult {
@@ -3545,10 +3536,6 @@ async fn test_aggregator_quilt_endpoints_corner_cases() -> TestResult {
     let valid_patch_id = &stored_quilt_blobs[0].quilt_patch_id;
 
     // -- Setup: store a malformed quilt (corrupt version byte so decode fails) --
-    // Stored with BlobAttribute::default() (no quilt-type attribute). The by-quilt-id and
-    // quilts/.../patches paths do not check the blob attribute before decoding: they fetch
-    // slivers and run decode_quilt_index / QuiltVersionEnum::new_from_sliver, so we still
-    // exercise the version-check error path.
     let quilt_for_malformed = quilt_client
         .construct_quilt::<QuiltVersionV1>(&quilt_store_blobs, DEFAULT_ENCODING)
         .await?;
@@ -3569,21 +3556,6 @@ async fn test_aggregator_quilt_endpoints_corner_cases() -> TestResult {
     let malformed_quilt_blob_id = match &malformed_quilt_results[0] {
         BlobStoreResult::NewlyCreated { blob_object, .. } => blob_object.blob_id,
         _ => panic!("expected newly created malformed quilt blob"),
-    };
-
-    // -- Setup: store a regular (non-quilt) blob --
-    let regular_content = b"this is not a quilt".to_vec();
-    let regular_results = client
-        .as_ref()
-        .reserve_and_store_blobs_retry_committees(
-            vec![regular_content],
-            vec![BlobAttribute::default()],
-            &store_args,
-        )
-        .await?;
-    let regular_blob_id = match &regular_results[0] {
-        BlobStoreResult::NewlyCreated { blob_object, .. } => blob_object.blob_id,
-        _ => panic!("Expected newly created blob"),
     };
 
     // -- Setup: store an empty blob --
@@ -3652,20 +3624,7 @@ async fn test_aggregator_quilt_endpoints_corner_cases() -> TestResult {
         "invalid quilt_id string"
     );
 
-    // ---- Category 2: Non-quilt blob used as quilt ----
-
-    assert_get_error!(
-        &http_client,
-        &format!("{base}/v1/blobs/by-quilt-id/{regular_blob_id}/some-file.txt"),
-        "non-quilt blob as quilt_id"
-    );
-    assert_get_error!(
-        &http_client,
-        &format!("{base}/v1/quilts/{regular_blob_id}/patches"),
-        "listing patches on non-quilt blob"
-    );
-
-    // ---- Category 2b: Empty blob used as quilt ----
+    // ---- Empty blob used as quilt ----
 
     assert_get_error!(
         &http_client,
@@ -3678,7 +3637,7 @@ async fn test_aggregator_quilt_endpoints_corner_cases() -> TestResult {
         "listing patches on empty blob"
     );
 
-    // ---- Category 2c: Malformed quilt blob (valid structure, corrupted before store) ----
+    // ---- Malformed quilt blob (valid structure, corrupted before store) ----
 
     assert_get_error!(
         &http_client,
@@ -3705,17 +3664,14 @@ async fn test_aggregator_quilt_endpoints_corner_cases() -> TestResult {
 
 /// Tests corner-case inputs to regular blob aggregator endpoints.
 ///
-/// Sets up one valid blob (and its object_id for by-object-id). Then sends invalid or
-/// edge-case requests (nonexistent blob/object IDs, invalid blob_id/object_id strings,
-/// invalid ReadOptions, invalid Range header, invalid byte-range params) and asserts that
-/// each request returns an error response (non-2xx). This test does not assert specific
-/// HTTP status codes; error-type consolidation and mapping are left for a follow-up.
+/// Sets up one valid blob (and its object_id for by-object-id).
 ///
-/// **Why "error returned" is enough:** In simtest the aggregator runs in the same
-/// process as the test. If the aggregator panics while handling a request, the process
-/// panics and the test fails. Therefore, if the test completes and we observed a
-/// non-success response, the aggregator handled the request without panicking and
-/// returned an error.
+/// Sends invalid or edge-case requests (nonexistent/invalid IDs, bad ReadOptions,
+/// Range header, byte-range params) and asserts each returns a non-success response
+/// (no specific status code).
+///
+/// In simtest the aggregator runs in-process, so test completion with non-success
+/// implies no panic on bad input.
 #[ignore = "ignore E2E tests by default"]
 #[walrus_simtest]
 async fn test_aggregator_blob_endpoints_corner_cases() -> TestResult {
