@@ -26,7 +26,7 @@ use rand::{Rng, random, seq::SliceRandom, thread_rng};
 use reqwest::Url;
 #[cfg(msim)]
 use sui_macros::{clear_fail_point, register_fail_point_if};
-use sui_types::base_types::{SUI_ADDRESS_LENGTH, SuiAddress};
+use sui_types::base_types::{ObjectID, SUI_ADDRESS_LENGTH, SuiAddress};
 use tokio::{sync::Mutex, time::Instant};
 use tokio_stream::StreamExt;
 use walrus_core::{
@@ -3413,6 +3413,395 @@ async fn test_aggregator_get_quilt_patch_by_id() -> TestResult {
         .collect();
     assert!(identifiers.contains(&"patch-1.txt"));
     assert!(identifiers.contains(&"patch-2.txt"));
+
+    aggregator.shutdown().await?;
+    Ok(())
+}
+
+/// Sends GET to url and asserts the response is not successful.
+/// Used by aggregator corner-case tests; we only assert non-success (no specific status code).
+async fn assert_get_error(client: &reqwest::Client, url: &str, context: &str) -> TestResult {
+    let resp = client.get(url).send().await?;
+    assert!(
+        !resp.status().is_success(),
+        "expected error for {context}, got {}",
+        resp.status()
+    );
+    Ok(())
+}
+
+/// Sends GET to url with one header and asserts the response is not successful.
+async fn assert_get_error_with_header(
+    client: &reqwest::Client,
+    url: &str,
+    header_name: &str,
+    header_value: &str,
+    context: &str,
+) -> TestResult {
+    let resp = client
+        .get(url)
+        .header(header_name, header_value)
+        .send()
+        .await?;
+    assert!(
+        !resp.status().is_success(),
+        "expected error for {context}, got {}",
+        resp.status()
+    );
+    Ok(())
+}
+
+/// Sends GET to url and asserts the response is successful. Used for sanity checks.
+async fn assert_get_success(client: &reqwest::Client, url: &str, context: &str) -> TestResult {
+    let resp = client.get(url).send().await?;
+    assert!(
+        resp.status().is_success(),
+        "{context}, got {}",
+        resp.status()
+    );
+    Ok(())
+}
+
+macro_rules! assert_get_error {
+    ($client:expr, $url:expr, $context:expr) => {
+        assert_get_error($client, $url, $context).await?
+    };
+}
+macro_rules! assert_get_error_with_header {
+    ($client:expr, $url:expr, $name:expr, $value:expr, $context:expr) => {
+        assert_get_error_with_header($client, $url, $name, $value, $context).await?
+    };
+}
+macro_rules! assert_get_success {
+    ($client:expr, $url:expr, $context:expr) => {
+        assert_get_success($client, $url, $context).await?
+    };
+}
+
+/// Tests corner-case inputs to quilt HTTP endpoints.
+///
+/// Sets up three blobs: a valid quilt (2 patches), a malformed quilt (version byte
+/// corrupted), and an empty blob.
+///
+/// Sends bad/invalid requests and asserts each returns a non-success response (no
+/// specific status code).
+///
+/// In simtest the aggregator runs in-process, so test completion with non-success
+/// implies no panic on bad input.
+#[ignore = "ignore E2E tests by default"]
+#[walrus_simtest]
+async fn test_aggregator_quilt_endpoints_corner_cases() -> TestResult {
+    walrus_test_utils::init_tracing();
+
+    let (_sui_cluster_handle, _cluster, client, _, aggregator_handle) =
+        test_cluster::E2eTestSetupBuilder::new()
+            .with_aggregator()
+            .build()
+            .await?;
+
+    let aggregator = aggregator_handle.expect("aggregator should be started");
+    let http_client = reqwest::Client::new();
+    let base = aggregator.base_url();
+
+    // -- Setup: store a valid quilt --
+    let blob1 = b"patch one data".to_vec();
+    let blob2 = b"patch two data with more bytes".to_vec();
+    let quilt_store_blobs = vec![
+        QuiltStoreBlob::new(&blob1, "file-alpha.txt")
+            .expect("create blob")
+            .with_tags(vec![("Content-Type".to_string(), "text/plain".to_string())]),
+        QuiltStoreBlob::new(&blob2, "file-beta.bin")
+            .expect("create blob")
+            .with_tags(vec![(
+                "Content-Type".to_string(),
+                "application/octet-stream".to_string(),
+            )]),
+    ];
+
+    let quilt_client = client.as_ref().quilt_client();
+    let quilt = quilt_client
+        .construct_quilt::<QuiltVersionV1>(&quilt_store_blobs, DEFAULT_ENCODING)
+        .await?;
+    let store_args = StoreArgs::default_with_epochs(1);
+    let QuiltStoreResult {
+        blob_store_result,
+        stored_quilt_blobs,
+    } = quilt_client
+        .reserve_and_store_quilt::<QuiltVersionV1>(quilt, &store_args)
+        .await?;
+    let quilt_blob_id = match &blob_store_result {
+        BlobStoreResult::NewlyCreated { blob_object, .. } => blob_object.blob_id,
+        _ => panic!("Expected newly created quilt"),
+    };
+    let valid_patch_id = &stored_quilt_blobs[0].quilt_patch_id;
+
+    // -- Setup: store a malformed quilt (corrupt version byte so decode fails) --
+    let quilt_for_malformed = quilt_client
+        .construct_quilt::<QuiltVersionV1>(&quilt_store_blobs, DEFAULT_ENCODING)
+        .await?;
+    let mut malformed_quilt_data = quilt_for_malformed.into_data();
+    assert!(
+        !malformed_quilt_data.is_empty(),
+        "construct_quilt with 2 blobs always produces non-empty data"
+    );
+    malformed_quilt_data[0] ^= 0xFF; // corrupt version byte
+    let malformed_quilt_results = client
+        .as_ref()
+        .reserve_and_store_blobs_retry_committees(
+            vec![malformed_quilt_data],
+            vec![BlobAttribute::default()],
+            &store_args,
+        )
+        .await?;
+    let malformed_quilt_blob_id = match &malformed_quilt_results[0] {
+        BlobStoreResult::NewlyCreated { blob_object, .. } => blob_object.blob_id,
+        _ => panic!("expected newly created malformed quilt blob"),
+    };
+
+    // -- Setup: store an empty blob --
+    let empty_results = client
+        .as_ref()
+        .reserve_and_store_blobs_retry_committees(
+            vec![vec![]],
+            vec![BlobAttribute::default()],
+            &store_args,
+        )
+        .await?;
+    let empty_blob_id = match &empty_results[0] {
+        BlobStoreResult::NewlyCreated { blob_object, .. } => blob_object.blob_id,
+        _ => panic!("Expected newly created blob"),
+    };
+
+    // -- Sanity: valid patch retrieval works --
+    assert_get_success!(
+        &http_client,
+        &format!("{base}/v1/blobs/by-quilt-patch-id/{valid_patch_id}"),
+        "sanity: valid patch ID should work"
+    );
+
+    // ---- Category 1: Valid quilt, invalid requests ----
+
+    let fake_patch_id = QuiltPatchId::new(quilt_blob_id, vec![0x01, 0xFF, 0xFF, 0xFF, 0xFF]);
+    assert_get_error!(
+        &http_client,
+        &format!("{base}/v1/blobs/by-quilt-patch-id/{fake_patch_id}"),
+        "nonexistent patch in valid quilt"
+    );
+    assert_get_error!(
+        &http_client,
+        &format!("{base}/v1/blobs/by-quilt-patch-id/not-valid-base64!!!"),
+        "garbage patch ID"
+    );
+    assert_get_error!(
+        &http_client,
+        &format!("{base}/v1/blobs/by-quilt-patch-id/AQID"),
+        "too-short patch ID"
+    );
+    assert_get_error!(
+        &http_client,
+        &format!("{base}/v1/blobs/by-quilt-id/{quilt_blob_id}/nonexistent-file.txt"),
+        "nonexistent identifier"
+    );
+    assert_get_error!(
+        &http_client,
+        &format!("{base}/v1/blobs/by-quilt-id/{quilt_blob_id}/"),
+        "empty identifier"
+    );
+    assert_get_error!(
+        &http_client,
+        &format!("{base}/v1/blobs/by-quilt-id/not-a-valid-blob-id/some-file.txt"),
+        "invalid quilt_id string"
+    );
+    let fake_blob_id = BlobId::ZERO;
+    assert_get_error!(
+        &http_client,
+        &format!("{base}/v1/quilts/{fake_blob_id}/patches"),
+        "nonexistent quilt_id"
+    );
+    assert_get_error!(
+        &http_client,
+        &format!("{base}/v1/quilts/garbage!!!/patches"),
+        "invalid quilt_id string"
+    );
+
+    // ---- Empty blob used as quilt ----
+
+    assert_get_error!(
+        &http_client,
+        &format!("{base}/v1/blobs/by-quilt-id/{empty_blob_id}/anything.txt"),
+        "empty blob as quilt_id"
+    );
+    assert_get_error!(
+        &http_client,
+        &format!("{base}/v1/quilts/{empty_blob_id}/patches"),
+        "listing patches on empty blob"
+    );
+
+    // ---- Malformed quilt blob (valid structure, corrupted before store) ----
+
+    assert_get_error!(
+        &http_client,
+        &format!("{base}/v1/blobs/by-quilt-id/{malformed_quilt_blob_id}/any.txt"),
+        "malformed quilt"
+    );
+    assert_get_error!(
+        &http_client,
+        &format!("{base}/v1/quilts/{malformed_quilt_blob_id}/patches"),
+        "listing patches on malformed quilt"
+    );
+    let fake_malformed_patch =
+        QuiltPatchId::new(malformed_quilt_blob_id, vec![0x00, 0x00, 0x00, 0x00]);
+    assert_get_error!(
+        &http_client,
+        &format!("{base}/v1/blobs/by-quilt-patch-id/{fake_malformed_patch}"),
+        "by-quilt-patch-id on malformed quilt blob"
+    );
+
+    // Graceful teardown (reaching here already confirms aggregator did not panic).
+    aggregator.shutdown().await?;
+    Ok(())
+}
+
+/// Tests corner-case inputs to regular blob aggregator endpoints.
+///
+/// Sets up one valid blob (and its object_id for by-object-id).
+///
+/// Sends invalid or edge-case requests (nonexistent/invalid IDs, bad ReadOptions,
+/// Range header, byte-range params) and asserts each returns a non-success response
+/// (no specific status code).
+///
+/// In simtest the aggregator runs in-process, so test completion with non-success
+/// implies no panic on bad input.
+#[ignore = "ignore E2E tests by default"]
+#[walrus_simtest]
+async fn test_aggregator_blob_endpoints_corner_cases() -> TestResult {
+    walrus_test_utils::init_tracing();
+
+    let (_sui_cluster_handle, _cluster, client, _, aggregator_handle) =
+        test_cluster::E2eTestSetupBuilder::new()
+            .with_aggregator()
+            .build()
+            .await?;
+
+    let aggregator = aggregator_handle.expect("aggregator should be started");
+    let http_client = reqwest::Client::new();
+    let base = aggregator.base_url();
+
+    // -- Setup: one valid blob and its object_id --
+    let content = b"hello walrus".to_vec();
+    let store_args = StoreArgs::default_with_epochs(1);
+    let results = client
+        .as_ref()
+        .reserve_and_store_blobs_retry_committees(
+            vec![content],
+            vec![BlobAttribute::default()],
+            &store_args,
+        )
+        .await?;
+    let (blob_id, blob_object_id) = match &results[0] {
+        BlobStoreResult::NewlyCreated { blob_object, .. } => (blob_object.blob_id, blob_object.id),
+        _ => panic!("Expected newly created blob"),
+    };
+
+    // -- Sanity: valid GET blob and by-object-id work --
+    assert_get_success!(
+        &http_client,
+        &format!("{base}/v1/blobs/{blob_id}"),
+        "sanity: valid GET blob"
+    );
+    assert_get_success!(
+        &http_client,
+        &format!("{base}/v1/blobs/by-object-id/{blob_object_id}"),
+        "sanity: valid GET by-object-id"
+    );
+
+    // ---- GET /v1/blobs/{blob_id} corner cases ----
+
+    let nonexistent_blob_id = BlobId::ZERO;
+    assert_get_error!(
+        &http_client,
+        &format!("{base}/v1/blobs/{nonexistent_blob_id}"),
+        "nonexistent blob_id"
+    );
+    assert_get_error!(
+        &http_client,
+        &format!("{base}/v1/blobs/not-valid-base64!!!"),
+        "invalid blob_id string"
+    );
+    let bad_opts = "strict_consistency_check=true&skip_consistency_check=true";
+    assert_get_error!(
+        &http_client,
+        &format!("{base}/v1/blobs/{blob_id}?{bad_opts}"),
+        "invalid ReadOptions (both flags true)"
+    );
+    assert_get_error_with_header!(
+        &http_client,
+        &format!("{base}/v1/blobs/{blob_id}"),
+        "Range",
+        "bytes=invalid",
+        "malformed Range header"
+    );
+    assert_get_error_with_header!(
+        &http_client,
+        &format!("{base}/v1/blobs/{blob_id}"),
+        "Range",
+        "bytes=0-5,10-20",
+        "multiple ranges in Range header"
+    );
+    assert_get_error_with_header!(
+        &http_client,
+        &format!("{base}/v1/blobs/{blob_id}"),
+        "Range",
+        "bytes=100-50",
+        "Range start > end"
+    );
+
+    // ---- GET /v1/blobs/{blob_id}/byte-range corner cases ----
+
+    assert_get_error!(
+        &http_client,
+        &format!("{base}/v1/blobs/{nonexistent_blob_id}/byte-range?start=0&length=1"),
+        "byte-range with nonexistent blob_id"
+    );
+    assert_get_error!(
+        &http_client,
+        &format!("{base}/v1/blobs/garbage!!!/byte-range?start=0&length=1"),
+        "byte-range with invalid blob_id string"
+    );
+    assert_get_error!(
+        &http_client,
+        &format!("{base}/v1/blobs/{blob_id}/byte-range?start=0&length=0"),
+        "byte-range length=0"
+    );
+    assert_get_error!(
+        &http_client,
+        &format!("{base}/v1/blobs/{blob_id}/byte-range?start=18446744073709551615&length=1"),
+        "byte-range start+length overflow"
+    );
+    assert_get_error!(
+        &http_client,
+        &format!("{base}/v1/blobs/{blob_id}/byte-range?start=100&length=1"),
+        "byte-range start past blob end"
+    );
+    assert_get_error!(
+        &http_client,
+        &format!("{base}/v1/blobs/{blob_id}/byte-range?start=10&length=100"),
+        "byte-range start+length past blob end"
+    );
+
+    // ---- GET /v1/blobs/by-object-id/{blob_object_id} corner cases ----
+
+    let nonexistent_object_id = ObjectID::ZERO;
+    assert_get_error!(
+        &http_client,
+        &format!("{base}/v1/blobs/by-object-id/{nonexistent_object_id}"),
+        "nonexistent object_id"
+    );
+    assert_get_error!(
+        &http_client,
+        &format!("{base}/v1/blobs/by-object-id/not-a-valid-object-id"),
+        "invalid object_id string"
+    );
 
     aggregator.shutdown().await?;
     Ok(())
