@@ -151,7 +151,7 @@ const config = {
         docs: {
           path: "../content",
           sidebarPath: "./sidebars.js",
-          editUrl: "https://github.com/MystenLabs/walrus/tree/main/docs/",
+          editUrl: "https://github.com/MystenLabs/walrus/tree/main/docs/site/",
           remarkPlugins: [
             [remarkGlossary, { glossaryFile: "static/glossary.json" }],
             remarkMath,
