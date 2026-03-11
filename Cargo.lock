@@ -13191,6 +13191,7 @@ dependencies = [
  "fastcrypto 0.1.9 (git+https://github.com/MystenLabs/fastcrypto?rev=4db0e90c732bbf7420ca20de808b698883148d9c)",
  "hex",
  "p256",
+ "proptest",
  "rand 0.8.5",
  "reed-solomon-simd",
  "serde",

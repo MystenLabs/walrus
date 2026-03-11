@@ -3193,4 +3193,246 @@ mod tests {
             "QuiltDecoderV1: unexpected error: {err:?}"
         );
     }
+
+    // -- Proptest: valid-then-mutate property tests --
+    //
+    // These tests check that quilt decoding never panics on corrupted or malicious input.
+    // We build valid quilt data once, then apply random mutations (bit flips, truncation,
+    // insertions, deletions, overwrites) and run the decoder. The decoder may return
+    // Err(...) but must not panic. This complements the deterministic error-path tests
+    // above by stressing the decoder with many random corruptions.
+
+    use std::sync::OnceLock;
+
+    use proptest::prelude::*;
+
+    const NUM_BLOB_ENTRIES: usize = 5;
+
+    /// Single source of truth for proptest blob fixtures. Both the quilt index (meta blob)
+    /// and the serialized blob entries are derived from this so they stay in sync.
+    struct TestBlob {
+        id: String,
+        data: Vec<u8>,
+        tags: BTreeMap<String, String>,
+    }
+
+    fn build_test_blobs() -> Vec<TestBlob> {
+        vec![
+            TestBlob {
+                id: "blob-alpha".into(),
+                data: vec![42; 200],
+                tags: BTreeMap::from([
+                    ("content-type".into(), "application/octet-stream".into()),
+                    ("author".into(), "test-suite".into()),
+                    ("version".into(), "1.0.0".into()),
+                ]),
+            },
+            TestBlob {
+                id: "blob-beta".into(),
+                data: vec![0xFF; 50],
+                tags: BTreeMap::from([("content-type".into(), "text/plain".into())]),
+            },
+            TestBlob {
+                id: "blob-gamma-long-identifier-for-coverage".into(),
+                data: vec![0; 500],
+                tags: BTreeMap::from([
+                    ("key1".into(), "value1".into()),
+                    ("key2".into(), "value2".into()),
+                    ("key3".into(), "value3".into()),
+                    ("key4".into(), "value4".into()),
+                    ("key5".into(), "value5".into()),
+                ]),
+            },
+            TestBlob {
+                id: "blob-delta".into(),
+                data: vec![0xAB; 10],
+                tags: BTreeMap::new(),
+            },
+            TestBlob {
+                id: "blob-epsilon".into(),
+                data: (0..=255).collect(),
+                tags: BTreeMap::from([("tag".into(), "with special chars: /\\@#".into())]),
+            },
+        ]
+    }
+
+    static TEST_BLOBS: OnceLock<Vec<TestBlob>> = OnceLock::new();
+
+    fn test_blobs() -> &'static [TestBlob] {
+        TEST_BLOBS.get_or_init(build_test_blobs)
+    }
+
+    /// Serialized blob entries (header + extension + data) for each test blob, in order.
+    /// Used as the payload that we mutate in the blob-entry proptest.
+    fn build_blob_entries() -> Vec<Vec<u8>> {
+        let entries: Vec<Vec<u8>> = test_blobs()
+            .iter()
+            .map(|tb| {
+                let blob = QuiltStoreBlob::new_owned(tb.data.clone(), tb.id.as_str())
+                    .expect("valid blob")
+                    .with_tags(tb.tags.clone());
+                QuiltEncoderV1::get_header_and_extension_bytes(&blob)
+                    .expect("valid header")
+                    .into_iter()
+                    .chain(blob.data().iter().copied())
+                    .collect()
+            })
+            .collect();
+        assert_eq!(entries.len(), NUM_BLOB_ENTRIES);
+        entries
+    }
+
+    /// Serialized quilt index (version byte + length + BCS index). Used as the payload
+    /// that we mutate in the index proptest.
+    fn build_meta_blob() -> Vec<u8> {
+        let patches: Vec<QuiltPatchV1> = test_blobs()
+            .iter()
+            .map(|blob| {
+                QuiltPatchV1::new_with_tags(
+                    blob.id.clone(),
+                    blob.tags.iter().map(|(k, v)| (k.clone(), v.clone())),
+                )
+                .expect("valid")
+            })
+            .collect();
+
+        let index = QuiltIndexV1 {
+            quilt_patches: patches,
+        };
+        let index_bytes = bcs::to_bytes(&index).expect("serialize");
+        let index_size = u32::try_from(index_bytes.len()).expect("fits u32");
+        let mut out = Vec::with_capacity(QUILT_INDEX_PREFIX_SIZE + index_bytes.len());
+        out.push(QuiltVersionV1::QUILT_VERSION_BYTE);
+        out.extend_from_slice(&index_size.to_le_bytes());
+        out.extend_from_slice(&index_bytes);
+        out
+    }
+
+    // Cached so we don't rebuild for each of the 500 proptest cases.
+    static META_BLOB: OnceLock<Vec<u8>> = OnceLock::new();
+    static BLOB_ENTRIES: OnceLock<Vec<Vec<u8>>> = OnceLock::new();
+
+    fn meta_blob() -> &'static Vec<u8> {
+        META_BLOB.get_or_init(build_meta_blob)
+    }
+
+    fn blob_entries() -> &'static Vec<Vec<u8>> {
+        BLOB_ENTRIES.get_or_init(build_blob_entries)
+    }
+
+    /// Applies a single mutation to a copy of `data` and returns the result.
+    /// All indices are reduced with mod so we never panic; buffer must be non-empty.
+    fn apply_mutation(data: &[u8], mutation: &Mutation) -> Vec<u8> {
+        let mut buf = data.to_vec();
+        if buf.is_empty() {
+            return buf;
+        }
+        let len = buf.len();
+        match mutation {
+            Mutation::FlipBytes { positions, values } => {
+                for (&pos, &val) in positions.iter().zip(values.iter()) {
+                    let p = pos % len;
+                    buf[p] ^= val | 1;
+                }
+            }
+            Mutation::Truncate { at } => {
+                let at = *at % len;
+                buf.truncate(at);
+            }
+            Mutation::InsertBytes { at, bytes } => {
+                let at = *at % (len + 1);
+                for (i, &b) in bytes.iter().enumerate() {
+                    buf.insert(at + i, b);
+                }
+            }
+            Mutation::DeleteRange {
+                start,
+                len: range_len,
+            } => {
+                let start = *start % len;
+                let end = (start + range_len).min(len);
+                buf.drain(start..end);
+            }
+            Mutation::OverwriteRange { start, bytes } => {
+                let start = *start % len;
+                for (i, &b) in bytes.iter().enumerate() {
+                    if start + i < len {
+                        buf[start + i] = b;
+                    }
+                }
+            }
+        }
+        buf
+    }
+
+    /// Corruption operations we apply to valid bytes. Chosen to cover typical failure
+    /// modes: bit flips, truncation, extra bytes, removed bytes, and overwrites.
+    #[derive(Debug, Clone)]
+    enum Mutation {
+        FlipBytes {
+            positions: Vec<usize>,
+            values: Vec<u8>,
+        },
+        Truncate {
+            at: usize,
+        },
+        InsertBytes {
+            at: usize,
+            bytes: Vec<u8>,
+        },
+        DeleteRange {
+            start: usize,
+            len: usize,
+        },
+        OverwriteRange {
+            start: usize,
+            bytes: Vec<u8>,
+        },
+    }
+
+    /// Strategy that generates one random mutation. Indices are arbitrary; apply_mutation
+    /// uses mod to bring them into range for the actual buffer.
+    fn mutation_strategy() -> impl Strategy<Value = Mutation> {
+        prop_oneof![
+            (
+                prop::collection::vec(any::<usize>(), 1..=8),
+                prop::collection::vec(any::<u8>(), 1..=8),
+            )
+                .prop_map(|(positions, values)| Mutation::FlipBytes { positions, values }),
+            any::<usize>().prop_map(|at| Mutation::Truncate { at }),
+            (any::<usize>(), prop::collection::vec(any::<u8>(), 1..=16))
+                .prop_map(|(at, bytes)| Mutation::InsertBytes { at, bytes }),
+            (any::<usize>(), 1..=32usize)
+                .prop_map(|(start, len)| Mutation::DeleteRange { start, len }),
+            (any::<usize>(), prop::collection::vec(any::<u8>(), 1..=32))
+                .prop_map(|(start, bytes)| Mutation::OverwriteRange { start, bytes }),
+        ]
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(500))]
+
+        /// Mutate the serialized quilt index with random corruptions; decode must not panic.
+        #[test]
+        fn decode_quilt_index_no_panic_on_mutated_meta_blob(mutation in mutation_strategy()) {
+            let mutated = apply_mutation(meta_blob(), &mutation);
+            let quilt_v1 = quilt_v1_from_raw(&mutated);
+            let column_size = quilt_v1.data.len()
+                / (quilt_v1.row_size / quilt_v1.symbol_size);
+            let _ = QuiltVersionV1::decode_quilt_index(&quilt_v1, column_size);
+        }
+
+        /// Mutate one serialized blob entry (chosen by index) with random corruptions;
+        /// decode must not panic.
+        #[test]
+        fn decode_blob_no_panic_on_mutated_blob_entry(
+            blob_idx in 0..NUM_BLOB_ENTRIES,
+            mutation in mutation_strategy(),
+        ) {
+            let base = &blob_entries()[blob_idx];
+            let mutated = apply_mutation(base, &mutation);
+            let quilt_v1 = quilt_v1_from_raw(&mutated);
+            let _ = QuiltVersionV1::decode_blob(&quilt_v1, 0);
+        }
+    }
 }
