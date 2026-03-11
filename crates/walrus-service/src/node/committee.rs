@@ -70,7 +70,7 @@ impl CommitteeLookupService for SuiReadClient {
 #[async_trait]
 impl CommitteeLookupService for Arc<SuiReadClient> {
     async fn get_active_committees(&self) -> Result<ActiveCommittees, anyhow::Error> {
-        <SuiReadClient as CommitteeLookupService>::get_active_committees(self).await
+        (**self).get_active_committees().await
     }
 }
 

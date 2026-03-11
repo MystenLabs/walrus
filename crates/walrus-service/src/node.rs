@@ -546,17 +546,12 @@ impl StorageNodeBuilder {
                     .metrics_registry(metrics_registry.clone())
                     .balance_check_frequency(config.balance_check.interval)
                     .balance_check_warning_threshold(config.balance_check.warning_threshold_mist);
-                let service = if let Some((read_client, _)) = sui_config_and_client.as_ref() {
-                    builder.build_with_read_client(
-                        sui_config,
-                        read_client.clone(),
-                        committee_service.clone(),
-                    )?
-                } else {
-                    builder
-                        .build_from_config(sui_config, committee_service.clone())
-                        .await?
-                };
+                if let Some((read_client, _)) = sui_config_and_client.as_ref() {
+                    builder.read_client(read_client.clone());
+                }
+                let service = builder
+                    .build_from_config(sui_config, committee_service.clone())
+                    .await?;
                 Arc::new(service)
             };
 

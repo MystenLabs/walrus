@@ -71,14 +71,16 @@ impl SuiConfig {
     }
 
     /// Creates a [`SuiContractClient`] using an existing [`SuiReadClient`].
-    // The large SuiClientError mirrors new_contract_client; converted to anyhow at call site.
-    #[allow(clippy::result_large_err)]
     pub fn new_contract_client_with_read_client(
         &self,
         read_client: Arc<SuiReadClient>,
-    ) -> Result<SuiContractClient, SuiClientError> {
+    ) -> anyhow::Result<SuiContractClient> {
         let wallet = WalletConfig::load_wallet(Some(&self.wallet_config), self.request_timeout)?;
-        SuiContractClient::new_with_read_client(wallet, self.gas_budget, read_client)
+        Ok(SuiContractClient::new_with_read_client(
+            wallet,
+            self.gas_budget,
+            read_client,
+        )?)
     }
 
     /// Creates a [`SuiContractClient`] based on the configuration.

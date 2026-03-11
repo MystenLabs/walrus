@@ -152,6 +152,7 @@ pub struct SuiSystemContractServiceBuilder {
     balance_check_frequency: Duration,
     balance_check_warning_threshold: u64,
     metrics_registry: Option<Registry>,
+    read_client: Option<Arc<SuiReadClient>>,
 }
 
 impl Default for SuiSystemContractServiceBuilder {
@@ -161,6 +162,7 @@ impl Default for SuiSystemContractServiceBuilder {
             balance_check_frequency: defaults::BALANCE_CHECK_FREQUENCY,
             balance_check_warning_threshold: defaults::BALANCE_CHECK_WARNING_THRESHOLD_MIST,
             metrics_registry: None,
+            read_client: None,
         }
     }
 }
@@ -201,39 +203,37 @@ impl SuiSystemContractServiceBuilder {
         self
     }
 
-    /// Creates a new [`SuiSystemContractService`] reusing an existing [`SuiReadClient`].
+    /// Sets a shared [`SuiReadClient`] to reuse for the contract client.
     ///
-    /// The provided read client is shared with the committee service, ensuring consistent
+    /// When set, the read client is shared with the committee service, ensuring consistent
     /// cache state during epoch transitions.
-    pub fn build_with_read_client(
-        &mut self,
-        config: &SuiConfig,
-        read_client: Arc<SuiReadClient>,
-        committee_service: Arc<dyn CommitteeService>,
-    ) -> anyhow::Result<SuiSystemContractService> {
-        Ok(self.build(
-            config.new_contract_client_with_read_client(read_client)?,
-            committee_service,
-        ))
+    pub fn read_client(&mut self, read_client: Arc<SuiReadClient>) -> &mut Self {
+        self.read_client = Some(read_client);
+        self
     }
 
     /// Creates a new [`SuiSystemContractService`] with a [`SuiContractClient`] constructed from
     /// the config.
+    ///
+    /// If a read client was provided via [`Self::read_client`], it is reused; otherwise a new
+    /// one is created from the config.
     pub async fn build_from_config(
         &mut self,
         config: &SuiConfig,
         committee_service: Arc<dyn CommitteeService>,
     ) -> anyhow::Result<SuiSystemContractService> {
-        Ok(self.build(
+        let contract_client = if let Some(read_client) = self.read_client.take() {
+            config.new_contract_client_with_read_client(read_client)?
+        } else {
             config
                 .new_contract_client(
                     self.metrics_registry
                         .as_ref()
                         .map(|r| Arc::new(SuiClientMetricSet::new(r))),
                 )
-                .await?,
-            committee_service,
-        ))
+                .await?
+        };
+        Ok(self.build(contract_client, committee_service))
     }
 
     /// Creates a new [`SuiSystemContractService`] with the provided [`SuiContractClient`].
@@ -242,8 +242,12 @@ impl SuiSystemContractServiceBuilder {
         contract_client: SuiContractClient,
         committee_service: Arc<dyn CommitteeService>,
     ) -> SuiSystemContractService {
+        let read_client = self
+            .read_client
+            .take()
+            .unwrap_or_else(|| contract_client.read_client.clone());
         let mut service = SuiSystemContractService {
-            read_client: contract_client.read_client.clone(),
+            read_client,
             contract_tx_client: Arc::new(TokioMutex::new(contract_client)),
             committee_service,
             rng: Arc::new(StdMutex::new(StdRng::seed_from_u64(self.seed))),
