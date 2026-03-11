@@ -3418,6 +3418,35 @@ async fn test_aggregator_get_quilt_patch_by_id() -> TestResult {
     Ok(())
 }
 
+/// Sends a GET request and asserts the response is not successful.
+/// Used by aggregator corner-case tests; we only assert non-success (no specific status code).
+async fn assert_get_error(
+    make_request: impl FnOnce() -> reqwest::RequestBuilder,
+    context: &str,
+) -> TestResult {
+    let resp = make_request().send().await?;
+    assert!(
+        !resp.status().is_success(),
+        "expected error for {context}, got {}",
+        resp.status()
+    );
+    Ok(())
+}
+
+/// Sends a GET request and asserts the response is successful. Used for sanity checks.
+async fn assert_get_success(
+    make_request: impl FnOnce() -> reqwest::RequestBuilder,
+    context: &str,
+) -> TestResult {
+    let resp = make_request().send().await?;
+    assert!(
+        resp.status().is_success(),
+        "{context}, got {}",
+        resp.status()
+    );
+    Ok(())
+}
+
 /// Tests corner-case inputs to quilt HTTP endpoints.
 ///
 /// Sets up four blobs:
@@ -3541,202 +3570,138 @@ async fn test_aggregator_quilt_endpoints_corner_cases() -> TestResult {
     };
 
     // -- Sanity: valid patch retrieval works --
-    let url = format!("{base}/v1/blobs/by-quilt-patch-id/{valid_patch_id}");
-    let resp = http_client.get(&url).send().await?;
-    assert_eq!(resp.status(), 200, "sanity: valid patch ID should work");
+    assert_get_success(
+        || {
+            http_client.get(format!(
+                "{base}/v1/blobs/by-quilt-patch-id/{valid_patch_id}"
+            ))
+        },
+        "sanity: valid patch ID should work",
+    )
+    .await?;
 
     // ---- Category 1: Valid quilt, invalid requests ----
 
-    // GET /v1/blobs/by-quilt-patch-id with valid quilt blob ID but nonexistent patch range
     let fake_patch_id = QuiltPatchId::new(quilt_blob_id, vec![0x01, 0xFF, 0xFF, 0xFF, 0xFF]);
-    let resp = http_client
-        .get(format!("{base}/v1/blobs/by-quilt-patch-id/{fake_patch_id}"))
-        .send()
-        .await?;
-    assert!(
-        !resp.status().is_success(),
-        "expected error for nonexistent patch in valid quilt, got {}",
-        resp.status()
-    );
-
-    // GET /v1/blobs/by-quilt-patch-id with garbage string
-    let resp = http_client
-        .get(format!(
-            "{base}/v1/blobs/by-quilt-patch-id/not-valid-base64!!!"
-        ))
-        .send()
-        .await?;
-    assert!(
-        !resp.status().is_success(),
-        "expected error for garbage patch ID, got {}",
-        resp.status()
-    );
-
-    // GET /v1/blobs/by-quilt-patch-id with too-short base64
-    let resp = http_client
-        .get(format!("{base}/v1/blobs/by-quilt-patch-id/AQID"))
-        .send()
-        .await?;
-    assert!(
-        !resp.status().is_success(),
-        "expected error for too-short patch ID, got {}",
-        resp.status()
-    );
-
-    // GET /v1/blobs/by-quilt-id with nonexistent identifier on valid quilt
-    let resp = http_client
-        .get(format!(
-            "{base}/v1/blobs/by-quilt-id/{quilt_blob_id}/nonexistent-file.txt"
-        ))
-        .send()
-        .await?;
-    assert!(
-        !resp.status().is_success(),
-        "expected error for nonexistent identifier, got {}",
-        resp.status()
-    );
-
-    // GET /v1/blobs/by-quilt-id with valid quilt_id but empty identifier
-    let resp = http_client
-        .get(format!("{base}/v1/blobs/by-quilt-id/{quilt_blob_id}/"))
-        .send()
-        .await?;
-    assert!(
-        !resp.status().is_success(),
-        "expected error for empty identifier, got {}",
-        resp.status()
-    );
-
-    // GET /v1/blobs/by-quilt-id with invalid quilt_id string
-    let resp = http_client
-        .get(format!(
-            "{base}/v1/blobs/by-quilt-id/not-a-valid-blob-id/some-file.txt"
-        ))
-        .send()
-        .await?;
-    assert!(
-        !resp.status().is_success(),
-        "expected error for invalid quilt_id string, got {}",
-        resp.status()
-    );
-
-    // GET /v1/quilts/{quilt_id}/patches with nonexistent but valid-format blob ID
+    assert_get_error(
+        || http_client.get(format!("{base}/v1/blobs/by-quilt-patch-id/{fake_patch_id}")),
+        "nonexistent patch in valid quilt",
+    )
+    .await?;
+    assert_get_error(
+        || {
+            http_client.get(format!(
+                "{base}/v1/blobs/by-quilt-patch-id/not-valid-base64!!!"
+            ))
+        },
+        "garbage patch ID",
+    )
+    .await?;
+    assert_get_error(
+        || http_client.get(format!("{base}/v1/blobs/by-quilt-patch-id/AQID")),
+        "too-short patch ID",
+    )
+    .await?;
+    assert_get_error(
+        || {
+            http_client.get(format!(
+                "{base}/v1/blobs/by-quilt-id/{quilt_blob_id}/nonexistent-file.txt"
+            ))
+        },
+        "nonexistent identifier",
+    )
+    .await?;
+    assert_get_error(
+        || http_client.get(format!("{base}/v1/blobs/by-quilt-id/{quilt_blob_id}/")),
+        "empty identifier",
+    )
+    .await?;
+    assert_get_error(
+        || {
+            http_client.get(format!(
+                "{base}/v1/blobs/by-quilt-id/not-a-valid-blob-id/some-file.txt"
+            ))
+        },
+        "invalid quilt_id string",
+    )
+    .await?;
     let fake_blob_id = BlobId::ZERO;
-    let resp = http_client
-        .get(format!("{base}/v1/quilts/{fake_blob_id}/patches"))
-        .send()
-        .await?;
-    assert!(
-        !resp.status().is_success(),
-        "expected error for nonexistent quilt_id, got {}",
-        resp.status()
-    );
-
-    // GET /v1/quilts/{quilt_id}/patches with invalid quilt_id string
-    let resp = http_client
-        .get(format!("{base}/v1/quilts/garbage!!!/patches"))
-        .send()
-        .await?;
-    assert!(
-        !resp.status().is_success(),
-        "expected error for invalid quilt_id string, got {}",
-        resp.status()
-    );
+    assert_get_error(
+        || http_client.get(format!("{base}/v1/quilts/{fake_blob_id}/patches")),
+        "nonexistent quilt_id",
+    )
+    .await?;
+    assert_get_error(
+        || http_client.get(format!("{base}/v1/quilts/garbage!!!/patches")),
+        "invalid quilt_id string",
+    )
+    .await?;
 
     // ---- Category 2: Non-quilt blob used as quilt ----
 
-    // GET /v1/blobs/by-quilt-id/{regular_blob_id}/some-file — blob exists but is not a quilt
-    let resp = http_client
-        .get(format!(
-            "{base}/v1/blobs/by-quilt-id/{regular_blob_id}/some-file.txt"
-        ))
-        .send()
-        .await?;
-    assert!(
-        !resp.status().is_success(),
-        "expected error for non-quilt blob as quilt_id, got {}",
-        resp.status()
-    );
-
-    // GET /v1/quilts/{regular_blob_id}/patches — blob exists but is not a quilt
-    let resp = http_client
-        .get(format!("{base}/v1/quilts/{regular_blob_id}/patches"))
-        .send()
-        .await?;
-    assert!(
-        !resp.status().is_success(),
-        "expected error for listing patches on non-quilt blob, got {}",
-        resp.status()
-    );
+    assert_get_error(
+        || {
+            http_client.get(format!(
+                "{base}/v1/blobs/by-quilt-id/{regular_blob_id}/some-file.txt"
+            ))
+        },
+        "non-quilt blob as quilt_id",
+    )
+    .await?;
+    assert_get_error(
+        || http_client.get(format!("{base}/v1/quilts/{regular_blob_id}/patches")),
+        "listing patches on non-quilt blob",
+    )
+    .await?;
 
     // ---- Category 2b: Empty blob used as quilt ----
 
-    // GET /v1/blobs/by-quilt-id/{empty_blob_id}/anything — empty blob is not a quilt
-    let resp = http_client
-        .get(format!(
-            "{base}/v1/blobs/by-quilt-id/{empty_blob_id}/anything.txt"
-        ))
-        .send()
-        .await?;
-    assert!(
-        !resp.status().is_success(),
-        "expected error for empty blob as quilt_id, got {}",
-        resp.status()
-    );
-
-    // GET /v1/quilts/{empty_blob_id}/patches — empty blob is not a quilt
-    let resp = http_client
-        .get(format!("{base}/v1/quilts/{empty_blob_id}/patches"))
-        .send()
-        .await?;
-    assert!(
-        !resp.status().is_success(),
-        "expected error for listing patches on empty blob, got {}",
-        resp.status()
-    );
+    assert_get_error(
+        || {
+            http_client.get(format!(
+                "{base}/v1/blobs/by-quilt-id/{empty_blob_id}/anything.txt"
+            ))
+        },
+        "empty blob as quilt_id",
+    )
+    .await?;
+    assert_get_error(
+        || http_client.get(format!("{base}/v1/quilts/{empty_blob_id}/patches")),
+        "listing patches on empty blob",
+    )
+    .await?;
 
     // ---- Category 2c: Malformed quilt blob (valid structure, corrupted before store) ----
 
-    // GET /v1/blobs/by-quilt-id/{malformed_quilt_blob_id}/any — blob exists but is corrupted quilt
-    let resp = http_client
-        .get(format!(
-            "{base}/v1/blobs/by-quilt-id/{malformed_quilt_blob_id}/any.txt"
-        ))
-        .send()
-        .await?;
-    assert!(
-        !resp.status().is_success(),
-        "expected error for malformed quilt, got {}",
-        resp.status()
-    );
-
-    // GET /v1/quilts/{malformed_quilt_blob_id}/patches — list patches on corrupted quilt
-    let resp = http_client
-        .get(format!(
-            "{base}/v1/quilts/{malformed_quilt_blob_id}/patches"
-        ))
-        .send()
-        .await?;
-    assert!(
-        !resp.status().is_success(),
-        "expected error for listing patches on malformed quilt, got {}",
-        resp.status()
-    );
-
-    // GET /v1/blobs/by-quilt-patch-id with malformed quilt blob ID (decodes blob entry, not index)
+    assert_get_error(
+        || {
+            http_client.get(format!(
+                "{base}/v1/blobs/by-quilt-id/{malformed_quilt_blob_id}/any.txt"
+            ))
+        },
+        "malformed quilt",
+    )
+    .await?;
+    assert_get_error(
+        || {
+            http_client.get(format!(
+                "{base}/v1/quilts/{malformed_quilt_blob_id}/patches"
+            ))
+        },
+        "listing patches on malformed quilt",
+    )
+    .await?;
     let fake_malformed_patch =
         QuiltPatchId::new(malformed_quilt_blob_id, vec![0x00, 0x00, 0x00, 0x00]);
-    let resp = http_client
-        .get(format!(
-            "{base}/v1/blobs/by-quilt-patch-id/{fake_malformed_patch}"
-        ))
-        .send()
-        .await?;
-    assert!(
-        !resp.status().is_success(),
-        "expected error for by-quilt-patch-id on malformed quilt blob, got {}",
-        resp.status()
-    );
+    assert_get_error(
+        || {
+            http_client.get(format!(
+                "{base}/v1/blobs/by-quilt-patch-id/{fake_malformed_patch}"
+            ))
+        },
+        "by-quilt-patch-id on malformed quilt blob",
+    )
+    .await?;
 
     // Graceful teardown (reaching here already confirms aggregator did not panic).
     aggregator.shutdown().await?;
@@ -3787,210 +3752,145 @@ async fn test_aggregator_blob_endpoints_corner_cases() -> TestResult {
         _ => panic!("Expected newly created blob"),
     };
 
-    // -- Sanity: valid GET blob works --
-    let resp = http_client
-        .get(format!("{base}/v1/blobs/{blob_id}"))
-        .send()
-        .await?;
-    assert!(
-        resp.status().is_success(),
-        "sanity: valid GET blob should work"
-    );
-
-    // Sanity: valid GET by-object-id works
-    let resp = http_client
-        .get(format!("{base}/v1/blobs/by-object-id/{blob_object_id}"))
-        .send()
-        .await?;
-    assert!(
-        resp.status().is_success(),
-        "sanity: valid GET by-object-id should work"
-    );
+    // -- Sanity: valid GET blob and by-object-id work --
+    assert_get_success(
+        || http_client.get(format!("{base}/v1/blobs/{blob_id}")),
+        "sanity: valid GET blob",
+    )
+    .await?;
+    assert_get_success(
+        || http_client.get(format!("{base}/v1/blobs/by-object-id/{blob_object_id}")),
+        "sanity: valid GET by-object-id",
+    )
+    .await?;
 
     // ---- GET /v1/blobs/{blob_id} corner cases ----
 
-    // Nonexistent blob_id (valid format, not on chain)
     let nonexistent_blob_id = BlobId::ZERO;
-    let resp = http_client
-        .get(format!("{base}/v1/blobs/{nonexistent_blob_id}"))
-        .send()
-        .await?;
-    assert!(
-        !resp.status().is_success(),
-        "expected error for nonexistent blob_id, got {}",
-        resp.status()
-    );
-
-    // Invalid blob_id in path (garbage / bad base64)
-    let resp = http_client
-        .get(format!("{base}/v1/blobs/not-valid-base64!!!"))
-        .send()
-        .await?;
-    assert!(
-        !resp.status().is_success(),
-        "expected error for invalid blob_id string, got {}",
-        resp.status()
-    );
-
-    // Invalid ReadOptions (both strict_consistency_check and skip_consistency_check true)
-    let resp = http_client
-        .get(format!(
-            "{base}/v1/blobs/{blob_id}?strict_consistency_check=true&skip_consistency_check=true"
-        ))
-        .send()
-        .await?;
-    assert!(
-        !resp.status().is_success(),
-        "expected error for invalid ReadOptions (both flags true), got {}",
-        resp.status()
-    );
-
-    // Invalid Range header: malformed
-    let resp = http_client
-        .get(format!("{base}/v1/blobs/{blob_id}"))
-        .header("Range", "bytes=invalid")
-        .send()
-        .await?;
-    assert!(
-        !resp.status().is_success(),
-        "expected error for malformed Range header, got {}",
-        resp.status()
-    );
-
-    // Invalid Range header: multiple ranges
-    let resp = http_client
-        .get(format!("{base}/v1/blobs/{blob_id}"))
-        .header("Range", "bytes=0-5,10-20")
-        .send()
-        .await?;
-    assert!(
-        !resp.status().is_success(),
-        "expected error for multiple ranges in Range header, got {}",
-        resp.status()
-    );
-
-    // Invalid Range header: start > end
-    let resp = http_client
-        .get(format!("{base}/v1/blobs/{blob_id}"))
-        .header("Range", "bytes=100-50")
-        .send()
-        .await?;
-    assert!(
-        !resp.status().is_success(),
-        "expected error for Range start > end, got {}",
-        resp.status()
-    );
+    assert_get_error(
+        || http_client.get(format!("{base}/v1/blobs/{nonexistent_blob_id}")),
+        "nonexistent blob_id",
+    )
+    .await?;
+    assert_get_error(
+        || http_client.get(format!("{base}/v1/blobs/not-valid-base64!!!")),
+        "invalid blob_id string",
+    )
+    .await?;
+    assert_get_error(
+        || {
+            let query = "strict_consistency_check=true&skip_consistency_check=true";
+            http_client.get(format!("{base}/v1/blobs/{blob_id}?{query}"))
+        },
+        "invalid ReadOptions (both flags true)",
+    )
+    .await?;
+    assert_get_error(
+        || {
+            http_client
+                .get(format!("{base}/v1/blobs/{blob_id}"))
+                .header("Range", "bytes=invalid")
+        },
+        "malformed Range header",
+    )
+    .await?;
+    assert_get_error(
+        || {
+            http_client
+                .get(format!("{base}/v1/blobs/{blob_id}"))
+                .header("Range", "bytes=0-5,10-20")
+        },
+        "multiple ranges in Range header",
+    )
+    .await?;
+    assert_get_error(
+        || {
+            http_client
+                .get(format!("{base}/v1/blobs/{blob_id}"))
+                .header("Range", "bytes=100-50")
+        },
+        "Range start > end",
+    )
+    .await?;
 
     // ---- GET /v1/blobs/{blob_id}/byte-range corner cases ----
 
-    // Nonexistent blob_id
-    let resp = http_client
-        .get(format!(
-            "{base}/v1/blobs/{nonexistent_blob_id}/byte-range?start=0&length=1"
-        ))
-        .send()
-        .await?;
-    assert!(
-        !resp.status().is_success(),
-        "expected error for byte-range with nonexistent blob_id, got {}",
-        resp.status()
-    );
-
-    // Invalid blob_id in path
-    let resp = http_client
-        .get(format!(
-            "{base}/v1/blobs/garbage!!!/byte-range?start=0&length=1"
-        ))
-        .send()
-        .await?;
-    assert!(
-        !resp.status().is_success(),
-        "expected error for byte-range with invalid blob_id string, got {}",
-        resp.status()
-    );
-
-    // length=0
-    let resp = http_client
-        .get(format!(
-            "{base}/v1/blobs/{blob_id}/byte-range?start=0&length=0"
-        ))
-        .send()
-        .await?;
-    assert!(
-        !resp.status().is_success(),
-        "expected error for byte-range length=0, got {}",
-        resp.status()
-    );
-
-    // start + length overflow
-    let resp = http_client
-        .get(format!(
-            "{base}/v1/blobs/{blob_id}/byte-range?start=18446744073709551615&length=1"
-        ))
-        .send()
-        .await?;
-    assert!(
-        !resp.status().is_success(),
-        "expected error for byte-range start+length overflow, got {}",
-        resp.status()
-    );
-
-    // Range beyond blob size: start past end
-    let resp = http_client
-        .get(format!(
-            "{base}/v1/blobs/{blob_id}/byte-range?start=100&length=1"
-        ))
-        .send()
-        .await?;
-    assert!(
-        !resp.status().is_success(),
-        "expected error for byte-range start past blob end, got {}",
-        resp.status()
-    );
-
-    // Range beyond blob size: start+length past end
-    // The endpoint validates range against blob size and returns error.
-    let resp = http_client
-        .get(format!(
-            "{base}/v1/blobs/{blob_id}/byte-range?start=10&length=100"
-        ))
-        .send()
-        .await?;
-    assert!(
-        !resp.status().is_success(),
-        "expected error for byte-range start+length past blob end, got {}",
-        resp.status()
-    );
+    assert_get_error(
+        || {
+            http_client.get(format!(
+                "{base}/v1/blobs/{nonexistent_blob_id}/byte-range?start=0&length=1"
+            ))
+        },
+        "byte-range with nonexistent blob_id",
+    )
+    .await?;
+    assert_get_error(
+        || {
+            http_client.get(format!(
+                "{base}/v1/blobs/garbage!!!/byte-range?start=0&length=1"
+            ))
+        },
+        "byte-range with invalid blob_id string",
+    )
+    .await?;
+    assert_get_error(
+        || {
+            http_client.get(format!(
+                "{base}/v1/blobs/{blob_id}/byte-range?start=0&length=0"
+            ))
+        },
+        "byte-range length=0",
+    )
+    .await?;
+    assert_get_error(
+        || {
+            http_client.get(format!(
+                "{base}/v1/blobs/{blob_id}/byte-range?start=18446744073709551615&length=1"
+            ))
+        },
+        "byte-range start+length overflow",
+    )
+    .await?;
+    assert_get_error(
+        || {
+            http_client.get(format!(
+                "{base}/v1/blobs/{blob_id}/byte-range?start=100&length=1"
+            ))
+        },
+        "byte-range start past blob end",
+    )
+    .await?;
+    assert_get_error(
+        || {
+            http_client.get(format!(
+                "{base}/v1/blobs/{blob_id}/byte-range?start=10&length=100"
+            ))
+        },
+        "byte-range start+length past blob end",
+    )
+    .await?;
 
     // ---- GET /v1/blobs/by-object-id/{blob_object_id} corner cases ----
 
-    // Nonexistent object_id (valid format, no such object)
     let nonexistent_object_id = ObjectID::ZERO;
-    let resp = http_client
-        .get(format!(
-            "{base}/v1/blobs/by-object-id/{}",
-            nonexistent_object_id
-        ))
-        .send()
-        .await?;
-    assert!(
-        !resp.status().is_success(),
-        "expected error for nonexistent object_id, got {}",
-        resp.status()
-    );
-
-    // Invalid object_id in path (bad hex/length)
-    let resp = http_client
-        .get(format!(
-            "{base}/v1/blobs/by-object-id/not-a-valid-object-id"
-        ))
-        .send()
-        .await?;
-    assert!(
-        !resp.status().is_success(),
-        "expected error for invalid object_id string, got {}",
-        resp.status()
-    );
+    assert_get_error(
+        || {
+            http_client.get(format!(
+                "{base}/v1/blobs/by-object-id/{nonexistent_object_id}"
+            ))
+        },
+        "nonexistent object_id",
+    )
+    .await?;
+    assert_get_error(
+        || {
+            http_client.get(format!(
+                "{base}/v1/blobs/by-object-id/not-a-valid-object-id"
+            ))
+        },
+        "invalid object_id string",
+    )
+    .await?;
 
     aggregator.shutdown().await?;
     Ok(())
