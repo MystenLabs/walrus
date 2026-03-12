@@ -4,6 +4,7 @@
 //! Keeping track of the status of blob IDs and on-chain `Blob` objects.
 
 mod blob_info_v1;
+mod blob_info_v2;
 
 use std::{
     collections::HashSet,
@@ -33,6 +34,7 @@ pub(crate) use self::blob_info_v1::PermanentBlobInfoV1;
 use self::per_object_blob_info::PerObjectBlobInfoMergeOperand;
 pub(crate) use self::{
     blob_info_v1::{BlobInfoV1, ValidBlobInfoV1},
+    blob_info_v2::BlobInfoV2,
     per_object_blob_info::{PerObjectBlobInfo, PerObjectBlobInfoApi},
 };
 use super::{DatabaseTableOptionsFactory, constants};
@@ -1085,6 +1087,7 @@ impl Ord for BlobCertificationStatus {
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq, Clone)]
 pub(crate) enum BlobInfo {
     V1(BlobInfoV1),
+    V2(BlobInfoV2),
 }
 
 impl BlobInfo {
@@ -1134,6 +1137,7 @@ impl Mergeable for BlobInfo {
     fn merge_with(self, operand: Self::MergeOperand) -> Self {
         match self {
             Self::V1(value) => Self::V1(value.merge_with(operand)),
+            Self::V2(value) => Self::V2(value.merge_with(operand)),
         }
     }
 
@@ -1201,6 +1205,7 @@ mod per_object_blob_info {
     #[derive(Debug, Deserialize, Serialize, PartialEq, Eq, Clone)]
     pub(crate) enum PerObjectBlobInfo {
         V1(PerObjectBlobInfoV1),
+        V2(PerObjectBlobInfoV2),
     }
 
     impl PerObjectBlobInfo {
@@ -1235,6 +1240,7 @@ mod per_object_blob_info {
         fn merge_with(self, operand: Self::MergeOperand) -> Self {
             match self {
                 Self::V1(value) => Self::V1(value.merge_with(operand)),
+                Self::V2(value) => Self::V2(value.merge_with(operand)),
             }
         }
 
@@ -1243,7 +1249,7 @@ mod per_object_blob_info {
         }
     }
 
-    pub(crate) use super::blob_info_v1::PerObjectBlobInfoV1;
+    pub(crate) use super::{blob_info_v1::PerObjectBlobInfoV1, blob_info_v2::PerObjectBlobInfoV2};
 }
 
 fn deserialize_from_db<'de, T>(data: &'de [u8]) -> Option<T>
