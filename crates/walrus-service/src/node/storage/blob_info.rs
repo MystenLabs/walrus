@@ -37,6 +37,7 @@ pub(crate) use self::{
     blob_info_v1::BlobInfoV1,
     blob_info_v2::BlobInfoV2,
     per_object_blob_info::{PerObjectBlobInfo, PerObjectBlobInfoApi},
+    perm_blob_info::PermanentBlobInfo,
 };
 use super::{DatabaseTableOptionsFactory, constants};
 use crate::{
@@ -606,13 +607,10 @@ impl BlobInfoTable {
             .safe_iter_with_snapshot(&snapshot)
             .context("failed to create per-object blob info snapshot iterator")?
         {
-            let (object_id, per_object_blob_info) = match result {
-                Ok(v) => v,
-                Err(e) => {
-                    return Err(anyhow::anyhow!(
-                        "error encountered while iterating over per-object blob info: {e:?}"
-                    ));
-                }
+            let Ok((object_id, PerObjectBlobInfo::V1(per_object_blob_info))) = result else {
+                return Err(anyhow::anyhow!(
+                    "error encountered while iterating over per-object blob info: {result:?}"
+                ));
             };
             let blob_id = per_object_blob_info.blob_id();
             per_object_table_blob_ids.insert(blob_id);
@@ -661,15 +659,7 @@ impl BlobInfoTable {
             // Below checks the invariants of last seen epochs on deletable blobs, which is only
             // relevant for V1 per-object entries.
             if v1_blob && per_object_blob_info.is_deletable() {
-                let per_object_end_epoch = match &per_object_blob_info {
-                    PerObjectBlobInfo::V1(v) => v.end_epoch,
-                    PerObjectBlobInfo::V2(v) => match v.end_epoch_info {
-                        per_object_blob_info::EndEpochInfo::Individual(e) => e,
-                        per_object_blob_info::EndEpochInfo::StoragePool(_) => {
-                            unreachable!("storage_pool_id() returned None above")
-                        }
-                    },
-                };
+                let per_object_end_epoch = per_object_blob_info.end_epoch;
                 anyhow::ensure!(
                     count_deletable_total > 0,
                     "count_deletable_total is 0 for blob ID {blob_id}, even though a deletable \
@@ -683,13 +673,7 @@ impl BlobInfoTable {
                     end epoch of a deletable blob object: {per_object_end_epoch} (object ID: \
                     {object_id})"
                 );
-                let certified_epoch = match &per_object_blob_info {
-                    PerObjectBlobInfo::V1(v) => v.certified_epoch,
-                    PerObjectBlobInfo::V2(_) => {
-                        unreachable!("v2 blob should not check latest seen epochs")
-                    }
-                };
-                if certified_epoch.is_some() {
+                if per_object_blob_info.certified_epoch.is_some() {
                     anyhow::ensure!(
                         count_deletable_certified > 0,
                         "count_deletable_certified is 0 for blob ID {blob_id}, even though a \
@@ -860,7 +844,7 @@ where
     }
 }
 
-pub(crate) trait ToBytes: Serialize + Sized {
+pub(super) trait ToBytes: Serialize + Sized {
     /// Converts the value to a `Vec<u8>`.
     ///
     /// Uses BCS encoding (which is assumed to succeed) by default.
@@ -868,7 +852,7 @@ pub(crate) trait ToBytes: Serialize + Sized {
         bcs::to_bytes(self).expect("value must be BCS-serializable")
     }
 }
-pub(crate) trait Mergeable: ToBytes + Debug + DeserializeOwned + Serialize + Sized {
+trait Mergeable: ToBytes + Debug + DeserializeOwned + Serialize + Sized {
     type MergeOperand: Debug + DeserializeOwned + ToBytes;
     type Key: Debug + DeserializeOwned + std::fmt::Display;
 
@@ -942,16 +926,16 @@ pub(crate) trait BlobInfoApi: CertifiedBlobInfoApi {
 }
 
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq, Clone)]
-pub(crate) struct BlobStatusChangeInfo {
-    pub(crate) blob_id: BlobId,
-    pub(crate) deletable: bool,
-    pub(crate) epoch: Epoch,
-    pub(crate) end_epoch: Epoch,
-    pub(crate) status_event: EventID,
+pub(super) struct BlobStatusChangeInfo {
+    pub(super) blob_id: BlobId,
+    pub(super) deletable: bool,
+    pub(super) epoch: Epoch,
+    pub(super) end_epoch: Epoch,
+    pub(super) status_event: EventID,
 }
 
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq, Clone, Copy)]
-pub(crate) enum BlobStatusChangeType {
+pub(super) enum BlobStatusChangeType {
     Register,
     Certify,
     // INV: Can only be applied to a certified blob.
@@ -965,9 +949,9 @@ pub(crate) enum BlobStatusChangeType {
 /// blobs is determined by the pool's end_epoch (tracked in `storage_pool_end_epochs`), not by
 /// the individual blob's end_epoch at registration time.
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq, Clone)]
-pub(crate) struct PooledBlobChangeInfo {
-    pub(crate) epoch: Epoch,
-    pub(crate) storage_pool_id: ObjectID,
+pub(super) struct PooledBlobChangeInfo {
+    pub(super) epoch: Epoch,
+    pub(super) storage_pool_id: ObjectID,
 }
 
 trait ChangeTypeAndInfo {
@@ -1029,10 +1013,8 @@ impl ChangeTypeAndInfo for BlobDeleted {
     }
 }
 
-pub(crate) use self::perm_blob_info::PermanentBlobInfo;
-
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq, Clone)]
-pub(crate) enum BlobInfoMergeOperand {
+pub(super) enum BlobInfoMergeOperand {
     MarkMetadataStored(bool),
     MarkInvalid {
         epoch: Epoch,
@@ -1251,10 +1233,6 @@ impl Mergeable for BlobInfo {
 
 mod per_object_blob_info {
     use super::*;
-    pub(crate) use super::{
-        blob_info_v1::PerObjectBlobInfoV1,
-        blob_info_v2::{EndEpochInfo, PerObjectBlobInfoV2},
-    };
 
     #[derive(Debug, Deserialize, Serialize, PartialEq, Eq, Clone)]
     pub(crate) struct PerObjectBlobInfoMergeOperand {
@@ -1305,8 +1283,6 @@ mod per_object_blob_info {
         fn is_registered(&self, current_epoch: Epoch) -> bool;
         /// Returns true iff the object is already deleted.
         fn is_deleted(&self) -> bool;
-        /// Returns the storage pool ID if this is a storage pool blob.
-        fn storage_pool_id(&self) -> Option<ObjectID>;
     }
 
     #[enum_dispatch(CertifiedBlobInfoApi)]
@@ -1314,7 +1290,6 @@ mod per_object_blob_info {
     #[derive(Debug, Deserialize, Serialize, PartialEq, Eq, Clone)]
     pub(crate) enum PerObjectBlobInfo {
         V1(PerObjectBlobInfoV1),
-        V2(PerObjectBlobInfoV2),
     }
 
     impl PerObjectBlobInfo {
@@ -1349,18 +1324,157 @@ mod per_object_blob_info {
         fn merge_with(self, operand: Self::MergeOperand) -> Self {
             match self {
                 Self::V1(value) => Self::V1(value.merge_with(operand)),
-                Self::V2(value) => Self::V2(value.merge_with(operand)),
             }
         }
 
         fn merge_new(operand: Self::MergeOperand) -> Option<Self> {
-            // We never create PerObjectBlobInfoV2 via merge operator. This is because the
-            // PerObjectBlobInfoMergeOperand struct can only used for V1 for registration.
-            // So any newly created PerObjectBlobInfoV2 is directly inserted into the table.
-            //
-            // The certify and delete operation can be used in both V1 and V2, so merge_with above
-            // works for both.
             PerObjectBlobInfoV1::merge_new(operand).map(Self::from)
+        }
+    }
+
+    #[derive(Debug, Deserialize, Serialize, PartialEq, Eq, Clone)]
+    pub(crate) struct PerObjectBlobInfoV1 {
+        /// The blob ID.
+        pub blob_id: BlobId,
+        /// The epoch in which the blob has been registered.
+        pub registered_epoch: Epoch,
+        /// The epoch in which the blob was first certified, `None` if the blob is uncertified.
+        pub certified_epoch: Option<Epoch>,
+        /// The epoch in which the blob expires.
+        pub end_epoch: Epoch,
+        /// Whether the blob is deletable.
+        pub deletable: bool,
+        /// The ID of the last blob event related to this object.
+        pub event: EventID,
+        /// Whether the blob has been deleted.
+        pub deleted: bool,
+    }
+
+    impl CertifiedBlobInfoApi for PerObjectBlobInfoV1 {
+        fn is_certified(&self, current_epoch: Epoch) -> bool {
+            self.is_registered(current_epoch)
+                && self
+                    .certified_epoch
+                    .is_some_and(|epoch| epoch <= current_epoch)
+        }
+
+        fn initial_certified_epoch(&self) -> Option<Epoch> {
+            self.certified_epoch
+        }
+    }
+
+    impl PerObjectBlobInfoApi for PerObjectBlobInfoV1 {
+        fn blob_id(&self) -> BlobId {
+            self.blob_id
+        }
+
+        fn is_deletable(&self) -> bool {
+            self.deletable
+        }
+
+        fn is_registered(&self, current_epoch: Epoch) -> bool {
+            self.end_epoch > current_epoch && !self.deleted
+        }
+
+        fn is_deleted(&self) -> bool {
+            self.deleted
+        }
+    }
+
+    impl ToBytes for PerObjectBlobInfoV1 {}
+
+    impl Mergeable for PerObjectBlobInfoV1 {
+        type MergeOperand = PerObjectBlobInfoMergeOperand;
+        type Key = ObjectID;
+
+        fn merge_with(
+            mut self,
+            PerObjectBlobInfoMergeOperand {
+                change_type,
+                change_info,
+            }: PerObjectBlobInfoMergeOperand,
+        ) -> Self {
+            assert_eq!(
+                self.blob_id, change_info.blob_id,
+                "blob ID mismatch in merge operand"
+            );
+            assert_eq!(
+                self.deletable, change_info.deletable,
+                "deletable mismatch in merge operand"
+            );
+            assert!(
+                !self.deleted,
+                "attempt to update an already deleted blob {}",
+                self.blob_id
+            );
+            self.event = change_info.status_event;
+            match change_type {
+                // We ensure that the blob info is only updated a single time for each event. So if
+                // we see a duplicated registered or certified event for the some object, this is a
+                // serious bug somewhere.
+                BlobStatusChangeType::Register => {
+                    panic!(
+                        "cannot register an already registered blob {}",
+                        self.blob_id
+                    );
+                }
+                BlobStatusChangeType::Certify => {
+                    assert!(
+                        self.certified_epoch.is_none(),
+                        "cannot certify an already certified blob {}",
+                        self.blob_id
+                    );
+                    self.certified_epoch = Some(change_info.epoch);
+                }
+                BlobStatusChangeType::Extend => {
+                    assert!(
+                        self.certified_epoch.is_some(),
+                        "cannot extend an uncertified blob {}",
+                        self.blob_id
+                    );
+                    self.end_epoch = change_info.end_epoch;
+                }
+                BlobStatusChangeType::Delete { was_certified } => {
+                    assert_eq!(self.certified_epoch.is_some(), was_certified);
+                    self.deleted = true;
+                }
+            }
+            self
+        }
+
+        fn merge_new(operand: Self::MergeOperand) -> Option<Self> {
+            let PerObjectBlobInfoMergeOperand {
+                change_type: BlobStatusChangeType::Register,
+                change_info:
+                    BlobStatusChangeInfo {
+                        blob_id,
+                        deletable,
+                        epoch,
+                        end_epoch,
+                        status_event,
+                    },
+            } = operand
+            else {
+                tracing::error!(
+                    ?operand,
+                    "encountered an update other than 'register' for an untracked blob object"
+                );
+                debug_assert!(
+                    false,
+                    "encountered an update other than 'register' for an untracked blob object: \
+                    {operand:?}"
+                );
+                return None;
+            };
+            Some(Self {
+                blob_id,
+                registered_epoch: epoch,
+                certified_epoch: None,
+                end_epoch,
+                deletable,
+                event: status_event,
+                deleted: false,
+            })
         }
     }
 }

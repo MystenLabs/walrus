@@ -4,7 +4,7 @@
 //! V2 blob info types and merge logic, supporting both regular blobs and storage pool blobs.
 
 use serde::{Deserialize, Serialize};
-use sui_types::{base_types::ObjectID, event::EventID};
+use sui_types::event::EventID;
 use walrus_core::{BlobId, Epoch};
 use walrus_storage_node_client::api::{BlobStatus, DeletableCounts};
 
@@ -18,7 +18,6 @@ use super::{
     PermanentBlobInfo,
     ToBytes,
     blob_info_v1::{BlobInfoV1, ValidBlobInfoV1},
-    per_object_blob_info::{PerObjectBlobInfoApi, PerObjectBlobInfoMergeOperand},
 };
 
 /// V2 aggregate blob info that supports both regular blobs and storage pool blobs.
@@ -559,175 +558,15 @@ impl Mergeable for BlobInfoV2 {
     }
 }
 
-// =============================================================================
-// Per-object blob info V2
-// =============================================================================
-
-/// How the end epoch of a per-object blob is determined.
-#[derive(Debug, Deserialize, Serialize, PartialEq, Eq, Clone)]
-pub(crate) enum EndEpochInfo {
-    /// Regular blob with an individual end epoch.
-    Individual(Epoch),
-    /// Pooled blob whose lifetime is determined by the storage pool's end epoch.
-    StoragePool(ObjectID),
-}
-
-/// V2 per-object blob info that supports both regular blobs and storage pool blobs.
-///
-/// Unlike V1, the end epoch and storage pool ID are combined into a single `EndEpochInfo`
-/// enum: regular blobs have `EndEpochInfo::Individual(end_epoch)`, while pool blobs have
-/// `EndEpochInfo::StoragePool(pool_id)`.
-#[derive(Debug, Deserialize, Serialize, PartialEq, Eq, Clone)]
-pub(crate) struct PerObjectBlobInfoV2 {
-    /// The blob ID.
-    pub blob_id: BlobId,
-    /// The epoch in which the blob has been registered.
-    pub registered_epoch: Epoch,
-    /// The epoch in which the blob was first certified, `None` if the blob is uncertified.
-    pub certified_epoch: Option<Epoch>,
-    /// How the blob's end epoch is determined.
-    pub end_epoch_info: EndEpochInfo,
-    /// Whether the blob is deletable.
-    pub deletable: bool,
-    /// The ID of the last blob event related to this object.
-    pub event: EventID,
-    /// Whether the blob has been deleted.
-    pub deleted: bool,
-}
-
-impl CertifiedBlobInfoApi for PerObjectBlobInfoV2 {
-    fn is_certified(&self, current_epoch: Epoch) -> bool {
-        self.is_registered(current_epoch)
-            && self
-                .certified_epoch
-                .is_some_and(|epoch| epoch <= current_epoch)
-    }
-
-    fn initial_certified_epoch(&self) -> Option<Epoch> {
-        self.certified_epoch
-    }
-}
-
-impl PerObjectBlobInfoApi for PerObjectBlobInfoV2 {
-    fn blob_id(&self) -> BlobId {
-        self.blob_id
-    }
-
-    fn is_deletable(&self) -> bool {
-        self.deletable
-    }
-
-    fn is_registered(&self, current_epoch: Epoch) -> bool {
-        if self.deleted {
-            return false;
-        }
-        match self.end_epoch_info {
-            EndEpochInfo::Individual(end_epoch) => end_epoch > current_epoch,
-            // Pool blob liveness depends on the pool, not the blob.
-            EndEpochInfo::StoragePool(_) => true,
-        }
-    }
-
-    fn is_deleted(&self) -> bool {
-        self.deleted
-    }
-
-    fn storage_pool_id(&self) -> Option<ObjectID> {
-        match &self.end_epoch_info {
-            EndEpochInfo::StoragePool(id) => Some(*id),
-            EndEpochInfo::Individual(_) => None,
-        }
-    }
-}
-
-impl ToBytes for PerObjectBlobInfoV2 {}
-
-impl Mergeable for PerObjectBlobInfoV2 {
-    type MergeOperand = PerObjectBlobInfoMergeOperand;
-    type Key = ObjectID;
-
-    fn merge_with(
-        mut self,
-        PerObjectBlobInfoMergeOperand {
-            change_type,
-            change_info,
-        }: PerObjectBlobInfoMergeOperand,
-    ) -> Self {
-        assert_eq!(
-            self.blob_id, change_info.blob_id,
-            "blob ID mismatch in merge operand"
-        );
-        assert_eq!(
-            self.deletable, change_info.deletable,
-            "deletable mismatch in merge operand"
-        );
-        assert!(
-            !self.deleted,
-            "attempt to update an already deleted blob {}",
-            self.blob_id
-        );
-        self.event = change_info.status_event;
-        match change_type {
-            // We ensure that the blob info is only updated a single time for each event. So if
-            // we see a duplicated registered or certified event for the some object, this is a
-            // serious bug somewhere.
-            BlobStatusChangeType::Register => {
-                panic!(
-                    "cannot register an already registered blob {}",
-                    self.blob_id
-                );
-            }
-            BlobStatusChangeType::Certify => {
-                assert!(
-                    self.certified_epoch.is_none(),
-                    "cannot certify an already certified blob {}",
-                    self.blob_id
-                );
-                self.certified_epoch = Some(change_info.epoch);
-            }
-            BlobStatusChangeType::Extend => {
-                assert!(
-                    self.certified_epoch.is_some(),
-                    "cannot extend an uncertified blob {}",
-                    self.blob_id
-                );
-                self.end_epoch_info = EndEpochInfo::Individual(change_info.end_epoch);
-            }
-            BlobStatusChangeType::Delete { was_certified } => {
-                assert_eq!(self.certified_epoch.is_some(), was_certified);
-                self.deleted = true;
-            }
-        }
-        self
-    }
-
-    fn merge_new(operand: Self::MergeOperand) -> Option<Self> {
-        // V2 entries are created via direct insert, not merge_new.
-        tracing::error!(
-            ?operand,
-            "PerObjectBlobInfoV2::merge_new should not be called; V2 entries are created via \
-            direct insert"
-        );
-        debug_assert!(
-            false,
-            "PerObjectBlobInfoV2::merge_new should not be called: {operand:?}"
-        );
-        None
-    }
-}
-
+// TODO(zhewu): revisit these tests to make sure that they are thorough and complete.
 #[cfg(test)]
 mod tests {
     use sui_types::base_types::ObjectID;
     use walrus_sui::test_utils::{event_id_for_testing, fixed_event_id_for_testing};
     use walrus_test_utils::param_test;
 
-    use super::{EndEpochInfo, PerObjectBlobInfoV2, *};
-    use crate::node::storage::blob_info::{
-        BlobInfo,
-        PooledBlobChangeInfo,
-        per_object_blob_info::PerObjectBlobInfoMergeOperand,
-    };
+    use super::*;
+    use crate::node::storage::blob_info::{BlobInfo, PooledBlobChangeInfo};
 
     fn pool_id() -> ObjectID {
         walrus_sui::test_utils::object_id_for_testing()
@@ -1339,52 +1178,5 @@ mod tests {
     }
     fn test_v2_invariant_violations(info: ValidBlobInfoV2) {
         assert!(info.check_invariants().is_err());
-    }
-
-    // --- PerObjectBlobInfoV2 ---
-    fn make_per_object_v2(end_epoch_info: EndEpochInfo) -> PerObjectBlobInfoV2 {
-        PerObjectBlobInfoV2 {
-            blob_id: walrus_core::test_utils::blob_id_from_u64(42),
-            registered_epoch: 1,
-            certified_epoch: None,
-            end_epoch_info,
-            deletable: true,
-            event: event_id_for_testing(),
-            deleted: false,
-        }
-    }
-
-    #[test]
-    fn per_object_v2_certify_and_delete_merge() {
-        let info = make_per_object_v2(EndEpochInfo::StoragePool(pool_id()));
-        let cert_operand = PerObjectBlobInfoMergeOperand {
-            change_type: BlobStatusChangeType::Certify,
-            change_info: BlobStatusChangeInfo {
-                blob_id: walrus_core::test_utils::blob_id_from_u64(42),
-                deletable: true,
-                epoch: 3,
-                end_epoch: 0,
-                status_event: event_id_for_testing(),
-            },
-        };
-        let certified = info.merge_with(cert_operand);
-        assert_eq!(certified.certified_epoch, Some(3));
-        assert!(!certified.deleted);
-
-        let del_operand = PerObjectBlobInfoMergeOperand {
-            change_type: BlobStatusChangeType::Delete {
-                was_certified: true,
-            },
-            change_info: BlobStatusChangeInfo {
-                blob_id: walrus_core::test_utils::blob_id_from_u64(42),
-                deletable: true,
-                epoch: 5,
-                end_epoch: 0,
-                status_event: event_id_for_testing(),
-            },
-        };
-        let deleted = certified.merge_with(del_operand);
-        assert!(deleted.deleted);
-        assert!(!deleted.is_registered(0));
     }
 }
