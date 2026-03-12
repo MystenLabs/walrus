@@ -1,0 +1,159 @@
+The publisher and daemon perform on-chain actions and require a Sui wallet with sufficient SUI and WAL balances. To handle many parallel requests without object conflicts, they create internal sub-wallets (introduced in version 1.4.0) funded from the main wallet. These sub-wallets persist in a directory you specify with the `--sub-wallets-dir` argument. You can use any existing directory. If the directory already contains sub-wallets, they are reused.
+
+By default, 8 sub-wallets are created and funded. You can change this with the `--n-clients` argument (see [Set sub-wallets and upload concurrency](#sub-wallets-concurrency) for details). For basic local testing, 1 or 2 sub-wallets are usually sufficient.
+
+## Start a local daemon {#local-daemon}
+
+Run a local Walrus daemon through the `walrus` binary using one of the following commands:
+
+- `walrus publisher`: Starts a publisher that offers an HTTP interface to store blobs in Walrus.
+- `walrus daemon`: Offers the combined functionality of an aggregator and publisher on the same address and port.
+
+:::tip
+
+If you run the publisher without a reverse proxy, open **port 9001** on your firewall. With a reverse proxy (such as the [nginx caching setup](#nginx-caching)), only **port 443** needs to be open.
+
+:::
+
+## Download the client configuration {#client-config}
+
+The publisher requires a client configuration file. If you run the publisher on the same host as a [storage node](/docs/operator-guide/storage-node-setup#binaries), the configuration is already available at `/opt/walrus/config/client_config.yaml`. Otherwise, download it:
+
+<Tabs>
+<TabItem label="Mainnet" value="mainnet">
+
+```sh
+curl "https://docs.wal.app/setup/client_config_mainnet.yaml" -o /opt/walrus/config/client_config.yaml
+```
+
+</TabItem>
+<TabItem label="Testnet" value="testnet">
+
+```sh
+curl "https://docs.wal.app/setup/client_config_testnet.yaml" -o /opt/walrus/config/client_config.yaml
+```
+
+</TabItem>
+</Tabs>
+
+## Create and fund the publisher wallet {#fund-publisher}
+
+The publisher needs a **separate wallet** from the storage node, even if it runs on the same host. See the [storage node FAQ](/docs/operator-guide/storage-node-faq#wallets) for details on wallet requirements.
+
+##### Step 1: Generate a new wallet:
+
+```sh
+mkdir -p /opt/walrus/config/publisher /opt/walrus/wallets
+/opt/walrus/bin/walrus generate-sui-wallet --path /opt/walrus/config/publisher/sui_client.yaml
+```
+
+##### Step 2: Create a publisher-specific client configuration:
+
+This assumes you have already downloaded the client configuration to `/opt/walrus/config/client_config.yaml` (see [Download the client configuration](#client-config) above). Create a copy for the publisher that references the new wallet:
+
+```sh
+cp /opt/walrus/config/client_config.yaml /opt/walrus/config/publisher/client_config.yaml
+echo 'wallet_config: /opt/walrus/config/publisher/sui_client.yaml' >> /opt/walrus/config/publisher/client_config.yaml
+```
+
+##### Step 3: Fund the wallet with SUI and WAL:
+
+The publisher wallet needs both SUI (for gas) and WAL (for storage payments). Each sub-wallet requires approximately 0.5 to 1.0 SUI and 0.5 to 1.0 WAL in steady state. As a guideline for minimal testing, ensure the **main** publisher wallet has at least the following balances:
+
+- **SUI:** 2 SUI per sub-wallet (for example, approximately 4 SUI for `--n-clients 2`, or approximately 16 SUI for the default of 8)
+- **WAL:** 2 WAL per sub-wallet
+
+If you expect the publisher to handle significant traffic, you need substantially higher amounts to cover storage costs and gas fees. The publisher automatically distributes funds from the main wallet to sub-wallets at startup and refills them periodically during operation. See [Manage SUI coins in sub-wallets](#manage-sub-wallets) for details on configuring refill behavior.
+
+<Tabs>
+<TabItem label="Mainnet" value="mainnet">
+
+Acquire WAL tokens through the Walrus token distribution or supported exchanges, and transfer both SUI and WAL to the publisher wallet address.
+
+:::caution
+
+The aggregator does not perform Sui on-chain actions and therefore consumes no gas. The publisher, however, performs actions on-chain and consumes both SUI and WAL tokens. On Mainnet, you are generally not expected to run a public publisher because this comes with real monetary cost. If you do run one, ensure only authorized parties can access it, or use other measures to manage gas costs. Consider using an [authenticated publisher](/docs/operator-guide/auth-publisher) to restrict access.
+
+:::
+
+</TabItem>
+<TabItem label="Testnet" value="testnet">
+
+On Testnet, you can exchange SUI for WAL using the exchange objects in the client configuration. Use the `--amount` option to specify the amount in MIST (1 WAL = 1,000,000,000 MIST):
+
+```sh
+/opt/walrus/bin/walrus --config /opt/walrus/config/publisher/client_config.yaml get-wal --amount 5000000000
+```
+
+This exchanges SUI for 5 WAL. Adjust the amount based on the number of sub-wallets and expected usage.
+
+</TabItem>
+</Tabs>
+
+ 
+
+If the publisher wallet does not have sufficient WAL, the publisher fails to start with an error like `could not find WAL coins with sufficient balance`. Ensure you fund the wallet **before** starting the service.
+
+## Run a publisher manually for testing
+
+To run a publisher with a single sub-wallet stored in the Walrus configuration directory:
+
+```sh
+PUBLISHER_WALLETS_DIR=~/.config/walrus/publisher-wallets
+mkdir -p "$PUBLISHER_WALLETS_DIR"
+walrus publisher \
+  --bind-address "127.0.0.1:31416" \
+  --sub-wallets-dir "$PUBLISHER_WALLETS_DIR" \
+  --n-clients 1
+```
+
+Replace `publisher` with `daemon` to run both an aggregator and publisher on the same address and port.
+
+## Sample `systemd` configuration
+
+This section assumes that you have already downloaded the [client configuration](#client-config) and [created and funded the publisher wallet](#fund-publisher).
+
+To run the publisher as a production service, create a systemd service at `/etc/systemd/system/walrus-publisher.service`:
+
+```ini
+[Unit]
+Description=Walrus Publisher
+
+[Service]
+User=walrus
+Environment=RUST_BACKTRACE=1
+Environment=RUST_LOG=info
+ExecStart=/opt/walrus/bin/walrus --config /opt/walrus/config/publisher/client_config.yaml publisher --bind-address 0.0.0.0:9001 --metrics-address 127.0.0.1:27183 --sub-wallets-dir /opt/walrus/wallets
+Restart=always
+
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
+```
+
+## Set sub-wallets and upload concurrency {#sub-wallets-concurrency}
+
+The publisher uses sub-wallets to store blobs in parallel. By default, the publisher uses 8 sub-wallets, meaning it can handle 8 blob store HTTP requests concurrently.
+
+To operate a high-performance publisher with higher concurrency, use the following options:
+
+- `--n-clients NUM`: Creates a number of separate wallets used to perform concurrent Sui chain operations. Increase this value to allow more parallel uploads. A higher number requires more SUI and WAL coins initially because the funds are distributed to more wallets (see [Create and fund the publisher wallet](#fund-publisher)).
+- `--max-concurrent-requests NUM`: Determines how many concurrent requests the publisher can handle, including Sui operations (limited by the number of clients) and uploads. After this limit is exceeded, additional requests are queued up to the `--max-buffer-size NUM` limit. After the buffer is full, requests are rejected with an HTTP 429 code.
+
+## Manage SUI coins in sub-wallets {#manage-sub-wallets}
+
+Each sub-wallet requires funds to interact with the chain and purchase storage. A background process periodically checks whether the sub-wallets have enough funds. In steady state, each sub-wallet has a balance of 0.5 to 1.0 SUI and WAL.
+
+To adjust how refills are handled, use the following arguments: `--refill-interval REFILL_INTERVAL`, `--gas-refill-amount GAS_REFILL_AMOUNT`, `--wal-refill-amount WAL_REFILL_AMOUNT`, and `--sub-wallets-min-balance SUB_WALLETS_MIN_BALANCE`.
+
+## Understand `Blob` object lifecycle
+
+Each store operation in Walrus creates a `Blob` object on Sui. This blob object represents the (partial) ownership over the associated data and allows certain data management operations (for example, in the case of deletable blobs).
+
+When the publisher stores a blob on behalf of a client, the `Blob` object is initially owned by the sub-wallet that stored the blob. The following cases are then possible, depending on the configuration:
+
+- If the client specifies the `send_object_to` query parameter in the store request (see [the relevant section](/docs/http-api/storing-blobs#store) for examples), the `Blob` object is transferred to the specified address. This allows clients to receive the created object for their data.
+- If the client does not specify the `send_object_to` query parameter, 2 outcomes are possible:
+  - **Default behavior:** The sub-wallet transfers the newly created blob object to the main wallet, where all these objects are kept. You can change this behavior by setting the `--burn-after-store` flag, which causes the blob object to be immediately deleted.
+  - **Interaction with `send_object_to`:** The `--burn-after-store` flag does not affect the `send_object_to` query parameter. Regardless of this flag, the publisher sends created objects to the address in `send_object_to` if it is specified in the PUT request.
