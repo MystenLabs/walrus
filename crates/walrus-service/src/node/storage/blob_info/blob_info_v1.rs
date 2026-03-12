@@ -17,6 +17,7 @@ use super::{
     BlobStatusChangeType,
     CertifiedBlobInfoApi,
     Mergeable,
+    PermanentBlobInfo,
     ToBytes,
     per_object_blob_info::{PerObjectBlobInfoApi, PerObjectBlobInfoMergeOperand},
 };
@@ -44,8 +45,8 @@ pub(crate) struct ValidBlobInfoV1 {
     pub is_metadata_stored: bool,
     pub count_deletable_total: u32,
     pub count_deletable_certified: u32,
-    pub permanent_total: Option<PermanentBlobInfoV1>,
-    pub permanent_certified: Option<PermanentBlobInfoV1>,
+    pub permanent_total: Option<PermanentBlobInfo>,
+    pub permanent_certified: Option<PermanentBlobInfo>,
     pub initial_certified_epoch: Option<Epoch>,
 
     // Note: The following helper fields were used in the past to approximate the blob status for
@@ -91,7 +92,7 @@ impl ValidBlobInfoV1 {
         };
 
         let initial_certified_epoch = self.initial_certified_epoch;
-        if let Some(PermanentBlobInfoV1 {
+        if let Some(PermanentBlobInfo {
             end_epoch, event, ..
         }) = self.permanent_certified.as_ref()
             && *end_epoch > current_epoch
@@ -104,7 +105,7 @@ impl ValidBlobInfoV1 {
                 initial_certified_epoch,
             };
         }
-        if let Some(PermanentBlobInfoV1 {
+        if let Some(PermanentBlobInfo {
             end_epoch, event, ..
         }) = self.permanent_total.as_ref()
             && *end_epoch > current_epoch
@@ -308,22 +309,22 @@ impl ValidBlobInfoV1 {
         }
     }
 
-    /// Processes a register status change on the [`Option<PermanentBlobInfoV1>`] object
+    /// Processes a register status change on the [`Option<PermanentBlobInfo>`] object
     /// representing all permanent blobs.
     pub(crate) fn register_permanent(
-        permanent_total: &mut Option<PermanentBlobInfoV1>,
+        permanent_total: &mut Option<PermanentBlobInfo>,
         change_info: &BlobStatusChangeInfo,
     ) {
-        PermanentBlobInfoV1::update_optional(permanent_total, change_info)
+        PermanentBlobInfo::update_optional(permanent_total, change_info)
     }
 
-    /// Processes a certify status change on the [`PermanentBlobInfoV1`] objects representing all
+    /// Processes a certify status change on the [`PermanentBlobInfo`] objects representing all
     /// and the certified permanent blobs.
     ///
     /// Returns whether the update was successful.
     pub(crate) fn certify_permanent(
-        permanent_total: &Option<PermanentBlobInfoV1>,
-        permanent_certified: &mut Option<PermanentBlobInfoV1>,
+        permanent_total: &Option<PermanentBlobInfo>,
+        permanent_certified: &mut Option<PermanentBlobInfo>,
         change_info: &BlobStatusChangeInfo,
     ) -> bool {
         let Some(permanent_total) = permanent_total else {
@@ -350,14 +351,14 @@ impl ValidBlobInfoV1 {
             tracing::error!("attempt to certify a permanent blob before corresponding register");
             return false;
         }
-        PermanentBlobInfoV1::update_optional(permanent_certified, change_info);
+        PermanentBlobInfo::update_optional(permanent_certified, change_info);
         true
     }
 
-    /// Processes an extend status change on the [`PermanentBlobInfoV1`] object representing the
+    /// Processes an extend status change on the [`PermanentBlobInfo`] object representing the
     /// certified permanent blobs.
     pub(crate) fn extend_permanent(
-        permanent_info: &mut Option<PermanentBlobInfoV1>,
+        permanent_info: &mut Option<PermanentBlobInfo>,
         change_info: &BlobStatusChangeInfo,
     ) {
         let Some(permanent_info) = permanent_info else {
@@ -368,7 +369,7 @@ impl ValidBlobInfoV1 {
         permanent_info.update(change_info, false);
     }
 
-    /// Processes a delete status change on the [`PermanentBlobInfoV1`] objects representing all and
+    /// Processes a delete status change on the [`PermanentBlobInfo`] objects representing all and
     /// the certified permanent blobs.
     ///
     /// This is called when blobs expire at the end of an epoch.
@@ -380,10 +381,10 @@ impl ValidBlobInfoV1 {
         self.maybe_unset_initial_certified_epoch();
     }
 
-    pub(crate) fn decrement_blob_info_inner(blob_info_inner: &mut Option<PermanentBlobInfoV1>) {
+    pub(crate) fn decrement_blob_info_inner(blob_info_inner: &mut Option<PermanentBlobInfo>) {
         match blob_info_inner {
             None => tracing::error!("attempt to delete a permanent blob when none is tracked"),
-            Some(PermanentBlobInfoV1 { count, .. }) => {
+            Some(PermanentBlobInfo { count, .. }) => {
                 if count.get() == 1 {
                     *blob_info_inner = None;
                 } else {
@@ -443,92 +444,6 @@ impl ValidBlobInfoV1 {
             _ => (),
         }
         Ok(())
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub(crate) struct PermanentBlobInfoV1 {
-    /// The total number of `Blob` objects for that blob ID with the given status.
-    pub count: NonZeroU32,
-    /// The latest expiration epoch among these objects.
-    pub end_epoch: Epoch,
-    /// The ID of the first blob event that led to the status with the given `end_epoch`.
-    pub event: EventID,
-}
-
-impl PermanentBlobInfoV1 {
-    /// Creates a new `PermanentBlobInfoV1` object for the first blob with the given `end_epoch` and
-    /// `event`.
-    pub(crate) fn new_first(end_epoch: Epoch, event: EventID) -> Self {
-        Self {
-            count: NonZeroU32::new(1).expect("1 is non-zero"),
-            end_epoch,
-            event,
-        }
-    }
-
-    /// Updates `self` with the `change_info`, increasing the count if `increase_count == true`.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the change info has `deletable == true`.
-    pub(crate) fn update(&mut self, change_info: &BlobStatusChangeInfo, increase_count: bool) {
-        assert!(!change_info.deletable);
-
-        if increase_count {
-            self.count = self.count.saturating_add(1)
-        };
-        if change_info.end_epoch > self.end_epoch {
-            *self = PermanentBlobInfoV1 {
-                count: self.count,
-                end_epoch: change_info.end_epoch,
-                event: change_info.status_event,
-            };
-        }
-    }
-
-    /// Updates `existing_info` with the change info or creates a new `Self` if the input is `None`.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the change info has `deletable == true`.
-    fn update_optional(existing_info: &mut Option<Self>, change_info: &BlobStatusChangeInfo) {
-        let BlobStatusChangeInfo {
-            epoch: _,
-            end_epoch: new_end_epoch,
-            status_event: new_status_event,
-            deletable,
-            blob_id: _,
-        } = change_info;
-        assert!(!deletable);
-
-        match existing_info {
-            None => {
-                *existing_info = Some(PermanentBlobInfoV1::new_first(
-                    *new_end_epoch,
-                    *new_status_event,
-                ))
-            }
-            Some(permanent_blob_info) => permanent_blob_info.update(change_info, true),
-        }
-    }
-
-    #[cfg(test)]
-    pub(crate) fn new_fixed_for_testing(count: u32, end_epoch: Epoch, event_seq: u64) -> Self {
-        Self {
-            count: NonZeroU32::new(count).expect("count must be non-zero"),
-            end_epoch,
-            event: walrus_sui::test_utils::fixed_event_id_for_testing(event_seq),
-        }
-    }
-
-    #[cfg(test)]
-    pub(crate) fn new_for_testing(count: u32, end_epoch: Epoch) -> Self {
-        Self {
-            count: NonZeroU32::new(count).expect("count must be non-zero"),
-            end_epoch,
-            event: walrus_sui::test_utils::event_id_for_testing(),
-        }
     }
 }
 
@@ -694,7 +609,7 @@ impl Mergeable for BlobInfoV1 {
                     }
                 } else {
                     ValidBlobInfoV1 {
-                        permanent_total: Some(PermanentBlobInfoV1::new_first(
+                        permanent_total: Some(PermanentBlobInfo::new_first(
                             end_epoch,
                             status_event,
                         )),
@@ -737,9 +652,14 @@ impl Mergeable for BlobInfoV1 {
                 );
                 None
             }
+            BlobInfoMergeOperand::PoolExpired { .. } => {
+                // if the first event is a pool expired before the blob is registered, there may
+                // be a race between GC and pool event processing. Don't need to create a blob info
+                // for this case.
+                None
+            }
             // Pool operands should never reach V1 — they are intercepted at the BlobInfo level.
-            BlobInfoMergeOperand::PooledBlobChangeStatus { .. }
-            | BlobInfoMergeOperand::PoolExpired { .. } => {
+            BlobInfoMergeOperand::PooledBlobChangeStatus { .. } => {
                 unreachable!("pool operands should be handled in BlobInfoV2")
             }
         }
@@ -1025,12 +945,12 @@ mod tests {
                 ..Default::default()
             }),
             permanent: (ValidBlobInfoV1{
-                permanent_total: Some(PermanentBlobInfoV1::new_fixed_for_testing(2, 3, 0)),
+                permanent_total: Some(PermanentBlobInfo::new_fixed_for_testing(2, 3, 0)),
                 ..Default::default()
             }),
             permanent_certified: (ValidBlobInfoV1{
-                permanent_total: Some(PermanentBlobInfoV1::new_fixed_for_testing(2, 3, 0)),
-                permanent_certified: Some(PermanentBlobInfoV1::new_fixed_for_testing(1, 2, 0)),
+                permanent_total: Some(PermanentBlobInfo::new_fixed_for_testing(2, 3, 0)),
+                permanent_certified: Some(PermanentBlobInfo::new_fixed_for_testing(1, 2, 0)),
                 initial_certified_epoch: Some(1),
                 ..Default::default()
             }),
@@ -1067,12 +987,12 @@ mod tests {
                 ..Default::default()
             }),
             permanent: (ValidBlobInfoV1{
-                permanent_total: Some(PermanentBlobInfoV1::new_fixed_for_testing(2, 3, 0)),
+                permanent_total: Some(PermanentBlobInfo::new_fixed_for_testing(2, 3, 0)),
                 ..Default::default()
             }),
             permanent_certified: (ValidBlobInfoV1{
-                permanent_total: Some(PermanentBlobInfoV1::new_fixed_for_testing(2, 3, 0)),
-                permanent_certified: Some(PermanentBlobInfoV1::new_fixed_for_testing(1, 2, 0)),
+                permanent_total: Some(PermanentBlobInfo::new_fixed_for_testing(2, 3, 0)),
+                permanent_certified: Some(PermanentBlobInfo::new_fixed_for_testing(1, 2, 0)),
                 initial_certified_epoch: Some(1),
                 ..Default::default()
             }),
@@ -1200,7 +1120,7 @@ mod tests {
                     BlobStatusChangeType::Register, false, 1, 2, fixed_event_id_for_testing(0)
                 ),
                 ValidBlobInfoV1{
-                    permanent_total: Some(PermanentBlobInfoV1::new_fixed_for_testing(1, 2, 0)),
+                    permanent_total: Some(PermanentBlobInfo::new_fixed_for_testing(1, 2, 0)),
                     ..Default::default()
                 },
             ),
@@ -1228,8 +1148,8 @@ mod tests {
             extend_permanent: (
                 ValidBlobInfoV1{
                     initial_certified_epoch: Some(0),
-                    permanent_total: Some(PermanentBlobInfoV1::new_fixed_for_testing(2, 4, 0)),
-                    permanent_certified: Some(PermanentBlobInfoV1::new_fixed_for_testing(1, 4, 1)),
+                    permanent_total: Some(PermanentBlobInfo::new_fixed_for_testing(2, 4, 0)),
+                    permanent_certified: Some(PermanentBlobInfo::new_fixed_for_testing(1, 4, 1)),
                     ..Default::default()
                 },
                 BlobInfoMergeOperand::new_change_for_testing(
@@ -1237,8 +1157,8 @@ mod tests {
                 ),
                 ValidBlobInfoV1{
                     initial_certified_epoch: Some(0),
-                    permanent_total: Some(PermanentBlobInfoV1::new_fixed_for_testing(2, 42, 2)),
-                    permanent_certified: Some(PermanentBlobInfoV1::new_fixed_for_testing(1, 42, 2)),
+                    permanent_total: Some(PermanentBlobInfo::new_fixed_for_testing(2, 42, 2)),
+                    permanent_certified: Some(PermanentBlobInfo::new_fixed_for_testing(1, 42, 2)),
                     ..Default::default()
                 },
             ),
@@ -1266,8 +1186,8 @@ mod tests {
             certify_outdated_permanent: (
                 ValidBlobInfoV1{
                     initial_certified_epoch: Some(2),
-                    permanent_total: Some(PermanentBlobInfoV1::new_fixed_for_testing(2, 42, 0)),
-                    permanent_certified: Some(PermanentBlobInfoV1::new_for_testing(1, 5)),
+                    permanent_total: Some(PermanentBlobInfo::new_fixed_for_testing(2, 42, 0)),
+                    permanent_certified: Some(PermanentBlobInfo::new_for_testing(1, 5)),
                     ..Default::default()
                 },
                 BlobInfoMergeOperand::new_change_for_testing(
@@ -1275,28 +1195,28 @@ mod tests {
                 ),
                 ValidBlobInfoV1{
                     initial_certified_epoch: Some(7),
-                    permanent_total: Some(PermanentBlobInfoV1::new_fixed_for_testing(2, 42, 0)),
-                    permanent_certified: Some(PermanentBlobInfoV1::new_fixed_for_testing(2, 42, 1)),
+                    permanent_total: Some(PermanentBlobInfo::new_fixed_for_testing(2, 42, 0)),
+                    permanent_certified: Some(PermanentBlobInfo::new_fixed_for_testing(2, 42, 1)),
                     ..Default::default()
                 },
             ),
             register_additional_permanent: (
                 ValidBlobInfoV1{
-                    permanent_total: Some(PermanentBlobInfoV1::new_fixed_for_testing(1, 2, 0)),
+                    permanent_total: Some(PermanentBlobInfo::new_fixed_for_testing(1, 2, 0)),
                     ..Default::default()
                 },
                 BlobInfoMergeOperand::new_change_for_testing(
                     BlobStatusChangeType::Register, false, 2, 3, fixed_event_id_for_testing(1)
                 ),
                 ValidBlobInfoV1{
-                    permanent_total: Some(PermanentBlobInfoV1::new_fixed_for_testing(2, 3, 1)),
+                    permanent_total: Some(PermanentBlobInfo::new_fixed_for_testing(2, 3, 1)),
                     ..Default::default()
                 },
             ),
             expire_permanent_blob: (
                 ValidBlobInfoV1{
-                    permanent_total: Some(PermanentBlobInfoV1::new_fixed_for_testing(3, 5, 0)),
-                    permanent_certified: Some(PermanentBlobInfoV1::new_fixed_for_testing(2, 5, 1)),
+                    permanent_total: Some(PermanentBlobInfo::new_fixed_for_testing(3, 5, 0)),
+                    permanent_certified: Some(PermanentBlobInfo::new_fixed_for_testing(2, 5, 1)),
                     initial_certified_epoch: Some(1),
                     ..Default::default()
                 },
@@ -1304,16 +1224,16 @@ mod tests {
                     was_certified: true,
                 },
                 ValidBlobInfoV1{
-                    permanent_total: Some(PermanentBlobInfoV1::new_fixed_for_testing(2, 5, 0)),
-                    permanent_certified: Some(PermanentBlobInfoV1::new_fixed_for_testing(1, 5, 1)),
+                    permanent_total: Some(PermanentBlobInfo::new_fixed_for_testing(2, 5, 0)),
+                    permanent_certified: Some(PermanentBlobInfo::new_fixed_for_testing(1, 5, 1)),
                     initial_certified_epoch: Some(1),
                     ..Default::default()
                 },
             ),
             expire_last_permanent_blob: (
                 ValidBlobInfoV1{
-                    permanent_total: Some(PermanentBlobInfoV1::new_fixed_for_testing(2, 5, 0)),
-                    permanent_certified: Some(PermanentBlobInfoV1::new_fixed_for_testing(1, 5, 1)),
+                    permanent_total: Some(PermanentBlobInfo::new_fixed_for_testing(2, 5, 0)),
+                    permanent_certified: Some(PermanentBlobInfo::new_fixed_for_testing(1, 5, 1)),
                     initial_certified_epoch: Some(1),
                     ..Default::default()
                 },
@@ -1321,7 +1241,7 @@ mod tests {
                     was_certified: true,
                 },
                 ValidBlobInfoV1{
-                    permanent_total: Some(PermanentBlobInfoV1::new_fixed_for_testing(1, 5, 0)),
+                    permanent_total: Some(PermanentBlobInfo::new_fixed_for_testing(1, 5, 0)),
                     permanent_certified: None,
                     initial_certified_epoch: None,
                     ..Default::default()
@@ -1421,20 +1341,20 @@ mod tests {
             ),
             expire_uncertified_permanent_blob: (
                 ValidBlobInfoV1{
-                    permanent_total: Some(PermanentBlobInfoV1::new_fixed_for_testing(3, 5, 0)),
+                    permanent_total: Some(PermanentBlobInfo::new_fixed_for_testing(3, 5, 0)),
                     ..Default::default()
                 },
                 BlobInfoMergeOperand::PermanentExpired {
                     was_certified: false,
                 },
                 ValidBlobInfoV1{
-                    permanent_total: Some(PermanentBlobInfoV1::new_fixed_for_testing(2, 5, 0)),
+                    permanent_total: Some(PermanentBlobInfo::new_fixed_for_testing(2, 5, 0)),
                     ..Default::default()
                 },
             ),
             expire_last_uncertified_permanent_blob: (
                 ValidBlobInfoV1{
-                    permanent_total: Some(PermanentBlobInfoV1::new_fixed_for_testing(1, 5, 0)),
+                    permanent_total: Some(PermanentBlobInfo::new_fixed_for_testing(1, 5, 0)),
                     ..Default::default()
                 },
                 BlobInfoMergeOperand::PermanentExpired {
@@ -1540,7 +1460,7 @@ mod tests {
         test_blob_status_is_inexistent_for_expired_blobs: [
             expired_permanent_registered_0: (
                 ValidBlobInfoV1 {
-                    permanent_total: Some(PermanentBlobInfoV1::new_fixed_for_testing(1, 2, 0)),
+                    permanent_total: Some(PermanentBlobInfo::new_fixed_for_testing(1, 2, 0)),
                     ..Default::default()
                 },
                 1,
@@ -1548,7 +1468,7 @@ mod tests {
             ),
             expired_permanent_registered_1: (
                 ValidBlobInfoV1 {
-                    permanent_total: Some(PermanentBlobInfoV1::new_fixed_for_testing(2, 3, 0)),
+                    permanent_total: Some(PermanentBlobInfo::new_fixed_for_testing(2, 3, 0)),
                     ..Default::default()
                 },
                 2,
@@ -1556,8 +1476,8 @@ mod tests {
             ),
             expired_permanent_certified: (
                 ValidBlobInfoV1 {
-                    permanent_total: Some(PermanentBlobInfoV1::new_fixed_for_testing(2, 2, 0)),
-                    permanent_certified: Some(PermanentBlobInfoV1::new_fixed_for_testing(1, 2, 0)),
+                    permanent_total: Some(PermanentBlobInfo::new_fixed_for_testing(2, 2, 0)),
+                    permanent_certified: Some(PermanentBlobInfo::new_fixed_for_testing(1, 2, 0)),
                     ..Default::default()
                 },
                 1,
