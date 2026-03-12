@@ -3,8 +3,6 @@
 
 //! V1 blob info types and merge logic.
 
-use std::num::NonZeroU32;
-
 use serde::{Deserialize, Serialize};
 use sui_types::{base_types::ObjectID, event::EventID};
 use walrus_core::{BlobId, Epoch};
@@ -202,10 +200,10 @@ impl ValidBlobInfoV1 {
         } else {
             match change_type {
                 BlobStatusChangeType::Register => {
-                    Self::register_permanent(&mut self.permanent_total, &change_info);
+                    PermanentBlobInfo::register(&mut self.permanent_total, &change_info);
                 }
                 BlobStatusChangeType::Certify => {
-                    if !Self::certify_permanent(
+                    if !PermanentBlobInfo::certify(
                         &self.permanent_total,
                         &mut self.permanent_certified,
                         &change_info,
@@ -215,8 +213,8 @@ impl ValidBlobInfoV1 {
                     }
                 }
                 BlobStatusChangeType::Extend => {
-                    Self::extend_permanent(&mut self.permanent_total, &change_info);
-                    Self::extend_permanent(&mut self.permanent_certified, &change_info);
+                    PermanentBlobInfo::extend(&mut self.permanent_total, &change_info);
+                    PermanentBlobInfo::extend(&mut self.permanent_certified, &change_info);
                 }
                 BlobStatusChangeType::Delete { .. } => {
                     tracing::error!("attempt to delete a permanent blob");
@@ -309,90 +307,16 @@ impl ValidBlobInfoV1 {
         }
     }
 
-    /// Processes a register status change on the [`Option<PermanentBlobInfo>`] object
-    /// representing all permanent blobs.
-    pub(crate) fn register_permanent(
-        permanent_total: &mut Option<PermanentBlobInfo>,
-        change_info: &BlobStatusChangeInfo,
-    ) {
-        PermanentBlobInfo::update_optional(permanent_total, change_info)
-    }
-
-    /// Processes a certify status change on the [`PermanentBlobInfo`] objects representing all
-    /// and the certified permanent blobs.
-    ///
-    /// Returns whether the update was successful.
-    pub(crate) fn certify_permanent(
-        permanent_total: &Option<PermanentBlobInfo>,
-        permanent_certified: &mut Option<PermanentBlobInfo>,
-        change_info: &BlobStatusChangeInfo,
-    ) -> bool {
-        let Some(permanent_total) = permanent_total else {
-            tracing::error!("attempt to certify a permanent blob when none is tracked");
-            return false;
-        };
-
-        let registered_end_epoch = permanent_total.end_epoch;
-        let certified_end_epoch = change_info.end_epoch;
-        if certified_end_epoch > registered_end_epoch {
-            tracing::error!(
-                registered_end_epoch,
-                certified_end_epoch,
-                "attempt to certify a permanent blob with later end epoch than any registered blob",
-            );
-            return false;
-        }
-        if permanent_total.count.get()
-            <= permanent_certified
-                .as_ref()
-                .map(|p| p.count.get())
-                .unwrap_or_default()
-        {
-            tracing::error!("attempt to certify a permanent blob before corresponding register");
-            return false;
-        }
-        PermanentBlobInfo::update_optional(permanent_certified, change_info);
-        true
-    }
-
-    /// Processes an extend status change on the [`PermanentBlobInfo`] object representing the
-    /// certified permanent blobs.
-    pub(crate) fn extend_permanent(
-        permanent_info: &mut Option<PermanentBlobInfo>,
-        change_info: &BlobStatusChangeInfo,
-    ) {
-        let Some(permanent_info) = permanent_info else {
-            tracing::error!("attempt to extend a permanent blob when none is tracked");
-            return;
-        };
-
-        permanent_info.update(change_info, false);
-    }
-
     /// Processes a delete status change on the [`PermanentBlobInfo`] objects representing all and
     /// the certified permanent blobs.
     ///
     /// This is called when blobs expire at the end of an epoch.
     fn permanent_expired(&mut self, was_certified: bool) {
-        Self::decrement_blob_info_inner(&mut self.permanent_total);
+        PermanentBlobInfo::decrement(&mut self.permanent_total);
         if was_certified {
-            Self::decrement_blob_info_inner(&mut self.permanent_certified);
+            PermanentBlobInfo::decrement(&mut self.permanent_certified);
         }
         self.maybe_unset_initial_certified_epoch();
-    }
-
-    pub(crate) fn decrement_blob_info_inner(blob_info_inner: &mut Option<PermanentBlobInfo>) {
-        match blob_info_inner {
-            None => tracing::error!("attempt to delete a permanent blob when none is tracked"),
-            Some(PermanentBlobInfo { count, .. }) => {
-                if count.get() == 1 {
-                    *blob_info_inner = None;
-                } else {
-                    *count = NonZeroU32::new(count.get() - 1)
-                        .expect("we just checked that `count` is at least 2")
-                }
-            }
-        }
     }
 
     /// Checks the invariants of the aggregate blob info, returning an error if any invariant is

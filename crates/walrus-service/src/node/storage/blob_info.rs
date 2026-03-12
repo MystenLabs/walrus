@@ -5,11 +5,11 @@
 
 mod blob_info_v1;
 mod blob_info_v2;
+mod perm_blob_info;
 
 use std::{
     collections::HashSet,
     fmt::Debug,
-    num::NonZeroU32,
     ops::Bound::{self, Unbounded},
     sync::{Arc, Mutex},
 };
@@ -1029,91 +1029,7 @@ impl ChangeTypeAndInfo for BlobDeleted {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub(crate) struct PermanentBlobInfo {
-    /// The total number of `Blob` objects for that blob ID with the given status.
-    pub count: NonZeroU32,
-    /// The latest expiration epoch among these objects.
-    pub end_epoch: Epoch,
-    /// The ID of the first blob event that led to the status with the given `end_epoch`.
-    pub event: EventID,
-}
-
-impl PermanentBlobInfo {
-    /// Creates a new `PermanentBlobInfo` object for the first blob with the given `end_epoch` and
-    /// `event`.
-    pub(crate) fn new_first(end_epoch: Epoch, event: EventID) -> Self {
-        Self {
-            count: NonZeroU32::new(1).expect("1 is non-zero"),
-            end_epoch,
-            event,
-        }
-    }
-
-    /// Updates `self` with the `change_info`, increasing the count if `increase_count == true`.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the change info has `deletable == true`.
-    pub(crate) fn update(&mut self, change_info: &BlobStatusChangeInfo, increase_count: bool) {
-        assert!(!change_info.deletable);
-
-        if increase_count {
-            self.count = self.count.saturating_add(1)
-        };
-        if change_info.end_epoch > self.end_epoch {
-            *self = PermanentBlobInfo {
-                count: self.count,
-                end_epoch: change_info.end_epoch,
-                event: change_info.status_event,
-            };
-        }
-    }
-
-    /// Updates `existing_info` with the change info or creates a new `Self` if the input is `None`.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the change info has `deletable == true`.
-    fn update_optional(existing_info: &mut Option<Self>, change_info: &BlobStatusChangeInfo) {
-        let BlobStatusChangeInfo {
-            epoch: _,
-            end_epoch: new_end_epoch,
-            status_event: new_status_event,
-            deletable,
-            blob_id: _,
-        } = change_info;
-        assert!(!deletable);
-
-        match existing_info {
-            None => {
-                *existing_info = Some(PermanentBlobInfo::new_first(
-                    *new_end_epoch,
-                    *new_status_event,
-                ))
-            }
-            Some(permanent_blob_info) => permanent_blob_info.update(change_info, true),
-        }
-    }
-
-    #[cfg(test)]
-    pub(crate) fn new_fixed_for_testing(count: u32, end_epoch: Epoch, event_seq: u64) -> Self {
-        Self {
-            count: NonZeroU32::new(count).expect("count must be non-zero"),
-            end_epoch,
-            event: walrus_sui::test_utils::fixed_event_id_for_testing(event_seq),
-        }
-    }
-
-    #[cfg(test)]
-    pub(crate) fn new_for_testing(count: u32, end_epoch: Epoch) -> Self {
-        Self {
-            count: NonZeroU32::new(count).expect("count must be non-zero"),
-            end_epoch,
-            event: walrus_sui::test_utils::event_id_for_testing(),
-        }
-    }
-}
+pub(crate) use self::perm_blob_info::PermanentBlobInfo;
 
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq, Clone)]
 pub(crate) enum BlobInfoMergeOperand {

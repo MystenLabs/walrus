@@ -188,10 +188,10 @@ impl ValidBlobInfoV2 {
             // These should be the same as V1.
             match change_type {
                 BlobStatusChangeType::Register => {
-                    ValidBlobInfoV1::register_permanent(&mut self.permanent_total, &change_info);
+                    PermanentBlobInfo::register(&mut self.permanent_total, &change_info);
                 }
                 BlobStatusChangeType::Certify => {
-                    if !ValidBlobInfoV1::certify_permanent(
+                    if !PermanentBlobInfo::certify(
                         &self.permanent_total,
                         &mut self.permanent_certified,
                         &change_info,
@@ -201,8 +201,8 @@ impl ValidBlobInfoV2 {
                     }
                 }
                 BlobStatusChangeType::Extend => {
-                    ValidBlobInfoV1::extend_permanent(&mut self.permanent_total, &change_info);
-                    ValidBlobInfoV1::extend_permanent(&mut self.permanent_certified, &change_info);
+                    PermanentBlobInfo::extend(&mut self.permanent_total, &change_info);
+                    PermanentBlobInfo::extend(&mut self.permanent_certified, &change_info);
                 }
                 BlobStatusChangeType::Delete { .. } => {
                     tracing::error!("attempt to delete a permanent blob");
@@ -256,9 +256,9 @@ impl ValidBlobInfoV2 {
     }
 
     fn permanent_expired(&mut self, was_certified: bool) {
-        ValidBlobInfoV1::decrement_blob_info_inner(&mut self.permanent_total);
+        PermanentBlobInfo::decrement(&mut self.permanent_total);
         if was_certified {
-            ValidBlobInfoV1::decrement_blob_info_inner(&mut self.permanent_certified);
+            PermanentBlobInfo::decrement(&mut self.permanent_certified);
         }
         self.maybe_unset_initial_certified_epoch();
     }
@@ -302,7 +302,7 @@ impl ValidBlobInfoV2 {
 
     /// Registers a blob in a storage pool.
     fn pool_register(&mut self) {
-        self.count_pooled_refs_total += 1;
+        self.count_pooled_refs_total = self.count_pooled_refs_total.saturating_add(1);
     }
 
     /// Certifies a blob in a storage pool.
@@ -313,7 +313,7 @@ impl ValidBlobInfoV2 {
             tracing::error!("attempt to certify a pool blob before corresponding register");
             return;
         }
-        self.count_pooled_refs_certified += 1;
+        self.count_pooled_refs_certified = self.count_pooled_refs_certified.saturating_add(1);
         self.update_initial_certified_epoch(epoch, !was_certified);
     }
 
@@ -387,7 +387,8 @@ impl BlobInfoApi for BlobInfoV2 {
 
         // Note that at the beginning of the epoch before GC runs, newly expired deletable blob or
         // pooled blob's registered counter may still be non-zero, but the blob is already expired.
-        // This will make the blob appears to be registered until GC finishes.
+        // This will make the blob appears to be registered until per object blob info GC finishes.
+        // The time window is expected to be very short (few seconds).
         exists_registered_permanent_blob
             || v.count_deletable_total > 0
             || v.count_pooled_refs_total > 0
