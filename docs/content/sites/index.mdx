@@ -1,23 +1,51 @@
 ---
 title: Walrus Sites
+description: "Deploy decentralized websites on Walrus."
+keywords: ["walrus", "walrus sites", "decentralized websites", "static sites", "sui", "site-builder", "portal", "suins", "web hosting"]
 ---
 
-{/* https://linear.app/mysten-labs/issue/DOCS-697/sitesindex */}
-
-This tutorial walks you through the steps necessary to publish a Walrus Site. We also provide the
-instructions on how to add a SuiNS name to it for convenient browsing.
+Walrus Sites are decentralized websites built on [Sui](docs.sui.io) and Walrus. Your site's files are stored on Walrus, a decentralized storage network, while a Sui smart contract records ownership and maps each resource path to its content. Anyone can publish a Walrus Site using the [`site-builder` CLI tool](/docs/sites/getting-started/installing-the-site-builder) and browse it through a [portal](/docs/sites/portals/deploy-locally).
 
 <Cards>
-<Card title="Installing the Site Builder" href="/docs/sites/getting-started/installing-the-site-builder">
-Install and setup the Walrus Sites `site-builder` tool for development.
+ 
+<Card title="Introduction" href="/docs/sites/introduction/">
+Learn what Walrus Sites are, how they work, and the key components that make up a site.
 </Card>
-
-<Card title="Publishing a Walrus Site" href="/docs/sites/getting-started/publishing-your-first-site">
-Publish your first Walrus Site using the `site-builder` tool.
+ 
+<Card title="Getting Started" href="/docs/sites/getting-started/">
+Install the `site-builder` tool and deploy your first Walrus Site.
 </Card>
-
-<Card title="Set a SuiNS Name" href="/docs/sites/custom-domains/setting-a-suins-name">
-Setup SuiNS names for human-readable Walrus Sites domain names and portal browsing.
+ 
+<Card title="Site Configuration" href="/docs/sites/configuration/">
+Configure your site's routing, headers, metadata, and deployment settings using `ws-resources.json` and `sites-config.yaml`.
 </Card>
-
+ 
+<Card title="Portals" href="/docs/sites/portals/">
+Learn how portals resolve and serve Walrus Sites to browsers, and how to run your own portal locally.
+</Card>
+ 
+<Card title="Custom Domains" href="/docs/sites/custom-domains/">
+Assign a SuiNS name to your site for a human-readable URL, or bring your own existing domain.
+</Card>
+ 
+<Card title="Linking" href="/docs/sites/linking/">
+Link to and from Walrus Sites, including how to give individual Sui objects their own dedicated pages.
+</Card>
+ 
+<Card title="CI/CD" href="/docs/sites/ci-cd">
+Automate deployments to Walrus Sites using GitHub Actions and other CI/CD pipelines.
+</Card>
+ 
+<Card title="Security" href="/docs/sites/security">
+Understand the security guarantees of Walrus Sites, site isolation, and how to handle sensitive data.
+</Card>
+ 
+<Card title="Known Restrictions" href="/docs/sites/known-restrictions">
+Review the current limitations of Walrus Sites, including restrictions on dynamic content, redirects, and backend support.
+</Card>
+ 
+<Card title="Troubleshooting" href="/docs/sites/troubleshooting">
+Find solutions to common issues encountered when publishing or accessing Walrus Sites.
+</Card>
+ 
 </Cards>
