@@ -4,6 +4,7 @@
 //! Keeping track of the status of blob IDs and on-chain `Blob` objects.
 
 mod blob_info_v1;
+mod blob_info_v2;
 
 use std::{
     collections::HashSet,
@@ -33,6 +34,7 @@ pub(crate) use self::blob_info_v1::PermanentBlobInfoV1;
 use self::per_object_blob_info::PerObjectBlobInfoMergeOperand;
 pub(crate) use self::{
     blob_info_v1::{BlobInfoV1, ValidBlobInfoV1},
+    blob_info_v2::BlobInfoV2,
     per_object_blob_info::{PerObjectBlobInfo, PerObjectBlobInfoApi},
 };
 use super::{DatabaseTableOptionsFactory, constants};
@@ -881,12 +883,12 @@ pub(crate) trait BlobInfoApi: CertifiedBlobInfoApi {
 }
 
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq, Clone)]
-pub(super) struct BlobStatusChangeInfo {
-    pub(super) blob_id: BlobId,
-    pub(super) deletable: bool,
-    pub(super) epoch: Epoch,
-    pub(super) end_epoch: Epoch,
-    pub(super) status_event: EventID,
+pub(crate) struct BlobStatusChangeInfo {
+    pub(crate) blob_id: BlobId,
+    pub(crate) deletable: bool,
+    pub(crate) epoch: Epoch,
+    pub(crate) end_epoch: Epoch,
+    pub(crate) status_event: EventID,
 }
 
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq, Clone, Copy)]
@@ -1085,6 +1087,7 @@ impl Ord for BlobCertificationStatus {
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq, Clone)]
 pub(crate) enum BlobInfo {
     V1(BlobInfoV1),
+    V2(BlobInfoV2),
 }
 
 impl BlobInfo {
@@ -1134,6 +1137,7 @@ impl Mergeable for BlobInfo {
     fn merge_with(self, operand: Self::MergeOperand) -> Self {
         match self {
             Self::V1(value) => Self::V1(value.merge_with(operand)),
+            Self::V2(value) => Self::V2(value.merge_with(operand)),
         }
     }
 

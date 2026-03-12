@@ -471,7 +471,7 @@ impl PermanentBlobInfoV1 {
     /// # Panics
     ///
     /// Panics if the change info has `deletable == true`.
-    fn update(&mut self, change_info: &BlobStatusChangeInfo, increase_count: bool) {
+    pub(crate) fn update(&mut self, change_info: &BlobStatusChangeInfo, increase_count: bool) {
         assert!(!change_info.deletable);
 
         if increase_count {
@@ -491,7 +491,10 @@ impl PermanentBlobInfoV1 {
     /// # Panics
     ///
     /// Panics if the change info has `deletable == true`.
-    fn update_optional(existing_info: &mut Option<Self>, change_info: &BlobStatusChangeInfo) {
+    pub(crate) fn update_optional(
+        existing_info: &mut Option<Self>,
+        change_info: &BlobStatusChangeInfo,
+    ) {
         let BlobStatusChangeInfo {
             epoch: _,
             end_epoch: new_end_epoch,
