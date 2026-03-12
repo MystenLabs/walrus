@@ -432,6 +432,7 @@ impl Storage {
     }
 
     /// Returns the highest epoch for which garbage collection was completed.
+    #[allow(dead_code)]
     pub(crate) fn garbage_collector_last_completed_epoch(&self) -> Result<Epoch, TypedStoreError> {
         Ok(self
             .garbage_collector_table
@@ -668,6 +669,18 @@ impl Storage {
         object_id: &ObjectID,
     ) -> Result<Option<PerObjectBlobInfo>, TypedStoreError> {
         self.blob_info.get_per_object_info(object_id)
+    }
+
+    // === Storage Pool Accessors ===
+
+    /// Sets the end epoch for a storage pool.
+    pub(crate) fn set_storage_pool_end_epoch(
+        &self,
+        storage_pool_id: &ObjectID,
+        end_epoch: Epoch,
+    ) -> Result<(), TypedStoreError> {
+        self.blob_info
+            .set_storage_pool_end_epoch(storage_pool_id, end_epoch)
     }
 
     /// Returns the current event cursor and the next event index.

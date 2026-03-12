@@ -11,6 +11,7 @@ const METADATA_COLUMN_FAMILY_NAME: &str = "metadata";
 const EVENT_INDEX_COLUMN_FAMILY_NAME: &str = "latest_handled_event_index";
 const EVENT_CURSOR_COLUMN_FAMILY_NAME: &str = "event_cursor";
 const EVENT_CURSOR_KEY: [u8; 6] = *b"cursor";
+const STORAGE_POOL_END_EPOCHS_COLUMN_FAMILY_NAME: &str = "storage_pool_end_epochs";
 const GARBAGE_COLLECTOR_TABLE_COLUMN_FAMILY_NAME: &str = "garbage_collector_last_completed_epoch";
 const GARBAGE_COLLECTOR_LAST_STARTED_EPOCH_KEY: &str = "started";
 const GARBAGE_COLLECTOR_LAST_COMPLETED_EPOCH_KEY: &str = "completed";
@@ -60,6 +61,11 @@ pub fn event_cursor_cf_name() -> &'static str {
 
 pub fn event_cursor_key() -> &'static [u8; 6] {
     &EVENT_CURSOR_KEY
+}
+
+/// Returns the name of the storage pool end epochs column family.
+pub fn storage_pool_end_epochs_cf_name() -> &'static str {
+    STORAGE_POOL_END_EPOCHS_COLUMN_FAMILY_NAME
 }
 
 /// Returns the name of the garbage collector last completed epoch column family.

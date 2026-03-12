@@ -118,6 +118,7 @@ use walrus_sdk::{
             GENESIS_EPOCH,
             PackageEvent,
             ProtocolEvent,
+            StoragePoolEvent,
         },
     },
 };
@@ -1574,6 +1575,9 @@ impl StorageNode {
                 self.process_package_event(event_handle, package_event)
                     .await?;
             }
+            EventStreamElement::ContractEvent(ContractEvent::StoragePoolEvent(pool_event)) => {
+                self.process_storage_pool_event(event_handle, pool_event)?;
+            }
             EventStreamElement::ContractEvent(ContractEvent::DenyListEvent(_event)) => {
                 // TODO: Implement DenyListEvent handling (WAL-424)
                 event_handle.mark_as_complete();
@@ -1582,13 +1586,6 @@ impl StorageNode {
                 ProtocolEvent::PricesUpdated(_),
             )) => {
                 event_handle.mark_as_complete();
-            }
-            EventStreamElement::ContractEvent(ContractEvent::StoragePoolEvent(event)) => {
-                // TODO(WAL-1162): implement storage pool event processing on storage nodes.
-                panic!(
-                    "storage pool event processing is not yet implemented: {:?}",
-                    event.name()
-                );
             }
             EventStreamElement::ContractEvent(ContractEvent::ProtocolEvent(event)) => {
                 panic!(
@@ -1617,6 +1614,33 @@ impl StorageNode {
         blob_event_processor
             .process_event(event_handle, blob_event, checkpoint_position)
             .await?;
+        Ok(())
+    }
+
+    #[tracing::instrument(skip_all)]
+    fn process_storage_pool_event(
+        &self,
+        event_handle: EventHandle,
+        event: StoragePoolEvent,
+    ) -> anyhow::Result<()> {
+        let _scope = monitored_scope::monitored_scope("ProcessEvent::StoragePoolEvent");
+
+        tracing::debug!(?event, "{} event received", event.name());
+        match event {
+            StoragePoolEvent::StoragePoolCreated(ref created) => {
+                self.inner
+                    .storage
+                    .set_storage_pool_end_epoch(&created.storage_pool_id, created.end_epoch)
+                    .context("failed to set storage pool end epoch")?;
+            }
+            StoragePoolEvent::StoragePoolExtended(ref extended) => {
+                self.inner
+                    .storage
+                    .set_storage_pool_end_epoch(&extended.storage_pool_id, extended.new_end_epoch)
+                    .context("failed to update storage pool end epoch")?;
+            }
+        }
+        event_handle.mark_as_complete();
         Ok(())
     }
 
@@ -3273,11 +3297,16 @@ impl StorageNodeInner {
     }
 
     fn is_blob_registered(&self, blob_id: &BlobId) -> Result<bool, anyhow::Error> {
-        Ok(self
+        let epoch = self.current_committee_epoch();
+        if self
             .storage
             .get_blob_info(blob_id)
             .context("could not retrieve blob info")?
-            .is_some_and(|blob_info| blob_info.is_registered(self.current_committee_epoch())))
+            .is_some_and(|blob_info| blob_info.is_registered(epoch))
+        {
+            return Ok(true);
+        }
+        Ok(false)
     }
 
     fn notify_registration(&self, blob_id: &BlobId) {
@@ -3321,11 +3350,16 @@ impl StorageNodeInner {
     }
 
     fn is_blob_certified(&self, blob_id: &BlobId) -> Result<bool, anyhow::Error> {
-        Ok(self
+        let epoch = self.current_committee_epoch();
+        if self
             .storage
             .get_blob_info(blob_id)
             .context("could not retrieve blob info")?
-            .is_some_and(|blob_info| blob_info.is_certified(self.current_committee_epoch())))
+            .is_some_and(|blob_info| blob_info.is_certified(epoch))
+        {
+            return Ok(true);
+        }
+        Ok(false)
     }
 
     /// Returns true if the blob is currently not certified.
