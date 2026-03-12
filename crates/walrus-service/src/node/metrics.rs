@@ -378,7 +378,6 @@ impl TelemetryLabel for StoragePoolEvent {
             StoragePoolEvent::PooledBlobCertified(_) => "pooled-blob-certified",
             StoragePoolEvent::PooledBlobDeleted(_) => "pooled-blob-deleted",
             StoragePoolEvent::StoragePoolExtended(_) => "storage-pool-extended",
-            StoragePoolEvent::StoragePoolCapacityIncreased(_) => "storage-pool-capacity-increased",
         }
     }
 }

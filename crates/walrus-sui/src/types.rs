@@ -36,7 +36,6 @@ pub use events::{
     ProtocolEvent,
     ProtocolVersionUpdatedEvent,
     RegisterDenyListUpdateEvent,
-    StoragePoolCapacityIncreasedEvent,
     StoragePoolEvent,
 };
 
@@ -48,7 +47,6 @@ pub use move_structs::{
     StakingObject,
     StorageNode,
     StorageNodeCap,
-    StoragePoolResource,
     StorageResource,
     SystemObject,
 };

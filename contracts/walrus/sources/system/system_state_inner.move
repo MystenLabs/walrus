@@ -959,13 +959,6 @@ public(package) fun increase_storage_pool_capacity(
 
     self.account_capacity(0, remaining_epochs, additional_encoded_capacity_bytes);
     storage_pool.increase_reserved_encoded_capacity(additional_encoded_capacity_bytes);
-
-    events::emit_storage_pool_capacity_increased(
-        self.epoch(),
-        storage_pool.object_id(),
-        additional_encoded_capacity_bytes,
-        storage_pool.reserved_encoded_capacity_bytes(),
-    );
 }
 
 /// Certifies a blob within a `StoragePool`.

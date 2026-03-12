@@ -71,9 +71,6 @@ use crate::{
             StakingInnerV1,
             StakingObjectForDeserialization,
             StakingPool,
-            StoragePoolForDeserialization,
-            StoragePoolInnerV1,
-            StoragePoolResource,
             SubsidiesInnerKey,
             SystemObjectForDeserialization,
             SystemStateInnerV1,
@@ -912,34 +909,6 @@ impl SuiReadClient {
             new_package_id,
             inner,
         })
-    }
-
-    /// Gets a storage pool object from the RPC node and resolves its inner state.
-    #[tracing::instrument(skip_all, level = Level::DEBUG)]
-    pub async fn get_storage_pool_object(
-        &self,
-        object_id: ObjectID,
-    ) -> SuiClientResult<StoragePoolResource> {
-        let storage_pool_for_deserialization: StoragePoolForDeserialization =
-            self.sui_client.get_sui_object(object_id).await?;
-        Self::get_full_storage_pool_object(&self.sui_client, storage_pool_for_deserialization).await
-    }
-
-    async fn get_full_storage_pool_object(
-        sui_client: &RetriableSuiClient,
-        storage_pool_for_deserialization: StoragePoolForDeserialization,
-    ) -> SuiClientResult<StoragePoolResource> {
-        let inner = sui_client
-            .get_dynamic_field::<u64, StoragePoolInnerV1>(
-                storage_pool_for_deserialization.id,
-                TypeTag::U64,
-                storage_pool_for_deserialization.version,
-            )
-            .await?;
-        Ok(StoragePoolResource::new(
-            storage_pool_for_deserialization,
-            inner,
-        ))
     }
 
     /// Gets the current system and staking objects from the RPC node.

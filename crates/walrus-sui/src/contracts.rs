@@ -238,7 +238,6 @@ pub mod system {
 pub mod storage_pool {
 
     contract_ident!(struct storage_pool::StoragePool);
-    contract_ident!(struct storage_pool::StoragePoolInnerV1);
     contract_ident!(struct storage_pool::PooledBlob);
 }
 
@@ -381,7 +380,6 @@ pub mod events {
     contract_ident!(struct events::PooledBlobCertified);
     contract_ident!(struct events::PooledBlobDeleted);
     contract_ident!(struct events::StoragePoolExtended);
-    contract_ident!(struct events::StoragePoolCapacityIncreased);
 }
 
 /// Module for tags corresponding to the Move module `auth`.
