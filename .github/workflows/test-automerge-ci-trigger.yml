@@ -1,0 +1,49 @@
+name: "Test: Automerge CI trigger"
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Create dummy PR to verify CI triggers
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Generate automerge token
+        id: automerge_token
+        uses: actions/create-github-app-token@29824e69f54612133e76f7eaac726eef6c875baf # pin@v2.2.1
+        with:
+          app-id: ${{ secrets.WALRUS_AUTOMERGE_APP_ID }}
+          private-key: ${{ secrets.WALRUS_AUTOMERGE_PRIVATE_KEY }}
+
+      - name: Create dummy branch and PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          AUTOMERGE_TOKEN: ${{ steps.automerge_token.outputs.token }}
+        run: |
+          BRANCH="test/automerge-ci-trigger-$(date +%s)"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git checkout -b "$BRANCH"
+
+          # Create a harmless dummy change
+          echo "# CI trigger test - $(date -u)" >> .ci-test-dummy
+          git add .ci-test-dummy
+          git commit -m "test: verify automerge app triggers CI"
+
+          # Push using the automerge token
+          git push \
+            "https://x-access-token:${AUTOMERGE_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
+            "$BRANCH"
+
+          # Create PR
+          PR_URL=$(gh pr create \
+            --base main \
+            --head "$BRANCH" \
+            --title "test: verify automerge CI trigger (safe to close)" \
+            --body "Automated test to verify that pushing with the walrus-automerge app token triggers CI. Safe to close.")
+          echo "Created PR: $PR_URL"
+          echo "Check if CI workflows triggered on this PR."
