@@ -1,14 +1,15 @@
 ---
-title: Storage Node Setup
+title: Set Up a Storage Node
+slug: /operator-guide/storage-node-setup
 description: "Step-by-step guide for setting up a Walrus storage node, including system preparation, TLS, configuration, and registration."
 keywords: ["walrus", "storage node", "setup", "TLS", "systemd", "configuration", "registration", "jemalloc"]
 ---
 
 This page walks you through the full initial setup of a Walrus storage node, from system preparation to registration and first startup.
 
-:::warning
+:::caution
 
-If you deviate from the standard setup below (user, directories, ports), make sure to adjust later steps accordingly. Some Walrus and Sui configuration files include absolute paths, so simply moving files without adjusting those might cause issues.
+If you deviate from the standard setup below (user, directories, ports), make sure to adjust later steps accordingly. Some Walrus and Sui configuration files include absolute paths, so moving files without adjusting those paths might cause issues.
 
 :::
 
@@ -23,48 +24,49 @@ If you deviate from the standard setup below (user, directories, ports), make su
 - [x] Complete initial system setup
 
 <details>
-<summary>Initial system setup instructions </summary>
-    ##### Step 1: Create a `walrus` user and group:
+<summary>Initial system setup instructions</summary>
 
-        ```sh
-        sudo useradd -s /bin/bash walrus
-        ```
+##### Step 1: Create a `walrus` user and group:
 
-    ##### Step 2: Create the directory structure:
+```sh
+sudo useradd -s /bin/bash walrus
+```
 
-        ```sh
-        sudo install -d -o walrus -g walrus -m 0755 \
-          /opt/walrus /opt/walrus/config /opt/walrus/config/tls /opt/walrus/bin /opt/walrus/db
-        ```
+##### Step 2: Create the directory structure:
 
-    ##### Step 3: Mount the storage partition:
+```sh
+sudo install -d -o walrus -g walrus -m 0755 \
+  /opt/walrus /opt/walrus/config /opt/walrus/config/tls /opt/walrus/bin /opt/walrus/db
+```
 
-    Mount the large storage partition to `/opt/walrus/db` and ensure it persists across reboots (for example, by adding an entry in `/etc/fstab`).
+##### Step 3: Mount the storage partition:
 
-    ##### Step 4: Configure the firewall:
+Mount the large storage partition to `/opt/walrus/db` and ensure it persists across reboots (for example, by adding an entry in `/etc/fstab`).
 
-    Open port **9185** (storage node) and **80** (automatic certificate renewal). If you plan to run an [aggregator or publisher](/docs/operator-guide/aggregator) on the same host, also open **9000** (aggregator) and/or **9001** (publisher), or **443** if you use a reverse proxy (recommended for production):
+##### Step 4: Configure the firewall:
 
-        ```sh
-        for PORT in 80 443 9185; do
-          sudo iptables -A INPUT -p tcp --dport $PORT -j ACCEPT
-        done
-        ```
+Open **port 9185** (storage node) and **port 80** (automatic certificate renewal). If you plan to run an [aggregator or publisher](/docs/operator-guide/aggregators/operating-aggregator) on the same host, also open **port 9000** (aggregator) or **port 9001** (publisher), or **port 443** if you use a reverse proxy (recommended for production):
 
-        Make the firewall configuration persistent across reboots:
+```sh
+for PORT in 80 443 9185; do
+  sudo iptables -A INPUT -p tcp --dport $PORT -j ACCEPT
+done
+```
 
-        ```sh
-        sudo apt-get install iptables-persistent
-        sudo iptables-save
-        ```
+Make the firewall configuration persistent across reboots:
 
-        Verify the rules: `sudo iptables -L INPUT -n`
+```sh
+sudo apt-get install iptables-persistent
+sudo iptables-save
+```
 
-    :::tip
+Verify the rules with `sudo iptables -L INPUT -n`.
 
-    You can test your firewall setup by running `nc -l <port>` on the Walrus host and `echo test | nc <hostname> <port>` from a different machine. You do not need to open the metrics port (9184).
+:::tip
 
-    :::
+You can test your firewall setup by running `nc -l PORT_NUMBER` on the Walrus host and `echo test | nc HOSTNAME PORT_NUMBER` from a different machine. You do not need to open the metrics port (**port 9184**).
+
+:::
 
 </details>
 
@@ -77,15 +79,15 @@ If you deviate from the standard setup below (user, directories, ports), make su
 
 The storage node handles TLS directly. If you deploy a reverse proxy in front of the storage node, you **must** disable TLS termination on the proxy or ensure it uses the same key as the storage node.
 
-:::warning
+:::caution
 
-Do not use self-signed certificates, as they prevent the node from communicating with browsers.
+Do not use self-signed certificates. They prevent the node from communicating with browsers.
 
 :::
 
 :::info
 
-You can use any tool to obtain and renew certificates. Just ensure you generate a key of the correct type (ECDSA secp256r1) in the correct format (PKCS8) and use the full certificate chain in PEM format.
+You can use any tool to obtain and renew certificates. Ensure you generate a key of the correct type (ECDSA secp256r1) in the correct format (PKCS8) and use the full certificate chain in PEM format.
 
 :::
 
@@ -93,7 +95,7 @@ The following steps use [certbot](https://certbot.eff.org) to request and manage
 
 ##### Step 1: Install certbot:
 
-Install certbot using snap from the edge channel, which is necessary for [PKCS#8 key format](https://github.com/certbot/certbot/issues/10131):
+Install certbot using snap from the edge channel. This is necessary for [PKCS#8 key format](https://github.com/certbot/certbot/issues/10131):
 
 ```sh
 sudo snap install --classic certbot --channel=edge
@@ -101,7 +103,7 @@ sudo snap install --classic certbot --channel=edge
 
 ##### Step 2: Set the `SERVER_NAME` environment variable:
 
-Set this to the node's public hostname:
+Set this to the public hostname of the node:
 
 ```sh
 SERVER_NAME=  # your node's public hostname
@@ -113,7 +115,7 @@ dig +short $SERVER_NAME
 
 ##### Step 3: Create the deploy hook script:
 
-Save the following script at `/opt/walrus/bin/tls-deploy-hook.sh`. Certbot uses this to copy certificates to the storage node's TLS directory after issuance or renewal:
+Save the following script at `/opt/walrus/bin/tls-deploy-hook.sh`. Certbot uses this script to copy certificates to the TLS directory of the storage node after issuance or renewal:
 
 ```bash
 #!/usr/bin/env bash
@@ -141,7 +143,7 @@ sudo chown walrus /opt/walrus/bin/tls-deploy-hook.sh
 sudo chmod u=rwx,g=rx,o=rx /opt/walrus/bin/tls-deploy-hook.sh
 ```
 
-##### Step 5: Perform a dry-run:
+##### Step 5: Perform a dry run:
 
 ```sh
 sudo certbot certonly --standalone \
@@ -153,7 +155,7 @@ sudo certbot certonly --standalone \
 
 ##### Step 6: Obtain the certificate:
 
-If the dry-run was successful, re-run the command without `--dry-run` to obtain the actual certificate.
+If the dry run succeeded, re-run the command without `--dry-run` to obtain the actual certificate.
 
 After this, certbot automatically renews the certificate before it expires, and the node picks up changes to the file. You can verify the setup:
 
@@ -167,12 +169,11 @@ sudo systemctl status snap.certbot.renew.timer
 
 :::tip
 
-If you need to manually re-run the deploy hook, use:
-`sudo certbot reconfigure --cert-name walrus-storage-node --run-deploy-hooks`
+If you need to manually re-run the deploy hook, use `sudo certbot reconfigure --cert-name walrus-storage-node --run-deploy-hooks`.
 
 :::
 
-## Install jemalloc {#jemalloc}
+## Install `jemalloc` {#jemalloc}
 
 It is **highly recommended** to install [jemalloc](https://jemalloc.net/) for improved memory allocation performance:
 
@@ -188,7 +189,7 @@ The library path `/usr/lib/x86_64-linux-gnu/libjemalloc.so.2` is for x86_64 Ubun
 
 :::
 
-## systemd service file {#systemd}
+## Create the systemd service file {#systemd}
 
 Create a systemd service at `/etc/systemd/system/walrus-node.service`:
 
@@ -213,7 +214,7 @@ WantedBy=multi-user.target
 
 :::info
 
-`TimeoutStopSec=300` gives the node up to 5 minutes to shut down gracefully, including terminating open connections and flushing the database. If you find this to be too short, you can increase it.
+`TimeoutStopSec=300` gives the node up to 5 minutes to shut down gracefully, including terminating open connections and flushing the database. If you find this too short, you can increase it.
 
 :::
 
@@ -244,13 +245,13 @@ NETWORK=testnet
 </TabItem>
 </Tabs>
 
-Set the server name (as configured in the [TLS setup](#tls-setup)):
+Set the server name (as configured in the [TLS setup](#tls-setup) section):
 
 ```sh
 SERVER_NAME=  # your node's public hostname
 ```
 
-### Download binaries
+### Download binaries {#binaries}
 
 Download the `walrus-node` and `walrus` binaries:
 
@@ -288,25 +289,25 @@ curl "https://docs.wal.app/setup/client_config_$NETWORK.yaml" -o $CLIENT_CONFIG
 
 The `walrus-node setup` command generates the node configuration and a Sui wallet. Key options:
 
-- `--node-capacity`: Use the capacity that you can dedicate to the Walrus database. Accepts values like `3.14TB`, `2.718TiB`, and similar units.
-- `--sui-network`: The Sui full node URL used to configure the storage node's wallet.
-- `--sui-rpc`: The Sui RPC URL used for all Sui interactions. Can be the same as `--sui-network` or a separate endpoint. See the [FAQ](/docs/operator-guide/storage-node-faq#sui-rpc) for the distinction.
+- `--node-capacity`: The capacity you can dedicate to the Walrus database. Accepts values like `3.14TB`, `2.718TiB`, and similar units.
+- `--sui-network`: The Sui full node URL used to configure the wallet of the storage node.
+- `--sui-rpc`: The Sui RPC URL used for all Sui interactions. This can be the same as `--sui-network` or a separate endpoint. See the [FAQ](/docs/operator-guide/storage-node-faq#sui-rpc) for the distinction.
 - `--checkpoint-bucket`: URL for checkpoint-based transaction reading as a fallback.
-- `--additional-rpc-endpoints`: Additional Sui RPC endpoints for redundancy (can be specified multiple times).
-- `--storage-price` and `--write-price`: Your voting parameters for the storage price per MiB and epoch, and write price per MiB (one-time fee). The currency can be specified with the `--price-currency` flag (defaults to FROST). Check with the Walrus Foundation for the current recommended values.
-- `--commission-rate`: Commission rate in basis points (100 bp = 1%). See the [FAQ](/docs/operator-guide/storage-node-faq#commission) for details. The default value of 6000 bp (60%) is the the maximum commission rate if you intend to receive staking from the Walrus Foundation.
+- `--additional-rpc-endpoints`: Additional Sui RPC endpoints for redundancy (you can specify this option multiple times).
+- `--storage-price` and `--write-price`: Your voting parameters for the storage price per MiB and epoch, and write price per MiB (one-time fee). You can specify the currency with the `--price-currency` flag (defaults to FROST). Check with the Walrus Foundation for the current recommended values.
+- `--commission-rate`: Commission rate in basis points (100 bp = 1%). See the [FAQ](/docs/operator-guide/storage-node-faq#commission) for details. The default value of 6000 bp (60%) is the maximum commission rate if you intend to receive staking from the Walrus Foundation.
 - `--metrics-push-url`: URL for pushing Prometheus metrics. The Walrus Foundation provides a metrics endpoint for committee members.
 - `--image-url`, `--project-url`, `--description`: Optional metadata about your node.
 
-All of these options can also be changed in the generated config file after setup.
+You can also change all of these options in the generated configuration file after setup.
 
 :::info
 
-Operators who set up their node in coordination with the Walrus Foundation or Mysten Labs can get access to a dedicated Sui full node. Otherwise, you need to run your own or use a third-party RPC provider. The Sui full node must sustain at least 10 requests per second for checkpoint data. If you run your own Sui RPC node, make sure to always keep it up-to-date and **not** enable aggressive pruning (all data must be kept for at least one week on Mainnet or two days on Testnet).
+Operators who set up their node in coordination with the Walrus Foundation or Mysten Labs can get access to a dedicated Sui full node. Otherwise, you need to run your own or use a third-party RPC provider. The Sui full node must sustain at least 10 requests per second for checkpoint data. If you run your own Sui RPC node, make sure to always keep it up to date and **not** enable aggressive pruning (keep all data for at least 1 week on Mainnet or 2 days on Testnet).
 
 :::
 
-Extract the system and staking object IDs from the client configuration file downloaded earlier:
+Extract the system and staking object IDs from the client configuration file you downloaded earlier:
 
 ```sh
 SYSTEM_OBJECT=$(awk '/^system_object:/ {print $2}' $CLIENT_CONFIG)
@@ -339,7 +340,7 @@ SUI_RPC_URL=     # URL of a Sui full node for the target network
   --force
 ```
 
-:::info
+:::tip
 
 Run `walrus-node setup --help` for a full description of all options.
 
@@ -349,18 +350,19 @@ After setup, review the generated configuration file at `/opt/walrus/config/walr
 
 ### Wallet configuration
 
-The `walrus-node setup` command creates a Sui wallet at `/opt/walrus/config/sui_config.yaml` with the private key in `/opt/walrus/config/sui.keystore`. You can replace these with a different wallet, but note that you might have to adjust absolute paths in `sui_config.yaml`.
+The `walrus-node setup` command creates a Sui wallet at `/opt/walrus/config/sui_config.yaml` with the private key in `/opt/walrus/config/sui.keystore`. You can replace these with a different wallet, but you might have to adjust absolute paths in `sui_config.yaml`.
 
-:::warning
+:::caution
 
 Do not reuse any keys, wallets, or other secrets from Testnet or anywhere else. Each network deployment should use freshly generated credentials.
 
 :::
 
-## Registration and startup {#registration}
+## Register and start the node {#registration}
 
 ##### Step 1: Fund the wallet:
-Send SUI to the wallet address shown during setup. 1 SUI is sufficient for registration, but the node needs additional SUI for ongoing operation. A recommended initial balance is ~20 SUI.
+
+Send SUI to the wallet address shown during setup. 1 SUI is sufficient for registration, but the node needs additional SUI for ongoing operation. A recommended initial balance is approximately 20 SUI.
 
 <Tabs>
 <TabItem label="Mainnet" value="mainnet">
@@ -370,7 +372,7 @@ Transfer SUI from an existing wallet or exchange to the address shown during set
 </TabItem>
 <TabItem label="Testnet" value="testnet">
 
-You can use the [Sui Testnet faucet](https://faucet.sui.io) to obtain test SUI. Note that the faucet has rate limits, so you may need to make multiple requests or wait between attempts. Alternatively, transfer SUI from an existing Testnet wallet.
+You can use the [Sui Testnet faucet](https://faucet.sui.io) to obtain test SUI. The faucet has rate limits, so you might need to make multiple requests or wait between attempts. Alternatively, transfer SUI from an existing Testnet wallet.
 
 </TabItem>
 </Tabs>
@@ -381,9 +383,9 @@ You can use the [Sui Testnet faucet](https://faucet.sui.io) to obtain test SUI. 
 /opt/walrus/bin/walrus-node register --config-path /opt/walrus/config/walrus-node.yaml
 ```
 
-:::warning
+:::caution
 
-Registration must be run during initial setup. It creates the on-chain records for your node.
+You must run registration during initial setup. It creates the on-chain records for your node.
 
 :::
 
@@ -407,16 +409,16 @@ journalctl -efu walrus-node
 
 :::info
 
-Before the node is selected for the committee, you might see error messages like `"message":"unable to push metrics","error":"metrics push failed: [403 Forbidden]"`. This is expected, as your node is not part of the committee yet and must be specifically allowlisted to send metrics.
+Before the node is selected for the committee, you might see error messages like `"message":"unable to push metrics","error":"metrics push failed: [403 Forbidden]"`. This is expected because your node is not part of the committee yet and must be specifically allowlisted to send metrics.
 
 :::
 
 ##### Step 6: Check the health endpoint:
 
-Ideally from a different machine to also verify firewall setup:
+Run the following command from a different machine to also verify the firewall setup:
 
 ```sh
-curl https://<public-address>:9185/v1/health | jq
+curl https://PUBLIC_ADDRESS:9185/v1/health | jq
 ```
 
 :::tip
@@ -429,12 +431,12 @@ curl -sk https://localhost:9185/v1/health | jq
 
 :::
 
-This should return a 200 status with a non-empty JSON payload. The `nodeStatus` should be `Standby`. You can also check `https://<public-address>:9185/v1/api` in a browser to verify the TLS certificate is set up correctly.
+This should return a 200 status with a non-empty JSON payload. The `nodeStatus` value should be `Standby`. You can also check `https://PUBLIC_ADDRESS:9185/v1/api` in a browser to verify the TLS certificate is set up correctly.
 
 ##### Step 7: Verify the on-chain key:
 
-Use the `walrus health` command. This performs a cryptographic check that the node uses the key registered on chain:
+Use the `walrus health` command. This performs a cryptographic check that the node uses the key registered on-chain:
 
 ```sh
-/opt/walrus/bin/walrus --config /opt/walrus/config/client_config.yaml health --node-id <YOUR_NODE_ID>
+/opt/walrus/bin/walrus --config /opt/walrus/config/client_config.yaml health --node-id YOUR_NODE_ID
 ```

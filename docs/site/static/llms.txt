@@ -82,10 +82,9 @@ Important notes:
 - [Reading Blobs](https://docs.wal.app/docs/walrus-client/reading-blobs.md): You can query the
     status of a blob through one of the following commands: Each command returns output that
     indicates whether the specified blob is stored and its availability period.
-- [Storing Blobs](https://docs.wal.app/docs/walrus-client/storing-blobs.md): After you upload a
-    blob to Walrus, it has 2 identifiers: Blob ID: A way to reference the blob on Walrus. The
-    system generates the blob ID based on the blob's contents, meaning any file you upload to the
-    network twice results in the same blob ID.
+- [Storing Blobs](https://docs.wal.app/docs/walrus-client/storing-blobs.md): All blobs stored in
+    Walrus are public and discoverable by all. To store sensitive data, use Seal or Nautilus to
+    encrypt the data before storing it on Walrus.
 - [Walrus CLI](https://docs.wal.app/docs/walrus-client/walrus-cli.md): Use the command-line
     interface (CLI) to interact with the Walrus client. The CLI is available by installing the
     walrus binary.
@@ -137,6 +136,9 @@ Important notes:
     publisher to expose the HTTP API. Run a local Walrus daemon through the walrus binary using one
     of three commands: walrus aggregator: Starts an aggregator that offers an HTTP interface to
     read blobs from Walrus.
+- [Operating
+    Aggregator](https://docs.wal.app/docs/operator-guide/aggregators/operating-aggregator.md): Run
+    a Walrus aggregator to expose the HTTP API.
 - [Auth Publisher](https://docs.wal.app/docs/operator-guide/auth-publisher.md): The authenticated
     publisher requires HTTP requests to store a blob to be authenticated. Use an authenticated
     publisher as a building block for services that require storing over HTTP on Walrus Mainnet,
@@ -150,13 +152,38 @@ Important notes:
     the values in the node configuration, authorization for contract upgrades and withdrawing the
     storage node's commission is handled separately to ensure that the hot wallet on the storage
     node does not need to be authorized for these operations.
+- [Operator Guide](https://docs.wal.app/docs/operator-guide.md): Service providers on Walrus host
+    network services such as storage nodes, aggregators, and publishers.
+- [Limitations](https://docs.wal.app/docs/operator-guide/limitations.md): By default, store blob
+    requests are limited to 10 MiB. You can increase this limit through the --max-body-size option.
+    Store quilt requests are limited to 100 MiB by default, and you can increase them using the
+    --max-quilt-body-size option.
 - [Operator Guide](https://docs.wal.app/docs/operator-guide/operator-guide.md): This guide contains
     information about operating services in the network, specifically storage nodes, aggregators
     and publishers.
+- [Auth Publisher](https://docs.wal.app/docs/operator-guide/publisher/auth-publisher.md): The
+    authenticated publisher requires HTTP requests to store a blob to be authenticated. Use an
+    authenticated publisher as a building block for services that need to store data over HTTP on
+    Walrus Mainnet, where an open publisher is undesirable because of the SUI and WAL cost of
+    publishing to Walrus.
+- [Operating Publisher](https://docs.wal.app/docs/operator-guide/publisher/operating-publisher.md):
+    The publisher and daemon perform on-chain actions and require a Sui wallet with sufficient SUI
+    and WAL balances. To handle many parallel requests without object conflicts, they create
+    internal sub-wallets (introduced in version 1.4.0) funded from the main wallet.
+- [Auth Publisher](https://docs.wal.app/docs/operator-guide/publishers/auth-publisher.md): The
+    authenticated publisher requires HTTP requests to store a blob to be authenticated. Use an
+    authenticated publisher as a building block for services that need to store data over HTTP on
+    Walrus Mainnet, where an open publisher is undesirable because of the SUI and WAL cost of
+    publishing to Walrus.
+- [Operating
+    Publisher](https://docs.wal.app/docs/operator-guide/publishers/operating-publisher.md): The
+    publisher and daemon perform on-chain actions and require a Sui wallet with sufficient SUI and
+    WAL balances. To handle many parallel requests without object conflicts, they create internal
+    sub-wallets (introduced in version 1.4.0) funded from the main wallet.
 - [Signed Binaries](https://docs.wal.app/docs/operator-guide/signed-binaries.md): Walrus release
     binaries and Docker images are signed using Cosign with a GCP KMS key. Each binary has a
-    corresponding .sig file containing its signature, and Docker image signatures are stored in the
-    registry.
+    corresponding .sig file containing its signature. Docker image signatures are stored in the
+    registry. The easiest way to download and verify binaries is to use the provided script.
 - [Storage Node FAQ](https://docs.wal.app/docs/operator-guide/storage-node-faq.md): The storage
     node must have a wallet compatible with the Sui Rust SDK. This cannot be a hardware wallet or
     anything that requires user interaction for transactions, because the node needs to send
@@ -176,8 +203,41 @@ Important notes:
     directories, ports), make sure to adjust later steps accordingly.
 - [Storage Node](https://docs.wal.app/docs/operator-guide/storage-node.md): This section covers
     everything you need to set up and operate a Walrus storage node.
-- [Upload Relay](https://docs.wal.app/docs/operator-guide/upload-relay.md): Walrus enables dApps to
-    store data from within their end-users' browsers having low to moderate machine specifications
+- [Backup Restore
+    Guide](https://docs.wal.app/docs/operator-guide/storage-nodes/backup-restore-guide.md): Walrus
+    storage nodes provide backup and restore functionality for the primary database containing blob
+    data. This guide covers configuration requirements, operational procedures, and best practices
+    for automated and manual backup processes and restore operations.
+- [Commission
+    Governance](https://docs.wal.app/docs/operator-guide/storage-nodes/commission-governance.md):
+    You can change most node parameters using StorageNodeCap, and the storage node automatically
+    updates them based on the values in the node configuration. However, authorization for contract
+    upgrades and withdrawing the storage node commission is handled separately.
+- [Storage Nodes](https://docs.wal.app/docs/operator-guide/storage-nodes.md): This section covers
+    everything you need to set up and operate a Walrus storage node.
+- [Storage Node FAQ](https://docs.wal.app/docs/operator-guide/storage-nodes/storage-node-faq.md):
+    The storage node must have a wallet compatible with the Sui Rust SDK. This cannot be a hardware
+    wallet or anything that requires user interaction for transactions, because the node needs to
+    send transactions as part of normal operation. The walrus-node setup command creates such a
+    wallet.
+- [Storage Node
+    Maintenance](https://docs.wal.app/docs/operator-guide/storage-nodes/storage-node-maintenance.md):
+    This page covers the ongoing operation of your Walrus storage node after initial setup. Back up
+    the /opt/walrus/config directory. For database backups, see the Backup and Restore Guide. The
+    following metrics are the most important for monitoring node health.
+- [Storage Node
+    Migration](https://docs.wal.app/docs/operator-guide/storage-nodes/storage-node-migration.md):
+    This guide covers migrating a Walrus storage node to new hardware. It assumes you run the node
+    (and optionally an aggregator and publisher) on the same host. To reduce downtime, start by
+    transferring all data while the old host is still running. Wait for each command to finish
+    before proceeding.
+- [Storage Node
+    Setup](https://docs.wal.app/docs/operator-guide/storage-nodes/storage-node-setup.md): This page
+    walks you through the full initial setup of a Walrus storage node, from system preparation to
+    registration and first startup. If you deviate from the standard setup below (user,
+    directories, ports), make sure to adjust later steps accordingly.
+- [Upload Relay](https://docs.wal.app/docs/operator-guide/upload-relay.md): Walrus enables apps to
+    store data from within end-user browsers that have low to moderate machine specifications
     (mobile devices, low-powered laptops, and so on).
 
 ## Sites
@@ -258,10 +318,15 @@ Important notes:
     such as the one published by https://flatland.wal.app. As shown there, each minted NFT has its
     own Walrus Site, which can be personalized based on the contents, for example, the color, of
     the NFT itself. To achieve this, add a "redirect" in the NFT's Display property.
-- [Deploy Locally](https://docs.wal.app/docs/sites/portals/deploy-locally.md): The term portal is
-    used to indicate any technology that is used to access and browse Walrus Sites. Currently, only
-    a server-side portal is served at https://wal.app. https://wal.app only serves sites deployed
-    on mainnet, linked with SuiNS names. You can run a portal to access Mainnet sites as well.
+- [Mainnet](https://docs.wal.app/docs/sites/portals/deploy-locally.md): To view a website deployed
+    using Walrus Sites, you must use a Sites Portal. A portal retrieves site resources from Walrus
+    and their corresponding Sui objects before serving the site in your browser. You can browse any
+    Walrus Site deployed on Mainnet or Testnet using a Sites Portal.
+- [Uncomment and configure when enableallowlist is
+    true](https://docs.wal.app/docs/sites/portals/mainnet-testnet.md): Walrus Site Portals are used
+    to access and browse a Walrus Site. The portal you run must match the network on which your
+    site is deployed. Each network has its own on-chain package, default RPC endpoint, and Walrus
+    aggregator.
 - [Site Data Authentication](https://docs.wal.app/docs/sites/security/site-data-authentication.md):
     Walrus Sites authenticate the data that is served on the client side from the Walrus storage,
     guaranteeing with various degrees of confidence depending on the setup, that the site data is
