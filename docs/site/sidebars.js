@@ -96,7 +96,6 @@ const sidebars = {
       ],
     },
     'data-security',
-    'stake',
     'tusky-migration-guide',
     'troubleshooting/index',
     {
@@ -237,6 +236,7 @@ const sidebars = {
             },
             "operator-guide/upload-relay",
             "operator-guide/signed-binaries",
+            "operator-guide/stake",
         ],
     },
     ],
