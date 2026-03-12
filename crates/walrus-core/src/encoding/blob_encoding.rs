@@ -1223,4 +1223,23 @@ mod tests {
             assert_eq!(blob, blob_dec, "decoded blob does not match original blob");
         }
     }
+
+    #[test]
+    fn test_v1_blob_id_stability() {
+        // Regression test: encode a fixed blob and assert the blob ID is unchanged.
+        // If this test fails, the blob ID computation has changed — that's almost
+        // certainly a bug, since it would invalidate all existing on-chain blob IDs.
+        let blob = b"walrus blob id v1 regression test";
+        let n_shards = NonZeroU16::new(10).unwrap();
+        let config = ReedSolomonEncodingConfig::new(n_shards);
+        let encoder = config.get_blob_encoder(blob.as_slice()).unwrap();
+        let (_sliver_pairs, metadata) = encoder.encode_with_metadata();
+        let blob_id = metadata.blob_id();
+
+        let actual = std::format!("{blob_id}");
+        assert_eq!(
+            actual, "RcU82Mwf-CFkv1LaI_2qcpANwpGUuG3TMwnVzZxD2kY",
+            "blob ID computation has changed — this breaks backward compatibility"
+        );
+    }
 }
