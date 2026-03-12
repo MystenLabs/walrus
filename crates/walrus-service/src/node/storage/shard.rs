@@ -155,6 +155,7 @@ impl Display for ShardStatus {
 }
 
 impl ShardStatus {
+    /// Returns true if the shard is owned by this node (i.e. not locked to move).
     pub fn is_owned_by_node(&self) -> bool {
         self != &ShardStatus::LockedToMove
     }
@@ -220,7 +221,7 @@ impl ShardSyncProgress {
         })
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-utils"))]
     fn last_synced_blob_id(&self) -> Option<BlobId> {
         match self {
             ShardSyncProgress::V1(p) => Some(p.last_synced_blob_id),
@@ -280,6 +281,7 @@ impl From<SecondarySliverData> for SecondarySliver {
     }
 }
 
+/// Per-shard storage managing slivers and shard status.
 #[derive(Debug, Clone)]
 pub struct ShardStorage {
     id: ShardIndex,
@@ -481,7 +483,7 @@ impl ShardStorage {
 
     /// Returns the sliver of the specified type that is stored for that Blob ID, if any.
     #[tracing::instrument(skip_all, fields(walrus.shard_index = %self.id), err)]
-    pub(crate) fn get_sliver(
+    pub fn get_sliver(
         &self,
         blob_id: &BlobId,
         sliver_type: SliverType,
@@ -631,7 +633,8 @@ impl ShardStorage {
         )
     }
 
-    pub(crate) async fn status(&self) -> Result<ShardStatus, TypedStoreError> {
+    /// Returns the current status of this shard.
+    pub async fn status(&self) -> Result<ShardStatus, TypedStoreError> {
         self.shard_status
             .read()
             .await
@@ -1679,8 +1682,9 @@ impl ShardStorage {
             .update_status(ShardStatus::LockedToMove)
     }
 
-    #[cfg(test)]
-    pub(crate) fn sliver_count(&self, sliver_type: SliverType) -> Result<usize, TypedStoreError> {
+    /// Returns the count of slivers of the given type stored in this shard.
+    #[cfg(any(test, feature = "test-utils"))]
+    pub fn sliver_count(&self, sliver_type: SliverType) -> Result<usize, TypedStoreError> {
         match sliver_type {
             SliverType::Primary => self
                 .primary_slivers
@@ -1693,16 +1697,15 @@ impl ShardStorage {
         }
     }
 
-    #[cfg(test)]
-    pub(crate) async fn update_status_in_test(
-        &self,
-        status: ShardStatus,
-    ) -> Result<(), TypedStoreError> {
+    /// Updates the shard status (test helper).
+    #[cfg(any(test, feature = "test-utils"))]
+    pub async fn update_status_in_test(&self, status: ShardStatus) -> Result<(), TypedStoreError> {
         self.shard_status.write().await.update_status(status)
     }
 
-    #[cfg(test)]
-    pub(crate) fn check_and_record_missing_blobs_in_test(
+    /// Checks and records missing blobs (test helper).
+    #[cfg(any(test, feature = "test-utils"))]
+    pub fn check_and_record_missing_blobs_in_test(
         &self,
         blob_info_iter: &mut BlobInfoIterator,
         next_blob_info: Option<(BlobId, BlobInfo)>,
@@ -1721,8 +1724,9 @@ impl ShardStorage {
         Ok(next_blob_info)
     }
 
-    #[cfg(test)]
-    pub(crate) fn all_pending_recover_slivers(
+    /// Returns all pending recover slivers (test helper).
+    #[cfg(any(test, feature = "test-utils"))]
+    pub fn all_pending_recover_slivers(
         &self,
     ) -> Result<Vec<(SliverType, BlobId)>, TypedStoreError> {
         self.pending_recover_slivers
@@ -1731,8 +1735,9 @@ impl ShardStorage {
             .collect()
     }
 
-    #[cfg(test)]
-    pub(crate) fn get_last_synced_blob_id(&self) -> Result<Option<BlobId>, TypedStoreError> {
+    /// Returns the last synced blob ID for this shard (test helper).
+    #[cfg(any(test, feature = "test-utils"))]
+    pub fn get_last_synced_blob_id(&self) -> Result<Option<BlobId>, TypedStoreError> {
         self.shard_sync_progress
             .get(&())
             .map(|progress| progress.and_then(|p| p.last_synced_blob_id()))

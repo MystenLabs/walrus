@@ -57,6 +57,7 @@ pub struct ShardSyncHandler {
 }
 
 impl ShardSyncHandler {
+    /// Creates a new shard sync handler.
     pub fn new(node: Arc<StorageNodeInner>, config: ShardSyncConfig) -> Self {
         Self {
             node,
@@ -597,7 +598,8 @@ impl ShardSyncHandler {
         }
     }
 
-    #[cfg(test)]
+    /// Returns the number of currently running sync tasks.
+    #[cfg(any(test, feature = "test-utils"))]
     pub async fn current_sync_task_count(&self) -> usize {
         self.shard_sync_in_progress
             .lock()
@@ -607,13 +609,15 @@ impl ShardSyncHandler {
             .count()
     }
 
-    #[cfg(all(msim, test, feature = "test-utils"))]
+    /// Returns true if there is no pending recover-metadata task.
+    #[cfg(all(msim, any(test, feature = "test-utils")))]
     pub async fn no_pending_recover_metadata(&self) -> bool {
         let task_handle = self.task_handle.lock().await;
         task_handle.is_none() || task_handle.as_ref().unwrap().is_finished()
     }
 
-    #[cfg(all(msim, test, feature = "test-utils"))]
+    /// Clears all in-progress shard sync tasks.
+    #[cfg(all(msim, any(test, feature = "test-utils")))]
     pub async fn clear_shard_sync_tasks(&self) {
         self.shard_sync_in_progress.lock().await.clear();
     }
