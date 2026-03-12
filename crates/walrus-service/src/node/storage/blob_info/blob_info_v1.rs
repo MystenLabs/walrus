@@ -310,7 +310,7 @@ impl ValidBlobInfoV1 {
 
     /// Processes a register status change on the [`Option<PermanentBlobInfoV1>`] object
     /// representing all permanent blobs.
-    fn register_permanent(
+    pub(crate) fn register_permanent(
         permanent_total: &mut Option<PermanentBlobInfoV1>,
         change_info: &BlobStatusChangeInfo,
     ) {
@@ -321,7 +321,7 @@ impl ValidBlobInfoV1 {
     /// and the certified permanent blobs.
     ///
     /// Returns whether the update was successful.
-    fn certify_permanent(
+    pub(crate) fn certify_permanent(
         permanent_total: &Option<PermanentBlobInfoV1>,
         permanent_certified: &mut Option<PermanentBlobInfoV1>,
         change_info: &BlobStatusChangeInfo,
@@ -356,7 +356,7 @@ impl ValidBlobInfoV1 {
 
     /// Processes an extend status change on the [`PermanentBlobInfoV1`] object representing the
     /// certified permanent blobs.
-    fn extend_permanent(
+    pub(crate) fn extend_permanent(
         permanent_info: &mut Option<PermanentBlobInfoV1>,
         change_info: &BlobStatusChangeInfo,
     ) {
@@ -380,7 +380,7 @@ impl ValidBlobInfoV1 {
         self.maybe_unset_initial_certified_epoch();
     }
 
-    fn decrement_blob_info_inner(blob_info_inner: &mut Option<PermanentBlobInfoV1>) {
+    pub(crate) fn decrement_blob_info_inner(blob_info_inner: &mut Option<PermanentBlobInfoV1>) {
         match blob_info_inner {
             None => tracing::error!("attempt to delete a permanent blob when none is tracked"),
             Some(PermanentBlobInfoV1 { count, .. }) => {
@@ -472,7 +472,7 @@ impl PermanentBlobInfoV1 {
     /// # Panics
     ///
     /// Panics if the change info has `deletable == true`.
-    fn update(&mut self, change_info: &BlobStatusChangeInfo, increase_count: bool) {
+    pub(crate) fn update(&mut self, change_info: &BlobStatusChangeInfo, increase_count: bool) {
         assert!(!change_info.deletable);
 
         if increase_count {
@@ -514,7 +514,7 @@ impl PermanentBlobInfoV1 {
     }
 
     #[cfg(test)]
-    fn new_fixed_for_testing(count: u32, end_epoch: Epoch, event_seq: u64) -> Self {
+    pub(crate) fn new_fixed_for_testing(count: u32, end_epoch: Epoch, event_seq: u64) -> Self {
         Self {
             count: NonZeroU32::new(count).expect("count must be non-zero"),
             end_epoch,
@@ -523,7 +523,7 @@ impl PermanentBlobInfoV1 {
     }
 
     #[cfg(test)]
-    fn new_for_testing(count: u32, end_epoch: Epoch) -> Self {
+    pub(crate) fn new_for_testing(count: u32, end_epoch: Epoch) -> Self {
         Self {
             count: NonZeroU32::new(count).expect("count must be non-zero"),
             end_epoch,
@@ -664,6 +664,11 @@ impl Mergeable for BlobInfoV1 {
                 Self::Valid(valid_blob_info),
                 BlobInfoMergeOperand::PermanentExpired { was_certified },
             ) => valid_blob_info.permanent_expired(was_certified),
+            // Pool operands should never reach V1 — they are intercepted at the BlobInfo level.
+            (_, BlobInfoMergeOperand::PooledBlobChangeStatus { .. })
+            | (_, BlobInfoMergeOperand::PoolExpired { .. }) => {
+                unreachable!("pool operands should be handled in BlobInfoV2")
+            }
         }
         self
     }
@@ -732,9 +737,18 @@ impl Mergeable for BlobInfoV1 {
                 );
                 None
             }
+            // Pool operands should never reach V1 — they are intercepted at the BlobInfo level.
+            BlobInfoMergeOperand::PooledBlobChangeStatus { .. }
+            | BlobInfoMergeOperand::PoolExpired { .. } => {
+                unreachable!("pool operands should be handled in BlobInfoV2")
+            }
         }
     }
 }
+
+// =============================================================================
+// Per-object blob info V1
+// =============================================================================
 
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq, Clone)]
 pub(crate) struct PerObjectBlobInfoV1 {
@@ -782,6 +796,10 @@ impl PerObjectBlobInfoApi for PerObjectBlobInfoV1 {
 
     fn is_deleted(&self) -> bool {
         self.deleted
+    }
+
+    fn storage_pool_id(&self) -> Option<ObjectID> {
+        None
     }
 }
 
