@@ -135,11 +135,6 @@ Important notes:
 - [Operating
     Aggregator](https://docs.wal.app/docs/operator-guide/aggregators/operating-aggregator.md): Run
     a Walrus aggregator to expose the HTTP API.
-- [Commission Governance](https://docs.wal.app/docs/operator-guide/commission-governance.md): While
-    most node parameters can be changed using StorageNodeCap and are automatically updated based on
-    the values in the node configuration, authorization for contract upgrades and withdrawing the
-    storage node's commission is handled separately to ensure that the hot wallet on the storage
-    node does not need to be authorized for these operations.
 - [Operator Guide](https://docs.wal.app/docs/operator-guide.md): Service providers on Walrus host
     network services such as storage nodes, aggregators, and publishers.
 - [Limitations](https://docs.wal.app/docs/operator-guide/limitations.md): By default, store blob
@@ -190,7 +185,7 @@ Important notes:
     send transactions as part of normal operation. The walrus-node setup command creates such a
     wallet.
 - [Storage Node
-    Maintenance](https://docs.wal.app/docs/operator-guide/storage-nodes/storage-node-maintenance.md)
+    Maintenance](https://docs.wal.app/docs/operator-guide/storage-nodes/storage-node-maintenance.md):
     This page covers the ongoing operation of your Walrus storage node after initial setup. Back up
     the /opt/walrus/config directory. For database backups, see the Backup and Restore Guide. The
     following metrics are the most important for monitoring node health.
@@ -300,12 +295,6 @@ Important notes:
     Walrus Sites authenticate the data that is served on the client side from the Walrus storage,
     guaranteeing with various degrees of confidence depending on the setup, that the site data is
     authentic and has not been tampered with by a malicious aggregator.
-
-## Stake
-
-- [Stake](https://docs.wal.app/docs/stake.md): In Walrus, anyone can delegate stake to storage
-    nodes and, by doing so, influence which storage nodes get selected for the committee in future
-    epochs and how many shards these nodes hold.
 
 ## Troubleshooting
 

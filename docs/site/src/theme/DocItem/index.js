@@ -16,10 +16,7 @@ export default function DocItemWrapper(props) {
     <>
       {pathname.startsWith("/docs/operator-guide") && (
         <style>{`
-          article.docCardListItem_GKOs a[href="/docs/operator-guide"] {
-            display: none;
-          }
-          article.docCardListItem_GKOs:has(a[href="/docs/operator-guide"]) {
+          article:has(> a[href="/docs/operator-guide"]) {
             display: none;
           }
         `}</style>
