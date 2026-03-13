@@ -460,7 +460,7 @@ async fn configure_self_signed_tls(
 
     let tls_config = RustlsConfig::from_der(
         vec![certificate_der.clone()],
-        certified_key_pair.key_pair.serialize_der(),
+        certified_key_pair.signing_key.serialize_der(),
     )
     .await
     .expect("self signed certificate to result in valid config");
@@ -498,7 +498,7 @@ async fn configure_tls_from_pem(
 fn create_self_signed_certificate(
     key_pair: &NetworkKeyPair,
     public_server_name: String,
-) -> CertifiedKey {
+) -> CertifiedKey<RcGenKeyPair> {
     let generated_server_name =
         walrus_storage_node_client::server_name_from_public_key(key_pair.public());
     let pkcs8_key_pair = to_pkcs8_key_pair(key_pair);
@@ -515,7 +515,7 @@ fn create_self_signed_certificate(
 
     CertifiedKey {
         cert: certificate,
-        key_pair: pkcs8_key_pair,
+        signing_key: pkcs8_key_pair,
     }
 }
 
@@ -537,7 +537,14 @@ mod tests {
     use axum::http::StatusCode;
     use fastcrypto::traits::KeyPair;
     use p256::pkcs8::LineEnding;
-    use rcgen::{BasicConstraints, Certificate as RcGenCertificate, CertifiedKey, IsCa};
+    use rcgen::{
+        BasicConstraints,
+        Certificate as RcGenCertificate,
+        CertifiedIssuer,
+        CertifiedKey,
+        IsCa,
+        KeyPair as RcGenKeyPair,
+    };
     use tokio::{task::JoinHandle, time::Duration};
     use tokio_util::sync::CancellationToken;
     use walrus_core::{
@@ -1208,7 +1215,7 @@ mod tests {
         }
 
         fn configure_certificates_from_disk(
-            certified_key: CertifiedKey,
+            certified_key: CertifiedKey<RcGenKeyPair>,
             config_with_dir: &mut WithTempDir<StorageNodeConfig>,
         ) -> TestResult {
             let directory = config_with_dir.temp_dir.path().to_path_buf();
@@ -1217,7 +1224,10 @@ mod tests {
             let certificate_path = directory.join("certificate.pem");
             std::fs::write(&certificate_path, certified_key.cert.pem().as_bytes())?;
             let key_path = directory.join("private_key.pem");
-            std::fs::write(&key_path, certified_key.key_pair.serialize_pem().as_bytes())?;
+            std::fs::write(
+                &key_path,
+                certified_key.signing_key.serialize_pem().as_bytes(),
+            )?;
 
             config.tls.disable_tls = false;
             config.network_key_pair = PathOrInPlace::from_path(key_path);
@@ -1230,7 +1240,7 @@ mod tests {
         fn create_non_self_signed_certificate(
             key_pair: &NetworkKeyPair,
             public_server_name: String,
-        ) -> TestResult<(CertifiedKey, RcGenCertificate)> {
+        ) -> TestResult<(CertifiedKey<RcGenKeyPair>, RcGenCertificate)> {
             create_non_self_signed_certificate_that_may_be_expired(
                 key_pair,
                 public_server_name,
@@ -1242,32 +1252,33 @@ mod tests {
             key_pair: &NetworkKeyPair,
             public_server_name: String,
             is_expired: bool,
-        ) -> TestResult<(CertifiedKey, RcGenCertificate)> {
+        ) -> TestResult<(CertifiedKey<RcGenKeyPair>, RcGenCertificate)> {
             let pkcs8_key_pair = to_pkcs8_key_pair(key_pair);
-            let issuer = generate_issuer_certificate()?;
+            let issuer = generate_issuer()?;
 
             let mut params = CertificateParams::new(vec![public_server_name])?;
             if is_expired {
                 params.not_after = params.not_after.replace_year(1970).unwrap();
             }
 
-            let certificate = params.signed_by(&pkcs8_key_pair, &issuer.cert, &issuer.key_pair)?;
+            let certificate = params.signed_by(&pkcs8_key_pair, &issuer)?;
 
             let certified_key = CertifiedKey {
                 cert: certificate,
-                key_pair: pkcs8_key_pair,
+                signing_key: pkcs8_key_pair,
             };
 
-            Ok((certified_key, issuer.cert))
+            let issuer_cert: RcGenCertificate = issuer.as_ref().clone();
+
+            Ok((certified_key, issuer_cert))
         }
 
-        fn generate_issuer_certificate() -> TestResult<CertifiedKey> {
+        fn generate_issuer() -> TestResult<CertifiedIssuer<'static, rcgen::KeyPair>> {
             let key_pair = rcgen::KeyPair::generate()?;
             let mut params = rcgen::CertificateParams::new(["my-issuer-ca".to_owned()])?;
             params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
-            let cert = params.self_signed(&key_pair)?;
 
-            Ok(CertifiedKey { cert, key_pair })
+            Ok(CertifiedIssuer::self_signed(params, key_pair)?)
         }
 
         #[tokio::test]
