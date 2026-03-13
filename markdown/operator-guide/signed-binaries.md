@@ -1,21 +1,17 @@
-Walrus release binaries and Docker images are signed using
-[Cosign](https://github.com/sigstore/cosign) with a GCP KMS key. Each binary has a
-corresponding `.sig` file containing its signature, and Docker image signatures are stored
-in the registry.
+Walrus release binaries and Docker images are signed using [Cosign](https://github.com/sigstore/cosign) with a GCP KMS key. Each binary has a corresponding `.sig` file containing its signature. Docker image signatures are stored in the registry.
 
 <Tabs>
 <TabItem value="prereq" label="Prerequisites">
 
 - [x] Install [Cosign](https://docs.sigstore.dev/cosign/system_config/installation/)
-
 - [x] Install the [gcloud CLI](https://cloud.google.com/sdk/docs/install) (for downloading binaries)
 
 </TabItem>
 </Tabs>
 
-## Using the verification script
+## Use the verification script
 
-The easiest way to download and verify binaries is using the provided script (see also the [storage node setup guide](/docs/operator-guide/storage-node-setup#binaries) for standard binary downloads without verification):
+The easiest way to download and verify binaries is to use the provided script. See also the [Storage Node Setup](/docs/operator-guide/storage-node-setup#binaries) guide for standard binary downloads without verification.
 
 ```bash
 # Download the script
@@ -27,8 +23,10 @@ chmod +x download_and_verify_binary.sh
 ./download_and_verify_binary.sh <ref> <binary_name>
 ```
 
-- `<ref>` is a git reference (branch, tag, or commit SHA)
-- `<binary_name>` is the full binary name with platform suffix
+The command takes 2 arguments:
+
+- `ref`: A git reference (branch, tag, or commit SHA)
+- `binary_name`: The full binary name with platform suffix
 
 For example:
 
@@ -40,7 +38,7 @@ This downloads the binary and signature, then verifies the signature using the p
 
 ### Available platforms
 
-| Platform | Suffix |
+| **Platform** | **Suffix** |
 |----------|--------|
 | Linux x86_64 | `-ubuntu-x86_64` |
 | Linux ARM64 | `-ubuntu-aarch64` |
@@ -50,13 +48,13 @@ This downloads the binary and signature, then verifies the signature using the p
 
 ### Available binaries
 
-| Binary | Description |
+| **Binary** | **Description** |
 |--------|-------------|
 | `walrus` | The Walrus CLI client |
 | `walrus-node` | The Walrus storage node |
 | `walrus-upload-relay` | The Walrus upload relay service |
 
-## Manual verification
+## Verify manually
 
 If you prefer to verify manually without the script, first download the signed binaries from Google Cloud Storage:
 
@@ -82,19 +80,19 @@ cosign verify-blob \
   walrus
 ```
 
-If successful, you'll see:
+If successful, the output displays:
 
 ```
 Verified OK
 ```
 
 :::info
-The `--insecure-ignore-tlog` flag is required because signatures are not uploaded
-to the Sigstore transparency log. Verification is still cryptographically secure using
-the signing key.
+
+The `--insecure-ignore-tlog` flag is required because signatures are not uploaded to the Sigstore transparency log. Verification is still cryptographically secure using the signing key.
+
 :::
 
-### Verify using GCP KMS key directly
+### Verify using the GCP KMS key directly
 
 If you have GCP access:
 
@@ -110,23 +108,23 @@ cosign verify-blob \
   walrus
 ```
 
-## Docker images
+## Verify Docker images
 
 Signed Docker images are published to Docker Hub with the `-signed` suffix.
 
 ### Available images
 
-| Image | Description |
+| **Image** | **Description** |
 |-------|-------------|
 | `mysten/walrus-service` | Walrus storage node service |
 | `mysten/walrus-upload-relay` | Walrus upload relay service |
 
 ### Image tags
 
-Each image is tagged in two ways:
+Each image is tagged in 2 ways:
 
-- **By commit SHA:** `mysten/walrus-service:<full-sha>-signed` (e.g., `a5a6dc7b1234abcd-signed`)
-- **By version:** `mysten/walrus-service:v<version>-signed` (e.g., `v1.0.0-signed`)
+- **By commit SHA:** `mysten/walrus-service:FULL_SHA-signed`
+- **By version:** `mysten/walrus-service:vVERSION-signed`
 
 ### Pull a signed image
 
@@ -148,7 +146,7 @@ curl -sSfL https://docs.walrus.site/walrus-signing.pub -o walrus-signing.pub
 cosign verify --key walrus-signing.pub mysten/walrus-service:v1.0.0-signed
 ```
 
-Or using GCP KMS key directly:
+You can also verify using the GCP KMS key directly:
 
 ```bash
 cosign verify \
@@ -167,38 +165,44 @@ docker inspect --format='{{index .RepoDigests 0}}' mysten/walrus-service:v1.0.0-
 # Compare with the digest shown in the cosign verify output
 ```
 
-## Troubleshooting
+## Troubleshoot common errors
 
 ### Permission denied when verifying
 
-If you get a permission denied error when using the GCP KMS key directly:
-- Authenticate with GCP: `gcloud auth application-default login`
-- Or use the public key method instead
+If you get a permission denied error when using the GCP KMS key directly, try one of the following:
+
+- Authenticate with GCP by running `gcloud auth application-default login`.
+- Use the public key method instead.
 
 ### Signature verification failed
 
 If verification fails:
-1. Ensure you downloaded both the binary and signature for the same version
-2. Ensure the files weren't corrupted during download
-3. Try re-downloading both files
 
-### "no matching signatures" error for Docker images
+1. Ensure you downloaded both the binary and signature for the same version.
+1. Ensure the files were not corrupted during download.
+1. Try re-downloading both files.
 
-If you see `Error: no matching signatures`:
-1. Ensure the image tag includes the `-signed` suffix
-2. Verify the commit SHA is correct
-3. Check that the image was actually signed
+### No matching signatures error for Docker images
+
+If you see a no matching signatures error:
+
+1. Ensure the image tag includes the `-signed` suffix.
+1. Verify the commit SHA is correct.
+1. Check that the image was actually signed.
 
 ### Image not found
 
 If the Docker image is not found:
-1. Verify the commit SHA exists in the repository
-2. Check that the signed binaries workflow ran successfully for that commit
-3. Ensure you're using the correct image name
 
-## Security
+1. Verify the commit SHA exists in the repository.
+1. Check that the signed binaries workflow ran successfully for that commit.
+1. Ensure you are using the correct image name.
 
-- The signing key is stored in GCP KMS and cannot be exported
-- Only authorized CI/CD workflows can sign binaries and images
-- Each binary is signed individually, not just the archive
-- Docker image signatures are stored in the registry alongside the image
+## Security considerations
+
+The signing infrastructure has the following properties:
+
+- The signing key is stored in GCP KMS and cannot be exported.
+- Only authorized CI/CD workflows can sign binaries and images.
+- Each binary is signed individually, not just the archive.
+- Docker image signatures are stored in the registry alongside the image.

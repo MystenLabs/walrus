@@ -1,5 +1,3 @@
-{/* https://linear.app/mysten-labs/issue/DOCS-656/tusky-migration-guide */}
-
 As of December 19, 2025, the storage service Tusky is shutting down. Data stored on Walrus through Tusky is still safe and accessible. During Tusky's sunsetting period, you can continue reading your data, however you must either migrate to using Walrus directly or through alternative tooling.
 
 During this sunset period, you must:
