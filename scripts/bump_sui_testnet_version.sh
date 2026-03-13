@@ -108,9 +108,17 @@ git config user.name "github-actions[bot]"
 git config user.email \
   "41898282+github-actions[bot]@users.noreply.github.com"
 
-# Push branch
+# Push branch using AUTOMERGE_TOKEN so the push comes from the walrus-automerge app
+# instead of github-actions[bot]. Pushes made with GITHUB_TOKEN do not trigger CI workflows.
 git commit -m "ci: bump Sui testnet version to ${NEW_TAG}"
-git push -u origin "$BRANCH"
+if [[ -n "${AUTOMERGE_TOKEN:-}" ]]; then
+  # Configure git to use the automerge token via credential helper to avoid
+  # leaking the token in git error messages or process listings.
+  git -c "http.https://github.com/.extraheader=Authorization: basic $(echo -n "x-access-token:${AUTOMERGE_TOKEN}" | base64)" \
+    push -u origin "$BRANCH"
+else
+  git push -u origin "$BRANCH"
+fi
 
 # Generate PR body
 BODY="This PR updates the Sui testnet version to ${NEW_TAG}"
