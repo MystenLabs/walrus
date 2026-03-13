@@ -17,19 +17,19 @@ The current backup implementation creates full copies of the database files. Bac
 
     The backup system communicates with running storage nodes through a Unix domain socket. To enable this functionality:
 
-    ##### 1. Configure the administration socket path in your node configuration file
+    ##### Step 1: Configure the administration socket path in your node configuration file
 
     ```yaml
         admin_socket_path: /opt/walrus/admin.socket
     ```
 
-    ##### 2. Restart the storage node to initialize the socket
+    ##### Step 2: Restart the storage node to initialize the socket
 
     ```sh
         $ sudo systemctl restart walrus-node.service
     ```
 
-    ##### 3. Verify socket creation
+    ##### Step 3: Verify socket creation
 
     ```sh
         $ ls -la /opt/walrus/admin.socket
@@ -118,7 +118,7 @@ Do not copy backup directories directly to the storage node data path. You must 
 
 To restore from a backup:
 
-##### 1. Stop the storage node service
+##### Step 1: Stop the storage node service
 
 ```sh
 $ sudo systemctl stop walrus-node.service
@@ -130,7 +130,7 @@ Verify the service is stopped:
 $ sudo systemctl status walrus-node.service
 ```
 
-##### 2. Back up the current database (optional)
+##### Step 2: Back up the current database (optional)
 
 Assuming the Walrus storage path is `storage_path: /opt/walrus/db`:
 
@@ -140,7 +140,7 @@ $ sudo -u walrus cp -r /opt/walrus/db /opt/walrus/db.backup.$(date +%Y%m%d-%H%M%
 
 This command saves the main database files, the events database (`/opt/walrus/db/events/`), and event blob data (`/opt/walrus/db/event_blob_writer/`).
 
-##### 3. Clear existing data (if performing a clean restore)
+##### Step 3: Clear existing data (if performing a clean restore)
 
 Remove all existing database files to ensure a clean restore. Assuming the Walrus storage path is `storage_path: /opt/walrus/db`:
 
@@ -150,7 +150,7 @@ $ sudo -u walrus rm -rf /opt/walrus/db/*
 
 This command removes the main database files, the events database (`/opt/walrus/db/events/`), and event blob data (`/opt/walrus/db/event_blob_writer/`).
 
-##### 4. Restore the main database
+##### Step 4: Restore the main database
 
 The restore process can take significant time depending on database size. Run the restore command in a persistent session using `tmux` or `screen` to prevent interruption if your connection drops.
 
@@ -175,7 +175,7 @@ $ sudo -u walrus walrus-node \
     --db-path /opt/walrus/db
 ```
 
-##### 5. Start the storage node
+##### Step 5: Start the storage node
 
 ```sh
 $ sudo systemctl start walrus-node.service

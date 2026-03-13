@@ -53,11 +53,7 @@ sudo iptables-save
 
 Verify the rules with `sudo iptables -L INPUT -n`.
 
-:::tip
-
 You can test your firewall setup by running `nc -l PORT_NUMBER` on the Walrus host and `echo test | nc HOSTNAME PORT_NUMBER` from a different machine. You do not need to open the metrics port (**port 9184**).
-
-:::
 
 </details>
 
@@ -71,10 +67,6 @@ The storage node handles TLS directly. If you deploy a reverse proxy in front of
 :::caution
 
 Do not use self-signed certificates. They prevent the node from communicating with browsers.
-
-:::
-
-:::info
 
 You can use any tool to obtain and renew certificates. Ensure you generate a key of the correct type (ECDSA secp256r1) in the correct format (PKCS8) and use the full certificate chain in PEM format.
 
@@ -156,11 +148,7 @@ cat /etc/letsencrypt/renewal/walrus-storage-node.conf
 sudo systemctl status snap.certbot.renew.timer
 ```
 
-:::tip
-
 If you need to manually re-run the deploy hook, use `sudo certbot reconfigure --cert-name walrus-storage-node --run-deploy-hooks`.
-
-:::
 
 ## Install `jemalloc` {#jemalloc}
 
@@ -172,11 +160,7 @@ sudo apt-get install libjemalloc2
 
 This is configured through `LD_PRELOAD` in the systemd service file below.
 
-:::info
-
 The library path `/usr/lib/x86_64-linux-gnu/libjemalloc.so.2` is for x86_64 Ubuntu. If you use a different architecture, adjust the path accordingly.
-
-:::
 
 ## Create the systemd service file {#systemd}
 
@@ -201,11 +185,7 @@ LimitNOFILE=4294967296
 WantedBy=multi-user.target
 ```
 
-:::info
-
 `TimeoutStopSec=300` gives the node up to 5 minutes to shut down gracefully, including terminating open connections and flushing the database. If you find this too short, you can increase it.
-
-:::
 
 ## Download binaries and generate configuration {#binaries}
 
@@ -217,6 +197,7 @@ sudo su walrus
 
 ### Set environment variables
 
+<Tabs>
 <TabItem label="Mainnet" value="mainnet">
 
 ```sh
@@ -231,6 +212,7 @@ NETWORK=testnet
 ```
 
 </TabItem>
+</Tabs>
 
 Set the server name (as configured in the [TLS setup](#tls-setup) section):
 
@@ -259,11 +241,7 @@ Verify the versions match the latest [release](https://github.com/MystenLabs/wal
 
 Alternatively, you can download the binaries directly from the [GitHub releases page](https://github.com/MystenLabs/walrus/releases).
 
-:::tip
-
 For signed binaries and verification, see [Verifying Signed Binaries](/docs/operator-guide/signed-binaries).
-
-:::
 
 ### Create the client configuration
 
@@ -288,11 +266,7 @@ The `walrus-node setup` command generates the node configuration and a Sui walle
 
 You can also change all of these options in the generated configuration file after setup.
 
-:::info
-
 Operators who set up their node in coordination with the Walrus Foundation or Mysten Labs can get access to a dedicated Sui full node. Otherwise, you need to run your own or use a third-party RPC provider. The Sui full node must sustain at least 10 requests per second for checkpoint data. If you run your own Sui RPC node, make sure to always keep it up to date and **not** enable aggressive pruning (keep all data for at least 1 week on Mainnet or 2 days on Testnet).
-
-:::
 
 Extract the system and staking object IDs from the client configuration file you downloaded earlier:
 
@@ -327,11 +301,7 @@ SUI_RPC_URL=     # URL of a Sui full node for the target network
   --force
 ```
 
-:::tip
-
 Run `walrus-node setup --help` for a full description of all options.
-
-:::
 
 After setup, review the generated configuration file at `/opt/walrus/config/walrus-node.yaml` and verify IP addresses, DNS names, port numbers, and file paths. You can edit the file directly or re-run the `setup` command.
 
@@ -351,6 +321,7 @@ Do not reuse any keys, wallets, or other secrets from Testnet or anywhere else. 
 
 Send SUI to the wallet address shown during setup. 1 SUI is sufficient for registration, but the node needs additional SUI for ongoing operation. A recommended initial balance is approximately 20 SUI.
 
+<Tabs>
 <TabItem label="Mainnet" value="mainnet">
 
 Transfer SUI from an existing wallet or exchange to the address shown during setup.
@@ -361,6 +332,7 @@ Transfer SUI from an existing wallet or exchange to the address shown during set
 You can use the [Sui Testnet faucet](https://faucet.sui.io) to obtain test SUI. The faucet has rate limits, so you might need to make multiple requests or wait between attempts. Alternatively, transfer SUI from an existing Testnet wallet.
 
 </TabItem>
+</Tabs>
 
 ##### Step 2: Register the node:
 
@@ -392,11 +364,7 @@ sudo systemctl status walrus-node.service
 journalctl -efu walrus-node
 ```
 
-:::info
-
 Before the node is selected for the committee, you might see error messages like `"message":"unable to push metrics","error":"metrics push failed: [403 Forbidden]"`. This is expected because your node is not part of the committee yet and must be specifically allowlisted to send metrics.
-
-:::
 
 ##### Step 6: Check the health endpoint:
 
@@ -406,15 +374,11 @@ Run the following command from a different machine to also verify the firewall s
 curl https://PUBLIC_ADDRESS:9185/v1/health | jq
 ```
 
-:::tip
-
 The storage node serves HTTPS only (it handles TLS directly). When checking from localhost, use `curl -k` to skip certificate verification:
 
 ```sh
 curl -sk https://localhost:9185/v1/health | jq
 ```
-
-:::
 
 This should return a 200 status with a non-empty JSON payload. The `nodeStatus` value should be `Standby`. You can also check `https://PUBLIC_ADDRESS:9185/v1/api` in a browser to verify the TLS certificate is set up correctly.
 
