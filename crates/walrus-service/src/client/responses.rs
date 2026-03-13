@@ -514,6 +514,13 @@ impl InfoCommitteeOutput {
     }
 }
 
+/// The output of the `info coin` command.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct InfoCoinOutput {
+    pub(crate) coin_type: String,
+}
+
 /// BFT system information.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]

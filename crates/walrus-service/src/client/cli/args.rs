@@ -725,6 +725,8 @@ pub enum InfoCommands {
     Price,
     /// Print byzantine fault tolerance (BFT) information.
     Bft,
+    /// Print the WAL coin type for the current network.
+    Coin,
     /// Print committee information.
     Committee(InfoCommitteeArgs),
 }

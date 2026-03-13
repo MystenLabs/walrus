@@ -143,6 +143,7 @@ use crate::{
             FundSharedBlobOutput,
             GetBlobAttributeOutput,
             InfoBftOutput,
+            InfoCoinOutput,
             InfoCommitteeOutput,
             InfoEpochOutput,
             InfoOutput,
@@ -1591,6 +1592,10 @@ impl ClientCommandRunner {
             Some(InfoCommands::Bft) => InfoBftOutput::get_bft_info(&sui_read_client)
                 .await?
                 .print_output(self.json),
+            Some(InfoCommands::Coin) => InfoCoinOutput {
+                coin_type: sui_read_client.wal_coin_type().to_owned(),
+            }
+            .print_output(self.json),
         }
     }
 
