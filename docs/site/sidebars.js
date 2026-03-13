@@ -202,7 +202,7 @@ const sidebars = {
     'sites/troubleshooting',
   ],
     operatorSidebar: [
-     "operator-guide/index",
+    "operator-guide/index",
       {
           type: "category",
           label: "Operate a Storage Node",
@@ -220,14 +220,14 @@ const sidebars = {
           ],
       },
       "operator-guide/aggregators/operating-aggregator",
-       {
+      {
           type: "category",
           label: "Publishers",
           items: [
               "operator-guide/publishers/operating-publisher",
               "operator-guide/publishers/auth-publisher",
           ],
-       },
+      },
       "operator-guide/upload-relay",
       "operator-guide/signed-binaries",
       "operator-guide/limitations",
