@@ -201,44 +201,35 @@ const sidebars = {
     'sites/troubleshooting',
   ],
     operatorSidebar: [
-    {
-        type: "category",
-        label: "Operator Guide",
-        link: {
-            type: "doc",
-            id: "operator-guide/operator-guide",
-        },
-        items: [
-            {
-                type: "category",
-                label: "Operating a Storage Node",
-                link: {
-                    type: "doc",
-                    id: "operator-guide/storage-node",
-                },
-                items: [
-                    "operator-guide/storage-node-setup",
-                    "operator-guide/storage-node-maintenance",
-                    "operator-guide/storage-node-migration",
-                    "operator-guide/commission-governance",
-                    "operator-guide/backup-restore-guide",
-                    "operator-guide/storage-node-faq",
-                ],
-            },
-            {
-                type: "category",
-                label: "Operating an Aggregator or Publisher",
-                link: {
-                    type: "doc",
-                    id: "operator-guide/aggregator",
-                },
-                items: ["operator-guide/auth-publisher"],
-            },
-            "operator-guide/upload-relay",
-            "operator-guide/signed-binaries",
-            "operator-guide/stake",
-        ],
-    },
+    "operator-guide/index",
+      {
+          type: "category",
+          label: "Operate a Storage Node",
+          link: {
+              type: "doc",
+              id: "operator-guide/storage-nodes/index",
+          },
+          items: [
+              "operator-guide/storage-nodes/storage-node-setup",
+              "operator-guide/storage-nodes/storage-node-maintenance",
+              "operator-guide/storage-nodes/storage-node-migration",
+              "operator-guide/storage-nodes/commission-governance",
+              "operator-guide/storage-nodes/backup-restore-guide",
+              "operator-guide/storage-nodes/storage-node-faq",
+          ],
+      },
+      "operator-guide/aggregators/operating-aggregator",
+      {
+          type: "category",
+          label: "Publishers",
+          items: [
+              "operator-guide/publishers/operating-publisher",
+              "operator-guide/publishers/auth-publisher",
+          ],
+      },
+      "operator-guide/upload-relay",
+      "operator-guide/signed-binaries",
+      "operator-guide/limitations",
     ],
     examplesSidebar: [
       {

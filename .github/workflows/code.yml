@@ -16,8 +16,6 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   CLICOLOR_FORCE: 1
-  # Disable incremental compilation — required for deterministic sccache hits.
-  CARGO_INCREMENTAL: 0
   # Allow more retries for network requests in cargo (downloading crates) and
   # rustup (installing toolchains). This should help to reduce flaky CI failures
   # from transient network timeouts or other issues.
@@ -70,19 +68,11 @@ jobs:
     needs: diff
     if: ${{ needs.diff.outputs.isRust == 'true' }}
     runs-on: ubuntu-ghcloud
-    env:
-      SCCACHE_GCS_BUCKET: walrus-sccache
-      SCCACHE_GCS_KEY_PREFIX: ubuntu-ghcloud
-      SCCACHE_GCS_RW_MODE: READ_ONLY
-      RUSTC_WRAPPER: sccache
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # pin@v6.0.2
-      - name: Configure GCP credentials
-        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # pin@v3.0.0
+      - uses: ./.github/actions/sccache
         with:
-          credentials_json: ${{ secrets.GCP_WALRUS_RELEASE_BUCKET_SVCUSER_CREDENTIALS }}
-      - name: Set up sccache
-        uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # pin@v0.0.9
+          gcp_credentials_json: ${{ secrets.GCP_WALRUS_RELEASE_BUCKET_SVCUSER_CREDENTIALS }}
 
       - name: Check formatting with rustfmt
         run: >
@@ -102,20 +92,12 @@ jobs:
     env:
       OPENSSL_STATIC: "1"
       OPENSSL_NO_VENDOR: "0"
-      SCCACHE_GCS_BUCKET: walrus-sccache
-      SCCACHE_GCS_KEY_PREFIX: ubuntu-ghcloud
-      SCCACHE_GCS_RW_MODE: READ_ONLY
-      RUSTC_WRAPPER: sccache
-
     runs-on: ubuntu-ghcloud
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # pin@v6.0.2
-      - name: Configure GCP credentials
-        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # pin@v3.0.0
+      - uses: ./.github/actions/sccache
         with:
-          credentials_json: ${{ secrets.GCP_WALRUS_RELEASE_BUCKET_SVCUSER_CREDENTIALS }}
-      - name: Set up sccache
-        uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # pin@v0.0.9
+          gcp_credentials_json: ${{ secrets.GCP_WALRUS_RELEASE_BUCKET_SVCUSER_CREDENTIALS }}
       - name: Install dependencies
         run: |
           sudo apt-get update
@@ -136,21 +118,14 @@ jobs:
       OPENSSL_STATIC: "1"
       OPENSSL_NO_VENDOR: "0"
       WALRUS_GRPC_MIGRATION_LEVEL: "${{ matrix.grpc_migration_level }}"
-      SCCACHE_GCS_BUCKET: walrus-sccache
-      SCCACHE_GCS_KEY_PREFIX: ubuntu-ghcloud
-      SCCACHE_GCS_RW_MODE: READ_ONLY
-      RUSTC_WRAPPER: sccache
     steps:
       - uses: taiki-e/install-action@970d55e3ce02a46d60ffae7b4fab3dedace6e769 # pin@v2.49.13
         with:
           tool: cargo-nextest
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # pin@v6.0.2
-      - name: Configure GCP credentials
-        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # pin@v3.0.0
+      - uses: ./.github/actions/sccache
         with:
-          credentials_json: ${{ secrets.GCP_WALRUS_RELEASE_BUCKET_SVCUSER_CREDENTIALS }}
-      - name: Set up sccache
-        uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # pin@v0.0.9
+          gcp_credentials_json: ${{ secrets.GCP_WALRUS_RELEASE_BUCKET_SVCUSER_CREDENTIALS }}
       - name: Install dependencies
         run: |
           sudo apt-get update
@@ -169,32 +144,32 @@ jobs:
     env:
       # Turn off Sui logging since it can be very distractive in CI
       RUST_LOG: simtest=info,error,sui_=off,consensus_core=off
-      SCCACHE_GCS_BUCKET: walrus-sccache
-      SCCACHE_GCS_KEY_PREFIX: ubuntu-ghcloud
-      SCCACHE_GCS_RW_MODE: READ_ONLY
-      RUSTC_WRAPPER: sccache
+      # Default: 2 seeds (1 without gRPC, 1 with gRPC). Pushes to main and PRs
+      # with the `ci:more-simtest-seeds` label run all 5 seeds.
+      SIMTEST_FULL: ${{ github.event_name == 'push' || contains(github.event.pull_request.labels.*.name, 'ci:more-simtest-seeds')
+        }}
     steps:
       - uses: taiki-e/install-action@970d55e3ce02a46d60ffae7b4fab3dedace6e769 # pin@v2.49.13
         with:
           tool: cargo-nextest
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # pin@v6.0.2
-      - name: Configure GCP credentials
-        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # pin@v3.0.0
+      - uses: ./.github/actions/sccache
         with:
-          credentials_json: ${{ secrets.GCP_WALRUS_RELEASE_BUCKET_SVCUSER_CREDENTIALS }}
-      - name: Set up sccache
-        uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # pin@v0.0.9
+          gcp_credentials_json: ${{ secrets.GCP_WALRUS_RELEASE_BUCKET_SVCUSER_CREDENTIALS }}
 
       - run: ./scripts/simtest/install.sh
       - name: Run tests (seed=1)
         run: MSIM_TEST_SEED=1 cargo simtest simtest --profile simtest
-      - name: Run tests (seed=2)
-        run: MSIM_TEST_SEED=2 cargo simtest simtest --profile simtest
-      - name: Run tests (seed=3, grpc-client-enabled)
-        run: MSIM_TEST_SEED=3 WALRUS_GRPC_MIGRATION_LEVEL=100 cargo simtest simtest --profile simtest
+      - name: Run tests (seed=2, grpc-client-enabled)
+        run: MSIM_TEST_SEED=2 WALRUS_GRPC_MIGRATION_LEVEL=100 cargo simtest simtest --profile simtest
+      - name: Run tests (seed=3)
+        if: env.SIMTEST_FULL == 'true'
+        run: MSIM_TEST_SEED=3 cargo simtest simtest --profile simtest
       - name: Run tests (seed=4, grpc-client-enabled)
+        if: env.SIMTEST_FULL == 'true'
         run: MSIM_TEST_SEED=4 WALRUS_GRPC_MIGRATION_LEVEL=100 cargo simtest simtest --profile simtest
       - name: Run tests (seed=5, grpc-client-enabled)
+        if: env.SIMTEST_FULL == 'true'
         run: MSIM_TEST_SEED=5 WALRUS_GRPC_MIGRATION_LEVEL=100 cargo simtest simtest --profile simtest
 
   simtests-build:

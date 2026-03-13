@@ -883,3 +883,12 @@ background-color: var(--color-walrus-dark-gray-300) !important;
 border-color: var(--color-walrus-dark-gray-300) !important;
 color: var(--color-walrus-dark-gray-500) !important;
 }
+
+.markdown li {
+  line-height: 1.8;
+  font-size: 1.05rem;
+}
+
+.markdown h5 {
+  font-size: 1.15rem;
+}
