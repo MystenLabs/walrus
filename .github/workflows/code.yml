@@ -16,8 +16,6 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   CLICOLOR_FORCE: 1
-  # Disable incremental compilation — required for deterministic sccache hits.
-  CARGO_INCREMENTAL: 0
   # Allow more retries for network requests in cargo (downloading crates) and
   # rustup (installing toolchains). This should help to reduce flaky CI failures
   # from transient network timeouts or other issues.
@@ -26,10 +24,6 @@ env:
   # Don't emit giant backtraces in the CI logs.
   RUST_BACKTRACE: short
   RUSTDOCFLAGS: -D warnings
-  SCCACHE_GCS_BUCKET: walrus-sccache
-  SCCACHE_GCS_KEY_PREFIX: ubuntu-ghcloud
-  SCCACHE_GCS_RW_MODE: READ_ONLY
-  RUSTC_WRAPPER: ${{ github.actor != 'dependabot[bot]' && 'sccache' || '' }}
 
 jobs:
   diff:
@@ -98,7 +92,6 @@ jobs:
     env:
       OPENSSL_STATIC: "1"
       OPENSSL_NO_VENDOR: "0"
-
     runs-on: ubuntu-ghcloud
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # pin@v6.0.2
