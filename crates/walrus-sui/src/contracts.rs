@@ -230,6 +230,7 @@ pub mod system {
     contract_ident!(fn system::register_pooled_blob);
     contract_ident!(fn system::delete_pooled_blob);
     contract_ident!(fn system::extend_storage_pool);
+    contract_ident!(fn system::increase_storage_pool_capacity);
     contract_ident!(fn system::certify_pooled_blob);
 }
 

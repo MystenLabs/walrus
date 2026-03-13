@@ -938,6 +938,29 @@ public(package) fun extend_storage_pool(
     );
 }
 
+/// Increases the reserved capacity of a `StoragePool` for the remainder of its lifetime.
+public(package) fun increase_storage_pool_capacity(
+    self: &mut SystemStateInnerV1,
+    storage_pool: &mut StoragePool,
+    additional_encoded_capacity_bytes: u64,
+    payment: &mut Coin<WAL>,
+) {
+    assert!(additional_encoded_capacity_bytes > 0, EInvalidResourceSize);
+    assert!(storage_pool.end_epoch() > self.epoch(), EInvalidEpochsAhead);
+
+    let remaining_epochs = storage_pool.end_epoch() - self.epoch();
+
+    self.process_storage_payments(
+        additional_encoded_capacity_bytes,
+        0,
+        remaining_epochs,
+        payment,
+    );
+
+    self.account_capacity(0, remaining_epochs, additional_encoded_capacity_bytes);
+    storage_pool.increase_reserved_encoded_capacity(additional_encoded_capacity_bytes);
+}
+
 /// Certifies a blob within a `StoragePool`.
 public(package) fun certify_pooled_blob(
     self: &SystemStateInnerV1,

@@ -264,6 +264,22 @@ public fun extend_storage_pool(
     self.inner_mut().extend_storage_pool(storage_pool, extended_epochs, payment)
 }
 
+/// Increases the reserved capacity of a storage pool for the remainder of its lifetime.
+public fun increase_storage_pool_capacity(
+    self: &mut System,
+    storage_pool: &mut StoragePool,
+    additional_encoded_capacity_bytes: u64,
+    payment: &mut Coin<WAL>,
+) {
+    self
+        .inner_mut()
+        .increase_storage_pool_capacity(
+            storage_pool,
+            additional_encoded_capacity_bytes,
+            payment,
+        )
+}
+
 /// Certifies a blob within a storage pool.
 public fun certify_pooled_blob(
     self: &System,
