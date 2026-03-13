@@ -21,11 +21,11 @@ Important notes:
 
 - [Advanced Setup](https://docs.wal.app/docs/getting-started/advanced-setup.md): This page covers
     advanced setup options for Walrus, including building from source, installing from binaries, or
-    using Cargo. For standard setup instructions, see the Walrus Getting Started guide. Walrus is
-    open source under an Apache 2 license.
+    using Cargo. For standard setup instructions, see Getting Started. Walrus is open source under
+    an Apache 2 license.
 - [Getting Started](https://docs.wal.app/docs/getting-started.md): Walrus is a verifiable data
     platform for high-stakes systems like AI and on-chain finance, where data is stored as blobs.
-    Walrus uses an object storage architecture, where blobs is stored in a flat namespace rather
+    Walrus uses an object storage architecture, where blobs are stored in a flat namespace rather
     than a hierarchy. There are no folders or directories.
 
 ## System Overview
@@ -132,21 +132,9 @@ Important notes:
 
 ## Operator Guide
 
-- [Aggregator](https://docs.wal.app/docs/operator-guide/aggregator.md): Run a Walrus aggregator or
-    publisher to expose the HTTP API. Run a local Walrus daemon through the walrus binary using one
-    of three commands: walrus aggregator: Starts an aggregator that offers an HTTP interface to
-    read blobs from Walrus.
 - [Operating
     Aggregator](https://docs.wal.app/docs/operator-guide/aggregators/operating-aggregator.md): Run
     a Walrus aggregator to expose the HTTP API.
-- [Auth Publisher](https://docs.wal.app/docs/operator-guide/auth-publisher.md): The authenticated
-    publisher requires HTTP requests to store a blob to be authenticated. Use an authenticated
-    publisher as a building block for services that require storing over HTTP on Walrus Mainnet,
-    where an open publisher is undesirable because of the SUI and WAL cost of publishing to Walrus.
-- [Backup Restore Guide](https://docs.wal.app/docs/operator-guide/backup-restore-guide.md): Walrus
-    storage nodes provide backup and restore functionality for the primary database containing blob
-    data. This guide covers configuration requirements, operational procedures, and best practices
-    for both automated and manual backup processes, and restore operations.
 - [Commission Governance](https://docs.wal.app/docs/operator-guide/commission-governance.md): While
     most node parameters can be changed using StorageNodeCap and are automatically updated based on
     the values in the node configuration, authorization for contract upgrades and withdrawing the
@@ -158,9 +146,6 @@ Important notes:
     requests are limited to 10 MiB. You can increase this limit through the --max-body-size option.
     Store quilt requests are limited to 100 MiB by default, and you can increase them using the
     --max-quilt-body-size option.
-- [Operator Guide](https://docs.wal.app/docs/operator-guide/operator-guide.md): This guide contains
-    information about operating services in the network, specifically storage nodes, aggregators
-    and publishers.
 - [Auth Publisher](https://docs.wal.app/docs/operator-guide/publisher/auth-publisher.md): The
     authenticated publisher requires HTTP requests to store a blob to be authenticated. Use an
     authenticated publisher as a building block for services that need to store data over HTTP on
@@ -184,25 +169,9 @@ Important notes:
     binaries and Docker images are signed using Cosign with a GCP KMS key. Each binary has a
     corresponding .sig file containing its signature. Docker image signatures are stored in the
     registry. The easiest way to download and verify binaries is to use the provided script.
-- [Storage Node FAQ](https://docs.wal.app/docs/operator-guide/storage-node-faq.md): The storage
-    node must have a wallet compatible with the Sui Rust SDK. This cannot be a hardware wallet or
-    anything that requires user interaction for transactions, because the node needs to send
-    transactions as part of normal operation. The walrus-node setup command creates such a wallet.
-- [Storage Node Maintenance](https://docs.wal.app/docs/operator-guide/storage-node-maintenance.md):
-    This page covers the ongoing operation of your Walrus storage node after initial setup. Back up
-    the /opt/walrus/config directory. For database backups, see the Backup and Restore guide. The
-    following metrics are the most important for monitoring node health.
-- [Storage Node Migration](https://docs.wal.app/docs/operator-guide/storage-node-migration.md):
-    This guide covers migrating a Walrus storage node to new hardware. It assumes you run the node
-    (and optionally an aggregator and publisher) on the same host. To reduce downtime, start by
-    transferring all data while the old host is still running. Wait for each command to finish
-    before proceeding.
-- [Storage Node Setup](https://docs.wal.app/docs/operator-guide/storage-node-setup.md): This page
-    walks you through the full initial setup of a Walrus storage node, from system preparation to
-    registration and first startup. If you deviate from the standard setup below (user,
-    directories, ports), make sure to adjust later steps accordingly.
-- [Storage Node](https://docs.wal.app/docs/operator-guide/storage-node.md): This section covers
-    everything you need to set up and operate a Walrus storage node.
+- [Stake](https://docs.wal.app/docs/operator-guide/stake.md): In Walrus, anyone can delegate stake
+    to storage nodes and, by doing so, influence which storage nodes get selected for the committee
+    in future epochs and how many shards these nodes hold.
 - [Backup Restore
     Guide](https://docs.wal.app/docs/operator-guide/storage-nodes/backup-restore-guide.md): Walrus
     storage nodes provide backup and restore functionality for the primary database containing blob
@@ -221,7 +190,7 @@ Important notes:
     send transactions as part of normal operation. The walrus-node setup command creates such a
     wallet.
 - [Storage Node
-    Maintenance](https://docs.wal.app/docs/operator-guide/storage-nodes/storage-node-maintenance.md)
+    Maintenance](https://docs.wal.app/docs/operator-guide/storage-nodes/storage-node-maintenance.md):
     This page covers the ongoing operation of your Walrus storage node after initial setup. Back up
     the /opt/walrus/config directory. For database backups, see the Backup and Restore Guide. The
     following metrics are the most important for monitoring node health.
@@ -349,10 +318,6 @@ Important notes:
 - [Data Security](https://docs.wal.app/docs/data-security.md): Walrus provides decentralized
     storage for application and user data. All data stored on Walrus is public and can be accessed
     by anyone.
-
-## Glossary
-
-- [Glossary](https://docs.wal.app/docs/glossary.md)
 
 ## Optional
 
