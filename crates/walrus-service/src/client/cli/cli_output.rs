@@ -55,6 +55,7 @@ use crate::client::{
         FundSharedBlobOutput,
         GetBlobAttributeOutput,
         InfoBftOutput,
+        InfoCoinOutput,
         InfoCommitteeOutput,
         InfoEpochOutput,
         InfoOutput,
@@ -796,6 +797,12 @@ fn print_committee_changes(
                 s = plural_ending(shards_lost),
             );
         }
+    }
+}
+
+impl CliOutput for InfoCoinOutput {
+    fn print_cli_output(&self) {
+        println!("{}", self.coin_type);
     }
 }
 
