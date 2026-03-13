@@ -229,6 +229,7 @@ const sidebars = {
       },
       "operator-guide/upload-relay",
       "operator-guide/signed-binaries",
+      "operator-guide/stake",
       "operator-guide/limitations",
     ],
     examplesSidebar: [
