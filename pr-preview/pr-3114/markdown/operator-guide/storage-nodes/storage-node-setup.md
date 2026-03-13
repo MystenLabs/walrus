@@ -17,20 +17,20 @@ If you deviate from the standard setup below (user, directories, ports), make su
 <details>
 <summary>Initial system setup instructions</summary>
 
-##### Step 1: Create a `walrus` user and group:
+##### Step 1: Create a `walrus` user and group.
 
 ```sh
 sudo useradd -s /bin/bash walrus
 ```
 
-##### Step 2: Create the directory structure:
+##### Step 2: Create the directory structure.
 
 ```sh
 sudo install -d -o walrus -g walrus -m 0755 \
   /opt/walrus /opt/walrus/config /opt/walrus/config/tls /opt/walrus/bin /opt/walrus/db
 ```
 
-##### Step 3: Mount the storage partition:
+##### Step 3: Mount the storage partition.
 
 Mount the large storage partition to `/opt/walrus/db` and ensure it persists across reboots (for example, by adding an entry in `/etc/fstab`).
 
@@ -74,7 +74,7 @@ You can use any tool to obtain and renew certificates. Ensure you generate a key
 
 The following steps use [certbot](https://certbot.eff.org) to request and manage certificates.
 
-##### Step 1: Install certbot:
+##### Step 1: Install certbot.
 
 Install certbot using snap from the edge channel. This is necessary for [PKCS#8 key format](https://github.com/certbot/certbot/issues/10131):
 
@@ -82,7 +82,7 @@ Install certbot using snap from the edge channel. This is necessary for [PKCS#8 
 sudo snap install --classic certbot --channel=edge
 ```
 
-##### Step 2: Set the `SERVER_NAME` environment variable:
+##### Step 2: Set the `SERVER_NAME` environment variable.
 
 Set this to the public hostname of the node:
 
@@ -94,7 +94,7 @@ curl ifconfig.me; echo
 dig +short $SERVER_NAME
 ```
 
-##### Step 3: Create the deploy hook script:
+##### Step 3: Create the deploy hook script.
 
 Save the following script at `/opt/walrus/bin/tls-deploy-hook.sh`. Certbot uses this script to copy certificates to the TLS directory of the storage node after issuance or renewal:
 
@@ -117,14 +117,14 @@ rm -f "$WALRUS_TLS_DIR/cert.pem" "$WALRUS_TLS_DIR/chain.pem" \
 /usr/bin/env chown walrus:walrus "$WALRUS_TLS_DIR"/*
 ```
 
-##### Step 4: Set the correct permissions:
+##### Step 4: Set the correct permissions.
 
 ```sh
 sudo chown walrus /opt/walrus/bin/tls-deploy-hook.sh
 sudo chmod u=rwx,g=rx,o=rx /opt/walrus/bin/tls-deploy-hook.sh
 ```
 
-##### Step 5: Perform a dry run:
+##### Step 5: Perform a dry run.
 
 ```sh
 sudo certbot certonly --standalone \
@@ -134,7 +134,7 @@ sudo certbot certonly --standalone \
   --dry-run
 ```
 
-##### Step 6: Obtain the certificate:
+##### Step 6: Obtain the certificate.
 
 If the dry run succeeded, re-run the command without `--dry-run` to obtain the actual certificate.
 
@@ -317,7 +317,7 @@ Do not reuse any keys, wallets, or other secrets from Testnet or anywhere else. 
 
 ## Register and start the node {#registration}
 
-##### Step 1: Fund the wallet:
+##### Step 1: Fund the wallet.
 
 Send SUI to the wallet address shown during setup. 1 SUI is sufficient for registration, but the node needs additional SUI for ongoing operation. A recommended initial balance is approximately 20 SUI.
 
@@ -334,7 +334,7 @@ You can use the [Sui Testnet faucet](https://faucet.sui.io) to obtain test SUI. 
 </TabItem>
 </Tabs>
 
-##### Step 2: Register the node:
+##### Step 2: Register the node.
 
 ```sh
 /opt/walrus/bin/walrus-node register --config-path /opt/walrus/config/walrus-node.yaml
@@ -346,18 +346,18 @@ You must run registration during initial setup. It creates the on-chain records 
 
 :::
 
-##### Step 3: Set up commission and governance authorization:
+##### Step 3: Set up commission and governance authorization.
 
 Designate a secure wallet address for receiving commission and authorizing governance operations. See [Commission and Governance](/docs/operator-guide/commission-governance) for details.
 
-##### Step 4: Start the node:
+##### Step 4: Start the node.
 
 ```sh
 sudo systemctl daemon-reload
 sudo systemctl enable --now walrus-node.service
 ```
 
-##### Step 5: Verify the node is running:
+##### Step 5: Verify the node is running.
 
 ```sh
 sudo systemctl status walrus-node.service
@@ -366,7 +366,7 @@ journalctl -efu walrus-node
 
 Before the node is selected for the committee, you might see error messages like `"message":"unable to push metrics","error":"metrics push failed: [403 Forbidden]"`. This is expected because your node is not part of the committee yet and must be specifically allowlisted to send metrics.
 
-##### Step 6: Check the health endpoint:
+##### Step 6: Check the health endpoint.
 
 Run the following command from a different machine to also verify the firewall setup:
 
@@ -382,7 +382,7 @@ curl -sk https://localhost:9185/v1/health | jq
 
 This should return a 200 status with a non-empty JSON payload. The `nodeStatus` value should be `Standby`. You can also check `https://PUBLIC_ADDRESS:9185/v1/api` in a browser to verify the TLS certificate is set up correctly.
 
-##### Step 7: Verify the on-chain key:
+##### Step 7: Verify the on-chain key.
 
 Use the `walrus health` command. This performs a cryptographic check that the node uses the key registered on-chain:
 

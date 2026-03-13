@@ -124,8 +124,6 @@ The JWT can only encode information about the size and epochs of the blob to sto
 
 The following examples show how to create JWTs that the authenticated publisher can consume.
 
-#### Rust
-
 In Rust, you can use the [`jsonwebtoken`](https://docs.rs/jsonwebtoken/latest/jsonwebtoken/) crate to create JWTs.
 
 The following struct is used to deserialize the incoming tokens in the publisher (see the [source code](https://github.com/MystenLabs/walrus/blob/main/crates/walrus-service/src/client/daemon/auth.rs) for the complete version):

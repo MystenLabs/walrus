@@ -48,14 +48,14 @@ sudo snap install --classic certbot --channel=edge
 
 To configure the nginx cache, follow these steps:
 
-##### Step 1: Set permissions on the cache directory:
+##### Step 1: Set permissions on the cache directory.
 
 ```sh
 sudo chown www-data:www-data /cache
 sudo chmod 755 /cache
 ```
 
-##### Step 2: Add a cache path directive:
+##### Step 2: Add a cache path directive.
 
 Add the following to the `http` block in `/etc/nginx/nginx.conf`:
 
@@ -68,7 +68,7 @@ http {
 }
 ```
 
-##### Step 3: Create a site configuration:
+##### Step 3: Create a site configuration.
 
 Create a file at `/etc/nginx/sites-available/YOUR_HOSTNAME`:
 
@@ -104,17 +104,17 @@ server {
 }
 ```
 
-##### Step 4: Validate the configuration:
+##### Step 4: Validate the configuration.
 
 Run `sudo nginx -t`.
 
-##### Step 5: Obtain a TLS certificate:
+##### Step 5: Obtain a TLS certificate.
 
 ```sh
 sudo certbot --nginx -d YOUR_HOSTNAME
 ```
 
-##### Step 6: Enable the site and start nginx:
+##### Step 6: Enable the site and start nginx.
 
 ```sh
 sudo ln -s /etc/nginx/sites-available/YOUR_HOSTNAME /etc/nginx/sites-enabled/
