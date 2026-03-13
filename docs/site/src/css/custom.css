@@ -888,3 +888,7 @@ color: var(--color-walrus-dark-gray-500) !important;
   line-height: 1.8;
   font-size: 1.05rem;
 }
+
+.markdown h5 {
+  font-size: 1.15rem;
+}
