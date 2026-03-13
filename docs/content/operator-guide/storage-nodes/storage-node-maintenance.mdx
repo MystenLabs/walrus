@@ -44,7 +44,7 @@ Other metrics like `walrus_storage_confirmations_issued_total` should also incre
 
 To update your node:
 
-##### 1. Stop services
+##### Step 1: Stop services.
 
 Stop the node service (and aggregator or publisher if running on the same host):
 
@@ -54,11 +54,11 @@ $ sudo systemctl stop walrus-aggregator.service  # if applicable
 $ sudo systemctl stop walrus-publisher.service   # if applicable
 ```
 
-##### 2. Download new binaries
+##### Step 2: Download new binaries.
 
 Download the new `walrus-node` and `walrus` binaries to `/opt/walrus/bin`.
 
-##### 3. Start the services again
+##### Step 3: Start the services again.
 
 ```sh
 $ sudo systemctl start walrus-node.service

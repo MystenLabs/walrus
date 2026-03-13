@@ -50,14 +50,14 @@ curl "https://docs.wal.app/setup/client_config_testnet.yaml" -o /opt/walrus/conf
 
 The publisher needs a **separate wallet** from the storage node, even if it runs on the same host. See the [storage node FAQ](/docs/operator-guide/storage-node-faq#wallets) for details on wallet requirements.
 
-##### Step 1: Generate a new wallet:
+##### Step 1: Generate a new wallet.
 
 ```sh
 mkdir -p /opt/walrus/config/publisher /opt/walrus/wallets
 /opt/walrus/bin/walrus generate-sui-wallet --path /opt/walrus/config/publisher/sui_client.yaml
 ```
 
-##### Step 2: Create a publisher-specific client configuration:
+##### Step 2: Create a publisher-specific client configuration.
 
 This assumes you have already downloaded the client configuration to `/opt/walrus/config/client_config.yaml` (see [Download the client configuration](#client-config) above). Create a copy for the publisher that references the new wallet:
 
@@ -66,7 +66,7 @@ cp /opt/walrus/config/client_config.yaml /opt/walrus/config/publisher/client_con
 echo 'wallet_config: /opt/walrus/config/publisher/sui_client.yaml' >> /opt/walrus/config/publisher/client_config.yaml
 ```
 
-##### Step 3: Fund the wallet with SUI and WAL:
+##### Step 3: Fund the wallet with SUI and WAL.
 
 The publisher wallet needs both SUI (for gas) and WAL (for storage payments). Each sub-wallet requires approximately 0.5 to 1.0 SUI and 0.5 to 1.0 WAL in steady state. As a guideline for minimal testing, ensure the **main** publisher wallet has at least the following balances:
 
