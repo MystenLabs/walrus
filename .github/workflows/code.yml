@@ -26,6 +26,10 @@ env:
   # Don't emit giant backtraces in the CI logs.
   RUST_BACKTRACE: short
   RUSTDOCFLAGS: -D warnings
+  SCCACHE_GCS_BUCKET: walrus-sccache
+  SCCACHE_GCS_KEY_PREFIX: ubuntu-ghcloud
+  SCCACHE_GCS_RW_MODE: READ_ONLY
+  RUSTC_WRAPPER: ${{ github.actor != 'dependabot[bot]' && 'sccache' || '' }}
 
 jobs:
   diff:
@@ -70,19 +74,11 @@ jobs:
     needs: diff
     if: ${{ needs.diff.outputs.isRust == 'true' }}
     runs-on: ubuntu-ghcloud
-    env:
-      SCCACHE_GCS_BUCKET: walrus-sccache
-      SCCACHE_GCS_KEY_PREFIX: ubuntu-ghcloud
-      SCCACHE_GCS_RW_MODE: READ_ONLY
-      RUSTC_WRAPPER: sccache
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # pin@v6.0.2
-      - name: Configure GCP credentials
-        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # pin@v3.0.0
+      - uses: ./.github/actions/sccache
         with:
-          credentials_json: ${{ secrets.GCP_WALRUS_RELEASE_BUCKET_SVCUSER_CREDENTIALS }}
-      - name: Set up sccache
-        uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # pin@v0.0.9
+          gcp_credentials_json: ${{ secrets.GCP_WALRUS_RELEASE_BUCKET_SVCUSER_CREDENTIALS }}
 
       - name: Check formatting with rustfmt
         run: >
@@ -102,20 +98,13 @@ jobs:
     env:
       OPENSSL_STATIC: "1"
       OPENSSL_NO_VENDOR: "0"
-      SCCACHE_GCS_BUCKET: walrus-sccache
-      SCCACHE_GCS_KEY_PREFIX: ubuntu-ghcloud
-      SCCACHE_GCS_RW_MODE: READ_ONLY
-      RUSTC_WRAPPER: sccache
 
     runs-on: ubuntu-ghcloud
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # pin@v6.0.2
-      - name: Configure GCP credentials
-        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # pin@v3.0.0
+      - uses: ./.github/actions/sccache
         with:
-          credentials_json: ${{ secrets.GCP_WALRUS_RELEASE_BUCKET_SVCUSER_CREDENTIALS }}
-      - name: Set up sccache
-        uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # pin@v0.0.9
+          gcp_credentials_json: ${{ secrets.GCP_WALRUS_RELEASE_BUCKET_SVCUSER_CREDENTIALS }}
       - name: Install dependencies
         run: |
           sudo apt-get update
@@ -136,21 +125,14 @@ jobs:
       OPENSSL_STATIC: "1"
       OPENSSL_NO_VENDOR: "0"
       WALRUS_GRPC_MIGRATION_LEVEL: "${{ matrix.grpc_migration_level }}"
-      SCCACHE_GCS_BUCKET: walrus-sccache
-      SCCACHE_GCS_KEY_PREFIX: ubuntu-ghcloud
-      SCCACHE_GCS_RW_MODE: READ_ONLY
-      RUSTC_WRAPPER: sccache
     steps:
       - uses: taiki-e/install-action@970d55e3ce02a46d60ffae7b4fab3dedace6e769 # pin@v2.49.13
         with:
           tool: cargo-nextest
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # pin@v6.0.2
-      - name: Configure GCP credentials
-        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # pin@v3.0.0
+      - uses: ./.github/actions/sccache
         with:
-          credentials_json: ${{ secrets.GCP_WALRUS_RELEASE_BUCKET_SVCUSER_CREDENTIALS }}
-      - name: Set up sccache
-        uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # pin@v0.0.9
+          gcp_credentials_json: ${{ secrets.GCP_WALRUS_RELEASE_BUCKET_SVCUSER_CREDENTIALS }}
       - name: Install dependencies
         run: |
           sudo apt-get update
@@ -169,21 +151,14 @@ jobs:
     env:
       # Turn off Sui logging since it can be very distractive in CI
       RUST_LOG: simtest=info,error,sui_=off,consensus_core=off
-      SCCACHE_GCS_BUCKET: walrus-sccache
-      SCCACHE_GCS_KEY_PREFIX: ubuntu-ghcloud
-      SCCACHE_GCS_RW_MODE: READ_ONLY
-      RUSTC_WRAPPER: sccache
     steps:
       - uses: taiki-e/install-action@970d55e3ce02a46d60ffae7b4fab3dedace6e769 # pin@v2.49.13
         with:
           tool: cargo-nextest
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # pin@v6.0.2
-      - name: Configure GCP credentials
-        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # pin@v3.0.0
+      - uses: ./.github/actions/sccache
         with:
-          credentials_json: ${{ secrets.GCP_WALRUS_RELEASE_BUCKET_SVCUSER_CREDENTIALS }}
-      - name: Set up sccache
-        uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # pin@v0.0.9
+          gcp_credentials_json: ${{ secrets.GCP_WALRUS_RELEASE_BUCKET_SVCUSER_CREDENTIALS }}
 
       - run: ./scripts/simtest/install.sh
       - name: Run tests (seed=1)
