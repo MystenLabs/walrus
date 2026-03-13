@@ -577,8 +577,10 @@ mod tests {
         BlobInfoMergeOperand::PooledBlobChangeStatus {
             change_type,
             change_info: PooledBlobChangeInfo {
+                blob_id: walrus_core::test_utils::blob_id_from_u64(1),
                 epoch,
                 storage_pool_id: pool_id(),
+                status_event: event_id_for_testing(),
             },
         }
     }

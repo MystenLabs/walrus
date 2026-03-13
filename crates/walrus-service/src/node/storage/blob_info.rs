@@ -5,6 +5,7 @@
 
 mod blob_info_v1;
 mod blob_info_v2;
+mod per_object_pooled_blob_info;
 mod perm_blob_info;
 
 use std::{
@@ -950,8 +951,10 @@ pub(super) enum BlobStatusChangeType {
 /// the individual blob's end_epoch at registration time.
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq, Clone)]
 pub(super) struct PooledBlobChangeInfo {
+    pub(super) blob_id: BlobId,
     pub(super) epoch: Epoch,
     pub(super) storage_pool_id: ObjectID,
+    pub(super) status_event: EventID,
 }
 
 trait ChangeTypeAndInfo {
