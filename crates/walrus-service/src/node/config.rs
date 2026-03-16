@@ -18,6 +18,7 @@ use p256::pkcs8::DecodePrivateKey;
 use serde::{Deserialize, Serialize};
 use serde_with::{
     DeserializeAs,
+    DurationMilliSeconds,
     DurationSeconds,
     SerializeAs,
     base64::Base64,
@@ -342,6 +343,9 @@ pub struct StorageNodeConfig {
     /// Configuration for the WAL price monitor.
     #[serde(default, skip_serializing_if = "defaults::is_default")]
     pub wal_price_monitor: WalPriceMonitorConfig,
+    /// Configuration for epoch state consistency checks during epoch changes.
+    #[serde(default, skip_serializing_if = "defaults::is_default")]
+    pub epoch_state_consistency: EpochStateConsistencyConfig,
 }
 
 impl StorageNodeConfig {
@@ -543,6 +547,7 @@ impl Default for StorageNodeConfig {
             garbage_collection: Default::default(),
             sliver_reference_cache_max_entries: defaults::sliver_reference_cache_max_entries(),
             wal_price_monitor: Default::default(),
+            epoch_state_consistency: Default::default(),
         }
     }
 }
@@ -1383,6 +1388,10 @@ pub mod defaults {
     pub const SLIVER_REFERENCE_CACHE_MAX_ENTRIES: u64 = 2 << 15; // around 65 K
     /// Default nice(2) increment for recovery symbol worker threads.
     pub const RECOVERY_THREAD_POOL_NICE_LEVEL: i32 = 19;
+    /// Default timeout for waiting for the on-chain epoch state to match.
+    pub const EPOCH_STATE_CONSISTENCY_TIMEOUT: Duration = Duration::from_secs(60);
+    /// Default polling interval when waiting for the on-chain epoch state.
+    pub const EPOCH_STATE_CONSISTENCY_POLL_INTERVAL: Duration = Duration::from_millis(500);
 
     /// Returns the default nice(2) increment for recovery symbol worker threads.
     pub fn recovery_thread_pool_nice_level() -> i32 {
@@ -1808,6 +1817,33 @@ impl Default for BalanceCheckConfig {
         Self {
             interval: defaults::BALANCE_CHECK_FREQUENCY,
             warning_threshold_mist: defaults::BALANCE_CHECK_WARNING_THRESHOLD_MIST,
+        }
+    }
+}
+
+/// Configuration for epoch state consistency checks during epoch changes.
+///
+/// Controls how long and how frequently the node polls the on-chain epoch state
+/// when waiting for it to match the expected state before proceeding with a
+/// committee change.
+#[serde_as]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EpochStateConsistencyConfig {
+    /// Maximum time to wait for the on-chain epoch state to match.
+    #[serde_as(as = "DurationSeconds<u64>")]
+    #[serde(rename = "timeout_secs")]
+    pub timeout: Duration,
+    /// Interval between polling attempts.
+    #[serde_as(as = "DurationMilliSeconds<u64>")]
+    #[serde(rename = "poll_interval_millis")]
+    pub poll_interval: Duration,
+}
+
+impl Default for EpochStateConsistencyConfig {
+    fn default() -> Self {
+        Self {
+            timeout: defaults::EPOCH_STATE_CONSISTENCY_TIMEOUT,
+            poll_interval: defaults::EPOCH_STATE_CONSISTENCY_POLL_INTERVAL,
         }
     }
 }
