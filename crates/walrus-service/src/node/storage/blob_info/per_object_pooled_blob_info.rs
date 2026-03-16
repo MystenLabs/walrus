@@ -52,11 +52,13 @@ impl Mergeable for PerObjectPooledBlobInfoV1 {
     type MergeOperand = PerObjectPooledBlobInfoMergeOperand;
     type Key = ObjectID;
 
-    fn merge_with(mut self, operand: PerObjectPooledBlobInfoMergeOperand) -> Self {
-        let PerObjectPooledBlobInfoMergeOperand::V1(PerObjectPooledBlobInfoMergeOperandV1 {
+    fn merge_with(
+        mut self,
+        PerObjectPooledBlobInfoMergeOperand::V1(PerObjectPooledBlobInfoMergeOperandV1 {
             change_type,
             change_info,
-        }) = operand;
+        }): PerObjectPooledBlobInfoMergeOperand,
+    ) -> Self {
         assert_eq!(
             self.blob_id, change_info.blob_id,
             "blob ID mismatch in merge operand"
