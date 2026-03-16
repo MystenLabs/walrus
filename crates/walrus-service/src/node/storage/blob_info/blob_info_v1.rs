@@ -575,14 +575,9 @@ impl Mergeable for BlobInfoV1 {
                 );
                 None
             }
-            BlobInfoMergeOperand::PoolExpired { .. } => {
-                // if the first event is a pool expired before the blob is registered, there may
-                // be a race between GC and pool event processing. Don't need to create a blob info
-                // for this case.
-                None
-            }
             // Pool operands should never reach V1 — they are intercepted at the BlobInfo level.
-            BlobInfoMergeOperand::PooledBlobChangeStatus { .. } => {
+            BlobInfoMergeOperand::PooledBlobChangeStatus { .. }
+            | BlobInfoMergeOperand::PoolExpired { .. } => {
                 unreachable!("pool operands should be handled in BlobInfoV2")
             }
         }

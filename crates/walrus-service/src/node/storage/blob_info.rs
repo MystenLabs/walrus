@@ -1208,7 +1208,13 @@ impl Mergeable for BlobInfo {
                     Self::V2(BlobInfoV2::from(v1).merge_with(operand))
                 }
                 // Regular operands keep V1 as V1.
-                _ => Self::V1(v1.merge_with(operand)),
+                BlobInfoMergeOperand::MarkMetadataStored(_)
+                | BlobInfoMergeOperand::MarkInvalid { .. }
+                | BlobInfoMergeOperand::ChangeStatus { .. }
+                | BlobInfoMergeOperand::DeletableExpired { .. }
+                | BlobInfoMergeOperand::PermanentExpired { .. } => {
+                    Self::V1(v1.merge_with(operand))
+                }
             },
             // V2 handles all operand types (regular AND pool).
             Self::V2(v2) => Self::V2(v2.merge_with(operand)),
@@ -1226,7 +1232,13 @@ impl Mergeable for BlobInfo {
             // blob delete event.
             BlobInfoMergeOperand::PoolExpired { .. } => None,
             // First event is a regular event → create V1 (as before).
-            _ => BlobInfoV1::merge_new(operand).map(Self::V1),
+            BlobInfoMergeOperand::MarkMetadataStored(_)
+            | BlobInfoMergeOperand::MarkInvalid { .. }
+            | BlobInfoMergeOperand::ChangeStatus { .. }
+            | BlobInfoMergeOperand::DeletableExpired { .. }
+            | BlobInfoMergeOperand::PermanentExpired { .. } => {
+                BlobInfoV1::merge_new(operand).map(Self::V1)
+            }
         }
     }
 }
