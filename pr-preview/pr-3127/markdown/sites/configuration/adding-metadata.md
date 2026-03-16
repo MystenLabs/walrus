@@ -1,0 +1,204 @@
+The `metadata` section of [`ws-resources.json`](/docs/sites/configuration/site-configuration) lets you add human-readable information to your Walrus Site object. This data is stored on-chain and is used by portals, explorers, wallets, and other tools to display information about your site.
+
+```json
+{
+  "metadata": {
+    "link": "https://myproject.wal.app",
+    "image_url": "https://myproject.wal.app/preview.png",
+    "description": "A decentralized app built on Sui and Walrus.",
+    "project_url": "https://github.com/myorg/myproject",
+    "creator": "MyOrg"
+  }
+}
+```
+
+The five fields correspond to the basic set of properties suggested by the [Sui Object Display standard](https://docs.sui.io/standards/display#display-properties).
+
+**All fields are optional.** You may include any combination of them, or omit the `metadata` block entirely.
+
+## Metadata fields
+
+### `link`
+
+**Type:** `string` (URL)  
+**Purpose:** The canonical public URL of your Walrus Site.
+
+This is the URL through which users will access your site. It is used by portals and social preview tools as the primary link to represent the site.
+
+**Example:** SuiNS subdomain
+
+```json
+{
+  "metadata": {
+    "link": "https://myapp.wal.app"
+  }
+}
+```
+
+**Example:** Custom domain
+
+```json
+{
+  "metadata": {
+    "link": "https://www.myproject.xyz"
+  }
+}
+```
+
+**Example:** Testnet portal
+
+```json
+{
+  "metadata": {
+    "link": "https://2ffmxm7jmglccr79htmpdbaeqezp2krgftue5pfq9f83tdqjsc.localhost:3000"
+  }
+}
+```
+
+### `image_url`
+
+**Type:** `string` (URL)  
+**Purpose:** A URL pointing to a preview image for the site.
+
+This image is used as the thumbnail when your site is shared or listed in explorers and marketplaces. It should be a publicly accessible image hosted on a stable URL.
+
+**Example:** Image hosted on the same Walrus site
+
+```json
+{
+  "metadata": {
+    "image_url": "https://myapp.wal.app/og-image.png"
+  }
+}
+```
+
+**Example:** Image hosted on an external CDN
+
+```json
+{
+  "metadata": {
+    "image_url": "https://cdn.myproject.xyz/preview/walrus-site-banner.jpg"
+  }
+}
+```
+
+**Example:** Image hosted on Walrus directly
+
+```json
+{
+  "metadata": {
+    "image_url": "https://aggregator.walrus-testnet.walrus.space/v1/blobs/abc123xyz"
+  }
+}
+```
+
+### `description`
+
+**Type:** `string`  
+**Purpose:** A short human-readable description of the site.
+
+This appears in Sui explorers, portal listings, and social sharing previews, similar to the `<meta name="description">` HTML meta tag. You can use `description` to provide a one or two sentence summary of what your site is and does.
+
+**Example:** A simple app
+
+```json
+{
+  "metadata": {
+    "description": "A decentralized token swap interface built on Sui."
+  }
+}
+```
+
+**Example:** An NFT project
+
+```json
+{
+  "metadata": {
+    "description": "Flatland NFTs — mint and collect unique generative art stored entirely on Walrus."
+  }
+}
+```
+
+**Example:** A developer tool
+
+```json
+{
+  "metadata": {
+    "description": "An open-source block explorer for the Sui testnet with real-time transaction search."
+  }
+}
+```
+
+### `project_url`
+
+**Type:** `string` (URL)  
+**Purpose:** A URL pointing to the project's source code, homepage, or documentation.
+
+This is intended to provide a link to where users and developers can learn more about the project behind the site, such as a GitHub repository, a documentation site, or a marketing page. It is separate from `link`, which represents the site itself.
+
+**Example:** A GitHub repository
+
+```json
+{
+  "metadata": {
+    "project_url": "https://github.com/MystenLabs/walrus-sites"
+  }
+}
+```
+
+**Example:** A documentation site
+
+```json
+{
+  "metadata": {
+    "project_url": "https://docs.myproject.xyz"
+  }
+}
+```
+
+**Example:** An external landing page
+
+```json
+{
+  "metadata": {
+    "project_url": "https://www.myorg.io"
+  }
+}
+```
+
+### `creator`
+
+**Type:** `string`  
+**Purpose:** Identifies the author or organization that created and deployed the site.
+
+This is a `string` shown in explorers and directory listings to indicate ownership or attribution. It can be an individual name, a team, an organization, or a handle.
+
+**Example:** Individual
+
+```json
+{
+  "metadata": {
+    "creator": "Alice"
+  }
+}
+```
+
+**Example:** Organization
+
+```json
+{
+  "metadata": {
+    "creator": "MystenLabs"
+  }
+}
+```
+
+**Example:** Handle or alias
+
+```json
+{
+  "metadata": {
+    "creator": "@walrus_builder"
+  }
+}
+```
