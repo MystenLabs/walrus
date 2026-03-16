@@ -3,7 +3,14 @@
 
 use std::{collections::HashSet, sync::Arc, time::Duration};
 
-use axum::{Extension, Router, extract::DefaultBodyLimit, middleware, routing::post};
+use axum::{
+    Extension,
+    Router,
+    extract::DefaultBodyLimit,
+    http::StatusCode,
+    middleware,
+    routing::post,
+};
 use tokio::signal;
 use tower::ServiceBuilder;
 use tower_http::{
@@ -72,10 +79,10 @@ pub fn app(
         // Enforce on all routes.
         // If the request does not complete within the specified timeout it will be aborted
         // and a 408 Request Timeout response will be sent.
-        .layer(TimeoutLayer::new(Duration::from_secs(var!(
-            "NODE_CLIENT_TIMEOUT",
-            20
-        ))))
+        .layer(TimeoutLayer::with_status_code(
+            StatusCode::REQUEST_TIMEOUT,
+            Duration::from_secs(var!("NODE_CLIENT_TIMEOUT", 20)),
+        ))
         .layer(Extension(relay))
         .layer(Extension(labels))
         .layer(Extension(remove_labels))
