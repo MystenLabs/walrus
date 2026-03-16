@@ -1299,7 +1299,7 @@ pub(crate) mod tests {
         BlobInfoMergeOperand,
         BlobInfoV1,
         BlobStatusChangeType,
-        PermanentBlobInfoV1,
+        PermanentBlobInfo,
         ValidBlobInfoV1,
     };
     use constants::{
@@ -1508,7 +1508,7 @@ pub(crate) mod tests {
 
             // Set correct registered event.
             let BlobInfo::V1(BlobInfoV1::Valid(ValidBlobInfoV1 {
-                permanent_total: Some(PermanentBlobInfoV1 { event, .. }),
+                permanent_total: Some(PermanentBlobInfo { event, .. }),
                 ..
             })) = &mut state1
             else {
