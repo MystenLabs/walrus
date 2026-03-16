@@ -95,6 +95,10 @@ walrus_utils::metrics::define_metric_set! {
         #[help = "The number of recovery tasks currently waiting for deferrals to expire"]
         recovery_deferral_waiters: IntGauge[],
 
+        #[help = "Total number of blob recoveries avoided because data was already present after \
+        waiting for a live-upload deferral"]
+        live_upload_deferral_avoided_recovery_total: IntCounter[],
+
         #[help = "Total number of sliver instances returned"]
         slivers_retrieved_total: IntCounterVec["sliver_type"],
 
