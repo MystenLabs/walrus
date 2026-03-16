@@ -43,8 +43,8 @@ bytes = { version = "1.11.1", default-features = false, features = ["serde"] }
 bytesize = "2.3"
 checkpoint-downloader = { path = "crates/checkpoint-downloader" }
 chrono = "0.4"
-clap = { version = "4.5.60", features = ["deprecated", "derive"] }
-clap_complete = "4.5.66"
+clap = { version = "4.6.0", features = ["deprecated", "derive"] }
+clap_complete = "4.6.0"
 collectable = "0.0.2"
 colored = "2.2.0"
 const-str = "0.6.4"
@@ -87,14 +87,14 @@ move-package-alt-compilation = { git = "https://github.com/MystenLabs/sui", tag 
 mysten-metrics = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.67.2" }
 num-bigint = { version = "0.4.5", default-features = false }
 object_store = { version = "0.11.2", features = ["gcp"] }
-once_cell = { version = "1.21.3" }
+once_cell = { version = "1.21.4" }
 opentelemetry = { version = "=0.31", default-features = false, features = ["trace"] }
 opentelemetry-otlp = { version = "=0.31" }
 opentelemetry-proto = { version = "=0.31", default-features = false, features = ["with-serde"] }
 opentelemetry-semantic-conventions = "=0.31"
 opentelemetry_sdk = "=0.31"
 p256 = { version = "0.13.2", default-features = false }
-pin-project = "1.1.10"
+pin-project = "1.1.11"
 prettytable = "0.10.0"
 proc-macro2 = "1.0.106"
 prometheus = "0.14.0"
@@ -109,14 +109,14 @@ regex = "1"
 reqwest = { version = "0.12.12", default-features = false, features = ["http2", "json", "rustls-tls"] }
 rocksdb = "0.22.0"
 rstest = "0.26.1"
-rustls = { version = "0.23.36", default-features = false, features = ["logging", "ring", "tls12"] }
+rustls = { version = "0.23.37", default-features = false, features = ["logging", "ring", "tls12"] }
 rustls-native-certs = "0.8.3"
 scoped-futures = "0.1.4"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
 serde_test = "1.0.177"
 serde_urlencoded = { version = "0.7.1" }
-serde_with = { version = "3.16", features = ["base64"] }
+serde_with = { version = "3.18", features = ["base64"] }
 serde_yaml = "0.9"
 sha2 = "0.10.9"
 snap = "1.1.0"
@@ -143,11 +143,11 @@ sui-types = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.67.2"
 syn = "2.0"
 tap = "1.0.1"
 telemetry-subscribers = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.67.2" }
-tempfile = "3.25.0"
+tempfile = "3.27.0"
 test-cluster = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.67.2" }
 thiserror = "2.0.18"
 tokio = { version = "=1.49.0", features = ["macros", "rt-multi-thread", "signal"] }
-tokio-metrics = { version = "0.4.8", default-features = false }
+tokio-metrics = { version = "0.4.9", default-features = false }
 tokio-stream = "0.1.17"
 tokio-util = "0.7.16"
 tonic = { version = "0.14.5", default-features = false }
@@ -155,7 +155,7 @@ tower = "0.5"
 tower-http = { version = "0.6.8", features = ["cors", "timeout", "trace"] }
 tracing = "0.1.44"
 tracing-opentelemetry = { version = "=0.32.1", default-features = false }
-tracing-subscriber = { version = "0.3.22", default-features = false, features = ["env-filter", "fmt"] }
+tracing-subscriber = { version = "0.3.23", default-features = false, features = ["env-filter", "fmt"] }
 twox-hash = "2.1.2"
 typed-store = { path = "crates/typed-store" }
 uint = "0.10.0"
@@ -163,7 +163,7 @@ url = "2.5.4"
 urlencoding = "2.1"
 utoipa = { version = "5" }
 utoipa-redoc = { version = "6.0", features = ["axum"] }
-uuid = { version = "1.21.0", features = ["fast-rng", "macro-diagnostics", "v7"] }
+uuid = { version = "1.22.0", features = ["fast-rng", "macro-diagnostics", "v7"] }
 walrus-core = { path = "crates/walrus-core" }
 walrus-proc-macros = { path = "crates/walrus-proc-macros" }
 walrus-sdk = { path = "crates/walrus-sdk" }
