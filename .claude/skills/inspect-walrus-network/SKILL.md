@@ -232,6 +232,11 @@ it with the health command.
 
 When analyzing the health output, check for these categories of issues:
 
+**Non-Active node status**: The `nonActive` field in the health analysis output lists nodes whose
+`nodeStatus` is not `Active` (for example, `RecoveryInProgress`). These nodes are reachable but not
+fully operational. Always report these prominently — they indicate nodes that need operator
+attention even though they respond to health checks.
+
 **Unreachable nodes**: Nodes where the health endpoint returns an error. Common failure modes:
 - Connection timed out — node may be down or firewalled
 - Connection refused — node process not running on the expected port
