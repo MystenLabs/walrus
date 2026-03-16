@@ -39,7 +39,14 @@ use super::{
     StorageNodeInner,
     committee::CommitteeService,
     contract_service::SystemContractService,
-    metrics::{self, NodeMetricSet, STATUS_IN_PROGRESS, STATUS_QUEUED},
+    metrics::{
+        self,
+        LIVE_UPLOAD_DEFERRAL_OUTCOME_AVOIDED_RECOVERY,
+        LIVE_UPLOAD_DEFERRAL_OUTCOME_RECOVERY_NEEDED,
+        NodeMetricSet,
+        STATUS_IN_PROGRESS,
+        STATUS_QUEUED,
+    },
     storage::Storage,
     system_events::{CompletableHandle, EventHandle},
 };
@@ -589,8 +596,21 @@ impl BlobSynchronizer {
                     .metrics
                     .live_upload_deferral_avoided_recovery_total
                     .inc();
+                walrus_utils::with_label!(
+                    this.node.metrics.live_upload_deferral_outcome_total,
+                    LIVE_UPLOAD_DEFERRAL_OUTCOME_AVOIDED_RECOVERY
+                )
+                .inc();
             }
             return;
+        }
+
+        if waited_for_deferral {
+            walrus_utils::with_label!(
+                this.node.metrics.live_upload_deferral_outcome_total,
+                LIVE_UPLOAD_DEFERRAL_OUTCOME_RECOVERY_NEEDED
+            )
+            .inc();
         }
 
         let shared_metadata = this

@@ -42,6 +42,8 @@ pub(crate) const STATUS_IN_PROGRESS: &str = "in-progress";
 pub(crate) const STATUS_STARTED: &str = "started";
 pub(crate) const STATUS_COMPLETED: &str = "completed";
 pub(crate) const STATUS_HIGHEST_FINISHED: &str = "highest_finished";
+pub(crate) const LIVE_UPLOAD_DEFERRAL_OUTCOME_AVOIDED_RECOVERY: &str = "avoided_recovery";
+pub(crate) const LIVE_UPLOAD_DEFERRAL_OUTCOME_RECOVERY_NEEDED: &str = "recovery_needed";
 
 type U64GaugeVec = GenericGaugeVec<AtomicU64>;
 type U64Gauge = GenericGauge<AtomicU64>;
@@ -98,6 +100,9 @@ walrus_utils::metrics::define_metric_set! {
         #[help = "Total number of blob recoveries avoided because data was already present after \
         waiting for a live-upload deferral"]
         live_upload_deferral_avoided_recovery_total: IntCounter[],
+
+        #[help = "Total number of waited live-upload deferrals by outcome"]
+        live_upload_deferral_outcome_total: IntCounterVec["outcome"],
 
         #[help = "Total number of sliver instances returned"]
         slivers_retrieved_total: IntCounterVec["sliver_type"],
