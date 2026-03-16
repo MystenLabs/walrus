@@ -201,6 +201,13 @@ impl BlobInfoTable {
             BlobEvent::InvalidBlobID(_) | BlobEvent::DenyListBlobDeleted(_) => {
                 return Ok(());
             }
+
+            BlobEvent::PooledBlobRegistered(_)
+            | BlobEvent::PooledBlobCertified(_)
+            | BlobEvent::PooledBlobDeleted(_) => {
+                // TODO(WAL-1175): implement storage pool blob event processing on storage nodes.
+                todo!("storage pool blob event processing is not yet implemented");
+            }
         };
 
         batch.partial_merge_batch(
@@ -243,7 +250,10 @@ impl BlobInfoTable {
             })
             | BlobEvent::Deleted(_)
             | BlobEvent::InvalidBlobID(_)
-            | BlobEvent::DenyListBlobDeleted(_) => {
+            | BlobEvent::DenyListBlobDeleted(_)
+            | BlobEvent::PooledBlobRegistered(_)
+            | BlobEvent::PooledBlobCertified(_)
+            | BlobEvent::PooledBlobDeleted(_) => {
                 tracing::debug!("performing standard blob-info update for event");
                 return self.update_blob_info(event_index, event);
             }
@@ -1107,6 +1117,12 @@ impl From<&BlobEvent> for BlobInfoMergeOperand {
                 // event, we need f+1 signatures and until the Rust integration is implemented no
                 // such event should be emitted.
                 todo!("DenyListBlobDeleted event handling is not yet implemented");
+            }
+            BlobEvent::PooledBlobRegistered(_)
+            | BlobEvent::PooledBlobCertified(_)
+            | BlobEvent::PooledBlobDeleted(_) => {
+                // TODO(WAL-1175): implement storage pool blob event processing on storage nodes.
+                todo!("storage pool blob event processing is not yet implemented");
             }
         }
     }
