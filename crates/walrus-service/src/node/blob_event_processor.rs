@@ -138,6 +138,30 @@ impl BackgroundEventProcessor {
             BlobEvent::Registered(_) => {
                 unreachable!("registered event should be processed immediately");
             }
+            BlobEvent::PooledBlobRegistered(event) => {
+                // TODO(WAL-1181): implement storage pool blob event processing on storage nodes.
+                todo!(
+                    "storage pool blob event processing is not yet implemented: \
+                    PooledBlobRegistered for blob {:?}",
+                    event.blob_id
+                );
+            }
+            BlobEvent::PooledBlobCertified(event) => {
+                // TODO(WAL-1181): implement storage pool blob event processing on storage nodes.
+                todo!(
+                    "storage pool blob event processing is not yet implemented: \
+                    PooledBlobCertified for blob {:?}",
+                    event.blob_id
+                );
+            }
+            BlobEvent::PooledBlobDeleted(event) => {
+                // TODO(WAL-1181): implement storage pool blob event processing on storage nodes.
+                todo!(
+                    "storage pool blob event processing is not yet implemented: \
+                    PooledBlobDeleted for blob {:?}",
+                    event.blob_id
+                );
+            }
         }
 
         Ok(())

@@ -325,6 +325,9 @@ impl TelemetryLabel for BlobEvent {
             BlobEvent::Deleted(_) => "deleted",
             BlobEvent::InvalidBlobID(_) => "invalid-blob",
             BlobEvent::DenyListBlobDeleted(_) => "deny-list-deleted",
+            BlobEvent::PooledBlobRegistered(_) => "pooled-blob-registered",
+            BlobEvent::PooledBlobCertified(_) => "pooled-blob-certified",
+            BlobEvent::PooledBlobDeleted(_) => "pooled-blob-deleted",
         }
     }
 }
@@ -374,9 +377,6 @@ impl TelemetryLabel for StoragePoolEvent {
     fn label(&self) -> &'static str {
         match self {
             StoragePoolEvent::StoragePoolCreated(_) => "storage-pool-created",
-            StoragePoolEvent::PooledBlobRegistered(_) => "pooled-blob-registered",
-            StoragePoolEvent::PooledBlobCertified(_) => "pooled-blob-certified",
-            StoragePoolEvent::PooledBlobDeleted(_) => "pooled-blob-deleted",
             StoragePoolEvent::StoragePoolExtended(_) => "storage-pool-extended",
         }
     }
