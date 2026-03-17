@@ -68,3 +68,102 @@ jobs:
         uses: rossjrw/pr-preview-action@ffa7509e91a3ec8dfc2e5536c4d5c1acdf7a6de9 # pin@v1.8.1
         with:
           source-dir: docs/site/build
+
+  afdocs-check:
+    needs: preview
+    runs-on: ubuntu-latest
+    if: github.event.action != 'closed' && github.repository_owner == 'MystenLabs'
+    steps:
+      - name: Wait for GitHub Pages deployment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // Wait for the Pages deployment triggered by the gh-pages push
+            const maxAttempts = 30;
+            const delay = 10000; // 10 seconds
+            for (let i = 0; i < maxAttempts; i++) {
+              const deployments = await github.rest.repos.listDeployments({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                environment: 'github-pages',
+                per_page: 1,
+              });
+              if (deployments.data.length > 0) {
+                const statuses = await github.rest.repos.listDeploymentStatuses({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  deployment_id: deployments.data[0].id,
+                  per_page: 1,
+                });
+                if (statuses.data.length > 0 && statuses.data[0].state === 'success') {
+                  core.info(`Pages deployment is live (attempt ${i + 1})`);
+                  return;
+                }
+              }
+              core.info(`Waiting for Pages deployment... (attempt ${i + 1}/${maxAttempts})`);
+              await new Promise(r => setTimeout(r, delay));
+            }
+            core.warning('Timed out waiting for Pages deployment, proceeding anyway');
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Run afdocs check
+        id: afdocs
+        run: |
+          OUTPUT=$(npx --yes afdocs@latest check "$URL" --max-links 1000 2>&1) || true
+          echo "result<<EOF" >> $GITHUB_OUTPUT
+          echo "$OUTPUT" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+        env:
+          URL: https://MystenLabs.github.io/walrus/pr-preview/pr-${{ github.event.number }}/
+
+      - name: Comment on PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const marker = '<!-- afdocs-check -->';
+            const url = process.env.URL;
+            const output = process.env.OUTPUT;
+            const prNumber = context.issue.number;
+
+            const body = [
+              marker,
+              '## 📋 afdocs check results',
+              `**URL:** ${url}`,
+              '```',
+              output,
+              '```',
+            ].join('\n');
+
+            const comments = await github.paginate(
+              github.rest.issues.listComments,
+              {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: prNumber,
+                per_page: 100,
+              }
+            );
+            const existing = comments.find(c => c.body?.includes(marker));
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: prNumber,
+                body,
+              });
+            }
+        env:
+          URL: https://MystenLabs.github.io/walrus/pr-preview/pr-${{ github.event.number }}/
+          OUTPUT: ${{ steps.afdocs.outputs.result }}
