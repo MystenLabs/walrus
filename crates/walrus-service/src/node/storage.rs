@@ -42,6 +42,7 @@ use self::{
         BlobInfoTable,
         PerObjectBlobInfo,
         PerObjectBlobInfoIterator,
+        PerObjectPooledBlobInfo,
     },
     constants::{
         garbage_collector_last_completed_epoch_key,
@@ -213,6 +214,7 @@ impl Storage {
         db_config: DatabaseConfig,
         metrics_config: MetricConf,
         metrics_registry: Registry,
+        enable_storage_pool: bool,
     ) -> Result<Self, anyhow::Error> {
         let mut db_opts = Options::from(&db_config.global);
         db_opts.create_missing_column_families(true);
@@ -261,7 +263,8 @@ impl Storage {
         let node_status_options = db_table_opts_factory.node_status();
         let metadata_options = db_table_opts_factory.metadata();
         let metadata_cf_name = metadata_cf_name();
-        let blob_info_column_families = BlobInfoTable::options(&db_table_opts_factory);
+        let blob_info_column_families =
+            BlobInfoTable::options(&db_table_opts_factory, enable_storage_pool);
         let (event_cursor_cf_name, event_cursor_options) =
             EventCursorTable::options(&db_table_opts_factory);
         let garbage_collector_table_cf_name = garbage_collector_table_cf_name();
@@ -339,7 +342,7 @@ impl Storage {
         )?;
 
         let event_cursor = EventCursorTable::reopen(&database)?;
-        let blob_info = BlobInfoTable::reopen(&database)?;
+        let blob_info = BlobInfoTable::reopen(&database, enable_storage_pool)?;
         let shards = Arc::new(RwLock::new(
             existing_shards_ids
                 .into_iter()
@@ -668,6 +671,14 @@ impl Storage {
         object_id: &ObjectID,
     ) -> Result<Option<PerObjectBlobInfo>, TypedStoreError> {
         self.blob_info.get_per_object_info(object_id)
+    }
+
+    /// Returns the per-object pooled blob info for `object_id`.
+    pub(crate) fn get_per_object_pooled_info(
+        &self,
+        object_id: &ObjectID,
+    ) -> Result<Option<PerObjectPooledBlobInfo>, TypedStoreError> {
+        self.blob_info.get_per_object_pooled_info(object_id)
     }
 
     /// Returns the current event cursor and the next event index.
@@ -1740,6 +1751,7 @@ pub(crate) mod tests {
                 DatabaseConfig::default(),
                 MetricConf::default(),
                 Registry::default(),
+                true,
             )?;
 
             for shard_id in [SHARD_INDEX, OTHER_SHARD_INDEX] {
@@ -1779,6 +1791,7 @@ pub(crate) mod tests {
                 DatabaseConfig::default(),
                 MetricConf::default(),
                 Registry::default(),
+                true,
             )?;
 
             // Check that the shard status is restored correctly.
@@ -1905,6 +1918,7 @@ pub(crate) mod tests {
                 DatabaseConfig::default(),
                 MetricConf::default(),
                 Registry::default(),
+                true,
             )?;
 
             // Check shard files exist.
@@ -1924,6 +1938,7 @@ pub(crate) mod tests {
                 DatabaseConfig::default(),
                 MetricConf::default(),
                 Registry::default(),
+                true,
             )?;
 
             // Reload storage and the shard should not exist.

@@ -33,12 +33,16 @@ use walrus_sui::types::{BlobCertified, BlobDeleted, BlobEvent, BlobRegistered, I
 
 #[cfg(test)]
 pub(crate) use self::blob_info_v1::ValidBlobInfoV1;
-use self::per_object_blob_info::PerObjectBlobInfoMergeOperand;
 pub(crate) use self::{
     blob_info_v1::BlobInfoV1,
     blob_info_v2::BlobInfoV2,
     per_object_blob_info::{PerObjectBlobInfo, PerObjectBlobInfoApi},
+    per_object_pooled_blob_info::PerObjectPooledBlobInfo,
     perm_blob_info::PermanentBlobInfo,
+};
+use self::{
+    per_object_blob_info::PerObjectBlobInfoMergeOperand,
+    per_object_pooled_blob_info::PerObjectPooledBlobInfoMergeOperand,
 };
 use super::{DatabaseTableOptionsFactory, constants};
 use crate::{
@@ -62,6 +66,8 @@ pub type PerObjectBlobInfoIterator<'a> = BlobInfoIter<
 pub(super) struct BlobInfoTable {
     aggregate_blob_info: DBMap<BlobId, BlobInfo>,
     per_object_blob_info: DBMap<ObjectID, PerObjectBlobInfo>,
+    // TODO(WAL-1184): make this non-optional.
+    per_object_pooled_blob_info: Option<DBMap<ObjectID, PerObjectPooledBlobInfo>>,
     latest_handled_event_index: Arc<Mutex<DBMap<(), u64>>>,
 }
 
@@ -87,8 +93,24 @@ pub(crate) fn per_object_blob_info_cf_options(
     options
 }
 
+/// Returns the options for the per object pooled blob info column family.
+pub(crate) fn per_object_pooled_blob_info_cf_options(
+    db_table_opts_factory: &DatabaseTableOptionsFactory,
+) -> Options {
+    let mut options = db_table_opts_factory.per_object_pooled_blob_info();
+    options.set_merge_operator(
+        "merge per object pooled blob info",
+        merge_mergeable::<PerObjectPooledBlobInfo>,
+        |_, _, _| None,
+    );
+    options
+}
+
 impl BlobInfoTable {
-    pub fn reopen(database: &Arc<RocksDB>) -> Result<Self, TypedStoreError> {
+    pub fn reopen(
+        database: &Arc<RocksDB>,
+        enable_storage_pool: bool,
+    ) -> Result<Self, TypedStoreError> {
         let aggregate_blob_info = DBMap::reopen(
             database,
             Some(constants::aggregate_blob_info_cf_name()),
@@ -101,6 +123,16 @@ impl BlobInfoTable {
             &ReadWriteOptions::default(),
             false,
         )?;
+        let per_object_pooled_blob_info = if enable_storage_pool {
+            Some(DBMap::reopen(
+                database,
+                Some(constants::per_object_pooled_blob_info_cf_name()),
+                &ReadWriteOptions::default(),
+                false,
+            )?)
+        } else {
+            None
+        };
         let latest_handled_event_index = Arc::new(Mutex::new(DBMap::reopen(
             database,
             Some(constants::event_index_cf_name()),
@@ -111,6 +143,7 @@ impl BlobInfoTable {
         Ok(Self {
             aggregate_blob_info,
             per_object_blob_info,
+            per_object_pooled_blob_info,
             latest_handled_event_index,
         })
     }
@@ -118,6 +151,9 @@ impl BlobInfoTable {
     pub fn clear(&self) -> Result<(), TypedStoreError> {
         self.aggregate_blob_info.schedule_delete_all()?;
         self.per_object_blob_info.schedule_delete_all()?;
+        if let Some(pooled) = &self.per_object_pooled_blob_info {
+            pooled.schedule_delete_all()?;
+        }
         self.latest_handled_event_index
             .lock()
             .expect("mutex should not be poisoned")
@@ -128,8 +164,9 @@ impl BlobInfoTable {
 
     pub fn options(
         db_table_opts_factory: &DatabaseTableOptionsFactory,
+        enable_storage_pool: bool,
     ) -> Vec<(&'static str, Options)> {
-        vec![
+        let mut cfs = vec![
             (
                 constants::aggregate_blob_info_cf_name(),
                 blob_info_cf_options(db_table_opts_factory),
@@ -144,7 +181,14 @@ impl BlobInfoTable {
                 // value.
                 db_table_opts_factory.standard(),
             ),
-        ]
+        ];
+        if enable_storage_pool {
+            cfs.push((
+                constants::per_object_pooled_blob_info_cf_name(),
+                per_object_pooled_blob_info_cf_options(db_table_opts_factory),
+            ));
+        }
+        cfs
     }
 
     /// Updates the blob info for a blob based on the [`BlobEvent`].
@@ -185,35 +229,47 @@ impl BlobInfoTable {
         batch: &mut DBBatch,
         event: &BlobEvent,
     ) -> Result<(), TypedStoreError> {
-        let (object_id, operand) = match event {
-            BlobEvent::Registered(blob_registered) => (
-                blob_registered.object_id,
-                PerObjectBlobInfoMergeOperand::from(blob_registered),
-            ),
-            BlobEvent::Certified(blob_certified) => (
-                blob_certified.object_id,
-                PerObjectBlobInfoMergeOperand::from(blob_certified),
-            ),
+        match event {
+            // Regular blob events update the per-object blob info table.
+            BlobEvent::Registered(e) => {
+                let operand = PerObjectBlobInfoMergeOperand::from(e);
+                batch.partial_merge_batch(
+                    &self.per_object_blob_info,
+                    [(&e.object_id, operand.to_bytes())],
+                )?;
+            }
+            BlobEvent::Certified(e) => {
+                let operand = PerObjectBlobInfoMergeOperand::from(e);
+                batch.partial_merge_batch(
+                    &self.per_object_blob_info,
+                    [(&e.object_id, operand.to_bytes())],
+                )?;
+            }
             BlobEvent::Deleted(BlobDeleted { object_id, .. }) => {
                 batch.delete_batch(&self.per_object_blob_info, [(object_id)])?;
-                return Ok(());
-            }
-            BlobEvent::InvalidBlobID(_) | BlobEvent::DenyListBlobDeleted(_) => {
-                return Ok(());
             }
 
-            BlobEvent::PooledBlobRegistered(_)
-            | BlobEvent::PooledBlobCertified(_)
-            | BlobEvent::PooledBlobDeleted(_) => {
-                // TODO(WAL-1175): implement storage pool blob event processing on storage nodes.
-                todo!("storage pool blob event processing is not yet implemented");
+            // Pooled blob events update the per-object pooled blob info table (if enabled).
+            BlobEvent::PooledBlobRegistered(e) => {
+                if let Some(table) = &self.per_object_pooled_blob_info {
+                    let operand = PerObjectPooledBlobInfoMergeOperand::from(e);
+                    batch.partial_merge_batch(table, [(&e.object_id, operand.to_bytes())])?;
+                }
             }
-        };
+            BlobEvent::PooledBlobCertified(e) => {
+                if let Some(table) = &self.per_object_pooled_blob_info {
+                    let operand = PerObjectPooledBlobInfoMergeOperand::from(e);
+                    batch.partial_merge_batch(table, [(&e.object_id, operand.to_bytes())])?;
+                }
+            }
+            BlobEvent::PooledBlobDeleted(e) => {
+                if let Some(table) = &self.per_object_pooled_blob_info {
+                    batch.delete_batch(table, [(&e.object_id)])?;
+                }
+            }
 
-        batch.partial_merge_batch(
-            &self.per_object_blob_info,
-            [(&object_id, operand.to_bytes())],
-        )?;
+            BlobEvent::InvalidBlobID(_) | BlobEvent::DenyListBlobDeleted(_) => {}
+        }
         Ok(())
     }
 
@@ -255,6 +311,10 @@ impl BlobInfoTable {
             | BlobEvent::PooledBlobCertified(_)
             | BlobEvent::PooledBlobDeleted(_) => {
                 tracing::debug!("performing standard blob-info update for event");
+                // TODO(WAL-1185): here we do not need to handle storage node recovery with
+                // incomplete history for pooled blobs. Replaying history does not provide the full
+                // list of blobs in a pool, and therefore, we need to develop a different approach
+                // to recovery node.
                 return self.update_blob_info(event_index, event);
             }
             BlobEvent::Certified(event) => {
@@ -446,6 +506,17 @@ impl BlobInfoTable {
         self.per_object_blob_info.get(object_id)
     }
 
+    /// Returns the per-object pooled blob info for `object_id`.
+    pub fn get_per_object_pooled_info(
+        &self,
+        object_id: &ObjectID,
+    ) -> Result<Option<PerObjectPooledBlobInfo>, TypedStoreError> {
+        match &self.per_object_pooled_blob_info {
+            Some(table) => table.get(object_id),
+            None => Ok(None),
+        }
+    }
+
     /// Returns the latest event index that has been handled by the node.
     pub(crate) fn get_latest_handled_event_index(&self) -> Result<u64, TypedStoreError> {
         Ok(self
@@ -475,14 +546,14 @@ impl BlobInfoTable {
         let start_time = Instant::now();
 
         let this = self.clone();
-        let node_metrics = node_metrics.clone();
+        let node_metrics_clone = node_metrics.clone();
 
         let cleaned_up_objects_count = process_items_in_batches(move |last_processed_object_id| {
             this.process_expired_blob_objects_batch(
                 last_processed_object_id,
                 batch_size,
                 current_epoch,
-                &node_metrics,
+                &node_metrics_clone,
             )
         })
         .await?;
@@ -492,6 +563,9 @@ impl BlobInfoTable {
             duration = ?start_time.elapsed(),
             "finished processing expired blob objects",
         );
+
+        // TODO(WAL-1178): implement GC for per-object pooled blob info after the storage pool
+        // end-epoch table is available to determine pool expiry.
 
         Ok(())
     }
@@ -699,6 +773,32 @@ impl BlobInfoTable {
                         (object ID: {object_id})"
                     );
                 }
+            }
+        }
+
+        // Also collect blob IDs from the pooled table.
+        if let Some(pooled_table) = &self.per_object_pooled_blob_info {
+            for result in pooled_table
+                .safe_iter_with_snapshot(&snapshot)
+                .context("failed to create per-object pooled blob info snapshot iterator")?
+            {
+                let Ok((object_id, PerObjectPooledBlobInfo::V1(pooled_info))) = result else {
+                    return Err(anyhow::anyhow!(
+                        "error encountered while iterating over per-object pooled blob info: \
+                        {result:?}"
+                    ));
+                };
+                let blob_id = pooled_info.blob_id;
+                per_object_table_blob_ids.insert(blob_id);
+                let Some(_blob_info) = self
+                    .aggregate_blob_info
+                    .get_with_snapshot(&snapshot, &blob_id)?
+                else {
+                    return Err(anyhow::anyhow!(
+                        "blob info not found for blob ID {blob_id}, even though a corresponding \
+                        per-object pooled blob info entry exists (object ID: {object_id})"
+                    ));
+                };
             }
         }
 

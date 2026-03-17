@@ -3286,6 +3286,7 @@ pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
             event_processor_config: Default::default(),
             pending_sliver_cache: Default::default(),
             disable_event_blob_writer: false,
+            enable_storage_pool: true,
             commission_rate: 0,
             voting_params: VotingParamsConfig {
                 voting_prices: VotingPrices {
@@ -3351,6 +3352,7 @@ pub async fn empty_storage_with_shards(shards: &[ShardIndex]) -> WithTempDir<Sto
         db_config,
         MetricConf::default(),
         Registry::default(),
+        true,
     )
     .expect("storage creation must succeed");
 

@@ -743,6 +743,7 @@ impl StorageNode {
                 config.db_config.clone(),
                 MetricConf::new("storage"),
                 registry.clone(),
+                config.enable_storage_pool,
             )?
         };
         tracing::info!("successfully opened the node database");
@@ -4212,15 +4213,32 @@ impl ServiceState for StorageNodeInner {
         );
 
         if let BlobPersistenceType::Deletable { object_id } = blob_persistence_type {
-            let per_object_info = self
+            let sui_object_id = object_id.into();
+
+            // Check the regular per-object table first.
+            if let Some(per_object_info) = self
                 .storage
-                .get_per_object_info(&object_id.into())
+                .get_per_object_info(&sui_object_id)
                 .context("database error when checking per object info")?
-                .ok_or(ComputeStorageConfirmationError::NotCurrentlyRegistered)?;
-            ensure!(
-                per_object_info.is_registered(self.current_committee_epoch()),
-                ComputeStorageConfirmationError::NotCurrentlyRegistered,
-            );
+            {
+                ensure!(
+                    per_object_info.is_registered(self.current_committee_epoch()),
+                    ComputeStorageConfirmationError::NotCurrentlyRegistered,
+                );
+            } else if let Some(pooled_info) = self
+                .storage
+                .get_per_object_pooled_info(&sui_object_id)
+                .context("database error when checking per object pooled info")?
+            {
+                // Fall back to the pooled blob table.
+                let storage::blob_info::PerObjectPooledBlobInfo::V1(ref v1) = pooled_info;
+                ensure!(
+                    !v1.deleted,
+                    ComputeStorageConfirmationError::NotCurrentlyRegistered,
+                );
+            } else {
+                return Err(ComputeStorageConfirmationError::NotCurrentlyRegistered);
+            }
         }
 
         let confirmation = Confirmation::new(

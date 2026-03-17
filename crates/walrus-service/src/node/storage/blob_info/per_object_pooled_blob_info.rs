@@ -10,6 +10,7 @@ use std::fmt::Debug;
 use serde::{Deserialize, Serialize};
 use sui_types::{base_types::ObjectID, event::EventID};
 use walrus_core::{BlobId, Epoch};
+use walrus_sui::types::{PooledBlobCertified, PooledBlobRegistered};
 
 use super::{BlobStatusChangeType, Mergeable, PooledBlobChangeInfo, ToBytes};
 
@@ -23,6 +24,34 @@ pub(crate) enum PerObjectPooledBlobInfoMergeOperand {
 }
 
 impl ToBytes for PerObjectPooledBlobInfoMergeOperand {}
+
+impl From<&PooledBlobRegistered> for PerObjectPooledBlobInfoMergeOperand {
+    fn from(event: &PooledBlobRegistered) -> Self {
+        Self::V1(PerObjectPooledBlobInfoMergeOperandV1 {
+            change_type: BlobStatusChangeType::Register,
+            change_info: PooledBlobChangeInfo {
+                blob_id: event.blob_id,
+                epoch: event.epoch,
+                storage_pool_id: event.storage_pool_id,
+                status_event: event.event_id,
+            },
+        })
+    }
+}
+
+impl From<&PooledBlobCertified> for PerObjectPooledBlobInfoMergeOperand {
+    fn from(event: &PooledBlobCertified) -> Self {
+        Self::V1(PerObjectPooledBlobInfoMergeOperandV1 {
+            change_type: BlobStatusChangeType::Certify,
+            change_info: PooledBlobChangeInfo {
+                blob_id: event.blob_id,
+                epoch: event.epoch,
+                storage_pool_id: event.storage_pool_id,
+                status_event: event.event_id,
+            },
+        })
+    }
+}
 
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq, Clone)]
 pub(crate) struct PerObjectPooledBlobInfoMergeOperandV1 {
