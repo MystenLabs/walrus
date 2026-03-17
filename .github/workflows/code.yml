@@ -220,7 +220,7 @@ jobs:
         run: cargo install --locked --git https://github.com/MystenLabs/sui.git --tag $SUI_TAG --debug --features tracing
           sui
       - name: Run Move tests
-        # Coverage disabled: sui move test --coverage is extremely slow with Sui v1.68.0+
+        # TODO: Coverage disabled: sui move test --coverage is extremely slow with Sui v1.68.0+
         # due to the new binary trace format (MystenLabs/sui#25672). Re-enable once fixed.
         run: bash ./scripts/move_tests.sh
       - name: Cache sui binary
