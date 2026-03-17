@@ -70,6 +70,19 @@ impl SuiConfig {
         .await
     }
 
+    /// Creates a [`SuiContractClient`] using an existing [`SuiReadClient`].
+    pub fn new_contract_client_with_read_client(
+        &self,
+        read_client: Arc<SuiReadClient>,
+    ) -> anyhow::Result<SuiContractClient> {
+        let wallet = WalletConfig::load_wallet(Some(&self.wallet_config), self.request_timeout)?;
+        Ok(SuiContractClient::new_with_read_client(
+            wallet,
+            self.gas_budget,
+            read_client,
+        )?)
+    }
+
     /// Creates a [`SuiContractClient`] based on the configuration.
     /// Always use the RPC endpoints supplied in the configuration instead of the wallet's RPC URL
     /// to allow for failover.

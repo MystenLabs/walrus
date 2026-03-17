@@ -477,13 +477,16 @@ impl StorageNodeBuilder {
             .expect("protocol key pair must already be loaded")
             .clone();
 
+        // Create a shared `SuiReadClient` to be reused across all components (committee service,
+        // contract service, event manager) to increase efficiency (due to caching) and prevent
+        // inconsistencies during epoch transitions.
         let sui_config_and_client =
             if self.event_manager.is_none() || self.committee_service.is_none() {
                 let sui_config = config.sui.as_ref().expect(
                     "either a Sui config or an event provider and committee service \
                             factory must be specified",
                 );
-                Some((create_read_client(sui_config).await?, sui_config))
+                Some((Arc::new(create_read_client(sui_config).await?), sui_config))
             } else {
                 None
             };
@@ -525,33 +528,35 @@ impl StorageNodeBuilder {
                 service
             } else {
                 let (read_client, _) = sui_config_and_client
+                    .as_ref()
                     .expect("this is always created if self.committee_service_factory.is_none()");
                 let service = NodeCommitteeService::builder()
                     .local_identity(protocol_key_pair.public().clone())
                     .config(config.blob_recovery.committee_service_config.clone())
                     .metrics_registry(&metrics_registry)
-                    .build(read_client)
+                    .build(read_client.clone())
                     .await?;
                 Arc::new(service)
             };
 
-        let contract_service: Arc<dyn SystemContractService> = if let Some(service) =
-            self.contract_service
-        {
-            service
-        } else {
-            Arc::new(
-                SuiSystemContractService::builder()
+        let contract_service: Arc<dyn SystemContractService> =
+            if let Some(service) = self.contract_service {
+                service
+            } else {
+                let sui_config = config.sui.as_ref().expect("Sui config must be provided");
+                let mut builder = SuiSystemContractService::builder();
+                builder
                     .metrics_registry(metrics_registry.clone())
                     .balance_check_frequency(config.balance_check.interval)
-                    .balance_check_warning_threshold(config.balance_check.warning_threshold_mist)
-                    .build_from_config(
-                        config.sui.as_ref().expect("Sui config must be provided"),
-                        committee_service.clone(),
-                    )
-                    .await?,
-            )
-        };
+                    .balance_check_warning_threshold(config.balance_check.warning_threshold_mist);
+                if let Some((read_client, _)) = sui_config_and_client.as_ref() {
+                    builder.read_client(read_client.clone());
+                }
+                let service = builder
+                    .build_from_config(sui_config, committee_service.clone())
+                    .await?;
+                Arc::new(service)
+            };
 
         let node_params = NodeParameters {
             pre_created_storage: self.storage,
