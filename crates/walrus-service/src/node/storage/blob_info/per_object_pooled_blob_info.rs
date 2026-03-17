@@ -71,6 +71,8 @@ pub(crate) struct PerObjectPooledBlobInfoV1 {
     pub storage_pool_id: ObjectID,
     /// The ID of the last blob event related to this object.
     pub event: EventID,
+    // TODO(WAL-1186): this field is not used. When blob is deleted, the node directly deletes the
+    // entry from the table. Removing this field.
     /// Whether the blob has been deleted.
     pub deleted: bool,
 }
@@ -92,19 +94,9 @@ impl Mergeable for PerObjectPooledBlobInfoV1 {
             self.blob_id, change_info.blob_id,
             "blob ID mismatch in merge operand"
         );
-        assert!(
-            !self.deleted,
-            "attempt to update an already deleted pooled blob {}",
-            self.blob_id
-        );
         self.event = change_info.status_event;
         match change_type {
-            BlobStatusChangeType::Register => {
-                panic!(
-                    "cannot register an already registered pooled blob {}",
-                    self.blob_id
-                );
-            }
+            // Only Certify is a valid merge operation for an existing pooled blob entry.
             BlobStatusChangeType::Certify => {
                 assert!(
                     self.certified_epoch.is_none(),
@@ -113,15 +105,27 @@ impl Mergeable for PerObjectPooledBlobInfoV1 {
                 );
                 self.certified_epoch = Some(change_info.epoch);
             }
+            // Register should never be applied to an existing entry.
+            BlobStatusChangeType::Register => {
+                panic!(
+                    "cannot register an already registered pooled blob {}",
+                    self.blob_id
+                );
+            }
+            // Extend doesn't apply to pooled blobs (pool controls lifetime).
             BlobStatusChangeType::Extend => {
                 panic!(
                     "cannot extend a pooled blob {}; pool lifetime is managed by the pool",
                     self.blob_id
                 );
             }
-            BlobStatusChangeType::Delete { was_certified } => {
-                assert_eq!(self.certified_epoch.is_some(), was_certified);
-                self.deleted = true;
+            // Delete removes the entry directly via batch.delete_batch, not via merge.
+            BlobStatusChangeType::Delete { .. } => {
+                unreachable!(
+                    "blob deletion deletes the entry directly, not via merge operation; \
+                    blob ID: {}",
+                    self.blob_id
+                );
             }
         }
         self
@@ -228,38 +232,19 @@ mod tests {
     }
 
     #[test]
-    fn register_creates_new_entry() {
+    fn register_and_certify() {
         let blob_id = walrus_core::test_utils::blob_id_from_u64(1);
-        let operand = make_register_operand(blob_id, 5);
-        let info = PerObjectPooledBlobInfo::merge_new(operand).expect("should create entry");
+        let info = PerObjectPooledBlobInfo::merge_new(make_register_operand(blob_id, 5))
+            .expect("should create entry");
         let PerObjectPooledBlobInfo::V1(v1) = &info;
         assert_eq!(v1.blob_id, blob_id);
         assert_eq!(v1.registered_epoch, 5);
         assert_eq!(v1.certified_epoch, None);
         assert_eq!(v1.storage_pool_id, pool_id());
-        assert!(!v1.deleted);
-    }
 
-    #[test]
-    fn certify_and_delete() {
-        let blob_id = walrus_core::test_utils::blob_id_from_u64(1);
-        let info = PerObjectPooledBlobInfo::merge_new(make_register_operand(blob_id, 1))
-            .expect("should create entry");
-
-        let info = info.merge_with(make_operand(BlobStatusChangeType::Certify, blob_id, 3));
+        let info = info.merge_with(make_operand(BlobStatusChangeType::Certify, blob_id, 7));
         let PerObjectPooledBlobInfo::V1(v1) = &info;
-        assert_eq!(v1.certified_epoch, Some(3));
-        assert!(!v1.deleted);
-
-        let info = info.merge_with(make_operand(
-            BlobStatusChangeType::Delete {
-                was_certified: true,
-            },
-            blob_id,
-            5,
-        ));
-        let PerObjectPooledBlobInfo::V1(v1) = &info;
-        assert!(v1.deleted);
+        assert_eq!(v1.certified_epoch, Some(7));
     }
 
     #[test]
@@ -278,5 +263,20 @@ mod tests {
             .expect("should create entry");
         let info = info.merge_with(make_operand(BlobStatusChangeType::Certify, blob_id, 2));
         let _ = info.merge_with(make_operand(BlobStatusChangeType::Extend, blob_id, 3));
+    }
+
+    #[test]
+    #[should_panic(expected = "blob deletion deletes the entry directly")]
+    fn delete_via_merge_panics() {
+        let blob_id = walrus_core::test_utils::blob_id_from_u64(1);
+        let info = PerObjectPooledBlobInfo::merge_new(make_register_operand(blob_id, 1))
+            .expect("should create entry");
+        let _ = info.merge_with(make_operand(
+            BlobStatusChangeType::Delete {
+                was_certified: false,
+            },
+            blob_id,
+            2,
+        ));
     }
 }

@@ -4225,17 +4225,17 @@ impl ServiceState for StorageNodeInner {
                     per_object_info.is_registered(self.current_committee_epoch()),
                     ComputeStorageConfirmationError::NotCurrentlyRegistered,
                 );
-            } else if let Some(pooled_info) = self
+            } else if self
                 .storage
                 .get_per_object_pooled_info(&sui_object_id)
                 .context("database error when checking per object pooled info")?
+                .is_some()
             {
-                // Fall back to the pooled blob table.
-                let storage::blob_info::PerObjectPooledBlobInfo::V1(ref v1) = pooled_info;
-                ensure!(
-                    !v1.deleted,
-                    ComputeStorageConfirmationError::NotCurrentlyRegistered,
-                );
+                // Entry exists in the pooled blob table — the blob is active.
+                // Deleted pooled blobs are removed from the table entirely, so presence implies
+                // the blob is registered.
+                // TODO(WAL-1174): check the expiration of the pool here once the storage pool
+                // end-epoch table is implemented.
             } else {
                 return Err(ComputeStorageConfirmationError::NotCurrentlyRegistered);
             }
