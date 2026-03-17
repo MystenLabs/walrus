@@ -7,7 +7,8 @@ https://docs.sui.io/style-guide
 
 ## Custom components
 
-This Docusaurus deployment uses custom TSX/JSX components that expand upon the basic Docusaurus features. These same components are also used by the Sui, SuiNS, and (soon) Seal documentation.
+This Docusaurus deployment uses custom TSX/JSX components that expand upon the basic Docusaurus features.
+These same components are also used by the Sui, SuiNS, and (soon) Seal documentation.
 
 To maintain these components, they are housed in a shared repo and pulled into this repo as a subtree using the command:
 
