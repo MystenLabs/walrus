@@ -4,7 +4,7 @@
 #[test_only]
 module blob_bucket::blob_bucket_tests;
 
-use blob_bucket::blob_bucket;
+use blob_bucket::{blob_bucket, blob_bucket_inner_v1};
 use std::unit_test::assert_eq;
 use walrus::{
     blob,
@@ -30,7 +30,13 @@ fun full_blob_bucket_lifecycle() {
 
     let encoded_size = encoding::encoded_blob_length(SIZE, RS2, system.n_shards());
     let mut pool_payment = test_utils::mint_frost(N_COINS, ctx);
-    let (mut bucket, cap) = blob_bucket::new(&mut system, encoded_size, 3, &mut pool_payment, ctx);
+    let (mut bucket, cap) = blob_bucket::new(
+        &mut system,
+        encoded_size,
+        3,
+        &mut pool_payment,
+        ctx,
+    );
     pool_payment.burn_for_testing();
 
     let blob_id = blob::derive_blob_id(ROOT_HASH, RS2, SIZE);
@@ -54,6 +60,16 @@ fun full_blob_bucket_lifecycle() {
     let mut extension_payment = test_utils::mint_frost(WRITE_PAYMENT, ctx);
     blob_bucket::extend_storage_pool(&mut bucket, &cap, &mut system, 1, &mut extension_payment);
     assert_eq!(blob_bucket::end_epoch(&bucket), 4);
+
+    let mut capacity_payment = test_utils::mint_frost(WRITE_PAYMENT, ctx);
+    blob_bucket::increase_storage_pool_capacity(
+        &mut bucket,
+        &cap,
+        &mut system,
+        encoded_size,
+        &mut capacity_payment,
+    );
+    assert_eq!(blob_bucket::reserved_encoded_capacity_bytes(&bucket), encoded_size * 2);
 
     let object_id = blob_bucket::get_blob_object_id(&bucket, blob_id);
     let confirmation_message = messages::certified_deletable_message_bytes(
@@ -81,7 +97,9 @@ fun full_blob_bucket_lifecycle() {
 
     write_payment.burn_for_testing();
     extension_payment.burn_for_testing();
-    let pool = blob_bucket::destroy_for_testing(bucket);
+    capacity_payment.burn_for_testing();
+    let inner = blob_bucket::destroy_for_testing(bucket);
+    let pool = blob_bucket_inner_v1::destroy_for_testing(inner);
     blob_bucket::destroy_cap_for_testing(cap);
     storage_pool::destroy_for_testing(pool);
     system.destroy_for_testing();
