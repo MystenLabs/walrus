@@ -6,6 +6,7 @@ use walrus_core::ShardIndex;
 /// Column family names used in RocksDB.
 const AGGREGATE_BLOB_INFO_COLUMN_FAMILY_NAME: &str = "aggregate_blob_info";
 const PER_OBJECT_BLOB_INFO_COLUMN_FAMILY_NAME: &str = "per_object_blob_info";
+const PER_OBJECT_POOLED_BLOB_INFO_COLUMN_FAMILY_NAME: &str = "per_object_pooled_blob_info";
 const NODE_STATUS_COLUMN_FAMILY_NAME: &str = "node_status";
 const METADATA_COLUMN_FAMILY_NAME: &str = "metadata";
 const EVENT_INDEX_COLUMN_FAMILY_NAME: &str = "latest_handled_event_index";
@@ -36,6 +37,11 @@ pub fn aggregate_blob_info_cf_name() -> &'static str {
 /// Returns the name of the per-object blob info column family.
 pub fn per_object_blob_info_cf_name() -> &'static str {
     PER_OBJECT_BLOB_INFO_COLUMN_FAMILY_NAME
+}
+
+/// Returns the name of the per-object pooled blob info column family.
+pub fn per_object_pooled_blob_info_cf_name() -> &'static str {
+    PER_OBJECT_POOLED_BLOB_INFO_COLUMN_FAMILY_NAME
 }
 
 /// Returns the name of the node status column family.

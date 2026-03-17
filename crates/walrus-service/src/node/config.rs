@@ -287,6 +287,12 @@ pub struct StorageNodeConfig {
     /// Disable the event-blob writer
     #[serde(default, skip_serializing_if = "defaults::is_default")]
     pub disable_event_blob_writer: bool,
+    /// Whether to enable the per-object pooled blob info table for tracking pooled blobs.
+    // TODO(WAL-1184): this is a temporary configuration to enable the storage pool. Since in
+    // RocksDB, once a column family is created, it is hard to delete it. So adding this config
+    // during development to give us more flexibility in making changes.
+    #[serde(default, skip_serializing_if = "defaults::is_default")]
+    pub enable_storage_pool: bool,
     /// The commission rate of the storage node, in basis points.
     #[serde(default = "defaults::commission_rate")]
     pub commission_rate: u16,
@@ -521,6 +527,7 @@ impl Default for StorageNodeConfig {
                 max_checkpoint_lag: 1500,
             },
             disable_event_blob_writer: Default::default(),
+            enable_storage_pool: Default::default(),
             commission_rate: defaults::commission_rate(),
             voting_params: VotingParamsConfig {
                 voting_prices: VotingPrices {
