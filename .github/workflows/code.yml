@@ -219,8 +219,10 @@ jobs:
         if: steps.cache-sui-restore.outputs.cache-hit != 'true'
         run: cargo install --locked --git https://github.com/MystenLabs/sui.git --tag $SUI_TAG --debug --features tracing
           sui
-      - name: Run Move tests and check coverage
-        run: bash ./scripts/move_tests.sh -c
+      - name: Run Move tests
+        # Coverage disabled: sui move test --coverage is extremely slow with Sui v1.68.0+
+        # due to the new binary trace format (MystenLabs/sui#25672). Re-enable once fixed.
+        run: bash ./scripts/move_tests.sh
       - name: Cache sui binary
         if: ${{ github.ref == 'refs/heads/main' && steps.cache-sui-restore.outputs.cache-hit != 'true' }}
         uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # pin@v5.0.3
