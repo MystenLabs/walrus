@@ -477,6 +477,9 @@ impl StorageNodeBuilder {
             .expect("protocol key pair must already be loaded")
             .clone();
 
+        // Create a shared `SuiReadClient` to be reused across all components (committee service,
+        // contract service, event manager) to increase efficiency (due to caching) and prevent
+        // inconsistencies during epoch transitions.
         let sui_config_and_client =
             if self.event_manager.is_none() || self.committee_service.is_none() {
                 let sui_config = config.sui.as_ref().expect(
