@@ -1,61 +1,48 @@
 name: Run LLM Ingestion Checks for Docs
 
 on:
-  deployment_status:
+  workflow_run:
+    workflows: ["Build and deploy GitHub Pages preview for PRs"]
+    types:
+      - completed
 
 jobs:
   check-docs:
-    # Only run when GitHub Pages reports a successful deploy
+    # Only run on successful completion of a PR preview build (not a PR close/cleanup)
     if: >-
-      github.event.deployment_status.state == 'success' &&
-      github.event.deployment_status.environment == 'github-pages'
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'pull_request'
     runs-on: ubuntu-latest
     steps:
-      - name: Find associated PR
+      - name: Get PR number
         id: find-pr
         uses: actions/github-script@v7
         with:
           result-encoding: string
           script: |
-            const sha = context.payload.deployment.sha;
-            const prs = await github.rest.repos.listPullRequestsAssociatedWithCommit({
+            // workflow_run.pull_requests is populated for same-repo PRs
+            const prs = context.payload.workflow_run.pull_requests;
+            if (prs && prs.length > 0) {
+              return String(prs[0].number);
+            }
+            // Fallback: search by head SHA
+            const sha = context.payload.workflow_run.head_sha;
+            const result = await github.rest.repos.listPullRequestsAssociatedWithCommit({
               owner: context.repo.owner,
               repo: context.repo.repo,
               commit_sha: sha,
             });
-            const openPr = prs.data.find(pr => pr.state === 'open' && pr.base.ref === 'main');
+            const openPr = result.data.find(pr => pr.state === 'open' && pr.base.ref === 'main');
             return openPr ? String(openPr.number) : '';
 
-      - name: Check if PR touches docs
-        if: steps.find-pr.outputs.result != ''
-        id: check-docs-changed
-        uses: actions/github-script@v7
-        with:
-          result-encoding: string
-          script: |
-            const prNumber = parseInt(process.env.PR_NUMBER);
-            const files = await github.paginate(
-              github.rest.pulls.listFiles,
-              {
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                pull_number: prNumber,
-                per_page: 100,
-              }
-            );
-            const touchesDocs = files.some(f => f.filename.startsWith('docs/'));
-            return touchesDocs ? 'true' : 'false';
-        env:
-          PR_NUMBER: ${{ steps.find-pr.outputs.result }}
-
       - name: Setup Node
-        if: steps.check-docs-changed.outputs.result == 'true'
+        if: steps.find-pr.outputs.result != ''
         uses: actions/setup-node@v4
         with:
           node-version: 22
 
       - name: Run afdocs check
-        if: steps.check-docs-changed.outputs.result == 'true'
+        if: steps.find-pr.outputs.result != ''
         id: afdocs
         run: |
           OUTPUT=$(npx --yes afdocs@latest check "$URL" --max-links 1000 2>&1) || true
@@ -63,10 +50,10 @@ jobs:
           echo "$OUTPUT" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
         env:
-          URL: ${{ github.event.deployment_status.environment_url }}
+          URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/pr-preview/pr-${{ steps.find-pr.outputs.result }}/
 
       - name: Comment on PR
-        if: steps.check-docs-changed.outputs.result == 'true'
+        if: steps.find-pr.outputs.result != ''
         uses: actions/github-script@v7
         with:
           script: |
@@ -84,7 +71,6 @@ jobs:
               '```',
             ].join('\n');
 
-            // Find existing comment by hidden marker
             const comments = await github.paginate(
               github.rest.issues.listComments,
               {
@@ -112,6 +98,6 @@ jobs:
               });
             }
         env:
-          URL: ${{ github.event.deployment_status.environment_url }}
+          URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/pr-preview/pr-${{ steps.find-pr.outputs.result }}/
           OUTPUT: ${{ steps.afdocs.outputs.result }}
           PR_NUMBER: ${{ steps.find-pr.outputs.result }}
