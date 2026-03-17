@@ -144,9 +144,9 @@ jobs:
     env:
       # Turn off Sui logging since it can be very distractive in CI
       RUST_LOG: simtest=info,error,sui_=off,consensus_core=off
-      # Default: 2 seeds (1 without gRPC, 1 with gRPC). Pushes to main and PRs
-      # with the `ci:more-simtest-seeds` label run all 5 seeds.
-      SIMTEST_FULL: ${{ github.event_name == 'push' || contains(github.event.pull_request.labels.*.name, 'ci:more-simtest-seeds')
+      # Default: all 5 seeds. PRs with the `ci:less-simtest-seeds` label run only
+      # 2 seeds (1 without gRPC, 1 with gRPC).
+      SIMTEST_REDUCED: ${{ github.event_name != 'push' && contains(github.event.pull_request.labels.*.name, 'ci:less-simtest-seeds')
         }}
     steps:
       - uses: taiki-e/install-action@970d55e3ce02a46d60ffae7b4fab3dedace6e769 # pin@v2.49.13
@@ -163,13 +163,13 @@ jobs:
       - name: Run tests (seed=2, grpc-client-enabled)
         run: MSIM_TEST_SEED=2 WALRUS_GRPC_MIGRATION_LEVEL=100 cargo simtest simtest --profile simtest
       - name: Run tests (seed=3)
-        if: env.SIMTEST_FULL == 'true'
+        if: env.SIMTEST_REDUCED != 'true'
         run: MSIM_TEST_SEED=3 cargo simtest simtest --profile simtest
       - name: Run tests (seed=4, grpc-client-enabled)
-        if: env.SIMTEST_FULL == 'true'
+        if: env.SIMTEST_REDUCED != 'true'
         run: MSIM_TEST_SEED=4 WALRUS_GRPC_MIGRATION_LEVEL=100 cargo simtest simtest --profile simtest
       - name: Run tests (seed=5, grpc-client-enabled)
-        if: env.SIMTEST_FULL == 'true'
+        if: env.SIMTEST_REDUCED != 'true'
         run: MSIM_TEST_SEED=5 WALRUS_GRPC_MIGRATION_LEVEL=100 cargo simtest simtest --profile simtest
 
   simtests-build:
