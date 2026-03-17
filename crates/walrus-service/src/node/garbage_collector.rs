@@ -257,6 +257,15 @@ impl GarbageCollector {
 
         self.node
             .storage
+            .process_expired_storage_pools(
+                epoch,
+                &self.metrics,
+                self.config.blob_objects_batch_size,
+            )
+            .await?;
+
+        self.node
+            .storage
             .process_expired_blob_objects(epoch, &self.metrics, self.config.blob_objects_batch_size)
             .await?;
 

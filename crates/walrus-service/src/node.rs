@@ -118,6 +118,7 @@ use walrus_sdk::{
             GENESIS_EPOCH,
             PackageEvent,
             ProtocolEvent,
+            StoragePoolEvent,
         },
     },
 };
@@ -1593,11 +1594,7 @@ impl StorageNode {
                 event_handle.mark_as_complete();
             }
             EventStreamElement::ContractEvent(ContractEvent::StoragePoolEvent(event)) => {
-                // TODO(WAL-1162): implement storage pool event processing on storage nodes.
-                panic!(
-                    "storage pool event processing is not yet implemented: {:?}",
-                    event.name()
-                );
+                self.process_storage_pool_event(event_handle, event)?;
             }
             EventStreamElement::ContractEvent(ContractEvent::ProtocolEvent(event)) => {
                 panic!(
@@ -1796,6 +1793,39 @@ impl StorageNode {
             }
             _ => bail!("unknown package event type: {:?}", package_event),
         }
+        Ok(())
+    }
+
+    /// Processes storage pool events to manage the storage pool info table, tracking pool
+    /// lifetimes (start and end epochs) for each storage pool.
+    #[tracing::instrument(skip_all)]
+    fn process_storage_pool_event(
+        &self,
+        event_handle: EventHandle,
+        event: StoragePoolEvent,
+    ) -> anyhow::Result<()> {
+        let _scope = monitored_scope::monitored_scope("ProcessEvent::StoragePoolEvent");
+
+        tracing::debug!(?event, "{} event received", event.name());
+        match event {
+            StoragePoolEvent::StoragePoolCreated(ref created) => {
+                self.inner
+                    .storage
+                    .create_storage_pool_info(
+                        &created.storage_pool_id,
+                        created.start_epoch,
+                        created.end_epoch,
+                    )
+                    .context("failed to create storage pool info")?;
+            }
+            StoragePoolEvent::StoragePoolExtended(ref extended) => {
+                self.inner
+                    .storage
+                    .set_storage_pool_end_epoch(&extended.storage_pool_id, extended.new_end_epoch)
+                    .context("failed to update storage pool end epoch")?;
+            }
+        }
+        event_handle.mark_as_complete();
         Ok(())
     }
 
@@ -4643,6 +4673,8 @@ mod tests {
             BlobRegistered,
             InvalidBlobId,
             StorageNodeCap,
+            StoragePoolCreatedEvent,
+            StoragePoolExtendedEvent,
             move_structs::EpochState,
         },
     };
@@ -5891,9 +5923,10 @@ mod tests {
         Ok(())
     }
 
+    // TODO(WAL-1178): test pooled blob expiration and data deletion.
     #[walrus_simtest]
     #[ignore = "ignore long-running test by default"]
-    async fn deletes_expired_blob_data() -> TestResult {
+    async fn deletes_expired_blob_data_and_storage_pools() -> TestResult {
         walrus_test_utils::init_tracing();
 
         let (cluster, events) =
@@ -5914,6 +5947,25 @@ mod tests {
         let blob_count = blob_end_epochs_and_deletable.len();
         let mut rng = StdRng::seed_from_u64(42);
         let mut blobs_with_end_epoch = Vec::with_capacity(blob_count);
+
+        // Create storage pools with different end epochs alongside the blobs.
+        let pool_end_epochs: Vec<(ObjectID, Epoch)> = vec![
+            (ObjectID::from_single_byte(1), 3),
+            (ObjectID::from_single_byte(2), 5),
+        ];
+        for &(pool_id, end_epoch) in &pool_end_epochs {
+            events.send(
+                StoragePoolEvent::StoragePoolCreated(StoragePoolCreatedEvent {
+                    epoch: 1,
+                    storage_pool_id: pool_id,
+                    reserved_encoded_capacity_bytes: 1024,
+                    start_epoch: 1,
+                    end_epoch,
+                    event_id: event_id_for_testing(),
+                })
+                .into(),
+            )?;
+        }
 
         // Add the blobs at epoch 1, the epoch at which the cluster starts.
         for (i, &(end_epoch, deletable)) in blob_end_epochs_and_deletable.iter().enumerate() {
@@ -5964,6 +6016,21 @@ mod tests {
                         .check_does_not_store_metadata_or_slivers_for_blob(blob_id)
                         .await?;
                 }
+            }
+
+            // Check storage pool expiration: pools with end_epoch <= node_epoch
+            // should have been garbage collected.
+            for &(pool_id, pool_end_epoch) in &pool_end_epochs {
+                let exists = node
+                    .inner
+                    .storage
+                    .get_storage_pool_info(&pool_id)?
+                    .is_some();
+                assert_eq!(
+                    exists,
+                    pool_end_epoch > node_epoch,
+                    "pool {pool_id} (end_epoch={pool_end_epoch}) at epoch {node_epoch}"
+                );
             }
         }
 
@@ -9240,6 +9307,88 @@ mod tests {
                 "Expected out-of-range error for secondary sliver index {target_sliver_index}"
             );
         }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[ignore = "ignore long-running test by default"]
+    async fn storage_pool_lifecycle_via_events() -> TestResult {
+        let pool_id = ObjectID::from_single_byte(99);
+
+        // Send a StoragePoolCreated event followed by a StoragePoolExtended event.
+        let node = StorageNodeHandle::builder()
+            .with_system_event_provider(vec![
+                ContractEvent::StoragePoolEvent(StoragePoolEvent::StoragePoolCreated(
+                    StoragePoolCreatedEvent {
+                        epoch: 0,
+                        storage_pool_id: pool_id,
+                        reserved_encoded_capacity_bytes: 1024,
+                        start_epoch: 1,
+                        end_epoch: 5,
+                        event_id: event_id_for_testing(),
+                    },
+                )),
+                ContractEvent::StoragePoolEvent(StoragePoolEvent::StoragePoolExtended(
+                    StoragePoolExtendedEvent {
+                        epoch: 0,
+                        storage_pool_id: pool_id,
+                        new_end_epoch: 15,
+                        event_id: event_id_for_testing(),
+                    },
+                )),
+            ])
+            .with_node_started(true)
+            .build()
+            .await?;
+
+        wait_until_events_processed_exact(&node, 2).await?;
+
+        // Verify storage pool info was created and then extended.
+        let info = node
+            .storage_node
+            .inner
+            .storage
+            .get_storage_pool_info(&pool_id)?
+            .expect("storage pool info should exist after creation event");
+        assert_eq!(
+            info,
+            storage::blob_info::StoragePoolInfo::new(1, 15),
+            "end epoch should reflect the extension"
+        );
+
+        // GC at epoch 5: pool should survive because it was extended to epoch 15.
+        let node_metrics = NodeMetricSet::new(&Registry::default());
+        node.storage_node
+            .inner
+            .storage
+            .process_expired_storage_pools(5, &node_metrics, 100)
+            .await?;
+
+        assert!(
+            node.storage_node
+                .inner
+                .storage
+                .get_storage_pool_info(&pool_id)?
+                .is_some(),
+            "pool should survive GC at epoch 5 after extension to epoch 15"
+        );
+
+        // GC at epoch 15: pool should now be expired.
+        node.storage_node
+            .inner
+            .storage
+            .process_expired_storage_pools(15, &node_metrics, 100)
+            .await?;
+
+        assert_eq!(
+            node.storage_node
+                .inner
+                .storage
+                .get_storage_pool_info(&pool_id)?,
+            None,
+            "pool should be deleted after GC at epoch 15"
+        );
 
         Ok(())
     }

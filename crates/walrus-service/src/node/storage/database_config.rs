@@ -337,6 +337,8 @@ pub struct DatabaseConfig {
     pub(super) per_object_blob_info: Option<DatabaseTableOptions>,
     /// Per object pooled blob info database options.
     pub(super) per_object_pooled_blob_info: Option<DatabaseTableOptions>,
+    /// Storage pool info database options.
+    pub(super) storage_pool_info: Option<DatabaseTableOptions>,
     /// Event cursor database options.
     pub(super) event_cursor: Option<DatabaseTableOptions>,
     /// Shard database options.
@@ -449,6 +451,11 @@ impl DatabaseConfig {
         )
     }
 
+    /// Returns the storage pool info database option.
+    pub fn storage_pool_info(&self) -> DatabaseTableOptions {
+        Self::inherit_from_or_use_template(&self.storage_pool_info, self.standard())
+    }
+
     /// Returns the event cursor database option.
     pub fn event_cursor(&self) -> DatabaseTableOptions {
         Self::inherit_from_or_use_template(&self.event_cursor, self.standard())
@@ -533,6 +540,7 @@ impl Default for DatabaseConfig {
             blob_info: None,
             per_object_blob_info: None,
             per_object_pooled_blob_info: None,
+            storage_pool_info: None,
             event_cursor: None,
             shard: None,
             shard_status: None,
@@ -723,6 +731,11 @@ impl DatabaseTableOptionsFactory {
     /// Returns the per object pooled blob info database option with shared cache.
     pub fn per_object_pooled_blob_info(&self) -> Options {
         self.to_options(&self.config.per_object_pooled_blob_info(), false)
+    }
+
+    /// Returns the storage pool info database option.
+    pub fn storage_pool_info(&self) -> Options {
+        self.to_options(&self.config.storage_pool_info(), false)
     }
 
     /// Returns the event cursor database option with shared cache.

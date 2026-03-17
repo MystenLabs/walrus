@@ -681,6 +681,27 @@ impl Storage {
         self.blob_info.get_per_object_pooled_info(object_id)
     }
 
+    /// Creates a new storage pool info entry.
+    pub(crate) fn create_storage_pool_info(
+        &self,
+        storage_pool_id: &ObjectID,
+        start_epoch: Epoch,
+        end_epoch: Epoch,
+    ) -> Result<(), TypedStoreError> {
+        self.blob_info
+            .create_storage_pool_info(storage_pool_id, start_epoch, end_epoch)
+    }
+
+    /// Updates the end epoch for an existing storage pool.
+    pub(crate) fn set_storage_pool_end_epoch(
+        &self,
+        storage_pool_id: &ObjectID,
+        end_epoch: Epoch,
+    ) -> Result<(), TypedStoreError> {
+        self.blob_info
+            .set_storage_pool_end_epoch(storage_pool_id, end_epoch)
+    }
+
     /// Returns the current event cursor and the next event index.
     #[tracing::instrument(skip_all)]
     pub fn get_event_cursor_and_next_index(
@@ -712,6 +733,18 @@ impl Storage {
         } else {
             self.blob_info.update_blob_info(event_index, event)
         }
+    }
+
+    /// Removes expired storage pool info entries.
+    pub(crate) async fn process_expired_storage_pools(
+        &self,
+        current_epoch: Epoch,
+        node_metrics: &NodeMetricSet,
+        batch_size: usize,
+    ) -> anyhow::Result<()> {
+        self.blob_info
+            .process_expired_storage_pools(current_epoch, node_metrics, batch_size)
+            .await
     }
 
     /// Processes blobs that are expired in the given epoch.
@@ -1284,6 +1317,15 @@ impl Storage {
     ) -> Result<DisableAutoCompactionsGuard<'a>, anyhow::Error> {
         self.enable_auto_compactions(false)?;
         Ok(DisableAutoCompactionsGuard { storage: self })
+    }
+
+    /// Returns the storage pool info for the given storage pool ID.
+    #[cfg(test)]
+    pub(crate) fn get_storage_pool_info(
+        &self,
+        storage_pool_id: &ObjectID,
+    ) -> Result<Option<blob_info::StoragePoolInfo>, TypedStoreError> {
+        self.blob_info.get_storage_pool_info(storage_pool_id)
     }
 }
 
@@ -2362,6 +2404,80 @@ pub(crate) mod tests {
                 .collect::<Result<Vec<_>, _>>()?,
             vec![blob_ids[0], blob_ids[2], blob_ids[3]]
         );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn storage_pool_garbage_collection() -> TestResult {
+        let storage = empty_storage().await;
+        let storage = storage.as_ref();
+        let node_metrics = NodeMetricSet::new(&Registry::default());
+
+        let pool_a = ObjectID::from_single_byte(1);
+        let pool_b = ObjectID::from_single_byte(2);
+        let pool_c = ObjectID::from_single_byte(3);
+
+        // Create three pools with different end epochs.
+        storage.create_storage_pool_info(&pool_a, 1, 5)?;
+        storage.create_storage_pool_info(&pool_b, 2, 10)?;
+        storage.create_storage_pool_info(&pool_c, 3, 15)?;
+
+        // GC at epoch 5: pool_a should be deleted (end_epoch <= current_epoch).
+        storage
+            .process_expired_storage_pools(5, &node_metrics, 100)
+            .await?;
+
+        assert_eq!(storage.get_storage_pool_info(&pool_a)?, None);
+        assert!(storage.get_storage_pool_info(&pool_b)?.is_some());
+        assert!(storage.get_storage_pool_info(&pool_c)?.is_some());
+
+        // GC at epoch 10: pool_b should also be deleted.
+        storage
+            .process_expired_storage_pools(10, &node_metrics, 100)
+            .await?;
+
+        assert_eq!(storage.get_storage_pool_info(&pool_b)?, None);
+        assert!(storage.get_storage_pool_info(&pool_c)?.is_some());
+
+        // GC at epoch 15: pool_c should also be deleted.
+        storage
+            .process_expired_storage_pools(15, &node_metrics, 100)
+            .await?;
+
+        assert_eq!(storage.get_storage_pool_info(&pool_c)?, None);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn storage_pool_extend_then_gc() -> TestResult {
+        let storage = empty_storage().await;
+        let storage = storage.as_ref();
+        let node_metrics = NodeMetricSet::new(&Registry::default());
+
+        let pool_id = ObjectID::from_single_byte(1);
+
+        // Create a pool ending at epoch 5, then extend to epoch 15.
+        storage.create_storage_pool_info(&pool_id, 1, 5)?;
+        storage.set_storage_pool_end_epoch(&pool_id, 15)?;
+
+        // GC at epoch 5: pool should survive because it was extended.
+        storage
+            .process_expired_storage_pools(5, &node_metrics, 100)
+            .await?;
+
+        let info = storage
+            .get_storage_pool_info(&pool_id)?
+            .expect("pool should survive after extension");
+        assert_eq!(info, blob_info::StoragePoolInfo::new(1, 15));
+
+        // GC at epoch 15: pool should now be deleted.
+        storage
+            .process_expired_storage_pools(15, &node_metrics, 100)
+            .await?;
+
+        assert_eq!(storage.get_storage_pool_info(&pool_id)?, None);
 
         Ok(())
     }
