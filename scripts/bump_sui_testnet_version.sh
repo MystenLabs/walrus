@@ -123,12 +123,9 @@ fi
 # Generate PR body
 BODY="This PR updates the Sui testnet version to ${NEW_TAG}"
 
-# Create PR using AUTOMERGE_TOKEN so the PR is authored by the walrus-automerge app,
-# which triggers CI workflows. PRs created with GITHUB_TOKEN are authored by
-# github-actions[bot] and require manual CI approval.
+# Create PR
 echo "Creating pull request..."
-CREATE_TOKEN="${AUTOMERGE_TOKEN:-$GH_TOKEN}"
-if PR_OUTPUT=$(GH_TOKEN="$CREATE_TOKEN" gh pr create \
+if PR_OUTPUT=$(gh pr create \
   --base main \
   --head "$BRANCH" \
   --title "ci: bump Sui testnet version to ${NEW_TAG}" \
