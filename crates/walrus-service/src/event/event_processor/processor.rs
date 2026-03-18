@@ -560,7 +560,7 @@ impl EventProcessor {
                     if coordination_state.is_catchup_active() {
                         continue;
                     }
-                    
+
                     let _scope = monitored_scope::monitored_scope("RuntimeCatchupMonitoring");
 
                     match catchup_manager.get_current_lag().await {
