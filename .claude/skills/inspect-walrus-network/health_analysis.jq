@@ -24,6 +24,11 @@ def ss: ok.shardSummary.ownedShardStatus;
     min: [$all[] | select(ok)
       | ok.latestCheckpointSequenceNumber] | min
   },
+  nonActive: [
+    $all[] | select(ok) |
+    select(ok.nodeStatus | test("^Active$") | not) |
+    {name: .nodeName, status: ok.nodeStatus}
+  ],
   epochMismatch: [
     $all[] | select(ok) | select(ok.epoch != $curEpoch) |
     {name: .nodeName, epoch: ok.epoch}
