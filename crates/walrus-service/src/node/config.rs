@@ -354,7 +354,12 @@ impl StorageNodeConfig {
                 ..Default::default()
             },
             rest_server: RestServerConfig {
+                experimental_max_active_recovery_symbols_requests: Some(1_000),
                 confirmation_long_poll_max_millis: 0,
+                ..Default::default()
+            },
+            blob_recovery: BlobRecoveryConfig {
+                max_concurrent_blob_syncs: 10,
                 ..Default::default()
             },
             ..Default::default()
@@ -2181,6 +2186,31 @@ mod tests {
             "network defaults apply when user omits a field"
         );
         Ok(())
+    }
+
+    #[test]
+    fn default_mainnet_applies_mainnet_only_recovery_limits() {
+        let config = StorageNodeConfig::default_mainnet();
+
+        assert_eq!(config.blob_recovery.max_concurrent_blob_syncs, 10);
+        assert_eq!(
+            config
+                .rest_server
+                .experimental_max_active_recovery_symbols_requests,
+            Some(1_000)
+        );
+        assert_eq!(
+            StorageNodeConfig::default_testnet()
+                .rest_server
+                .experimental_max_active_recovery_symbols_requests,
+            None
+        );
+        assert_eq!(
+            StorageNodeConfig::default_testnet()
+                .blob_recovery
+                .max_concurrent_blob_syncs,
+            BlobRecoveryConfig::default().max_concurrent_blob_syncs
+        );
     }
 
     #[test]
