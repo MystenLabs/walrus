@@ -1243,6 +1243,7 @@ async fn test_optimistic_transaction_concurrent_write_batch_merge_must_not_hide_
                         &rocksdb::ReadOptions::default(),
                     )
                     .unwrap();
+                println!("read: {:?}", read);
                 assert_eq!(
                     read.as_deref(),
                     Some(&b"0"[..]),
@@ -1255,7 +1256,9 @@ async fn test_optimistic_transaction_concurrent_write_batch_merge_must_not_hide_
                 // Wait for the merge thread to reach the matching point, then race the actual
                 // commit against the concurrent WriteBatch merge.
                 commit_release_barrier.wait();
-                tx.commit()
+                let commit_result = tx.commit();
+                println!("commit_result: {:?}", commit_result);
+                commit_result
             });
 
             let merge_ready_barrier = ready_barrier.clone();
