@@ -1844,12 +1844,9 @@ impl StorageNode {
             c.sync_node_params().await?;
         }
 
-        // Wait for the previous epoch's blob info cleanup (process_expired_blob_objects)
-        // to complete. This ensures the consistency check snapshot reflects fully
-        // updated blob info counts, so all nodes produce the same certified blob hash.
-        self.garbage_collector
-            .wait_for_blob_info_cleanup(event.epoch.saturating_sub(1))
-            .await;
+        // Note: blob info cleanup for the previous epoch is guaranteed to be complete
+        // because it runs inline in start_garbage_collection_task (called at the end of
+        // the previous epoch's process_epoch_change_start_event). No explicit wait needed.
 
         // Start storage node consistency check if
         // - consistency check is enabled
