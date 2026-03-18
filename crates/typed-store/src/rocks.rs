@@ -41,6 +41,9 @@ use rocksdb::{
     SnapshotWithThreadMode,
     SstFileWriter,
     Transaction,
+    TransactionDB,
+    TransactionDBOptions,
+    TransactionOptions,
     WriteBatch,
     WriteBatchWithTransaction,
     WriteOptions,
@@ -179,6 +182,23 @@ impl DbBehavior for rocksdb::OptimisticTransactionDB<MultiThreaded> {
     }
 }
 
+impl DbBehavior for rocksdb::TransactionDB<MultiThreaded> {
+    const ENGINE_LABEL: &'static str = "TransactionDB";
+    fn cancel_on_drop(_db: &Self) {
+        // The rust-rocksdb TransactionDB wrapper does not expose the same management APIs as
+        // DB/OptimisticTransactionDB, so drop falls back to the engine's own cleanup path.
+    }
+}
+
+/// Transaction engine variants exposed by typed-store.
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub enum TransactionKind {
+    /// Optimistic conflict detection at commit time.
+    Optimistic,
+    /// Lock-based TransactionDB semantics.
+    Pessimistic,
+}
+
 /// A generic wrapper around RocksDB engines with common metadata and behavior.
 pub struct DBWrapper<T: DbBehavior> {
     /// The underlying rocksdb database.
@@ -226,6 +246,8 @@ pub type DBWithThreadModeWrapper = DBWrapper<rocksdb::DBWithThreadMode<MultiThre
 /// Backwards-compatible alias for the `rocksdb::OptimisticTransactionDB` wrapper.
 pub type OptimisticTransactionDBWrapper =
     DBWrapper<rocksdb::OptimisticTransactionDB<MultiThreaded>>;
+/// Backwards-compatible alias for the `rocksdb::TransactionDB` wrapper.
+pub type TransactionDBWrapper = DBWrapper<rocksdb::TransactionDB<MultiThreaded>>;
 
 #[derive(Debug)]
 /// Wrapper around RocksDB engines used by Walrus.
@@ -234,6 +256,8 @@ pub enum RocksDB {
     DB(DBWithThreadModeWrapper),
     /// RocksDB optimistic transaction engine.
     OptimisticTransactionDB(OptimisticTransactionDBWrapper),
+    /// RocksDB lock-based transaction engine.
+    TransactionDB(TransactionDBWrapper),
 }
 
 /// A deliberate handle for optimistic-transaction-only APIs.
@@ -261,6 +285,97 @@ impl<'a> OptimisticHandle<'a> {
     }
 }
 
+/// A deliberate handle for lock-based transaction-only APIs.
+#[derive(Debug, Copy, Clone)]
+pub struct TransactionHandle<'a> {
+    pub(crate) inner: &'a TransactionDBWrapper,
+}
+
+impl<'a> TransactionHandle<'a> {
+    /// Create a new transaction without a snapshot.
+    /// Consistency: No snapshot; guarantees keys haven't changed since first write/get_for_update.
+    pub fn transaction_without_snapshot(
+        &self,
+    ) -> Transaction<'a, rocksdb::TransactionDB<MultiThreaded>> {
+        self.inner.underlying.transaction()
+    }
+
+    /// Create a new transaction with a snapshot for repeatable reads.
+    pub fn transaction(&self) -> Transaction<'a, rocksdb::TransactionDB<MultiThreaded>> {
+        let mut tx_opts = TransactionOptions::new();
+        tx_opts.set_snapshot(true);
+        self.inner
+            .underlying
+            .transaction_opt(&WriteOptions::default(), &tx_opts)
+    }
+}
+
+/// Shared behavior for typed-store transaction-capable handles.
+pub trait TransactionHandleOps<'a>: Copy {
+    /// The RocksDB transaction engine backing this handle.
+    type Engine;
+
+    /// The transaction engine kind.
+    fn kind(&self) -> TransactionKind;
+
+    /// Create a new transaction without a snapshot.
+    fn transaction_without_snapshot(&self) -> Transaction<'a, Self::Engine>;
+
+    /// Create a new snapshot-enabled transaction.
+    fn transaction(&self) -> Transaction<'a, Self::Engine>;
+}
+
+impl<'a> TransactionHandleOps<'a> for OptimisticHandle<'a> {
+    type Engine = rocksdb::OptimisticTransactionDB;
+
+    fn kind(&self) -> TransactionKind {
+        TransactionKind::Optimistic
+    }
+
+    fn transaction_without_snapshot(&self) -> Transaction<'a, Self::Engine> {
+        Self::transaction_without_snapshot(self)
+    }
+
+    fn transaction(&self) -> Transaction<'a, Self::Engine> {
+        Self::transaction(self)
+    }
+}
+
+impl<'a> TransactionHandleOps<'a> for TransactionHandle<'a> {
+    type Engine = rocksdb::TransactionDB<MultiThreaded>;
+
+    fn kind(&self) -> TransactionKind {
+        TransactionKind::Pessimistic
+    }
+
+    fn transaction_without_snapshot(&self) -> Transaction<'a, Self::Engine> {
+        Self::transaction_without_snapshot(self)
+    }
+
+    fn transaction(&self) -> Transaction<'a, Self::Engine> {
+        Self::transaction(self)
+    }
+}
+
+/// A runtime-selected transactional handle for RocksDB engines that support transactions.
+#[derive(Debug, Copy, Clone)]
+pub enum TransactionalHandle<'a> {
+    /// Optimistic transaction engine handle.
+    Optimistic(OptimisticHandle<'a>),
+    /// Lock-based transaction engine handle.
+    Transaction(TransactionHandle<'a>),
+}
+
+impl<'a> TransactionalHandle<'a> {
+    /// Returns the underlying transaction engine kind.
+    pub fn kind(&self) -> TransactionKind {
+        match self {
+            Self::Optimistic(handle) => handle.kind(),
+            Self::Transaction(handle) => handle.kind(),
+        }
+    }
+}
+
 /// Handle for range-delete operations only valid for standard RocksDB engine.
 #[derive(Debug, Copy, Clone)]
 pub struct RangeDeleteHandle<'a> {
@@ -284,12 +399,14 @@ macro_rules! delegate_call {
         match $self {
             Self::DB(d) => d.underlying.$method($($args),*),
             Self::OptimisticTransactionDB(d) => d.underlying.$method($($args),*),
+            Self::TransactionDB(d) => d.underlying.$method($($args),*),
         }
     };
     ($self:ident.$field:ident) => {
         match $self {
             Self::DB(d) => &d.$field,
             Self::OptimisticTransactionDB(d) => &d.$field,
+            Self::TransactionDB(d) => &d.$field,
         }
     }
 
@@ -303,6 +420,7 @@ macro_rules! delegate_pair {
             (RocksDB::OptimisticTransactionDB($td), RocksDBBatch::OptimisticTransactionDB($tb)) => {
                 $txn_expr
             }
+            (RocksDB::TransactionDB($td), RocksDBBatch::TransactionDB($tb)) => $txn_expr,
             _ => Err(TypedStoreError::RocksDBError(
                 "using invalid batch type for the database".into(),
             )),
@@ -316,15 +434,47 @@ impl RocksDB {
     pub fn as_optimistic(&self) -> Option<OptimisticHandle<'_>> {
         match self {
             RocksDB::OptimisticTransactionDB(db) => Some(OptimisticHandle { inner: db }),
+            RocksDB::TransactionDB(_) | RocksDB::DB(_) => None,
+        }
+    }
+
+    /// Returns a lock-based transaction handle if the DB is using the TransactionDB engine.
+    /// This allows invoking transaction APIs only when supported.
+    pub fn as_transaction(&self) -> Option<TransactionHandle<'_>> {
+        match self {
+            RocksDB::TransactionDB(db) => Some(TransactionHandle { inner: db }),
+            RocksDB::DB(_) => None,
+            RocksDB::OptimisticTransactionDB(_) => None,
+        }
+    }
+
+    /// Returns a transactional handle for any transaction-capable RocksDB engine.
+    pub fn as_transactional(&self) -> Option<TransactionalHandle<'_>> {
+        match self {
+            RocksDB::OptimisticTransactionDB(db) => {
+                Some(TransactionalHandle::Optimistic(OptimisticHandle {
+                    inner: db,
+                }))
+            }
+            RocksDB::TransactionDB(db) => {
+                Some(TransactionalHandle::Transaction(TransactionHandle {
+                    inner: db,
+                }))
+            }
             RocksDB::DB(_) => None,
         }
+    }
+
+    /// Returns whether this engine supports RocksDB transactions.
+    pub fn supports_transactions(&self) -> bool {
+        self.as_transactional().is_some()
     }
 
     /// Returns a handle that allows range-delete operations (only for standard RocksDB engine).
     pub fn as_range_delete(&self) -> Option<RangeDeleteHandle<'_>> {
         match self {
             RocksDB::DB(db) => Some(RangeDeleteHandle { inner: db }),
-            RocksDB::OptimisticTransactionDB(_) => None,
+            RocksDB::OptimisticTransactionDB(_) | RocksDB::TransactionDB(_) => None,
         }
     }
 
@@ -336,6 +486,9 @@ impl RocksDB {
                 Arc::clone(self),
             )),
             RocksDB::OptimisticTransactionDB(db) => RocksDBSnapshot::OptimisticTransactionDB(
+                RocksDBSnapshotHandle::new(db.underlying.snapshot(), Arc::clone(self)),
+            ),
+            RocksDB::TransactionDB(db) => RocksDBSnapshot::TransactionDB(
                 RocksDBSnapshotHandle::new(db.underlying.snapshot(), Arc::clone(self)),
             ),
         }
@@ -377,7 +530,19 @@ impl RocksDB {
         K: AsRef<[u8]> + 'a + ?Sized,
         I: IntoIterator<Item = &'a K>,
     {
-        delegate_call!(self.batched_multi_get_cf_opt(cf, keys, sorted_input, readopts))
+        match self {
+            Self::DB(d) => d
+                .underlying
+                .batched_multi_get_cf_opt(cf, keys, sorted_input, readopts),
+            Self::OptimisticTransactionDB(d) => {
+                d.underlying
+                    .batched_multi_get_cf_opt(cf, keys, sorted_input, readopts)
+            }
+            Self::TransactionDB(d) => keys
+                .into_iter()
+                .map(|key| d.underlying.get_pinned_cf_opt(cf, key, readopts))
+                .collect(),
+        }
     }
 
     /// Get a property value from a specific column family.
@@ -386,7 +551,11 @@ impl RocksDB {
         cf: &impl AsColumnFamilyRef,
         name: impl CStrLike,
     ) -> Result<Option<u64>, rocksdb::Error> {
-        delegate_call!(self.property_int_value_cf(cf, name))
+        match self {
+            Self::DB(d) => d.underlying.property_int_value_cf(cf, name),
+            Self::OptimisticTransactionDB(d) => d.underlying.property_int_value_cf(cf, name),
+            Self::TransactionDB(_) => Ok(None),
+        }
     }
 
     /// Get a pinned value from a specific column family.
@@ -426,7 +595,14 @@ impl RocksDB {
         from: K,
         to: K,
     ) -> Result<(), rocksdb::Error> {
-        delegate_call!(self.delete_file_in_range_cf(cf, from, to))
+        match self {
+            Self::DB(d) => d.underlying.delete_file_in_range_cf(cf, from, to),
+            Self::OptimisticTransactionDB(d) => d.underlying.delete_file_in_range_cf(cf, from, to),
+            Self::TransactionDB(_) => {
+                tracing::warn!("delete_file_in_range_cf is not supported for TransactionDB");
+                Ok(())
+            }
+        }
     }
 
     /// Delete a value from a specific column family.
@@ -474,12 +650,26 @@ impl RocksDB {
         key: K,
         readopts: &ReadOptions,
     ) -> bool {
-        delegate_call!(self.key_may_exist_cf_opt(cf, key, readopts))
+        match self {
+            Self::DB(d) => d.underlying.key_may_exist_cf_opt(cf, key, readopts),
+            Self::OptimisticTransactionDB(d) => {
+                d.underlying.key_may_exist_cf_opt(cf, key, readopts)
+            }
+            Self::TransactionDB(d) => d
+                .underlying
+                .get_pinned_cf_opt(cf, key, readopts)
+                .map(|value| value.is_some())
+                .unwrap_or(true),
+        }
     }
 
     /// Try to catch up with the primary.
     pub fn try_catch_up_with_primary(&self) -> Result<(), rocksdb::Error> {
-        delegate_call!(self.try_catch_up_with_primary())
+        match self {
+            Self::DB(d) => d.underlying.try_catch_up_with_primary(),
+            Self::OptimisticTransactionDB(d) => d.underlying.try_catch_up_with_primary(),
+            Self::TransactionDB(_) => Ok(()),
+        }
     }
 
     /// Write a batch of operations to the database.
@@ -518,6 +708,9 @@ impl RocksDB {
             Self::OptimisticTransactionDB(d) => RocksDBRawIter::OptimisticTransactionDB(
                 d.underlying.raw_iterator_cf_opt(cf_handle, readopts),
             ),
+            Self::TransactionDB(d) => {
+                RocksDBRawIter::TransactionDB(d.underlying.raw_iterator_cf_opt(cf_handle, readopts))
+            }
         }
     }
 
@@ -528,7 +721,13 @@ impl RocksDB {
         start: Option<K>,
         end: Option<K>,
     ) {
-        delegate_call!(self.compact_range_cf(cf, start, end))
+        match self {
+            Self::DB(d) => d.underlying.compact_range_cf(cf, start, end),
+            Self::OptimisticTransactionDB(d) => d.underlying.compact_range_cf(cf, start, end),
+            Self::TransactionDB(_) => {
+                tracing::warn!("compact_range_cf is not supported for TransactionDB");
+            }
+        }
     }
 
     /// Compact a range of values in a specific column family to the bottom.
@@ -541,7 +740,15 @@ impl RocksDB {
     ) {
         let opt = &mut CompactOptions::default();
         opt.set_bottommost_level_compaction(BottommostLevelCompaction::ForceOptimized);
-        delegate_call!(self.compact_range_cf_opt(cf, start, end, opt))
+        match self {
+            Self::DB(d) => d.underlying.compact_range_cf_opt(cf, start, end, opt),
+            Self::OptimisticTransactionDB(d) => {
+                d.underlying.compact_range_cf_opt(cf, start, end, opt)
+            }
+            Self::TransactionDB(_) => {
+                tracing::warn!("compact_range_cf_opt is not supported for TransactionDB");
+            }
+        }
     }
 
     /// Ingest external SST files into a specific column family. Ingesting into an existing
@@ -556,15 +763,39 @@ impl RocksDB {
         cf: &impl AsColumnFamilyRef,
         paths: &[P],
         opts: &IngestExternalFileOptions,
-    ) -> Result<(), rocksdb::Error> {
+    ) -> Result<(), TypedStoreError> {
         let v: Vec<&Path> = paths.iter().map(|p| p.as_ref()).collect();
-        delegate_call!(self.ingest_external_file_cf_opts(cf, opts, v))
+        match self {
+            Self::DB(d) => d
+                .underlying
+                .ingest_external_file_cf_opts(cf, opts, v)
+                .map_err(typed_store_err_from_rocks_err),
+            Self::OptimisticTransactionDB(d) => d
+                .underlying
+                .ingest_external_file_cf_opts(cf, opts, v)
+                .map_err(typed_store_err_from_rocks_err),
+            Self::TransactionDB(_) => Err(TypedStoreError::RocksDBError(
+                "external SST ingestion is not supported for TransactionDB".into(),
+            )),
+        }
     }
 
     /// Flush the database
     #[allow(dead_code)]
     pub fn flush(&self) -> Result<(), TypedStoreError> {
-        delegate_call!(self.flush()).map_err(|e| TypedStoreError::RocksDBError(e.into_string()))
+        match self {
+            Self::DB(d) => d
+                .underlying
+                .flush()
+                .map_err(|e| TypedStoreError::RocksDBError(e.into_string())),
+            Self::OptimisticTransactionDB(d) => d
+                .underlying
+                .flush()
+                .map_err(|e| TypedStoreError::RocksDBError(e.into_string())),
+            Self::TransactionDB(_) => Err(TypedStoreError::RocksDBError(
+                "flush is not supported for TransactionDB".into(),
+            )),
+        }
     }
 
     /// Create a checkpoint of the database.
@@ -588,12 +819,22 @@ impl RocksDB {
             Self::OptimisticTransactionDB(d) => engine
                 .create_new_backup_flush(&d.underlying, flush_before_backup)
                 .map_err(typed_store_err_from_rocks_err),
+            Self::TransactionDB(_) => Err(TypedStoreError::RocksDBError(
+                "backup is not supported for TransactionDB".into(),
+            )),
         }
     }
 
     /// Flush a specific column family.
     pub fn flush_cf(&self, cf: &impl AsColumnFamilyRef) -> Result<(), rocksdb::Error> {
-        delegate_call!(self.flush_cf(cf))
+        match self {
+            Self::DB(d) => d.underlying.flush_cf(cf),
+            Self::OptimisticTransactionDB(d) => d.underlying.flush_cf(cf),
+            Self::TransactionDB(_) => {
+                tracing::warn!("flush_cf is not supported for TransactionDB");
+                Ok(())
+            }
+        }
     }
 
     /// Set options for a specific column family.
@@ -603,12 +844,26 @@ impl RocksDB {
         cf: &impl AsColumnFamilyRef,
         opts: &[(&str, &str)],
     ) -> Result<(), rocksdb::Error> {
-        delegate_call!(self.set_options_cf(cf, opts))
+        match self {
+            Self::DB(d) => d.underlying.set_options_cf(cf, opts),
+            Self::OptimisticTransactionDB(d) => d.underlying.set_options_cf(cf, opts),
+            Self::TransactionDB(_) => {
+                tracing::warn!("set_options_cf is not supported for TransactionDB");
+                Ok(())
+            }
+        }
     }
 
     /// Set options for the database.
     pub fn set_options(&self, opts: &[(&str, &str)]) -> Result<(), rocksdb::Error> {
-        delegate_call!(self.set_options(opts))
+        match self {
+            Self::DB(d) => d.underlying.set_options(opts),
+            Self::OptimisticTransactionDB(d) => d.underlying.set_options(opts),
+            Self::TransactionDB(_) => {
+                tracing::warn!("set_options is not supported for TransactionDB");
+                Ok(())
+            }
+        }
     }
 
     /// Get the sampling interval for the database.
@@ -661,7 +916,11 @@ impl RocksDB {
     /// Get the live files in the database.
     #[allow(dead_code)]
     pub fn live_files(&self) -> Result<Vec<LiveFile>, Error> {
-        delegate_call!(self.live_files())
+        match self {
+            Self::DB(d) => d.underlying.live_files(),
+            Self::OptimisticTransactionDB(d) => d.underlying.live_files(),
+            Self::TransactionDB(_) => Ok(Vec::new()),
+        }
     }
 
     /// Create a new batch for the database.
@@ -670,6 +929,9 @@ impl RocksDB {
             RocksDB::DB(_) => RocksDBBatch::DB(WriteBatch::default()),
             RocksDB::OptimisticTransactionDB(_) => {
                 RocksDBBatch::OptimisticTransactionDB(WriteBatchWithTransaction::<true>::default())
+            }
+            RocksDB::TransactionDB(_) => {
+                RocksDBBatch::TransactionDB(WriteBatchWithTransaction::<true>::default())
             }
         }
     }
@@ -682,16 +944,21 @@ impl RocksDB {
             RocksDB::OptimisticTransactionDB(d) => {
                 Checkpoint::new(&d.underlying).map_err(typed_store_err_from_rocks_err)
             }
+            RocksDB::TransactionDB(_) => Err(TypedStoreError::RocksDBError(
+                "checkpoint is not supported for TransactionDB".into(),
+            )),
         }
     }
 }
 
-/// A batch of write operations for RocksDB, covering both standard and optimistic transaction DBs.
+/// A batch of write operations for RocksDB, covering standard and transactional engines.
 pub enum RocksDBBatch {
     /// A write batch for a standard `rocksdb::DB`.
     DB(rocksdb::WriteBatch),
     /// A write batch for an `rocksdb::OptimisticTransactionDB`.
     OptimisticTransactionDB(rocksdb::WriteBatchWithTransaction<true>),
+    /// A write batch for a `rocksdb::TransactionDB`.
+    TransactionDB(rocksdb::WriteBatchWithTransaction<true>),
 }
 
 impl fmt::Debug for RocksDBBatch {
@@ -699,6 +966,7 @@ impl fmt::Debug for RocksDBBatch {
         match self {
             Self::DB(_) => write!(f, "RocksDBBatch::DB"),
             Self::OptimisticTransactionDB(_) => write!(f, "RocksDBBatch::OptimisticTransactionDB"),
+            Self::TransactionDB(_) => write!(f, "RocksDBBatch::TransactionDB"),
         }
     }
 }
@@ -708,6 +976,7 @@ macro_rules! delegate_batch_call {
         match $self {
             Self::DB(b) => b.$method($($args),*),
             Self::OptimisticTransactionDB(b) => b.$method($($args),*),
+            Self::TransactionDB(b) => b.$method($($args),*),
         }
     }
 }
@@ -753,10 +1022,12 @@ impl RocksDBBatch {
                 batch.delete_range_cf(cf, from, to);
                 Ok(())
             }
-            Self::OptimisticTransactionDB(_) => {
-                tracing::warn!("delete_range_cf is not supported for OptimisticTransactionDB");
+            Self::OptimisticTransactionDB(_) | Self::TransactionDB(_) => {
+                tracing::warn!(
+                    "delete_range_cf is not supported for transactional RocksDB engines"
+                );
                 Err(TypedStoreError::RocksDBError(
-                    "delete_range_cf is not supported for OptimisticTransactionDB".into(),
+                    "delete_range_cf is not supported for transactional RocksDB engines".into(),
                 ))
             }
         }
@@ -1012,6 +1283,9 @@ impl<K, V> DBMap<K, V> {
             RocksDB::OptimisticTransactionDB(_) => {
                 RocksDBBatch::OptimisticTransactionDB(WriteBatchWithTransaction::<true>::default())
             }
+            RocksDB::TransactionDB(_) => {
+                RocksDBBatch::TransactionDB(WriteBatchWithTransaction::<true>::default())
+            }
         };
         DBBatch::new(
             &self.rocksdb,
@@ -1024,6 +1298,11 @@ impl<K, V> DBMap<K, V> {
 
     /// Compact a range of keys in a specific column family.
     pub fn compact_range<J: Serialize>(&self, start: &J, end: &J) -> Result<(), TypedStoreError> {
+        if matches!(self.rocksdb.as_ref(), RocksDB::TransactionDB(_)) {
+            return Err(TypedStoreError::RocksDBError(
+                "manual compaction is not supported for TransactionDB".into(),
+            ));
+        }
         let from_buf = be_fix_int_ser(start)?;
         let to_buf = be_fix_int_ser(end)?;
         self.rocksdb
@@ -1037,6 +1316,11 @@ impl<K, V> DBMap<K, V> {
         start: &J,
         end: &J,
     ) -> Result<(), TypedStoreError> {
+        if matches!(self.rocksdb.as_ref(), RocksDB::TransactionDB(_)) {
+            return Err(TypedStoreError::RocksDBError(
+                "manual compaction is not supported for TransactionDB".into(),
+            ));
+        }
         let from_buf = be_fix_int_ser(start)?;
         let to_buf = be_fix_int_ser(end)?;
         self.rocksdb
@@ -1101,6 +1385,11 @@ impl<K, V> DBMap<K, V> {
 
     /// Flush the column family.
     pub fn flush(&self) -> Result<(), TypedStoreError> {
+        if matches!(self.rocksdb.as_ref(), RocksDB::TransactionDB(_)) {
+            return Err(TypedStoreError::RocksDBError(
+                "flush is not supported for TransactionDB".into(),
+            ));
+        }
         self.rocksdb
             .flush_cf(&self.cf()?)
             .map_err(|e| TypedStoreError::RocksDBError(e.into_string()))
@@ -1120,7 +1409,6 @@ impl<K, V> DBMap<K, V> {
     ) -> Result<(), TypedStoreError> {
         self.rocksdb
             .ingest_external_file_cf(&self.cf()?, paths, opts)
-            .map_err(typed_store_err_from_rocks_err)
     }
 
     /// Returns a vector of raw values corresponding to the keys provided.
@@ -1338,6 +1626,9 @@ impl<K, V> DBMap<K, V> {
                     handle.snapshot.raw_iterator_cf_opt(&cf_handle, readopts),
                 )
             }
+            RocksDBSnapshot::TransactionDB(handle) => RocksDBRawIter::TransactionDB(
+                handle.snapshot.raw_iterator_cf_opt(&cf_handle, readopts),
+            ),
         };
 
         let iter_context = self.create_iter_context();
@@ -1672,6 +1963,7 @@ macro_rules! delegate_iter_call {
         match $self {
             Self::DB(db) => db.$method($($args),*),
             Self::OptimisticTransactionDB(db) => db.$method($($args),*),
+            Self::TransactionDB(db) => db.$method($($args),*),
         }
     }
 }
@@ -1684,6 +1976,8 @@ pub enum RocksDBRawIter<'a> {
     OptimisticTransactionDB(
         rocksdb::DBRawIteratorWithThreadMode<'a, OptimisticTransactionDB<MultiThreaded>>,
     ),
+    /// Raw iterator variant for a `rocksdb::TransactionDB`.
+    TransactionDB(rocksdb::DBRawIteratorWithThreadMode<'a, TransactionDB<MultiThreaded>>),
 }
 
 impl<'a> fmt::Debug for RocksDBRawIter<'a> {
@@ -1693,6 +1987,7 @@ impl<'a> fmt::Debug for RocksDBRawIter<'a> {
             Self::OptimisticTransactionDB(_) => {
                 write!(f, "RocksDBRawIter::OptimisticTransactionDB(..)")
             }
+            Self::TransactionDB(_) => write!(f, "RocksDBRawIter::TransactionDB(..)"),
         }
     }
 }
@@ -1769,13 +2064,15 @@ where
     }
 }
 
-/// Snapshot handle covering both RocksDB engine variants.
+/// Snapshot handle covering all RocksDB engine variants.
 #[derive(Debug)]
 pub enum RocksDBSnapshot<'a> {
     /// Snapshot for the standard RocksDB engine.
     DB(RocksDBSnapshotHandle<'a, DBWithThreadMode<MultiThreaded>>),
     /// Snapshot for the optimistic transaction engine.
     OptimisticTransactionDB(RocksDBSnapshotHandle<'a, OptimisticTransactionDB<MultiThreaded>>),
+    /// Snapshot for the lock-based transaction engine.
+    TransactionDB(RocksDBSnapshotHandle<'a, TransactionDB<MultiThreaded>>),
 }
 
 impl<'a> RocksDBSnapshot<'a> {
@@ -1783,6 +2080,7 @@ impl<'a> RocksDBSnapshot<'a> {
         match self {
             Self::DB(handle) => handle.db.clone(),
             Self::OptimisticTransactionDB(handle) => handle.db.clone(),
+            Self::TransactionDB(handle) => handle.db.clone(),
         }
     }
 }
@@ -1891,6 +2189,11 @@ where
                 RocksDBSnapshot::OptimisticTransactionDB(handle) => handle
                     .snapshot
                     .get_pinned_cf_opt(&cf_handle, &key_buf, self.opts.readopts()),
+                RocksDBSnapshot::TransactionDB(handle) => {
+                    handle
+                        .snapshot
+                        .get_pinned_cf_opt(&cf_handle, &key_buf, self.opts.readopts())
+                }
             }
             .map_err(typed_store_err_from_rocks_err)?;
 
@@ -2039,7 +2342,7 @@ where
     }
 
     /// Deletes all entries by iterating keys and issuing per-key deletes (batched), for engines
-    /// that do not support range deletes (e.g., OptimisticTransactionDB).
+    /// that do not support range deletes (e.g., OptimisticTransactionDB and TransactionDB).
     /// This is less efficient than range deletes but safe and explicit.
     fn delete_all_individually(&self) -> Result<(), TypedStoreError>
     where
@@ -2453,6 +2756,57 @@ pub fn open_cf_optimistic<P: AsRef<Path>>(
     Ok(db)
 }
 
+/// Opens a TransactionDB with options, and a number of column families with
+/// individual options that are created if they do not exist.
+#[tracing::instrument(level="debug", skip_all, fields(path = ?path.as_ref()), err)]
+pub fn open_cf_opts_transaction<P: AsRef<Path>>(
+    path: P,
+    db_options: Option<rocksdb::Options>,
+    metric_conf: MetricConf,
+    opt_cfs: &[(&str, rocksdb::Options)],
+) -> Result<Arc<RocksDB>, TypedStoreError> {
+    let path = path.as_ref();
+    let cfs = populate_missing_cfs(opt_cfs, path).map_err(typed_store_err_from_rocks_err)?;
+    sui_macros::nondeterministic!({
+        let options = prepare_db_options(db_options);
+        let txn_db_options = TransactionDBOptions::default();
+        rocksdb::TransactionDB::open_cf_descriptors(
+            &options,
+            &txn_db_options,
+            path,
+            cfs.into_iter()
+                .map(|(name, opts)| ColumnFamilyDescriptor::new(name, opts)),
+        )
+        .map(|db| {
+            Arc::new(RocksDB::TransactionDB(TransactionDBWrapper::new(
+                db,
+                metric_conf,
+                PathBuf::from(path),
+                options,
+            )))
+        })
+        .map_err(typed_store_err_from_rocks_err)
+    })
+}
+
+/// Opens a TransactionDB with options, and a number of column families that are created
+/// if they do not exist. Uses the same options for each provided column family name.
+#[tracing::instrument(level="debug", skip_all, fields(path = ?path.as_ref(), cf = ?opt_cfs), err)]
+pub fn open_cf_transaction<P: AsRef<Path>>(
+    path: P,
+    db_options: Option<rocksdb::Options>,
+    metric_conf: MetricConf,
+    opt_cfs: &[&str],
+) -> Result<Arc<RocksDB>, TypedStoreError> {
+    let options = db_options.unwrap_or_else(|| default_db_options().options);
+    let column_descriptors: Vec<_> = opt_cfs
+        .iter()
+        .map(|name| (*name, options.clone()))
+        .collect();
+    let db = open_cf_opts_transaction(path, Some(options), metric_conf, &column_descriptors[..])?;
+    Ok(db)
+}
+
 /// TODO: Good description of why we're doing this :
 /// RocksDB stores keys in BE and has a seek operator.
 /// on iterators, see `https://github.com/facebook/rocksdb/wiki/Iterator#introduction`
@@ -2697,7 +3051,6 @@ where
             .ok_or_else(|| TypedStoreError::UnregisteredColumn(self.cf_name.clone()))?;
         self.rocksdb
             .ingest_external_file_cf(&cf, &[sst_path], &ingest_opts)
-            .map_err(|e| TypedStoreError::RocksDBError(e.into_string()))
     }
 
     /// Flush remaining entries and consume the buffer.
@@ -2968,6 +3321,47 @@ mod sst_tests {
         assert_eq!(dbmap.get(&3).unwrap(), Some(30));
         assert_eq!(dbmap.get(&4).unwrap(), Some(40));
         assert_eq!(dbmap.get(&5).unwrap(), Some(50));
+    }
+
+    #[tokio::test]
+    async fn sst_ingest_buffer_flush_rejects_transaction_db() {
+        crate::metrics::DBMetrics::init(&Registry::default());
+
+        let dir = tempdir().unwrap();
+        let mut db_options = rocksdb::Options::default();
+        db_options.create_missing_column_families(true);
+        db_options.create_if_missing(true);
+        let rocks = open_cf_opts_transaction(
+            dir.path(),
+            Some(db_options),
+            MetricConf::default(),
+            &[("cf1", rocksdb::Options::default())],
+        )
+        .unwrap();
+
+        let dbmap =
+            DBMap::<u32, u32>::reopen(&rocks, Some("cf1"), &ReadWriteOptions::default(), false)
+                .expect("open cf1");
+
+        let options = SstIngestOptions {
+            max_entries: 10,
+            dir_name: None,
+            assume_sorted: true,
+        };
+
+        let mut buf = SstIngestBuffer::new(&dbmap, options).expect("create buffer");
+        buf.push(1u32, 10u32).unwrap();
+        let err = buf
+            .flush()
+            .expect_err("transaction db should reject SST ingestion");
+        assert!(
+            matches!(
+                err,
+                TypedStoreError::RocksDBError(ref message)
+                    if message.contains("external SST ingestion is not supported")
+            ),
+            "unexpected error: {err:?}"
+        );
     }
 
     #[tokio::test]

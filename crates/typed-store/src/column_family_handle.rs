@@ -9,7 +9,7 @@
 
 use std::{marker::PhantomData, sync::Arc};
 
-use rocksdb::{Direction, OptimisticTransactionDB};
+use rocksdb::Direction;
 use serde::{Deserialize, Serialize};
 
 use crate::{TypedStoreError, rocks::RocksDB};
@@ -69,12 +69,15 @@ where
     }
 
     /// Puts a key-value pair within a transaction.
-    pub fn put_cf_with_txn(
+    pub fn put_cf_with_txn<DB>(
         &self,
-        txn: &rocksdb::Transaction<'_, OptimisticTransactionDB>,
+        txn: &rocksdb::Transaction<'_, DB>,
         key: &K,
         value: &V,
-    ) -> Result<(), TypedStoreError> {
+    ) -> Result<(), TypedStoreError>
+    where
+        DB: Sized,
+    {
         let key_bytes = key.serialize()?;
         let value_bytes =
             bcs::to_bytes(value).map_err(|e| TypedStoreError::SerializationError(e.to_string()))?;
@@ -85,11 +88,14 @@ where
     }
 
     /// Deletes a key within a transaction.
-    pub fn delete_cf_with_txn(
+    pub fn delete_cf_with_txn<DB>(
         &self,
-        txn: &rocksdb::Transaction<'_, OptimisticTransactionDB>,
+        txn: &rocksdb::Transaction<'_, DB>,
         key: &K,
-    ) -> Result<(), TypedStoreError> {
+    ) -> Result<(), TypedStoreError>
+    where
+        DB: Sized,
+    {
         let key_bytes = key.serialize()?;
         let cf = self.cf()?;
 
@@ -99,11 +105,14 @@ where
 
     /// Gets a value for update within a transaction, the commit will fail if the value is updated
     /// outside the transaction.
-    pub fn get_for_update_cf(
+    pub fn get_for_update_cf<DB>(
         &self,
-        txn: &rocksdb::Transaction<'_, OptimisticTransactionDB>,
+        txn: &rocksdb::Transaction<'_, DB>,
         key: &K,
-    ) -> Result<Option<V>, TypedStoreError> {
+    ) -> Result<Option<V>, TypedStoreError>
+    where
+        DB: Sized,
+    {
         let key_bytes = key.serialize()?;
         let cf = self.cf()?;
 
@@ -122,11 +131,14 @@ where
     }
 
     /// Gets a value within a transaction.
-    pub fn get_cf_with_txn(
+    pub fn get_cf_with_txn<DB>(
         &self,
-        txn: &rocksdb::Transaction<'_, OptimisticTransactionDB>,
+        txn: &rocksdb::Transaction<'_, DB>,
         key: &K,
-    ) -> Result<Option<V>, TypedStoreError> {
+    ) -> Result<Option<V>, TypedStoreError>
+    where
+        DB: Sized,
+    {
         let key_bytes = key.serialize()?;
         let cf = self.cf()?;
 
@@ -147,14 +159,17 @@ where
     /// Reads a range of key-value pairs within a transaction using range bounds.
     /// Returns key-value pairs in the range [begin, end).
     ///
-    pub fn read_range_with_txn(
+    pub fn read_range_with_txn<DB>(
         &self,
-        txn: &rocksdb::Transaction<'_, OptimisticTransactionDB>,
+        txn: &rocksdb::Transaction<'_, DB>,
         begin: Vec<u8>,
         end: Vec<u8>,
         row_limit: usize,
         reverse: bool,
-    ) -> Result<Vec<(K, V)>, TypedStoreError> {
+    ) -> Result<Vec<(K, V)>, TypedStoreError>
+    where
+        DB: Sized,
+    {
         let mut read_opts = rocksdb::ReadOptions::default();
         read_opts.set_iterate_lower_bound(begin.clone());
         read_opts.set_iterate_upper_bound(end.clone());
@@ -227,7 +242,13 @@ mod tests {
     use tempfile::TempDir;
 
     use super::*;
-    use crate::rocks::{MetricConf, ReadWriteOptions, RocksDB, open_cf_opts_optimistic};
+    use crate::rocks::{
+        MetricConf,
+        ReadWriteOptions,
+        RocksDB,
+        open_cf_opts_optimistic,
+        open_cf_opts_transaction,
+    };
 
     /// Result type for opening a database with column family handles.
     /// Returns `(Arc<RocksDB>, Vec<ColumnFamilyHandle<K, V>>)` on success.
@@ -269,6 +290,24 @@ mod tests {
         // Create ColumnFamilyHandles for each column family.
         let handles = create_cf_handles(&rocksdb, &cf_names, &ReadWriteOptions::default())?;
 
+        Ok((rocksdb, handles))
+    }
+
+    /// Opens a lock-based transaction database with column family handles.
+    fn open_cf_handle_opts_transaction<P, K, V>(
+        path: P,
+        db_options: Option<rocksdb::Options>,
+        metric_conf: MetricConf,
+        cf_options: &[(&str, rocksdb::Options)],
+    ) -> OpenCFHandleResult<K, V>
+    where
+        P: AsRef<Path>,
+        K: KeyCodec,
+        V: Serialize + for<'de> Deserialize<'de> + Clone,
+    {
+        let rocksdb = open_cf_opts_transaction(path, db_options, metric_conf, cf_options)?;
+        let cf_names: Vec<&str> = cf_options.iter().map(|(name, _)| *name).collect();
+        let handles = create_cf_handles(&rocksdb, &cf_names, &ReadWriteOptions::default())?;
         Ok((rocksdb, handles))
     }
 
@@ -368,7 +407,9 @@ mod tests {
         }
     }
 
-    fn create_test_db() -> (
+    fn create_test_db(
+        use_transaction_db: bool,
+    ) -> (
         TempDir,
         Arc<RocksDB>,
         Vec<ColumnFamilyHandle<TestKey, TestValue>>,
@@ -376,7 +417,12 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let db_path = temp_dir.path().join("test_db");
 
-        let (db, maps) = open_cf_handle_opts_optimistic::<_, TestKey, TestValue>(
+        let open_fn = if use_transaction_db {
+            open_cf_handle_opts_transaction::<_, TestKey, TestValue>
+        } else {
+            open_cf_handle_opts_optimistic::<_, TestKey, TestValue>
+        };
+        let (db, maps) = open_fn(
             db_path,
             None,
             MetricConf::default(),
@@ -390,149 +436,196 @@ mod tests {
     #[tokio::test]
     async fn test_transaction_operations() {
         crate::metrics::DBMetrics::init(&Registry::default());
-        let (_temp_dir, db, maps) = create_test_db();
+        for use_transaction_db in [false, true] {
+            let (_temp_dir, db, maps) = create_test_db(use_transaction_db);
+            let map = &maps[0];
+            let key = TestKey {
+                prefix: "txn".to_string(),
+                id: 1,
+            };
+            let value = TestValue {
+                data: "transaction test".to_string(),
+                count: 99,
+            };
 
-        let map = &maps[0];
+            match db.as_transactional().expect("should support transactions") {
+                crate::rocks::TransactionalHandle::Optimistic(handle) => {
+                    let txn = handle.transaction();
+                    map.put_cf_with_txn(&txn, &key, &value)
+                        .expect("failed to put in transaction");
+                    txn.commit().expect("failed to commit transaction");
 
-        // Get transaction handle
-        let handle = db.as_optimistic().expect("should be optimistic DB");
+                    let txn = handle.transaction();
+                    let retrieved = map
+                        .get_cf_with_txn(&txn, &key)
+                        .expect("failed to get in transaction");
+                    assert_eq!(retrieved, Some(value.clone()));
+                    txn.commit().expect("failed to commit transaction");
+                }
+                crate::rocks::TransactionalHandle::Transaction(handle) => {
+                    let txn = handle.transaction();
+                    map.put_cf_with_txn(&txn, &key, &value)
+                        .expect("failed to put in transaction");
+                    txn.commit().expect("failed to commit transaction");
 
-        // Test transaction insert and get
-        let key = TestKey {
-            prefix: "txn".to_string(),
-            id: 1,
-        };
-        let value = TestValue {
-            data: "transaction test".to_string(),
-            count: 99,
-        };
-
-        // Successful transaction
-        {
-            let txn = handle.transaction();
-
-            map.put_cf_with_txn(&txn, &key, &value)
-                .expect("failed to put in transaction");
-            txn.commit().expect("failed to commit transaction");
-        }
-
-        {
-            let txn = handle.transaction();
-
-            let retrieved = map
-                .get_cf_with_txn(&txn, &key)
-                .expect("failed to get in transaction");
-            assert_eq!(retrieved, Some(value.clone()));
-            txn.commit().expect("failed to commit transaction");
+                    let txn = handle.transaction();
+                    let retrieved = map
+                        .get_cf_with_txn(&txn, &key)
+                        .expect("failed to get in transaction");
+                    assert_eq!(retrieved, Some(value.clone()));
+                    txn.commit().expect("failed to commit transaction");
+                }
+            }
         }
     }
 
     #[tokio::test]
     async fn test_transaction_range_operations() {
         crate::metrics::DBMetrics::init(&Registry::default());
-        let (_temp_dir, db, maps) = create_test_db();
-
-        let map = &maps[0];
-        let handle = db.as_optimistic().expect("should be optimistic DB");
-
-        let prefix = "range_test";
-        let mut kvs = Vec::new();
-        for i in 1..=5 {
-            let key = TestKey::new(prefix.to_string(), i);
-            let value = TestValue::new(format!("value_{}", i), i as u32 * 10);
-            kvs.push((key, value));
-        }
-
-        {
-            let txn = handle.transaction();
-
-            for (key, value) in kvs.iter() {
-                map.put_cf_with_txn(&txn, key, value)
-                    .expect("failed to put in transaction");
+        for use_transaction_db in [false, true] {
+            let (_temp_dir, db, maps) = create_test_db(use_transaction_db);
+            let map = &maps[0];
+            let prefix = "range_test";
+            let mut kvs = Vec::new();
+            for i in 1..=5 {
+                let key = TestKey::new(prefix.to_string(), i);
+                let value = TestValue::new(format!("value_{}", i), i as u32 * 10);
+                kvs.push((key, value));
             }
 
-            let prefix2 = "range_tesu";
-            for i in 1..=3 {
-                let key = TestKey::new(prefix2.to_string(), i);
-                let value = TestValue::new(format!("other_{}", i), i as u32 * 100);
-                map.put_cf_with_txn(&txn, &key, &value)
-                    .expect("failed to put in transaction");
-            }
+            match db.as_transactional().expect("should support transactions") {
+                crate::rocks::TransactionalHandle::Optimistic(handle) => {
+                    let txn = handle.transaction();
+                    for (key, value) in kvs.iter() {
+                        map.put_cf_with_txn(&txn, key, value)
+                            .expect("failed to put in transaction");
+                    }
+                    for prefix in ["range_tesu", "range_tess"] {
+                        for i in 1..=3 {
+                            let key = TestKey::new(prefix.to_string(), i);
+                            let value = TestValue::new(format!("other_{}", i), i as u32 * 100);
+                            map.put_cf_with_txn(&txn, &key, &value)
+                                .expect("failed to put in transaction");
+                        }
+                    }
+                    txn.commit().expect("failed to commit transaction");
 
-            let prefix3 = "range_tess";
-            for i in 1..=3 {
-                let key = TestKey::new(prefix3.to_string(), i);
-                let value = TestValue::new(format!("other_{}", i), i as u32 * 100);
-                map.put_cf_with_txn(&txn, &key, &value)
-                    .expect("failed to put in transaction");
-            }
+                    let mut begin = prefix.as_bytes().to_vec();
+                    begin.push(b'/');
+                    let mut end = prefix.as_bytes().to_vec();
+                    end.push(b'0');
 
-            txn.commit().expect("failed to commit transaction");
-        }
+                    let txn = handle.transaction();
+                    let results_with_limit: Vec<(TestKey, TestValue)> = map
+                        .read_range_with_txn(&txn, begin.clone(), end.clone(), 3, false)
+                        .expect("failed to read range");
+                    assert_eq!(results_with_limit.len(), 3);
+                    let results_with_limit_reverse: Vec<(TestKey, TestValue)> = map
+                        .read_range_with_txn(&txn, begin.clone(), end.clone(), 3, true)
+                        .expect("failed to read range");
+                    assert_eq!(results_with_limit_reverse.len(), 3);
+                    for (i, (key, value)) in results_with_limit_reverse.iter().enumerate() {
+                        assert_eq!(key, &kvs[kvs.len() - i - 1].0);
+                        assert_eq!(value, &kvs[kvs.len() - i - 1].1);
+                    }
+                    let results_without_limit: Vec<(TestKey, TestValue)> = map
+                        .read_range_with_txn(&txn, begin.clone(), end.clone(), 100, false)
+                        .expect("failed to read range");
+                    assert_eq!(results_without_limit.len(), kvs.len());
+                    for (i, (key, value)) in results_without_limit.iter().enumerate() {
+                        assert_eq!(key, &kvs[i].0);
+                        assert_eq!(value, &kvs[i].1);
+                    }
+                    let results_without_limit_reverse: Vec<(TestKey, TestValue)> = map
+                        .read_range_with_txn(&txn, begin.clone(), end.clone(), 100, true)
+                        .expect("failed to read range");
+                    assert_eq!(results_without_limit_reverse.len(), kvs.len());
+                    for (i, (key, value)) in results_without_limit_reverse.iter().enumerate() {
+                        assert_eq!(key, &kvs[kvs.len() - i - 1].0);
+                        assert_eq!(value, &kvs[kvs.len() - i - 1].1);
+                    }
 
-        // Create prefix bytes for "range_test/" to match our key serialization format
-        let mut begin = prefix.as_bytes().to_vec();
-        begin.push(b'/');
-        let mut end = prefix.as_bytes().to_vec();
-        end.push(b'0');
+                    let txn = handle.transaction();
+                    assert!(map.delete_cf_with_txn(&txn, &kvs[2].0).is_ok());
+                    txn.commit().expect("failed to commit transaction");
 
-        {
-            let txn = handle.transaction();
+                    let txn = handle.transaction();
+                    let results_without_limit: Vec<(TestKey, TestValue)> = map
+                        .read_range_with_txn(&txn, begin, end, 100, false)
+                        .expect("failed to read range");
+                    kvs.remove(2);
+                    assert_eq!(results_without_limit.len(), kvs.len());
+                    for (i, (key, value)) in results_without_limit.iter().enumerate() {
+                        assert_eq!(key, &kvs[i].0);
+                        assert_eq!(value, &kvs[i].1);
+                    }
+                }
+                crate::rocks::TransactionalHandle::Transaction(handle) => {
+                    let txn = handle.transaction();
+                    for (key, value) in kvs.iter() {
+                        map.put_cf_with_txn(&txn, key, value)
+                            .expect("failed to put in transaction");
+                    }
+                    for prefix in ["range_tesu", "range_tess"] {
+                        for i in 1..=3 {
+                            let key = TestKey::new(prefix.to_string(), i);
+                            let value = TestValue::new(format!("other_{}", i), i as u32 * 100);
+                            map.put_cf_with_txn(&txn, &key, &value)
+                                .expect("failed to put in transaction");
+                        }
+                    }
+                    txn.commit().expect("failed to commit transaction");
 
-            let results_with_limit: Vec<(TestKey, TestValue)> = map
-                .read_range_with_txn(&txn, begin.clone(), end.clone(), 3, false)
-                .expect("failed to read range");
+                    let mut begin = prefix.as_bytes().to_vec();
+                    begin.push(b'/');
+                    let mut end = prefix.as_bytes().to_vec();
+                    end.push(b'0');
 
-            assert_eq!(results_with_limit.len(), 3);
+                    let txn = handle.transaction();
+                    let results_with_limit: Vec<(TestKey, TestValue)> = map
+                        .read_range_with_txn(&txn, begin.clone(), end.clone(), 3, false)
+                        .expect("failed to read range");
+                    assert_eq!(results_with_limit.len(), 3);
+                    let results_with_limit_reverse: Vec<(TestKey, TestValue)> = map
+                        .read_range_with_txn(&txn, begin.clone(), end.clone(), 3, true)
+                        .expect("failed to read range");
+                    assert_eq!(results_with_limit_reverse.len(), 3);
+                    for (i, (key, value)) in results_with_limit_reverse.iter().enumerate() {
+                        assert_eq!(key, &kvs[kvs.len() - i - 1].0);
+                        assert_eq!(value, &kvs[kvs.len() - i - 1].1);
+                    }
+                    let results_without_limit: Vec<(TestKey, TestValue)> = map
+                        .read_range_with_txn(&txn, begin.clone(), end.clone(), 100, false)
+                        .expect("failed to read range");
+                    assert_eq!(results_without_limit.len(), kvs.len());
+                    for (i, (key, value)) in results_without_limit.iter().enumerate() {
+                        assert_eq!(key, &kvs[i].0);
+                        assert_eq!(value, &kvs[i].1);
+                    }
+                    let results_without_limit_reverse: Vec<(TestKey, TestValue)> = map
+                        .read_range_with_txn(&txn, begin.clone(), end.clone(), 100, true)
+                        .expect("failed to read range");
+                    assert_eq!(results_without_limit_reverse.len(), kvs.len());
+                    for (i, (key, value)) in results_without_limit_reverse.iter().enumerate() {
+                        assert_eq!(key, &kvs[kvs.len() - i - 1].0);
+                        assert_eq!(value, &kvs[kvs.len() - i - 1].1);
+                    }
 
-            let results_with_limit_reverse: Vec<(TestKey, TestValue)> = map
-                .read_range_with_txn(&txn, begin.clone(), end.clone(), 3, true)
-                .expect("failed to read range");
+                    let txn = handle.transaction();
+                    assert!(map.delete_cf_with_txn(&txn, &kvs[2].0).is_ok());
+                    txn.commit().expect("failed to commit transaction");
 
-            assert_eq!(results_with_limit_reverse.len(), 3);
-
-            for (i, (key, value)) in results_with_limit_reverse.iter().enumerate() {
-                assert_eq!(key, &kvs[kvs.len() - i - 1].0);
-                assert_eq!(value, &kvs[kvs.len() - i - 1].1);
-            }
-
-            let results_without_limit: Vec<(TestKey, TestValue)> = map
-                .read_range_with_txn(&txn, begin.clone(), end.clone(), 100, false)
-                .expect("failed to read range");
-
-            assert_eq!(results_without_limit.len(), kvs.len());
-            for (i, (key, value)) in results_without_limit.iter().enumerate() {
-                assert_eq!(key, &kvs[i].0);
-                assert_eq!(value, &kvs[i].1);
-            }
-
-            let results_without_limit_reverse: Vec<(TestKey, TestValue)> = map
-                .read_range_with_txn(&txn, begin.clone(), end.clone(), 100, true)
-                .expect("failed to read range");
-
-            assert_eq!(results_without_limit_reverse.len(), kvs.len());
-
-            for (i, (key, value)) in results_without_limit_reverse.iter().enumerate() {
-                assert_eq!(key, &kvs[kvs.len() - i - 1].0);
-                assert_eq!(value, &kvs[kvs.len() - i - 1].1);
-            }
-        }
-
-        {
-            let txn = handle.transaction();
-            assert!(map.delete_cf_with_txn(&txn, &kvs[2].0).is_ok());
-            txn.commit().expect("failed to commit transaction");
-
-            let txn = handle.transaction();
-            let results_without_limit: Vec<(TestKey, TestValue)> = map
-                .read_range_with_txn(&txn, begin, end, 100, false)
-                .expect("failed to read range");
-
-            kvs.remove(2);
-            assert_eq!(results_without_limit.len(), kvs.len());
-            for (i, (key, value)) in results_without_limit.iter().enumerate() {
-                assert_eq!(key, &kvs[i].0);
-                assert_eq!(value, &kvs[i].1);
+                    let txn = handle.transaction();
+                    let results_without_limit: Vec<(TestKey, TestValue)> = map
+                        .read_range_with_txn(&txn, begin, end, 100, false)
+                        .expect("failed to read range");
+                    kvs.remove(2);
+                    assert_eq!(results_without_limit.len(), kvs.len());
+                    for (i, (key, value)) in results_without_limit.iter().enumerate() {
+                        assert_eq!(key, &kvs[i].0);
+                        assert_eq!(value, &kvs[i].1);
+                    }
+                }
             }
         }
     }
