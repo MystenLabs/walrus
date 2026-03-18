@@ -434,18 +434,18 @@ const contextNotes = [
 
 const OPTIONAL_SECTIONS = new Set(["Design", "Dev Guide", "Legal", "Tusky Migration Guide"]);
 
-// CHANGED: formatEntry outputs both .md (primary) and html (fallback) URLs
-// Format: - [Title](url.md) ([html](url)): Description
+// Two entries per page: .md URL (primary, for LLM consumption) and clean URL (fallback)
+// The .md entry gets the description; the html entry is a compact fallback line.
 function formatEntry({ title, mdUrl, htmlUrl, description }) {
-  const links = `[${title}](${mdUrl}) ([html](${htmlUrl}))`;
-  if (description) {
-    return `- ${links}: ${description}`;
-  }
-  return `- ${links}`;
+  const mdLine = description
+    ? `- [${title}](${mdUrl}): ${description}`
+    : `- [${title}](${mdUrl})`;
+  const htmlLine = `- [${title} (html)](${htmlUrl})`;
+  return [mdLine, htmlLine];
 }
 
 function formatEntryCompact({ title, mdUrl, htmlUrl }) {
-  return `- [${title}](${mdUrl}) ([html](${htmlUrl}))`;
+  return [`- [${title}](${mdUrl})`, `- [${title} (html)](${htmlUrl})`];
 }
 
 function wrapLine(line, indentSpaces = 0) {
@@ -501,8 +501,10 @@ function buildOutput(includeDescriptions, includeOptional) {
   for (const section of requiredSections) {
     lines.push(`## ${section}`, "");
     for (const page of grouped[section]) {
-      const entry = includeDescriptions ? formatEntry(page) : formatEntryCompact(page);
-      lines.push(...wrapLine(entry, 0));
+      const entries = includeDescriptions ? formatEntry(page) : formatEntryCompact(page);
+      for (const entry of entries) {
+        lines.push(...wrapLine(entry, 0));
+      }
     }
     lines.push("");
   }
@@ -512,8 +514,10 @@ function buildOutput(includeDescriptions, includeOptional) {
     for (const section of optionalSections) {
       lines.push(`### ${section}`, "");
       for (const page of grouped[section]) {
-        const entry = includeDescriptions ? formatEntry(page) : formatEntryCompact(page);
-        lines.push(...wrapLine(entry, 0));
+        const entries = includeDescriptions ? formatEntry(page) : formatEntryCompact(page);
+        for (const entry of entries) {
+          lines.push(...wrapLine(entry, 0));
+        }
       }
       lines.push("");
     }
@@ -541,7 +545,9 @@ if (output.length > TARGET_CHARS) {
     const keep = Math.max(1, Math.floor(sectionPages.length * ratio));
     finalLines.push(`## ${section}`, "");
     for (const page of sectionPages.slice(0, keep)) {
-      finalLines.push(...wrapLine(formatEntry(page), 0));
+      for (const entry of formatEntry(page)) {
+        finalLines.push(...wrapLine(entry, 0));
+      }
     }
     finalLines.push("");
   }
