@@ -1306,3 +1306,90 @@ async fn test_optimistic_transaction_concurrent_write_batch_merge_must_not_hide_
         hidden_register_failures, ITERATIONS
     );
 }
+
+/// Control test for the WAL-1187 reproducer above.
+///
+/// This uses the same merge operator shape, but instead of staging a delete inside the
+/// transaction it stages a normal put. The outside merge is fully written before commit is
+/// attempted, so the optimistic transaction is expected to fail with a write-conflict error.
+#[tokio::test]
+async fn test_optimistic_transaction_put_conflicts_with_outside_merge_after_get_for_update() {
+    let _guard = global_test_lock();
+
+    fn zero_register_certify_merge(
+        _key: &[u8],
+        existing_val: Option<&[u8]>,
+        operands: &rocksdb::MergeOperands,
+    ) -> Option<Vec<u8>> {
+        let mut state = match existing_val {
+            None | Some(b"0") => 0,
+            Some(b"V") => 2,
+            _ => return None,
+        };
+        for op in operands {
+            match (state, op) {
+                (0, b"R") => state = 1,
+                (1, b"C") => state = 2,
+                _ => return None,
+            }
+        }
+        Some(match state {
+            0 => vec![b'0'],
+            1 | 2 => vec![b'V'],
+            _ => unreachable!(),
+        })
+    }
+
+    let path = temp_dir();
+    let cf_name = "merge_cf";
+
+    let mut cf_opts = rocksdb::Options::default();
+    cf_opts.set_merge_operator(
+        "zero_register_certify_merge",
+        zero_register_certify_merge,
+        |_, _, _| None,
+    );
+
+    let db = open_cf_opts_optimistic(&path, None, MetricConf::default(), &[(cf_name, cf_opts)])
+        .expect("failed to open optimistic db");
+
+    let RocksDB::OptimisticTransactionDB(ref wrapper) = *db else {
+        panic!("expected OptimisticTransactionDB");
+    };
+    let underlying = &wrapper.underlying;
+    let cf = underlying.cf_handle(cf_name).expect("cf handle");
+    let key = b"counter".to_vec();
+
+    underlying.put_cf(&cf, &key, b"0").unwrap();
+
+    let handle = db.as_optimistic().expect("optimistic db");
+    let tx = handle.transaction();
+    let read = tx
+        .get_for_update_cf_opt(&cf, &key, false, &rocksdb::ReadOptions::default())
+        .unwrap();
+    assert_eq!(
+        read.as_deref(),
+        Some(&b"0"[..]),
+        "transaction should only update after observing 0"
+    );
+
+    // Stage a normal update in the transaction, then write the merge outside the transaction
+    // before commit. This mirrors RocksDB's own optimistic conflict tests and should surface as
+    // a write conflict rather than silently succeeding.
+    tx.put_cf(&cf, &key, b"0").unwrap();
+
+    let mut batch = rocksdb::WriteBatchWithTransaction::<true>::default();
+    batch.merge_cf(&cf, &key, b"R");
+    underlying.write(batch).unwrap();
+
+    let commit_err = tx
+        .commit()
+        .expect_err("expected optimistic transaction commit to fail after outside merge");
+    assert_eq!(
+        commit_err.kind(),
+        rocksdb::ErrorKind::Busy,
+        "expected optimistic transaction commit to fail with Busy, got {commit_err:?}"
+    );
+
+    assert_eq!(underlying.get_cf(&cf, &key).unwrap(), Some(b"V".to_vec()));
+}
