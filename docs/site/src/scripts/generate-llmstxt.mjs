@@ -88,8 +88,6 @@ const KNOWN_CASING = {
 };
 
 // ── Preferred section ordering ──────────────────────────────────────────────
-// Spec best practice: order sections from most to least important for LLMs.
-// Core concepts first, then usage, then reference, then optional/legal.
 const SECTION_PRIORITY = [
   "Getting Started",
   "System Overview",
@@ -127,15 +125,10 @@ function walk(dir, results = []) {
   return results;
 }
 
-/**
- * Extract frontmatter from markdown content.
- * Returns { data: {title, description, sidebar_label, ...}, bodyStartIndex }
- */
 function extractFrontmatter(content) {
   const data = {};
   let bodyStart = 0;
 
-  // Match YAML frontmatter between --- delimiters
   const fmMatch = content.match(/^---\s*\n([\s\S]*?)\n---\s*\n?/);
   if (fmMatch) {
     bodyStart = fmMatch[0].length;
@@ -144,7 +137,6 @@ function extractFrontmatter(content) {
       const kv = line.match(/^(\w[\w_-]*):\s*(.+)$/);
       if (kv) {
         let val = kv[2].trim();
-        // Strip surrounding quotes
         if ((val.startsWith('"') && val.endsWith('"')) ||
             (val.startsWith("'") && val.endsWith("'"))) {
           val = val.slice(1, -1);
@@ -157,16 +149,10 @@ function extractFrontmatter(content) {
   return { data, bodyStart };
 }
 
-/**
- * Robust title and description extraction.
- * Priority for title: frontmatter title > sidebar_label > first H1 > filename
- * Priority for description: frontmatter description > first meaningful paragraph
- */
 function parseMarkdown(filePath, content) {
   let title = "";
   let description = "";
 
-  // Check for metadata sidecar written by export script
   const metaPath = filePath.replace(/\.mdx?$/, ".meta.json");
   if (fs.existsSync(metaPath)) {
     try {
@@ -176,28 +162,22 @@ function parseMarkdown(filePath, content) {
     } catch {}
   }
 
-  // Parse frontmatter
   const { data: fm, bodyStart } = extractFrontmatter(content);
 
-  // Title priority: sidecar > frontmatter title > sidebar_label > first H1
   if (!title && fm.title) title = fm.title;
   if (!title && fm.sidebar_label) title = fm.sidebar_label;
 
-  // Get body after frontmatter
   let body = content.slice(bodyStart);
 
-  // Strip common Docusaurus/MDX directives and imports before processing
   body = body
     .replace(/^import\s+.*$/gm, "")
     .replace(/^export\s+.*$/gm, "")
     .replace(/<Tabs[\s\S]*?<\/Tabs>/gi, "")
     .replace(/<TabItem[\s\S]*?<\/TabItem>/gi, "")
     .replace(/:::[\s\S]*?:::/g, (match) => {
-      // Keep the text content inside admonitions
       return match.replace(/^:::\w*\s*/gm, "").replace(/\s*:::$/gm, "");
     });
 
-  // Strip unwanted HTML
   body = body
     .replace(/<a\b[^>]*>[\s\S]*?<\/a>/gi, "")
     .replace(/<span\s+class="code-inline"[^>]*>[\s\S]*?<\/span>/gi, "")
@@ -206,30 +186,26 @@ function parseMarkdown(filePath, content) {
     .replace(/&gt;/g, ">")
     .replace(/&lt;/g, "<")
     .replace(/&amp;/g, "&")
-    // Strip linear.app issue links
     .replace(/\[([^\]]*)\]\(https?:\/\/linear\.app\/[^)]*\)/gi, "$1")
     .replace(/https?:\/\/linear\.app\/\S+/gi, "")
     .replace(/\{[^}]*linear\.app[^}]*\}/gi, "")
     .replace(/\{\/\s*/g, "")
     .replace(/\s*\/\}/g, "");
 
-  // Fallback: first H1 in body
   if (!title) {
     const h1 = body.match(/^#\s+(.+)$/m);
     if (h1) {
       title = h1[1]
-        .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")  // strip links
-        .replace(/[*_`]/g, "")                      // strip emphasis/code
+        .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+        .replace(/[*_`]/g, "")
         .trim();
     }
   }
 
-  // Validate that extracted title looks like a real title, not content.
   if (title && isLikelyContentNotTitle(title)) {
     title = "";
   }
 
-  // Description from frontmatter
   if (!description && fm.description) {
     description = fm.description;
   }
@@ -238,10 +214,8 @@ function parseMarkdown(filePath, content) {
     description = extractDescription(body);
   }
 
-  // Discard redirect-page descriptions
   if (/redirecting/i.test(description)) description = "";
 
-  // Ensure all descriptions end at a sentence boundary
   if (description) {
     description = ensureSentenceEnding(description);
   }
@@ -249,19 +223,10 @@ function parseMarkdown(filePath, content) {
   return { title, description };
 }
 
-/**
- * Ensure a description ends at a complete sentence.
- * If it already ends with sentence punctuation, return as-is.
- * Otherwise, truncate back to the last sentence boundary.
- */
 function ensureSentenceEnding(text) {
   text = text.trim();
   if (!text) return "";
-
-  // Already ends with sentence-ending punctuation
   if (/[.!?]$/.test(text)) return text;
-
-  // Find the last sentence boundary
   for (let i = text.length - 1; i >= 0; i--) {
     if (text[i] === "." || text[i] === "!" || text[i] === "?") {
       const nextChar = text[i + 1];
@@ -270,14 +235,9 @@ function ensureSentenceEnding(text) {
       }
     }
   }
-
-  // No sentence boundary found — return empty to avoid fragments
   return "";
 }
 
-/**
- * Detect if a "title" is actually content mistakenly captured.
- */
 function isLikelyContentNotTitle(text) {
   if (text.length > 120) return true;
   if (/^(Copyright|Store |Download |Run |NOTE:|Verify:|Basic )/i.test(text)) return true;
@@ -286,20 +246,13 @@ function isLikelyContentNotTitle(text) {
   return false;
 }
 
-/**
- * Extract a clean description from markdown body text.
- */
 function extractDescription(body) {
   let text = body.replace(/^#+\s+.+$/gm, "");
   text = text.replace(/```[\s\S]*?```/g, "");
-
   text = text.replace(/`([^`]+)`/g, (_, code) => {
-    if (code.length < 30 && !/\s{2,}|[|<>{}]/.test(code)) {
-      return code;
-    }
+    if (code.length < 30 && !/\s{2,}|[|<>{}]/.test(code)) return code;
     return "";
   });
-
   text = text.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
   text = text.replace(/!\[[^\]]*\]\([^)]+\)/g, "");
   text = text.replace(/\*{1,3}([^*]+)\*{1,3}/g, "$1");
@@ -307,8 +260,6 @@ function extractDescription(body) {
   text = text.replace(/<[^>]+>/g, "");
   text = text.replace(/^\s*[-*+]\s+/gm, "");
   text = text.replace(/^\s*\d+\.\s+/gm, "");
-
-  // Clean up artifacts from stripped content
   text = text.replace(/\(\s*,[\s,]*\)/g, "");
   text = text.replace(/\(\s*,/g, "(");
   text = text.replace(/,\s*\)/g, ")");
@@ -316,38 +267,20 @@ function extractDescription(body) {
   text = text.replace(/,(\s*,)+/g, ",");
   text = text.replace(/:\s*,/g, ":");
   text = text.replace(/:(\s*:)+/g, ":");
-
   text = text.replace(/\n+/g, " ").replace(/\s+/g, " ").trim();
-
   if (text.length === 0) return "";
-
   return extractSentences(text, 300);
 }
 
-/**
- * Extract complete sentences from text up to maxLen characters.
- * Always ends at a sentence boundary (., !, or ?).
- * If no sentence boundary is found, returns empty string rather than a fragment.
- */
 function extractSentences(text, maxLen = 300) {
   if (!text || !text.trim()) return "";
-
-  // If the entire text fits and ends with sentence-ending punctuation, use it
   if (text.length <= maxLen) {
     if (/[.!?]$/.test(text.trim())) return text.trim();
-    // Short text that doesn't end in punctuation — check if it's a single complete thought
-    // (e.g., a full sentence without trailing period is still okay if it's short enough)
   }
-
   const chunk = text.slice(0, maxLen);
-
-  // Find the last sentence-ending punctuation followed by a space or end-of-string
-  // This handles ". ", "! ", "? " as well as "." at end of chunk
   let lastEnd = -1;
   for (let i = chunk.length - 1; i >= 0; i--) {
     if (chunk[i] === "." || chunk[i] === "!" || chunk[i] === "?") {
-      // Make sure it's not part of an abbreviation (e.g., "e.g.", "i.e.", "Dr.")
-      // by checking if the next char is a space, end of string, or quote
       const nextChar = chunk[i + 1];
       if (!nextChar || nextChar === " " || nextChar === '"' || nextChar === "'") {
         lastEnd = i;
@@ -355,12 +288,7 @@ function extractSentences(text, maxLen = 300) {
       }
     }
   }
-
-  if (lastEnd > 0) {
-    return chunk.slice(0, lastEnd + 1).trim();
-  }
-
-  // No sentence boundary found within maxLen — try a larger window
+  if (lastEnd > 0) return chunk.slice(0, lastEnd + 1).trim();
   const extendedChunk = text.slice(0, maxLen * 2);
   for (let i = maxLen; i < extendedChunk.length; i++) {
     if (extendedChunk[i] === "." || extendedChunk[i] === "!" || extendedChunk[i] === "?") {
@@ -370,13 +298,7 @@ function extractSentences(text, maxLen = 300) {
       }
     }
   }
-
-  // If text is short enough overall and has no sentence punctuation, return as-is
-  if (text.length <= maxLen) {
-    return text.trim();
-  }
-
-  // No sentence boundary found at all — return empty rather than a fragment
+  if (text.length <= maxLen) return text.trim();
   return "";
 }
 
@@ -394,9 +316,6 @@ function joinUrl(base, p) {
   return base.replace(/\/$/, "") + "/" + p.replace(/^\//, "");
 }
 
-/**
- * Smart section title casing with proper acronym handling.
- */
 function toSectionTitle(seg) {
   return seg
     .replace(/[-_]/g, " ")
@@ -443,17 +362,16 @@ for (const file of files) {
   const { title, description } = parseMarkdown(file, content);
   const urlPath = fileToUrlPath(file, markdownDir);
 
-  // Ensure URL path starts with /docs
   const docUrlPath = urlPath.startsWith("/docs")
     ? urlPath
     : "/docs" + (urlPath.startsWith("/") ? urlPath : "/" + urlPath);
-  const url = joinUrl(resolvedBaseUrl, docUrlPath) + ".md";
 
-  // Skip linear.app URLs
-  if (isLinearUrl(url)) continue;
+  // CHANGED: Build both .md and clean HTML URLs
+  const mdUrl = joinUrl(resolvedBaseUrl, docUrlPath) + ".md";
+  const htmlUrl = joinUrl(resolvedBaseUrl, docUrlPath);
 
-  // Derive title from filename if no heading found, with smart casing.
-  // For index files, use the parent directory name (e.g., "getting-started/index.mdx" → "Getting Started")
+  if (isLinearUrl(mdUrl)) continue;
+
   const filename = path.basename(file, path.extname(file));
   let derivedTitle = title;
   if (!derivedTitle) {
@@ -466,21 +384,20 @@ for (const file of files) {
   }
 
   const segments = docUrlPath.replace(/^\//, "").split("/");
-  // segments[0] is "docs", so use segments[1] for category grouping
   const section = segments.length > 2
     ? toSectionTitle(segments[1])
     : segments.length > 1 && segments[1]
       ? toSectionTitle(segments[1])
       : "General";
 
-  pages.push({ title: derivedTitle, url, description, section });
+  // CHANGED: Store both URLs
+  pages.push({ title: derivedTitle, mdUrl, htmlUrl, description, section });
 }
 
 // ── Build llms.txt ────────────────────────────────────────────────────────────
 
 const TARGET_CHARS = 120_000;
 
-// Group pages by section
 const sectionOrderRaw = [];
 const grouped = {};
 for (const page of pages) {
@@ -491,7 +408,6 @@ for (const page of pages) {
   grouped[page.section].push(page);
 }
 
-// Sort sections by defined priority, with unknown sections at the end
 const sectionOrder = [...sectionOrderRaw].sort((a, b) => {
   const ai = SECTION_PRIORITY.indexOf(a);
   const bi = SECTION_PRIORITY.indexOf(b);
@@ -501,7 +417,6 @@ const sectionOrder = [...sectionOrderRaw].sort((a, b) => {
   return a.localeCompare(b);
 });
 
-// Introductory context (spec: blockquote with key project info)
 const introDesc = siteDesc ||
   "Walrus is a decentralized blob storage protocol built on Sui. " +
   "It provides robust, cost-effective storage for large binary objects " +
@@ -509,8 +424,6 @@ const introDesc = siteDesc ||
   "This documentation covers setup, usage, the client CLI, SDKs, " +
   "on-chain integration, and Walrus Sites (decentralized web hosting).";
 
-// Spec-compliant: additional context paragraphs between blockquote and sections.
-// These are freeform markdown (no headings) that help LLMs interpret the docs.
 const contextNotes = [
   "- Walrus stores data as **blobs** (immutable byte arrays). All blobs are public; use an encryption service like Seal for private data.",
   "- Walrus has two networks: **Mainnet** (production, uses real SUI/WAL tokens) and **Testnet** (for development and testing).",
@@ -519,19 +432,22 @@ const contextNotes = [
   "- Costs involve WAL tokens (for storage) and SUI tokens (for on-chain transactions).",
 ];
 
-// Identify optional/secondary sections that LLMs can skip for shorter context
 const OPTIONAL_SECTIONS = new Set(["Design", "Dev Guide", "Legal", "Tusky Migration Guide"]);
 
-// Format link entries per the spec: - [Title](url): Description
-// The spec uses `: description` after the link, not a separate indented line
-function formatEntry({ title, url, description }) {
+// CHANGED: formatEntry outputs both .md (primary) and html (fallback) URLs
+// Format: - [Title](url.md) ([html](url)): Description
+function formatEntry({ title, mdUrl, htmlUrl, description }) {
+  const links = `[${title}](${mdUrl}) ([html](${htmlUrl}))`;
   if (description) {
-    return `- [${title}](${url}): ${description}`;
+    return `- ${links}: ${description}`;
   }
-  return `- [${title}](${url})`;
+  return `- ${links}`;
 }
 
-// Wrap a line to max 100 chars
+function formatEntryCompact({ title, mdUrl, htmlUrl }) {
+  return `- [${title}](${mdUrl}) ([html](${htmlUrl}))`;
+}
+
 function wrapLine(line, indentSpaces = 0) {
   if (line.length <= 100) return [line];
   const indent = " ".repeat(indentSpaces);
@@ -552,14 +468,12 @@ function wrapLine(line, indentSpaces = 0) {
 
 // ── Build output ─────────────────────────────────────────────────────────────
 
-// Separate required and optional sections per spec
 const requiredSections = sectionOrder.filter((s) => !OPTIONAL_SECTIONS.has(s));
 const optionalSections = sectionOrder.filter((s) => OPTIONAL_SECTIONS.has(s));
 
 function buildOutput(includeDescriptions, includeOptional) {
   const lines = [`# ${resolvedName}`, ""];
 
-  // Wrap blockquote to 100 chars (continuation lines start with "> ")
   const bqText = `> ${introDesc}`;
   if (bqText.length <= 100) {
     lines.push(bqText);
@@ -578,31 +492,27 @@ function buildOutput(includeDescriptions, includeOptional) {
   }
   lines.push("");
 
-  // Context notes — wrap each bullet to 100 chars with 4-space continuation indent
   lines.push("Important notes:", "");
   for (const note of contextNotes) {
     lines.push(...wrapLine(note, 0));
   }
   lines.push("");
 
-  // Required sections
   for (const section of requiredSections) {
     lines.push(`## ${section}`, "");
     for (const page of grouped[section]) {
-      const entry = includeDescriptions ? formatEntry(page) : `- [${page.title}](${page.url})`;
+      const entry = includeDescriptions ? formatEntry(page) : formatEntryCompact(page);
       lines.push(...wrapLine(entry, 0));
     }
     lines.push("");
   }
 
-  // Optional section (spec: ## Optional has special meaning — can be skipped for shorter context)
   if (includeOptional && optionalSections.length > 0) {
     lines.push("## Optional", "");
     for (const section of optionalSections) {
-      // Use H3 sub-headings within Optional
       lines.push(`### ${section}`, "");
       for (const page of grouped[section]) {
-        const entry = includeDescriptions ? formatEntry(page) : `- [${page.title}](${page.url})`;
+        const entry = includeDescriptions ? formatEntry(page) : formatEntryCompact(page);
         lines.push(...wrapLine(entry, 0));
       }
       lines.push("");
@@ -612,20 +522,16 @@ function buildOutput(includeDescriptions, includeOptional) {
   return lines.join("\n");
 }
 
-// First pass: full descriptions + optional sections
 let output = buildOutput(true, true);
 
-// Second pass: full descriptions, drop optional sections
 if (output.length > TARGET_CHARS) {
   output = buildOutput(true, false);
 }
 
-// Third pass: drop descriptions
 if (output.length > TARGET_CHARS) {
   output = buildOutput(false, false);
 }
 
-// Fourth pass: drop pages proportionally per section
 if (output.length > TARGET_CHARS) {
   const ratio = TARGET_CHARS / output.length;
   const finalLines = [`# ${resolvedName}`, ""];
@@ -642,7 +548,6 @@ if (output.length > TARGET_CHARS) {
   output = finalLines.join("\n");
 }
 
-// Ensure output directory exists
 const outDir = path.dirname(path.resolve(outputFile));
 fs.mkdirSync(outDir, { recursive: true });
 
