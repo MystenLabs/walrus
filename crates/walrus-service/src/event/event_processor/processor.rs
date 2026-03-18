@@ -555,12 +555,13 @@ impl EventProcessor {
         );
 
         loop {
-            let _scope = monitored_scope::monitored_scope("RuntimeCatchupMonitoring");
             select! {
                 _ = lag_check_interval.tick() => {
                     if coordination_state.is_catchup_active() {
                         continue;
                     }
+                    
+                    let _scope = monitored_scope::monitored_scope("RuntimeCatchupMonitoring");
 
                     match catchup_manager.get_current_lag().await {
                         Ok(lag) => {
