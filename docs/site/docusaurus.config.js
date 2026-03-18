@@ -163,48 +163,63 @@ const config = {
   ],
 
   presets: [
-    [
-      "classic",
-      /** @type {import('@docusaurus/preset-classic').Options} */
-      ({
-        docs: {
-          path: "../content",
-          sidebarPath: "./sidebars.js",
-          editUrl: "https://github.com/MystenLabs/walrus/tree/main/docs/site/",
-          remarkPlugins: [
-            [remarkGlossary, { glossaryFile: "static/glossary.json" }],
-            remarkMath,
-          ],
-          rehypePlugins: [rehypeKatex],
+  [
+    "classic",
+    /** @type {import('@docusaurus/preset-classic').Options} */
+    ({
+      docs: {
+        path: "../content",
+        sidebarPath: "./sidebars.js",
+        editUrl: "https://github.com/MystenLabs/walrus/tree/main/docs/site/",
+        remarkPlugins: [
+          [remarkGlossary, { glossaryFile: "static/glossary.json" }],
+          remarkMath,
+        ],
+        rehypePlugins: [rehypeKatex],
+      },
+      sitemap: {
+        ignorePatterns: [
+          '/docs/walrus-sites/**',
+          '/docs/usage/**',
+          '/docs/design/**',
+          '/docs/dev-guide/**',
+          '/docs/operator-guide/storage-node',
+          '/docs/operator-guide/storage-node-*',
+          '/docs/operator-guide/commission-governance',
+          '/docs/operator-guide/backup-restore-guide',
+          '/docs/operator-guide/auth-publisher',
+          '/docs/operator-guide/aggregator',
+          '/docs/snippets/**',
+        ],
+      },
+      blog: {
+        path: "../blog",
+        postsPerPage: "ALL",
+        blogSidebarTitle: "All posts",
+        blogSidebarCount: "ALL",
+        showReadingTime: true,
+        feedOptions: {
+          type: ["rss", "atom"],
+          xslt: true,
         },
-        blog: {
-          path: "../blog",
-          postsPerPage: "ALL",
-          blogSidebarTitle: "All posts",
-          blogSidebarCount: "ALL",
-          showReadingTime: true,
-          feedOptions: {
-            type: ["rss", "atom"],
-            xslt: true,
-          },
-          onInlineTags: "warn",
-          onInlineAuthors: "warn",
-          onUntruncatedBlogPosts: "warn",
-          remarkPlugins: [remarkMath],
-          rehypePlugins: [rehypeKatex],
-        },
-        pages: {
-          remarkPlugins: [
-            [remarkGlossary, { glossaryFile: "static/glossary.json" }],
-            remarkMath,
-          ],
-          rehypePlugins: [rehypeKatex],
-        },
-        theme: {
-          customCss: path.resolve(__dirname, "./src/css/custom.css"),
-        },
-      }),
-    ],
+        onInlineTags: "warn",
+        onInlineAuthors: "warn",
+        onUntruncatedBlogPosts: "warn",
+        remarkPlugins: [remarkMath],
+        rehypePlugins: [rehypeKatex],
+      },
+      pages: {
+        remarkPlugins: [
+          [remarkGlossary, { glossaryFile: "static/glossary.json" }],
+          remarkMath,
+        ],
+        rehypePlugins: [rehypeKatex],
+      },
+      theme: {
+        customCss: path.resolve(__dirname, "./src/css/custom.css"),
+      },
+    }),
+  ],
   ],
 
   scripts: [
