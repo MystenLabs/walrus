@@ -302,12 +302,30 @@ function extractSentences(text, maxLen = 300) {
   return "";
 }
 
+// ── CHANGED: Collapse file paths where filename matches parent directory ─────
+// Docusaurus treats `linking/linking.md` as the index for `/docs/sites/linking`,
+// not as `/docs/sites/linking/linking`. This function mirrors that behavior.
 function fileToUrlPath(filePath, rootDir) {
   let rel = path.relative(rootDir, filePath).replace(/\\/g, "/");
   rel = rel.replace(/\.mdx?$/, "");
+
+  // Strip trailing /index (explicit index files)
   if (rel === "index" || rel.endsWith("/index")) {
     rel = rel.replace(/\/?index$/, "") || "/";
   }
+
+  // Collapse paths where filename matches parent directory name
+  // e.g. "sites/linking/linking" → "sites/linking"
+  const segments = rel.split("/");
+  if (segments.length >= 2) {
+    const filename = segments[segments.length - 1];
+    const parentDir = segments[segments.length - 2];
+    if (filename === parentDir) {
+      segments.pop();
+      rel = segments.join("/");
+    }
+  }
+
   return rel || "/";
 }
 
@@ -366,9 +384,8 @@ for (const file of files) {
     ? urlPath
     : "/docs" + (urlPath.startsWith("/") ? urlPath : "/" + urlPath);
 
-  // CHANGED: Build both .md and clean HTML URLs
+  // CHANGED: Only build .md URL — no HTML duplicate
   const mdUrl = joinUrl(resolvedBaseUrl, docUrlPath) + ".md";
-  const htmlUrl = joinUrl(resolvedBaseUrl, docUrlPath);
 
   if (isLinearUrl(mdUrl)) continue;
 
@@ -390,8 +407,8 @@ for (const file of files) {
       ? toSectionTitle(segments[1])
       : "General";
 
-  // CHANGED: Store both URLs
-  pages.push({ title: derivedTitle, mdUrl, htmlUrl, description, section });
+  // CHANGED: Only store .md URL
+  pages.push({ title: derivedTitle, mdUrl, description, section });
 }
 
 // ── Build llms.txt ────────────────────────────────────────────────────────────
@@ -434,18 +451,15 @@ const contextNotes = [
 
 const OPTIONAL_SECTIONS = new Set(["Design", "Dev Guide", "Legal", "Tusky Migration Guide"]);
 
-// Two entries per page: .md URL (primary, for LLM consumption) and clean URL (fallback)
-// The .md entry gets the description; the html entry is a compact fallback line.
-function formatEntry({ title, mdUrl, htmlUrl, description }) {
-  const mdLine = description
+// CHANGED: Single .md entry per page (no HTML duplicate)
+function formatEntry({ title, mdUrl, description }) {
+  return description
     ? `- [${title}](${mdUrl}): ${description}`
     : `- [${title}](${mdUrl})`;
-  const htmlLine = `- [${title} (html)](${htmlUrl})`;
-  return [mdLine, htmlLine];
 }
 
-function formatEntryCompact({ title, mdUrl, htmlUrl }) {
-  return [`- [${title}](${mdUrl})`, `- [${title} (html)](${htmlUrl})`];
+function formatEntryCompact({ title, mdUrl }) {
+  return `- [${title}](${mdUrl})`;
 }
 
 function wrapLine(line, indentSpaces = 0) {
@@ -501,10 +515,9 @@ function buildOutput(includeDescriptions, includeOptional) {
   for (const section of requiredSections) {
     lines.push(`## ${section}`, "");
     for (const page of grouped[section]) {
-      const entries = includeDescriptions ? formatEntry(page) : formatEntryCompact(page);
-      for (const entry of entries) {
-        lines.push(...wrapLine(entry, 0));
-      }
+      // CHANGED: formatEntry now returns a single string, not an array
+      const entry = includeDescriptions ? formatEntry(page) : formatEntryCompact(page);
+      lines.push(...wrapLine(entry, 0));
     }
     lines.push("");
   }
