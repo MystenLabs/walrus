@@ -4,6 +4,8 @@
 
 set -euo pipefail
 
+cd "$(dirname "$0")/.."
+
 trap ctrl_c INT
 
 join_by() {
