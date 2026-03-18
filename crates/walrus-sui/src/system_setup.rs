@@ -681,8 +681,12 @@ pub async fn create_system_and_staking_objects(
         .execute_transaction_may_fail(signed_transaction)
         .await?;
 
-    if let ExecutionStatus::Failure { error, command } = response.effects.status() {
-        bail!("Error during execution (command {command:?}): {error}");
+    if let ExecutionStatus::Failure(failure) = response.effects.status() {
+        bail!(
+            "Error during execution (command {:?}): {}",
+            failure.command,
+            failure.error
+        );
     }
 
     let [staking_object_id] = get_created_object_ids_by_type(

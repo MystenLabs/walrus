@@ -287,6 +287,12 @@ pub struct StorageNodeConfig {
     /// Disable the event-blob writer
     #[serde(default, skip_serializing_if = "defaults::is_default")]
     pub disable_event_blob_writer: bool,
+    /// Whether to enable the per-object pooled blob info table for tracking pooled blobs.
+    // TODO(WAL-1184): this is a temporary configuration to enable the storage pool. Since in
+    // RocksDB, once a column family is created, it is hard to delete it. So adding this config
+    // during development to give us more flexibility in making changes.
+    #[serde(default, skip_serializing_if = "defaults::is_default")]
+    pub enable_storage_pool: bool,
     /// The commission rate of the storage node, in basis points.
     #[serde(default = "defaults::commission_rate")]
     pub commission_rate: u16,
@@ -358,7 +364,12 @@ impl StorageNodeConfig {
                 ..Default::default()
             },
             rest_server: RestServerConfig {
+                experimental_max_active_recovery_symbols_requests: Some(1_000),
                 confirmation_long_poll_max_millis: 0,
+                ..Default::default()
+            },
+            blob_recovery: BlobRecoveryConfig {
+                max_concurrent_blob_syncs: 10,
                 ..Default::default()
             },
             ..Default::default()
@@ -521,6 +532,7 @@ impl Default for StorageNodeConfig {
                 max_checkpoint_lag: 1500,
             },
             disable_event_blob_writer: Default::default(),
+            enable_storage_pool: Default::default(),
             commission_rate: defaults::commission_rate(),
             voting_params: VotingParamsConfig {
                 voting_prices: VotingPrices {
@@ -2217,6 +2229,31 @@ mod tests {
             "network defaults apply when user omits a field"
         );
         Ok(())
+    }
+
+    #[test]
+    fn default_mainnet_applies_mainnet_only_recovery_limits() {
+        let config = StorageNodeConfig::default_mainnet();
+
+        assert_eq!(config.blob_recovery.max_concurrent_blob_syncs, 10);
+        assert_eq!(
+            config
+                .rest_server
+                .experimental_max_active_recovery_symbols_requests,
+            Some(1_000)
+        );
+        assert_eq!(
+            StorageNodeConfig::default_testnet()
+                .rest_server
+                .experimental_max_active_recovery_symbols_requests,
+            None
+        );
+        assert_eq!(
+            StorageNodeConfig::default_testnet()
+                .blob_recovery
+                .max_concurrent_blob_syncs,
+            BlobRecoveryConfig::default().max_concurrent_blob_syncs
+        );
     }
 
     #[test]

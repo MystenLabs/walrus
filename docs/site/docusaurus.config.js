@@ -233,7 +233,10 @@ const config = {
   themeConfig:
     /** @type {import('@docusaurus/preset-classic').ThemeConfig} */
     ({
-      image: "img/docusaurus-social-card.jpg",
+      image: "img/walrus-card.jpg",
+      metadata: [
+      { property: 'og:image', content: 'https://docs.wal.app/img/walrus-card.jpg' },
+    ],
       navbar: {
         title: "Walrus Docs",
         logo: { alt: "Walrus", src: "img/logo.svg" },
