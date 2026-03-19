@@ -4947,6 +4947,71 @@ mod tests {
         Ok(())
     }
 
+    async_param_test! {
+        immediate_data_deletion_on_blob_deleted_event -> TestResult: [
+            enabled: (true, false),
+            disabled: (false, true),
+        ]
+    }
+    async fn immediate_data_deletion_on_blob_deleted_event(
+        enable_immediate_data_deletion: bool,
+        expect_data_stored: bool,
+    ) -> TestResult {
+        walrus_test_utils::init_tracing();
+        let events = Sender::new(48);
+        let gc_config = GarbageCollectionConfig {
+            enable_immediate_data_deletion,
+            ..GarbageCollectionConfig::default_for_test()
+        };
+        let node = StorageNodeHandle::builder()
+            .with_storage(
+                populated_storage(&[
+                    (SHARD_INDEX, vec![(BLOB_ID, WhichSlivers::Both)]),
+                    (OTHER_SHARD_INDEX, vec![(BLOB_ID, WhichSlivers::Both)]),
+                ])
+                .await?,
+            )
+            .with_system_event_provider(events.clone())
+            .with_garbage_collection_config(gc_config)
+            .with_node_started(true)
+            .build()
+            .await?;
+        let inner = node.as_ref().inner.clone();
+
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        assert!(
+            inner
+                .is_stored_at_all_shards_at_latest_epoch(&BLOB_ID)
+                .await?,
+        );
+        events.send(
+            BlobRegistered {
+                deletable: true,
+                ..BlobRegistered::for_testing(BLOB_ID)
+            }
+            .into(),
+        )?;
+        events.send(
+            BlobCertified {
+                deletable: true,
+                ..BlobCertified::for_testing(BLOB_ID)
+            }
+            .into(),
+        )?;
+        events.send(BlobDeleted::for_testing(BLOB_ID).into())?;
+
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        assert_eq!(
+            inner
+                .is_stored_at_all_shards_at_latest_epoch(&BLOB_ID)
+                .await?,
+            expect_data_stored,
+        );
+        Ok(())
+    }
+
     #[tokio::test]
     async fn returns_correct_blob_status() -> TestResult {
         let blob_event = BlobRegistered::for_testing(BLOB_ID);
