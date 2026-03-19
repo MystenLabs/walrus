@@ -248,12 +248,18 @@ impl BackgroundEventProcessor {
             // cannot remove it even if it is no longer valid in the *current* epoch
             if blob_info.can_data_be_deleted(event.epoch)
                 && self.node.garbage_collection_config.enable_data_deletion
+                && self
+                    .node
+                    .garbage_collection_config
+                    .enable_immediate_data_deletion
             {
                 tracing::debug!("deleting data for deleted blob");
                 self.node
                     .storage
                     .attempt_to_delete_blob_data(&blob_id, event.epoch, &self.node.metrics)
                     .await?;
+            } else {
+                tracing::debug!("not deleting data for deleted blob");
             }
         } else if self
             .node
@@ -266,7 +272,10 @@ impl BackgroundEventProcessor {
                 incomplete history; not deleting blob data"
             );
         } else {
-            tracing::warn!("handling a `BlobDeleted` event for an untracked blob");
+            tracing::debug!(
+                "handling a `BlobDeleted` event for an untracked blob; this can happen when \
+                re-processing events after a node restart"
+            );
         }
 
         event_handle.mark_as_complete();
