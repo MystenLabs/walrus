@@ -66,6 +66,9 @@ use crate::{
         InvalidBlobId,
         NetworkAddress,
         StorageNode,
+        StoragePoolCreatedEvent,
+        StoragePoolEvent,
+        StoragePoolExtendedEvent,
     },
     utils::create_wallet,
     wallet::Wallet,
@@ -709,6 +712,34 @@ impl BlobRegistered {
             was_certified,
             event_id: event_id_for_testing(),
         }
+    }
+}
+
+impl StoragePoolEvent {
+    /// Creates a `StoragePoolCreated` event for testing.
+    pub fn created_for_testing(
+        storage_pool_id: ObjectID,
+        start_epoch: Epoch,
+        end_epoch: Epoch,
+    ) -> Self {
+        Self::StoragePoolCreated(StoragePoolCreatedEvent {
+            epoch: start_epoch,
+            storage_pool_id,
+            reserved_encoded_capacity_bytes: 0,
+            start_epoch,
+            end_epoch,
+            event_id: event_id_for_testing(),
+        })
+    }
+
+    /// Creates a `StoragePoolExtended` event for testing.
+    pub fn extended_for_testing(storage_pool_id: ObjectID, new_end_epoch: Epoch) -> Self {
+        Self::StoragePoolExtended(StoragePoolExtendedEvent {
+            epoch: 1,
+            storage_pool_id,
+            new_end_epoch,
+            event_id: event_id_for_testing(),
+        })
     }
 }
 

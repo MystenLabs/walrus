@@ -30,7 +30,14 @@ use typed_store::{
 };
 use walrus_core::{BlobId, Epoch};
 use walrus_storage_node_client::api::BlobStatus;
-use walrus_sui::types::{BlobCertified, BlobDeleted, BlobEvent, BlobRegistered, InvalidBlobId};
+use walrus_sui::types::{
+    BlobCertified,
+    BlobDeleted,
+    BlobEvent,
+    BlobRegistered,
+    InvalidBlobId,
+    StoragePoolEvent,
+};
 
 #[cfg(test)]
 pub(crate) use self::blob_info_v1::ValidBlobInfoV1;
@@ -553,38 +560,50 @@ impl BlobInfoTable {
         }
     }
 
-    /// Creates a new storage pool info entry with the given start and end epochs.
-    pub fn create_storage_pool_info(
-        &self,
-        storage_pool_id: &ObjectID,
-        start_epoch: Epoch,
-        end_epoch: Epoch,
-    ) -> Result<(), TypedStoreError> {
-        if let Some(table) = &self.storage_pool_info {
-            let operand = StoragePoolInfoMergeOperand::Create {
-                start_epoch,
-                end_epoch,
-            };
-            let mut batch = table.batch();
-            batch.partial_merge_batch(table, [(storage_pool_id, operand.to_bytes())])?;
-            batch.write()?;
-        }
-        Ok(())
-    }
-
-    /// Updates the end epoch for an existing storage pool.
+    /// Updates the storage pool info based on a [`StoragePoolEvent`].
     ///
-    /// Uses a merge operator that takes the max of the existing and new end epoch.
-    pub fn set_storage_pool_end_epoch(
+    /// The storage pool info update and the `latest_handled_event_index` are written atomically
+    /// in a single batch, ensuring crash-restart safety.
+    pub fn update_storage_pool_info(
         &self,
-        storage_pool_id: &ObjectID,
-        end_epoch: Epoch,
+        event_index: u64,
+        event: &StoragePoolEvent,
     ) -> Result<(), TypedStoreError> {
+        let latest_handled_event_index = self
+            .latest_handled_event_index
+            .lock()
+            .expect("mutex should not be poisoned");
+        if Self::has_event_been_handled(latest_handled_event_index.get(&())?, event_index) {
+            tracing::debug!("skip updating storage pool info for already handled event");
+            return Ok(());
+        }
+
         if let Some(table) = &self.storage_pool_info {
-            let operand = StoragePoolInfoMergeOperand::Extend { end_epoch };
+            let (storage_pool_id, operand) = match event {
+                StoragePoolEvent::StoragePoolCreated(created) => (
+                    &created.storage_pool_id,
+                    StoragePoolInfoMergeOperand::Create {
+                        start_epoch: created.start_epoch,
+                        end_epoch: created.end_epoch,
+                    },
+                ),
+                StoragePoolEvent::StoragePoolExtended(extended) => (
+                    &extended.storage_pool_id,
+                    StoragePoolInfoMergeOperand::Extend {
+                        end_epoch: extended.new_end_epoch,
+                    },
+                ),
+            };
+
             let mut batch = table.batch();
             batch.partial_merge_batch(table, [(storage_pool_id, operand.to_bytes())])?;
+            batch.insert_batch(&latest_handled_event_index, [(&(), event_index)])?;
             batch.write()?;
+        } else {
+            panic!(
+                "we received a storage pool event but the storage pool info table is not enabled: \
+                {event:?}"
+            );
         }
         Ok(())
     }

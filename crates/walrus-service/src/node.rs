@@ -1807,24 +1807,10 @@ impl StorageNode {
         let _scope = monitored_scope::monitored_scope("ProcessEvent::StoragePoolEvent");
 
         tracing::debug!(?event, "{} event received", event.name());
-        match event {
-            StoragePoolEvent::StoragePoolCreated(ref created) => {
-                self.inner
-                    .storage
-                    .create_storage_pool_info(
-                        &created.storage_pool_id,
-                        created.start_epoch,
-                        created.end_epoch,
-                    )
-                    .context("failed to create storage pool info")?;
-            }
-            StoragePoolEvent::StoragePoolExtended(ref extended) => {
-                self.inner
-                    .storage
-                    .set_storage_pool_end_epoch(&extended.storage_pool_id, extended.new_end_epoch)
-                    .context("failed to update storage pool end epoch")?;
-            }
-        }
+        self.inner
+            .storage
+            .update_storage_pool_info(event_handle.index(), &event)
+            .context("failed to update storage pool info")?;
         event_handle.mark_as_complete();
         Ok(())
     }
@@ -4674,6 +4660,7 @@ mod tests {
             InvalidBlobId,
             StorageNodeCap,
             StoragePoolCreatedEvent,
+            StoragePoolEvent,
             StoragePoolExtendedEvent,
             move_structs::EpochState,
         },
@@ -8786,6 +8773,68 @@ mod tests {
         assert_eq!(
             intermediate_blob_info,
             node.storage_node.inner.storage.get_blob_info(&BLOB_ID)?
+        );
+        Ok(())
+    }
+
+    async_param_test! {
+        test_update_storage_pool_info_is_idempotent -> TestResult: [
+            repeated_create: (
+                &[],
+                &[StoragePoolEvent::created_for_testing(FIXED_OBJECT_ID, 1, 10)]
+            ),
+            repeated_create_and_extend: (
+                &[],
+                &[
+                    StoragePoolEvent::created_for_testing(FIXED_OBJECT_ID, 1, 10),
+                    StoragePoolEvent::extended_for_testing(FIXED_OBJECT_ID, 20),
+                ]
+            ),
+            repeated_extend: (
+                &[StoragePoolEvent::created_for_testing(FIXED_OBJECT_ID, 1, 10)],
+                &[StoragePoolEvent::extended_for_testing(FIXED_OBJECT_ID, 20)]
+            ),
+        ]
+    }
+    async fn test_update_storage_pool_info_is_idempotent(
+        setup_events: &[StoragePoolEvent],
+        repeated_events: &[StoragePoolEvent],
+    ) -> TestResult {
+        let node = StorageNodeHandle::builder()
+            .with_system_event_provider(vec![])
+            .with_shard_assignment(&[ShardIndex(0)])
+            .with_node_started(true)
+            .build()
+            .await?;
+        let count_setup_events = setup_events.len() as u64;
+        for (index, event) in setup_events
+            .iter()
+            .chain(repeated_events.iter())
+            .enumerate()
+        {
+            node.storage_node
+                .inner
+                .storage
+                .update_storage_pool_info(index as u64, event)?;
+        }
+        let intermediate_pool_info = node
+            .storage_node
+            .inner
+            .storage
+            .get_storage_pool_info(&FIXED_OBJECT_ID)?;
+
+        for (index, event) in repeated_events.iter().enumerate() {
+            node.storage_node
+                .inner
+                .storage
+                .update_storage_pool_info(index as u64 + count_setup_events, event)?;
+        }
+        assert_eq!(
+            intermediate_pool_info,
+            node.storage_node
+                .inner
+                .storage
+                .get_storage_pool_info(&FIXED_OBJECT_ID)?
         );
         Ok(())
     }
