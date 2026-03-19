@@ -31,7 +31,7 @@ use walrus_core::{
     messages::{SyncShardRequest, SyncShardResponse},
     metadata::{BlobMetadata, VerifiedBlobMetadataWithId},
 };
-use walrus_sui::types::{BlobEvent, GENESIS_EPOCH};
+use walrus_sui::types::{BlobEvent, GENESIS_EPOCH, StoragePoolEvent};
 use walrus_utils::metrics::Registry;
 
 use self::{
@@ -681,25 +681,15 @@ impl Storage {
         self.blob_info.get_per_object_pooled_info(object_id)
     }
 
-    /// Creates a new storage pool info entry.
-    pub(crate) fn create_storage_pool_info(
+    /// Updates the storage pool info based on a [`StoragePoolEvent`].
+    ///
+    /// The update is written atomically with `latest_handled_event_index` for crash-restart safety.
+    pub(crate) fn update_storage_pool_info(
         &self,
-        storage_pool_id: &ObjectID,
-        start_epoch: Epoch,
-        end_epoch: Epoch,
+        event_index: u64,
+        event: &StoragePoolEvent,
     ) -> Result<(), TypedStoreError> {
-        self.blob_info
-            .create_storage_pool_info(storage_pool_id, start_epoch, end_epoch)
-    }
-
-    /// Updates the end epoch for an existing storage pool.
-    pub(crate) fn set_storage_pool_end_epoch(
-        &self,
-        storage_pool_id: &ObjectID,
-        end_epoch: Epoch,
-    ) -> Result<(), TypedStoreError> {
-        self.blob_info
-            .set_storage_pool_end_epoch(storage_pool_id, end_epoch)
+        self.blob_info.update_storage_pool_info(event_index, event)
     }
 
     /// Returns the current event cursor and the next event index.
@@ -2419,9 +2409,12 @@ pub(crate) mod tests {
         let pool_c = ObjectID::from_single_byte(3);
 
         // Create three pools with different end epochs.
-        storage.create_storage_pool_info(&pool_a, 1, 5)?;
-        storage.create_storage_pool_info(&pool_b, 2, 10)?;
-        storage.create_storage_pool_info(&pool_c, 3, 15)?;
+        storage
+            .update_storage_pool_info(0, &StoragePoolEvent::created_for_testing(pool_a, 1, 5))?;
+        storage
+            .update_storage_pool_info(1, &StoragePoolEvent::created_for_testing(pool_b, 2, 10))?;
+        storage
+            .update_storage_pool_info(2, &StoragePoolEvent::created_for_testing(pool_c, 3, 15))?;
 
         // GC at epoch 5: pool_a should be deleted (end_epoch <= current_epoch).
         storage
@@ -2459,8 +2452,10 @@ pub(crate) mod tests {
         let pool_id = ObjectID::from_single_byte(1);
 
         // Create a pool ending at epoch 5, then extend to epoch 15.
-        storage.create_storage_pool_info(&pool_id, 1, 5)?;
-        storage.set_storage_pool_end_epoch(&pool_id, 15)?;
+        storage
+            .update_storage_pool_info(0, &StoragePoolEvent::created_for_testing(pool_id, 1, 5))?;
+        storage
+            .update_storage_pool_info(1, &StoragePoolEvent::extended_for_testing(pool_id, 15))?;
 
         // GC at epoch 5: pool should survive because it was extended.
         storage
