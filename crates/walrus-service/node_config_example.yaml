@@ -8,7 +8,8 @@ db_config:
     keep_log_file_num: 50
     wal_ttl_seconds: 172800
     wal_size_limit_mb: 10240
-    enable_statistics: false
+    max_background_jobs: 16
+    enable_statistics: true
     use_optimistic_transaction_db: true
   standard:
     enable_blob_files: false
