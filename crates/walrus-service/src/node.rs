@@ -1871,19 +1871,41 @@ impl StorageNode {
         self.execute_epoch_change(event_handle, event, shard_map_lock)
             .await?;
 
+        // Abort any running data deletion task from the previous epoch before starting blob info
+        // cleanup, so that the two phases don't run concurrently on aggregate_blob_info.
+        self.garbage_collector.abort().await;
+
+        // Phase 1 of garbage collection: clean up per-object blob info before allowing new-epoch
+        // work to begin. This must run before updating the latest event epoch so that blob syncs
+        // for the new epoch don't interfere with the cleanup, producing a deterministic and
+        // consistent snapshot of per-object blob info across nodes at the epoch boundary.
+        self.perform_blob_info_cleanup(event.epoch).await?;
+
         // Update the latest event epoch to the new epoch. Now, blob syncs will use this epoch to
         // check for shard ownership.
         self.inner
             .latest_event_epoch_sender
             .send(Some(event.epoch))?;
 
-        self.start_garbage_collection_task(event.epoch).await?;
+        self.start_data_deletion_task(event.epoch).await?;
 
         Ok(())
     }
 
-    /// Starts a background task to perform database cleanup operations if the node is active.
-    async fn start_garbage_collection_task(&self, epoch: Epoch) -> anyhow::Result<()> {
+    /// Performs blob info cleanup (GC phase 1) for the given epoch.
+    async fn perform_blob_info_cleanup(&self, epoch: Epoch) -> anyhow::Result<()> {
+        if let Err(error) = self
+            .garbage_collector
+            .perform_blob_info_cleanup(epoch)
+            .await
+        {
+            tracing::error!(?error, epoch, "blob info cleanup failed");
+        }
+        Ok(())
+    }
+
+    /// Starts a background task to delete expired blob data (GC phase 2).
+    async fn start_data_deletion_task(&self, epoch: Epoch) -> anyhow::Result<()> {
         // Try to get the epoch start time from the contract service. If the epoch state is not
         // available (e.g., in tests), use the current time as the epoch start.
         let epoch_start = self
@@ -1902,10 +1924,10 @@ impl StorageNode {
             .unwrap_or_else(Utc::now);
         if let Err(error) = self
             .garbage_collector
-            .start_garbage_collection_task(epoch, epoch_start)
+            .start_data_deletion_task(epoch, epoch_start)
             .await
         {
-            tracing::error!(?error, epoch, "failed to start garbage-collection task");
+            tracing::error!(?error, epoch, "failed to start data-deletion task");
         }
         Ok(())
     }
@@ -1960,7 +1982,8 @@ impl StorageNode {
             current_epoch,
             "restarting unfinished garbage-collection task on startup"
         );
-        self.start_garbage_collection_task(current_epoch).await
+        self.perform_blob_info_cleanup(current_epoch).await?;
+        self.start_data_deletion_task(current_epoch).await
     }
 
     /// Storage node execution of the epoch change start event, to bring the node state to the next
