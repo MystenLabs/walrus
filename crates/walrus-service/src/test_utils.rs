@@ -868,6 +868,7 @@ pub struct StorageNodeHandleBuilder {
     num_checkpoints_per_blob: Option<u32>,
     enable_node_config_synchronizer: bool,
     node_recovery_config: Option<NodeRecoveryConfig>,
+    garbage_collection_config: Option<GarbageCollectionConfig>,
     event_stream_catchup_min_checkpoint_lag: Option<u64>,
     max_epochs_ahead: Option<u32>,
 }
@@ -959,6 +960,12 @@ impl StorageNodeHandleBuilder {
     /// Sets the number of checkpoints per blob.
     pub fn with_num_checkpoints_per_blob(mut self, num_checkpoints_per_blob: u32) -> Self {
         self.num_checkpoints_per_blob = Some(num_checkpoints_per_blob);
+        self
+    }
+
+    /// Sets the garbage collection config for the node.
+    pub fn with_garbage_collection_config(mut self, config: GarbageCollectionConfig) -> Self {
+        self.garbage_collection_config = Some(config);
         self
     }
 
@@ -1123,7 +1130,9 @@ impl StorageNodeHandleBuilder {
                 Default::default()
             },
             blob_recovery: BlobRecoveryConfig::default_for_test(),
-            garbage_collection: GarbageCollectionConfig::default_for_test(),
+            garbage_collection: self
+                .garbage_collection_config
+                .unwrap_or_else(GarbageCollectionConfig::default_for_test),
             ..storage_node_config().inner
         };
 
@@ -1309,7 +1318,9 @@ impl StorageNodeHandleBuilder {
             storage_node_cap: node_capability.map(|cap| cap.id),
             node_recovery_config: self.node_recovery_config.clone().unwrap_or_default(),
             blob_recovery: BlobRecoveryConfig::default_for_test(),
-            garbage_collection: GarbageCollectionConfig::default_for_test(),
+            garbage_collection: self
+                .garbage_collection_config
+                .unwrap_or_else(|| GarbageCollectionConfig::default_for_test()),
             ..storage_node_config().inner
         };
 
@@ -1391,6 +1402,7 @@ impl Default for StorageNodeHandleBuilder {
             num_checkpoints_per_blob: None,
             enable_node_config_synchronizer: false,
             node_recovery_config: None,
+            garbage_collection_config: None,
             event_stream_catchup_min_checkpoint_lag: None,
             max_epochs_ahead: None,
         }
