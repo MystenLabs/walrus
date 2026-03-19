@@ -228,6 +228,8 @@ pub struct GlobalDatabaseOptions {
     pub wal_ttl_seconds: Option<u64>,
     /// The size limit for the WAL in MB.
     pub wal_size_limit_mb: Option<u64>,
+    /// The maximum number of background jobs (compactions + flushes).
+    pub max_background_jobs: Option<i32>,
     /// Whether to enable statistics.
     pub enable_statistics: bool,
     /// If true, databases are opened using `OptimisticTransactionDB` instead of the standard DB.
@@ -244,7 +246,8 @@ impl Default for GlobalDatabaseOptions {
             keep_log_file_num: Some(50),
             wal_ttl_seconds: Some(60 * 60 * 24 * 2), // 2 days,
             wal_size_limit_mb: Some(10 * 1024),      // 10 GB,
-            enable_statistics: false,
+            max_background_jobs: Some(16),
+            enable_statistics: true,
             use_optimistic_transaction_db: true,
         }
     }
@@ -280,6 +283,10 @@ impl From<&GlobalDatabaseOptions> for Options {
 
         if let Some(wal_size_limit_mb) = value.wal_size_limit_mb {
             options.set_wal_size_limit_mb(wal_size_limit_mb);
+        }
+
+        if let Some(max_background_jobs) = value.max_background_jobs {
+            options.set_max_background_jobs(max_background_jobs);
         }
 
         if value.enable_statistics {
