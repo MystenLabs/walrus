@@ -372,6 +372,10 @@ impl StorageNodeConfig {
                 max_concurrent_blob_syncs: 10,
                 ..Default::default()
             },
+            garbage_collection: GarbageCollectionConfig {
+                enable_data_deletion: false,
+                ..Default::default()
+            },
             ..Default::default()
         }
     }
