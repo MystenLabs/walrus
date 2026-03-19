@@ -107,7 +107,7 @@ rcgen = "0.14.7"
 reed-solomon-simd = "3.1.0"
 regex = "1"
 reqwest = { version = "0.12.12", default-features = false, features = ["http2", "json", "rustls-tls"] }
-rocksdb = "0.22.0"
+rocksdb = { path = "third_party/rocksdb" }
 rstest = "0.26.1"
 rustls = { version = "0.23.37", default-features = false, features = ["logging", "ring", "tls12"] }
 rustls-native-certs = "0.8.3"
@@ -215,3 +215,7 @@ panic = 'abort'
 debug = 1 # Keep debug symbols
 inherits = "release"
 strip = 'debuginfo' # remove extensive debug info to keep the binary size smaller
+
+[patch.crates-io]
+librocksdb-sys = { path = "third_party/librocksdb-sys" }
+rocksdb = { path = "third_party/rocksdb" }

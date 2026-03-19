@@ -35,6 +35,7 @@ use rocksdb::{
     IngestExternalFileOptions,
     LiveFile,
     MultiThreaded,
+    OccValidationPolicy,
     OptimisticTransactionDB,
     OptimisticTransactionOptions,
     ReadOptions,
@@ -2420,11 +2421,12 @@ pub fn open_cf_opts_optimistic<P: AsRef<Path>>(
     let cfs = populate_missing_cfs(opt_cfs, path).map_err(typed_store_err_from_rocks_err)?;
     sui_macros::nondeterministic!({
         let options = prepare_db_options(db_options);
-        rocksdb::OptimisticTransactionDB::open_cf_descriptors(
+        rocksdb::OptimisticTransactionDB::open_cf_descriptors_with_validation(
             &options,
             path,
             cfs.into_iter()
                 .map(|(name, opts)| ColumnFamilyDescriptor::new(name, opts)),
+            OccValidationPolicy::ValidateSerial,
         )
         .map(|db| {
             Arc::new(RocksDB::OptimisticTransactionDB(

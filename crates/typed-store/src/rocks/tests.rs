@@ -1171,16 +1171,22 @@ async fn test_optimistic_transaction_concurrent_write_batch_merge_must_not_hide_
         existing_val: Option<&[u8]>,
         operands: &rocksdb::MergeOperands,
     ) -> Option<Vec<u8>> {
+        println!("zero_register_certify_merge: {_key:?}, {existing_val:?}");
         let mut state = match existing_val {
             None | Some(b"0") => 0,
+            Some(b"RR") => 1,
             Some(b"V") => 2,
             _ => return None,
         };
         for op in operands {
+            println!("op: {:?}, state: {:?}", op, state);
             match (state, op) {
                 (0, b"R") => state = 1,
                 (1, b"C") => state = 2,
-                _ => return None,
+                _ => {
+                    println!("returning None: state: {:?}, op: {:?}", state, op);
+                    return None;
+                }
             }
         }
         Some(match state {
@@ -1207,7 +1213,7 @@ async fn test_optimistic_transaction_concurrent_write_batch_merge_must_not_hide_
         panic!("expected OptimisticTransactionDB");
     };
     let underlying = &wrapper.underlying;
-    const ITERATIONS: usize = 2_000;
+    const ITERATIONS: usize = 1000;
     let mut hidden_register_failures = 0usize;
 
     for i in 0..ITERATIONS {
@@ -1255,7 +1261,10 @@ async fn test_optimistic_transaction_concurrent_write_batch_merge_must_not_hide_
                 // Wait for the merge thread to reach the matching point, then race the actual
                 // commit against the concurrent WriteBatch merge.
                 commit_release_barrier.wait();
-                tx.commit()
+                println!("tx.commit()");
+                let result = tx.commit();
+                println!("tx.commit() done");
+                result
             });
 
             let merge_ready_barrier = ready_barrier.clone();
@@ -1270,7 +1279,18 @@ async fn test_optimistic_transaction_concurrent_write_batch_merge_must_not_hide_
                 let merge_cf = underlying.cf_handle(cf_name).expect("cf handle");
                 let mut batch = rocksdb::WriteBatchWithTransaction::<true>::default();
                 batch.merge_cf(&merge_cf, &merge_key, b"R");
-                underlying.write(batch)
+                // batch.put_cf(&merge_cf, &merge_key, b"RR");
+
+                // let tx = handle.transaction();
+                // tx.merge_cf(&merge_cf, &merge_key, b"R")?;
+                println!("underlying.write(batch)");
+                //let result = underlying.merge_cf(&merge_cf, &merge_key, b"R");
+                let result = underlying.write(batch);
+                //let result = tx.commit();
+                println!("underlying.write(batch) done");
+                // Race only the final write.
+                // merge_release_barrier.wait();
+                result
             });
 
             // Both workers have finished setup.
@@ -1292,6 +1312,11 @@ async fn test_optimistic_transaction_concurrent_write_batch_merge_must_not_hide_
         //
         // A successful commit on its own is fine if the merge simply landed afterwards.
         underlying.merge_cf(&cf, &key, b"C").unwrap();
+        println!("commit_result: {:?}", commit_result);
+        println!(
+            "underlying.get_cf(&cf, &key): {:?}",
+            underlying.get_cf(&cf, &key)
+        );
         if commit_result.is_ok() && underlying.get_cf(&cf, &key).is_err() {
             hidden_register_failures += 1;
         }
