@@ -196,7 +196,7 @@ source = "git+https://github.com/mystenlabs/anemo.git?rev=9248f8d3951df750360308
 dependencies = [
  "anyhow",
  "async-trait",
- "bincode",
+ "bincode 1.3.3",
  "bytes",
  "ed25519",
  "futures",
@@ -1347,6 +1347,12 @@ checksum = "b1f45e9417d87227c7a56d22e471c6206462cba514c7590c09aff4cf6d1ddcad"
 dependencies = [
  "serde",
 ]
+
+[[package]]
+name = "bincode"
+version = "3.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fd6a120d2e16b3e1b4a24bd70f23b12d3e16b81f113364a26935f8db7245452d"
 
 [[package]]
 name = "bindgen"
@@ -3439,7 +3445,7 @@ dependencies = [
  "base64ct",
  "bcs",
  "bech32",
- "bincode",
+ "bincode 1.3.3",
  "blake2",
  "blst",
  "bs58 0.4.0",
@@ -3494,7 +3500,7 @@ dependencies = [
  "base64ct",
  "bcs",
  "bech32",
- "bincode",
+ "bincode 1.3.3",
  "blake2",
  "blst",
  "bs58 0.4.0",
@@ -6426,7 +6432,7 @@ source = "git+https://github.com/MystenLabs/mysten-sim.git?rev=213e543d83b91c4aa
 dependencies = [
  "ahash 0.7.8",
  "async-task",
- "bincode",
+ "bincode 1.3.3",
  "bytes",
  "cc",
  "downcast-rs",
@@ -10257,7 +10263,7 @@ dependencies = [
  "async-trait",
  "axum 0.8.4",
  "bcs",
- "bincode",
+ "bincode 1.3.3",
  "bytes",
  "consensus-config",
  "consensus-core",
@@ -11527,7 +11533,7 @@ dependencies = [
  "base64 0.21.7",
  "bcs",
  "better_any",
- "bincode",
+ "bincode 1.3.3",
  "byteorder",
  "bytes",
  "chrono",
@@ -12793,7 +12799,7 @@ dependencies = [
  "async-trait",
  "backoff",
  "bcs",
- "bincode",
+ "bincode 1.3.3",
  "collectable",
  "eyre",
  "fastcrypto 0.1.9 (git+https://github.com/MystenLabs/fastcrypto?rev=db643fd05a1b1c4cd52de3939766b53e12ce137e)",
@@ -12824,7 +12830,7 @@ version = "1.45.0"
 dependencies = [
  "async-trait",
  "bcs",
- "bincode",
+ "bincode 3.0.0",
  "collectable",
  "eyre",
  "fdlimit 0.3.0",
@@ -13438,7 +13444,7 @@ dependencies = [
  "axum-server",
  "base64 0.22.1",
  "bcs",
- "bincode",
+ "bincode 3.0.0",
  "byteorder",
  "bytes",
  "bytesize",
