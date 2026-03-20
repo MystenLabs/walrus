@@ -3,29 +3,21 @@
 
 //! Tools for inspecting and maintaining the RocksDB database.
 
-use std::{path::PathBuf, thread::sleep, time::Duration};
+use std::{collections::BTreeMap, path::PathBuf, thread::sleep, time::Duration};
 
 use anyhow::{Context, Result, bail};
 use bincode::Options;
 use clap::{Subcommand, ValueEnum};
 use rocksdb::{
-    BottommostLevelCompaction,
-    ColumnFamilyDescriptor,
-    CompactOptions,
-    DB,
-    Options as RocksdbOptions,
-    ReadOptions,
-    WaitForCompactOptions,
-    properties,
+    BottommostLevelCompaction, ColumnFamilyDescriptor, CompactOptions, DB, DBRecoveryMode,
+    Options as RocksdbOptions, ReadOptions, WaitForCompactOptions, properties,
 };
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 use sui_types::base_types::ObjectID;
 use typed_store::rocks::be_fix_int_ser;
 use walrus_core::{
-    BlobId,
-    Epoch,
-    ShardIndex,
+    BlobId, Epoch, ShardIndex,
     metadata::{BlobMetadata, BlobMetadataApi},
 };
 
@@ -38,42 +30,63 @@ use crate::{
     node::{
         DatabaseConfig,
         event_blob_writer::{
-            AttestedEventBlobMetadata,
-            CertifiedEventBlobMetadata,
-            FailedToAttestEventBlobMetadata,
-            PendingEventBlobMetadata,
-            attested_cf_name,
-            certified_cf_name,
-            failed_to_attest_cf_name,
-            pending_cf_name,
+            AttestedEventBlobMetadata, CertifiedEventBlobMetadata, FailedToAttestEventBlobMetadata,
+            PendingEventBlobMetadata, attested_cf_name, certified_cf_name,
+            failed_to_attest_cf_name, pending_cf_name,
         },
         storage::{
-            PrimarySliverData,
-            SecondarySliverData,
+            PrimarySliverData, SecondarySliverData,
             blob_info::{
-                BlobInfo,
-                CertifiedBlobInfoApi,
-                PerObjectBlobInfo,
-                blob_info_cf_options,
-                per_object_blob_info_cf_options,
-                per_object_pooled_blob_info_cf_options,
+                BlobInfo, CertifiedBlobInfoApi, PerObjectBlobInfo, blob_info_cf_options,
+                per_object_blob_info_cf_options, per_object_pooled_blob_info_cf_options,
             },
             constants::{
-                aggregate_blob_info_cf_name,
-                event_cursor_cf_name,
-                event_index_cf_name,
-                garbage_collector_table_cf_name,
-                metadata_cf_name,
-                node_status_cf_name,
-                per_object_blob_info_cf_name,
-                per_object_pooled_blob_info_cf_name,
-                primary_slivers_column_family_name,
-                secondary_slivers_column_family_name,
+                aggregate_blob_info_cf_name, event_cursor_cf_name, event_index_cf_name,
+                garbage_collector_table_cf_name, metadata_cf_name, node_status_cf_name,
+                per_object_blob_info_cf_name, per_object_pooled_blob_info_cf_name,
+                primary_slivers_column_family_name, secondary_slivers_column_family_name,
                 storage_pool_info_cf_name,
             },
         },
     },
 };
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, ValueEnum)]
+#[serde(rename_all = "kebab-case")]
+/// WAL recovery policy used by the read-only recovery probe.
+pub enum ProbeWalRecoveryMode {
+    /// Tolerate incomplete records only at the end of the WAL.
+    TolerateCorruptedTailRecords,
+    /// Require strict consistency and fail on any corruption.
+    AbsoluteConsistency,
+    /// Recover to the last consistent point before corruption.
+    PointInTime,
+    /// Skip corrupted records and continue replaying later valid records.
+    SkipAnyCorruptedRecord,
+}
+
+impl ProbeWalRecoveryMode {
+    fn as_rocksdb(self) -> DBRecoveryMode {
+        match self {
+            Self::TolerateCorruptedTailRecords => DBRecoveryMode::TolerateCorruptedTailRecords,
+            Self::AbsoluteConsistency => DBRecoveryMode::AbsoluteConsistency,
+            Self::PointInTime => DBRecoveryMode::PointInTime,
+            Self::SkipAnyCorruptedRecord => DBRecoveryMode::SkipAnyCorruptedRecord,
+        }
+    }
+}
+
+impl std::fmt::Display for ProbeWalRecoveryMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let name = match self {
+            Self::TolerateCorruptedTailRecords => "tolerate-corrupted-tail-records",
+            Self::AbsoluteConsistency => "absolute-consistency",
+            Self::PointInTime => "point-in-time",
+            Self::SkipAnyCorruptedRecord => "skip-any-corrupted-record",
+        };
+        f.write_str(name)
+    }
+}
 
 /// Database inspection and maintenance tools.
 #[derive(Subcommand, Debug, Clone, Serialize, Deserialize)]
@@ -164,6 +177,38 @@ pub enum DbToolCommands {
         /// Path to the RocksDB database directory.
         #[arg(long)]
         db_path: PathBuf,
+    },
+
+    /// Open the RocksDB database read-only with a selectable WAL recovery mode and report what
+    /// data is visible without persisting any recovery result.
+    #[command(hide = true)]
+    ProbeRecovery {
+        /// Path to the RocksDB database directory.
+        #[arg(long)]
+        db_path: PathBuf,
+        /// WAL recovery mode to use for the read-only probe.
+        #[arg(long, value_enum, default_value_t = ProbeWalRecoveryMode::PointInTime)]
+        wal_recovery_mode: ProbeWalRecoveryMode,
+        /// Count entries by iterating each reported column family instead of using
+        /// `rocksdb.estimate-num-keys`.
+        #[arg(long, default_value_t = false)]
+        exact_counts: bool,
+    },
+
+    /// Open the RocksDB database read-write with a selectable WAL recovery mode and persist the
+    /// recovery result without starting the full node.
+    #[command(hide = true)]
+    RecoverDb {
+        /// Path to the RocksDB database directory.
+        #[arg(long)]
+        db_path: PathBuf,
+        /// WAL recovery mode to use for the writable recovery.
+        #[arg(long, value_enum, default_value_t = ProbeWalRecoveryMode::PointInTime)]
+        wal_recovery_mode: ProbeWalRecoveryMode,
+        /// Count entries by iterating each reported column family instead of using
+        /// `rocksdb.estimate-num-keys`.
+        #[arg(long, default_value_t = false)]
+        exact_counts: bool,
     },
 
     /// Scan blob metadata from the RocksDB database.
@@ -309,6 +354,16 @@ impl DbToolCommands {
                 column_family_names,
             } => drop_column_families(db_path, column_family_names),
             Self::ListColumnFamilies { db_path } => list_column_families(db_path),
+            Self::ProbeRecovery {
+                db_path,
+                wal_recovery_mode,
+                exact_counts,
+            } => probe_recovery(db_path, wal_recovery_mode, exact_counts),
+            Self::RecoverDb {
+                db_path,
+                wal_recovery_mode,
+                exact_counts,
+            } => recover_db(db_path, wal_recovery_mode, exact_counts),
             Self::ReadBlobMetadata {
                 db_path,
                 start_blob_id,
@@ -739,6 +794,15 @@ enum ProbeDbKind {
     Unknown,
 }
 
+#[derive(Debug, Default)]
+struct StorageShardProbeStats {
+    primary: Option<u64>,
+    secondary: Option<u64>,
+    pending_recover: Option<u64>,
+    status: Option<u64>,
+    sync_progress: Option<u64>,
+}
+
 fn list_column_families(db_path: PathBuf) -> Result<()> {
     let result = rocksdb::DB::list_cf(&RocksdbOptions::default(), db_path);
     if let Ok(column_families) = result {
@@ -748,6 +812,282 @@ fn list_column_families(db_path: PathBuf) -> Result<()> {
     }
 
     Ok(())
+}
+
+fn probe_recovery(
+    db_path: PathBuf,
+    wal_recovery_mode: ProbeWalRecoveryMode,
+    exact_counts: bool,
+) -> Result<()> {
+    let (column_families, db_kind, db_opts, db_table_opts_factory) =
+        prepare_recovery_open(&db_path, wal_recovery_mode)?;
+    let db = DB::open_cf_with_opts_for_read_only(
+        &db_opts,
+        &db_path,
+        cf_options(&column_families, db_kind, &db_table_opts_factory),
+        false,
+    )?;
+
+    println!("Opened DB read-only at {}", db_path.display());
+    println!("WAL recovery mode: {wal_recovery_mode}");
+    println!("Probe is non-mutating: read-only open does not persist recovery state.");
+    println!(
+        "Count mode: {}",
+        if exact_counts {
+            "exact iteration"
+        } else {
+            "rocksdb.estimate-num-keys"
+        }
+    );
+    println!("Detected DB kind: {}", probe_db_kind_name(db_kind));
+    println!("Column families discovered: {}", column_families.len());
+
+    match db_kind {
+        ProbeDbKind::Storage => report_storage_probe(&db, &column_families, exact_counts)?,
+        ProbeDbKind::EventBlobWriter => report_generic_probe(
+            &db,
+            &column_families,
+            exact_counts,
+            Some(&event_blob_writer_headings()),
+        )?,
+        ProbeDbKind::EventProcessor => report_generic_probe(
+            &db,
+            &column_families,
+            exact_counts,
+            Some(&event_processor_headings()),
+        )?,
+        ProbeDbKind::Unknown => report_generic_probe(&db, &column_families, exact_counts, None)?,
+    }
+
+    Ok(())
+}
+
+fn recover_db(
+    db_path: PathBuf,
+    wal_recovery_mode: ProbeWalRecoveryMode,
+    exact_counts: bool,
+) -> Result<()> {
+    let (column_families, db_kind, db_opts, db_table_opts_factory) =
+        prepare_recovery_open(&db_path, wal_recovery_mode)?;
+    let db = DB::open_cf_with_opts(
+        &db_opts,
+        &db_path,
+        cf_options(&column_families, db_kind, &db_table_opts_factory),
+    )
+    .inspect_err(|_| {
+        println!(concat!(
+            "failed to open database for recovery; ",
+            "make sure the storage node is stopped before running recover-db",
+        ))
+    })?;
+
+    println!("Opened DB read-write at {}", db_path.display());
+    println!("WAL recovery mode: {wal_recovery_mode}");
+    println!("Recovery is mutating: successful open persists the recovered DB state.");
+    println!(
+        "Count mode: {}",
+        if exact_counts {
+            "exact iteration"
+        } else {
+            "rocksdb.estimate-num-keys"
+        }
+    );
+    println!("Detected DB kind: {}", probe_db_kind_name(db_kind));
+    println!("Column families discovered: {}", column_families.len());
+
+    match db_kind {
+        ProbeDbKind::Storage => report_storage_probe(&db, &column_families, exact_counts)?,
+        ProbeDbKind::EventBlobWriter => report_generic_probe(
+            &db,
+            &column_families,
+            exact_counts,
+            Some(&event_blob_writer_headings()),
+        )?,
+        ProbeDbKind::EventProcessor => report_generic_probe(
+            &db,
+            &column_families,
+            exact_counts,
+            Some(&event_processor_headings()),
+        )?,
+        ProbeDbKind::Unknown => report_generic_probe(&db, &column_families, exact_counts, None)?,
+    }
+
+    drop(db);
+    println!();
+    println!("Recovery committed successfully.");
+
+    Ok(())
+}
+
+fn prepare_recovery_open(
+    db_path: &std::path::Path,
+    wal_recovery_mode: ProbeWalRecoveryMode,
+) -> Result<(
+    Vec<String>,
+    ProbeDbKind,
+    RocksdbOptions,
+    DatabaseTableOptionsFactory,
+)> {
+    let column_families = DB::list_cf(&RocksdbOptions::default(), db_path)?;
+    let db_kind = detect_probe_db_kind(&column_families);
+    let db_table_opts_factory = db_table_options_factory_for_kind(db_kind);
+    let mut db_opts = RocksdbOptions::from(&db_table_opts_factory.global());
+    db_opts.create_if_missing(false);
+    db_opts.create_missing_column_families(false);
+    db_opts.set_wal_recovery_mode(wal_recovery_mode.as_rocksdb());
+
+    Ok((column_families, db_kind, db_opts, db_table_opts_factory))
+}
+
+fn probe_db_kind_name(db_kind: ProbeDbKind) -> &'static str {
+    match db_kind {
+        ProbeDbKind::Storage => "storage",
+        ProbeDbKind::EventBlobWriter => "event-blob-writer",
+        ProbeDbKind::EventProcessor => "event-processor",
+        ProbeDbKind::Unknown => "unknown",
+    }
+}
+
+fn report_storage_probe(db: &DB, column_families: &[String], exact_counts: bool) -> Result<()> {
+    println!();
+    println!("Top-level column families:");
+    for cf_name in [
+        aggregate_blob_info_cf_name(),
+        per_object_blob_info_cf_name(),
+        per_object_pooled_blob_info_cf_name(),
+        storage_pool_info_cf_name(),
+        metadata_cf_name(),
+        node_status_cf_name(),
+        event_cursor_cf_name(),
+        event_index_cf_name(),
+        garbage_collector_table_cf_name(),
+    ] {
+        if column_families.iter().any(|name| name == cf_name) {
+            let count = count_cf_entries(db, cf_name, exact_counts)?;
+            println!("  {cf_name}: {}", format_probe_count(count));
+        }
+    }
+
+    let mut shard_stats = BTreeMap::<u16, StorageShardProbeStats>::new();
+    for cf_name in column_families {
+        let Some((shard_index, suffix)) = parse_shard_cf_name(cf_name) else {
+            continue;
+        };
+        let count = count_cf_entries(db, cf_name, exact_counts)?;
+        let entry = shard_stats.entry(shard_index).or_default();
+        match suffix {
+            "primary-slivers" => entry.primary = count,
+            "secondary-slivers" => entry.secondary = count,
+            "pending-recover-slivers" => entry.pending_recover = count,
+            "status" => entry.status = count,
+            "sync-progress" => entry.sync_progress = count,
+            _ => {}
+        }
+    }
+
+    println!();
+    println!("Per-shard sliver visibility:");
+    let mut total_primary = 0_u64;
+    let mut total_secondary = 0_u64;
+    let mut total_pending = 0_u64;
+    for (shard_index, stats) in &shard_stats {
+        total_primary += stats.primary.unwrap_or(0);
+        total_secondary += stats.secondary.unwrap_or(0);
+        total_pending += stats.pending_recover.unwrap_or(0);
+        println!(
+            concat!(
+                "  shard-{}: primary={}, secondary={}, ",
+                "pending-recover={}, status={}, sync-progress={}",
+            ),
+            shard_index,
+            format_probe_count(stats.primary),
+            format_probe_count(stats.secondary),
+            format_probe_count(stats.pending_recover),
+            format_probe_count(stats.status),
+            format_probe_count(stats.sync_progress),
+        );
+    }
+
+    println!();
+    println!(
+        "Totals: primary={}, secondary={}, pending-recover={}",
+        total_primary, total_secondary, total_pending
+    );
+
+    Ok(())
+}
+
+fn event_blob_writer_headings() -> Vec<&'static str> {
+    vec![
+        certified_cf_name(),
+        attested_cf_name(),
+        pending_cf_name(),
+        failed_to_attest_cf_name(),
+    ]
+}
+
+fn event_processor_headings() -> Vec<&'static str> {
+    vec![
+        event_processor_constants::CHECKPOINT_STORE,
+        event_processor_constants::WALRUS_PACKAGE_STORE,
+        event_processor_constants::COMMITTEE_STORE,
+        event_processor_constants::EVENT_STORE,
+        event_processor_constants::INIT_STATE,
+    ]
+}
+
+fn report_generic_probe(
+    db: &DB,
+    column_families: &[String],
+    exact_counts: bool,
+    preferred_order: Option<&[&str]>,
+) -> Result<()> {
+    println!();
+    println!("Column family visibility:");
+
+    if let Some(preferred_order) = preferred_order {
+        for cf_name in preferred_order {
+            if column_families.iter().any(|name| name == cf_name) {
+                let count = count_cf_entries(db, cf_name, exact_counts)?;
+                println!("  {cf_name}: {}", format_probe_count(count));
+            }
+        }
+    }
+
+    for cf_name in column_families {
+        if preferred_order.is_some_and(|ordered| ordered.iter().any(|name| *name == cf_name)) {
+            continue;
+        }
+        let count = count_cf_entries(db, cf_name, exact_counts)?;
+        println!("  {cf_name}: {}", format_probe_count(count));
+    }
+
+    Ok(())
+}
+
+fn count_cf_entries(db: &DB, cf_name: &str, exact_counts: bool) -> Result<Option<u64>> {
+    let Some(cf) = db.cf_handle(cf_name) else {
+        return Ok(None);
+    };
+
+    if !exact_counts {
+        return db
+            .property_int_value_cf(&cf, "rocksdb.estimate-num-keys")
+            .map_err(Into::into);
+    }
+
+    let mut count = 0_u64;
+    for entry in db.iterator_cf(&cf, rocksdb::IteratorMode::Start) {
+        let _ = entry?;
+        count += 1;
+    }
+    Ok(Some(count))
+}
+
+fn format_probe_count(count: Option<u64>) -> String {
+    count
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| "n/a".to_string())
 }
 
 fn detect_probe_db_kind(column_families: &[String]) -> ProbeDbKind {
@@ -1165,9 +1505,17 @@ fn read_failed_to_attest_event_blobs(db_path: PathBuf) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    use clap::{CommandFactory, Parser};
     use tempfile::tempdir;
 
     use super::*;
+
+    #[derive(Parser)]
+    #[command(rename_all = "kebab-case")]
+    struct DbToolArgs {
+        #[command(subcommand)]
+        command: DbToolCommands,
+    }
 
     #[test]
     fn compact_db_handles_known_and_unknown_column_families() -> Result<()> {
@@ -1259,5 +1607,66 @@ mod tests {
         drop(db);
 
         compact_db(db_dir.path().to_path_buf(), CompactDbMode::Drain)
+    }
+
+    #[test]
+    fn detect_storage_probe_db() {
+        let column_families = vec![
+            "default".to_string(),
+            aggregate_blob_info_cf_name().to_string(),
+            metadata_cf_name().to_string(),
+            "shard-7/primary-slivers".to_string(),
+        ];
+
+        assert_eq!(detect_probe_db_kind(&column_families), ProbeDbKind::Storage);
+    }
+
+    #[test]
+    fn detect_event_processor_probe_db() {
+        let column_families = vec![
+            "default".to_string(),
+            event_processor_constants::CHECKPOINT_STORE.to_string(),
+            event_processor_constants::EVENT_STORE.to_string(),
+        ];
+
+        assert_eq!(
+            detect_probe_db_kind(&column_families),
+            ProbeDbKind::EventProcessor
+        );
+    }
+
+    #[test]
+    fn parse_storage_shard_column_family_name() {
+        assert_eq!(
+            parse_shard_cf_name("shard-12/pending-recover-slivers"),
+            Some((12, "pending-recover-slivers"))
+        );
+        assert_eq!(parse_shard_cf_name("metadata"), None);
+        assert_eq!(parse_shard_cf_name("shard-x/primary-slivers"), None);
+    }
+
+    #[test]
+    fn recovery_commands_are_hidden_from_help() {
+        let mut command = DbToolArgs::command();
+        let help = command.render_long_help().to_string();
+
+        assert!(!help.contains("probe-recovery"));
+        assert!(!help.contains("recover-db"));
+    }
+
+    #[test]
+    fn hidden_recovery_commands_still_parse() {
+        let probe =
+            DbToolArgs::try_parse_from(["db-tool", "probe-recovery", "--db-path", "/tmp/testdb"])
+                .expect("hidden probe-recovery command should still parse");
+        assert!(matches!(
+            probe.command,
+            DbToolCommands::ProbeRecovery { .. }
+        ));
+
+        let recover =
+            DbToolArgs::try_parse_from(["db-tool", "recover-db", "--db-path", "/tmp/testdb"])
+                .expect("hidden recover-db command should still parse");
+        assert!(matches!(recover.command, DbToolCommands::RecoverDb { .. }));
     }
 }
