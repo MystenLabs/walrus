@@ -101,7 +101,7 @@ prometheus = "0.14.0"
 prost = { version = "0.14", default-features = false }
 quote = "1.0"
 rand = "0.8.5"
-rand_distr = "0.4"
+rand_distr = "0.6"
 rayon = "1.11.0"
 rcgen = "0.14.7"
 reed-solomon-simd = "3.1.0"
