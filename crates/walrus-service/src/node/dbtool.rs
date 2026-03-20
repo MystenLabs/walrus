@@ -399,11 +399,13 @@ fn repair_db(db_path: PathBuf) -> Result<()> {
 
 fn scan_events(db_path: PathBuf, start_event_index: u64, count: usize) -> Result<()> {
     println!("Scanning events from event index {start_event_index}");
-    let opts = RocksdbOptions::default();
-    let db = DB::open_cf_for_read_only(
-        &opts,
+    let db = DB::open_cf_with_opts_for_read_only(
+        &RocksdbOptions::default(),
         db_path,
-        [event_processor_constants::EVENT_STORE],
+        [(
+            event_processor_constants::EVENT_STORE,
+            DatabaseTableOptionsFactory::new(DatabaseConfig::default(), false).event_store(),
+        )],
         false,
     )?;
     let cf = db
@@ -564,10 +566,16 @@ fn count_certified_blobs(db_path: PathBuf, epoch: Epoch) -> Result<()> {
 
 /// Drop a column family from the RocksDB database.
 fn drop_column_families(db_path: PathBuf, column_family_names: Vec<String>) -> Result<()> {
-    let db = DB::open_cf(
-        &RocksdbOptions::default(),
+    let column_families = DB::list_cf(&RocksdbOptions::default(), &db_path)?;
+    let db_kind = detect_probe_db_kind(&column_families);
+
+    let mut db_opts = RocksdbOptions::default();
+    db_opts.set_max_open_files(512_000);
+
+    let db = DB::open_cf_with_opts(
+        &db_opts,
         &db_path,
-        &DB::list_cf(&RocksdbOptions::default(), &db_path)?,
+        probe_cf_options(&column_families, db_kind),
     )
     .inspect_err(|_| {
         println!(
@@ -1096,10 +1104,13 @@ fn read_secondary_slivers(
 }
 
 fn read_event_processor_init_state(db_path: PathBuf) -> Result<()> {
-    let db = DB::open_cf_for_read_only(
+    let db = DB::open_cf_with_opts_for_read_only(
         &RocksdbOptions::default(),
         db_path,
-        [event_processor_constants::INIT_STATE],
+        [(
+            event_processor_constants::INIT_STATE,
+            DatabaseTableOptionsFactory::new(DatabaseConfig::default(), false).init_state(),
+        )],
         false,
     )?;
 
@@ -1123,10 +1134,13 @@ fn read_event_processor_init_state(db_path: PathBuf) -> Result<()> {
 }
 
 fn read_certified_event_blobs(db_path: PathBuf) -> Result<()> {
-    let db = DB::open_cf_for_read_only(
+    let db = DB::open_cf_with_opts_for_read_only(
         &RocksdbOptions::default(),
         db_path,
-        [certified_cf_name()],
+        [(
+            certified_cf_name(),
+            DatabaseTableOptionsFactory::new(DatabaseConfig::default(), false).certified(),
+        )],
         false,
     )?;
 
@@ -1148,10 +1162,13 @@ fn read_certified_event_blobs(db_path: PathBuf) -> Result<()> {
 }
 
 fn read_attested_event_blobs(db_path: PathBuf) -> Result<()> {
-    let db = DB::open_cf_for_read_only(
+    let db = DB::open_cf_with_opts_for_read_only(
         &RocksdbOptions::default(),
         db_path,
-        [attested_cf_name()],
+        [(
+            attested_cf_name(),
+            DatabaseTableOptionsFactory::new(DatabaseConfig::default(), false).attested(),
+        )],
         false,
     )?;
 
@@ -1174,10 +1191,13 @@ fn read_attested_event_blobs(db_path: PathBuf) -> Result<()> {
 }
 
 fn read_pending_event_blobs(db_path: PathBuf, start_seq: Option<u64>, count: usize) -> Result<()> {
-    let db = DB::open_cf_for_read_only(
+    let db = DB::open_cf_with_opts_for_read_only(
         &RocksdbOptions::default(),
         db_path,
-        [pending_cf_name()],
+        [(
+            pending_cf_name(),
+            DatabaseTableOptionsFactory::new(DatabaseConfig::default(), false).pending(),
+        )],
         false,
     )?;
 
@@ -1213,10 +1233,13 @@ fn read_pending_event_blobs(db_path: PathBuf, start_seq: Option<u64>, count: usi
 }
 
 fn read_failed_to_attest_event_blobs(db_path: PathBuf) -> Result<()> {
-    let db = DB::open_cf_for_read_only(
+    let db = DB::open_cf_with_opts_for_read_only(
         &RocksdbOptions::default(),
         db_path,
-        [failed_to_attest_cf_name()],
+        [(
+            failed_to_attest_cf_name(),
+            DatabaseTableOptionsFactory::new(DatabaseConfig::default(), false).failed_to_attest(),
+        )],
         false,
     )?;
 
