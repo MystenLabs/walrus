@@ -513,8 +513,10 @@ impl Mergeable for BlobInfoV1 {
 
     fn merge_new(operand: Self::MergeOperand) -> Option<Self> {
         match operand {
+            // IMPORTANT: This matches all changes as a temporary workaround to be able to recover a
+            // DB. SHOULD NOT BE MERGED INTO MAIN.
             BlobInfoMergeOperand::ChangeStatus {
-                change_type: BlobStatusChangeType::Register,
+                change_type: _,
                 change_info:
                     BlobStatusChangeInfo {
                         deletable,
@@ -562,8 +564,7 @@ impl Mergeable for BlobInfoV1 {
                     .into(),
                 )
             }
-            BlobInfoMergeOperand::ChangeStatus { .. }
-            | BlobInfoMergeOperand::DeletableExpired { .. }
+            BlobInfoMergeOperand::DeletableExpired { .. }
             | BlobInfoMergeOperand::PermanentExpired { .. } => {
                 tracing::error!(
                     ?operand,
