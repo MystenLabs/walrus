@@ -1,5 +1,5 @@
 # Documentation for all configuration options:
-# https://docs.github.com/en/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
+# https://docs.github.com/en/code-security/reference/supply-chain-security/dependabot-options-reference
 
 version: 2
 updates:
@@ -22,6 +22,8 @@ updates:
           - "opentelemetry"
           - "opentelemetry-*"
           - "tracing-opentelemetry"
+    cooldown:
+      default-days: 7
     ignore:
       - dependency-name: futures-timer
       - dependency-name: move-*
@@ -46,5 +48,20 @@ updates:
     groups:
       github-actions-all:
         patterns: ["*"]
+    cooldown:
+      default-days: 7
     ignore:
       - dependency-name: "slackapi/slack-github-action" # TODO(WAL-1119): remove after bump to v2
+
+  - package-ecosystem: "pre-commit"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+    cooldown:
+      default-days: 7
+    groups:
+      pre-commit-all:
+        patterns: ["*"]
