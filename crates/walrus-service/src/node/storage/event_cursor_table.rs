@@ -109,13 +109,10 @@ impl EventCursorTable {
     }
 
     pub fn options(db_table_opts_factory: &DatabaseTableOptionsFactory) -> (&'static str, Options) {
-        let mut options = db_table_opts_factory.event_cursor();
-        options.set_merge_operator(
-            "update_cursor_and_progress",
-            update_cursor_and_progress,
-            |_, _, _| None,
-        );
-        (event_cursor_cf_name(), options)
+        (
+            event_cursor_cf_name(),
+            event_cursor_cf_options(db_table_opts_factory),
+        )
     }
 
     pub fn reposition_event_cursor(
@@ -209,6 +206,17 @@ impl EventCursorTable {
             highest_finished_event_index: self.highest_finished_event_index.load(Ordering::SeqCst),
         })
     }
+}
+
+/// Returns RocksDB options for the event cursor column family, including the merge operator.
+pub(crate) fn event_cursor_cf_options(factory: &DatabaseTableOptionsFactory) -> Options {
+    let mut options = factory.event_cursor();
+    options.set_merge_operator(
+        "update_cursor_and_progress",
+        update_cursor_and_progress,
+        |_, _, _| None,
+    );
+    options
 }
 
 #[tracing::instrument(level = Level::DEBUG, skip(operands))]
