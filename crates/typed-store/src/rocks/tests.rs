@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::{
-    sync::{Mutex, MutexGuard, OnceLock},
+    sync::{Arc, Barrier, Mutex, MutexGuard, OnceLock},
     time::Duration,
 };
 
@@ -1142,4 +1142,260 @@ async fn test_optimistic_transaction_conflict_and_retry() {
     });
 
     assert_eq!(db.get(&1).unwrap(), Some("final".to_string()));
+}
+
+/// Stress test for the WAL-1187 corruption shape.
+/// Lock-based TransactionDB version of the WAL-1187 reproducer above.
+///
+/// TransactionDB may reject or delay the outside merge because it uses key locks instead of
+/// optimistic commit-time validation. The property we care about is narrower: even when both
+/// sides make progress, the transaction must not commit a delete that hides a successful `R`
+/// merge.
+#[tokio::test]
+async fn test_transaction_db_concurrent_write_batch_merge_must_not_hide_register() {
+    let _guard = global_test_lock();
+
+    fn zero_register_certify_merge(
+        _key: &[u8],
+        existing_val: Option<&[u8]>,
+        operands: &rocksdb::MergeOperands,
+    ) -> Option<Vec<u8>> {
+        let mut state = match existing_val {
+            None | Some(b"0") => 0,
+            Some(b"V") => 2,
+            _ => return None,
+        };
+        for op in operands {
+            match (state, op) {
+                (0, b"R") => state = 1,
+                (1, b"C") => state = 2,
+                _ => return None,
+            }
+        }
+        Some(match state {
+            0 => vec![b'0'],
+            1 | 2 => vec![b'V'],
+            _ => unreachable!(),
+        })
+    }
+
+    let path = temp_dir();
+    let cf_name = "merge_cf";
+
+    let mut cf_opts = rocksdb::Options::default();
+    cf_opts.set_merge_operator(
+        "zero_register_certify_merge",
+        zero_register_certify_merge,
+        |_, _, _| None,
+    );
+
+    let db = open_cf_opts_transaction(&path, None, MetricConf::default(), &[(cf_name, cf_opts)])
+        .expect("failed to open transaction db");
+
+    let RocksDB::TransactionDB(ref wrapper) = *db else {
+        panic!("expected TransactionDB");
+    };
+    let underlying = &wrapper.underlying;
+    const ITERATIONS: usize = 500;
+    let mut hidden_register_failures = 0usize;
+    let mut successful_merges = 0usize;
+    let mut successful_commits = 0usize;
+
+    for i in 0..ITERATIONS {
+        let key = format!("counter-{i}").into_bytes();
+        let cf = underlying.cf_handle(cf_name).expect("cf handle");
+
+        underlying.put_cf(&cf, &key, b"0").unwrap();
+
+        let ready_barrier = Arc::new(Barrier::new(3));
+        let release_barrier = Arc::new(Barrier::new(3));
+
+        let (merge_result, commit_result): (
+            Result<(), rocksdb::Error>,
+            Result<(), rocksdb::Error>,
+        ) = std::thread::scope(|scope| {
+            let commit_ready_barrier = ready_barrier.clone();
+            let commit_release_barrier = release_barrier.clone();
+            let handle = db.as_transaction().expect("transaction db");
+            let commit_key = key.clone();
+            let commit_thread = scope.spawn(move || {
+                let commit_cf = underlying.cf_handle(cf_name).expect("cf handle");
+                let tx = handle.transaction();
+                let read = tx
+                    .get_for_update_cf_opt(
+                        &commit_cf,
+                        &commit_key,
+                        false,
+                        &rocksdb::ReadOptions::default(),
+                    )
+                    .unwrap();
+                assert_eq!(
+                    read.as_deref(),
+                    Some(&b"0"[..]),
+                    "transaction should only delete after observing 0"
+                );
+                tx.delete_cf(&commit_cf, &commit_key).unwrap();
+
+                commit_ready_barrier.wait();
+                commit_release_barrier.wait();
+                tx.commit()
+            });
+
+            let merge_ready_barrier = ready_barrier.clone();
+            let merge_release_barrier = release_barrier.clone();
+            let merge_key = key.clone();
+            let merge_thread = scope.spawn(move || {
+                merge_ready_barrier.wait();
+                merge_release_barrier.wait();
+                let merge_cf = underlying.cf_handle(cf_name).expect("cf handle");
+                let mut batch = rocksdb::WriteBatchWithTransaction::<true>::default();
+                batch.merge_cf(&merge_cf, &merge_key, b"R");
+                underlying.write(batch)
+            });
+
+            ready_barrier.wait();
+            release_barrier.wait();
+            let merge_result = merge_thread.join().unwrap();
+            let commit_result = commit_thread.join().unwrap();
+            (merge_result, commit_result)
+        });
+
+        match &merge_result {
+            Ok(()) => successful_merges += 1,
+            Err(err) => assert!(
+                matches!(
+                    err.kind(),
+                    rocksdb::ErrorKind::Busy | rocksdb::ErrorKind::TimedOut
+                ),
+                concat!(
+                    "merge batch should either succeed or fail with a lock conflict on ",
+                    "iteration {}: {:?}"
+                ),
+                i,
+                err
+            ),
+        }
+
+        match &commit_result {
+            Ok(()) => successful_commits += 1,
+            Err(err) => assert!(
+                matches!(
+                    err.kind(),
+                    rocksdb::ErrorKind::Busy | rocksdb::ErrorKind::TimedOut
+                ),
+                concat!(
+                    "transaction commit should either succeed or fail with a lock conflict on ",
+                    "iteration {}: {:?}"
+                ),
+                i,
+                err
+            ),
+        }
+
+        underlying.merge_cf(&cf, &key, b"C").unwrap();
+        if commit_result.is_ok() && merge_result.is_ok() && underlying.get_cf(&cf, &key).is_err() {
+            hidden_register_failures += 1;
+        }
+    }
+
+    assert_eq!(
+        hidden_register_failures, 0,
+        "concurrent register merge was hidden behind a later committed delete {} times out of {}",
+        hidden_register_failures, ITERATIONS
+    );
+    assert!(
+        successful_merges > 0,
+        "expected at least one concurrent merge write to succeed"
+    );
+    assert!(
+        successful_commits > 0,
+        "expected at least one transaction commit to succeed"
+    );
+}
+
+/// Control test for the WAL-1187 reproducer above.
+///
+/// This uses the same merge operator shape, but instead of staging a delete inside the
+/// transaction it stages a normal put. The outside merge is fully written before commit is
+/// attempted, so the optimistic transaction is expected to fail with a write-conflict error.
+#[tokio::test]
+async fn test_optimistic_transaction_put_conflicts_with_outside_merge_after_get_for_update() {
+    let _guard = global_test_lock();
+
+    fn zero_register_certify_merge(
+        _key: &[u8],
+        existing_val: Option<&[u8]>,
+        operands: &rocksdb::MergeOperands,
+    ) -> Option<Vec<u8>> {
+        let mut state = match existing_val {
+            None | Some(b"0") => 0,
+            Some(b"V") => 2,
+            _ => return None,
+        };
+        for op in operands {
+            match (state, op) {
+                (0, b"R") => state = 1,
+                (1, b"C") => state = 2,
+                _ => return None,
+            }
+        }
+        Some(match state {
+            0 => vec![b'0'],
+            1 | 2 => vec![b'V'],
+            _ => unreachable!(),
+        })
+    }
+
+    let path = temp_dir();
+    let cf_name = "merge_cf";
+
+    let mut cf_opts = rocksdb::Options::default();
+    cf_opts.set_merge_operator(
+        "zero_register_certify_merge",
+        zero_register_certify_merge,
+        |_, _, _| None,
+    );
+
+    let db = open_cf_opts_optimistic(&path, None, MetricConf::default(), &[(cf_name, cf_opts)])
+        .expect("failed to open optimistic db");
+
+    let RocksDB::OptimisticTransactionDB(ref wrapper) = *db else {
+        panic!("expected OptimisticTransactionDB");
+    };
+    let underlying = &wrapper.underlying;
+    let cf = underlying.cf_handle(cf_name).expect("cf handle");
+    let key = b"counter".to_vec();
+
+    underlying.put_cf(&cf, &key, b"0").unwrap();
+
+    let handle = db.as_optimistic().expect("optimistic db");
+    let tx = handle.transaction();
+    let read = tx
+        .get_for_update_cf_opt(&cf, &key, false, &rocksdb::ReadOptions::default())
+        .unwrap();
+    assert_eq!(
+        read.as_deref(),
+        Some(&b"0"[..]),
+        "transaction should only update after observing 0"
+    );
+
+    // Stage a normal update in the transaction, then write the merge outside the transaction
+    // before commit. This mirrors RocksDB's own optimistic conflict tests and should surface as
+    // a write conflict rather than silently succeeding.
+    tx.put_cf(&cf, &key, b"0").unwrap();
+
+    let mut batch = rocksdb::WriteBatchWithTransaction::<true>::default();
+    batch.merge_cf(&cf, &key, b"R");
+    underlying.write(batch).unwrap();
+
+    let commit_err = tx
+        .commit()
+        .expect_err("expected optimistic transaction commit to fail after outside merge");
+    assert_eq!(
+        commit_err.kind(),
+        rocksdb::ErrorKind::Busy,
+        "expected optimistic transaction commit to fail with Busy, got {commit_err:?}"
+    );
+
+    assert_eq!(underlying.get_cf(&cf, &key).unwrap(), Some(b"V".to_vec()));
 }
