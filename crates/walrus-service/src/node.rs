@@ -2659,10 +2659,12 @@ impl StorageNodeInner {
 
     /// Waits until the recovery deferral for the given blob ID expires
     /// and cancels the recovery deferral upon timeout.
+    ///
+    /// Returns `true` when a deferral existed and the caller waited for it.
     pub async fn wait_until_recovery_deferral_expires(
         &self,
         blob_id: &BlobId,
-    ) -> anyhow::Result<Arc<tokio_util::sync::CancellationToken>> {
+    ) -> anyhow::Result<bool> {
         let (until, token) = {
             let map = self.recovery_deferrals.read().await;
             if let Some((u, existing_token)) = map.get(blob_id).cloned() {
@@ -2687,7 +2689,7 @@ impl StorageNodeInner {
             self.metrics.recovery_deferral_waiters.dec();
         }
 
-        Ok(token)
+        Ok(until.is_some())
     }
 
     /// Returns the node capability object ID.
