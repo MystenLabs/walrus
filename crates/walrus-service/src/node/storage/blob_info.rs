@@ -7,6 +7,7 @@ mod blob_info_v1;
 mod blob_info_v2;
 mod per_object_pooled_blob_info;
 mod perm_blob_info;
+mod storage_pool_info;
 
 use std::{
     collections::HashSet,
@@ -29,7 +30,14 @@ use typed_store::{
 };
 use walrus_core::{BlobId, Epoch};
 use walrus_storage_node_client::api::BlobStatus;
-use walrus_sui::types::{BlobCertified, BlobDeleted, BlobEvent, BlobRegistered, InvalidBlobId};
+use walrus_sui::types::{
+    BlobCertified,
+    BlobDeleted,
+    BlobEvent,
+    BlobRegistered,
+    InvalidBlobId,
+    StoragePoolEvent,
+};
 
 #[cfg(test)]
 pub(crate) use self::blob_info_v1::ValidBlobInfoV1;
@@ -39,10 +47,12 @@ pub(crate) use self::{
     per_object_blob_info::{PerObjectBlobInfo, PerObjectBlobInfoApi},
     per_object_pooled_blob_info::PerObjectPooledBlobInfo,
     perm_blob_info::PermanentBlobInfo,
+    storage_pool_info::StoragePoolInfo,
 };
 use self::{
     per_object_blob_info::PerObjectBlobInfoMergeOperand,
     per_object_pooled_blob_info::PerObjectPooledBlobInfoMergeOperand,
+    storage_pool_info::StoragePoolInfoMergeOperand,
 };
 use super::{DatabaseTableOptionsFactory, constants};
 use crate::{
@@ -68,6 +78,8 @@ pub(super) struct BlobInfoTable {
     per_object_blob_info: DBMap<ObjectID, PerObjectBlobInfo>,
     // TODO(WAL-1184): make this non-optional.
     per_object_pooled_blob_info: Option<DBMap<ObjectID, PerObjectPooledBlobInfo>>,
+    // TODO(WAL-1184): make this non-optional.
+    storage_pool_info: Option<DBMap<ObjectID, StoragePoolInfo>>,
     latest_handled_event_index: Arc<Mutex<DBMap<(), u64>>>,
 }
 
@@ -106,6 +118,19 @@ pub(crate) fn per_object_pooled_blob_info_cf_options(
     options
 }
 
+/// Returns the options for the storage pool info column family.
+pub(crate) fn storage_pool_info_cf_options(
+    db_table_opts_factory: &DatabaseTableOptionsFactory,
+) -> Options {
+    let mut options = db_table_opts_factory.storage_pool_info();
+    options.set_merge_operator(
+        "merge storage pool info",
+        merge_mergeable::<StoragePoolInfo>,
+        |_, _, _| None,
+    );
+    options
+}
+
 impl BlobInfoTable {
     pub fn reopen(
         database: &Arc<RocksDB>,
@@ -133,6 +158,16 @@ impl BlobInfoTable {
         } else {
             None
         };
+        let storage_pool_info = if enable_storage_pool {
+            Some(DBMap::reopen(
+                database,
+                Some(constants::storage_pool_info_cf_name()),
+                &ReadWriteOptions::default(),
+                false,
+            )?)
+        } else {
+            None
+        };
         let latest_handled_event_index = Arc::new(Mutex::new(DBMap::reopen(
             database,
             Some(constants::event_index_cf_name()),
@@ -144,6 +179,7 @@ impl BlobInfoTable {
             aggregate_blob_info,
             per_object_blob_info,
             per_object_pooled_blob_info,
+            storage_pool_info,
             latest_handled_event_index,
         })
     }
@@ -153,6 +189,9 @@ impl BlobInfoTable {
         self.per_object_blob_info.schedule_delete_all()?;
         if let Some(pooled) = &self.per_object_pooled_blob_info {
             pooled.schedule_delete_all()?;
+        }
+        if let Some(pool_info) = &self.storage_pool_info {
+            pool_info.schedule_delete_all()?;
         }
         self.latest_handled_event_index
             .lock()
@@ -186,6 +225,10 @@ impl BlobInfoTable {
             cfs.push((
                 constants::per_object_pooled_blob_info_cf_name(),
                 per_object_pooled_blob_info_cf_options(db_table_opts_factory),
+            ));
+            cfs.push((
+                constants::storage_pool_info_cf_name(),
+                storage_pool_info_cf_options(db_table_opts_factory),
             ));
         }
         cfs
@@ -517,6 +560,54 @@ impl BlobInfoTable {
         }
     }
 
+    /// Updates the storage pool info based on a [`StoragePoolEvent`].
+    ///
+    /// The storage pool info update and the `latest_handled_event_index` are written atomically
+    /// in a single batch, ensuring crash-restart safety.
+    pub fn update_storage_pool_info(
+        &self,
+        event_index: u64,
+        event: &StoragePoolEvent,
+    ) -> Result<(), TypedStoreError> {
+        let latest_handled_event_index = self
+            .latest_handled_event_index
+            .lock()
+            .expect("mutex should not be poisoned");
+        if Self::has_event_been_handled(latest_handled_event_index.get(&())?, event_index) {
+            tracing::debug!("skip updating storage pool info for already handled event");
+            return Ok(());
+        }
+
+        if let Some(table) = &self.storage_pool_info {
+            let (storage_pool_id, operand) = match event {
+                StoragePoolEvent::StoragePoolCreated(created) => (
+                    &created.storage_pool_id,
+                    StoragePoolInfoMergeOperand::Create {
+                        start_epoch: created.start_epoch,
+                        end_epoch: created.end_epoch,
+                    },
+                ),
+                StoragePoolEvent::StoragePoolExtended(extended) => (
+                    &extended.storage_pool_id,
+                    StoragePoolInfoMergeOperand::Extend {
+                        end_epoch: extended.new_end_epoch,
+                    },
+                ),
+            };
+
+            let mut batch = table.batch();
+            batch.partial_merge_batch(table, [(storage_pool_id, operand.to_bytes())])?;
+            batch.insert_batch(&latest_handled_event_index, [(&(), event_index)])?;
+            batch.write()?;
+        } else {
+            panic!(
+                "we received a storage pool event but the storage pool info table is not enabled: \
+                {event:?}"
+            );
+        }
+        Ok(())
+    }
+
     /// Returns the latest event index that has been handled by the node.
     pub(crate) fn get_latest_handled_event_index(&self) -> Result<u64, TypedStoreError> {
         Ok(self
@@ -525,6 +616,100 @@ impl BlobInfoTable {
             .expect("acquire latest_handled_event_index lock should not fail")
             .get(&())?
             .unwrap_or(0))
+    }
+
+    /// Removes storage pool info entries whose end epoch has passed.
+    ///
+    /// This is expected to be called before
+    /// [`process_expired_blob_objects`][Self::process_expired_blob_objects] during garbage
+    /// collection.
+    ///
+    /// Processing is done in batches using `spawn_blocking` to avoid blocking the async runtime
+    /// and make it possible to abort the task if the node is shutting down.
+    #[tracing::instrument(skip_all, fields(walrus.epoch = %current_epoch))]
+    pub(crate) async fn process_expired_storage_pools(
+        &self,
+        current_epoch: Epoch,
+        node_metrics: &NodeMetricSet,
+        batch_size: usize,
+    ) -> anyhow::Result<()> {
+        if self.storage_pool_info.is_none() {
+            return Ok(());
+        }
+
+        tracing::info!("starting to garbage collect expired storage pool info");
+        let start_time = Instant::now();
+
+        let this = self.clone();
+        let node_metrics_clone = node_metrics.clone();
+        let deleted_count = process_items_in_batches(move |last_processed_pool_id| {
+            this.process_expired_storage_pool_batch(
+                last_processed_pool_id,
+                batch_size,
+                current_epoch,
+                &node_metrics_clone,
+            )
+        })
+        .await?;
+
+        tracing::info!(
+            deleted_count,
+            duration = ?start_time.elapsed(),
+            "finished garbage collecting storage pool info",
+        );
+        Ok(())
+    }
+
+    /// Garbage collects expired storage pool info entries in batches.
+    ///
+    /// This is intended to be driven by [`utils::process_items_in_batches`].
+    fn process_expired_storage_pool_batch(
+        &self,
+        last_processed_pool_id: Option<ObjectID>,
+        batch_size: usize,
+        current_epoch: Epoch,
+        node_metrics: &NodeMetricSet,
+    ) -> anyhow::Result<utils::BatchProcessingResult<ObjectID>> {
+        let table = self
+            .storage_pool_info
+            .as_ref()
+            .context("storage pool info table is not enabled")?;
+
+        let mut modified_count = 0;
+        let mut total_count = 0;
+        let mut last_processed_pool_id = last_processed_pool_id;
+        let mut batch = table.batch();
+
+        let start_bound = last_processed_pool_id.map_or(Unbounded, Bound::Excluded);
+
+        for result in table
+            .safe_range_iter((start_bound, Unbounded))?
+            .take(batch_size)
+        {
+            total_count += 1;
+            let (pool_id, info) = result.context("error iterating over storage pool info")?;
+            last_processed_pool_id = Some(pool_id);
+
+            if info.end_epoch() <= current_epoch {
+                tracing::debug!(
+                    %pool_id,
+                    end_epoch = info.end_epoch(),
+                    "deleting expired storage pool info"
+                );
+                batch.delete_batch(table, [pool_id])?;
+                modified_count += 1;
+                node_metrics
+                    .garbage_collection_expired_storage_pools_deleted_total
+                    .inc();
+            }
+        }
+        batch.write()?;
+
+        Ok(utils::BatchProcessingResult {
+            total_count,
+            modified_count,
+            last_processed_item: last_processed_pool_id,
+        })
     }
 
     /// Processes blobs that have expired in the given epoch.
@@ -894,6 +1079,18 @@ impl BlobInfoTable {
     ) -> Result<(), TypedStoreError> {
         batch.insert_batch(&self.per_object_blob_info, new_vals)?;
         Ok(())
+    }
+
+    /// Returns the storage pool info for the given storage pool ID.
+    #[cfg(test)]
+    pub fn get_storage_pool_info(
+        &self,
+        storage_pool_id: &ObjectID,
+    ) -> Result<Option<StoragePoolInfo>, TypedStoreError> {
+        match &self.storage_pool_info {
+            Some(table) => table.get(storage_pool_id),
+            None => Ok(None),
+        }
     }
 }
 

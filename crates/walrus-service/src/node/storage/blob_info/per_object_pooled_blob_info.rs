@@ -3,8 +3,6 @@
 
 //! Per-object blob info for storage pool blobs.
 
-#![allow(dead_code)]
-
 use std::fmt::Debug;
 
 use serde::{Deserialize, Serialize};
@@ -107,14 +105,14 @@ impl Mergeable for PerObjectPooledBlobInfoV1 {
             }
             // Register should never be applied to an existing entry.
             BlobStatusChangeType::Register => {
-                panic!(
+                unreachable!(
                     "cannot register an already registered pooled blob {}",
                     self.blob_id
                 );
             }
             // Extend doesn't apply to pooled blobs (pool controls lifetime).
             BlobStatusChangeType::Extend => {
-                panic!(
+                unreachable!(
                     "cannot extend a pooled blob {}; pool lifetime is managed by the pool",
                     self.blob_id
                 );

@@ -36,7 +36,9 @@ pub use events::{
     ProtocolEvent,
     ProtocolVersionUpdatedEvent,
     RegisterDenyListUpdateEvent,
+    StoragePoolCreatedEvent,
     StoragePoolEvent,
+    StoragePoolExtendedEvent,
 };
 
 pub mod move_structs;
