@@ -1,21 +1,138 @@
 ---
-title: Set a SuiNS Name
-description: "Guide to setting up SuiNS names for human-readable Walrus Sites domain names and portal browsing."
-keywords: ["walrus sites", "suins", "domain names", "naming", "portal", "sui blockchain", "human readable"]
+title: Setting a SuiNS Name
+description: "Complete guide to registering a SuiNS name and linking it to a Walrus Site for human-readable URLs on the wal.app portal."
+keywords: ["walrus sites", "suins", "domain names", "naming", "portal", "sui blockchain", "human readable", "custom domain"]
 ---
 
-{/* https://linear.app/mysten-labs/issue/DOCS-674/sitescustom-domainssetting-a-suins-name */}
+[Sui Name Service (SuiNS)](https://suins.io/) provides human-readable names for Walrus Sites, similar to how DNS works for websites. Instead of sharing a long Base36 subdomain like `1lupgq2auevjruy7hs9z7tskqwjp5cc8c5ebhci4v57qyl4piy.wal.app`, you can link a SuiNS name to your site's object ID and browse it at a readable address like `my-project.wal.app`.
 
-Browsing sites with Base36 subdomains, for example, `https://1lupgq2auevjruy7hs9z7tskqwjp5cc8c5ebhci4v57qyl4piy.wal.app`, is no longer possible using the `wal.app` portal. Base36 subdomains are still supported if you use a local server or an alternative portal. To browse walrus sites using the `wal.app` portal, [you must use SuiNS names instead](/docs/sites/custom-domains/setting-a-suins-name#get-a-suins-name).
+:::info
 
-SuiNS names are like DNS for Sui and are used to assign a human-readable name to a Walrus Site. To do so, you simply have to get a SuiNS name you like and point it to the object ID of the Walrus Site.
+Base36 subdomains are not supported on the `wal.app` portal. You must use a SuiNS name to browse Walrus Sites through `wal.app`. Base36 subdomains still work on [local servers and alternative portals](/docs/sites/portals/deploy-locally).
 
-## Get a SuiNS name
+:::
 
-Navigate to https://suins.io (Mainnet) or https://testnet.suins.io (Testnet) and buy a domain name with your wallet. At the moment, you can only select names that are composed of letters `a-z` and numbers `0-9`, but no special characters (for example, `-`).
+<div className="outlined-tabs">
+<Tabs>
+<TabItem value="prereq" label="Prerequisites">
+- [x] A deployed Walrus Site with a known object ID
+- [x] A Sui-compatible wallet funded with SUI to pay for the SuiNS name registration and transaction fees
+</TabItem>
+</Tabs>
+</div>
 
-## Map the SuiNS name to the Walrus Site
+## SuiNS names
 
-Now, you can set the SuiNS name to point to the address of your Walrus Site. To do so, go to the **Names You Own** section at [suins.io](https://suins.io/account/my-names) or [testnet.suins.io](https://testnet.suins.io/account/my-names) for Testnet, click on the three dot menu icon above the name you want to map, and click **Link To Walrus Site**. Paste in the bar the object ID of the Walrus Site, check that it is correct, and click **Apply**.
+A SuiNS name is an on-chain name registered on the Sui blockchain. When you link a SuiNS name to a Walrus Site, the `wal.app` portal reads the on-chain record and routes visitors to your site's content.
 
-After approving the transaction, you can now browse your site at https://your-domain.wal.app.
+SuiNS names follow these rules:
+
+- **Allowed characters:** Letters `a-z` and numbers `0-9` only.
+- **No special characters:** Hyphens, underscores, and other symbols are not supported.
+- **Immutable on registration:** Once a name is registered, the name itself cannot be changed, only the target it points to.
+
+Choose a name before you start. Because names are registered on-chain, each registration costs SUI. Verify the name is available and matches your intended use before completing the purchase.
+
+## Register a SuiNS name
+
+To register a SuiNS name, follow these steps:
+
+#### Step 1: Open the SuiNS registration portal
+
+Navigate to the registration portal for your target network:
+
+- **Mainnet:** [suins.io](https://suins.io)
+- **Testnet:** [testnet.suins.io](https://testnet.suins.io)
+
+#### Step 2: Connect your wallet
+
+Click **Connect Wallet** in the top-right corner of the page and select your wallet. Make sure the wallet is set to the correct network (Mainnet or Testnet) before connecting.
+
+#### Step 3: Search for a name
+
+Enter your preferred name in the search bar. The portal shows whether the name is available or already registered.
+
+#### Step 4: Purchase the name
+
+Select the name from the search results and follow the prompts to complete the purchase. The portal shows the registration cost in SUI before you confirm. The cost depends on the length of the name:
+
+- **3 characters:** 500 SUI per year
+- **4 characters:** 100 SUI per year
+- **5 or more characters:** 20 SUI per year
+
+Review the total cost, then approve the transaction in your wallet to finalize the registration.
+
+After the transaction confirms, the name appears under **Names You Own** in your account.
+
+## Find your Walrus Site object ID
+
+To link a SuiNS name to your Walrus Site, you need the site's object ID. This is the on-chain identifier for the Walrus Site object.
+
+If you deployed your site using the [`site-builder`](/docs/sites/getting-started/using-the-site-builder) CLI, the object ID is printed in the deployment output. Look for a line similar to the following:
+
+```
+New site object ID: 0x1234...abcd
+```
+
+You can also find the object ID by searching your wallet address in [Sui Explorer](https://suiexplorer.com) and locating the Walrus Site object in your owned objects.
+
+:::tip
+
+Copy and save the object ID before you start the linking process. You need to paste it exactly as it appears, without extra spaces or characters.
+
+:::
+
+## Link your SuiNS name to your Walrus Site
+
+After you have both a SuiNS name and a Walrus Site object ID, link them together on the SuiNS portal.
+
+#### Step 1: Open your account
+
+Go to the **Names You Own** section:
+
+- **Mainnet:** [suins.io/account/my-names](https://suins.io/account/my-names)
+- **Testnet:** [testnet.suins.io/account/my-names](https://testnet.suins.io/account/my-names)
+
+Connect your wallet if prompted.
+
+#### Step 2: Open the name menu
+
+Find the SuiNS name you want to link. Click the **3-dot menu** icon above the name to open its action menu.
+
+#### Step 3: Select the Walrus Site option
+
+Click **Link To Walrus Site** from the menu. A dialog opens with a text field for the site object ID.
+
+#### Step 4: Paste the object ID
+
+Paste your Walrus Site object ID into the text field. Verify that the ID matches exactly what was shown in your deployment output or Sui Explorer. An incorrect object ID points visitors to the wrong site or returns an error.
+
+#### Step 5: Apply the link
+
+Click **Apply**. Your wallet prompts you to approve the transaction. Review and confirm the transaction to write the link on-chain.
+
+After the transaction confirms, the SuiNS name points to your Walrus Site.
+
+## Browse your Walrus Site
+
+Once the link is confirmed on-chain, visit your site at the following address:
+
+```
+https://YOUR_SUINS_NAME.wal.app
+```
+
+Replace `YOUR_SUINS_NAME` with the name you registered. For example, if you registered `myproject`, browse to `https://myproject.wal.app`.
+
+The portal resolves the SuiNS name to your Walrus Site object ID and displays your site's content.
+
+:::info
+
+On-chain transactions take a few seconds to finalize. If your site does not load immediately after approving the transaction, wait a moment and refresh the page.
+
+:::
+
+## Update the link
+
+You can update the Walrus Site your SuiNS name points to at any time. This is useful when you redeploy a site and receive a new object ID.
+
+To update the link, repeat the [linking steps](#link-your-suins-name-to-your-walrus-site) with the new object ID. Each update requires a new on-chain transaction and costs a small gas fee.
