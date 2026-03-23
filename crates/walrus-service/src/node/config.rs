@@ -2326,6 +2326,31 @@ mod tests {
         Ok(())
     }
 
+    #[test]
+    fn load_config_rejects_storage_pool_on_mainnet_and_testnet() -> TestResult {
+        let mainnet_ids = contract_ids_from_yaml(MAINNET_CLIENT_CONFIG_YAML);
+        let testnet_ids = contract_ids_from_yaml(TESTNET_CLIENT_CONFIG_YAML);
+
+        let dir = TempDir::new()?;
+        for (label, ids) in [("mainnet", mainnet_ids), ("testnet", testnet_ids)] {
+            let yaml = base_user_yaml_with_sui(
+                ids.system_object,
+                ids.staking_object,
+                "enable_storage_pool: true",
+            );
+            let config_path = dir.path().join(format!("node-{label}.yaml"));
+            std::fs::write(&config_path, &yaml)?;
+
+            let err = StorageNodeConfig::load_config(&config_path)
+                .expect_err("should reject enable_storage_pool on {label}");
+            assert!(
+                err.to_string().contains("enable_storage_pool"),
+                "error message should mention enable_storage_pool, got: {err}"
+            );
+        }
+        Ok(())
+    }
+
     fn base_user_yaml(extra: &str) -> String {
         let base = indoc! {"
             name: test-node
