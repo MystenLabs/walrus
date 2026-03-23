@@ -79,7 +79,7 @@ jsonwebtoken = { version = "10.3.0", features = ["rust_crypto"] }
 libc = "0.2"
 md5 = "0.8.0"
 mime = "0.3.17"
-mockall = "0.12.1"
+mockall = "0.14.0"
 move-core-types = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.68.0" }
 move-package = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.68.0" }
 move-package-alt = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.68.0" }
