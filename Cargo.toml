@@ -50,7 +50,7 @@ colored = "3.1.1"
 const-str = "0.6.4"
 criterion = "0.8.2"
 diesel = { version = "2.2", features = ["chrono", "postgres", "serde_json", "uuid"] }
-diesel-async = { version = "0.5", features = ["postgres"] }
+diesel-async = { version = "0.6", features = ["postgres"] }
 diesel_migrations = { version = "2.2.0", features = ["postgres"] }
 enum_dispatch = "0.3"
 eyre = "0.6.12"
