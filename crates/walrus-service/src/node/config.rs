@@ -614,6 +614,17 @@ impl StorageNodeConfig {
         let config: StorageNodeConfig = serde_yaml::from_value(merged_value.clone())
             .with_context(|| format!("unable to deserialize merged config: {merged_value:?}",))?;
         config.validate()?;
+
+        // TODO(WAL-1184): remove this check when rolling out storage pool.
+        if config.enable_storage_pool
+            && matches!(network_kind, NetworkKind::Mainnet | NetworkKind::Testnet)
+        {
+            anyhow::bail!(
+                "enable_storage_pool cannot be set to true on {network_kind:?}; \
+                storage pool DB tables are still under development and subject to change"
+            );
+        }
+
         Ok(LoadedConfig {
             config_path: path.to_path_buf(),
             config,
