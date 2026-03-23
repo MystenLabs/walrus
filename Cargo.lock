@@ -2083,6 +2083,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "colored"
+version = "3.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "faf9468729b8cbcea668e36183cb69d317348c2e08e994829fb56ebfdfbaac34"
+dependencies = [
+ "windows-sys 0.61.1",
+]
+
+[[package]]
 name = "combine"
 version = "4.6.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5845,7 +5854,7 @@ source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.68.0#16bf4d124ac5
 dependencies = [
  "anyhow",
  "bcs",
- "colored",
+ "colored 2.2.0",
  "dirs-next",
  "hex",
  "insta",
@@ -5927,7 +5936,7 @@ dependencies = [
  "bcs",
  "clap",
  "codespan",
- "colored",
+ "colored 2.2.0",
  "indexmap 2.13.0",
  "lcov",
  "move-abstract-interpreter",
@@ -6060,7 +6069,7 @@ source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.68.0#16bf4d124ac5
 dependencies = [
  "anyhow",
  "clap",
- "colored",
+ "colored 2.2.0",
  "dunce",
  "itertools 0.10.5",
  "move-binary-format",
@@ -6098,7 +6107,7 @@ dependencies = [
  "bimap",
  "clap",
  "codespan-reporting",
- "colored",
+ "colored 2.2.0",
  "derive-where",
  "fs4",
  "futures",
@@ -6138,7 +6147,7 @@ source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.68.0#16bf4d124ac5
 dependencies = [
  "anyhow",
  "clap",
- "colored",
+ "colored 2.2.0",
  "dunce",
  "move-binary-format",
  "move-bytecode-source-map",
@@ -10657,7 +10666,7 @@ source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.68.0#16bf4d124ac5
 dependencies = [
  "anyhow",
  "bcs",
- "colored",
+ "colored 2.2.0",
  "enum_dispatch",
  "fastcrypto 0.1.9 (git+https://github.com/MystenLabs/fastcrypto?rev=db643fd05a1b1c4cd52de3939766b53e12ce137e)",
  "itertools 0.13.0",
@@ -10694,7 +10703,7 @@ dependencies = [
  "base64 0.21.7",
  "bcs",
  "bip32",
- "colored",
+ "colored 2.2.0",
  "fastcrypto 0.1.9 (git+https://github.com/MystenLabs/fastcrypto?rev=db643fd05a1b1c4cd52de3939766b53e12ce137e)",
  "jsonrpc",
  "mockall 0.11.4",
@@ -11208,7 +11217,7 @@ dependencies = [
  "base64 0.21.7",
  "bcs",
  "clap",
- "colored",
+ "colored 2.2.0",
  "fastcrypto 0.1.9 (git+https://github.com/MystenLabs/fastcrypto?rev=db643fd05a1b1c4cd52de3939766b53e12ce137e)",
  "futures",
  "futures-core",
@@ -13446,7 +13455,7 @@ dependencies = [
  "chrono",
  "clap",
  "clap_complete",
- "colored",
+ "colored 3.1.1",
  "diesel",
  "diesel-async",
  "diesel_migrations",
