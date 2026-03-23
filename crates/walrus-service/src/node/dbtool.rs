@@ -307,11 +307,12 @@ impl DbToolCommands {
     }
 }
 
-fn repair_db(db_path: PathBuf) -> Result<()> {
-    let mut opts = RocksdbOptions::default();
-    opts.create_if_missing(true);
-    opts.set_max_open_files(512_000);
-    DB::repair(&opts, db_path).map_err(Into::into)
+fn repair_db(_db_path: PathBuf) -> Result<()> {
+    println!(
+        "WARNING: The repair-db command is currently disabled. \
+        Please contact the Walrus team for assistance with database recovery."
+    );
+    Ok(())
 }
 
 fn scan_events(db_path: PathBuf, start_event_index: u64, count: usize) -> Result<()> {
