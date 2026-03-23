@@ -1,14 +1,14 @@
 ---
 title: Bringing Your Own Domain
 description: "Complete guide to configuring a custom DNS domain for a Walrus Site by deploying a local portal and pointing your domain to it."
-keywords: ["walrus sites", "custom domain", "dns configuration", "portal setup", "domain registration", "byod", "hosting", "bring your own domain"]
+keywords: ["walrus sites", "custom domain", "dns configuration", "portal setup", "domain registration", "hosting", "bring your own domain"]
 ---
 
 By default, Walrus Sites are served through a portal at a subdomain address like `https://example.wal.app`. If you want to serve your site at a classic DNS domain you own, for example `https://example.com`, you can do so by deploying your own portal and configuring it to serve only your site.
 
 :::info
 
-This guide requires you to deploy and run your own portal. The public `wal.app` portal does not support custom DNS domains. For an alternative approach that does not require running your own portal, see [Setting a SuiNS Name](./setting-a-suins-name).
+This guide requires you to deploy and run your own portal. The public `wal.app` portal does not support custom DNS domains. For an alternative approach that does not require running your own portal, see [Setting a SuiNS Name](/docs/sites/custom-domains/setting-a-suins-name).
 
 :::
 
@@ -21,7 +21,7 @@ When a visitor navigates to your domain, their request reaches your portal. The 
 - [x] A custom domain registered through a domain registrar
 - [x] A server or hosting environment where you can run the Walrus Sites portal (with a public IP address)
 - [x] Access to your domain's DNS settings
-- [x] The Walrus Sites portal repository cloned and set up locally, see [Deploy a Local Portal](/docs/sites/portals/deploy-locally)
+- [x] The Walrus Sites portal repository cloned and set up locally, per [Deploy a Local Portal](/docs/sites/portals/deploy-locally)
 </TabItem>
 </Tabs>
 </div>
@@ -98,16 +98,15 @@ Environment variables are still supported for backward compatibility and overrid
 After editing `portal-config.yaml`, restart your portal server for the changes to take effect.
 
 ## Deploy your portal to a server
- 
+
 Your portal must be accessible from a public IP address so that DNS can route traffic to it. The process for this depends on your hosting environment.
- 
+
 If you are hosting on a virtual machine (for example, on AWS, GCP, or DigitalOcean), start the portal server on the machine and note its public IP address. The portal listens on a specific port, which you configure as part of the [local portal deployment](/docs/sites/portals/deploy-locally).
- 
- 
+
 ## Configure your DNS
- 
-Once your portal is running and accessible at a public IP address, configure your domain's DNS to point to it. See [Configure DNS for a Walrus Site](./configure-dns) for a full guide on adding DNS records, pointing subdomains, verifying propagation, and troubleshooting.
- 
+
+Once your portal is running and accessible at a public IP address, configure your domain's DNS to point to it. See [DNS Configuration](/docs/sites/custom-domains/dns-configuration) for a full guide on adding DNS records, pointing subdomains, verifying propagation, and troubleshooting.
+
 ## Update the site content
- 
+
 When you redeploy your Walrus Site and receive a new object ID, update the `landing_page_oid_b36` value in `portal-config.yaml` with the new base36 object ID and restart the portal. Your custom domain continues to work without any DNS changes because the domain still points to the same portal server.
