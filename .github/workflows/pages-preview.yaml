@@ -23,12 +23,12 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # pin@v6.0.2
       - name: Install pnpm
-        uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # pin@v4.2.0
+        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # pin@v5.0.0
         with:
           version: 9
         if: github.event.action != 'closed'
       - name: Setup Node.js
-        uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # pin@v6.2.0
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # pin@v6.3.0
         with:
           node-version: '20'
           cache: 'pnpm'
@@ -47,12 +47,12 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # pin@v6.0.2
       - name: Install pnpm
-        uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # pin@v4.2.0
+        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # pin@v5.0.0
         with:
           version: 9
         if: github.event.action != 'closed'
       - name: Setup Node.js
-        uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # pin@v6.2.0
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # pin@v6.3.0
         with:
           node-version: '20'
           cache: 'pnpm'
@@ -75,7 +75,7 @@ jobs:
     if: github.event.action != 'closed' && github.repository_owner == 'MystenLabs'
     steps:
       - name: Wait for GitHub Pages deployment
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             // Wait for the Pages deployment triggered by the gh-pages push
@@ -106,7 +106,7 @@ jobs:
             core.warning('Timed out waiting for Pages deployment, proceeding anyway');
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: 22
 
@@ -121,7 +121,7 @@ jobs:
           URL: https://MystenLabs.github.io/walrus/pr-preview/pr-${{ github.event.number }}/
 
       - name: Comment on PR
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const marker = '<!-- afdocs-check -->';
