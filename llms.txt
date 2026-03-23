@@ -244,18 +244,17 @@ Important notes:
 - [Using The Site
     Builder](https://docs.wal.app/docs/sites/getting-started/using-the-site-builder.md): This
     reference page provides details on site-builder configuration and CLI commands.
-- [Sites](https://docs.wal.app/docs/sites.md): This tutorial walks you through the steps necessary
-    to publish a Walrus Site. We also provide the instructions on how to add a SuiNS name to it for
-    convenient browsing. Install and setup the Walrus Sites site-builder tool for development.
-    Publish your first Walrus Site using the site-builder tool.
-- [Components](https://docs.wal.app/docs/sites/introduction/components.md): Walrus Sites are
-    "web"-sites that use Sui and Walrus as their underlying technology. They are a prime example of
-    how Walrus can be used to build new and exciting decentralized applications. Anyone can build
-    and deploy a Walrus Site and make it accessible to the world!
-- [Technical Overview](https://docs.wal.app/docs/sites/introduction/technical-overview.md): Walrus
-    Sites are enabled by Sui and Walrus. The resources of a Walrus Site (html, css, js, images, and
-    so on) are stored on Walrus, while the main entry point to it is an object stored on Sui that
-    contains the metadata for the site and points to the Walrus blob IDs.
+- [Sites](https://docs.wal.app/docs/sites.md): Walrus Sites are decentralized websites built on Sui
+    and Walrus. Your site's files are stored on Walrus, a decentralized storage network, while a
+    Sui smart contract records ownership and maps each resource path to its content.
+- [Components](https://docs.wal.app/docs/sites/introduction/components.md): A Walrus Site is made
+    up of 4 main components that work together: the site's files stored on Walrus, a Sui object
+    that indexes those files as resources, the site-builder CLI that publishes and updates the
+    site, and a portal that serves the site to browsers.
+- [Technical Overview](https://docs.wal.app/docs/sites/introduction/technical-overview.md): A
+    Walrus Site is a static web site published entirely on-chain, with no origin server. Sui stores
+    the site's ownership and resource index, and Walrus stores the resource files themselves. A
+    portal bridges these systems and serves the site to the browser over standard HTTP.
 - [Known Restrictions](https://docs.wal.app/docs/sites/known-restrictions.md): Walrus Sites can be
     used to deploy almost any form of traditional static Web2 website built for modern browsers.
     There are, however, a number of restrictions that a developer should keep in mind when creating
@@ -286,6 +285,9 @@ Important notes:
     Walrus Sites authenticate the data that is served on the client side from the Walrus storage,
     guaranteeing with various degrees of confidence depending on the setup, that the site data is
     authentic and has not been tampered with by a malicious aggregator.
+- [Troubleshooting](https://docs.wal.app/docs/sites/troubleshooting.md): This page provides
+    solutions to common errors when deploying and browsing Walrus Sites. Errors in this section
+    relate to site-builder configuration. The site-builder binary is not in your $PATH.
 
 ## Troubleshooting
 

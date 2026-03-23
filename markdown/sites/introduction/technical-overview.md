@@ -1,111 +1,47 @@
-{/* https://linear.app/mysten-labs/issue/DOCS-661/sitesintroductiontechnical-overview */}
+A Walrus Site is a static web site published entirely on-chain, with no origin server. [Sui](https://docs.sui.io/) stores the site's ownership and resource index, and Walrus stores the resource files themselves. A portal bridges these systems and serves the site to the browser over standard HTTP.
 
-Walrus Sites are enabled by Sui and Walrus. The resources of a Walrus Site (`html`, `css`, `js`, images, and so on) are stored on Walrus, while the main entry point to it is an object stored on Sui that contains the metadata for the site and points to the Walrus blob IDs.
+This page explains how those pieces fit together. For a description of each component in detail, see [Walrus Sites Components](/docs/sites/introduction/components).
 
-A Walrus `Site` is represented on Sui as an object:
+## Publishing a site
 
-``` move
-struct Site has key, store {
-    id: UID,
-    name: String,
-}
-```
+When you run [`site-builder deploy`](/docs/sites/getting-started/using-the-site-builder#deploy), the CLI tool performs 2 operations in sequence.
 
-The resources associated with this site are then added to this object as [dynamic fields](https://docs.sui.io/concepts/versioning#dynamic-fields) of type `Resource`:
+First, it uploads your site's files to Walrus by batching all files into a single storage unit called a [Walrus quilt](/docs/system-overview/quilt). Walrus returns a `QuiltPatchID` for each file.
 
-``` move
-struct Resource has store, drop {
-    path: String,
-    // The walrus blob id containing the bytes for this resource
-    blob_id: u256,
-    ⋮
-}
-```
+Second, it writes a site object to Sui. This object acts as an on-chain index: it records the URL path of every resource in your site alongside the Walrus identifier needed to retrieve it. The wallet that signs this transaction becomes the owner of the site object and is the only wallet that can update or destroy it.
 
-Importantly, each resource contains:
+After publishing, your site exists entirely on-chain and in Walrus storage. No server is required to keep it available.
 
-- The `path` of the resource, for example `/index.html`. All the paths are always represented as starting from root `/`.
+## Resolving and serving a site
 
-- The `blob_id`, which is the Walrus blob ID where the resource can be found.
+Visitors access a Walrus Site through a portal. A portal is a service that translates a browser request into Sui and Walrus lookups, then returns a standard HTTP response. Anyone can run a portal. The Mainnet portal at [https://wal.app](https://wal.app) is operated by Mysten Labs.
 
-- Additional fields.
+When a visitor navigates to a Walrus Site URL, the portal works through the following sequence:
 
-These `Resource` dynamic fields are keyed with a struct of type `ResourcePath`:
+1. **Identify the site.** The portal reads the subdomain of the request URL and resolves it to a Sui object ID. The subdomain is either a SuiNS name or a Base36-encoded object ID (see [Domain isolation](#domain-isolation)).
+2. **Look up the resource.** The portal fetches the site object's dynamic fields from Sui and finds the entry that matches the requested URL path. This entry contains the Walrus identifier for the resource and any custom response headers.
+3. **Fetch the content.** The portal retrieves the resource bytes from a Walrus aggregator using that identifier. Because site resources are stored as quilt patches, only the requested patch is reconstructed (the full quilt is not downloaded).
+4. **Return the response.** The portal sends the bytes back to the browser with the headers from the site object.
 
-``` move
-struct ResourcePath has copy, store, drop {
-    path: String,
-}
-```
+The portal repeats this sequence for every resource the browser subsequently requests, for example, stylesheets, scripts, or images referenced by `index.html`.
 
-This struct holds the string of the path (`/index.html`) and ensures that there are no namespace collisions with other dynamic fields possibly added by other packages.
+![Diagram showing the end-to-end resolution of a Walrus Site request, from browser through portal, SuiNS, Sui dynamic fields, and Walrus aggregator.](images/walrus-sites-portal-diagram-with-quilts.svg)
 
-To see this in action, look at [a Walrus Site in the explorer](https://suiscan.xyz/testnet/object/0xd20b90149409ba5d005d4a2cd981db9494bc3cdb2f04c47ca1af98dd8f71610a), and check its dynamic fields.
+## Domain isolation
 
-### The site rendering path
+Walrus Sites served through a shared portal must be isolated from each other. Without isolation, one site could read cookies or access wallet state from another. To enforce isolation, each site is served from a unique subdomain of the portal's domain so that the browser's same-origin policy keeps them separate.
 
-Given the Sui object ID of a Walrus Site, it is easy to look up the resources that compose it by looking at the dynamic fields, and then fetch these resources from Walrus using the blob ID contained in the `Resource` struct.
+The subdomain is derived from the site's Sui object ID in one of 2 ways:
 
-A few approaches to perform these lookups on the client are:
-
-- Having a server that accepts requests for a Sui object ID and possibly a path, then performs this resolution on behalf of the client, serving back the resource as a standard HTML response.
-
-- Using a custom application on the client that has both a web browser and knowledge of how Walrus Sites work, and can locally perform this resolution.
-
-- A hybrid approach based on service workers, where a service worker that is able to perform the resolution is installed in the browser from a portal.
-
-Currently, the server-side and the service-worker based approaches are provided.
-
-All of these approaches are viable and have trade-offs. The first has been used for similar applications in IPFS gateways, for example. 
-
-### Browsing and domain isolation
-
-You must ensure that when browsing multiple sites through a portal, for example the one hosted at https://wal.app, these sites are isolated. Isolation is necessary for security and to ensure that the wallet connection in the browser works as expected.
-
-To do so, each Walrus Site is given a specific subdomain of the portal's domain. For example, the Flatland dApp is hosted at https://flatland.wal.app, where the subdomain `flatland` is uniquely associated to the object ID of the Walrus Site through SuiNS.
-
-Walrus Sites also work without SuiNS. When a site is accessed through a self-hosted portal, or through a portal that supports Base36 domain resolution, a site can be browsed by using as subdomain the Base36 encoding of the Sui object ID of the site.
+- **SuiNS name:** A human-readable name registered through [SuiNS](https://suins.io/) and pointed at the site's object ID, for example `flatland` in `https://flatland.wal.app`.
+- **Base36-encoded object ID:** The full object ID re-encoded in Base36, which fits within the 63-character subdomain limit (a hex-encoded Sui object ID requires 64 characters) and is case-insensitive, unlike Base64 or Base58.
 
 :::danger
 
-The `wal.app` portal does not support Base36 domain resolution. https://58gr4pinoayuijgdixud23441t55jd94ugep68fsm72b8mwmq2.wal.app is not a valid URL. If you want to access such a site, you should either use another portal or [host your own](/docs/sites/portals/deploy-locally#running-a-local-portal).
+The `wal.app` portal does not support Base36 domain resolution. To access a site by its raw object ID, use a self-hosted portal or [run a local portal](/docs/sites/portals/deploy-locally).
 
 :::
 
-Base36 was chosen for 2 reasons, forced by the subdomain standards:
+## Ownership and updates
 
-1. A subdomain can have at most 63 characters, while a hex-encoded Sui object ID requires 64.
-
-1. A subdomain is case insensitive, ruling out other popular encodings, for example, Base64 or Base58.
-
-## Walrus Site portals
-
-There are 2 types of portals provided to browse Walrus Sites:
-
-- The server-side portal, which is a server that resolves a Walrus Site, returning it to the browser. The server-side portal is hosted at https://wal.app. This portal only supports sites that are associated with a SuiNS name.
-
-- The service-worker portal, which is a service worker that is installed in the browser and resolves a Walrus Site. The service-worker portal is no longer hosted at a specific domain, but the code is still maintained so that it can be used by anyone.
-
-The following section shows in greater detail how a Walrus Site is rendered in a client's browser using a generic portal. Depending on the different type of portal, some details might differ, but the general picture remains unchanged.
-
-### The end-to-end resolution of a Walrus Site
-
-The steps below all reference the following figure:
-
-![Walrus Site resolution](images/walrus-sites-portal-diagram-with-quilts.svg)
-
-1. **Site publishing** (step 0 in the diagram): The site developer publishes the Walrus Site using the [`site-builder`](#the-site-builder), or making use of a publisher. Assume the developer uses the SuiNS name `dapp.sui` to point to the object ID of the created Walrus Site.
-
-2. **Browsing starts** (step 1 in the diagram): A client browses `dapp.wal.app/index.html` in their browser.
-
-3. **Site resolution** (steps 2-6 in the diagram): The portal interprets its origin `dapp.wal.app`, and makes a SuiNS resolution for `dapp.sui`, obtaining the related object ID. Using the object ID, it then fetches the dynamic fields of the object, also checking [redirects](/docs/sites/portals/deploy-locally). From the dynamic fields, it selects the one for `/index.html`, and extracts its Walrus blob ID and headers (see the [advanced section on headers](/docs/sites/configuration/setting-up-routing-rules)).
-
-- **Blob fetch** (steps 7-11 in the diagram): Given the blob ID, the portal queries a Walrus aggregator for the blob data.
-
-- **Returning the response** (steps 12-13 in the diagram): Now that the portal has the bytes for `/index.html`, and its headers, it can craft a response that is then rendered by the browser.
-
-These steps are executed for all resources the browser might query thereafter, for example, if `/index.html` points to `assets/cat.png`.
-
-## `site-builder`
-
-To facilitate the creation of Walrus Sites, the `site-builder` tool is provided. The `site-builder` takes care of creating Walrus Sites object on Sui, with the correct structure, and stores the site resources to Walrus. Refer to the [tutorial](/docs/sites) for setup and usage instructions.
+Because a Walrus Site is a standard Sui object, it participates in Sui's ownership model. The owner can transfer, share, or destroy the site object, and can assign it a SuiNS name. Updating a site re-uploads all resource files to Walrus as a new quilt and updates the on-chain index to point to the new content. The site's Sui object ID does not change between updates, so any SuiNS name or bookmark pointing to it remains valid.
