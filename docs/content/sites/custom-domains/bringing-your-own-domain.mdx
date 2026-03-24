@@ -17,11 +17,11 @@ When a visitor navigates to your domain, their request reaches your portal. The 
 <div className="outlined-tabs">
 <Tabs>
 <TabItem value="prereq" label="Prerequisites">
-- [x] A deployed Walrus Site with a known object ID (in base36)
-- [x] A custom domain registered through a domain registrar
-- [x] A server or hosting environment where you can run the Walrus Sites portal (with a public IP address)
+- [x] A [deployed Walrus Site](/docs/sites/getting-started/publishing-your-first-site) with a known object ID (in base36)
+- [x] A custom domain registered through a domain registrar, such as [Cloudflare](https://www.cloudflare.com/products/registrar/)
+- [x] A server or hosting environment where you can run the Walrus Sites portal (with a public IP address), such as [DigitalOcean](https://www.digitalocean.com/products/droplets), [AWS EC2](https://aws.amazon.com/ec2/), or [GCP Compute Engine](https://cloud.google.com/products/compute)
 - [x] Access to your domain's DNS settings
-- [x] The Walrus Sites portal repository cloned and set up locally, per [Deploy a Local Portal](/docs/sites/portals/deploy-locally)
+- [x] The Walrus Sites portal repository cloned and [set up locally](/docs/sites/portals/deploy-locally)
 </TabItem>
 </Tabs>
 </div>
@@ -50,13 +50,26 @@ Once you have a [local portal set up](/docs/sites/portals/deploy-locally), confi
 
 Copy the appropriate example config file for your target network:
 
-```sh
-# Mainnet
-$ cp ./portal/server/portal-config.mainnet.example.yaml ./portal/server/portal-config.yaml
+<div className="outlined-tabs">
+<Tabs>
+<TabItem value="mainnet" label="Mainnet config">
 
-# Testnet
+```sh
+$ cp ./portal/server/portal-config.mainnet.example.yaml ./portal/server/portal-config.yaml
+```
+
+</TabItem>
+
+<TabItem value="testnet" label="Testnet config">
+
+``` sh
 $ cp ./portal/server/portal-config.testnet.example.yaml ./portal/server/portal-config.yaml
 ```
+
+</TabItem>
+
+</Tabs>
+</div>
 
 Open `portal-config.yaml` and update the following fields:
 
@@ -82,12 +95,12 @@ aggregator_urls:
     metric: 100
 ```
 
-- **`landing_page_oid_b36`:** The base36 object ID of your Walrus Site. The portal uses this to identify which site to serve at your root domain.
-- **`bring_your_own_domain`:** Set this to `true`. When enabled, the portal serves only the site specified by `landing_page_oid_b36` and rejects requests for any other subdomain with a 404 error.
-- **`network`:** Set to `mainnet` or `testnet` to match the network your site is deployed on.
-- **`site_package`:** The Sui object ID of the Walrus Sites package. The correct value for each network is already present in the example files.
-- **`rpc_urls`:** One or more Sui RPC nodes the portal uses to read on-chain data.
-- **`aggregator_urls`:** One or more Walrus aggregator nodes the portal uses to fetch site content.
+- `landing_page_oid_b36`: The base36 object ID of your Walrus Site. The portal uses this to identify which site to serve at your root domain.
+- `bring_your_own_domain`: Set this to `true`. When enabled, the portal serves only the site specified by `landing_page_oid_b36` and rejects requests for any other subdomain with a 404 error.
+- `network`: Set to `mainnet` or `testnet` to match the network your site is deployed on.
+- `site_package`: The Sui object ID of the Walrus Sites package. The correct value for each network is already present in the example files.
+- `rpc_urls`: One or more Sui RPC nodes the portal uses to read on-chain data.
+- `aggregator_urls`: One or more Walrus aggregator nodes the portal uses to fetch site content.
 
 :::info
 

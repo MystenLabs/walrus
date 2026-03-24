@@ -1,5 +1,5 @@
 ---
-title: DNS Configuration
+title: Portal DNS Configuration
 description: "Guide to configuring DNS records to point your custom domain to a self-hosted Walrus Sites portal."
 keywords: ["walrus sites", "custom domain", "dns configuration", "a record", "cname", "dns propagation", "reverse proxy", "https", "tls"]
 ---
@@ -44,19 +44,25 @@ Some domain registrars let you set up automatic redirects from `www` to your roo
 :::
 
 ## Set up HTTPS with a reverse proxy
+ 
+:::info
 
-Running your portal directly on port 443 with a TLS certificate requires a reverse proxy. A reverse proxy like Nginx or Caddy sits in front of your portal, handles TLS termination, and forwards requests to the portal process running on a local port.
+The Walrus Sites repo provides 2 first-party deployment options for the portal server: a [Dockerfile](https://github.com/MystenLabs/walrus-sites/blob/main/portal/docker/server/Dockerfile) for self-hosted deployments and a [`vercel.json`](https://github.com/MystenLabs/walrus-sites/blob/main/portal/server/vercel.json) for deploying on [Vercel](https://vercel.com), which handles TLS automatically. If either of those fits your setup, you do not need a reverse proxy.
 
-The following is an example Nginx configuration that proxies HTTPS traffic to a portal running on port 3000:
-
+:::
+ 
+If you are running the portal directly on a Linux server, it listens on port 3000 with no built-in TLS. To serve HTTPS traffic you need a reverse proxy in front of it. A reverse proxy like [Nginx](https://nginx.org/en/docs/) or [Caddy](https://caddyserver.com/docs/) sits in front of your portal, handles TLS termination, and forwards requests to the portal process on its local port.
+ 
+The following is a general-purpose [Nginx](https://nginx.org/en/docs/) configuration that proxies HTTPS traffic to a portal running on port 3000. This is not an officially supported Walrus Sites configuration — adapt it to your environment:
+ 
 ```nginx title='nginx.conf'
 server {
     listen 443 ssl;
     server_name example.com;
-
+ 
     ssl_certificate /etc/letsencrypt/live/example.com/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/example.com/privkey.pem;
-
+ 
     location / {
         proxy_pass http://localhost:3000;
         proxy_set_header Host $host;
@@ -64,14 +70,16 @@ server {
     }
 }
 ```
-
-Replace `example.com` with your domain and adjust the port to match your portal's configured port. Use Certbot to obtain a free TLS certificate from Let's Encrypt:
-
+ 
+Replace `example.com` with your domain and adjust the port if your portal is configured differently.
+ 
+Any standard TLS certificate works here. [Certbot](https://certbot.eff.org/) with [Let's Encrypt](https://letsencrypt.org/) is a common free option that automates certificate issuance and renewal:
+ 
 ```sh
 $ certbot --nginx -d example.com
 ```
-
-Certbot automatically edits your Nginx config to reference the certificate and sets up automatic renewal.
+ 
+Certbot edits your Nginx config to reference the certificate and configures automatic renewal. [Caddy](https://caddyserver.com/docs/automatic-https) is an alternative that handles TLS automatically without a separate certificate step.
 
 ## Verify DNS propagation
 

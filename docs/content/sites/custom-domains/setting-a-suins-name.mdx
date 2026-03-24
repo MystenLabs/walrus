@@ -4,7 +4,7 @@ description: "Complete guide to registering a SuiNS name and linking it to a Wal
 keywords: ["walrus sites", "suins", "domain names", "naming", "portal", "sui blockchain", "human readable", "custom domain"]
 ---
 
-[Sui Name Service (SuiNS)](https://suins.io/) provides human-readable names for Walrus Sites, similar to how DNS works for websites. Instead of sharing a long Base36 subdomain like `1lupgq2auevjruy7hs9z7tskqwjp5cc8c5ebhci4v57qyl4piy.wal.app`, you can link a SuiNS name to your site's object ID and browse it at a readable address like `my-project.wal.app`.
+[Sui Name Service (SuiNS)](https://suins.io/) provides human-readable names for Walrus Sites, similar to how DNS works for websites. Instead of sharing a long base36 subdomain like `1lupgq2auevjruy7hs9z7tskqwjp5cc8c5ebhci4v57qyl4piy.wal.app`, you can link a SuiNS name to your site's object ID and browse it at a readable address like `my-project.wal.app`.
 
 :::info
 
@@ -15,16 +15,16 @@ Base36 subdomains are not supported on the `wal.app` portal. You must use a SuiN
 <div className="outlined-tabs">
 <Tabs>
 <TabItem value="prereq" label="Prerequisites">
-- [x] A deployed Walrus Site with a known object ID
-- [x] A Sui-compatible wallet funded with SUI to pay for the SuiNS name registration and transaction fees
-- [x] Access to [suins.io](https://suins.io) (Mainnet) or [testnet.suins.io](https://testnet.suins.io) (Testnet)
+- [x] A [deployed Walrus Site](/docs/sites/getting-started/publishing-your-first-site) with a known object ID
+- [x] A [Sui-compatible wallet](https://docs.sui.io/guides/developer/wallets/what-is-a-wallet) funded with SUI to pay for the SuiNS name registration and transaction fees
+- [x] A wallet connected to [suins.io](https://suins.io) (Mainnet) or [testnet.suins.io](https://testnet.suins.io) (Testnet) to register and manage names
 </TabItem>
 </Tabs>
 </div>
 
 ## SuiNS names
 
-A SuiNS name is an on-chain name registered on the Sui blockchain. When you link a SuiNS name to a Walrus Site, you set the Walrus Site object ID on the SuiNS name record. The `wal.app` portal reads that record and routes visitors to your site's content.
+A [SuiNS name](https://docs.suins.io/) is an on-chain name registered on the Sui blockchain. When you link a SuiNS name to a Walrus Site, you set the Walrus Site object ID on the SuiNS name record. The `wal.app` portal reads that record and routes visitors to your site's content.
 
 SuiNS names follow these rules:
 
@@ -68,18 +68,18 @@ After the transaction confirms, the name appears under **Names You Own** in your
 
 ## Find your Walrus Site object ID
 
-To link a SuiNS name to your Walrus Site, you need the site's object ID. This is the on-chain identifier for the Walrus Site object.
-
 If you deployed your site using the [`site-builder`](/docs/sites/getting-started/using-the-site-builder) CLI, the object ID is printed in the deployment output. Look for a line similar to the following:
-
+ 
 ```
 New site object ID: 0x617221edd060dafb4070b73160ebf535e1516bf7f246890ed35190eba786d7ac
 ```
-
+ 
 You can also find the object ID by searching your wallet address in [Sui Explorer](https://suivision.xyz) and locating the Walrus Site object in your owned objects.
-
+ 
 :::tip
+
 Copy and save the object ID before you start the linking process. You need to paste it exactly as it appears, without extra spaces or characters.
+
 :::
 
 ## Link your SuiNS name to your Walrus Site
@@ -131,6 +131,6 @@ On-chain transactions take a few seconds to finalize. If your site does not load
 
 ## Update the link
 
-You can update the Walrus Site your SuiNS name points to at any time. This is useful when you redeploy a site and receive a new object ID.
-
+You can update the Walrus Site your SuiNS name points to at any time. This is useful when you run `site-builder deploy` to publish a new version of your site and the command produces a new site object ID.
+ 
 To update the link, repeat the [linking steps](#link-your-suins-name-to-your-walrus-site) with the new object ID. Each update requires a new on-chain transaction and costs a small gas fee.
