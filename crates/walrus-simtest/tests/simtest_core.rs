@@ -1672,4 +1672,99 @@ mod tests {
         );
         blob_info_consistency_check.check_storage_node_consistency();
     }
+
+    /// Tests that blob info remains consistent when the previous epoch's data deletion (phase 2)
+    /// overlaps with the next epoch's blob info cleanup (phase 1). A fail point delays data
+    /// deletion so it spans the epoch boundary.
+    #[ignore = "ignore integration simtests by default"]
+    #[walrus_simtest]
+    async fn test_gc_phase2_overlaps_with_next_epoch_phase1() {
+        const TARGET_EPOCH: Epoch = 6;
+        const EPOCH_DURATION: Duration = Duration::from_secs(10);
+        const DATA_LENGTH: usize = 64;
+        const BLOBS_PER_WRITE: usize = 20;
+
+        let blob_info_consistency_check = BlobInfoConsistencyCheck::new();
+        let communication_config = ClientCommunicationConfig {
+            sliver_write_extra_time: SliverWriteExtraTime {
+                factor: 0.,
+                base: Duration::ZERO,
+            },
+            ..ClientCommunicationConfig::default_for_test_with_reqwest_timeout(Duration::from_secs(
+                2,
+            ))
+        };
+
+        let (_sui_cluster, cluster, client, _, _) = test_cluster::E2eTestSetupBuilder::new()
+            .with_test_nodes_config(
+                TestNodesConfig::builder()
+                    .with_node_weights(&[10; 4])
+                    .build(),
+            )
+            .with_epoch_duration(EPOCH_DURATION)
+            .with_communication_config(communication_config)
+            .build_generic::<SimStorageNodeHandle>()
+            .await
+            .unwrap();
+
+        let client = Arc::new(client);
+
+        // Delay data deletion (phase 2) so it overlaps with the next epoch's phase 1.
+        register_fail_point_async("data_deletion_start", || async {
+            tracing::info!("delaying data deletion by 15 seconds");
+            tokio::time::sleep(Duration::from_secs(15)).await;
+        });
+
+        // Write blobs that expire after 1 epoch so there is GC work every epoch.
+        let successful_writes = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let successful_writes_clone = successful_writes.clone();
+        let workload_handle = tokio::spawn(async move {
+            let mut rng = rand::rngs::StdRng::from_entropy();
+            loop {
+                let blobs = (0..BLOBS_PER_WRITE)
+                    .map(|_| random_data_from_rng(DATA_LENGTH, &mut rng))
+                    .collect();
+
+                match client
+                    .as_ref()
+                    .inner
+                    .reserve_and_store_blobs_retry_committees(
+                        blobs,
+                        vec![],
+                        &StoreArgs::default_with_epochs(1)
+                            .with_persistence(BlobPersistence::from_deletable(true)),
+                    )
+                    .await
+                {
+                    Ok(results) => {
+                        successful_writes_clone.fetch_add(results.len(), Ordering::Relaxed);
+                    }
+                    Err(error) => {
+                        tracing::warn!(?error, "error reserving and storing blobs");
+                    }
+                }
+            }
+        });
+
+        simtest_utils::wait_for_nodes_to_reach_epoch(
+            &cluster.nodes,
+            TARGET_EPOCH,
+            3 * EPOCH_DURATION * TARGET_EPOCH,
+        )
+        .await;
+
+        workload_handle.abort();
+
+        let total_writes = successful_writes.load(Ordering::Relaxed);
+        tracing::info!(total_writes, "workload completed");
+        assert!(
+            total_writes > 0,
+            "no blobs were successfully written; test is vacuous"
+        );
+
+        // Clear the fail point so that data deletion for remaining epochs can complete.
+        clear_fail_point("data_deletion_start");
+
+        blob_info_consistency_check.check_storage_node_consistency();
+    }
 }

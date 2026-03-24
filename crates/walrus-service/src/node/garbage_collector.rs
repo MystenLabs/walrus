@@ -9,6 +9,7 @@ use chrono::{DateTime, Utc};
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use serde::{Deserialize, Serialize};
 use serde_with::{DurationSeconds, serde_as};
+use sui_macros::fail_point_async;
 use tokio::sync::Mutex;
 use walrus_core::Epoch;
 use walrus_sui::types::GENESIS_EPOCH;
@@ -304,6 +305,7 @@ impl GarbageCollector {
         // automatically re-enabled when the guard is dropped.
         let _guard = self.node.storage.temporarily_disable_auto_compactions()?;
         tracing::info!("starting garbage collection phase 2: data deletion");
+        fail_point_async!("data_deletion_start");
 
         if self
             .node
