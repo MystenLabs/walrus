@@ -1,0 +1,82 @@
+build:
+  once: true
+  run: |
+    cargo build --release \
+      --bin walrus \
+      --bin walrus-node \
+      --bin walrus-deploy \
+      --bin walrus-backup \
+      --features deploy,backup
+
+deploy:
+  once: true
+  depends:
+    - process_exited: build
+  run: |
+    set -euo pipefail
+    WORKING_DIR="${WALRUS_WORKING_DIR:-./working_dir}"
+    COMMITTEE_SIZE="${WALRUS_COMMITTEE_SIZE:-4}"
+    SHARDS="${WALRUS_SHARDS:-10}"
+    EPOCH_DURATION="${WALRUS_EPOCH_DURATION:-1h}"
+    NETWORK="${WALRUS_NETWORK:-localnet}"
+    HOST_ADDRESS="${WALRUS_HOST_ADDRESS:-127.0.0.1}"
+    CONTRACT_DIR="${WALRUS_CONTRACT_DIR:-./contracts}"
+
+    # Clean old build artifacts and configs
+    find contracts -name 'build' -type d -exec rm -rf {} +
+    rm -f "$WORKING_DIR"/dryrun-node-*.yaml
+    rm -f "$WORKING_DIR"/dryrun-node-*.log
+
+    # Build host address list
+    HOSTS=()
+    for i in $(seq 1 "$COMMITTEE_SIZE"); do
+      HOSTS+=("$HOST_ADDRESS")
+    done
+
+    # Deploy system contract
+    ./target/release/walrus-deploy deploy-system-contract \
+      --working-dir "$WORKING_DIR" \
+      --sui-network "$NETWORK" \
+      --n-shards "$SHARDS" \
+      --host-addresses "${HOSTS[@]}" \
+      --storage-price 5 \
+      --write-price 1 \
+      --epoch-duration "$EPOCH_DURATION" \
+      --contract-dir "$CONTRACT_DIR" \
+      --with-wal-exchange
+
+    # Generate per-node configs
+    ./target/release/walrus-deploy generate-dry-run-configs \
+      --working-dir "$WORKING_DIR"
+
+    # Append event processor config to all node configs
+    for f in "$WORKING_DIR"/dryrun-node-*[0-9].yaml; do
+      cat >> "$f" <<'NODEEOF'
+
+    event_processor_config:
+      adaptive_downloader_config:
+      max_workers: 2
+      initial_workers: 2
+    NODEEOF
+    done
+
+nodes:
+  depends:
+    - process_exited: deploy
+  for_each:
+    glob: "${WALRUS_WORKING_DIR:-./working_dir}/dryrun-node-*[0-9].yaml"
+    as: NODE_CONFIG
+  env:
+    RUST_LOG: "${RUST_LOG:-info}"
+  run: ./target/release/walrus-node run --config-path $NODE_CONFIG --cleanup-storage
+
+aggregator:
+  depends:
+    - process_exited: deploy
+  env:
+    RUST_LOG: "${RUST_LOG:-info}"
+  run: |
+    ./target/release/walrus aggregator \
+      --config "${WALRUS_WORKING_DIR:-./working_dir}/client_config.yaml" \
+      --bind-address 127.0.0.1:31415 \
+      --metrics-address 127.0.0.1:27182
