@@ -1887,20 +1887,18 @@ impl StorageNode {
         self.execute_epoch_change(event_handle, event, shard_map_lock)
             .await?;
 
-        // Abort any running data deletion task from the previous epoch and wait for it to stop
-        // before starting blob info cleanup, so that the two phases don't run concurrently on
-        // aggregate_blob_info.
-        //
-        // Note: a single in-flight `spawn_blocking` batch from data deletion may still be
-        // running after this returns, since `spawn_blocking` tasks cannot be cancelled. This is
-        // safe because data deletion uses optimistic transactions that fail gracefully on
-        // conflict with phase 1's merge operands.
-        self.garbage_collector.abort_and_wait().await;
-
         // Phase 1 of garbage collection: clean up per-object blob info before allowing new-epoch
         // work to begin. This must run before updating the latest event epoch so that blob syncs
         // for the new epoch don't interfere with the cleanup, producing a deterministic and
         // consistent snapshot of per-object blob info across nodes at the epoch boundary.
+        //
+        // Note: the previous epoch's data deletion task (phase 2) may still be running in the
+        // background. This is safe because phase 1 and phase 2 operate on disjoint sets of
+        // `aggregate_blob_info` entries: phase 2 only deletes entries with refcount=0 at the
+        // previous epoch, while phase 1 decrements entries that still had refcount>0. Even if
+        // this invariant changes in the future, phase 2 uses per-blob optimistic transactions
+        // that detect concurrent modifications and fail gracefully, skipping the affected blobs
+        // until the next GC cycle.
         self.perform_blob_info_cleanup(event.epoch).await?;
 
         // Update the latest event epoch to the new epoch. Now, blob syncs will use this epoch to
