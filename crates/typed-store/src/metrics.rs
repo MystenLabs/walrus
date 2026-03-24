@@ -442,6 +442,22 @@ pub struct OperationMetrics {
     pub rocksdb_num_bytes_read: IntGaugeVec,
     /// Number of bytes written
     pub rocksdb_num_bytes_written: IntGaugeVec,
+
+    // --- General compaction/stall (require turn on statistics) ---
+    /// Total time spent stalled (microseconds)
+    pub rocksdb_stall_micros: IntGaugeVec,
+
+    // --- BlobDB GC IO (require turn on statistics) ---
+    /// Number of keys relocated by blob GC
+    pub rocksdb_blob_db_gc_num_keys_relocated: IntGaugeVec,
+    /// Number of bytes relocated by blob GC
+    pub rocksdb_blob_db_gc_bytes_relocated: IntGaugeVec,
+
+    // --- BlobDB file IO (require turn on statistics) ---
+    /// Total bytes written to blob files
+    pub rocksdb_blob_db_blob_file_bytes_written: IntGaugeVec,
+    /// Total bytes read from blob files
+    pub rocksdb_blob_db_blob_file_bytes_read: IntGaugeVec,
 }
 
 impl OperationMetrics {
@@ -765,6 +781,47 @@ impl OperationMetrics {
             rocksdb_num_bytes_written: register_int_gauge_vec_with_registry!(
                 "rocksdb_num_bytes_written",
                 "Number of bytes written by the db",
+                &["db_name"],
+                registry,
+            )
+            .unwrap(),
+
+            // --- BlobDB GC IO ---
+            rocksdb_blob_db_gc_num_keys_relocated: register_int_gauge_vec_with_registry!(
+                "rocksdb_blob_db_gc_num_keys_relocated",
+                "Number of keys relocated by blob GC",
+                &["db_name"],
+                registry,
+            )
+            .unwrap(),
+            rocksdb_blob_db_gc_bytes_relocated: register_int_gauge_vec_with_registry!(
+                "rocksdb_blob_db_gc_bytes_relocated",
+                "Number of bytes relocated by blob GC",
+                &["db_name"],
+                registry,
+            )
+            .unwrap(),
+
+            // --- BlobDB file IO ---
+            rocksdb_blob_db_blob_file_bytes_written: register_int_gauge_vec_with_registry!(
+                "rocksdb_blob_db_blob_file_bytes_written",
+                "Total bytes written to blob files",
+                &["db_name"],
+                registry,
+            )
+            .unwrap(),
+            rocksdb_blob_db_blob_file_bytes_read: register_int_gauge_vec_with_registry!(
+                "rocksdb_blob_db_blob_file_bytes_read",
+                "Total bytes read from blob files",
+                &["db_name"],
+                registry,
+            )
+            .unwrap(),
+
+            // --- General compaction/stall ---
+            rocksdb_stall_micros: register_int_gauge_vec_with_registry!(
+                "rocksdb_stall_micros",
+                "Total time spent stalled in microseconds",
                 &["db_name"],
                 registry,
             )
@@ -1684,6 +1741,36 @@ fn report_cf_metrics(rocksdb: &Arc<RocksDB>, cf_name: &str, db_metrics: &Arc<DBM
         .rocksdb_num_bytes_written
         .with_label_values(&[&rocksdb.db_name()])
         .set(rocksdb.db_options().get_ticker_count(Ticker::BytesWritten) as i64);
+
+    // --- BlobDB ticker metrics ---
+    let db_name = rocksdb.db_name();
+    let db_opts = rocksdb.db_options();
+
+    db_metrics
+        .op_metrics
+        .rocksdb_blob_db_gc_num_keys_relocated
+        .with_label_values(&[&db_name])
+        .set(db_opts.get_ticker_count(Ticker::BlobDbGcNumKeysRelocated) as i64);
+    db_metrics
+        .op_metrics
+        .rocksdb_blob_db_gc_bytes_relocated
+        .with_label_values(&[&db_name])
+        .set(db_opts.get_ticker_count(Ticker::BlobDbGcBytesRelocated) as i64);
+    db_metrics
+        .op_metrics
+        .rocksdb_blob_db_blob_file_bytes_written
+        .with_label_values(&[&db_name])
+        .set(db_opts.get_ticker_count(Ticker::BlobDbBlobFileBytesWritten) as i64);
+    db_metrics
+        .op_metrics
+        .rocksdb_blob_db_blob_file_bytes_read
+        .with_label_values(&[&db_name])
+        .set(db_opts.get_ticker_count(Ticker::BlobDbBlobFileBytesRead) as i64);
+    db_metrics
+        .op_metrics
+        .rocksdb_stall_micros
+        .with_label_values(&[&db_name])
+        .set(db_opts.get_ticker_count(Ticker::StallMicros) as i64);
 }
 
 /// Helper function to get integer property from RocksDB.
