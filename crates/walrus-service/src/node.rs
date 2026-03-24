@@ -1890,6 +1890,11 @@ impl StorageNode {
         // Abort any running data deletion task from the previous epoch and wait for it to stop
         // before starting blob info cleanup, so that the two phases don't run concurrently on
         // aggregate_blob_info.
+        //
+        // Note: a single in-flight `spawn_blocking` batch from data deletion may still be
+        // running after this returns, since `spawn_blocking` tasks cannot be cancelled. This is
+        // safe because data deletion uses optimistic transactions that fail gracefully on
+        // conflict with phase 1's merge operands.
         self.garbage_collector.abort_and_wait().await;
 
         // Phase 1 of garbage collection: clean up per-object blob info before allowing new-epoch
