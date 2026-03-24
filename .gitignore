@@ -28,7 +28,6 @@ docs/examples/CONFIG/config_dir/client_config.yaml
 *.key
 .env
 working_dir/
-procman-logs/
 *.log
 venv/
 **/tmp
