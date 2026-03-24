@@ -1911,14 +1911,12 @@ impl StorageNode {
 
     /// Performs blob info cleanup (GC phase 1) for the given epoch.
     async fn perform_blob_info_cleanup(&self, epoch: Epoch) -> anyhow::Result<()> {
-        if let Err(error) = self
-            .garbage_collector
+        self.garbage_collector
             .perform_blob_info_cleanup(epoch)
             .await
-        {
-            tracing::error!(?error, epoch, "blob info cleanup failed");
-        }
-        Ok(())
+            .inspect_err(|error| {
+                tracing::error!(?error, epoch, "blob info cleanup failed");
+            })
     }
 
     /// Starts a background task to delete expired blob data (GC phase 2).
