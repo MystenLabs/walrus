@@ -36,7 +36,7 @@ use tonic::service::interceptor::InterceptedService;
 use walrus_core::ensure;
 
 use crate::{
-    client::SuiClientError,
+    client::{SuiClientError, retry_client::retriable_sui_client::GrpcMigrationLevel},
     coin::Coin,
     contracts::{AssociatedContractStruct, TypeOriginMap},
 };
@@ -96,17 +96,26 @@ pub(crate) struct CoinBatch {
 
 impl DualClient {
     /// Create a new DualClient with the given RPC URL and optional request timeout.
+    ///
+    /// When `WALRUS_GRPC_MIGRATION_LEVEL` is at its maximum, the JSON-RPC SuiClient is not
+    /// created. This allows connecting to gRPC-only nodes (e.g. sui-forking).
     pub async fn new(
         rpc_url: impl AsRef<str>,
         request_timeout: Option<Duration>,
     ) -> Result<Self, SuiClientError> {
-        let mut client_builder = SuiClientBuilder::default();
-        if let Some(request_timeout) = request_timeout {
-            client_builder = client_builder.request_timeout(request_timeout);
-        }
         let rpc_url = rpc_url.as_ref();
-        let sui_client = Some(client_builder.build(rpc_url).await?);
         let grpc_client = GrpcClient::new(rpc_url).context("unable to create grpc client")?;
+
+        let sui_client = if GrpcMigrationLevel::default().is_fully_migrated() {
+            None
+        } else {
+            let mut client_builder = SuiClientBuilder::default();
+            if let Some(request_timeout) = request_timeout {
+                client_builder = client_builder.request_timeout(request_timeout);
+            }
+            Some(client_builder.build(rpc_url).await?)
+        };
+
         Ok(Self {
             sui_client,
             grpc_client,
