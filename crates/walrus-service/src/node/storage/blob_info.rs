@@ -249,23 +249,34 @@ impl BlobInfoTable {
                 batch.delete_batch(&self.per_object_blob_info, [(object_id)])?;
             }
 
-            // Pooled blob events update the per-object pooled blob info table (if enabled).
+            // Pooled blob events update the per-object pooled blob info table.
+            //
+            // The table must exist (i.e., storage pools must be enabled) when processing these
+            // events. Receiving a pooled blob event without the table means the node
+            // configuration is inconsistent with the on-chain state, so we panic to avoid
+            // silently dropping events.
             BlobEvent::PooledBlobRegistered(e) => {
-                if let Some(table) = &self.per_object_pooled_blob_info {
-                    let operand = PerObjectPooledBlobInfoMergeOperand::from(e);
-                    batch.partial_merge_batch(table, [(&e.object_id, operand.to_bytes())])?;
-                }
+                let table = self.per_object_pooled_blob_info.as_ref().expect(
+                    "received a pooled blob event but the per-object pooled blob info table \
+                    is not enabled",
+                );
+                let operand = PerObjectPooledBlobInfoMergeOperand::from(e);
+                batch.partial_merge_batch(table, [(&e.object_id, operand.to_bytes())])?;
             }
             BlobEvent::PooledBlobCertified(e) => {
-                if let Some(table) = &self.per_object_pooled_blob_info {
-                    let operand = PerObjectPooledBlobInfoMergeOperand::from(e);
-                    batch.partial_merge_batch(table, [(&e.object_id, operand.to_bytes())])?;
-                }
+                let table = self.per_object_pooled_blob_info.as_ref().expect(
+                    "received a pooled blob event but the per-object pooled blob info table \
+                    is not enabled",
+                );
+                let operand = PerObjectPooledBlobInfoMergeOperand::from(e);
+                batch.partial_merge_batch(table, [(&e.object_id, operand.to_bytes())])?;
             }
             BlobEvent::PooledBlobDeleted(e) => {
-                if let Some(table) = &self.per_object_pooled_blob_info {
-                    batch.delete_batch(table, [(&e.object_id)])?;
-                }
+                let table = self.per_object_pooled_blob_info.as_ref().expect(
+                    "received a pooled blob event but the per-object pooled blob info table \
+                    is not enabled",
+                );
+                batch.delete_batch(table, [(&e.object_id)])?;
             }
 
             BlobEvent::InvalidBlobID(_) | BlobEvent::DenyListBlobDeleted(_) => {}
