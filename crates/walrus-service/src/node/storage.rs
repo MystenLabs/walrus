@@ -447,6 +447,9 @@ impl Storage {
         &self,
         epoch: Epoch,
     ) -> Result<(), TypedStoreError> {
+        #[cfg(msim)]
+        sui_macros::fail_point!("gc_set_last_completed_epoch");
+
         self.garbage_collector_table
             .insert(&garbage_collector_last_completed_epoch_key(), &epoch)
     }
@@ -843,6 +846,9 @@ impl Storage {
             .aggregate_blob_info_range_iter(start_blob_id_bound, Bound::Unbounded)?
             .take(batch_size)
         {
+            #[cfg(msim)]
+            sui_macros::fail_point!("gc_delete_expired_blob_data");
+
             total_count += 1;
             let (blob_id, blob_info) = match result {
                 Ok(values) => values,

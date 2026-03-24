@@ -11,7 +11,7 @@ mod tests {
         sync::{
             Arc,
             Mutex,
-            atomic::{AtomicBool, Ordering},
+            atomic::{AtomicBool, AtomicU64, Ordering},
         },
         time::{Duration, Instant},
     };
@@ -1544,6 +1544,132 @@ mod tests {
 
         handle.abort();
 
+        blob_info_consistency_check.check_storage_node_consistency();
+    }
+
+    /// Tests that a node correctly recovers GC state after crashing mid-GC and restarting.
+    ///
+    /// Crashes a node via `CRASH_NODE_FAIL_POINTS` during GC and verifies recovery. On restart,
+    /// the node detects `last_started_epoch > last_completed_epoch` and re-runs GC. Asserts that
+    /// GC completes on the target node after restart (via `gc_set_last_completed_epoch` fail
+    /// point) and that blob info remains consistent across all nodes.
+    #[ignore = "ignore integration simtests by default"]
+    #[walrus_simtest]
+    async fn test_gc_interrupted_by_node_restart() {
+        let (_sui_cluster, walrus_cluster, client, _, _) = test_cluster::E2eTestSetupBuilder::new()
+            .with_epoch_duration(Duration::from_secs(30))
+            .with_test_nodes_config(
+                TestNodesConfig::builder()
+                    .with_node_weights(&[1, 2, 3, 3, 4])
+                    .build(),
+            )
+            .with_communication_config(
+                ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
+                    Duration::from_secs(2),
+                ),
+            )
+            .with_default_num_checkpoints_per_blob()
+            .build_generic::<SimStorageNodeHandle>()
+            .await
+            .unwrap();
+
+        let blob_info_consistency_check = BlobInfoConsistencyCheck::new();
+
+        let client_arc = Arc::new(client);
+
+        // Start a background workload writing deletable/expiring blobs to generate GC work.
+        let workload_handle =
+            simtest_utils::start_background_workload(client_arc.clone(), false, None, Some(2));
+
+        // Run workload for ~1min to accumulate data across the first epochs.
+        tokio::time::sleep(Duration::from_mins(1)).await;
+
+        let target_node_id = walrus_cluster.nodes[0]
+            .node_id
+            .expect("node id should be set");
+
+        let crash_triggered = Arc::new(AtomicBool::new(false));
+        let gc_completed_after_restart = Arc::new(AtomicU64::new(0));
+
+        // Delay GC on the target node so it remains "in progress" when the crash happens.
+        // This ensures `last_started_epoch > last_completed_epoch` at crash time, triggering
+        // the GC recovery path on restart via `check_and_start_garbage_collection_on_startup`.
+        let gc_fail_points = [
+            "gc_process_expired_blob_objects",
+            "gc_delete_expired_blob_data",
+        ];
+        for fp in gc_fail_points {
+            register_fail_point(fp, {
+                let crash_triggered = crash_triggered.clone();
+                move || {
+                    if sui_simulator::current_simnode_id() != target_node_id {
+                        return;
+                    }
+                    if !crash_triggered.load(Ordering::SeqCst) {
+                        tracing::info!("delaying GC on target node to allow crash");
+                        std::thread::sleep(Duration::from_mins(2));
+                    }
+                }
+            });
+        }
+
+        // Crash the target node once via DB-level fail points.
+        register_fail_points(CRASH_NODE_FAIL_POINTS, {
+            let crash_triggered = crash_triggered.clone();
+            move || {
+                crash_target_node(
+                    target_node_id,
+                    crash_triggered.clone(),
+                    Duration::from_mins(1),
+                );
+            }
+        });
+
+        // Track GC completion on the target node after restart. The
+        // `gc_set_last_completed_epoch` fail point fires inside
+        // `set_garbage_collector_last_completed_epoch`, which is only called after both
+        // `process_expired_blob_objects` and `delete_expired_blob_data` finish successfully.
+        // So a non-zero counter proves GC ran to completion, not just that it started.
+        register_fail_point("gc_set_last_completed_epoch", {
+            let crash_triggered = crash_triggered.clone();
+            let gc_completed_after_restart = gc_completed_after_restart.clone();
+            move || {
+                if sui_simulator::current_simnode_id() != target_node_id {
+                    return;
+                }
+                if crash_triggered.load(Ordering::SeqCst) {
+                    gc_completed_after_restart.fetch_add(1, Ordering::SeqCst);
+                }
+            }
+        });
+
+        // Wait for all nodes (including the crashed one) to advance past the crash,
+        // proving the target node recovered and completed epoch transitions including GC.
+        simtest_utils::wait_for_nodes_to_reach_epoch(
+            &walrus_cluster.nodes,
+            6,
+            Duration::from_mins(5),
+        )
+        .await;
+
+        workload_handle.abort();
+
+        for fp in gc_fail_points {
+            clear_fail_point(fp);
+        }
+        clear_fail_point("gc_set_last_completed_epoch");
+        for fp in CRASH_NODE_FAIL_POINTS {
+            clear_fail_point(fp);
+        }
+
+        assert!(
+            crash_triggered.load(Ordering::SeqCst),
+            "target node should have been crashed during GC"
+        );
+        assert!(
+            gc_completed_after_restart.load(Ordering::SeqCst) > 0,
+            "GC should have completed on the target node after restart"
+        );
         blob_info_consistency_check.check_storage_node_consistency();
     }
 }

@@ -787,6 +787,9 @@ impl BlobInfoTable {
             .safe_range_iter((start_bound, Bound::Unbounded))?
             .take(batch_size)
         {
+            #[cfg(msim)]
+            sui_macros::fail_point!("gc_process_expired_blob_objects");
+
             total_count += 1;
             let (object_id, per_object_blob_info) = match result {
                 Ok(values) => values,
