@@ -1,6 +1,18 @@
+# This is a procman v0.15.1 script. Install procman with
+# cargo install procman.
+#
+# Read the procman book at https://wbbradley.github.io/procman
+#
+# Run `procman procman.yaml -- --help` for instructions on using this script.
+#
+
 config:
   logs: ./working_dir/logs
   args:
+    working_dir:
+      short: w
+      description: "The working directory for the testbed"
+      default: ./working_dir
     existing:
       short: e
       type: bool
@@ -28,6 +40,8 @@ jobs:
   sui:
     env:
       RUST_LOG: "on,error"
+    depends:
+      - not_listening: 127.0.0.1:9123
     run: sui start --with-faucet --force-regenesis
 
   build:
@@ -47,9 +61,10 @@ jobs:
     depends:
       - url: http://localhost:9123/
         code: 200
-      - process_exited: build
+      - process_exited:
+          name: build
+          timeout_seconds: null
     run: |
-      WORKING_DIR="${WALRUS_WORKING_DIR:-./working_dir}"
       COMMITTEE_SIZE="${WALRUS_COMMITTEE_SIZE:-4}"
       SHARDS="${WALRUS_SHARDS:-10}"
       EPOCH_DURATION="${WALRUS_EPOCH_DURATION:-1h}"
@@ -58,8 +73,8 @@ jobs:
 
       # Clean old build artifacts and configs
       find contracts -name 'build' -type d -exec rm -rf {} +
-      rm -f "$WORKING_DIR"/dryrun-node-*.yaml
-      rm -f "$WORKING_DIR"/dryrun-node-*.log
+      rm -f "${{ args.working_dir}}"/dryrun-node-*.yaml
+      rm -f "${{ args.working_dir}}"/dryrun-node-*.log
 
       # Build host address list
       HOSTS=()
@@ -69,7 +84,7 @@ jobs:
 
       # Deploy system contract
       ./target/release/walrus-deploy deploy-system-contract \
-        --working-dir "$WORKING_DIR" \
+        --working-dir "${{ args.working_dir}}" \
         --sui-network "$NETWORK" \
         --n-shards "$SHARDS" \
         --host-addresses "${HOSTS[@]}" \
@@ -81,10 +96,10 @@ jobs:
 
       # Generate per-node configs
       ./target/release/walrus-deploy generate-dry-run-configs \
-        --working-dir "$WORKING_DIR"
+        --working-dir "${{ args.working_dir}}"
 
       # Append event processor config to all node configs
-      for f in "$WORKING_DIR"/dryrun-node-*[0-9].yaml; do
+      for f in "${{ args.working_dir}}"/dryrun-node-*[0-9].yaml; do
         cat >> "$f" <<'NODEEOF'
 
       event_processor_config:
@@ -96,7 +111,7 @@ jobs:
 
       # Append garbage collection config if enabled
       if [ "$WALRUS_GC" = "true" ]; then
-        for f in "$WORKING_DIR"/dryrun-node-*[0-9].yaml; do
+        for f in "${{ args.working_dir}}"/dryrun-node-*[0-9].yaml; do
           cat >> "$f" <<'GCEOF'
 
       db_config:
@@ -115,7 +130,7 @@ jobs:
           name: deploy
           timeout_seconds: null
     for_each:
-      glob: "${WALRUS_WORKING_DIR:-./working_dir}/dryrun-node-*[0-9].yaml"
+      glob: "${{ args.working_dir }}/dryrun-node-*[0-9].yaml"
       as: NODE_CONFIG
     env:
       RUST_LOG: "${RUST_LOG:-info}"
@@ -135,6 +150,6 @@ jobs:
       RUST_LOG: "${RUST_LOG:-info}"
     run: |
       ./target/release/walrus aggregator \
-        --config "${WALRUS_WORKING_DIR:-./working_dir}/client_config.yaml" \
+        --config "${{ args.working_dir }}/client_config.yaml" \
         --bind-address 127.0.0.1:31415 \
         --metrics-address 127.0.0.1:27182
