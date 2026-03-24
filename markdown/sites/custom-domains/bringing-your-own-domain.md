@@ -1,18 +1,115 @@
-{/* https://linear.app/mysten-labs/issue/DOCS-675/sitescustom-domainsbringing-your-own-domain */}
+By default, Walrus Sites are served through a portal at a subdomain address like `https://example.wal.app`. If you want to serve your site at a classic DNS domain you own, for example `https://example.com`, you can do so by deploying your own portal and configuring it to serve only your site.
 
-There might be cases where you want to host a Walrus Site under a specific domain without following the default naming convention of `https://<walrus-site-domain>.<portal-domain>`.
+:::info
 
-For example, you might want to use a domain like `https://example.com` instead of `https://example.wal.app`, where `example.com` is a classic DNS domain that you can purchase from any domain registrar. It points to the IP and port of your portal.
+This guide requires you to deploy and run your own portal. The public `wal.app` portal does not support custom DNS domains. For an alternative approach that does not require running your own portal, see [Setting a SuiNS Name](/docs/sites/custom-domains/setting-a-suins-name).
 
-You need follow the steps to configure your portal so that it only accepts requests for your own site, and other subdomains (other Walrus Sites) are not served:
+:::
 
-1. [Deploy a local portal](/docs/sites/portals/deploy-locally) and include these additional environment variables to your `.env.local`:
+When a visitor navigates to your domain, their request reaches your portal. The portal resolves the Walrus Site object and returns that site's content. Configuring the portal to serve only your domain prevents it from being used to serve other Walrus Sites.
 
-```sh
-$ LANDING_PAGE_OID_B36=34kgqayivjvwuwtk6lckk792g4qhpnimt58eol8i0b2tdgb0y # Example b36 ID
-$ BRING_YOUR_OWN_DOMAIN=true
+<Tabs>
+<TabItem value="prereq" label="Prerequisites">
+- [x] A [deployed Walrus Site](/docs/sites/getting-started/publishing-your-first-site) with a known object ID (in base36)
+- [x] A custom domain registered through a domain registrar, such as [Cloudflare](https://www.cloudflare.com/products/registrar/)
+- [x] A server or hosting environment where you can run the Walrus Sites portal (with a public IP address), such as [DigitalOcean](https://www.digitalocean.com/products/droplets), [AWS EC2](https://aws.amazon.com/ec2/), or [GCP Compute Engine](https://cloud.google.com/products/compute)
+- [x] Access to your domain's DNS settings
+- [x] The Walrus Sites portal repository cloned and [set up locally](/docs/sites/portals/deploy-locally)
+</TabItem>
+</Tabs>
+
+## Get your Walrus Site object ID in base36
+
+When serving a Walrus Site through a portal, the portal identifies your site by its object ID in base36 format. This is different from the standard hexadecimal object ID shown in most Sui tools.
+
+If you deployed your site using the [`site-builder`](/docs/sites/getting-started/using-the-site-builder) CLI, the hexadecimal object ID is printed in the deployment output:
+
+```
+New site object ID: 0x617221edd060dafb4070b73160ebf535e1516bf7f246890ed35190eba786d7ac
 ```
 
-The `LANDING_PAGE_OID_B36`, should be the base36 object ID of your Walrus Site and `BRING_YOUR_OWN_DOMAIN` should be set to true to ensure the portal only serves your domain and no other sites. For example, `https://<some-site>.example.com` should throw a 404 error.
+Convert the hex object ID to base36 using the `site-builder convert` command:
 
-1. Configure your DNS provider to point your domain to the IP and port of your portal.
+```sh
+$ site-builder convert 0xYOUR_HEX_OBJECT_ID
+```
+
+Copy and save the base36 object ID. You need it when configuring your portal.
+
+## Configure your portal
+
+Once you have a [local portal set up](/docs/sites/portals/deploy-locally), configure it to serve your site using [`portal-config.yaml`](/docs/sites/portals/mainnet-testnet).
+
+Copy the appropriate example config file for your target network:
+
+<Tabs>
+<TabItem value="mainnet" label="Mainnet config">
+
+```sh
+$ cp ./portal/server/portal-config.mainnet.example.yaml ./portal/server/portal-config.yaml
+```
+
+</TabItem>
+
+<TabItem value="testnet" label="Testnet config">
+
+``` sh
+$ cp ./portal/server/portal-config.testnet.example.yaml ./portal/server/portal-config.yaml
+```
+
+</TabItem>
+
+</Tabs>
+
+Open `portal-config.yaml` and update the following fields:
+
+```yaml title='portal-config.yaml'
+network: mainnet
+site_package: "0x26eb7ee8688da02c5f671679524e379f0b837a12f1d1d799f255b7eea260ad27"
+landing_page_oid_b36: "YOUR_SITE_B36_OBJECT_ID"
+
+domain_name_length: 21
+b36_domain_resolution: true
+bring_your_own_domain: true
+enable_blocklist: false
+enable_allowlist: false
+
+rpc_urls:
+  - url: https://fullnode.mainnet.sui.io
+    retries: 2
+    metric: 100
+
+aggregator_urls:
+  - url: https://aggregator.walrus-mainnet.walrus.space
+    retries: 3
+    metric: 100
+```
+
+- `landing_page_oid_b36`: The base36 object ID of your Walrus Site. The portal uses this to identify which site to serve at your root domain.
+- `bring_your_own_domain`: Set this to `true`. When enabled, the portal serves only the site specified by `landing_page_oid_b36` and rejects requests for any other subdomain with a 404 error.
+- `network`: Set to `mainnet` or `testnet` to match the network your site is deployed on.
+- `site_package`: The Sui object ID of the Walrus Sites package. The correct value for each network is already present in the example files.
+- `rpc_urls`: One or more Sui RPC nodes the portal uses to read on-chain data.
+- `aggregator_urls`: One or more Walrus aggregator nodes the portal uses to fetch site content.
+
+:::info
+
+Environment variables are supported and override any value set in `portal-config.yaml`. The `.env.mainnet.example` and `.env.testnet.example` files in `portal/server/` document the available environment variable names.
+
+:::
+
+After editing `portal-config.yaml`, restart your portal server for the changes to take effect.
+
+## Deploy your portal to a server
+
+Your portal must be accessible from a public IP address so that DNS can route traffic to it. The process for this depends on your hosting environment.
+
+If you are hosting on a virtual machine (for example, on AWS, GCP, or DigitalOcean), start the portal server on the machine and note its public IP address. The portal listens on a specific port, which you configure as part of the [local portal deployment](/docs/sites/portals/deploy-locally).
+
+## Configure your DNS
+
+Once your portal is running and accessible at a public IP address, configure your domain's DNS to point to it. See [DNS Configuration](/docs/sites/custom-domains/dns-configuration) for a full guide on adding DNS records, pointing subdomains, verifying propagation, and troubleshooting.
+
+## Update the site content
+
+When you redeploy your Walrus Site and receive a new object ID, update the `landing_page_oid_b36` value in `portal-config.yaml` with the new base36 object ID and restart the portal. Your custom domain continues to work without any DNS changes because the domain still points to the same portal server.

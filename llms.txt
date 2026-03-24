@@ -224,13 +224,20 @@ Important notes:
     the headers object are the exact paths of the resources (no wildcards), and the values are
     lists of key-value pairs corresponding to the headers that the portal attaches to the response.
 - [Bringing Your Own
-    Domain](https://docs.wal.app/docs/sites/custom-domains/bringing-your-own-domain.md): There
-    might be cases where you want to host a Walrus Site under a specific domain without following
-    the default naming convention of .
+    Domain](https://docs.wal.app/docs/sites/custom-domains/bringing-your-own-domain.md): By
+    default, Walrus Sites are served through a portal at a subdomain address like
+    https://example.wal.app. If you want to serve your site at a classic DNS domain you own, for
+    example https://example.com, you can do so by deploying your own portal and configuring it to
+    serve only your site.
+- [DNS Configuration](https://docs.wal.app/docs/sites/custom-domains/dns-configuration.md): After
+    setting up your portal and configuring it for your domain, you need to configure your domain's
+    DNS to route traffic to the server running your portal. This guide covers adding DNS records,
+    setting up HTTPS with a reverse proxy, verifying propagation, and troubleshooting common DNS
+    issues.
 - [Setting A SuiNS Name](https://docs.wal.app/docs/sites/custom-domains/setting-a-suins-name.md):
-    Browsing sites with Base36 subdomains, for example, is no longer possible using the wal.app
-    portal. Base36 subdomains are still supported if you use a local server or an alternative
-    portal. To browse walrus sites using the wal.app portal, you must use SuiNS names instead.
+    Sui Name Service (SuiNS) provides human-readable names for Walrus Sites, similar to how DNS
+    works for websites. Instead of sharing a long base36 subdomain like , you can link a SuiNS name
+    to your site's object ID and browse it at a readable address like my-project.wal.app.
 - [Installing The Site
     Builder](https://docs.wal.app/docs/sites/getting-started/installing-the-site-builder.md): The
     site-builder is a CLI tool that lets you create, edit, and publish Walrus Sites. You can
