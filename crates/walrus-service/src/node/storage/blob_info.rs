@@ -747,9 +747,6 @@ impl BlobInfoTable {
         let this = self.clone();
         let node_metrics_clone = node_metrics.clone();
 
-        // TODO(zhewu): process expired per-object pooled blob info.
-        // TODO(zhewu): add test.
-
         let cleaned_up_objects_count = process_items_in_batches(move |last_processed_object_id| {
             this.process_expired_blob_objects_batch(
                 last_processed_object_id,

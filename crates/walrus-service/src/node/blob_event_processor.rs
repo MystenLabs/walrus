@@ -149,7 +149,6 @@ impl BackgroundEventProcessor {
                 let _scope = monitored_scope::monitored_scope(
                     "ProcessEvent::BlobEvent::PooledBlobCertified",
                 );
-                // TODO(zhewu): add test.
                 self.process_blob_certified_event(
                     event_handle,
                     event.blob_id,
@@ -162,7 +161,6 @@ impl BackgroundEventProcessor {
             BlobEvent::PooledBlobDeleted(ref event) => {
                 let _scope =
                     monitored_scope::monitored_scope("ProcessEvent::BlobEvent::PooledBlobDeleted");
-                // TODO(zhewu): add test.
                 self.process_blob_deleted_event(event_handle, event.blob_id, event.epoch)
                     .await?;
             }
@@ -430,7 +428,6 @@ impl BlobEventProcessor {
             blob_event,
             BlobEvent::Registered(_) | BlobEvent::PooledBlobRegistered(_)
         ) {
-            // TODO(zhewu): add test to test the registered pooled blob event.
             self.handle_registered_event(event_handle, blob_event.blob_id())
                 .await?;
             return Ok(());
