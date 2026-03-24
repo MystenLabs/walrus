@@ -21,9 +21,15 @@ use crate::node::{StorageNodeInner, metrics::NodeMetricSet};
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq)]
 #[serde(default)]
 pub struct GarbageCollectionConfig {
-    /// Whether to enable the blob info cleanup at the beginning of each epoch.
+    /// Whether to enable blob info cleanup (phase 1) at the beginning of each epoch.
+    ///
+    /// This is a prerequisite for data deletion (phase 2): disabling blob info cleanup
+    /// implicitly disables data deletion as well, because data deletion relies on up-to-date
+    /// aggregate blob info refcounts produced by phase 1.
     pub enable_blob_info_cleanup: bool,
-    /// Whether to delete metadata and slivers of expired or deleted blobs.
+    /// Whether to delete metadata and slivers of expired or deleted blobs (phase 2).
+    ///
+    /// Only effective when `enable_blob_info_cleanup` is also `true`.
     pub enable_data_deletion: bool,
     /// Whether to immediately delete blob data when a `BlobDeleted` event is processed.
     ///
@@ -192,6 +198,8 @@ impl GarbageCollector {
                     "data deletion is enabled, but requires blob info cleanup to be enabled; \
                     skipping data deletion",
                 );
+            } else {
+                tracing::info!("garbage collection is disabled, skipping data deletion");
             }
             return Ok(());
         }
