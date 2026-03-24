@@ -199,15 +199,10 @@ impl GarbageCollector {
             return Ok(());
         }
 
+        self.abort_and_wait().await;
+
         let mut task_handle = self.task_handle.lock().await;
         let garbage_collector = self.clone();
-
-        // If there is an existing task, we need to abort it first before starting a new one.
-        if let Some(old_task) = task_handle.take() {
-            tracing::info!("aborting existing data-deletion task before starting a new one");
-            old_task.abort();
-            let _ = old_task.await;
-        }
 
         // Calculate target time and update metric before spawning the background task.
         let data_deletion_target_time = self.cleanup_target_time(epoch, epoch_start);
@@ -245,10 +240,19 @@ impl GarbageCollector {
         Ok(())
     }
 
-    /// Aborts any running garbage-collection task.
+    /// Aborts any running data-deletion task.
     pub(crate) async fn abort(&self) {
         if let Some(task_handle) = self.task_handle.lock().await.take() {
             task_handle.abort();
+        }
+    }
+
+    /// Aborts any running data-deletion task and waits for it to fully stop.
+    pub(crate) async fn abort_and_wait(&self) {
+        if let Some(task_handle) = self.task_handle.lock().await.take() {
+            tracing::info!("aborting existing data-deletion task");
+            task_handle.abort();
+            let _ = task_handle.await;
         }
     }
 
