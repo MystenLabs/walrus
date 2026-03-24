@@ -222,7 +222,7 @@ walrus_utils::metrics::define_metric_set! {
         #[help = "The total number of blob data deletion attempts"]
         garbage_collection_blob_data_deletion_attempts_total: IntCounterVec["status"],
 
-        #[help = "The start time of the next garbage-collection task as a UNIX timestamp"]
+        #[help = "The target start time of the data deletion phase (phase 2) as a UNIX timestamp"]
         garbage_collection_task_start_time: U64Gauge[],
 
         #[help = "The last epoch for which garbage collection was started or finished"]

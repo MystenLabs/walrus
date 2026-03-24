@@ -218,7 +218,9 @@ impl GarbageCollector {
             let _ = old_task.await;
         }
 
-        // Calculate target time and update metric before spawning the background task.
+        // Calculate target time for data deletion and update the metric.
+        // Note: the metric name `garbage_collection_task_start_time` is kept for backwards
+        // compatibility, but it now refers specifically to the data deletion phase (phase 2).
         let data_deletion_target_time = self.cleanup_target_time(epoch, epoch_start);
         self.metrics.garbage_collection_task_start_time.set(
             data_deletion_target_time
