@@ -794,7 +794,7 @@ impl Storage {
         );
 
         let this = self.clone();
-        let node_metrics = node_metrics.clone();
+        let node_metrics_clone = node_metrics.clone();
 
         let cleaned_up_blob_id_count =
             utils::process_items_in_batches(move |last_processed_blob_id| {
@@ -803,14 +803,19 @@ impl Storage {
                     batch_size,
                     current_epoch,
                     shards.as_ref(),
-                    &node_metrics,
+                    &node_metrics_clone,
                 )
             })
             .await?;
 
+        let duration = start_time.elapsed();
+        node_metrics
+            .garbage_collection_blob_data_deletion_duration_seconds
+            .set(duration.as_secs_f64());
+
         tracing::info!(
             cleaned_up_blob_id_count,
-            duration = ?start_time.elapsed(),
+            duration = ?duration,
             "finished deleting expired blob data",
         );
 
