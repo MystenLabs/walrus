@@ -1673,9 +1673,10 @@ mod tests {
         blob_info_consistency_check.check_storage_node_consistency();
     }
 
-    /// Tests that blob info remains consistent when the previous epoch's data deletion (phase 2)
-    /// overlaps with the next epoch's blob info cleanup (phase 1). A fail point delays data
-    /// deletion so it spans the epoch boundary.
+    /// Tests that blob info cleanup (phase 1) runs independently of data deletion (phase 2).
+    /// Data deletion is blocked for the entire test, so any blob info cleanup must come from
+    /// phase 1 alone. Verifies blob info consistency across nodes after multiple epoch
+    /// transitions with expired blobs.
     #[ignore = "ignore integration simtests by default"]
     #[walrus_simtest]
     async fn test_gc_phase2_overlaps_with_next_epoch_phase1() {
@@ -1709,10 +1710,11 @@ mod tests {
 
         let client = Arc::new(client);
 
-        // Delay data deletion (phase 2) so it overlaps with the next epoch's phase 1.
+        // Block data deletion (phase 2) for the entire duration of the test. This ensures
+        // phase 2 never completes, so any blob info cleanup must come from phase 1 alone.
         register_fail_point_async("data_deletion_start", || async {
-            tracing::info!("delaying data deletion by 15 seconds");
-            tokio::time::sleep(Duration::from_secs(15)).await;
+            tracing::info!("blocking data deletion for 3 minutes");
+            tokio::time::sleep(Duration::from_secs(180)).await;
         });
 
         // Write blobs that expire after 1 epoch so there is GC work every epoch.
