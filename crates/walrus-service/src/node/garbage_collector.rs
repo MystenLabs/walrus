@@ -140,13 +140,6 @@ impl GarbageCollector {
             return Ok(());
         }
 
-        // Record that garbage collection has started for this epoch.
-        self.node
-            .storage
-            .set_garbage_collector_last_started_epoch(epoch)?;
-        self.metrics
-            .set_garbage_collection_last_started_epoch(epoch);
-
         // Disable DB compactions during cleanup to improve performance. DB compactions are
         // automatically re-enabled when the guard is dropped.
         let _guard = self.node.storage.temporarily_disable_auto_compactions()?;

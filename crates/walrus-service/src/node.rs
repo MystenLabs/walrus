@@ -1887,6 +1887,14 @@ impl StorageNode {
         self.execute_epoch_change(event_handle, event, shard_map_lock)
             .await?;
 
+        // Record that garbage collection has started for this epoch, before either phase runs.
+        self.inner
+            .storage
+            .set_garbage_collector_last_started_epoch(event.epoch)?;
+        self.inner
+            .metrics
+            .set_garbage_collection_last_started_epoch(event.epoch);
+
         // Phase 1 of garbage collection: clean up per-object blob info before allowing new-epoch
         // work to begin. This runs inline (blocking) and is expected to complete quickly (a few
         // seconds). It must run before updating the latest event epoch so that blob syncs for
