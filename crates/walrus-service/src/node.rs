@@ -6114,10 +6114,9 @@ mod tests {
         Ok(())
     }
 
-    // TODO(WAL-1178): test pooled blob expiration and data deletion.
     #[walrus_simtest]
     #[ignore = "ignore long-running test by default"]
-    async fn deletes_expired_blob_data_and_storage_pools() -> TestResult {
+    async fn deletes_expired_blob_data() -> TestResult {
         walrus_test_utils::init_tracing();
 
         let (cluster, events) =
@@ -6138,15 +6137,6 @@ mod tests {
         let blob_count = blob_end_epochs_and_deletable.len();
         let mut rng = StdRng::seed_from_u64(42);
         let mut blobs_with_end_epoch = Vec::with_capacity(blob_count);
-
-        // Create storage pools with different end epochs alongside the blobs.
-        let pool_end_epochs: Vec<(ObjectID, Epoch)> = vec![
-            (ObjectID::from_single_byte(1), 3),
-            (ObjectID::from_single_byte(2), 5),
-        ];
-        for &(pool_id, end_epoch) in &pool_end_epochs {
-            events.send(StoragePoolEvent::created_for_testing(pool_id, 1, end_epoch).into())?;
-        }
 
         // Add the blobs at epoch 1, the epoch at which the cluster starts.
         for (i, &(end_epoch, deletable)) in blob_end_epochs_and_deletable.iter().enumerate() {
@@ -6176,6 +6166,105 @@ mod tests {
             advance_cluster_to_epoch(&cluster, &[&events], end_epoch).await?;
 
             // Wait for garbage-collection task to complete for this epoch
+            crate::test_utils::wait_for_garbage_collection_to_complete(
+                &cluster.nodes[0..=0],
+                end_epoch,
+                Duration::from_secs(5),
+            )
+            .await?;
+
+            let node_epoch = node.inner.current_committee_epoch();
+
+            for (blob_id, end_epoch) in blobs_with_end_epoch[i..].iter() {
+                if *end_epoch > node_epoch {
+                    assert!(
+                        node.inner
+                            .is_stored_at_all_shards_at_latest_epoch(blob_id)
+                            .await?
+                    );
+                } else {
+                    node.inner
+                        .check_does_not_store_metadata_or_slivers_for_blob(blob_id)
+                        .await?;
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    #[walrus_simtest]
+    #[ignore = "ignore long-running test by default"]
+    async fn deletes_expired_pooled_blob_data() -> TestResult {
+        walrus_test_utils::init_tracing();
+
+        let (cluster, events) =
+            cluster_at_epoch1_without_blobs_waiting_for_active_nodes(&[&[0, 1, 2, 3]], None)
+                .await?;
+        let node = cluster.nodes[0].storage_node().clone();
+        let config = cluster.encoding_config();
+
+        // Create storage pools with different end epochs.
+        let pool_end_epochs: Vec<(ObjectID, Epoch)> = vec![
+            (ObjectID::from_single_byte(1), 3),
+            (ObjectID::from_single_byte(2), 5),
+        ];
+        for &(pool_id, end_epoch) in &pool_end_epochs {
+            events.send(StoragePoolEvent::created_for_testing(pool_id, 1, end_epoch).into())?;
+        }
+
+        // Add pooled blobs: one deletable and one non-deletable per pool.
+        // Pooled blobs expire when their pool expires.
+        let pooled_blob_specs: Vec<(ObjectID, Epoch, bool)> = vec![
+            (ObjectID::from_single_byte(1), 3, true), // pool 1, deletable
+            (ObjectID::from_single_byte(1), 3, false), // pool 1, non-deletable
+            (ObjectID::from_single_byte(2), 5, true), // pool 2, deletable
+            (ObjectID::from_single_byte(2), 5, false), // pool 2, non-deletable
+        ];
+
+        let mut rng = StdRng::seed_from_u64(42);
+        let mut blobs_with_end_epoch: Vec<(BlobId, Epoch)> = Vec::new();
+
+        for (i, &(pool_id, pool_end_epoch, deletable)) in pooled_blob_specs.iter().enumerate() {
+            tracing::info!(
+                "adding pooled blob {i} in pool {pool_id} \
+                (pool end_epoch={pool_end_epoch}, deletable={deletable})"
+            );
+            let blob_details = EncodedBlob::new(
+                &walrus_test_utils::random_data_from_rng(100, &mut rng),
+                config.clone(),
+            );
+            let registered_event = PooledBlobRegistered {
+                deletable,
+                storage_pool_id: pool_id,
+                ..PooledBlobRegistered::for_testing_with_random_object_id(*blob_details.blob_id())
+            };
+            let object_id = registered_event.object_id;
+            events.send(BlobEvent::PooledBlobRegistered(registered_event).into())?;
+            store_at_shards(&blob_details, &cluster, |_, _| true).await?;
+            events.send(
+                BlobEvent::PooledBlobCertified(PooledBlobCertified {
+                    epoch: 1,
+                    blob_id: *blob_details.blob_id(),
+                    deletable,
+                    object_id,
+                    storage_pool_id: pool_id,
+                    event_id: event_id_for_testing(),
+                })
+                .into(),
+            )?;
+            blobs_with_end_epoch.push((*blob_details.blob_id(), pool_end_epoch));
+        }
+
+        // Sort by end epoch so we can advance epochs in order.
+        blobs_with_end_epoch.sort_by_key(|&(_, end_epoch)| end_epoch);
+        let blob_count = blobs_with_end_epoch.len();
+
+        for i in 0..blob_count {
+            let (_blob_id, end_epoch) = blobs_with_end_epoch[i];
+            advance_cluster_to_epoch(&cluster, &[&events], end_epoch).await?;
+
+            // Wait for garbage-collection task to complete for this epoch.
             crate::test_utils::wait_for_garbage_collection_to_complete(
                 &cluster.nodes[0..=0],
                 end_epoch,

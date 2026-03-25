@@ -10,7 +10,7 @@ mod perm_blob_info;
 mod storage_pool_info;
 
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     fmt::Debug,
     ops::Bound::{self, Unbounded},
     sync::{Arc, Mutex},
@@ -666,9 +666,14 @@ impl BlobInfoTable {
         })
         .await?;
 
+        let duration = start_time.elapsed();
+        node_metrics
+            .garbage_collection_storage_pools_duration_seconds
+            .set(duration.as_secs_f64());
+
         tracing::info!(
             deleted_count,
-            duration = ?start_time.elapsed(),
+            duration = ?duration,
             "finished garbage collecting storage pool info",
         );
         Ok(())
@@ -727,6 +732,21 @@ impl BlobInfoTable {
     }
 
     /// Processes blobs that have expired in the given epoch.
+    #[tracing::instrument(skip_all, fields(walrus.epoch = %current_epoch))]
+    pub(crate) async fn process_expired_blob_objects(
+        &self,
+        current_epoch: Epoch,
+        node_metrics: &NodeMetricSet,
+        batch_size: usize,
+    ) -> anyhow::Result<()> {
+        self.process_expired_regular_blob_objects(current_epoch, node_metrics, batch_size)
+            .await?;
+        self.process_expired_pooled_blob_objects(current_epoch, node_metrics, batch_size)
+            .await?;
+        Ok(())
+    }
+
+    /// Processes regular (non-pooled) blobs that have expired in the given epoch.
     ///
     /// This function iterates over the per-object blob info table, deleting any entries that have
     /// an end epoch equal to or less than the current epoch, and updating the aggregate blob info
@@ -735,7 +755,7 @@ impl BlobInfoTable {
     /// Processing is done in batches using `spawn_blocking` to avoid blocking the async runtime
     /// and make it possible to abort the task if the node is shutting down.
     #[tracing::instrument(skip_all, fields(walrus.epoch = %current_epoch))]
-    pub(crate) async fn process_expired_blob_objects(
+    async fn process_expired_regular_blob_objects(
         &self,
         current_epoch: Epoch,
         node_metrics: &NodeMetricSet,
@@ -748,7 +768,7 @@ impl BlobInfoTable {
         let node_metrics_clone = node_metrics.clone();
 
         let cleaned_up_objects_count = process_items_in_batches(move |last_processed_object_id| {
-            this.process_expired_blob_objects_batch(
+            this.process_expired_regular_blob_objects_batch(
                 last_processed_object_id,
                 batch_size,
                 current_epoch,
@@ -757,22 +777,23 @@ impl BlobInfoTable {
         })
         .await?;
 
+        let duration = start_time.elapsed();
+        node_metrics
+            .garbage_collection_regular_blob_objects_duration_seconds
+            .set(duration.as_secs_f64());
+
         tracing::info!(
             cleaned_up_objects_count,
-            duration = ?start_time.elapsed(),
-            "finished processing expired blob objects",
+            duration = ?duration,
+            "finished processing expired regular blob objects",
         );
-
-        // TODO(WAL-1178): implement GC for per-object pooled blob info after the storage pool
-        // end-epoch table is available to determine pool expiry.
-
         Ok(())
     }
 
-    /// Processes expired blob objects in batches.
+    /// Processes expired regular blob objects in batches.
     ///
     /// This is intended to be driven by [`utils::process_items_in_batches`].
-    fn process_expired_blob_objects_batch(
+    fn process_expired_regular_blob_objects_batch(
         &self,
         last_processed_object_id: Option<ObjectID>,
         batch_size: usize,
@@ -877,6 +898,185 @@ impl BlobInfoTable {
         node_metrics
             .garbage_collection_expired_blob_objects_deleted_total
             .inc();
+
+        Ok(true)
+    }
+
+    /// Garbage collects expired per-object pooled blob info entries.
+    ///
+    /// A pooled blob object is considered expired if:
+    /// 1. Its storage pool no longer exists in the storage pool info table (already GC'd), or
+    /// 2. Its storage pool's end epoch is at most the current epoch.
+    ///
+    /// For each expired entry, the aggregate blob info is updated via a `PoolExpired` merge operand
+    /// and the per-object pooled blob info entry is deleted.
+    #[tracing::instrument(skip_all, fields(walrus.epoch = %current_epoch))]
+    async fn process_expired_pooled_blob_objects(
+        &self,
+        current_epoch: Epoch,
+        node_metrics: &NodeMetricSet,
+        batch_size: usize,
+    ) -> anyhow::Result<()> {
+        if self.per_object_pooled_blob_info.is_none() {
+            return Ok(());
+        }
+
+        tracing::info!("starting to garbage collect expired pooled blob objects");
+        let start_time = Instant::now();
+
+        let this = self.clone();
+        let node_metrics_clone = node_metrics.clone();
+        let pool_expired_cache = Mutex::new(HashMap::new());
+        let deleted_count = process_items_in_batches(move |last_processed_object_id| {
+            this.process_expired_pooled_blob_objects_batch(
+                last_processed_object_id,
+                batch_size,
+                current_epoch,
+                &node_metrics_clone,
+                &mut pool_expired_cache
+                    .lock()
+                    .expect("pool_expired_cache lock poisoned"),
+            )
+        })
+        .await?;
+
+        let duration = start_time.elapsed();
+        node_metrics
+            .garbage_collection_pooled_blob_objects_duration_seconds
+            .set(duration.as_secs_f64());
+
+        tracing::info!(
+            deleted_count,
+            duration = ?duration,
+            "finished garbage collecting expired pooled blob objects",
+        );
+        Ok(())
+    }
+
+    /// Processes expired pooled blob objects in batches.
+    ///
+    /// This is intended to be driven by [`utils::process_items_in_batches`].
+    fn process_expired_pooled_blob_objects_batch(
+        &self,
+        last_processed_object_id: Option<ObjectID>,
+        batch_size: usize,
+        current_epoch: Epoch,
+        node_metrics: &NodeMetricSet,
+        pool_expired_cache: &mut HashMap<ObjectID, bool>,
+    ) -> anyhow::Result<utils::BatchProcessingResult<ObjectID>> {
+        let pooled_table = self
+            .per_object_pooled_blob_info
+            .as_ref()
+            .context("per-object pooled blob info table is not enabled")?;
+        let pool_info_table = self
+            .storage_pool_info
+            .as_ref()
+            .context("storage pool info table is not enabled")?;
+
+        let mut modified_count = 0;
+        let mut total_count = 0;
+        let mut last_processed_object_id = last_processed_object_id;
+
+        let start_bound = last_processed_object_id.map_or(Unbounded, Bound::Excluded);
+
+        let mut batch = pooled_table.batch();
+
+        for result in pooled_table
+            .safe_range_iter((start_bound, Unbounded))?
+            .take(batch_size)
+        {
+            total_count += 1;
+            let (object_id, pooled_info) = match result {
+                Ok(values) => values,
+                Err(error) => {
+                    tracing::warn!(
+                        ?error,
+                        "error encountered while iterating over per-object pooled blob info"
+                    );
+                    continue;
+                }
+            };
+            last_processed_object_id = Some(object_id);
+
+            if self.process_maybe_expired_pooled_blob_object(
+                object_id,
+                &pooled_info,
+                current_epoch,
+                pool_info_table,
+                pool_expired_cache,
+                &mut batch,
+                pooled_table,
+            )? {
+                modified_count += 1;
+            }
+        }
+
+        batch.write()?;
+
+        node_metrics
+            .garbage_collection_expired_pooled_blob_objects_deleted_total
+            .inc_by(u64::try_from(modified_count).expect("modified_count is not u64"));
+
+        Ok(utils::BatchProcessingResult {
+            total_count,
+            modified_count,
+            last_processed_item: last_processed_object_id,
+        })
+    }
+
+    /// Checks if a single pooled blob object has expired and if so, adds its cleanup operations
+    /// to the batch.
+    ///
+    /// Returns `true` if the entry was expired and added to the batch.
+    #[allow(clippy::too_many_arguments)]
+    fn process_maybe_expired_pooled_blob_object(
+        &self,
+        object_id: ObjectID,
+        pooled_info: &PerObjectPooledBlobInfo,
+        current_epoch: Epoch,
+        pool_info_table: &DBMap<ObjectID, StoragePoolInfo>,
+        pool_expired_cache: &mut HashMap<ObjectID, bool>,
+        batch: &mut DBBatch,
+        pooled_table: &DBMap<ObjectID, PerObjectPooledBlobInfo>,
+    ) -> anyhow::Result<bool> {
+        let PerObjectPooledBlobInfo::V1(v1) = pooled_info;
+
+        // Check if the pool has expired, using a cache to avoid repeated lookups
+        // for the same pool across entries.
+        let is_expired = if let Some(&cached) = pool_expired_cache.get(&v1.storage_pool_id) {
+            cached
+        } else {
+            let pool_info = pool_info_table.get(&v1.storage_pool_id)?;
+            let expired = match &pool_info {
+                None => true,
+                Some(info) => info.end_epoch() <= current_epoch,
+            };
+            pool_expired_cache.insert(v1.storage_pool_id, expired);
+            expired
+        };
+
+        if !is_expired {
+            return Ok(false);
+        }
+
+        let was_certified = v1.certified_epoch.is_some();
+        tracing::debug!(
+            %object_id,
+            blob_id = %v1.blob_id,
+            storage_pool_id = %v1.storage_pool_id,
+            %was_certified,
+            "deleting expired pooled blob object"
+        );
+
+        batch.delete_batch(pooled_table, [object_id])?;
+        let operand = BlobInfoMergeOperand::PoolExpired {
+            storage_pool_id: v1.storage_pool_id,
+            was_certified,
+        };
+        batch.partial_merge_batch(
+            &self.aggregate_blob_info,
+            [(v1.blob_id, &operand.to_bytes())],
+        )?;
 
         Ok(true)
     }
