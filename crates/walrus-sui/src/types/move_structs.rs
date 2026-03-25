@@ -1048,6 +1048,11 @@ impl WalrusSubsidies {
     pub fn subsidy_pool_funds(&self) -> Option<u64> {
         self.inner.as_ref().map(|inner| inner.subsidy_pool)
     }
+
+    /// Returns the last epoch for which usage-independent subsidies were paid.
+    pub fn latest_subsidized_epoch(&self) -> Option<u32> {
+        self.inner.as_ref().map(|inner| inner.latest_epoch)
+    }
 }
 
 /// Sui type for outer system object. Used for deserialization.
