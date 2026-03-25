@@ -166,6 +166,9 @@ impl GarbageCollector {
             .process_expired_blob_objects(epoch, &self.metrics, self.config.blob_objects_batch_size)
             .await?;
 
+        self.metrics
+            .set_garbage_collection_blob_info_cleanup_completed_epoch(epoch);
+
         Ok(())
     }
 

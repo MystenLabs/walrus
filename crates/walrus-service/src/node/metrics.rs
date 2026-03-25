@@ -41,6 +41,7 @@ pub(crate) const STATUS_PENDING: &str = "pending";
 pub(crate) const STATUS_PERSISTED: &str = "persisted";
 pub(crate) const STATUS_IN_PROGRESS: &str = "in-progress";
 pub(crate) const STATUS_STARTED: &str = "started";
+pub(crate) const STATUS_BLOB_INFO_CLEANUP_COMPLETED: &str = "blob_info_cleanup_completed";
 pub(crate) const STATUS_COMPLETED: &str = "completed";
 pub(crate) const STATUS_HIGHEST_FINISHED: &str = "highest_finished";
 
@@ -275,6 +276,15 @@ impl NodeMetricSet {
     pub fn set_garbage_collection_last_started_epoch(&self, epoch: Epoch) {
         walrus_utils::with_label!(self.garbage_collection_last_epoch, STATUS_STARTED)
             .set(epoch.into());
+    }
+
+    /// Sets the last epoch for which blob info cleanup (phase 1) was completed.
+    pub fn set_garbage_collection_blob_info_cleanup_completed_epoch(&self, epoch: Epoch) {
+        walrus_utils::with_label!(
+            self.garbage_collection_last_epoch,
+            STATUS_BLOB_INFO_CLEANUP_COMPLETED
+        )
+        .set(epoch.into());
     }
 
     /// Sets the last epoch for which garbage collection was finished.
