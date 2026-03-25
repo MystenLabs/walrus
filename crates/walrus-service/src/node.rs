@@ -1888,8 +1888,9 @@ impl StorageNode {
             .await?;
 
         // Phase 1 of garbage collection: clean up per-object blob info before allowing new-epoch
-        // work to begin. This must run before updating the latest event epoch so that blob syncs
-        // for the new epoch don't interfere with the cleanup, producing a deterministic and
+        // work to begin. This runs inline (blocking) and is expected to complete quickly (a few
+        // seconds). It must run before updating the latest event epoch so that blob syncs for
+        // the new epoch don't interfere with the cleanup, producing a deterministic and
         // consistent snapshot of per-object blob info across nodes at the epoch boundary.
         //
         // Note: the previous epoch's data deletion task (phase 2) may still be running in the
