@@ -230,6 +230,12 @@ walrus_utils::metrics::define_metric_set! {
         #[help = "The total number of expired storage pool info entries deleted by GC"]
         garbage_collection_expired_storage_pools_deleted_total: IntCounter[],
 
+        #[help = "The total number of expired pooled blob objects deleted by GC"]
+        garbage_collection_expired_pooled_blob_objects_deleted_total: IntCounter[],
+
+        #[help = "The duration of pooled blob object GC in seconds"]
+        garbage_collection_pooled_blob_objects_duration_seconds: Histogram[],
+
         #[help = "The number of blobs registered to be notified when the blob expires/gets \
         deleted/gets invalidated"]
         blob_retirement_notifier_registered_blobs: IntGauge[],
