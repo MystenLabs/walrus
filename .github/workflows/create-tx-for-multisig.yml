@@ -35,7 +35,8 @@ on:
         required: false
         type: string
       wal_coin_object_id:
-        description: "WAL coin object ID to use (only for add-wal-to-subsidies, defaults to merging all WAL coins)"
+        description: "WAL coin object ID to use (only for add-wal-to-subsidies, defaults to merging all WAL coins when not
+          set)"
         required: false
         type: string
 

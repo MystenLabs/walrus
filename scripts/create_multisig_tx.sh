@@ -131,7 +131,7 @@ add_wal_to_subsidies() {
 
   if [[ -n $WAL_AMOUNT_FROST ]]; then
     # Build a PTB that merges all WAL coins (if needed), splits the amount, and calls add_coin.
-    CMD="sui client ptb --gas-coin @$GAS --gas-budget $GAS_BUDGET"
+    CMD=(sui client ptb --gas-coin "@$GAS" --gas-budget "$GAS_BUDGET")
 
     if [[ -n $WAL_COIN_OBJECT_ID ]]; then
       # Use the specific coin provided.
@@ -147,14 +147,14 @@ add_wal_to_subsidies() {
       if [[ ${#WAL_COINS[@]} -gt 1 ]]; then
         MERGE_ARGS=$(printf ", @%s" "${WAL_COINS[@]:1}")
         MERGE_ARGS="[${MERGE_ARGS:2}]"
-        CMD="$CMD --merge-coins @$PRIMARY_COIN \"$MERGE_ARGS\""
+        CMD+=(--merge-coins "@$PRIMARY_COIN" "$MERGE_ARGS")
       fi
     fi
 
-    CMD="$CMD --split-coins @$PRIMARY_COIN \"[$WAL_AMOUNT_FROST]\""
-    CMD="$CMD --assign coin"
-    CMD="$CMD --move-call $WALRUS_SUBSIDIES_PKG::walrus_subsidies::add_coin @$WALRUS_SUBSIDIES_OBJECT coin.0"
-    eval "$CMD --serialize-unsigned-transaction"
+    CMD+=(--split-coins "@$PRIMARY_COIN" "[$WAL_AMOUNT_FROST]")
+    CMD+=(--assign coin)
+    CMD+=(--move-call "$WALRUS_SUBSIDIES_PKG::walrus_subsidies::add_coin" "@$WALRUS_SUBSIDIES_OBJECT" coin.0)
+    "${CMD[@]}" --serialize-unsigned-transaction
   else
     # No amount specified; send the full coin directly.
     sui client \
