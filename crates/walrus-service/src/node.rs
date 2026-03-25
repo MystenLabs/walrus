@@ -2809,21 +2809,23 @@ impl StorageNodeInner {
         const MAX_CONCURRENT_SHARD_STORAGE_CHECKS: usize = 4;
 
         let thread_pool = self.thread_pool.clone();
-        let mut checks = stream::iter(shard_storages.iter().cloned().map(
-            |(shard, shard_storage)| {
-                let thread_pool = thread_pool.clone();
+        let mut checks = Vec::with_capacity(shard_storages.len());
+        for (shard, shard_storage) in shard_storages {
+            let shard = *shard;
+            let shard_storage = Arc::clone(shard_storage);
+            let thread_pool = thread_pool.clone();
 
-                async move {
-                    let passed = thread_pool
-                        .oneshot(move || check(shard_storage.as_ref(), &blob_id))
-                        .map(thread_pool::unwrap_or_resume_panic)
-                        .await
-                        .map_err(anyhow::Error::from)?;
-                    Ok::<_, anyhow::Error>((shard, passed))
-                }
-            },
-        ))
-        .buffer_unordered(MAX_CONCURRENT_SHARD_STORAGE_CHECKS);
+            checks.push(async move {
+                let passed = thread_pool
+                    .oneshot(move || check(shard_storage.as_ref(), &blob_id))
+                    .map(thread_pool::unwrap_or_resume_panic)
+                    .await
+                    .map_err(anyhow::Error::from)?;
+                Ok::<_, anyhow::Error>((shard, passed))
+            });
+        }
+
+        let mut checks = stream::iter(checks).buffer_unordered(MAX_CONCURRENT_SHARD_STORAGE_CHECKS);
 
         while let Some(result) = checks.next().await {
             match result {
