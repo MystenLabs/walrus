@@ -36,6 +36,9 @@ use walrus_sui::types::{
     BlobEvent,
     BlobRegistered,
     InvalidBlobId,
+    PooledBlobCertified,
+    PooledBlobDeleted,
+    PooledBlobRegistered,
     StoragePoolEvent,
 };
 
@@ -1281,6 +1284,13 @@ pub(super) struct PooledBlobChangeInfo {
 trait ChangeTypeAndInfo {
     fn change_type(&self) -> BlobStatusChangeType;
     fn change_info(&self) -> BlobStatusChangeInfo;
+
+    fn to_blob_info_merge_operand(&self) -> BlobInfoMergeOperand {
+        BlobInfoMergeOperand::ChangeStatus {
+            change_type: self.change_type(),
+            change_info: self.change_info(),
+        }
+    }
 }
 
 impl ChangeTypeAndInfo for BlobRegistered {
@@ -1332,6 +1342,65 @@ impl ChangeTypeAndInfo for BlobDeleted {
             deletable: true,
             epoch: self.epoch,
             end_epoch: self.end_epoch,
+            status_event: self.event_id,
+        }
+    }
+}
+
+pub(super) trait PooledChangeTypeAndInfo {
+    fn change_type(&self) -> BlobStatusChangeType;
+    fn change_info(&self) -> PooledBlobChangeInfo;
+
+    fn to_blob_info_merge_operand(&self) -> BlobInfoMergeOperand {
+        BlobInfoMergeOperand::PooledBlobChangeStatus {
+            change_type: self.change_type(),
+            change_info: self.change_info(),
+        }
+    }
+}
+
+impl PooledChangeTypeAndInfo for PooledBlobRegistered {
+    fn change_type(&self) -> BlobStatusChangeType {
+        BlobStatusChangeType::Register
+    }
+
+    fn change_info(&self) -> PooledBlobChangeInfo {
+        PooledBlobChangeInfo {
+            blob_id: self.blob_id,
+            epoch: self.epoch,
+            storage_pool_id: self.storage_pool_id,
+            status_event: self.event_id,
+        }
+    }
+}
+
+impl PooledChangeTypeAndInfo for PooledBlobCertified {
+    fn change_type(&self) -> BlobStatusChangeType {
+        BlobStatusChangeType::Certify
+    }
+
+    fn change_info(&self) -> PooledBlobChangeInfo {
+        PooledBlobChangeInfo {
+            blob_id: self.blob_id,
+            epoch: self.epoch,
+            storage_pool_id: self.storage_pool_id,
+            status_event: self.event_id,
+        }
+    }
+}
+
+impl PooledChangeTypeAndInfo for PooledBlobDeleted {
+    fn change_type(&self) -> BlobStatusChangeType {
+        BlobStatusChangeType::Delete {
+            was_certified: self.was_certified,
+        }
+    }
+
+    fn change_info(&self) -> PooledBlobChangeInfo {
+        PooledBlobChangeInfo {
+            blob_id: self.blob_id,
+            epoch: self.epoch,
+            storage_pool_id: self.storage_pool_id,
             status_event: self.event_id,
         }
     }
@@ -1392,15 +1461,6 @@ impl BlobInfoMergeOperand {
     }
 }
 
-impl<T: ChangeTypeAndInfo> From<&T> for BlobInfoMergeOperand {
-    fn from(value: &T) -> Self {
-        Self::ChangeStatus {
-            change_type: value.change_type(),
-            change_info: value.change_info(),
-        }
-    }
-}
-
 impl From<&InvalidBlobId> for BlobInfoMergeOperand {
     fn from(value: &InvalidBlobId) -> Self {
         let InvalidBlobId {
@@ -1418,9 +1478,9 @@ impl From<&InvalidBlobId> for BlobInfoMergeOperand {
 impl From<&BlobEvent> for BlobInfoMergeOperand {
     fn from(value: &BlobEvent) -> Self {
         match value {
-            BlobEvent::Registered(event) => event.into(),
-            BlobEvent::Certified(event) => event.into(),
-            BlobEvent::Deleted(event) => event.into(),
+            BlobEvent::Registered(event) => event.to_blob_info_merge_operand(),
+            BlobEvent::Certified(event) => event.to_blob_info_merge_operand(),
+            BlobEvent::Deleted(event) => event.to_blob_info_merge_operand(),
             BlobEvent::InvalidBlobID(event) => event.into(),
             BlobEvent::DenyListBlobDeleted(_) => {
                 // TODO (WAL-424): Implement DenyListBlobDeleted event handling.
@@ -1429,12 +1489,9 @@ impl From<&BlobEvent> for BlobInfoMergeOperand {
                 // such event should be emitted.
                 todo!("DenyListBlobDeleted event handling is not yet implemented");
             }
-            BlobEvent::PooledBlobRegistered(_)
-            | BlobEvent::PooledBlobCertified(_)
-            | BlobEvent::PooledBlobDeleted(_) => {
-                // TODO(WAL-1175): implement storage pool blob event processing on storage nodes.
-                todo!("storage pool blob event processing is not yet implemented");
-            }
+            BlobEvent::PooledBlobRegistered(event) => event.to_blob_info_merge_operand(),
+            BlobEvent::PooledBlobCertified(event) => event.to_blob_info_merge_operand(),
+            BlobEvent::PooledBlobDeleted(event) => event.to_blob_info_merge_operand(),
         }
     }
 }

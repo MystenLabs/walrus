@@ -4207,6 +4207,8 @@ impl ServiceState for StorageNodeInner {
         }
     }
 
+    // Storage confirmation does not distinguish between pooled and regular blobs: both use the
+    // same aggregate blob info to check registration and the same shard-level sliver storage.
     async fn compute_storage_confirmation(
         &self,
         blob_id: &BlobId,
@@ -4652,12 +4654,20 @@ mod tests {
     use walrus_storage_node_client::{StorageNodeClient, api::errors::STORAGE_NODE_ERROR_DOMAIN};
     use walrus_sui::{
         client::FixedSystemParameters,
-        test_utils::{EventForTesting, FIXED_OBJECT_ID, event_id_for_testing},
+        test_utils::{
+            EventForTesting,
+            FIXED_OBJECT_ID,
+            FIXED_STORAGE_POOL_ID,
+            event_id_for_testing,
+        },
         types::{
             BlobCertified,
             BlobDeleted,
             BlobRegistered,
             InvalidBlobId,
+            PooledBlobCertified,
+            PooledBlobDeleted,
+            PooledBlobRegistered,
             StorageNodeCap,
             StoragePoolEvent,
             move_structs::EpochState,
@@ -4904,16 +4914,42 @@ mod tests {
 
     async_param_test! {
         deletes_blob_data_on_event -> TestResult: [
-            invalid_blob_event_registered: (InvalidBlobId::for_testing(BLOB_ID).into(), false),
-            invalid_blob_event_certified: (InvalidBlobId::for_testing(BLOB_ID).into(), true),
+            invalid_blob_event_registered: (
+                InvalidBlobId::for_testing(BLOB_ID).into(), false, false),
+            invalid_blob_event_certified: (InvalidBlobId::for_testing(BLOB_ID).into(), true, false),
             blob_deleted_event_registered: (
                 BlobDeleted{was_certified: false, ..BlobDeleted::for_testing(BLOB_ID)}.into(),
+                false,
                 false
             ),
-            blob_deleted_event_certified: (BlobDeleted::for_testing(BLOB_ID).into(), true),
+            blob_deleted_event_certified: (BlobDeleted::for_testing(BLOB_ID).into(), true, false),
+            pooled_blob_deleted_event_registered: (
+                BlobEvent::PooledBlobDeleted(
+                    PooledBlobDeleted{
+                        was_certified: false,
+                        ..PooledBlobDeleted::for_testing(BLOB_ID)
+                    }
+                ),
+                false,
+                true
+            ),
+            pooled_blob_deleted_event_certified: (
+                BlobEvent::PooledBlobDeleted(PooledBlobDeleted::for_testing(BLOB_ID)),
+                true,
+                true
+            ),
         ]
     }
-    async fn deletes_blob_data_on_event(event: BlobEvent, is_certified: bool) -> TestResult {
+    /// Tests that blob data (metadata and slivers) is deleted when the node processes a
+    /// deletion or invalidation event, for both regular and storage-pool blobs.
+    ///
+    /// The blob is first registered (and optionally certified), then the given event is sent.
+    /// The test verifies that the node no longer stores metadata or slivers for the blob.
+    async fn deletes_blob_data_on_event(
+        event: BlobEvent,
+        is_certified: bool,
+        use_storage_pool: bool,
+    ) -> TestResult {
         walrus_test_utils::init_tracing();
         let events = Sender::new(48);
         let node = StorageNodeHandle::builder()
@@ -4937,21 +4973,34 @@ mod tests {
                 .is_stored_at_all_shards_at_latest_epoch(&BLOB_ID)
                 .await?,
         );
-        events.send(
-            BlobRegistered {
-                deletable: true,
-                ..BlobRegistered::for_testing(BLOB_ID)
-            }
-            .into(),
-        )?;
-        if is_certified {
+
+        if use_storage_pool {
             events.send(
-                BlobCertified {
+                BlobEvent::PooledBlobRegistered(PooledBlobRegistered::for_testing(BLOB_ID)).into(),
+            )?;
+            if is_certified {
+                events.send(
+                    BlobEvent::PooledBlobCertified(PooledBlobCertified::for_testing(BLOB_ID))
+                        .into(),
+                )?;
+            }
+        } else {
+            events.send(
+                BlobRegistered {
                     deletable: true,
-                    ..BlobCertified::for_testing(BLOB_ID)
+                    ..BlobRegistered::for_testing(BLOB_ID)
                 }
                 .into(),
             )?;
+            if is_certified {
+                events.send(
+                    BlobCertified {
+                        deletable: true,
+                        ..BlobCertified::for_testing(BLOB_ID)
+                    }
+                    .into(),
+                )?;
+            }
         }
 
         events.send(event.into())?;
@@ -4966,13 +5015,21 @@ mod tests {
 
     async_param_test! {
         immediate_data_deletion_on_blob_deleted_event -> TestResult: [
-            enabled: (true, false),
-            disabled: (false, true),
+            enabled: (true, false, false),
+            disabled: (false, true, false),
+            storage_pool_enabled: (true, false, true),
+            storage_pool_disabled: (false, true, true),
         ]
     }
+    /// Tests that immediate data deletion on blob-deleted events is controlled by the
+    /// `enable_immediate_data_deletion` GC config flag, for both regular and storage-pool blobs.
+    ///
+    /// When enabled, slivers are deleted immediately upon processing the delete event.
+    /// When disabled, slivers remain stored until background GC runs.
     async fn immediate_data_deletion_on_blob_deleted_event(
         enable_immediate_data_deletion: bool,
         expect_data_stored: bool,
+        use_storage_pool: bool,
     ) -> TestResult {
         walrus_test_utils::init_tracing();
         let events = Sender::new(48);
@@ -5002,21 +5059,34 @@ mod tests {
                 .is_stored_at_all_shards_at_latest_epoch(&BLOB_ID)
                 .await?,
         );
-        events.send(
-            BlobRegistered {
-                deletable: true,
-                ..BlobRegistered::for_testing(BLOB_ID)
-            }
-            .into(),
-        )?;
-        events.send(
-            BlobCertified {
-                deletable: true,
-                ..BlobCertified::for_testing(BLOB_ID)
-            }
-            .into(),
-        )?;
-        events.send(BlobDeleted::for_testing(BLOB_ID).into())?;
+
+        if use_storage_pool {
+            events.send(
+                BlobEvent::PooledBlobRegistered(PooledBlobRegistered::for_testing(BLOB_ID)).into(),
+            )?;
+            events.send(
+                BlobEvent::PooledBlobCertified(PooledBlobCertified::for_testing(BLOB_ID)).into(),
+            )?;
+            events.send(
+                BlobEvent::PooledBlobDeleted(PooledBlobDeleted::for_testing(BLOB_ID)).into(),
+            )?;
+        } else {
+            events.send(
+                BlobRegistered {
+                    deletable: true,
+                    ..BlobRegistered::for_testing(BLOB_ID)
+                }
+                .into(),
+            )?;
+            events.send(
+                BlobCertified {
+                    deletable: true,
+                    ..BlobCertified::for_testing(BLOB_ID)
+                }
+                .into(),
+            )?;
+            events.send(BlobDeleted::for_testing(BLOB_ID).into())?;
+        }
 
         tokio::time::sleep(Duration::from_millis(100)).await;
 
@@ -5090,8 +5160,16 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
-    async fn reports_buffered_status_for_pending_slivers() -> TestResult {
+    async_param_test! {
+        reports_buffered_status_for_pending_slivers -> TestResult: [
+            regular: (false),
+            storage_pool: (true),
+        ]
+    }
+    /// Tests that slivers uploaded before blob registration are buffered, and become stored
+    /// after the blob is registered and pending caches are flushed. Covers both regular and
+    /// storage-pool blob registration.
+    async fn reports_buffered_status_for_pending_slivers(use_storage_pool: bool) -> TestResult {
         let (cluster, _) = cluster_at_epoch1_without_blobs(&[&[0, 1, 2, 3]], None).await?;
         let storage_node = cluster.nodes[0].storage_node.clone();
         let encoding_config = storage_node.as_ref().inner.encoding_config.as_ref().clone();
@@ -5130,11 +5208,16 @@ mod tests {
 
         // This unit test bypasses the event processor, so flush manually. The registration-driven
         // path is covered in `flush_after_registration`.
+        let registered_event: BlobEvent = if use_storage_pool {
+            BlobEvent::PooledBlobRegistered(PooledBlobRegistered::for_testing(blob_id))
+        } else {
+            BlobRegistered::for_testing(blob_id).into()
+        };
         storage_node
             .as_ref()
             .inner
             .storage
-            .update_blob_info(0, &BlobRegistered::for_testing(blob_id).into())?;
+            .update_blob_info(0, &registered_event)?;
         storage_node
             .as_ref()
             .inner
@@ -5581,6 +5664,34 @@ mod tests {
         Ok((cluster, events, blob_details))
     }
 
+    /// Same as [`cluster_with_partially_stored_blob`] but registers the blob via a
+    /// `PooledBlobRegistered` event instead of a regular `BlobRegistered`.
+    ///
+    /// Also creates the storage pool (via `StoragePoolCreated`) before registering the blob.
+    async fn cluster_with_partially_stored_pooled_blob<F>(
+        assignment: &[&[u16]],
+        blob: &[u8],
+        store_at_shard: F,
+    ) -> TestResult<(TestCluster, Sender<ContractEvent>, EncodedBlob)>
+    where
+        F: FnMut(&ShardIndex, SliverType) -> bool,
+    {
+        let (cluster, events) = cluster_at_epoch1_without_blobs(assignment, None).await?;
+
+        // Create the storage pool that the pooled blob will belong to.
+        events.send(StoragePoolEvent::created_for_testing(FIXED_STORAGE_POOL_ID, 1, 42).into())?;
+
+        let config = cluster.encoding_config();
+        let mut blob_details = EncodedBlob::new(blob, config);
+
+        let registered_event = PooledBlobRegistered::for_testing(*blob_details.blob_id());
+        blob_details.object_id = Some(registered_event.object_id);
+        events.send(BlobEvent::PooledBlobRegistered(registered_event).into())?;
+        store_at_shards(&blob_details, &cluster, store_at_shard).await?;
+
+        Ok((cluster, events, blob_details))
+    }
+
     // Creates a test cluster with custom initial epoch and blobs that are already certified.
     async fn cluster_with_initial_epoch_and_certified_blobs(
         assignment: &[&[u16]],
@@ -5746,12 +5857,23 @@ mod tests {
         ))
     }
 
-    #[tokio::test]
-    async fn retrieves_metadata_from_other_nodes_on_certified_blob_event() -> TestResult {
+    async_param_test! {
+        retrieves_metadata_from_other_nodes_on_certified_blob_event -> TestResult: [
+            regular: (false),
+            storage_pool: (true),
+        ]
+    }
+    async fn retrieves_metadata_from_other_nodes_on_certified_blob_event(
+        use_storage_pool: bool,
+    ) -> TestResult {
         let shards: &[&[u16]] = &[&[1], &[0, 2, 3, 4]];
 
-        let (cluster, events, blob) =
-            cluster_with_partially_stored_blob(shards, BLOB, |shard, _| shard.get() != 1).await?;
+        let (cluster, events, blob) = if use_storage_pool {
+            cluster_with_partially_stored_pooled_blob(shards, BLOB, |shard, _| shard.get() != 1)
+                .await?
+        } else {
+            cluster_with_partially_stored_blob(shards, BLOB, |shard, _| shard.get() != 1).await?
+        };
 
         let node_client = cluster.client(0);
 
@@ -5760,7 +5882,12 @@ mod tests {
             .await
             .expect_err("metadata should not yet be available");
 
-        events.send(BlobCertified::for_testing(*blob.blob_id()).into())?;
+        let certified_event: ContractEvent = if use_storage_pool {
+            BlobEvent::PooledBlobCertified(PooledBlobCertified::for_testing(*blob.blob_id())).into()
+        } else {
+            BlobCertified::for_testing(*blob.blob_id()).into()
+        };
+        events.send(certified_event)?;
 
         let synced_metadata = retry_until_success_or_timeout(TIMEOUT, || {
             node_client.get_and_verify_metadata(blob.blob_id(), &blob.config)
@@ -5775,19 +5902,26 @@ mod tests {
 
     async_param_test! {
         recovers_sliver_from_other_nodes_on_certified_blob_event -> TestResult: [
-            primary: (SliverType::Primary),
-            secondary: (SliverType::Secondary),
+            primary: (SliverType::Primary, false),
+            secondary: (SliverType::Secondary, false),
+            pooled_primary: (SliverType::Primary, true),
+            pooled_secondary: (SliverType::Secondary, true),
         ]
     }
     async fn recovers_sliver_from_other_nodes_on_certified_blob_event(
         sliver_type: SliverType,
+        use_storage_pool: bool,
     ) -> TestResult {
         let shards: &[&[u16]] = &[&[1], &[0, 2, 3, 4, 5, 6]];
         let test_shard = ShardIndex(1);
 
-        let (cluster, events, blob) =
+        let (cluster, events, blob) = if use_storage_pool {
+            cluster_with_partially_stored_pooled_blob(shards, BLOB, |&shard, _| shard != test_shard)
+                .await?
+        } else {
             cluster_with_partially_stored_blob(shards, BLOB, |&shard, _| shard != test_shard)
-                .await?;
+                .await?
+        };
         let node_client = cluster.client(0);
 
         let pair_to_sync = blob.assigned_sliver_pair(test_shard);
@@ -5797,7 +5931,12 @@ mod tests {
             .await
             .expect_err("sliver should not yet be available");
 
-        events.send(BlobCertified::for_testing(*blob.blob_id()).into())?;
+        let certified_event: ContractEvent = if use_storage_pool {
+            BlobEvent::PooledBlobCertified(PooledBlobCertified::for_testing(*blob.blob_id())).into()
+        } else {
+            BlobCertified::for_testing(*blob.blob_id()).into()
+        };
+        events.send(certified_event)?;
 
         let synced_sliver = retry_until_success_or_timeout(TIMEOUT, || {
             node_client.get_sliver_by_type(blob.blob_id(), pair_to_sync.index(), sliver_type)
@@ -5858,6 +5997,7 @@ mod tests {
         Ok(())
     }
 
+    // TODO(WAL-1195): testing using storage pool blobs.
     #[tokio::test]
     async fn does_not_start_blob_sync_for_already_expired_blob() -> TestResult {
         walrus_test_utils::init_tracing();
@@ -5939,6 +6079,7 @@ mod tests {
         Ok(())
     }
 
+    // TODO(WAL-1195): testing using storage pool blobs.
     #[walrus_simtest]
     async fn cancel_expired_blob_sync_upon_epoch_change() -> TestResult {
         walrus_test_utils::init_tracing();
@@ -6123,19 +6264,35 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
-    async fn recovers_slivers_for_multiple_shards_from_other_nodes() -> TestResult {
+    async_param_test! {
+        recovers_slivers_for_multiple_shards_from_other_nodes -> TestResult: [
+            regular: (false),
+            storage_pool: (true),
+        ]
+    }
+    async fn recovers_slivers_for_multiple_shards_from_other_nodes(
+        use_storage_pool: bool,
+    ) -> TestResult {
         let shards: &[&[u16]] = &[&[1, 6], &[0, 2, 3, 4, 5]];
         let own_shards = [ShardIndex(1), ShardIndex(6)];
 
-        let (cluster, events, blob) =
-            cluster_with_partially_stored_blob(shards, BLOB, |shard, _| {
+        let (cluster, events, blob) = if use_storage_pool {
+            cluster_with_partially_stored_pooled_blob(shards, BLOB, |shard, _| {
                 !own_shards.contains(shard)
             })
-            .await?;
+            .await?
+        } else {
+            cluster_with_partially_stored_blob(shards, BLOB, |shard, _| !own_shards.contains(shard))
+                .await?
+        };
         let node_client = cluster.client(0);
 
-        events.send(BlobCertified::for_testing(*blob.blob_id()).into())?;
+        let certified_event: ContractEvent = if use_storage_pool {
+            BlobEvent::PooledBlobCertified(PooledBlobCertified::for_testing(*blob.blob_id())).into()
+        } else {
+            BlobCertified::for_testing(*blob.blob_id()).into()
+        };
+        events.send(certified_event)?;
 
         for shard in own_shards {
             let synced_sliver_pair =
@@ -6151,18 +6308,34 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
-    async fn recovers_sliver_from_own_shards() -> TestResult {
+    async_param_test! {
+        recovers_sliver_from_own_shards -> TestResult: [
+            regular: (false),
+            storage_pool: (true),
+        ]
+    }
+    async fn recovers_sliver_from_own_shards(use_storage_pool: bool) -> TestResult {
         let shards: &[&[u16]] = &[&[0, 1, 2, 3, 4, 5], &[6]];
         let shard_under_test = ShardIndex(0);
 
         // Store with all except the shard under test.
-        let (cluster, events, blob) =
+        let (cluster, events, blob) = if use_storage_pool {
+            cluster_with_partially_stored_pooled_blob(shards, BLOB, |&shard, _| {
+                shard != shard_under_test
+            })
+            .await?
+        } else {
             cluster_with_partially_stored_blob(shards, BLOB, |&shard, _| shard != shard_under_test)
-                .await?;
+                .await?
+        };
         let node_client = cluster.client(0);
 
-        events.send(BlobCertified::for_testing(*blob.blob_id()).into())?;
+        let certified_event: ContractEvent = if use_storage_pool {
+            BlobEvent::PooledBlobCertified(PooledBlobCertified::for_testing(*blob.blob_id())).into()
+        } else {
+            BlobCertified::for_testing(*blob.blob_id()).into()
+        };
+        events.send(certified_event)?;
 
         let synced_sliver_pair =
             expect_sliver_pair_stored_before_timeout(&blob, node_client, shard_under_test, TIMEOUT)
@@ -6177,23 +6350,37 @@ mod tests {
     async_param_test! {
         #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
         recovers_sliver_from_only_symbols_of_one_type -> TestResult: [
-            primary: (SliverType::Primary),
-            secondary: (SliverType::Secondary),
+            primary: (SliverType::Primary, false),
+            secondary: (SliverType::Secondary, false),
+            pooled_primary: (SliverType::Primary, true),
+            pooled_secondary: (SliverType::Secondary, true),
         ]
     }
     async fn recovers_sliver_from_only_symbols_of_one_type(
         sliver_type_to_store: SliverType,
+        use_storage_pool: bool,
     ) -> TestResult {
         let shards: &[&[u16]] = &[&[0], &[1, 2, 3, 4, 5, 6]];
 
         // Store only slivers of type `sliver_type_to_store`.
-        let (cluster, events, blob) =
+        let (cluster, events, blob) = if use_storage_pool {
+            cluster_with_partially_stored_pooled_blob(shards, BLOB, |_, sliver_type| {
+                sliver_type == sliver_type_to_store
+            })
+            .await?
+        } else {
             cluster_with_partially_stored_blob(shards, BLOB, |_, sliver_type| {
                 sliver_type == sliver_type_to_store
             })
-            .await?;
+            .await?
+        };
 
-        events.send(BlobCertified::for_testing(*blob.blob_id()).into())?;
+        let certified_event: ContractEvent = if use_storage_pool {
+            BlobEvent::PooledBlobCertified(PooledBlobCertified::for_testing(*blob.blob_id())).into()
+        } else {
+            BlobCertified::for_testing(*blob.blob_id()).into()
+        };
+        events.send(certified_event)?;
 
         for (node_index, shards) in shards.iter().enumerate() {
             let node_client = cluster.client(node_index);
@@ -6364,10 +6551,18 @@ mod tests {
         .expect("sliver should be available at some point after being certified")
     }
 
-    #[tokio::test]
-    async fn skip_storing_metadata_if_already_stored() -> TestResult {
-        let (cluster, _, blob) =
-            cluster_with_partially_stored_blob(&[&[0, 1, 2, 3]], BLOB, |_, _| true).await?;
+    async_param_test! {
+        skip_storing_metadata_if_already_stored -> TestResult: [
+            regular: (false),
+            storage_pool: (true),
+        ]
+    }
+    async fn skip_storing_metadata_if_already_stored(use_storage_pool: bool) -> TestResult {
+        let (cluster, _, blob) = if use_storage_pool {
+            cluster_with_partially_stored_pooled_blob(&[&[0, 1, 2, 3]], BLOB, |_, _| true).await?
+        } else {
+            cluster_with_partially_stored_blob(&[&[0, 1, 2, 3]], BLOB, |_, _| true).await?
+        };
 
         let is_newly_stored = cluster.nodes[0]
             .storage_node
@@ -6379,6 +6574,7 @@ mod tests {
         Ok(())
     }
 
+    // TODO(WAL-1195): testing using storage pool blobs.
     #[walrus_simtest]
     async fn caches_metadata_and_slivers_until_registration() -> TestResult {
         let (cluster, _events) = cluster_at_epoch1_without_blobs(&[&[0, 1, 2, 3]], None).await?;
@@ -8792,6 +8988,17 @@ mod tests {
                 &[BlobRegistered::for_testing(BLOB_ID).into()],
                 &[BlobCertified::for_testing(BLOB_ID).into()]
             ),
+            pooled_repeated_register_and_certify: (
+                &[],
+                &[
+                    BlobEvent::PooledBlobRegistered(PooledBlobRegistered::for_testing(BLOB_ID)),
+                    BlobEvent::PooledBlobCertified(PooledBlobCertified::for_testing(BLOB_ID)),
+                ]
+            ),
+            pooled_repeated_certify: (
+                &[BlobEvent::PooledBlobRegistered(PooledBlobRegistered::for_testing(BLOB_ID))],
+                &[BlobEvent::PooledBlobCertified(PooledBlobCertified::for_testing(BLOB_ID))]
+            ),
         ]
     }
     async fn test_update_blob_info_is_idempotent(
@@ -8827,6 +9034,108 @@ mod tests {
             intermediate_blob_info,
             node.storage_node.inner.storage.get_blob_info(&BLOB_ID)?
         );
+        Ok(())
+    }
+
+    /// Tests the full lifecycle of a pooled blob (register → certify → delete) via
+    /// `update_blob_info`, verifying that both the aggregate blob info table (V2 pooled ref
+    /// counters) and the per-object pooled blob info table are updated correctly at each stage.
+    #[tokio::test]
+    async fn pooled_blob_events_update_blob_info() -> TestResult {
+        let node = StorageNodeHandle::builder()
+            .with_system_event_provider(vec![])
+            .with_shard_assignment(&[ShardIndex(0)])
+            .with_node_started(true)
+            .build()
+            .await?;
+
+        let object_id = FIXED_OBJECT_ID;
+
+        // 1. Register a pooled blob.
+        let registered_event =
+            BlobEvent::PooledBlobRegistered(PooledBlobRegistered::for_testing(BLOB_ID));
+        node.storage_node
+            .inner
+            .storage
+            .update_blob_info(0, &registered_event)?;
+
+        // Aggregate blob info: should be V2 with one pooled ref, registered but not certified.
+        let blob_info = node
+            .storage_node
+            .inner
+            .storage
+            .get_blob_info(&BLOB_ID)?
+            .expect("blob info should exist after registration");
+        assert!(blob_info.is_registered(1));
+        assert!(!blob_info.is_certified(1));
+
+        // Per-object pooled blob info: entry should exist with registered_epoch set.
+        let per_object = node
+            .storage_node
+            .inner
+            .storage
+            .get_per_object_pooled_info(&object_id)?
+            .expect("per-object pooled blob info should exist after registration");
+        let storage::blob_info::PerObjectPooledBlobInfo::V1(ref v1) = per_object;
+        assert_eq!(v1.blob_id, BLOB_ID);
+        assert_eq!(v1.registered_epoch, 1);
+        assert_eq!(v1.certified_epoch, None);
+        assert_eq!(v1.storage_pool_id, FIXED_STORAGE_POOL_ID);
+
+        // 2. Certify the pooled blob.
+        let certified_event =
+            BlobEvent::PooledBlobCertified(PooledBlobCertified::for_testing(BLOB_ID));
+        node.storage_node
+            .inner
+            .storage
+            .update_blob_info(1, &certified_event)?;
+
+        // Aggregate blob info: should now be certified.
+        let blob_info = node
+            .storage_node
+            .inner
+            .storage
+            .get_blob_info(&BLOB_ID)?
+            .expect("blob info should exist after certification");
+        assert!(blob_info.is_certified(1));
+
+        // Per-object pooled blob info: certified_epoch should be set.
+        let per_object = node
+            .storage_node
+            .inner
+            .storage
+            .get_per_object_pooled_info(&object_id)?
+            .expect("per-object pooled blob info should exist after certification");
+        let storage::blob_info::PerObjectPooledBlobInfo::V1(ref v1) = per_object;
+        assert_eq!(v1.certified_epoch, Some(1));
+
+        // 3. Delete the pooled blob.
+        let deleted_event = BlobEvent::PooledBlobDeleted(PooledBlobDeleted::for_testing(BLOB_ID));
+        node.storage_node
+            .inner
+            .storage
+            .update_blob_info(2, &deleted_event)?;
+
+        // Aggregate blob info: should no longer be registered or certified.
+        let blob_info = node
+            .storage_node
+            .inner
+            .storage
+            .get_blob_info(&BLOB_ID)?
+            .expect("aggregate blob info entry should still exist (counters zeroed)");
+        assert!(!blob_info.is_registered(1));
+        assert!(!blob_info.is_certified(1));
+
+        // Per-object pooled blob info: entry should be removed on deletion.
+        assert!(
+            node.storage_node
+                .inner
+                .storage
+                .get_per_object_pooled_info(&object_id)?
+                .is_none(),
+            "per-object pooled blob info should be deleted after delete event"
+        );
+
         Ok(())
     }
 

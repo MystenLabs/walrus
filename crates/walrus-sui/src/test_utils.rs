@@ -65,6 +65,9 @@ use crate::{
         Committee,
         InvalidBlobId,
         NetworkAddress,
+        PooledBlobCertified,
+        PooledBlobDeleted,
+        PooledBlobRegistered,
         StorageNode,
         StoragePoolCreatedEvent,
         StoragePoolEvent,
@@ -80,6 +83,8 @@ const DEFAULT_GAS_BUDGET: u64 = 500_000_000;
 pub const DEFAULT_FUNDING_PER_COIN: u64 = 1_000_000_000_000;
 /// A fixed `ObjectID` used by default when creating events for testing.
 pub const FIXED_OBJECT_ID: ObjectID = ObjectID::from_single_byte(42);
+/// A fixed `ObjectID` used as the default storage pool ID for testing.
+pub const FIXED_STORAGE_POOL_ID: ObjectID = ObjectID::from_single_byte(99);
 
 /// Returns a random `EventID` for testing.
 pub fn event_id_for_testing() -> EventID {
@@ -647,6 +652,47 @@ impl EventForTesting for InvalidBlobId {
         Self {
             epoch: 1,
             blob_id,
+            event_id: event_id_for_testing(),
+        }
+    }
+}
+
+impl EventForTesting for PooledBlobRegistered {
+    fn for_testing_with_object_id(blob_id: BlobId, object_id: ObjectID) -> Self {
+        Self {
+            epoch: 1,
+            blob_id,
+            unencoded_size: 10000,
+            encoding_type: DEFAULT_ENCODING,
+            deletable: true,
+            object_id,
+            storage_pool_id: FIXED_STORAGE_POOL_ID,
+            event_id: event_id_for_testing(),
+        }
+    }
+}
+
+impl EventForTesting for PooledBlobCertified {
+    fn for_testing_with_object_id(blob_id: BlobId, object_id: ObjectID) -> Self {
+        Self {
+            epoch: 1,
+            blob_id,
+            deletable: true,
+            object_id,
+            storage_pool_id: FIXED_STORAGE_POOL_ID,
+            event_id: event_id_for_testing(),
+        }
+    }
+}
+
+impl EventForTesting for PooledBlobDeleted {
+    fn for_testing_with_object_id(blob_id: BlobId, object_id: ObjectID) -> Self {
+        Self {
+            epoch: 1,
+            blob_id,
+            object_id,
+            was_certified: true,
+            storage_pool_id: FIXED_STORAGE_POOL_ID,
             event_id: event_id_for_testing(),
         }
     }
