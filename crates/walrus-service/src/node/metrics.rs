@@ -42,6 +42,7 @@ pub(crate) const STATUS_PERSISTED: &str = "persisted";
 pub(crate) const STATUS_IN_PROGRESS: &str = "in-progress";
 pub(crate) const STATUS_STARTED: &str = "started";
 pub(crate) const STATUS_BLOB_INFO_CLEANUP_COMPLETED: &str = "blob_info_cleanup_completed";
+pub(crate) const STATUS_DATA_DELETION_STARTED: &str = "data_deletion_started";
 pub(crate) const STATUS_COMPLETED: &str = "completed";
 pub(crate) const STATUS_HIGHEST_FINISHED: &str = "highest_finished";
 
@@ -283,6 +284,15 @@ impl NodeMetricSet {
         walrus_utils::with_label!(
             self.garbage_collection_last_epoch,
             STATUS_BLOB_INFO_CLEANUP_COMPLETED
+        )
+        .set(epoch.into());
+    }
+
+    /// Sets the last epoch for which data deletion (phase 2) was started.
+    pub fn set_garbage_collection_data_deletion_started_epoch(&self, epoch: Epoch) {
+        walrus_utils::with_label!(
+            self.garbage_collection_last_epoch,
+            STATUS_DATA_DELETION_STARTED
         )
         .set(epoch.into());
     }

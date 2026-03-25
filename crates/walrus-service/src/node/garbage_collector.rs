@@ -245,6 +245,9 @@ impl GarbageCollector {
                 tokio::time::sleep(sleep_duration).await;
             }
 
+            garbage_collector
+                .metrics
+                .set_garbage_collection_data_deletion_started_epoch(epoch);
             if let Err(error) = garbage_collector.perform_data_deletion(epoch).await {
                 tracing::error!(
                     ?error,
