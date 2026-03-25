@@ -25,11 +25,18 @@ config:
       description: "Enable garbage collection config patching"
       default: "false"
       env: WALRUS_GC
-    cleanup-storage:
+    aggregator:
+      short: A
       type: bool
-      description: "Pass --cleanup-storage to storage nodes"
-      default: "true"
-      env: WALRUS_CLEANUP_STORAGE
+      description: "Start an aggregator daemon"
+      default: "false"
+      env: WALRUS_AGGREGATOR
+    rust-log:
+      short: l
+      type: string
+      description: "RUST_LOG level for nodes and aggregator"
+      default: "info"
+      env: WALRUS_RUST_LOG
     contract-dir:
       type: string
       description: "Contract directory (use ./testnet-contracts for testnet)"
@@ -67,6 +74,16 @@ jobs:
     run: |
       COMMITTEE_SIZE="${WALRUS_COMMITTEE_SIZE:-4}"
       SHARDS="${WALRUS_SHARDS:-10}"
+
+      if ! [ "$COMMITTEE_SIZE" -gt 0 ] 2>/dev/null; then
+        echo "Invalid: COMMITTEE_SIZE=$COMMITTEE_SIZE is not a valid positive integer."
+        exit 1
+      fi
+      if ! [ "$SHARDS" -ge "$COMMITTEE_SIZE" ] 2>/dev/null; then
+        echo "Invalid: SHARDS=$SHARDS must be >= COMMITTEE_SIZE=$COMMITTEE_SIZE."
+        exit 1
+      fi
+
       EPOCH_DURATION="${WALRUS_EPOCH_DURATION:-1h}"
       NETWORK="${WALRUS_NETWORK:-localnet}"
       HOST_ADDRESS="${WALRUS_HOST_ADDRESS:-127.0.0.1}"
@@ -104,8 +121,8 @@ jobs:
 
       event_processor_config:
         adaptive_downloader_config:
-        max_workers: 2
-        initial_workers: 2
+          max_workers: 2
+          initial_workers: 2
       NODEEOF
       done
 
@@ -133,21 +150,22 @@ jobs:
       glob: "${{ args.working_dir }}/dryrun-node-*[0-9].yaml"
       as: NODE_CONFIG
     env:
-      RUST_LOG: "${RUST_LOG:-info}"
+      RUST_LOG: "${{ args.rust-log }}"
     run: |
       CLEANUP_FLAG=""
-      if [ "$WALRUS_CLEANUP_STORAGE" = "true" ]; then
+      if [ "$WALRUS_EXISTING" != "true" ]; then
         CLEANUP_FLAG="--cleanup-storage"
       fi
       ./target/release/walrus-node run --config-path $NODE_CONFIG $CLEANUP_FLAG
 
   aggregator:
+    condition: test "$WALRUS_AGGREGATOR" = "true"
     depends:
       - process_exited:
           name: deploy
           timeout_seconds: null
     env:
-      RUST_LOG: "${RUST_LOG:-info}"
+      RUST_LOG: "${{ args.rust-log }}"
     run: |
       ./target/release/walrus aggregator \
         --config "${{ args.working_dir }}/client_config.yaml" \

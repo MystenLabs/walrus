@@ -74,7 +74,7 @@ run_aggregator() {
 backup_database_url=
 committee_size=4 # Default value of 4 if no argument is provided
 epoch_duration=1h
-network=devnet
+network=localnet
 rust_log=info # Default RUST_LOG level
 shards=10 # Default value of 4 if no argument is provided
 tail_logs=false
@@ -231,8 +231,8 @@ if ! $use_existing_config; then
   echo "
 event_processor_config:
   adaptive_downloader_config:
-  max_workers: 2
-  initial_workers: 2" | \
+    max_workers: 2
+    initial_workers: 2" | \
       tee -a $working_dir/dryrun-node-*[0-9].yaml >/dev/null
 
   # Add garbage collection configuration if enabled
