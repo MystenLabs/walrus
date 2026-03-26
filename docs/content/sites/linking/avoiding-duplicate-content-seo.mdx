@@ -57,7 +57,7 @@ The following practices cover the most common duplicate content situations in Wa
 Every Walrus Site is always accessible through its Base36 subdomain on any portal. If you run your own portal and do not want Base36 subdomains to be indexed alongside your preferred host, you have 2 options:
 
 - Disable Base36 resolution entirely by setting `b36_subnets: false` in your portal's [`portal-config.yaml`](/docs/sites/portals/mainnet-testnet).
-- Keep Base36 enabled but add a canonical hint in your site HTML pointing to your preferred host, and optionally return an `X-Robots-Tag: noindex` response header for requests arriving on Base36 subdomains.
+- Keep Base36 enabled but add a canonical hint in your site's HTML pointing to your preferred host, and optionally return an `X-Robots-Tag: noindex` response header for requests arriving on Base36 subdomains.
 
 ### Custom domain portals
 
