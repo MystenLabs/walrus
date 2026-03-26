@@ -425,7 +425,8 @@ impl BlobSyncHandler {
                     },
 
                     (guard, start) = async {
-                        let waited_for_deferral = synchronizer.wait_for_recovery_window().await;
+                        let waited_for_live_upload_deferral =
+                            synchronizer.wait_for_recovery_window().await;
 
                         let active_start = tokio::time::Instant::now();
 
@@ -441,7 +442,7 @@ impl BlobSyncHandler {
                         let decrement_guard = GaugeGuard::acquire(&in_progress_gauge);
 
                         synchronizer
-                            .run(permits.sliver_pairs, waited_for_deferral)
+                            .run(permits.sliver_pairs, waited_for_live_upload_deferral)
                             .await;
 
                         (decrement_guard, active_start)
@@ -554,15 +555,16 @@ impl BlobSynchronizer {
         &self.node.metrics
     }
 
+    /// Returns whether this sync observed and waited out a live-upload recovery deferral.
     async fn wait_for_recovery_window(&self) -> bool {
         match self
             .node
             .wait_until_recovery_deferral_expires(&self.blob_id)
             .await
         {
-            Ok(waited_for_deferral) => {
+            Ok(waited_for_live_upload_deferral) => {
                 self.node.clear_recovery_deferral(&self.blob_id).await;
-                waited_for_deferral
+                waited_for_live_upload_deferral
             }
             Err(err) => {
                 tracing::warn!(?err, "failed to wait out recovery deferral");
@@ -573,7 +575,7 @@ impl BlobSynchronizer {
 
     /// Runs the synchronizer until blob sync is complete.
     #[tracing::instrument(skip_all)]
-    async fn run(self, sliver_permits: Arc<Semaphore>, waited_for_deferral: bool) {
+    async fn run(self, sliver_permits: Arc<Semaphore>, waited_for_live_upload_deferral: bool) {
         let this = Arc::new(self);
         let histograms = &this.metrics().recover_blob_part_duration_seconds;
 
@@ -591,11 +593,7 @@ impl BlobSynchronizer {
             tracing::debug!(
                 "blob already stored at all owned shards for current epoch, skipping recovery"
             );
-            if waited_for_deferral {
-                this.node
-                    .metrics
-                    .live_upload_deferral_avoided_recovery_total
-                    .inc();
+            if waited_for_live_upload_deferral {
                 walrus_utils::with_label!(
                     this.node.metrics.live_upload_deferral_outcome_total,
                     LIVE_UPLOAD_DEFERRAL_OUTCOME_AVOIDED_RECOVERY
@@ -605,7 +603,8 @@ impl BlobSynchronizer {
             return;
         }
 
-        if waited_for_deferral {
+        // Only record an outcome when a live-upload deferral actually existed for this blob.
+        if waited_for_live_upload_deferral {
             walrus_utils::with_label!(
                 this.node.metrics.live_upload_deferral_outcome_total,
                 LIVE_UPLOAD_DEFERRAL_OUTCOME_RECOVERY_NEEDED
