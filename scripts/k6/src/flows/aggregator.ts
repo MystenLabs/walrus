@@ -26,6 +26,20 @@ export async function getBlob(
 }
 
 /**
+ * Streams a blob via an aggregator.
+ * @param aggregatorUrl - The URL of the aggregator to contact for the blob.
+ * @param blobId - The blob ID of the blob to request.
+ * @param params - Any additional parameters to pass to the `http.get` call.
+ */
+export async function getBlobStream(
+    aggregatorUrl: string,
+    blobId: BlobId,
+    params?: Record<string, any>,
+) {
+    return http.get(http.url`${aggregatorUrl}/v1alpha/blobs/${blobId}/stream`, params);
+}
+
+/**
  * Retrieves a quilt patch via an aggregator.
  * @param aggregatorUrl - The URL of the aggregator to contact for the blob.
  * @param quiltPatch - The quilt or patch ID to requests. They are differentiated by the presence
