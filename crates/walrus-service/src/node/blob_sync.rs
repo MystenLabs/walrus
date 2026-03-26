@@ -584,12 +584,24 @@ impl BlobSynchronizer {
             .current_event_epoch()
             .await
             .expect("current event epoch should be set");
-        if this
+        let storage_state_after_deferral = match this
             .node
             .is_stored_at_all_shards_at_epoch(&this.blob_id, current_epoch)
             .await
-            .unwrap_or(false)
         {
+            Ok(is_stored) => Some(is_stored),
+            Err(error) => {
+                tracing::warn!(
+                    %this.blob_id,
+                    ?error,
+                    "failed to determine whether recovery is still needed after waiting for \
+                    live-upload deferral"
+                );
+                None
+            }
+        };
+
+        if storage_state_after_deferral == Some(true) {
             tracing::debug!(
                 "blob already stored at all owned shards for current epoch, skipping recovery"
             );
@@ -603,8 +615,9 @@ impl BlobSynchronizer {
             return;
         }
 
-        // Only record an outcome when a live-upload deferral actually existed for this blob.
-        if waited_for_live_upload_deferral {
+        // Only record an outcome when a live-upload deferral actually existed and the post-wait
+        // storage check completed successfully.
+        if waited_for_live_upload_deferral && storage_state_after_deferral == Some(false) {
             walrus_utils::with_label!(
                 this.node.metrics.live_upload_deferral_outcome_total,
                 LIVE_UPLOAD_DEFERRAL_OUTCOME_RECOVERY_NEEDED
