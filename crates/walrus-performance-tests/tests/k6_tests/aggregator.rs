@@ -40,6 +40,32 @@ mod blob {
     }
 
     walrus_test_utils::param_test! {
+        blob_stream_download_latency -> TestResult: [
+            payload_1ki: (ByteSize::kibi(1), SAMPLE_SIZE_FAST, 3),
+            payload_100ki: (ByteSize::kibi(100), SAMPLE_SIZE_FAST, 3),
+            payload_1mi: (ByteSize::mebi(1), SAMPLE_SIZE_FAST, 3),
+            payload_10mi: (ByteSize::mebi(10), SAMPLE_SIZE_FAST, 3),
+            // ^=== Fast / Slow ===v
+            payload_100mi: (ByteSize::mebi(100), SAMPLE_SIZE_SLOW, 1),
+            payload_500mi: (ByteSize::mebi(500), SAMPLE_SIZE_SLOW, 1),
+            payload_1gi: (ByteSize::gibi(1), SAMPLE_SIZE_SLOW, 1),
+            payload_2gi: (ByteSize::gibi(2), SAMPLE_SIZE_SLOW, 1),
+        ]
+    }
+    fn blob_stream_download_latency(
+        payload_size: ByteSize,
+        samples: usize,
+        max_concurrency: usize,
+    ) -> TestResult {
+        let command = k6_tests::run(
+            "aggregator/aggregator_v1alpha_get_blob_stream_latency.ts",
+            &format!("stream-download:latency:{payload_size}"),
+        );
+
+        common::blob_request_latency(command, payload_size, samples, max_concurrency)
+    }
+
+    walrus_test_utils::param_test! {
         blob_download_throughput -> TestResult: [
             requests: ("requests", ByteSize::kibi(1)),
             data: ("data", ByteSize::mebi(100)),
