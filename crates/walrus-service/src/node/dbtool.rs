@@ -5,10 +5,18 @@
 
 use std::path::PathBuf;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use bincode::Options;
 use clap::Subcommand;
-use rocksdb::{DB, Options as RocksdbOptions, ReadOptions};
+use rocksdb::{
+    BottommostLevelCompaction,
+    ColumnFamilyDescriptor,
+    CompactOptions,
+    DB,
+    Options as RocksdbOptions,
+    ReadOptions,
+    WaitForCompactOptions,
+};
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 use sui_types::base_types::ObjectID;
@@ -48,6 +56,7 @@ use crate::{
                 blob_info_cf_options,
                 per_object_blob_info_cf_options,
                 per_object_pooled_blob_info_cf_options,
+                storage_pool_info_cf_options,
             },
             constants::{
                 aggregate_blob_info_cf_name,
@@ -60,6 +69,7 @@ use crate::{
                 per_object_pooled_blob_info_cf_name,
                 primary_slivers_column_family_name,
                 secondary_slivers_column_family_name,
+                storage_pool_info_cf_name,
             },
         },
     },
@@ -72,6 +82,13 @@ use crate::{
 pub enum DbToolCommands {
     /// Repair a corrupted RocksDB database due to non-clean shutdowns.
     RepairDb {
+        /// Path to the RocksDB database directory.
+        #[arg(long)]
+        db_path: PathBuf,
+    },
+
+    /// Compact all column families in a RocksDB database.
+    CompactDb {
         /// Path to the RocksDB database directory.
         #[arg(long)]
         db_path: PathBuf,
@@ -257,6 +274,7 @@ impl DbToolCommands {
     pub fn execute(self) -> Result<()> {
         match self {
             Self::RepairDb { db_path } => repair_db(db_path),
+            Self::CompactDb { db_path } => compact_db(db_path),
             Self::ScanEvents {
                 db_path,
                 start_event_index,
@@ -325,6 +343,125 @@ fn repair_db(_db_path: PathBuf) -> Result<()> {
         Please contact the Walrus team for assistance with database recovery."
     );
     Ok(())
+}
+
+fn compact_db(db_path: PathBuf) -> Result<()> {
+    let db_table_opts_factory = DatabaseTableOptionsFactory::new(DatabaseConfig::default(), true);
+    let column_families = DB::list_cf(&RocksdbOptions::default(), &db_path)?;
+    if column_families.is_empty() {
+        println!("No column families found in database");
+        return Ok(());
+    }
+
+    let mut db_opts = RocksdbOptions::from(&db_table_opts_factory.global());
+    db_opts.create_if_missing(false);
+    db_opts.create_missing_column_families(false);
+    let cf_descriptors = column_families
+        .iter()
+        .map(|cf_name| {
+            ColumnFamilyDescriptor::new(
+                cf_name.as_str(),
+                compact_db_cf_options(cf_name, &db_table_opts_factory),
+            )
+        })
+        .collect::<Vec<_>>();
+
+    let db = DB::open_cf_descriptors(&db_opts, &db_path, cf_descriptors).inspect_err(|_| {
+        println!(
+            "failed to open database; \
+            make sure to stop the storage node before attempting to compact the database"
+        )
+    })?;
+
+    let mut compact_options = CompactOptions::default();
+    compact_options.set_bottommost_level_compaction(BottommostLevelCompaction::ForceOptimized);
+    compact_options.set_exclusive_manual_compaction(true);
+
+    for column_family_name in &column_families {
+        let cf = db
+            .cf_handle(column_family_name)
+            .with_context(|| format!("column family `{column_family_name}` should exist"))?;
+        println!("Compacting column family: {column_family_name}");
+        db.compact_range_cf_opt(&cf, None::<&[u8]>, None::<&[u8]>, &compact_options);
+    }
+
+    let mut wait_options = WaitForCompactOptions::default();
+    wait_options.set_flush(true);
+    db.wait_for_compact(&wait_options)?;
+
+    println!(
+        "Finished compacting {} column families",
+        column_families.len()
+    );
+    Ok(())
+}
+
+fn compact_db_cf_options(
+    column_family_name: &str,
+    db_table_opts_factory: &DatabaseTableOptionsFactory,
+) -> RocksdbOptions {
+    match column_family_name {
+        "default" => db_table_opts_factory.standard(),
+        name if name == aggregate_blob_info_cf_name() => {
+            blob_info_cf_options(db_table_opts_factory)
+        }
+        name if name == per_object_blob_info_cf_name() => {
+            per_object_blob_info_cf_options(db_table_opts_factory)
+        }
+        name if name == per_object_pooled_blob_info_cf_name() => {
+            per_object_pooled_blob_info_cf_options(db_table_opts_factory)
+        }
+        name if name == storage_pool_info_cf_name() => {
+            storage_pool_info_cf_options(db_table_opts_factory)
+        }
+        name if name == metadata_cf_name() => db_table_opts_factory.metadata(),
+        name if name == node_status_cf_name() => db_table_opts_factory.node_status(),
+        name if name == event_index_cf_name() => db_table_opts_factory.standard(),
+        name if name == event_cursor_cf_name() => db_table_opts_factory.event_cursor(),
+        name if name == garbage_collector_table_cf_name() => {
+            db_table_opts_factory.garbage_collector()
+        }
+        name if name == certified_cf_name() => db_table_opts_factory.certified(),
+        name if name == attested_cf_name() => db_table_opts_factory.attested(),
+        name if name == pending_cf_name() => db_table_opts_factory.pending(),
+        name if name == failed_to_attest_cf_name() => db_table_opts_factory.failed_to_attest(),
+        name if name == event_processor_constants::CHECKPOINT_STORE => {
+            db_table_opts_factory.checkpoint_store()
+        }
+        name if name == event_processor_constants::WALRUS_PACKAGE_STORE => {
+            db_table_opts_factory.walrus_package_store()
+        }
+        name if name == event_processor_constants::COMMITTEE_STORE => {
+            db_table_opts_factory.committee_store()
+        }
+        name if name == event_processor_constants::EVENT_STORE => {
+            db_table_opts_factory.event_store()
+        }
+        name if name == event_processor_constants::INIT_STATE => db_table_opts_factory.init_state(),
+        name if is_shard_column_family(name, "primary-slivers")
+            || is_shard_column_family(name, "secondary-slivers") =>
+        {
+            db_table_opts_factory.shard()
+        }
+        name if is_shard_column_family(name, "status") => db_table_opts_factory.shard_status(),
+        name if is_shard_column_family(name, "sync-progress") => {
+            db_table_opts_factory.shard_sync_progress()
+        }
+        name if is_shard_column_family(name, "pending-recover-slivers") => {
+            db_table_opts_factory.pending_recover_slivers()
+        }
+        _ => RocksdbOptions::default(),
+    }
+}
+
+fn is_shard_column_family(column_family_name: &str, suffix: &str) -> bool {
+    let Some((shard_prefix, column_family_suffix)) = column_family_name.split_once('/') else {
+        return false;
+    };
+
+    shard_prefix.starts_with("shard-")
+        && shard_prefix["shard-".len()..].parse::<u16>().is_ok()
+        && column_family_suffix == suffix
 }
 
 fn scan_events(db_path: PathBuf, start_event_index: u64, count: usize) -> Result<()> {
@@ -919,4 +1056,47 @@ fn read_failed_to_attest_event_blobs(db_path: PathBuf) -> Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use tempfile::tempdir;
+
+    use super::*;
+
+    #[test]
+    fn compact_db_handles_known_and_unknown_column_families() -> Result<()> {
+        let db_dir = tempdir()?;
+        let db_table_opts_factory =
+            DatabaseTableOptionsFactory::new(DatabaseConfig::default(), true);
+        let mut db_opts = RocksdbOptions::from(&db_table_opts_factory.global());
+        db_opts.create_if_missing(true);
+        db_opts.create_missing_column_families(true);
+
+        let db = DB::open_cf_descriptors(
+            &db_opts,
+            db_dir.path(),
+            vec![
+                ColumnFamilyDescriptor::new(
+                    aggregate_blob_info_cf_name(),
+                    blob_info_cf_options(&db_table_opts_factory),
+                ),
+                ColumnFamilyDescriptor::new(metadata_cf_name(), db_table_opts_factory.metadata()),
+                ColumnFamilyDescriptor::new(
+                    primary_slivers_column_family_name(ShardIndex(0)),
+                    db_table_opts_factory.shard(),
+                ),
+                ColumnFamilyDescriptor::new("custom_cf", RocksdbOptions::default()),
+            ],
+        )?;
+
+        let metadata_cf = db
+            .cf_handle(metadata_cf_name())
+            .expect("metadata column family should exist");
+        db.put_cf(&metadata_cf, b"key", b"value")?;
+        drop(metadata_cf);
+        drop(db);
+
+        compact_db(db_dir.path().to_path_buf())
+    }
 }
