@@ -9528,6 +9528,12 @@ mod tests {
             3
         );
 
+        // Wait for all setup events to be fully processed before reading the baseline count.
+        // The setup sends 6 events: EpochChangeStart(1), EpochChangeDone(1), BlobRegistered,
+        // BlobCertified, EpochChangeStart(2), EpochChangeDone(2). Without this wait,
+        // EpochChangeDone(2) may still be in-flight and complete concurrently with the next
+        // event, causing the count to jump by more than expected.
+        wait_until_events_processed_exact(&cluster.nodes[1], 6).await?;
         let processed_event_count = &cluster.nodes[1]
             .storage_node
             .inner
