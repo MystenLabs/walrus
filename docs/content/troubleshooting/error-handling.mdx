@@ -8,7 +8,7 @@ This page covers how to handle Walrus errors programmatically in your applicatio
 
 ## Error categories
 
-Not all errors are equal. Some are safe to retry, some require you to check on-chain state, and some require you to fix your input before trying again. The following table summarizes the most common failure types:
+Not all errors are equal. Some are safe to retry, some require you to check on-chain state (an operation might have succeeded on-chain even though the client did not receive a confirmation), and some require you to fix your input before trying again. The following table summarizes the most common failure types:
 
 | **Failure type** | **Retryable** | **Check on-chain state** | **Recommended action** |
 |---|---|---|---|
@@ -174,4 +174,3 @@ When you encounter an error, follow these steps in order:
 When you set `RUST_LOG=info`, the `walrus` CLI prints the path to the configuration file and Sui wallet it uses at startup. This helps confirm you are using the intended configuration.
 
 :::
-

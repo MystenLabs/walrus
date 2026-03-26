@@ -362,33 +362,7 @@ Error: DNS resolution failed
 
 **Solution:** Implement retry logic with exponential backoff in your application. If multiple publishers or aggregators are available, try an alternative endpoint. Set reasonable timeouts: 30 seconds for uploads and 10 seconds for reads.
 
-```typescript
-async function uploadWithRetry(
-  client: SuiClient,
-  data: Uint8Array,
-  signer: Keypair,
-  maxRetries = 3
-) {
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    try {
-      const result = await client.walrus.writeBlob({
-        blob: data,
-        epochs: 5,
-        signer
-      });
-      return result;
-    } catch (error) {
-      if (attempt < maxRetries) {
-        const delay = Math.pow(2, attempt) * 1000;
-        console.log(`Attempt ${attempt} failed, retrying in ${delay/1000}s...`);
-        await new Promise(resolve => setTimeout(resolve, delay));
-      } else {
-        throw error;
-      }
-    }
-  }
-}
-```
+See [Error Handling](/docs/troubleshooting/error-handling) for an example of retry logic in the TypeScript SDK.
 
 #### Publisher cannot reach storage nodes
 
@@ -397,7 +371,7 @@ async function uploadWithRetry(
 ```
 Error: Failed to distribute slivers
 Warning: Storage node X unreachable
-Error: Quorum not reached (received 500/1000 signatures)
+Error: Quorum not reached (received 1/2 of signatures)
 ```
 
 **Cause:** One or more storage nodes are offline, overloaded, or unreachable due to a network partition.
@@ -411,12 +385,12 @@ Error: Quorum not reached (received 500/1000 signatures)
 ```
 Error: Failed to fetch slivers
 Warning: Storage node Y unreachable
-Error: Insufficient slivers (fetched 200/334 required)
+Error: Insufficient slivers
 ```
 
 **Cause:** Storage nodes are offline, overloaded, or rate-limiting requests.
 
-**Solution:** Retry the read request. Only 1/3 of primary slivers (334 out of 1000) are needed to reconstruct a blob, so the system tolerates many nodes being offline. Try a different aggregator if available, or wait and retry.
+**Solution:** Retry the read request. Only 1/3 of primary slivers are needed to reconstruct a blob, so the system tolerates many nodes being offline. Try a different aggregator if available, or wait and retry.
 
 ---
 
@@ -481,17 +455,3 @@ Error: Failed to allocate encoding buffer
 **Cause:** The blob is too large for available memory. The encoding process requires approximately 2 to 3 times the blob size in RAM.
 
 **Solution:** Run the CLI on a machine with sufficient RAM. Split large blobs into smaller chunks in your application before uploading. If you are using a publisher, use one with more available memory.
-
----
-
-## Content-Security-Policy errors on Walrus Sites
-
-**Error:**
-
-```
-HTTP 503 on route resolution (for example, / returns 503, but /index.html returns 200)
-```
-
-**Cause:** The `Content-Security-Policy` header (specifically `default-src 'none'` and `frame-ancestors 'none'`) conflicts with the Walrus portal's request processing pipeline. Direct resource requests bypass route resolution and work, but route redirects (for example, `/` to `/index.html`) fail.
-
-**Solution:** Remove restrictive CSP and security headers (`X-Frame-Options: DENY`, `Permissions-Policy`, `Referrer-Policy`, `X-Content-Type-Options`) from `ws-resources.json`. These headers are appropriate for self-hosted sites but conflict with the Walrus portal's route resolution.
