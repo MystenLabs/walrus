@@ -1,0 +1,84 @@
+Duplicate content occurs when the same or substantially similar content is accessible at more than 1 URL. Search engines such as Google consolidate duplicate pages and assign ranking signals to whichever URL they consider canonical. If your Walrus Site is reachable under multiple hostnames, search engines might split those signals across URLs, reducing the visibility of your preferred address.
+
+Walrus Sites are particularly prone to this because the same site object can be resolved under several different hostnames at the same time:
+
+- **A [SuiNS](https://suins.io/) domain**: A human-readable name registered on-chain, for example `snowreads.wal.app`.
+- **Base36**: A subdomain derived directly from the site object ID, for example `1myb…xd.portal.com`.
+- **[Custom domains](/docs/sites/custom-domains/bringing-your-own-domain)**: Your own domain obtained through a third-party service, for example `example.com`.
+
+Additionally, any portal operator can serve your site object, which means your content might appear under hostnames you do not control at all.
+
+## How to signal a canonical URL
+
+The standard way to tell search engines which URL is authoritative is the canonical hint. You can set it as an HTML tag in the `<head>` of your site's pages, or as an HTTP response header.
+
+### HTML tag
+
+Add a `<link rel="canonical">` tag to the `<head>` of every page, pointing to your preferred URL:
+
+```html
+
+```
+
+This approach works for all Walrus Sites, regardless of how the portal is configured. Most static site generators and web frameworks support injecting a canonical tag automatically when configured with your preferred base URL.
+
+### HTTP header
+
+If your self-hosted portal injects response headers, you can set the canonical hint as an HTTP `Link` header instead. This is useful for non-HTML resources such as JSON feeds or plain text files:
+
+```
+Link: <https://YOUR_PREFERRED_HOST/path>; rel="canonical"
+```
+
+Both the HTML tag and the HTTP header are recognized by major search engines. The HTML tag is easier to apply consistently across all pages and works without any portal-level configuration changes.
+
+## Choosing a canonical host
+
+Before applying canonical hints, decide which hostname type is authoritative for your site. The following priority order is recommended:
+
+1. **Custom domain:** Most professional and portable, independent of SuiNS registration status.
+2. **SuiNS name:** Human-readable and stable as long as the registration is active.
+3. **Base36 subdomain:** Permanent but not human-readable. Use only if no SuiNS name is configured.
+
+Apply a canonical hint pointing to your chosen host on every page of your site. All other hostnames under which the site is accessible should point back to that same canonical URL.
+
+## Specific scenarios
+
+The following practices cover the most common duplicate content situations in Walrus Sites.
+
+### Base36 subdomains on a self-hosted portal
+
+Every Walrus Site is always accessible through its Base36 subdomain on any portal. If you run your own portal and do not want Base36 subdomains to be indexed alongside your preferred host, you have 2 options:
+
+- Disable Base36 resolution entirely by setting `b36_subnets: false` in your portal's [`portal-config.yaml`](/docs/sites/portals/mainnet-testnet).
+- Keep Base36 enabled but add a canonical hint in your site's HTML pointing to your preferred host, and optionally return an `X-Robots-Tag: noindex` response header for requests arriving on Base36 subdomains.
+
+### Custom domain portals
+
+Setting `bring_your_own_domain: true` in `portal-config.yaml` configures the portal to serve only your configured custom domain (single-site mode). In this mode, SuiNS and Base36 subdomains are not resolved by that portal instance. This eliminates the duplicate-host problem for traffic going through your portal. You should still add canonical hints in your site HTML, because the same site object remains accessible through other portal instances that do not have this restriction.
+
+### Multiple SuiNS names pointing to the same site
+
+Any SuiNS name can be pointed at a site object permissionlessly. If multiple names resolve to your site, canonical hints in your site HTML specify which name is authoritative:
+
+```html
+
+```
+
+If you own the extra names, consider removing or not renewing the registrations that you do not want to use as a canonical address.
+
+### Sites accessible on multiple portals
+
+Because any portal operator can serve your site object, your content might appear under hostnames outside your control. Canonical hints in your site HTML are the only tool available in this case. Search engines respect canonical hints even when the hint points to a different domain than the one serving the page.
+
+## Example
+
+You run a site reachable at both `https://example.wal.app/math` (SuiNS) and `https://example.com/math` (custom domain). A web crawler sees identical content at 2 different URLs and might treat them as duplicates. Your custom domain is the canonical host.
+
+Add the following to the `<head>` of every page:
+
+```html
+
+```
+
+Search engines now attribute all ranking signals to `https://example.com/math`, regardless of which hostname serves the page.
