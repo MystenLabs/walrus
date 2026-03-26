@@ -14,9 +14,7 @@ use serde_with::serde_as;
 use sui_types::base_types::ObjectID;
 use typed_store::rocks::be_fix_int_ser;
 use walrus_core::{
-    BlobId,
-    Epoch,
-    ShardIndex,
+    BlobId, Epoch, ShardIndex,
     metadata::{BlobMetadata, BlobMetadataApi},
 };
 
@@ -29,31 +27,21 @@ use crate::{
     node::{
         DatabaseConfig,
         event_blob_writer::{
-            AttestedEventBlobMetadata,
-            CertifiedEventBlobMetadata,
-            FailedToAttestEventBlobMetadata,
-            PendingEventBlobMetadata,
-            attested_cf_name,
-            certified_cf_name,
-            failed_to_attest_cf_name,
-            pending_cf_name,
+            AttestedEventBlobMetadata, CertifiedEventBlobMetadata, FailedToAttestEventBlobMetadata,
+            PendingEventBlobMetadata, attested_cf_name, certified_cf_name,
+            failed_to_attest_cf_name, pending_cf_name,
         },
         storage::{
-            PrimarySliverData,
-            SecondarySliverData,
+            PrimarySliverData, SecondarySliverData,
             blob_info::{
-                BlobInfo,
-                CertifiedBlobInfoApi,
-                PerObjectBlobInfo,
-                blob_info_cf_options,
-                per_object_blob_info_cf_options,
+                BlobInfo, CertifiedBlobInfoApi, PerObjectBlobInfo, blob_info_cf_options,
+                per_object_blob_info_cf_options, per_object_pooled_blob_info_cf_options,
             },
             constants::{
-                aggregate_blob_info_cf_name,
-                metadata_cf_name,
-                per_object_blob_info_cf_name,
-                primary_slivers_column_family_name,
-                secondary_slivers_column_family_name,
+                aggregate_blob_info_cf_name, event_cursor_cf_name, event_index_cf_name,
+                garbage_collector_table_cf_name, metadata_cf_name, node_status_cf_name,
+                per_object_blob_info_cf_name, per_object_pooled_blob_info_cf_name,
+                primary_slivers_column_family_name, secondary_slivers_column_family_name,
             },
         },
     },
@@ -481,10 +469,16 @@ fn count_certified_blobs(db_path: PathBuf, epoch: Epoch) -> Result<()> {
 
 /// Drop a column family from the RocksDB database.
 fn drop_column_families(db_path: PathBuf, column_family_names: Vec<String>) -> Result<()> {
-    let db = DB::open_cf(
-        &RocksdbOptions::default(),
+    let column_families = DB::list_cf(&RocksdbOptions::default(), &db_path)?;
+    let db_kind = detect_probe_db_kind(&column_families);
+
+    let mut db_opts = RocksdbOptions::default();
+    db_opts.set_max_open_files(512_000);
+
+    let db = DB::open_cf_with_opts(
+        &db_opts,
         &db_path,
-        &DB::list_cf(&RocksdbOptions::default(), &db_path)?,
+        probe_cf_options(&column_families, db_kind),
     )
     .inspect_err(|_| {
         println!(
@@ -504,6 +498,13 @@ fn drop_column_families(db_path: PathBuf, column_family_names: Vec<String>) -> R
     Ok(())
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ProbeDbKind {
+    Storage,
+    EventProcessor,
+    Unknown,
+}
+
 fn list_column_families(db_path: PathBuf) -> Result<()> {
     let result = rocksdb::DB::list_cf(&RocksdbOptions::default(), db_path);
     if let Ok(column_families) = result {
@@ -513,6 +514,99 @@ fn list_column_families(db_path: PathBuf) -> Result<()> {
     }
 
     Ok(())
+}
+
+fn detect_probe_db_kind(column_families: &[String]) -> ProbeDbKind {
+    if column_families.iter().any(|cf| {
+        cf == aggregate_blob_info_cf_name()
+            || cf == per_object_blob_info_cf_name()
+            || cf == metadata_cf_name()
+            || cf.starts_with("shard-")
+    }) {
+        ProbeDbKind::Storage
+    } else if column_families.iter().any(|cf| {
+        cf == event_processor_constants::CHECKPOINT_STORE
+            || cf == event_processor_constants::WALRUS_PACKAGE_STORE
+            || cf == event_processor_constants::COMMITTEE_STORE
+            || cf == event_processor_constants::EVENT_STORE
+            || cf == event_processor_constants::INIT_STATE
+    }) {
+        ProbeDbKind::EventProcessor
+    } else {
+        ProbeDbKind::Unknown
+    }
+}
+
+fn probe_cf_options(
+    column_families: &[String],
+    db_kind: ProbeDbKind,
+) -> Vec<(&str, RocksdbOptions)> {
+    let db_config = DatabaseConfig::default();
+    let factory = DatabaseTableOptionsFactory::new(db_config, db_kind == ProbeDbKind::Storage);
+    column_families
+        .iter()
+        .map(|cf_name| {
+            (
+                cf_name.as_str(),
+                probe_cf_options_for_name(cf_name, db_kind, &factory),
+            )
+        })
+        .collect()
+}
+
+fn probe_cf_options_for_name(
+    cf_name: &str,
+    db_kind: ProbeDbKind,
+    factory: &DatabaseTableOptionsFactory,
+) -> RocksdbOptions {
+    match db_kind {
+        ProbeDbKind::Storage => {
+            if let Some((_, suffix)) = parse_shard_cf_name(cf_name) {
+                return match suffix {
+                    "primary-slivers" | "secondary-slivers" => factory.shard(),
+                    "status" => factory.shard_status(),
+                    "sync-progress" => factory.shard_sync_progress(),
+                    "pending-recover-slivers" => factory.pending_recover_slivers(),
+                    _ => RocksdbOptions::default(),
+                };
+            }
+
+            match cf_name {
+                name if name == aggregate_blob_info_cf_name() => blob_info_cf_options(factory),
+                name if name == per_object_blob_info_cf_name() => {
+                    per_object_blob_info_cf_options(factory)
+                }
+                name if name == per_object_pooled_blob_info_cf_name() => {
+                    per_object_pooled_blob_info_cf_options(factory)
+                }
+                name if name == event_index_cf_name() => factory.standard(),
+                name if name == metadata_cf_name() => factory.metadata(),
+                name if name == node_status_cf_name() => factory.node_status(),
+                name if name == event_cursor_cf_name() => factory.event_cursor(),
+                name if name == garbage_collector_table_cf_name() => factory.garbage_collector(),
+                _ => RocksdbOptions::default(),
+            }
+        }
+        ProbeDbKind::EventProcessor => match cf_name {
+            name if name == event_processor_constants::CHECKPOINT_STORE => {
+                factory.checkpoint_store()
+            }
+            name if name == event_processor_constants::WALRUS_PACKAGE_STORE => {
+                factory.walrus_package_store()
+            }
+            name if name == event_processor_constants::COMMITTEE_STORE => factory.committee_store(),
+            name if name == event_processor_constants::EVENT_STORE => factory.event_store(),
+            name if name == event_processor_constants::INIT_STATE => factory.init_state(),
+            _ => RocksdbOptions::default(),
+        },
+        ProbeDbKind::Unknown => RocksdbOptions::default(),
+    }
+}
+
+fn parse_shard_cf_name(cf_name: &str) -> Option<(u16, &str)> {
+    let (shard_name, suffix) = cf_name.split_once('/')?;
+    let shard_index = shard_name.strip_prefix("shard-")?.parse().ok()?;
+    Some((shard_index, suffix))
 }
 
 fn read_blob_metadata(
