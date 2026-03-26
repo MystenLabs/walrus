@@ -31,7 +31,7 @@ use walrus_core::{
     messages::{SyncShardRequest, SyncShardResponse},
     metadata::{BlobMetadata, VerifiedBlobMetadataWithId},
 };
-use walrus_sui::types::{BlobEvent, GENESIS_EPOCH};
+use walrus_sui::types::{BlobEvent, GENESIS_EPOCH, StoragePoolEvent};
 use walrus_utils::metrics::Registry;
 
 use self::{
@@ -447,6 +447,9 @@ impl Storage {
         &self,
         epoch: Epoch,
     ) -> Result<(), TypedStoreError> {
+        #[cfg(msim)]
+        sui_macros::fail_point!("gc_set_last_completed_epoch");
+
         self.garbage_collector_table
             .insert(&garbage_collector_last_completed_epoch_key(), &epoch)
     }
@@ -681,6 +684,17 @@ impl Storage {
         self.blob_info.get_per_object_pooled_info(object_id)
     }
 
+    /// Updates the storage pool info based on a [`StoragePoolEvent`].
+    ///
+    /// The update is written atomically with `latest_handled_event_index` for crash-restart safety.
+    pub(crate) fn update_storage_pool_info(
+        &self,
+        event_index: u64,
+        event: &StoragePoolEvent,
+    ) -> Result<(), TypedStoreError> {
+        self.blob_info.update_storage_pool_info(event_index, event)
+    }
+
     /// Returns the current event cursor and the next event index.
     #[tracing::instrument(skip_all)]
     pub fn get_event_cursor_and_next_index(
@@ -712,6 +726,18 @@ impl Storage {
         } else {
             self.blob_info.update_blob_info(event_index, event)
         }
+    }
+
+    /// Removes expired storage pool info entries.
+    pub(crate) async fn process_expired_storage_pools(
+        &self,
+        current_epoch: Epoch,
+        node_metrics: &NodeMetricSet,
+        batch_size: usize,
+    ) -> anyhow::Result<()> {
+        self.blob_info
+            .process_expired_storage_pools(current_epoch, node_metrics, batch_size)
+            .await
     }
 
     /// Processes blobs that are expired in the given epoch.
@@ -768,7 +794,7 @@ impl Storage {
         );
 
         let this = self.clone();
-        let node_metrics = node_metrics.clone();
+        let node_metrics_clone = node_metrics.clone();
 
         let cleaned_up_blob_id_count =
             utils::process_items_in_batches(move |last_processed_blob_id| {
@@ -777,14 +803,19 @@ impl Storage {
                     batch_size,
                     current_epoch,
                     shards.as_ref(),
-                    &node_metrics,
+                    &node_metrics_clone,
                 )
             })
             .await?;
 
+        let duration = start_time.elapsed();
+        node_metrics
+            .garbage_collection_blob_data_deletion_duration_seconds
+            .set(duration.as_secs_f64());
+
         tracing::info!(
             cleaned_up_blob_id_count,
-            duration = ?start_time.elapsed(),
+            duration = ?duration,
             "finished deleting expired blob data",
         );
 
@@ -820,6 +851,9 @@ impl Storage {
             .aggregate_blob_info_range_iter(start_blob_id_bound, Bound::Unbounded)?
             .take(batch_size)
         {
+            #[cfg(msim)]
+            sui_macros::fail_point!("gc_delete_expired_blob_data");
+
             total_count += 1;
             let (blob_id, blob_info) = match result {
                 Ok(values) => values,
@@ -1285,6 +1319,15 @@ impl Storage {
         self.enable_auto_compactions(false)?;
         Ok(DisableAutoCompactionsGuard { storage: self })
     }
+
+    /// Returns the storage pool info for the given storage pool ID.
+    #[cfg(test)]
+    pub(crate) fn get_storage_pool_info(
+        &self,
+        storage_pool_id: &ObjectID,
+    ) -> Result<Option<blob_info::StoragePoolInfo>, TypedStoreError> {
+        self.blob_info.get_storage_pool_info(storage_pool_id)
+    }
 }
 
 #[derive(Debug)]
@@ -1331,7 +1374,7 @@ pub(crate) mod tests {
     };
     use walrus_sui::{
         test_utils::{EventForTesting, event_id_for_testing},
-        types::{BlobCertified, BlobRegistered},
+        types::{BlobCertified, BlobRegistered, PooledBlobCertified, PooledBlobRegistered},
     };
     use walrus_test_utils::{Result as TestResult, WithTempDir, async_param_test};
 
@@ -2361,6 +2404,169 @@ pub(crate) mod tests {
                 .map(|result| result.map(|(id, _info)| id))
                 .collect::<Result<Vec<_>, _>>()?,
             vec![blob_ids[0], blob_ids[2], blob_ids[3]]
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn storage_pool_garbage_collection() -> TestResult {
+        let storage = empty_storage().await;
+        let storage = storage.as_ref();
+        let node_metrics = NodeMetricSet::new(&Registry::default());
+
+        let pool_a = ObjectID::from_single_byte(1);
+        let pool_b = ObjectID::from_single_byte(2);
+        let pool_c = ObjectID::from_single_byte(3);
+
+        // Create three pools with different end epochs.
+        storage
+            .update_storage_pool_info(0, &StoragePoolEvent::created_for_testing(pool_a, 1, 5))?;
+        storage
+            .update_storage_pool_info(1, &StoragePoolEvent::created_for_testing(pool_b, 2, 10))?;
+        storage
+            .update_storage_pool_info(2, &StoragePoolEvent::created_for_testing(pool_c, 3, 15))?;
+
+        // GC at epoch 5: pool_a should be deleted (end_epoch <= current_epoch).
+        storage
+            .process_expired_storage_pools(5, &node_metrics, 100)
+            .await?;
+
+        assert_eq!(storage.get_storage_pool_info(&pool_a)?, None);
+        assert!(storage.get_storage_pool_info(&pool_b)?.is_some());
+        assert!(storage.get_storage_pool_info(&pool_c)?.is_some());
+
+        // GC at epoch 10: pool_b should also be deleted.
+        storage
+            .process_expired_storage_pools(10, &node_metrics, 100)
+            .await?;
+
+        assert_eq!(storage.get_storage_pool_info(&pool_b)?, None);
+        assert!(storage.get_storage_pool_info(&pool_c)?.is_some());
+
+        // GC at epoch 15: pool_c should also be deleted.
+        storage
+            .process_expired_storage_pools(15, &node_metrics, 100)
+            .await?;
+
+        assert_eq!(storage.get_storage_pool_info(&pool_c)?, None);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn storage_pool_extend_then_gc() -> TestResult {
+        let storage = empty_storage().await;
+        let storage = storage.as_ref();
+        let node_metrics = NodeMetricSet::new(&Registry::default());
+
+        let pool_id = ObjectID::from_single_byte(1);
+
+        // Create a pool ending at epoch 5, then extend to epoch 15.
+        storage
+            .update_storage_pool_info(0, &StoragePoolEvent::created_for_testing(pool_id, 1, 5))?;
+        storage
+            .update_storage_pool_info(1, &StoragePoolEvent::extended_for_testing(pool_id, 15))?;
+
+        // GC at epoch 5: pool should survive because it was extended.
+        storage
+            .process_expired_storage_pools(5, &node_metrics, 100)
+            .await?;
+
+        let info = storage
+            .get_storage_pool_info(&pool_id)?
+            .expect("pool should survive after extension");
+        assert_eq!(info, blob_info::StoragePoolInfo::new(1, 15));
+
+        // GC at epoch 15: pool should now be deleted.
+        storage
+            .process_expired_storage_pools(15, &node_metrics, 100)
+            .await?;
+
+        assert_eq!(storage.get_storage_pool_info(&pool_id)?, None);
+
+        Ok(())
+    }
+
+    /// Tests that per-object pooled blob info entries are garbage collected when their storage
+    /// pool expires or has already been GC'd.
+    ///
+    /// This is a fast unit test that directly exercises the blob info table GC logic without
+    /// requiring a full cluster.
+    #[tokio::test]
+    async fn pooled_blob_object_garbage_collection() -> TestResult {
+        let storage = empty_storage().await;
+        let storage = storage.as_ref();
+        let node_metrics = NodeMetricSet::new(&Registry::default());
+
+        let pool_id = walrus_sui::test_utils::FIXED_STORAGE_POOL_ID;
+        let blob_id_certified = walrus_core::test_utils::blob_id_from_u64(1);
+        let blob_id_uncertified = walrus_core::test_utils::blob_id_from_u64(2);
+
+        // Create a storage pool ending at epoch 5.
+        storage
+            .update_storage_pool_info(0, &StoragePoolEvent::created_for_testing(pool_id, 1, 5))?;
+
+        // Register and certify a pooled blob.
+        let registered = PooledBlobRegistered::for_testing(blob_id_certified);
+        let certified_object_id = registered.object_id;
+        storage.update_blob_info(1, &BlobEvent::PooledBlobRegistered(registered))?;
+        storage.update_blob_info(
+            2,
+            &BlobEvent::PooledBlobCertified(PooledBlobCertified::for_testing(blob_id_certified)),
+        )?;
+
+        // Register a second pooled blob (uncertified).
+        let registered =
+            PooledBlobRegistered::for_testing_with_random_object_id(blob_id_uncertified);
+        let uncertified_object_id = registered.object_id;
+        storage.update_blob_info(3, &BlobEvent::PooledBlobRegistered(registered))?;
+
+        // Verify both pooled blob info entries exist.
+        assert!(
+            storage
+                .get_per_object_pooled_info(&certified_object_id)?
+                .is_some()
+        );
+        assert!(
+            storage
+                .get_per_object_pooled_info(&uncertified_object_id)?
+                .is_some()
+        );
+
+        // GC at epoch 3: pool is still alive, so neither pooled blob should be deleted.
+        storage
+            .process_expired_blob_objects(3, &node_metrics, 100)
+            .await?;
+        assert!(
+            storage
+                .get_per_object_pooled_info(&certified_object_id)?
+                .is_some()
+        );
+        assert!(
+            storage
+                .get_per_object_pooled_info(&uncertified_object_id)?
+                .is_some()
+        );
+
+        // GC storage pools at epoch 5: removes the pool info entry.
+        storage
+            .process_expired_storage_pools(5, &node_metrics, 100)
+            .await?;
+        assert_eq!(storage.get_storage_pool_info(&pool_id)?, None);
+
+        // GC pooled blob objects at epoch 5: pool no longer exists, so both blobs should
+        // be deleted.
+        storage
+            .process_expired_blob_objects(5, &node_metrics, 100)
+            .await?;
+        assert_eq!(
+            storage.get_per_object_pooled_info(&certified_object_id)?,
+            None
+        );
+        assert_eq!(
+            storage.get_per_object_pooled_info(&uncertified_object_id)?,
+            None
         );
 
         Ok(())

@@ -24,6 +24,11 @@ pub struct GarbageCollectionConfig {
     pub enable_blob_info_cleanup: bool,
     /// Whether to delete metadata and slivers of expired or deleted blobs.
     pub enable_data_deletion: bool,
+    /// Whether to immediately delete blob data when a `BlobDeleted` event is processed.
+    ///
+    /// When disabled, data is only deleted during periodic garbage collection. Only relevant if
+    /// `enable_data_deletion` is `true`.
+    pub enable_immediate_data_deletion: bool,
     /// Whether to add a random delay before starting garbage collection.
     /// The delay is deterministically computed based on the node's public key and epoch,
     /// uniformly distributed between 0 and half the epoch duration.
@@ -52,6 +57,7 @@ impl Default for GarbageCollectionConfig {
         Self {
             enable_blob_info_cleanup: true,
             enable_data_deletion: true,
+            enable_immediate_data_deletion: false,
             enable_random_delay: true,
             randomization_time_window: None,
             blob_objects_batch_size: 5000,
@@ -67,6 +73,7 @@ impl GarbageCollectionConfig {
         Self {
             enable_blob_info_cleanup: true,
             enable_data_deletion: true,
+            enable_immediate_data_deletion: true,
             enable_random_delay: true,
             randomization_time_window: Some(Duration::from_secs(1)),
             blob_objects_batch_size: 10,
@@ -254,6 +261,15 @@ impl GarbageCollector {
         // automatically re-enabled when the guard is dropped.
         let _guard = self.node.storage.temporarily_disable_auto_compactions()?;
         tracing::info!("starting garbage collection");
+
+        self.node
+            .storage
+            .process_expired_storage_pools(
+                epoch,
+                &self.metrics,
+                self.config.blob_objects_batch_size,
+            )
+            .await?;
 
         self.node
             .storage

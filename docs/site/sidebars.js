@@ -116,11 +116,12 @@ const sidebars = {
       label: 'Introduction to Walrus Sites',
       link: {
         type: "doc",
-        id:'sites/introduction/components',
+        id:'sites/index',
       },
       collapsed: false,
       items: [
         'sites/introduction/technical-overview',
+        `sites/introduction/components`,
       ],
     },
     {

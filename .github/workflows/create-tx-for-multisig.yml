@@ -9,6 +9,7 @@ on:
         options:
           - upgrade-walrus-subsidies
           - set-walrus-subsidy-rates
+          - add-wal-to-subsidies
       gas_object_id:
         description: "object id to get gas from for multisig transaction"
         required: false
@@ -27,6 +28,15 @@ on:
         type: string
       subsidy_rate_basis_points:
         description: "subsidy rate in basis points (only for set-walrus-subsidy-rates)"
+        required: false
+        type: string
+      wal_amount_frost:
+        description: "amount of WAL in FROST to add to the subsidies pool (only for add-wal-to-subsidies)"
+        required: false
+        type: string
+      wal_coin_object_id:
+        description: "WAL coin object ID to use (only for add-wal-to-subsidies, defaults to merging all WAL coins when not
+          set)"
         required: false
         type: string
 
@@ -66,6 +76,8 @@ jobs:
             -b '${{ inputs.base_subsidy_frost }}' \
             -s '${{ inputs.per_shard_subsidy_frost }}' \
             -r '${{ inputs.subsidy_rate_basis_points }}' \
+            -w '${{ inputs.wal_amount_frost }}' \
+            -c '${{ inputs.wal_coin_object_id }}' \
             >artifacts/tx-data.txt
 
       - name: Show Transaction Data (To sign)

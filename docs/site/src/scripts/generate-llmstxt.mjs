@@ -527,8 +527,10 @@ function buildOutput(includeDescriptions, includeOptional) {
     for (const section of optionalSections) {
       lines.push(`### ${section}`, "");
       for (const page of grouped[section]) {
-        const entry = includeDescriptions ? formatEntry(page) : formatEntryCompact(page);
-        lines.push(...wrapLine(entry, 0));
+        const entries = includeDescriptions ? formatEntry(page) : formatEntryCompact(page);
+        for (const entry of entries) {
+          lines.push(...wrapLine(entry, 0));
+        }
       }
       lines.push("");
     }
@@ -556,7 +558,9 @@ if (output.length > TARGET_CHARS) {
     const keep = Math.max(1, Math.floor(sectionPages.length * ratio));
     finalLines.push(`## ${section}`, "");
     for (const page of sectionPages.slice(0, keep)) {
-      finalLines.push(...wrapLine(formatEntry(page), 0));
+      for (const entry of formatEntry(page)) {
+        finalLines.push(...wrapLine(entry, 0));
+      }
     }
     finalLines.push("");
   }
