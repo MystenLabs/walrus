@@ -3,17 +3,15 @@
 
 module blob_bucket::blob_bucket_inner_v1;
 
-use sui::{coin::Coin, dynamic_object_field as dof};
+use sui::coin::Coin;
 use wal::wal::WAL;
 use walrus::{storage_pool::StoragePool, system::System};
-
-const STORAGE_POOL: u64 = 0;
 
 /// The storage pool backing this blob bucket has expired.
 const EBlobBucketStorageExpired: u64 = 0;
 
-public struct BlobBucketInnerV1 has key, store {
-    id: UID,
+public struct BlobBucketInnerV1 has store {
+    storage_pool: StoragePool,
 }
 
 public(package) fun new(
@@ -23,18 +21,15 @@ public(package) fun new(
     payment: &mut Coin<WAL>,
     ctx: &mut TxContext,
 ): BlobBucketInnerV1 {
-    let mut inner = BlobBucketInnerV1 {
-        id: object::new(ctx),
-    };
-    // Keep the pool as a child object under the versioned inner state.
-    let storage_pool = system.create_storage_pool(
-        reserved_encoded_capacity_bytes,
-        epochs_ahead,
-        payment,
-        ctx,
-    );
-    dof::add(&mut inner.id, STORAGE_POOL, storage_pool);
-    inner
+    BlobBucketInnerV1 {
+        // Keep the pool wrapped under the bucket's versioned inner state.
+        storage_pool: system.create_storage_pool(
+            reserved_encoded_capacity_bytes,
+            epochs_ahead,
+            payment,
+            ctx,
+        ),
+    }
 }
 
 public(package) fun register_blob(
@@ -141,11 +136,11 @@ public(package) fun blob_count(self: &BlobBucketInnerV1): u64 {
 }
 
 fun storage_pool(self: &BlobBucketInnerV1): &StoragePool {
-    dof::borrow(&self.id, STORAGE_POOL)
+    &self.storage_pool
 }
 
 fun storage_pool_mut(self: &mut BlobBucketInnerV1): &mut StoragePool {
-    dof::borrow_mut(&mut self.id, STORAGE_POOL)
+    &mut self.storage_pool
 }
 
 fun verify_pool_active(self: &BlobBucketInnerV1, system: &System) {
@@ -154,8 +149,6 @@ fun verify_pool_active(self: &BlobBucketInnerV1, system: &System) {
 
 #[test_only]
 public fun destroy_for_testing(self: BlobBucketInnerV1): StoragePool {
-    let BlobBucketInnerV1 { mut id } = self;
-    let pool = dof::remove(&mut id, STORAGE_POOL);
-    id.delete();
-    pool
+    let BlobBucketInnerV1 { storage_pool } = self;
+    storage_pool
 }

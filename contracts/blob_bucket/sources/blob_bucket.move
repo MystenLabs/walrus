@@ -5,7 +5,7 @@
 module blob_bucket::blob_bucket;
 
 use blob_bucket::blob_bucket_inner_v1::{Self, BlobBucketInnerV1};
-use sui::{coin::Coin, dynamic_object_field as dof};
+use sui::{coin::Coin, dynamic_field as df};
 use wal::wal::WAL;
 use walrus::system::System;
 
@@ -16,7 +16,7 @@ const EInvalidBlobBucketCap: u64 = 0;
 /// The blob bucket object version does not match the package version.
 const EWrongVersion: u64 = 1;
 
-public struct BlobBucket has key, store {
+public struct BlobBucket has key {
     id: UID,
     version: u64,
 }
@@ -26,7 +26,37 @@ public struct BlobBucketCap has key, store {
     bucket_id: ID,
 }
 
+/// Creates and shares a new blob bucket, returning the capability required for admin actions.
 public fun new(
+    system: &mut System,
+    reserved_encoded_capacity_bytes: u64,
+    epochs_ahead: u32,
+    payment: &mut Coin<WAL>,
+    ctx: &mut TxContext,
+): BlobBucketCap {
+    let (bucket, cap) = new_impl(
+        system,
+        reserved_encoded_capacity_bytes,
+        epochs_ahead,
+        payment,
+        ctx,
+    );
+    transfer::share_object(bucket);
+    cap
+}
+
+#[test_only]
+public fun new_for_testing(
+    system: &mut System,
+    reserved_encoded_capacity_bytes: u64,
+    epochs_ahead: u32,
+    payment: &mut Coin<WAL>,
+    ctx: &mut TxContext,
+): (BlobBucket, BlobBucketCap) {
+    new_impl(system, reserved_encoded_capacity_bytes, epochs_ahead, payment, ctx)
+}
+
+fun new_impl(
     system: &mut System,
     reserved_encoded_capacity_bytes: u64,
     epochs_ahead: u32,
@@ -37,25 +67,26 @@ public fun new(
         id: object::new(ctx),
         version: VERSION,
     };
-    let inner = blob_bucket_inner_v1::new(
-        system,
-        reserved_encoded_capacity_bytes,
-        epochs_ahead,
-        payment,
-        ctx,
-    );
-    dof::add(&mut bucket.id, VERSION, inner);
-
     let cap = BlobBucketCap {
         id: object::new(ctx),
         bucket_id: object::id(&bucket),
     };
-
+    df::add(
+        &mut bucket.id,
+        VERSION,
+        blob_bucket_inner_v1::new(
+            system,
+            reserved_encoded_capacity_bytes,
+            epochs_ahead,
+            payment,
+            ctx,
+        ),
+    );
     (bucket, cap)
 }
 
-public fun share(self: BlobBucket) {
-    transfer::share_object(self);
+public fun bucket_id(self: &BlobBucketCap): ID {
+    self.bucket_id
 }
 
 public fun register_blob(
@@ -167,19 +198,18 @@ fun check_cap(self: &BlobBucket, cap: &BlobBucketCap) {
 
 fun inner(self: &BlobBucket): &BlobBucketInnerV1 {
     assert!(self.version == VERSION, EWrongVersion);
-    dof::borrow(&self.id, VERSION)
+    df::borrow(&self.id, self.version)
 }
 
 fun inner_mut(self: &mut BlobBucket): &mut BlobBucketInnerV1 {
     assert!(self.version == VERSION, EWrongVersion);
-    dof::borrow_mut(&mut self.id, VERSION)
+    df::borrow_mut(&mut self.id, self.version)
 }
 
 #[test_only]
 public fun destroy_for_testing(self: BlobBucket): BlobBucketInnerV1 {
-    let mut bucket = self;
-    let inner = dof::remove(&mut bucket.id, VERSION);
-    let BlobBucket { id, version: _ } = bucket;
+    let BlobBucket { mut id, version } = self;
+    let inner = df::remove(&mut id, version);
     id.delete();
     inner
 }

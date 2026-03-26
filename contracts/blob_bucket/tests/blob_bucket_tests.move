@@ -4,14 +4,15 @@
 #[test_only]
 module blob_bucket::blob_bucket_tests;
 
-use blob_bucket::{blob_bucket, blob_bucket_inner_v1};
+use blob_bucket::{blob_bucket::{Self, BlobBucket}, blob_bucket_inner_v1};
 use std::unit_test::assert_eq;
+use sui::test_scenario as test;
 use walrus::{
     blob,
     encoding,
     messages,
     storage_pool,
-    system::{Self, System},
+    system,
     test_utils::{Self, bls_min_pk_sign, signers_to_bitmap}
 };
 
@@ -23,6 +24,37 @@ const N_COINS: u64 = 1_000_000_000;
 const WRITE_PAYMENT: u64 = 100_000_000_000;
 
 #[test]
+fun new_shares_bucket_and_records_bucket_id() {
+    let user = @0xA11CE;
+    let mut test = test::begin(user);
+    let ctx = test.ctx();
+    let mut system = system::new_for_testing(ctx);
+
+    let encoded_size = encoding::encoded_blob_length(SIZE, RS2, system.n_shards());
+    let mut pool_payment = test_utils::mint_frost(N_COINS, ctx);
+    let cap = blob_bucket::new(
+        &mut system,
+        encoded_size,
+        3,
+        &mut pool_payment,
+        ctx,
+    );
+
+    pool_payment.burn_for_testing();
+    system.destroy_for_testing();
+
+    test.next_tx(user);
+    let bucket = test.take_shared<BlobBucket>();
+    assert_eq!(blob_bucket::bucket_id(&cap), object::id(&bucket));
+
+    let inner = blob_bucket::destroy_for_testing(bucket);
+    let pool = blob_bucket_inner_v1::destroy_for_testing(inner);
+    blob_bucket::destroy_cap_for_testing(cap);
+    storage_pool::destroy_for_testing(pool);
+    test.end();
+}
+
+#[test]
 fun full_blob_bucket_lifecycle() {
     let sk = test_utils::bls_sk_for_testing();
     let ctx = &mut tx_context::dummy();
@@ -30,7 +62,7 @@ fun full_blob_bucket_lifecycle() {
 
     let encoded_size = encoding::encoded_blob_length(SIZE, RS2, system.n_shards());
     let mut pool_payment = test_utils::mint_frost(N_COINS, ctx);
-    let (mut bucket, cap) = blob_bucket::new(
+    let (mut bucket, cap) = blob_bucket::new_for_testing(
         &mut system,
         encoded_size,
         3,
@@ -41,6 +73,7 @@ fun full_blob_bucket_lifecycle() {
 
     let blob_id = blob::derive_blob_id(ROOT_HASH, RS2, SIZE);
     let mut write_payment = test_utils::mint_frost(WRITE_PAYMENT, ctx);
+    assert_eq!(blob_bucket::bucket_id(&cap), object::id(&bucket));
     blob_bucket::register_blob(
         &mut bucket,
         &cap,
@@ -114,14 +147,14 @@ fun wrong_cap_cannot_register_blob() {
     let mut left_payment = test_utils::mint_frost(N_COINS, ctx);
     let mut right_payment = test_utils::mint_frost(N_COINS, ctx);
 
-    let (mut left_bucket, _left_cap) = blob_bucket::new(
+    let (mut left_bucket, _left_cap) = blob_bucket::new_for_testing(
         &mut system,
         encoded_size,
         3,
         &mut left_payment,
         ctx,
     );
-    let (_right_bucket, right_cap) = blob_bucket::new(
+    let (_right_bucket, right_cap) = blob_bucket::new_for_testing(
         &mut system,
         encoded_size,
         3,
