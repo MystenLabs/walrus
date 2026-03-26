@@ -3,7 +3,7 @@
 
 //! Tools for inspecting and maintaining the RocksDB database.
 
-use std::path::PathBuf;
+use std::{path::PathBuf, time::Duration};
 
 use anyhow::Result;
 use bincode::Options;
@@ -12,7 +12,10 @@ use rocksdb::{DB, Options as RocksdbOptions, ReadOptions};
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 use sui_types::base_types::ObjectID;
-use typed_store::rocks::be_fix_int_ser;
+use typed_store::{
+    metrics::SamplingInterval,
+    rocks::{self, MetricConf, be_fix_int_ser},
+};
 use walrus_core::{
     BlobId,
     Epoch,
@@ -128,6 +131,19 @@ pub enum DbToolCommands {
         /// Path to the RocksDB database directory.
         #[arg(long)]
         db_path: PathBuf,
+        /// Column families to drop.
+        #[arg(num_args = 1..)]
+        column_family_names: Vec<String>,
+    },
+
+    /// Drop column families from the storage database, using the node's configuration file to
+    /// open the database with the same options used by the storage node. This avoids WAL/SST
+    /// consistency errors that can occur when opening with default RocksDB options.
+    /// This can only be called when the storage node is stopped.
+    DropStorageColumnFamiliesFromConfig {
+        /// Path to the storage node configuration file.
+        #[arg(long)]
+        config_path: PathBuf,
         /// Column families to drop.
         #[arg(num_args = 1..)]
         column_family_names: Vec<String>,
@@ -271,6 +287,10 @@ impl DbToolCommands {
                 db_path,
                 column_family_names,
             } => drop_column_families(db_path, column_family_names),
+            Self::DropStorageColumnFamiliesFromConfig {
+                config_path,
+                column_family_names,
+            } => drop_storage_column_families_from_config(config_path, column_family_names),
             Self::ListColumnFamilies { db_path } => list_column_families(db_path),
             Self::ReadBlobMetadata {
                 db_path,
@@ -503,6 +523,63 @@ fn drop_column_families(db_path: PathBuf, column_family_names: Vec<String>) -> R
     for column_family_name in column_family_names {
         println!("Dropping column family: {column_family_name}");
         match db.drop_cf(column_family_name.as_str()) {
+            Ok(()) => println!("Success."),
+            Err(e) => println!("Failed to drop column family: {e:?}"),
+        }
+    }
+
+    Ok(())
+}
+
+/// Drop column families from the storage database using the node's configuration file.
+///
+/// Opens the database with the same options as the storage node to avoid WAL/SST consistency
+/// errors that occur when opening with default RocksDB options.
+fn drop_storage_column_families_from_config(
+    config_path: PathBuf,
+    column_family_names: Vec<String>,
+) -> Result<()> {
+    use crate::node::config::StorageNodeConfig;
+
+    let loaded = StorageNodeConfig::load_config(&config_path)?;
+    let config = loaded.config;
+    let db_path = &config.storage_path;
+    let db_config = &config.db_config;
+
+    let mut db_opts = RocksdbOptions::from(&db_config.global());
+    db_opts.create_missing_column_families(true);
+
+    let existing_cfs = DB::list_cf(&db_opts, db_path)?;
+    println!("Existing column families: {existing_cfs:?}");
+    let cf_descriptors: Vec<_> = existing_cfs
+        .iter()
+        .map(|name| (name.as_str(), db_opts.clone()))
+        .collect();
+
+    let no_op_sampling = SamplingInterval::new(Duration::ZERO, 0);
+    let metric_conf = MetricConf {
+        db_name: String::new(),
+        read_sample_interval: no_op_sampling.clone(),
+        write_sample_interval: no_op_sampling.clone(),
+        iter_sample_interval: no_op_sampling,
+    };
+
+    let db = if db_config.use_optimistic_transaction_db() {
+        rocks::open_cf_opts_optimistic(db_path, Some(db_opts), metric_conf, &cf_descriptors)
+    } else {
+        rocks::open_cf_opts(db_path, Some(db_opts), metric_conf, &cf_descriptors)
+    }
+    .inspect_err(|_| {
+        println!(
+            "failed to open database at '{}'; \
+            make sure to stop the storage node before attempting to drop column families",
+            db_path.display()
+        )
+    })?;
+
+    for column_family_name in column_family_names {
+        println!("Dropping column family: {column_family_name}");
+        match db.drop_cf(&column_family_name) {
             Ok(()) => println!("Success."),
             Err(e) => println!("Failed to drop column family: {e:?}"),
         }
