@@ -199,11 +199,10 @@ impl GarbageCollector {
     /// Processes the `storage_pool_info` and `per_object_blob_info` tables
     /// to remove entries for blobs that are no longer registered.
     async fn perform_blob_info_cleanup(&self, epoch: Epoch) -> anyhow::Result<()> {
-        // Note: compaction suppression is intentionally omitted here. Phase 1 runs inline
-        // (blocking the event loop) and is expected to complete quickly. The previous epoch's
-        // phase 2 may still be running with its own compaction guard; adding a guard here would
-        // re-enable compactions on drop while phase 2 is still doing bulk deletes. A future
-        // reference-counted guard would allow both phases to suppress compactions independently.
+        // Disable DB compactions during cleanup to improve performance. The guard is
+        // reference-counted, so the previous epoch's phase 2 guard (if still held) prevents
+        // compactions from being re-enabled until both phases are done.
+        let _guard = self.node.storage.temporarily_disable_auto_compactions();
         tracing::info!("starting garbage collection phase 1: blob info cleanup");
         let start = Instant::now();
 
@@ -346,7 +345,7 @@ impl GarbageCollector {
     async fn perform_data_deletion(&self, epoch: Epoch) -> anyhow::Result<()> {
         // Disable DB compactions during data deletion to improve performance. DB compactions are
         // automatically re-enabled when the guard is dropped.
-        let _guard = self.node.storage.temporarily_disable_auto_compactions()?;
+        let _guard = self.node.storage.temporarily_disable_auto_compactions();
         tracing::info!("starting garbage collection phase 2: data deletion");
         fail_point_async!("data_deletion_start");
         let start = Instant::now();
