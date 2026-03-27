@@ -1486,6 +1486,61 @@ async fn test_walrus_subsidies_get_called_by_node() -> TestResult {
     Ok(())
 }
 
+/// Tests that the post-epoch-change call to `process_subsidies` in
+/// `InitiateEpochChangeOperation::invoke` pays usage-independent subsidies.
+///
+/// The pre-epoch-change subsidy call runs during epoch N and can only pay usage-independent
+/// subsidies for epoch N-1 (which was already paid). After epoch change to N+1, the
+/// post-epoch-change call can pay usage-independent subsidies for epoch N, advancing
+/// `latest_epoch`.
+#[ignore = "ignore E2E tests by default"]
+#[walrus_simtest]
+async fn test_walrus_subsidies_called_after_epoch_change_distribute_usage_independent_subsidy()
+-> TestResult {
+    walrus_test_utils::init_tracing();
+
+    let (_sui_cluster_handle, cluster, client, _, _) = test_cluster::E2eTestSetupBuilder::new()
+        .with_epoch_duration(Duration::from_secs(20))
+        .build()
+        .await?;
+
+    let epoch = client.as_ref().sui_client().current_epoch().await?;
+
+    // Record the latest epoch for which usage-independent subsidies have been paid.
+    let latest_subsidized_epoch_before = client
+        .as_ref()
+        .sui_client()
+        .read_client()
+        .get_walrus_subsidies_object(true)
+        .await?
+        .latest_subsidized_epoch()
+        .expect("should return some, subsidies were requested with inner");
+
+    // Wait for one epoch change. After epoch change, the post-epoch-change call in
+    // InitiateEpochChangeOperation::invoke calls process_subsidies, which pays
+    // usage-independent subsidies for the epoch that just ended.
+    cluster.wait_for_nodes_to_reach_epoch(epoch + 1).await;
+
+    // After the epoch change, latest_subsidized_epoch should have advanced, proving that
+    // process_subsidies was called after epoch change and paid the usage-independent subsidy.
+    let latest_subsidized_epoch_after = client
+        .as_ref()
+        .sui_client()
+        .read_client()
+        .get_walrus_subsidies_object(true)
+        .await?
+        .latest_subsidized_epoch()
+        .expect("should return some, subsidies were requested with inner");
+
+    assert!(
+        latest_subsidized_epoch_after > latest_subsidized_epoch_before,
+        "usage-independent subsidies should have been paid after epoch change: \
+        before={latest_subsidized_epoch_before}, after={latest_subsidized_epoch_after}"
+    );
+
+    Ok(())
+}
+
 /// Tests that storing the same blob multiple times with possibly different end epochs,
 /// persistence, and force-store conditions always works.
 #[ignore = "ignore E2E tests by default"]
