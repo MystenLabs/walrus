@@ -960,6 +960,10 @@ impl StorageNode {
                 ?error,
                 "failed to check and start garbage collection on startup"
             );
+            // Fallback: mark up to the current epoch as done so that the first
+            // epoch change's wait_for_blob_info_cleanup doesn't block indefinitely.
+            self.garbage_collector
+                .mark_blob_info_cleanup_done_at_least(self.inner.committee_service.get_epoch());
         }
 
         select! {
@@ -1856,6 +1860,13 @@ impl StorageNode {
             c.sync_node_params().await?;
         }
 
+        // Wait for the previous epoch's blob info cleanup (process_expired_blob_objects)
+        // to complete. This ensures the consistency check snapshot reflects fully
+        // updated blob info counts, so all nodes produce the same certified blob hash.
+        self.garbage_collector
+            .wait_for_blob_info_cleanup(event.epoch.saturating_sub(1))
+            .await;
+
         // Start storage node consistency check if
         // - consistency check is enabled
         // - node is not reprocessing events (blob info table should not be affected by future
@@ -1950,6 +1961,10 @@ impl StorageNode {
                 last_completed_epoch,
                 "previous garbage-collection task already completed; skipping restart"
             );
+            // No GC restart needed. Mark up to the current epoch as done so that the
+            // first epoch change's wait_for_blob_info_cleanup doesn't block.
+            self.garbage_collector
+                .mark_blob_info_cleanup_done_at_least(self.inner.committee_service.get_epoch());
             return Ok(());
         }
 
@@ -1967,6 +1982,10 @@ impl StorageNode {
                 "the Walrus epoch has changed since the last garbage-collection task was started; \
                 skipping restart"
             );
+            // GC for previous epochs is stale (epoch changed). Mark up to the last
+            // started epoch as done so the next epoch change can proceed.
+            self.garbage_collector
+                .mark_blob_info_cleanup_done_at_least(last_started_epoch);
             return Ok(());
         }
 
