@@ -955,6 +955,8 @@ impl StorageNode {
             tracing::warn!(?error, "unable to schedule epoch calls on startup")
         };
 
+        // Startup GC retry is best-effort: unlike the live epoch-transition path, it cannot
+        // guarantee the exact epoch-boundary blob-info snapshot semantics needed by recovery.
         if let Err(error) = self.check_and_start_garbage_collection_on_startup().await {
             tracing::warn!(
                 ?error,
@@ -1933,6 +1935,12 @@ impl StorageNode {
     /// This method is intended to be run at startup to check if a garbage-collection task was
     /// started but not completed. If this is the case and we are still in the same epoch, it
     /// restarts the garbage-collection task.
+    ///
+    /// This restart path is intentionally best-effort. Unlike the live epoch-transition path,
+    /// which runs phase 1 inline to produce blob-info state exactly at the epoch boundary, a
+    /// startup retry cannot guarantee those same snapshot semantics anymore. By the time we are
+    /// recovering an unfinished GC task after a restart, the node is no longer at the original
+    /// epoch-boundary execution point where that snapshot should have been created.
     async fn check_and_start_garbage_collection_on_startup(&self) -> anyhow::Result<()> {
         let (last_started_epoch, last_completed_epoch) = self
             .inner

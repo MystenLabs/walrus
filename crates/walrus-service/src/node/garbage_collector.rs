@@ -140,16 +140,12 @@ impl GarbageCollector {
     /// events won't be processed until the caller returns.
     ///
     /// The previous epoch's data deletion task (phase 2) may still be running
-    /// in the background during phase 1. This is safe because they operate on
-    /// disjoint sets of `aggregate_blob_info` entries: phase 2 only deletes
-    /// entries with refcount=0 at the previous epoch, while phase 1 decrements
-    /// entries that still had refcount>0. Even if this invariant changes in the
-    /// future, phase 2 uses per-blob optimistic transactions that detect
-    /// concurrent modifications and fail gracefully, skipping affected blobs
-    /// until the next GC cycle.
-    ///
-    /// Must only be called *after* the epoch change for the provided epoch is
-    /// complete.
+    /// in the background during phase 1. Phase 2 uses per-blob optimistic
+    /// transactions that detect concurrent re-registrations and fail
+    /// gracefully. Phase 2 also reads the current `aggregate_blob_info`
+    /// state, so it can observe refcount changes made by phase 1 and may
+    /// delete a blob one GC cycle earlier than it otherwise would. This does
+    /// not affect correctness.
     ///
     /// # Errors
     ///
