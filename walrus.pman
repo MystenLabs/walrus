@@ -1,0 +1,181 @@
+# Walrus local testbed — procman v0.15.2+ DSL format.
+# Install procman: cargo install procman
+# Book: https://wbbradley.github.io/procman
+# Usage: procman walrus.pman -- --help
+
+config {
+  logs = "./working_dir/logs"
+
+  env {
+    WORKING_DIR = args.working_dir
+    WALRUS_EXISTING = args.existing
+    WALRUS_GC = args.gc
+    WALRUS_CONTRACT_DIR = args.contract_dir
+  }
+
+  arg working_dir {
+    short = "w"
+    description = "The working directory for the testbed"
+    default = "./working_dir"
+  }
+
+  arg existing {
+    short = "e"
+    type = bool
+    description = "Skip build and deploy, use existing config"
+    default = false
+  }
+
+  arg gc {
+    short = "g"
+    type = bool
+    description = "Enable garbage collection config patching"
+    default = false
+  }
+
+  arg aggregator {
+    short = "A"
+    type = bool
+    description = "Start an aggregator daemon"
+    default = false
+  }
+
+  arg rust_log {
+    short = "l"
+    description = "RUST_LOG level for nodes and aggregator"
+    default = "info"
+  }
+
+  arg contract_dir {
+    description = "Contract directory (use ./testnet-contracts for testnet)"
+    default = "./contracts"
+  }
+}
+
+job sui {
+  env RUST_LOG = "on,error"
+  wait {
+    !connect "127.0.0.1:9123"
+  }
+  run "sui start --with-faucet --force-regenesis"
+}
+
+job build if !args.existing {
+  once = true
+  run ```
+    cargo build --release \
+      --bin walrus \
+      --bin walrus-node \
+      --bin walrus-deploy \
+      --bin walrus-backup \
+      --features deploy,backup
+  ```
+}
+
+job deploy if !args.existing {
+  once = true
+  wait {
+    http "http://localhost:9123/" { status = 200 }
+    after @build { timeout = none }
+  }
+  run ```
+COMMITTEE_SIZE="${WALRUS_COMMITTEE_SIZE:-4}"
+SHARDS="${WALRUS_SHARDS:-10}"
+
+if ! [ "$COMMITTEE_SIZE" -gt 0 ] 2>/dev/null; then
+  echo "Invalid: COMMITTEE_SIZE=$COMMITTEE_SIZE is not a valid positive integer."
+  exit 1
+fi
+if ! [ "$SHARDS" -ge "$COMMITTEE_SIZE" ] 2>/dev/null; then
+  echo "Invalid: SHARDS=$SHARDS must be >= COMMITTEE_SIZE=$COMMITTEE_SIZE."
+  exit 1
+fi
+
+EPOCH_DURATION="${WALRUS_EPOCH_DURATION:-1h}"
+NETWORK="${WALRUS_NETWORK:-localnet}"
+HOST_ADDRESS="${WALRUS_HOST_ADDRESS:-127.0.0.1}"
+
+# Clean old build artifacts and configs
+find contracts -name 'build' -type d -exec rm -rf {} +
+rm -f "$WORKING_DIR"/dryrun-node-*.yaml
+rm -f "$WORKING_DIR"/dryrun-node-*.log
+
+# Build host address list
+HOSTS=()
+for i in $(seq 1 "$COMMITTEE_SIZE"); do
+  HOSTS+=("$HOST_ADDRESS")
+done
+
+# Deploy system contract
+./target/release/walrus-deploy deploy-system-contract \
+  --working-dir "$WORKING_DIR" \
+  --sui-network "$NETWORK" \
+  --n-shards "$SHARDS" \
+  --host-addresses "${HOSTS[@]}" \
+  --storage-price 5 \
+  --write-price 1 \
+  --epoch-duration "$EPOCH_DURATION" \
+  --contract-dir "$WALRUS_CONTRACT_DIR" \
+  --with-wal-exchange
+
+# Generate per-node configs
+./target/release/walrus-deploy generate-dry-run-configs \
+  --working-dir "$WORKING_DIR"
+
+# Append event processor config to all node configs
+for f in "$WORKING_DIR"/dryrun-node-*[0-9].yaml; do
+  cat >> "$f" <<'NODEEOF'
+
+event_processor_config:
+  adaptive_downloader_config:
+    max_workers: 2
+    initial_workers: 2
+NODEEOF
+done
+
+# Append garbage collection config if enabled
+if [ "$WALRUS_GC" = "true" ]; then
+  for f in "$WORKING_DIR"/dryrun-node-*[0-9].yaml; do
+    cat >> "$f" <<'GCEOF'
+
+db_config:
+  global:
+    experimental_use_optimistic_transaction_db: true
+garbage_collection:
+  enable_blob_info_cleanup: true
+  enable_data_deletion: true
+GCEOF
+  done
+fi
+  ```
+}
+
+job nodes {
+  env RUST_LOG = args.rust_log
+  wait {
+    after @deploy { timeout = none }
+  }
+  for node_config in glob("$WORKING_DIR/dryrun-node-*[0-9].yaml") {
+    env NODE_CONFIG = node_config
+    run ```
+      CLEANUP_FLAG=""
+      if [ "$WALRUS_EXISTING" != "true" ]; then
+        CLEANUP_FLAG="--cleanup-storage"
+      fi
+      ./target/release/walrus-node run --config-path "$NODE_CONFIG" $CLEANUP_FLAG
+    ```
+  }
+}
+
+job aggregator if args.aggregator {
+  env RUST_LOG = args.rust_log
+  wait {
+    after @deploy { timeout = none }
+  }
+  run ```
+    ./target/release/walrus aggregator \
+      --config "$WORKING_DIR/client_config.yaml" \
+      --bind-address 127.0.0.1:31415 \
+      --metrics-address 127.0.0.1:27182
+  ```
+}
