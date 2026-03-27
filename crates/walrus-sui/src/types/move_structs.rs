@@ -915,21 +915,15 @@ pub enum StakedWalState {
     /// The WAL is staked.
     Staked,
     /// The WAL is unstaked and can be withdrawn.
-    Withdrawing(Epoch, Option<u64>),
+    Withdrawing(Epoch),
 }
 
 impl Display for StakedWalState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             StakedWalState::Staked => write!(f, "Staked"),
-            StakedWalState::Withdrawing(epoch, Some(amount)) => {
-                write!(
-                    f,
-                    "Withdrawing: epoch={epoch}, pool token amount={amount:?}"
-                )
-            }
-            StakedWalState::Withdrawing(epoch, None) => {
-                write!(f, "Withdrawing: epoch={epoch}, pool token amount=Unknown")
+            StakedWalState::Withdrawing(epoch) => {
+                write!(f, "Withdrawing: epoch={epoch}")
             }
         }
     }

@@ -62,15 +62,20 @@ use crate::client::{
         InfoPriceOutput,
         InfoSizeOutput,
         InfoStorageOutput,
+        ListStakedWalOutput,
         NodeHealthOutput,
         ReadOutput,
         ReadQuiltOutput,
+        RequestWithdrawStakeDryRunOutput,
+        RequestWithdrawStakeListOutput,
+        RequestWithdrawStakeOutput,
         ServiceHealthInfoOutput,
         ShareBlobOutput,
         StakeOutput,
         StorageNodeInfo,
         StoreQuiltDryRunOutput,
         WalletOutput,
+        WithdrawStakeOutput,
     },
 };
 
@@ -1020,6 +1025,64 @@ impl CliOutput for StakeOutput {
                 self.staked_wal.iter().map(ToString::to_string).join("\n")
             );
         }
+    }
+}
+
+impl CliOutput for RequestWithdrawStakeOutput {
+    fn print_cli_output(&self) {
+        println!(
+            "{} Requested withdrawal for StakedWal:\n{}\
+            Transaction digest: {}",
+            success(),
+            self.staked_wal,
+            self.tx_digest
+        );
+    }
+}
+
+impl CliOutput for RequestWithdrawStakeDryRunOutput {
+    fn print_cli_output(&self) {
+        println!(
+            "[dry run] Would request withdrawal for StakedWal:\n{}",
+            self.staked_wal
+        );
+    }
+}
+
+impl CliOutput for RequestWithdrawStakeListOutput {
+    fn print_cli_output(&self) {
+        println!(
+            "{} Multiple StakedWal objects found for this node. \
+            Please specify the StakedWal object ID to withdraw:\n\n{}",
+            warning(),
+            self.staked_wals.iter().map(ToString::to_string).join("\n")
+        );
+    }
+}
+
+impl CliOutput for WithdrawStakeOutput {
+    fn print_cli_output(&self) {
+        println!(
+            "{} Withdrew staked WAL from StakedWal object {}\n\
+            Transaction digest: {}",
+            success(),
+            self.staked_wal_id,
+            self.tx_digest
+        );
+    }
+}
+
+impl CliOutput for ListStakedWalOutput {
+    fn print_cli_output(&self) {
+        if self.staked_wals.is_empty() {
+            println!("No StakedWal objects found in this wallet.");
+            return;
+        }
+        println!(
+            "Found {} StakedWal object(s):\n\n{}",
+            self.staked_wals.len(),
+            self.staked_wals.iter().map(ToString::to_string).join("\n")
+        );
     }
 }
 
