@@ -248,6 +248,12 @@ walrus_utils::metrics::define_metric_set! {
         #[help = "The duration of pooled blob object GC in seconds"]
         garbage_collection_pooled_blob_objects_duration_seconds: Gauge[],
 
+        #[help = "The total duration of GC phase 1 (blob info cleanup) in seconds"]
+        garbage_collection_phase1_duration_seconds: Gauge[],
+
+        #[help = "The total duration of GC phase 2 (data deletion) in seconds"]
+        garbage_collection_phase2_duration_seconds: Gauge[],
+
         #[help = "The number of blobs registered to be notified when the blob expires/gets \
         deleted/gets invalidated"]
         blob_retirement_notifier_registered_blobs: IntGauge[],

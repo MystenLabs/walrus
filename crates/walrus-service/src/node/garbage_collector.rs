@@ -3,7 +3,11 @@
 
 //! Garbage-collection functionality running in the background.
 
-use std::{hash::Hasher as _, sync::Arc, time::Duration};
+use std::{
+    hash::Hasher as _,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use chrono::{DateTime, Utc};
 use rand::{Rng, SeedableRng, rngs::StdRng};
@@ -203,6 +207,7 @@ impl GarbageCollector {
         // automatically re-enabled when the guard is dropped.
         let _guard = self.node.storage.temporarily_disable_auto_compactions()?;
         tracing::info!("starting garbage collection phase 1: blob info cleanup");
+        let start = Instant::now();
 
         self.node
             .storage
@@ -218,6 +223,11 @@ impl GarbageCollector {
             .process_expired_blob_objects(epoch, &self.metrics, self.config.blob_objects_batch_size)
             .await?;
 
+        let duration = start.elapsed();
+        self.metrics
+            .garbage_collection_phase1_duration_seconds
+            .set(duration.as_secs_f64());
+        tracing::info!(?duration, "garbage collection phase 1 completed");
         self.metrics
             .set_garbage_collection_blob_info_cleanup_completed_epoch(epoch);
 
@@ -341,6 +351,7 @@ impl GarbageCollector {
         let _guard = self.node.storage.temporarily_disable_auto_compactions()?;
         tracing::info!("starting garbage collection phase 2: data deletion");
         fail_point_async!("data_deletion_start");
+        let start = Instant::now();
 
         if self
             .node
@@ -355,6 +366,12 @@ impl GarbageCollector {
             self.metrics
                 .set_garbage_collection_last_completed_epoch(epoch);
         }
+
+        let duration = start.elapsed();
+        self.metrics
+            .garbage_collection_phase2_duration_seconds
+            .set(duration.as_secs_f64());
+        tracing::info!(?duration, "garbage collection phase 2 completed");
 
         Ok(())
     }
