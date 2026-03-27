@@ -57,9 +57,11 @@ Errors in this section occur when running `site-builder deploy`.
 
 #### `InsufficientCoinBalance` or `GasBudgetTooLow`
 
-**Cause:** Your wallet does not have enough SUI to cover the transaction gas fee, or does not have enough WAL to pay for Walrus storage.
+**Cause:** Your wallet does not have enough SUI to cover the transaction gas fee, does not have enough WAL to pay for Walrus storage, or the site is big and the default `gas_budget` isn't enough (0.5 SUI).
 
-**Solution:** Check your wallet balance:
+**Solution:** Increase the `gas_budget` in the `sites-config` or pass `--gas-budget`.
+
+Check your wallet balance:
 
 ```
 $ sui client balance
@@ -94,16 +96,6 @@ $ site-builder deploy --object-id OBJECT_ID --epochs EPOCHS DIRECTORY
 ```
 
 After the first deploy, `site-builder` writes the object ID to `ws-resources.json` automatically. For subsequent deploys, verify this file is present in your site root and contains the correct `object_id` value.
-
-#### `No index.html found in the build directory`
-
-**Cause:** The `site-builder` requires an `index.html` at the root of the build directory.
-
-**Solution:** If you are deploying a web app, confirm your build step produces an `index.html` at the root of the output directory. If you are deploying raw files, use the `--list-directory` flag to generate an automatic directory index:
-
-```
-$ site-builder deploy --list-directory --epochs EPOCHS DIRECTORY
-```
 
 ---
 
