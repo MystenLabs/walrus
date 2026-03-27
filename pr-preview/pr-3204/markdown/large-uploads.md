@@ -1,0 +1,69 @@
+The maximum blob size on Walrus is approximately 13.6 GB. Uploading large data sets or individual blobs larger than 1 GB require certain workarounds and planning for optimal performance and efficiency.
+
+## Estimate storage duration and costs
+
+After you plan your upload strategy, estimate the storage costs for your data. When you use the Walrus cost calculator or `walrus info`, calculate storage duration in months rather than epochs. An epoch on Mainnet is 14 days. Convert epoch counts to months using the current network epoch duration to avoid incorrect projections.
+
+- Validate cost assumptions against the current output of `walrus info`, which shows the price per encoded storage unit and the write fee.
+
+- When you plan for large datasets, include a cost buffer to account for potential changes in epoch duration or pricing.
+
+## Tune uploads for large blobs
+
+Uploading files larger than 1 GB might require adjustments to client configuration and upload parameters to avoid stalled transfers.
+
+- Test uploads with representative dataset sizes before running production workloads.
+
+- Use batching or chunking strategies for datasets that approach or exceed the maximum blob size (approximately 13.6 GB).
+
+- Consider memory allocators optimized for long-running workloads.
+
+- Monitor upload throughput and adjust client parameters based on observed performance.
+
+## Use local tooling for upload observability
+
+External publishers or managed upload paths might offer limited visibility into upload progress. Use local tooling when you need direct insight into what is happening during an upload.
+
+- Use Walrus CLI or local SDK tooling when upload visibility is important for your workflow.
+
+- Log upload state (blob IDs, transaction digests, epoch information) for debugging large ingestion jobs.
+
+- Prefer workflows that expose progress indicators when you build operational pipelines.
+
+## Persist upload state in ingestion pipelines
+
+Large ingestion workflows should tolerate failures and support retries. High-level workflows do not automatically support resumability.
+
+- Persist blob IDs and transaction references between pipeline steps so that a failed step can resume without re-uploading data.
+
+- Design pipelines with the assumption that any step might fail and need to be retried.
+
+- Implement cleanup workflows that handle partial uploads, for example by deleting orphaned blob registrations that were never certified.
+
+:::tip
+
+Track the point of availability (PoA) for each blob. A blob is only guaranteed to be retrievable after its availability certificate is posted onchain. If your pipeline fails between registration and certification, the blob is not yet available and you need to retry the upload.
+
+:::
+
+## Manage upload throughput
+
+Very high ingestion rates can temporarily reduce throughput if recovery processes accumulate on storage nodes. This behavior is similar to ingestion rate management in traditional cloud storage systems.
+
+- Ramp upload traffic gradually instead of sending large bursts.
+
+- Monitor throughput during large ingestion jobs and reduce the upload rate if you observe increased error rates or slower confirmations.
+
+- Batch uploads where possible to reduce the number of individual transactions.
+
+- For very large migrations (TB or more), coordinate with the Walrus team through the [Walrus Discord](https://discord.gg/walrusprotocol) to plan the ingestion schedule.
+
+## Manage memory for concurrent uploads
+
+Erasure coding and upload processing add memory overhead per blob. Running too many concurrent uploads without sufficient RAM can cause instability or failed uploads. Each upload requires approximately 4.5x the blob size in memory because erasure coding expands the data into redundant shards that the client must hold during encoding.
+
+- Limit concurrent upload workers based on available RAM.
+
+- Estimate total memory as: `blob_size × encoding_overhead × concurrent_uploads`.
+
+- Scale horizontally across multiple machines rather than increasing concurrency on a single host.
