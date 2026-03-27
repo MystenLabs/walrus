@@ -4,7 +4,7 @@ description: "Guide to setting up and operating a publisher on Walrus."
 keywords: ["walrus", "publisher"]
 ---
 
-The publisher and daemon perform on-chain actions and require a Sui wallet with sufficient SUI and WAL balances. To handle many parallel requests without object conflicts, they create internal sub-wallets (introduced in version 1.4.0) funded from the main wallet. These sub-wallets persist in a directory you specify with the `--sub-wallets-dir` argument. You can use any existing directory. If the directory already contains sub-wallets, they are reused.
+The publisher and daemon perform onchain actions and require a Sui wallet with sufficient SUI and WAL balances. To handle many parallel requests without object conflicts, they create internal sub-wallets (introduced in version 1.4.0) funded from the main wallet. These sub-wallets persist in a directory you specify with the `--sub-wallets-dir` argument. You can use any existing directory. If the directory already contains sub-wallets, they are reused.
 
 By default, 8 sub-wallets are created and funded. You can change this with the `--n-clients` argument (see [Set sub-wallets and upload concurrency](#sub-wallets-concurrency) for details). For basic local testing, 1 or 2 sub-wallets are usually sufficient.
 
@@ -84,7 +84,7 @@ Acquire WAL tokens through the Walrus token distribution or supported exchanges,
 
 :::caution
 
-The aggregator does not perform Sui on-chain actions and therefore consumes no gas. The publisher, however, performs actions on-chain and consumes both SUI and WAL tokens. On Mainnet, you are generally not expected to run a public publisher because this comes with real monetary cost. If you do run one, ensure only authorized parties can access it, or use other measures to manage gas costs. Consider using an [authenticated publisher](/docs/operator-guide/auth-publisher) to restrict access.
+The aggregator does not perform Sui onchain actions and therefore consumes no gas. The publisher, however, performs actions onchain and consumes both SUI and WAL tokens. On Mainnet, you are generally not expected to run a public publisher because this comes with real monetary cost. If you do run one, ensure only authorized parties can access it, or use other measures to manage gas costs. Consider using an [authenticated publisher](/docs/operator-guide/auth-publisher) to restrict access.
 
 :::
 
