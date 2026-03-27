@@ -7,7 +7,10 @@ use std::{
     fmt::Debug,
     ops::Bound::{self, Excluded, Included},
     path::Path,
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
     time::Instant,
 };
 
@@ -190,6 +193,9 @@ pub struct Storage {
     db_table_opts_factory: DatabaseTableOptionsFactory,
     metrics: Arc<CommonDatabaseMetrics>,
     metrics_registry: Registry,
+    /// Reference count for compaction suppression guards. Compactions are disabled when > 0
+    /// and re-enabled when the count returns to 0.
+    compaction_disable_count: Arc<AtomicUsize>,
 }
 
 /// An opaque lock object that can be required to later access the shards map.
@@ -375,10 +381,11 @@ impl Storage {
             db_table_opts_factory,
             metrics,
             metrics_registry,
+            compaction_disable_count: Arc::new(AtomicUsize::new(0)),
         };
 
         // TODO(WAL-1111): Check if this is actually needed.
-        storage.enable_auto_compactions(true)?;
+        enable_auto_compactions(&storage.database, true)?;
 
         Ok(storage)
     }
@@ -1295,29 +1302,24 @@ impl Storage {
         .collect()
     }
 
-    /// Enables or disables automatic compactions for all column families.
-    fn enable_auto_compactions(&self, enable: bool) -> Result<(), anyhow::Error> {
-        tracing::info!(
-            "{} auto compactions for all column families",
-            if enable { "enabling" } else { "disabling" },
-        );
-        let disable_value = if enable { "false" } else { "true" };
-        self.database
-            .set_options(&[("disable_auto_compactions", disable_value)])
-            .context("failed to set auto compactions (enable: {enable})")?;
-        Ok(())
-    }
-
     /// Disables automatic compactions for all column families and returns a guard that re-enables
     /// them when dropped.
     ///
-    /// This is useful during bulk operations to improve performance by disabling compactions,
-    /// then re-enabling them afterward.
-    pub fn temporarily_disable_auto_compactions<'a>(
-        &'a self,
-    ) -> Result<DisableAutoCompactionsGuard<'a>, anyhow::Error> {
-        self.enable_auto_compactions(false)?;
-        Ok(DisableAutoCompactionsGuard { storage: self })
+    /// This is reference-counted: multiple callers can hold guards concurrently, and compactions
+    /// are only re-enabled when the last guard is dropped. This allows phase 1 and phase 2 of
+    /// garbage collection to suppress compactions independently without interfering with each
+    /// other.
+    pub fn temporarily_disable_auto_compactions(&self) -> DisableAutoCompactionsGuard {
+        let prev = self.compaction_disable_count.fetch_add(1, Ordering::SeqCst);
+        if prev == 0 {
+            if let Err(error) = enable_auto_compactions(&self.database, false) {
+                tracing::warn!(?error, "failed to disable auto compactions");
+            }
+        }
+        DisableAutoCompactionsGuard {
+            compaction_disable_count: Arc::clone(&self.compaction_disable_count),
+            database: Arc::clone(&self.database),
+        }
     }
 
     /// Returns the storage pool info for the given storage pool ID.
@@ -1330,16 +1332,34 @@ impl Storage {
     }
 }
 
-#[derive(Debug)]
-#[must_use = "auto compactions are automatically re-enabled when the guard is dropped"]
-pub struct DisableAutoCompactionsGuard<'a> {
-    storage: &'a Storage,
+/// Enables or disables automatic compactions for all column families.
+fn enable_auto_compactions(database: &RocksDB, enable: bool) -> Result<(), anyhow::Error> {
+    tracing::info!(
+        "{} auto compactions for all column families",
+        if enable { "enabling" } else { "disabling" },
+    );
+    let disable_value = if enable { "false" } else { "true" };
+    database
+        .set_options(&[("disable_auto_compactions", disable_value)])
+        .context("failed to set auto compactions (enable: {enable})")?;
+    Ok(())
 }
 
-impl Drop for DisableAutoCompactionsGuard<'_> {
+#[derive(Debug)]
+#[must_use = "auto compactions are automatically re-enabled when the last guard is dropped"]
+pub struct DisableAutoCompactionsGuard {
+    compaction_disable_count: Arc<AtomicUsize>,
+    database: Arc<RocksDB>,
+}
+
+impl Drop for DisableAutoCompactionsGuard {
     fn drop(&mut self) {
-        if let Err(error) = self.storage.enable_auto_compactions(true) {
-            tracing::error!(?error, "failed to re-enable auto compactions");
+        let prev = self.compaction_disable_count.fetch_sub(1, Ordering::SeqCst);
+        if prev == 1 {
+            // Last guard dropped — re-enable compactions.
+            if let Err(error) = enable_auto_compactions(&self.database, true) {
+                tracing::error!(?error, "failed to re-enable auto compactions");
+            }
         }
     }
 }
