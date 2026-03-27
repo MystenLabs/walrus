@@ -28,7 +28,7 @@ $ site-builder --version
 
 #### `No such file or directory: sites-config.yaml`
 
-**Cause:** The `site-builder` cannot find its configuration file. By default, it searches the current directory, `$XDG_HOME/walrus/sites-config.yaml`, and `$HOME/.config/walrus/sites-config.yaml`, in that order.
+**Cause:** The `site-builder` cannot find its configuration file. By default, it searches the current directory, `$XDG_CONFIG_HOME/walrus/sites-config.yaml`, and `$HOME/.config/walrus/sites-config.yaml`, in that order.
 
 **Solution:** Download a fresh copy of the configuration file for your target network:
 
@@ -37,7 +37,7 @@ $ curl https://raw.githubusercontent.com/MystenLabs/walrus-sites/refs/heads/main
   -o ~/.config/walrus/sites-config.yaml
 ```
 
-Replace `mainnet` with `testnet` if you are deploying to Testnet. If you store the file in a non-default location, pass its path explicitly:
+If you store the file in a non-default location, pass its path explicitly:
 
 ```
 $ site-builder --config /path/to/sites-config.yaml deploy --epochs EPOCHS DIRECTORY
@@ -101,7 +101,7 @@ $ site-builder deploy --object-id OBJECT_ID --epochs EPOCHS DIRECTORY
 
 After the first deploy, `site-builder` writes the object ID to `ws-resources.json` automatically. For subsequent deploys, verify this file is present in your site root and contains the correct `object_id` value.
 
-### `No index.html found in the build directory`
+#### `No index.html found in the build directory`
 
 **Cause:** The `site-builder` requires an `index.html` at the root of the build directory.
 
@@ -148,22 +148,6 @@ Errors in this section occur when accessing a site through a portal.
 Walrus Sites does not support server-side redirects. Redirect plugins used by frameworks like Docusaurus resolve routes at the server level, which is not available on Walrus Sites. Use the `routes` field in `ws-resources.json` for client-side routing instead.
 
 :::
-
-#### Site content has disappeared
-
-**Cause:** Walrus stores blobs for a fixed number of epochs. When the storage period expires, the blobs become unavailable and the site stops loading. On Mainnet, each epoch is approximately 14 days. On Testnet, each epoch is approximately 1 day.
-
-**Solution:** Redeploy the site with additional epochs:
-
-```
-$ site-builder deploy --epochs EPOCHS DIRECTORY
-```
-
-The maximum storage duration is 53 epochs. To check whether a specific blob is still available:
-
-```
-$ walrus blob-status --blob-id BLOB_ID
-```
 
 #### HTTP 503 on route resolution with Content-Security-Policy headers
 
