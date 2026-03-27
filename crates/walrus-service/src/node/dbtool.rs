@@ -651,7 +651,7 @@ fn cf_options<'a>(
         .map(|cf_name| {
             (
                 cf_name.as_str(),
-                cf_options_for_name(cf_name, db_kind, &factory),
+                cf_options_for_name(cf_name, db_kind, factory),
             )
         })
         .collect()
