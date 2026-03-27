@@ -143,7 +143,7 @@ Errors in this section occur when command arguments are missing or invalid.
 
 **Cause:** You attempted to share a deletable blob. Only permanent blobs can be shared.
 
-**Solution:** Create the blob with `--permanent` if you intend to share it, or convert it to permanent before sharing.
+**Solution:** Create the blob with `--permanent` if you intend to share it.
 
 #### `exactly one of objectIds, all, or allExpired must be specified`
 
@@ -269,7 +269,7 @@ If the blob expired, re-upload it. On Mainnet, each storage epoch is approximate
 
 #### `the blob has not been registered or has already expired`
 
-**Cause:** The blob was registered on-chain but slivers were never distributed to storage nodes, or several storage nodes are lagging behind in processing network events during periods of heavy uploads.
+**Cause:** It's possible to get this error when uploading for a single epoch right before an epoch change, or several storage nodes are lagging behind in processing network events during periods of heavy uploads.
 
 **Solution:**
 
@@ -388,7 +388,7 @@ Warning: Storage node Y unreachable
 Error: Insufficient slivers
 ```
 
-**Cause:** Storage nodes are offline, overloaded, or rate-limiting requests.
+**Cause:** Most likely the aggregator is misconfigured.
 
 **Solution:** Retry the read request. Only 1/3 of primary slivers are needed to reconstruct a blob, so the system tolerates many nodes being offline. Try a different aggregator if available, or wait and retry.
 
@@ -407,7 +407,7 @@ Error: Sliver not found on storage node
 HTTP 404: Sliver ID not in database
 ```
 
-**Cause:** The storage node lost data due to database corruption, sliver has not be uploaded yet, disk failure, or a migration issue during an epoch transition.
+**Cause:** The blob expired or was never stored.
 
 **Solution:** Retry the read. Other nodes hold copies of the slivers through erasure coding. If fewer than 1/3 of nodes lost data, retrieval succeeds normally. If the error persists, check the on-chain blob status with `walrus blob-status`. Re-upload the blob if necessary.
 
@@ -452,6 +452,6 @@ Error: Out of memory
 Error: Failed to allocate encoding buffer
 ```
 
-**Cause:** The blob is too large for available memory. The encoding process requires approximately 2 to 3 times the blob size in RAM.
+**Cause:** The blob is too large for available memory. The encoding needs at least 4.5x the blob size if the blob is to be stored. If the blob is only encoded to compute the metadata or blob ID, it's only ~1.5x.
 
 **Solution:** Run the CLI on a machine with sufficient RAM. Split large blobs into smaller chunks in your application before uploading. If you are using a publisher, use one with more available memory.
