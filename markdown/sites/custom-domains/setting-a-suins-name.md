@@ -1,4 +1,4 @@
-[Sui Name Service (SuiNS)](https://suins.io/) provides human-readable names for Walrus Sites, similar to how DNS works for websites. Instead of sharing a long base36 subdomain like `1lupgq2auevjruy7hs9z7tskqwjp5cc8c5ebhci4v57qyl4piy.wal.app`, you can link a SuiNS name to your site's object ID and browse it at a readable address like `my-project.wal.app`.
+[Sui Name Service (SuiNS)](https://suins.io/) provides human-readable names for Walrus Sites, similar to how DNS works for websites. Instead of sharing a long Base36 subdomain like `1lupgq2auevjruy7hs9z7tskqwjp5cc8c5ebhci4v57qyl4piy.wal.app`, you can link a SuiNS name to your site's object ID and browse it at a readable address like `my-project.wal.app`.
 
 :::info
 
