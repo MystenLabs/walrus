@@ -401,7 +401,7 @@ Error: Sliver not found on storage node
 HTTP 404: Sliver ID not in database
 ```
 
-**Cause:** The storage node lost data due to database corruption, disk failure, or a migration issue during an epoch transition.
+**Cause:** The storage node lost data due to database corruption, sliver has not be uploaded yet, disk failure, or a migration issue during an epoch transition.
 
 **Solution:** Retry the read. Other nodes hold copies of the slivers through erasure coding. If fewer than 1/3 of nodes lost data, retrieval succeeds normally. If the error persists, check the on-chain blob status with `walrus blob-status`. Re-upload the blob if necessary.
 

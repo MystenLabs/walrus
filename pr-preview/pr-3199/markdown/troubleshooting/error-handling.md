@@ -8,8 +8,6 @@ Not all errors are equal. Some are safe to retry, some require you to check on-c
 |---|---|---|---|
 | Network timeout | Yes | Yes | Retry with exponential backoff |
 | Publisher or aggregator down | Yes | No | Try a different endpoint or use the CLI |
-| Storage node offline | Yes | No | No action needed, the system tolerates up to 1/3 offline nodes |
-| Sliver corrupted | Yes | No | No action needed, the system fetches from other nodes |
 | Insufficient funds | No | No | Add SUI or WAL to your wallet |
 | Blob too large for memory | No | No | Split the blob into smaller chunks |
 | Transaction timeout | Conditional | Yes (critical) | Verify the transaction succeeded before retrying |
@@ -39,7 +37,7 @@ async function retryWithBackoff<T>(
       const isRetryable =
         message.includes('timeout') || message.includes('network');
 
-      if (isRetryable && attempt < maxRetries) {
+      if (isRetryable && attempt <= maxRetries) {
         const delay = Math.pow(2, attempt) * 1000;
         console.log(`Retry attempt ${attempt}/${maxRetries} after ${delay}ms`);
         await new Promise((resolve) => setTimeout(resolve, delay));
@@ -79,23 +77,6 @@ $ walrus blob-status --blob-id BLOB_ID
 ```
 
 If the transaction succeeded, proceed normally. If it was not found, the transaction might have been dropped from the mempool and is safe to retry.
-
-## Verify blob integrity after upload
-
-For critical data, verify that the uploaded blob matches the original content by reading it back and comparing blob IDs. The same content always produces the same blob ID because Walrus uses content-addressing.
-
-```typescript
-async function verifyBlobIntegrity(
-  client: WalrusClient,
-  originalData: Uint8Array,
-  blobId: string,
-): Promise<boolean> {
-  const retrieved = await client.readBlob({ blobId });
-  const encoder = new BlobEncoder();
-  const recomputedId = encoder.computeBlobId(retrieved);
-  return blobId === recomputedId;
-}
-```
 
 ## Capture storage node errors with the TypeScript SDK
 
