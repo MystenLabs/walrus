@@ -16,7 +16,7 @@ Base36 subdomains are not supported on the `wal.app` portal. You must use a SuiN
 
 ## SuiNS names
 
-A [SuiNS name](https://docs.suins.io/) is an on-chain name registered on the Sui blockchain. When you link a SuiNS name to a Walrus Site, you set the Walrus Site object ID on the SuiNS name record. The `wal.app` portal reads that record and routes visitors to your site's content.
+A [SuiNS name](https://docs.suins.io/) is an onchain name registered on the Sui blockchain. When you link a SuiNS name to a Walrus Site, you set the Walrus Site object ID on the SuiNS name record. The `wal.app` portal reads that record and routes visitors to your site's content.
 
 SuiNS names follow these rules:
 
@@ -25,7 +25,7 @@ SuiNS names follow these rules:
 - **Immutable on registration:** Once a name is registered, the name itself cannot be changed, only the target it points to.
 - **Maximum length for `wal.app`:** The `wal.app` portal resolves SuiNS names up to 21 characters long. Names longer than 21 characters are valid SuiNS names but do not resolve on `wal.app`.
 
-Choose a name before you start. Because names are registered on-chain, each registration costs SUI. Verify the name is available and matches your intended use before completing the purchase.
+Choose a name before you start. Because names are registered onchain, each registration costs SUI. Verify the name is available and matches your intended use before completing the purchase.
 
 ## Register a SuiNS name
 
@@ -101,13 +101,13 @@ Paste your Walrus Site object ID into the text field. Verify that the ID matches
 
 ##### Step 5: Apply the link
 
-Click **Apply**. Your wallet prompts you to approve the transaction. Review and confirm the transaction to write the link on-chain.
+Click **Apply**. Your wallet prompts you to approve the transaction. Review and confirm the transaction to write the link onchain.
 
 After the transaction confirms, the SuiNS name points to your Walrus Site.
 
 ## Browse your Walrus Site
 
-Once the link is confirmed on-chain, visit your site at the following address:
+Once the link is confirmed onchain, visit your site at the following address:
 
 ```
 https://YOUR_SUINS_NAME.wal.app
@@ -118,11 +118,11 @@ Replace `YOUR_SUINS_NAME` with the name you registered. For example, if you regi
 The portal resolves the SuiNS name to your Walrus Site object ID and displays your site's content.
 
 :::info
-On-chain transactions take a few seconds to finalize. If your site does not load immediately after approving the transaction, wait a moment and refresh the page.
+Onchain transactions take a few seconds to finalize. If your site does not load immediately after approving the transaction, wait a moment and refresh the page.
 :::
 
 ## Update the link
 
 You can update the Walrus Site your SuiNS name points to at any time. This is useful when you run `site-builder deploy` to publish a new version of your site and the command produces a new site object ID.
  
-To update the link, repeat the [linking steps](#link-your-suins-name-to-your-walrus-site) with the new object ID. Each update requires a new on-chain transaction and costs a small gas fee.
+To update the link, repeat the [linking steps](#link-your-suins-name-to-your-walrus-site) with the new object ID. Each update requires a new onchain transaction and costs a small gas fee.

@@ -1,4 +1,4 @@
-Walrus Site Portals are used to access and browse a Walrus Site. The portal you run **must** match the network on which your site is deployed. Each network has its own on-chain package, default RPC endpoint, and Walrus aggregator. 
+Walrus Site Portals are used to access and browse a Walrus Site. The portal you run **must** match the network on which your site is deployed. Each network has its own onchain package, default RPC endpoint, and Walrus aggregator. 
 
 The public portal `https://wal.app` is provided by the Walrus Foundation and only serves sites deployed on Mainnet that also have a SuiNS domain name configured. Walrus Foundation does not maintain a portal that serves Testnet Walrus Sites. 
 
@@ -14,8 +14,8 @@ Mainnet is the production network. Sites deployed on Mainnet are publicly access
 
  Property | Description | Value |
 |---|---|---|
-| Site package | The on-chain address of the Walrus Sites Move package. Changes after package upgrades. | `0x26eb7ee8688da02c5f671679524e379f0b837a12f1d1d799f255b7eea260ad27` |
-| Default RPC | The Sui full node RPC endpoint used to read on-chain site data. | `https://fullnode.mainnet.sui.io:443` |
+| Site package | The onchain address of the Walrus Sites Move package. Changes after package upgrades. | `0x26eb7ee8688da02c5f671679524e379f0b837a12f1d1d799f255b7eea260ad27` |
+| Default RPC | The Sui full node RPC endpoint used to read onchain site data. | `https://fullnode.mainnet.sui.io:443` |
 | Default aggregator | The Walrus aggregator endpoint used to fetch site blob data. | `https://aggregator.walrus-mainnet.walrus.space` |
 | Default landing page (Base36) | The Base36-encoded object ID of the site served at the portal root domain. | `46f3881sp4r55fc6pcao9t93bieeejl4vr4k2uv8u4wwyx1a93` |
 | Epoch duration | How long each storage epoch lasts. Determines the minimum storage billing period. | 14 days |
@@ -33,8 +33,8 @@ Testnet is the development and staging network. Sites deployed on Testnet are on
 
  Property | Description | Value |
 |---|---|---|
-| Site package | The on-chain address of the Walrus Sites Move package. May change after package upgrades. | `0xf99aee9f21493e1590e7e5a9aea6f343a1f381031a04a732724871fc294be799` |
-| Default RPC | The Sui full node RPC endpoint used to read on-chain site data. | `https://fullnode.testnet.sui.io:443` |
+| Site package | The onchain address of the Walrus Sites Move package. May change after package upgrades. | `0xf99aee9f21493e1590e7e5a9aea6f343a1f381031a04a732724871fc294be799` |
+| Default RPC | The Sui full node RPC endpoint used to read onchain site data. | `https://fullnode.testnet.sui.io:443` |
 | Default aggregator | The Walrus aggregator endpoint used to fetch site blob data. | `https://aggregator.walrus-testnet.walrus.space` |
 | Default landing page (Base36) | The Base36-encoded object ID of the site served at the portal root domain. | `1p3repujoigwcqrk0w4itsxm7hs7xjl4hwgt3t0szn6evad83q` |
 | Epoch duration | How long each storage epoch lasts. Shorter than Mainnet, suited for development and testing. | 1 day |
@@ -42,7 +42,7 @@ Testnet is the development and staging network. Sites deployed on Testnet are on
 
 ## Portal configuration {#configuration}
 
-The `portal-config.yaml` file is the primary configuration file for a Walrus Sites server portal. It sets the network, on-chain addresses, URL endpoints, and feature flags the portal uses at runtime.
+The `portal-config.yaml` file is the primary configuration file for a Walrus Sites server portal. It sets the network, onchain addresses, URL endpoints, and feature flags the portal uses at runtime.
 
 :::tip
 
@@ -98,7 +98,7 @@ network: mainnet
 
 #### `site_package`
 
-The on-chain address of the Walrus Sites Move package. This address differs between Mainnet and Testnet and changes after package upgrades. 
+The onchain address of the Walrus Sites Move package. This address differs between Mainnet and Testnet and changes after package upgrades. 
 
 ```sh
 $ git pull origin mainnet && grep 'site_package' portal/server/portal-config.<network>.example.yaml | awk '{print $2}' | tr -d '"'
@@ -169,7 +169,7 @@ domain_name_length: 21
 
 #### `b36_domain_resolution`
 
-When `true`, the portal resolves base-36 encoded object IDs used as subdomains directly to on-chain site objects. Set to `false` to disable this resolution method and rely solely on SuiNS name resolution.
+When `true`, the portal resolves base-36 encoded object IDs used as subdomains directly to onchain site objects. Set to `false` to disable this resolution method and rely solely on SuiNS name resolution.
 
 **Type:** `boolean`  
 **Required:** Yes  
@@ -181,7 +181,7 @@ b36_domain_resolution: true
 
 #### `bring_your_own_domain`
 
-When `true`, the portal supports resolving custom domains mapped to on-chain site objects, in addition to standard subdomain-based addressing.
+When `true`, the portal supports resolving custom domains mapped to onchain site objects, in addition to standard subdomain-based addressing.
 
 **Type:** `boolean` 
 **Required:** Yes  
@@ -229,7 +229,7 @@ enable_allowlist: false
 
 #### `rpc_urls`
 
-The Sui full node RPC endpoints the portal uses to read on-chain data. The portal tries endpoints in ascending `metric` order and retries failed requests up to the number of times specified by `retries`.
+The Sui full node RPC endpoints the portal uses to read onchain data. The portal tries endpoints in ascending `metric` order and retries failed requests up to the number of times specified by `retries`.
 
 Each entry has the following fields:
 

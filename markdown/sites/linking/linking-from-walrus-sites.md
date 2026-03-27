@@ -1,4 +1,4 @@
-Walrus Sites serves content stored on Walrus through a [portal](/docs/sites/portals/mainnet-testnet). All relative URLs in your site resolve against the on-chain site object. Anything outside that object, such as third-party pages, APIs, CDN assets, other Walrus Sites, requires an absolute URL.
+Walrus Sites serves content stored on Walrus through a [portal](/docs/sites/portals/mainnet-testnet). All relative URLs in your site resolve against the onchain site object. Anything outside that object, such as third-party pages, APIs, CDN assets, other Walrus Sites, requires an absolute URL.
 
 ## Linking to external pages
  

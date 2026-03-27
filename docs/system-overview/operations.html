@@ -19,7 +19,7 @@
 
 <script src="/google-tag.js"></script>
 <script src="https://widget.kapa.ai/kapa-widget.bundle.js" data-website-id="206d9923-4daf-4f2e-aeac-e7683daf5088" data-project-name="Walrus Knowledge" data-project-color="#37c3b0ff" data-button-hide="true" data-modal-title="Ask Walrus AI" data-modal-ask-ai-input-placeholder="Ask me anything about Walrus!" data-modal-example-questions="How do I store data on Walrus?,What is a blob?,What are Walrus Sites?,How much does storage cost?" data-modal-body-bg-color="#E0E2E6" data-source-link-bg-color="#FFFFFF" data-source-link-border="#37c3b0ff" data-answer-feedback-button-bg-color="#FFFFFF" data-answer-copy-button-bg-color="#FFFFFF" data-thread-clear-button-bg-color="#FFFFFF" data-modal-image="/img/logo.svg" async></script><link rel="stylesheet" href="/assets/css/styles.9814063d.css">
-<script src="/assets/js/runtime~main.59865087.js" defer="defer"></script>
+<script src="/assets/js/runtime~main.d98ba6ec.js" defer="defer"></script>
 <script src="/assets/js/main.a5a6e7b9.js" defer="defer"></script>
 </head>
 <body class="navigation-with-keyboard">
@@ -38,7 +38,7 @@
 <p>When you run this command, the steps executed by the <!-- -->client<!-- --> are:</p>
 <ol>
 <li class="">
-<p>Acquire a storage resource of appropriate size and duration on-chain, either directly from the Walrus system object or a secondary market. Storage resources can be split, merged, and transferred.</p>
+<p>Acquire a storage resource of appropriate size and duration onchain, either directly from the Walrus system object or a secondary market. Storage resources can be split, merged, and transferred.</p>
 </li>
 <li class="">
 <p>Apply erasure coding to the <!-- -->blob<!-- -->, then compute the <!-- -->blob ID<!-- --> from the encoded data. The <!-- -->blob ID<!-- --> is a <code>u256</code> value typically encoded as a URL-safe base64 string. You can perform the remaining steps yourself or delegate them to a <!-- -->publisher<!-- -->.</p>
@@ -53,7 +53,7 @@
 <p>Each <!-- -->storage node<!-- --> receives its <!-- -->sliver<!-- -->, verifies it against the <!-- -->blob ID<!-- -->, and checks that a valid <!-- -->blob<!-- --> resource authorizes the store. If correct, it signs a statement confirming it holds the <!-- -->sliver<!-- -->. Collect these signatures and aggregate them into an availability certificate.</p>
 </li>
 <li class="">
-<p>Submit the availability certificate to the chain. Successful on-chain verification emits an availability event (the <!-- -->point of availability (PoA)<!-- -->) and triggers all <!-- -->storage nodes<!-- --> to download any missing shards. After the <!-- -->PoA<!-- -->, <!-- -->storage nodes<!-- --> sync and recover missing metadata and slivers without your involvement.</p>
+<p>Submit the availability certificate to the chain. Successful onchain verification emits an availability event (the <!-- -->point of availability (PoA)<!-- -->) and triggers all <!-- -->storage nodes<!-- --> to download any missing shards. After the <!-- -->PoA<!-- -->, <!-- -->storage nodes<!-- --> sync and recover missing metadata and slivers without your involvement.</p>
 </li>
 </ol>
 <p>The <!-- -->certificate of availability<!-- --> is created from 2/3 of the returned <!-- -->shard<!-- --> signatures. The erasure code rate is below 1/3, meaning that <!-- -->reconstruction<!-- --> is possible even if only 1/3 of shards return the <!-- -->sliver<!-- --> for a read. Because at most 1/3 of the <!-- -->storage nodes<!-- --> can fail, this ensures <!-- -->reconstruction<!-- --> if you request slivers from all <!-- -->storage nodes<!-- -->. A <!-- -->publisher<!-- --> can mediate the full process by receiving a <!-- -->blob<!-- --> and driving the process to completion.</p>
@@ -142,7 +142,7 @@
 <div class="language-sh codeBlockContainer_gyLn theme-code-block" style="--prism-color:#393A34;--prism-background-color:#f6f8fa"><div class="codeBlockContent_g1Oz"><pre tabindex="0" class="prism-code language-sh !pt-[14px] codeBlock_qGQc thin-scrollbar" style="color:#393A34;background-color:#f6f8fa"><code class="codeBlockLines_p187"><span class="token-line" style="color:#393A34"><span class="token select-none opacity-40 text-lg">$ </span><span class="token plain">walrus remove-blob-attribute-fields &lt;blob-object-id&gt; --keys &quot;key1,key2&quot;</span><br></span></code></pre></div></div>
 <p>Attributes are associated with Sui object IDs rather than the <!-- -->blobs<!-- --> themselves on Walrus. This means that gas for storage is reclaimed by deleting attributes and that the same <!-- -->blob<!-- --> contents can have different attributes for different Sui objects with the same <!-- -->blob ID<!-- -->.</p>
 <h2 class="anchor anchorTargetStickyNavbar_kP7e" id="inconsistency-handling">Inconsistency handling<a href="#inconsistency-handling" class="hash-link" aria-label="Direct link to Inconsistency handling" title="Direct link to Inconsistency handling" translate="no">​</a></h2>
-<p>After the <!-- -->PoA<!-- -->, a correct <!-- -->storage node<!-- --> attempting to reconstruct a <!-- -->sliver<!-- --> might fail if <!-- -->blob<!-- --> encoding was incorrect. In this case, the node can extract an <!-- -->inconsistency proof<!-- --> for the <!-- -->blob ID<!-- -->. It then uses the proof to create an <!-- -->inconsistency certificate<!-- --> and uploads it on-chain.</p>
+<p>After the <!-- -->PoA<!-- -->, a correct <!-- -->storage node<!-- --> attempting to reconstruct a <!-- -->sliver<!-- --> might fail if <!-- -->blob<!-- --> encoding was incorrect. In this case, the node can extract an <!-- -->inconsistency proof<!-- --> for the <!-- -->blob ID<!-- -->. It then uses the proof to create an <!-- -->inconsistency certificate<!-- --> and uploads it onchain.</p>
 <p>Inconsistency handling uses the following process:</p>
 <ol>
 <li class="">
@@ -175,7 +175,7 @@
 <p>The response to the challenge provides the sequence of <!-- -->shard<!-- --> contents for the <!-- -->blob<!-- --> IDs in a timely manner.</p>
 </li>
 <li class="">
-<p>The challenger node uses thresholds to determine whether the challenge was passed and reports the result on-chain.</p>
+<p>The challenger node uses thresholds to determine whether the challenge was passed and reports the result onchain.</p>
 </li>
 <li class="">
 <p>The challenge and response communication is authenticated.</p>

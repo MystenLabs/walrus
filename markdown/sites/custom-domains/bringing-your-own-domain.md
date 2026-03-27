@@ -89,7 +89,7 @@ aggregator_urls:
 - `bring_your_own_domain`: Set this to `true`. When enabled, the portal serves only the site specified by `landing_page_oid_b36` and rejects requests for any other subdomain with a 404 error.
 - `network`: Set to `mainnet` or `testnet` to match the network your site is deployed on.
 - `site_package`: The Sui object ID of the Walrus Sites package. The correct value for each network is already present in the example files.
-- `rpc_urls`: One or more Sui RPC nodes the portal uses to read on-chain data.
+- `rpc_urls`: One or more Sui RPC nodes the portal uses to read onchain data.
 - `aggregator_urls`: One or more Walrus aggregator nodes the portal uses to fetch site content.
 
 :::info

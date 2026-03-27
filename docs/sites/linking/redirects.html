@@ -19,7 +19,7 @@
 
 <script src="/google-tag.js"></script>
 <script src="https://widget.kapa.ai/kapa-widget.bundle.js" data-website-id="206d9923-4daf-4f2e-aeac-e7683daf5088" data-project-name="Walrus Knowledge" data-project-color="#37c3b0ff" data-button-hide="true" data-modal-title="Ask Walrus AI" data-modal-ask-ai-input-placeholder="Ask me anything about Walrus!" data-modal-example-questions="How do I store data on Walrus?,What is a blob?,What are Walrus Sites?,How much does storage cost?" data-modal-body-bg-color="#E0E2E6" data-source-link-bg-color="#FFFFFF" data-source-link-border="#37c3b0ff" data-answer-feedback-button-bg-color="#FFFFFF" data-answer-copy-button-bg-color="#FFFFFF" data-thread-clear-button-bg-color="#FFFFFF" data-modal-image="/img/logo.svg" async></script><link rel="stylesheet" href="/assets/css/styles.9814063d.css">
-<script src="/assets/js/runtime~main.59865087.js" defer="defer"></script>
+<script src="/assets/js/runtime~main.d98ba6ec.js" defer="defer"></script>
 <script src="/assets/js/main.a5a6e7b9.js" defer="defer"></script>
 </head>
 <body class="navigation-with-keyboard">
@@ -69,12 +69,12 @@
 <h3 class="anchor anchorTargetStickyNavbar_kP7e" id="how-it-works">How it works<a href="#how-it-works" class="hash-link" aria-label="Direct link to How it works" title="Direct link to How it works" translate="no">​</a></h3>
 <p>When a <!-- -->user<!-- --> browses the object ID of an NFT through a portal, the portal:</p>
 <ol>
-<li class="">Fetches the object&#x27;s on-chain data.</li>
+<li class="">Fetches the object&#x27;s onchain data.</li>
 <li class="">Reads the object&#x27;s Display fields.</li>
 <li class="">Checks for the <code>walrus site address</code> key.</li>
 <li class="">If found, fetches and serves the Walrus Site at that address.</li>
 </ol>
-<p>The URL in the browser retains the NFT&#x27;s object ID as the subdomain. This means the Walrus Site being served can read its own origin in JavaScript, extract the subdomain (the NFT&#x27;s object ID), fetch that object&#x27;s on-chain data, and use its properties to personalize the page.</p>
+<p>The URL in the browser retains the NFT&#x27;s object ID as the subdomain. This means the Walrus Site being served can read its own origin in JavaScript, extract the subdomain (the NFT&#x27;s object ID), fetch that object&#x27;s onchain data, and use its properties to personalize the page.</p>
 <h3 class="anchor anchorTargetStickyNavbar_kP7e" id="setting-up-the-redirect-in-move">Setting up the redirect in Move<a href="#setting-up-the-redirect-in-move" class="hash-link" aria-label="Direct link to Setting up the redirect in Move" title="Direct link to Setting up the redirect in Move" translate="no">​</a></h3>
 <p>When creating the Display for your object type, include the <code>walrus site address</code> key pointing to the object ID of your Walrus Site:</p>
 <div class="language-move codeBlockContainer_gyLn theme-code-block" style="--prism-color:#393A34;--prism-background-color:#f6f8fa"><div class="codeBlockContent_g1Oz"><pre tabindex="0" class="prism-code language-move !pt-[14px] codeBlock_qGQc thin-scrollbar" style="color:#393A34;background-color:#f6f8fa"><code class="codeBlockLines_p187"><span class="token-line" style="color:#393A34"><span class="token plain">const VISUALIZATION_SITE: address = @0x901fb0...;</span><br></span><span class="token-line" style="color:#393A34"><span class="token plain"> </span><br></span><span class="token-line" style="color:#393A34"><span class="token plain">display.add(b&quot;walrus site address&quot;.to_string(), VISUALIZATION_SITE.to_string());</span><br></span></code></pre></div></div>
@@ -84,7 +84,7 @@
 <ol>
 <li class="">Read <code>window.location.hostname</code> to get the subdomain.</li>
 <li class="">Decode the Base36 subdomain back to the original hex object ID.</li>
-<li class="">Query the Sui RPC for that object&#x27;s on-chain data.</li>
+<li class="">Query the Sui RPC for that object&#x27;s onchain data.</li>
 <li class="">Render the page using the object&#x27;s properties (color, image, name, and so on).</li>
 </ol>
 <p>This produces a unique page for every object without requiring a separate Walrus Site deployment per item. For a complete implementation, see the <a href="https://github.com/MystenLabs/example-walrus-sites/tree/main/flatland" target="_blank" rel="noopener noreferrer" class=""><code>flatland</code> example</a>.</p>

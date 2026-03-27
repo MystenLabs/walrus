@@ -1,4 +1,4 @@
-Run a Walrus aggregator to expose the [HTTP API](/docs/http-api/storing-blobs). The aggregator does not perform any on-chain actions and only requires specifying the address on which it listens:
+Run a Walrus aggregator to expose the [HTTP API](/docs/http-api/storing-blobs). The aggregator does not perform any onchain actions and only requires specifying the address on which it listens:
 
 ```sh
 $ walrus aggregator --bind-address "127.0.0.1:31415"

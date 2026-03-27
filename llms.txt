@@ -24,7 +24,7 @@ Important notes:
     using Cargo. For standard setup instructions, see Getting Started. Walrus is open source under
     an Apache 2 license.
 - [Getting Started](https://docs.wal.app/docs/getting-started.md): Walrus is a verifiable data
-    platform for high-stakes systems like AI and on-chain finance, where data is stored as blobs.
+    platform for high-stakes systems like AI and onchain finance, where data is stored as blobs.
     Walrus uses an object storage architecture, where blobs are stored in a flat namespace rather
     than a hierarchy. There are no folders or directories.
 
@@ -120,7 +120,7 @@ Important notes:
 - [Javascript](https://docs.wal.app/docs/examples/javascript.md): The following JavaScript example
     shows how to upload and download a blob through a web form using the HTTP API.
 - [Move](https://docs.wal.app/docs/examples/move.md): The following Move example showcases how to
-    import and use Walrus on-chain objects.
+    import and use Walrus onchain objects.
 - [Python](https://docs.wal.app/docs/examples/python.md): You can interact with Walrus from within
     Python code. Use the HTTP API to store and read blobs. Use the JSON API to store, read, and
     check the availability of a blob. Checking the certification of a blob illustrates reading the
@@ -148,7 +148,7 @@ Important notes:
     publishing to Walrus.
 - [Operating
     Publisher](https://docs.wal.app/docs/operator-guide/publishers/operating-publisher.md): The
-    publisher and daemon perform on-chain actions and require a Sui wallet with sufficient SUI and
+    publisher and daemon perform onchain actions and require a Sui wallet with sufficient SUI and
     WAL balances. To handle many parallel requests without object conflicts, they create internal
     sub-wallets (introduced in version 1.4.0) funded from the main wallet.
 - [Signed Binaries](https://docs.wal.app/docs/operator-guide/signed-binaries.md): Walrus release
@@ -207,8 +207,8 @@ Important notes:
     public address. You will need to: Export a private key from your Sui Wallet or CLI.
 - [Adding Metadata](https://docs.wal.app/docs/sites/configuration/adding-metadata.md): The metadata
     section of ws-resources.json lets you add human-readable information to your Walrus Site
-    object. This data is stored on-chain and is used by portals, explorers, wallets, and other
-    tools to display information about your site.
+    object. This data is stored onchain and is used by portals, explorers, wallets, and other tools
+    to display information about your site.
 - [Setting Up Routing
     Rules](https://docs.wal.app/docs/sites/configuration/setting-up-routing-rules.md): The optional
     routes section allows you to specify client-side routing rules for your site. This is useful
@@ -246,7 +246,7 @@ Important notes:
 - [Publishing Your First
     Site](https://docs.wal.app/docs/sites/getting-started/publishing-your-first-site.md): The
     Walrus Sites site-builder uploads your website's files to Walrus, where resources like HTML,
-    CSS, JavaScript, and images are stored as blobs. A Sui smart contract serves as an on-chain
+    CSS, JavaScript, and images are stored as blobs. A Sui smart contract serves as an onchain
     index that maps each resource path to its Walrus blob ID and records site ownership.
 - [Using The Site
     Builder](https://docs.wal.app/docs/sites/getting-started/using-the-site-builder.md): This
@@ -259,7 +259,7 @@ Important notes:
     that indexes those files as resources, the site-builder CLI that publishes and updates the
     site, and a portal that serves the site to browsers.
 - [Technical Overview](https://docs.wal.app/docs/sites/introduction/technical-overview.md): A
-    Walrus Site is a static web site published entirely on-chain, with no origin server. Sui stores
+    Walrus Site is a static web site published entirely onchain, with no origin server. Sui stores
     the site's ownership and resource index, and Walrus stores the resource files themselves. A
     portal bridges these systems and serves the site to the browser over standard HTTP.
 - [Known Restrictions](https://docs.wal.app/docs/sites/known-restrictions.md): Walrus Sites can be
@@ -274,10 +274,10 @@ Important notes:
 - [Linking From Walrus
     Sites](https://docs.wal.app/docs/sites/linking/linking-from-walrus-sites.md): Walrus Sites
     serves content stored on Walrus through a portal. All relative URLs in your site resolve
-    against the on-chain site object. Anything outside that object, such as third-party pages,
-    APIs, CDN assets, other Walrus Sites, requires an absolute URL.
+    against the onchain site object. Anything outside that object, such as third-party pages, APIs,
+    CDN assets, other Walrus Sites, requires an absolute URL.
 - [Linking To Walrus Sites](https://docs.wal.app/docs/sites/linking/linking-to-walrus-sites.md): A
-    Walrus Site is addressed through a portal. The portal resolves the site from an on-chain object
+    Walrus Site is addressed through a portal. The portal resolves the site from an onchain object
     and serves its content. To link to a Walrus Site from an external source, you construct a URL
     that the portal can resolve.
 - [Redirects](https://docs.wal.app/docs/sites/linking/redirects.md): Walrus Sites supports 2 kinds
@@ -291,7 +291,7 @@ Important notes:
 - [Uncomment and configure when enableallowlist is
     true](https://docs.wal.app/docs/sites/portals/mainnet-testnet.md): Walrus Site Portals are used
     to access and browse a Walrus Site. The portal you run must match the network on which your
-    site is deployed. Each network has its own on-chain package, default RPC endpoint, and Walrus
+    site is deployed. Each network has its own onchain package, default RPC endpoint, and Walrus
     aggregator.
 - [Site Data Authentication](https://docs.wal.app/docs/sites/security/site-data-authentication.md):
     Walrus Sites authenticate the data that is served on the client side from the Walrus storage,

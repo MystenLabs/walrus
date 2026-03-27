@@ -19,7 +19,7 @@
 
 <script src="/google-tag.js"></script>
 <script src="https://widget.kapa.ai/kapa-widget.bundle.js" data-website-id="206d9923-4daf-4f2e-aeac-e7683daf5088" data-project-name="Walrus Knowledge" data-project-color="#37c3b0ff" data-button-hide="true" data-modal-title="Ask Walrus AI" data-modal-ask-ai-input-placeholder="Ask me anything about Walrus!" data-modal-example-questions="How do I store data on Walrus?,What is a blob?,What are Walrus Sites?,How much does storage cost?" data-modal-body-bg-color="#E0E2E6" data-source-link-bg-color="#FFFFFF" data-source-link-border="#37c3b0ff" data-answer-feedback-button-bg-color="#FFFFFF" data-answer-copy-button-bg-color="#FFFFFF" data-thread-clear-button-bg-color="#FFFFFF" data-modal-image="/img/logo.svg" async></script><link rel="stylesheet" href="/assets/css/styles.9814063d.css">
-<script src="/assets/js/runtime~main.59865087.js" defer="defer"></script>
+<script src="/assets/js/runtime~main.d98ba6ec.js" defer="defer"></script>
 <script src="/assets/js/main.a5a6e7b9.js" defer="defer"></script>
 </head>
 <body class="navigation-with-keyboard">
@@ -117,7 +117,7 @@
 <p>Aggregators are clients that reconstruct <!-- -->blobs<!-- --> from individual slivers and serve them to users through protocols like HTTP. Aggregators are optional because end users can reconstruct <!-- -->blobs<!-- --> directly from <!-- -->storage nodes<!-- --> or run an instance of a local <!-- -->aggregator<!-- --> themselves.</p>
 <p><strong>Caches</strong> are aggregators with additional caching functionality to decrease latency and reduce load on <!-- -->storage nodes<!-- -->. <!-- -->Cache<!-- --> infrastructures can also act as CDNs, split the cost of <!-- -->blob reconstruction<!-- --> over many requests, and provide better network connectivity. A <!-- -->client<!-- --> can always verify that reads from <!-- -->cache<!-- --> infrastructures are correct.</p>
 <h4 class="anchor anchorTargetStickyNavbar_kP7e" id="publishers">Publishers<a href="#publishers" class="hash-link" aria-label="Direct link to Publishers" title="Direct link to Publishers" translate="no">​</a></h4>
-<p>Publishers are clients that help end users store <!-- -->blobs<!-- --> through protocols like HTTP while using less bandwidth and offering custom logic. Publishers are optional because users can directly interact with Sui and <!-- -->storage nodes<!-- --> to store <!-- -->blobs<!-- -->. End users can verify that a <!-- -->publisher<!-- --> performed correctly by checking for an on-chain event associated with the <!-- -->blob<!-- -->&#x27;s <strong><a class="" href="/docs/system-overview/core-concepts">point of availability</a></strong>. Users can then either read the <!-- -->blob<!-- --> from Walrus to confirm it is accessible, or encode the <!-- -->blob<!-- --> themselves and compare the result to the <!-- -->blob ID<!-- --> in the certificate. Publishers streamline the storage process by:</p>
+<p>Publishers are clients that help end users store <!-- -->blobs<!-- --> through protocols like HTTP while using less bandwidth and offering custom logic. Publishers are optional because users can directly interact with Sui and <!-- -->storage nodes<!-- --> to store <!-- -->blobs<!-- -->. End users can verify that a <!-- -->publisher<!-- --> performed correctly by checking for an onchain event associated with the <!-- -->blob<!-- -->&#x27;s <strong><a class="" href="/docs/system-overview/core-concepts">point of availability</a></strong>. Users can then either read the <!-- -->blob<!-- --> from Walrus to confirm it is accessible, or encode the <!-- -->blob<!-- --> themselves and compare the result to the <!-- -->blob ID<!-- --> in the certificate. Publishers streamline the storage process by:</p>
 <ul>
 <li class="">
 <p>Receiving a <!-- -->blob<!-- --> through protocols like HTTP</p>
@@ -135,7 +135,7 @@
 <p>Aggregating signatures into a certificate</p>
 </li>
 <li class="">
-<p>Performing all required on-chain actions</p>
+<p>Performing all required onchain actions</p>
 </li>
 </ul>
 <h2 class="anchor anchorTargetStickyNavbar_kP7e" id="data-storage-process">Data storage process<a href="#data-storage-process" class="hash-link" aria-label="Direct link to Data storage process" title="Direct link to Data storage process" translate="no">​</a></h2>

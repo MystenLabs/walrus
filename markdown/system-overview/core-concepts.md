@@ -88,7 +88,7 @@ Aggregators are clients that reconstruct blobs from individual slivers and serve
 
 #### Publishers
 
-Publishers are clients that help end users store blobs through protocols like HTTP while using less bandwidth and offering custom logic. Publishers are optional because users can directly interact with Sui and storage nodes to store blobs. End users can verify that a publisher performed correctly by checking for an on-chain event associated with the blob's **[point of availability](/docs/system-overview/core-concepts)**. Users can then either read the blob from Walrus to confirm it is accessible, or encode the blob themselves and compare the result to the blob ID in the certificate. Publishers streamline the storage process by:
+Publishers are clients that help end users store blobs through protocols like HTTP while using less bandwidth and offering custom logic. Publishers are optional because users can directly interact with Sui and storage nodes to store blobs. End users can verify that a publisher performed correctly by checking for an onchain event associated with the blob's **[point of availability](/docs/system-overview/core-concepts)**. Users can then either read the blob from Walrus to confirm it is accessible, or encode the blob themselves and compare the result to the blob ID in the certificate. Publishers streamline the storage process by:
 
 - Receiving a blob through protocols like HTTP
 
@@ -100,7 +100,7 @@ Publishers are clients that help end users store blobs through protocols like HT
 
 - Aggregating signatures into a certificate
 
-- Performing all required on-chain actions
+- Performing all required onchain actions
 
 ## Data storage process
 

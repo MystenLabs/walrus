@@ -19,7 +19,7 @@
 
 <script src="/google-tag.js"></script>
 <script src="https://widget.kapa.ai/kapa-widget.bundle.js" data-website-id="206d9923-4daf-4f2e-aeac-e7683daf5088" data-project-name="Walrus Knowledge" data-project-color="#37c3b0ff" data-button-hide="true" data-modal-title="Ask Walrus AI" data-modal-ask-ai-input-placeholder="Ask me anything about Walrus!" data-modal-example-questions="How do I store data on Walrus?,What is a blob?,What are Walrus Sites?,How much does storage cost?" data-modal-body-bg-color="#E0E2E6" data-source-link-bg-color="#FFFFFF" data-source-link-border="#37c3b0ff" data-answer-feedback-button-bg-color="#FFFFFF" data-answer-copy-button-bg-color="#FFFFFF" data-thread-clear-button-bg-color="#FFFFFF" data-modal-image="/img/logo.svg" async></script><link rel="stylesheet" href="/assets/css/styles.9814063d.css">
-<script src="/assets/js/runtime~main.59865087.js" defer="defer"></script>
+<script src="/assets/js/runtime~main.d98ba6ec.js" defer="defer"></script>
 <script src="/assets/js/main.a5a6e7b9.js" defer="defer"></script>
 </head>
 <body class="navigation-with-keyboard">
@@ -48,7 +48,7 @@
 <li class="">The upload relay encodes the <!-- -->blob<!-- -->, sends the slivers to the <!-- -->storage nodes<!-- -->, collects a storage confirmation certificate, and sends it back to the <!-- -->client<!-- -->.</li>
 <li class="">The <!-- -->client<!-- --> uses the confirmation certificate to certify the <!-- -->blob<!-- --> on Sui.</li>
 </ol>
-<p>The upload relay does not perform any on-chain operation and only helps clients distribute the slivers of their <!-- -->blobs<!-- --> to <!-- -->storage nodes<!-- -->.</p>
+<p>The upload relay does not perform any onchain operation and only helps clients distribute the slivers of their <!-- -->blobs<!-- --> to <!-- -->storage nodes<!-- -->.</p>
 <p>The flow between clients and the upload relay is already implemented in the Walrus CLI, Rust SDK, and TypeScript SDK. Developers do not need to implement it themselves. For completeness, the following sections discuss how the service is implemented, paid for, and used by clients.</p>
 <h3 class="anchor anchorTargetStickyNavbar_kP7e" id="operation-modes">Operation modes<a href="#operation-modes" class="hash-link" aria-label="Direct link to Operation modes" title="Direct link to Operation modes" translate="no">​</a></h3>
 <p>You can operate the upload relay in 2 ways:</p>
@@ -83,7 +83,7 @@
 </ul>
 <h2 class="anchor anchorTargetStickyNavbar_kP7e" id="receive-the-certificate">Receive the certificate<a href="#receive-the-certificate" class="hash-link" aria-label="Direct link to Receive the certificate" title="Direct link to Receive the certificate" translate="no">​</a></h2>
 <p>After the relay finishes storing the <!-- -->blob<!-- -->, it collects the confirmation certificate from the <!-- -->storage nodes<!-- -->.</p>
-<p>The relay then sends a response to the <!-- -->client<!-- --> containing the <code>blob_id</code> of the stored <!-- -->blob<!-- --> along with the <code>confirmation_certificate</code>. The <!-- -->client<!-- --> can then use this certificate to certify the <!-- -->blob<!-- --> on-chain.</p>
+<p>The relay then sends a response to the <!-- -->client<!-- --> containing the <code>blob_id</code> of the stored <!-- -->blob<!-- --> along with the <code>confirmation_certificate</code>. The <!-- -->client<!-- --> can then use this certificate to certify the <!-- -->blob<!-- --> onchain.</p>
 <h2 class="anchor anchorTargetStickyNavbar_kP7e" id="install-the-relay">Install the relay<a href="#install-the-relay" class="hash-link" aria-label="Direct link to Install the relay" title="Direct link to Install the relay" translate="no">​</a></h2>
 <p>To download a pre-built binary of <code>walrus-upload-relay</code>, go to the <a href="https://github.com/MystenLabs/walrus/releases" target="_blank" rel="noopener noreferrer" class="">releases page</a>. The <code>walrus-upload-relay</code> binary does not daemonize itself and requires a supervisor process to ensure boot at startup, restart on failure, and so on.</p>
 <h3 class="anchor anchorTargetStickyNavbar_kP7e" id="use-docker">Use Docker<a href="#use-docker" class="hash-link" aria-label="Direct link to Use Docker" title="Direct link to Use Docker" translate="no">​</a></h3>

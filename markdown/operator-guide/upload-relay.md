@@ -20,7 +20,7 @@ At a high level, a client stores a blob using an upload relay as follows:
 1. The upload relay encodes the blob, sends the slivers to the storage nodes, collects a storage confirmation certificate, and sends it back to the client.
 1. The client uses the confirmation certificate to certify the blob on Sui.
 
-The upload relay does not perform any on-chain operation and only helps clients distribute the slivers of their blobs to storage nodes.
+The upload relay does not perform any onchain operation and only helps clients distribute the slivers of their blobs to storage nodes.
 
 The flow between clients and the upload relay is already implemented in the Walrus CLI, Rust SDK, and TypeScript SDK. Developers do not need to implement it themselves. For completeness, the following sections discuss how the service is implemented, paid for, and used by clients.
 
@@ -80,7 +80,7 @@ You must specify the following parameters in the query string of the URL:
 
 After the relay finishes storing the blob, it collects the confirmation certificate from the storage nodes.
 
-The relay then sends a response to the client containing the `blob_id` of the stored blob along with the `confirmation_certificate`. The client can then use this certificate to certify the blob on-chain.
+The relay then sends a response to the client containing the `blob_id` of the stored blob along with the `confirmation_certificate`. The client can then use this certificate to certify the blob onchain.
 
 ## Install the relay
 

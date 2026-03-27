@@ -19,7 +19,7 @@
 
 <script src="/google-tag.js"></script>
 <script src="https://widget.kapa.ai/kapa-widget.bundle.js" data-website-id="206d9923-4daf-4f2e-aeac-e7683daf5088" data-project-name="Walrus Knowledge" data-project-color="#37c3b0ff" data-button-hide="true" data-modal-title="Ask Walrus AI" data-modal-ask-ai-input-placeholder="Ask me anything about Walrus!" data-modal-example-questions="How do I store data on Walrus?,What is a blob?,What are Walrus Sites?,How much does storage cost?" data-modal-body-bg-color="#E0E2E6" data-source-link-bg-color="#FFFFFF" data-source-link-border="#37c3b0ff" data-answer-feedback-button-bg-color="#FFFFFF" data-answer-copy-button-bg-color="#FFFFFF" data-thread-clear-button-bg-color="#FFFFFF" data-modal-image="/img/logo.svg" async></script><link rel="stylesheet" href="/assets/css/styles.9814063d.css">
-<script src="/assets/js/runtime~main.59865087.js" defer="defer"></script>
+<script src="/assets/js/runtime~main.d98ba6ec.js" defer="defer"></script>
 <script src="/assets/js/main.a5a6e7b9.js" defer="defer"></script>
 </head>
 <body class="navigation-with-keyboard">
@@ -52,7 +52,7 @@
 <h4 class="anchor anchorTargetStickyNavbar_kP7e" id="upload-fees">Upload fees<a href="#upload-fees" class="hash-link" aria-label="Direct link to Upload fees" title="Direct link to Upload fees" translate="no">​</a></h4>
 <p>Registering a <!-- -->blob<!-- --> costs <!-- -->WAL<!-- --> to cover upload costs. This ensures that deleting <!-- -->blobs<!-- --> and reusing storage resources remains sustainable for the system.</p>
 <h4 class="anchor anchorTargetStickyNavbar_kP7e" id="sui-transaction-fees">Sui transaction fees<a href="#sui-transaction-fees" class="hash-link" aria-label="Direct link to Sui transaction fees" title="Direct link to Sui transaction fees" translate="no">​</a></h4>
-<p>Storing a <!-- -->blob<!-- --> involves up to 3 on-chain <a href="https://docs.sui.io/concepts/transactions" target="_blank" rel="noopener noreferrer" class="">Sui transactions</a>, each of which incurs SUI gas fees.</p>
+<p>Storing a <!-- -->blob<!-- --> involves up to 3 onchain <a href="https://docs.sui.io/concepts/transactions" target="_blank" rel="noopener noreferrer" class="">Sui transactions</a>, each of which incurs SUI gas fees.</p>
 <ol>
 <li class="">
 <p>Acquiring a storage resource (<code>reserve_space</code>)</p>
@@ -65,7 +65,7 @@
 </li>
 </ol>
 <h4 class="anchor anchorTargetStickyNavbar_kP7e" id="sui-object-storage">Sui object storage<a href="#sui-object-storage" class="hash-link" aria-label="Direct link to Sui object storage" title="Direct link to Sui object storage" translate="no">​</a></h4>
-<p>Walrus <!-- -->blobs<!-- --> are represented as <a href="https://docs.sui.io/guides/developer/objects/object-model" target="_blank" rel="noopener noreferrer" class="">Sui objects</a> on-chain. Creating these objects deposits SUI into the <a href="https://docs.sui.io/concepts/sui-architecture/sui-storage#storage-fund" target="_blank" rel="noopener noreferrer" class="">Sui storage fund</a>, most of which is refunded when you delete the objects.</p>
+<p>Walrus <!-- -->blobs<!-- --> are represented as <a href="https://docs.sui.io/guides/developer/objects/object-model" target="_blank" rel="noopener noreferrer" class="">Sui objects</a> onchain. Creating these objects deposits SUI into the <a href="https://docs.sui.io/concepts/sui-architecture/sui-storage#storage-fund" target="_blank" rel="noopener noreferrer" class="">Sui storage fund</a>, most of which is refunded when you delete the objects.</p>
 <h2 class="anchor anchorTargetStickyNavbar_kP7e" id="measuring-costs">Measuring costs<a href="#measuring-costs" class="hash-link" aria-label="Direct link to Measuring costs" title="Direct link to Measuring costs" translate="no">​</a></h2>
 <p>The most accurate way to measure costs is to upload a <!-- -->blob<!-- --> and observe SUI and <!-- -->WAL<!-- --> costs in a Sui explorer or through Sui RPC calls. <!-- -->Blob<!-- --> contents do not affect cost.</p>
 <p>For example, the following command results in 2 transactions:</p>
@@ -97,11 +97,11 @@
 <h4 class="anchor anchorTargetStickyNavbar_kP7e" id="assigning-a-blob-id">Assigning a <!-- -->blob ID<a href="#assigning-a-blob-id" class="hash-link" aria-label="Direct link to assigning-a-blob-id" title="Direct link to assigning-a-blob-id" translate="no">​</a></h4>
 <p>After acquiring storage, assign a <!-- -->blob ID<!-- --> to indicate intent to store. This emits a Move resource event, signaling <!-- -->storage nodes<!-- --> to expect and authorize off-chain storage operations.</p>
 <h4 class="anchor anchorTargetStickyNavbar_kP7e" id="certifying-availability">Certifying availability<a href="#certifying-availability" class="hash-link" aria-label="Direct link to Certifying availability" title="Direct link to Certifying availability" translate="no">​</a></h4>
-<p>After uploading <!-- -->blob<!-- --> data off-chain, certify availability on-chain:</p>
+<p>After uploading <!-- -->blob<!-- --> data off-chain, certify availability onchain:</p>
 <ol>
 <li class="">Upload <!-- -->blob<!-- --> slivers to <!-- -->storage nodes<!-- --> off-chain.</li>
 <li class="">Receive an availability certificate from <!-- -->storage nodes<!-- -->.</li>
-<li class="">Upload the certificate on-chain.</li>
+<li class="">Upload the certificate onchain.</li>
 <li class="">The system checks the certificate against the current Walrus committee.</li>
 <li class="">If valid, the system emits an availability event for the <!-- -->blob ID<!-- -->.</li>
 </ol>
@@ -109,7 +109,7 @@
 <h4 class="anchor anchorTargetStickyNavbar_kP7e" id="extending-storage">Extending storage<a href="#extending-storage" class="hash-link" aria-label="Direct link to Extending storage" title="Direct link to Extending storage" translate="no">​</a></h4>
 <p>You can extend a certified <!-- -->blob<!-- -->&#x27;s storage at any time by attaching a storage object with a longer <!-- -->expiry<!-- --> period. Smart contracts can use this mechanism to extend <!-- -->blob<!-- --> availability indefinitely, as long as funds are available.</p>
 <h4 class="anchor anchorTargetStickyNavbar_kP7e" id="handling-inconsistent-blobs">Handling inconsistent <!-- -->blobs<a href="#handling-inconsistent-blobs" class="hash-link" aria-label="Direct link to handling-inconsistent-blobs" title="Direct link to handling-inconsistent-blobs" translate="no">​</a></h4>
-<p>If a <!-- -->blob ID<!-- --> is not correctly encoded, an <a class="" href="/docs/system-overview/red-stuff">inconsistency proof certificate</a> can be submitted on-chain. This emits an inconsistent <!-- -->blob<!-- --> event, signaling that reads for that <!-- -->blob ID<!-- --> always return <code>None</code> and that <!-- -->storage nodes<!-- --> can delete its slivers (except for an indicator to return <code>None</code>).</p>
+<p>If a <!-- -->blob ID<!-- --> is not correctly encoded, an <a class="" href="/docs/system-overview/red-stuff">inconsistency proof certificate</a> can be submitted onchain. This emits an inconsistent <!-- -->blob<!-- --> event, signaling that reads for that <!-- -->blob ID<!-- --> always return <code>None</code> and that <!-- -->storage nodes<!-- --> can delete its slivers (except for an indicator to return <code>None</code>).</p>
 <h2 class="anchor anchorTargetStickyNavbar_kP7e" id="acquiring-storage-resources">Acquiring storage resources<a href="#acquiring-storage-resources" class="hash-link" aria-label="Direct link to Acquiring storage resources" title="Direct link to Acquiring storage resources" translate="no">​</a></h2>
 <p>You can acquire storage resources through 3 methods:</p>
 <ol>

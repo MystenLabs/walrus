@@ -44,7 +44,7 @@ $ walrus node-admin set-governance-authorized --node-id $NODE_ID --object $GOVER
 
 Go to the [operator panel on the staking app](https://stake-wal.wal.app/node-operations), connect your wallet, and select your node through the drop-down menu or by pasting your node ID. Then select **Set Commission Receiver** or **Set Governance Authorized** and follow the steps to send the transaction.
 
-### Verify on-chain
+### Verify onchain
 
 You can verify that the authorization was set correctly by looking up your node `StakingPool` object on [Suiscan](https://suiscan.xyz). The object ID is your node ID. Check the `Commission receiver` and `Governance authorized` fields to confirm they match the addresses or objects you configured.
 

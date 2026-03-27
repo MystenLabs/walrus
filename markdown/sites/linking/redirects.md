@@ -113,12 +113,12 @@ This pattern allows you to give each object in a collection its own Walrus Site 
  
 When a user browses the object ID of an NFT through a portal, the portal:
  
-1. Fetches the object's on-chain data.
+1. Fetches the object's onchain data.
 2. Reads the object's Display fields.
 3. Checks for the `walrus site address` key.
 4. If found, fetches and serves the Walrus Site at that address.
  
-The URL in the browser retains the NFT's object ID as the subdomain. This means the Walrus Site being served can read its own origin in JavaScript, extract the subdomain (the NFT's object ID), fetch that object's on-chain data, and use its properties to personalize the page.
+The URL in the browser retains the NFT's object ID as the subdomain. This means the Walrus Site being served can read its own origin in JavaScript, extract the subdomain (the NFT's object ID), fetch that object's onchain data, and use its properties to personalize the page.
  
 ### Setting up the redirect in Move
  
@@ -138,7 +138,7 @@ The Walrus Site at `VISUALIZATION_SITE` is a single shared site, but it can rend
  
 1. Read `window.location.hostname` to get the subdomain.
 2. Decode the Base36 subdomain back to the original hex object ID.
-3. Query the Sui RPC for that object's on-chain data.
+3. Query the Sui RPC for that object's onchain data.
 4. Render the page using the object's properties (color, image, name, and so on).
  
 This produces a unique page for every object without requiring a separate Walrus Site deployment per item. For a complete implementation, see the [`flatland` example](https://github.com/MystenLabs/example-walrus-sites/tree/main/flatland).

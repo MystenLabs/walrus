@@ -342,7 +342,7 @@ You can use the [Sui Testnet faucet](https://faucet.sui.io) to obtain test SUI. 
 
 :::caution
 
-You must run registration during initial setup. It creates the on-chain records for your node.
+You must run registration during initial setup. It creates the onchain records for your node.
 
 :::
 
@@ -382,9 +382,9 @@ curl -sk https://localhost:9185/v1/health | jq
 
 This should return a 200 status with a non-empty JSON payload. The `nodeStatus` value should be `Standby`. You can also check `https://PUBLIC_ADDRESS:9185/v1/api` in a browser to verify the TLS certificate is set up correctly.
 
-##### Step 7: Verify the on-chain key.
+##### Step 7: Verify the onchain key.
 
-Use the `walrus health` command. This performs a cryptographic check that the node uses the key registered on-chain:
+Use the `walrus health` command. This performs a cryptographic check that the node uses the key registered onchain:
 
 ```sh
 /opt/walrus/bin/walrus --config /opt/walrus/config/client_config.yaml health --node-id YOUR_NODE_ID

@@ -1,4 +1,4 @@
-A Walrus Site is addressed through a [portal](/docs/sites/portals/mainnet-testnet). The portal resolves the site from an on-chain object and serves its content. To link to a Walrus Site from an external source, you construct a URL that the portal can resolve. There are 2 ways to identify a site in that URL: by its [SuiNS name](/docs/sites/custom-domains/setting-a-suins-name), or by its [Sui object ID](/docs/sites/getting-started/using-the-site-builder).
+A Walrus Site is addressed through a [portal](/docs/sites/portals/mainnet-testnet). The portal resolves the site from an onchain object and serves its content. To link to a Walrus Site from an external source, you construct a URL that the portal can resolve. There are 2 ways to identify a site in that URL: by its [SuiNS name](/docs/sites/custom-domains/setting-a-suins-name), or by its [Sui object ID](/docs/sites/getting-started/using-the-site-builder).
 
 ## URL structure
  
@@ -29,7 +29,7 @@ https://myproject.wal.app
 SuiNS names are human-readable and stable as long as the registration is maintained and continues to point at the correct site object. If the owner transfers the site object or re-registers the name to a different object, links using the SuiNS name resolve to the new target.
  
 :::info
-SuiNS name resolution is performed on-chain by the portal at request time. A name that is expired, not registered, or not pointed at a site object returns an error.
+SuiNS name resolution is performed onchain by the portal at request time. A name that is expired, not registered, or not pointed at a site object returns an error.
 :::
  
 ## Linking by object ID
@@ -82,7 +82,7 @@ The public mainnet portal at `wal.app` is the default, but other portals exist a
 https://IDENTIFIER.PORTAL_HOST
 ```
  
-The portal you link through does not change which site object is resolved. Any portal that supports Walrus Sites resolves the same on-chain object for a given identifier. The choice of portal affects availability and trust, not content.
+The portal you link through does not change which site object is resolved. Any portal that supports Walrus Sites resolves the same onchain object for a given identifier. The choice of portal affects availability and trust, not content.
  
 ## Constructing links programmatically
  

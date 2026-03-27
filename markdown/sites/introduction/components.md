@@ -25,7 +25,7 @@ struct Resource has store, drop {
 }
 ```
 
-The `path` field corresponds to the resource's URL path (for example, `/index.html`), and `blob_id` is the Walrus identifier for the resource's content. The site object uses each file's `QuiltPatchID` to locate and retrieve it from the quilt. Together, the site object and its dynamic fields form an on-chain index that maps every resource path in your site to its content on Walrus. Because Walrus is a decentralized storage network, there is no single server that can take your content offline.
+The `path` field corresponds to the resource's URL path (for example, `/index.html`), and `blob_id` is the Walrus identifier for the resource's content. The site object uses each file's `QuiltPatchID` to locate and retrieve it from the quilt. Together, the site object and its dynamic fields form an onchain index that maps every resource path in your site to its content on Walrus. Because Walrus is a decentralized storage network, there is no single server that can take your content offline.
 
 Because the site object is a standard Sui object, it has a single owner. The wallet that deployed the site owns the object and is the only wallet that can update or destroy it. Ownership can also be transferred, meaning you can move a site to a different wallet if needed. For more detail on how Sui handles object ownership, see the [Sui object model](https://docs.sui.io/guides/developer/objects/object-model) documentation. You can also assign a [SuiNS](https://suins.io/) name to the object, giving your site a human-readable domain name.
 
@@ -37,7 +37,7 @@ Blobs are stored for a fixed number of epochs. On Mainnet, each epoch lasts 14 d
 
 ## The `site-builder` CLI
 
-The `site-builder` is a Rust CLI tool that creates and manages Walrus Sites. It takes your site's build output directory as input and handles uploading files to Walrus and writing the on-chain index to Sui.
+The `site-builder` is a Rust CLI tool that creates and manages Walrus Sites. It takes your site's build output directory as input and handles uploading files to Walrus and writing the onchain index to Sui.
 
 The primary command is [`deploy`](/docs/sites/getting-started/using-the-site-builder#deploy), which both publishes new sites and updates existing ones:
 

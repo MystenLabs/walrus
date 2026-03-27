@@ -18,9 +18,9 @@ Walrus guarantees that any data read corresponds to what the user who uploaded t
 
 Walrus does not provide native encryption for data. By default, all blobs stored in Walrus are public and discoverable by everyone. If your use case needs encryption or access control, you need to secure data before uploading to Walrus.
 
-You can use any encryption and access-control mechanism you prefer. However, if you want on-chain access control, [Seal](https://seal-docs.wal.app/) is the most powerful and straightforward option.
+You can use any encryption and access-control mechanism you prefer. However, if you want onchain access control, [Seal](https://seal-docs.wal.app/) is the most powerful and straightforward option.
 
-Seal allows you to encrypt data using threshold encryption, where no single party holds the full decryption key. You can define on-chain access policies that determine who can decrypt the data and under what conditions, and store encrypted content on Walrus while keeping decryption logic verifiable and flexible.
+Seal allows you to encrypt data using threshold encryption, where no single party holds the full decryption key. You can define onchain access policies that determine who can decrypt the data and under what conditions, and store encrypted content on Walrus while keeping decryption logic verifiable and flexible.
 
 Seal integrates seamlessly with Walrus and is recommended for any use cases involving:
 
@@ -32,18 +32,18 @@ To get started, refer to [Seal SDK](https://www.npmjs.com/package/@mysten/seal).
 
 ## Nautilus: Secure and verifiable off-chain computation
 
-Nautilus is a framework for secure and verifiable off-chain computation on Sui. It enables you to delegate sensitive or resource-intensive tasks to a self-managed trusted execution environment (TEE) while using smart contract verification to preserve trust on-chain.
+Nautilus is a framework for secure and verifiable off-chain computation on Sui. It enables you to delegate sensitive or resource-intensive tasks to a self-managed trusted execution environment (TEE) while using smart contract verification to preserve trust onchain.
 
 Use Nautilus for hybrid apps that require private data handling, complex computations, or integration with external Web2 systems. The framework ensures computations are tamper-resistant, isolated, and cryptographically verifiable.
 
-Nautilus currently supports self-managed AWS Nitro Enclave TEEs. You can verify AWS-signed enclave attestations on-chain using Move smart contracts. See the [GitHub repository](https://github.com/MystenLabs/nautilus) for the reproducible build template.
+Nautilus currently supports self-managed AWS Nitro Enclave TEEs. You can verify AWS-signed enclave attestations onchain using Move smart contracts. See the [GitHub repository](https://github.com/MystenLabs/nautilus) for the reproducible build template.
 
 ### Use cases
 
 - **Trusted oracles:** Process off-chain data from Web2 services or decentralized storage platforms like Walrus in a tamper-resistant way.
-- **AI agents:** Securely run AI models for inference or execute agentic workflows while providing data and model provenance on-chain.
+- **AI agents:** Securely run AI models for inference or execute agentic workflows while providing data and model provenance onchain.
 - **DePIN solutions:** Enable private data computation in IoT and supply chain networks.
 - **Fraud prevention:** Secure order matching, settlement, and multi-party computations for DEXs and layer 2 solutions.
-- **Identity management:** Provide on-chain verifiability for decentralized governance with proof of tamper resistance.
+- **Identity management:** Provide onchain verifiability for decentralized governance with proof of tamper resistance.
 
 To get started, see [Using Nautilus](https://docs.sui.io/concepts/cryptography/nautilus/using-nautilus).
