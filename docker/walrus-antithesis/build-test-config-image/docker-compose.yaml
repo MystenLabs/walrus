@@ -7,6 +7,7 @@
 # - A setup completion service
 # - 4 Walrus nodes for testing
 # - 1 stress client for testing
+# - 1 cross-node invariant observer
 services:
   # Runs a local Sui network with a single validator
   sui-localnet:
@@ -172,6 +173,31 @@ services:
       - ./files/run-staking.sh:/root/run-staking.sh
     command: >
       /bin/bash -c "sleep 15 && /root/run-staking.sh"
+
+  # Cross-node invariant observer — scrapes Prometheus metrics from all storage
+  # nodes and verifies data consistency across the cluster. Crashes on violation,
+  # which Antithesis surfaces as a test failure.
+  walrus-observer:
+    depends_on:
+      walrus-deploy:
+        condition: service_completed_successfully
+    networks:
+      testbed-network:
+        ipv4_address: 10.0.0.40
+    image: ${WALRUS_IMAGE_NAME}
+    platform: ${WALRUS_PLATFORM:-linux/amd64}
+    hostname: walrus-observer
+    container_name: walrus-observer
+    environment:
+      - NO_COLOR=1
+      - CHECK_INTERVAL=60
+      - INITIAL_WAIT=180
+      - EVENT_SOURCE_PATIENCE=3
+      - FULLY_STORED_PATIENCE=3
+    volumes:
+      - ./files/run-observer.sh:/root/run-observer.sh
+    command: >
+      /bin/bash -c "/root/run-observer.sh"
 
 # Persistent volumes for sharing data between containers
 volumes:
