@@ -159,7 +159,7 @@
       },
       "https://walrus-mainnet-aggregator.imperator.co": {
         "operator": "Imperator.co",
-        "cache": true
+        "cache": false
       },
       "https://walrus-mainnet-aggregator.luckyresearch.org": {
         "operator": "LuckyResearch Labs",
@@ -255,7 +255,7 @@
       },
       "https://aggregator.testnet.walrus.atalma.io": {
         "operator": "atalma.io",
-        "cache": true
+        "cache": false
       },
       "https://aggregator.testnet.walrus.mirai.cloud": {
         "operator": "Studio Mirai",
@@ -295,7 +295,7 @@
       },
       "https://testnet-aggregator.walrus.graphyte.dev": {
         "operator": "Graphyte Labs",
-        "cache": true
+        "functional": false
       },
       "https://testnet-walrus.globalstake.io": {
         "operator": "GlobalSTake",
@@ -319,7 +319,7 @@
       },
       "https://walrus-agg.testnet.obelisk.sh": {
         "operator": "Obelisk",
-        "cache": true
+        "cache": false
       },
       "https://walrus-aggregator-testnet.cetus.zone": {
         "operator": "Cetus",
@@ -343,7 +343,7 @@
       },
       "https://walrus-aggregator.thcloud.dev": {
         "operator": "THCloudAI",
-        "cache": true
+        "cache": false
       },
       "https://walrus-test-aggregator.thepassivetrust.com": {
         "operator": "TPT",
@@ -379,7 +379,7 @@
       },
       "https://walrus-testnet-aggregator.luckyresearch.org": {
         "operator": "LuckyResearch Labs",
-        "cache": true
+        "cache": false
       },
       "https://walrus-testnet-aggregator.natsai.xyz": {
         "operator": "Natsai",
@@ -391,7 +391,7 @@
       },
       "https://walrus-testnet-aggregator.nodes.guru": {
         "operator": "Nodes.Guru",
-        "cache": true
+        "cache": false
       },
       "https://walrus-testnet-aggregator.redundex.com": {
         "operator": "Redundex",
