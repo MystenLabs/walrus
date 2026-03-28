@@ -2683,12 +2683,16 @@ impl StorageNodeInner {
         &self.encoding_config
     }
 
-    /// Waits until the recovery deferral for the given blob ID expires
-    /// and cancels the recovery deferral upon timeout.
+    /// Waits until the recovery deferral for the given blob ID is cancelled or expires.
+    ///
+    /// This method only waits; it does not remove the deferral entry, which is cleaned up by
+    /// `clear_recovery_deferral` or the background cleanup task.
+    ///
+    /// Returns `true` when a deferral existed and the caller waited for it.
     pub async fn wait_until_recovery_deferral_expires(
         &self,
         blob_id: &BlobId,
-    ) -> anyhow::Result<Arc<tokio_util::sync::CancellationToken>> {
+    ) -> anyhow::Result<bool> {
         let (until, token) = {
             let map = self.recovery_deferrals.read().await;
             if let Some((u, existing_token)) = map.get(blob_id).cloned() {
@@ -2713,7 +2717,7 @@ impl StorageNodeInner {
             self.metrics.recovery_deferral_waiters.dec();
         }
 
-        Ok(token)
+        Ok(until.is_some())
     }
 
     /// Returns the node capability object ID.
@@ -4726,6 +4730,59 @@ mod tests {
             .build()
             .await
             .expect("storage node creation in setup should not fail")
+    }
+
+    #[tokio::test]
+    async fn wait_until_recovery_deferral_expires_returns_false_without_deferral() -> TestResult {
+        let _lock = global_test_lock().lock().await;
+        let node = StorageNodeHandle::builder().build().await?;
+
+        let waited = node
+            .as_ref()
+            .inner
+            .wait_until_recovery_deferral_expires(&random_blob_id())
+            .await?;
+
+        assert!(!waited);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn wait_until_recovery_deferral_expires_returns_true_with_deferral() -> TestResult {
+        let _lock = global_test_lock().lock().await;
+        let node = StorageNodeHandle::builder().build().await?;
+        let inner = node.as_ref().inner.clone();
+        let blob_id = random_blob_id();
+
+        inner.recovery_deferrals.write().await.insert(
+            blob_id,
+            (
+                std::time::Instant::now() + Duration::from_secs(60),
+                Arc::new(tokio_util::sync::CancellationToken::new()),
+            ),
+        );
+        inner.update_recovery_deferral_size_metric(1);
+
+        let wait_task = tokio::spawn({
+            let inner = inner.clone();
+            async move { inner.wait_until_recovery_deferral_expires(&blob_id).await }
+        });
+
+        retry_until_success_or_timeout(TIMEOUT, || async {
+            if inner.metrics.recovery_deferral_waiters.get() == 1 {
+                Ok(())
+            } else {
+                Err(())
+            }
+        })
+        .await
+        .expect("waiter should start waiting on the deferral");
+        inner.clear_recovery_deferral(&blob_id).await;
+
+        assert!(wait_task.await??);
+
+        Ok(())
     }
 
     mod get_storage_confirmation {

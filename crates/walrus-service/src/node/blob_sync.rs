@@ -39,7 +39,14 @@ use super::{
     StorageNodeInner,
     committee::CommitteeService,
     contract_service::SystemContractService,
-    metrics::{self, NodeMetricSet, STATUS_IN_PROGRESS, STATUS_QUEUED},
+    metrics::{
+        self,
+        LIVE_UPLOAD_DEFERRAL_OUTCOME_AVOIDED_RECOVERY,
+        LIVE_UPLOAD_DEFERRAL_OUTCOME_RECOVERY_NEEDED,
+        NodeMetricSet,
+        STATUS_IN_PROGRESS,
+        STATUS_QUEUED,
+    },
     storage::Storage,
     system_events::{CompletableHandle, EventHandle},
 };
@@ -418,7 +425,8 @@ impl BlobSyncHandler {
                     },
 
                     (guard, start) = async {
-                        synchronizer.wait_for_recovery_window().await;
+                        let waited_for_live_upload_deferral =
+                            synchronizer.wait_for_recovery_window().await;
 
                         let active_start = tokio::time::Instant::now();
 
@@ -433,7 +441,9 @@ impl BlobSyncHandler {
 
                         let decrement_guard = GaugeGuard::acquire(&in_progress_gauge);
 
-                        synchronizer.run(permits.sliver_pairs).await;
+                        synchronizer
+                            .run(permits.sliver_pairs, waited_for_live_upload_deferral)
+                            .await;
 
                         (decrement_guard, active_start)
                     } => {
@@ -545,22 +555,27 @@ impl BlobSynchronizer {
         &self.node.metrics
     }
 
-    async fn wait_for_recovery_window(&self) {
+    /// Returns whether this sync observed and waited out a live-upload recovery deferral.
+    async fn wait_for_recovery_window(&self) -> bool {
         match self
             .node
             .wait_until_recovery_deferral_expires(&self.blob_id)
             .await
         {
-            Ok(_token) => {
+            Ok(waited_for_live_upload_deferral) => {
                 self.node.clear_recovery_deferral(&self.blob_id).await;
+                waited_for_live_upload_deferral
             }
-            Err(err) => tracing::warn!(?err, "failed to wait out recovery deferral"),
+            Err(err) => {
+                tracing::warn!(?err, "failed to wait out recovery deferral");
+                false
+            }
         }
     }
 
     /// Runs the synchronizer until blob sync is complete.
     #[tracing::instrument(skip_all)]
-    async fn run(self, sliver_permits: Arc<Semaphore>) {
+    async fn run(self, sliver_permits: Arc<Semaphore>, waited_for_live_upload_deferral: bool) {
         let this = Arc::new(self);
         let histograms = &this.metrics().recover_blob_part_duration_seconds;
 
@@ -569,16 +584,45 @@ impl BlobSynchronizer {
             .current_event_epoch()
             .await
             .expect("current event epoch should be set");
-        if this
+        let storage_state_after_deferral = match this
             .node
             .is_stored_at_all_shards_at_epoch(&this.blob_id, current_epoch)
             .await
-            .unwrap_or(false)
         {
+            Ok(is_stored) => Some(is_stored),
+            Err(error) => {
+                tracing::warn!(
+                    %this.blob_id,
+                    ?error,
+                    "failed to determine whether recovery is still needed after waiting for \
+                    live-upload deferral"
+                );
+                None
+            }
+        };
+
+        if storage_state_after_deferral == Some(true) {
             tracing::debug!(
                 "blob already stored at all owned shards for current epoch, skipping recovery"
             );
+            if waited_for_live_upload_deferral {
+                walrus_utils::with_label!(
+                    this.node.metrics.live_upload_deferral_outcome_total,
+                    LIVE_UPLOAD_DEFERRAL_OUTCOME_AVOIDED_RECOVERY
+                )
+                .inc();
+            }
             return;
+        }
+
+        // Only record an outcome when a live-upload deferral actually existed and the post-wait
+        // storage check completed successfully.
+        if waited_for_live_upload_deferral && storage_state_after_deferral == Some(false) {
+            walrus_utils::with_label!(
+                this.node.metrics.live_upload_deferral_outcome_total,
+                LIVE_UPLOAD_DEFERRAL_OUTCOME_RECOVERY_NEEDED
+            )
+            .inc();
         }
 
         let shared_metadata = this
