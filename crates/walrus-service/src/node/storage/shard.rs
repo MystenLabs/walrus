@@ -548,6 +548,38 @@ impl ShardStorage {
 
     /// Returns true iff the sliver-pair for the given blob ID is stored by the shard.
     #[tracing::instrument(skip_all, fields(walrus.shard_index = %self.id), err)]
+    pub(crate) fn may_have_sliver_pair(&self, blob_id: &BlobId) -> Result<bool, TypedStoreError> {
+        Ok(self.may_have_sliver_type(blob_id, SliverType::Primary)?
+            && self.may_have_sliver_type(blob_id, SliverType::Secondary)?)
+    }
+
+    #[tracing::instrument(skip_all, fields(walrus.shard_index = %self.id), err)]
+    fn may_have_sliver_type(
+        &self,
+        blob_id: &BlobId,
+        type_: SliverType,
+    ) -> Result<bool, TypedStoreError> {
+        let start = Instant::now();
+        let labels = Labels {
+            collection_name: self.cf_names.generic_slivers(type_),
+            operation_name: OperationType::ContainsKey,
+            query_summary: "KEY_MAY_EXIST blob_id",
+            ..Labels::default()
+        };
+
+        let response = match type_ {
+            SliverType::Primary => self.primary_slivers.may_contain_key(blob_id),
+            SliverType::Secondary => self.secondary_slivers.may_contain_key(blob_id),
+        };
+
+        self.metrics
+            .observe_operation_duration(labels.with_response(response.as_ref()), start.elapsed());
+
+        response
+    }
+
+    /// Returns true iff the sliver-pair for the given blob ID is stored by the shard.
+    #[tracing::instrument(skip_all, fields(walrus.shard_index = %self.id), err)]
     pub(crate) fn is_sliver_pair_stored(&self, blob_id: &BlobId) -> Result<bool, TypedStoreError> {
         Ok(self.is_sliver_stored::<Primary>(blob_id)?
             && self.is_sliver_stored::<Secondary>(blob_id)?)

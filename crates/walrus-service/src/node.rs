@@ -2810,29 +2810,105 @@ impl StorageNodeInner {
         Ok(())
     }
 
+    async fn first_shard_failing_storage_check(
+        &self,
+        blob_id: BlobId,
+        shard_storages: &[(ShardIndex, Arc<ShardStorage>)],
+        check: fn(&ShardStorage, &BlobId) -> Result<bool, TypedStoreError>,
+    ) -> anyhow::Result<Option<ShardIndex>> {
+        const MAX_CONCURRENT_SHARD_STORAGE_CHECKS: usize = 4;
+
+        let thread_pool = self.thread_pool.clone();
+        let mut checks = stream::iter(shard_storages.iter().cloned().map(
+            |(shard, shard_storage)| {
+                let thread_pool = thread_pool.clone();
+
+                async move {
+                    let passed = thread_pool
+                        .oneshot(move || check(shard_storage.as_ref(), &blob_id))
+                        .map(thread_pool::unwrap_or_resume_panic)
+                        .await
+                        .map_err(anyhow::Error::from)?;
+                    Ok::<_, anyhow::Error>((shard, passed))
+                }
+            },
+        ))
+        .buffer_unordered(MAX_CONCURRENT_SHARD_STORAGE_CHECKS);
+
+        while let Some(result) = checks.next().await {
+            match result {
+                Ok((shard, false)) => return Ok(Some(shard)),
+                Ok((_shard, true)) => continue,
+                Err(error) => return Err(error),
+            }
+        }
+
+        Ok(None)
+    }
+
     #[tracing::instrument(skip_all)]
     async fn is_stored_at_specific_shards(
         &self,
         blob_id: &BlobId,
         shards: &[ShardIndex],
     ) -> anyhow::Result<bool> {
+        let blob_id = *blob_id;
+        let mut shard_storages = Vec::with_capacity(shards.len());
+
         for shard in shards {
-            match self.storage.is_stored_at_shard(blob_id, *shard).await {
-                Ok(false) => {
+            let Some(shard_storage) = self.storage.shard_storage(*shard).await else {
+                let error = anyhow!("shard {shard} does not exist");
+                tracing::warn!(?error, "failed to check if blob is stored at shard");
+                return Ok(false);
+            };
+            shard_storages.push((*shard, shard_storage));
+        }
+
+        if shard_storages.len() > 1 {
+            match self
+                .first_shard_failing_storage_check(
+                    blob_id,
+                    &shard_storages,
+                    ShardStorage::may_have_sliver_pair,
+                )
+                .await
+            {
+                Ok(Some(shard)) => {
                     if cfg!(msim) {
                         // Extremely helpful for debugging consistency issue in simtest.
                         tracing::debug!(%blob_id, %shard, "blob not stored at shard");
                     }
                     return Ok(false);
                 }
-                Ok(true) => continue,
+                Ok(None) => {}
                 Err(error) => {
                     tracing::warn!(?error, "failed to check if blob is stored at shard");
                     return Ok(false);
                 }
             }
         }
-        Ok(true)
+
+        match self
+            .first_shard_failing_storage_check(
+                blob_id,
+                &shard_storages,
+                ShardStorage::is_sliver_pair_stored,
+            )
+            .await
+        {
+            Ok(Some(shard)) => {
+                if cfg!(msim) {
+                    // Extremely helpful for debugging consistency issue in simtest.
+                    tracing::debug!(%blob_id, %shard, "blob not stored at shard");
+                }
+                Ok(false)
+            }
+            Ok(None) => Ok(true),
+            Err(error) => {
+                tracing::warn!(?error, "failed to check if blob is stored at shard");
+                Ok(false)
+            }
+        }
     }
 
     /// Returns true if the blob is stored at all shards at the latest epoch.
