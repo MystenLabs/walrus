@@ -955,6 +955,8 @@ impl StorageNode {
             tracing::warn!(?error, "unable to schedule epoch calls on startup")
         };
 
+        // Startup GC retry is best-effort: unlike the live epoch-transition path, it cannot
+        // guarantee the exact epoch-boundary blob-info snapshot semantics needed by recovery.
         if let Err(error) = self.check_and_start_garbage_collection_on_startup().await {
             tracing::warn!(
                 ?error,
@@ -1898,7 +1900,8 @@ impl StorageNode {
         Ok(())
     }
 
-    /// Starts a background task to perform database cleanup operations if the node is active.
+    /// Starts garbage collection for the given epoch. Phase 1 (blob info cleanup) runs inline
+    /// and blocks the event loop. Phase 2 (data deletion) is spawned as a background task.
     async fn start_garbage_collection_task(&self, epoch: Epoch) -> anyhow::Result<()> {
         // Try to get the epoch start time from the contract service. If the epoch state is not
         // available (e.g., in tests), use the current time as the epoch start.
@@ -1922,6 +1925,7 @@ impl StorageNode {
             .await
         {
             tracing::error!(?error, epoch, "failed to start garbage-collection task");
+            return Err(error);
         }
         Ok(())
     }
@@ -1931,6 +1935,12 @@ impl StorageNode {
     /// This method is intended to be run at startup to check if a garbage-collection task was
     /// started but not completed. If this is the case and we are still in the same epoch, it
     /// restarts the garbage-collection task.
+    ///
+    /// This restart path is intentionally best-effort. Unlike the live epoch-transition path,
+    /// which runs phase 1 inline to produce blob-info state exactly at the epoch boundary, a
+    /// startup retry cannot guarantee those same snapshot semantics anymore. By the time we are
+    /// recovering an unfinished GC task after a restart, the node is no longer at the original
+    /// epoch-boundary execution point where that snapshot should have been created.
     async fn check_and_start_garbage_collection_on_startup(&self) -> anyhow::Result<()> {
         let (last_started_epoch, last_completed_epoch) = self
             .inner
@@ -6307,6 +6317,143 @@ mod tests {
         Ok(())
     }
 
+    /// Tests that phase 1 (blob info cleanup) cleans up per_object_blob_info independently
+    /// of phase 2 (data deletion). Two registrations of the same blob (same blob_id, different
+    /// object_ids) with different end epochs verify that phase 1 correctly decrements aggregate
+    /// blob info refcounts at each epoch boundary, even with data deletion completely blocked.
+    /// After unblocking, phase 2 catches up and deletes the actual blob data.
+    #[walrus_simtest]
+    #[ignore = "ignore long-running test by default"]
+    async fn blob_info_cleanup_runs_independently_of_data_deletion() -> TestResult {
+        walrus_test_utils::init_tracing();
+
+        let (cluster, events) =
+            cluster_at_epoch1_without_blobs_waiting_for_active_nodes(&[&[0, 1, 2, 3]], None)
+                .await?;
+        let node = cluster.nodes[0].storage_node().clone();
+        let config = cluster.encoding_config();
+
+        // Block data deletion (phase 2) so it never completes.
+        sui_macros::register_fail_point_async("data_deletion_start", || async {
+            tokio::time::sleep(Duration::from_secs(300)).await;
+        });
+
+        // Register and certify the same blob twice with different end epochs.
+        // Registration A expires at epoch 2, registration B expires at epoch 3.
+        let mut rng = StdRng::seed_from_u64(42);
+        let blob_details = EncodedBlob::new(
+            &walrus_test_utils::random_data_from_rng(100, &mut rng),
+            config,
+        );
+        let blob_id = *blob_details.blob_id();
+
+        let registered_a = BlobRegistered {
+            end_epoch: 2,
+            deletable: true,
+            ..BlobRegistered::for_testing_with_random_object_id(blob_id)
+        };
+        let object_id_a = registered_a.object_id;
+
+        let registered_b = BlobRegistered {
+            end_epoch: 3,
+            deletable: true,
+            ..BlobRegistered::for_testing_with_random_object_id(blob_id)
+        };
+        let object_id_b = registered_b.object_id;
+
+        // Register both, store slivers, then certify both.
+        // Registration must happen before storing slivers.
+        events.send(registered_a.clone().into())?;
+        events.send(registered_b.clone().into())?;
+        store_at_shards(&blob_details, &cluster, |_, _| true).await?;
+        events.send(
+            registered_a
+                .into_corresponding_certified_event_for_testing()
+                .into(),
+        )?;
+        events.send(
+            registered_b
+                .into_corresponding_certified_event_for_testing()
+                .into(),
+        )?;
+
+        // Verify both per_object_blob_info entries exist.
+        retry_until_success_or_timeout(TIMEOUT, || async {
+            let a = node.inner.storage.get_per_object_info(&object_id_a)?;
+            let b = node.inner.storage.get_per_object_info(&object_id_b)?;
+            anyhow::ensure!(
+                a.is_some() && b.is_some(),
+                "per_object_blob_info entries not yet created"
+            );
+            Ok(())
+        })
+        .await?;
+
+        // Advance to epoch 2. Phase 1 cleans up registration A (end_epoch=2).
+        advance_cluster_to_epoch(&cluster, &[&events], 2).await?;
+
+        retry_until_success_or_timeout(TIMEOUT, || async {
+            let a = node.inner.storage.get_per_object_info(&object_id_a)?;
+            anyhow::ensure!(
+                a.is_none(),
+                "registration A should be cleaned up at epoch 2"
+            );
+            Ok(())
+        })
+        .await?;
+
+        // Registration B should still exist (end_epoch=3 > 2).
+        assert!(
+            node.inner
+                .storage
+                .get_per_object_info(&object_id_b)?
+                .is_some(),
+            "registration B should still exist at epoch 2"
+        );
+
+        // Advance to epoch 3. Phase 1 cleans up registration B (end_epoch=3).
+        advance_cluster_to_epoch(&cluster, &[&events], 3).await?;
+
+        retry_until_success_or_timeout(TIMEOUT, || async {
+            let b = node.inner.storage.get_per_object_info(&object_id_b)?;
+            anyhow::ensure!(
+                b.is_none(),
+                "registration B should be cleaned up at epoch 3"
+            );
+            Ok(())
+        })
+        .await?;
+
+        // Data (metadata + slivers) should still exist since phase 2 is blocked.
+        // With both registrations expired, phase 2 would delete the data if it
+        // were running — but it's blocked, proving phase 1 ran independently.
+        assert!(
+            node.inner
+                .is_stored_at_all_shards_at_latest_epoch(&blob_id)
+                .await?,
+            "blob data should still exist since data deletion is blocked"
+        );
+
+        // Unblock phase 2 and advance one more epoch to trigger a new GC cycle.
+        // The new phase 2 aborts the blocked one and runs unblocked.
+        sui_macros::clear_fail_point("data_deletion_start");
+        advance_cluster_to_epoch(&cluster, &[&events], 4).await?;
+
+        crate::test_utils::wait_for_garbage_collection_to_complete(
+            &cluster.nodes[0..=0],
+            4,
+            Duration::from_secs(5),
+        )
+        .await?;
+
+        // Now phase 2 has run and deleted the blob data.
+        node.inner
+            .check_does_not_store_metadata_or_slivers_for_blob(&blob_id)
+            .await?;
+
+        Ok(())
+    }
+
     // Tests that a blob sync is not started for a node in recovery catch up.
     #[tokio::test]
     async fn does_not_start_blob_sync_for_node_in_recovery_catch_up() -> TestResult {
@@ -9389,6 +9536,12 @@ mod tests {
             3
         );
 
+        // Wait for all setup events to be fully processed before reading the baseline count.
+        // The setup sends 6 events: EpochChangeStart(1), EpochChangeDone(1), BlobRegistered,
+        // BlobCertified, EpochChangeStart(2), EpochChangeDone(2). Without this wait,
+        // EpochChangeDone(2) may still be in-flight and complete concurrently with the next
+        // event, causing the count to jump by more than expected.
+        wait_until_events_processed_exact(&cluster.nodes[1], 6).await?;
         let processed_event_count = &cluster.nodes[1]
             .storage_node
             .inner

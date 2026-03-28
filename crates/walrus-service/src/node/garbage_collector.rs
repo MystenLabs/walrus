@@ -3,12 +3,17 @@
 
 //! Garbage-collection functionality running in the background.
 
-use std::{hash::Hasher as _, sync::Arc, time::Duration};
+use std::{
+    hash::Hasher as _,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use chrono::{DateTime, Utc};
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use serde::{Deserialize, Serialize};
 use serde_with::{DurationSeconds, serde_as};
+use sui_macros::fail_point_async;
 use tokio::sync::Mutex;
 use walrus_core::Epoch;
 use walrus_sui::types::GENESIS_EPOCH;
@@ -20,16 +25,22 @@ use crate::node::{StorageNodeInner, metrics::NodeMetricSet};
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq)]
 #[serde(default)]
 pub struct GarbageCollectionConfig {
-    /// Whether to enable the blob info cleanup at the beginning of each epoch.
+    /// Whether to enable blob info cleanup (phase 1) at the beginning of each epoch.
+    ///
+    /// This is a prerequisite for data deletion (phase 2): disabling blob info cleanup
+    /// implicitly disables data deletion as well, because data deletion relies on up-to-date
+    /// aggregate blob info refcounts produced by phase 1.
     pub enable_blob_info_cleanup: bool,
-    /// Whether to delete metadata and slivers of expired or deleted blobs.
+    /// Whether to delete metadata and slivers of expired or deleted blobs (phase 2).
+    ///
+    /// Only effective when `enable_blob_info_cleanup` is also `true`.
     pub enable_data_deletion: bool,
     /// Whether to immediately delete blob data when a `BlobDeleted` event is processed.
     ///
     /// When disabled, data is only deleted during periodic garbage collection. Only relevant if
     /// `enable_data_deletion` is `true`.
     pub enable_immediate_data_deletion: bool,
-    /// Whether to add a random delay before starting garbage collection.
+    /// Whether to add a random delay before the data deletion phase of garbage collection.
     /// The delay is deterministically computed based on the node's public key and epoch,
     /// uniformly distributed between 0 and half the epoch duration.
     pub enable_random_delay: bool,
@@ -109,20 +120,37 @@ impl GarbageCollector {
         }
     }
 
-    /// Schedules database cleanup operations to run in a background task.
+    /// Runs garbage collection for the given epoch.
     ///
-    /// If a cleanup task is already running, it will be aborted and replaced with a new one.
+    /// Garbage collection is split into two phases:
     ///
-    /// Must only be called *after* the epoch change for the provided epoch is complete.
+    /// - **Phase 1 (blob info cleanup):** Runs inline (awaited). Cleans up
+    ///   `storage_pool_info` and `per_object_blob_info` for expired entries.
+    ///   Expected to complete quickly (a few seconds).
+    /// - **Phase 2 (data deletion):** Spawned as a background task after a
+    ///   deterministic random delay computed by [`Self::cleanup_target_time`]
+    ///   based on the node's public key and epoch. This is to avoid multiple
+    ///   nodes performing heavy I/O at the same time, which could impact the
+    ///   performance of the network.
     ///
-    /// The actual cleanup work starts after a deterministic delay computed by
-    /// [`Self::cleanup_target_time`] based on the node's public key and epoch This is to avoid
-    /// multiple nodes performing cleanup operations at the same time, which could impact the
-    /// performance of the network.
+    /// Phase 1 runs inline so that it completes before the caller returns,
+    /// producing a deterministic and consistent snapshot of blob info across
+    /// nodes at the epoch boundary. No concurrent modification of the blob
+    /// info tables is possible because event processing is sequential — new
+    /// events won't be processed until the caller returns.
+    ///
+    /// The previous epoch's data deletion task (phase 2) may still be running
+    /// in the background during phase 1. Phase 2 uses per-blob optimistic
+    /// transactions that detect concurrent re-registrations and fail
+    /// gracefully. Phase 2 also reads the current `aggregate_blob_info`
+    /// state, so it can observe refcount changes made by phase 1 and may
+    /// delete a blob one GC cycle earlier than it otherwise would. This does
+    /// not affect correctness.
     ///
     /// # Errors
     ///
-    /// Returns an error if the garbage-collection task cannot be started.
+    /// Returns an error if phase 1 fails. Phase 2 errors are logged but not
+    /// propagated since data deletion is a background optimization.
     #[tracing::instrument(skip_all)]
     pub async fn start_garbage_collection_task(
         &self,
@@ -139,8 +167,8 @@ impl GarbageCollector {
         if !garbage_collection_config.enable_blob_info_cleanup {
             if garbage_collection_config.enable_data_deletion {
                 tracing::warn!(
-                    "data deletion is enabled, but requires blob info cleanup to be enabled; \
-                    skipping data deletion",
+                    "data deletion is enabled, but requires blob info cleanup to be \
+                    enabled; skipping data deletion",
                 );
             } else {
                 tracing::info!("garbage collection is disabled, skipping cleanup");
@@ -148,45 +176,111 @@ impl GarbageCollector {
             return Ok(());
         }
 
-        let mut task_handle = self.task_handle.lock().await;
-        let garbage_collector = self.clone();
-
-        // If there is an existing task, we need to abort it first before starting a new one.
-        if let Some(old_task) = task_handle.take() {
-            tracing::info!("aborting existing garbage-collection task before starting a new one");
-            old_task.abort();
-            let _ = old_task.await;
-        }
-
-        // Store the current epoch in the DB before spawning the background task.
+        // Record that garbage collection has started for this epoch.
         self.node
             .storage
             .set_garbage_collector_last_started_epoch(epoch)?;
         self.metrics
             .set_garbage_collection_last_started_epoch(epoch);
 
-        // Calculate target time and update metric before spawning the background task.
-        let target_time = self.cleanup_target_time(epoch, epoch_start);
+        // Phase 1: blob info cleanup (runs inline, no delay).
+        self.perform_blob_info_cleanup(epoch).await?;
+
+        // Phase 2: data deletion (spawned as a background task with delay).
+        if self.config.enable_data_deletion {
+            self.start_data_deletion_task(epoch, epoch_start).await?;
+        }
+
+        Ok(())
+    }
+
+    /// Phase 1: Cleans up per-object blob info for expired blobs.
+    ///
+    /// Processes the `storage_pool_info` and `per_object_blob_info` tables
+    /// to remove entries for blobs that are no longer registered.
+    async fn perform_blob_info_cleanup(&self, epoch: Epoch) -> anyhow::Result<()> {
+        // Note: compaction suppression is intentionally omitted here. Phase 1 runs inline
+        // (blocking the event loop) and is expected to complete quickly. The previous epoch's
+        // phase 2 may still be running with its own compaction guard; adding a guard here would
+        // re-enable compactions on drop while phase 2 is still doing bulk deletes. A future
+        // reference-counted guard would allow both phases to suppress compactions independently.
+        tracing::info!("starting garbage collection phase 1: blob info cleanup");
+        let start = Instant::now();
+
+        self.node
+            .storage
+            .process_expired_storage_pools(
+                epoch,
+                &self.metrics,
+                self.config.blob_objects_batch_size,
+            )
+            .await?;
+
+        self.node
+            .storage
+            .process_expired_blob_objects(epoch, &self.metrics, self.config.blob_objects_batch_size)
+            .await?;
+
+        let duration = start.elapsed();
         self.metrics
-            .garbage_collection_task_start_time
-            .set(target_time.timestamp().try_into().unwrap_or_default());
+            .garbage_collection_phase1_duration_seconds
+            .set(duration.as_secs_f64());
+        tracing::info!(?duration, "garbage collection phase 1 completed");
+        self.metrics
+            .set_garbage_collection_blob_info_cleanup_completed_epoch(epoch);
+
+        Ok(())
+    }
+
+    /// Schedules the data deletion phase to run in a background task.
+    async fn start_data_deletion_task(
+        &self,
+        epoch: Epoch,
+        epoch_start: DateTime<Utc>,
+    ) -> anyhow::Result<()> {
+        let mut task_handle = self.task_handle.lock().await;
+        let garbage_collector = self.clone();
+
+        // If there is an existing task, we need to abort it first before starting a new one.
+        if let Some(old_task) = task_handle.take() {
+            tracing::info!("aborting existing data-deletion task before starting a new one");
+            old_task.abort();
+            let _ = old_task.await;
+        }
+
+        // Calculate target time for data deletion and update the metric.
+        // Note: the metric name `garbage_collection_task_start_time` is kept for backwards
+        // compatibility, but it now refers specifically to the data deletion phase (phase 2).
+        let data_deletion_target_time = self.cleanup_target_time(epoch, epoch_start);
+        self.metrics.garbage_collection_task_start_time.set(
+            data_deletion_target_time
+                .timestamp()
+                .try_into()
+                .unwrap_or_default(),
+        );
 
         let new_task = tokio::spawn(async move {
-            // Sleep until the target time.
-            let sleep_duration = (target_time - Utc::now())
+            let sleep_duration = (data_deletion_target_time - Utc::now())
                 .to_std()
                 .unwrap_or(Duration::ZERO);
             if !sleep_duration.is_zero() {
                 tracing::info!(
-                    target_time = target_time.to_rfc3339(),
+                    target_time = data_deletion_target_time.to_rfc3339(),
                     ?sleep_duration,
-                    "sleeping before performing garbage collection",
+                    "sleeping before performing data deletion",
                 );
                 tokio::time::sleep(sleep_duration).await;
             }
 
-            if let Err(error) = garbage_collector.perform_db_cleanup_task(epoch).await {
-                tracing::error!(?error, epoch, "garbage-collection task failed");
+            garbage_collector
+                .metrics
+                .set_garbage_collection_data_deletion_started_epoch(epoch);
+            if let Err(error) = garbage_collector.perform_data_deletion(epoch).await {
+                tracing::error!(
+                    ?error,
+                    epoch,
+                    "garbage collection phase 2 (data deletion) failed"
+                );
             }
         });
 
@@ -195,7 +289,7 @@ impl GarbageCollector {
         Ok(())
     }
 
-    /// Aborts any running garbage-collection task.
+    /// Aborts any running data-deletion task.
     pub(crate) async fn abort(&self) {
         if let Some(task_handle) = self.task_handle.lock().await.take() {
             task_handle.abort();
@@ -240,60 +334,42 @@ impl GarbageCollector {
             )
     }
 
-    /// Performs database cleanup operations including blob info cleanup and data deletion.
+    /// Phase 2: Deletes metadata and slivers for expired/deleted blobs.
     ///
-    /// Must only be run if blob info cleanup is enabled.
+    /// This phase performs the heavy I/O work of deleting actual blob data (metadata and slivers)
+    /// from storage. It is intended to run after a random delay to avoid multiple nodes performing
+    /// heavy I/O simultaneously.
     ///
     /// # Errors
     ///
-    /// Returns an error if a DB operation fails or one of the cleanup tasks fails.
-    ///
-    /// # Panics
-    ///
-    /// Panics if blob info cleanup is not enabled.
-    async fn perform_db_cleanup_task(&self, epoch: Epoch) -> anyhow::Result<()> {
-        assert!(
-            self.config.enable_blob_info_cleanup,
-            "garbage-collection task must only be run if blob info cleanup is enabled"
-        );
-
-        // Disable DB compactions during cleanup to improve performance. DB compactions are
+    /// Returns an error if a DB operation fails.
+    async fn perform_data_deletion(&self, epoch: Epoch) -> anyhow::Result<()> {
+        // Disable DB compactions during data deletion to improve performance. DB compactions are
         // automatically re-enabled when the guard is dropped.
         let _guard = self.node.storage.temporarily_disable_auto_compactions()?;
-        tracing::info!("starting garbage collection");
+        tracing::info!("starting garbage collection phase 2: data deletion");
+        fail_point_async!("data_deletion_start");
+        let start = Instant::now();
 
-        self.node
+        if self
+            .node
             .storage
-            .process_expired_storage_pools(
-                epoch,
-                &self.metrics,
-                self.config.blob_objects_batch_size,
-            )
-            .await?;
-
-        self.node
-            .storage
-            .process_expired_blob_objects(epoch, &self.metrics, self.config.blob_objects_batch_size)
-            .await?;
-
-        if self.config.enable_data_deletion
-            && self
-                .node
-                .storage
-                .delete_expired_blob_data(
-                    epoch,
-                    &self.metrics,
-                    self.config.data_deletion_batch_size,
-                )
-                .await?
+            .delete_expired_blob_data(epoch, &self.metrics, self.config.data_deletion_batch_size)
+            .await?
         {
-            // Update the last completed epoch after successful cleanup.
+            // Update the last completed epoch after successful data deletion.
             self.node
                 .storage
                 .set_garbage_collector_last_completed_epoch(epoch)?;
             self.metrics
                 .set_garbage_collection_last_completed_epoch(epoch);
         }
+
+        let duration = start.elapsed();
+        self.metrics
+            .garbage_collection_phase2_duration_seconds
+            .set(duration.as_secs_f64());
+        tracing::info!(?duration, "garbage collection phase 2 completed");
 
         Ok(())
     }
