@@ -3,11 +3,11 @@
 
 //! Tools for inspecting and maintaining the RocksDB database.
 
-use std::path::PathBuf;
+use std::{path::PathBuf, thread::sleep, time::Duration};
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use bincode::Options;
-use clap::Subcommand;
+use clap::{Subcommand, ValueEnum};
 use rocksdb::{
     BottommostLevelCompaction,
     ColumnFamilyDescriptor,
@@ -16,6 +16,7 @@ use rocksdb::{
     Options as RocksdbOptions,
     ReadOptions,
     WaitForCompactOptions,
+    properties,
 };
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
@@ -91,6 +92,9 @@ pub enum DbToolCommands {
         /// Path to the RocksDB database directory.
         #[arg(long)]
         db_path: PathBuf,
+        /// Whether to compact the whole DB manually or only drain current compaction debt.
+        #[arg(long, value_enum, default_value_t = CompactDbMode::Full)]
+        mode: CompactDbMode,
     },
 
     /// Scan events from the event_store table in RocksDB.
@@ -268,12 +272,22 @@ pub enum EventProcessorCommands {
     ReadInitState,
 }
 
+/// Compaction mode for the `compact-db` command.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq, ValueEnum)]
+pub enum CompactDbMode {
+    /// Rewrite each column family with a full-range manual compaction.
+    #[default]
+    Full,
+    /// Reopen the DB and wait for automatic compaction to clear current compaction debt.
+    Drain,
+}
+
 impl DbToolCommands {
     /// Execute the database tool command.
     pub fn execute(self) -> Result<()> {
         match self {
             Self::RepairDb { db_path } => repair_db(db_path),
-            Self::CompactDb { db_path } => compact_db(db_path),
+            Self::CompactDb { db_path, mode } => compact_db(db_path, mode),
             Self::ScanEvents {
                 db_path,
                 start_event_index,
@@ -344,13 +358,16 @@ fn repair_db(_db_path: PathBuf) -> Result<()> {
     Ok(())
 }
 
-fn compact_db(db_path: PathBuf) -> Result<()> {
+fn compact_db(db_path: PathBuf, mode: CompactDbMode) -> Result<()> {
     let column_families = DB::list_cf(&RocksdbOptions::default(), &db_path)?;
     if column_families.is_empty() {
         println!("No column families found in database");
         return Ok(());
     }
 
+    // Pick per-column-family options from the same table-option families the node uses for the
+    // detected DB shape. This lets the tool reopen storage, event-blob-writer, and
+    // event-processor DBs with the expected RocksDB options while still tolerating unknown CFs.
     let db_kind = detect_probe_db_kind(&column_families);
     let db_table_opts_factory = db_table_options_factory_for_kind(db_kind);
     let mut db_opts = RocksdbOptions::from(&db_table_opts_factory.global());
@@ -368,11 +385,20 @@ fn compact_db(db_path: PathBuf) -> Result<()> {
         )
     })?;
 
+    match mode {
+        CompactDbMode::Full => compact_db_full(&db, &column_families),
+        CompactDbMode::Drain => compact_db_drain(&db, &column_families),
+    }
+}
+
+fn compact_db_full(db: &DB, column_families: &[String]) -> Result<()> {
     let mut compact_options = CompactOptions::default();
+    // Run a full offline compaction: optimize the bottommost level rewrite, do not interleave it
+    // with background compactions, and wait for the flush/compaction work to finish before exit.
     compact_options.set_bottommost_level_compaction(BottommostLevelCompaction::ForceOptimized);
     compact_options.set_exclusive_manual_compaction(true);
 
-    for column_family_name in &column_families {
+    for column_family_name in column_families {
         let cf = db
             .cf_handle(column_family_name)
             .with_context(|| format!("column family `{column_family_name}` should exist"))?;
@@ -389,6 +415,123 @@ fn compact_db(db_path: PathBuf) -> Result<()> {
         column_families.len()
     );
     Ok(())
+}
+
+const DRAIN_COMPACTION_POLL_INTERVAL: Duration = Duration::from_secs(1);
+const DRAIN_COMPACTION_STALL_LIMIT: usize = 60;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct CompactionProgress {
+    pending_compaction_bytes: u64,
+    pending_compactions: u64,
+    running_compactions: u64,
+    running_flushes: u64,
+    background_errors: u64,
+}
+
+fn compact_db_drain(db: &DB, column_families: &[String]) -> Result<()> {
+    for column_family_name in column_families {
+        let cf = db
+            .cf_handle(column_family_name)
+            .with_context(|| format!("column family `{column_family_name}` should exist"))?;
+        db.set_options_cf(&cf, &[("disable_auto_compactions", "false")])?;
+    }
+
+    let mut stalled_polls = 0;
+    let mut previous_progress = None;
+    loop {
+        let progress = compaction_progress(db, column_families)?;
+        if progress.background_errors > 0 {
+            bail!(
+                concat!(
+                    "RocksDB reported {} background compaction/flush errors ",
+                    "while draining compaction debt"
+                ),
+                progress.background_errors
+            );
+        }
+
+        if previous_progress != Some(progress) {
+            println!(
+                concat!(
+                    "Compaction debt: {} bytes pending, {} pending compactions, ",
+                    "{} running compactions, {} running flushes"
+                ),
+                progress.pending_compaction_bytes,
+                progress.pending_compactions,
+                progress.running_compactions,
+                progress.running_flushes,
+            );
+        }
+
+        if progress.pending_compaction_bytes == 0
+            && progress.pending_compactions == 0
+            && progress.running_compactions == 0
+            && progress.running_flushes == 0
+        {
+            println!(
+                "Finished draining compaction debt for {} column families",
+                column_families.len()
+            );
+            return Ok(());
+        }
+
+        if progress.running_compactions == 0
+            && progress.running_flushes == 0
+            && progress.pending_compactions == 0
+        {
+            stalled_polls += 1;
+            if stalled_polls >= DRAIN_COMPACTION_STALL_LIMIT {
+                bail!(
+                    concat!(
+                        "compaction debt is still {} bytes, but RocksDB is no ",
+                        "longer scheduling background work; try `--mode full` ",
+                        "instead"
+                    ),
+                    progress.pending_compaction_bytes
+                );
+            }
+        } else {
+            stalled_polls = 0;
+        }
+
+        previous_progress = Some(progress);
+        sleep(DRAIN_COMPACTION_POLL_INTERVAL);
+    }
+}
+
+fn compaction_progress(db: &DB, column_families: &[String]) -> Result<CompactionProgress> {
+    let mut pending_compaction_bytes: u64 = 0;
+    let mut pending_compactions: u64 = 0;
+
+    for column_family_name in column_families {
+        let cf = db
+            .cf_handle(column_family_name)
+            .with_context(|| format!("column family `{column_family_name}` should exist"))?;
+
+        pending_compaction_bytes = pending_compaction_bytes.saturating_add(
+            db.property_int_value_cf(&cf, properties::ESTIMATE_PENDING_COMPACTION_BYTES)?
+                .unwrap_or(0),
+        );
+        pending_compactions = pending_compactions.saturating_add(
+            db.property_int_value_cf(&cf, properties::COMPACTION_PENDING)?
+                .unwrap_or(0),
+        );
+    }
+
+    Ok(CompactionProgress {
+        pending_compaction_bytes,
+        pending_compactions,
+        running_compactions: db
+            .property_int_value(properties::NUM_RUNNING_COMPACTIONS)?
+            .unwrap_or(0),
+        running_flushes: db
+            .property_int_value(properties::NUM_RUNNING_FLUSHES)?
+            .unwrap_or(0),
+        background_errors: db
+            .property_int_value(properties::BACKGROUND_ERRORS)?
+            .unwrap_or(0),
+    })
 }
 
 fn scan_events(db_path: PathBuf, start_event_index: u64, count: usize) -> Result<()> {
@@ -637,6 +780,8 @@ fn detect_probe_db_kind(column_families: &[String]) -> ProbeDbKind {
     }
 }
 
+// db-tool reuses the compiled-in DatabaseConfig defaults for the detected DB kind. Storage DBs
+// get the shared shard-cache wiring; other DB kinds use their non-storage option families.
 fn db_table_options_factory_for_kind(db_kind: ProbeDbKind) -> DatabaseTableOptionsFactory {
     DatabaseTableOptionsFactory::new(DatabaseConfig::default(), db_kind == ProbeDbKind::Storage)
 }
@@ -1057,7 +1202,7 @@ mod tests {
         drop(metadata_cf);
         drop(db);
 
-        compact_db(db_dir.path().to_path_buf())
+        compact_db(db_dir.path().to_path_buf(), CompactDbMode::Full)
     }
 
     #[test]
@@ -1086,6 +1231,33 @@ mod tests {
 
         drop(db);
 
-        compact_db(db_dir.path().to_path_buf())
+        compact_db(db_dir.path().to_path_buf(), CompactDbMode::Full)
+    }
+
+    #[test]
+    fn compact_db_drain_exits_for_idle_storage_db() -> Result<()> {
+        let db_dir = tempdir()?;
+        let db_table_opts_factory =
+            DatabaseTableOptionsFactory::new(DatabaseConfig::default(), true);
+        let mut db_opts = RocksdbOptions::from(&db_table_opts_factory.global());
+        db_opts.create_if_missing(true);
+        db_opts.create_missing_column_families(true);
+
+        let db = DB::open_cf_descriptors(
+            &db_opts,
+            db_dir.path(),
+            vec![
+                ColumnFamilyDescriptor::new(
+                    aggregate_blob_info_cf_name(),
+                    blob_info_cf_options(&db_table_opts_factory),
+                ),
+                ColumnFamilyDescriptor::new(metadata_cf_name(), db_table_opts_factory.metadata()),
+                ColumnFamilyDescriptor::new("custom_cf", RocksdbOptions::default()),
+            ],
+        )?;
+
+        drop(db);
+
+        compact_db(db_dir.path().to_path_buf(), CompactDbMode::Drain)
     }
 }
