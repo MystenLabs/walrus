@@ -1,126 +1,205 @@
 ---
-title: Writing Your Workflow
-description: "Guide to creating GitHub Actions workflows for automated Walrus Sites deployment using the official GitHub Action."
-keywords: ["walrus sites", "github actions", "workflow", "deployment", "automation", "ci/cd", "static files", "build process"]
+title: Github Actions Workflow
+description: "How to write and configure a GitHub Actions workflow for automated Walrus Sites deployment, including build steps, action inputs, ws-resources.json tracking, and troubleshooting."
+keywords: ["walrus sites", "github actions", "workflow", "deployment", "automation", "ci/cd", "static files", "build process", "ws-resources.json"]
 ---
 
-{/* https://linear.app/mysten-labs/issue/DOCS-682/sitesci-cdgithub-actions-workflow */}
-
-You can create GitHub workflows to automate your Walrus Site deployments using the official Walrus Site GitHub Action.
+This guide explains how to create a GitHub Actions workflow that automatically deploys your Walrus Site whenever you push to your repository. The workflow uses the official [Deploy Walrus Site action](https://github.com/MystenLabs/walrus-sites-github-actions) maintained by Mysten Labs.
 
 <div className="outlined-tabs">
-
 <Tabs>
 <TabItem value="prereq" label="Prerequisites">
 
-The Walrus Site action operates on an already built site directory. The action does not build your site, it only deploys existing static files to Walrus.
-
-This means:
-
-- If your site consists of ready-to-deploy static files (HTML, CSS, JS), you can use the action directly.
-- If your site requires a build step (React, Vue, Svelte, and so on), you **must** include build steps in your workflow before calling the deploy action.
+- [x] A GitHub repository containing your site's source files.
+- [x] `SUI_KEYSTORE` secret and `SUI_ADDRESS` variable added to your repository. See [Preparing Deployment Credentials](/docs/sites/ci-cd/preparing-deployment-credentials).
 
 </TabItem>
 </Tabs>
 </div>
 
-## Using the Walrus Site GitHub Action
+## How the action works
 
-The action (`MystenLabs/walrus-sites/.github/actions/deploy`) requires these inputs:
+The Deploy Walrus Site action (`MystenLabs/walrus-sites-github-actions/deploy`) takes a directory of static files and uploads them to Walrus using [`site-builder`](/docs/sites/getting-started/using-the-site-builder). **It does not build your site**. You are responsible for producing the deployable output before calling the action.
 
-- **`SUI_ADDRESS`**: Your Sui address (GitHub variable)
+The action performs the following steps internally:
 
-- **`SUI_KEYSTORE`**: Your private key in base64 format (GitHub secret)
+1. Downloads the `site-builder` binary for the selected version.
+2. Writes the Sui keystore to the runner environment.
+3. Runs [`site-builder deploy`](/docs/sites/getting-started/publishing-your-first-site) against your `DIST` directory.
+4. If `GITHUB_TOKEN` is provided and [`ws-resources.json`](/docs/sites/configuration/site-configuration) changed, opens a pull request with the updated file.
 
-- **`DIST`**: Path to your **built** site directory
+### Required inputs
 
-Optional inputs include:
+- `DIST`: Path to the directory containing your built static files. This directory must exist before the action runs.
 
-- **`SUI_NETWORK`**: Target network (`mainnet` or `testnet`, defaults to `mainnet`)
+### Authentication inputs
 
-- **`EPOCHS`**: Number of epochs to keep the site stored (defaults to `5`)
+Choose exactly 1 of the following 3 authentication methods. Providing more than 1 causes the action to fail.
 
-- **`WALRUS_CONFIG`**: Custom Walrus configuration (downloads default if not provided)
+- **Method 1 (recommended for CI/CD):** `SUI_ADDRESS` plus `SUI_KEYSTORE`. Both must be present together. `SUI_ADDRESS` is read from a repository variable; `SUI_KEYSTORE` is read from an encrypted secret.
+- **Method 2:** `SUI_BECH32_PRIVATE_KEY`. Pass the bech32-encoded private key (starting with `suiprivkey`) directly as a secret. No address input is needed.
+- **Method 3:** `SUI_SECRET_PHRASE`. Pass the mnemonic recovery phrase as a secret. Use this method only when no other credential format is available.
 
-- **`SITES_CONFIG`**: Custom sites configuration (downloads default if not provided)
+### Optional inputs
 
-- **`WS_RESOURCES`**: Full path to the `ws-resources.json` file (defaults to `DIST/ws-resources.json`)
+| Input | Description | Default |
+|---|---|---|
+| `SUI_NETWORK` | Target network: `mainnet` or `testnet` | `mainnet` |
+| `EPOCHS` | Number of epochs to keep the site stored | `5` |
+| `WALRUS_CONFIG` | Custom Walrus configuration file content | Downloaded from Walrus repo |
+| `SITES_CONFIG` | Custom `sites-config.yaml` content | Downloaded from walrus-sites repo |
+| `WS_RESOURCES` | Full path to the `ws-resources.json` file | `DIST/ws-resources.json` |
+| `GITHUB_TOKEN` | Enables automatic pull request creation when resources change | (none) |
+| `SITE_BUILDER_VERSION` | Site-builder version: `v1` or `v2` | `v2` |
 
-- **`GITHUB_TOKEN`**: Enables automatic pull request creation when site resources change
+## Understanding `ws-resources.json`
 
-### About `GITHUB_TOKEN`
+The `site-builder` tool uses a file called `ws-resources.json` to track the Sui object ID of your deployed site. This file determines whether a deployment creates a new site or updates an existing one.
 
-The `GITHUB_TOKEN` input is particularly useful for tracking changes to your site's resources. When you deploy a site, `site-builder` creates or updates a `ws-resources.json` file that tracks the site's data. If this file changes during deployment, the action can automatically create a pull request with the updated file.
+**First deployment (no `ws-resources.json`):** The action creates a new Walrus Site object on Sui and writes `ws-resources.json` to your `DIST` directory. If `GITHUB_TOKEN` is provided with the correct permissions, the action opens a pull request containing this new file.
 
-To use this feature:
+**Subsequent deployments (existing `ws-resources.json`):** The action reads the `object_id` from the file and updates the same site in place. Only changed resources are re-uploaded.
 
-1. Set `GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}` in your workflow.
+:::caution
 
-1. Add these [permissions](https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/controlling-permissions-for-github_token) to your workflow:
-
-    ```yaml
-    permissions:
-    contents: write
-    pull-requests: write
-    ```
-
-:::info
-
-If you don't provide the `GITHUB_TOKEN`, the action still deploys your site successfully but doesn't create pull requests for resource file changes.
+Merge the pull request from your first deployment before the next workflow run. If `ws-resources.json` is not committed, each run creates a new site object instead of updating the existing one.
 
 :::
 
-### New site vs existing site
+To place the file in your repository so that it survives across builds, add it under your framework's `public/` directory (or equivalent). Most build tools copy everything in `public/` directly into the output directory, which makes the file available at `DIST/ws-resources.json` without any extra configuration.
 
-Understanding how the workflow behaves depends on whether you have an existing site:
+Once your site is deployed and you have its `object_id`, you can link it to a SuiNS name so that it is accessible at `<suins>.wal.app`. See [Setting a SuiNS Name](/docs/sites/custom-domains/setting-a-suins-name) for details.
 
-**New site (no existing `object_id`):**
+## Using `GITHUB_TOKEN` for pull request creation
 
-1. Creates a new Walrus Site on Sui.
+Providing `GITHUB_TOKEN` enables the action to open a pull request automatically when `ws-resources.json` changes. This is most useful for the initial deployment, when the file is first created.
 
-2. Generates a `ws-resources.json` file in your `DIST` directory (or updates the file specified by `WS_RESOURCES`).
+To enable this feature, add the `GITHUB_TOKEN` input and grant the workflow the required permissions:
 
-3. This file contains the `object_id` of your newly created site.
+```yaml
+permissions:
+  contents: write
+  pull-requests: write
+```
 
-4. If `GITHUB_TOKEN` is provided with correct permissions, creates a pull request with these changes.
+Without `GITHUB_TOKEN`, the action still deploys your site but does not open pull requests.
 
-**Existing site (has `object_id`):**
+## Workflow structure
 
-- Uses the existing `object_id` from your Walrus-Sites resources file to update the same site.
+A Walrus Sites workflow follows this general structure:
 
-- Only creates PRs if the resources file changes during deployment.
+1. Trigger definition (push, pull request, manual dispatch, and so on).
+2. Permissions block (required if using `GITHUB_TOKEN`).
+3. Checkout step.
+4. Build steps (required for frameworks; skip for pre-built static sites).
+5. Deploy Walrus Site action.
 
-- This applies whether you've previously deployed using GitHub Actions or manually using the CLI, as long as the `object_id` is present in your `WS_RESOURCES` file (defaults to `DIST/ws-resources.json`).
-
-The `ws-resources.json` file is crucial because it tells the action which site to update. Make sure to merge the PR from the first run so future deployments update the same site instead of creating new ones.
-
-Once your site is deployed and you have the `object_id`, you can link it with a SuiNS name to make your site accessible at `<suins>.wal.app`. See [Set a SuiNS name](/docs/sites/custom-domains/setting-a-suins-name) for details on how to set this up.
-
-## Creating your workflow
-
-1. Create `.github/workflows/deploy-site.yml` in your repository.
-
-1. Add checkout step to get your repository files.
-
-1. If your site needs building, add build steps:
-
-    - Add build environment setup (Node.js, and so on).
-
-    - Add build commands.
-
-1. Set your `DIST` path:
-
-    - For sites requiring build: Point to your build output directory (for example, `dist/`, `build/`).
-
-    - For static sites: Point directly to your static files directory.
-
-1. Add the Walrus Site action with your configured secrets and variables.
-
-The key is ensuring your `DIST` path points to a directory containing the final, deployable static files that should be published to Walrus.
+Create a file at `.github/workflows/deploy-walrus-site.yml` in your repository and adapt one of the examples below.
 
 ## Example workflows
 
-- [deploy-snake.yml](https://github.com/MystenLabs/walrus-sites/blob/main/.github/workflows/deploy-snake.yml) - Simple static site deployment
-- [deploy-vite-react-ts.yml](https://github.com/MystenLabs/walrus-sites/blob/main/.github/workflows/deploy-vite-react-ts.yml) - React application with build step
+### Static site (no build step)
 
-For more information about creating and configuring GitHub workflows, check the [official GitHub Actions documentation](https://docs.github.com/en/actions/writing-workflows).
+Use this pattern when your repository already contains deployable static files with no compilation required:
+
+```yaml
+name: Deploy to Walrus
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy to Walrus
+        uses: MystenLabs/walrus-sites-github-actions/deploy@v1
+        with:
+          SUI_ADDRESS: ${{ vars.SUI_ADDRESS }}
+          SUI_KEYSTORE: ${{ secrets.SUI_KEYSTORE }}
+          DIST: ./site
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EPOCHS: '5'
+```
+
+Replace `./site` with the path to your static files directory.
+
+### Framework site with build step (Vite, React, Vue, Svelte, and so on)
+
+Use this pattern when your site requires a compilation step before deployment. The example below uses a Vite + React + TypeScript setup but applies to any Node.js-based framework:
+
+```yaml
+name: Deploy to Walrus
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 'lts/*'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build site
+        run: npm run build
+
+      - name: Deploy to Walrus
+        uses: MystenLabs/walrus-sites-github-actions/deploy@v1
+        with:
+          SUI_ADDRESS: ${{ vars.SUI_ADDRESS }}
+          SUI_KEYSTORE: ${{ secrets.SUI_KEYSTORE }}
+          DIST: ./dist
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EPOCHS: '5'
+```
+
+Adjust the `node-version`, package manager commands, and `DIST` path to match your project.
+
+### Testnet deployment
+
+To target Testnet instead of Mainnet, set `SUI_NETWORK` to `testnet`. Make sure the `SUI_ADDRESS` and `SUI_KEYSTORE` values correspond to a Testnet-funded address:
+
+```yaml
+      - name: Deploy to Walrus (Testnet)
+        uses: MystenLabs/walrus-sites-github-actions/deploy@v1
+        with:
+          SUI_ADDRESS: ${{ vars.SUI_ADDRESS }}
+          SUI_KEYSTORE: ${{ secrets.SUI_KEYSTORE }}
+          DIST: ./dist
+          SUI_NETWORK: testnet
+          EPOCHS: '5'
+```
+
+## Trigger strategies
+
+GitHub Actions supports several trigger types. Choose the one that fits your release process:
+
+- **Push to main:** Deploy on every merge. Suitable for continuous deployment.
+- `workflow_dispatch`: Trigger manually from the Actions tab. Useful for controlled or infrequent releases.
+- **Tag push:** Deploy only on tagged releases by adding `tags: ['v*']` under `push`. Suitable for versioned sites.
+- **Pull request (dry run):** Combine with a separate job that builds and validates the site without deploying, so you can catch build errors before merging.
+
+Most projects use `push` on `main` combined with `workflow_dispatch` so that both automatic and manual deployments are available.

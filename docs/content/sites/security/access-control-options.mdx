@@ -1,6 +1,93 @@
 ---
 title: Access Control Options
-draft: true
+description: "Overview of access control options for Walrus Sites, from fully public content to onchain-gated encryption with Seal."
+keywords: ["walrus sites", "access control", "Seal", "encryption", "token gating", "allowlist", "NFT", "threshold encryption", "onchain", "data security"]
 ---
 
-https://linear.app/mysten-labs/issue/DOCS-685/sitessecurityaccess-control-options
+All blobs stored on Walrus are public by default. Anyone who knows a blob ID can fetch its contents directly from a Walrus aggregator. This means that access control for Walrus Sites is not enforced at the storage layer. Instead, you apply it at the application layer, either through client-side encryption before upload, or through onchain policy enforcement using [Seal](https://seal-docs.wal.app/).
+
+## Fully public content (default)
+
+When you publish a Walrus Site using [`site-builder`](/docs/sites/getting-started/publishing-your-first-site), all resources are stored as publicly readable blobs on Walrus. The portal serves them to any visitor without authentication. This is appropriate for most static sites, documentation, open-source project pages, and other content that has no confidentiality requirement.
+
+For these use cases, [site data authentication](/docs/sites/security/site-data-authentication) already provides integrity guarantees: the [portal](/docs/sites/portals/mainnet-testnet) verifies each resource's SHA-256 hash against the value stored on Sui before serving it, ensuring the content has not been tampered with in transit.
+
+:::info
+Integrity verification and access control are separate concerns. Authentication confirms that content has not been modified. It does not restrict who can retrieve it.
+:::
+
+## Restricting access through Seal
+
+For content that should only be readable by specific users, Seal is the recommended mechanism. Seal is a decentralized secrets management (DSM) service built on Sui that combines client-side threshold encryption with onchain access policies.
+
+### How Seal works
+
+Seal has 3 core components that work together:
+
+- **Client-side encryption**: Content is encrypted in the browser or application before it is uploaded to Walrus. Plaintext never leaves the user's environment. Even Seal key servers cannot read the content.
+- **Onchain access policies**: Access rules are encoded as Move smart contracts on Sui. A `seal_approve` function in your Move package defines the conditions under which a user can obtain a decryption key. Seal key servers evaluate this function before releasing keys.
+- **Threshold key servers**: Decryption keys are split across multiple independent key servers using t-of-n threshold encryption. No single server holds a complete key. A user can decrypt content only when at least `t` servers agree that the access policy is satisfied.
+
+The result is that encrypted content can live permanently on Walrus, and the access policy can be updated independently by modifying or upgrading the Move package, without re-uploading the content.
+
+### Envelope encryption
+
+For large content, Seal recommends envelope encryption: encrypt the content with an ephemeral symmetric key (for example, AES-GCM), then encrypt only the symmetric key with Seal. Store the encrypted content on Walrus and the Seal-encrypted key separately on Sui. This approach means:
+
+- Large blobs on Walrus never need to be re-encrypted when access policies change
+- Key rotation and policy updates only require updating the small key object on Sui
+- The encryption cost scales with the key size, not the content size
+
+### Session keys
+
+When a user wants to decrypt content, the Walrus Site application creates a `SessionKey` object scoped to your Move package. The user approves this once in their wallet, granting the application time-limited permission to retrieve associated decryption keys without repeated wallet confirmations during the session.
+
+## Seal access policy patterns
+
+Seal's `seal_approve` function is a standard [Move function](https://move-book.com/reference/functions/), which means access policies are as flexible and composable as any other Move code. The following patterns cover the most common use cases.
+
+### Allowlist
+
+An allowlist restricts decryption to a defined set of Sui addresses. The site owner controls a shared object that maps addresses to access rights. The `seal_approve` function checks whether the requesting address appears in the allowlist and returns success only if it does.
+
+This pattern suits controlled sharing: private documents, collaboration spaces, or invitational access.
+
+### Subscription and token gating
+
+A subscription policy grants decryption access to users who hold a specific NFT or token. The `seal_approve` function checks the caller's owned objects for the required NFT or token, granting access only to current holders.
+
+Because ownership is verified onchain at decryption time, access automatically follows token transfers. A user who sells or transfers their NFT immediately loses access. The new holder gains access without any manual update to the policy.
+
+This pattern suits premium content, creator monetization, and any scenario where access should track asset ownership.
+
+### Time-lock encryption
+
+A time-lock policy makes content decryptable only after a specific point in time. The `seal_approve` function compares the current Sui onchain clock against a threshold timestamp and returns success only after that time is reached.
+
+This pattern suits embargoed announcements, sealed auctions, scheduled content releases, and MEV-resistant trading flows.
+
+### Custom and composable policies
+
+Because `seal_approve` is arbitrary Move code, you can combine multiple conditions. For example, you can require that a user holds a specific NFT AND that a time window is open, or that a DAO vote has reached quorum AND a minimum participation threshold. Any state observable on Sui can be incorporated into an access policy.
+
+:::caution
+If your Move package is upgradeable, the access control policy can be modified at any time by the package owner. These changes are transparent and publicly visible onchain. For higher assurance, consider publishing an immutable package or using a versioned shared object pattern for your policy state.
+:::
+
+## Choosing an approach
+
+The following table summarizes when to use each option:
+
+| Requirement | Approach |
+|---|---|
+| Public content with tamper-evidence | Default Walrus Sites (no encryption) |
+| Content restricted to known addresses | Seal with allowlist policy |
+| Content gated behind NFT or token ownership | Seal with token-gating policy |
+| Content that becomes public after a fixed time | Seal with time-lock policy |
+| Custom or multi-condition access rules | Seal with custom `seal_approve` logic |
+
+## What Seal does not cover
+
+Seal protects content confidentiality for users who have the Seal SDK integrated into the site's frontend. It does not apply access control at the Walrus storage layer. Anyone who retrieves a blob directly from a Walrus aggregator receives ciphertext, but the blob ID is not secret. If an attacker learns the blob ID and the encryption key, they can decrypt the content outside your application.
+
+Seal also is not designed for highly sensitive regulated data such as personal health information or government-classified material. Refer to the [Seal documentation](https://seal-docs.wal.app) for a full description of the security model and its assumptions.
