@@ -79,6 +79,9 @@ use crate::{
             EpochState,
             SharedBlob,
             StorageNode,
+            StoragePoolInnerV1,
+            StoragePoolResource,
+            StoragePoolState,
         },
     },
     utils::get_created_sui_object_ids_by_type,
@@ -1125,6 +1128,123 @@ impl SuiContractClient {
             self.inner.lock().await.delete_blob(blob_object_id).await
         })
         .await
+    }
+
+    // === Storage Pool Methods ===
+
+    /// Creates a new storage pool and returns its object ID.
+    pub async fn create_storage_pool(
+        &self,
+        encoded_size: u64,
+        epochs_ahead: EpochCount,
+    ) -> SuiClientResult<ObjectID> {
+        self.retry_on_wrong_version(|| async {
+            self.inner
+                .lock()
+                .await
+                .create_storage_pool(encoded_size, epochs_ahead)
+                .await
+        })
+        .await
+    }
+
+    /// Registers a blob in a storage pool and returns the created PooledBlob object ID.
+    pub async fn register_pooled_blob(
+        &self,
+        pool_id: ObjectID,
+        blob_metadata: BlobObjectMetadata,
+        persistence: BlobPersistence,
+    ) -> SuiClientResult<ObjectID> {
+        self.retry_on_wrong_version(|| async {
+            self.inner
+                .lock()
+                .await
+                .register_pooled_blob(pool_id, blob_metadata.clone(), persistence)
+                .await
+        })
+        .await
+    }
+
+    /// Certifies a blob within a storage pool.
+    pub async fn certify_pooled_blob(
+        &self,
+        pool_id: ObjectID,
+        blob_id: BlobId,
+        certificate: &ConfirmationCertificate,
+    ) -> SuiClientResult<()> {
+        self.retry_on_wrong_version(|| async {
+            self.inner
+                .lock()
+                .await
+                .certify_pooled_blob(pool_id, blob_id, certificate)
+                .await
+        })
+        .await
+    }
+
+    /// Deletes a blob from a storage pool.
+    pub async fn delete_pooled_blob(
+        &self,
+        pool_id: ObjectID,
+        blob_id: BlobId,
+    ) -> SuiClientResult<()> {
+        self.retry_on_wrong_version(|| async {
+            self.inner
+                .lock()
+                .await
+                .delete_pooled_blob(pool_id, blob_id)
+                .await
+        })
+        .await
+    }
+
+    /// Extends the lifetime of a storage pool.
+    ///
+    /// Pool capacity is fetched from chain state to derive the correct WAL payment.
+    pub async fn extend_storage_pool(
+        &self,
+        pool_id: ObjectID,
+        extended_epochs: EpochCount,
+    ) -> SuiClientResult<()> {
+        self.retry_on_wrong_version(|| async {
+            self.inner
+                .lock()
+                .await
+                .extend_storage_pool(pool_id, extended_epochs)
+                .await
+        })
+        .await
+    }
+
+    /// Increases the reserved capacity of a storage pool.
+    ///
+    /// Remaining lifetime is fetched from chain state to derive the correct WAL payment.
+    pub async fn increase_storage_pool_capacity(
+        &self,
+        pool_id: ObjectID,
+        additional_encoded_capacity_bytes: u64,
+    ) -> SuiClientResult<()> {
+        self.retry_on_wrong_version(|| async {
+            self.inner
+                .lock()
+                .await
+                .increase_storage_pool_capacity(pool_id, additional_encoded_capacity_bytes)
+                .await
+        })
+        .await
+    }
+
+    /// Fetches the full storage pool state (outer object + inner dynamic field).
+    pub async fn get_storage_pool(&self, pool_id: ObjectID) -> SuiClientResult<StoragePoolState> {
+        let sui = self.retriable_sui_client();
+        let outer: StoragePoolResource = sui.get_sui_object(pool_id).await?;
+        let inner: StoragePoolInnerV1 = sui
+            .get_dynamic_field(pool_id, sui_types::TypeTag::U64, outer.version)
+            .await?;
+        Ok(StoragePoolState {
+            id: outer.id,
+            inner,
+        })
     }
 
     /// Merges the WAL and SUI coins owned by the wallet of the contract client.
@@ -2480,6 +2600,153 @@ impl SuiContractClientInner {
         self.sign_and_send_transaction(transaction, "delete_blob")
             .await?;
         Ok(())
+    }
+
+    // === Storage Pool Methods ===
+
+    /// Creates a new storage pool and returns its object ID.
+    pub async fn create_storage_pool(
+        &mut self,
+        encoded_size: u64,
+        epochs_ahead: EpochCount,
+    ) -> SuiClientResult<ObjectID> {
+        let mut pt_builder = self.transaction_builder();
+        pt_builder
+            .create_storage_pool(encoded_size, epochs_ahead)
+            .await?;
+        let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
+        let res = self
+            .sign_and_send_transaction(transaction, "create_storage_pool")
+            .await?;
+        let pool_ids = get_created_sui_object_ids_by_type(
+            &res,
+            &contracts::storage_pool::StoragePool
+                .to_move_struct_tag_with_type_map(&self.read_client.type_origin_map(), &[])?,
+        )?;
+        ensure!(
+            pool_ids.len() == 1,
+            "unexpected number of StoragePool objects created: {}",
+            pool_ids.len()
+        );
+        Ok(pool_ids[0])
+    }
+
+    /// Registers a blob in a storage pool and returns the created PooledBlob object ID.
+    pub async fn register_pooled_blob(
+        &mut self,
+        pool_id: ObjectID,
+        blob_metadata: BlobObjectMetadata,
+        persistence: BlobPersistence,
+    ) -> SuiClientResult<ObjectID> {
+        let mut pt_builder = self.transaction_builder();
+        pt_builder
+            .register_pooled_blob(pool_id.into(), blob_metadata, persistence)
+            .await?;
+        let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
+        let res = self
+            .sign_and_send_transaction(transaction, "register_pooled_blob")
+            .await?;
+        let blob_ids = get_created_sui_object_ids_by_type(
+            &res,
+            &contracts::storage_pool::PooledBlob
+                .to_move_struct_tag_with_type_map(&self.read_client.type_origin_map(), &[])?,
+        )?;
+        ensure!(
+            blob_ids.len() == 1,
+            "unexpected number of PooledBlob objects created: {}",
+            blob_ids.len()
+        );
+        Ok(blob_ids[0])
+    }
+
+    /// Certifies a blob within a storage pool.
+    pub async fn certify_pooled_blob(
+        &mut self,
+        pool_id: ObjectID,
+        blob_id: BlobId,
+        certificate: &ConfirmationCertificate,
+    ) -> SuiClientResult<()> {
+        let mut pt_builder = self.transaction_builder();
+        pt_builder
+            .certify_pooled_blob(pool_id.into(), blob_id, certificate)
+            .await?;
+        let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
+        self.sign_and_send_transaction(transaction, "certify_pooled_blob")
+            .await?;
+        Ok(())
+    }
+
+    /// Deletes a blob from a storage pool.
+    pub async fn delete_pooled_blob(
+        &mut self,
+        pool_id: ObjectID,
+        blob_id: BlobId,
+    ) -> SuiClientResult<()> {
+        let mut pt_builder = self.transaction_builder();
+        pt_builder
+            .delete_pooled_blob(pool_id.into(), blob_id)
+            .await?;
+        let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
+        self.sign_and_send_transaction(transaction, "delete_pooled_blob")
+            .await?;
+        Ok(())
+    }
+
+    /// Extends the lifetime of a storage pool.
+    ///
+    /// Fetches the pool's capacity from chain state to derive the correct WAL payment.
+    pub async fn extend_storage_pool(
+        &mut self,
+        pool_id: ObjectID,
+        extended_epochs: EpochCount,
+    ) -> SuiClientResult<()> {
+        let pool = self.get_storage_pool_inner(pool_id).await?;
+        let mut pt_builder = self.transaction_builder();
+        pt_builder
+            .extend_storage_pool(pool_id.into(), extended_epochs, pool.storage.storage_size)
+            .await?;
+        let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
+        self.sign_and_send_transaction(transaction, "extend_storage_pool")
+            .await?;
+        Ok(())
+    }
+
+    /// Increases the reserved capacity of a storage pool.
+    ///
+    /// Fetches the pool's remaining lifetime from chain state to derive the correct WAL
+    /// payment.
+    pub async fn increase_storage_pool_capacity(
+        &mut self,
+        pool_id: ObjectID,
+        additional_encoded_capacity_bytes: u64,
+    ) -> SuiClientResult<()> {
+        let pool = self.get_storage_pool_inner(pool_id).await?;
+        let current_epoch = self.read_client.current_epoch().await?;
+        let remaining_epochs = pool.storage.end_epoch.saturating_sub(current_epoch);
+        let mut pt_builder = self.transaction_builder();
+        pt_builder
+            .increase_storage_pool_capacity(
+                pool_id.into(),
+                additional_encoded_capacity_bytes,
+                remaining_epochs,
+            )
+            .await?;
+        let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
+        self.sign_and_send_transaction(transaction, "increase_storage_pool_capacity")
+            .await?;
+        Ok(())
+    }
+
+    /// Fetches the inner state of a storage pool (version + dynamic field).
+    async fn get_storage_pool_inner(
+        &self,
+        pool_id: ObjectID,
+    ) -> SuiClientResult<StoragePoolInnerV1> {
+        let outer: StoragePoolResource =
+            self.retriable_sui_client().get_sui_object(pool_id).await?;
+        self.retriable_sui_client()
+            .get_dynamic_field(pool_id, sui_types::TypeTag::U64, outer.version)
+            .await
     }
 
     /// Returns a new [`WalrusPtbBuilder`] for the client.
