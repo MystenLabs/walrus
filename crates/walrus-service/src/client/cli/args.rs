@@ -229,6 +229,24 @@ pub enum CliCommands {
         #[serde(flatten)]
         common_options: CommonStoreOptions,
     },
+    /// Store new blobs into an existing blob bucket.
+    #[command(alias("write-in-bucket"))]
+    StoreInBucket {
+        /// The shared blob bucket object ID.
+        #[arg(long)]
+        blob_bucket_object_id: ObjectID,
+        /// The blob bucket capability object ID.
+        #[arg(long)]
+        blob_bucket_cap_object_id: ObjectID,
+        /// The files containing the blobs to be published into the bucket.
+        #[arg(required = true, value_name = "FILES")]
+        #[serde(deserialize_with = "walrus_utils::config::resolve_home_dir_vec")]
+        files: Vec<PathBuf>,
+        /// Bucket-store options.
+        #[command(flatten)]
+        #[serde(flatten)]
+        bucket_options: BucketStoreOptions,
+    },
     /// Store files as a quilt.
     #[command(alias("write-quilt"))]
     StoreQuilt {
@@ -679,6 +697,7 @@ impl CliCommands {
     pub fn as_str(&self) -> &'static str {
         match self {
             CliCommands::Store { .. } => "store",
+            CliCommands::StoreInBucket { .. } => "store-in-bucket",
             CliCommands::StoreQuilt { .. } => "store-quilt",
             CliCommands::Read { .. } => "read",
             CliCommands::ReadQuilt { .. } => "read-quilt",
@@ -706,6 +725,39 @@ impl CliCommands {
             CliCommands::BlobBackfill { .. } => "blob-backfill",
         }
     }
+}
+
+/// Options for explicitly storing blobs into an existing blob bucket.
+#[derive(Debug, Clone, Args, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct BucketStoreOptions {
+    /// The epoch argument to specify either the number of epochs to store the blob, or the
+    /// end epoch, or the earliest expiry time in rfc3339 format.
+    #[command(flatten)]
+    #[serde(flatten)]
+    pub epoch_arg: EpochArg,
+    /// Mark the blob as deletable. Conflicts with `--permanent`.
+    ///
+    /// Deletable blobs can be removed from Walrus before their expiration time.
+    #[arg(long, conflicts_with = "permanent", hide = true)]
+    #[serde(default)]
+    pub deletable: bool,
+    /// Mark the blob as permanent.
+    #[arg(long)]
+    #[serde(default)]
+    pub permanent: bool,
+    /// The encoding type to use for encoding the files.
+    #[arg(long, hide = true)]
+    #[serde(default)]
+    pub encoding_type: Option<EncodingType>,
+    /// Walrus Upload Relay URL to use for storing the blob.
+    #[arg(long)]
+    #[serde(default)]
+    pub upload_relay: Option<Url>,
+    /// Skip the tip confirmation prompt when using the upload relay.
+    #[arg(long, requires = "upload_relay")]
+    #[serde(default)]
+    pub skip_tip_confirmation: bool,
 }
 
 /// Subcommands for the `info` command.
@@ -1931,6 +1983,7 @@ mod tests {
 
     const STORE_STR_1: &str = r#"{"store": {"files": ["README.md"], "epochs": 1}}"#;
     const STORE_STR_MAX: &str = r#"{"store": {"files": ["README.md"], "epochs": "max"}}"#;
+    const STORE_IN_BUCKET_STR: &str = r#"{"storeInBucket": {"blobBucketObjectId": "0x1111111111111111111111111111111111111111111111111111111111111111", "blobBucketCapObjectId": "0x2222222222222222222222222222222222222222222222222222222222222222", "files": ["README.md"], "epochs": 1}}"#;
     const READ_STR: &str = r#"{"read": {"blobId": "4BKcDC0Ih5RJ8R0tFMz3MZVNZV8b2goT6_JiEEwNHQo"}}"#;
     const DAEMON_STR: &str =
         r#"{"daemon": {"bindAddress": "127.0.0.1:12345", "subWalletsDir": "/some/path"}}"#;
@@ -1966,6 +2019,32 @@ mod tests {
                 skip_tip_confirmation: false,
                 child_process_uploads: None,
                 internal_run: false,
+            },
+        })
+    }
+
+    fn store_in_bucket_command(epochs: EpochCountOrMax) -> Commands {
+        Commands::Cli(CliCommands::StoreInBucket {
+            blob_bucket_object_id: ObjectID::from_str(
+                "0x1111111111111111111111111111111111111111111111111111111111111111",
+            )
+            .unwrap(),
+            blob_bucket_cap_object_id: ObjectID::from_str(
+                "0x2222222222222222222222222222222222222222222222222222222222222222",
+            )
+            .unwrap(),
+            files: vec![PathBuf::from("README.md")],
+            bucket_options: BucketStoreOptions {
+                epoch_arg: EpochArg {
+                    epochs: Some(epochs),
+                    earliest_expiry_time: None,
+                    end_epoch: None,
+                },
+                deletable: false,
+                permanent: false,
+                encoding_type: Default::default(),
+                upload_relay: None,
+                skip_tip_confirmation: false,
             },
         })
     }
@@ -2024,6 +2103,10 @@ mod tests {
             store_1: (
                 &make_cmd_str(STORE_STR_1),
                 store_command(EpochCountOrMax::Epochs(NonZeroU32::new(1).expect("1 > 0")))
+            ),
+            store_in_bucket_1: (
+                &make_cmd_str(STORE_IN_BUCKET_STR),
+                store_in_bucket_command(EpochCountOrMax::Epochs(NonZeroU32::new(1).expect("1 > 0")))
             ),
             read: (&make_cmd_str(READ_STR), read_command()),
             daemon: (&make_cmd_str(DAEMON_STR), daemon_command())

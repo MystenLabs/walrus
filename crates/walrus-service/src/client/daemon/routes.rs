@@ -58,7 +58,7 @@ use walrus_core::{
 use walrus_proc_macros::RestApiError;
 use walrus_sdk::{
     error::{ClientError, ClientErrorKind},
-    node_client::responses::{BlobStoreResult, QuiltStoreResult},
+    node_client::responses::{BlobBucketStoreResult, BlobStoreResult, QuiltStoreResult},
     store_optimizations::StoreOptimizations,
 };
 use walrus_storage_node_client::api::errors::DAEMON_ERROR_DOMAIN as ERROR_DOMAIN;
@@ -93,6 +93,8 @@ pub const BLOB_CONCAT_ENDPOINT: &str = "/v1alpha/blobs/concat";
 pub const BLOB_OBJECT_GET_ENDPOINT: &str = "/v1/blobs/by-object-id/{blob_object_id}";
 /// The path to store a blob.
 pub const BLOB_PUT_ENDPOINT: &str = "/v1/blobs";
+/// The path to store a blob into a blob bucket.
+pub const BLOB_BUCKET_PUT_ENDPOINT: &str = "/v1/blob-buckets/{blob_bucket_object_id}/blobs";
 /// The path to store multiple files as a quilt using multipart/form-data.
 pub const QUILT_PUT_ENDPOINT: &str = "/v1/quilts";
 /// The path to get blobs from quilt by IDs.
@@ -1119,6 +1121,71 @@ pub(super) async fn put_blob<T: WalrusWriteClient>(
     }
 }
 
+/// Store a blob into an existing blob bucket.
+///
+/// Store a (potentially deletable) pooled blob in the specified bucket for 1 or more epochs.
+#[tracing::instrument(
+    level = Level::ERROR,
+    skip_all,
+    fields(epochs = %query.epochs, %blob_bucket_object_id)
+)]
+#[utoipa::path(
+    put,
+    path = BLOB_BUCKET_PUT_ENDPOINT,
+    request_body(
+        content = Binary,
+        content_type = "application/octet-stream",
+        description = "Binary data of the unencoded blob to be stored in the bucket."),
+    params(
+        ("blob_bucket_object_id" = ObjectIdSchema, Path, description = "The shared blob bucket object ID."),
+        BucketPublisherQuery
+    ),
+    responses(
+        (status = 200, description = "The blob was stored in the bucket successfully", body = BlobBucketStoreResult),
+        (status = 400, description = "The request is malformed"),
+        (status = 413, description = "The blob is too large"),
+        StoreBlobError,
+    ),
+)]
+pub(super) async fn put_blob_in_bucket<T: WalrusWriteClient>(
+    State(client): State<Arc<T>>,
+    Path(blob_bucket_object_id): Path<ObjectID>,
+    Query(query): Query<BucketPublisherQuery>,
+    bearer_header: Option<TypedHeader<Authorization<Bearer>>>,
+    blob: Bytes,
+) -> Response {
+    if let Some(TypedHeader(header)) = bearer_header
+        && let Err(error) = check_blob_size(header, blob.len())
+    {
+        return error.into_response();
+    }
+
+    let blob_persistence = match query.blob_persistence() {
+        Ok(blob_persistence) => blob_persistence,
+        Err(error) => return error.into_response(),
+    };
+
+    tracing::debug!("starting to store received blob in bucket");
+    match client
+        .write_blob_in_bucket(
+            blob.into(),
+            blob_bucket_object_id,
+            query.blob_bucket_cap_object_id,
+            query.encoding_type,
+            query.epochs,
+            blob_persistence,
+            None,
+        )
+        .await
+    {
+        Ok(result) => (StatusCode::OK, Json(result)).into_response(),
+        Err(error) => {
+            tracing::error!(?error, "error storing blob in bucket");
+            StoreBlobError::from(error).into_response()
+        }
+    }
+}
+
 /// Checks if the JWT claim has a maximum size and if the blob exceeds it.
 ///
 /// IMPORTANT: This function does _not_ check the validity of the claim (i.e., does not
@@ -1654,6 +1721,60 @@ impl PublisherQuery {
     }
 }
 
+/// The query parameters for storing into an existing blob bucket.
+#[derive(Debug, Deserialize, Serialize, IntoParams, PartialEq, Eq)]
+#[into_params(parameter_in = Query, style = Form)]
+#[serde(deny_unknown_fields)]
+pub struct BucketPublisherQuery {
+    /// The blob bucket capability object ID.
+    #[param(value_type = ObjectIdSchema)]
+    pub blob_bucket_cap_object_id: ObjectID,
+    /// The encoding type to use for the blob.
+    #[serde(default)]
+    pub encoding_type: Option<EncodingType>,
+    /// The number of epochs, ahead of the current one, for which to store the blob.
+    ///
+    /// The default is 1 epoch.
+    #[serde(default = "default_epochs")]
+    pub epochs: EpochCount,
+    /// If true, the publisher creates a deletable pooled blob.
+    ///
+    /// New blobs are created as deletable by default since v1.33, and this flag is no longer
+    /// required.
+    #[serde(default)]
+    #[deprecated(
+        since = "1.35.0",
+        note = "blobs are now deletable by default; this flag has no effect and may be removed in \
+        the future"
+    )]
+    pub deletable: bool,
+    /// If true, the publisher creates a permanent pooled blob instead of a deletable one.
+    #[serde(default)]
+    pub permanent: bool,
+}
+
+impl Default for BucketPublisherQuery {
+    fn default() -> Self {
+        Self {
+            blob_bucket_cap_object_id: ObjectID::ZERO,
+            encoding_type: None,
+            epochs: default_epochs(),
+            #[allow(deprecated)]
+            deletable: false,
+            permanent: false,
+        }
+    }
+}
+
+impl BucketPublisherQuery {
+    /// Returns the [`BlobPersistence`] value based on the query parameters.
+    fn blob_persistence(&self) -> Result<BlobPersistence, StoreBlobError> {
+        #[allow(deprecated)]
+        BlobPersistence::from_deletable_and_permanent(self.deletable, self.permanent)
+            .map_err(StoreBlobError::from)
+    }
+}
+
 /// A helper structure to hold metadata for a quilt patch.
 #[derive(Debug, Deserialize)]
 pub struct QuiltPatchMetadata {
@@ -1842,12 +1963,17 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::str::FromStr;
+
     use axum::http::{HeaderValue, Uri};
     use serde_test::{Token, assert_de_tokens};
+    use sui_types::base_types::ObjectID;
     use walrus_test_utils::param_test;
 
     use super::*;
     const ADDRESS: &str = "0x1111111111111111111111111111111111111111111111111111111111111111";
+    const CAP_OBJECT_ID: &str =
+        "0x2222222222222222222222222222222222222222222222222222222222222222";
 
     #[test]
     fn test_deserialization_publisher_query_empty() {
@@ -1977,6 +2103,44 @@ mod tests {
         match result {
             Ok(Query(publisher_query)) => assert_eq!(
                 publisher_query,
+                expected.expect("result is ok => expected result is some")
+            ),
+            Err(_) => {
+                assert!(
+                    expected.is_none(),
+                    "result is err => expected result is none"
+                )
+            }
+        }
+    }
+
+    param_test! {
+        test_parse_bucket_publisher_query: [
+            full_query: (
+                &format!(
+                    "blob_bucket_cap_object_id={CAP_OBJECT_ID}&epochs=11&permanent=true"
+                ),
+                Some(
+                    BucketPublisherQuery {
+                        blob_bucket_cap_object_id: ObjectID::from_str(CAP_OBJECT_ID)
+                            .expect("valid object id"),
+                        epochs: 11,
+                        permanent: true,
+                        ..Default::default()
+                    }
+                )
+            ),
+            missing_cap: ("epochs=1", None),
+        ]
+    }
+    fn test_parse_bucket_publisher_query(query_str: &str, expected: Option<BucketPublisherQuery>) {
+        let uri_str = format!("http://localhost/test?{query_str}");
+        let uri: Uri = uri_str.parse().expect("the uri is valid");
+
+        let result = Query::<BucketPublisherQuery>::try_from_uri(&uri);
+        match result {
+            Ok(Query(bucket_query)) => assert_eq!(
+                bucket_query,
                 expected.expect("result is ok => expected result is some")
             ),
             Err(_) => {
