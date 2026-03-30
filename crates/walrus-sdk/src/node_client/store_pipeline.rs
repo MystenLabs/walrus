@@ -59,11 +59,11 @@ impl WalrusNodeClient<SuiContractClient> {
                     let blob_id = encoded_blob.state.blob_id();
                     if let Err(e) = self.check_blob_is_blocked(&blob_id) {
                         return Ok(encoded_blob
-                            .into_maybe_finished()
+                            .into_maybe_finished::<BlobStoreResult>()
                             .fail_with(e, "check_blob_is_blocked"));
                     }
 
-                    encoded_blob.into_maybe_finished().map(
+                    encoded_blob.into_maybe_finished::<BlobStoreResult>().map(
                         |blob| blob.with_status(Ok(BlobStatus::Nonexistent)),
                         "assume_blob_status_nonexistent",
                     )
@@ -387,14 +387,14 @@ impl WalrusNodeClient<SuiContractClient> {
             let blob_id = encoded_blob.state.blob_id();
             if let Err(e) = self.check_blob_is_blocked(&blob_id) {
                 return Ok(encoded_blob
-                    .into_maybe_finished()
+                    .into_maybe_finished::<BlobStoreResult>()
                     .fail_with(e, "check_blob_is_blocked"));
             }
             let status_result = self
                 .get_blob_status_with_retries(&blob_id, &self.sui_client)
                 .await;
             encoded_blob
-                .into_maybe_finished()
+                .into_maybe_finished::<BlobStoreResult>()
                 .map(|blob| blob.with_status(status_result), "get_blob_status")
         }))
         .await

@@ -62,11 +62,11 @@ use walrus_sdk::{
         Blocklist,
         StoreArgs,
         StoreBlobsApi as _,
+        StoreBlobsInBucketApi as _,
         WalrusNodeClient,
         byte_range_read_client::{ByteRangeReadClient, ByteRangeReadClientConfig},
-        client_types::WalrusStoreBlob,
         quilt_client::QuiltClientConfig,
-        responses::{BlobStoreResult, QuiltStoreResult},
+        responses::{BlobBucketStoreResult, BlobStoreResult, QuiltStoreResult},
         streaming::start_streaming_blob,
         upload_relay_client::UploadRelayClient,
     },
@@ -210,6 +210,93 @@ where
             "Data mismatch for blob at path {}",
             path.display()
         );
+    }
+
+    Ok(())
+}
+
+#[ignore = "ignore E2E tests by default"]
+#[walrus_simtest]
+async fn test_store_blobs_in_bucket() -> TestResult {
+    walrus_test_utils::init_tracing();
+
+    let (_sui_cluster_handle, _cluster, client, system_context, _) =
+        test_cluster::E2eTestSetupBuilder::new().build().await?;
+    let blob_bucket_pkg_id = system_context
+        .blob_bucket_pkg_id
+        .expect("blob bucket package is published for tests");
+
+    let blobs = walrus_test_utils::random_data_list(10_000, 2);
+    let store_args = StoreArgs::default_with_epochs(2)
+        .no_store_optimizations()
+        .deletable();
+    let encoded_size = client
+        .as_ref()
+        .encoding_config()
+        .get_for_type(store_args.encoding_type)
+        .encoded_blob_length(blobs[0].len().try_into().unwrap())
+        .unwrap();
+
+    let blob_bucket = client
+        .as_ref()
+        .sui_client()
+        .create_blob_bucket(blob_bucket_pkg_id, encoded_size, 1)
+        .await?;
+    let initial_pool_status = client
+        .as_ref()
+        .sui_client()
+        .blob_bucket_storage_pool_status(blob_bucket.bucket_object_id)
+        .await?;
+    assert_eq!(
+        initial_pool_status.reserved_encoded_capacity_bytes,
+        encoded_size
+    );
+
+    let store_results = client
+        .as_ref()
+        .reserve_and_store_blobs_in_bucket(blobs.clone(), blob_bucket, &store_args)
+        .await?;
+
+    let final_pool_status = client
+        .as_ref()
+        .sui_client()
+        .blob_bucket_storage_pool_status(blob_bucket.bucket_object_id)
+        .await?;
+    assert!(
+        final_pool_status.end_epoch > initial_pool_status.end_epoch,
+        "bucket storage pool should have been extended"
+    );
+    assert!(
+        final_pool_status.reserved_encoded_capacity_bytes >= encoded_size * blobs.len() as u64,
+        "bucket storage pool should have increased capacity for all blobs"
+    );
+
+    let mut blob_ids = Vec::with_capacity(store_results.len());
+    for store_result in store_results {
+        match store_result {
+            BlobBucketStoreResult::NewlyCreated { pooled_blob_object } => {
+                assert_eq!(
+                    pooled_blob_object.storage_pool_id,
+                    blob_bucket.storage_pool_id
+                );
+                assert!(pooled_blob_object.deletable);
+                assert!(pooled_blob_object.is_certified());
+                blob_ids.push(pooled_blob_object.blob_id);
+            }
+            BlobBucketStoreResult::Error {
+                blob_id,
+                failure_phase,
+                error_msg,
+            } => panic!(
+                "unexpected bucket store error for blob {blob_id:?} in {failure_phase}: \
+                 {error_msg}"
+            ),
+        }
+    }
+
+    for (blob_id, expected_data) in blob_ids.into_iter().zip(blobs) {
+        let read_data = client.as_ref().read_blob::<Primary>(&blob_id).await?;
+        assert_eq!(read_data, expected_data);
     }
 
     Ok(())
@@ -790,22 +877,23 @@ async fn test_store_with_existing_storage_resource(
 
     let blobs = walrus_test_utils::random_data_list(31415, 4);
     let encoding_type = DEFAULT_ENCODING;
-    let unencoded_blobs = blobs
-        .iter()
-        .cloned()
-        .enumerate()
-        .map(|(i, data)| {
-            WalrusStoreBlob::new_unencoded(
-                data,
-                format!("test-{i:02}"),
-                BlobAttribute::default(),
-                client
-                    .as_ref()
-                    .encoding_config()
-                    .get_for_type(encoding_type),
-            )
-        })
-        .collect();
+    let unencoded_blobs: Vec<walrus_sdk::node_client::client_types::WalrusStoreBlobMaybeFinished> =
+        blobs
+            .iter()
+            .cloned()
+            .enumerate()
+            .map(|(i, data)| {
+                walrus_sdk::node_client::client_types::WalrusStoreBlobMaybeFinished::new_unencoded(
+                    data,
+                    format!("test-{i:02}"),
+                    BlobAttribute::default(),
+                    client
+                        .as_ref()
+                        .encoding_config()
+                        .get_for_type(encoding_type),
+                )
+            })
+            .collect();
     let encoded_blobs = walrus_sdk::node_client::encode_blobs(unencoded_blobs, None, None)?;
     let encoded_sizes = encoded_blobs
         .iter()

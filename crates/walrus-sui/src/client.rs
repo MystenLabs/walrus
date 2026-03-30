@@ -90,7 +90,7 @@ mod blob_bucket_ops;
 mod owned_blob_ops;
 mod read_client;
 mod shared_blob_ops;
-pub use blob_bucket_ops::BlobBucketHandle;
+pub use blob_bucket_ops::{BlobBucketHandle, BlobBucketStoragePoolStatus};
 pub use read_client::{
     CommitteesAndState,
     FixedSystemParameters,

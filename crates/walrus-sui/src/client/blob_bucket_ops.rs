@@ -18,6 +18,27 @@ pub struct BlobBucketHandle {
     pub storage_pool_id: ObjectID,
 }
 
+/// Snapshot of the storage pool backing a blob bucket.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BlobBucketStoragePoolStatus {
+    /// The object ID of the backing storage pool.
+    pub storage_pool_id: ObjectID,
+    /// The epoch at which the backing storage pool expires.
+    pub end_epoch: Epoch,
+    /// The reserved encoded capacity in bytes.
+    pub reserved_encoded_capacity_bytes: u64,
+    /// The used encoded capacity in bytes.
+    pub used_encoded_bytes: u64,
+}
+
+impl BlobBucketStoragePoolStatus {
+    /// Returns the currently available encoded capacity in bytes.
+    pub fn available_encoded_capacity_bytes(&self) -> u64 {
+        self.reserved_encoded_capacity_bytes
+            .saturating_sub(self.used_encoded_bytes)
+    }
+}
+
 impl SuiContractClient {
     /// Creates a shared blob bucket and returns its object ID, cap ID, and backing storage pool ID.
     pub async fn create_blob_bucket(
@@ -290,6 +311,26 @@ impl SuiContractClient {
             }
             result => result,
         }
+    }
+
+    /// Returns the current status of the storage pool backing the specified blob bucket.
+    pub async fn blob_bucket_storage_pool_status(
+        &self,
+        blob_bucket_object_id: ObjectID,
+    ) -> SuiClientResult<BlobBucketStoragePoolStatus> {
+        let storage_pool_inner = self
+            .read_client()
+            .get_blob_bucket_storage_pool_inner(blob_bucket_object_id)
+            .await?;
+        Ok(BlobBucketStoragePoolStatus {
+            storage_pool_id: self
+                .read_client()
+                .get_blob_bucket_storage_pool_id(blob_bucket_object_id)
+                .await?,
+            end_epoch: storage_pool_inner.end_epoch,
+            reserved_encoded_capacity_bytes: storage_pool_inner.reserved_encoded_capacity_bytes,
+            used_encoded_bytes: storage_pool_inner.used_encoded_bytes,
+        })
     }
 }
 

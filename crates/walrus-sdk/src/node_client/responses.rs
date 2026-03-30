@@ -10,7 +10,11 @@ use serde_with::{DisplayFromStr, serde_as};
 use sui_types::{base_types::ObjectID, event::EventID};
 use utoipa::ToSchema;
 use walrus_core::{BlobId, Epoch};
-use walrus_sui::{EventIdSchema, ObjectIdSchema, types::move_structs::Blob};
+use walrus_sui::{
+    EventIdSchema,
+    ObjectIdSchema,
+    types::move_structs::{Blob, PooledBlob},
+};
 
 use super::{client_types::StoredQuiltPatch, resource::RegisterBlobOp};
 
@@ -49,6 +53,16 @@ impl Display for EventOrObjectId {
 pub struct BlobStoreResultWithPath {
     /// The result of the store operation.
     pub blob_store_result: BlobStoreResult,
+    /// The file path to the blob.
+    pub path: PathBuf,
+}
+
+/// Blob bucket store result with its file path.
+#[derive(Serialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct BlobBucketStoreResultWithPath {
+    /// The result of the bucket store operation.
+    pub blob_store_result: BlobBucketStoreResult,
     /// The file path to the blob.
     pub path: PathBuf,
 }
@@ -145,6 +159,53 @@ impl BlobStoreResult {
     /// Returns a [`BlobStoreResultWithPath`] with the given path.
     pub fn with_path(self, path: PathBuf) -> BlobStoreResultWithPath {
         BlobStoreResultWithPath {
+            path,
+            blob_store_result: self,
+        }
+    }
+}
+
+/// Result when attempting to store a blob into a blob bucket.
+#[serde_as]
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum BlobBucketStoreResult {
+    /// The blob was newly created in the target bucket.
+    NewlyCreated {
+        /// The pooled blob object created in the bucket.
+        pooled_blob_object: PooledBlob,
+    },
+    /// Operation failed.
+    Error {
+        /// The blob ID.
+        #[serde_as(as = "Option<DisplayFromStr>")]
+        blob_id: Option<BlobId>,
+        /// The phase after the error occurred.
+        failure_phase: String,
+        /// The error message.
+        error_msg: String,
+    },
+}
+
+impl BlobBucketStoreResult {
+    /// Returns the blob ID.
+    pub fn blob_id(&self) -> Option<BlobId> {
+        match self {
+            Self::NewlyCreated {
+                pooled_blob_object: PooledBlob { blob_id, .. },
+            } => Some(*blob_id),
+            Self::Error { blob_id, .. } => *blob_id,
+        }
+    }
+
+    /// Returns true if the blob is not stored.
+    pub fn is_not_stored(&self) -> bool {
+        matches!(self, Self::Error { .. })
+    }
+
+    /// Returns a [`BlobBucketStoreResultWithPath`] with the given path.
+    pub fn with_path(self, path: PathBuf) -> BlobBucketStoreResultWithPath {
+        BlobBucketStoreResultWithPath {
             path,
             blob_store_result: self,
         }
