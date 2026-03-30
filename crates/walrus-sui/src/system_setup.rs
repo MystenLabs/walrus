@@ -349,6 +349,7 @@ pub(crate) async fn publish_package(
 #[cfg(any(test, feature = "test-utils"))]
 pub(crate) struct PublishSystemPackageResult {
     pub walrus_pkg_id: ObjectID,
+    pub blob_bucket_pkg_id: Option<ObjectID>,
     pub wal_exchange_pkg_id: Option<ObjectID>,
     pub credits_pkg_id: Option<ObjectID>,
     pub walrus_subsidies_pkg_id: Option<ObjectID>,
@@ -500,6 +501,15 @@ pub(crate) async fn publish_coin_and_system_package(
     .await?;
     let walrus_pkg_id = get_pkg_id_from_tx_response(&transaction_response)?;
 
+    let blob_bucket_pkg_id = Some(get_pkg_id_from_tx_response(
+        &publish_package_with_default_build_config(
+            wallet,
+            walrus_contract_directory.join("blob_bucket"),
+            gas_budget,
+        )
+        .await?,
+    )?);
+
     let [init_cap_id] = get_created_object_ids_by_type(
         &transaction_response,
         &INIT_CAP_TAG.to_move_struct_tag_with_package(walrus_pkg_id, &[])?,
@@ -542,6 +552,7 @@ pub(crate) async fn publish_coin_and_system_package(
 
     Ok(PublishSystemPackageResult {
         walrus_pkg_id,
+        blob_bucket_pkg_id,
         wal_exchange_pkg_id,
         credits_pkg_id,
         init_cap_id,
