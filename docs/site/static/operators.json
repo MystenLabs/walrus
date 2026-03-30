@@ -51,7 +51,7 @@
       },
       "https://sm1-walrus-mainnet-aggregator.stakesquid.com": {
         "operator": "StakeSquid",
-        "cache": false
+        "cache": true
       },
       "https://sui-walrus-mainnet-aggregator.bwarelabs.com": {
         "operator": "Alchemy Validators",
@@ -159,7 +159,7 @@
       },
       "https://walrus-mainnet-aggregator.imperator.co": {
         "operator": "Imperator.co",
-        "cache": true
+        "cache": false
       },
       "https://walrus-mainnet-aggregator.luckyresearch.org": {
         "operator": "LuckyResearch Labs",
@@ -343,7 +343,7 @@
       },
       "https://walrus-aggregator.thcloud.dev": {
         "operator": "THCloudAI",
-        "cache": true
+        "cache": false
       },
       "https://walrus-test-aggregator.thepassivetrust.com": {
         "operator": "TPT",
