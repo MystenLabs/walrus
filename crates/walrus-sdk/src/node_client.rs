@@ -129,6 +129,7 @@ pub use store_args::{EncodingProgressEvent, StoreArgs};
 pub mod upload_relay_client;
 
 mod auto_tune;
+mod store_backend;
 mod store_pipeline;
 
 pub use crate::{
@@ -2800,6 +2801,7 @@ where
 
 mod internal {
     use super::*;
+    use crate::node_client::store_backend::StoreBackend as _;
 
     pub trait StoreBlobApiInternal: Sync {
         /// Returns the [`WalrusNodeClient`].
@@ -2844,17 +2846,26 @@ mod internal {
                 let client = self.client().await?;
 
                 if !encoded_blobs.is_empty() {
+                    tracing::debug!(
+                        backend = ?client.store_backend(store_args).kind(),
+                        perform_retries,
+                        "selected store backend"
+                    );
                     let store_results = if perform_retries {
                         client
                             .retry_if_error_epoch_change(|| {
-                                client.reserve_and_store_encoded_blobs(
-                                    encoded_blobs.clone(),
-                                    store_args,
-                                )
+                                let backend = client.store_backend(store_args);
+                                let encoded_blobs = encoded_blobs.clone();
+                                async move {
+                                    backend
+                                        .reserve_and_store_encoded_blobs(encoded_blobs, store_args)
+                                        .await
+                                }
                             })
                             .await?
                     } else {
-                        client
+                        let backend = client.store_backend(store_args);
+                        backend
                             .reserve_and_store_encoded_blobs(encoded_blobs.clone(), store_args)
                             .await?
                     };
