@@ -18,19 +18,22 @@ use walrus_core::{
         SliverPair,
         quilt_encoding::{QuiltIndexApi as _, QuiltPatchApi as _, QuiltPatchInternalIdApi},
     },
-    messages::ConfirmationCertificate,
     metadata::{BlobMetadataApi, QuiltIndex, VerifiedBlobMetadataWithId},
 };
 use walrus_storage_node_client::api::BlobStatus;
-use walrus_sui::{
-    client::{CertifyAndExtendBlobParams, CertifyAndExtendBlobResult},
-    types::{Blob, move_structs::BlobAttribute},
+use walrus_sui::types::move_structs::BlobAttribute;
+
+mod owned_state;
+
+pub(crate) use owned_state::{
+    OwnedBlobAwaitingUpload,
+    OwnedBlobPendingCertifyAndExtend,
+    OwnedRegisteredBlob,
 };
 
 use super::{
     ClientError,
     ClientResult,
-    resource::{PriceComputation, RegisterBlobOp},
     responses::{BlobStoreResult, EventOrObjectId},
 };
 use crate::{
@@ -620,38 +623,6 @@ impl WalrusStoreEncodedBlobApi for BlobWithStatus {
     }
 }
 
-impl BlobWithStatus {
-    /// Converts the blob with status information to a registered blob based on the given blob
-    /// object and operation.
-    pub fn with_register_result(
-        self,
-        blob_object: Blob,
-        operation: RegisterBlobOp,
-    ) -> WalrusStoreBlobState<RegisteredBlob> {
-        tracing::event!(
-            BLOB_SPAN_LEVEL,
-            ?blob_object,
-            ?operation,
-            "entering with_register_result"
-        );
-
-        if blob_object.is_certified() && operation.is_reuse_registration() {
-            WalrusStoreBlobState::Finished(BlobStoreResult::AlreadyCertified {
-                blob_id: blob_object.blob_id,
-                event_or_object: EventOrObjectId::Object(blob_object.id),
-                end_epoch: blob_object.storage.end_epoch,
-            })
-        } else {
-            WalrusStoreBlobState::Unfinished(RegisteredBlob {
-                encoded_blob: self.encoded_blob,
-                status: self.status,
-                blob_object,
-                operation,
-            })
-        }
-    }
-}
-
 impl WalrusStoreBlobMaybeFinished<BlobWithStatus> {
     /// Tries to complete the blob if it is certified beyond the given epoch.
     pub fn try_complete_if_certified_beyond_epoch(
@@ -724,173 +695,6 @@ impl WalrusStoreBlobMaybeFinished<BlobWithStatus> {
         }
 
         Some((encoded.metadata.as_ref().clone(), sliver_pairs.clone()))
-    }
-}
-
-/// Registered blob.
-#[derive(Debug, Clone, PartialEq)]
-pub struct RegisteredBlob {
-    /// The encoded blob.
-    pub encoded_blob: EncodedBlob,
-    /// The current status of the blob in the system.
-    pub status: BlobStatus,
-    /// The blob object that was registered.
-    pub blob_object: Blob,
-    /// The operation that is performed to store the blob.
-    pub operation: RegisterBlobOp,
-}
-
-impl WalrusStoreEncodedBlobApi for RegisteredBlob {
-    const STATE: &'static str = "Registered";
-
-    fn blob_id(&self) -> BlobId {
-        self.encoded_blob.blob_id()
-    }
-}
-
-impl RegisteredBlob {
-    /// Classifies the registered blob into either a blob that needs to be certified or a blob that
-    /// is ready to be extended.
-    pub fn classify(self) -> Either<BlobAwaitingUpload, BlobPendingCertifyAndExtend> {
-        match self.operation {
-            RegisterBlobOp::ReuseAndExtend {
-                epochs_extended, ..
-            } => Either::Right(BlobPendingCertifyAndExtend {
-                blob_object: self.blob_object,
-                operation: self.operation,
-                certificate: None,
-                epochs_extended: Some(epochs_extended),
-            }),
-            _ => {
-                let epochs_extended = if let RegisterBlobOp::ReuseAndExtendNonCertified {
-                    epochs_extended,
-                    ..
-                } = &self.operation
-                {
-                    Some(*epochs_extended)
-                } else {
-                    None
-                };
-                Either::Left(BlobAwaitingUpload {
-                    encoded_blob: self.encoded_blob,
-                    status: self.status,
-                    blob_object: self.blob_object,
-                    operation: self.operation,
-                    epochs_extended,
-                })
-            }
-        }
-    }
-}
-
-/// A blob that needs to be certified.
-// INV: The operation is NOT `ReuseAndExtend`.
-// INV: The epochs_extended is `Some` iff the operation is `ReuseAndExtendNonCertified`.
-#[derive(Debug, Clone, PartialEq)]
-pub struct BlobAwaitingUpload {
-    /// The encoded blob.
-    pub encoded_blob: EncodedBlob,
-    /// The current status of the blob in the system.
-    pub status: BlobStatus,
-    /// The blob object that was registered.
-    pub blob_object: Blob,
-    /// The operation that is performed to store the blob.
-    pub operation: RegisterBlobOp,
-    /// The number of epochs by which to extend the blob after certification.
-    pub epochs_extended: Option<EpochCount>,
-}
-
-impl WalrusStoreBlobUnfinished<BlobAwaitingUpload> {
-    /// Converts the blob to a blob ready for certification and (optionally) extension based on the
-    /// given certificate result.
-    pub fn with_certificate_result(
-        self,
-        certificate: ClientResult<ConfirmationCertificate>,
-    ) -> ClientResult<WalrusStoreBlobMaybeFinished<BlobPendingCertifyAndExtend>> {
-        let certificate = certificate?;
-        self.into_maybe_finished().map(
-            move |blob| {
-                Ok(BlobPendingCertifyAndExtend {
-                    blob_object: blob.blob_object,
-                    operation: blob.operation,
-                    certificate: Some(Arc::new(certificate)),
-                    epochs_extended: blob.epochs_extended,
-                })
-            },
-            "with_certificate_result",
-        )
-    }
-}
-
-impl WalrusStoreEncodedBlobApi for BlobAwaitingUpload {
-    const STATE: &'static str = "AwaitingUpload";
-
-    fn blob_id(&self) -> BlobId {
-        self.encoded_blob.blob_id()
-    }
-}
-
-/// A blob that is ready to be certified and/or extended.
-// INV: The certificate is `None` iff the operation is `ReuseAndExtend`.
-// INV: The epochs_extended is `Some` iff the operation is `ReuseAndExtend` or
-// `ReuseAndExtendNonCertified`.
-#[derive(Clone, PartialEq, Debug)]
-pub struct BlobPendingCertifyAndExtend {
-    /// The blob object that was registered.
-    pub blob_object: Blob,
-    /// The operation that is performed to store the blob.
-    pub operation: RegisterBlobOp,
-    /// The certificate for the blob.
-    pub certificate: Option<Arc<ConfirmationCertificate>>,
-    /// The number of epochs by which to extend the blob.
-    pub epochs_extended: Option<EpochCount>,
-}
-
-impl WalrusStoreEncodedBlobApi for BlobPendingCertifyAndExtend {
-    const STATE: &'static str = "PendingCertifyAndExtend";
-
-    fn blob_id(&self) -> BlobId {
-        self.blob_object.blob_id
-    }
-}
-
-impl<'a> WalrusStoreBlobUnfinished<BlobPendingCertifyAndExtend> {
-    /// Returns the parameters for the Sui transaction to certify and extend the blob.
-    pub fn get_certify_and_extend_params(&'a self) -> CertifyAndExtendBlobParams<'a> {
-        CertifyAndExtendBlobParams {
-            blob: &self.state.blob_object,
-            attribute: &self.common.attribute,
-            certificate: self.state.certificate.clone(),
-            epochs_extended: self.state.epochs_extended,
-        }
-    }
-}
-
-impl BlobPendingCertifyAndExtend {
-    /// Converts the blob to a blob store result based on the given certify and extend result and
-    /// price computation.
-    pub fn with_certify_and_extend_result(
-        self,
-        certify_and_extend_result: Option<&CertifyAndExtendBlobResult>,
-        price_computation: &PriceComputation,
-    ) -> BlobStoreResult {
-        let Some(certify_and_extend_result) = certify_and_extend_result else {
-            return BlobStoreResult::Error {
-                blob_id: Some(self.blob_object.blob_id),
-                failure_phase: "with_certify_and_extend_result".to_string(),
-                error_msg: "Sui transaction result did not contain a result for the blob"
-                    .to_string(),
-            };
-        };
-
-        let cost = price_computation.operation_cost(&self.operation);
-        let shared_blob_object = certify_and_extend_result.shared_blob_object();
-        BlobStoreResult::NewlyCreated {
-            blob_object: self.blob_object,
-            resource_operation: self.operation,
-            cost,
-            shared_blob_object,
-        }
     }
 }
 

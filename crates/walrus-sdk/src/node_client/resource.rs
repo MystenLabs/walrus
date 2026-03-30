@@ -25,7 +25,7 @@ use super::{
 };
 use crate::{
     error::ClientResult,
-    node_client::client_types::{BlobWithStatus, RegisteredBlob, WalrusStoreBlobUnfinished},
+    node_client::client_types::{BlobWithStatus, OwnedRegisteredBlob, WalrusStoreBlobUnfinished},
     store_optimizations::StoreOptimizations,
 };
 
@@ -252,7 +252,7 @@ impl<'a> ResourceManager<'a> {
         epochs_ahead: EpochCount,
         persistence: BlobPersistence,
         store_optimizations: StoreOptimizations,
-    ) -> ClientResult<Vec<WalrusStoreBlobMaybeFinished<RegisteredBlob>>> {
+    ) -> ClientResult<Vec<WalrusStoreBlobMaybeFinished<OwnedRegisteredBlob>>> {
         let blobs_count = encoded_blobs_with_status.len();
         let mut results = Vec::with_capacity(blobs_count);
         let mut to_be_processed = Vec::new();
@@ -324,7 +324,7 @@ impl<'a> ResourceManager<'a> {
         epochs_ahead: EpochCount,
         persistence: BlobPersistence,
         store_optimizations: StoreOptimizations,
-    ) -> ClientResult<Vec<WalrusStoreBlobMaybeFinished<RegisteredBlob>>> {
+    ) -> ClientResult<Vec<WalrusStoreBlobMaybeFinished<OwnedRegisteredBlob>>> {
         OwnedRegistrationPlanner::new(self, epochs_ahead, persistence, store_optimizations)
             .register_or_reuse_resources(blobs)
             .await
