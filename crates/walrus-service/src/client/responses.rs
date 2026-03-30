@@ -675,8 +675,8 @@ pub struct StakeOutput {
 #[serde(rename_all = "camelCase")]
 /// The output of the `walrus request-withdraw-stake` command.
 pub struct RequestWithdrawStakeOutput {
-    /// The StakedWal object that was submitted for withdrawal.
-    pub staked_wal: StakedWal,
+    /// The StakedWal objects that were submitted for withdrawal.
+    pub staked_wals: Vec<StakedWal>,
     /// The transaction digest.
     pub tx_digest: TransactionDigest,
 }
@@ -685,8 +685,8 @@ pub struct RequestWithdrawStakeOutput {
 #[serde(rename_all = "camelCase")]
 /// The output of the `walrus request-withdraw-stake` command in dry-run mode.
 pub struct RequestWithdrawStakeDryRunOutput {
-    /// The StakedWal object that would be withdrawn.
-    pub staked_wal: StakedWal,
+    /// The StakedWal objects that would be withdrawn.
+    pub staked_wals: Vec<StakedWal>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -701,8 +701,8 @@ pub struct RequestWithdrawStakeListOutput {
 #[serde(rename_all = "camelCase")]
 /// The output of the `walrus withdraw-stake` command.
 pub struct WithdrawStakeOutput {
-    /// The StakedWal object that was withdrawn.
-    pub staked_wal_id: ObjectID,
+    /// The StakedWal objects that were withdrawn.
+    pub staked_wal_ids: Vec<ObjectID>,
     /// The transaction digest.
     pub tx_digest: TransactionDigest,
 }

@@ -772,28 +772,28 @@ impl SuiContractClient {
         .await
     }
 
-    /// Call to request a withdrawal of staked WAL.
+    /// Call to request withdrawal of staked WAL for one or more StakedWal objects in a single PTB.
     pub async fn request_withdraw_stake(
         &self,
-        staked_wal_id: ObjectID,
+        staked_wal_ids: &[ObjectID],
     ) -> SuiClientResult<TransactionDigest> {
         self.retry_on_wrong_version(|| async {
             self.inner
                 .lock()
                 .await
-                .request_withdraw_stake(staked_wal_id)
+                .request_withdraw_stake(staked_wal_ids)
                 .await
         })
         .await
     }
 
-    /// Withdraw staked WAL that has already been requested.
+    /// Withdraw one or more StakedWal objects that have already been requested, in a single PTB.
     pub async fn withdraw_stake(
         &self,
-        staked_wal_id: ObjectID,
+        staked_wal_ids: &[ObjectID],
     ) -> SuiClientResult<TransactionDigest> {
         self.retry_on_wrong_version(|| async {
-            self.inner.lock().await.withdraw_stake(staked_wal_id).await
+            self.inner.lock().await.withdraw_stake(staked_wal_ids).await
         })
         .await
     }
@@ -2080,16 +2080,18 @@ impl SuiContractClientInner {
             .await
     }
 
-    /// Call to request withdrawal of stake from StakedWal object.
+    /// Request withdrawal of stake for one or more StakedWal objects in a single PTB.
     ///
     /// StakedWal is available after an epoch has passed.
     #[tracing::instrument(level = Level::DEBUG, skip_all)]
     pub async fn request_withdraw_stake(
         &mut self,
-        staked_wal_id: ObjectID,
+        staked_wal_ids: &[ObjectID],
     ) -> SuiClientResult<TransactionDigest> {
         let mut pt_builder = self.transaction_builder();
-        pt_builder.request_withdraw_stake(staked_wal_id).await?;
+        for &id in staked_wal_ids {
+            pt_builder.request_withdraw_stake(id).await?;
+        }
         let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
         let response = self
             .sign_and_send_transaction(transaction, "request_withdraw_stake")
@@ -2097,16 +2099,18 @@ impl SuiContractClientInner {
         Ok(response.digest)
     }
 
-    /// Call to request withdrawal of stake from StakedWal object.
+    /// Withdraw one or more StakedWal objects that have already been requested, in a single PTB.
     ///
     /// StakedWal is available after an epoch has passed.
     #[tracing::instrument(level = Level::DEBUG, skip_all)]
     pub async fn withdraw_stake(
         &mut self,
-        staked_wal_id: ObjectID,
+        staked_wal_ids: &[ObjectID],
     ) -> SuiClientResult<TransactionDigest> {
         let mut pt_builder = self.transaction_builder();
-        pt_builder.withdraw_stake(staked_wal_id).await?;
+        for &id in staked_wal_ids {
+            pt_builder.withdraw_stake(id).await?;
+        }
         let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
         let response = self
             .sign_and_send_transaction(transaction, "withdraw_stake")

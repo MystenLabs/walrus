@@ -1031,10 +1031,11 @@ impl CliOutput for StakeOutput {
 impl CliOutput for RequestWithdrawStakeOutput {
     fn print_cli_output(&self) {
         println!(
-            "{} Requested withdrawal for StakedWal:\n{}\
+            "{} Requested withdrawal for {} StakedWal object(s):\n{}\
             Transaction digest: {}",
             success(),
-            self.staked_wal,
+            self.staked_wals.len(),
+            self.staked_wals.iter().map(ToString::to_string).join("\n"),
             self.tx_digest
         );
     }
@@ -1043,8 +1044,9 @@ impl CliOutput for RequestWithdrawStakeOutput {
 impl CliOutput for RequestWithdrawStakeDryRunOutput {
     fn print_cli_output(&self) {
         println!(
-            "[dry run] Would request withdrawal for StakedWal:\n{}",
-            self.staked_wal
+            "[dry run] Would request withdrawal for {} StakedWal object(s):\n{}",
+            self.staked_wals.len(),
+            self.staked_wals.iter().map(ToString::to_string).join("\n")
         );
     }
 }
@@ -1063,10 +1065,14 @@ impl CliOutput for RequestWithdrawStakeListOutput {
 impl CliOutput for WithdrawStakeOutput {
     fn print_cli_output(&self) {
         println!(
-            "{} Withdrew staked WAL from StakedWal object {}\n\
+            "{} Withdrew staked WAL from {} StakedWal object(s): {}\n\
             Transaction digest: {}",
             success(),
-            self.staked_wal_id,
+            self.staked_wal_ids.len(),
+            self.staked_wal_ids
+                .iter()
+                .map(ToString::to_string)
+                .join(", "),
             self.tx_digest
         );
     }

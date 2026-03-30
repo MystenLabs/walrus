@@ -139,6 +139,7 @@ impl App {
     }
 }
 
+// TODO(WAL-1199): make the command more hierarchical by grouping related commands together.
 /// Top level enum to separate the daemon and CLI commands.
 #[derive(Subcommand, Debug, Clone, Deserialize, PartialEq, Eq)]
 #[command(rename_all = "kebab-case")]
@@ -491,23 +492,27 @@ pub enum CliCommands {
     ///
     /// If only the node ID is provided and there is a single StakedWal object for that node,
     /// it will be withdrawn automatically. If there are multiple, the command lists them and
-    /// requires the specific StakedWal object ID to be provided.
+    /// requires the specific StakedWal object IDs to be provided. Multiple StakedWal objects
+    /// are batched into a single transaction.
     RequestWithdrawStake {
         /// The object ID of the storage node's staking pool.
         node_id: ObjectID,
-        /// The object ID of the StakedWal object to withdraw.
+        /// The object ID(s) of the StakedWal objects to withdraw.
         ///
         /// Required when there are multiple StakedWal objects for the given node.
-        staked_wal_id: Option<ObjectID>,
+        staked_wal_ids: Vec<ObjectID>,
         /// Print the action without executing it.
         #[arg(long)]
         #[serde(default)]
         dry_run: bool,
     },
     /// Withdraw staked WAL that has already been requested for withdrawal.
+    ///
+    /// Multiple StakedWal objects are batched into a single transaction.
     WithdrawStake {
-        /// The object ID of the StakedWal object to withdraw.
-        staked_wal_id: ObjectID,
+        /// The object ID(s) of the StakedWal objects to withdraw.
+        #[arg(required = true, num_args = 1..)]
+        staked_wal_ids: Vec<ObjectID>,
     },
     /// List all StakedWal objects owned by the current wallet.
     ListStakedWal {

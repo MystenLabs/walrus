@@ -402,15 +402,15 @@ impl ClientCommandRunner {
 
             CliCommands::RequestWithdrawStake {
                 node_id,
-                staked_wal_id,
+                staked_wal_ids,
                 dry_run,
             } => {
-                self.request_withdraw_stake(node_id, staked_wal_id, dry_run)
+                self.request_withdraw_stake(node_id, staked_wal_ids, dry_run)
                     .await
             }
 
-            CliCommands::WithdrawStake { staked_wal_id } => {
-                self.withdraw_stake(staked_wal_id).await
+            CliCommands::WithdrawStake { staked_wal_ids } => {
+                self.withdraw_stake(staked_wal_ids).await
             }
 
             CliCommands::ListStakedWal {
@@ -1927,62 +1927,69 @@ impl ClientCommandRunner {
     pub(crate) async fn request_withdraw_stake(
         self,
         node_id: ObjectID,
-        staked_wal_id: Option<ObjectID>,
+        staked_wal_ids: Vec<ObjectID>,
         dry_run: bool,
     ) -> Result<()> {
         let client = get_contract_client(self.config?, self.wallet?, self.gas_budget).await?;
 
-        // Get all StakedWal objects owned by the wallet for this node.
+        // Get all StakedWal objects owned by the wallet that are staked with this node.
         let staked_wals: Vec<StakedWal> = client
             .sui_client()
             .owned_staked_wals()
             .await?
             .into_iter()
-            .filter(|sw| sw.node_id == node_id)
+            .filter(|sw| sw.node_id == node_id && sw.state == StakedWalState::Staked)
             .collect();
 
         if staked_wals.is_empty() {
-            anyhow::bail!("no StakedWal objects found for node {node_id}");
+            anyhow::bail!("no StakedWal objects in staked state found for node {node_id}");
         }
 
-        // Determine which StakedWal to unstake based on how many match the node.
-        let target = if staked_wals.len() == 1 {
-            staked_wals.into_iter().next().expect("checked non-empty")
-        } else if let Some(id) = staked_wal_id {
-            // Multiple StakedWal objects exist; use the one the user specified.
+        // Determine which StakedWal objects to unstake.
+        let targets = if !staked_wal_ids.is_empty() {
+            // User specified which StakedWal objects to unstake.
+            staked_wal_ids
+                .iter()
+                .map(|id| {
+                    staked_wals
+                        .iter()
+                        .find(|sw| sw.id == *id)
+                        .cloned()
+                        .ok_or_else(|| {
+                            anyhow::anyhow!(
+                                "StakedWal object {id} not found for node {node_id} in this wallet"
+                            )
+                        })
+                })
+                .collect::<Result<Vec<_>>>()?
+        } else if staked_wals.len() == 1 {
             staked_wals
-                .into_iter()
-                .find(|sw| sw.id == id)
-                .ok_or_else(|| {
-                    anyhow::anyhow!(
-                        "StakedWal object {id} not found for node {node_id} in this wallet"
-                    )
-                })?
         } else {
             // Multiple StakedWal objects exist; list them so the user can pick.
             return RequestWithdrawStakeListOutput { staked_wals }.print_output(self.json);
         };
 
         if dry_run {
-            return RequestWithdrawStakeDryRunOutput { staked_wal: target }.print_output(self.json);
+            return RequestWithdrawStakeDryRunOutput {
+                staked_wals: targets,
+            }
+            .print_output(self.json);
         }
 
-        let tx_digest = client
-            .sui_client()
-            .request_withdraw_stake(target.id)
-            .await?;
+        let ids: Vec<ObjectID> = targets.iter().map(|sw| sw.id).collect();
+        let tx_digest = client.sui_client().request_withdraw_stake(&ids).await?;
         RequestWithdrawStakeOutput {
-            staked_wal: target,
+            staked_wals: targets,
             tx_digest,
         }
         .print_output(self.json)
     }
 
-    pub(crate) async fn withdraw_stake(self, staked_wal_id: ObjectID) -> Result<()> {
+    pub(crate) async fn withdraw_stake(self, staked_wal_ids: Vec<ObjectID>) -> Result<()> {
         let client = get_contract_client(self.config?, self.wallet?, self.gas_budget).await?;
-        let tx_digest = client.sui_client().withdraw_stake(staked_wal_id).await?;
+        let tx_digest = client.sui_client().withdraw_stake(&staked_wal_ids).await?;
         WithdrawStakeOutput {
-            staked_wal_id,
+            staked_wal_ids,
             tx_digest,
         }
         .print_output(self.json)
