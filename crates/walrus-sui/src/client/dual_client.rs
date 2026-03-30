@@ -5,7 +5,7 @@
 //! migration from Sui JSON RPC to gRPC by gradually migrating callsites away from the JSON RPC
 //! Client [`SuiClient`].
 
-use std::time::Duration;
+use std::{str::FromStr, time::Duration};
 
 use anyhow::Context;
 use bytes::Bytes;
@@ -18,8 +18,10 @@ use sui_rpc::{
         BatchGetObjectsResponse,
         Bcs,
         DynamicField,
+        ExecutedTransaction,
         GetBalanceRequest,
         GetObjectRequest,
+        GetTransactionRequest,
         ListDynamicFieldsRequest,
         ListOwnedObjectsRequest,
         ListOwnedObjectsResponse,
@@ -28,11 +30,26 @@ use sui_rpc::{
         state_service_client::StateServiceClient,
     },
 };
-use sui_sdk::{SuiClient, SuiClientBuilder};
+use sui_sdk::{
+    SuiClient,
+    SuiClientBuilder,
+    rpc_types::{
+        BalanceChange as SuiBalanceChange,
+        BcsEvent,
+        SuiEvent,
+        SuiTransactionBlockResponse,
+        SuiTransactionBlockResponseOptions,
+    },
+};
 use sui_types::{
     TypeTag,
     base_types::{ObjectID, ObjectRef, SuiAddress},
+    crypto::ToFromBytes,
     digests::TransactionDigest,
+    event::EventID,
+    object::Owner,
+    signature::GenericSignature,
+    transaction::{SenderSignedData, TransactionData},
 };
 use tonic::service::interceptor::InterceptedService;
 use walrus_core::ensure;
@@ -158,6 +175,70 @@ impl DualClient {
             .context("no previous_transaction in object")?
             .parse()
             .context("parsing previous_transaction")?)
+    }
+
+    /// Get a transaction response from the Sui network via gRPC.
+    ///
+    /// Handles: checkpoint, timestamp, raw_input, balance_changes, and events.
+    /// Falls back to JSON-RPC for show_input, show_effects, show_object_changes,
+    /// show_raw_effects.
+    pub async fn get_transaction_response_grpc(
+        &self,
+        digest: TransactionDigest,
+        options: &SuiTransactionBlockResponseOptions,
+    ) -> Result<SuiTransactionBlockResponse, SuiClientError> {
+        let field_mask = build_transaction_field_mask(options);
+        let executed_tx = self.get_transaction_raw(digest, field_mask).await?;
+        executed_transaction_to_response(digest, options, &executed_tx)
+    }
+
+    /// Get events for a transaction from the Sui network via gRPC.
+    pub async fn get_transaction_events_grpc(
+        &self,
+        tx_digest: TransactionDigest,
+    ) -> Result<Vec<SuiEvent>, SuiClientError> {
+        let field_mask = FieldMask::from_paths(&[ExecutedTransaction::path_builder()
+            .events()
+            .events()
+            .finish()]);
+        let executed_tx = self.get_transaction_raw(tx_digest, field_mask).await?;
+        let empty = Vec::new();
+        executed_tx
+            .events
+            .as_ref()
+            .map(|e| &e.events)
+            .unwrap_or(&empty)
+            .iter()
+            .enumerate()
+            .map(|(idx, event)| grpc_event_to_sui_event(tx_digest, idx, event))
+            .collect::<Result<Vec<_>, _>>()
+    }
+
+    /// Low-level gRPC call to get a transaction with a specific field mask.
+    ///
+    /// Uses `Box::pin` to erase the future type and avoid `Send` recursion overflow
+    /// from the deep `ExecutedTransaction` proto type tree.
+    fn get_transaction_raw(
+        &self,
+        digest: TransactionDigest,
+        field_mask: FieldMask,
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<Output = Result<ExecutedTransaction, SuiClientError>>
+                + Send
+                + '_,
+        >,
+    > {
+        let mut grpc_client: GrpcClient = self.grpc_client.clone();
+        Box::pin(async move {
+            let sui_digest = sui_sdk_types::Digest::new(digest.into_inner());
+            let request = GetTransactionRequest::new(&sui_digest).with_read_mask(field_mask);
+            let response = grpc_client.ledger_client().get_transaction(request).await?;
+            Ok(response
+                .into_inner()
+                .transaction
+                .context("no transaction in get_transaction_response")?)
+        })
     }
 
     /// Get the BCS representation of an object's contents and its type from the Sui network.
@@ -654,6 +735,220 @@ fn convert_grpc_object_to_coin(object: Object) -> Result<Coin, anyhow::Error> {
             .context("no previous_transaction in object")?
             .parse()
             .context("parsing previous_transaction")?,
+    })
+}
+
+/// Build a [`FieldMask`] for `GetTransactionRequest` based on the requested options.
+///
+/// Always requests `digest`, `checkpoint`, and `timestamp`. Conditionally adds paths for
+/// `raw_input` (transaction BCS + signature BCS), `balance_changes`, and `events`.
+fn build_transaction_field_mask(options: &SuiTransactionBlockResponseOptions) -> FieldMask {
+    let mut paths: Vec<String> = vec![
+        ExecutedTransaction::path_builder().digest(),
+        ExecutedTransaction::path_builder().checkpoint(),
+        ExecutedTransaction::path_builder().timestamp(),
+    ];
+    if options.show_raw_input {
+        paths.push(
+            ExecutedTransaction::path_builder()
+                .transaction()
+                .bcs()
+                .finish(),
+        );
+        paths.push(
+            ExecutedTransaction::path_builder()
+                .signatures()
+                .bcs()
+                .finish(),
+        );
+    }
+    if options.show_balance_changes {
+        paths.push(
+            ExecutedTransaction::path_builder()
+                .balance_changes()
+                .finish(),
+        );
+    }
+    if options.show_events {
+        paths.push(
+            ExecutedTransaction::path_builder()
+                .events()
+                .events()
+                .finish(),
+        );
+    }
+    FieldMask::from_paths(&paths)
+}
+
+/// Convert a gRPC [`ExecutedTransaction`] into a [`SuiTransactionBlockResponse`].
+fn executed_transaction_to_response(
+    digest: TransactionDigest,
+    options: &SuiTransactionBlockResponseOptions,
+    executed_tx: &ExecutedTransaction,
+) -> Result<SuiTransactionBlockResponse, SuiClientError> {
+    let mut response = SuiTransactionBlockResponse::new(digest);
+
+    response.checkpoint = executed_tx.checkpoint;
+    response.timestamp_ms = executed_tx
+        .timestamp
+        .as_ref()
+        .map(|ts| {
+            u64::try_from(ts.seconds)
+                .context("negative timestamp")
+                .map(|s| s * 1000 + u64::try_from(ts.nanos).unwrap_or(0) / 1_000_000)
+        })
+        .transpose()?;
+
+    if options.show_raw_input {
+        response.raw_transaction = reconstruct_raw_transaction(executed_tx)?;
+    }
+
+    if options.show_balance_changes {
+        response.balance_changes = Some(
+            executed_tx
+                .balance_changes
+                .iter()
+                .map(convert_grpc_balance_change)
+                .collect::<Result<Vec<_>, _>>()?,
+        );
+    }
+
+    if options.show_events
+        && let Some(events) = &executed_tx.events
+    {
+        let sui_events: Vec<SuiEvent> = events
+            .events
+            .iter()
+            .enumerate()
+            .map(|(idx, event)| grpc_event_to_sui_event(digest, idx, event))
+            .collect::<Result<Vec<_>, _>>()?;
+        response.events = Some(sui_sdk::rpc_types::SuiTransactionBlockEvents { data: sui_events });
+    }
+
+    Ok(response)
+}
+
+/// Reconstruct the BCS-encoded `SenderSignedData` (raw_transaction) from gRPC fields.
+fn reconstruct_raw_transaction(
+    executed_tx: &ExecutedTransaction,
+) -> Result<Vec<u8>, SuiClientError> {
+    let tx_bcs = executed_tx
+        .transaction
+        .as_ref()
+        .context("no transaction in executed_transaction")?
+        .bcs
+        .as_ref()
+        .context("no bcs in transaction")?;
+
+    let tx_data: TransactionData = bcs::from_bytes(
+        tx_bcs
+            .value
+            .as_ref()
+            .context("no value in transaction bcs")?,
+    )
+    .context("deserializing TransactionData from gRPC bcs")?;
+
+    let tx_signatures: Vec<GenericSignature> = executed_tx
+        .signatures
+        .iter()
+        .map(|sig| {
+            let sig_bcs = sig.bcs.as_ref().context("no bcs in user signature")?;
+            let sig_bytes = sig_bcs
+                .value
+                .as_ref()
+                .context("no value in signature bcs")?;
+            GenericSignature::from_bytes(sig_bytes)
+                .or_else(|_| {
+                    bcs::from_bytes::<GenericSignature>(sig_bytes).map_err(|e| {
+                        fastcrypto::error::FastCryptoError::GeneralError(e.to_string())
+                    })
+                })
+                .context("parsing GenericSignature from gRPC bcs")
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let sender_signed_data = SenderSignedData::new(tx_data, tx_signatures);
+    Ok(bcs::to_bytes(&sender_signed_data).context("serializing SenderSignedData")?)
+}
+
+/// Convert a gRPC `BalanceChange` to the SDK `BalanceChange`.
+fn convert_grpc_balance_change(
+    change: &sui_rpc::proto::sui::rpc::v2::BalanceChange,
+) -> Result<SuiBalanceChange, SuiClientError> {
+    let address: SuiAddress = change
+        .address
+        .as_ref()
+        .context("no address in balance change")?
+        .parse()
+        .context("parsing balance change address")?;
+    let coin_type: TypeTag = change
+        .coin_type
+        .as_ref()
+        .context("no coin_type in balance change")?
+        .parse()
+        .context("parsing balance change coin_type")?;
+    let amount: i128 = change
+        .amount
+        .as_ref()
+        .context("no amount in balance change")?
+        .parse()
+        .context("parsing balance change amount")?;
+    Ok(SuiBalanceChange {
+        owner: Owner::AddressOwner(address),
+        coin_type,
+        amount,
+    })
+}
+
+/// Convert a gRPC `Event` to a `SuiEvent`.
+fn grpc_event_to_sui_event(
+    tx_digest: TransactionDigest,
+    event_seq: usize,
+    event: &sui_rpc::proto::sui::rpc::v2::Event,
+) -> Result<SuiEvent, SuiClientError> {
+    let package_id: ObjectID = event
+        .package_id
+        .as_ref()
+        .context("no package_id in event")?
+        .parse()
+        .context("parsing event package_id")?;
+    let transaction_module = move_core_types::identifier::Identifier::from_str(
+        event.module.as_ref().context("no module in event")?,
+    )
+    .context("parsing event module")?;
+    let sender: SuiAddress = event
+        .sender
+        .as_ref()
+        .context("no sender in event")?
+        .parse()
+        .context("parsing event sender")?;
+    let type_: StructTag = event
+        .event_type
+        .as_ref()
+        .context("no event_type in event")?
+        .parse()
+        .context("parsing event type")?;
+    let contents = event
+        .contents
+        .as_ref()
+        .context("no contents in event")?
+        .value
+        .as_ref()
+        .context("no value in event contents")?
+        .to_vec();
+
+    Ok(SuiEvent {
+        id: EventID {
+            tx_digest,
+            event_seq: u64::try_from(event_seq).context("event_seq overflow")?,
+        },
+        package_id,
+        transaction_module,
+        sender,
+        type_,
+        parsed_json: serde_json::Value::Null,
+        bcs: BcsEvent::new(contents),
+        timestamp_ms: None,
     })
 }
 

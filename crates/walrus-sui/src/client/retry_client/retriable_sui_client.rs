@@ -210,6 +210,7 @@ const GRPC_MIGRATION_LEVEL_GET_OBJECT: GrpcMigrationLevel = GrpcMigrationLevel(1
 const GRPC_MIGRATION_LEVEL_BATCH_OBJECTS: GrpcMigrationLevel = GrpcMigrationLevel(2);
 const GRPC_MIGRATION_LEVEL_SELECT_COINS: GrpcMigrationLevel = GrpcMigrationLevel(3);
 const GRPC_MIGRATION_LEVEL_GET_BALANCE: GrpcMigrationLevel = GrpcMigrationLevel(4);
+const GRPC_MIGRATION_LEVEL_TRANSACTION_READS: GrpcMigrationLevel = GrpcMigrationLevel(5);
 
 impl Default for GrpcMigrationLevel {
     fn default() -> Self {
@@ -1006,8 +1007,30 @@ impl RetriableSuiClient {
 
     /// Returns a [`SuiTransactionBlockResponse`] based on the provided [`TransactionDigest`].
     ///
-    /// Calls [`sui_sdk::apis::ReadApi::get_transaction_with_options`] internally.
+    /// Routes to gRPC when the migration level is sufficient and the requested options are
+    /// supported by the gRPC path (checkpoint, timestamp, raw_input, balance_changes, events).
+    /// Falls back to JSON-RPC for options that require parsed transaction data or effects.
     pub async fn get_transaction_with_options(
+        &self,
+        digest: TransactionDigest,
+        options: SuiTransactionBlockResponseOptions,
+    ) -> SuiClientResult<SuiTransactionBlockResponse> {
+        if self.grpc_migration_level >= GRPC_MIGRATION_LEVEL_TRANSACTION_READS
+            && !options.show_input
+            && !options.show_effects
+            && !options.show_object_changes
+            && !options.show_raw_effects
+        {
+            self.get_transaction_with_options_grpc(digest, options)
+                .await
+        } else {
+            self.get_transaction_with_options_json_rpc(digest, options)
+                .await
+        }
+    }
+
+    /// JSON-RPC implementation of `get_transaction_with_options`.
+    async fn get_transaction_with_options_json_rpc(
         &self,
         digest: TransactionDigest,
         options: SuiTransactionBlockResponseOptions,
@@ -1029,6 +1052,32 @@ impl RetriableSuiClient {
             retry_rpc_errors(
                 self.get_strategy(),
                 move || make_request(client.clone(), digest, options.clone()),
+                self.metrics.clone(),
+                method,
+            )
+        };
+        self.failover_sui_client
+            .with_failover(request, None, "get_transaction")
+            .await
+    }
+
+    /// gRPC implementation of `get_transaction_with_options`.
+    ///
+    /// Handles: checkpoint, timestamp, raw_input, balance_changes, and events.
+    async fn get_transaction_with_options_grpc(
+        &self,
+        digest: TransactionDigest,
+        options: SuiTransactionBlockResponseOptions,
+    ) -> SuiClientResult<SuiTransactionBlockResponse> {
+        let request = move |client: Arc<DualClient>, method| {
+            let options = options.clone();
+            retry_rpc_errors(
+                self.get_strategy(),
+                move || {
+                    let client = client.clone();
+                    let options = options.clone();
+                    async move { client.get_transaction_response_grpc(digest, &options).await }
+                },
                 self.metrics.clone(),
                 method,
             )
@@ -1800,6 +1849,18 @@ impl RetriableSuiClient {
 
     /// Returns the events for the given transaction digest.
     pub async fn get_events(&self, tx_digest: TransactionDigest) -> SuiClientResult<Vec<SuiEvent>> {
+        if self.grpc_migration_level >= GRPC_MIGRATION_LEVEL_TRANSACTION_READS {
+            self.get_events_grpc(tx_digest).await
+        } else {
+            self.get_events_json_rpc(tx_digest).await
+        }
+    }
+
+    /// JSON-RPC implementation of `get_events`.
+    async fn get_events_json_rpc(
+        &self,
+        tx_digest: TransactionDigest,
+    ) -> SuiClientResult<Vec<SuiEvent>> {
         self.failover_sui_client
             .with_failover(
                 async |client, method| {
@@ -1820,6 +1881,29 @@ impl RetriableSuiClient {
                 None,
                 "get_events",
             )
+            .await
+    }
+
+    /// gRPC implementation of `get_events`.
+    ///
+    /// Uses `GetTransaction` with the events field mask, then converts gRPC events to `SuiEvent`.
+    async fn get_events_grpc(
+        &self,
+        tx_digest: TransactionDigest,
+    ) -> SuiClientResult<Vec<SuiEvent>> {
+        let request = move |client: Arc<DualClient>, method| {
+            retry_rpc_errors(
+                self.get_strategy(),
+                move || {
+                    let client = client.clone();
+                    async move { client.get_transaction_events_grpc(tx_digest).await }
+                },
+                self.metrics.clone(),
+                method,
+            )
+        };
+        self.failover_sui_client
+            .with_failover(request, None, "get_events")
             .await
     }
 
