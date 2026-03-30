@@ -22,7 +22,7 @@ use crate::{
     error::{ClientError, ClientErrorKind, ClientResult},
     node_client::client_types::{
         BlobWithStatus,
-        RegisteredBlob,
+        OwnedRegisteredBlob,
         WalrusStoreBlobMaybeFinished,
         WalrusStoreBlobUnfinished,
         WalrusStoreEncodedBlobApi,
@@ -86,7 +86,7 @@ impl<'a, 'b> OwnedRegistrationPlanner<'a, 'b> {
     pub(super) async fn register_or_reuse_resources(
         &self,
         blobs: Vec<WalrusStoreBlobUnfinished<BlobWithStatus>>,
-    ) -> ClientResult<Vec<WalrusStoreBlobMaybeFinished<RegisteredBlob>>> {
+    ) -> ClientResult<Vec<WalrusStoreBlobMaybeFinished<OwnedRegisteredBlob>>> {
         let encoded_lengths: Result<Vec<_>, _> = blobs
             .iter()
             .map(|blob| {
