@@ -17,8 +17,10 @@ use sui_rpc::{
         BatchGetObjectsRequest,
         BatchGetObjectsResponse,
         Bcs,
+        DynamicField,
         GetBalanceRequest,
         GetObjectRequest,
+        ListDynamicFieldsRequest,
         ListOwnedObjectsRequest,
         ListOwnedObjectsResponse,
         Object,
@@ -39,6 +41,7 @@ use crate::{
     client::SuiClientError,
     coin::Coin,
     contracts::{AssociatedContractStruct, TypeOriginMap},
+    dynamic_field_info::{DynamicFieldPage, dynamic_field_info_from_grpc},
 };
 
 /// The maximum number of objects to request in a single "batch" gRPC call.
@@ -499,6 +502,49 @@ impl DualClient {
             .balance()
             .coin_balance();
         Ok(coin_balance)
+    }
+
+    /// List dynamic fields of an object via gRPC.
+    pub(crate) async fn list_dynamic_fields(
+        &self,
+        parent: ObjectID,
+        page_token: Option<Bytes>,
+        limit: u32,
+    ) -> Result<DynamicFieldPage, SuiClientError> {
+        let mut request = ListDynamicFieldsRequest::default()
+            .with_parent(parent.to_string())
+            .with_read_mask(FieldMask::from_paths([
+                DynamicField::path_builder().kind(),
+                DynamicField::path_builder().field_id(),
+                DynamicField::path_builder().name().finish(),
+                DynamicField::path_builder().value_type(),
+            ]))
+            .with_page_size(limit);
+        if let Some(page_token) = page_token {
+            request = request.with_page_token(page_token);
+        }
+
+        let mut grpc_client: GrpcClient = self.grpc_client.clone();
+        let response = grpc_client
+            .state_client()
+            .list_dynamic_fields(request)
+            .await
+            .context("failed to list dynamic fields")?
+            .into_inner();
+
+        let mut fields = Vec::new();
+        for df in response.dynamic_fields {
+            fields.push(
+                dynamic_field_info_from_grpc(df)
+                    .context("converting gRPC DynamicField to DynamicFieldInfo")?,
+            );
+        }
+
+        Ok(DynamicFieldPage {
+            fields,
+            has_next_page: response.next_page_token.is_some(),
+            next_cursor: response.next_page_token,
+        })
     }
 }
 
