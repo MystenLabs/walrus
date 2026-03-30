@@ -1049,6 +1049,16 @@ impl StorageNode {
             .expect("current_epoch should be some")
     }
 
+    /// Waits until the storage node has reached the given epoch and finished all
+    /// `StartEpochChangeFinisher` background tasks (such as shard removal and subsidy processing).
+    pub async fn wait_for_epoch_change_finished(&self, epoch: Epoch) -> Epoch {
+        let reached = self.wait_for_epoch(epoch).await;
+        self.start_epoch_change_finisher
+            .wait_until_previous_task_done()
+            .await;
+        reached
+    }
+
     /// Continues the event stream from the last committed event.
     ///
     /// This function is used to continue the event stream from the last committed event. It also

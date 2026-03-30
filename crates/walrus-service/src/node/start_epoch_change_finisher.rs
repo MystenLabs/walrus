@@ -16,6 +16,13 @@ use walrus_utils::backoff::{self, ExponentialBackoff};
 use super::{StorageNodeInner, system_events::EventHandle};
 use crate::node::system_events::CompletableHandle;
 
+/// Minimum backoff duration for retrying process_subsidies calls.
+const SUBSIDIES_MIN_BACKOFF: Duration = Duration::from_secs(5);
+/// Maximum backoff duration for retrying process_subsidies calls.
+const SUBSIDIES_MAX_BACKOFF: Duration = Duration::from_secs(30);
+/// Maximum number of retries for process_subsidies calls.
+const SUBSIDIES_MAX_RETRIES: u32 = 3;
+
 #[derive(Debug, Clone)]
 pub struct StartEpochChangeFinisher {
     node: Arc<StorageNodeInner>,
@@ -87,6 +94,12 @@ impl StartEpochChangeFinisher {
                 );
             }
 
+            // Best-effort call to process subsidies after epoch change.
+            // This distributes usage-independent subsidies for the epoch that just ended,
+            // which can only be paid after the on-chain epoch has advanced.
+            // The on-chain function is idempotent, so all nodes calling it is safe.
+            self_clone.process_subsidies().await;
+
             event_handle.mark_as_complete();
             self_clone
                 .task_handle
@@ -150,6 +163,36 @@ impl StartEpochChangeFinisher {
         }
 
         Ok(())
+    }
+
+    /// Best-effort call to process subsidies after epoch change with limited retries.
+    ///
+    /// This distributes usage-independent subsidies for the epoch that just ended. These can only
+    /// be paid after the on-chain epoch has advanced, so this is called during epoch change start
+    /// processing rather than before epoch change.
+    async fn process_subsidies(&self) {
+        if !self.node.contract_service.is_subsidies_object_configured() {
+            return;
+        }
+
+        let backoff = ExponentialBackoff::new_with_seed(
+            SUBSIDIES_MIN_BACKOFF,
+            SUBSIDIES_MAX_BACKOFF,
+            Some(SUBSIDIES_MAX_RETRIES),
+            0,
+        );
+
+        tracing::info!("attempting to process subsidies after epoch change");
+        if let Err(error) =
+            backoff::retry(backoff, || self.node.contract_service.process_subsidies()).await
+        {
+            tracing::warn!(
+                %error,
+                "failed to process subsidies after epoch change after retries"
+            );
+        } else {
+            tracing::debug!("successfully processed subsidies after epoch change");
+        }
     }
 
     /// Wait until the previous shard remove task is done.

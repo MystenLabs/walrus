@@ -637,42 +637,17 @@ impl EpochOperation for InitiateEpochChangeOperation {
             return Ok(());
         }
         tracing::info!(next_epoch, "attempting to start epoch change");
-        let process_subsidies = contract.is_subsidies_object_configured();
         // Move transaction execution to a separate task so that it cannot be cancelled when
         // invoke() is cancelled. Otherwise, cancelling inflight transaction may cause object
         // conflicts.
         tokio::spawn({
             let contract = contract.clone();
-            async move {
-                let epoch_change_result = contract.initiate_epoch_change().await;
-                if let Err(ref error) = epoch_change_result {
-                    tracing::warn!(%error, "initiate epoch change failed");
-                } else {
-                    tracing::debug!("epoch change successfully started");
-                }
-
-                // Best-effort call to process subsidies after epoch change attempt.
-                // This runs regardless of whether initiate_epoch_change succeeded,
-                // since another node may have already initiated the epoch change.
-                // The on-chain function is idempotent, so multiple nodes calling it
-                // is safe.
-                if process_subsidies {
-                    tracing::info!("attempting to process subsidies after epoch change");
-                    if let Err(error) = contract.process_subsidies().await {
-                        tracing::warn!(
-                            %error,
-                            "failed to process subsidies after epoch change"
-                        );
-                    } else {
-                        tracing::debug!("successfully processed subsidies after epoch change");
-                    }
-                }
-
-                epoch_change_result
-            }
+            async move { contract.initiate_epoch_change().await }
         })
         .await
-        .map_err(|e| anyhow::anyhow!("initiate epoch change panicked: {:?}", e))?
+        .map_err(|e| anyhow::anyhow!("initiate epoch change panicked: {:?}", e))??;
+        tracing::debug!("epoch change successfully started");
+        Ok(())
     }
 }
 
@@ -1007,9 +982,6 @@ mod tests {
             service
                 .expect_current_epoch()
                 .returning(move || upcoming_epoch.get() - 1);
-            service
-                .expect_is_subsidies_object_configured()
-                .returning(|| false);
 
             let driver = driver_under_test(service, /*seed=*/ 3, start);
 
@@ -1061,9 +1033,6 @@ mod tests {
             service
                 .expect_current_epoch()
                 .returning(move || GENESIS_EPOCH);
-            service
-                .expect_is_subsidies_object_configured()
-                .returning(|| false);
 
             let driver = driver_under_test_with_epoch_zero_end(
                 service,
@@ -1128,52 +1097,6 @@ mod tests {
                 "scheduled call should have completed"
             );
             // Drop the driver to ensure that all conditions of the mock service have been met.
-            drop(driver);
-
-            Ok(())
-        }
-
-        #[tokio::test(start_paused = true)]
-        async fn calls_process_subsidies_after_epoch_change() -> TestResult {
-            let start = UtcInstant::now();
-            let upcoming_epoch: NonZero<Epoch> = nonzero!(2);
-            let epoch_duration_elapsed = EPOCH_DURATION / 8;
-            let epoch_duration_remaining = EPOCH_DURATION - epoch_duration_elapsed;
-            let current_epoch_started_at = start.utc - epoch_duration_elapsed;
-
-            let mut service = MockSystemContractService::new();
-
-            service
-                .expect_sync_node_params()
-                .returning(|_config, _node_cap_id, _wal_price| Ok(()));
-            service
-                .expect_initiate_epoch_change()
-                .once()
-                .returning(|| Ok(()));
-            service
-                .expect_process_subsidies()
-                .once()
-                .returning(|| Ok(()));
-            service
-                .expect_is_subsidies_object_configured()
-                .returning(|| true);
-            service.expect_get_epoch_and_state().returning(move || {
-                Ok((
-                    upcoming_epoch.get() - 1,
-                    EpochState::NextParamsSelected(current_epoch_started_at),
-                ))
-            });
-            service
-                .expect_current_epoch()
-                .returning(move || upcoming_epoch.get() - 1);
-
-            let driver = driver_under_test(service, /*seed=*/ 4, start);
-            driver.schedule_initiate_epoch_change(upcoming_epoch);
-
-            let _ =
-                tokio::time::timeout(epoch_duration_remaining + MAX_SCHEDULE_JITTER, driver.run())
-                    .await;
-
             drop(driver);
 
             Ok(())

@@ -2022,6 +2022,17 @@ impl<T: StorageNodeHandleTrait> TestCluster<T> {
             .collect();
         waits.for_each(|_| std::future::ready(())).await;
     }
+
+    /// Waits for all nodes to reach the given epoch and finish all `StartEpochChangeFinisher`
+    /// background tasks (such as shard removal and subsidy processing).
+    pub async fn wait_for_nodes_to_finish_epoch_change(&self, epoch: Epoch) {
+        let waits: FuturesUnordered<_> = self
+            .nodes
+            .iter()
+            .map(|handle| handle.storage_node().wait_for_epoch_change_finished(epoch))
+            .collect();
+        waits.for_each(|_| std::future::ready(())).await;
+    }
 }
 
 /// Builds a new [`TestCluster`] with custom configuration values.

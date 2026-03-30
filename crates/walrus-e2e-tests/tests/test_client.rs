@@ -1487,11 +1487,12 @@ async fn test_walrus_subsidies_get_called_by_node() -> TestResult {
 }
 
 /// Tests that the post-epoch-change call to `process_subsidies` in
-/// `InitiateEpochChangeOperation::invoke` pays usage-independent subsidies.
+/// `StartEpochChangeFinisher` pays usage-independent subsidies.
 ///
 /// The pre-epoch-change subsidy call runs during epoch N and can only pay usage-independent
-/// subsidies for epoch N-1 (which was already paid). After epoch change to N+1, the
-/// post-epoch-change call can pay usage-independent subsidies for epoch N, advancing
+/// subsidies for epoch N-1 (which was already paid). After epoch change to N+1, every node
+/// processes the `EpochChangeStart` event and calls `process_subsidies` in
+/// `StartEpochChangeFinisher`, which pays usage-independent subsidies for epoch N, advancing
 /// `latest_epoch`.
 #[ignore = "ignore E2E tests by default"]
 #[walrus_simtest]
@@ -1516,10 +1517,12 @@ async fn test_walrus_subsidies_called_after_epoch_change_distribute_usage_indepe
         .latest_subsidized_epoch()
         .expect("should return some, subsidies were requested with inner");
 
-    // Wait for one epoch change. After epoch change, the post-epoch-change call in
-    // InitiateEpochChangeOperation::invoke calls process_subsidies, which pays
-    // usage-independent subsidies for the epoch that just ended.
-    cluster.wait_for_nodes_to_reach_epoch(epoch + 1).await;
+    // Wait for one epoch change and for all nodes to finish StartEpochChangeFinisher tasks
+    // (including the process_subsidies call that pays usage-independent subsidies for the
+    // epoch that just ended).
+    cluster
+        .wait_for_nodes_to_finish_epoch_change(epoch + 1)
+        .await;
 
     // After the epoch change, latest_subsidized_epoch should have advanced, proving that
     // process_subsidies was called after epoch change and paid the usage-independent subsidy.
