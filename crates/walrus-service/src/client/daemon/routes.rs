@@ -1587,7 +1587,10 @@ pub struct PublisherQuery {
     #[serde(default)]
     #[serde(deserialize_with = "deserialize_quilt_version")]
     pub quilt_version: Option<QuiltVersionEnum>,
-
+    /// If true, the publisher will attempt to reuse existing on-chain resources (e.g., storage and
+    /// blob objects) when storing a blob.
+    #[serde(default)]
+    pub reuse_resources: bool,
     #[serde(flatten, default)]
     #[param(inline)]
     send_or_share: Option<SendOrShare>,
@@ -1606,6 +1609,7 @@ impl Default for PublisherQuery {
             deletable: false,
             permanent: false,
             force: false,
+            reuse_resources: false,
             quilt_version: None,
             send_or_share: None,
         }
@@ -1614,10 +1618,10 @@ impl Default for PublisherQuery {
 
 impl PublisherQuery {
     /// Returns the [`StoreOptimizations`] value based on the query parameters.
-    ///
-    /// The publisher always ignores existing resources.
     fn optimizations(&self) -> StoreOptimizations {
-        StoreOptimizations::none().with_check_status(!self.force)
+        StoreOptimizations::none()
+            .with_check_status(!self.force)
+            .with_reuse_resources(self.reuse_resources)
     }
 
     /// Returns the [`BlobPersistence`] value based on the query parameters.
@@ -1858,7 +1862,7 @@ mod tests {
             &[
                 Token::Struct {
                     name: "PublisherQuery",
-                    len: 5,
+                    len: 6,
                 },
                 Token::Str("encoding_type"),
                 Token::None,
@@ -1867,6 +1871,8 @@ mod tests {
                 Token::Str("deletable"),
                 Token::Bool(false),
                 Token::Str("force"),
+                Token::Bool(false),
+                Token::Str("reuse_resources"),
                 Token::Bool(false),
                 Token::Str("quilt_version"),
                 Token::None,
@@ -1947,6 +1953,13 @@ mod tests {
                     PublisherQuery {
                         send_or_share: Some(SendOrShare::Share(true)),
                             ..Default::default()
+            })),
+            reuse_resources: (
+                "reuse_resources=true",
+                Some(
+                    PublisherQuery {
+                        reuse_resources: true,
+                        ..Default::default()
             })),
             dont_share: (
                 "share=false",
