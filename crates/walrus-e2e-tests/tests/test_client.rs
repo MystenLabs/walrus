@@ -11,6 +11,8 @@
 
 #[cfg(msim)]
 use std::sync::atomic::{AtomicU32, Ordering};
+#[cfg(not(msim))]
+use std::thread;
 use std::{
     collections::{HashMap, HashSet},
     net::SocketAddr,
@@ -18,7 +20,6 @@ use std::{
     path::PathBuf,
     str::FromStr,
     sync::Arc,
-    thread,
     time::Duration,
 };
 
@@ -219,6 +220,12 @@ where
 #[ignore = "ignore E2E tests by default"]
 #[walrus_simtest]
 async fn test_store_blobs_in_bucket() -> TestResult {
+    #[cfg(msim)]
+    {
+        test_store_blobs_in_bucket_inner().await
+    }
+
+    #[cfg(not(msim))]
     run_with_large_stack(|| {
         tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -312,6 +319,7 @@ async fn test_store_blobs_in_bucket_inner() -> TestResult {
     Ok(())
 }
 
+#[cfg(not(msim))]
 fn run_with_large_stack<T>(f: impl FnOnce() -> TestResult<T> + Send + 'static) -> TestResult<T>
 where
     T: Send + 'static,
