@@ -2,7 +2,7 @@ This page describes the practical limits and constraints you should consider whe
 
 ## Blob size
 
-Walrus supports blobs up to approximately 13.6 GiB. Check the current limit with `walrus info` under "Maximum blob size."
+Walrus supports blobs up to approximately 13.6 GB. Check the current limit with `walrus info` under "Maximum blob size."
 
 If your data exceeds this limit, learn more about [best practices for large data uploads](/docs/large-uploads).
 

@@ -60,7 +60,7 @@ Important notes:
 - [System Constraints](https://docs.wal.app/docs/system-overview/system-constraints.md): This page
     describes the practical limits and constraints you should consider when designing applications
     on Walrus. For current values, run walrus info. Walrus supports blobs up to approximately 13.6
-    GiB. Check the current limit with walrus info under "Maximum blob size.
+    GB. Check the current limit with walrus info under "Maximum blob size.
 - [View System Info](https://docs.wal.app/docs/system-overview/view-system-info.md): The Walrus
     system object contains metadata about available and used storage and the price of storage per
     KB in FROST. These values are determined by 2/3 agreement between storage nodes for each
