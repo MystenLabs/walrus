@@ -501,14 +501,19 @@ pub(crate) async fn publish_coin_and_system_package(
     .await?;
     let walrus_pkg_id = get_pkg_id_from_tx_response(&transaction_response)?;
 
-    let blob_bucket_pkg_id = Some(get_pkg_id_from_tx_response(
-        &publish_package_with_default_build_config(
-            wallet,
-            walrus_contract_directory.join("blob_bucket"),
-            gas_budget,
-        )
-        .await?,
-    )?);
+    let blob_bucket_package_path = walrus_contract_directory.join("blob_bucket");
+    let blob_bucket_pkg_id = if blob_bucket_package_path.is_dir() {
+        Some(get_pkg_id_from_tx_response(
+            &publish_package_with_default_build_config(
+                wallet,
+                blob_bucket_package_path,
+                gas_budget,
+            )
+            .await?,
+        )?)
+    } else {
+        None
+    };
 
     let [init_cap_id] = get_created_object_ids_by_type(
         &transaction_response,
