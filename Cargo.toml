@@ -42,7 +42,7 @@ byteorder = "1.5.0"
 bytes = { version = "1.11.1", default-features = false, features = ["serde"] }
 bytesize = "2.3"
 checkpoint-downloader = { path = "crates/checkpoint-downloader" }
-chrono = "0.4"
+chrono = "=0.4.39"
 clap = { version = "4.6.0", features = ["deprecated", "derive"] }
 clap_complete = "4.6.0"
 collectable = "0.0.2"
