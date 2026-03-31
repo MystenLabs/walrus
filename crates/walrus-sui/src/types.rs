@@ -44,7 +44,10 @@ pub use events::{
 pub mod move_structs;
 pub use move_structs::{
     Blob,
+    BlobBucket,
+    BlobBucketCap,
     NodeMetadata,
+    PooledBlob,
     StakedWal,
     StakingObject,
     StorageNode,
