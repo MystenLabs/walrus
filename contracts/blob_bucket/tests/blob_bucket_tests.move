@@ -104,6 +104,12 @@ fun full_blob_bucket_lifecycle() {
     );
     assert_eq!(blob_bucket::reserved_encoded_capacity_bytes(&bucket), encoded_size * 2);
 
+    // Merge an external empty pool into the bucket.
+    let mut merge_payment = test_utils::mint_frost(N_COINS, ctx);
+    let external_pool = system.create_storage_pool(encoded_size, 4, &mut merge_payment, ctx);
+    blob_bucket::merge_storage_pool(&mut bucket, &cap, external_pool);
+    assert_eq!(blob_bucket::reserved_encoded_capacity_bytes(&bucket), encoded_size * 3);
+
     let object_id = blob_bucket::get_blob_object_id(&bucket, blob_id);
     let confirmation_message = messages::certified_deletable_message_bytes(
         EPOCH,
@@ -131,6 +137,7 @@ fun full_blob_bucket_lifecycle() {
     write_payment.burn_for_testing();
     extension_payment.burn_for_testing();
     capacity_payment.burn_for_testing();
+    merge_payment.burn_for_testing();
     let inner = blob_bucket::destroy_for_testing(bucket);
     let pool = blob_bucket_inner_v1::destroy_for_testing(inner);
     blob_bucket::destroy_cap_for_testing(cap);
