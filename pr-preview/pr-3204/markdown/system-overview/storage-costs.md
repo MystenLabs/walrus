@@ -8,7 +8,7 @@ Storing blobs on Walrus Mainnet incurs 2 separate costs:
 
 :::tip
 
-You pay for a blob's encoded size, not raw file size. Walrus uses erasure coding with approximately 5x expansion. However, the storage cost shown by `walrus info` already accounts for this, so you do not need to calculate the expansion yourself.
+Walrus uses erasure coding with approximately 5x expansion. The storage cost shown by `walrus info` accounts for this. You do not need to calculate the expansion yourself.
 
 :::
 
