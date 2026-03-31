@@ -211,6 +211,7 @@ const GRPC_MIGRATION_LEVEL_BATCH_OBJECTS: GrpcMigrationLevel = GrpcMigrationLeve
 const GRPC_MIGRATION_LEVEL_SELECT_COINS: GrpcMigrationLevel = GrpcMigrationLevel(3);
 const GRPC_MIGRATION_LEVEL_GET_BALANCE: GrpcMigrationLevel = GrpcMigrationLevel(4);
 const GRPC_MIGRATION_LEVEL_TRANSACTION_READS: GrpcMigrationLevel = GrpcMigrationLevel(5);
+const GRPC_MIGRATION_LEVEL_SERVICE_INFO: GrpcMigrationLevel = GrpcMigrationLevel(6);
 
 impl Default for GrpcMigrationLevel {
     fn default() -> Self {
@@ -1232,54 +1233,105 @@ impl RetriableSuiClient {
     }
 
     /// Returns the committee information for the given epoch.
-    ///
-    /// Calls [`sui_sdk::apis::GovernanceApi::get_committee_info`] internally.
     pub async fn get_committee_info(
         &self,
         epoch: Option<BigInt<u64>>,
     ) -> SuiClientResult<SuiCommittee> {
-        async fn make_request(
-            client: Arc<DualClient>,
-            epoch: Option<BigInt<u64>>,
-        ) -> SuiClientResult<SuiCommittee> {
-            Ok(client
-                .sui_client()
-                .governance_api()
-                .get_committee_info(epoch)
-                .await?)
+        if self.grpc_migration_level >= GRPC_MIGRATION_LEVEL_SERVICE_INFO {
+            self.get_committee_info_grpc(epoch.map(|b| *b)).await
+        } else {
+            self.get_committee_info_json_rpc(epoch).await
         }
+    }
 
+    /// JSON-RPC implementation of `get_committee_info`.
+    async fn get_committee_info_json_rpc(
+        &self,
+        epoch: Option<BigInt<u64>>,
+    ) -> SuiClientResult<SuiCommittee> {
         let request = move |client: Arc<DualClient>, method| {
             retry_rpc_errors(
                 self.get_strategy(),
-                move || make_request(client.clone(), epoch),
+                move || {
+                    let client = client.clone();
+                    async move {
+                        Ok(client
+                            .sui_client()
+                            .governance_api()
+                            .get_committee_info(epoch)
+                            .await?)
+                    }
+                },
                 self.metrics.clone(),
                 method,
             )
         };
+        self.failover_sui_client
+            .with_failover(request, None, "get_committee_info")
+            .await
+    }
 
+    /// gRPC implementation of `get_committee_info`.
+    async fn get_committee_info_grpc(&self, epoch: Option<u64>) -> SuiClientResult<SuiCommittee> {
+        let request = move |client: Arc<DualClient>, method| {
+            retry_rpc_errors(
+                self.get_strategy(),
+                move || {
+                    let client = client.clone();
+                    async move { client.get_committee_info_grpc(epoch).await }
+                },
+                self.metrics.clone(),
+                method,
+            )
+        };
         self.failover_sui_client
             .with_failover(request, None, "get_committee_info")
             .await
     }
 
     /// Returns the reference gas price.
-    ///
-    /// Calls [`sui_sdk::apis::ReadApi::get_reference_gas_price`] internally.
     #[tracing::instrument(level = Level::DEBUG, skip_all)]
     pub async fn get_reference_gas_price(&self) -> SuiClientResult<u64> {
-        async fn make_request(client: Arc<DualClient>) -> SuiClientResult<u64> {
-            Ok(client
-                .sui_client()
-                .read_api()
-                .get_reference_gas_price()
-                .await?)
+        if self.grpc_migration_level >= GRPC_MIGRATION_LEVEL_SERVICE_INFO {
+            self.get_reference_gas_price_grpc().await
+        } else {
+            self.get_reference_gas_price_json_rpc().await
         }
+    }
 
+    /// JSON-RPC implementation of `get_reference_gas_price`.
+    async fn get_reference_gas_price_json_rpc(&self) -> SuiClientResult<u64> {
         let request = move |client: Arc<DualClient>, method| {
             retry_rpc_errors(
                 self.get_strategy(),
-                move || make_request(client.clone()),
+                move || {
+                    let client = client.clone();
+                    async move {
+                        Ok(client
+                            .sui_client()
+                            .read_api()
+                            .get_reference_gas_price()
+                            .await?)
+                    }
+                },
+                self.metrics.clone(),
+                method,
+            )
+        };
+        self.failover_sui_client
+            .with_failover(request, None, "get_reference_gas_price")
+            .await
+    }
+
+    /// gRPC implementation of `get_reference_gas_price`.
+    async fn get_reference_gas_price_grpc(&self) -> SuiClientResult<u64> {
+        let request = move |client: Arc<DualClient>, method| {
+            retry_rpc_errors(
+                self.get_strategy(),
+                move || {
+                    let client = client.clone();
+                    async move { client.get_reference_gas_price_grpc().await }
+                },
                 self.metrics.clone(),
                 method,
             )
@@ -1453,20 +1505,47 @@ impl RetriableSuiClient {
     }
 
     /// Returns the chain identifier.
-    ///
-    /// Calls [`sui_sdk::apis::ReadApi::get_chain_identifier`] internally.
     pub async fn get_chain_identifier(&self) -> SuiClientResult<String> {
-        async fn make_request(client: Arc<DualClient>) -> SuiClientResult<String> {
-            Ok(client
-                .sui_client()
-                .read_api()
-                .get_chain_identifier()
-                .await?)
+        if self.grpc_migration_level >= GRPC_MIGRATION_LEVEL_SERVICE_INFO {
+            self.get_chain_identifier_grpc().await
+        } else {
+            self.get_chain_identifier_json_rpc().await
         }
+    }
+
+    /// JSON-RPC implementation of `get_chain_identifier`.
+    async fn get_chain_identifier_json_rpc(&self) -> SuiClientResult<String> {
         let request = move |client: Arc<DualClient>, method| {
             retry_rpc_errors(
                 self.get_strategy(),
-                move || make_request(client.clone()),
+                move || {
+                    let client = client.clone();
+                    async move {
+                        Ok(client
+                            .sui_client()
+                            .read_api()
+                            .get_chain_identifier()
+                            .await?)
+                    }
+                },
+                self.metrics.clone(),
+                method,
+            )
+        };
+        self.failover_sui_client
+            .with_failover(request, None, "get_chain_identifier")
+            .await
+    }
+
+    /// gRPC implementation of `get_chain_identifier`.
+    async fn get_chain_identifier_grpc(&self) -> SuiClientResult<String> {
+        let request = move |client: Arc<DualClient>, method| {
+            retry_rpc_errors(
+                self.get_strategy(),
+                move || {
+                    let client = client.clone();
+                    async move { client.get_chain_identifier_grpc().await }
+                },
                 self.metrics.clone(),
                 method,
             )

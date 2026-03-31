@@ -18,9 +18,12 @@ use sui_rpc::{
         BatchGetObjectsResponse,
         Bcs,
         DynamicField,
+        Epoch as GrpcEpoch,
         ExecutedTransaction,
         GetBalanceRequest,
+        GetEpochRequest,
         GetObjectRequest,
+        GetServiceInfoRequest,
         GetTransactionRequest,
         ListDynamicFieldsRequest,
         ListOwnedObjectsRequest,
@@ -36,6 +39,7 @@ use sui_sdk::{
     rpc_types::{
         BalanceChange as SuiBalanceChange,
         BcsEvent,
+        SuiCommittee,
         SuiEvent,
         SuiTransactionBlockResponse,
         SuiTransactionBlockResponseOptions,
@@ -44,7 +48,7 @@ use sui_sdk::{
 use sui_types::{
     TypeTag,
     base_types::{ObjectID, ObjectRef, SuiAddress},
-    crypto::ToFromBytes,
+    crypto::{AuthorityPublicKeyBytes, ToFromBytes},
     digests::TransactionDigest,
     event::EventID,
     object::Owner,
@@ -625,6 +629,74 @@ impl DualClient {
             fields,
             has_next_page: response.next_page_token.is_some(),
             next_cursor: response.next_page_token,
+        })
+    }
+
+    /// Get the chain identifier via gRPC.
+    pub async fn get_chain_identifier_grpc(&self) -> Result<String, SuiClientError> {
+        let mut grpc_client = self.grpc_client.clone();
+        let response = grpc_client
+            .ledger_client()
+            .get_service_info(GetServiceInfoRequest::default())
+            .await?;
+        Ok(response
+            .into_inner()
+            .chain_id
+            .context("no chain_id in get_service_info response")?)
+    }
+
+    /// Get the reference gas price for the current epoch via gRPC.
+    pub async fn get_reference_gas_price_grpc(&self) -> Result<u64, SuiClientError> {
+        let request = GetEpochRequest::default().with_read_mask(FieldMask::from_paths([
+            GrpcEpoch::path_builder().reference_gas_price(),
+        ]));
+        let mut grpc_client = self.grpc_client.clone();
+        let response = grpc_client.ledger_client().get_epoch(request).await?;
+        Ok(response
+            .into_inner()
+            .epoch
+            .context("no epoch in get_epoch response")?
+            .reference_gas_price
+            .context("no reference_gas_price in epoch")?)
+    }
+
+    /// Get the committee info for the given epoch via gRPC.
+    pub async fn get_committee_info_grpc(
+        &self,
+        epoch: Option<u64>,
+    ) -> Result<SuiCommittee, SuiClientError> {
+        let mut request = GetEpochRequest::default().with_read_mask(FieldMask::from_paths([
+            GrpcEpoch::path_builder().epoch(),
+            GrpcEpoch::path_builder().committee().finish(),
+        ]));
+        if let Some(e) = epoch {
+            request = request.with_epoch(e);
+        }
+
+        let mut grpc_client = self.grpc_client.clone();
+        let response = grpc_client.ledger_client().get_epoch(request).await?;
+        let epoch_data = response
+            .into_inner()
+            .epoch
+            .context("no epoch in get_epoch response")?;
+        let committee = epoch_data.committee.context("no committee in epoch")?;
+        let validators = committee
+            .members
+            .iter()
+            .map(|member| {
+                let pk_bytes = member
+                    .public_key
+                    .as_ref()
+                    .context("no public_key in committee member")?;
+                let pk = AuthorityPublicKeyBytes::from_bytes(pk_bytes)
+                    .map_err(|e| anyhow::anyhow!("invalid authority public key: {e}"))?;
+                let weight = member.weight.context("no weight in committee member")?;
+                Ok((pk, weight))
+            })
+            .collect::<Result<Vec<_>, anyhow::Error>>()?;
+        Ok(SuiCommittee {
+            epoch: epoch_data.epoch.context("no epoch number")?,
+            validators,
         })
     }
 }
