@@ -1,6 +1,140 @@
 ---
-title: Linking to Walrus Sites
-draft: true
+title: Linking to Walrus Sites from External Sources
+description: How to construct URLs that point to Walrus Sites from external pages, apps, and tools, including subdomain resolution, SuiNS names, object IDs, and deep links.
+keywords: [Walrus Sites, inbound links, SuiNS, object ID, subdomain, portal, deep link, URL]
 ---
 
-https://linear.app/mysten-labs/issue/DOCS-678/siteslinkinglinking-to-walrus-sites
+A Walrus Site is addressed through a [portal](/docs/sites/portals/mainnet-testnet). The portal resolves the site from an onchain object and serves its content. To link to a Walrus Site from an external source, you construct a URL that the portal can resolve. There are 2 ways to identify a site in that URL: by its [SuiNS name](/docs/sites/custom-domains/setting-a-suins-name), or by its [Sui object ID](/docs/sites/getting-started/using-the-site-builder).
+
+## URL structure
+ 
+Walrus Sites URLs follow this pattern:
+ 
+```
+https://IDENTIFIER.PORTAL_HOST/PATH
+```
+ 
+- `IDENTIFIER`: Either a SuiNS name or a Base36-encoded Sui object ID.
+- `PORTAL_HOST`: The hostname of the portal serving the site. The default public mainnet portal is `wal.app`.
+- `PATH`: An optional path to a specific resource within the site.
+ 
+## Linking by SuiNS name
+ 
+If a site owner has registered a SuiNS name and pointed it at their site object, you can link using that name as the subdomain.
+ 
+```
+https://SUINS_NAME.wal.app
+```
+ 
+For example, a site registered under the name `myproject` is reachable at:
+ 
+```
+https://myproject.wal.app
+```
+ 
+SuiNS names are human-readable and stable as long as the registration is maintained and continues to point at the correct site object. If the owner transfers the site object or re-registers the name to a different object, links using the SuiNS name resolve to the new target.
+ 
+:::info
+SuiNS name resolution is performed onchain by the portal at request time. A name that is expired, not registered, or not pointed at a site object returns an error.
+:::
+ 
+## Linking by object ID
+ 
+Every Walrus Site has a Sui object ID. You can use the object ID as the subdomain in place of a SuiNS name. Because subdomain labels are case-insensitive and limited to 63 characters, the object ID must be encoded as Base36 rather than used as a hex string. The `site-builder` tool outputs the Base36-encoded subdomain URL for you when you deploy a site, and you can also convert a hex object ID to Base36 using the `site-builder convert` command.
+ 
+```
+https://BASE36_OBJECT_ID.wal.app
+```
+ 
+For example:
+ 
+```
+https://58gr4pinoayuijgdixud23441t55jd94ugep68fsm72b8mwmq2.wal.app
+```
+ 
+Object ID links are permanent. They resolve to the same site object regardless of whether the SuiNS name changes or is transferred. Use object ID links when stability matters, such as in documentation, bookmarks, or application configurations.
+ 
+:::tip
+Prefer object ID links in any context where the URL is expected to remain valid long-term. SuiNS name links are more readable but depend on the name registration staying current.
+:::
+ 
+## Deep linking to a specific page or resource
+ 
+Append a path after the portal hostname to link directly to a resource within the site. The path resolves against the site object's stored resources.
+ 
+```
+https://IDENTIFIER.wal.app/PATH
+```
+ 
+For example, to link to the `/docs/getting-started` page of a site:
+ 
+```
+https://myproject.wal.app/docs/getting-started
+```
+ 
+Or using a Base36 object ID:
+ 
+```
+https://BASE36_OBJECT_ID.wal.app/docs/getting-started
+```
+ 
+The path must match a resource stored in the site object. If the path does not match any resource and the site does not define a custom 404 resource, the portal returns a default error.
+ 
+## Linking to a specific portal
+ 
+The public mainnet portal at `wal.app` is the default, but other portals exist and site owners might host their own. To link through a specific portal, replace `wal.app` with that portal's hostname.
+ 
+```
+https://IDENTIFIER.PORTAL_HOST
+```
+ 
+The portal you link through does not change which site object is resolved. Any portal that supports Walrus Sites resolves the same onchain object for a given identifier. The choice of portal affects availability and trust, not content.
+ 
+## Constructing links programmatically
+ 
+When building applications or tools that generate links to Walrus Sites, use the object ID rather than a SuiNS name to avoid resolution failures caused by name changes.
+ 
+A basic pattern in JavaScript:
+ 
+```js
+const PORTAL_HOST = "wal.app";
+ 
+function walrusSiteUrl(base36ObjectId, path = "") {
+  return `https://${base36ObjectId}.${PORTAL_HOST}${path}`;
+}
+ 
+// Example: link to the /blog page of a site
+const url = walrusSiteUrl("BASE36_OBJECT_ID", "/blog");
+```
+ 
+If you want to support both identifiers, accept either a SuiNS name or an object ID as the subdomain segment and pass it through directly.
+ 
+## Common patterns
+ 
+The following examples cover typical inbound linking scenarios.
+ 
+### Linking from a README
+ 
+```markdown
+[View the live site](https://BASE36_OBJECT_ID.wal.app)
+```
+ 
+### Linking from an HTML page
+ 
+```html
+<a href="https://SUINS_NAME.wal.app">Visit the project site</a>
+```
+ 
+### Linking to a specific resource from an HTML page
+ 
+```html
+<a href="https://SUINS_NAME.wal.app/docs">Read the documentation</a>
+```
+ 
+### Embedding a Walrus Site in an iframe
+ 
+```html
+<iframe src="https://BASE36_OBJECT_ID.wal.app" width="100%" height="600"></iframe>
+```
+ 
+Object IDs are preferred in embedded contexts because the framed content does not change if a SuiNS name is updated.

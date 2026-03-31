@@ -41,6 +41,8 @@ pub(crate) const STATUS_PENDING: &str = "pending";
 pub(crate) const STATUS_PERSISTED: &str = "persisted";
 pub(crate) const STATUS_IN_PROGRESS: &str = "in-progress";
 pub(crate) const STATUS_STARTED: &str = "started";
+pub(crate) const STATUS_BLOB_INFO_CLEANUP_COMPLETED: &str = "blob_info_cleanup_completed";
+pub(crate) const STATUS_DATA_DELETION_STARTED: &str = "data_deletion_started";
 pub(crate) const STATUS_COMPLETED: &str = "completed";
 pub(crate) const STATUS_HIGHEST_FINISHED: &str = "highest_finished";
 
@@ -222,7 +224,7 @@ walrus_utils::metrics::define_metric_set! {
         #[help = "The total number of blob data deletion attempts"]
         garbage_collection_blob_data_deletion_attempts_total: IntCounterVec["status"],
 
-        #[help = "The start time of the next garbage-collection task as a UNIX timestamp"]
+        #[help = "The target start time of the data deletion phase (phase 2) as a UNIX timestamp"]
         garbage_collection_task_start_time: U64Gauge[],
 
         #[help = "The last epoch for which garbage collection was started or finished"]
@@ -245,6 +247,12 @@ walrus_utils::metrics::define_metric_set! {
 
         #[help = "The duration of pooled blob object GC in seconds"]
         garbage_collection_pooled_blob_objects_duration_seconds: Gauge[],
+
+        #[help = "The total duration of GC phase 1 (blob info cleanup) in seconds"]
+        garbage_collection_phase1_duration_seconds: Gauge[],
+
+        #[help = "The total duration of GC phase 2 (data deletion) in seconds"]
+        garbage_collection_phase2_duration_seconds: Gauge[],
 
         #[help = "The number of blobs registered to be notified when the blob expires/gets \
         deleted/gets invalidated"]
@@ -275,6 +283,24 @@ impl NodeMetricSet {
     pub fn set_garbage_collection_last_started_epoch(&self, epoch: Epoch) {
         walrus_utils::with_label!(self.garbage_collection_last_epoch, STATUS_STARTED)
             .set(epoch.into());
+    }
+
+    /// Sets the last epoch for which blob info cleanup (phase 1) was completed.
+    pub fn set_garbage_collection_blob_info_cleanup_completed_epoch(&self, epoch: Epoch) {
+        walrus_utils::with_label!(
+            self.garbage_collection_last_epoch,
+            STATUS_BLOB_INFO_CLEANUP_COMPLETED
+        )
+        .set(epoch.into());
+    }
+
+    /// Sets the last epoch for which data deletion (phase 2) was started.
+    pub fn set_garbage_collection_data_deletion_started_epoch(&self, epoch: Epoch) {
+        walrus_utils::with_label!(
+            self.garbage_collection_last_epoch,
+            STATUS_DATA_DELETION_STARTED
+        )
+        .set(epoch.into());
     }
 
     /// Sets the last epoch for which garbage collection was finished.

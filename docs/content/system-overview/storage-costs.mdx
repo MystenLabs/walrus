@@ -40,7 +40,7 @@ Registering a blob costs WAL to cover upload costs. This ensures that deleting b
 
 #### Sui transaction fees
 
-Storing a blob involves up to 3 on-chain [Sui transactions](https://docs.sui.io/concepts/transactions), each of which incurs SUI gas fees.
+Storing a blob involves up to 3 onchain [Sui transactions](https://docs.sui.io/concepts/transactions), each of which incurs SUI gas fees.
 
 1. Acquiring a storage resource (`reserve_space`)
 
@@ -50,7 +50,7 @@ Storing a blob involves up to 3 on-chain [Sui transactions](https://docs.sui.io/
 
 #### Sui object storage
 
-Walrus blobs are represented as [Sui objects](https://docs.sui.io/guides/developer/objects/object-model) on-chain. Creating these objects deposits SUI into the [Sui storage fund](https://docs.sui.io/concepts/sui-architecture/sui-storage#storage-fund), most of which is refunded when you delete the objects.
+Walrus blobs are represented as [Sui objects](https://docs.sui.io/guides/developer/objects/object-model) onchain. Creating these objects deposits SUI into the [Sui storage fund](https://docs.sui.io/concepts/sui-architecture/sui-storage#storage-fund), most of which is refunded when you delete the objects.
 
 ## Measuring costs
 
@@ -92,11 +92,11 @@ After acquiring storage, assign a blob ID to indicate intent to store. This emit
 
 #### Certifying availability
 
-After uploading blob data off-chain, certify availability on-chain:
+After uploading blob data off-chain, certify availability onchain:
 
 1. Upload blob slivers to storage nodes off-chain.
 2. Receive an availability certificate from storage nodes.
-3. Upload the certificate on-chain.
+3. Upload the certificate onchain.
 4. The system checks the certificate against the current Walrus committee.
 5. If valid, the system emits an availability event for the blob ID.
 
@@ -108,7 +108,7 @@ You can extend a certified blob's storage at any time by attaching a storage obj
 
 #### Handling inconsistent blobs
 
-If a blob ID is not correctly encoded, an [inconsistency proof certificate](/docs/system-overview/red-stuff) can be submitted on-chain. This emits an inconsistent blob event, signaling that reads for that blob ID always return `None` and that storage nodes can delete its slivers (except for an indicator to return `None`).
+If a blob ID is not correctly encoded, an [inconsistency proof certificate](/docs/system-overview/red-stuff) can be submitted onchain. This emits an inconsistent blob event, signaling that reads for that blob ID always return `None` and that storage nodes can delete its slivers (except for an indicator to return `None`).
 
 ## Acquiring storage resources
 

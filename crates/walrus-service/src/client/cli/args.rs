@@ -139,6 +139,7 @@ impl App {
     }
 }
 
+// TODO(WAL-1199): make the command more hierarchical by grouping related commands together.
 /// Top level enum to separate the daemon and CLI commands.
 #[derive(Subcommand, Debug, Clone, Deserialize, PartialEq, Eq)]
 #[command(rename_all = "kebab-case")]
@@ -487,6 +488,43 @@ pub enum CliCommands {
         #[serde(default = "default::staking_amounts_frost")]
         amounts: Vec<u64>,
     },
+    /// Request to withdraw staked WAL from a storage node.
+    ///
+    /// If only the node ID is provided and there is a single StakedWal object for that node,
+    /// it will be withdrawn automatically. If there are multiple, the command lists them and
+    /// requires the specific StakedWal object IDs to be provided. Multiple StakedWal objects
+    /// are batched into a single transaction.
+    RequestWithdrawStake {
+        /// The object ID of the storage node's staking pool.
+        node_id: ObjectID,
+        /// The object ID(s) of the StakedWal objects to withdraw.
+        ///
+        /// Required when there are multiple StakedWal objects for the given node.
+        staked_wal_ids: Vec<ObjectID>,
+        /// Print the action without executing it.
+        #[arg(long)]
+        #[serde(default)]
+        dry_run: bool,
+    },
+    /// Withdraw staked WAL that has already been requested for withdrawal.
+    ///
+    /// Multiple StakedWal objects are batched into a single transaction.
+    WithdrawStake {
+        /// The object ID(s) of the StakedWal objects to withdraw.
+        #[arg(required = true, num_args = 1..)]
+        staked_wal_ids: Vec<ObjectID>,
+    },
+    /// List all StakedWal objects owned by the current wallet.
+    ListStakedWal {
+        /// Only show StakedWal objects that are currently staked.
+        #[arg(long, conflicts_with = "withdrawing_only")]
+        #[serde(default)]
+        staked_only: bool,
+        /// Only show StakedWal objects that are in the withdrawing state.
+        #[arg(long, conflicts_with = "staked_only")]
+        #[serde(default)]
+        withdrawing_only: bool,
+    },
     /// Generates a new Sui wallet.
     GenerateSuiWallet {
         /// The path where the wallet configuration will be stored.
@@ -691,6 +729,9 @@ impl CliCommands {
             CliCommands::ListBlobs { .. } => "list-blobs",
             CliCommands::Delete { .. } => "delete",
             CliCommands::Stake { .. } => "stake",
+            CliCommands::RequestWithdrawStake { .. } => "request-withdraw-stake",
+            CliCommands::WithdrawStake { .. } => "withdraw-stake",
+            CliCommands::ListStakedWal { .. } => "list-staked-wal",
             CliCommands::GenerateSuiWallet { .. } => "generate-sui-wallet",
             CliCommands::GetWal { .. } => "get-wal",
             CliCommands::BurnBlobs { .. } => "burn-blobs",

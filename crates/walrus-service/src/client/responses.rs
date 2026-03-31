@@ -16,7 +16,10 @@ use futures::{StreamExt as _, stream};
 use itertools::Itertools;
 use serde::Serialize;
 use serde_with::{DisplayFromStr, base64::Base64, serde_as};
-use sui_types::base_types::{ObjectID, SuiAddress};
+use sui_types::{
+    base_types::{ObjectID, SuiAddress},
+    digests::TransactionDigest,
+};
 use walrus_core::{
     BlobId,
     DEFAULT_ENCODING,
@@ -666,6 +669,50 @@ pub(crate) struct DeleteOutput {
 pub struct StakeOutput {
     /// The staked WAL after staking.
     pub staked_wal: Vec<StakedWal>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// The output of the `walrus request-withdraw-stake` command.
+pub struct RequestWithdrawStakeOutput {
+    /// The StakedWal objects that were submitted for withdrawal.
+    pub staked_wals: Vec<StakedWal>,
+    /// The transaction digest.
+    pub tx_digest: TransactionDigest,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// The output of the `walrus request-withdraw-stake` command in dry-run mode.
+pub struct RequestWithdrawStakeDryRunOutput {
+    /// The StakedWal objects that would be withdrawn.
+    pub staked_wals: Vec<StakedWal>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// The output of the `walrus request-withdraw-stake` command when multiple StakedWal objects exist.
+pub struct RequestWithdrawStakeListOutput {
+    /// The StakedWal objects staked with the given node.
+    pub staked_wals: Vec<StakedWal>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// The output of the `walrus withdraw-stake` command.
+pub struct WithdrawStakeOutput {
+    /// The StakedWal objects that were withdrawn.
+    pub staked_wal_ids: Vec<ObjectID>,
+    /// The transaction digest.
+    pub tx_digest: TransactionDigest,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// The output of the `walrus list-staked-wal` command.
+pub struct ListStakedWalOutput {
+    /// All StakedWal objects owned by the wallet.
+    pub staked_wals: Vec<StakedWal>,
 }
 
 #[derive(Debug, Clone, Serialize)]

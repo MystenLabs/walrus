@@ -527,10 +527,8 @@ function buildOutput(includeDescriptions, includeOptional) {
     for (const section of optionalSections) {
       lines.push(`### ${section}`, "");
       for (const page of grouped[section]) {
-        const entries = includeDescriptions ? formatEntry(page) : formatEntryCompact(page);
-        for (const entry of entries) {
-          lines.push(...wrapLine(entry, 0));
-        }
+        const entry = includeDescriptions ? formatEntry(page) : formatEntryCompact(page);
+        lines.push(...wrapLine(entry, 0));
       }
       lines.push("");
     }

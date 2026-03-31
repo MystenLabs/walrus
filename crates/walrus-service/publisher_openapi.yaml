@@ -79,6 +79,15 @@ paths:
         schema:
           $ref: '#/components/schemas/QuiltVersionEnum'
         style: form
+      - name: reuse_resources
+        in: query
+        description: |-
+          If true, the publisher will attempt to reuse existing on-chain resources (e.g., storage and
+          blob objects) when storing a blob.
+        required: false
+        schema:
+          type: boolean
+        style: form
       - name: send_or_share
         in: query
         required: false
@@ -238,6 +247,15 @@ paths:
         required: false
         schema:
           $ref: '#/components/schemas/QuiltVersionEnum'
+        style: form
+      - name: reuse_resources
+        in: query
+        description: |-
+          If true, the publisher will attempt to reuse existing on-chain resources (e.g., storage and
+          blob objects) when storing a blob.
+        required: false
+        schema:
+          type: boolean
         style: form
       - name: send_or_share
         in: query

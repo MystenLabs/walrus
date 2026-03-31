@@ -10,7 +10,7 @@ Quilt is a batch storage feature designed to optimize the storage cost and effic
 
 Each blob within a quilt can be accessed and retrieved individually without downloading the entire quilt. The blob boundaries in a quilt align with Walrus internal structures and Walrus storage nodes, allowing for retrieval latency that is comparable to, or lower than, that of a regular blob.
 
-Quilt introduces custom, immutable Walrus-native blob metadata, allowing you to assign different types of metadata to each blob in a quilt, for example, unique identifiers and tags of key-value pairs. This metadata is functionally similar to the existing blob metadata store on-chain, but there are some fundamental distinctions. Walrus-native metadata is stored alongside the blob data, which reduces costs and simplifies management. This metadata can also be used for efficient lookup of blobs within a quilt, for example, reading blobs with a particular tag. When storing a quilt, you can set the Walrus-native metadata using the Quilt APIs.
+Quilt introduces custom, immutable Walrus-native blob metadata, allowing you to assign different types of metadata to each blob in a quilt, for example, unique identifiers and tags of key-value pairs. This metadata is functionally similar to the existing blob metadata store onchain, but there are some fundamental distinctions. Walrus-native metadata is stored alongside the blob data, which reduces costs and simplifies management. This metadata can also be used for efficient lookup of blobs within a quilt, for example, reading blobs with a particular tag. When storing a quilt, you can set the Walrus-native metadata using the Quilt APIs.
 
 :::warning
 
